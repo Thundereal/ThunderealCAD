@@ -76,7 +76,7 @@ not a tree-wide sed. Everything else is assets, packaging, and migration.
 | `ExeName` / `ExeVendor` | `src/Main/MainGui.cpp`, `MainCmd.cpp` | the switch itself |
 | Binary names `FreeCAD`, `FreeCADCmd` | `src/Main/CMakeLists.txt` (`SET_BIN_DIR`) | keep old names as symlinks for one release cycle |
 | CMake `project(FreeCAD)` | top-level `CMakeLists.txt:22` | cosmetic but sets several derived vars |
-| Icons & splash | `src/Gui/Icons/freecad*.{svg,png,xpm}`, `freecadsplash.png`, `freecadabout.png` | new artwork; the largest creative task in the tier |
+| Icons & splash | `src/Gui/Icons/freecad*.{svg,png,xpm}`, `freecadsplash.png`, `freecadabout.png` | icons done: the T-strike mark, drawn by `src/Tools/thundereal-icons.py` into the app icon (`thundereal*.svg`/`.png`/`.xpm`, Windows `.ico`, macOS `.icns`), the `.TStd` document icon, the empty-window watermark, the package-box label and the browser viewer's favicon. `:/icons/freecad.svg` stays as an alias of the new icon. `.FCStd` keeps FreeCAD's document icon -- the format is FreeCAD's. Splash and About still to draw (they need a wordmark) |
 | About dialog | `src/Gui/Dialogs/DlgAbout*` | must credit lineage: "based on FreeCAD" (LGPL attribution is code-level; this is courtesy + clarity) |
 | Desktop/AppStream | `src/XDGData/org.freecad.FreeCAD.desktop`, `org.freecad.FreeCAD.metainfo.xml.in` | new reverse-DNS id (`com.thundereal.*`); affects Wayland app_id, taskbar grouping, software-center listing |
 | WASM viewer page | `src/Gui/Renderer/wasm/shell.html` title/strings (few sites) | the page strangers see first — highest identity leverage per line changed |
@@ -99,7 +99,7 @@ properties:
   *unchanged* `.FCStd` type. Upstream's `org.freecad` MIME declaration
   stays recognized. `application/x-extension-tstd` (glob `*.tstd`) is
   declared beside it, with the thumbnailer and `.desktop` entry taking both;
-  its icon is `freecad-doc.svg` until the brand has a document icon of its own.
+  its icon is `thundereal-doc.svg`, with drawings of its own for 16 to 32 px.
 - **Lock files / single-instance keys** derive from `ExeName` — old and new
   builds will not see each other's instances during a transition; acceptable.
 

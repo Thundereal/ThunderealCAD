@@ -20,7 +20,7 @@
 
 #ifdef THUNDEREAL_IDENTITY
 
-#define FREECAD_COPYRIGHT_AUTHORS "Thundereal Technologies 2026; " FREECAD_UPSTREAM_AUTHORS
+#define FREECAD_COPYRIGHT_AUTHORS "The Thundereal developers 2026; " FREECAD_UPSTREAM_AUTHORS
 
 #define FREECAD_LICENSE_INFO                                                                       \
     "Thundereal is free and open-source software licensed under the terms of LGPL2+ license.\n"

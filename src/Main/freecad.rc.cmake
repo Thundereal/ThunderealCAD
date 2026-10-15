@@ -21,9 +21,9 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "${FREECAD_APP_NAME} Team"
             VALUE "FileDescription", "${FREECAD_APP_NAME} main executable"
-            VALUE "InternalName", "FreeCAD.exe"
+            VALUE "InternalName", "${FREECAD_APP_NAME}.exe"
             VALUE "LegalCopyright", "Copyright (C) 2022"
-            VALUE "OriginalFilename", "FreeCAD.exe"
+            VALUE "OriginalFilename", "${FREECAD_APP_NAME}.exe"
             VALUE "ProductName", "${FREECAD_APP_NAME}"
             VALUE "ProductVersion", "${PACKAGE_VERSION}${PACKAGE_VERSION_SUFFIX}"
         END

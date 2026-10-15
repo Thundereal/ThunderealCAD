@@ -29,7 +29,7 @@
 			<string>thundereal-doc.icns</string>
 			<key>LSItemContentTypes</key>
 			<array>
-				<string>org.freecad.tstd</string>
+				<string>ID_DOMAIN_FROM_CMAKE.tstd</string>
 			</array>
 			<key>LSIsAppleDefaultForType</key>
 			<true/>
@@ -77,7 +77,7 @@
 			<key>UTTypeIconFile</key>
 			<string>thundereal-doc.icns</string>
 			<key>UTTypeIdentifier</key>
-			<string>org.freecad.tstd</string>
+			<string>ID_DOMAIN_FROM_CMAKE.tstd</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>
@@ -94,9 +94,9 @@
 	<key>CFBundleGetInfoString</key>
 	<string></string>
 	<key>CFBundleIconFile</key>
-	<string>freecad.icns</string>
+	<string>APP_ICON_FROM_CMAKE.icns</string>
 	<key>CFBundleIdentifier</key>
-	<string></string>
+	<string>BUNDLE_ID_FROM_CMAKE</string>
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleLongVersionString</key>

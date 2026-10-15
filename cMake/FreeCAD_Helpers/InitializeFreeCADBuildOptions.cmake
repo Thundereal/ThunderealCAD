@@ -111,6 +111,9 @@ macro(InitializeFreeCADBuildOptions)
                 execute_process(COMMAND
                     sed -i \"\" -e s/VERSION_STRING_FROM_CMAKE/${PACKAGE_VERSION}/
                     -e s/NAME_STRING_FROM_CMAKE/${PROJECT_NAME}/
+                    -e s/BUNDLE_ID_FROM_CMAKE/${FREECAD_APP_ID}/
+                    -e s/ID_DOMAIN_FROM_CMAKE/${FREECAD_APP_ID_DOMAIN}/
+                    -e s/APP_ICON_FROM_CMAKE/${FREECAD_APP_ICON}/
                     ${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}.app/Contents/Info.plist)
                    ")
 

@@ -434,10 +434,25 @@ void Transaction::removePendingProperty(Property *prop)
 }
 
 namespace {
+// What is still cached at exit dies with the cache, and an entry's copy calls
+// drop() for its own id as it goes: into the map being destroyed, half torn
+// down and not yet empty (SIGSEGV at the end of a test run that left entries).
+// So the cache empties itself first, and those calls find an empty map.
+struct CopyCache
+{
+    std::unordered_map<int64_t, TransactionCopyCache::Entry> map;
+    ~CopyCache()
+    {
+        auto gone = std::move(map);
+        map.clear();
+        gone.clear();
+    }
+};
+
 std::unordered_map<int64_t, TransactionCopyCache::Entry>& copyCache()
 {
-    static std::unordered_map<int64_t, TransactionCopyCache::Entry> cache;
-    return cache;
+    static CopyCache cache;
+    return cache.map;
 }
 }
 

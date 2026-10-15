@@ -1,9 +1,9 @@
 [Desktop Entry]
-Name=FreeCAD
-Name[de]=FreeCAD
-Name[ko]=FreeCAD
-Name[pl]=FreeCAD
-Name[ru]=FreeCAD
+Name=@FREECAD_APP_NAME@
+Name[de]=@FREECAD_APP_NAME@
+Name[ko]=@FREECAD_APP_NAME@
+Name[pl]=@FREECAD_APP_NAME@
+Name[ru]=@FREECAD_APP_NAME@
 Comment=Feature based Parametric Modeler
 Comment[de]=Feature-basierter parametrischer Modellierer
 Comment[ko]=형상 기반 파라메트릭 모델링 도구
@@ -20,5 +20,5 @@ Type=Application
 Icon=@FREECAD_APP_ID@
 Categories=Graphics;Science;Education;Engineering;X-CNC;
 StartupNotify=true
-StartupWMClass=FreeCAD
+StartupWMClass=@FREECAD_APP_NAME@
 MimeType=application/x-extension-fcstd;application/x-extension-tstd;model/obj;image/vnd.dwg;image/vnd.dxf;model/vnd.collada+xml;application/iges;model/iges;model/step;model/step+zip;model/stl;application/vnd.shp;model/vrml;

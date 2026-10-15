@@ -91,6 +91,7 @@
 
 #include "Annotation.h"
 #include "Application.h"
+#include "BrandText.h"
 #include "ComplexGeoData.h"
 #include "Document.h"
 #include "FileHistory.h"
@@ -3727,9 +3728,10 @@ void Application::LoadParameters()
             // Configuration file optional when using as Python module
             if (!Py_IsInitialized()) {
                 Base::Console().Warning("   Parameter does not exist, writing initial one\n");
-                Base::Console().Message("   This warning normally means that FreeCAD is running for the first time\n"
+                Base::Console().Message("%s", brandText(
+                                        "   This warning normally means that FreeCAD is running for the first time\n"
                                         "   or the configuration was deleted or moved. FreeCAD is generating the standard\n"
-                                        "   configuration.\n");
+                                        "   configuration.\n").c_str());
             }
         }
     }
@@ -3761,9 +3763,10 @@ void Application::LoadParameters()
             // Configuration file optional when using as Python module
             if (!Py_IsInitialized()) {
                 Base::Console().Warning("   User settings do not exist, writing initial one\n");
-                Base::Console().Message("   This warning normally means that FreeCAD is running for the first time\n"
+                Base::Console().Message("%s", brandText(
+                                        "   This warning normally means that FreeCAD is running for the first time\n"
                                         "   or your configuration was deleted or moved. The system defaults\n"
-                                        "   will be automatically generated for you.\n");
+                                        "   will be automatically generated for you.\n").c_str());
             }
         }
     }

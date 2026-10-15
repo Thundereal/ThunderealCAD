@@ -32,6 +32,8 @@
 # include <iostream>
 #endif
 
+#include <App/Application.h>
+
 #include "GuiConsole.h"
 
 using namespace Gui;
@@ -59,7 +61,7 @@ GUIConsole::GUIConsole (void)
     ::GetConsoleScreenBufferInfo(::GetStdHandle(STD_OUTPUT_HANDLE),&csbi);
      csbi.dwSize.Y = s_nMaxLines;
     ::SetConsoleScreenBufferSize(::GetStdHandle(STD_OUTPUT_HANDLE),csbi.dwSize);
-    ::SetConsoleTitleA( "FreeCAD Console");
+    ::SetConsoleTitleA((App::Application::getExecutableName() + " Console").c_str());
 
     *stdout = *::_fdopen(::_open_osfhandle(reinterpret_cast<intptr_t>(::GetStdHandle(STD_OUTPUT_HANDLE)), _O_TEXT), "w");
     ::setvbuf(stdout, 0, _IONBF, 0);

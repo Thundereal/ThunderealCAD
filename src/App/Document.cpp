@@ -111,6 +111,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include "private/DocumentP.h"
 #include "Application.h"
 #include "AutoTransaction.h"
+#include "BrandText.h"
 #include "DocumentObserver.h"
 #include "DocumentObject.h"
 #include "DocumentParams.h"
@@ -2831,20 +2832,21 @@ void Document::Restore(Base::XMLReader &reader)
             // A plain Save leaves a file other builds read alone and writes
             // the current format beside it, under its own extension.
             const std::string target = getSaveFileName();
+            // The branded text is the format: brandText() leaves its directives alone.
             if (target != FileName.getStrValue())
-                Base::Console().warning(DocLabel,
+                Base::Console().warning(DocLabel, brandText(
                     "'%s' is in an older file format (schema %ld). Save writes the current "
                     "one (schema %ld), which only this FreeCAD reads, to '%s' and leaves "
                     "this file as it is. To update this file for other FreeCAD versions, "
-                    "use Save As and choose the standard format.\n",
+                    "use Save As and choose the standard format.\n").c_str(),
                     DocLabel.c_str(), was, current,
                     Base::FileInfo(target).fileName().c_str());
             else
-                Base::Console().warning(DocLabel,
+                Base::Console().warning(DocLabel, brandText(
                     "'%s' is in an older file format (schema %ld) and will be saved in the "
                     "current one (schema %ld), which only this FreeCAD reads. To keep a copy "
                     "other FreeCAD versions can open, use Save As and choose the standard "
-                    "format.\n",
+                    "format.\n").c_str(),
                     DocLabel.c_str(), was, current);
         }
     }

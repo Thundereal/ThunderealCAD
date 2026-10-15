@@ -26,8 +26,7 @@ QString programName()
 }
 
 // A string that speaks for upstream, or about it as a whole, keeps every
-// FreeCAD: the credits, upstream's own voice, its releases, the names of its
-// formats and of its themes.
+// FreeCAD: the credits, upstream's own voice, its releases.
 bool speaksForUpstream(const QString& text)
 {
     static const QRegularExpression re(QStringLiteral(
@@ -37,8 +36,7 @@ bool speaksForUpstream(const QString& text)
         "|\\bpart of FreeCAD\\b"
         "|\\bat FreeCAD, we\\b"
         "|\\bmade with FreeCAD\\b"
-        "|\\brequires FreeCAD\\s*$"
-        "|^FreeCAD (?:Classic|Dark|Light|macro|Tool|Tool Library)$"));
+        "|\\brequires FreeCAD\\s*$"));
     return re.match(text).hasMatch();
 }
 
@@ -84,13 +82,26 @@ bool namesUpstream(const QString& text, qsizetype pos)
 {
     static const QRegularExpression after(QStringLiteral(
         "\\A(?:'s)?[ -]?(?:[Ww]iki|[Ff]orums?|[Ww]ebsite|FAQ|[Tt]eam|development"
-        "|[Dd]ocumentation|community|users|GitHub|[Aa]ddons?\\b|[Vv]ersions?\\b|older\\b"
+        "|[Dd]ocumentation|community|users|GitHub|[Vv]ersions?\\b|older\\b"
         "|v?\\d+\\.\\d)"));
     static const QRegularExpression before(QStringLiteral(
         "\\b(?:earlier|older|previous|newer|later|specific|future)\\s+versions?\\s+of\\s+"
         "(?:the\\s+)?\\z"));
     return after.match(text.mid(pos + upstreamLength)).hasMatch()
         || before.match(text.left(pos)).hasMatch();
+}
+
+// The FreeCAD at pos only says the thing belongs to FreeCAD, and reads as true
+// without it, for either program: the names of the themes and of two formats,
+// as a whole string, and an add-on -- "a FreeCAD Addon", "the FreeCAD Addon
+// Manager".
+bool onlyOwns(const QString& text, qsizetype pos)
+{
+    static const QRegularExpression whole(
+        QStringLiteral("^FreeCAD (?:Classic|Dark|Light|macro|Tool|Tool Library)$"));
+    static const QRegularExpression addon(QStringLiteral("\\A [Aa]ddons?\\b"));
+    return (pos == 0 && whole.match(text).hasMatch())
+        || addon.match(text.mid(pos + upstreamLength)).hasMatch();
 }
 
 // "this FreeCAD" ends at pos + 7 and is this build as against upstream: "only
@@ -119,7 +130,31 @@ struct Branded
     int named = 0;      ///< FreeCAD replaced by the name
     int kept = 0;       ///< FreeCAD that names upstream, left
     int rephrased = 0;  ///< "this FreeCAD" or "other FreeCAD", which only English has
+    int dropped = 0;    ///< FreeCAD that only said whose the thing is, left out
 };
+
+// The FreeCAD at pos left out of out, which holds the text before it, with the
+// space after it; "a FreeCAD Addon" is "an Addon". Returns where the text
+// goes on.
+qsizetype dropWord(const QString& text, qsizetype pos, QString& out)
+{
+    qsizetype next = pos + upstreamLength;
+    if (next < text.size() && text.at(next) == u' ') {
+        ++next;
+    }
+    if (out.endsWith(QLatin1String(" a ")) || out == QLatin1String("a ")) {
+        out.insert(out.size() - 1, u'n');
+    }
+    else if (out.endsWith(QLatin1String(" A ")) || out == QLatin1String("A ")) {
+        out.insert(out.size() - 1, u'n');
+    }
+    else if (out.isEmpty() && next < text.size()) {
+        // What is left starts the string: "FreeCAD macro" is "Macro"
+        out += text.at(next).toUpper();
+        ++next;
+    }
+    return next;
+}
 
 Branded brand(const QString& text, const QString& name)
 {
@@ -143,6 +178,12 @@ Branded brand(const QString& text, const QString& name)
             out.text += QStringView(text).mid(last, pos + upstreamLength - last);
             ++out.kept;
         }
+        else if (onlyOwns(text, pos)) {
+            out.text += QStringView(text).mid(last, pos - last);
+            last = dropWord(text, pos, out.text);
+            ++out.dropped;
+            continue;
+        }
         else if (precededBy(text, pos, QLatin1String("this")) && isThisBuild(text, pos)) {
             out.text += QStringView(text).mid(last, pos - 5 - last);
             out.text += name;
@@ -165,6 +206,25 @@ Branded brand(const QString& text, const QString& name)
         last = pos + upstreamLength;
     }
     out.text += QStringView(text).mid(last);
+    return out;
+}
+
+// Every FreeCAD in text the name, but in a name, a path or a link. A hyphen is
+// no sign of a name here: text this is asked of means the program by every
+// FreeCAD, and a translation joins words with one ("FreeCAD-Datei").
+QString nameEvery(const QString& text, const QString& name)
+{
+    static const QRegularExpression word(QStringLiteral("\\bFreeCAD\\b"));
+    QString out;
+    qsizetype last = 0;
+    auto it = word.globalMatch(text);
+    while (it.hasNext()) {
+        const qsizetype pos = it.next().capturedStart();
+        out += QStringView(text).mid(last, pos - last);
+        out += isPartOfName(text, pos, false) ? QString(upstreamName) : name;
+        last = pos + upstreamLength;
+    }
+    out += QStringView(text).mid(last);
     return out;
 }
 
@@ -202,19 +262,57 @@ QString App::brandTranslation(const QString& source, const QString& translation)
         return translation;
     }
     const Branded english = brand(source, name);
-    if (english.named == 0 || english.kept > 0 || english.rephrased > 0) {
+    if (english.kept > 0 || english.rephrased > 0 || (english.named > 0) == (english.dropped > 0)) {
         return translation;
     }
+    if (english.named > 0) {
+        return nameEvery(translation, name);
+    }
+    // Every FreeCAD only said whose the thing is: left out, with the space or
+    // hyphen that joined it to its neighbour ("FreeCAD-Makro", "macro FreeCAD")
     static const QRegularExpression word(QStringLiteral("\\bFreeCAD\\b"));
     QString out;
     qsizetype last = 0;
     auto it = word.globalMatch(translation);
     while (it.hasNext()) {
         const qsizetype pos = it.next().capturedStart();
+        if (isPartOfName(translation, pos, false)) {
+            continue;
+        }
         out += QStringView(translation).mid(last, pos - last);
-        out += isPartOfName(translation, pos, false) ? QString(upstreamName) : name;
         last = pos + upstreamLength;
+        if (last < translation.size()
+            && (translation.at(last) == u' ' || translation.at(last) == u'-')) {
+            ++last;
+        }
+        else if (out.endsWith(u' ')) {
+            out.chop(1);
+        }
     }
     out += QStringView(translation).mid(last);
     return out;
+}
+
+QString App::brandEvery(const QString& text)
+{
+    const QString name = programName();
+    if (name == upstreamName) {
+        return text;
+    }
+    return nameEvery(text, name);
+}
+
+std::string App::programUrl()
+{
+    const auto& config = App::Application::Config();
+    auto it = config.find("ProgramUrl");
+    if (it == config.end() || it->second.empty()) {
+        return "https://www.freecad.org";
+    }
+    return it->second;
+}
+
+std::string App::createdBy()
+{
+    return "Created by " + programName().toStdString() + " <" + programUrl() + ">";
 }

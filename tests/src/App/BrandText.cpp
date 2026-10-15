@@ -75,13 +75,9 @@ TEST_F(BrandTextTest, upstreamKeepsItsName)
         "Supported FreeCAD Versions",
         "You won't be able to edit the file with an older FreeCAD version.",
         "The format every FreeCAD version can open.",
-        "Installing FreeCAD Addon '{}'",
         "FreeCAD would not be possible without the contributions of",
         "However, at FreeCAD, we believe having a building should not be mandatory",
         "WARNING: This addon requires FreeCAD ",
-        "FreeCAD Dark",
-        "FreeCAD macro",
-        "FreeCAD Tool Library",
         // A name, a path, a link, a compound
         "Use FreeCAD.ActiveDocument.Objects",
         "Use materials from .FreeCAD/Materials directory",
@@ -96,6 +92,52 @@ TEST_F(BrandTextTest, upstreamKeepsItsName)
     for (const char* text : kept) {
         EXPECT_EQ(brand(text), QString::fromUtf8(text)) << text;
     }
+}
+
+TEST_F(BrandTextTest, ownershipWordIsDropped)
+{
+    // The word only said the thing is FreeCAD's: true without it, for either
+    EXPECT_EQ(brand("FreeCAD Dark"), QStringLiteral("Dark"));
+    EXPECT_EQ(brand("FreeCAD Classic"), QStringLiteral("Classic"));
+    EXPECT_EQ(brand("FreeCAD macro"), QStringLiteral("Macro"));
+    EXPECT_EQ(brand("FreeCAD Tool Library"), QStringLiteral("Tool Library"));
+    EXPECT_EQ(brand("Installing FreeCAD Addon '{}'"), QStringLiteral("Installing Addon '{}'"));
+    EXPECT_EQ(brand("A macro installed with the FreeCAD Addon Manager"),
+              QStringLiteral("A macro installed with the Addon Manager"));
+    EXPECT_EQ(brand("It is not necessary to state that this is a FreeCAD Addon."),
+              QStringLiteral("It is not necessary to state that this is an Addon."));
+    EXPECT_EQ(brand("FreeCAD Addons"), QStringLiteral("Addons"));
+    // Only as a whole name: a sentence about the dark theme is about this program
+    EXPECT_EQ(brand("FreeCAD Dark is the default"), QStringLiteral("Thundereal Dark is the default"));
+    // And in a translation, with what joined the word to its neighbour
+    EXPECT_EQ(App::brandTranslation(QStringLiteral("FreeCAD macro"), QStringLiteral("FreeCAD-Makro")),
+              QStringLiteral("Makro"));
+    EXPECT_EQ(App::brandTranslation(QStringLiteral("FreeCAD Dark"), QStringLiteral("FreeCAD Sombre")),
+              QStringLiteral("Sombre"));
+    EXPECT_EQ(App::brandTranslation(QStringLiteral("Installing FreeCAD Addon '{}'"),
+                                    QStringLiteral("Installation de l'extension FreeCAD '{}'")),
+              QStringLiteral("Installation de l'extension '{}'"));
+}
+
+TEST_F(BrandTextTest, everyFreeCADIsTheProgram)
+{
+    // A Help command's text once its site is the program's own
+    EXPECT_EQ(App::brandEvery(QStringLiteral("The FreeCAD forum, where you can find help")),
+              QStringLiteral("The Thundereal forum, where you can find help"));
+    EXPECT_EQ(App::brandEvery(QStringLiteral("Das FreeCAD-Forum")),
+              QStringLiteral("Das Thundereal-Forum"));
+    EXPECT_EQ(App::brandEvery(QStringLiteral("See FreeCAD.ActiveDocument")),
+              QStringLiteral("See FreeCAD.ActiveDocument"));
+}
+
+TEST_F(BrandTextTest, whoMadeTheFile)
+{
+    auto& config = App::Application::Config();
+    config.erase("ProgramUrl");
+    EXPECT_EQ(App::createdBy(), "Created by Thundereal <https://www.freecad.org>");
+    config["ProgramUrl"] = "https://github.com/Thundereal/Thundereal";
+    EXPECT_EQ(App::createdBy(), "Created by Thundereal <https://github.com/Thundereal/Thundereal>");
+    config.erase("ProgramUrl");
 }
 
 TEST_F(BrandTextTest, thisBuildAndOtherFreeCAD)
@@ -149,4 +191,6 @@ TEST_F(BrandTextTest, upstreamNameChangesNothing)
     EXPECT_EQ(App::brandTranslation(QStringLiteral("restart FreeCAD"),
                                     QStringLiteral("FreeCAD neu starten")),
               QStringLiteral("FreeCAD neu starten"));
+    EXPECT_EQ(brand("FreeCAD Dark"), QStringLiteral("FreeCAD Dark"));
+    EXPECT_EQ(App::brandEvery(QStringLiteral("FreeCAD Forum")), QStringLiteral("FreeCAD Forum"));
 }

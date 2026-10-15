@@ -23,6 +23,22 @@
 			<string>Editor</string>
 			<key>CFBundleTypeExtensions</key>
 			<array>
+				<string>TStd</string>
+			</array>
+			<key>CFBundleTypeIconFile</key>
+			<string>thundereal-doc.icns</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.freecad.tstd</string>
+			</array>
+			<key>LSIsAppleDefaultForType</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleTypeExtensions</key>
+			<array>
 				<string>FCMacro</string>
 				<string>FCScript</string>
 			</array>
@@ -48,6 +64,25 @@
 				<key>public.filename-extension</key>
 				<array>
 					<string>FCStd</string>
+				</array>
+			</dict>
+		</dict>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Thundereal Document</string>
+			<key>UTTypeIconFile</key>
+			<string>thundereal-doc.icns</string>
+			<key>UTTypeIdentifier</key>
+			<string>org.freecad.tstd</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>TStd</string>
 				</array>
 			</dict>
 		</dict>

@@ -166,10 +166,10 @@ rm qt.conf
 
 echo "\nCopying icons and .desktop file"
 mkdir -p ${conda_env}/share/icons/hicolor/scalable/apps/
-cp ../../../src/Gui/Icons/freecad.svg ${conda_env}/share/icons/hicolor/scalable/apps/org.freecadweb.FreeCAD.svg
+cp ../../../src/Gui/Icons/thundereal.svg ${conda_env}/share/icons/hicolor/scalable/apps/org.freecadweb.FreeCAD.svg
 cp ${conda_env}/share/icons/hicolor/scalable/apps/org.freecadweb.FreeCAD.svg AppDir
 mkdir -p ${conda_env}/share/icons/hicolor/64x64/apps/
-cp ../../../src/Gui/Icons/freecad-icon-64.png ${conda_env}/share/icons/hicolor/64x64/apps/org.freecadweb.FreeCAD.png
+cp ../../../src/Gui/Icons/thundereal-icon-64.png ${conda_env}/share/icons/hicolor/64x64/apps/org.freecadweb.FreeCAD.png
 cp ${conda_env}/share/icons/hicolor/64x64/apps/org.freecadweb.FreeCAD.png AppDir
 mkdir -p ${conda_env}/share/applications/
 cp ../../../src/XDGData/org.freecadweb.FreeCAD.desktop ${conda_env}/share/applications/

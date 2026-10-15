@@ -8,8 +8,8 @@ Installation:
     "$ sudo chmod +x /usr/bin/freecad-thumbnailer"
 
 - If a FreeCAD project file doesn't include a thumbnail the file org.freecad.FreeCAD.png is used.
-  Thus, the file src/Gui/Icons/freecad-icon-48.png must be installed.
-    "$ sudo cp freecad-icon-48.png /usr/share/icons/hicolor/48x48/apps/org.freecad.FreeCAD.png"
+  Thus, the file src/Gui/Icons/thundereal-icon-48.png must be installed.
+    "$ sudo cp thundereal-icon-48.png /usr/share/icons/hicolor/48x48/apps/org.freecad.FreeCAD.png"
 
 - The application/x-extension-fcstd MIME type should be registered
     Check that a corresponding /usr/share/mime/packages/freecad.xml file exists

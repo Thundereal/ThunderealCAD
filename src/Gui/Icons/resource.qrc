@@ -12,7 +12,10 @@
         <file>disabled.svg</file>
         <file>list-remove.svg</file>
         <file>list-add.svg</file>
-        <file>freecad.svg</file>
+        <file>thundereal.svg</file>
+        <!-- The application icon under the name it had, for the code and add-ons
+             that ask for it by that name. -->
+        <file alias="freecad.svg">thundereal.svg</file>
         <file>freecad-doc.png</file>
         <file>bulb.svg</file>
         <file>TextDocument.svg</file>

@@ -3850,6 +3850,18 @@ QString getOldGenericDataLocation(QString home)
  * \brief getSubDirectories
  * To a given path it adds the sub-directories where to store application specific files.
  */
+// The folder name the user's files go under: 'AppDataName' when the build or the
+// branding sets one, so a renamed application can keep the folder its users' files
+// are already in, else 'ExeName'.
+static std::string appDataName(std::map<std::string,std::string>& mConfig)
+{
+    auto it = mConfig.find("AppDataName");
+    if (it != mConfig.end() && !it->second.empty()) {
+        return it->second;
+    }
+    return mConfig["ExeName"];
+}
+
 void getSubDirectories(std::map<std::string,std::string>& mConfig, std::vector<std::string>& appData)
 {
     // If 'AppDataSkipVendor' is defined, the value of 'ExeVendor' must not be part of
@@ -3857,7 +3869,7 @@ void getSubDirectories(std::map<std::string,std::string>& mConfig, std::vector<s
     if (mConfig.find("AppDataSkipVendor") == mConfig.end()) {
         appData.push_back(mConfig["ExeVendor"]);
     }
-    appData.push_back(mConfig["ExeName"]);
+    appData.push_back(appDataName(mConfig));
 }
 
 /*!
@@ -3874,9 +3886,9 @@ void getOldDataLocation(std::map<std::string,std::string>& mConfig, std::vector<
     // the path.
     if (mConfig.find("AppDataSkipVendor") == mConfig.end()) {
         appData.push_back(std::string(".") + mConfig["ExeVendor"]);
-        appData.push_back(mConfig["ExeName"]);
+        appData.push_back(appDataName(mConfig));
     } else {
-        appData.push_back(std::string(".") + mConfig["ExeName"]);
+        appData.push_back(std::string(".") + appDataName(mConfig));
     }
 
 #elif defined(FC_OS_MACOSX) || defined(FC_OS_WIN32)

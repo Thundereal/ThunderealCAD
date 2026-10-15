@@ -1610,7 +1610,10 @@ class GmshTools(ObjectTools):
     def write_geo(self):
         temp_dir = os.path.dirname(self.model_file)
         geo = open(self.model_file, "w")
-        geo.write("// geo file for meshing with Gmsh meshing software created by FreeCAD\n")
+        geo.write(
+            "// geo file for meshing with Gmsh meshing software created by %s\n"
+            % FreeCAD.ConfigGet("ExeName")
+        )
         geo.write("\n")
 
         # enable multicore processing, except for: BAMG algorithm. It fails most of the times when used

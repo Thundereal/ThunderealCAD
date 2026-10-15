@@ -26,6 +26,7 @@
 
 #include "Core/Iterator.h"
 #include <Base/Builder3D.h>
+#include <App/BrandText.h>
 #include <Base/Placement.h>
 
 #include "WriterInventor.h"
@@ -55,7 +56,7 @@ public:
 
     void addInfoNode()
     {
-        Base::InfoItem info {"Created by FreeCAD <https://www.freecad.org>"};
+        Base::InfoItem info {App::createdBy()};
         builder.addNode(info);
     }
 

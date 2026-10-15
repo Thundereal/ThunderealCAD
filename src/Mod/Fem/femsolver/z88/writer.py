@@ -345,8 +345,12 @@ class FemInputWriterZ88(writerbase.FemInputWriter):
 
         dim = 3 if self.solver_obj.ModelSpace == "3D" else 2
         self.z88i1.writelines(
-            "{0} {1} {2} {3} written by FreeCAD\n".format(
-                dim, self.nodes["index"].size, self.elements.size, np.sum(self.nodes["dof"])
+            "{0} {1} {2} {3} written by {4}\n".format(
+                dim,
+                self.nodes["index"].size,
+                self.elements.size,
+                np.sum(self.nodes["dof"]),
+                FreeCAD.ConfigGet("ExeName"),
             )
         )
 

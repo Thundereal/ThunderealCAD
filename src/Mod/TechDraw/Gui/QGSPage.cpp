@@ -37,6 +37,7 @@
 #endif
 
 #include <App/Document.h>
+#include <App/Application.h>
 #include <Base/Console.h>
 #include <Base/Parameter.h>
 #include <Gui/CommandT.h>
@@ -1068,7 +1069,8 @@ void QGSPage::saveSvg(QString filename)
     const QString docName(QString::fromUtf8(page->getDocument()->getName()));
     const QString pageName(QString::fromUtf8(page->getNameInDocument()));
     QString svgDescription = QString::fromUtf8("Drawing page: ") + pageName
-        + QString::fromUtf8(" exported from FreeCAD document: ") + docName;
+        + QStringLiteral(" exported from %1 document: ")
+                  .arg(QString::fromStdString(App::Application::getExecutableName())) + docName;
 
     QSvgGenerator svgGen;
     QTemporaryFile temporaryFile;

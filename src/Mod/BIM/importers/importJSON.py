@@ -49,7 +49,7 @@ def export(exportList, filename):
     # Convert objects
     data = {
         "version": "0.0.1",
-        "description": "Mesh data exported from FreeCAD",
+        "description": "Mesh data exported from " + FreeCAD.ConfigGet("ExeName"),
         "objects": [getObjectData(obj) for obj in exportList],
     }
 

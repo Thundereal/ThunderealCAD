@@ -166,8 +166,8 @@ def _export(exportSet, filename, colors):
     import codecs
     outfile = codecs.open(filename,"wb",encoding="utf8")
     ver = FreeCAD.Version()
-    outfile.write("# FreeCAD v" + ver[0] + "." + ver[1] + " build" + ver[2] + " Arch module\n")
-    outfile.write("# https://www.freecad.org\n")
+    outfile.write("# " + FreeCAD.ConfigGet("ExeName") + " v" + ver[0] + "." + ver[1] + " build" + ver[2] + " Arch module\n")
+    outfile.write("# " + (FreeCAD.ConfigGet("ProgramUrl") or "https://www.freecad.org") + "\n")
     offsetv = 1
     offsetvn = 1
 
@@ -358,8 +358,8 @@ def _export(exportSet, filename, colors):
     FreeCAD.Console.PrintMessage(translate("Arch","Successfully written") + " " + filename + "\n")
     if materials:
         outfile = pythonopen(filenamemtl,"w")
-        outfile.write("# FreeCAD v" + ver[0] + "." + ver[1] + " build" + ver[2] + " Arch module\n")
-        outfile.write("# https://www.freecad.org\n")
+        outfile.write("# " + FreeCAD.ConfigGet("ExeName") + " v" + ver[0] + "." + ver[1] + " build" + ver[2] + " Arch module\n")
+        outfile.write("# " + (FreeCAD.ConfigGet("ProgramUrl") or "https://www.freecad.org") + "\n")
         kinds = {"AmbientColor":"Ka ","DiffuseColor":"Kd ","SpecularColor":"Ks ","EmissiveColor":"Ke ","Transparency":"Tr ","Dissolve":"d "}
         done = [] # store names to avoid duplicates
         for mat in materials:

@@ -24,6 +24,7 @@
 
 #include "Core/Iterator.h"
 #include <Base/Console.h>
+#include <App/BrandText.h>
 #include <Base/Sequencer.h>
 #include <Base/Tools.h>
 
@@ -111,7 +112,7 @@ bool WriterOBJ::Save(std::ostream& out)
     }
 
     // Header
-    out << "# Created by FreeCAD <https://www.freecad.org>\n";
+    out << "# " << App::createdBy() << "\n";
     if (exportColorPerFace) {
         out << "mtllib " << _material->library << '\n';
     }
@@ -272,7 +273,7 @@ bool WriterOBJ::SaveMaterial(std::ostream& out)
 
             out.precision(6);
             out.setf(std::ios::fixed | std::ios::showpoint);
-            out << "# Created by FreeCAD <https://www.freecad.org>: 'None'\n";
+            out << "# " << App::createdBy() << ": 'None'\n";
             out << "# Material Count: " << Kd.size() << '\n';
 
             for (std::size_t i = 0; i < Kd.size(); i++) {

@@ -85,7 +85,7 @@ class FemInputWriterMystran(writerbase.FemInputWriter):
         pynasf = open(self.pynasinput_file, "w")
 
         # comment and model init
-        pynasf.write("# written by FreeCAD\n\n")
+        pynasf.write("# written by %s\n\n" % FreeCAD.ConfigGet("ExeName"))
         pynasf.write("from pyNastran.bdf.bdf import BDF\n")
         pynasf.write("model = BDF()\n\n")
 

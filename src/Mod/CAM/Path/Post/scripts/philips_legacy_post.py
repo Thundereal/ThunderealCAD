@@ -261,7 +261,7 @@ def mkHeader(selection):
     header = ""
     #  header += "(Output Time:" + str(now) + ")\n"
     header += "(" + originfile + ")\n"
-    #    header += "(Exported by FreeCAD)\n"
+    #    header += "(Exported by %s)\n" % FreeCAD.ConfigGet("ExeName")
     header += "(Post Processor: " + __name__ + ")\n"
     #    header += "(Target machine: " + MACHINE_NAME + ")\n"
     header += "G18\n"  # Select XY plane

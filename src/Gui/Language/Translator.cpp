@@ -150,19 +150,21 @@ public:
                       int n) const override
     {
         const bool mentions = sourceText && std::strstr(sourceText, "FreeCAD");
+        const bool own = mentions && opensOwnSite(context);
         if (fallback) {
             if (!mentions) {
                 return {};
             }
             const QString source = QString::fromUtf8(sourceText);
-            QString text = App::brandText(source);
+            QString text = own ? App::brandEvery(source) : App::brandText(source);
             return text == source ? QString() : text;
         }
         QString text = QTranslator::translate(context, sourceText, disambiguation, n);
         if (text.isEmpty() || !mentions) {
             return text;
         }
-        return App::brandTranslation(QString::fromUtf8(sourceText), text);
+        return own ? App::brandEvery(text)
+                   : App::brandTranslation(QString::fromUtf8(sourceText), text);
     }
 
     bool isEmpty() const override
@@ -171,6 +173,30 @@ public:
     }
 
 private:
+    // A Help command whose site is the program's own (MainGui sets Url<key>
+    // for them, Gui/CommandStd.cpp): every FreeCAD in its text is the program
+    // then, "FreeCAD Forum" and "Donate to FreeCAD development" alike.
+    static bool opensOwnSite(const char* context)
+    {
+        static const char* const commands[] = {
+            "StdCmdFreeCADWebsite",
+            "StdCmdFreeCADForum",
+            "StdCmdFreeCADFAQ",
+            "StdCmdFreeCADDonation",
+            "StdCmdFreeCADUserHub",
+            "StdCmdFreeCADPowerUserHub",
+        };
+        if (!context || App::Application::Config().count("UrlWebPage") == 0) {
+            return false;
+        }
+        for (const char* command : commands) {
+            if (std::strcmp(context, command) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     bool fallback;
 };
 

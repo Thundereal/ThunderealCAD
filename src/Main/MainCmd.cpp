@@ -75,6 +75,9 @@ int main( int argc, char ** argv )
     App::Application::Config()["ExeName"] = FREECAD_APP_NAME;
     App::Application::Config()["ExeVendor"] = FREECAD_APP_NAME;
     App::Application::Config()["AppDataSkipVendor"] = "true";
+#ifdef FREECAD_PROGRAM_URL
+    App::Application::Config()["ProgramUrl"] = FREECAD_PROGRAM_URL;
+#endif
 #ifdef FREECAD_ISSUE_PAGE
     App::Application::Config()["IssuePage"] = FREECAD_ISSUE_PAGE;
 #endif

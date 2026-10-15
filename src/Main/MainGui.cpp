@@ -42,6 +42,7 @@
 #endif // HAVE_CONFIG_H
 
 #include <cstdio>
+#include <initializer_list>
 #include <map>
 #include <stdexcept>
 
@@ -181,6 +182,15 @@ int main( int argc, char ** argv )
     App::Application::Config()["ExeName"] = FREECAD_APP_NAME;
     App::Application::Config()["ExeVendor"] = FREECAD_APP_NAME;
     App::Application::Config()["AppDataSkipVendor"] = "true";
+#ifdef FREECAD_PROGRAM_URL
+    App::Application::Config()["ProgramUrl"] = FREECAD_PROGRAM_URL;
+#endif
+#ifdef FREECAD_HELP_SITES
+    for (const auto& [key, url] :
+         std::initializer_list<std::pair<const char*, const char*>> {FREECAD_HELP_SITES}) {
+        App::Application::Config()[key] = url;
+    }
+#endif
     App::Application::Config()["MaintainerUrl"] = FREECAD_MAINTAINER_URL;
 #ifdef FREECAD_ISSUE_PAGE
     App::Application::Config()["IssuePage"] = FREECAD_ISSUE_PAGE;

@@ -17,6 +17,31 @@ endif()
 
 # The sources keep upstream's names; what is installed is named by the app id
 # THUNDEREAL_IDENTITY picks, and the desktop entry and the AppStream data carry it.
+# The AppStream data says who makes the program and where it lives.
+if(THUNDEREAL_IDENTITY)
+    set(_repo "https://github.com/Thundereal/Thundereal")
+    set(APPDATA_DEVELOPER "Thundereal Technologies")
+    set(APPDATA_INTRO "Thundereal, based on FreeCAD,")
+    set(APPDATA_URL_HOMEPAGE "https://thundereal.com/")
+    set(APPDATA_URL_BUGTRACKER "${_repo}/issues")
+    set(APPDATA_URL_FAQ "${_repo}/wiki/FAQ")
+    set(APPDATA_URL_HELP "${_repo}/wiki")
+    set(APPDATA_URL_DONATION "https://thundereal.com/#support")
+    set(APPDATA_URL_VCS "${_repo}")
+    set(APPDATA_URL_CONTRIBUTE "${_repo}/blob/main/CONTRIBUTING.md")
+    set(APPDATA_UPDATE_CONTACT "")
+else()
+    set(APPDATA_DEVELOPER "The FreeCAD Team")
+    set(APPDATA_INTRO "FreeCAD")
+    set(APPDATA_URL_HOMEPAGE "https://www.freecad.org/")
+    set(APPDATA_URL_BUGTRACKER "https://github.com/FreeCAD/FreeCAD/issues")
+    set(APPDATA_URL_FAQ "https://wiki.freecad.org/Frequently_asked_questions")
+    set(APPDATA_URL_HELP "https://wiki.freecad.org/User_hub")
+    set(APPDATA_URL_DONATION "https://www.freecad.org/sponsor.php")
+    set(APPDATA_URL_VCS "https://github.com/FreeCAD/FreeCAD")
+    set(APPDATA_URL_CONTRIBUTE "https://github.com/FreeCAD/FreeCAD/blob/master/CONTRIBUTING.md")
+    set(APPDATA_UPDATE_CONTACT "  <update_contact>yorik_AT_uncreated.net</update_contact>\n")
+endif()
 configure_file(
     org.freecad.FreeCAD.metainfo.xml.in
     ${CMAKE_BINARY_DIR}/${FREECAD_APP_ID}.metainfo.xml

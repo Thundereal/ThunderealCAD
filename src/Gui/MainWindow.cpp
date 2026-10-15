@@ -2892,7 +2892,7 @@ void MainWindow::renderDevBuildWarning(
     QPainter &painter,
     const QPoint startPosition,
     const QSize maxSize,
-    bool wrap)
+    int wrapWidth)
 {
     // Create a background box that fades out the artwork for better legibility
     QColor fader (Qt::black);
@@ -2906,32 +2906,9 @@ void MainWindow::renderDevBuildWarning(
     const auto devWarningLine2 = tr("Please do not use it in a production environment.");
     QFontMetrics fontMetrics(painter.font()); // Try to use the existing font
     int padding = QtTools::horizontalAdvance(fontMetrics, QLatin1String("M")); // Arbitrary
-    QStringList lines {devWarningLine1, devWarningLine2};
-    if (wrap) {
-        // Break each line between words wherever it would exceed the width
-        const int room = maxSize.width() - 2 * padding;
-        QStringList wrapped;
-        for (const QString& line : lines) {
-            QString current;
-            for (const QString& word : line.split(QLatin1Char(' '), Qt::SkipEmptyParts)) {
-                const QString longer = current.isEmpty() ? word : current + QLatin1Char(' ') + word;
-                if (!current.isEmpty() && QtTools::horizontalAdvance(fontMetrics, longer) > room) {
-                    wrapped.append(current);
-                    current = word;
-                }
-                else {
-                    current = longer;
-                }
-            }
-            if (!current.isEmpty())
-                wrapped.append(current);
-        }
-        lines = wrapped;
-    }
-    int textWidth = 0;
-    for (const QString& line : lines)
-        textWidth = std::max(textWidth, QtTools::horizontalAdvance(fontMetrics, line));
-    int boxWidth = textWidth + 2 * padding;
+    int line1Width = QtTools::horizontalAdvance(fontMetrics, devWarningLine1);
+    int line2Width = QtTools::horizontalAdvance(fontMetrics, devWarningLine2);
+    int boxWidth = std::max(line1Width,line2Width) + 2 * padding;
     int lineHeight = fontMetrics.lineSpacing();
     if (boxWidth > maxSize.width()) {
         // Especially if the text was translated, there is a chance that using the existing font
@@ -2946,7 +2923,36 @@ void MainWindow::renderDevBuildWarning(
         lineHeight = painter.fontMetrics().lineSpacing();
         boxWidth = maxSize.width();
     }
-    // Two lines are 2.3 line heights, a little room under the last one
+
+    // A picture with art beside the version leaves the warning less room:
+    // in the same font, each line breaks between words where it would not fit
+    QStringList lines {devWarningLine1, devWarningLine2};
+    if (wrapWidth > 0 && boxWidth > wrapWidth) {
+        const QFontMetrics metrics(painter.font());
+        const int room = wrapWidth - 2 * padding;
+        QStringList wrapped;
+        int textWidth = 0;
+        for (const QString& line : lines) {
+            QString current;
+            for (const QString& word : line.split(QLatin1Char(' '), Qt::SkipEmptyParts)) {
+                const QString longer = current.isEmpty() ? word : current + QLatin1Char(' ') + word;
+                if (!current.isEmpty() && QtTools::horizontalAdvance(metrics, longer) > room) {
+                    wrapped.append(current);
+                    current = word;
+                }
+                else {
+                    current = longer;
+                }
+            }
+            if (!current.isEmpty())
+                wrapped.append(current);
+        }
+        for (const QString& line : wrapped)
+            textWidth = std::max(textWidth, QtTools::horizontalAdvance(metrics, line));
+        lines = wrapped;
+        boxWidth = textWidth + 2 * padding;
+    }
+    // Two lines are 2.3 line heights: a little room under the last one
     const float lineExpansionFactor = static_cast<float>(lines.size()) + 0.3F;
     int boxHeight = static_cast<int>(lineHeight*lineExpansionFactor);
 
@@ -3079,10 +3085,9 @@ QPixmap MainWindow::splashImage() const
                 // A picture that has art beside the version says how wide the
                 // warning may be, and the warning takes more lines to fit
                 auto ww = App::Application::Config().find("SplashWarningWidth");
-                const bool wrap = ww != App::Application::Config().end();
-                if (wrap)
-                    maxSize.setWidth(std::min(maxSize.width(), std::stoi(ww->second)));
-                MainWindow::renderDevBuildWarning(painter, startPosition, maxSize, wrap);
+                const int wrapWidth =
+                    ww != App::Application::Config().end() ? std::stoi(ww->second) : 0;
+                MainWindow::renderDevBuildWarning(painter, startPosition, maxSize, wrapWidth);
             }
             painter.end();
         }

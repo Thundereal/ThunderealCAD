@@ -433,7 +433,7 @@ private:
     bool setupPythonConsole();
 
     static void renderDevBuildWarning(QPainter &painter, const QPoint startPosition, const QSize maxSize,
-                                      bool wrap = false);
+                                      int wrapWidth = 0);
 
 private Q_SLOTS:
     /**

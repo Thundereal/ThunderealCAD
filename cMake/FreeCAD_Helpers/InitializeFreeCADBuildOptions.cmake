@@ -126,7 +126,7 @@ macro(InitializeFreeCADBuildOptions)
         if(FREECAD_CREATE_MAC_APP)
             install(
                 DIRECTORY ${CMAKE_SOURCE_DIR}/src/MacAppBundle/FreeCAD.app/
-                DESTINATION ${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}.app
+                DESTINATION ${CMAKE_INSTALL_PREFIX}/${FREECAD_APP_NAME}.app
             )
 
             # It should be safe to assume we've got sed on OSX...
@@ -137,11 +137,11 @@ macro(InitializeFreeCADBuildOptions)
                     -e s/BUNDLE_ID_FROM_CMAKE/${FREECAD_APP_ID}/
                     -e s/ID_DOMAIN_FROM_CMAKE/${FREECAD_APP_ID_DOMAIN}/
                     -e s/APP_ICON_FROM_CMAKE/${FREECAD_APP_ICON}/
-                    ${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}.app/Contents/Info.plist)
+                    ${CMAKE_INSTALL_PREFIX}/${FREECAD_APP_NAME}.app/Contents/Info.plist)
                    ")
 
             set(CMAKE_INSTALL_PREFIX
-                ${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}.app/Contents)
+                ${CMAKE_INSTALL_PREFIX}/${FREECAD_APP_NAME}.app/Contents)
             set(CMAKE_INSTALL_LIBDIR ${CMAKE_INSTALL_PREFIX}/lib )
         endif(FREECAD_CREATE_MAC_APP)
         set(CMAKE_MACOSX_RPATH TRUE )

@@ -49,6 +49,31 @@ else(BUILD_GUI)
     )
 endif(BUILD_GUI)
 
+# The executables are named after the program (FREECAD_APP_NAME). A program
+# with a name of its own keeps FreeCAD's names beside them as links, where the
+# system has links, for the scripts, tests and add-ons that start FreeCAD or
+# FreeCADCmd by name -- in the build tree and in the installed bin. Windows
+# gets the new names only.
+function(fc_keep_upstream_name target old)
+    if(WIN32 OR FREECAD_APP_NAME STREQUAL "FreeCAD")
+        return()
+    endif()
+    get_target_property(_new ${target} OUTPUT_NAME)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E create_symlink ${_new} $<TARGET_FILE_DIR:${target}>/${old}
+        VERBATIM)
+    if(APPLE AND NOT BUILD_WITH_CONDA)
+        set(_dir MacOS)
+    else()
+        set(_dir ${CMAKE_INSTALL_BINDIR})
+    endif()
+    install(CODE "
+        set(_bin \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${_dir}\")
+        file(MAKE_DIRECTORY \"\${_bin}\")
+        execute_process(COMMAND \"\${CMAKE_COMMAND}\" -E create_symlink ${_new} \"\${_bin}/${old}\")
+    ")
+endfunction()
+
 ######################## FreeCADMain ########################
 if(BUILD_GUI)
 
@@ -77,7 +102,8 @@ if(BUILD_GUI)
     target_compile_definitions(FreeCADMain PRIVATE FREECAD_APP_ID="${FREECAD_APP_ID}"
                                ${FREECAD_IDENTITY_DEFINITIONS})
 
-    SET_BIN_DIR(FreeCADMain FreeCAD)
+    SET_BIN_DIR(FreeCADMain ${FREECAD_APP_NAME})
+    fc_keep_upstream_name(FreeCADMain FreeCAD)
 
     if(MSVC)
         # The other half of the bin/FreeCAD.ilk collision -- see FreeCADMainPy.
@@ -130,7 +156,8 @@ target_link_libraries(FreeCADMainCmd
     ${FreeCADMainCmd_LIBS}
 )
 
-SET_BIN_DIR(FreeCADMainCmd FreeCADCmd)
+SET_BIN_DIR(FreeCADMainCmd ${FREECAD_APP_NAME}Cmd)
+fc_keep_upstream_name(FreeCADMainCmd FreeCADCmd)
 
 if(WIN32)
     INSTALL(TARGETS FreeCADMainCmd

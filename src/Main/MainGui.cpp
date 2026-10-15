@@ -196,7 +196,13 @@ int main( int argc, char ** argv )
     App::Application::Config()["SplashAlignment" ] = "Bottom|Left";
     App::Application::Config()["SplashTextColor" ] = "#8aadf4"; // light blue
     App::Application::Config()["SplashInfoColor" ] = "#8aadf4"; // light blue 
-    App::Application::Config()["SplashInfoPosition" ] = "6,75";
+    App::Application::Config()["SplashInfoPosition" ] = FREECAD_SPLASH_INFO_POSITION;
+#ifdef FREECAD_SPLASH_INFO_EXE_NAME
+    App::Application::Config()["SplashInfoExeName" ] = FREECAD_SPLASH_INFO_EXE_NAME;
+#endif
+#ifdef FREECAD_SPLASH_WARNING_WIDTH
+    App::Application::Config()["SplashWarningWidth" ] = FREECAD_SPLASH_WARNING_WIDTH;
+#endif
 
     // The app id from the build (THUNDEREAL_IDENTITY): the desktop entry the shell
     // matches windows to, and the Wayland app_id. Qt wants the name with no suffix.

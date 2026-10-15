@@ -2891,7 +2891,8 @@ QPixmap MainWindow::aboutImage() const
 void MainWindow::renderDevBuildWarning(
     QPainter &painter,
     const QPoint startPosition,
-    const QSize maxSize)
+    const QSize maxSize,
+    bool wrap)
 {
     // Create a background box that fades out the artwork for better legibility
     QColor fader (Qt::black);
@@ -2905,9 +2906,32 @@ void MainWindow::renderDevBuildWarning(
     const auto devWarningLine2 = tr("Please do not use it in a production environment.");
     QFontMetrics fontMetrics(painter.font()); // Try to use the existing font
     int padding = QtTools::horizontalAdvance(fontMetrics, QLatin1String("M")); // Arbitrary
-    int line1Width = QtTools::horizontalAdvance(fontMetrics, devWarningLine1);
-    int line2Width = QtTools::horizontalAdvance(fontMetrics, devWarningLine2);
-    int boxWidth = std::max(line1Width,line2Width) + 2 * padding;
+    QStringList lines {devWarningLine1, devWarningLine2};
+    if (wrap) {
+        // Break each line between words wherever it would exceed the width
+        const int room = maxSize.width() - 2 * padding;
+        QStringList wrapped;
+        for (const QString& line : lines) {
+            QString current;
+            for (const QString& word : line.split(QLatin1Char(' '), Qt::SkipEmptyParts)) {
+                const QString longer = current.isEmpty() ? word : current + QLatin1Char(' ') + word;
+                if (!current.isEmpty() && QtTools::horizontalAdvance(fontMetrics, longer) > room) {
+                    wrapped.append(current);
+                    current = word;
+                }
+                else {
+                    current = longer;
+                }
+            }
+            if (!current.isEmpty())
+                wrapped.append(current);
+        }
+        lines = wrapped;
+    }
+    int textWidth = 0;
+    for (const QString& line : lines)
+        textWidth = std::max(textWidth, QtTools::horizontalAdvance(fontMetrics, line));
+    int boxWidth = textWidth + 2 * padding;
     int lineHeight = fontMetrics.lineSpacing();
     if (boxWidth > maxSize.width()) {
         // Especially if the text was translated, there is a chance that using the existing font
@@ -2922,13 +2946,14 @@ void MainWindow::renderDevBuildWarning(
         lineHeight = painter.fontMetrics().lineSpacing();
         boxWidth = maxSize.width();
     }
-    constexpr float lineExpansionFactor(2.3F);
+    // Two lines are 2.3 line heights, a little room under the last one
+    const float lineExpansionFactor = static_cast<float>(lines.size()) + 0.3F;
     int boxHeight = static_cast<int>(lineHeight*lineExpansionFactor);
 
     // Draw the background rectangle and the text
     painter.drawRect(startPosition.x(), startPosition.y(), boxWidth, boxHeight);
-    painter.drawText(startPosition.x()+padding, startPosition.y()+lineHeight, devWarningLine1);
-    painter.drawText(startPosition.x()+padding, startPosition.y()+2*lineHeight, devWarningLine2);
+    for (int i = 0; i < lines.size(); ++i)
+        painter.drawText(startPosition.x()+padding, startPosition.y()+(i+1)*lineHeight, lines[i]);
 }
 
 QPixmap MainWindow::splashImage() const
@@ -3051,7 +3076,13 @@ QPixmap MainWindow::splashImage() const
                 const int padding {10}; // Distance from the edge of the graphic's bounding box
                 QPoint startPosition(padding, y + lineHeight);
                 QSize maxSize(w/pixelRatio - 2*padding, lineHeight * 3);
-                MainWindow::renderDevBuildWarning(painter, startPosition, maxSize);
+                // A picture that has art beside the version says how wide the
+                // warning may be, and the warning takes more lines to fit
+                auto ww = App::Application::Config().find("SplashWarningWidth");
+                const bool wrap = ww != App::Application::Config().end();
+                if (wrap)
+                    maxSize.setWidth(std::min(maxSize.width(), std::stoi(ww->second)));
+                MainWindow::renderDevBuildWarning(painter, startPosition, maxSize, wrap);
             }
             painter.end();
         }

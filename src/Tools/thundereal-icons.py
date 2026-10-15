@@ -564,9 +564,167 @@ def write_favicon():
     write(out, link + "\n")
 
 
+def wordmark_path(text, px, x, baseline):
+    """Text as outlines, left aligned at x, in the wordmark's face."""
+    f = QtGui.QFont("Ubuntu Sans")
+    f.setWeight(QtGui.QFont.Weight.Bold)
+    f.setPixelSize(100)
+    if not QtGui.QFontInfo(f).family().startswith("Ubuntu Sans"):
+        sys.exit("Ubuntu Sans Bold is needed for the splash wordmark")
+    p = QtGui.QPainterPath()
+    p.addText(0, 0, f, text)
+    s = px / 100.0
+    t = QtGui.QTransform()
+    t.translate(x - p.boundingRect().left() * s, baseline)
+    t.scale(s, s)
+    return t.map(p)
+
+
+# The splash and About pictures, 400 x 245 like upstream's, so the splash's
+# messages and version land where Gui expects them. The left holds the
+# wordmark, and under it, at SplashInfoPosition (src/Main/MainGui.cpp), the
+# version Gui writes; the right holds the mark, large, on a drafting grid,
+# dimensioned the way a drawing would be.
+SPLASH_W, SPLASH_H = 400, 245
+SPLASH_MARK = (3.0, 314, 130)  # scale, and where the mark's centre goes
+SPLASH = dict(
+    ground0="#0B1228",
+    ground1="#1B2744",
+    grid="#8AADF4",
+    glow="#FFB21E",
+    ink="#EEF3FF",
+    note="#8AADF4",
+)
+
+
+def splash_svg(tagline=None):
+    s, cx, cy = SPLASH_MARK
+    xf = QtGui.QTransform()
+    xf.translate(cx, cy)
+    xf.scale(s, s)
+    xf.translate(-32, -30)
+    k = SPLASH
+    w, h = SPLASH_W, SPLASH_H
+    body = [
+        "  <defs>\n"
+        '    <linearGradient id="ground" x1="0" y1="0" x2="1" y2="1">\n'
+        '      <stop offset="0" stop-color="%s"/><stop offset="1" stop-color="%s"/>\n'
+        "    </linearGradient>\n"
+        '    <radialGradient id="glow" cx="%s" cy="%s" r="150" gradientUnits="userSpaceOnUse">\n'
+        '      <stop offset="0" stop-color="%s" stop-opacity="0.22"/>\n'
+        '      <stop offset="1" stop-color="%s" stop-opacity="0"/>\n'
+        "    </radialGradient>\n"
+        "  </defs>\n" % (k["ground0"], k["ground1"], cx, cy, k["glow"], k["glow"]),
+        '  <rect width="%d" height="%d" rx="10" fill="url(#ground)"/>\n' % (w, h),
+    ]
+    # The drafting grid: 10 px squares, every fifth line heavier
+    minor, major = [], []
+    for x in range(10, w, 10):
+        (major if x % 50 == 0 else minor).append("M%d 0V%d" % (x, h))
+    for y in range(10, h, 10):
+        (major if y % 50 == 0 else minor).append("M0 %dH%d" % (y, w))
+    body.append(
+        '  <path d="%s" stroke="%s" stroke-opacity="0.05" stroke-width="0.6" fill="none"/>\n'
+        % ("".join(minor), k["grid"])
+    )
+    body.append(
+        '  <path d="%s" stroke="%s" stroke-opacity="0.11" stroke-width="0.8" fill="none"/>\n'
+        % ("".join(major), k["grid"])
+    )
+    body.append('  <rect width="%d" height="%d" rx="10" fill="url(#glow)"/>\n' % (w, h))
+
+    # Centre lines through the mark, dash-dot as a drawing has them
+    body.append(
+        '  <path d="M%s 6V%dM%s %sH%d" stroke="%s" stroke-opacity="0.35" stroke-width="0.8"'
+        ' stroke-dasharray="14 3 2 3" fill="none"/>\n'
+        % (num(cx), h - 6, num(cx - 120), num(cy), w - 4, k["grid"])
+    )
+    # The bar's length, dimensioned above it
+    left, right = xf.map(QtCore.QPointF(10, 7)), xf.map(QtCore.QPointF(48, 7))
+    dy = left.y() - 9
+    ext = "M%s %sV%sM%s %sV%s" % (
+        num(left.x()),
+        num(left.y() - 3),
+        num(dy - 4),
+        num(right.x()),
+        num(right.y() - 3),
+        num(dy - 4),
+    )
+    a = 5
+    arrows = "M%s %sL%s %sL%s %sZM%s %sL%s %sL%s %sZ" % (
+        num(left.x()),
+        num(dy),
+        num(left.x() + a),
+        num(dy - 1.8),
+        num(left.x() + a),
+        num(dy + 1.8),
+        num(right.x()),
+        num(dy),
+        num(right.x() - a),
+        num(dy - 1.8),
+        num(right.x() - a),
+        num(dy + 1.8),
+    )
+    body.append(
+        '  <path d="%sM%s %sH%s" stroke="%s" stroke-opacity="0.6" stroke-width="0.8" fill="none"/>\n'
+        % (ext, num(left.x()), num(dy), num(right.x()), k["grid"])
+    )
+    body.append('  <path d="%s" fill="%s" fill-opacity="0.6"/>\n' % (arrows, k["grid"]))
+    # Clear of the strike, which crosses the dimension line right of centre
+    label = text_path("38.00", 7.5, left.x() + (right.x() - left.x()) * 0.3, dy - 2.5)
+    body.append('  <path d="%s" fill="%s" fill-opacity="0.75"/>\n' % (path_data(label), k["grid"]))
+
+    body.append(paths(mark_layers(), xf))
+
+    body.append(
+        '  <path id="wordmark" fill="%s" d="%s"/>\n'
+        % (k["ink"], path_data(wordmark_path("Thundereal", 34, 18, 52)))
+    )
+    if tagline:
+        body.append(
+            '  <path id="tagline" fill="%s" d="%s"/>\n'
+            % (k["note"], path_data(wordmark_path(tagline, 11.5, 19, 72)))
+        )
+    return svg(w, h, "".join(body), "Thundereal")
+
+
+def render_rect(svg_text, w, h):
+    r = QtSvg.QSvgRenderer(QtCore.QByteArray(svg_text.encode("ascii")))
+    img = QtGui.QImage(w, h, QtGui.QImage.Format_ARGB32)
+    img.fill(0)
+    p = QtGui.QPainter(img)
+    p.setRenderHint(QtGui.QPainter.Antialiasing)
+    r.render(p, QtCore.QRectF(0, 0, w, h))
+    p.end()
+    buf = QtCore.QBuffer()
+    buf.open(QtCore.QIODevice.WriteOnly)
+    img.save(buf, "PNG")
+    return Image.open(io.BytesIO(bytes(buf.data()))).convert("RGBA")
+
+
+def write_splash():
+    """The splash (1x and 2x) and the About picture, beside upstream's
+    freecadsplash*.png and freecadabout.png; MainGui names one pair by the
+    switch. The SVG sources are kept, so the art can be edited as a drawing."""
+    splash = splash_svg()
+    about = splash_svg("Parametric 3D CAD, based on FreeCAD")
+    write(os.path.join(ICONS, "thunderealsplash.svg"), splash)
+    write(os.path.join(ICONS, "thunderealabout.svg"), about)
+    save_png(render_rect(splash, SPLASH_W, SPLASH_H), os.path.join(ICONS, "thunderealsplash.png"))
+    save_png(
+        render_rect(splash, 2 * SPLASH_W, 2 * SPLASH_H),
+        os.path.join(ICONS, "thunderealsplash2x.png"),
+    )
+    save_png(render_rect(about, SPLASH_W, SPLASH_H), os.path.join(ICONS, "thunderealabout.png"))
+
+
 if __name__ == "__main__":
     app = QtGui.QGuiApplication(sys.argv)
+    if sys.argv[1:] == ["splash"]:
+        write_splash()
+        sys.exit(0)
     write_svgs()
     write_rasters()
     write_favicon()
     write_techdraw_logo()
+    write_splash()

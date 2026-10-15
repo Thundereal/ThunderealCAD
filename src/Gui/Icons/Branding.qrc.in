@@ -5,5 +5,8 @@
         <file alias="freecad.svg">@FREECAD_BRAND_ICONS@/@FREECAD_APP_ICON@.svg</file>
         <file alias="document-package.svg">@FREECAD_BRAND_ICONS@/@FREECAD_PACKAGE_ICON@</file>
         <file alias="preferences-workbenches.svg">@FREECAD_BRAND_ICONS@/@FREECAD_WORKBENCHES_ICON@</file>
+        <file alias="freecadsplash.png">@FREECAD_BRAND_ICONS@/@FREECAD_APP_ICON@splash.png</file>
+        <file alias="freecadsplash2x.png">@FREECAD_BRAND_ICONS@/@FREECAD_APP_ICON@splash2x.png</file>
+        <file alias="freecadabout.png">@FREECAD_BRAND_ICONS@/@FREECAD_APP_ICON@about.png</file>
     </qresource>
 </RCC>

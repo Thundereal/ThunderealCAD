@@ -35,6 +35,11 @@
 // this program's own repository, so its bugs do not land in upstream's tracker.
 #define FREECAD_MAINTAINER_URL "https://github.com/Thundereal/Thundereal"
 #define FREECAD_ISSUE_PAGE "https://github.com/Thundereal/Thundereal/issues"
+// The splash picture carries the wordmark, so Gui writes only the version, under it
+#define FREECAD_SPLASH_INFO_EXE_NAME ""
+#define FREECAD_SPLASH_INFO_POSITION "20,78"
+// and its development warning, in as many lines as it takes to stay left of the mark
+#define FREECAD_SPLASH_WARNING_WIDTH "225"
 
 #else
 
@@ -50,7 +55,8 @@
     "  #     #   #    #     #    #     # #   #  ##  ##  ##\n"                                      \
     "  #     #   #### ####   ### #     # ####   ##  ##  ##\n\n"
 #define FREECAD_MAINTAINER_URL "https://www.freecad.org/wiki/Main_Page"
-// Unset: App falls back to upstream's tracker.
+// FREECAD_ISSUE_PAGE unset: App falls back to upstream's tracker.
+#define FREECAD_SPLASH_INFO_POSITION "6,75"
 
 #endif
 

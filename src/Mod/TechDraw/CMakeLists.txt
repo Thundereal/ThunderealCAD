@@ -100,6 +100,24 @@ INSTALL(
         PATTERN "*.svg*"
 )
 
+# The templates whose title block carries the logo are installed again, over
+# the ones above, from the copies App/ wrote with Thundereal's logo.
+if(THUNDEREAL_IDENTITY)
+    file(GLOB TechDraw_Templates ${CMAKE_CURRENT_SOURCE_DIR}/Templates/*.svg)
+    foreach(template ${TechDraw_Templates})
+        file(STRINGS ${template} logo REGEX "<g id=\"freecad-logo\"" LIMIT_COUNT 1)
+        if(logo)
+            get_filename_component(name ${template} NAME)
+            INSTALL(
+                FILES
+                    ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_DATADIR}/Mod/TechDraw/Templates/${name}
+                DESTINATION
+                    ${CMAKE_INSTALL_DATADIR}/Mod/TechDraw/Templates
+            )
+        endif()
+    endforeach()
+endif()
+
 INSTALL(
     DIRECTORY
         PAT

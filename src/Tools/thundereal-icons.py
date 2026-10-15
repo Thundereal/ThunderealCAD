@@ -19,6 +19,8 @@ here, so a change to the mark is made once and the files follow:
     src/Gui/Icons/thundereal-package.svg    the package box, wearing the icon
     src/Gui/Renderer/wasm/thundereal-favicon.html
                                             the browser viewer's tab icon
+    src/Mod/TechDraw/Branding/thundereal-logo.svg
+                                            the drawing templates' title-block logo
 
 FreeCAD's own artwork stays beside each of these under its own name, and the
 build switch THUNDEREAL_IDENTITY picks one set; this script only reads
@@ -510,6 +512,43 @@ def write_rasters():
             print("wrote", os.path.relpath(out, ROOT))
 
 
+# Where TechDraw's ISO 7200 title blocks draw FreeCAD's logo, in the frame of
+# that logo's group: its outline spans x 0.15-10.53 and y 0.15-9.84 mm.
+TD_LOGO_CENTRE = (5.34, 5.0)
+TD_LOGO_HEIGHT = 9.4
+
+
+def write_techdraw_logo():
+    """The title block's logo: line art, like the rest of the block, in black
+    on the page. The faces are painted white in order, so an edge behind a
+    face is hidden without cutting the drawing into slivers that would print
+    as smears at 9 mm. A 0.25 mm line keeps the bar's bottom face, half a
+    millimetre deep, open. TechDraw's build swaps these paths into each
+    template's freecad-logo group when THUNDEREAL_IDENTITY is on."""
+    s = TD_LOGO_HEIGHT / 58.5
+    t = QtGui.QTransform()
+    t.translate(*TD_LOGO_CENTRE)
+    t.scale(s, s)
+    t.translate(-31.5, -29.75)
+    strike = poly(STRIKE)
+    faces = [
+        ("strike", strike),
+        ("barBottom", poly(BAR_BOTTOM)),
+        ("barSide", poly(BAR_SIDE)),
+        ("barFront", poly(BAR_FRONT)),
+        ("lowStrike", below(strike, EXIT)),
+    ]
+    body = '  <g id="thundereal-logo" fill="none" stroke="#000" stroke-width=".35">\n'
+    for n, p in faces:
+        body += (
+            '    <path id="thundereal-logo-%s" fill="#fff" stroke-width=".25"'
+            ' stroke-linejoin="round" d="%s"/>\n' % (n, path_data(p, t))
+        )
+    body += "  </g>\n"
+    out = os.path.join(ROOT, "src", "Mod", "TechDraw", "Branding", "thundereal-logo.svg")
+    write(out, svg(10.7, 10, body, "Thundereal title-block logo"))
+
+
 def write_favicon():
     """The browser viewer's tab icon, inline in its page: the page is served
     alone, with no folder of assets beside it. The viewer's build writes the
@@ -530,3 +569,4 @@ if __name__ == "__main__":
     write_svgs()
     write_rasters()
     write_favicon()
+    write_techdraw_logo()

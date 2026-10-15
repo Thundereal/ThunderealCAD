@@ -6,6 +6,12 @@ if(THUNDEREAL_IDENTITY)
 else()
     set(FREECAD_APP_ICO ${CMAKE_CURRENT_SOURCE_DIR}/icon.ico)
 endif()
+# The name, banner and links THUNDEREAL_IDENTITY picks (Identity.h), for every
+# entry point: the executables and the FreeCAD/FreeCADGui Python modules.
+set(FREECAD_IDENTITY_DEFINITIONS FREECAD_APP_NAME="${FREECAD_APP_NAME}")
+if(THUNDEREAL_IDENTITY)
+    list(APPEND FREECAD_IDENTITY_DEFINITIONS THUNDEREAL_IDENTITY)
+endif()
 configure_file(freecad.rc.cmake ${CMAKE_CURRENT_BINARY_DIR}/freecad.rc)
 configure_file(freecadCmd.rc.cmake ${CMAKE_CURRENT_BINARY_DIR}/freecadCmd.rc)
 file(COPY icon.ico DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
@@ -68,7 +74,8 @@ if(BUILD_GUI)
     add_executable(FreeCADMain WIN32 ${FreeCAD_SRCS})
     target_link_libraries(FreeCADMain ${FreeCAD_LIBS})
     # The desktop entry the running app names itself by (THUNDEREAL_IDENTITY).
-    target_compile_definitions(FreeCADMain PRIVATE FREECAD_APP_ID="${FREECAD_APP_ID}")
+    target_compile_definitions(FreeCADMain PRIVATE FREECAD_APP_ID="${FREECAD_APP_ID}"
+                               ${FREECAD_IDENTITY_DEFINITIONS})
 
     SET_BIN_DIR(FreeCADMain FreeCAD)
 
@@ -103,6 +110,7 @@ SET(FreeCADMainCmd_SRCS
 )
 
 add_executable(FreeCADMainCmd ${FreeCADMainCmd_SRCS})
+target_compile_definitions(FreeCADMainCmd PRIVATE ${FREECAD_IDENTITY_DEFINITIONS})
 
 SET(FreeCADMainCmd_LIBS
     FreeCADApp
@@ -147,6 +155,7 @@ SET(FreeCADMainPy_SRCS
 )
 
 add_library(FreeCADMainPy SHARED ${FreeCADMainPy_SRCS})
+target_compile_definitions(FreeCADMainPy PRIVATE ${FREECAD_IDENTITY_DEFINITIONS})
 
 target_link_libraries(FreeCADMainPy FreeCADApp)
 
@@ -192,6 +201,7 @@ if(BUILD_GUI)
     )
 
     add_library(FreeCADGuiPy SHARED ${FreeCADGuiPy_SRCS})
+    target_compile_definitions(FreeCADGuiPy PRIVATE ${FREECAD_IDENTITY_DEFINITIONS})
 
     target_link_libraries(FreeCADGuiPy FreeCADGui)
 

@@ -57,19 +57,14 @@
 #include <Base/Exception.h>
 #include <Gui/Application.h>
 
+#include "Identity.h"
+
 
 void PrintInitHelp();
 
-const char sBanner[] = "\xc2\xa9 Juergen Riegel, Werner Mayer, Yorik van Havre and others 2001-2023\n"\
-"FreeCAD is free and open-source software licensed under the terms of LGPL2+ license.\n"\
-"FreeCAD wouldn't be possible without FreeCAD community.\n"\
-"  #####                 ####  ###   ####  \n" \
-"  #                    #      # #   #   # \n" \
-"  #     ##  #### ####  #     #   #  #   # \n" \
-"  ####  # # #  # #  #  #     #####  #   # \n" \
-"  #     #   #### ####  #    #     # #   # \n" \
-"  #     #   #    #     #    #     # #   #  ##  ##  ##\n" \
-"  #     #   #### ####   ### #     # ####   ##  ##  ##\n\n" ;
+// The name, banner and links THUNDEREAL_IDENTITY picks.
+const char sBanner[] = "\xc2\xa9 " FREECAD_COPYRIGHT_AUTHORS FREECAD_LICENSE_INFO
+                       FREECAD_CREDITS_INFO FREECAD_BANNER_ART;
 
 #if defined(_MSC_VER)
 void InitMiniDumpWriter(const std::string&);
@@ -183,10 +178,16 @@ int main( int argc, char ** argv )
 #endif
 
     // Name and Version of the Application
-    App::Application::Config()["ExeName"] = "FreeCAD";
+    App::Application::Config()["ExeName"] = FREECAD_APP_NAME;
     App::Application::Config()["ExeVendor"] = "FreeCAD";
     App::Application::Config()["AppDataSkipVendor"] = "true";
-    App::Application::Config()["MaintainerUrl"] = "https://www.freecad.org/wiki/Main_Page";
+#ifdef FREECAD_APP_DATA_NAME
+    App::Application::Config()["AppDataName"] = FREECAD_APP_DATA_NAME;
+#endif
+    App::Application::Config()["MaintainerUrl"] = FREECAD_MAINTAINER_URL;
+#ifdef FREECAD_ISSUE_PAGE
+    App::Application::Config()["IssuePage"] = FREECAD_ISSUE_PAGE;
+#endif
 
     // set the banner (for logging and console)
     App::Application::Config()["CopyrightInfo"] = sBanner;

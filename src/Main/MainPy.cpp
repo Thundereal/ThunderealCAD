@@ -56,6 +56,8 @@
 #include <Base/Sequencer.h>
 #include <App/Application.h>
 
+#include "Identity.h"
+
 #if defined(FC_OS_WIN32)
 
 /** DllMain is called when DLL is loaded
@@ -89,9 +91,15 @@ BOOL APIENTRY DllMain(HANDLE hModule, DWORD  ul_reason_for_call, LPVOID /*lpRese
 PyMOD_INIT_FUNC(FreeCAD)
 {
     // Init phase ===========================================================
-    App::Application::Config()["ExeName"] = "FreeCAD";
+    App::Application::Config()["ExeName"] = FREECAD_APP_NAME;
     App::Application::Config()["ExeVendor"] = "FreeCAD";
     App::Application::Config()["AppDataSkipVendor"] = "true";
+#ifdef FREECAD_APP_DATA_NAME
+    App::Application::Config()["AppDataName"] = FREECAD_APP_DATA_NAME;
+#endif
+#ifdef FREECAD_ISSUE_PAGE
+    App::Application::Config()["IssuePage"] = FREECAD_ISSUE_PAGE;
+#endif
 
     QByteArray path;
 

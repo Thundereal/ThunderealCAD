@@ -76,12 +76,12 @@ not a tree-wide sed. Everything else is assets, packaging, and migration.
 | `ExeName` / `ExeVendor` | `src/Main/MainGui.cpp`, `MainCmd.cpp` | the switch itself |
 | Binary names `FreeCAD`, `FreeCADCmd` | `src/Main/CMakeLists.txt` (`SET_BIN_DIR`) | keep old names as symlinks for one release cycle |
 | CMake `project(FreeCAD)` | top-level `CMakeLists.txt:22` | cosmetic but sets several derived vars |
-| Icons & splash | `src/Gui/Icons/freecad*.{svg,png,xpm}`, `freecadsplash.png`, `freecadabout.png` | icons done: the T-strike mark, drawn by `src/Tools/thundereal-icons.py` into the app icon (`thundereal*.svg`/`.png`/`.xpm`, Windows `.ico`, macOS `.icns`), the `.TStd` document icon, the empty-window watermark, the package-box label and the browser viewer's favicon. `:/icons/freecad.svg` stays as an alias of the new icon. `.FCStd` keeps FreeCAD's document icon -- the format is FreeCAD's. Splash and About still to draw (they need a wordmark) |
+| Icons & splash | `src/Gui/Icons/freecad*.{svg,png,xpm}`, `freecadsplash.png`, `freecadabout.png` | icons done: the T-strike mark, drawn by `src/Tools/thundereal-icons.py` into the app icon (`thundereal*.svg`/`.png`/`.xpm`, Windows `.ico`, macOS `.icns`), the `.TStd` document icon, the empty-window watermark, the package-box label and the browser viewer's favicon. Upstream's artwork stays beside it under its own names, and `THUNDEREAL_IDENTITY` picks the set: the code asks for `freecad` as upstream does, and a generated `Branding.qrc` maps `:/icons/freecad.svg` and the package box's names to the picked files. `.FCStd` keeps FreeCAD's document icon -- the format is FreeCAD's -- and `.TStd` keeps its own under either setting. The browser viewer, its own CMake project, has a `THUNDEREAL_IDENTITY` of its own: ON writes `thundereal-favicon.html` into a copy of `shell.html`. Splash and About still to draw (they need a wordmark) |
 | About dialog | `src/Gui/Dialogs/DlgAbout*` | must credit lineage: "based on FreeCAD" (LGPL attribution is code-level; this is courtesy + clarity) |
-| Desktop/AppStream | `src/XDGData/org.freecad.FreeCAD.desktop`, `org.freecad.FreeCAD.metainfo.xml.in` | new reverse-DNS id (`com.thundereal.*`); affects Wayland app_id, taskbar grouping, software-center listing |
+| Desktop/AppStream | `src/XDGData/org.freecad.FreeCAD.desktop`, `org.freecad.FreeCAD.metainfo.xml.in` | done: the CMake switch `THUNDEREAL_IDENTITY` (ON) gives the app id `com.thundereal.Thundereal` and Thundereal's artwork (OFF: `org.freecad.FreeCAD` and upstream's artwork, its files byte for byte). It names the installed desktop entry, AppStream data, MIME package and hicolor app icons, and the running app's desktop file name (Wayland app_id). The sources keep upstream's file names. `Name=`/`<name>` still say FreeCAD -- that is the `ExeName` phase |
 | WASM viewer page | `src/Gui/Renderer/wasm/shell.html` title/strings (few sites) | the page strangers see first — highest identity leverage per line changed |
 | Start page / workbench strings | `src/Mod/Start`, translated `.ts` files | bulk but mechanical; translations regenerate |
-| Windows installer / macOS bundle ids | packaging repos | with the reverse-DNS decision above |
+| Windows installer / macOS bundle ids | packaging repos | macOS done: `CFBundleIdentifier` (was empty) and the `.TStd` UTI (`com.thundereal.tstd`) follow `THUNDEREAL_IDENTITY`. Windows has no app id to set (no AppUserModelID in the tree) |
 
 ## 3. Change with migration — filesystem & OS integration
 
@@ -187,8 +187,8 @@ would make rebases expensive is precisely what §5 declines to do.
 
 ## 7. Open questions
 
-- Reverse-DNS id: `com.thundereal.cad` is the natural choice now the name
-  is fixed; confirm before the desktop/metainfo phase.
+- Reverse-DNS id: settled as `com.thundereal.Thundereal` (three parts, as
+  Flatpak requires, in upstream's `org.freecad.FreeCAD` shape).
 - Whether the browser viewer carries the same name as the desktop product
   or its own sub-brand (one product, one name is the safer default).
 - When (if ever) `LinkMerge`/`LinkVibe` branch names should follow — cosmetic,

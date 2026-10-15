@@ -19,13 +19,6 @@
 
 #ifdef THUNDEREAL_IDENTITY
 
-// The folder the user's settings, macros, add-ons and cache live in, which App
-// otherwise names after ExeName. It stays upstream's until there is a migration
-// that carries them over (docs/RenameInventory.md, section 3). Unset when OFF,
-// so a branding.xml that renames ExeName still moves the folder as upstream's
-// does.
-#define FREECAD_APP_DATA_NAME "FreeCAD"
-
 #define FREECAD_LICENSE_INFO                                                                       \
     "Thundereal is free and open-source software licensed under the terms of LGPL2+ license.\n"
 #define FREECAD_CREDITS_INFO                                                                       \

@@ -92,11 +92,8 @@ PyMOD_INIT_FUNC(FreeCAD)
 {
     // Init phase ===========================================================
     App::Application::Config()["ExeName"] = FREECAD_APP_NAME;
-    App::Application::Config()["ExeVendor"] = "FreeCAD";
+    App::Application::Config()["ExeVendor"] = FREECAD_APP_NAME;
     App::Application::Config()["AppDataSkipVendor"] = "true";
-#ifdef FREECAD_APP_DATA_NAME
-    App::Application::Config()["AppDataName"] = FREECAD_APP_DATA_NAME;
-#endif
 #ifdef FREECAD_ISSUE_PAGE
     App::Application::Config()["IssuePage"] = FREECAD_ISSUE_PAGE;
 #endif

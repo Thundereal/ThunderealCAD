@@ -790,14 +790,28 @@ QIcon FileIconProvider::icon(const QFileInfo & info) const
         return QStringLiteral("%1/thumbnails/normal/%2.png").arg(cache, hash);
     };
 
-    auto iconFromFile = [](const QString& filename) {
+    // A .TStd has the brand's document icon, drawn apart for the small sizes,
+    // where the band naming the extension would be a smudge. A .FCStd keeps
+    // FreeCAD's, the format being FreeCAD's own.
+    auto documentIcon = [](bool tstd) {
+        if (!tstd)
+            return QIcon(QStringLiteral(":/icons/freecad-doc.png"));
+        QIcon icon;
+        for (int size : {16, 24, 32})
+            icon.addFile(QStringLiteral(":/icons/thundereal-doc-%1.png").arg(size),
+                         QSize(size, size));
+        icon.addFile(QStringLiteral(":/icons/thundereal-doc.png"), QSize(64, 64));
+        return icon;
+    };
+
+    auto iconFromFile = [&](const QString& filename, bool tstd) {
         if (QFile::exists(filename)) {
             QIcon icon(filename);
             if (!icon.isNull())
                 return icon;
         }
 
-        return QIcon(QStringLiteral(":/icons/freecad-doc.png"));
+        return documentIcon(tstd);
     };
 
     const QString suffix = info.suffix().toLower();
@@ -805,10 +819,10 @@ QIcon FileIconProvider::icon(const QFileInfo & info) const
         // Check if a thumbnail is available
         QString fileName = toUrl(info);
         QString thumb = urlToThumbnail(fileName);
-        return iconFromFile(thumb);
+        return iconFromFile(thumb, suffix == QStringLiteral("tstd"));
     }
     else if (suffix.startsWith(QStringLiteral("fcstd")) || suffix.startsWith(QStringLiteral("tstd"))) {
-        QIcon icon(QStringLiteral(":/icons/freecad-doc.png"));
+        QIcon icon = documentIcon(suffix.startsWith(QStringLiteral("tstd")));
         QIcon darkIcon;
         int w = QApplication::style()->pixelMetric(QStyle::PM_ListViewIconSize);
         darkIcon.addPixmap(icon.pixmap(w, w, QIcon::Disabled, QIcon::Off), QIcon::Normal, QIcon::Off);

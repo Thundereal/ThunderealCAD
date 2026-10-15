@@ -1714,8 +1714,12 @@ else(WIN32)
     INSTALL(FILES Icons/thundereal.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps RENAME org.freecad.FreeCAD.svg)
     INSTALL(FILES Icons/thundereal.xpm DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pixmaps RENAME freecad.xpm)
     INSTALL(FILES Icons/freecad-doc.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/mimetypes RENAME application-x-extension-fcstd.svg)
-    # The same icon until the brand has its own document icon.
-    INSTALL(FILES Icons/freecad-doc.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/mimetypes RENAME application-x-extension-tstd.svg)
+    # A .TStd has the brand's document icon. The scalable one carries a band naming the
+    # extension, which is a smudge below 48 px, so the small sizes have drawings of their own.
+    INSTALL(FILES Icons/thundereal-doc.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/mimetypes RENAME application-x-extension-tstd.svg)
+    foreach(_size 16 24 32)
+        INSTALL(FILES Icons/thundereal-doc-${_size}.png DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/${_size}x${_size}/mimetypes RENAME application-x-extension-tstd.png)
+    endforeach()
 endif(WIN32)
 
 set(FreeCADGui_Scripts

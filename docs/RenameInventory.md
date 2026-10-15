@@ -22,7 +22,7 @@ marketed form is **"Thundereal CAD"** (website title, package
 descriptions, search phrase). Rationale: the successful pattern in this
 market is a distinctive name plus a descriptor in the tagline (Onshape,
 Rhino, Blender), not a descriptive name; it matches the domain in hand
-(`thundereal.com`, so product, share links and website reinforce each
+(`thundereal.org`, so product, repository and website reinforce each
 other); and it audibly carries the "realthunder" lineage every FreeCAD
 user already knows.
 
@@ -40,9 +40,10 @@ mined (LIGHTNINGCAD is a registered US trademark).
 **Thundereal Technologies Pte. Ltd.** (Singapore) — the user's existing
 company. Company: Thundereal Technologies; product: Thundereal;
 marketed form: Thundereal CAD. The GitHub org `thundereal` is
-registered under the company (corporate ToS); domain `thundereal.com`
-in hand. An ACRA-registered company name + domain in use makes the
-name claim solid; the optional belt-and-suspenders step is an IPOS
+registered under the company (corporate ToS); domains `thundereal.org`
+(the project's site and app id, since 2026-10-16) and `thundereal.com`
+(kept; it carries the share tunnel `cad.thundereal.com`) in hand. An
+ACRA-registered company name + domain in use makes the name claim solid; the optional belt-and-suspenders step is an IPOS
 trademark filing (class 9/42) by the company. The LGPL code is not
 company-owned — only the brand is.
 
@@ -78,11 +79,11 @@ not a tree-wide sed. Everything else is assets, packaging, and migration.
 | CMake `project(FreeCAD)` | top-level `CMakeLists.txt:22` | cosmetic but sets several derived vars |
 | Icons & splash | `src/Gui/Icons/freecad*.{svg,png,xpm}`, `freecadsplash.png`, `freecadabout.png` | icons done: the T-strike mark, drawn by `src/Tools/thundereal-icons.py` into the app icon (`thundereal*.svg`/`.png`/`.xpm`, Windows `.ico`, macOS `.icns`), the `.TStd` document icon, the empty-window watermark, the package-box label, the browser viewer's favicon and, in line art, the title-block logo of TechDraw's 12 ISO 7200 templates (TechDraw's build swaps it into a copy of each template). Upstream's artwork stays beside it under its own names, and `THUNDEREAL_IDENTITY` picks the set: the code asks for `freecad` as upstream does, and a generated `Branding.qrc` maps `:/icons/freecad.svg` and the package box's names to the picked files. `.FCStd` keeps FreeCAD's document icon -- the format is FreeCAD's -- and `.TStd` keeps its own under either setting. The browser viewer, its own CMake project, has a `THUNDEREAL_IDENTITY` of its own: ON writes `thundereal-favicon.html` into a copy of `shell.html`. The splash (1x and 2x) and the About picture are drawn by the same script, the wordmark set in Ubuntu Sans Bold as outlines, and `Branding.qrc` maps them to `freecadsplash*.png` and `freecadabout.png`; the splash then writes only the version, under the wordmark (`SplashInfoExeName`, `SplashInfoPosition`), and a development build's warning wraps onto more lines to stay left of the mark (`SplashWarningWidth`) |
 | About dialog | `src/Gui/Splashscreen.cpp`, `AboutApplication.ui` | must credit lineage: "based on FreeCAD" (LGPL attribution is code-level; this is courtesy + clarity). Done: the name, the credits line, the Credits tab's "FreeCAD would not be possible without", and the picture, which says "Parametric 3D CAD, based on FreeCAD" under the wordmark |
-| Desktop/AppStream | `src/XDGData/org.freecad.FreeCAD.desktop`, `org.freecad.FreeCAD.metainfo.xml.in` | done: the CMake switch `THUNDEREAL_IDENTITY` (ON) gives the app id `com.thundereal.Thundereal` and Thundereal's artwork (OFF: `org.freecad.FreeCAD` and upstream's artwork, its files byte for byte). It names the installed desktop entry, AppStream data, MIME package and hicolor app icons, and the running app's desktop file name (Wayland app_id). The sources keep upstream's file names. `Name=` and `<name>` follow `FREECAD_APP_NAME`; so do the AppStream data's developer (The Thundereal developers), the description's name ("Thundereal, based on FreeCAD, is ...") and its URLs: the website, the repository, its tracker, wiki and contributing guide. The screenshots are still upstream's |
-| Help menu | `src/Gui/CommandStd.cpp` (`helpSiteUrl`), `Identity.h` (`FREECAD_HELP_SITES`) | done: ON gives the Website (thundereal.com), Forum (the repository's Discussions), Users and Python documentation, Help Website and FAQ (its wiki) and Donate (thundereal.com/#support) entries the program's own sites, and their texts the name. A URL in `BaseApp/Preferences/Websites` equal to upstream's default is the default an earlier build stored, not the user's choice, and is replaced; any other is kept. Help > Report a bug does the same with upstream's tracker. The per-command help (F1, the Help module) is still upstream's wiki |
+| Desktop/AppStream | `src/XDGData/org.freecad.FreeCAD.desktop`, `org.freecad.FreeCAD.metainfo.xml.in` | done: the CMake switch `THUNDEREAL_IDENTITY` (ON) gives the app id `org.thundereal.Thundereal` and Thundereal's artwork (OFF: `org.freecad.FreeCAD` and upstream's artwork, its files byte for byte). It names the installed desktop entry, AppStream data, MIME package and hicolor app icons, and the running app's desktop file name (Wayland app_id). The sources keep upstream's file names. `Name=` and `<name>` follow `FREECAD_APP_NAME`; so do the AppStream data's developer (The Thundereal developers), the description's name ("Thundereal, based on FreeCAD, is ...") and its URLs: the website, the repository, its tracker, wiki and contributing guide. The screenshots are still upstream's |
+| Help menu | `src/Gui/CommandStd.cpp` (`helpSiteUrl`), `Identity.h` (`FREECAD_HELP_SITES`) | done: ON gives the Website (thundereal.org), Forum (the repository's Discussions), Users and Python documentation, Help Website and FAQ (its wiki) and Donate (thundereal.org/#support) entries the program's own sites, and their texts the name. A URL in `BaseApp/Preferences/Websites` equal to upstream's default is the default an earlier build stored, not the user's choice, and is replaced; any other is kept. Help > Report a bug does the same with upstream's tracker. The per-command help (F1, the Help module) is still upstream's wiki |
 | WASM viewer page | `src/Gui/Renderer/wasm/shell.html` title/strings (few sites) | the page strangers see first — highest identity leverage per line changed |
 | Start page / workbench strings | every `tr()`, `.ui` and Python `translate()` string | done at run time, not in the sources: see "The name in text" below. No source string or `.ts` file changes, so every language keeps its translation and merges from upstream stay clean |
-| Windows installer / macOS bundle ids | packaging repos | macOS done: `CFBundleIdentifier` (was empty) and the `.TStd` UTI (`com.thundereal.tstd`) follow `THUNDEREAL_IDENTITY`. Windows has no app id to set (no AppUserModelID in the tree) |
+| Windows installer / macOS bundle ids | packaging repos | macOS done: `CFBundleIdentifier` (was empty) and the `.TStd` UTI (`org.thundereal.tstd`) follow `THUNDEREAL_IDENTITY`. Windows has no app id to set (no AppUserModelID in the tree) |
 
 ### The name in text
 
@@ -261,7 +262,7 @@ would make rebases expensive is precisely what §5 declines to do.
 
 ## 7. Open questions
 
-- Reverse-DNS id: settled as `com.thundereal.Thundereal` (three parts, as
+- Reverse-DNS id: settled as `org.thundereal.Thundereal` (three parts, as
   Flatpak requires, in upstream's `org.freecad.FreeCAD` shape).
 - Whether the browser viewer carries the same name as the desktop product
   or its own sub-brand (one product, one name is the safer default).

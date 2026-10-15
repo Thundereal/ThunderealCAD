@@ -45,13 +45,13 @@
 // repository's discussions and wiki, and the website's page on supporting the
 // work, which lists the ways to donate.
 #define FREECAD_HELP_SITES                                                                         \
-    {"UrlWebPage", "https://thundereal.com"},                                                      \
+    {"UrlWebPage", "https://thundereal.org"},                                                      \
         {"UrlUserForum", "https://github.com/Thundereal/Thundereal/discussions"},                  \
         {"UrlOnlineHelp", "https://github.com/Thundereal/Thundereal/wiki"},                        \
         {"UrlDocumentation", "https://github.com/Thundereal/Thundereal/wiki"},                     \
         {"UrlPowerUsers", "https://github.com/Thundereal/Thundereal/wiki/Python-scripting"},       \
         {"UrlFAQ", "https://github.com/Thundereal/Thundereal/wiki/FAQ"},                           \
-        {"UrlDonatePage", "https://thundereal.com/#support"}
+        {"UrlDonatePage", "https://thundereal.org/#support"}
 // The splash picture carries the wordmark, so Gui writes only the version, under it
 #define FREECAD_SPLASH_INFO_EXE_NAME ""
 #define FREECAD_SPLASH_INFO_POSITION "20,78"

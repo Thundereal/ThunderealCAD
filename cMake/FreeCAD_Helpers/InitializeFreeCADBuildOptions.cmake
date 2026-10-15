@@ -36,11 +36,11 @@ macro(InitializeFreeCADBuildOptions)
     # Windows version resource and the macOS bundle name.
     # It is all derived, not cached, so flipping the switch always takes effect.
     option(THUNDEREAL_IDENTITY
-        "Thundereal's app id (com.thundereal.Thundereal) and icons, OFF for FreeCAD's (org.freecad.FreeCAD)" ON)
+        "Thundereal's app id (org.thundereal.Thundereal) and icons, OFF for FreeCAD's (org.freecad.FreeCAD)" ON)
     if(THUNDEREAL_IDENTITY)
         set(FREECAD_APP_NAME "Thundereal")
-        set(FREECAD_APP_ID_DOMAIN "com.thundereal")
-        set(FREECAD_APP_ID "com.thundereal.Thundereal")
+        set(FREECAD_APP_ID_DOMAIN "org.thundereal")
+        set(FREECAD_APP_ID "org.thundereal.Thundereal")
         set(FREECAD_APP_ICON "thundereal")
     else()
         set(FREECAD_APP_NAME "FreeCAD")

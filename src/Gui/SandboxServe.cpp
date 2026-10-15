@@ -37,7 +37,6 @@
 #include <vector>
 
 #include <App/Application.h>
-#include <App/BrandText.h>
 #include <Base/Console.h>
 #ifdef FC_EXPR_PYODIDE_HOST
 #include <App/ExpressionImageHost.h>
@@ -117,7 +116,7 @@ std::shared_ptr<Served> resolve()
 {
     auto s = std::make_shared<Served>();
 #ifndef FC_EXPR_PYODIDE_HOST
-    s->error = App::brandText("this FreeCAD was built without the pyodide sandbox host");
+    s->error = "This application was built without the pyodide sandbox host";
     return s;
 #else
     auto& host = App::ExpressionSandbox::ImageHost::instance();

@@ -536,7 +536,7 @@ static bool offerPyodideBootstrap(QWidget *parent)
                                  "this user yet.\n\n"
                                  "Download it now (about 14 MB, from the pyodide "
                                  "project's release on github.com, verified against "
-                                 "the checksums this FreeCAD was built with)?"),
+                                 "the checksums this application was built with)?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
     if (answer != QMessageBox::Yes)
         return false;

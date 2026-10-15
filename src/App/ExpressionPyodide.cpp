@@ -356,7 +356,7 @@ std::string verifyDirectory(const std::string& dir, bool* pinned)
         return "no package.json names a pyodide version under " + dir;
     const Release* r = releaseFor(version);
     if (!r)
-        return "pyodide " + version + brandText(" is not a version this FreeCAD supports");
+        return "pyodide " + version + " is not a version this application supports";
     if (pinned)
         *pinned = true;
     for (const auto& f : r->files) {

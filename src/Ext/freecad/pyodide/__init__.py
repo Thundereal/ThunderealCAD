@@ -84,7 +84,7 @@ _MANIFEST_VERSION = 1
 
 
 class RuntimeUnsupported(RuntimeError):
-    """A pyodide version this FreeCAD was not built to run."""
+    """A pyodide version this application was not built to run."""
 
 
 class DownloadError(RuntimeError):
@@ -113,7 +113,7 @@ def default_version():
     """The newest pinned version (numeric order of the version parts)."""
     versions = list(releases())
     if not versions:
-        raise RuntimeUnsupported("this FreeCAD was built without the pyodide host")
+        raise RuntimeUnsupported("This application was built without the pyodide host")
     return max(versions, key=lambda v: [int(x) for x in v.split(".")])
 
 
@@ -126,7 +126,7 @@ def _release(version):
     rel = releases().get(version)
     if rel is None:
         raise RuntimeUnsupported(
-            "pyodide %s is not a version this FreeCAD supports (pinned: %s)"
+            "pyodide %s is not a version this application supports (pinned: %s)"
             % (version, ", ".join(sorted(releases())) or "none")
         )
     return rel
@@ -301,7 +301,7 @@ def install_runtime(version=None, source="github", progress=None, make_current=T
     wheels = layout()["wheels"]
     if rel["abi"] not in wheels:
         raise RuntimeUnsupported(
-            "no fcx_image wheel for pyodide ABI %s (have: %s); this FreeCAD cannot "
+            "no fcx_image wheel for pyodide ABI %s (have: %s); this application cannot "
             "run pyodide %s" % (rel["abi"], ", ".join(sorted(wheels)) or "none", version)
         )
 

@@ -49,6 +49,23 @@ macro(InitializeFreeCADBuildOptions)
         set(FREECAD_APP_ICON "freecad")
     endif()
 
+    # The FreeCAD release this code base derives from. A document states it as
+    # the version that wrote it (App/Document.cpp), and upstream's readers
+    # decide by that how to read the file -- a colour's alpha, a taper's
+    # direction -- so it stays upstream's numbering whatever the product calls
+    # itself. Thundereal numbers its builds by date: year, month, day.
+    set(PACKAGE_BASE_VERSION_MAJOR "${PACKAGE_VERSION_MAJOR}")
+    set(PACKAGE_BASE_VERSION_MINOR "${PACKAGE_VERSION_MINOR}")
+    if(THUNDEREAL_IDENTITY)
+        set(PACKAGE_VERSION_MAJOR "2026")
+        set(PACKAGE_VERSION_MINOR "10")
+        set(PACKAGE_VERSION_PATCH "15")
+        set(PACKAGE_VERSION_SUFFIX "dev")
+        set(PACKAGE_VERSION
+            "${PACKAGE_VERSION_MAJOR}.${PACKAGE_VERSION_MINOR}.${PACKAGE_VERSION_PATCH}")
+        set(PACKAGE_STRING "${FREECAD_APP_NAME} ${PACKAGE_VERSION}")
+    endif()
+
     # == Win32 is default behaviour use the LibPack copied in Source tree ==========
     if(MSVC)
         option(FREECAD_RELEASE_PDB "Create PDB files for Release version." ON)

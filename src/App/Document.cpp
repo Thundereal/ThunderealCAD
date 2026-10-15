@@ -2583,6 +2583,55 @@ Document::~Document()
     delete d;
 }
 
+// The version a document states it was written by. It leads with the FreeCAD
+// release the code derives from, which every reader -- this one, upstream's,
+// LinkStage3's -- decides by how to read the file; a product that numbers
+// itself follows the build with its own name and version, the way upstream's
+// own "0.21R33771 (Git)" does: "0.22R1234 (Thundereal 2026.10.15)".
+static std::string programVersionAttribute()
+{
+    auto& cfg = App::Application::Config();
+    const std::string& major = cfg["BuildVersionMajor"];
+    const std::string& minor = cfg["BuildVersionMinor"];
+    auto base = cfg.find("BaseVersionMajor");
+    std::ostringstream s;
+    if (base != cfg.end() && (base->second != major || cfg["BaseVersionMinor"] != minor)) {
+        s << base->second << "." << cfg["BaseVersionMinor"] << "R" << cfg["BuildRevision"] << " ("
+          << cfg["ExeName"] << " " << major << "." << minor << "." << cfg["BuildVersionPoint"]
+          << ")";
+    }
+    else {
+        s << major << "." << minor << "R" << cfg["BuildRevision"];
+    }
+    return s.str();
+}
+
+// What a document says it is, in its zip comment and at the top of its XML:
+// upstream's words for the standard format, which any FreeCAD reads, and the
+// program's own for schema 5, which only this one does.
+// A file that is neither format: this program's and upstream's are both named
+static std::string notADocument()
+{
+    if (!isRebranded()) {
+        return "Not a FreeCAD document";
+    }
+    return "Not a " + App::Application::getExecutableName() + "/FreeCAD document";
+}
+
+static std::string documentKind(int schema)
+{
+    return (schema >= 5 ? App::Application::getExecutableName() : std::string("FreeCAD"))
+        + " Document";
+}
+
+static std::string documentBanner(int schema)
+{
+    if (schema < 5 || !isRebranded()) {
+        return " FreeCAD Document, see http://www.freecadweb.org for more information...\n";
+    }
+    return " " + documentKind(schema) + ", see " + programUrl() + " for more information...\n";
+}
+
 std::string Document::getTransientDirectoryName(const std::string& uuid, const std::string& filename) const
 {
     // Create a directory name of the form: {ExeName}_Doc_{UUID}_{HASH}_{PID}
@@ -2638,10 +2687,7 @@ void Document::Save (Base::Writer &writer) const
     writer.Stream() << '<'
                     << (writer.getSchemaVersion() >= 5 ? FC_ELEM_FCDOCUMENT : "Document")
                     << " SchemaVersion=\"" << writer.getSchemaVersion()
-                    << "\" ProgramVersion=\""
-                    << App::Application::Config()["BuildVersionMajor"] << "."
-                    << App::Application::Config()["BuildVersionMinor"] << "R"
-                    << App::Application::Config()["BuildRevision"]
+                    << "\" ProgramVersion=\"" << programVersionAttribute()
                     << "\" FileVersion=\"" << writer.getFileVersion()
                     << "\" Uid=\"" << Uid.getValueStr()
                     << "\" StringHasher=\"1\"";
@@ -2722,7 +2768,7 @@ void Document::Restore(Base::XMLReader &reader)
     reader.readElement();
     if (strcmp(reader.localName(), "Document") != 0
             && strcmp(reader.localName(), FC_ELEM_FCDOCUMENT) != 0)
-        THROWM(Base::XMLParseException, "Not a FreeCAD document")
+        THROWM(Base::XMLParseException, notADocument())
     long scheme = reader.getAttributeAsInteger("SchemaVersion");
     reader.DocumentSchema = scheme;
     d->fileSchema = scheme;
@@ -3169,10 +3215,7 @@ void Document::exportObjects(const std::vector<App::DocumentObject*>& obj, std::
     writer.putNextEntry("Document.xml");
     writer.Stream() << "<?xml version='1.0' encoding='utf-8'?>\n";
     writer.Stream() << R"(<Document SchemaVersion=")" << writer.getSchemaVersion()
-                        << R"(" ProgramVersion=")"
-                        << App::Application::Config()["BuildVersionMajor"] << "."
-                        << App::Application::Config()["BuildVersionMinor"] << "R"
-                        << App::Application::Config()["BuildRevision"]
+                        << R"(" ProgramVersion=")" << programVersionAttribute()
                         << R"(" FileVersion="1">\n)";
     // Add this block to have the same layout as for normal documents
     writer.Stream() << "<Properties Count=\"0\">\n";
@@ -4184,7 +4227,7 @@ Document::importObjects(Base::XMLReader& reader)
     reader.readElement();
     if (strcmp(reader.localName(), "Document") != 0
             && strcmp(reader.localName(), FC_ELEM_FCDOCUMENT) != 0)
-        THROWM(Base::XMLParseException, "Not a FreeCAD document")
+        THROWM(Base::XMLParseException, notADocument())
     long scheme = reader.getAttributeAsInteger("SchemaVersion");
     reader.DocumentSchema = scheme;
     if (reader.hasAttribute("ProgramVersion")) {
@@ -4889,6 +4932,11 @@ bool Document::saveToFile(const char* filename) const
 
         save(*_writer, archive);
         fileNames = _writer->getFilenames();
+        // Known once the save has resolved the schema; written when the zip closes
+        if (archive) {
+            static_cast<Base::ZipWriter*>(_writer.get())
+                ->setComment(documentKind(_writer->getSchemaVersion()).c_str());
+        }
     }
 
 
@@ -5057,7 +5105,7 @@ void Document::save(Base::Writer &writer, bool archive) const {
 
     writer.Stream() << "<?xml version='1.0' encoding='utf-8'?>\n"
                     << "<!--\n"
-                    << " FreeCAD Document, see http://www.freecadweb.org for more information...\n"
+                    << documentBanner(writer.getSchemaVersion())
                     << "-->\n";
     Document::Save(writer);
     writer.endCapture("Document.xml");
@@ -5810,7 +5858,7 @@ int64_t Document::_snapshotToLog(const char* kind)
         writer.beginCapture();
         writer.Stream() << "<?xml version='1.0' encoding='utf-8'?>\n"
                         << "<!--\n"
-                        << " FreeCAD Document, see http://www.freecadweb.org for more information...\n"
+                        << documentBanner(writer.getSchemaVersion())
                         << "-->\n";
         Document::Save(writer);
         writer.endCapture("Document.xml");

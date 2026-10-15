@@ -3158,6 +3158,11 @@ void Application::initConfig(int argc, char ** argv)
         App::Application::Config()["BuildVersionMinor"  ] = FCVersionMinor;
         App::Application::Config()["BuildVersionPoint"  ] = FCVersionPoint;
         App::Application::Config()["BuildVersionSuffix" ] = FCVersionSuffix;
+        // The FreeCAD release documents state they were written by
+        // (Document.cpp): the one the code derives from, the same as the
+        // above unless the product numbers itself.
+        App::Application::Config()["BaseVersionMajor"   ] = FCBaseVersionMajor;
+        App::Application::Config()["BaseVersionMinor"   ] = FCBaseVersionMinor;
         App::Application::Config()["BuildRevision"      ] = FCRevision;
         App::Application::Config()["BuildRepositoryURL" ] = FCRepositoryURL;
         App::Application::Config()["BuildRevisionDate"  ] = FCRevisionDate;

@@ -50,10 +50,11 @@ using namespace zipios;
 
 bool Base::writerAlphaIsOpacity()
 {
-    // The release this build calls itself, which is what it stamps into the
-    // ProgramVersion attribute of every document it writes -- so it is also
-    // what a later reader will judge those documents by.
-    static const bool opacity = alphaIsOpacity(FCVersionMajor "." FCVersionMinor);
+    // The release this build's code derives from, which is what it stamps
+    // into the ProgramVersion attribute of every document it writes -- so it
+    // is also what a later reader will judge those documents by. Not the
+    // product's own number, which follows it in the attribute.
+    static const bool opacity = alphaIsOpacity(FCBaseVersionMajor "." FCBaseVersionMinor);
     return opacity;
 }
 

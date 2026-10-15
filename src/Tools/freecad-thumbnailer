@@ -7,9 +7,10 @@ Installation:
   and must have execution rights
     "$ sudo chmod +x /usr/bin/freecad-thumbnailer"
 
-- If a FreeCAD project file doesn't include a thumbnail the file org.freecad.FreeCAD.png is used.
-  Thus, the file src/Gui/Icons/thundereal-icon-48.png must be installed.
-    "$ sudo cp thundereal-icon-48.png /usr/share/icons/hicolor/48x48/apps/org.freecad.FreeCAD.png"
+- If a FreeCAD project file doesn't include a thumbnail the application icon is used, under
+  the app id the build installed it by (THUNDEREAL_IDENTITY): com.thundereal.Thundereal.png,
+  else FreeCAD's org.freecad.FreeCAD.png. A build install puts it there; by hand:
+    "$ sudo cp thundereal-icon-48.png /usr/share/icons/hicolor/48x48/apps/com.thundereal.Thundereal.png"
 
 - The application/x-extension-fcstd MIME type should be registered
     Check that a corresponding /usr/share/mime/packages/freecad.xml file exists
@@ -30,9 +31,16 @@ NOTE: To make sure FreeCAD saves thumbnail information:
 
     Edit -> Preferences... -> Document -> Save thumbnail into project when saving document
 """
+import os
 import sys
 import zipfile
 import getopt
+
+# The application icon, under each app id a build may install it by.
+APP_ICONS = [
+    "/usr/share/icons/hicolor/48x48/apps/com.thundereal.Thundereal.png",
+    "/usr/share/icons/hicolor/48x48/apps/org.freecad.FreeCAD.png",
+]
 
 opt, par = getopt.getopt(sys.argv[1:], "-s:")
 input_file = par[0]
@@ -54,8 +62,9 @@ try:
         image = zfile.read(image)
     else:
         # apps should have at least 48x48 icons
-        freecad = open("/usr/share/icons/hicolor/48x48/apps/org.freecad.FreeCAD.png", "rb")
-        image = freecad.read()
+        icon = next(p for p in APP_ICONS if os.path.exists(p))
+        with open(icon, "rb") as freecad:
+            image = freecad.read()
 
     # Write icon to output_file
     thumb = open(output_file, "wb")

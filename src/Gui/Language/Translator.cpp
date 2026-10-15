@@ -277,6 +277,10 @@ Translator::Translator()
 
 Translator::~Translator()
 {
+    // Removing a translator sends LanguageChange, which the filter would answer
+    // by retranslating every top-level widget, at exit. The fallback is always
+    // there when rebranded, so this is every exit then, not only a translated one.
+    qApp->removeEventFilter(this);
     removeTranslators();
     if (d->brandFallback) {
         qApp->removeTranslator(d->brandFallback);

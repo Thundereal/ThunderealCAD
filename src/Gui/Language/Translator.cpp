@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 #ifndef _PreComp_
 # include <algorithm>
+# include <cstring>
 # include <QApplication>
 # include <QComboBox>
 # include <QDir>
@@ -34,6 +35,7 @@
 #endif
 
 #include <App/Application.h>
+#include <App/BrandText.h>
 #include <Gui/TextEdit.h>
 #include "Translator.h"
 #include <Gui/GeneralParams.h>
@@ -128,6 +130,50 @@ private:
     bool blocked;
 };
 
+/**
+ * A translator that puts the program's name for FreeCAD where FreeCAD means
+ * this program (App/BrandText.h), installed only when the program goes by
+ * another name. One loads each .qm file, so a translation is put right in
+ * whichever file it comes from; the fallback, installed before all of them and
+ * so asked last, puts it in the English text no file has a translation for.
+ */
+class BrandTranslator : public QTranslator
+{
+public:
+    explicit BrandTranslator(bool fallback)
+        : fallback(fallback)
+    {}
+
+    QString translate(const char* context,
+                      const char* sourceText,
+                      const char* disambiguation,
+                      int n) const override
+    {
+        const bool mentions = sourceText && std::strstr(sourceText, "FreeCAD");
+        if (fallback) {
+            if (!mentions) {
+                return {};
+            }
+            const QString source = QString::fromUtf8(sourceText);
+            QString text = App::brandText(source);
+            return text == source ? QString() : text;
+        }
+        QString text = QTranslator::translate(context, sourceText, disambiguation, n);
+        if (text.isEmpty() || !mentions) {
+            return text;
+        }
+        return App::brandTranslation(QString::fromUtf8(sourceText), text);
+    }
+
+    bool isEmpty() const override
+    {
+        return !fallback && QTranslator::isEmpty();
+    }
+
+private:
+    bool fallback;
+};
+
 class TranslatorP
 {
 public:
@@ -136,6 +182,7 @@ public:
     TStringMap mapSupportedLocales;
     std::list<QTranslator*> translators; /**< A list of all created translators */
     QStringList paths;
+    BrandTranslator* brandFallback = nullptr; /**< Asked last, when rebranded */
 };
 }
 
@@ -220,12 +267,21 @@ Translator::Translator()
 
     d->paths = directories();
 
+    if (App::isRebranded()) {
+        d->brandFallback = new BrandTranslator(true);
+        qApp->installTranslator(d->brandFallback);
+    }
+
     enableDecimalPointConversion(GeneralParams::getSubstituteDecimalSeparator());
 }
 
 Translator::~Translator()
 {
     removeTranslators();
+    if (d->brandFallback) {
+        qApp->removeTranslator(d->brandFallback);
+        delete d->brandFallback;
+    }
     delete d;
 }
 
@@ -417,7 +473,8 @@ void Translator::installQMFiles(const QDir& dir, const char* locale)
 
         // okay, we need to install this file
         if (!ok) {
-            auto translator = new QTranslator;
+            QTranslator* translator =
+                App::isRebranded() ? new BrandTranslator(false) : new QTranslator;
             translator->setObjectName(it);
             if (translator->load(dir.filePath(it))) {
                 qApp->installTranslator(translator);

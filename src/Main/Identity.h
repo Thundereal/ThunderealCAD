@@ -5,8 +5,9 @@
 // FREECAD_APP_NAME for every target here, and THUNDEREAL_IDENTITY when it is ON;
 // OFF is upstream's text, byte for byte.
 //
-// The copyright line stays upstream's under either setting: it names the
-// authors of the code, and the code is theirs.
+// The copyright line keeps upstream's authors under either setting: it names
+// the authors of the code, and the code is theirs. Thundereal's own goes in
+// front of theirs.
 
 #ifndef MAIN_IDENTITY_H
 #define MAIN_IDENTITY_H
@@ -15,9 +16,11 @@
 #define FREECAD_APP_NAME "FreeCAD"
 #endif
 
-#define FREECAD_COPYRIGHT_AUTHORS "Juergen Riegel, Werner Mayer, Yorik van Havre and others 2001-2023\n"
+#define FREECAD_UPSTREAM_AUTHORS "Juergen Riegel, Werner Mayer, Yorik van Havre and others 2001-2023\n"
 
 #ifdef THUNDEREAL_IDENTITY
+
+#define FREECAD_COPYRIGHT_AUTHORS "Thundereal Technologies 2026; " FREECAD_UPSTREAM_AUTHORS
 
 #define FREECAD_LICENSE_INFO                                                                       \
     "Thundereal is free and open-source software licensed under the terms of LGPL2+ license.\n"
@@ -54,6 +57,7 @@
     "  #     #   #### ####  #    #     # #   # \n"                                                 \
     "  #     #   #    #     #    #     # #   #  ##  ##  ##\n"                                      \
     "  #     #   #### ####   ### #     # ####   ##  ##  ##\n\n"
+#define FREECAD_COPYRIGHT_AUTHORS FREECAD_UPSTREAM_AUTHORS
 #define FREECAD_MAINTAINER_URL "https://www.freecad.org/wiki/Main_Page"
 // FREECAD_ISSUE_PAGE unset: App falls back to upstream's tracker.
 #define FREECAD_SPLASH_INFO_POSITION "6,75"

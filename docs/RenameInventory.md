@@ -73,12 +73,13 @@ not a tree-wide sed. Everything else is assets, packaging, and migration.
 
 | Item | Where | Notes |
 |---|---|---|
-| `ExeName` / `ExeVendor` | `src/Main/MainGui.cpp`, `MainCmd.cpp`, `MainPy.cpp`, `FreeCADGuiPy.cpp`, `Identity.h` | done: `ExeName` is `FREECAD_APP_NAME` -- Thundereal ON, FreeCAD OFF -- so the window title, the Qt application name, the version line, the log file name, the Start page's welcome, the splash's text and the file dialogs' "FreeCAD" filters follow it. `Identity.h` holds the rest of what the executables say about themselves: the console banner (its ASCII-art name), the license and credits lines ("Thundereal is based on FreeCAD, and wouldn't be possible without the FreeCAD community"), the About dialog's link and Help > Report a bug, both to `github.com/Thundereal/Thundereal`. The copyright line stays upstream's: it names the authors of the code. `ExeVendor` stays FreeCAD, and the user folders do too (section 3). The Windows version resource and the macOS bundle name follow `FREECAD_APP_NAME`; the binaries keep their names |
-| Binary names `FreeCAD`, `FreeCADCmd` | `src/Main/CMakeLists.txt` (`SET_BIN_DIR`) | keep old names as symlinks for one release cycle |
+| `ExeName` / `ExeVendor` | `src/Main/MainGui.cpp`, `MainCmd.cpp`, `MainPy.cpp`, `FreeCADGuiPy.cpp`, `Identity.h` | done: `ExeName` is `FREECAD_APP_NAME` -- Thundereal ON, FreeCAD OFF -- so the window title, the Qt application name, the version line, the log file name, the Start page's welcome, the splash's text and the file dialogs' "FreeCAD" filters follow it. `Identity.h` holds the rest of what the executables say about themselves: the console banner (its ASCII-art name), the license and credits lines ("Thundereal is based on FreeCAD, and wouldn't be possible without the FreeCAD community"), the About dialog's link and Help > Report a bug, both to `github.com/Thundereal/Thundereal`. The copyright line puts "Thundereal Technologies 2026" in front of upstream's authors, who stay: they wrote the code. `ExeVendor` follows the name too, so Qt's window-state file moves with the user folders (section 3). The version: ON numbers the product by date, `2026.10.15dev` (`InitializeFreeCADBuildOptions.cmake`), while a document still states the FreeCAD release the code derives from, `PACKAGE_BASE_VERSION` (0.22), as the version that wrote it, with the product's name and version after the build -- `0.22R1234 (Thundereal 2026.10.15)`. Upstream's readers decide by that release how to read a colour's alpha and several features, so a date there would have every upstream reader misread this fork's files. The Windows version resource and the macOS bundle and its executable follow `FREECAD_APP_NAME` |
+| Binary names `FreeCAD`, `FreeCADCmd` | `src/Main/CMakeLists.txt` (`SET_BIN_DIR`) | done: `Thundereal`, `ThunderealCmd` and `Thundereal.app`. Off Windows, `FreeCAD` and `FreeCADCmd` stay beside them as links, in the build tree and the installed bin, for the scripts, tests and add-ons that start them by name (`fc_keep_upstream_name`). Windows -- a portable zip -- has the new names only. The NSIS installer is not maintained: its `APP_NAME` is at once the exe path, the registry key and the Start menu name |
 | CMake `project(FreeCAD)` | top-level `CMakeLists.txt:22` | cosmetic but sets several derived vars |
-| Icons & splash | `src/Gui/Icons/freecad*.{svg,png,xpm}`, `freecadsplash.png`, `freecadabout.png` | icons done: the T-strike mark, drawn by `src/Tools/thundereal-icons.py` into the app icon (`thundereal*.svg`/`.png`/`.xpm`, Windows `.ico`, macOS `.icns`), the `.TStd` document icon, the empty-window watermark, the package-box label, the browser viewer's favicon and, in line art, the title-block logo of TechDraw's 12 ISO 7200 templates (TechDraw's build swaps it into a copy of each template). Upstream's artwork stays beside it under its own names, and `THUNDEREAL_IDENTITY` picks the set: the code asks for `freecad` as upstream does, and a generated `Branding.qrc` maps `:/icons/freecad.svg` and the package box's names to the picked files. `.FCStd` keeps FreeCAD's document icon -- the format is FreeCAD's -- and `.TStd` keeps its own under either setting. The browser viewer, its own CMake project, has a `THUNDEREAL_IDENTITY` of its own: ON writes `thundereal-favicon.html` into a copy of `shell.html`. Splash and About still to draw (they need a wordmark) |
-| About dialog | `src/Gui/Splashscreen.cpp`, `AboutApplication.ui` | must credit lineage: "based on FreeCAD" (LGPL attribution is code-level; this is courtesy + clarity). Done in text: the name, the credits line and the Credits tab's "FreeCAD would not be possible without". The picture is still `freecadabout.png`, FreeCAD's wordmark, as is the splash -- they need a Thundereal wordmark |
-| Desktop/AppStream | `src/XDGData/org.freecad.FreeCAD.desktop`, `org.freecad.FreeCAD.metainfo.xml.in` | done: the CMake switch `THUNDEREAL_IDENTITY` (ON) gives the app id `com.thundereal.Thundereal` and Thundereal's artwork (OFF: `org.freecad.FreeCAD` and upstream's artwork, its files byte for byte). It names the installed desktop entry, AppStream data, MIME package and hicolor app icons, and the running app's desktop file name (Wayland app_id). The sources keep upstream's file names. `Name=` and `<name>` follow `FREECAD_APP_NAME`; the AppStream description, developer name, screenshots and URLs are still upstream's copy |
+| Icons & splash | `src/Gui/Icons/freecad*.{svg,png,xpm}`, `freecadsplash.png`, `freecadabout.png` | icons done: the T-strike mark, drawn by `src/Tools/thundereal-icons.py` into the app icon (`thundereal*.svg`/`.png`/`.xpm`, Windows `.ico`, macOS `.icns`), the `.TStd` document icon, the empty-window watermark, the package-box label, the browser viewer's favicon and, in line art, the title-block logo of TechDraw's 12 ISO 7200 templates (TechDraw's build swaps it into a copy of each template). Upstream's artwork stays beside it under its own names, and `THUNDEREAL_IDENTITY` picks the set: the code asks for `freecad` as upstream does, and a generated `Branding.qrc` maps `:/icons/freecad.svg` and the package box's names to the picked files. `.FCStd` keeps FreeCAD's document icon -- the format is FreeCAD's -- and `.TStd` keeps its own under either setting. The browser viewer, its own CMake project, has a `THUNDEREAL_IDENTITY` of its own: ON writes `thundereal-favicon.html` into a copy of `shell.html`. The splash (1x and 2x) and the About picture are drawn by the same script, the wordmark set in Ubuntu Sans Bold as outlines, and `Branding.qrc` maps them to `freecadsplash*.png` and `freecadabout.png`; the splash then writes only the version, under the wordmark (`SplashInfoExeName`, `SplashInfoPosition`), and a development build's warning wraps onto more lines to stay left of the mark (`SplashWarningWidth`) |
+| About dialog | `src/Gui/Splashscreen.cpp`, `AboutApplication.ui` | must credit lineage: "based on FreeCAD" (LGPL attribution is code-level; this is courtesy + clarity). Done: the name, the credits line, the Credits tab's "FreeCAD would not be possible without", and the picture, which says "Parametric 3D CAD, based on FreeCAD" under the wordmark |
+| Desktop/AppStream | `src/XDGData/org.freecad.FreeCAD.desktop`, `org.freecad.FreeCAD.metainfo.xml.in` | done: the CMake switch `THUNDEREAL_IDENTITY` (ON) gives the app id `com.thundereal.Thundereal` and Thundereal's artwork (OFF: `org.freecad.FreeCAD` and upstream's artwork, its files byte for byte). It names the installed desktop entry, AppStream data, MIME package and hicolor app icons, and the running app's desktop file name (Wayland app_id). The sources keep upstream's file names. `Name=` and `<name>` follow `FREECAD_APP_NAME`; so do the AppStream data's developer (Thundereal Technologies), the description's name ("Thundereal, based on FreeCAD, is ...") and its URLs: the website, the repository, its tracker, wiki and contributing guide. The screenshots are still upstream's |
+| Help menu | `src/Gui/CommandStd.cpp` (`helpSiteUrl`), `Identity.h` (`FREECAD_HELP_SITES`) | done: ON gives the Website (thundereal.com), Forum (the repository's Discussions), Users and Python documentation, Help Website and FAQ (its wiki) and Donate (thundereal.com/#support) entries the program's own sites, and their texts the name. A URL in `BaseApp/Preferences/Websites` equal to upstream's default is the default an earlier build stored, not the user's choice, and is replaced; any other is kept. Help > Report a bug does the same with upstream's tracker. The per-command help (F1, the Help module) is still upstream's wiki |
 | WASM viewer page | `src/Gui/Renderer/wasm/shell.html` title/strings (few sites) | the page strangers see first — highest identity leverage per line changed |
 | Start page / workbench strings | every `tr()`, `.ui` and Python `translate()` string | done at run time, not in the sources: see "The name in text" below. No source string or `.ts` file changes, so every language keeps its translation and merges from upstream stay clean |
 | Windows installer / macOS bundle ids | packaging repos | macOS done: `CFBundleIdentifier` (was empty) and the `.TStd` UTI (`com.thundereal.tstd`) follow `THUNDEREAL_IDENTITY`. Windows has no app id to set (no AppUserModelID in the tree) |
@@ -91,15 +92,21 @@ rest mean upstream and must keep the word. `App/BrandText.cpp` tells them
 apart, and does nothing at all unless `ExeName` is other than FreeCAD:
 
 - **Kept**: upstream's sites and people (FreeCAD wiki, forum, website, FAQ,
-  team, community, users, development, documentation, GitHub), its add-ons
-  (FreeCAD Addon), its versions (FreeCAD 0.19, FreeCAD version, an earlier
+  team, community, users, development, documentation, GitHub), its versions (FreeCAD 0.19, FreeCAD version, an earlier
   version of FreeCAD, FreeCAD older than v0.15), a name, path or link
   (`FreeCAD.ActiveDocument`, `.FreeCAD/Mod`, `github.com/FreeCAD/...`,
   FreeCAD-VR), and whole strings that speak for upstream: the credits ("would
   not be possible without"), "at FreeCAD, we believe", "part of FreeCAD",
-  "made with FreeCAD", "requires FreeCAD <version>", and the names of its
-  themes (FreeCAD Classic/Dark/Light) and formats (FreeCAD macro, FreeCAD Tool
-  Library).
+  "made with FreeCAD", "requires FreeCAD <version>".
+- **Dropped**, where the word only says the thing is FreeCAD's and reads true
+  without it for either program: the themes' names (FreeCAD Classic, Dark,
+  Light become Classic, Dark, Light), two formats' (FreeCAD macro, FreeCAD Tool
+  Library), and the add-ons ("Installing FreeCAD Addon" is "Installing Addon",
+  "a FreeCAD Addon" is "an Addon"). A translation drops it with what joined it
+  to its neighbour ("FreeCAD-Makro" is "Makro").
+- **Every FreeCAD named**, in the Help commands whose site is the program's
+  own (the Help menu row above), whatever the rules would say: "FreeCAD
+  Forum", "Donate to FreeCAD development".
 - **Rephrased**, in this fork's own text: "this FreeCAD" -- this build, as
   against upstream -- becomes the name ("only Thundereal reads"), and "other
   FreeCAD" becomes FreeCAD ("will not open in any FreeCAD").
@@ -114,10 +121,21 @@ hyphenated compounds included ("FreeCAD-Datei"). Untranslated text calls
 schema 5 save warnings, the sandbox's errors). Tests:
 `tests/src/App/BrandText.cpp`.
 
-Not covered: translators a Python add-on installs itself, untranslated
-Python strings, and the exported files' provenance ("Created by FreeCAD
-<https://www.freecad.org>" in OBJ/PLY/STL/3MF/SVG/STEP headers, G-code
-comments, screenshots), which waits on which name and URL they should carry.
+Not covered: translations a Python add-on loads with a `QTranslator` of its
+own rather than through `FreeCADGui.addLanguagePath` (its English text still
+passes the fallback), and untranslated Python strings.
+
+The files the program writes say who made them by its name and the
+repository's URL (`App::createdBy()`, `App::programUrl()`, the `ProgramUrl`
+config key; FreeCAD and freecad.org when OFF): the mesh formats (OBJ, PLY,
+3MF, Inventor, VRML, Asymptote), both STEP writers (originating system,
+description and, in `Part.Shape.exportStep`, author and organisation), DXF,
+the SVG view export, screenshots, TechDraw's SVG, the FEM and CAM writers
+(G-code's "(Exported by ...)", Nastran, Z88, CalculiX, gmsh), the OpenSCAD,
+OCA, Kuka, Collada, gbXML, JSON and BIM OBJ exporters and the material cards.
+A standard document's zip comment and XML banner keep "FreeCAD Document"; a
+schema 5 one says "Thundereal Document". A file that is neither is "Not a
+Thundereal/FreeCAD document".
 
 ## 3. Change with migration — filesystem & OS integration
 
@@ -125,15 +143,23 @@ These rename *and* must keep reading the old locations, the same
 backward-compatible pattern the fork already practices for document
 properties:
 
-- **User config/data** (not started -- `AppDataName`, set by `Identity.h`,
-  keeps the folders FreeCAD's while `ExeName` is Thundereal; until this is
-  done the program still shares `user.cfg`, macros and add-ons with an
-  upstream FreeCAD on the same machine; Qt's window-state file is named by
-  `ExeName`, so it is `FreeCAD/Thundereal.conf` now and the window size and
-  position reset once): `~/.config/FreeCAD/`, `~/.local/share/FreeCAD/`,
-  `%APPDATA%\FreeCAD` → new name, with first-run migration (copy, don't
-  move; leave a marker). `user.cfg`/`system.cfg` contents are
-  name-agnostic.
+- **User config/data** (done): the folders follow `ExeName` --
+  `~/.config/Thundereal/`, `~/.local/share/Thundereal/`, `~/.cache/Thundereal/`,
+  `%APPDATA%\Thundereal`. The first start with no `user.cfg` of its own copies
+  FreeCAD's over (`migrateUserFiles` in `App/Application.cpp`): the data folder
+  -- macros, add-ons, materials, preference packs, everything but logs and
+  settings -- and the settings, a LinkStage3 release's `user.link.cfg` before a
+  plain `user.cfg` (and `system.link.cfg` before `system.cfg`). A
+  `user.link.cfg` has its colour convention converted on the way, as a vendor
+  rename always did; a plain `user.cfg` may be in either, and is left as this
+  build already read it. Paths in the copied settings that pointed into the
+  old folders point into the new ones. The old folders are left alone, for an
+  upstream FreeCAD still using them; `MigratedFrom.txt` in the new settings
+  folder records the copy, so it happens once. Nothing is copied when
+  `FREECAD_USER_HOME` or `FREECAD_USER_DATA` names the folders. Qt's
+  window-state file is not copied, so the window size and position reset
+  once. `AppDataName` (config key, or branding.xml) can still keep a renamed
+  build in another name's folders.
 - **Cache**: `~/.cache/FreeCAD/` — safe to start fresh (it is transient by
   definition), no migration needed.
 - **MIME/file association**: register the new app id as handler for the
@@ -142,11 +168,14 @@ properties:
   declared beside it, with the thumbnailer and `.desktop` entry taking both;
   its icon is `thundereal-doc.svg`, with drawings of its own for 16 to 32 px.
 - **Lock files / single-instance keys / crash-recovery folders** derive from
-  `ExeName` (now Thundereal, so a document an upstream FreeCAD left after a
-  crash is no longer offered for recovery here, nor the other way round, and
-  the first run after the rename does not offer one left by the last run
-  under the old name) -- old and new
-  builds will not see each other's instances during a transition; acceptable.
+  `ExeName` and live in the cache folder, which moved too: recovery looks for
+  `Thundereal_<pid>.lock` and `Thundereal_Doc_*` in `~/.cache/Thundereal`. So a
+  document an upstream FreeCAD left after a crash is no longer offered for
+  recovery here, nor the other way round, and the first run after the rename
+  does not offer one left by a crash of the last run under the old name (run
+  that build once to recover it). A file opened from the desktop while both
+  run goes to the program named in the desktop entry, not to whichever started
+  first.
 
 ## 4. Change — ecosystem & packaging (outside this repo)
 

@@ -8,7 +8,7 @@
 //
 // Icon with lowest ID value placed first to ensure application icon
 // remains consistent on all systems.
-IDI_ICON1               ICON    DISCARDABLE     "icon.ico"
+IDI_ICON1               ICON    DISCARDABLE     "@FREECAD_APP_ICO@"
 
 // File info for the FreeCADCmd.exe
 //

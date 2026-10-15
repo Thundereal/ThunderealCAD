@@ -390,8 +390,19 @@ set (FreeCAD_TR_QRC ${CMAKE_CURRENT_BINARY_DIR}/Language/FreeCAD_translation.qrc
 qt_find_and_add_translation(QM_SRCS "Language/FreeCAD_*.ts"
     ${CMAKE_CURRENT_BINARY_DIR}/Language)
 qt_create_resource_file_prefix(${FreeCAD_TR_QRC} ${QM_SRCS})
+# The artwork THUNDEREAL_IDENTITY picks, under the names code and add-ons ask for.
+if(THUNDEREAL_IDENTITY)
+    set(FREECAD_PACKAGE_ICON thundereal-package.svg)
+    set(FREECAD_WORKBENCHES_ICON thundereal-package.svg)
+else()
+    set(FREECAD_PACKAGE_ICON document-package.svg)
+    set(FREECAD_WORKBENCHES_ICON preferences-workbenches.svg)
+endif()
+set(FREECAD_BRAND_ICONS ${CMAKE_CURRENT_SOURCE_DIR}/Icons)
+configure_file(Icons/Branding.qrc.in ${CMAKE_CURRENT_BINARY_DIR}/Branding.qrc @ONLY)
 set(Gui_RES_SRCS
     Icons/resource.qrc
+    ${CMAKE_CURRENT_BINARY_DIR}/Branding.qrc
     Fw/fwui.qrc
     Language/translation.qrc
     ${FreeCAD_TR_QRC}
@@ -1706,13 +1717,13 @@ else(WIN32)
     #    Icons/freecad-doc.png
     #    DESTINATION ${CMAKE_INSTALL_DATADIR}
     #)
-    # The Thundereal icons, under the desktop entry's id until the id itself changes;
-    # src/Tools/thundereal-icons.py draws them.
+    # The application icon THUNDEREAL_IDENTITY picks, named by the app id the desktop
+    # entry asks for; src/Tools/thundereal-icons.py draws Thundereal's.
     foreach(_size 16 32 48 64)
-        INSTALL(FILES Icons/thundereal-icon-${_size}.png DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/${_size}x${_size}/apps RENAME org.freecad.FreeCAD.png)
+        INSTALL(FILES Icons/${FREECAD_APP_ICON}-icon-${_size}.png DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/${_size}x${_size}/apps RENAME ${FREECAD_APP_ID}.png)
     endforeach()
-    INSTALL(FILES Icons/thundereal.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps RENAME org.freecad.FreeCAD.svg)
-    INSTALL(FILES Icons/thundereal.xpm DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pixmaps RENAME freecad.xpm)
+    INSTALL(FILES Icons/${FREECAD_APP_ICON}.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/apps RENAME ${FREECAD_APP_ID}.svg)
+    INSTALL(FILES Icons/${FREECAD_APP_ICON}.xpm DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/pixmaps)
     INSTALL(FILES Icons/freecad-doc.svg DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/scalable/mimetypes RENAME application-x-extension-fcstd.svg)
     # A .TStd has the brand's document icon. The scalable one carries a band naming the
     # extension, which is a smudge below 48 px, so the small sizes have drawings of their own.

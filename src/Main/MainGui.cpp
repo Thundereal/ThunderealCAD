@@ -190,7 +190,7 @@ int main( int argc, char ** argv )
 
     // set the banner (for logging and console)
     App::Application::Config()["CopyrightInfo"] = sBanner;
-    App::Application::Config()["AppIcon"] = "thundereal";
+    App::Application::Config()["AppIcon"] = "freecad";
     App::Application::Config()["SplashScreen"] = "freecadsplash";
     App::Application::Config()["AboutImage"] = "freecadabout";
     App::Application::Config()["StartWorkbench"] = "PartDesignWorkbench";
@@ -200,7 +200,9 @@ int main( int argc, char ** argv )
     App::Application::Config()["SplashInfoColor" ] = "#8aadf4"; // light blue 
     App::Application::Config()["SplashInfoPosition" ] = "6,75";
 
-    QGuiApplication::setDesktopFileName(QStringLiteral("org.freecad.FreeCAD.desktop"));
+    // The app id from the build (THUNDEREAL_IDENTITY): the desktop entry the shell
+    // matches windows to, and the Wayland app_id. Qt wants the name with no suffix.
+    QGuiApplication::setDesktopFileName(QStringLiteral(FREECAD_APP_ID));
 
     try {
         // Init phase ===========================================================

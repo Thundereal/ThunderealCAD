@@ -23,6 +23,26 @@ macro(InitializeFreeCADBuildOptions)
     endif()
     option(FREECAD_FORCE_USE_QT_FILEDIALOG "Always use Qt's file dialog and ignore user parameter settings." OFF)
 
+    # The identity: the reverse-DNS app id that names the desktop entry, the AppStream
+    # data, the MIME package, the installed application icons, the Wayland app_id and
+    # the macOS bundle, and the artwork that shows the app -- the application icon in
+    # every form, the empty-window watermark and the package box's label. ON is this
+    # fork's own, so it installs and groups apart from upstream FreeCAD; OFF is
+    # upstream's id and upstream's artwork. FREECAD_APP_ICON is the artwork's base
+    # name (Icons/<name>.svg, <name>-icon-<size>.png, background_<name>*.svg, ...).
+    # It is all derived, not cached, so flipping the switch always takes effect.
+    option(THUNDEREAL_IDENTITY
+        "Thundereal's app id (com.thundereal.Thundereal) and icons, OFF for FreeCAD's (org.freecad.FreeCAD)" ON)
+    if(THUNDEREAL_IDENTITY)
+        set(FREECAD_APP_ID_DOMAIN "com.thundereal")
+        set(FREECAD_APP_ID "com.thundereal.Thundereal")
+        set(FREECAD_APP_ICON "thundereal")
+    else()
+        set(FREECAD_APP_ID_DOMAIN "org.freecad")
+        set(FREECAD_APP_ID "org.freecad.FreeCAD")
+        set(FREECAD_APP_ICON "freecad")
+    endif()
+
     # == Win32 is default behaviour use the LibPack copied in Source tree ==========
     if(MSVC)
         option(FREECAD_RELEASE_PDB "Create PDB files for Release version." ON)

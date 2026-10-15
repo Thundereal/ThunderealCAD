@@ -1,0 +1,9 @@
+<RCC>
+    <!-- The artwork THUNDEREAL_IDENTITY picks, under the names the code and
+         add-ons ask for: Thundereal's when ON, FreeCAD's own when OFF. -->
+    <qresource prefix="/icons">
+        <file alias="freecad.svg">@FREECAD_BRAND_ICONS@/@FREECAD_APP_ICON@.svg</file>
+        <file alias="document-package.svg">@FREECAD_BRAND_ICONS@/@FREECAD_PACKAGE_ICON@</file>
+        <file alias="preferences-workbenches.svg">@FREECAD_BRAND_ICONS@/@FREECAD_WORKBENCHES_ICON@</file>
+    </qresource>
+</RCC>

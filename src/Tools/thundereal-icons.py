@@ -11,12 +11,18 @@ here, so a change to the mark is made once and the files follow:
     src/Gui/Icons/thundereal-mark.svg       the mark alone, for other grounds
     src/Gui/Icons/thundereal-doc*.svg       the .TStd document icon
     src/Gui/Icons/*.png, thundereal.xpm     rasters for XDG and Qt resources
-    src/Main/icon.ico, the installer .ico   Windows
-    src/MacAppBundle/.../*.icns             macOS
-    src/Gui/Stylesheets/images_*/background_freecad*.svg, .png
+    src/Main/thundereal.ico, the installer's Thundereal.ico
+                                            Windows
+    src/MacAppBundle/.../thundereal*.icns   macOS
+    src/Gui/Stylesheets/images_*/background_thundereal*.svg, .png
                                             the empty-window watermark
-    src/Gui/Icons/document-package.svg,
-    preferences-workbenches.svg             the label on the package box
+    src/Gui/Icons/thundereal-package.svg    the package box, wearing the icon
+    src/Gui/Renderer/wasm/thundereal-favicon.html
+                                            the browser viewer's tab icon
+
+FreeCAD's own artwork stays beside each of these under its own name, and the
+build switch THUNDEREAL_IDENTITY picks one set; this script only reads
+upstream's package box, to dress it.
 
 Run it with the conda environment's Python, which has PySide6 and Pillow:
 
@@ -325,12 +331,12 @@ def write_svgs():
     for folder in ("images_dark-light", "images_classic"):
         d = os.path.join(SHEETS, folder)
         write(
-            os.path.join(d, "background_freecad.svg"),
+            os.path.join(d, "background_thundereal.svg"),
             svg(200, 187, paths(parts, wm, opacity=0.22), "Thundereal"),
         )
         for name, ink in (("dark", "#000000"), ("light", "#FFFFFF")):
             write(
-                os.path.join(d, "background_freecad_%s.svg" % name),
+                os.path.join(d, "background_thundereal_%s.svg" % name),
                 svg(200, 187, paths(parts, wm, fill=ink, opacity=shade), "Thundereal"),
             )
 
@@ -341,19 +347,15 @@ def write_svgs():
     pad = "\n" + " " * 12
     group = "<g" + pad + '   id="thundereal-mark">' + pad + "  "
     group += (pad + "  ").join(label) + pad + "</g>"
-    for name in ("document-package.svg", "preferences-workbenches.svg"):
-        p = os.path.join(ICONS, name)
-        with open(p, encoding="utf-8", newline="") as f:
-            text = f.read()
-        # The first run finds upstream's logo group, later ones the label.
-        text = replace_group(text, "thundereal-mark", group) or replace_group(
-            text, "g3813-3", group
-        )
-        if not text:
-            sys.exit("no label group in " + name)
-        with open(p, "w", encoding="utf-8", newline="") as f:
-            f.write(text)
-        print("wrote", os.path.relpath(p, ROOT))
+    # Upstream's box, with its logo group swapped for the label.
+    with open(os.path.join(ICONS, "document-package.svg"), encoding="utf-8", newline="") as f:
+        text = replace_group(f.read(), "g3813-3", group)
+    if not text:
+        sys.exit("no logo group in document-package.svg")
+    p = os.path.join(ICONS, "thundereal-package.svg")
+    with open(p, "w", encoding="utf-8", newline="") as f:
+        f.write(text)
+    print("wrote", os.path.relpath(p, ROOT))
 
 
 def replace_group(text, gid, new):
@@ -469,9 +471,11 @@ def write_rasters():
     save_xpm(app_image(32), os.path.join(ICONS, "thundereal.xpm"), "thundereal")
 
     ico = [app_image(s) for s in (16, 24, 32, 48, 64, 128, 256)]
-    save_multi(os.path.join(ROOT, "src", "Main", "icon.ico"), "ICO", ico)
+    save_multi(os.path.join(ROOT, "src", "Main", "thundereal.ico"), "ICO", ico)
     save_multi(
-        os.path.join(ROOT, "tools", "build", "WindowsInstaller", "icons", "FreeCAD.ico"), "ICO", ico
+        os.path.join(ROOT, "tools", "build", "WindowsInstaller", "icons", "Thundereal.ico"),
+        "ICO",
+        ico,
     )
 
     # macOS draws an application icon inside the grid's 824 of 1024 units;
@@ -481,7 +485,7 @@ def write_rasters():
     def mac_app(px, scale):
         return app_image(16) if px == 16 and scale == 1 else app_image(px, 824 / 1024)
 
-    save_icns(os.path.join(MAC, "freecad.icns"), mac_app)
+    save_icns(os.path.join(MAC, "thundereal.icns"), mac_app)
     # A @2x entry takes the drawing for the size it stands for: 16 pt at 32 px
     # is the page without its band.
     def mac_doc(px, scale):
@@ -492,7 +496,8 @@ def write_rasters():
     save_icns(os.path.join(MAC, "thundereal-doc.icns"), mac_doc)
 
     for folder in ("images_classic",):
-        for name in ("background_freecad", "background_freecad_dark", "background_freecad_light"):
+        for variant in ("", "_dark", "_light"):
+            name = "background_thundereal" + variant
             r = QtSvg.QSvgRenderer(os.path.join(SHEETS, folder, name + ".svg"))
             img = QtGui.QImage(320, 299, QtGui.QImage.Format_ARGB32)
             img.fill(0)
@@ -507,8 +512,9 @@ def write_rasters():
 
 def write_favicon():
     """The browser viewer's tab icon, inline in its page: the page is served
-    alone, with no folder of assets beside it."""
-    page = os.path.join(ROOT, "src", "Gui", "Renderer", "wasm", "shell.html")
+    alone, with no folder of assets beside it. The viewer's build writes the
+    link into its shell when THUNDEREAL_IDENTITY is on."""
+    out = os.path.join(ROOT, "src", "Gui", "Renderer", "wasm", "thundereal-favicon.html")
     with open(os.path.join(ICONS, "thundereal.svg"), encoding="ascii") as f:
         body = f.read()
     drop = r"<\?xml[^>]*>\s*|<title>.*?</title>\s*|<desc>.*?</desc>\s*"
@@ -516,15 +522,7 @@ def write_favicon():
     body = re.sub(r' id="[^"]*"', "", re.sub(r"\s*\n\s*", "", body)).replace('"', "'")
     data = body.replace("%", "%25").replace("#", "%23").replace("<", "%3C").replace(">", "%3E")
     link = '<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%s">' % data
-    with open(page, encoding="utf-8", newline="") as f:
-        text = f.read()
-    if '<link rel="icon"' in text:
-        text = re.sub(r'<link rel="icon"[^>]*>', lambda m: link, text, count=1)
-    else:
-        text = text.replace("  <title>", "  " + link + "\n  <title>", 1)
-    with open(page, "w", encoding="utf-8", newline="") as f:
-        f.write(text)
-    print("wrote", os.path.relpath(page, ROOT))
+    write(out, link + "\n")
 
 
 if __name__ == "__main__":

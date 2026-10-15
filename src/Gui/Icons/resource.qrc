@@ -12,10 +12,6 @@
         <file>disabled.svg</file>
         <file>list-remove.svg</file>
         <file>list-add.svg</file>
-        <file>thundereal.svg</file>
-        <!-- The application icon under the name it had, for the code and add-ons
-             that ask for it by that name. -->
-        <file alias="freecad.svg">thundereal.svg</file>
         <file>freecad-doc.png</file>
         <file>freecad-doc.svg</file>
         <file>thundereal-doc.svg</file>
@@ -41,7 +37,6 @@
         <file>preferences-python.svg</file>
         <file>preferences-general.svg</file>
         <file>preferences-import-export.svg</file>
-        <file>preferences-workbenches.svg</file>
         <file>utilities-terminal.svg</file>
         <file>ClassBrowser/const_member.png</file>
         <file>ClassBrowser/member.png</file>
@@ -315,7 +310,6 @@
         <file>Invisible.svg</file>
         <file>folder.svg</file>
         <file>document-python.svg</file>
-        <file>document-package.svg</file>
         <file>Std_DatumPoint.svg</file>
         <file>Std_DatumLine.svg</file>
         <file>Std_DatumPlane.svg</file>

@@ -1,4 +1,11 @@
 
+# The executables' icon is the one THUNDEREAL_IDENTITY picks, by full path so the
+# resource compiler cannot find the other one first.
+if(THUNDEREAL_IDENTITY)
+    set(FREECAD_APP_ICO ${CMAKE_CURRENT_SOURCE_DIR}/thundereal.ico)
+else()
+    set(FREECAD_APP_ICO ${CMAKE_CURRENT_SOURCE_DIR}/icon.ico)
+endif()
 configure_file(freecad.rc.cmake ${CMAKE_CURRENT_BINARY_DIR}/freecad.rc)
 configure_file(freecadCmd.rc.cmake ${CMAKE_CURRENT_BINARY_DIR}/freecadCmd.rc)
 file(COPY icon.ico DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
@@ -42,7 +49,7 @@ if(BUILD_GUI)
     SET(FreeCAD_SRCS
         ${CMAKE_CURRENT_BINARY_DIR}/freecad.rc
         ${FREECAD_MANIFEST}
-        icon.ico
+        ${FREECAD_APP_ICO}
         MainGui.cpp
     )
 
@@ -60,6 +67,8 @@ if(BUILD_GUI)
 
     add_executable(FreeCADMain WIN32 ${FreeCAD_SRCS})
     target_link_libraries(FreeCADMain ${FreeCAD_LIBS})
+    # The desktop entry the running app names itself by (THUNDEREAL_IDENTITY).
+    target_compile_definitions(FreeCADMain PRIVATE FREECAD_APP_ID="${FREECAD_APP_ID}")
 
     SET_BIN_DIR(FreeCADMain FreeCAD)
 
@@ -89,7 +98,7 @@ endif(BUILD_GUI)
 SET(FreeCADMainCmd_SRCS
     ${CMAKE_CURRENT_BINARY_DIR}/freecadCmd.rc
     ${FREECAD_MANIFEST}
-    icon.ico
+    ${FREECAD_APP_ICO}
     MainCmd.cpp
 )
 

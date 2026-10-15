@@ -58,7 +58,16 @@ Configuration and variables of FreeCAD installer
 
 !define SETUP_EXE ${ExeFile}
 
-!define SETUP_ICON "icons\FreeCAD.ico"
+# The icon follows the build switch of the same name: Thundereal's unless
+# makensis is given /DTHUNDEREAL_IDENTITY=OFF, then FreeCAD's.
+!ifndef THUNDEREAL_IDENTITY
+  !define THUNDEREAL_IDENTITY ON
+!endif
+!if ${THUNDEREAL_IDENTITY} == OFF
+  !define SETUP_ICON "icons\FreeCAD.ico"
+!else
+  !define SETUP_ICON "icons\Thundereal.ico"
+!endif
 !define SETUP_HEADERIMAGE "graphics\header.bmp"
 !define SETUP_WIZARDIMAGE "graphics\orange.bmp"
 !define SETUP_UNINSTALLER "Uninstall-${APP_NAME}.exe"

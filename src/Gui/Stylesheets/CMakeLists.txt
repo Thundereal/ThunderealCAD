@@ -73,6 +73,25 @@ FILE(GLOB Images_Classic_Files RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
 
 SOURCE_GROUP("images_classic" FILES ${Images_Classic_Files})
 
+# The empty-window watermark is the artwork THUNDEREAL_IDENTITY picks, under the
+# background_freecad* names the stylesheets ask for.
+list(FILTER Images_Files EXCLUDE REGEX "/background_[a-z]+(_dark|_light)?\\.(svg|png)$")
+list(FILTER Images_Classic_Files EXCLUDE REGEX "/background_[a-z]+(_dark|_light)?\\.(svg|png)$")
+foreach(_dir images_dark-light images_classic)
+    foreach(_variant "" _dark _light)
+        foreach(_ext svg png)
+            set(_src ${_dir}/background_${FREECAD_APP_ICON}${_variant}.${_ext})
+            if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${_src})
+                set(_name background_freecad${_variant}.${_ext})
+                configure_file(${_src}
+                    ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_DATADIR}/Gui/Stylesheets/${_dir}/${_name} COPYONLY)
+                INSTALL(FILES ${_src} DESTINATION ${CMAKE_INSTALL_DATADIR}/Gui/Stylesheets/${_dir}
+                    RENAME ${_name})
+            endif()
+        endforeach()
+    endforeach()
+endforeach()
+
 ADD_CUSTOM_TARGET(Stylesheets_data ALL
     SOURCES ${Stylesheets_Files} ${Parameters_Files} ${Images_Files} ${Images_Classic_Files} ${Overlay_Stylesheets_Files} ${Menu_Stylesheets_Files}
 )

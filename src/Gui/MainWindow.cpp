@@ -2052,7 +2052,7 @@ class TitleBarMenuButton: public QPushButton
 public:
     explicit TitleBarMenuButton(QWidget *parent)
         : QPushButton(parent)
-        , logo(BitmapFactory().iconFromTheme("thundereal"))
+        , logo(BitmapFactory().iconFromTheme("freecad"))
     {
         setObjectName(QStringLiteral("titleBarLogo"));
         setFlat(true);

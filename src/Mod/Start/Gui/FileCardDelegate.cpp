@@ -222,6 +222,11 @@ QPixmap FileCardDelegate::generateThumbnail(const QString& path) const
         reader.setScaledSize({thumbnailSize, thumbnailSize});
         return QPixmap::fromImage(reader.read());
     }
+    if (path.endsWith(QLatin1String(".tstd"), Qt::CaseSensitivity::CaseInsensitive)) {
+        QImageReader reader(QLatin1String(":/icons/thundereal-doc.svg"));
+        reader.setScaledSize({thumbnailSize, thumbnailSize});
+        return QPixmap::fromImage(reader.read());
+    }
     if (path.endsWith(QLatin1String(".fcmacro"), Qt::CaseSensitivity::CaseInsensitive)) {
         QImageReader reader(QLatin1String(":/icons/MacroEditor.svg"));
         reader.setScaledSize({thumbnailSize, thumbnailSize});

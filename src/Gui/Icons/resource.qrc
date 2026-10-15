@@ -17,6 +17,7 @@
              that ask for it by that name. -->
         <file alias="freecad.svg">thundereal.svg</file>
         <file>freecad-doc.png</file>
+        <file>freecad-doc.svg</file>
         <file>thundereal-doc.svg</file>
         <file>thundereal-doc.png</file>
         <file>thundereal-doc-16.png</file>

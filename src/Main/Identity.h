@@ -36,21 +36,21 @@
     "    #    #  #  ####  #  #   ###  ####  #    ####   ###  #  ##  ##  ##\n\n"
 // Where the About dialog's name links to, and where Help > Report a bug goes:
 // this program's own repository, so its bugs do not land in upstream's tracker.
-#define FREECAD_MAINTAINER_URL "https://github.com/Thundereal/Thundereal"
-#define FREECAD_ISSUE_PAGE "https://github.com/Thundereal/Thundereal/issues"
+#define FREECAD_MAINTAINER_URL "https://github.com/Thundereal/ThunderealCAD"
+#define FREECAD_ISSUE_PAGE "https://github.com/Thundereal/ThunderealCAD/issues"
 // Where the files the program writes say it lives ("Created by Thundereal
 // <url>", App/BrandText.h)
-#define FREECAD_PROGRAM_URL "https://github.com/Thundereal/Thundereal"
+#define FREECAD_PROGRAM_URL "https://github.com/Thundereal/ThunderealCAD"
 // The Help menu's sites (Gui/CommandStd.cpp, helpSiteUrl): the website, the
 // repository's discussions and wiki, and the website's page on supporting the
 // work, which lists the ways to donate.
 #define FREECAD_HELP_SITES                                                                         \
     {"UrlWebPage", "https://thundereal.org"},                                                      \
-        {"UrlUserForum", "https://github.com/Thundereal/Thundereal/discussions"},                  \
-        {"UrlOnlineHelp", "https://github.com/Thundereal/Thundereal/wiki"},                        \
-        {"UrlDocumentation", "https://github.com/Thundereal/Thundereal/wiki"},                     \
-        {"UrlPowerUsers", "https://github.com/Thundereal/Thundereal/wiki/Python-scripting"},       \
-        {"UrlFAQ", "https://github.com/Thundereal/Thundereal/wiki/FAQ"},                           \
+        {"UrlUserForum", "https://github.com/Thundereal/ThunderealCAD/discussions"},               \
+        {"UrlOnlineHelp", "https://github.com/Thundereal/ThunderealCAD/wiki"},                     \
+        {"UrlDocumentation", "https://github.com/Thundereal/ThunderealCAD/wiki"},                  \
+        {"UrlPowerUsers", "https://github.com/Thundereal/ThunderealCAD/wiki/Python-scripting"},    \
+        {"UrlFAQ", "https://github.com/Thundereal/ThunderealCAD/wiki/FAQ"},                        \
         {"UrlDonatePage", "https://thundereal.org/#support"}
 // The splash picture carries the wordmark, so Gui writes only the version, under it
 #define FREECAD_SPLASH_INFO_EXE_NAME ""

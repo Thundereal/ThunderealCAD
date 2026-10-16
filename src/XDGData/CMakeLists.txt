@@ -19,7 +19,7 @@ endif()
 # THUNDEREAL_IDENTITY picks, and the desktop entry and the AppStream data carry it.
 # The AppStream data says who makes the program and where it lives.
 if(THUNDEREAL_IDENTITY)
-    set(_repo "https://github.com/Thundereal/Thundereal")
+    set(_repo "https://github.com/Thundereal/ThunderealCAD")
     set(APPDATA_DEVELOPER "The Thundereal developers")
     set(APPDATA_INTRO "Thundereal, based on FreeCAD,")
     set(APPDATA_URL_HOMEPAGE "https://thundereal.org/")

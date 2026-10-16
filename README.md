@@ -8,10 +8,10 @@
 
 <p align="center">
   <a href="https://thundereal.org">Website</a> &middot;
-  <a href="https://github.com/Thundereal/Thundereal/releases">Download</a> &middot;
-  <a href="https://github.com/Thundereal/Thundereal/discussions">Discussions</a> &middot;
-  <a href="https://github.com/Thundereal/Thundereal/wiki">Wiki</a> &middot;
-  <a href="https://github.com/Thundereal/Thundereal/issues">Report a bug</a>
+  <a href="https://github.com/Thundereal/ThunderealCAD/releases">Download</a> &middot;
+  <a href="https://github.com/Thundereal/ThunderealCAD/discussions">Discussions</a> &middot;
+  <a href="https://github.com/Thundereal/ThunderealCAD/wiki">Wiki</a> &middot;
+  <a href="https://github.com/Thundereal/ThunderealCAD/issues">Report a bug</a>
 </p>
 
 Thundereal is FreeCAD rebuilt where it counts: a renderer that brings your
@@ -80,7 +80,7 @@ macros and most add-ons work unchanged. It grew out of the Link branch,
 where `App::Link` and the first fix for topological naming started.
 
 Thundereal is not FreeCAD: please report its bugs on
-[Thundereal's tracker](https://github.com/Thundereal/Thundereal/issues),
+[Thundereal's tracker](https://github.com/Thundereal/ThunderealCAD/issues),
 not upstream's.
 
 ## Building

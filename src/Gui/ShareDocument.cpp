@@ -142,7 +142,7 @@ struct FrontDoor
     QString name;
     int mode = Lan;
     /// The public origin viewers open (Own mode) — scheme and host,
-    /// e.g. https://cad.thundereal.com. Quick mode discovers its
+    /// e.g. https://cad.thundereal.org. Quick mode discovers its
     /// origin at runtime; Lan derives it from the external address.
     QString publicOrigin;
     /// An authenticating door (Cloudflare Access or the like) stands
@@ -159,6 +159,12 @@ struct FrontDoor
 /// LAN (today's direct ip:port behavior), Quick tunnel, and thundereal
 /// (the own-door shape — public origin behind an identity door). Seeding
 /// is flag-guarded so a deliberately deleted preset stays deleted.
+// The bundled own door's public origin, and the one earlier builds bundled
+// and seeded into a profile: a stored door still at that is the old default,
+// not the user's choice, and moves with it.
+const char kOwnDoorOrigin[] = "https://cad.thundereal.org";
+const char kOldOwnDoorOrigin[] = "https://cad.thundereal.com";
+
 std::vector<FrontDoor> loadDoors()
 {
     auto hGrp = shareParams();
@@ -170,6 +176,10 @@ std::vector<FrontDoor> loadDoors()
         d.mode = int(sub->GetInt("Mode", FrontDoor::Lan));
         d.publicOrigin = QString::fromUtf8(
             sub->GetASCII("PublicOrigin", "").c_str());
+        if (d.publicOrigin == QLatin1String(kOldOwnDoorOrigin)) {
+            d.publicOrigin = QLatin1String(kOwnDoorOrigin);
+            sub->SetASCII("PublicOrigin", kOwnDoorOrigin);
+        }
         d.identityDoor = sub->GetBool("IdentityDoor", false);
         d.identityHeader = QString::fromUtf8(
             sub->GetASCII("IdentityHeader", "").c_str());
@@ -187,7 +197,7 @@ std::vector<FrontDoor> loadDoors()
     FrontDoor own;
     own.name = QStringLiteral("thundereal");
     own.mode = FrontDoor::Own;
-    own.publicOrigin = QStringLiteral("https://cad.thundereal.com");
+    own.publicOrigin = QLatin1String(kOwnDoorOrigin);
     own.identityDoor = true;
     out = {lan, quick, own};
     return out;

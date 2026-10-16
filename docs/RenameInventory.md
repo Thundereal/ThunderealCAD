@@ -42,8 +42,9 @@ company. Company: Thundereal Technologies; product: Thundereal;
 marketed form: Thundereal CAD. The GitHub org `thundereal` is
 registered under the company (corporate ToS); domains `thundereal.org`
 (the project's site and app id, since 2026-10-16) and `thundereal.com`
-(kept; it carries the share tunnel `cad.thundereal.com`) in hand. An
-ACRA-registered company name + domain in use makes the name claim solid; the optional belt-and-suspenders step is an IPOS
+(kept, forwarding to .org; the share tunnel moves to `cad.thundereal.org`) in hand. An
+ACRA-registered company name + domain in use makes the name claim solid;
+the optional belt-and-suspenders step is an IPOS
 trademark filing (class 9/42) by the company. The LGPL code is not
 company-owned — only the brand is.
 

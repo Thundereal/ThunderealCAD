@@ -440,7 +440,9 @@ std::unordered_map<int64_t, TransactionCopyCache::Entry>& copyCache()
     // destroyed the copies left in it, and each copy's ~Property() asked this
     // map, already being taken apart, to drop its id -- a crash in
     // TransactionCopyCache::take at exit (docs/HandsOnQueue.md entry 131).
-    // What is left at exit goes with the process.
+    // A process ended from a script with a document open (os._exit()) leaves
+    // some too, and on Windows that path still runs this library's static
+    // destructors. What is left at exit goes with the process.
     static auto *cache = new std::unordered_map<int64_t, TransactionCopyCache::Entry>();
     return *cache;
 }

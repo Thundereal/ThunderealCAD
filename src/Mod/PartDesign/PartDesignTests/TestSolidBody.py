@@ -698,6 +698,53 @@ class TestSolidBody(unittest.TestCase):
         finally:
             App.closeDocument(doc.Name)
 
+    def line(self, obj):
+        return tuple(round(c, 3) for c in obj.LineColor[:3])
+
+    def point(self, obj):
+        return tuple(round(c, 3) for c in obj.PointColor[:3])
+
+    def testLinesAndPointsOfASolidBodyAreItsFeatures(self):
+        a, b, c, d = self.twoSolids()
+        first, second = self.solidBodies()
+        dark = self.line(c)
+        grey = self.rgb(c)
+        first.LineColor = self.RED
+        self.assertEqual(self.line(a), self.RED)
+        self.assertEqual(self.line(b), self.RED)
+        # the lines alone: nothing else was given
+        self.assertEqual(self.point(a), self.point(c))
+        self.assertEqual(self.rgb(a), grey)
+        first.PointColor = self.BLUE
+        self.assertEqual(self.point(a), self.BLUE)
+        self.assertEqual(self.point(b), self.BLUE)
+        self.assertEqual(self.line(b), self.RED)
+        for obj in (c, d, second):
+            self.assertEqual(self.line(obj), dark)
+            self.assertNotEqual(self.point(obj), self.BLUE)
+
+    def testFeatureGivenALineColourKeepsIt(self):
+        a, b, c, d = self.twoSolids()
+        first, second = self.solidBodies()
+        a.LineColor = self.GREEN
+        first.LineColor = self.RED
+        self.assertEqual(self.line(a), self.GREEN)
+        self.assertEqual(self.line(b), self.RED)
+        # and its faces are the solid body's all the same
+        first.ShapeColor = self.BLUE
+        self.assertEqual(self.rgb(a), self.BLUE)
+        self.assertEqual(self.line(a), self.GREEN)
+
+    def testNewFeatureTakesTheLines(self):
+        a, b, c, d = self.twoSolids()
+        first, second = self.solidBodies()
+        first.LineColor = self.RED
+        self.Body.Tip = b
+        e = self.box("Box004", 8)
+        self.Doc.recompute()
+        self.assertEqual(self.Body.getSolidBody(e), first)
+        self.assertEqual(self.line(e), self.RED)
+
     def twoCards(self):
         import Materials
 
@@ -750,6 +797,228 @@ class TestSolidBody(unittest.TestCase):
             self.assertEqual(solid.ShapeMaterial.UUID, steel.UUID)
         self.assertEqual(a.ShapeMaterial.UUID, steel.UUID)
         self.assertEqual(b.ShapeMaterial.UUID, steel.UUID)
+
+    # -- a reference to the solid body from inside its own solid ---------------------
+    #
+    # The solid body has the shape of its tip, so what the tip is made of
+    # cannot refer to it. Picked for a feature of the same solid, it means
+    # the solid as that feature finds it: the feature before it.
+
+    def flat(self, obj, x=0.0):
+        """The highest face lying flat, the one starting at x where there are two"""
+        best = None
+        for i, face in enumerate(obj.Shape.Faces):
+            bb = face.BoundBox
+            if abs(bb.ZMin - bb.ZMax) > 1e-6:
+                continue
+            key = (round(bb.ZMax, 6), abs(bb.XMin - x) < 1e-6)
+            if best is None or key > best[0]:
+                best = (key, "Face%d" % (i + 1))
+        return best[1]
+
+    def sketchOn(self, obj, face, x=2.0):
+        import Part
+
+        sketch = self.Body.newObject("Sketcher::SketchObject", "Sketch")
+        sketch.AttachmentSupport = [(obj, face)]
+        sketch.MapMode = "FlatFace"
+        sketch.addGeometry(Part.Circle(App.Vector(x, 2, 0), App.Vector(0, 0, 1), 1.0), False)
+        return sketch
+
+    def support(self, sketch):
+        return [(obj.Name, list(subs)) for obj, subs in sketch.AttachmentSupport]
+
+    def padOn(self, sketch, name="Pad", length=5.0):
+        pad = self.Body.newObjectAt("PartDesign::Pad", name)
+        pad.Profile = sketch
+        pad.Length = length
+        return pad
+
+    def assertRecomputes(self):
+        self.Doc.recompute()
+        self.assertEqual([o.Name for o in self.Doc.Objects if "Invalid" in o.State], [])
+        self.assertEqual([o.Name for o in self.Doc.Objects if "Touched" in o.State], [])
+
+    def testSketchOnTheSolidBodyForAFeatureOfTheSolid(self):
+        a, b, c, d = self.twoSolids()
+        first, second = self.solidBodies()
+        self.Body.Tip = b
+        self.Doc.recompute()
+        face = self.flat(first)
+        sketch = self.sketchOn(first, face)
+        self.Doc.recompute()
+        # nothing of the solid is made of it yet
+        self.assertEqual(self.support(sketch), [(first.Name, [face])])
+        pad = self.padOn(sketch)
+        self.assertEqual(first.Tip, pad)
+        # the solid as the pad finds it
+        self.assertEqual(self.support(sketch), [(b.Name, [face])])
+        self.assertRecomputes()
+        self.assertAlmostEqual(sketch.Placement.Base.z, 10.0)
+        self.assertGreater(pad.Shape.Volume, b.Shape.Volume)
+        self.assertAlmostEqual(first.Shape.Volume, pad.Shape.Volume)
+
+    def testFeatureReferringToItsOwnSolidBody(self):
+        a, b, c, d = self.twoSolids()
+        first, second = self.solidBodies()
+        self.Body.Tip = b
+        self.Doc.recompute()
+        sketch = self.sketchOn(a, self.flat(a))
+        pad = self.padOn(sketch)
+        self.assertEqual(first.Tip, pad)
+        # picked on the solid body while it had the shape of Box001
+        face = self.flat(first)
+        pad.Type = "UpToFace"
+        pad.UpToFace = (first, [face])
+        self.assertEqual(pad.UpToFace[0], b)
+        self.assertEqual(list(pad.UpToFace[1]), [face])
+
+    def testSolidBodyReferredToAfterAReload(self):
+        a, b, c, d = self.twoSolids()
+        self.Body.Tip = b
+        self.Doc.recompute()
+        path = self.tempFile("PartDesignTestSolidBodyOwnReference.FCStd")
+        self.Doc.saveAs(path)
+        App.closeDocument(self.Doc.Name)
+        self.Doc = App.openDocument(path)
+        self.Body = self.Doc.Body
+        first, second = self.solidBodies()
+        tip = first.Tip
+        face = self.flat(first)
+        sketch = self.sketchOn(first, face)
+        pad = self.padOn(sketch)
+        self.assertEqual(self.support(sketch), [(tip.Name, [face])])
+        self.assertRecomputes()
+
+    def testFeatureOfAnotherSolidRefersToTheSolidBody(self):
+        a, b, c, d = self.twoSolids()
+        first, second = self.solidBodies()
+        face = self.flat(first)
+        sketch = self.sketchOn(first, face)
+        pad = self.padOn(sketch)
+        self.assertEqual(self.Body.getSolidBody(pad), second)
+        # the moving target it was made to be
+        self.assertEqual(self.support(sketch), [(first.Name, [face])])
+        self.assertRecomputes()
+        first.Tip = a
+        self.assertRecomputes()
+        self.assertEqual(self.support(sketch)[0][0], first.Name)
+
+    def testFeatureBehindTheTipRefersToTheSolidBody(self):
+        a, b, c, d = self.twoSolids()
+        first, second = self.solidBodies()
+        self.Body.Tip = b
+        self.Doc.recompute()
+        face = self.flat(first)
+        sketch = self.sketchOn(first, face)
+        pad = self.padOn(sketch)
+        self.assertEqual(self.support(sketch), [(b.Name, [face])])
+        self.assertRecomputes()
+        # rolled back, a sketch on the solid as it is then, for nothing yet
+        first.Tip = b
+        self.Doc.recompute()
+        again = self.sketchOn(first, self.flat(first), 4.0)
+        self.assertRecomputes()
+        self.assertEqual(self.support(again)[0][0], first.Name)
+
+    def faceAt(self, obj, x, y, z):
+        """The face of the object's shape the point lies on"""
+        import Part
+
+        vertex = Part.Vertex(App.Vector(x, y, z))
+        for i, face in enumerate(obj.Shape.Faces):
+            if face.distToShape(vertex)[0] < 1e-6:
+                return "Face%d" % (i + 1)
+        self.fail("no face of %s at (%s, %s, %s)" % (obj.Name, x, y, z))
+
+    def paddedSolid(self):
+        """Box, Box001 and a pad on a sketch of the first box, the tip of their solid"""
+        a, b, c, d = self.twoSolids()
+        first, second = self.solidBodies()
+        self.Body.Tip = b
+        self.Doc.recompute()
+        sketch = self.sketchOn(a, self.flat(a))
+        pad = self.padOn(sketch)
+        self.assertRecomputes()
+        self.assertEqual(first.Tip, pad)
+        return a, b, first, sketch, pad
+
+    def testReferenceWithTheNamesOfAnotherShapeIsLeft(self):
+        a, b, first, sketch, pad = self.paddedSolid()
+        # the sketch of the pad attached to the solid the pad is the tip of:
+        # the face is one the pad made, and the box before it has nothing
+        # it comes from
+        face = self.flat(first)
+        sketch.AttachmentSupport = [(first, face)]
+        self.assertEqual(self.support(sketch), [(first.Name, [face])])
+        # put right by hand, it recomputes
+        sketch.AttachmentSupport = [(a, self.flat(a))]
+        self.assertRecomputes()
+
+    def testFaceTheLaterFeatureLeftAloneIsTheOneBefore(self):
+        a, b, first, sketch, pad = self.paddedSolid()
+        # picked on the solid as the pad left it: the side of the first box
+        face = self.faceAt(first, 0, 5, 5)
+        sketch.AttachmentSupport = [(first, face)]
+        # the solid as the pad finds it, and the face that one comes from
+        self.assertEqual(self.support(sketch), [(b.Name, [self.faceAt(b, 0, 5, 5)])])
+        self.assertRecomputes()
+
+    def testFaceTheLaterFeatureChangedIsTheOneBefore(self):
+        a, b, first, sketch, pad = self.paddedSolid()
+        # the top of the boxes with the pad standing on it: the pad's own
+        # version of a face Box001 has whole
+        face = self.faceAt(first, 12, 8, 10)
+        before = self.faceAt(b, 12, 8, 10)
+        sketch.AttachmentSupport = [(first, face)]
+        self.assertEqual(self.support(sketch), [(b.Name, [before])])
+        self.assertRecomputes()
+        self.assertAlmostEqual(sketch.Placement.Base.z, 10.0)
+
+    def testWholeSolidBodyNeedsNoName(self):
+        a, b, first, sketch, pad = self.paddedSolid()
+        sketch.MapMode = "ObjectXY"
+        sketch.AttachmentSupport = [(first, "")]
+        self.assertEqual(sketch.AttachmentSupport[0][0], b)
+        self.assertRecomputes()
+
+    def testOneNameOfSeveralLeavesTheLink(self):
+        a, b, first, sketch, pad = self.paddedSolid()
+        # one face Box001 has, one the pad made: nothing is turned by half
+        side = self.faceAt(first, 0, 5, 5)
+        top = self.flat(first)
+        sketch.AttachmentSupport = [(first, side), (first, top)]
+        self.assertEqual(self.support(sketch), [(first.Name, [side, top])])
+        sketch.AttachmentSupport = [(a, self.flat(a))]
+        self.assertRecomputes()
+
+    def pairs(self, sketch):
+        return [(obj.Name, sub) for obj, subs in sketch.AttachmentSupport for sub in subs]
+
+    def testSecondFaceBesideTheOneTurned(self):
+        a, b, c, d = self.twoSolids()
+        first, second = self.solidBodies()
+        self.Body.Tip = b
+        self.Doc.recompute()
+        top = self.flat(first)
+        side = self.faceAt(first, 0, 5, 5)
+        # one face of the feature before, as a first pick is once it is
+        # turned, and one of the solid body beside it
+        sketch = self.sketchOn(b, top)
+        sketch.AttachmentSupport = [(b, top), (first, side)]
+        pad = self.padOn(sketch)
+        self.assertEqual(first.Tip, pad)
+        self.assertEqual(self.pairs(sketch), [(b.Name, top), (b.Name, side)])
+        self.assertNotIn(first, sketch.OutList)
+
+    def testSecondFaceBesideTheOneTurnedOnALaterShape(self):
+        a, b, first, sketch, pad = self.paddedSolid()
+        side = self.faceAt(b, 0, 5, 5)
+        top = self.faceAt(first, 12, 8, 10)
+        sketch.AttachmentSupport = [(b, side), (first, top)]
+        before = self.faceAt(b, 12, 8, 10)
+        self.assertEqual(self.pairs(sketch), [(b.Name, side), (b.Name, before)])
+        self.assertNotIn(first, sketch.OutList)
 
     # -- what a build without SolidBody reads ----------------------------------------
 
@@ -973,3 +1242,21 @@ class TestSolidBody(unittest.TestCase):
         self.Doc.removeObject(self.Body.Name)
         self.assertEqual([o.Name for o in self.Doc.Objects
                           if o.isDerivedFrom("PartDesign::SolidBody")], [])
+
+    def testGroupsThatGoRoundAreNoBody(self):
+        # A link set on an object outside any body asks which body it is in,
+        # up the groups that own it -- once a solid body exists, which is
+        # when that is watched. Two parts each in the other are taken, not
+        # refused (issue 0002567), and the walk went round them for ever:
+        # Document.py's testGroupAndGeoFeatureGroup hung in a full run.
+        self.twoSolids()
+        part1 = self.Doc.addObject("App::Part", "RingPart1")
+        part2 = self.Doc.addObject("App::Part", "RingPart2")
+        part1.addObject(part2)
+        part2.Group = part2.Group + [part1]
+        loose = self.Doc.addObject("App::FeatureTest", "Loose")
+        part2.addObject(loose)
+        target = self.Doc.addObject("App::FeatureTest", "Target")
+        loose.LinkList = [target]
+        self.assertEqual(loose.LinkList, [target])
+        self.assertEqual(len(self.solidBodies()), 2)

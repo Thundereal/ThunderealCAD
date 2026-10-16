@@ -390,9 +390,9 @@ App::DocumentObjectExecReturn *Feature::recompute()
     // retry of an extrusion -- and the shape that gave is not the one the
     // feature makes of inputs it may change: a pad up to a shape came out
     // four times its volume, and no error said so.
-    const unsigned int refused = TopoDS_LockedShape::Raised();
+    const unsigned int refused = raisedOCCTLockedShapes();
     App::DocumentObjectExecReturn* ret = once();
-    if (ThawInputs::active() || TopoDS_LockedShape::Raised() == refused)
+    if (ThawInputs::active() || raisedOCCTLockedShapes() == refused)
         return ret;
     FC_LOG(getFullName() << ": a frozen input was refused ("
                          << (ret == App::DocumentObject::StdReturn ? "worked around" : ret->Why.c_str())
@@ -1975,7 +1975,17 @@ void Feature::onChanged(const App::Property* prop)
         }
     }
 
-    GeoFeature::onChanged(prop);
+    {
+        // Whoever is told of the change can ask whether it is a look
+        // written by its name (isWritingLook())
+        struct Written {
+            const App::Property *&slot;
+            const App::Property *was;
+            ~Written() { slot = was; }
+        } written {_lookWritten, _lookWritten};
+        _lookWritten = isLookWrite(prop) ? prop : nullptr;
+        GeoFeature::onChanged(prop);
+    }
 
     // GeoFeature::onChanged(Shape) has just re-resolved every reference
     // into this feature; the generations can now be kept or let go.

@@ -2,8 +2,6 @@
 
 #include "gtest/gtest.h"
 
-#include <typeinfo>
-
 #include <App/Application.h>
 #include <App/Document.h>
 #include <Mod/Part/App/PrimitiveFeature.h>
@@ -27,7 +25,6 @@
 #include <TopExp.hxx>
 #include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
-#include <BRep_PointOnCurve.hxx>
 #include <BRep_PointRepresentation.hxx>
 #include <BRep_TEdge.hxx>
 #include <BRep_TVertex.hxx>
@@ -61,7 +58,6 @@
 #include <TopoDS_Iterator.hxx>
 #include <TopoDS_LockedShape.hxx>
 #include <TopoDS_FrozenShape.hxx>
-#include <BRep_RepresentationLock.hxx>
 #include <BRepTools.hxx>
 #include <BRepAlgoAPI_Cut.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
@@ -105,22 +101,20 @@ Handle(BRep_PointRepresentation) pointOn(const TopoDS_Vertex& vertex, const Hand
     return {};
 }
 
-/** Whether \a point is a cache the fork's BRep_Builder made rather than a
- * value. Since OCCT a23e0824af that is told by its class, not by a member: a
- * cache is of a class of BRep_Builder.cxx's own derived from the
- * representation's, while its OCCT type stays the representation's -- so
- * only the C++ type tells the two apart. Both callers ask about a parameter
- * on a curve.
- */
-bool isCache(const Handle(BRep_PointRepresentation)& point)
-{
-    return typeid(*point) != typeid(BRep_PointOnCurve);
-}
-
 } // namespace
+
+/// Skips a test of the fork's Immutable flag where the OCCT loaded at run time
+/// is not the fork (upstream's, FCAD_DEV_OCCT_BIN): there the flag is only the
+/// fork's headers' and nothing refuses, locks or caches by it. The fork is
+/// found as FreeCAD finds it, by a C function of its TKBRep.
+#define SKIP_WITHOUT_OCCT_IMMUTABLE()                                                              \
+    if (!Part::lookUpTKBRep("TopoDS_LockedShape_Raised")) {                                        \
+        GTEST_SKIP() << "no TopoDS_LockedShape_Raised: not the OCCT fork, or one from before it";  \
+    }
 
 TEST(ImmutableShapeTest, meshesButRefusesEdits)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     TopoDS_Shape box = BRepPrimAPI_MakeBox(10, 20, 30).Shape();
     setImmutable(box);
     TopExp_Explorer faces(box, TopAbs_FACE);
@@ -199,6 +193,7 @@ protected:
 
 TEST_F(PropertyShapeImmutableTest, setValueFreezesEveryTShape)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     TopoDS_Shape box = BRepPrimAPI_MakeBox(10, 20, 30).Shape();
     ASSERT_FALSE(box.Immutable());
     _feature->Shape.setValue(box);
@@ -744,6 +739,7 @@ TEST_F(PropertyShapeImmutableTest, DISABLED_aHoldOfAMapByItsDepth)
 
 TEST(ImmutableShapeTest, booleanGoesNonDestructive)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     TopoDS_Shape a = BRepPrimAPI_MakeBox(2, 2, 2).Shape();
     TopoDS_Shape b = BRepPrimAPI_MakeBox(gp_Pnt(1, 1, 1), 2, 2, 2).Shape();
 
@@ -768,6 +764,7 @@ TEST(ImmutableShapeTest, booleanGoesNonDestructive)
 // and the storage writer leaves out, so the wire's bytes do not move.
 TEST(ImmutableShapeTest, aFaceBuiltOnAFrozenWireLeavesItsBytes)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     tests::initApplication();  // the storage options read DocumentParams
     Handle(Geom_Circle) circle = new Geom_Circle(gp_Ax2(gp_Pnt(0, 2.5, 0), gp::DZ()), 2.5);
     BRepBuilderAPI_MakeWire mkWire;
@@ -810,6 +807,7 @@ TEST(ImmutableShapeTest, aFaceBuiltOnAFrozenWireLeavesItsBytes)
 
 TEST(ImmutableShapeTest, onlyACachePCurveIsReplaced)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     TopoDS_Shape box = BRepPrimAPI_MakeBox(1, 1, 1).Shape();
     setImmutable(box);
     const TopoDS_Face face = TopoDS::Face(TopExp_Explorer(box, TopAbs_FACE).Current());
@@ -855,12 +853,47 @@ TEST(ImmutableShapeTest, onlyACachePCurveIsReplaced)
     EXPECT_THROW(tv->UpdateTolerance(BRep_Tool::Tolerance(vertex) * 10), TopoDS_LockedShape);
 }
 
+// A refusal is counted (Part::raisedOCCTLockedShapes), which is how a feature
+// tells that an algorithm it called was refused a frozen input and made an
+// error message of it. The TShapes' tolerance setters are inline: the one
+// that refuses below is this binary's own copy, not the library's. It is
+// counted all the same, and this binary imports nothing of the OCCT fork for
+// it: the count is asked of the fork's library through its common allocator
+// (NCollection_ForkState), so that a module calling such a setter still loads
+// where the OCCT libraries are upstream's.
+TEST(ImmutableShapeTest, aRefusalRaisedByAnInlineSetterIsCounted)
+{
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
+    const TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(gp_Pnt(0, 0, 0), gp_Pnt(10, 0, 0)).Edge();
+    setImmutable(edge);
+    const TopoDS_Vertex vertex = TopoDS::Vertex(TopExp_Explorer(edge, TopAbs_VERTEX).Current());
+    Handle(BRep_TVertex) tv = Handle(BRep_TVertex)::DownCast(vertex.TShape());
+    const double tol = BRep_Tool::Tolerance(vertex);
+
+    const unsigned int before = Part::raisedOCCTLockedShapes();
+    // one this binary raises, in the inline setter
+    EXPECT_THROW(tv->UpdateTolerance(tol * 10), TopoDS_LockedShape);
+    EXPECT_EQ(Part::raisedOCCTLockedShapes(), before + 1);
+    // one the library raises
+    BRep_Builder builder;
+    EXPECT_THROW(builder.UpdateVertex(vertex, tol * 10), TopoDS_LockedShape);
+    EXPECT_EQ(Part::raisedOCCTLockedShapes(), before + 2);
+    // a write that changes nothing raises none
+    EXPECT_NO_THROW(tv->UpdateTolerance(tol / 2));
+    EXPECT_EQ(Part::raisedOCCTLockedShapes(), before + 2);
+    // and the count is the thread's own
+    unsigned int elsewhere = 1;
+    std::thread([&elsewhere]() { elsewhere = Part::raisedOCCTLockedShapes(); }).join();
+    EXPECT_EQ(elsewhere, 0U);
+}
+
 // A frozen edge takes a pcurve cache for each new face on it; a face that is
 // gone leaves its cache to the next one added (docs/TransactionLog.md sec
 // 27.81-27.82). Extruded over and over, a sketch's frozen edge carried a
 // cache for every extrusion ever made, and every walk of its list slowed.
 TEST(ImmutableShapeTest, aFrozenEdgeKeepsNoCacheOfAFaceThatIsGone)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     gp_Circ circle(gp_Ax2(gp_Pnt(0, 0, 0), gp::DZ()), 5);
     TopoDS_Wire wire = BRepBuilderAPI_MakeWire(BRepBuilderAPI_MakeEdge(circle).Edge()).Wire();
     setImmutable(wire);
@@ -891,6 +924,7 @@ TEST(ImmutableShapeTest, aFrozenEdgeKeepsNoCacheOfAFaceThatIsGone)
 // The switch defaults to what the loaded OCCT can honour.
 TEST(ImmutableShapeTest, defaultFollowsTheLoadedKernel)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     EXPECT_GE(Part::initOCCTExtension(), 2);
     EXPECT_TRUE(Part::PartParams::defaultImmutableShapeValues());
 }
@@ -900,6 +934,7 @@ TEST(ImmutableShapeTest, defaultFollowsTheLoadedKernel)
 // joining vertex. The wire gets a copy that is; the input keeps its own.
 TEST(ImmutableShapeTest, aWireMergeCopiesAFrozenVertex)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     BRep_Builder builder;
     const TopoDS_Edge first = BRepBuilderAPI_MakeEdge(gp_Pnt(0, 0, 0), gp_Pnt(10, 0, 0)).Edge();
     const TopoDS_Edge second =
@@ -940,12 +975,12 @@ TEST(ImmutableShapeTest, aWireMergeCopiesAFrozenVertex)
         if (ancestors(i).Extent() == 2) {
             const TopoDS_Shape& vertex = ancestors.FindKey(i);
             EXPECT_TRUE(vertex.TShape()->Thawed());
-            EXPECT_EQ(TopoDS_TShape::ThawedFrom(vertex.TShape().get()), join.TShape());
+            EXPECT_EQ(Part::thawedFromOCCT(vertex.TShape().get()), join.TShape());
         }
     }
     int firstCopies = 0;
     for (TopExp_Explorer it(wire, TopAbs_EDGE); it.More(); it.Next()) {
-        if (TopoDS_TShape::ThawedFrom(it.Current().TShape().get()) == first.TShape())
+        if (Part::thawedFromOCCT(it.Current().TShape().get()) == first.TShape())
             ++firstCopies;
     }
     EXPECT_EQ(firstCopies, 1);
@@ -957,6 +992,7 @@ TEST(ImmutableShapeTest, aWireMergeCopiesAFrozenVertex)
 // grow by nothing.
 TEST(ImmutableShapeTest, aWireMergeCopiesNothingForRounding)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     BRep_Builder builder;
     const TopoDS_Edge first = BRepBuilderAPI_MakeEdge(gp_Pnt(0, 0, 0), gp_Pnt(10, 0, 0)).Edge();
     const TopoDS_Edge second = BRepBuilderAPI_MakeEdge(gp_Pnt(10, 0, 0), gp_Pnt(10, 5, 0)).Edge();
@@ -1001,6 +1037,7 @@ TEST(ImmutableShapeTest, aWireMergeCopiesNothingForRounding)
 // that edge's curve, marked a cache; its own parameters may only be restated.
 TEST(ImmutableShapeTest, aFrozenVertexTakesAParameterOnANewCurve)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     tests::initApplication();
     BRep_Builder builder;
     TopoDS_Edge edge = BRepBuilderAPI_MakeEdge(gp_Pnt(0, 0, 0), gp_Pnt(10, 0, 0)).Edge();
@@ -1020,7 +1057,7 @@ TEST(ImmutableShapeTest, aFrozenVertexTakesAParameterOnANewCurve)
     const TopoDS_Vertex onExtended = TopoDS::Vertex(end.Oriented(TopAbs_INTERNAL));
     EXPECT_NO_THROW(builder.UpdateVertex(onExtended, 0., extended, tol));
     ASSERT_FALSE(pointOn(end, line).IsNull());
-    EXPECT_TRUE(isCache(pointOn(end, line)));
+    EXPECT_TRUE(Part::isOCCTCacheRepresentation(pointOn(end, line).get()));
     // Being a cache it may be rewritten; not with a tolerance to grow to.
     EXPECT_NO_THROW(builder.UpdateVertex(onExtended, 1e-3, extended, tol));
     EXPECT_THROW(builder.UpdateVertex(onExtended, 0., extended, tol * 10), TopoDS_LockedShape);
@@ -1028,7 +1065,7 @@ TEST(ImmutableShapeTest, aFrozenVertexTakesAParameterOnANewCurve)
     Standard_Real first, last;
     Handle(Geom_Curve) own = BRep_Tool::Curve(edge, first, last);
     ASSERT_FALSE(pointOn(inner, own).IsNull());
-    EXPECT_FALSE(isCache(pointOn(inner, own)));
+    EXPECT_FALSE(Part::isOCCTCacheRepresentation(pointOn(inner, own).get()));
     const TopoDS_Vertex innerOn = TopoDS::Vertex(inner.Oriented(TopAbs_INTERNAL));
     EXPECT_NO_THROW(builder.UpdateVertex(innerOn, 5., edge, 0.));
     EXPECT_THROW(builder.UpdateVertex(innerOn, 6., edge, 0.), TopoDS_LockedShape);
@@ -1042,6 +1079,7 @@ TEST(ImmutableShapeTest, aFrozenVertexTakesAParameterOnANewCurve)
 // face's surface -- so the surface alone cannot tell it from the face's own.
 TEST(ImmutableShapeTest, aParameterOnANewPCurveLeavesTheFaceBytes)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     tests::initApplication();
     TopoDS_Shape box = BRepPrimAPI_MakeBox(10, 10, 10).Shape();
     const TopoDS_Face face = TopoDS::Face(TopExp_Explorer(box, TopAbs_FACE).Current());
@@ -1104,6 +1142,7 @@ std::vector<double> tolerancesOf(const TopoDS_Shape& shape)
 
 TEST(ImmutableShapeTest, aFaceOnAFrozenWireThawsWhatMustGrow)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     const TopoDS_Wire wire = wireOfUnequalTolerances();
     setImmutable(wire);
     const std::vector<double> tolerances = tolerancesOf(wire);
@@ -1119,7 +1158,7 @@ TEST(ImmutableShapeTest, aFaceOnAFrozenWireThawsWhatMustGrow)
     // edges that grew, and the wide one itself.
     const TopoDS_Shape faceWire = TopExp_Explorer(face, TopAbs_WIRE).Current();
     EXPECT_TRUE(faceWire.TShape()->Thawed());
-    EXPECT_EQ(TopoDS_TShape::ThawedFrom(faceWire.TShape().get()), wire.TShape());
+    EXPECT_EQ(Part::thawedFromOCCT(faceWire.TShape().get()), wire.TShape());
     int thawed = 0;
     int same = 0;
     for (TopExp_Explorer it(faceWire, TopAbs_EDGE); it.More(); it.Next()) {
@@ -1127,7 +1166,7 @@ TEST(ImmutableShapeTest, aFaceOnAFrozenWireThawsWhatMustGrow)
         if (edge.TShape()->Thawed()) {
             ++thawed;
             EXPECT_DOUBLE_EQ(BRep_Tool::Tolerance(TopoDS::Edge(edge)), 2e-7);
-            const Handle(TopoDS_TShape) from = TopoDS_TShape::ThawedFrom(edge.TShape().get());
+            const Handle(TopoDS_TShape) from = Part::thawedFromOCCT(edge.TShape().get());
             bool inWire = false;
             for (TopExp_Explorer w(wire, TopAbs_EDGE); w.More(); w.Next())
                 inWire = inWire || w.Current().TShape() == from;
@@ -1151,6 +1190,7 @@ TEST(ImmutableShapeTest, aFaceOnAFrozenWireThawsWhatMustGrow)
 // 33.10).
 TEST(ImmutableShapeTest, aFaceOnAFrozenWireCopiesNothingForRounding)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     const TopoDS_Wire wire = wireOfUnequalTolerances(1.0000006e-7);
     setImmutable(wire);
     const std::vector<double> tolerances = tolerancesOf(wire);
@@ -1181,6 +1221,7 @@ TEST(ImmutableShapeTest, aFaceOnAFrozenWireCopiesNothingForRounding)
 // sec 27.84).
 TEST(ImmutableShapeTest, aThawedCopyOfAPlacedEdgeKeepsItsVertices)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     BRep_Builder builder;
     BRepBuilderAPI_MakeWire mkWire;
     const TopoDS_Edge wide = BRepBuilderAPI_MakeEdge(gp_Pnt(0, 0, 0), gp_Pnt(10, 0, 0)).Edge();
@@ -1227,6 +1268,7 @@ TEST(ImmutableShapeTest, aThawedCopyOfAPlacedEdgeKeepsItsVertices)
 // on the same wire unfrozen: a thawed copy is named as its original.
 TEST(ImmutableShapeTest, aThawedCopyKeepsItsName)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     tests::initApplication();
     Base::Interpreter().runString("import sys; sys.path[:0] = ['" FC_BUILD_LIB_DIR
                                   "', '" FC_BUILD_MOD_PART_DIR "']");
@@ -1267,6 +1309,7 @@ TEST(ImmutableShapeTest, aThawedCopyKeepsItsName)
 // is refused (docs/TransactionLog.md sec 27.105): not done, and no throw.
 TEST(ImmutableShapeTest, aThickSolidLeavesAFrozenInput)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     tests::initApplication();
     TopoDS_Shape hemisphere = BRepPrimAPI_MakeSphere(5, 0., M_PI / 2).Shape();
     setImmutable(hemisphere);
@@ -1326,13 +1369,14 @@ TopoDS_Edge firstEdge(const TopoDS_Shape& shape)
 
 TEST(ImmutableShapeTest, aRemeshWaitsForAWriterOfAFrozenEdge)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     TopoDS_Shape box = BRepPrimAPI_MakeBox(10, 20, 30).Shape();
     setImmutable(box);
     const TopoDS_Edge edge = firstEdge(box);
     std::atomic<bool> released {false};
     std::promise<void> holding;
     std::thread writer([&]() {
-        BRep_RepresentationLock lock(edge.TShape().get());
+        Part::OCCTRepresentationLock lock(edge.TShape().get());
         holding.set_value();
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
         released = true;
@@ -1346,6 +1390,7 @@ TEST(ImmutableShapeTest, aRemeshWaitsForAWriterOfAFrozenEdge)
 
 TEST(ImmutableShapeTest, aWriterWaitsForAnEditOfAFrozenEdge)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     tests::initApplication();  // the storage options read DocumentParams
     TopoDS_Shape box = BRepPrimAPI_MakeBox(10, 20, 30).Shape();
     setImmutable(box);
@@ -1353,7 +1398,7 @@ TEST(ImmutableShapeTest, aWriterWaitsForAnEditOfAFrozenEdge)
     const std::string expected = storedBytes(box);
     std::future<std::string> written;
     {
-        BRep_RepresentationLock lock(firstEdge(box).TShape().get());
+        Part::OCCTRepresentationLock lock(firstEdge(box).TShape().get());
         written = std::async(std::launch::async, [&box]() { return storedBytes(box); });
         EXPECT_EQ(written.wait_for(std::chrono::milliseconds(200)), std::future_status::timeout);
     }
@@ -1363,13 +1408,14 @@ TEST(ImmutableShapeTest, aWriterWaitsForAnEditOfAFrozenEdge)
 TEST(ImmutableShapeTest, aShapeThatIsNotFrozenTakesNoLock)
 {
     TopoDS_Shape box = BRepPrimAPI_MakeBox(10, 20, 30).Shape();
-    BRep_RepresentationLock lock(firstEdge(box).TShape().get());
+    Part::OCCTRepresentationLock lock(firstEdge(box).TShape().get());
     auto meshed = std::async(std::launch::async, [&box]() { BRepMesh_IncrementalMesh(box, 0.5); });
     EXPECT_EQ(meshed.wait_for(std::chrono::seconds(10)), std::future_status::ready);
 }
 
 TEST(ImmutableShapeTest, aFrozenShapeIsWrittenWhileItIsRemeshed)
 {
+    SKIP_WITHOUT_OCCT_IMMUTABLE();
     tests::initApplication();  // the storage options read DocumentParams
     // The race itself, unforced: one thread writes the value over and over
     // while this one remeshes it at changing deflections, replacing every

@@ -3704,6 +3704,100 @@ lookup made to miss, so every entry resolves as before, counter kept):
 the four count checks FAIL, every behaviour check passes. GUI tests 67/67,
 the rest of ctest (expression-image suites aside) 685/685.
 
+### 5.30 An entry of an object that others draw (2026-10-13)
+
+An entry is a key of the selection roots on the path to its object (5.23),
+and it acts on what is drawn UNDER the root it ends at. Two kinds of object
+are not drawn there. What a plain group holds sits beside the group in the
+scene -- flat under the document's root, or flat under the `App::Part` the
+group is in (`LinkChildrenDirect`) -- and the features of a
+`PartDesign::SolidBody` draw the solid while the solid body's own shape is
+hidden. A view's own hide of either ended at nodes that draw nothing:
+measured, `{"Part.Group.": "0"}` hid no box, and `{"Body.Solid.": "0"}`
+hid nothing while a feature showed the solid.
+
+**The change.** `Gui::SeenThrough` (`OwnNodesPath.h`, beside the scope it
+is the other half of) answers for an object which others it is seen
+through: built in for a plain group (what it holds), registered by type for
+anything else (`ViewProviderSolidBody` registers the features of its
+solid). An entry resolves into its own key and, behind it, one key for each
+of those, named as the object is one step up -- `Part.Box.` for a child of
+`Part.Group.`, a bare key for a child of a top-level group -- and so on
+down a group in a group. The answer depends on the structure only, never on
+what is shown, so it is as current as the entry's own key: the group is on
+the entry's path, and a change of what it holds marks the entry for the
+pass (5.26).
+
+Three rules came with it:
+
+- **An entry given by name outranks one an object stands for.** The derived
+  keys go into the table behind every named entry, and an equal key keeps
+  that order: the group hidden and one child of it shown shows the child.
+- **A show is not the same list as a hide.** A plain group shown by a view
+  shows what it holds except a child the group remembers as hidden by hand
+  (`HiddenChildren`), and never its own nodes, which hold every child once
+  more -- the first cut showed them, and a child hidden by hand was drawn
+  and not picked. A solid body shown by a view shows its own shape, which is
+  the solid, and none of its features: one of them at a time is to be seen,
+  and which is not a view's to say. So an entry of such an object is
+  resolved again when its value flips, the one exception to 5.29.
+- **A shader bound to such an object is on the same list**
+  (`SeenThrough::For::Look`, `ViewProviderShaderBinding`): Scope `Object`
+  puts the program in the root of each feature of the solid, Scope
+  `Instance` binds each of them as an occurrence, and one bound by name
+  keeps its own binding. A plain group is not on it; nothing was changed
+  for a shader bound to a group.
+- **One face of such an object is a face of at most one of the others**
+  (`SeenThrough::For::Element`). A solid body has the shape of its tip, so
+  `Solid.Face10` is `Face10` of the tip and of no earlier feature: a
+  binding of Scope `Element` goes to the tip alone, with the same element,
+  and is rebuilt when the tip moves (`Tip` is a link). It was the solid
+  body's own shape's alone, which draws nothing while a feature shows the
+  solid. A face of the tip bound by name keeps its own binding, as above,
+  and competes for that face only.
+
+**What a group remembers is no link.** `HiddenChildren` is a map, so a child
+hidden by hand while a view's show of its hidden group stood
+(`group.setElementVisible(child, False)`) stayed drawn there until the
+structure changed. `SeenThrough::dependsOn()` names the property, and the
+signal that marks an entry for the pass on a link's change marks it on
+that one too (5.26) -- **while some view shows a seen-through object, and
+not otherwise.** A plain group writes that map every time one of its
+children is shown or hidden, which with a table of entries and no such show
+among them would be a pass for nothing each time. The tables count their
+show entries of such objects into one total, and the map's change is not
+looked at while that is zero.
+
+**A look is a link by its class, and no structure** (2026-10-13).
+`tests/gui/reopen-visual-builds.py` asks for one pass after a reopen and got
+two in about half its runs on the Windows box (5 of 8, then 4 of 10).
+Traced: the pass is queued by the first container whose children are
+rebuilt (`sceneChanged(container)`) and runs some 100 ms later; in between
+the `ElementAppearance` of each Part and each Link is written as its view
+provider comes up, one every few ms. `PropertyElementAppearance` derives
+from a link property (an appearance may name a material), so each write
+marked its object, and the last of them falling behind the pass queued a
+second one over every entry under those containers. A look moves nothing in
+the scene: the signal passes that class by. Nothing in that document has a
+`HiddenChildren` map; an earlier note here blamed the turns of the event
+loop alone.
+
+**Test.** `tests/gui/per-view-seen-through.py`, 73 checks by pick and by
+the backend's frame, two views: a group in a Part, a group in the group, a
+top-level group by path and by bare name, a child shown by name, a box
+joining and leaving a hidden group, the show with a child hidden by hand
+before it and with one hidden by hand while it stands, a solid body through
+its tip and through an earlier feature, its show, the shader in both
+whole-object scopes, and the shader on one face. Before-state: every "is
+hidden" claim of a group, and of a solid body seen through a feature,
+fails; the child hidden while the show stands failed until `dependsOn()`,
+and the two "a face of the solid body" claims until `For::Element`.
+
+**Found with it.** A shader bound with Scope `Instance` drew nothing, on a
+plain top-level box too: not this work's and not the Windows box's, but
+every backend's since 2026-08-06 (docs/RenderDebug.md 6.5). Fixed with it,
+which is what let the `Instance` half above be checked by a frame.
+
 ## 5. Evaluated and not taken: one capture root to catch everything
 
 Stage 1b left an obvious-looking follow-on: if what Coin still draws is

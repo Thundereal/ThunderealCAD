@@ -23,7 +23,15 @@
 #ifndef GUI_OWNNODESPATH_H
 #define GUI_OWNNODESPATH_H
 
+#include <vector>
+
+#include <Base/Type.h>
 #include <FCGlobal.h>
+
+namespace App {
+class DocumentObject;
+class Property;
+}
 
 namespace Gui {
 
@@ -51,6 +59,61 @@ public:
 
     /// Whether the path asked for now is that of the object's own nodes
     static bool wanted();
+};
+
+/** The objects an object is seen through, beside its own nodes
+ *
+ * The other half of OwnNodesPath. Some objects are drawn by others that sit
+ * BESIDE them in the scene, not under them: what a plain group holds, and
+ * the features of a PartDesign solid body. Whoever keeps something on the
+ * nodes of such an object -- a view's own visibility of it, a shader bound
+ * to it -- has to keep it on those of the others too, or it acts on nodes
+ * that draw nothing.
+ *
+ * The answer depends on the structure of the document only (which objects
+ * the group holds, which features the solid has), never on what is shown at
+ * the moment, so it is right for as long as a path resolved with
+ * OwnNodesPath is. The others are named as their owner is, one step up:
+ * where the owner is 'Part.Group.' they are 'Part.Box.', and top-level
+ * objects where it is one.
+ */
+class GuiExport SeenThrough
+{
+public:
+    enum class For {
+        /// Hidden with the object
+        Hide,
+        /// Shown with it, the object itself among them where its own nodes
+        /// are what a show of it shows: a solid body shows its own shape and
+        /// none of its features, a plain group what it holds and never
+        /// itself, which would draw each child again and one hidden by hand
+        /// with them
+        Show,
+        /// Dressed as it is: a shader bound to it
+        Look,
+        /// Having its elements, name for name: where a shader bound to one
+        /// face of it goes. The tip of a solid body, whose shape the solid
+        /// body has; what a group holds has no element of the group
+        Element,
+    };
+
+    using Members = std::vector<App::DocumentObject*> (*)(const App::DocumentObject *, For);
+
+    /// What objects of \a type are seen through. A plain group needs none:
+    /// it is seen through what it holds.
+    static void add(const Base::Type &type, Members members);
+
+    /// The objects \a obj is seen through, none for most
+    static std::vector<App::DocumentObject*> of(const App::DocumentObject *obj, For what);
+
+    /** Whether a change of \a prop changes what its object is seen through
+     *
+     * Beside the links, which whoever resolves by the structure watches
+     * anyway: what a plain group remembers as hidden by hand
+     * (HiddenChildren) is a map and no link, and is what a show of the
+     * group leaves out.
+     */
+    static bool dependsOn(const App::Property &prop);
 };
 
 } // namespace Gui

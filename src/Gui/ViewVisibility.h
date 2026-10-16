@@ -180,6 +180,20 @@ private:
         /// path and, for a link, what it links to. Compared, never
         /// dereferenced -- a deleted one may be gone.
         std::vector<const App::DocumentObject *> deps;
+        /// What the entry's object is seen through beside its own nodes
+        /// (SeenThrough) -- the children of a plain group -- each with the
+        /// entry's value.
+        struct Member {
+            SoFCVisibilityElement::Entry entry;
+            std::pair<std::string, std::string> leaf;
+        };
+        std::vector<Member> members;
+        /// Whether the object is seen through anything, for a show or for
+        /// a hide.
+        bool seenThrough = false;
+        /// Whether the entry's own key is in the table: not a show of an
+        /// object that draws nothing but what it is seen through.
+        bool own = true;
     };
 
     /// Replace \a source (with its \a results) by \a entries, resolving
@@ -217,6 +231,9 @@ private:
     std::set<uint32_t> overridden;
     std::set<std::pair<std::string, std::string>> shown;
     std::function<void()> onChanged;
+    /// How many of this table's entries show an object that is seen
+    /// through others, as counted into the total of all tables.
+    int showsSeenThrough = 0;
 
     Render::VisibilitySet draws;
     const SoFCRenderCacheManager *drawFeed = nullptr;

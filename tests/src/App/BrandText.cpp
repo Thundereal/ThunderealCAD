@@ -135,8 +135,8 @@ TEST_F(BrandTextTest, whoMadeTheFile)
     auto& config = App::Application::Config();
     config.erase("ProgramUrl");
     EXPECT_EQ(App::createdBy(), "Created by Thundereal <https://www.freecad.org>");
-    config["ProgramUrl"] = "https://github.com/Thundereal/Thundereal";
-    EXPECT_EQ(App::createdBy(), "Created by Thundereal <https://github.com/Thundereal/Thundereal>");
+    config["ProgramUrl"] = "https://github.com/Thundereal/ThunderealCAD";
+    EXPECT_EQ(App::createdBy(), "Created by Thundereal <https://github.com/Thundereal/ThunderealCAD>");
     config.erase("ProgramUrl");
 }
 

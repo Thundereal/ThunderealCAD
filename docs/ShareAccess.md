@@ -410,23 +410,31 @@ everywhere with zero edge configuration: browser-cached through a quick tunnel,
 edge-cached automatically on a named zone (`.svg` is on the default list), and never
 stale because a changed asset is a new URL.
 
-### 5.2 The front door of record: the named tunnel on cad.thundereal.com
+### 5.2 The front door of record: the named tunnel on cad.thundereal.org
 
 Decided 2026-08-07: **the share's public door is the named tunnel** — Cloudflare tunnel
-`fc-share` carrying `cad.thundereal.com` to the serving process (`cloudflared tunnel run
+`fc-share` carrying `cad.thundereal.org` to the serving process (`cloudflared tunnel run
 --url http://localhost:<port> fc-share`; cert in `~/.cloudflared/`, DNS CNAME on the
 zone). The quick tunnel stays as the no-account fallback, and both remain presets in the
 Share dialog's front-door chooser (§7.6): the bundled presets are **LAN**, **Quick
 tunnel**, and **thundereal** — the last being the own-door shape, public origin
-`https://cad.thundereal.com` with the identity door on. Presets are seeded lazily:
+`https://cad.thundereal.org` with the identity door on. Presets are seeded lazily:
 `loadDoors()` answers the bundled three while `SceneShare/Doors` is empty and
 `DoorsSeeded` unset; they persist (and the flag is written) the first time the dialog
 saves, so a deliberately deleted preset stays deleted. An empty stored list on a fresh
 profile is therefore the working state, not a missing feature.
 
+The door moved from `cad.thundereal.com` to `cad.thundereal.org` on 2026-10-16, when the
+project's domain became thundereal.org (the live checks below ran on the old name). A
+stored door whose origin is still the old default is the default an earlier build seeded,
+not the user's choice, and `loadDoors()` moves it; any other origin is kept. The tunnel
+needs the matching route on the new zone (`cloudflared tunnel route dns fc-share
+cad.thundereal.org`, once the zone is on the account) and the Access application the
+new hostname; until then the old hostname keeps working for a door set to it by hand.
+
 Through this door a share link is **tokenless** and carries only the doc group:
 
-    https://cad.thundereal.com/fcviewer.html?doc=<DocName>
+    https://cad.thundereal.org/fcviewer.html?doc=<DocName>
 
 Cloudflare Access authenticates the visitor (one-time PIN, Google, or GitHub — §4), the
 grant list authorizes: only an identity a grant covers gets scene bytes, everyone else is

@@ -432,7 +432,8 @@ private:
     bool setupReportView();
     bool setupPythonConsole();
 
-    static void renderDevBuildWarning(QPainter &painter, const QPoint startPosition, const QSize maxSize);
+    static void renderDevBuildWarning(QPainter &painter, const QPoint startPosition, const QSize maxSize,
+                                      int wrapWidth = 0);
 
 private Q_SLOTS:
     /**

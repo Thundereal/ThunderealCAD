@@ -257,6 +257,16 @@ def parse_diff(diff_lines: Iterator[str]) -> List[str]:
     return bad_lines
 
 
+def written_by_upstream(lines):
+    """The lines of a file under test as the reference files have them: a
+    writer names the program that wrote the file, and they were written by
+    FreeCAD."""
+    name = FreeCAD.ConfigGet("ExeName")
+    if name == "FreeCAD":
+        return lines
+    return [li.replace("written by " + name, "written by FreeCAD") for li in lines]
+
+
 def compare_inp_files(file_name1, file_name2):
     file1 = open(file_name1)
     f1 = file1.readlines()
@@ -288,7 +298,7 @@ def compare_inp_files(file_name1, file_name2):
             or li.startswith("17671.0,1")
         )
     ]
-    lf2 = force_unix_line_ends(lf2)
+    lf2 = written_by_upstream(force_unix_line_ends(lf2))
     import difflib
 
     diff_lines = difflib.unified_diff(lf1, lf2, n=0)
@@ -332,7 +342,7 @@ def compare_files(file_name1, file_name2):
             or li.startswith("General.NumThreads")
         )
     ]
-    lf2 = force_unix_line_ends(lf2)
+    lf2 = written_by_upstream(force_unix_line_ends(lf2))
     import difflib
 
     diff = difflib.unified_diff(lf1, lf2, n=0)

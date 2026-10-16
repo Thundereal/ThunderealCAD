@@ -635,7 +635,7 @@ def _make_server(host: str, port: int):
     except ImportError:
         pass
     else:
-        server = FastMCP("FreeCAD Debug Console", host=host, port=port)
+        server = FastMCP("Debug Console", host=host, port=port)
         return server, lambda: server.run(transport="streamable-http")
 
     try:
@@ -649,7 +649,7 @@ def _make_server(host: str, port: int):
             % (sys.version.split()[0], sys.prefix, _python_executable())
         ) from exc
 
-    server = MCPServer("FreeCAD Debug Console")
+    server = MCPServer("Debug Console")
     return server, (lambda: server.run(transport="streamable-http",
                                        host=host, port=port))
 

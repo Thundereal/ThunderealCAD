@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="10.7" height="10" viewBox="0 0 10.7 10">
+  <title>Thundereal title-block logo</title>
+  <g id="thundereal-logo" fill="none" stroke="#000" stroke-width=".35">
+    <path id="thundereal-logo-strike" fill="#fff" stroke-width=".25" stroke-linejoin="round" d="M6.22 0.3L5.58 5.52L7.35 5.52L4.13 9.7L4.78 7.13L2.69 7.13L6.22 0.3Z"/>
+    <path id="thundereal-logo-barBottom" fill="#fff" stroke-width=".25" stroke-linejoin="round" d="M1.89 3.27L7.99 3.27L8.79 3.75L2.69 3.75L1.89 3.27Z"/>
+    <path id="thundereal-logo-barSide" fill="#fff" stroke-width=".25" stroke-linejoin="round" d="M7.99 1.34L8.79 1.83L8.79 3.75L7.99 3.27L7.99 1.34Z"/>
+    <path id="thundereal-logo-barFront" fill="#fff" stroke-width=".25" stroke-linejoin="round" d="M1.89 1.34L7.99 1.34L7.99 3.27L1.89 3.27L1.89 1.34Z"/>
+    <path id="thundereal-logo-lowStrike" fill="#fff" stroke-width=".25" stroke-linejoin="round" d="M5.84 3.42L5.58 5.52L7.35 5.52L4.13 9.7L4.78 7.13L2.69 7.13L4.61 3.42L5.84 3.42Z"/>
+  </g>
+</svg>

@@ -23,6 +23,49 @@ macro(InitializeFreeCADBuildOptions)
     endif()
     option(FREECAD_FORCE_USE_QT_FILEDIALOG "Always use Qt's file dialog and ignore user parameter settings." OFF)
 
+    # The identity: the reverse-DNS app id that names the desktop entry, the AppStream
+    # data, the MIME package, the installed application icons, the Wayland app_id and
+    # the macOS bundle, and the artwork that shows the app -- the application icon in
+    # every form, the empty-window watermark and the package box's label. ON is this
+    # fork's own, so it installs and groups apart from upstream FreeCAD; OFF is
+    # upstream's id and upstream's artwork. FREECAD_APP_ICON is the artwork's base
+    # name (Icons/<name>.svg, <name>-icon-<size>.png, background_<name>*.svg, ...).
+    # FREECAD_APP_NAME is the name the program goes by: the executables' ExeName,
+    # which titles the windows and the banner and is put for FreeCAD in the strings
+    # that mean this program (App/BrandText.cpp), the desktop entry's Name, the
+    # Windows version resource and the macOS bundle name.
+    # It is all derived, not cached, so flipping the switch always takes effect.
+    option(THUNDEREAL_IDENTITY
+        "Thundereal's app id (org.thundereal.Thundereal) and icons, OFF for FreeCAD's (org.freecad.FreeCAD)" ON)
+    if(THUNDEREAL_IDENTITY)
+        set(FREECAD_APP_NAME "Thundereal")
+        set(FREECAD_APP_ID_DOMAIN "org.thundereal")
+        set(FREECAD_APP_ID "org.thundereal.Thundereal")
+        set(FREECAD_APP_ICON "thundereal")
+    else()
+        set(FREECAD_APP_NAME "FreeCAD")
+        set(FREECAD_APP_ID_DOMAIN "org.freecad")
+        set(FREECAD_APP_ID "org.freecad.FreeCAD")
+        set(FREECAD_APP_ICON "freecad")
+    endif()
+
+    # The FreeCAD release this code base derives from. A document states it as
+    # the version that wrote it (App/Document.cpp), and upstream's readers
+    # decide by that how to read the file -- a colour's alpha, a taper's
+    # direction -- so it stays upstream's numbering whatever the product calls
+    # itself. Thundereal numbers its builds by date: year, month, day.
+    set(PACKAGE_BASE_VERSION_MAJOR "${PACKAGE_VERSION_MAJOR}")
+    set(PACKAGE_BASE_VERSION_MINOR "${PACKAGE_VERSION_MINOR}")
+    if(THUNDEREAL_IDENTITY)
+        set(PACKAGE_VERSION_MAJOR "2026")
+        set(PACKAGE_VERSION_MINOR "10")
+        set(PACKAGE_VERSION_PATCH "15")
+        set(PACKAGE_VERSION_SUFFIX "dev")
+        set(PACKAGE_VERSION
+            "${PACKAGE_VERSION_MAJOR}.${PACKAGE_VERSION_MINOR}.${PACKAGE_VERSION_PATCH}")
+        set(PACKAGE_STRING "${FREECAD_APP_NAME} ${PACKAGE_VERSION}")
+    endif()
+
     # == Win32 is default behaviour use the LibPack copied in Source tree ==========
     if(MSVC)
         option(FREECAD_RELEASE_PDB "Create PDB files for Release version." ON)
@@ -83,19 +126,22 @@ macro(InitializeFreeCADBuildOptions)
         if(FREECAD_CREATE_MAC_APP)
             install(
                 DIRECTORY ${CMAKE_SOURCE_DIR}/src/MacAppBundle/FreeCAD.app/
-                DESTINATION ${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}.app
+                DESTINATION ${CMAKE_INSTALL_PREFIX}/${FREECAD_APP_NAME}.app
             )
 
             # It should be safe to assume we've got sed on OSX...
             install(CODE "
                 execute_process(COMMAND
                     sed -i \"\" -e s/VERSION_STRING_FROM_CMAKE/${PACKAGE_VERSION}/
-                    -e s/NAME_STRING_FROM_CMAKE/${PROJECT_NAME}/
-                    ${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}.app/Contents/Info.plist)
+                    -e s/NAME_STRING_FROM_CMAKE/${FREECAD_APP_NAME}/
+                    -e s/BUNDLE_ID_FROM_CMAKE/${FREECAD_APP_ID}/
+                    -e s/ID_DOMAIN_FROM_CMAKE/${FREECAD_APP_ID_DOMAIN}/
+                    -e s/APP_ICON_FROM_CMAKE/${FREECAD_APP_ICON}/
+                    ${CMAKE_INSTALL_PREFIX}/${FREECAD_APP_NAME}.app/Contents/Info.plist)
                    ")
 
             set(CMAKE_INSTALL_PREFIX
-                ${CMAKE_INSTALL_PREFIX}/${PROJECT_NAME}.app/Contents)
+                ${CMAKE_INSTALL_PREFIX}/${FREECAD_APP_NAME}.app/Contents)
             set(CMAKE_INSTALL_LIBDIR ${CMAKE_INSTALL_PREFIX}/lib )
         endif(FREECAD_CREATE_MAC_APP)
         set(CMAKE_MACOSX_RPATH TRUE )

@@ -650,6 +650,7 @@ SET(FreeCADApp_CPP_SRCS
     Application.cpp
     ApplicationPy.cpp
     AutoTransaction.cpp
+    BrandText.cpp
     Branding.cpp
     CleanupProcess.cpp
     ColorModel.cpp
@@ -682,6 +683,7 @@ SET(FreeCADApp_HPP_SRCS
     Actor.h
     Application.h
     AutoTransaction.h
+    BrandText.h
     Branding.h
     CleanupProcess.h
     Color.h

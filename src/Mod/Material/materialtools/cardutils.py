@@ -430,7 +430,7 @@ def create_mat_template_card(write_group_section=True):
     f.write('; (c) 2013-2015 Juergen Riegel (CC-BY 3.0)\n')
     f.write('; information about the content of such cards can be found on the wiki:\n')
     f.write('; https://www.freecad.org/wiki/Material\n')
-    f.write(': this template card was created by FreeCAD ' + rev + '\n\n')
+    f.write(': this template card was created by ' + FreeCAD.ConfigGet("ExeName") + ' ' + rev + '\n\n')
     f.write('; localized Name, Description and KindOfMaterial uses 2 letter codes\n')
     f.write('; defined in ISO-639-1, see https://en.wikipedia.org/wiki/List_of_ISO_639-1_codes\n')
     f.write('; find unit information in src/App/FreeCADInit.py')

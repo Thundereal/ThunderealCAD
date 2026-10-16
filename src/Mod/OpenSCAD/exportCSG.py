@@ -257,8 +257,8 @@ def export(exportList, filename):
     csg = pythonopen(filename,'w')
     print("Write Initial Output")
     # Not sure if comments as per scad are allowed in csg file
-    csg.write("// CSG file generated from FreeCAD %s\n" % \
-            '.'.join(FreeCAD.Version()[0:3]))
+    csg.write("// CSG file generated from %s %s\n" % \
+            (FreeCAD.ConfigGet("ExeName"), '.'.join(FreeCAD.Version()[0:3])))
     #write initial group statements - not sure if required
     csg.write("group() {\n group(){\n")
     for ob in exportList:

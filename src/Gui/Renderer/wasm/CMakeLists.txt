@@ -155,6 +155,28 @@ fc_bgfx_compile_shaders(fcviewer_shader_bins
 add_custom_target(fcviewer_shaders DEPENDS ${fcviewer_shader_bins})
 add_dependencies(fcviewer fcviewer_shaders)
 
+# The page's tab icon follows the desktop build's switch of the same name: ON
+# writes Thundereal's (thundereal-favicon.html, drawn by src/Tools/thundereal-icons.py)
+# into a copy of the shell, OFF uses the shell as it is, with none.
+option(THUNDEREAL_IDENTITY "The viewer page carries Thundereal's icon" ON)
+set(FCVIEWER_SHELL ${CMAKE_CURRENT_SOURCE_DIR}/shell.html)
+if(THUNDEREAL_IDENTITY)
+    file(READ ${FCVIEWER_SHELL} _shell)
+    file(READ ${CMAKE_CURRENT_SOURCE_DIR}/thundereal-favicon.html _favicon)
+    string(REPLACE "  <title>" "  ${_favicon}  <title>" _shell "${_shell}")
+    set(FCVIEWER_SHELL ${CMAKE_CURRENT_BINARY_DIR}/shell.html)
+    # Rewritten only when it changes, so the link step is not redone for nothing.
+    set(_old "")
+    if(EXISTS ${FCVIEWER_SHELL})
+        file(READ ${FCVIEWER_SHELL} _old)
+    endif()
+    if(NOT _old STREQUAL _shell)
+        file(WRITE ${FCVIEWER_SHELL} "${_shell}")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        ${CMAKE_CURRENT_SOURCE_DIR}/shell.html ${CMAKE_CURRENT_SOURCE_DIR}/thundereal-favicon.html)
+endif()
+
 target_link_options(fcviewer PRIVATE
     -sMAX_WEBGL_VERSION=2
     -sMIN_WEBGL_VERSION=2
@@ -168,7 +190,7 @@ target_link_options(fcviewer PRIVATE
     "SHELL:--preload-file ${CMAKE_BINARY_DIR}/assets/shaders/essl@/assets/bgfx/assets/shaders/essl"
     # Mobile-friendly HTML shell (viewport meta + full-viewport, touch-action
     # canvas) instead of the stock desktop emscripten template.
-    "SHELL:--shell-file ${CMAKE_CURRENT_SOURCE_DIR}/shell.html"
+    "SHELL:--shell-file ${FCVIEWER_SHELL}"
 )
 
 # Optional desktop-captured scene snapshot (FC_BGFX_DUMP_SCENE) baked

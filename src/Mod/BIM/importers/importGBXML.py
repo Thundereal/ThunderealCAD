@@ -66,7 +66,7 @@ def export(objectslist, filename):
     # header
     filestream.write('<?xml version="1.0"?>\n')
     filestream.write(
-        "<!-- Exported by FreeCAD %s -->\n" % FreeCAD.Version()[0]
+        "<!-- Exported by %s %s -->\n" % (FreeCAD.ConfigGet("ExeName"), FreeCAD.Version()[0])
         + FreeCAD.Version()[1]
         + FreeCAD.Version()[2]
     )

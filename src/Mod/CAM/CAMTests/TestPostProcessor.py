@@ -298,14 +298,16 @@ class TestHeaderBuilder(unittest.TestCase):
 
         path = builder.Path
 
-        expected_commands = ["(Exported by FreeCAD)", "(T5=Drill)", "(Note: Partial test)"]
+        # The program's name, by default
+        exporter = "(Exported by %s)" % FreeCAD.ConfigGet("ExeName")
+        expected_commands = [exporter, "(T5=Drill)", "(Note: Partial test)"]
 
         self.assertEqual(len(path.Commands), len(expected_commands))
         for i, expected_comment in enumerate(expected_commands):
             self.assertEqual(path.Commands[i].Name, expected_comment)
 
         # converted
-        expected_gcode = "(Exported by FreeCAD)\n(T5=Drill)\n(Note: Partial test)\n"
+        expected_gcode = exporter + "\n(T5=Drill)\n(Note: Partial test)\n"
         gcode = path.toGCode()
         self.assertEqual(gcode, expected_gcode)
 

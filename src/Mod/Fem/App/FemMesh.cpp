@@ -2072,7 +2072,8 @@ void FemMesh::writeABAQUS(
     anABAQUS_Output.precision(13);
 
     // add some text and make sure one of the known elemParam values is used
-    anABAQUS_Output << "** written by FreeCAD inp file writer for CalculiX,Abaqus meshes"
+    anABAQUS_Output << "** written by " << App::Application::getExecutableName()
+                    << " inp file writer for CalculiX,Abaqus meshes"
                     << std::endl;
     switch (elemParam) {
         case 0:

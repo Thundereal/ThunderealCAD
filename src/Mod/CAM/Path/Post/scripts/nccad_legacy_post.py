@@ -74,6 +74,7 @@ HEADER = """;Exported by FreeCAD
 ;CAM file: {}
 ;Output Time: {}
 """.format(__name__, cam_file, str(datetime.datetime.now()))
+HEADER = HEADER.replace("FreeCAD", FreeCAD.ConfigGet("ExeName"), 1)
 
 
 def export(objectslist, filename, argstring):

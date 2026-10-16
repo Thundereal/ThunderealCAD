@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <title>Thundereal</title>
+  <rect width="16" height="16" rx="3.5" fill="#1B2744"/>
+  <path id="strike" fill="#FFB21E" d="M9.22 1.5L8.33 8.72L10.78 8.72L6.33 14.5L7.22 10.94L4.33 10.94L9.22 1.5Z"/>
+  <path id="barBottom" fill="#9CC0FF" d="M3 5L11 5L12 6L4 6L3 5Z"/>
+  <path id="barSide" fill="#2552C4" d="M11 3L12 3.6L12 6L11 5L11 3Z"/>
+  <path id="barFront" fill="#4F86F0" d="M3 3L11 3L11 5L3 5L3 3Z"/>
+  <path id="lowStrike" fill="#FFB21E" d="M8.67 6L8.33 8.72L10.78 8.72L6.33 14.5L7.22 10.94L4.33 10.94L6.89 6L8.67 6Z"/>
+</svg>

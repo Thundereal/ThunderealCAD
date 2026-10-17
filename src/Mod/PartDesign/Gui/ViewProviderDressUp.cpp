@@ -33,7 +33,9 @@
 # include <TopExp.hxx>
 #endif
 
+#include <App/DocumentObserver.h>
 #include <Gui/Application.h>
+#include <Gui/Control.h>
 #include <Mod/Part/Gui/ReferenceHighlighter.h>
 #include <Mod/PartDesign/App/FeatureDressUp.h>
 
@@ -70,7 +72,15 @@ bool ViewProviderDressUp::setEdit(int ModNum) {
         PartDesign::DressUp* dressUp = static_cast<PartDesign::DressUp*>(getObject());
         assert (dressUp);
         if (dressUp->getBaseObject (/*silent =*/ true)) {
-            return inherited::setEdit(ModNum);
+            // The preview picked in the 3D view, its element named in the
+            // panel's list by the edge it was made on: "I want all dress up
+            // preview shape to be pickable in 3d view" (docs/HandsOnQueue.md
+            // entry 169). Outside the edit it stays out of the picks.
+            setPreviewPickable(true);
+            if (inherited::setEdit(ModNum))
+                return true;
+            setPreviewPickable(false);
+            return false;
         } else {
             QMessageBox::warning ( nullptr, QObject::tr("Feature error"),
                     QObject::tr("%1 misses a base feature.\n"
@@ -83,6 +93,28 @@ bool ViewProviderDressUp::setEdit(int ModNum) {
     } else {
         return inherited::setEdit(ModNum);
     }
+}
+
+bool ViewProviderDressUp::redirectEditingPick(const std::string &subname,
+                                              App::SubObjectT &target) const
+{
+    // "Hover face should resolve the edge name too, which should trigger
+    // edge preselection highlight" (docs/HandsOnQueue.md entry 169): the
+    // view preselects, lights and selects the base's edge for the face, as
+    // if it had been picked
+    if (!isEditingPickSelectable(subname))
+        return false;
+    auto dlg = qobject_cast<TaskDlgDressUpParameters*>(Gui::Control().activeDialog());
+    if (!dlg || dlg->getDressUpView() != this || !dlg->getDressUpParameters())
+        return false;
+    const std::string &prefix = PartDesign::FeatureAddSub::addsubElementPrefix();
+    return dlg->getDressUpParameters()->getPreviewTarget(subname.c_str() + prefix.size(), target);
+}
+
+void ViewProviderDressUp::unsetEdit(int ModNum)
+{
+    setPreviewPickable(false);
+    inherited::unsetEdit(ModNum);
 }
 
 

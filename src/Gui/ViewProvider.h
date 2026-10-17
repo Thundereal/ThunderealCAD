@@ -69,6 +69,7 @@ namespace Base {
 namespace App {
   using Color = Base::Color;
   class PropertyLinkList;
+  class SubObjectT;
 }
 
 class SoGroup;
@@ -589,6 +590,29 @@ public:
     virtual ViewProvider *startEditing(int ModNum=0);
     /// Allow disable multi geometry pick on other object when editing
     virtual bool isEditingPickExclusive() const { return false; }
+    /** Whether the view selects a pick of this object in edit, named \a
+     * subname by its getElementPicked(). The view passes over an object in
+     * edit that does not take its picks exclusively, which picks its own
+     * elements itself (a sketch); a view provider names here what it leaves
+     * to the view all the same (a dress-up's preview, docs/HandsOnQueue.md
+     * entry 169).
+     */
+    virtual bool isEditingPickSelectable(const std::string &subname) const {
+        (void)subname;
+        return false;
+    }
+    /** A pick of this object in edit that the view selects
+     * (isEditingPickSelectable) and that stands for another element: \a
+     * target, a top level object and the sub-name to it, is preselected,
+     * lit and selected in its place (a dress-up's preview face for the
+     * base's edge it was made on, docs/HandsOnQueue.md entry 169). False
+     * to keep the pick as it is.
+     */
+    virtual bool redirectEditingPick(const std::string &subname, App::SubObjectT &target) const {
+        (void)subname;
+        (void)target;
+        return false;
+    }
     bool isEditing() const;
     void finishEditing();
     /** An undo or redo asked for while this is in edit, before anything

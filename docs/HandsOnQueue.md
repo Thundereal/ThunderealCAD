@@ -138,7 +138,12 @@ later commits docs only), 2026-10-16 09:01 (`78fdeb4689`, CLEAN,
 pushed 08:59, on the reporter's "Dimension line will select dimension.
 Once done push and restage" to the build session, relayed: entry 148's
 dimension clicks (h); build r74; "Not tested by me on the staged copy",
-the build session).
+the build session), 2026-10-16 17:34 (`0bcd954c01` = the note-taker's
+queue commit, CLEAN, its code pushed 17:32:50 as `54b5805b13`, on the
+reporter's "push and restage. then look into 160's missing edges" to
+the build session, relayed: entries 138, 151 to 156, 152, 160's kept
+fillet face, 162; build r86; the staged FreeCAD.exe that went missing
+at 13:13 (161) back).
 
 **Two documents since 2026-10-07 11:15, one writer each** (asked for by the
 reporter, agreed between the two sessions). This one is the REQUEST side and
@@ -167,6 +172,215 @@ report views, the reporter's own files -- is kept beside the dev tree under
 read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
+
+**2026-10-18 00:07: "Push and restage" (the reporter, to the note-taker) -- entry 169 as
+committed; relayed to the build session. Not yet pushed or staged.** Under
+the entry.
+
+**2026-10-17 14:47: entry 169's hover sync DONE LOCALLY (`ebc61737c3`, `28a48ad695`), NOT
+pushed, NOT staged; the face lit from a 3D base-edge hover and the scroll
+not measured.** Under the entry.
+
+**2026-10-17 14:05: entry 169's hover sync in build r106 -- the pick redirects a preview
+face to its base edge; the panel follows the preselection. Nothing
+committed.** Under the entry.
+
+**2026-10-17 13:57: entry 169 REOPENED -- d ruled: a three-way hover sync (preview face,
+base edge, list item with scroll into view), each one making the other
+two react.** Under the entry.
+
+**2026-10-17 13:47: entry 169 DONE LOCALLY (`1f52f9070e`, `fd8a8d4422`), NOT pushed, NOT
+staged; d (a hover resolving the name) open for the reporter.** Under the
+entry.
+
+**2026-10-17 12:33: entry 169 -- the build session's readings a-f, in r103; a 3D hover
+does not resolve (only a selection syncs), the reporter's "(pre)selected"
+to be confirmed.** Under the entry.
+
+**2026-10-17 12:19: STAGED 07:41:20 CLEAN -- `.conda/user-app/INSTALLED.txt`: fcad
+`9f65f5f929` (code = pushed `b76481281e`), dirty False, OCCT `a81d25f148`,
+coin `d2da5cc93`, FreeCADGui 03:25:38 (build r102); FreeCAD.exe present
+(469504 bytes). The reporter's copy now has 160, 164, 165 and 166.**
+
+**2026-10-17 12:18: entry 169 NEW -- all dress-up previews pickable in the 3D view; a
+(pre)selection resolves to the base edge (or ?Edge) name and syncs the
+panel's list item.** Under the entry.
+
+**2026-10-17 07:39: PUSHED -- origin LinkVibe = `b76481281e` at 07:39:07 (the
+remote-tracking reflog: "update by push", from `54b5805b13`), on the
+reporter's "Push and restage", said to the build session (the note-taker
+did not hear it). Carries 160, 164, 165, 166 and the queue to
+`b76481281e`. The restage from build r102 (stage14.cmd) is RUNNING; the
+build session reports when it lands.**
+
+**2026-10-17 03:40: entries 160 (`dc5ef18848`) and 166 (`9b2db5555f`) DONE LOCALLY,
+build r102, NOT pushed, NOT staged. Local since the 17:32 push (code): 160
+`920e47cc39` `d41e92468b` `93b9b8a440` `a25c1d068b` `dc5ef18848`; 164
+`a8a0a01d88`; 165 `d89d378aa8` `6a22ba8b9f`; 166 `294697011c`
+`9b2db5555f`; and the logs, up to `513d22f945` -- push and restage on the
+reporter's word.** Under the entries.
+
+**2026-10-17 02:04: entry 166 is GENERAL -- in the reporter's staged copy every object
+copy from a document saved at schema 5 loses its shapes and included
+files (with the warning); whether a saved user file was hit is not
+checked.** Under the entry.
+
+**2026-10-17 02:01: entry 166 CAUSE FOUND -- the export reset the wrong document's file
+manager, so the copied shapes went by hash; fix in r100. Entry 160 -- the
+face outline is fed empty for every edge (hidden before by the face being
+preselected); r100 traces.** Under the entries.
+
+**2026-10-17 00:39: entry 166 CORRECTED -- the four files are the copied objects' SHAPE
+files (Sketch018, Pad012), not MaterialX; a writer puts them in the copy
+by hash without the file, r98 traces it. Entry 160 -- the face found and
+fed, the outline not drawn once the base edge is preselected, r98 traces.**
+Under the entries.
+
+**2026-10-17 00:18: entry 165's clash reversal DONE LOCALLY (`6a22ba8b9f`); entry 160 on
+r96 -- the base edge lit but the normal edge's face lost its outline,
+traced in r97; entry 166's safety net warns (r97).** Under the entries.
+
+**2026-10-17 00:14: entry 166 RULED -- keep the lookup as a safety net, but print a
+warning when it is used; the export fix goes ahead.** Under the entry.
+
+**2026-10-17 00:07: entry 166 -- the build session agrees the fix is only a fallback;
+the four files are made in the session from the material library, not
+carried by the file; an export fix to follow, the fallback to go unless
+kept. Entry 160 -- nothing special about the per-view preselection.** Under
+the entries.
+
+**2026-10-17 00:00: entry 166 QUESTIONED -- the fix looks the files up by content
+hash in other open documents' stores; the copy stream still leaves them
+out. Local, not pushed.** Under the entry.
+
+**2026-10-16 23:58: the 160 hover and 165 clash rulings are in build r96, NOT
+committed; results to come.** Under the entries.
+
+**2026-10-16 23:55: entry 164 separator ANSWERED -- keep doc#obj, as built.**
+Under the entry.
+
+**2026-10-16 23:54: entry 160 hover ANSWERED -- a missing edge: the face only;
+a normal edge: its face plus the base edge in the usual colour, in the
+edit view only.** Under the entry.
+
+**2026-10-16 23:52: entry 165 clash ANSWERED -- with "<<" the label wins,
+without it the internal name; the reverse of `d89d378aa8` (local).** Under
+the entry.
+
+**2026-10-16 23:50: entry 160 REOPENED -- hovering a normal edge must light the
+base feature's edge TOO; `a25c1d068b` (local, not pushed) replaced it by
+the fillet face.** Under the entry.
+
+**2026-10-16 22:37: entry 165 DONE LOCALLY (`d89d378aa8`), NOT pushed, NOT
+staged; entry 163 LIKELY CAUSE: the build session's own test exe at
+about 15:40 raised the Windows loader's missing-DLL box. Local since the
+17:32 push: 160 (four commits), 164, 165, 166 and the logs -- push and
+restage on the reporter's word.** Under the entries.
+
+**2026-10-16 21:00: entries 164 (`a8a0a01d88`) and 166 (`294697011c`) DONE
+LOCALLY, NOT pushed, NOT staged. Local since the 17:32 push: 160 (four
+commits), 164, 166 and the logs -- push and restage on the reporter's
+word. The build session takes 165 next.** Under the entries.
+
+**2026-10-16 20:39: entry 166 CAUSE found and fixed (binders' temporary copies
+miss a material card's files), entry 164 the object named in every
+recompute warning and error as " [doc#obj]" -- both in builds r93/r94, NOT
+committed.** Under the entries.
+
+**2026-10-16 20:12: entry 160 DONE LOCALLY (build r92: `920e47cc39`,
+`d41e92468b`, `93b9b8a440`, `a25c1d068b`), NOT pushed, NOT staged -- push
+and restage wait for the reporter's word; the scanner.FCStd on disk (the
+18:06 save) keeps Pocket040 at r 12, the designed content is the 10-06
+.FCBak.** Under the entry.
+
+**2026-10-16 19:06: entry 160 ANSWERED -- the Fit: a version keeps the old
+behaviour for old files, the sketch rule for new; asked whether the old
+fork's face orientation can come back.** Under the entry.
+
+**2026-10-16 19:00: entry 168 RULED -- after the other box merges Branding: a
+save of an old-extension file asks in a dialog (the facts, the new
+format encouraged, the old file kept, a way back), with "don't ask
+again" and a note that Save As saves the new format.** Under the entry.
+
+**2026-10-16 18:55: entry 160 -- why Adaptor's edges go FOUND: Pocket040's
+Fit -0.5 on a profile face flips sign with the face's orientation flag;
+a QUESTION to the reporter on the Fit's sign convention.** Under the
+entry.
+
+**2026-10-16 18:43: NEW entry 168 (for discussion) -- telling the new format's
+risk while encouraging it for the transaction log; the new extension
+exists on `origin/Branding` (.TStd, a save beside the .FCStd); the
+note-taker's proposal under the entry.** Under the entry.
+
+**2026-10-16 18:38: on-screen test runs FREE until the reporter says
+otherwise ("Run on screen test freely from now on until I say otherwise");
+the reporter away from the desk.** Under entry 160.
+
+**2026-10-16 18:15: NEW entry 167 (critical by the reporter) -- scanner.FCStd
+saved unasked: ONE save at 18:06:52 by the reporter's own staged FreeCAD
+(the history inside the file says so), schema 4 -> 5; no self-saving code
+found by reading. 165 b and 166 a/b answered.** Under the entries.
+
+**2026-10-16 18:05: entry 165 ANSWERED -- the expression editors too; /error over
+all open documents, built per showing; a clash: no "<<" favours the
+label, "<<" the internal name (as said; asked whether reversed).** Under
+the entry.
+
+**2026-10-16 18:04: entry 166 -- the build session sees the same four warnings in
+the FIRST recompute of a fresh HEADLESS open (no revert): not the
+revert's doing; the reporter's GUI first open printed none.** Under the
+entry.
+
+**2026-10-16 18:03: NEW entry 166 -- after a REVERT of scanner.FCStd, the blob
+manager's "Included file ... is missing from the document" (four hashes,
+twice, in the recompute after the revert; none after the first open) --
+read in the reporter's live console on their word.** Under the entry.
+
+**2026-10-16 17:59: NEW entry 165 -- omni search: /error for objects in
+recompute error; one completer row per object with <<label>> leading
+its description and tooltip; Tab to <<label>> when typed so, in both
+lists.** Under the entry.
+
+**2026-10-16 17:52: entry 164 -- the reporter found the binder, Binder008, and it
+IS marked as an error: the 17:41 question withdrawn; the request stands.**
+Under the entry.
+
+**2026-10-16 17:48: entry 160 FIRST -- the reporter's order, passed to the build
+session: "ask builder to fully complete entry 160 first".** Under the
+entry.
+
+**2026-10-16 17:47: entry 160 REPORTED on the 17:34 stage -- Adaptor's missing-edge
+fillet face STILL MISSING; BaseBottom's there ("I think"); the hover
+highlight for missing and normal edges not there (never started).**
+Under the entry.
+
+**2026-10-16 17:46: entry 160 -- the missing edges' CAUSE found, two cases:
+Fillet007's a double Chamfer run marking references missing too early
+(fix building r87); Fillet011's a real upstream change (Pocket040 on
+Hole007's Face56, probe running). The preview face of 17:43 NOT yet
+checked by eye.** Under the entry.
+
+**2026-10-16 17:43: entry 164 ADDED -- why the binder's "No context" error does
+not mark it as a recompute error (both paths mark it by the source; lost
+later or swallowed, not found by reading); entry 160 -- the reporter
+asks whether the missing preview face is fixed: `c33e177bcf` is in the
+17:34 stage.** Under the entries.
+
+**2026-10-16 17:40: NEW entry 164 -- the object's full name (docname@objname)
+in execute()'s error messages, the binder's "No context" first, and an
+audit of the code base.** Under the entry.
+
+**2026-10-16 17:34: STAGED 17:34:10 CLEAN (`0bcd954c01`, code = pushed
+`54b5805b13`, build r86): entries 138, 151 to 156, 152, 160's kept face,
+162; FreeCAD.exe back (161).** The build session now looks into 160's
+missing edges.
+
+**2026-10-16 17:33: PUSHED `54b5805b13` at 17:32:50 (the reflog) on the
+reporter's word to the build session, "push and restage. then look into
+160's missing edges" (relayed) -- 138, 151 to 156, 152, 160's kept face,
+162; the RESTAGE from build r86 RUNNING (it puts back 161's FreeCAD.exe);
+160's missing edges to be looked into after it (16:20's "not for now"
+lifted).** Under the entries.
 
 **2026-10-16 16:20: entry 160 ANSWERED -- the missing edges themselves are NOT
 investigated for now.** Under the entry.
@@ -3243,7 +3457,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 135 | 2026-10-15 | the fillet's ON-VIEW EDITING (entry 117, on the copy staged 08:21): (1) a fillet with a MISSING REFERENCE shows NO ARROW -- so before entry 117's work too; with every missing reference removed the arrows show; (2) a click on an arrow is taken on the press, but its RELEASE PASSES THROUGH and selects the face behind; (3) the root button's click shows NO MENU, the reporter's guess: the same pass-through; (4) a change asked: the root button at the MIDDLE OF ITS EDGE, with a HIGHLIGHT of its own that shows it can be pressed | OPEN; read by the note-taker, nothing run: the root button sits just behind the arrow's root, in the arrow's frame, not on the edge; points under the entry. THE BUILD SESSION's reading (09:49), nothing run: point 1 -- the fillet panel hides ALL its handles while the fillet is in error, and a missing reference puts it in error; 2 and 3 need a reproduction by mouse (its tests drove the handles by keyboard); 4 confirmed. Its order: after 117's step 4, as the chamfer shares the handles. CHANGED BY THE REPORTER 11:30: the ROOT BUTTON (the pressable item at the arrow's tail) is DROPPED -- point 4 (button at the edge's middle with its own highlight) falls away; instead a TOOLTIP on hovering an arrow hints that a RIGHT CLICK opens its context menu (the menu the button opened). ANSWERED 11:35: the tooltip ALSO names drag to change and click to type; NO right click on the value label. "THE REST AGREE" 11:35: the chamfer's handles change the same way, Space still opens the menu, and arrows show on the edges that still exist while a reference is missing (the note-taker's readings, now the reporter's). BUILT in r49, tests running, NOTHING COMMITTED yet (the build session, 11:42): root button gone; right click on any handle opens its menu; hover tooltip; arrows show on the edges still there; point 2 REPRODUCED by mouse and fixed (a button-1 press picked through an SoDragger keeps its release from the selection). DONE 14:22, COMMITTED `14201accd6` (point 2), `50bed5f8ab` (the change: right click, tooltip), `bd51427d8e` (point 1), LOCAL, not pushed, not staged; tested on r54. PUSHED 2026-10-15 14:45 (origin `1df007d0f2`) and STAGED 14:47 CLEAN (`1df007d0f2`) |
 | 136 | 2026-10-15 | a change request, "related" to 135: EACH OPERATION in the fillet's edit UNDOABLE by itself -- and, in general, fine-grained undo in ALL PartDesign edit tasks; CANCEL still restores the state before the edit | OPEN; read by the note-taker, nothing run: an edit is ONE undo step today ("Edit <name>", opened at the first change and kept); the dress-ups' Cancel already undoes back to the edit's first step by its id, the others abort the open one. WAITS FOR THE REPORTER'S ANSWERS to points a to d (the build session, 09:49). ANSWERED 09:58: a, a drag's release is ONE step if it changed something; b, OK a step of its own (it triggers the recompute); c, REDO wanted; d, THE FILLET FIRST. And a NEW point: while dragging, a click of any other mouse button, or Esc, CANCELS the drag and restores the state before it. Typing as a step not said. TYPING ANSWERED 10:07: a typed value is a step when the editing FINISHES; ENTER commits the value and triggers the fillet's partial recompute but KEEPS the edit box open (not a finish); Esc, Tab or a click away FINISH and close the box -- a CHANGE to step 1's keys (Enter closed the label, Esc restored the value). Points f to i taken by the build session as the note-taker's readings (Esc keeps, Tab finishes and moves to the next handle, Ctrl+Enter kept, un-Entered text committed on a click away) unless the reporter says otherwise. ITS ORDER: 135, then 137, then 136 on the fillet. POINTS f TO i ANSWERED 10:13: ESC without Enter does NOT commit what was typed -- it closes the box and the open transaction, a step only if the value changed since the box opened (the note-taker's reading of f, "Esc keeps", WRONG); TAB commits, closes and moves to the next handle; a CLICK AWAY commits and closes; NO Ctrl+Enter. THE REPORTER 11:57: "once all done, including entry 136, push and restage" -- a PUSH and a RESTAGE are authorised once 135, 137 and 136 are done. DONE 14:22 for the FILLET, COMMITTED `50bed5f8ab` (drags as undo steps, the label keys), `bd51427d8e` (the fillet's fine undo), LOCAL, not pushed, not staged; tested on r54. The PUSH AND RESTAGE: the build session asks the reporter to CONFIRM directly before it pushes (the word came only by relay). PUSHED 2026-10-15 14:45 (origin `1df007d0f2`) and STAGED 14:47 CLEAN (`1df007d0f2`), on the reporter's DIRECT confirmation to the build session 14:25 |
 | 137 | 2026-10-15 | a change request: TechDraw's "Print All Pages" and "Print Selected Pages" COMBINED into ONE command, TechDraw_Print; its tooltip to say it prints the SELECTED pages, or ALL pages when none is selected | OPEN; read by the note-taker, nothing run: two commands today, TechDraw_PrintAll (upstream's name; the active document's pages) and TechDraw_PrintSelected (entry 127; selected pages of any document); both on three tool bar/menu lists of the workbench; points under the entry. the build session's order: after 135, before 136. CHANGED BY THE REPORTER 10:20: the print-all command DROPPED; the one print command gets a PRINTER icon and opens a DIALOG to pick the pages -- a tree of every open document and its pages, checkboxes on both (a document's box toggles all its pages), the current document expanded and scrolled to its first page, all its pages checked by default; the last choice remembered for the session only (not saved). The "selected, or all if none" rule of 10:03 REPLACED. ANSWERED 11:27: EXPORT TO PDF wanted in the dialog; a SEPARATE LIST BOX at the side lists every checked page as doc_name#page_name, with move up / move down to set the ORDER; menu text "Print pages", the tooltip to mention printing selected pages and export to PDF. ALL POINTS ANSWERED 11:33: a BUTTON for PDF export; the PRINT button goes on to the printer dialog, landscape by default; doc_name and page_name are both LABELS; reorder by move up/down BUTTONS AND by DRAG; the rest as the note-taker read it (part-checked document box, remembered order kept with newly checked pages at the end, closed documents dropped, documents with no pages left out). BUILT in r49, tests running, NOTHING COMMITTED yet (the build session, 11:42): TechDraw_Print "Print pages" with the page dialog; Print All and Print Selected REMOVED; the remembered choice kept only on Print/Export, not on Cancel (the build session's choice). DONE 14:22, COMMITTED `58242c9b8c`, LOCAL, not pushed, not staged; tested on r54 (print 12). PUSHED 2026-10-15 14:45 (origin `1df007d0f2`) and STAGED 14:47 CLEAN (`1df007d0f2`) |
-| 138 | 2026-10-15 | a defect: in an overlay in TRANSPARENT mode the SELECTION VIEW's COLUMN HEADER has no background (all transparent); the reporter remembers asking for it to be backed as the PROPERTY EDITOR's column header is | OPEN; the earlier request NOT FOUND in the queue by the note-taker -- the nearest is entry 123 (the selection view's list column backed as the property editor's, 2026-10-14 15:49), which does not name the header. NOT REPRODUCED 14:22 by the build session: offscreen the selection view's header and the property editor's read the SAME ground; it asks the reporter for a SCREENSHOT and the panel layout. 2026-10-16 10:23: the reporter -- "regression", the header STILL has no background (no screenshot given); 10:24 ADDED: a background for the 'Picked object list' CHECKBOX too. 10:28-10:29 SCREENSHOTS given: the PROPERTY VIEW's header is see-through TOO -- "definitely a stylesheet problem"; by the note-taker's reading the reporter's overlay sheet `Dark-Outline.qss` gives every header section alpha 10. 10:32 RULED: the HEADER FOLLOWS the ITEM BACKGROUND's ALPHA (`DockOverlayAlpha`, 180 in the reporter's config); asked whether Dark-Outline.qss was retired -- NOT, by the note-taker's reading (the default dark overlay sheet). 10:39: the header's COLOUR follows the STYLE SHEET, its ALPHA the item background (the note-taker's guess of the items' colour withdrawn). 11:02 in build r77, NOT committed, not pushed, not staged: the header's ground the sheet's colour at DockOverlayAlpha; the 'Picked object list' checkbox the same ground (the build session's reading). 13:26 DONE `a5075bdbd4` LOCAL, not pushed, not staged: the header ground in the sheet's colour, alpha = DockOverlayAlpha; the Picked object list check box the header ground |
+| 138 | 2026-10-15 | a defect: in an overlay in TRANSPARENT mode the SELECTION VIEW's COLUMN HEADER has no background (all transparent); the reporter remembers asking for it to be backed as the PROPERTY EDITOR's column header is | OPEN; the earlier request NOT FOUND in the queue by the note-taker -- the nearest is entry 123 (the selection view's list column backed as the property editor's, 2026-10-14 15:49), which does not name the header. NOT REPRODUCED 14:22 by the build session: offscreen the selection view's header and the property editor's read the SAME ground; it asks the reporter for a SCREENSHOT and the panel layout. 2026-10-16 10:23: the reporter -- "regression", the header STILL has no background (no screenshot given); 10:24 ADDED: a background for the 'Picked object list' CHECKBOX too. 10:28-10:29 SCREENSHOTS given: the PROPERTY VIEW's header is see-through TOO -- "definitely a stylesheet problem"; by the note-taker's reading the reporter's overlay sheet `Dark-Outline.qss` gives every header section alpha 10. 10:32 RULED: the HEADER FOLLOWS the ITEM BACKGROUND's ALPHA (`DockOverlayAlpha`, 180 in the reporter's config); asked whether Dark-Outline.qss was retired -- NOT, by the note-taker's reading (the default dark overlay sheet). 10:39: the header's COLOUR follows the STYLE SHEET, its ALPHA the item background (the note-taker's guess of the items' colour withdrawn). 11:02 in build r77, NOT committed, not pushed, not staged: the header's ground the sheet's colour at DockOverlayAlpha; the 'Picked object list' checkbox the same ground (the build session's reading). 13:26 DONE `a5075bdbd4` LOCAL, not pushed, not staged: the header ground in the sheet's colour, alpha = DockOverlayAlpha; the Picked object list check box the header ground. 17:33 PUSHED 17:32:50 (`54b5805b13`, by the reflog), on the reporter's word to the build session; the restage from build r86 RUNNING. 17:34 STAGED 17:34:10 CLEAN (INSTALLED.txt: fcad `0bcd954c01`, code = pushed `54b5805b13`, FreeCADGui 15:49:19 = build r86) |
 | 139 | 2026-10-15 | a change request: the PYTHON CONSOLE's and the REPORT VIEW's TEXT COLOURS revised to stand out more on the overlay background, in BOTH themes -- Classic included ("basically light theme") | OPEN. ALL POINTS ANSWERED 13:26: an AUDIT of ALL the two panels' text colours; in an overlay the SAME for EVERY overlay mode; the docked (non-overlay) panels MAY use the same colours if that is simpler; the rest as the note-taker read it (user-set colours kept, the text ground and outline unchanged). Queued by the build session after 140. DONE by the build log (seen 16:57): `340d03f023`, LOCAL, not pushed, not staged -- every colour of Dark, Light and Classic measured, those under 4.5:1 revised; test overlay-text-colours 6; r59 |
 | 140 | 2026-10-15 | a change request: in an overlay in NON-TRANSPARENT mode, the SELECTION VIEW's background the SAME as the other panels' (the Python console's, the report view's) | OPEN. CAUSE READ by the build session 14:22: in a non-transparent overlay the selection lists take the overlay sheet's tree grey, the text views keep the theme's ground (entry 121); plan: the report view's ground for the lists while overlaid and not see-through; NOT STARTED. DONE by the build log (seen 16:57): `e9a5143778` (+ `ba8fab9ccc`), LOCAL, not pushed, not staged -- the selection view's list on the report view's text ground; the log's text says "transparent mode", the commit "not see-through" -- which mode, ASKED of the build session. ANSWERED 16:59 by the build session: the NON-transparent mode (eye off), the log's "transparent" a slip, corrected `5dbfe4ae1d`; the transparent mode as it was |
 | 141 | 2026-10-15 | a defect: the fillet's on-view ARROW TOOLTIP (entry 135, staged 14:47) shows AT ONCE when the pointer touches the arrow, and ANY further movement hides it, even over the arrow; wanted: a TIMER, and the pointer checked to be still over the arrow before it shows; movement over the arrow does not hide it | OPEN. ADDED 15:32: the CHAMFER's handles the same (the reporter: "the same rule shall apply to chamfer except the direction which should be perpendicular to the chamfer face"). CAUSE FOUND and FIX IN BUILD r63, NOT committed, not pushed, not staged (build session, 17:58): the face BEHIND the handle stayed preselected and every move re-told the selection, which hides every tool tip; with an object in edit nothing behind a handle is preselected (SoFCUnifiedSelection). DONE 21:26 (build session): `cb161d69d3` + `62a8af9234`, LOCAL, not pushed, not staged -- two causes, the preselection behind the arrow and Qt's unanswered tool tip request; test 15 |
@@ -3256,19 +3470,25 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 148 | 2026-10-15 | a defect: TechDraw PICKING -- `scanner.FCStd`, Page009, view Front010: the FACE SEGMENTATION is wrong (the big inner hole found as a face, almost none of the outer faces found); and, maybe as a consequence, many EDGES respond to HOVER but a click SELECTS nothing, no error. The reporter asks whether using Part's WIREJOINER for the face segmentation is too much work | OPEN. ANSWERED 16:47: whether it ever worked NOT KNOWN; the unselectable edges MAYBE the borders of the missing faces (TechDraw has many OVERLAPPING edges) -- e.g. the centre hole taken for a face: its LOWER half arc selects, the UPPER half not; and FACES too: not every face that lights on hover selects -- e.g. view REAR001, the LEFTMOST HALF-CIRCLE face. 16:51: Rear001 is on Page009 too; such a click selects NOTHING. 17:58: the REPORTER's word relayed by the build session: WireJoiner gated by a property, default true for new objects, false for older files (legacy face finder) -- BUILT as DrawViewPart.UseWireJoiner, IN BUILD r63, NOT committed, not pushed, not staged; the hover-but-not-select defect SEPARATE, a probe after r63. 21:26 (build session): FACES DONE `5edea1ed83` (UseWireJoiner; scanner.FCStd's views keep the old finder until set); CLICKS: a CAUSE FOUND and FIXED `eefc466af4` (a dimension took presses over its whole rectangle) -- Front010 clicks selecting nothing at least 54 of 93 before, 10 after; LOCAL, not pushed, not staged; LEFT OPEN for the reporter: overlapping edges (the top one takes the click), the image view ActiveView017 over Rear001 takes clicks, 10 Front010 edges still select nothing. 2026-10-16 08:05: (h) FIXED `3370553582`, LOCAL, not pushed, not staged, on the reporter's "Continue" to the build session (relayed) -- the 10 dead edges were arcs crossed by a dimension's line or arrow; a dimension now takes a press on its LABEL only; 10 -> 0 on the copy; (f), (g) still open. 2026-10-16 09:01: the REPORTER RULED (to the build session, relayed) "Dimension line will select dimension" -- DONE `3a5e7c0239`, replacing the label-only choice; a projection group (AutoDistribute) no longer takes its views' dimensions' presses; no Front010 click selects nothing; PUSHED and STAGED `78fdeb4689`; (f), (g) still open |
 | 149 | 2026-10-15 | a change request: a TechDraw VIEW is OPAQUE to PICKING even where its background is transparent; the pick should go THROUGH the transparent background, while the view's BORDER stays pickable | OPEN. BUILT IN BUILD r63, NOT committed, not pushed, not staged (build session, 17:58): a part view and a projection group picked by a 2 mm band along the frame (shown or not), label and caption, lines and faces; the empty inside lets the click through; other view kinds unchanged. DONE 21:26 (build session): `7c6d93ba5f`, LOCAL, not pushed, not staged |
 | 150 | 2026-10-15 | a defect: WHEEL ZOOM under a TRANSPARENT overlay TASK PANEL sometimes stops: wheeling on while the pointer moves onto the panel's transparent area stops the zoom, and further wheeling does nothing -- it works again only after the pointer leaves the area and comes back WITHOUT wheeling, then starts wheeling there | OPEN; read by the note-taker: the overlay's WHEEL DELAY, renewed by every wheel event (OverlayManager.cpp 2070 to 2077) -- a guess, nothing run. ANSWERED 16:55: the TREE VIEW and the PROPERTY VIEW behave the SAME; moving onto the TREE while wheeling stops the zoom and the TREE SCROLLS instead, even over its transparent area; entering without wheeling, the wheel zooms. CAUSE READ by the build session 16:57: the wheel delay does not remember WHERE the wheel went; fix planned after r60 -- within the delay the wheel goes to the same place (the view or the panel) it went to; NOT fixed yet. FIX IN BUILD r63, NOT committed, not pushed, not staged (build session, 17:58), as described at 16:57. DONE 21:26 (build session): `c9417fada7`, LOCAL, not pushed, not staged |
-| 151 | 2026-10-16 | a defect: opening `scanner.FCStd` NOW, NONE of the TechDraw EDGES or FACES can be selected; DIMENSIONS can (by line or label); rendered under QT, NONE of the faces or edges are even DRAWN | OPEN; by the note-taker's reading on the copy staged 09:01 (`78fdeb4689`), a regression of the TechDraw picking work (entries 148, 149). ANSWERED 09:44: only on FIRST LOADING the document -- after switching to another page it works, and Page009 works too after switching back. 11:02 CAUSE FOUND, FIX verified on build r76, NOT committed, not pushed, not staged: the document is still restoring after the open returns, a page shown then skips its part views' draws and nothing asks again; a skipped draw now asks once the restore is over. 13:26 FIXED `b6e4813887` LOCAL, not pushed, not staged: a page opened while the document still restores draws once the restore ends; the Qt "nothing drawn" is the SAME skipped draw (build session) |
-| 152 | 2026-10-16 | a change request: the PartDesign TASK WATCHER hides itself when the ACTIVE VIEW is NOT a 3D view | OPEN. 13:26 CODED by the build session (PD watchers hidden while the active view is not a 3D view), building r81; NOT committed. 14:29 DONE `0a899727e2` LOCAL, not pushed, not staged (test 6/6 on r82) |
-| 153 | 2026-10-16 | a change request: SHORTEN the overlay's WHEEL CAPTURE timeout -- after zooming with the wheel, moving the pointer onto the TREE and wheeling there still ZOOMS; the grace time is understood (it keeps a continuous zoom from breaking) but seems a bit TOO LONG | OPEN; by the note-taker's reading the setting `DockOverlayWheelDelay`, 1000 ms by default and in the reporter's config, held for the view since entry 150's fix. ANSWERED 09:57: 300 ms; ONLY the DEFAULT changes; the timer RESTARTS on each turn as now (current logic kept). 11:02 DONE in the source, r76, NOT committed, not pushed, not staged: default 300 ms, restart logic kept. 13:26 DONE `0d6816c312` LOCAL, not pushed, not staged: default 300 ms; the reporter's user.cfg stores 1000, so the new default shows only after that key is reset |
-| 154 | 2026-10-16 | a defect: TechDraw, DRAGGING a view to move it does NOT move its GEOMETRY -- the view's BORDER and DIMENSIONS move along; on RELEASE the geometry is moved correctly; ONLY under the BGFX renderer, Qt works | OPEN. ANSWERED 09:50: the LATEST STAGED copy (`78fdeb4689`); a view IN A PROJECTION GROUP; before -- not sure. 11:02 CAUSE FOUND (OLD code): a projection group never reports its moves (setFlags drops ItemSendsGeometryChanges), its X/Y written only at release, and bgfx places the geometry by X/Y; fix in build r77, NOT committed, not pushed, not staged. 13:26 FIXED `0c28946f6d` LOCAL, not pushed, not staged (group flags dropped by setFlags, an upstream slip) |
-| 155 | 2026-10-16 | a defect: TechDraw, the click PASS-THROUGH of OVERLAPPING views still does NOT work on an ACTIVE VIEW, although its background renders TRANSPARENT | OPEN; by the note-taker's reading the reporter's answer to entry 148 (g): image views (an Active View is one) keep their whole frame pickable under 149's rule -- the reporter wants them to pass clicks too. ANSWERED 09:51: EVERY VIEW; the rule: wherever an area is RENDERED TRANSPARENT, the click goes THROUGH. ANSWERED 09:53: ANYTHING NON-TRANSPARENT registers a click; a HIDDEN FRAME does NOT (reverses entry 149's band along a hidden frame). 11:02 in build r77, NOT committed, not pushed, not staged: part views and groups by the frame band only while the frame is shown, plus label and caption; image, symbol, spreadsheet, annotation, rich text where drawn (alpha mask, 0.5 mm); CONSEQUENCE: a view with a hidden frame and no label cannot be grabbed to drag. 11:20: the reporter asks what a hidden frame is -- the page's frames toggled off: border AND label not drawn (the label kept only by KeepLabel); "if not [shown] then non-draggable is only natural" -- the consequence ACCEPTED. 11:22 CHANGED: with the page's frames HIDDEN, a view still SHOWS ITS FRAME while ANYTHING IN IT is SELECTED; once shown it can be dragged. ANSWERED 11:24: the LABEL shows with the frame; NO hover; a projection group shows the GROUP's frame. 13:26 DONE `6af132eb0b` LOCAL, not pushed, not staged: picture/symbol/annotation/rich annotation picked where drawn; the frame band only while shown; frames hidden -> a view with something selected shows frame+label and can be dragged; a group's view -> the group frame; no hover |
-| 156 | 2026-10-16 | a change request: the NAVIGATION CUBE's AXIS CROSS LABELS (X, Y, Z): their font colour THEME AWARE | OPEN; by the note-taker's reading a fixed black default now, set by no theme pack. ANSWERED 10:02: a value FROM EACH THEME; a colour set BY HAND WINS; ONLY the axis labels. 11:02 in build r77, NOT committed, not pushed, not staged: each pack writes NaviCube/ThemeAxisLabelColor (light grey dark packs, black light); AxisLabelColor by hand first. 13:26 DONE `5cdcce4ece` LOCAL, not pushed, not staged: ThemeAxisLabelColor in each pack; a hand-set AxisLabelColor wins |
+| 151 | 2026-10-16 | a defect: opening `scanner.FCStd` NOW, NONE of the TechDraw EDGES or FACES can be selected; DIMENSIONS can (by line or label); rendered under QT, NONE of the faces or edges are even DRAWN | OPEN; by the note-taker's reading on the copy staged 09:01 (`78fdeb4689`), a regression of the TechDraw picking work (entries 148, 149). ANSWERED 09:44: only on FIRST LOADING the document -- after switching to another page it works, and Page009 works too after switching back. 11:02 CAUSE FOUND, FIX verified on build r76, NOT committed, not pushed, not staged: the document is still restoring after the open returns, a page shown then skips its part views' draws and nothing asks again; a skipped draw now asks once the restore is over. 13:26 FIXED `b6e4813887` LOCAL, not pushed, not staged: a page opened while the document still restores draws once the restore ends; the Qt "nothing drawn" is the SAME skipped draw (build session). 17:33 PUSHED 17:32:50 (`54b5805b13`, by the reflog), on the reporter's word to the build session; the restage from build r86 RUNNING. 17:34 STAGED 17:34:10 CLEAN (INSTALLED.txt: fcad `0bcd954c01`, code = pushed `54b5805b13`, FreeCADGui 15:49:19 = build r86) |
+| 152 | 2026-10-16 | a change request: the PartDesign TASK WATCHER hides itself when the ACTIVE VIEW is NOT a 3D view | OPEN. 13:26 CODED by the build session (PD watchers hidden while the active view is not a 3D view), building r81; NOT committed. 14:29 DONE `0a899727e2` LOCAL, not pushed, not staged (test 6/6 on r82). 17:33 PUSHED 17:32:50 (`54b5805b13`, by the reflog), on the reporter's word to the build session; the restage from build r86 RUNNING. 17:34 STAGED 17:34:10 CLEAN (INSTALLED.txt: fcad `0bcd954c01`, code = pushed `54b5805b13`, FreeCADGui 15:49:19 = build r86) |
+| 153 | 2026-10-16 | a change request: SHORTEN the overlay's WHEEL CAPTURE timeout -- after zooming with the wheel, moving the pointer onto the TREE and wheeling there still ZOOMS; the grace time is understood (it keeps a continuous zoom from breaking) but seems a bit TOO LONG | OPEN; by the note-taker's reading the setting `DockOverlayWheelDelay`, 1000 ms by default and in the reporter's config, held for the view since entry 150's fix. ANSWERED 09:57: 300 ms; ONLY the DEFAULT changes; the timer RESTARTS on each turn as now (current logic kept). 11:02 DONE in the source, r76, NOT committed, not pushed, not staged: default 300 ms, restart logic kept. 13:26 DONE `0d6816c312` LOCAL, not pushed, not staged: default 300 ms; the reporter's user.cfg stores 1000, so the new default shows only after that key is reset. 17:33 PUSHED 17:32:50 (`54b5805b13`, by the reflog), on the reporter's word to the build session; the restage from build r86 RUNNING. 17:34 STAGED 17:34:10 CLEAN (INSTALLED.txt: fcad `0bcd954c01`, code = pushed `54b5805b13`, FreeCADGui 15:49:19 = build r86) |
+| 154 | 2026-10-16 | a defect: TechDraw, DRAGGING a view to move it does NOT move its GEOMETRY -- the view's BORDER and DIMENSIONS move along; on RELEASE the geometry is moved correctly; ONLY under the BGFX renderer, Qt works | OPEN. ANSWERED 09:50: the LATEST STAGED copy (`78fdeb4689`); a view IN A PROJECTION GROUP; before -- not sure. 11:02 CAUSE FOUND (OLD code): a projection group never reports its moves (setFlags drops ItemSendsGeometryChanges), its X/Y written only at release, and bgfx places the geometry by X/Y; fix in build r77, NOT committed, not pushed, not staged. 13:26 FIXED `0c28946f6d` LOCAL, not pushed, not staged (group flags dropped by setFlags, an upstream slip). 17:33 PUSHED 17:32:50 (`54b5805b13`, by the reflog), on the reporter's word to the build session; the restage from build r86 RUNNING. 17:34 STAGED 17:34:10 CLEAN (INSTALLED.txt: fcad `0bcd954c01`, code = pushed `54b5805b13`, FreeCADGui 15:49:19 = build r86) |
+| 155 | 2026-10-16 | a defect: TechDraw, the click PASS-THROUGH of OVERLAPPING views still does NOT work on an ACTIVE VIEW, although its background renders TRANSPARENT | OPEN; by the note-taker's reading the reporter's answer to entry 148 (g): image views (an Active View is one) keep their whole frame pickable under 149's rule -- the reporter wants them to pass clicks too. ANSWERED 09:51: EVERY VIEW; the rule: wherever an area is RENDERED TRANSPARENT, the click goes THROUGH. ANSWERED 09:53: ANYTHING NON-TRANSPARENT registers a click; a HIDDEN FRAME does NOT (reverses entry 149's band along a hidden frame). 11:02 in build r77, NOT committed, not pushed, not staged: part views and groups by the frame band only while the frame is shown, plus label and caption; image, symbol, spreadsheet, annotation, rich text where drawn (alpha mask, 0.5 mm); CONSEQUENCE: a view with a hidden frame and no label cannot be grabbed to drag. 11:20: the reporter asks what a hidden frame is -- the page's frames toggled off: border AND label not drawn (the label kept only by KeepLabel); "if not [shown] then non-draggable is only natural" -- the consequence ACCEPTED. 11:22 CHANGED: with the page's frames HIDDEN, a view still SHOWS ITS FRAME while ANYTHING IN IT is SELECTED; once shown it can be dragged. ANSWERED 11:24: the LABEL shows with the frame; NO hover; a projection group shows the GROUP's frame. 13:26 DONE `6af132eb0b` LOCAL, not pushed, not staged: picture/symbol/annotation/rich annotation picked where drawn; the frame band only while shown; frames hidden -> a view with something selected shows frame+label and can be dragged; a group's view -> the group frame; no hover. 17:33 PUSHED 17:32:50 (`54b5805b13`, by the reflog), on the reporter's word to the build session; the restage from build r86 RUNNING. 17:34 STAGED 17:34:10 CLEAN (INSTALLED.txt: fcad `0bcd954c01`, code = pushed `54b5805b13`, FreeCADGui 15:49:19 = build r86) |
+| 156 | 2026-10-16 | a change request: the NAVIGATION CUBE's AXIS CROSS LABELS (X, Y, Z): their font colour THEME AWARE | OPEN; by the note-taker's reading a fixed black default now, set by no theme pack. ANSWERED 10:02: a value FROM EACH THEME; a colour set BY HAND WINS; ONLY the axis labels. 11:02 in build r77, NOT committed, not pushed, not staged: each pack writes NaviCube/ThemeAxisLabelColor (light grey dark packs, black light); AxisLabelColor by hand first. 13:26 DONE `5cdcce4ece` LOCAL, not pushed, not staged: ThemeAxisLabelColor in each pack; a hand-set AxisLabelColor wins. 17:33 PUSHED 17:32:50 (`54b5805b13`, by the reflog), on the reporter's word to the build session; the restage from build r86 RUNNING. 17:34 STAGED 17:34:10 CLEAN (INSTALLED.txt: fcad `0bcd954c01`, code = pushed `54b5805b13`, FreeCADGui 15:49:19 = build r86) |
 | 157 | 2026-10-16 | a defect and a DESIGN question: TREE selection vs PER-VIEW selection -- with a TechDraw page active, a tree click (SyncView on) switches to the item's 3D view, which has NO selection while the tree shows the item SELECTED, and the stuck tree item is hard to clear; the reporter's thought: a direct tree selection BROADCASTS to all LOCAL (non-client) views, and on an active-view switch a TIMER syncs the tree with the active view; beware a loop with SyncView; "what do you think" | OPEN; a DISCUSSION -- the note-taker's answer under the entry, NOT agreed. 10:22: the timer's sync must NOT AUTO-SCROLL the tree; the reporter ASKS the note-taker to elaborate the edit-session exception -- elaborated under the entry, a question back (SyncView into a view in an edit). 11:29 RULED case 2: a tree selection EXCLUDES the editing view and BLOCKS the switch to it ONLY IF that view is NOT SHOWN; if it is VISIBLE, switch and broadcast as usual. 11:38 CONFIRMED both: the click reaches a visible editing view's task selection too; "shown" = on screen now; the rationale: what the user SEES, the tree reaches |
 | 158 | 2026-10-16 | a defect: an obvious APPLICATION FREEZE at the FIRST SWITCH to a TechDraw page after the open; the reporter remembers a commit that delays a page's processing at the load until it is shown; REDUCE this latency somehow | OPEN; by the note-taker's reading the commit is `48b9aaa0ba` (entry 47, 2026-10-11), which measured 0.06 to 0.23 s for a page's first show. ANSWERED 10:17: scanner.FCStd, Page009, about 5 SECONDS or more. 11:02: a probe times the first page show in build r77. 13:26 NOT REPRODUCED offscreen by the build session; a run on the REAL SCREEN OK'd by the reporter (said to the build session, relayed), queued after r81. 13:28 the reporter's words, relayed: "entry 158, you launch using real graphics and try". 14:29 MEASURED on the real screen by the build session: Page009 opened 45 s after the load -> no stall; opened 8 s after -> 5.5-5.9 s of stalls (longest 1.5-1.9 s), Qt or vector; control without the page 3.4-3.6 s (the progressive load finishing) -> the page adds about 2 s when opened before the load ends; NOT fixed yet |
 | 159 | 2026-10-16 | a change request: PartDesign ON-VIEW EDIT -- a mouse click in the 3D view that registers NO new selection CLEARS the ACTIVE HANDLE selection; and a question: why the handle's (pre)selection does not follow the SILHOUETTE OUTLINE selection style as asked (entry 144) -- is it hard? | OPEN; the outline is 144's part NOT done ("wants the screen under D3D11", the build log). 10:41: the reporter CORRECTS the note-taker's answer -- the Coin render cache path (mode 3) can render the outline too. 10:44: the reporter -- the outline needs getDetailPath / getPickedElement to route a special element name to the handle's Coin node; "check if it's possible first" -- the note-taker's check (reading): the NAMES can be routed (Sketcher does), but the handles hang OUTSIDE the selection root whose render cache draws the outline, so naming alone does not reach it. 10:52 RULED: way B -- the handles stay in the editing root, the edit capture gets an outline (bgfx overlay highlight; a render cache for the Coin edit root); A rejected, it "defeats per view edit". 10:54: element-name routing ONLY IF NECESSARY -- by the note-taker's reading NOT needed (a handle's hover is found by its own node, its path can feed the edit highlight directly) |
-| 160 | 2026-10-16 | a defect and a change request: FILLET EDITING -- the fillet FACE of a MISSING edge reference is GONE (yesterday it was there, its highlight working), after entry 143's skip-and-red; and NEW: HOVERING an EDGE ITEM in the task panel highlights its fillet face, normal and missing alike, with the SILHOUETTE OUTLINE following the selection style | OPEN; by the note-taker's reading a regression of 143. ANSWERED 11:08: scanner.FCStd, OPEN then RECOMPUTE -> a missing edge on Adaptor, the failed fillet face MISSING; yesterday the same operation showed it. 13:26 a FIX (a missing edge keeps its fillet face after a reopen) building r81, its test being re-run; NOT committed; the hover request not started. 14:29 the missing-face fix DONE `c33e177bcf` LOCAL, not pushed, not staged (TestFillet 24 OK on r81); the hover request not reported started. 16:12 NOT linked to 162 (build session, r86): the scanner opened and recomputed gives the same result in the GUI and headless -- Fillet011 "Adaptor" misses ?Edge93 ?Edge89, Fillet007 "BaseBottom" misses ?Edge177 ?Edge171, Binder008/Fillet007/Fillet011 invalid; the missing edge a SEPARATE cause, not investigated. 16:20 ANSWERED: the missing edges themselves NOT to be investigated for now ("no investigate the missing itself for now") |
-| 161 | 2026-10-16 | a question (said to the build session, relayed): the company's malware defender, APEX, flagged FreeCAD.exe as UNAUTHORIZED FILE ENCRYPTION -- any clue? | OPEN; the reporter: "continue, I'll see what to do if it got triggered again"; the build session's guess (not confirmed): the .FCStd save, a zip written to a temp file and renamed over. 15:43 the STAGED copy's FreeCAD.exe is GONE (found by the build session; SEEN by the note-taker 15:43, nothing run: `.conda/user-app/bin` has FreeCADCmd.exe, FreeCAD.pdb and the DLLs but no FreeCAD.exe, the folder's mtime 10-16 13:13, the time of the alarm) -- by the build session's reading, not confirmed, Apex QUARANTINED it; the dev build's exe untouched; the reporter's copy does not start until it is back |
-| 162 | 2026-10-16 | a request (said to the build session, relayed): find what the INVALID NAME LENGTH warnings are when opening `scanner.FCStd` | OPEN; the build session: 21 warnings "<ElementMap> ElementMap.cpp(2401): invalid name length ..." at every GUI open since 10-10..10-12, none headless; all from the colour walk of eight PD features INSIDE the read (39c692c6c5, 10-08); the after-read settle pass never ran (264 in-read, 0 settle) under the progressive load; a FIX building r83, not committed. 15:43 ROOT CAUSE FOUND and FIXED by the build session, NOT committed: in a GUI open Document::Restore takes the file's string table ("kept apart", d522d3064a of 09-27) but left index 0 (every shape's HasherIndex) on the table set aside -> element maps built against the wrong table; fix: the taken table re-registered as index 0; on r85 0 warnings (21 before); the settle pass runs (264 of 264); 313 objects' face colours identical before/after; a link to 160 not checked. 16:12 DONE `15289190d8` + `1bcd48431b` LOCAL, not pushed, not staged (r86: 0 warnings; new GUI tests 3/3 and 4; Document.py 236, Part appearance 35 OK). A VISIBLE CHANGE for the reporter to look at: 20 scanner objects now draw their faces in their source features' colours (each drew in ONE colour before) -- by the build session's reading the mapping working again as before ~10-11, NOT confirmed by the reporter |
-| 163 | 2026-10-16 | a question (said to the build session, relayed): why a DIALOG keeps POPPING UP saying some DLL is not accessible | OPEN; the exact text asked of the reporter by the build session; candidates (the build session's): its own launches without the conda PATH (0xC0000135, a Windows system box even for a hidden process), or Apex blocking the staged copy's DLLs (see 161) |
+| 160 | 2026-10-16 | a defect and a change request: FILLET EDITING -- the fillet FACE of a MISSING edge reference is GONE (yesterday it was there, its highlight working), after entry 143's skip-and-red; and NEW: HOVERING an EDGE ITEM in the task panel highlights its fillet face, normal and missing alike, with the SILHOUETTE OUTLINE following the selection style | OPEN; by the note-taker's reading a regression of 143. ANSWERED 11:08: scanner.FCStd, OPEN then RECOMPUTE -> a missing edge on Adaptor, the failed fillet face MISSING; yesterday the same operation showed it. 13:26 a FIX (a missing edge keeps its fillet face after a reopen) building r81, its test being re-run; NOT committed; the hover request not started. 14:29 the missing-face fix DONE `c33e177bcf` LOCAL, not pushed, not staged (TestFillet 24 OK on r81); the hover request not reported started. 16:12 NOT linked to 162 (build session, r86): the scanner opened and recomputed gives the same result in the GUI and headless -- Fillet011 "Adaptor" misses ?Edge93 ?Edge89, Fillet007 "BaseBottom" misses ?Edge177 ?Edge171, Binder008/Fillet007/Fillet011 invalid; the missing edge a SEPARATE cause, not investigated. 16:20 ANSWERED: the missing edges themselves NOT to be investigated for now ("no investigate the missing itself for now"). 17:33 PUSHED 17:32:50 (`54b5805b13`, by the reflog), on the reporter's word to the build session; the restage from build r86 RUNNING; the reporter's word (relayed) LIFTS 16:20's "not for now": "then look into 160's missing edges" -- the build session looks into them after the stage. 17:34 STAGED 17:34:10 CLEAN (INSTALLED.txt: fcad `0bcd954c01`, code = pushed `54b5805b13`, FreeCADGui 15:49:19 = build r86). 17:43 the reporter asks whether the missing PREVIEW fillet face of a missing edge is fixed yet -- the note-taker's answer: `c33e177bcf` (a missing edge keeps its fillet face after a reopen) is in the push `54b5805b13` and the stage of 17:34; not yet confirmed by the reporter's eye. 17:46 CAUSE of the missing edges FOUND by the build session, two cases: (1) Fillet007 ?Edge177 ?Edge171 NOT a real loss -- Chamfer runs twice in the first recompute (a frozen input refused), the first run's shape marks two references missing and a missing reference is never searched again; FIX building r87, not committed; (2) Fillet011 ?Edge93 ?Edge89 a REAL geometry change upstream (Pocket040 on Hole007's Face56, the tool shrinks), a probe running. The 17:43 question: c33e177bcf keeps the face AS LAST MADE; the task panel's PREVIEW not checked by eye yet. 17:47 REPORTED on the 17:34 stage: STILL A REGRESSION -- Adaptor's (Fillet011) missing-edge fillet face STILL MISSING; BaseBottom's (Fillet007) there, "I think"; NO hover highlight for missing or normal edges (the second part, never started). 17:48 the reporter's ORDER, passed to the build session: "ask builder to fully complete entry 160 first" -- Adaptor's face, BaseBottom's edges, the hover highlight with the outline, the preview looked at; before 164 and the rest. 18:30 the build session (its ~18:35), NOT committed: (1) Fillet007's edges no longer go missing (r87 tested) but the four-edge result now "Resulting shape is invalid", being looked at; (2) Adaptor's missing-edge face CAUSE found and fixed (the edge's compound name carries the fillet's tag; the history match now takes the edge anywhere on the face's history); (3) Pocket040's change to be redone on the pre-save copy; (4) the HOVER HIGHLIGHT as a preselection through each edit view's highlight feed, the outline on bgfx, the colour on Coin; (2)-(4) in build r88. ASKS the reporter for ONE short GUI test on the REAL SCREEN to check the outline. 18:38 the reporter: YES to the real-screen test, and a STANDING permission -- "Run on screen test freely from now on until I say otherwise"; the reporter away from the desk; passed to the build session. 18:55 the build session (its ~19:10): WHY Adaptor's two edges go FOUND -- Pocket040's profile is Hole007.Face56 with Fit -0.5 mm; the Fit's sign follows the face's ORIENTATION FLAG, which the kernel flips in the first full recompute (Reversed in the file -> r 13, Forward now -> r 12), so the pocket shrinks and the two edges go; not naming. QUESTION to the reporter: a face profile's Fit by the SKETCH convention (negative shrinks; Pocket040 then needs +0.5, a one-time edit) or a convention keeping the old result (negative grows for a pocket) -- either way independent of the flag; the build session leans to the sketch convention. Fillet007's "Resulting shape is invalid": a fix ready after r89; the hover still lights nothing. 19:06 ANSWERED the Fit question: a VERSION keeps the OLD behaviour for old files, the SKETCH rule for new ones; and asks: "can we get back the old forks face orientation?". 19:12 the build session (its ~19:40), building r90, NOT committed: the old face orientation CANNOT come back as a choice (the kernel boolean's, flips with a 1e-6 change upstream); the VERSION as leaned -- hidden saved _FitRule/_FitFlip on PD profile features: NEW features take each profile face forward (the sketch rule), an OLDER feature records at the open which side its file's face had and keeps it (Pocket040 -0.5 -> r 13 again); no recompute caused; Fillet007's invalid-shape fix also in r90; the hover test's window was wider than the screen, fixed. 19:35 the build session (its ~20:20), NOT committed: r90 on the pre-save copy -- Pocket040 keeps r 13 (Pocket022, Pad037 flipped too), Fillet011 "Adaptor" VALID, no missing edge; tests OK; in r91: (a) Fillet007's references moved to wrong edges (r87's hold retained a thrown-away shape) fixed; (b) the HOVER seen on the real screen lit the BASE's edge for a present edge and nothing for a missing one -- fixed: the fillet face the edge made is lit, outlined on bgfx. 20:12 DONE LOCALLY by the build session (build r92), NOT pushed, NOT staged: `920e47cc39` (BaseBottom keeps its edges), `d41e92468b` (no "invalid"), `93b9b8a440` (the Fit by version; Pocket040 r 13, Adaptor valid), `a25c1d068b` (the hover outlines the edge's own face, present and missing), log `94e475d528`; scanner pre-save copy: Fillet007 and Fillet011 up to date, only Binder008 invalid (164); real-screen hover test 14/14. NOTE: the scanner.FCStd ON DISK is the 18:06 save -- Pocket040 stays r 12 there; the designed content is the 10-06 .FCBak. 23:50 REOPENED by the reporter: "hovering normal edge should highlight the edge on base feature too. Did you get rid of that?" -- READ in the source: yes, `a25c1d068b` REPLACED the base edge's highlight by the fillet face's (one element per hover); both wanted. 23:54 ANSWERED a-c: "160, missing edge, only highlight face. Edge only highlight with color as usual. Only in the edit view". 23:58 the build session: in build r96, NOT committed -- a present edge's item preselects the base feature's edge (usual colour, no outline) and keeps its fillet face outlined; a missing edge the face alone; the hover test checks a second view outside the edit lights nothing. 2026-10-17 00:02 the reporter on the build session's "the edge needs a per-view path": "160, what do mean, per view selection and highlight has long been working, what's special in this case" -- asked of the build session. 2026-10-17 00:07 the build session: nothing special -- per-view preselection works and the base edge goes through it unchanged; "if that fails" was over-caution. 2026-10-17 00:18 r96: the base edge preselected (Wedge.Edge8), nothing lit in a second view outside the edit -- BUT the normal edge's fillet face LOST its outline (12 lit px, needs over 40); the missing edge's face fine; cause not found, r97 carries a temporary trace. 2026-10-17 00:39 r97 trace: the hover finds the right face (Fillet.;AddSub;Face1) and every edit view takes the highlight, yet the outline is not drawn once the base edge is preselected; r98 traces the edit highlight feed and the frame's outline count. 2026-10-17 02:01 r99 trace: the edit view's face highlight (the outline) is fed EMPTY every time, for present and missing edges alike; the missing edge's face lit only because it is also the preselection, and before tonight a present edge preselected its face too, which hid this; the base-edge preselect is NOT the cause; r100 traces why the edit capture finds nothing for that face. 2026-10-17 02:04 the build session agrees: `a25c1d068b`'s 14/14 measured the preselection; with the base edge now preselected, the same claim measures only the edit highlight, hence lit 12. 2026-10-17 03:40 DONE LOCALLY `dc5ef18848` (r102), NOT pushed, NOT staged: the edit view's face highlight had NEVER drawn (the preview is unpickable in the edit, the highlight builder skipped unpickable shapes) -- new flag AnySelectStyle; normal edge: base edge preselected in the usual colour + the fillet face outlined; missing edge: the kept face preselected; a second view outside the edit lights nothing; fillet-hover-outlines-face.py 15/15 on the real screen. 2026-10-17 07:39 PUSHED 07:39:07 (origin `b76481281e`) on the reporter's "Push and restage" (said to the build session; the note-taker did not hear it); the restage from build r102 RUNNING. 2026-10-17 12:19 STAGED 07:41:20 CLEAN (INSTALLED.txt: fcad `9f65f5f929`, code = pushed `b76481281e`, dirty False, FreeCADGui 03:25:38 = build r102; FreeCAD.exe present, 469504 bytes) |
+| 161 | 2026-10-16 | a question (said to the build session, relayed): the company's malware defender, APEX, flagged FreeCAD.exe as UNAUTHORIZED FILE ENCRYPTION -- any clue? | OPEN; the reporter: "continue, I'll see what to do if it got triggered again"; the build session's guess (not confirmed): the .FCStd save, a zip written to a temp file and renamed over. 15:43 the STAGED copy's FreeCAD.exe is GONE (found by the build session; SEEN by the note-taker 15:43, nothing run: `.conda/user-app/bin` has FreeCADCmd.exe, FreeCAD.pdb and the DLLs but no FreeCAD.exe, the folder's mtime 10-16 13:13, the time of the alarm) -- by the build session's reading, not confirmed, Apex QUARANTINED it; the dev build's exe untouched; the reporter's copy does not start until it is back. 17:33 the restage RUNNING puts the staged FreeCAD.exe back (the file present again at 17:33, INSTALLED.txt not yet rewritten). 17:34 STAGED 17:34:10 CLEAN (INSTALLED.txt: fcad `0bcd954c01`, code = pushed `54b5805b13`, FreeCADGui 15:49:19 = build r86); FreeCAD.exe back (469504 bytes) |
+| 162 | 2026-10-16 | a request (said to the build session, relayed): find what the INVALID NAME LENGTH warnings are when opening `scanner.FCStd` | OPEN; the build session: 21 warnings "<ElementMap> ElementMap.cpp(2401): invalid name length ..." at every GUI open since 10-10..10-12, none headless; all from the colour walk of eight PD features INSIDE the read (39c692c6c5, 10-08); the after-read settle pass never ran (264 in-read, 0 settle) under the progressive load; a FIX building r83, not committed. 15:43 ROOT CAUSE FOUND and FIXED by the build session, NOT committed: in a GUI open Document::Restore takes the file's string table ("kept apart", d522d3064a of 09-27) but left index 0 (every shape's HasherIndex) on the table set aside -> element maps built against the wrong table; fix: the taken table re-registered as index 0; on r85 0 warnings (21 before); the settle pass runs (264 of 264); 313 objects' face colours identical before/after; a link to 160 not checked. 16:12 DONE `15289190d8` + `1bcd48431b` LOCAL, not pushed, not staged (r86: 0 warnings; new GUI tests 3/3 and 4; Document.py 236, Part appearance 35 OK). A VISIBLE CHANGE for the reporter to look at: 20 scanner objects now draw their faces in their source features' colours (each drew in ONE colour before) -- by the build session's reading the mapping working again as before ~10-11, NOT confirmed by the reporter. 17:33 PUSHED 17:32:50 (`54b5805b13`, by the reflog), on the reporter's word to the build session; the restage from build r86 RUNNING. 17:34 STAGED 17:34:10 CLEAN (INSTALLED.txt: fcad `0bcd954c01`, code = pushed `54b5805b13`, FreeCADGui 15:49:19 = build r86) |
+| 163 | 2026-10-16 | a question (said to the build session, relayed): why a DIALOG keeps POPPING UP saying some DLL is not accessible | OPEN; the exact text asked of the reporter by the build session; candidates (the build session's): its own launches without the conda PATH (0xC0000135, a Windows system box even for a hidden process), or Apex blocking the staged copy's DLLs (see 161). 22:37 LIKELY CAUSE found by the build session (its own test run, not FreeCAD): a test exe started without build\bin on PATH stops in the Windows loader with a hard-error box (NtRaiseHardError) -- chain301 did that with Tests_run.exe at about 15:40 its clock, the reporter asked at about 15:55; test exes now run only through ctest; if the box comes back with nothing of the build session's running, its exact text is still wanted. 22:39 counted: at least TWO such runs before the question (chain301 ~15:20, chain302 ~15:40), and chain326 ~21:41 tonight (three exes, killed) while the reporter was away; the only earlier one was 10-08 (doortests.cmd, through .conda\run.cmd, box unknown) -- boxes on earlier days or with nothing of the build session's running are NOT explained; the text still wanted for those |
+| 164 | 2026-10-16 | a change request: the FULL OBJECT NAME (docname@objname) in the error message "<Exception> SubShapeBinder.cpp(330): No context, please double click the binder in the desired context to refresh"; and an AUDIT of the code base for this kind of message reported by an object's execute(), each to mention the object's name | OPEN; read by the note-taker, nothing run: a recompute's exception is printed by `e.ReportException()` in Document::_recomputeFeature (Document.cpp 15286-15290) WITHOUT the object; the name goes only to an FC_LOG line (log level, not shown by default), as getFullName = "doc#obj". 17:41 ADDED: "check why this error does not mark the binder as recompute error" -- read by the note-taker, nothing run: BOTH of the message's paths mark the object (setErrorDescription and the recompute's catch reach addRecomputeLog, which sets ObjectStatus::Error), so the mark is either SWALLOWED (slotRecomputedObject, SubShapeBinder.cpp 1124-1134, catches update()'s throw with ReportException only) or CLEARED by a later successful update/recompute; NOT found by reading. 17:46 the build session takes it after 160; it would use the existing "doc#obj" unless told '@'. 17:52 the 17:41 question WITHDRAWN by the reporter: the binder found, Binder008, and it IS marked as an error -- the note-taker's two candidates (swallowed, cleared) moot; the request (the name in the message, the audit) stands. 20:39 the build session, NOT committed: r93 names the object in the recompute error ("... SubShapeBinder.cpp(330): scanner#Binder008: No context ...", "doc#obj", '@' not used unless asked); the audit found ~45 sites plus helpers with no object in scope -> r94 (building) appends " [doc#obj]" to EVERY warning and error sent while an object recomputes, unless the text already names it; task panel and tree tooltip unchanged. 21:00 DONE LOCALLY `a8a0a01d88`, NOT pushed, NOT staged (r94: " [doc#obj]" on a recompute's warnings and errors; the binder error names scanner#Binder008); OPEN for the reporter: the separator, '@' as typed or doc#obj as built. 23:55 the separator ANSWERED: "164 keep doc#obj" -- as built; nothing open in 164. 2026-10-17 07:39 PUSHED 07:39:07 (origin `b76481281e`) on the reporter's "Push and restage" (said to the build session; the note-taker did not hear it); the restage from build r102 RUNNING. 2026-10-17 12:19 STAGED 07:41:20 CLEAN (INSTALLED.txt: fcad `9f65f5f929`, code = pushed `b76481281e`, dirty False, FreeCADGui 03:25:38 = build r102; FreeCAD.exe present, 469504 bytes) |
+| 165 | 2026-10-16 | a change request: OMNI SEARCH -- (1) a new type /error filtering on ALL objects marked as RECOMPUTE ERROR; (2) the OBJECT LIST in the completer: ONE item per object, not separate name and label items; the label, as <<label>>, in the item's DESCRIPTION (and TOOLTIP) when it differs, leading, then the object's usual description; TAB completes to <<label>> (not the internal name) when the typing starts with << or matches a label that differs from the name; this completion for BOTH the unfiltered and the /error list | OPEN; read by the note-taker, nothing run: the object list is ExpressionCompleter's (OmniSearchBox.cpp 1037/1041), which lists a name row and a label row per object (ExpressionCompleter.cpp 262-270) and is SHARED with the expression editors. 18:05 ANSWERED: the EXPRESSION EDITORS too; /error over ALL OPEN DOCUMENTS; the list built per showing, no live refresh; a clash -- typing NOT led by << favours the LABEL, led by << favours the INTERNAL NAME (as said; the note-taker asks whether the two are the other way round). 18:10 ANSWERED b: "usual description" = what the expression editor's previous build showed as the object's TOOLTIP (internal name, label, Description/Label2 -- ExpressionCompleter.cpp 610-626). 22:37 DONE LOCALLY `d89d378aa8` (log `4d4a3a9fc5`), NOT pushed, NOT staged (r95: one completer row per object, description and tooltip "<<Label>>" then the old tooltip text, Tab inserts <<Label>> on a leading "<<" or a label match, clash as said: no "<<" -> label, "<<" -> internal name; the expression editors too; /error over all open documents, rebuilt each showing); OPEN for the reporter: whether the clash rule is the right way round. 23:52 ANSWERED the clash direction: "165, with << label wins, without internal name wins" -- the REVERSE of what `d89d378aa8` built; to be changed. 23:58 the build session: in build r96, NOT committed -- clash reversed in the completer and the /error rows; a leading "<<" always inserts <<Label>>; without it the internal name when it matches, <<Label>> only on a label-only match; docs/OmniSearch.md updated, a clash test case added. 2026-10-17 00:18 the clash reversal DONE LOCALLY `6a22ba8b9f`, NOT pushed, NOT staged (r96: label test 14/14 with a clash case, typing 16, slash 10, expr 45, ctest 3/3). 2026-10-17 07:39 PUSHED 07:39:07 (origin `b76481281e`) on the reporter's "Push and restage" (said to the build session; the note-taker did not hear it); the restage from build r102 RUNNING. 2026-10-17 12:19 STAGED 07:41:20 CLEAN (INSTALLED.txt: fcad `9f65f5f929`, code = pushed `b76481281e`, dirty False, FreeCADGui 03:25:38 = build r102; FreeCAD.exe present, 469504 bytes) |
+| 166 | 2026-10-16 | a defect: after a REVERT of the opened `scanner.FCStd`, the FILE BLOB MANAGER warns that INCLUDED FILES are MISSING from the document -- "this shouldn't happen" | OPEN; READ by the note-taker in the reporter's LIVE console on their word (the MCP log, nothing run in the session): the first open 17:36 and its recompute -- NO such warning; the revert ~17:59:35, then in its recompute FOUR hashes "is missing from the document" (FileBlobManager.cpp 2203, dispatchPending), TWICE, 17:59:52 and 17:59:57 (one "named by 3 properties"); the console copy at dl\handson\2026-10-16\e166-live-console-600.txt. 18:04 the build session: the SAME four warnings, TWICE, in the FIRST recompute after a FRESH HEADLESS open of a scanner copy (r86, ~17:40, no revert) -- so NOT the revert's doing; the reporter's GUI first open at 17:36 printed NONE (the note-taker re-checked the live copy: all 8 lines are after the revert); why the GUI first open is silent not known. 18:10 ANSWERED: the recompute after the revert BY HAND; NOTHING looked wrong. 20:39 CAUSE found and FIXED by the build session (r93, verified, NOT committed): two binders (Binder, Binder012) copy objects into TEMPORARY documents during the recompute (copy-on-change); the copies name a library material card's MaterialX files the copy stream does not carry; fix: a file missing at the end of a copy is taken from another open document's store -> 0 warnings on the scanner copy (8 before); the recompute, not the revert. 21:00 DONE LOCALLY `294697011c`, NOT pushed, NOT staged (scanner copy: 0 missing-file warnings). 2026-10-17 00:00 QUESTIONED by the reporter: "Entry 166, elaborate your fix. It doesn't sound right. How can you look for files in another document, by content hash?" -- READ in the source: yes, by content hash across every open document's store; the cause (why the copy stream leaves the files out) is NOT fixed. 2026-10-17 00:07 the build session agrees: `294697011c` is a fallback that hides the symptom; NEW: the four hashes are NOT in the pre-save file at all -- made in the session from the material library on this machine (PropertyMaterial::holdMaterialXBlobs); which property of the copy names them, and what the fragment carries, not pinned; next after r96: a probe, then the export fix, the fallback removed unless the reporter wants it kept. 2026-10-17 00:14 the fallback RULED: "Keep as safe net, but print warning". 2026-10-17 00:18 the safety net warns (not committed, r97): "Included file <hash> was missing from the document; taken from open document '<doc>' for <property full name>", once per file per referrer; r97 runs the probe on the pre-save copy. 2026-10-17 00:39 CORRECTED by the build session (r97 probe): the four files are NOT MaterialX but SHAPE files of objects Binder012 copies (Sketch018.Shape, Sketch018.InternalShape, Pad012.AddSubShape, Pad012.SuppressedShape), made in the session; something writes them by hash into the copy without the file (schema 4 should write them inline); r98 traces which Save branch. 2026-10-17 02:01 CAUSE FOUND (r99 trace): the export reset only the DESTINATION document's file manager to schema 4, while the copied objects' properties answer to the SCANNER's manager, still in the shared-file format of its last save -> the shapes written as hash references, the fragment carrying no file; FIX in r100: exportObjects begins the save on every exported object's own document manager; the safety net stays and warns. 2026-10-17 02:04 the build session: GENERAL -- any copyObject from a document last saved at schema 5 wrote shapes and included files as hash references the copy did not carry; the note-taker's reading: in the reporter's STAGED copy (no fallback) every such copy lost them, with the "is missing" warning; whether a user file was hit NOT checked; new test FileBlobs.testCopyFromASavedDocumentCarriesItsContent. 2026-10-17 03:40 DONE LOCALLY `9b2db5555f` (r102), NOT pushed, NOT staged: exportObjects begins the save on every exported object's own document manager, a copy carries its shapes and included files; the fallback stays and warns (file, source document, property); FileBlobs 96 OK with testCopyFromASavedDocumentCarriesItsContent; the scanner copy's first recompute warns of no missing file. 2026-10-17 07:39 PUSHED 07:39:07 (origin `b76481281e`) on the reporter's "Push and restage" (said to the build session; the note-taker did not hear it); the restage from build r102 RUNNING. 2026-10-17 12:19 STAGED 07:41:20 CLEAN (INSTALLED.txt: fcad `9f65f5f929`, code = pushed `b76481281e`, dirty False, FreeCADGui 03:25:38 = build r102; FreeCAD.exe present, 469504 bytes) |
+| 167 | 2026-10-16 | a defect (CRITICAL by the reporter's word): `scanner.FCStd` was SAVED, "someone (not me)"; check whether there is a transaction log inside; find new code that may cause it | OPEN; READ by the note-taker (the file and the reporter's console logs, read only): saved 18:06:52 (LastModifiedDate 10:06:52Z), schema 4 -> 5, 9.2 MB; it HOLDS a history (blobs/History.db, zstd): ONE session, the reporter's own staged FreeCAD (build hash b076aae675) opened 17:36:03, ONE save at txn 21 (18:06:52); the file was still schema 4 at the revert's read 17:59:07, so ONE save, not several; nothing in the console at 18:06:52; NO code found that saves unasked. 18:18 the 18:06:05 step READ: ONE op, a VIEW property ShowFrames set (a TechDraw page's frames toggled), 47 s before the save; no TechDraw code that saves found. 18:19 the build session (read only): NO save call added in src since 10-13 except tests; its probes open COPIES headless (FreeCADCmd) and none ran at 18:06; the session's "closed" time is written when the log is copied into the saved file, not a close -> the trigger is a SAVE ACTION in the GUI between 18:06:05 and 18:06:52; the question to the reporter: what was done in those 47 s, which window was active, did a box appear. 18:27 the PRE-SAVE content is NOT LOST: byte-identical (md5 bb568db2683b3acc217d534249778cfd, 6119171 bytes) to scanner.20261006-091732.FCBak beside it and to the build session's probe copy of 17:39 -- checked by the note-taker; the build session's 160 probes use the pre-save copy from now on. 18:33 the reporter: does NOT remember hitting any save button or anything, and saw NO format warning box; the note-taker READ: by design (the reporter's own rule of 2026-09-28) the old format is told ONCE, at the open, in the report view; a plain save then writes schema 5 with NO box -- so no box does not rule out a plain save |
+| 168 | 2026-10-16 | a change request FOR DISCUSSION: how to let the user know the RISK of saving in the NEW format, and yet ENCOURAGE it for the transaction log; eventually a NEW EXTENSION for the new format -- "one of the branch already did that" | OPEN, a discussion; the branch is `origin/Branding` (5 commits beyond LinkVibe, 10-14, not merged): schema 5 = .TStd; a plain save of an opened .FCStd writes Part.TStd BESIDE it and leaves the .FCStd as it was, with one dialog -- by the note-taker's reading it would have spared entry 167's overwrite; the note-taker's proposal under the entry. 19:00 RULED: WAIT for the other box to merge Branding first; then, on a SAVE of a file with the OLD extension, a DIALOG that ASKS -- all the facts, ENCOURAGING the new format, ASSURING the old file stays and they can save back to the old format; a "don't ask again"; when it is clicked, a dialog telling them Save As saves the new format |
+| 169 | 2026-10-17 | a change request: ALL DRESS-UP PREVIEW shapes PICKABLE in the 3D view (the unpickable style lifted); a (pre)selection there RESOLVES to the BASE EDGE's name, a missing element to its ?Edge name, so the EDIT PANEL's LIST ITEM selection SYNCS | OPEN; said to the note-taker 12:18. 12:19 the build session reading the dress-up preview code; its readings of a-f to come before it builds. 2026-10-17 12:33 the build session's readings of a-f, in build r103, nothing committed: a face resolves to the row its dress-up made, edges/vertices through their faces when one row; outside add mode a click selects (present -> the base edge, missing -> its ?Edge row), in add mode it toggles; a 3D HOVER does NOT resolve or light a row (only a selection syncs) -- the reporter wrote "(pre)selected", to be confirmed. 2026-10-17 13:47 DONE LOCALLY `1f52f9070e`, `fd8a8d4422` (log `fbcfba4541`), NOT pushed, NOT staged; readings a-f as sent; two more causes fixed (the on-top preview picked by depth, the base won every click; rmvSelection of ";AddSub;Face1" removed nothing); r105 real screen: fillet-preview-pick-syncs-list 14/14, fillet-hover-outlines-face 16/16, sketcher/box/handle tests no failure; OPEN for the reporter: d (should a hover resolve the name). 2026-10-17 13:57 d RULED (REOPENED): "Hover face should resolve the edge name too, which should trigger edge preselection highlight and edit panel list item hover plus scroll to view. Same if preselect edge in 3d view or hover list item, the othe two shall react" -- a three-way HOVER sync: preview face, base edge, list item. 2026-10-17 14:05 the build session: the hover sync in build r106, nothing committed -- the pick itself redirects a present edge's preview face to the base edge (ViewProvider::redirectEditingPick); the panel listens to preselection (row hovered in a faint selection colour, scrolled only when out of view, no scroll back; the face lit); readings a-e taken as written. 2026-10-17 14:47 the hover sync DONE LOCALLY `ebc61737c3`, `28a48ad695` (log `c93a20af5a`), NOT pushed, NOT staged; r106 crashed at the first hover (fixed); r107 real screen: fillet-preview-pick-syncs-list 20/20, 160 hover 16/16; NOT measured: the face lit for a base edge pointed at in 3D, the scroll. 2026-10-18 00:07 the reporter (to the note-taker): "Push and restage" -- relayed to the build session; NOT yet pushed or staged |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -21800,6 +22020,372 @@ NOT to be looked into for now; the entry stays on the fillet face kept
 for a missing edge (done, `c33e177bcf`) and the hover highlight (not
 started).
 
+**2026-10-16, the reporter's word to the build session (the note-taker did not
+hear it; relayed 17:33):** "push and restage. then look into 160's
+missing edges"
+The note-taker's reading: this LIFTS the 16:20 answer ("no investigate
+the missing itself for now") -- the build session looks into the missing
+edges (Fillet011 "Adaptor" ?Edge93 ?Edge89, Fillet007 "BaseBottom"
+?Edge177 ?Edge171) after the restage. `c33e177bcf` PUSHED 17:32:50.
+
+**2026-10-16 17:43, the reporter asks:** "wait, does the missing preview fillet
+face on missing edge problem got fixed yet?"
+The note-taker's answer: `c33e177bcf` ("PD: a dress-up edge gone at the
+first recompute after a reopen keeps its fillet face", the build
+session's fix of this entry's first part, TestFillet 24 OK on r81) IS in
+the push `54b5805b13` (17:32:50) and the stage of 17:34 -- the copy the
+reporter runs now. Not yet confirmed by the reporter's eye. The hover
+highlight (this entry's second part) is NOT done; the missing edges
+themselves are being looked into by the build session.
+
+**2026-10-16 17:46, the build session (its ~18:00): the CAUSE of the missing
+edges, two separate cases.**
+(1) Fillet007 "BaseBottom" ?Edge177 ?Edge171 -- NOT a real loss. Chamfer
+runs TWICE in the first recompute (the log: "a frozen input was refused
+(Chamfer failed on Edge38), recomputing on copies" -- Part::Feature::
+recompute, TransactionLog sec 27.82/33.6). The first run's shape (76
+faces) is set and re-resolves Fillet007's references: two edges are
+absent there and are marked missing. The second run's shape (77 faces)
+has them (found at tol 1e-7 as Edge165/Edge174), but a reference marked
+missing is never searched again. FIX building in r87: Part::Feature holds
+the reference re-resolution over both runs and does it once at the end.
+NOT committed; to be verified on scanner + TestFillet, TestChamfer,
+TestTopologicalNamingProblem.
+(2) Fillet011 "Adaptor" ?Edge93 ?Edge89 -- a REAL geometry change
+upstream. The first feature whose shape changes is Pocket040 (volume
+2468.59 -> 2703.02), whose profile is Hole007's own Face56 (Length 5 mm);
+Hole007 is unchanged, but the extruded tool shrinks 7963.9 -> 6785.8. So
+"Face56" names another face, or a face of another size, after the
+recompute. A probe (5, in the r87 chain) checks which.
+**On the reporter's 17:43 question, the build session:** `c33e177bcf` keeps
+the face AS LAST MADE (FailedShape, seeded from the file) for an edge
+missing at the first recompute after a reopen -- that is what draws for a
+failed edge. It has NOT checked it by eye in the task panel's PREVIEW, so
+it cannot say it covers the preview the reporter means; it looks at the
+panel preview on Fillet011 once r87 is done. For Fillet007, after (1),
+the edges should not be missing at all.
+The note-taker's correction of 17:43: "fixed" was the note-taker's word
+from git; whether the PREVIEW the reporter asked about shows the face is
+NOT known until that look or the reporter's.
+
+**2026-10-16 17:47, the reporter, on the copy staged 17:34:** "regression,
+entry 160, the missing edge fillet face in Adaptor is still missing.
+Missing face in BaseBottom is there, I think, but there is no fillet
+face highlight in missing edge ones or normal ones which I requested."
+The note-taker's reading:
+- `c33e177bcf` does NOT bring back Adaptor's (Fillet011, ?Edge93 ?Edge89)
+  missing-edge fillet face on the staged copy -- the edge the build
+  session calls a REAL upstream change (Pocket040 on Hole007's Face56).
+  By the note-taker's reading the fix covers an edge missing at the FIRST
+  recompute after a reopen with a face seeded from the file; why it does
+  not hold for Adaptor is for the build session to find.
+- BaseBottom's (Fillet007) face is there, "I think" -- not sure.
+- The HOVER HIGHLIGHT (the task panel's edge item -> its fillet face,
+  outlined, for missing and normal edges) was never started -- by the
+  build session's own state; it is the request still owed, not a
+  regression of a change made.
+NOT said: a. whether "still missing" is in the task panel's preview,
+the 3D view's shape, or both.
+
+**2026-10-16 17:48, the reporter to the note-taker:** "ask builder to fully
+complete entry 160 first"
+Passed to the build session at 17:48 as the reporter's order. The
+note-taker's reading of "fully complete", sent with it: (1) Adaptor's
+(Fillet011) missing-edge fillet face shows again; (2) BaseBottom's
+(Fillet007) edges no longer go missing (r87's fix), checked; (3) the
+HOVER HIGHLIGHT -- an edge item hovered in the task panel highlights its
+fillet face, normal and missing alike, with the silhouette outline
+following the selection style (11:00); (4) the task panel's preview
+looked at on the reporter's case. "First": before 164 and the rest.
+Push and restage still on the reporter's own word.
+
+**2026-10-16 18:30, the build session's progress on 160 (its ~18:35),
+nothing committed:**
+(1) Fillet007 "BaseBottom": its edges no longer go missing (r87 on the
+scanner copy: FailedEdges empty; TestFillet 24, TestChamfer 11,
+TestTopologicalNamingProblem 67 OK). With all four edges filleted,
+Fillet007 now reports "Resulting shape is invalid" (the BRep check on the
+result); the file's own Fillet007 checked valid. Looked at next.
+(2) Adaptor (Fillet011), the missing-edge face: CAUSE found -- the face
+kept for a missing edge is matched by its history to the edge's name;
+Fillet011's edges have compound names carrying the fillet's own tag, so
+the history walk went past the edge to its first source and no face
+matched. FIXED: the edge may be anywhere on the face's history (build
+r88).
+(3) Pocket040's change (why Fillet011's edges really go): its profile
+face is unchanged; the probe after 18:06 read the SAVED file (entry 167),
+so it is redone on the pre-save copy.
+(4) The HOVER HIGHLIGHT: the panel already lit the hovered face's colour;
+it now goes as a PRESELECTION through each edit view's highlight feed,
+which on the bgfx renderer gets the face OUTLINE by the selection style
+(new: the outline for the edit capture's highlight -- entry 159's way B);
+the Coin-only path keeps the colour. Build r88.
+**The build session's QUESTION for the reporter:** checking the outline
+needs the 3D view really drawn, and offscreen runs cannot render bgfx.
+May it run ONE short GUI test on the REAL SCREEN -- a FreeCAD window opens
+on the reporter's desktop for about a minute, with a new small document,
+nothing of the reporter's touched -- as for 158? Without it only the logic
+is checked, not the picture.
+
+**2026-10-16 18:38, the reporter answers the build session's question:**
+"Yes run the test. I am no longer at the desk. Run on screen test freely
+from now on until I say otherwise"
+Passed to the build session verbatim at 18:38. The note-taker's reading:
+YES to the one real-screen GUI test for the outline; and a STANDING
+permission -- on-screen (real graphics) TEST runs are free from now on,
+until the reporter says otherwise. The reporter is AWAY from the desk, so
+a box that comes up has nobody to answer it. It covers test runs only --
+not a push, a restage, or the reporter's files or live session.
+
+**2026-10-16 18:55, the build session (its ~19:10): why Adaptor's
+(Fillet011) two edges REALLY go -- FOUND** (headless probes on the
+pre-save copy, r88): Pocket040 (in Adaptor's body) has Profile =
+Hole007.Face56 (a disk of r 12.5 on Hole007's own solid) and Fit = -0.5
+mm. The Fit offset of a PROFILE FACE depends on the face's ORIENTATION
+FLAG. In the file Face56 is Reversed, and -0.5 GREW the disk to r 13 (the
+pocket the reporter designed). In the first full recompute Hole007's
+boolean hands the same face back Forward (the same oriented normal +z,
+the same area; Hole007 recomputed alone keeps it Reversed), and -0.5 now
+SHRINKS it to r 12. The smaller pocket loses the two edges Fillet011
+fillets. So it is NOT naming: the Fit's sign flips with an orientation the
+kernel picks, and a sketch profile (always Forward) shrinks with a
+negative Fit.
+**The build session's QUESTION for the reporter:** should a face profile's
+Fit follow the SKETCH convention always (negative shrinks; Pocket040 then
+needs Fit +0.5 to get its r 13 back -- a one-time edit in scanner), or a
+convention that keeps the old result for this file (negative GROWS for a
+pocket)? Either way it is made independent of the orientation flag, so
+it stops flipping. The build session leans to the sketch convention plus
+telling the reporter to set Pocket040's Fit to +0.5, "but it is their
+file and their meaning of Fit".
+Also: Fillet007 now keeps all its edges but reports "Resulting shape is
+invalid" (the file had it valid). The build session's reading: the rerun
+on copies (frozen input refused) makes the validity check see every face
+as new; a fix ready to build after r89. r89 carries a temporary trace for
+the HOVER, which still lights nothing on screen (nor on the stage, by
+the reporter's 17:47).
+The note-taker's reading of the question: "Fit" as the reporter set it
+on Pocket040 meant "0.5 mm of clearance around the face" -- a pocket
+LARGER than the disk; under the sketch convention the same intent is
+written +0.5. Which sign means "clearance" for a pocket is the
+reporter's to rule.
+
+**2026-10-16 19:06, the reporter answers the build session's Fit
+question:** "160, can we get back the old forks face orientation? I lean
+in using version to conform to old behavior. For new version, use sketch
+rule"
+The note-taker's reading:
+- A QUESTION: can the old fork's face orientation come back -- i.e.
+  Hole007's boolean handing Face56 back Reversed as it did when the file
+  was made, so the profile and its Fit come out as before?
+- A LEANING, as the answer: a VERSION (a feature version, as the fork's
+  `_Version` properties do) decides: a feature from an OLD file keeps
+  the OLD behaviour (by the note-taker's reading: Pocket040's Fit -0.5
+  gives r 13 again, the pocket as designed, so Fillet011's edges stay); a
+  NEW feature (or version) uses the SKETCH rule (a negative Fit always
+  shrinks, independent of the orientation flag).
+- So no one-time edit of Pocket040's Fit to +0.5 is asked for.
+NOT said: a. "the old behaviour" -- the Fit following the face's
+orientation flag as before (which flips whenever the kernel flips the
+flag, the cause found), or a FIXED old rule independent of the flag
+(negative grows for a face profile); by the note-taker's reading the
+second, since the flag can flip again; b. whether the face orientation
+question means the BOOLEAN's result (a kernel or Part change) or only
+how the profile reads it; c. what marks a feature as old -- the file's
+schema, the feature's own version property set at the restore, or the
+build that last recomputed it.
+
+**2026-10-16 19:12, the build session's answer and work (its ~19:40),
+building r90, NOT committed:**
+- "Can we get back the old fork's face orientation?" -- NO, not as an
+  old choice: the orientation is the kernel boolean's, and it flips with a
+  1e-6 change upstream (Hole007 alone gives Reversed, the full recompute
+  Forward). Nothing in the fork chose it.
+- The VERSION, as the reporter leaned: new hidden saved properties
+  `_FitRule` / `_FitFlip` on PartDesign profile features. A NEW feature:
+  each profile face taken forward, as a sketch's face is; a negative Fit
+  shrinks (the sketch rule). An OLDER feature (a file without the
+  property): at the open it records which side its file's profile face
+  had (Pocket040: Reversed -> flipped) and keeps that side from then on,
+  whatever the solid hands back later. So Pocket040's -0.5 gives r 13
+  again, and Fillet011's edges should stay. Sketch profiles are forward
+  already: nothing changes for them. Set at the open without touching
+  anything (no recompute caused).
+- Also in r90: Fillet007's "Resulting shape is invalid" (the validity
+  check saw a rerun's copied faces as new; it now checks what is kept).
+- The hover test reached the panel but the pointer could not: the test's
+  FreeCAD window was wider than the screen and the panel lay past the
+  edge. Fixed in the test (the window fitted to the screen); it runs on
+  screen after the build.
+The note-taker's reading: this answers NOT-said a (a fixed old side,
+recorded at the open, not the flag followed) and c (old = a file without
+the property); b answered by "the kernel's, not the fork's".
+
+**2026-10-16 19:35, the build session (its ~20:20), nothing committed:**
+r90 on the PRE-SAVE scanner copy: Pocket040 keeps its file's r 13
+(flipped at the open; Pocket022 and Pad037 flipped too), and Fillet011
+"Adaptor" recomputes VALID with NO missing edge. TestFillet 24,
+TestChamfer 11, TestTopologicalNamingProblem 67, TestPad 16, TestPocket
+10 OK. Opening touches nothing new.
+Two more found and fixed, building in r91:
+(a) Fillet007 "BaseBottom" still failed: its four references moved to
+wrong edges -- r87's hold kept the first run's thrown-away shape as a
+retained generation, and the references were looked up by position in
+it. Fixed: a shape set while held is not retained.
+(b) The HOVER, seen on the REAL SCREEN (r90; the reporter's standing
+permission): the pointer now reaches the panel. A PRESENT edge's item lit
+the BASE's edge (the old upstream behaviour), not its fillet face; a
+MISSING edge's item lit nothing (its kept face carries no name to trace).
+Fixed: the panel asks the feature for the faces the edge's fillet made
+and lights that face of the preview (outlined by the selection style on
+bgfx). The test now also checks that a FACE, not an edge, is
+preselected.
+
+**2026-10-16 20:12, the build session: 160 DONE LOCALLY (its ~21:00),
+NOT pushed, NOT staged (waiting for the reporter's word).** Build r92, the
+code as committed:
+- `920e47cc39` Part: a feature run twice re-resolves the references into
+  it once, at the end (and keeps no generation of a shape set while held)
+  -> Fillet007 "BaseBottom" keeps its four edges.
+- `d41e92468b` PD: a fillet or chamfer checks its result as it will be
+  kept -> Fillet007 no longer "Resulting shape is invalid".
+- `93b9b8a440` PD: a profile face's Fit no longer follows the face's
+  orientation flag; new features take the sketch rule, older ones keep
+  their file's side (the reporter's 19:06 lean) -> Pocket040 r 13 again,
+  Fillet011 "Adaptor" valid. scanner: Pocket022, Pad037, Pocket040
+  flipped at the open.
+- `a25c1d068b` PD, Gui: hovering a dress-up's edge item outlines that
+  edge's own face (present and missing), by the selection style on bgfx;
+  Coin-only keeps the colour. Also the kept face of Adaptor's missing
+  edge is found again (history).
+- `94e475d528` the hands-on log.
+r92 results: the scanner PRE-SAVE copy opened and recomputed: Fillet007
+and Fillet011 up to date, only Binder008 invalid (entry 164's binder).
+Real screen: fillet-hover-outlines-face.py 14 of 14 (an outline around
+the face, none at its middle, gone after). TestFillet 24, TestChamfer 11,
+TestTopologicalNamingProblem 67, TestPad 16, TestPocket 11 (a new Fit
+test), Part ElementAppearanceTest 35 OK.
+**The build session's note for the reporter:** the scanner.FCStd on disk
+is the 18:06 save (entry 167: schema 5, the recomputed state, Pocket040
+at r 12). With this build, opening THAT file finds Pocket040's face
+already forward, so it STAYS r 12; the pre-save content is in the 10-06
+.FCBak (`D:\Zheng.Lei\mech\scanner.20261006-091732.FCBak`). Next for the
+build session: 164.
+The note-taker's reading: to see 160 fixed on scanner, the reporter
+opens the .FCBak content (a copy of it, by the reporter's own hand), not
+the saved scanner.FCStd -- or sets Pocket040's Fit in the saved file.
+
+**2026-10-16 23:50, the reporter (to the note-taker):** "Entry 160, hovering
+normal edge should highlight the edge on base feature too. Did you get rid
+of that?"
+The note-taker's answer, READ in the source, nothing run: YES, it was
+removed. In `a25c1d068b`, TaskDressUpParameters::getItemElement() (the
+hover's element) returns ONE element: it first looks for the preview face
+the edge's fillet made (DressUp::getMadeFaces) and, when found, returns
+that face alone; only when no such face is found does it fall back to the
+old path (the base feature's edge, or the preview's). So for a present
+("normal") edge the base edge is no longer lit -- the commit message says
+it: "a present edge lit the base's edge before". The old highlight was
+REPLACED, not added to.
+The note-taker's reading: the reporter wants BOTH on a normal edge -- the
+fillet face (outlined, the 17:47 ask) AND the base feature's edge (the old
+behaviour). NOT said:
+a. a MISSING edge: the base has no such edge -- the face alone, as now?
+b. the base edge's look: the old preselection colour, or the selection
+   style's outline like the face.
+c. under a per-view edit: the base edge in each view of the session, like
+   the face.
+
+**2026-10-16 23:54, the reporter (to the note-taker), a-c of 23:50
+ANSWERED:** "160, missing edge, only highlight face. Edge only highlight
+with color as usual. Only in the edit view"
+The note-taker's reading:
+a. a MISSING edge: the fillet face alone (as `a25c1d068b` does now).
+b. the BASE edge of a normal edge: the usual preselection COLOUR, no
+   outline.
+c. the base edge is lit ONLY in the EDIT VIEW, not in every view of the
+   per-view edit session.
+So a normal edge's hover = its fillet face (outlined, the selection style)
++ the base feature's edge (colour, edit view only).
+NOT said: whether "only in the edit view" also limits the FACE (now sent to
+each view of the session) -- read as the base edge only.
+
+**2026-10-16 23:58, the build session (relayed): the 23:54 ruling taken, in
+build r96, NOT committed.** A present edge's item now preselects the base
+feature's edge (the usual preselection: colour only, no outline) and keeps
+its fillet face outlined through the edit highlight; a missing edge lights
+the face alone, as before. "Only in the edit view": the face already goes
+only to the session's views; the edge goes through the ordinary
+preselection, so the hover test now runs with PerViewEdit on and a second
+view outside the edit, and claims nothing lights in that second view. If
+that fails, the edge needs a per-view path. Results after r96.
+
+**2026-10-17 00:02, the reporter (to the note-taker), on the build session's 23:58
+"If that fails, the edge needs a per-view path":** "160, what do mean, per
+view selection and highlight has long been working, what's special in this
+case"
+The note-taker's reading: the reporter expects the base edge's ordinary
+preselection to stay in the edit view already, by the per-view selection
+and highlight that has worked for a long time -- nothing new to build. The
+"per-view path" was the build session's hedge, not a found problem; asked
+of it what, if anything, is special here.
+
+**2026-10-17 00:07, the build session (relayed), "what's special" ANSWERED:**
+nothing. Per-view preselection works, as the reporter says, and the base
+edge goes through it unchanged. The "if that fails" was over-caution; the
+second-view claim in the hover test only confirms it on r96.
+
+**2026-10-17 00:18, the build session (relayed), r96:** the base edge is preselected
+(Wedge.Edge8) and nothing lights in a second view outside the edit
+(PerViewEdit on). BUT the normal edge's fillet face LOST its outline (12
+pixels lit, the test needs over 40); the missing edge's face is still
+fine. Cause not found; r97 (building) carries a temporary trace. Not
+committed.
+The note-taker's reading: adding the base edge's preselection appears to
+cost the face's outline -- NOT a cause, the build session has not found
+one.
+
+**2026-10-17 00:39, the build session (relayed), r97's trace:** the hover finds the
+right face (Fillet.;AddSub;Face1) and every edit view takes the highlight,
+yet the outline is not drawn once the base edge is preselected. r98
+traces the edit highlight feed and the frame's outline count. Temporary
+traces, nothing committed; on-screen test only (the standing permission).
+
+**2026-10-17 02:01, the build session (relayed; its ~02:10), r99's trace:** the edit
+view's face highlight (the fillet face's outline) is fed EMPTY every time
+("ovhl removed"), for missing and present edges alike. The missing edge's
+face lit only because it is ALSO the preselection; before tonight's change
+a present edge preselected its face too, which hid this. So the base-edge
+preselect is NOT what removes the outline (the note-taker's 00:18 reading
+is withdrawn). r100 traces why the edit capture finds nothing for that
+face. (r98 never built: a configure hung an hour on a stuck try-compile;
+killed, rebuilt as r99.) Nothing committed.
+The note-taker's reading: so `a25c1d068b`'s "outlined by the selection
+style on bgfx" (the 20:12 DONE, real-screen 14/14) may never have drawn
+the outline as an edit highlight -- the test saw the preselection.
+
+**2026-10-17 02:04, the build session (relayed), on the note-taker's 02:01 reading:**
+agreed -- `a25c1d068b`'s 14/14 measured the preselection: the face was
+preselected then, so the outline claim could not tell the two apart. Now a
+normal edge preselects the BASE edge, so the same face-outline claim
+measures only the edit highlight -- why it fails (lit 12). No extra claim
+needed for the normal edge; the missing edge still lights by
+preselection, which is what the reporter asked there.
+
+**2026-10-17 03:40, the build session (relayed): DONE LOCALLY, NOT pushed, NOT
+staged** -- `dc5ef18848` (Gui: the edit view lights a face the task panel
+names, pickable or not), log `513d22f945`, build r102. The edit view's
+face highlight had NEVER drawn: the preview is unpickable in the edit,
+and the highlight builder skips unpickable shapes. New flag AnySelectStyle
+for the editing highlight. Now, per the 23:54 ruling:
+- a NORMAL edge: the base edge preselected in the usual colour, plus the
+  fillet face outlined;
+- a MISSING edge: the kept face preselected;
+- a second view outside the edit lights nothing.
+fillet-hover-outlines-face.py 15/15 on the real screen. (r98 and r101
+never built -- a configure hung on a stuck try-compile; r102 ran a
+build-only chain.)
+
 ## 161. Apex flags FreeCAD.exe as unauthorized file encryption (a question) -- OPEN; relayed, said to the build session
 
 **2026-10-16, said to the build session (the note-taker did not hear it;
@@ -21830,6 +22416,17 @@ if the reading holds) and point c (the staged copy was flagged); the
 reporter's `tools\fcad-user.cmd` cannot start until the exe is back --
 restored from Apex's quarantine or by a restage, which is the
 reporter's word to give.
+
+**2026-10-16 17:33:** the restage the reporter asked for (from build r86) is
+RUNNING and puts the staged FreeCAD.exe back; the note-taker sees the
+file present again at 17:33 (a listing, nothing run), INSTALLED.txt not
+yet rewritten. Whether Apex takes it again: the reporter's "I'll see
+what to do if it got triggered again" (13:15).
+
+**2026-10-16 17:34: STAGED CLEAN 17:34:10** -- INSTALLED.txt read by the
+note-taker: fcad `0bcd954c01` (the note-taker's queue commit; its code is
+the pushed `54b5805b13`), OCCT `a81d25f148`, coin `d2da5cc93`, FreeCADGui
+15:49:19 (build r86). FreeCAD.exe present, 469504 bytes, dated 13:51.
 
 ## 162. The "invalid name length" warnings when opening scanner.FCStd (a request) -- OPEN; relayed, said to the build session; a fix building
 
@@ -21906,6 +22503,921 @@ NOT said: a. the box's exact text and title; b. when it shows -- at the
 reporter's own start of FreeCAD, or with nothing of theirs running (then
 the build session's launches); c. which program it names.
 
+**2026-10-16 22:37, the build session (relayed): LIKELY CAUSE -- the build
+session's own test run.** A test executable started without build\bin on
+PATH stops in the Windows loader, and on this box a missing DLL raises a
+hard-error box (stack NtRaiseHardError) on the screen. Its chain301 did
+that with Tests_run.exe at about 15:40 (its clock); the reporter asked at
+about 15:55. Test executables now run only through ctest. If the box
+comes back while nothing of the build session's is running, its exact
+text (and the program it names) is still wanted.
+The note-taker's reading: the reporter said "always" / "keeps popping
+up"; one run at 15:40 explains one box, not a repeated one -- whether the
+box was seen before today is NOT ANSWERED.
+
+**2026-10-16 22:39, the build session (relayed): the runs counted.** Two
+bare test-exe runs before the question, not one: chain301 (log at about
+15:20) and chain302 (started 15:40, logs at 15:41), each Tests_run.exe
+without build\bin on PATH -- so at least two boxes before the reporter's
+question at about 15:55. Tonight's chain326 (about 21:41, three exes) hit
+the same box while the reporter was away; the build session killed them.
+Before today, its only test-exe launch was 10-08 (doortests.cmd,
+Tests_run.exe through .conda\run.cmd); whether that raised a box is
+unknown. So boxes seen on EARLIER DAYS, or with NOTHING of the build
+session's running, are NOT explained; for those the dialog text is still
+wanted.
+
+## 164. The object's full name in execute()'s error messages, the binder's "No context" first; an audit (a change request) -- OPEN
+
+**2026-10-16 17:40, the reporter:** "new request, add full object name
+(docname@objname) to error message '17:36:33  <Exception>
+SubShapeBinder.cpp(330): No context, please double click the binder in
+the desired context to refresh'. audit the code base for this kind of
+message reported by object execute() function and make sure it mentions
+the object name"
+The note-taker's reading:
+- Two parts: (1) the binder's "No context" message names its object as
+  docname@objname; (2) an AUDIT of every such message raised from an
+  object's execute() (a recompute), each to name its object.
+- The time 17:36:33 is two minutes after the 17:34 stage -- by the
+  note-taker's reading seen on the staged copy, on a recompute (the
+  message comes from the throwing branch, which runs only while the
+  binder recomputes).
+Pointers, READ in the source, nothing run:
+- `src/Mod/Part/App/SubShapeBinder.cpp` 322-331: the message is one
+  static string; while NOT recomputing it goes to
+  `Document::setErrorDescription(this, ...)` (the object attached, but
+  the text without its name); while recomputing it is thrown with
+  FC_THROWM, which logs "<Exception> file(line): text" -- the line the
+  reporter quoted.
+- `src/App/Document.cpp` 15286-15290 (`_recomputeFeature`): a
+  Base::Exception from execute() is printed by `e.ReportException()`,
+  WITHOUT the object; the object's name goes only to
+  `FC_LOG("Failed to recompute " << Feat->getFullName() ...)`, a LOG-level
+  line not shown by default. The neighbouring branches (std::exception,
+  unknown, a returned error code) already print the name with FC_ERR.
+  So ONE place -- the report of an execute() exception at the recompute
+  -- may cover most messages at once, beside the per-message audit.
+- `DocumentObject::getFullName` (DocumentObject.cpp 533-545) gives
+  "doc#obj" -- '#', not the '@' the reporter typed.
+NOT said: a. the separator -- '@' as typed, or the fork's existing
+"doc#obj" of getFullName; b. whether the NAME (internal) or the LABEL
+too (a user sees labels in the tree); c. whether the name goes into the
+message TEXT itself (so the task panel, the tree's error tooltip and
+Python's exception also carry it) or only into the report-view line;
+d. the audit's scope -- every module's execute() messages (Part, PD,
+Sketcher, TechDraw, Draft's Python features...), or the C++ ones only.
+
+**2026-10-16 17:41, the reporter adds:** "check why this error does not mark the
+binder as recompute error"
+The note-taker's reading, READ in the source, nothing run:
+- Both of the message's paths DO mark the object: while not recomputing,
+  `Document::setErrorDescription(this, ...)` (Document.cpp 15203-15207);
+  while recomputing, the throw reaches `_recomputeFeature`'s catch
+  (Document.cpp 15286-15290). Both call `addRecomputeLog`, which sets
+  ObjectStatus::Error (private/DocumentP.h 344-351).
+- So the mark is lost after it is made, or the throw never reaches the
+  recompute. Two candidates, NEITHER proved:
+  (1) SWALLOWED: `SubShapeBinder::slotRecomputedObject`
+  (SubShapeBinder.cpp 1124-1134) calls update() when the binder's CONTEXT
+  object is recomputed and catches a Base::Exception with
+  `e.ReportException()` only -- no error mark. The quoted line is the
+  THROWING branch (line 330), which runs only while the binder's own
+  Recompute bit is set (DocumentObject::recompute, DocumentObject.cpp
+  229), so this candidate needs the context's recompute signal to fire
+  INSIDE the binder's own recompute.
+  (2) CLEARED: a later successful update or recompute of the binder
+  (`resetError` on success, Document.cpp 15305-15306) -- e.g. a second
+  recompute pass, or the GUI's double click
+  (ViewProviderSubShapeBinder.cpp 389, 400: `update(UpdateForced)`).
+- A trace (the "trace before the third guess" rule) would settle it.
+NOT said: c. where the error mark was looked for -- the tree's error
+icon, the binder's recompute state, a `isValid()` from Python; d. what
+the reporter did at 17:36:33 -- a recompute of the document, of the
+binder, or an open.
+
+**2026-10-16 17:46, the build session:** noted; it takes 164 after 160. The
+unanswered points a-d stay with the reporter; it would use the existing
+"doc#obj" full name unless told '@'.
+
+**2026-10-16 17:52, the reporter:** "entry 164, I think I find the binder, it
+is actually marked as error, Binder008"
+The note-taker's reading:
+- The 17:41 question ("why this error does not mark the binder as
+  recompute error") is WITHDRAWN: the binder is Binder008 and it IS
+  marked. The note-taker's two candidates of 17:43 (the throw swallowed
+  in slotRecomputedObject, the mark cleared by a later update) are MOOT
+  -- kept above, not to be traced.
+- The search for WHICH binder is the request's own case: the message
+  named no object, so the reporter had to look for it. The request (the
+  name in the message, the audit) stands as at 17:40.
+- Binder008 is one of the three objects the build session found invalid
+  after scanner's recompute (17:46, entry 160: Binder008, Fillet007,
+  Fillet011) -- by the note-taker's reading possibly tied to 160's
+  missing edges; not checked.
+
+**2026-10-16 20:39, the build session (its ~22:30), NOT committed:**
+- r93 (the central part): a recompute error now reads "<Exception>
+  SubShapeBinder.cpp(330): scanner#Binder008: No context, please double
+  click ..." -- "doc#obj", FreeCAD's full name; the '@' NOT used ("tell
+  me if wanted").
+- The AUDIT (an agent read the code) found about 45 sites that print
+  during a recompute without naming the object, plus many helpers with no
+  object in scope. Rather than patch each: r94 (building) names the
+  recomputing object in EVERY WARNING and ERROR sent while it recomputes,
+  as " [doc#obj]" at the END, unless the text already names it --
+  execute() code, its helpers, swallowed exceptions, Python features
+  alike. Plain messages untouched. The binder's after-context update
+  names itself too.
+- The task panel and the tree's tooltip text unchanged ("they are on the
+  object anyway").
+The note-taker's reading against the NOT-said points of 17:40: a (the
+separator) -- "doc#obj" chosen by default, the reporter typed '@', still
+the reporter's to rule; b (name or label) -- the internal name; c (in
+the text or the report line only) -- the report line only; d (scope) --
+every recompute warning and error, C++ and Python, by one mechanism.
+
+**2026-10-16 21:00, the build session (its ~23:00): DONE LOCALLY, NOT pushed,
+NOT staged** -- `a8a0a01d88` (Base, App, Part: what an object's recompute
+warns of names the object), log `7e056e0e62`. r94 verified: a Python
+feature's warning or error in execute prints "... [E164Doc#Warner]"; its
+plain message and a warning outside a recompute untouched; the binder
+error reads "scanner#Binder008: No context, ..."; Document 236, TestFillet
+24, TestSketcherApp 146 OK. OPEN for the reporter: the separator ('@' as
+typed, or FreeCAD's doc#obj as built).
+
+**2026-10-16 23:55, the reporter (to the note-taker), the separator
+ANSWERED:** "164 keep doc#obj"
+The note-taker's reading: `a8a0a01d88` stays as built; nothing is open in
+164 (done locally, push and restage on the reporter's word).
+
+## 165. Omni search: a /error type for objects in recompute error; one completer item per object, the label in its description, Tab to <<label>> (a change request) -- OPEN
+
+**2026-10-16 17:56, the reporter:** "new request, in omni search add a new type
+/error to filter on all objects marked as recompute error. also change
+how object list in the completer, do not show the same object with their
+name and label in separate items, even if the name and label are
+different. instead, put the lable, with << and >> in the description if
+they are different. Note, when user typing starts with << and then tab,
+or the user typing matched the label that is different from name even
+without leading <<, tab complete shall use the <<labe_name>> instead of
+internal name"
+**About 17:58, the reporter adds:** "later name completion applies to both
+unfiltered and error filtered object list"
+**About 17:59, the reporter adds:** "description (and tooltip) leads with
+label, followed by the object usual description field content"
+(Both additions arrived while the note-taker was reading the source; the
+times are when they were seen.)
+The note-taker's reading:
+- (1) /error: a new mode beside "/ " (objects), "/cmd", "/param"
+  (OmniSearch::modePrefix, OmniSearch.cpp 62-80): the object list
+  narrowed to objects marked in recompute error (ObjectStatus::Error,
+  as entry 164's Binder008 is) -- in ALL open documents ("all objects").
+- (2) ONE row per object. Today a name row AND a <<label>> row when the
+  two differ. The row's DESCRIPTION line and its TOOLTIP LEAD with
+  <<label>> when the label differs from the name, then the object's
+  usual description.
+- (3) TAB inserts <<label>> instead of the internal name when the typing
+  starts with "<<", or the typing matches a label that differs from the
+  name (without "<<"); otherwise the internal name as today.
+- (4) (3) holds in both the plain object list and the /error list.
+Pointers, READ in the source, nothing run:
+- The object list is ExpressionCompleter's (`src/Gui/OmniSearchBox.cpp`
+  1037, 1041, two instances); its rows are a name row (index*2) and a
+  label row (index*2+1) per object, collapsed to one only when the label
+  IS the name (`src/Gui/ExpressionCompleter.cpp` 262-270). The same
+  completer serves the EXPRESSION editors (property editor, task-panel
+  spin boxes).
+- Its tooltip today: "Internal name: X / Label: Y / Description:
+  <Label2>" (ExpressionCompleter.cpp 610-626). The omni rows' grey
+  description line exists (OmniSearchBox.cpp 89-165, DescriptionRole),
+  but the object completer's rows have NONE today ("a row without a
+  description (the object completer's) is one line high", line 160).
+NOT said: a. whether the one-row change is for OMNI SEARCH only or the
+expression editors' completer too (the same class); b. "the object usual
+description field content" -- the object's Description property
+(Label2), or something else (type, document); c. /error's reach -- all
+open documents, or the active one; and whether an object whose error
+is cleared drops out of an open list at once; d. which wins when the
+typing matches BOTH an internal name and a different object's label;
+e. the description when the label equals the name -- the usual
+description alone, by the note-taker's reading.
+
+**2026-10-16 18:05, the reporter answers:** "entry 165, expression editors too.
+/error for all open documents. I assum the list is built per showing of
+the omni search. so no need to refresh the list, since user will have to
+click away and dismiss the omni search to trigger recompute. clashes, if
+not leading with << then favor lable, else favor internal name"
+The note-taker's reading:
+- a. ANSWERED: the one-row change (and the Tab-to-<<label>> rule) for the
+  EXPRESSION EDITORS' completer too, not only the omni search.
+- c. ANSWERED: /error lists the error objects of ALL OPEN DOCUMENTS; the
+  list is built at each SHOWING of the omni search, no live refresh -- a
+  recompute needs the box dismissed first.
+- d. ANSWERED, as said: when the typing matches one object's internal
+  name AND another object's (different) label -- NOT led by "<<": the
+  LABEL wins; led by "<<": the INTERNAL NAME wins.
+  The note-taker's question: typing led by "<<" is itself a label quote,
+  so "the internal name wins" there reads the other way round from the
+  rule's first half -- is it meant as said, or reversed ("<<" -> the
+  label, no "<<" -> the internal name)? Recorded as SAID until answered.
+- b. NOT answered: "the object usual description field content" -- the
+  Description property (Label2), or else.
+- e. NOT answered (the note-taker's reading stands: with label == name,
+  the usual description alone).
+
+**2026-10-16 about 18:10, the reporter answers b:** "entry 165, usual
+description is how expression editor previous build as the tooltips for
+the object"
+The note-taker's reading: the "usual description" is the completer's
+object tooltip as built before -- "Internal name: X / Label: Y /
+Description: <Label2>" (ExpressionCompleter.cpp 610-626, READ in the
+source); the new description and tooltip LEAD with <<label>> (when it
+differs), then that content.
+
+**2026-10-16 22:37, the build session: DONE LOCALLY, NOT pushed, NOT
+staged** -- `d89d378aa8` (Gui: the object completer lists an object
+once, its <<label>> in the description; omni search /error), log
+`4d4a3a9fc5`. Build r95:
+- ONE completer row per object (its internal name); description and
+  tooltip lead with "<<Label>>" (when it differs), then the old tooltip
+  text (the 18:10 word).
+- Tab or a pick inserts <<Label>> when the typing starts with "<<" or
+  matches the label; on a clash: no "<<" -> the label, "<<" -> the
+  internal name -- the reporter's 18:05 words as written. The
+  note-taker's question (is that reversed?) is still OPEN.
+- The same completer serves the expression editors, so they have it too.
+- "/error": a 4th omni mode, over ALL open documents, the list rebuilt on
+  each showing of the box (no live refresh, as the reporter assumed).
+- Tests on the real screen (the standing permission): label/error 10/10,
+  typing 16, slash 10, highlight 20, expression 45, recent 18/18; ctest
+  OmniSearch, OmniControl, ExpressionEditor pass.
+Still open from the entry: point e (see above), and the clash direction.
+
+**2026-10-16 23:52, the reporter (to the note-taker), the clash direction
+ANSWERED:** "165, with << label wins, without internal name wins"
+The note-taker's reading: this REVERSES the 18:05 words as recorded ("if
+not leading with << then favor lable, else favor internal name") and so
+the rule `d89d378aa8` built (no "<<" -> label, "<<" -> internal name). Now:
+typing that starts with "<<" -> the LABEL; typing without "<<" -> the
+INTERNAL NAME, when the typing matches both. The note-taker's 18:05
+question (is d reversed?) is closed by this. NOT said: whether a typing
+WITHOUT "<<" that matches a label only (no name clash) still inserts
+<<Label>> (the 17:56 words say yes; read as unchanged).
+
+**2026-10-16 23:58, the build session (relayed): the 23:52 ruling taken, in
+build r96, NOT committed.** The clash is reversed in the completer and in
+the /error rows: a leading "<<" always inserts <<Label>>; without it the
+internal name is inserted whenever it matches, and <<Label>> only when the
+typing matches the label alone (the note-taker's reading of the no-clash
+case). docs/OmniSearch.md updated; the label test gains a clash case
+(Pillar labelled "Pillar post": "/ Pil" -> "/ Pillar", "/ <<Pil" -> "/
+<<Pillar post>>"). Results after r96.
+
+**2026-10-17 00:18, the build session (relayed): the 23:52 clash ruling DONE LOCALLY,
+`6a22ba8b9f`, NOT pushed, NOT staged.** "<<" -> the label; no "<<" -> the
+internal name; the label only when the typing matches it alone. r96:
+label test 14/14 with a clash case, typing 16, slash 10, expression 45,
+ctest 3/3.
+
+## 166. After a revert of scanner.FCStd the blob manager warns included files are missing (a defect) -- OPEN
+
+**2026-10-16 18:01, the reporter:** "new defect, check console error in my live
+session. I revert a opened scanner file, and I am getting some error from
+bolbs manager saying some included file not found. this shouldn't happen"
+**What the note-taker READ in the reporter's live session, on their word**
+(the MCP console's log through `scripts/mcp_run.py --log` with
+FC_MCP_ENDPOINT_DIR=%USERPROFILE%\.freecad-mcp-user, pid 134000, the copy
+staged 17:34; a log read, NOTHING run in the session). The console keeps
+600 lines, from the session's start at 17:36:06; a copy is kept at
+`D:\works\sw\dl\handson\2026-10-16\e166-live-console-600.txt`.
+- 17:36:24 the first open (a progressive restore), 17:36:31-17:36:56 its
+  recompute: Binder's "No context", Fillet011 and Fillet007 failed -- NO
+  blob warning.
+- ~17:59:35 the REVERT (a second progressive restore: "159 document
+  changes suppressed while replaying the view providers").
+- 17:59:49 on, a recompute: at 17:59:52 and again at 17:59:57 the SAME
+  four warnings, "<App> FileBlobManager.cpp(2203): Included file <hash>
+  is missing from the document":
+    11e3007a4af23fb62750fa1b792768fef6e8efb7 (", named by 3 properties")
+    d48374a0f4b0d266bd9fb7d6e1df195e8663a883
+    e37c6b4aed1616c4119f65dc7f606686b77d8b91
+    f1cbabe1f148d0b57cd4299a3adea9c8cdf281e4
+  Then the same Fillet011 (18:00:00) and Fillet007 (18:00:29) failures as
+  after the first open; "Recompute failed!" 18:00:33.
+- They are WARNINGS, not errors; none says "stood in for it", so by the
+  source no property stood in for the content.
+Pointers, READ in the source, nothing run: the line is
+`FileBlobManager::dispatchPending` (src/App/FileBlobManager.cpp
+2159-2203) -- a referrer queued for a blob the archive did not produce
+once the archive is drained. It ran during the RECOMPUTE, not the revert's
+read, and twice.
+The note-taker's reading (a guess, NOT checked): something restores
+objects from saved data DURING the recompute after the revert and asks the
+blob manager for blobs the reverted document no longer holds -- e.g. the
+recompute "on copies" the build session found under entry 160 ("a frozen
+input was refused (Chamfer failed on Edge38), recomputing on copies"),
+which would also explain TWO rounds; or the reverted document's archive
+store not the one the copies read from.
+NOT said: a. whether the reporter recomputed after the revert by hand,
+or the recompute ran by itself; b. whether anything looks wrong in the
+document (a missing texture, material, embedded file) or only the
+warnings; c. whether a plain close and reopen, without the revert, shows
+them.
+
+**2026-10-16 18:04, the build session (a fact from its own runs, no new work):**
+the same four "FileBlobManager.cpp(2203): Included file ... is missing
+from the document" lines (11e3007a... named by 3 properties; d48374a0...;
+e37c6b4a...; f1cbabe1...) appear TWICE in the FIRST recompute after a
+FRESH HEADLESS open of a scanner.FCStd copy (FreeCADCmd, r86; its 160
+probe 3, e160r\run.log, about 17:40). There was NO revert. Its reading:
+not the revert's doing; on the reporter's 17:36 open it may have gone
+unprinted or been missed. Not investigated further; 160 first.
+The note-taker re-checked the kept copy of the live console: the session
+starts 17:35:59 (the MCP console line), the first open's recompute
+17:36:31-17:36:56 is in it, and ALL 8 "Included file" lines are at
+17:59:52/17:59:57, after the revert. So: headless, first open -> the
+warnings; GUI, first open -> none printed; GUI, after a revert -> the
+warnings. The note-taker's correction of 18:03: the revert is NOT shown
+to be the cause; what differs between the GUI's first open and the
+others is the open question (the progressive load of a GUI open, entry
+162's string-table and settle work, is one difference -- a guess).
+
+**2026-10-16 about 18:10, the reporter answers a and b:** "entry 166, recompute by
+hand. nothing looked wrong."
+
+**2026-10-16 20:39, the build session (its ~22:30): CAUSE and FIX, r93
+verified, NOT committed.** The four "Included file ... missing" lines
+come from TWO binders (Binder, Binder012) whose copy-on-change copies
+objects into TEMPORARY documents (_tmp_binder_scanner_Binder...) during
+the recompute. The copies name a library material card's MaterialX
+files, which the copy stream does not carry, and the temporary
+document's store cannot find them. Fix: a file missing at the end of a
+copy is taken from another open document's store (blobs do not migrate;
+their content is imported). The scanner copy recomputed on r93: 0 such
+warnings (8 before). Document 236, FileBlobs 95 OK. The same on a fresh
+open and after a revert: it was the RECOMPUTE, not the revert (the
+note-taker's 18:04 correction confirmed).
+
+**2026-10-16 21:00, the build session (its ~23:00): DONE LOCALLY, NOT pushed,
+NOT staged** -- `294697011c` (App: a file an object copied between
+documents names comes from the other one). r94: the scanner copy, 0
+missing-file warnings; FileBlobs 95 OK.
+
+**2026-10-17 00:00, the reporter (to the note-taker):** "Entry 166, elaborate your
+fix. It doesn't sound right. How can you look for files in another
+document, by content hash?"
+The note-taker's answer, READ in the source, nothing run (the fix is the
+build session's, `294697011c`):
+- YES, by content hash. FileBlobManager::dispatchPending() resolves, at
+  the end of a restore or import, every "Included file <hash>" a property
+  names. When the document's own store has no blob of that hash, the new
+  fromOpenDocuments() walks GetApplication().getDocuments(), asks each
+  other document's store find(hash), reads the bytes, adopts them into
+  this store (adoptBytes) and keeps them only if the re-hash matches.
+  The first open document that has the hash wins.
+- What it does NOT do: find out why the copy left the files out. The
+  copy is Document::exportObjects() -> importObjects(): the export is
+  capped at schema 4 ("an exported fragment never shares anything") and
+  collects only the exported objects' blob properties
+  (collectFileBlobs(objs)) plus what the view tier adds. The material
+  card's MaterialX files are named by hash in the copied objects but are
+  not in that fragment -- the actual defect, still there.
+- So the fix works only while some open document happens to hold those
+  bytes. It hides the gap for the binder's temporary copies (the source,
+  scanner, is open), but a copy whose source is closed -- a clipboard
+  paste after the source is closed, or the fragment read in another
+  process -- still loses the files, and with the lookup the warning no
+  longer shows that the stream was incomplete.
+The note-taker's reading: the reporter's doubt holds -- the right fix is
+the export carrying every file its objects name (the material card's
+included files with it), not a search of other documents. NOT checked:
+which property names the MaterialX files and why collectFileBlobs() does
+not reach them (at schema 4 the properties write their own copies; this
+one apparently does not).
+
+**2026-10-17 00:07, the build session (relayed):** the reporter's doubt holds, and so
+does the note-taker's reading. `294697011c` is a fallback: a hash the copy
+still lacks is looked up in every open document's store and its bytes
+copied in. It hides the symptom, works only while the source document is
+open, and does not fix the export.
+A NEW FACT, checked: none of the four missing hashes (11e3007a..,
+e37c6b4a.., f1cbabe1.., d48374a0..) appears anywhere in
+scanner-presave-1006.FCStd -- not in Document.xml, not as a stored file.
+So they are NOT files the document carried and the copy dropped: they are
+made in the session -- a library material card's MaterialX files, which
+the source document stores from the library paths on this machine
+(PropertyMaterial::holdMaterialXBlobs -> insertFile).
+NOT pinned: what the exported fragment carries, and which of the copy's
+properties name the hashes (the warning says "named by 3 properties"). Its
+leading guess: the appearance takes the card's MaterialX hashes, but
+AppearanceList::noteTextureBlobs notes only files that list holds itself,
+and these are held by the material property.
+Next, after r96: a headless probe on the pre-save copy naming each missing
+hash's referrers and listing the fragment's files; then the export fix
+(the fragment carries every file its objects name), and the fallback
+REMOVED unless the reporter wants it kept. Nothing committed yet.
+The note-taker's reading: the reporter has a choice to make there -- keep
+the fallback or not; NOT ANSWERED.
+
+**2026-10-17 00:14, the reporter (to the note-taker), the fallback RULED:** "Keep as
+safe net, but print warning"
+The note-taker's reading: the export fix goes ahead (the fragment carries
+every file its objects name); the lookup in other open documents STAYS as
+a safety net, but when it is used it prints a warning (so an incomplete
+copy is no longer hidden). NOT said:
+a. the warning's level (warning, as said, read literally) and wording --
+   read as naming the hash, the document it was taken from, and the
+   object/property that named it (164's " [doc#obj]" applies anyway when
+   it runs during a recompute).
+b. once per file or once per copy.
+
+**2026-10-17 00:18, the build session (relayed), per the 00:14 ruling, in r97, not
+committed:** the safety net now warns "Included file <hash> was missing
+from the document; taken from open document '<doc>' for <property full
+name>", once per file per referrer, as it is dispatched (NOT-said a and b
+of 00:14 so settled, the reporter may differ). r97 runs the probe on the
+pre-save scanner copy, so the warning names the properties too. The export
+fix follows the probe.
+
+**2026-10-17 00:39, the build session (relayed): a CORRECTION of its 00:07 answer,
+from the r97 probe.** The four missing files are NOT MaterialX. With the
+safety net warning and naming the property, they are SHAPE files of the
+objects Binder012 copies: Sketch018.Shape, Sketch018.InternalShape,
+Pad012.AddSubShape and Pad012.SuppressedShape, each "taken from open
+document 'scanner_e166a' for _tmp_binder_scanner_e166a_Binder012#...".
+Binder's copy then takes them from Binder012's temporary document. They
+are not in the scanner file because they are shape bytes made in the
+session. So something writes those shapes BY HASH (hash=) into the copy
+without carrying the file; an export at schema 4 should write them
+inline, so another writer is suspected. r98 traces which Save branch it
+is. Temporary trace, nothing committed.
+The note-taker's correction: the 00:07 block above ("a library material
+card's MaterialX files", holdMaterialXBlobs, AppearanceList) and the
+note-taker's 00:00 answer ("the material card's MaterialX files") are
+WRONG on what the files are -- the files are the copied objects' shapes.
+The 00:00 point that the fallback does not fix the export still holds.
+
+**2026-10-17 02:01, the build session (relayed; its ~02:10): CAUSE FOUND, fix in
+r100, nothing committed.** A binder's temporary copy calls copyObject in
+the temporary document, which EXPORTS the scanner's objects. The export
+reset the DESTINATION document's file manager to "no shared files"
+(schema 4), but the copied objects' properties answer to the SCANNER's
+own manager, which still had the shared-file format of its last save. So
+Sketch018.Shape/InternalShape and Pad012.AddSubShape/SuppressedShape were
+written as hash references, and the fragment never carried those files.
+r99's trace: "schema 4 exporting 1 uses 1". FIX (r100): exportObjects also
+begins the save on every exported object's own document manager (and
+clears that document's string-hasher list before and after). The
+open-documents safety net stays and warns (the 00:14 ruling). r100's
+probe should show no "was missing" warnings.
+The note-taker's reading: this is an export bug, not a binder one -- any
+copyObject from a document saved at schema 5 into another document could
+lose its shape files the same way (a clipboard copy goes through the
+source's own manager -- NOT checked whether it was hit).
+
+**2026-10-17 02:04, the build session (relayed), on the note-taker's 02:01 reading:**
+agreed, it was GENERAL. ANY copyObject from a document whose last save
+used shared entries (schema 5) wrote its shapes and included files as
+hash references the copy did not carry. Its words: "The fallback silently
+rescued it while the source was open: before tonight there was no
+warning, so nothing was lost while the source stayed open, but nothing
+said so either. With the source closed between export and import (a
+clipboard paste after closing the source), the content would have been
+missing." Not checked whether any user file was hit. New test
+FileBlobs.testCopyFromASavedDocumentCarriesItsContent listens on the
+console and fails on any "was missing" warning.
+The note-taker's correction of that account: the fallback is `294697011c`,
+made TONIGHT (20:59) and LOCAL only. Before it -- and in the reporter's
+STAGED copy (54b5805b13) today -- nothing rescued the files: every such
+copy from a schema-5 document lost them and printed "Included file <hash>
+is missing from the document" (what the reporter saw, 18:01). So in the
+staged copy a copy/paste or a binder copy from a document saved at schema
+5 may have produced objects with content missing; whether a saved user
+file carries such a loss is NOT checked. Shapes are made again by a
+recompute; an included file (a texture, a material file) is not.
+
+**2026-10-17 02:05, the build session (relayed):** the correction ACCEPTED, checked --
+`294697011c` (2026-10-16 20:59) is local and NOT in the staged
+54b5805b13; its "nothing was lost while the source stayed open" was
+wrong. In the staged copy every copy from a document whose last save used
+schema 5 drops those files and prints "Included file ... is missing".
+Whether a saved user file carries such a loss is not checked. The r100
+export fix removes the cause; the fallback stays as a warned safety net.
+
+**2026-10-17 03:40, the build session (relayed): DONE LOCALLY, NOT pushed, NOT
+staged** -- `9b2db5555f` (App: a copy from another document carries the
+files its objects name), log `513d22f945`, build r102. exportObjects now
+begins the save on every exported object's own document manager, so a
+copy carries its shapes and included files. The fallback (`294697011c`)
+stays and warns, naming the file, the source document and the property
+(the 00:14 ruling). FileBlobs 96 OK with the new
+testCopyFromASavedDocumentCarriesItsContent; Document 236 OK; the scanner
+copy's first recompute warns of no missing file.
+STILL NOT CHECKED: whether a file the reporter saved with the staged copy
+lost an included file this way.
+
+## 167. scanner.FCStd saved by "someone (not me)" (a defect, critical by the reporter) -- OPEN
+
+**2026-10-16 about 18:10, the reporter:** "I just found out one critical fact.
+someone (not me) saved scanner file just now (may have been saved
+multiple times already, check if there is transaction log inside). check
+any new code that may caused this"
+**What the note-taker READ** (the file, the reporter's console logs under
+%APPDATA%\FreeCAD; nothing written to either, nothing run in a FreeCAD):
+- `D:\Zheng.Lei\mech\scanner.FCStd`: modified 2026-10-16 18:06:56,
+  9243622 bytes (the backup beside it, scanner.20261006-091732.FCBak, is
+  6119171); Document.xml: SchemaVersion="5", ProgramVersion "0.22R35485
+  +11461 (Git)", LastModifiedDate "2026-10-16T10:06:52Z" (18:06:52 here),
+  LastModifiedBy empty.
+- YES, a TRANSACTION LOG is inside: `blobs/History.db` (3461120 bytes,
+  zstd in the archive; a copy unpacked read-only, kept at
+  `D:\works\sw\dl\handson\2026-10-16\e167-scanner-History-1806.db`).
+  It holds ONE session: kind "local", opened 17:36:03, closed 18:06:52;
+  its environment: ExeName "FreeCAD" (the GUI), BuildRevisionHash
+  b076aae675 (the build staged at 17:34 -- the reporter's own copy),
+  OCC 8.0.1. 21 transactions: the open's implicit steps 17:36:18-29, a
+  recompute 17:36:58 (29 s), an implicit step 17:59:20, a SNAPSHOT
+  17:59:36 (the revert; path D:/Zheng.Lei/mech/scanner.FCStd, schema 5,
+  359 blobs), the recompute 18:00:33 (44 s), implicit steps 18:00:33-34,
+  and ONE MORE implicit step at 18:06:05 -- 47 s before the save. meta:
+  save_date 2026-10-16T10:06:52Z, one save id ("2 21": version 2 at txn
+  21).
+- ONE save, not several, by the logs: every session's console says
+  "'scanner' is in an older file format (schema 4)" at the open -- 10-14
+  15:46, 10-15 09:22 and 15:07, 10-16 09:33, 17:36:04 -- and AGAIN at
+  17:59:07, the revert's read. So the file was still schema 4 at
+  17:59:07; the schema 5 file is the one save at 18:06:52.
+- The process that saved is the reporter's own FreeCAD of 17:36 (the
+  history's session and build), not another program; the session's
+  console (`mcp_console.log`, kept at
+  `dl\handson\2026-10-16\e166-mcp_console-session-1736.log`) has NOTHING
+  between 18:00:33 and 18:11:51 (the exit) -- a save writes no console
+  line, and a command typed or run (`App.getDocument(...).save()`) is
+  not in that log.
+The note-taker's reading, READ in the source, nothing run -- no code
+found that saves by itself: the saves are Std_Save/SaveAs/SaveAll
+(CommandDoc.cpp 708-935), the close-confirm box's Save
+(MainWindow.cpp 1360-1379), an MDI view's "Save" message -- Ctrl+S to
+the active view (MDIView.cpp 338-341), Gui::Document's save paths
+(Document.cpp 2288, 2609), and Python. The AutoSaver writes NOTHING
+with the transaction log on (AutoSaver.cpp 139-145, "the log is the
+autosave"), and the log's snapshots go to the log store, not the
+project file (TransactionLog.md sec 22.1, 25.5). The 18:06:05 implicit
+step, 47 s before the save, is the one lead the history gives -- what
+it changed is in its `op` rows (not yet read).
+NOT said: a. what the reporter did around 18:06 (a dialog answered, a
+document or tab closed, a key pressed, the build session's tools at
+work); b. whether the save is a problem for the file's CONTENT or for
+its FORMAT (schema 5 -- "which only this FreeCAD reads") -- the older
+copy beside it is the 10-06 backup.
+
+**2026-10-16 18:18, the note-taker reads the 18:06:05 step** (the kept
+history copy, read only): txn 21 holds ONE op -- a VIEW-provider property
+`ShowFrames` (App::PropertyBool) set: a TechDraw page's frames toggled
+(entry 155's switch). Txn 20 (18:00:34): SavedGeometry, References2D,
+ProjectedGeometry set on an object (a dimension's references after the
+recompute). Then the save at 18:06:52. No save call found in TechDraw's
+Gui sources (READ, nothing run). NOT known: what came between the frames
+toggle and the save.
+
+**2026-10-16 18:19, the build session's reading (its ~18:25; read only,
+nothing run in any FreeCAD):**
+- New code: NO save call added in `src` since 2026-10-13 except in test
+  scripts (git log -S on save/saveAs/Std_Save/saveDocument/SaveAll/
+  doCommand save; the hits are tests' self.Doc.saveAs and QPainter::save).
+- Its own probes since 17:30 copy scanner.FCStd into the probe folder and
+  open the COPY, headless (ExeName FreeCADCmd); none saves, and none ran
+  at 18:06 (r87 was compiling). The history's ExeName FreeCAD and the
+  stage's build fit the reporter's own session.
+- The history's session "closed" 1792145212.97 = 18:06:52.97, the
+  save_date second: by the code, that time is written when the log is
+  copied into the saved file -- NOT a document close. So: a save at
+  18:06:52, 47 s after the last change (txn 21, a page view's
+  ShowFrames, 18:06:05), and nothing after. The version row (num 1,
+  unnamed, seq 12, schema 5) is 17:59:36, the revert.
+- At the exit (18:11:51) no save prompt was needed: nothing changed after
+  the save.
+- Its conclusion: the trigger is a SAVE ACTION in the GUI between
+  18:06:05 and 18:06:52 -- Std_Save by menu, tool bar or Ctrl+S, Save
+  All, or Save in a close-confirm box when a window or the document was
+  closed. No code found that saves by itself.
+- Its question to the reporter: what was done in those 47 s, which
+  window was active (a TechDraw page, by the ShowFrames toggle), and did
+  any box appear?
+Not investigated further: 160 first, r87 compiling.
+The note-taker's reading: the build session and the note-taker agree --
+one save, by the reporter's own session, no self-saving code found.
+
+**2026-10-16 18:27, the build session (its message) and the note-taker's
+check: the content before the 18:06:52 save is NOT LOST.** The build
+session: the file as it was before the save is byte-identical (md5
+bb568db2683b..., 6119171 bytes) to
+`D:\Zheng.Lei\mech\scanner.20261006-091732.FCBak` beside it and to its
+probe copies made 17:34-17:43 (e.g.
+`D:\works\sw\dl\handson\2026-10-12\s1\e160r\scanner-e160r.FCStd`); so
+the save replaced the 10-06 content, of which the .FCBak exists. It has
+not touched the file or the .FCBak. Side effect for 160: its probes after
+18:06 read the SAVED file; it uses the pre-save copy from now on.
+The note-taker CHECKED (md5sum, read only): the .FCBak and the probe copy
+(6119171 bytes, 10-16 17:39:25) both bb568db2683b3acc217d534249778cfd.
+
+**2026-10-16 18:33, the reporter:** "I don't remember hitting any save
+button or anything. Won't there be warning dialog poping for save a old
+file with new format. I don't remember seeing any"
+The note-taker's answer, READ in the source, nothing run: NO box is
+expected on a plain save of an old-format file. At the OPEN,
+`App::Document` (Document.cpp 2830-2846) sets SaveSchemaVersion to the
+current schema and says so ONCE as a report-view WARNING -- "'scanner' is
+in an older file format (schema 4) and will be saved in the current one
+(schema 5)..." (in the console at 17:36:04 and 17:59:07). The comment
+there gives the rule: "A file in an older format is this fork's own
+format from here on (user, 2026-09-28, docs/TransactionLog.md sec 27.62):
+the next plain Save writes the current schema ... The user is told once,
+at the open". The save-time box (`Gui::Document::offerSchemaUpgrade`,
+Gui/Document.cpp 2012-2048) skips a document whose SaveSchemaVersion is
+already 5 -- which the open made it. So a plain Save (menu, tool bar,
+Ctrl+S, a close box's Save) would have written schema 5 SILENTLY; the
+missing box does not tell a save the reporter made from one made without
+them.
+Still not known: what in the reporter's own session called the save
+between 18:06:05 (the frames toggle) and 18:06:52. The reporter
+remembers no save action.
+The note-taker's reading: a save the reporter did not ask for would be a
+defect of its own -- a key or command routed to Save (an MDI view's
+"Save" message is Ctrl+S to the ACTIVE view, MDIView.cpp 338-341), or a
+script; a trace on the staged copy (a stack at Document::save) would
+catch the next one.
+
+## 168. Telling the user the new format's risk while encouraging it for the transaction log; a new extension (a change request, for discussion) -- OPEN
+
+**2026-10-16 18:43, the reporter:** "New request, and i need  discussion. How
+to let user know the risk of saving new format and yet encourage them to
+do that because of the transaction log function. Note that eventually we
+will use a new extension for the new format. Actually, one of the branch
+already did that."
+**What exists, READ in git, nothing run:**
+- Today on LinkVibe: an old-format (.FCStd, schema 4) file is raised to
+  schema 5 AT THE OPEN, and told ONCE, as a report-view WARNING; a plain
+  save then writes schema 5 over the .FCStd SILENTLY (App Document.cpp
+  2830-2846; Gui `offerSchemaUpgrade` skips it; the reporter's rule of
+  2026-09-28, TransactionLog.md sec 27.62). Entry 167 is that case: the
+  reporter saw no box, and scanner.FCStd was overwritten in schema 5.
+- The branch: `origin/Branding`, 5 commits beyond LinkVibe (10-14, NOT
+  merged): `919883c008` (App: schema 5 is a .TStd -- "the brand initial
+  plus Std"; a plain save that would raise a standard file writes
+  Part.TStd BESIDE Part.FCStd, leaves the original as it was, and the
+  document lives at Part.TStd from then on -- "user ruling 2026-10-14";
+  backups .TBak beside a .TStd; links not redirected; .TStd opens
+  wherever .FCStd does), `67ce120c62` (Gui: one warning dialog at that
+  save -- "Saved as Part.TStd." / Part.FCStd unchanged / the new format
+  does not open in other FreeCAD versions / Save As with the standard
+  format updates Part.FCStd; Save As's name follows the
+  Standard/Compact toggle), `a7896651de` (XDG: the .tstd type),
+  `2f606b90df` (docs/RenameInventory.md), `fdba0e5770` (a Part test).
+**The note-taker's proposal (asked for discussion; mine, not decided):**
+1. Make the upgrade NON-DESTRUCTIVE first -- the Branding branch's
+   save-beside. With the original .FCStd never overwritten, the risk to
+   tell shrinks to "other FreeCAD versions cannot open the new file",
+   and the message can be an OFFER rather than a warning. (Entry 167's
+   harm would not have happened.)
+2. Tell it WHERE IT IS SEEN, not only in the report view: a non-modal
+   BAR across the document's view at the open of an old-format file
+   (the way a browser or an office suite says "compatibility mode"),
+   e.g. "scanner.FCStd is in the standard format. Saving keeps it and
+   writes scanner.TStd beside it, with its history. [Keep history
+   (recommended)] [Keep the standard format] [What is this?]". It stays
+   until answered, never blocks work, and the answer is remembered per
+   document.
+3. ENCOURAGE by showing what is GAINED, in the bar and the save box,
+   concretely: undo and redo across sessions, crash recovery from the
+   log, the history panel and its versions, merging branches. Where a
+   feature needs the log on a standard-format document, say so at the
+   feature ("History is kept once the document is saved as .TStd")
+   instead of hiding it.
+4. ONE box at the FIRST save only (the branch's), with "do not show
+   again"; Save All the same once for all the documents it raises.
+5. Keep the WAY BACK obvious: Save As > Standard format, and a "Save a
+   standard copy" for sharing; the .TStd's save could offer "also keep
+   the .FCStd up to date" for users who share files with upstream.
+6. A preference for opened old files: ask (default) / always the new
+   format / always the standard one; new documents default to the new
+   format.
+NOT said: a. whether the Branding branch's behaviour (save-beside, the
+.TStd name, one box) is the base to merge, or a new design; b. whether
+the bar, the box or both; c. what the new format must NOT lose for a
+user who shares .FCStd files (a both-files mode, an export); d. whether
+the history (transaction log) can run on a standard-format document at
+all, or only on .TStd -- the "encourage" depends on it.
+
+**2026-10-16 19:00, the reporter RULES:** "First wait for other box to merge
+branding first. Once we get the saving in other extension code. When
+saving a file old extension, pop dialog to ask. List all the facts and
+encourage them to save new format. Assure them old file will stay and
+they can save back to old format. Offer don't ask again. If they click
+don't ask, pop dialog to let them know they can use save as to save new
+format."
+The note-taker's reading:
+- ORDER: nothing on this until the "other box" (another machine or
+  session) has merged `origin/Branding` (the .TStd extension and the
+  save beside the .FCStd) -- this session's build does not start it.
+- Then: a SAVE of a document whose file has the OLD extension (.FCStd)
+  ASKS, in a dialog, every time until told otherwise -- not the branch's
+  after-the-fact "Saved as Part.TStd" notice.
+- The dialog LISTS THE FACTS and ENCOURAGES the new format: what it
+  gains (the transaction log), what it costs (other FreeCAD versions do
+  not open it), and ASSURES that the old .FCStd STAYS as it is and that
+  they can save back to the old format.
+- It offers "DON'T ASK AGAIN". When that is clicked, a SECOND dialog
+  says they can still use Save As to save in the new format.
+- Of the note-taker's six points (18:43): 1 (non-destructive, the
+  branch) and 4 (a box with "don't show again") taken, as a box AT EACH
+  SAVE until silenced; 2 (a bar at the open) and 6 (a preference) not
+  taken by this ruling; 3 and 5 folded into the dialog's facts.
+NOT said: a. "If they click don't ask" -- the second dialog after
+"don't ask again" with EITHER answer, or only with "keep the old
+format" (by the note-taker's reading: whenever it is ticked, since the
+point is where to find the new format later); b. what a silenced save
+does -- keep writing the old format (schema 4) over the .FCStd, or the
+new one beside it; c. "don't ask again" per document, or for all
+documents (a preference); d. the dialog's buttons -- by the
+note-taker's reading "Save in the new format (recommended)" / "Keep the
+old format" / Cancel.
+
+## 169. Dress-up previews pickable in the 3D view; a (pre)selection resolves to the base edge or its ?Edge name and syncs the panel's list (a change request) -- OPEN
+
+**2026-10-17 12:18, the reporter (to the note-taker):** "New request, I want all dress up preview ship to be pickable in 3d view. So lift that unpickable style. When (pre)selected in 3d view, resolve the element name to base edge name. For missing element resolve to the ?Edge name. So u am expecting the edit panel list item selection  sync."
+(as typed: "ship" read as "shape", "u am" as "I am".)
+The note-taker's reading:
+- Every dress-up feature's PREVIEW in its edit (fillet, chamfer, and by
+  "all" draft and thickness too) becomes PICKABLE in the 3D view: the
+  unpickable style it carries in the edit is lifted. (Entry 160's
+  `dc5ef18848`, pushed 07:39, worked round that style with the new
+  AnySelectStyle flag for the edit highlight; this request removes the
+  cause instead.)
+- A PRESELECTION or SELECTION of a preview element in the 3D view is
+  resolved to the BASE feature's edge name -- the name the panel's list
+  holds (e.g. the fillet face made by Edge8 -> Edge8). For a MISSING
+  reference, to its "?Edge" name (the name the list shows for it).
+- The panel's LIST ITEM then follows: selecting (and preselecting?) in the
+  3D view selects that edge's item -- the reverse of entry 160's hover
+  (the list item lights the view; now the view lights the list item).
+NOT said:
+a. which preview elements resolve: the dress-up's own faces only, or also
+   their edges and vertices; and a preview element the dress-up did not
+   make (the base's face carried over) -- the base's own name, or nothing.
+b. a CLICK in the 3D view: only selects the list item, or also ADDS or
+   REMOVES the edge from the feature (as the panel's "Select" mode does).
+c. draft and thickness name FACES, not edges: "base edge name" read as
+   "the base element the list names".
+d. the preselection: does a hover in the 3D view light the list item too
+   (a hover state in the list), or only a selection syncs.
+e. whether `dc5ef18848`'s AnySelectStyle stays, once the preview is
+   pickable.
+f. outside the edit: the dress-up's own shape as before (read as only the
+   edit's preview is meant).
+
+**2026-10-17 12:33, the build session (relayed): its readings of a-f, as built in r103
+(building), nothing committed.**
+a. A preview FACE resolves to the row whose dress-up made it -- first by
+   the faces the feature keeps per reference (a fillet's; a missing one's
+   as last made), else by the history of the feature's face back to the
+   base element (a chamfer edge, a draft/thickness face). A preview EDGE
+   or VERTEX resolves through the faces it lies on, only when they name
+   ONE row. No row, or two: the pick stays as it is, the list unchanged.
+   Carried-over base faces are not in the preview at all (it holds the
+   made faces and the failed ones only).
+b. OUTSIDE the add mode a click only SELECTS: a present edge's pick is
+   replaced by the base edge's selection (it lights on the base, its row
+   selected -- the same path as a click on the base edge); a missing one
+   selects its "?Edge" row and the preview face stays the selection. IN
+   the add mode it TOGGLES, as a click on the base edge does (the row and
+   the reference go). The add mode's selection gate now lets the preview
+   through (else a click on the preview, drawn over the base edges, would
+   go nowhere).
+c. Draft/thickness: the same path, by history to the base face the list
+   names.
+d. A HOVER in 3D preselects the preview face itself (pickable now); it
+   does NOT light a list row nor preselect the base edge -- doing that from
+   a preselection message "would fight the view's own preselection on
+   every mouse move". Only a SELECTION syncs the list.
+e. AnySelectStyle STAYS (general; 160's list-hover outline still uses it).
+f. Outside the edit unchanged: the preview is pickable only between
+   setEdit and unsetEdit of a dress-up.
+Core change: the 10-02 rule that the view passes over the object in edit
+(for the sketcher's external tool) now asks the view provider first
+(ViewProvider::isEditingPickSelectable), which the add/sub preview answers
+for its own elements only.
+The note-taker's reading: d differs from the reporter's words -- "When
+(pre)selected in 3d view, resolve the element name to base edge name"
+names the PRESELECTION too. The build session resolves only a selection;
+a hover shows the preview face's own name. Whether a hover should resolve
+(at least its NAME, e.g. in the status bar, without lighting the base
+edge or the row) is the reporter's -- NOT ANSWERED. b's add-mode toggle
+from the preview is the build session's choice (point b of 12:18).
+
+**2026-10-17 12:40, the reporter (to the note-taker), on b of 12:33:** "In the toggle
+mode you mean? Because inly that mode can delete"
+The note-taker's answer, READ in the source, nothing run: yes -- the
+build session's "add mode" IS the toggle mode. The panel has ONE such
+mode (TaskDressUpParameters.h: `enum selectionModes { none, refToggle,
+plane, line }`, the button btnAdd sets refToggle); a click in it adds an
+edge or removes one already listed. So: in the toggle mode a click on the
+preview toggles (removes) that reference, like a click on the base edge;
+outside it a click only selects.
+
+**2026-10-17 13:47, the build session (relayed): DONE LOCALLY, NOT pushed, NOT
+staged** -- `1f52f9070e` (Gui: the edit session's on-top nodes take a pick
+ahead of the scene), `fd8a8d4422` (PD: a dress-up's preview is picked in
+its edit, and a pick of it selects its row), log `fbcfba4541`. Readings
+a-f as sent at 12:33, unchanged. Two more Gui causes found by a probe:
+- the session's on-top preview was picked BY DEPTH -- a convex fillet's
+  face lies inside the base, so the base had every click; such session
+  nodes are now picked first;
+- rmvSelection of ";AddSub;Face1" removed nothing (fixed in
+  Selection.cpp).
+r105 on the real screen: the new fillet-preview-pick-syncs-list.py 14/14;
+fillet-hover-outlines-face.py 16/16; sketch-constraint-external-pick 49,
+sketch-external-both-ways 6, box-selection-gate 6,
+fillet-handle-click-in-view 15 -- no failure.
+The note-taker's reading: b (the toggle from the preview) was put to the
+reporter, who asked at 12:40 "In the toggle mode you mean? Because inly
+that mode can delete" -- answered yes; no objection said, NOT a ruling.
+d (should a 3D hover resolve the name) is NOT ANSWERED.
+
+**2026-10-17 13:57, the reporter (to the note-taker), d RULED -- 169 REOPENED:** "Hover face should resolve the edge name too, which should trigger edge preselection highlight and edit panel list item hover plus scroll to view. Same if preselect edge in 3d view or hover list item, the othe two shall react"
+The note-taker's reading: a THREE-WAY HOVER sync among
+(1) the preview FACE hovered in the 3D view,
+(2) the BASE EDGE preselected in the 3D view,
+(3) the panel's LIST ITEM hovered.
+Hovering any one makes the other two react:
+- hover (1) -> the name resolves to the edge -> (2) the base edge's
+  preselection highlight, and (3) the list item shown as hovered and
+  SCROLLED INTO VIEW;
+- hover (2) the base edge in 3D -> (1) its fillet face lit (the 160
+  outline) and (3) the list item hovered and scrolled into view;
+- hover (3) the list item -> (1) and (2), as entry 160 does now.
+This overrules the build session's 12:33 d ("would fight the view's own
+preselection on every mouse move").
+NOT said:
+a. a MISSING edge: there is no base edge -- (1) and (3) only (read so).
+b. the list item's "hover" look: a hover state of its own (as under the
+   mouse), not a selection (read so).
+c. "scroll to view": only when the item is out of view (read so), and
+   whether it scrolls back when the hover ends.
+d. in the toggle mode the same (read so).
+e. an edge or vertex of the preview hovered: through its faces, as a's
+   pick rule, one row only (read so).
+
+**2026-10-17 14:05, the build session (relayed): the 13:57 ruling in build r106
+(building), nothing committed.** How: the PICK ITSELF resolves -- the
+edit's view provider redirects a hover or click on a present edge's
+preview face to the BASE EDGE (new ViewProvider::redirectEditingPick,
+asked by the view's pick), so the view preselects, highlights and selects
+the base edge directly; no second preselection fights the view's own (its
+12:33 worry gone that way). The panel now LISTENS to preselection:
+- the base edge preselected (by the redirect, or by pointing at it) ->
+  its row shown HOVERED (a faint selection colour on the row) and
+  scrolled into view, and its preview face lit (the 160 outline);
+- a missing edge's kept face hovered -> the face itself preselected, the
+  "?Edge" row hovered and scrolled, the face lit;
+- the list hover keeps doing (1)+(2) as in 160.
+The note-taker's bracketed readings a-e taken as written: a yes; b a hover
+look, not a selection; c scrollToItem only when out of view, NO scroll
+back (the open half of c settled by the build session); d the toggle mode
+the same; e an edge/vertex through its faces, one row only.
+The note-taker's reading: with the redirect, a hovered present edge's
+preview face is NOT itself preselected -- it shows the 160 outline, the
+base edge takes the preselection colour.
+
+**2026-10-17 14:47, the build session (relayed): the hover sync DONE LOCALLY, NOT
+pushed, NOT staged** -- `ebc61737c3` (Gui: a pick of an object in edit may
+stand for another object's element), `28a48ad695` (PD: a dress-up's
+preview face, its base edge and its row hover together), log
+`c93a20af5a`. r106 CRASHED at the first hover (the row-background change
+fired itemChanged, which the fillet panel's segment editing crashed on);
+fixed by blocking the list's signals while setting the look. r107 on the
+real screen: fillet-preview-pick-syncs-list.py 20/20 -- face hover -> base
+edge preselected + row hovered; off the model -> no row; base edge
+preselected -> row hovered, cleared when it goes; click -> base edge
+selected + row; missing face hover -> face preselected + ?Edge row
+hovered; click -> ?Edge row; the toggle mode removes it; after the edit
+nothing names the preview. The 160 hover test 16/16; the four
+regressions unchanged.
+NOT MEASURED: the preview face lit for a base edge pointed at in 3D (the
+same call as the list hover, which the 160 test measures), and the scroll
+(the test's list has two rows).
+
+**2026-10-18 00:07, the reporter (to the note-taker):** "Push and restage"
+The note-taker's reading: said after the 14:47 report of 169's hover sync
+(local since the 07:39 push `b76481281e`: `1f52f9070e`, `fd8a8d4422`,
+`ebc61737c3`, `28a48ad695` plus the log commits), so it covers all of 169
+as committed. Relayed verbatim to the build session, which pushes and
+stages; the note-taker does neither.
+NOT said:
+a. whether the two NOT MEASURED points (the face lit for a base edge
+   pointed at in 3D, the scroll) are to be measured first (read: no).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -21917,5 +23429,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 163
+the build session, 131 and 132 found by it; entries 134 to 169
 are of 2026-10-15, 134 said to the build session)

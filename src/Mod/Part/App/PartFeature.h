@@ -538,6 +538,9 @@ protected:
      * is rewritten to match.
      */
     void reconcileShapeVersions(bool materialize);
+    /// The end of recompute()'s hold: the references re-resolved, and the
+    /// generations reconciled, if a shape changed under it
+    void releaseHeldReferences();
     /// Take the `_BaseShape<N>` properties on this feature into the list
     void adoptShapeVersions();
     /// Give every retained generation that has referrers its property
@@ -572,6 +575,11 @@ private:
     bool _mirroringLooks {false};
     /// The name whose write is being told (isWritingLook())
     const App::Property* _lookWritten {nullptr};
+    /// Inside a run of recompute() that may be thrown away for another: a
+    /// change of a shape re-resolves no reference into this feature yet
+    bool _holdingReferences {false};
+    /// A shape changed while the references were held
+    bool _heldShapeChange {false};
 };
 
 class FilletBase : public Part::Feature

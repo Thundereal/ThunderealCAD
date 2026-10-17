@@ -60,6 +60,8 @@
 #include <Base/FileInfo.h>
 #include <Base/Uuid.h>
 
+#include "Application.h"
+#include "Document.h"
 #include "FileBlobManager.h"
 #include "FileHistory.h"
 #include "Document.h"
@@ -2156,6 +2158,42 @@ void FileBlobManager::removePendingReferrer(BlobReferrerProperty* prop)
                    _pending.end());
 }
 
+namespace
+{
+/** The content of \a hash as another open document's store holds it,
+ * imported into \a manager's (blobs do not migrate, their content does).
+ *
+ * An object copied from one open document into another names what its
+ * source holds: a binder's copy on change in a document of its own, whose
+ * stream carries no file a library material card reads -- each copy of
+ * scanner.FCStd said four of them were missing (docs/HandsOnQueue.md entry
+ * 166).
+ */
+FileBlobHandle fromOpenDocuments(FileBlobManager& manager, const std::string& hash,
+                                 std::string& source)
+{
+    for (auto doc : GetApplication().getDocuments()) {
+        auto& other = doc->getFileBlobManager();
+        if (&other == &manager) {
+            continue;
+        }
+        if (auto blob = other.find(hash)) {
+            std::string bytes;
+            if (!blob->read(bytes)) {
+                continue;
+            }
+            const std::string ext = blob->extension();
+            auto mine = manager.adoptBytes(bytes, ext.c_str());
+            if (mine && mine->hash() == hash) {
+                source = doc->getName();
+                return mine;
+            }
+        }
+    }
+    return {};
+}
+}  // namespace
+
 void FileBlobManager::dispatchPending()
 {
     std::vector<std::pair<std::string, BlobReferrerProperty*>> pending;
@@ -2175,7 +2213,22 @@ void FileBlobManager::dispatchPending()
     // chance to stand in for the content rather than lose the value.
     std::map<std::string, std::pair<std::size_t, std::size_t>> missing;
     for (const auto& entry : pending) {
-        if (auto blob = find(entry.first)) {
+        auto blob = find(entry.first);
+        if (!blob) {
+            // A safety net, not the way a copy should get its files: the
+            // reporter, "Keep as safe net, but print warning"
+            // (docs/HandsOnQueue.md entry 166). Said, so a copy that left a
+            // file behind is not hidden.
+            std::string source;
+            blob = fromOpenDocuments(*this, entry.first, source);
+            if (blob) {
+                auto prop = dynamic_cast<Property*>(entry.second);
+                FC_WARN("Included file " << entry.first << " was missing from the document; "
+                        << "taken from open document '" << source << "' for "
+                        << (prop ? prop->getFullName() : std::string("a property")));
+            }
+        }
+        if (blob) {
             entry.second->assignRestoredBlob(blob);
         }
         else {

@@ -59,11 +59,15 @@ public:
     virtual QString getMenuName() const = 0;
 
     virtual void updateAddSubShapeIndicator();
+    /// A pick of the preview in the edit, for the base's edge a present
+    /// reference names (TaskDressUpParameters::getPreviewTarget)
+    bool redirectEditingPick(const std::string &subname, App::SubObjectT &target) const override;
     virtual void updateData(const App::Property*);
     virtual void attach(App::DocumentObject*);
 
 protected:
     bool setEdit(int ModNum) override;
+    void unsetEdit(int ModNum) override;
     /// The faces the failed fillets had, the preview's last ones, red
     std::vector<App::Color> previewFaceColors(int count) const override;
 

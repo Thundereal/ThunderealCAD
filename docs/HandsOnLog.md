@@ -7461,3 +7461,164 @@ fixed.
   same in the GUI and headless (where the table was never wrong) --
   Fillet011 "Adaptor" misses ?Edge93 and ?Edge89, Fillet007 "BaseBottom"
   ?Edge177 and ?Edge171; Binder008, Fillet007 and Fillet011 invalid.
+
+## 2026-10-16 evening: entry 160, the missing edges and the hover (r87-r92)
+
+On the user's "push and restage. then look into 160's missing edges"
+(pushed and staged 54b5805b13, 17:32 / 17:34), then "fully complete entry
+160 first" (relayed). All probes on a copy of scanner.FCStd as it was
+before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
+- Fillet007 "BaseBottom" (?Edge177 ?Edge171): not a loss. Chamfer runs
+  twice (a frozen input refused, "Chamfer failed on Edge38"); the first
+  run's shape re-resolved Fillet007's references and marked two missing,
+  never searched again. `920e47cc39`: the re-resolution held over both runs,
+  and no generation kept of a shape set while held (kept, it took the
+  referrers over and moved them to four wrong edges, r88-r90).
+  `d41e92468b`: the rerun's result was "invalid" because every face was new
+  to the base; checked after shareBack.
+- Fillet011 "Adaptor" (?Edge93 ?Edge89): a real change upstream. Pocket040
+  (profile Hole007.Face56, Fit -0.5) offset by the face's orientation flag;
+  the file had the face reversed (r 12.5 -> 13), the full recompute hands
+  it back forward (-> 12; Hole007 alone keeps it reversed). The user leaned
+  to a version: `93b9b8a440`, faces taken forward for new features (sketch
+  rule), older ones keep their file's side (_FitRule/_FitFlip, set at the
+  open; Pocket022, Pad037, Pocket040 flipped in scanner).
+- The kept face of a missing edge: matched along the face's whole history
+  (Fillet011's edges carry the fillet's own tag; the history walked past).
+- Hover: the panel lit the BASE's edge for a present edge and nothing for a
+  missing one, on the stage as well. `a25c1d068b`: the face the edge made
+  (DressUp::getMadeFaces), through each session view's edit highlight;
+  bgfx outlines it in the edit overlay by the selection style. Coin-only:
+  the colour as before.
+- r92: scanner copy -- Fillet007 and Fillet011 up to date, only Binder008
+  invalid (entry 164's binder). Real screen (the user's standing yes):
+  fillet-hover-outlines-face.py 14 of 14. TestFillet 24, TestChamfer 11,
+  TestTopologicalNamingProblem 67, TestPad 16, TestPocket 11, Part
+  ElementAppearanceTest 35, all OK. NOT pushed, NOT staged.
+
+## 2026-10-16 night: entries 166 and 164 (r93, r94)
+
+- 166 ("some included file not found", on recompute after a revert; the
+  same on a fresh headless open): two binders (Binder, Binder012) copy
+  objects into temporary documents on change; the copies name a library
+  material card's MaterialX files, which the copy stream does not carry.
+  `294697011c`: a file missing at the end of a copy is imported from
+  another open document's store. Scanner copy: 0 warnings (was 8).
+- 164 (the object's name in execute errors, and an audit): `a8a0a01d88`.
+  The central recompute catch puts doc#obj in front of a thrown error;
+  Base::ConsoleContext names the recomputing object (" [doc#obj]") in every
+  warning and error sent while it recomputes, unless already named -- the
+  audit (an agent, read only) had found ~45 unnamed sites plus helpers
+  with no object in scope. The binder's after-context update names itself.
+  Probe: a Python feature's warning and error in execute end in
+  "[E164Doc#Warner]"; its message and a warning outside are untouched.
+- r94: Document 236, FileBlobs 95, TestFillet 24, TestSketcherApp 146 OK.
+  NOT pushed, NOT staged. The separator '@' the reporter typed was not
+  used (FreeCAD's full name is doc#obj); theirs to rule.
+
+## 2026-10-16 night: entry 165 (r95), and a lead on 163
+
+- 165 (one completer row per object, the label in its description; Tab
+  takes <<label>>; omni search /error): `d89d378aa8`. One row, the
+  internal name; description and tooltip "<<Label>>" then the old tooltip
+  text. Insert rule: a leading "<<" -> the label unless the rest begins
+  the internal name too; no "<<" -> the label when the typing is part of
+  it. That is the reporter's clash rule as written ("if not leading with
+  << then favor lable, else favor internal name"); the note-taker's
+  question whether it is the wrong way round is still open. "/error": every
+  open document, made again at each showing of the box. Same rule in the
+  expression editors (the same completer).
+- r95: omni-search-label-one-row.py 10 of 10 (offscreen),
+  object-typing 16, slash-word 10, highlighted-row 20, expression-editor 45;
+  recent-items 18 of 18 on the real screen -- offscreen two claims fail
+  (the box comes back with no focus after the parameter editor), as since
+  r29 (2026-10-14): the platform's. ctest OmniSearch_Tests_run,
+  OmniControl_Tests_run, ExpressionEditor_tests_run passed. NOT pushed,
+  NOT staged.
+- 163 ("some dll is not accessible" dialogs): a test exe started bare
+  through runx.cmd (tests\src\Gui\*_run.exe tonight, tests\Tests_run.exe
+  from chain301 at about 15:40) stops in the Windows loader on a hard error
+  box -- the stack is NtRaiseHardError under LdrInitializeThunk; FreeCAD's
+  DLLs are in build\bin, which only ctest puts on PATH. Chain301's log has
+  nothing past the console's start codes, and the reporter asked about the
+  dialog at about 15:55. Test exes run through ctest from now on. If the
+  dialog comes again with nothing of mine running, its text is wanted.
+
+### 2026-10-17 night: entries 166 and 160 fixed
+
+- 166 (included files missing after a revert): `9b2db5555f`. Cause: a
+  binder's temporary copy calls copyObject in its temporary document, which
+  exports the scanner's objects from there. Only the temporary document's
+  blob manager was told of that export (schema 4, no shared entries); the
+  objects' properties answer to the scanner's own manager, which still had
+  the "entries" format of its last save. So Sketch018.Shape/InternalShape
+  and Pad012.AddSubShape/SuppressedShape went out as a hash the fragment
+  did not carry (r99 trace: "schema 4 exporting 1 uses 1"). General, not
+  the binder's: every copyObject from a document last saved at schema 5.
+  In the STAGED copy (54b5805b13) nothing rescued them -- the open-document
+  fallback is 294697011c, local -- so such a copy lost those files: a shape
+  until the next recompute, an included file (texture, material) for good.
+  Whether a saved user file carries such a loss is NOT checked. Fix:
+  exportObjects begins the save on every exported object's own document
+  manager too (and clears that document's hasher list). The fallback stays
+  and warns, naming the file, the source document and the property (the
+  reporter's "keep as safe net, but print warning").
+- 160 (normal edge: base edge plus fillet face outline): `dc5ef18848`. The
+  edit view's face highlight had never drawn: the preview is unpickable in
+  the edit and the highlight builder skips unpickable shapes (r100 trace:
+  "match 1 unpick 1 out 0"). The earlier 14/14 (a25c1d068b) measured the
+  preselection, which then was the face; with the base edge preselected
+  the same claim measures the edit highlight alone. New SoFCRenderCache
+  flag AnySelectStyle for the editing highlight. Normal edge: base edge
+  preselected in the usual colour, fillet face outlined; missing edge: its
+  kept face preselected; a second view outside the edit lights nothing.
+- r102: fillet-hover-outlines-face.py 15 of 15 on the real screen;
+  FileBlobs 96 OK (2 skipped, as before) with the new
+  testCopyFromASavedDocumentCarriesItsContent; Document 236 OK; the
+  scanner copy's first recompute warns of no missing file (r99: eight).
+  r98 and r101 never built: their configure hung on a try-compile ninja
+  stuck in the kernel (killed; r102 ran "cmake --build" only). NOT pushed,
+  NOT staged.
+
+### 2026-10-17 afternoon: pushed and staged; entry 169 done
+
+- On the reporter's "Push and restage": origin LinkVibe = `b76481281e`;
+  stage14 from r102, INSTALL-USER: OK, 07:41 (my wait for it was killed
+  for memory, the stage itself was not).
+- 169 (a dress-up's preview pickable, a pick of it syncs the list):
+  `1f52f9070e` (Gui) and `fd8a8d4422` (PD). The preview is pickable
+  between a dress-up's setEdit and unsetEdit only. Three things in Gui
+  stood in the way, found by a probe (r103: the pick list had the
+  preview's face, named ";AddSub;Face1", behind the base's edge and face):
+  the view passed over every pick of an open edit (the 10-02 rule for the
+  sketcher) -- now the view provider may name what the view still selects;
+  the session's on-top node was picked by depth, and a convex fillet's
+  face lies inside the base -- such nodes are now picked first; and
+  rmvSelection() of an element with no old style name removed nothing (the
+  preview's face stayed selected beside the base edge, r104). The panel:
+  a present edge's preview face becomes the base edge's selection (its row
+  selected, the base edge lit); a missing one's selects the "?Edge" row,
+  the face staying the selection; in the add mode either toggles the
+  reference. A hover preselects the preview face itself; whether it should
+  resolve the name too is with the reporter (the note-taker, b2f68618b2).
+- r105 on the real screen: fillet-preview-pick-syncs-list.py 14 of 14;
+  fillet-hover-outlines-face.py 16 of 16; sketch-constraint-external-pick
+  49, sketch-external-both-ways 6, box-selection-gate 6,
+  fillet-handle-click-in-view 15, none failed. NOT pushed, NOT staged.
+- 169 reopened by the ruling of 13:57 (a three-way hover sync):
+  `ebc61737c3` (Gui) and `28a48ad695` (PD). The pick resolves itself: the
+  edit's view provider names the base's edge for a present reference's
+  preview face (ViewProvider::redirectEditingPick), so the view
+  preselects, lights and selects the edge; a preselection replaced after
+  the view set it would have been set back by every mouse move. The panel
+  follows the preselection: the base's edge (pointed at, or for its face)
+  shows its row as hovered, scrolled into view, and lights its preview
+  face; a missing reference's kept face does the same for its "?Edge" row.
+  r106 crashed at the first hover: a changed row background is an
+  itemChanged, which the fillet's panel took for an edit of the row; the
+  look is now set with the list's signals blocked. r107 on the real
+  screen: fillet-preview-pick-syncs-list.py 20 of 20, the 160 hover test
+  16 of 16, the four regressions as before. Not measured: the preview face
+  lit for a base edge pointed at in 3D (the same call as the list hover,
+  which the 160 test measures), and the scroll (the test's list is two
+  rows). NOT pushed, NOT staged.

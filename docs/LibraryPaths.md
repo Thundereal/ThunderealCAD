@@ -1,7 +1,8 @@
 # Library paths: links into named folders
 
 Status (2026-10-18): **design, nothing built.** Asked for by the user the
-same day; the questions in section 5 need rulings first.
+same day. Q1 is ruled (section 3.3); the other questions in section 5
+need rulings first.
 
 ## 1. The ask (user, 2026-10-18)
 
@@ -74,22 +75,37 @@ was on the machine that last saved the document.
 
 ### 3.3 The save form
 
-A link into a library saves the library and the path under it beside
-what it saves today:
+**Ruled (user, 2026-10-18): the token in `file`, and the old path in
+schema 4.** The save form follows the schema the document is written in
+(`Writer::getSchemaVersion()`, `Document::resolveSchemaVersion`):
 
-    <XLink file="../../lib/fasteners/bolt.FCStd" lib="Lib"
-           libfile="fasteners/bolt.FCStd" stamp="..." name="Bolt"/>
+- **Schema 5** -- this fork's own format, the `.TStd` that no other reader
+  opens, and everything the transaction log holds (TransactionLog sec
+  27.62): the link saves the token form in `file` itself,
 
-- `lib` and `libfile` are what this build reads first (3.6).
-- `file` stays what the link's mode writes today, so an older build or
-  upstream FreeCAD opens the document as it would have.
+      <XLink file="%Lib%/fasteners/bolt.FCStd" stamp="..." name="Bolt"/>
+
+  and nothing else names the path. No reader of schema 5 is without the
+  library form, so nothing is kept for one.
+- **Schema 4** -- the standard `.FCStd`, written when the user saves for
+  upstream on purpose, and by `exportObjects` (copy, paste, drag across
+  documents, which write `min(SaveSchemaVersion, 4)`): **the path as
+  today**, by the link's mode, with no token and no added attribute.
+  `Document.LibraryPaths` is still written (an unknown document property
+  is skipped by a reader that does not know it), so this build, opening
+  the file again, finds its libraries by section 4's conversion with the
+  document's folders first.
+
+A token is `%Name%/` at the very start of `file`, `Name` a library name
+(3.1). A real relative path that starts so -- a folder that is literally
+named `%Lib%` -- is written `./%Lib%/...` in schema 5, so it is never
+read as a token.
 
 Everywhere a path is *shown* -- `getFilePath()`, the property editor, the
-report view -- the link reads in the token form the ask has in mind:
-`%Lib%/fasteners/bolt.FCStd`. Python may set a link with that string, and
+report view -- a library link reads in the same token form. Python may
+set a link with that string, and
 `App.resolveLibraryPath("%Lib%/fasteners/bolt.FCStd")` gives the full
-path. The token is the display and API form; the file keeps it in two
-attributes. Q1 is whether to write the token into `file` itself instead.
+path.
 
 ### 3.4 When a link takes the library form
 
@@ -108,8 +124,8 @@ the library folders:
 4. **A name the document maps elsewhere** -- the document has `Lib` =
    `/a/lib`, the system `Lib` = `/b/lib`, the target under `/b/lib` only:
    Q4.
-5. **`libfile` never climbs**: a path with `..` after the folder is no
-   library path.
+5. **The path under the folder never climbs**: a path with `..` after
+   the token is no library path.
 6. **Modes**: `Dynamic`, `Relative` and `RelativeCanonical` take the
    library form; `Absolute` and `Canonical` are a user's explicit choice
    of an absolute path, and keep it (Q6).
@@ -125,17 +141,22 @@ on a whole path component (`/lib` does not contain `/library/x`).
 
 ### 3.6 Resolving, on open (the ask: the document's first)
 
-For `lib="N" libfile="F"`:
+For `file="%N%/F"` (schema 5):
 
 1. **The document's folder for N**, if `<folder>/F` exists.
 2. **The system's folder for N**, if `<folder>/F` exists. This is the
    usual case on another machine: the document's folder is the path of
    the machine that saved it.
-3. **`file`, as today**, by the link's mode: the document opened where
-   nobody set up N still finds a library that moved with it.
-4. **None**: the link is broken, and the report view names the library:
+3. **None**: the link is broken, and the report view names the library:
    "library 'Lib' is not set here (the document had /a/lib)". The Gui
    offers to set it (3.9).
+
+With the token in `file` (3.3) there is no plain path to fall back to: a
+schema-5 document opened where neither its own folder nor a setting for
+N holds the file does not find a library that merely moved beside it.
+That is the price of the ruling, and what "Set library path..." is for.
+A schema-4 file has the old path only, resolved as today, and is read
+into the library form by section 4.
 
 **Both exist and differ** -- the document's `/a/lib` and the system's
 `/b/lib` both hold `F`: the document's wins, as asked. The risk is that
@@ -168,11 +189,12 @@ folder each name resolved through on this machine (Q3).
   link into a library can be set and resolved from a new document. This
   also takes library links off TransactionLog sec 35 L1's list.
 - **The transaction log** (TransactionLog sec 31.8, a value merged by
-  what it holds): two copies of one assembly on two machines write
-  different `file` and `stamp` for one link, while `lib` and `libfile`
-  are the same. The link's value is compared by its library form when it
-  has one, or every such link conflicts. To verify against the merge's
-  comparison when built.
+  what it holds): the log holds schema 5 only, so a link's value there
+  carries the token, and two copies of one assembly on two machines with
+  the library at two places hold the same `file` for it. `stamp` -- the
+  linked file's last-modified date -- still differs between them, as it
+  does today; whether the merge's comparison already looks past it is
+  to be checked when built.
 - **The export of a set** (TransactionLog sec 35 L7): library files are
   outside the top's folder. Two choices for the dialog: copy them under
   `_external/` as the design says, or leave the links in the library form
@@ -199,7 +221,7 @@ is written so at the next save. Q7.
 
 | | Question | Proposed |
 | --- | --- | --- |
-| Q1 | The save form | **`lib` + `libfile` beside `file`** (3.3): older builds and upstream still open the document. The other way, `file="%Lib%/fasteners/bolt.FCStd"`, is one attribute, but any reader that does not know it looks for a folder named `%Lib%`, and a real relative path may start with `%`. |
+| Q1 | The save form | **Ruled (user): the token in `file` in schema 5; the old path in schema 4** (3.3). |
 | Q2 | Both folders hold the file and differ | **The document's** (as asked), said once, with "use the settings' folder". |
 | Q3 | The document's map after a fallback to the system's folder | **Rewritten at the next save** to the folder used here. The other way, never rewritten unless the user remaps, keeps the first machine's folder forever, and every other machine falls back. |
 | Q4 | A name the document maps to another folder, the target under the system's | **A new name in the document, `Lib_2`**, said. The others: write the link relative as today, without the library form; or remap the document's `Lib` to `/b/lib` when every link using it resolves there too. |
@@ -210,14 +232,16 @@ is written so at the next save. Q7.
 
 ## 6. Build order, once ruled
 
-1. **App**: the setting, `Document.LibraryPaths`, the save form, matching
-   and resolution in `DocInfo::getDocPath` / `PropertyXLink::Restore`,
+1. **App**: the setting, `Document.LibraryPaths`, the save form by
+   schema (the token in 5, the old path in 4), matching and resolution in
+   `DocInfo::getDocPath` / `PropertyXLink::Restore`,
    the token in `getFilePath()` and in a Python `setValue`, the Python
    functions. Gtests: a link into a library saved and opened with the
    library moved (the system's folder), with only the document's, with
-   neither (the `file` fallback), nested folders, the Q4 conflict, an
-   unsaved owner, a document inside the library, an old document
-   converted.
+   neither, nested folders, the Q4 conflict, an unsaved owner, a
+   document inside the library, an old document converted, a schema-4
+   save holding the old path and opened again into the library form, a
+   copy and paste across documents.
 2. **Gui**: the preference table, the notification, the remap action.
 3. **The log**: a link's value compared by its library form; a test of
    two copies with the library at two places merged without a conflict.

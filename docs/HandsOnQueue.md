@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-18 21:48: new entry 171 -- a right-button drag for the fine change; where the
+drag increment settings are (answered from the source); those settings
+in the view during an on-view edit, the bottom middle?** Under the entry.
+
 **2026-10-18 12:49: entry 170 -- the set B design written, 7.6 a-e for the reporter;
 reverse by drag DONE LOCALLY, NOT pushed, NOT staged. Entry 169: the
 fillet's arrows could not be dragged in the pushed and staged copy;
@@ -3516,6 +3520,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 168 | 2026-10-16 | a change request FOR DISCUSSION: how to let the user know the RISK of saving in the NEW format, and yet ENCOURAGE it for the transaction log; eventually a NEW EXTENSION for the new format -- "one of the branch already did that" | OPEN, a discussion; the branch is `origin/Branding` (5 commits beyond LinkVibe, 10-14, not merged): schema 5 = .TStd; a plain save of an opened .FCStd writes Part.TStd BESIDE it and leaves the .FCStd as it was, with one dialog -- by the note-taker's reading it would have spared entry 167's overwrite; the note-taker's proposal under the entry. 19:00 RULED: WAIT for the other box to merge Branding first; then, on a SAVE of a file with the OLD extension, a DIALOG that ASKS -- all the facts, ENCOURAGING the new format, ASSURING the old file stays and they can save back to the old format; a "don't ask again"; when it is clicked, a dialog telling them Save As saves the new format |
 | 169 | 2026-10-17 | a change request: ALL DRESS-UP PREVIEW shapes PICKABLE in the 3D view (the unpickable style lifted); a (pre)selection there RESOLVES to the BASE EDGE's name, a missing element to its ?Edge name, so the EDIT PANEL's LIST ITEM selection SYNCS | OPEN; said to the note-taker 12:18. 12:19 the build session reading the dress-up preview code; its readings of a-f to come before it builds. 2026-10-17 12:33 the build session's readings of a-f, in build r103, nothing committed: a face resolves to the row its dress-up made, edges/vertices through their faces when one row; outside add mode a click selects (present -> the base edge, missing -> its ?Edge row), in add mode it toggles; a 3D HOVER does NOT resolve or light a row (only a selection syncs) -- the reporter wrote "(pre)selected", to be confirmed. 2026-10-17 13:47 DONE LOCALLY `1f52f9070e`, `fd8a8d4422` (log `fbcfba4541`), NOT pushed, NOT staged; readings a-f as sent; two more causes fixed (the on-top preview picked by depth, the base won every click; rmvSelection of ";AddSub;Face1" removed nothing); r105 real screen: fillet-preview-pick-syncs-list 14/14, fillet-hover-outlines-face 16/16, sketcher/box/handle tests no failure; OPEN for the reporter: d (should a hover resolve the name). 2026-10-17 13:57 d RULED (REOPENED): "Hover face should resolve the edge name too, which should trigger edge preselection highlight and edit panel list item hover plus scroll to view. Same if preselect edge in 3d view or hover list item, the othe two shall react" -- a three-way HOVER sync: preview face, base edge, list item. 2026-10-17 14:05 the build session: the hover sync in build r106, nothing committed -- the pick itself redirects a present edge's preview face to the base edge (ViewProvider::redirectEditingPick); the panel listens to preselection (row hovered in a faint selection colour, scrolled only when out of view, no scroll back; the face lit); readings a-e taken as written. 2026-10-17 14:47 the hover sync DONE LOCALLY `ebc61737c3`, `28a48ad695` (log `c93a20af5a`), NOT pushed, NOT staged; r106 crashed at the first hover (fixed); r107 real screen: fillet-preview-pick-syncs-list 20/20, 160 hover 16/16; NOT measured: the face lit for a base edge pointed at in 3D, the scroll. 2026-10-18 00:07 the reporter (to the note-taker): "Push and restage" -- relayed to the build session; NOT yet pushed or staged. 2026-10-18 10:47 the build session: PUSHED `3b52423f11` over `b76481281e` (all of 169, up to the note-taker's queue commit) and STAGED (stage15 from r107, done 00:26, INSTALL-USER OK, fcad 3b52423f11, dirty False), on the reporter's own word to it after the relay; the two NOT MEASURED points still not measured. 2026-10-18 12:49 the build session: 169 had made the preview pickable to Coin's own pick, so the fillet's ARROWS (behind the preview) could NOT BE DRAGGED -- in the PUSHED and STAGED copy by the note-taker's reading; fixed locally in `64766eb4ac` (the preview unpickable again, only the selection's session pass picks it), NOT pushed, NOT staged; 169's 20/20 and 160's 16/16 still pass. 2026-10-18 12:51 the build session agrees: the regression came with `1f52f9070e`/`fd8a8d4422`, so it is in the staged `3b52423f11` -- a fillet's or chamfer's arrows over their preview take no drag; its reading of the cause, not seen on the staged copy |
 | 170 | 2026-10-18 | a change request: the fillet's and chamfer's ACTIVE HANDLE and ON-VIEW EDIT brought to the REST of the PartDesign features; NOT the 3D pick or mouse hover of their preview (entry 169's) | OPEN; said to the note-taker 2026-10-18 10:42. 2026-10-18 10:47 the build session sized it: set A (7 panels with handles, 14 values) started, Draft first, nothing built; set B (no handle today), c (the patterns' labels) and e (a design note first) put to the reporter. 2026-10-18 11:27 SET A DONE LOCALLY `313083cf4e`, `7ac52ec284` (log `45bd3382dc`), NOT pushed, NOT staged; r111 real screen: pd-values-in-view 37/37, chamfer/fillet tests no failure; a plain arrow click no longer flips Reversed (Pad, Revolution, Hole) -- done before the reporter answered; unused values hidden; 159's clearing click built nowhere yet (the note-taker's 10:42 reading wrong); set B, c, e still the reporter's. 2026-10-18 12:07 the reporter (to the note-taker): "Add handle only if it makes sense, yes design first. Yes pattern label the same." -- set B: handles only where they make sense, a DESIGN FIRST; the patterns' labels onto the same machinery; the click-to-flip question not answered. 2026-10-18 12:10 the reporter (to the note-taker): "Yes no longer flip, but support auto reverse on drag beyond." -- the click no longer flips (kept); NEW: dragging an arrow beyond zero REVERSES automatically. 2026-10-18 12:49 set B DESIGN written (docs/OnViewValueEditing.md sec 7, `6bad844c26`), its 7.6 a-e for the reporter; REVERSE BY DRAG DONE LOCALLY `64766eb4ac`, `b8fdb0da09` (log `80afba4680`), NOT pushed, NOT staged; only the first side reverses; r113 real screen: pad-drag-reverse 13/13, the others no failure; an Escape-cancelled drag now writes the property back. 2026-10-18 12:51 the build session: the design's 7.5 corrected to what was built (`66dd36afbd`): no per-drag undo step, a drag and its reversal go into the edit's one transaction; a cancelled drag turns the feature back and writes the value back |
+| 171 | 2026-10-18 | a change request and a question: a RIGHT-BUTTON DRAG of a handle to do the FINE change Shift does now; where the drag increment settings are and how the fine step relates to them; the increment settings brought INTO THE VIEW during an on-view edit, at the bottom middle? | OPEN; said to the note-taker 2026-10-18 21:48; the question answered from the source |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -23718,6 +23723,65 @@ right.**
    locally. Both fixes need a push and restage, on the reporter's own
    word.
 
+## 171. Fine dragging by the right button; where the drag increment settings are; those settings in the view during an on-view edit (a change request, a question) -- OPEN
+
+**2026-10-18 21:48, the reporter (to the note-taker):** "new request, current handle dragging requires SHIFT key to fine change. I want right button drag to do the same. Also where are the setting for drag incremental? I assume some setting? and how is find adjustment related to the setting? a scale? I want the incremental settings to be brough to on view edit as well, suggest a place, bottom middle?"
+(as typed: "find adjustment" read as "fine adjustment", "brough" as
+"brought".)
+The note-taker's reading:
+- (1) A handle dragged with the RIGHT mouse button behaves as a left drag
+  with Shift held: the FINE change.
+- (2) A question: where the drag increment settings are, and how the fine
+  step relates to them (a scale?).
+- (3) Those increment settings shown and changed IN THE VIEW during an
+  on-view edit (the fillet's, chamfer's and entry 170's), at a place to
+  be suggested -- the reporter offers the BOTTOM MIDDLE.
+(2) ANSWERED by the note-taker, READ in the source, nothing run:
+- The settings: Preferences, Part/Part Design, General, the
+  "Experimental" group (src/Mod/Part/Gui/DlgSettingsGeneral.ui 380 to
+  560; parameters under BaseApp/Preferences/Gui/Gizmos):
+  "Show interactive draggers when editing features";
+  "Disable recompute while dragging";
+  "Enable coarse snapping while dragging" (EnableCoarseSnap, on);
+  "Fine snap modifier" (FineSnapModifier: Shift, or Ctrl);
+  "Default coarse drag behavior" (DefaultCoarseDragBehavior: Coarse, or
+  Fine);
+  "Coarse movement multiplier" (CoarseLinearSnapMultiplier, 5, 1 to 100);
+  "Coarse rotation step (degrees)" (CoarseRotationSnapMultiplier, 5).
+- How fine relates (Gizmo.cpp 578 to 584, 720 to 732, 768, 1038 to 1046):
+  FINE is NOT a setting -- it is the BASE STEP. For an arrow the base step
+  follows the ZOOM: a power of ten from the handle's scale on the screen
+  (10 to the floor of log10 of the scale), so zoomed in ten times the step
+  is ten times finer (e.g. 1 mm, then 0.1 mm). COARSE is the base step
+  TIMES the multiplier (5 x). For a rotation the base step is 1 deg, the
+  coarse step the setting's degrees (5).
+- The modifier SWAPS the default: with "Coarse" as default (the
+  default), a plain drag snaps coarse and Shift drags fine; with "Fine"
+  as default, Shift drags coarse. With coarse snapping off, every drag is
+  fine and the modifier does nothing.
+- Right button today (READ): a right click on a handle OPENS ITS MENU
+  (entry 135; OnViewValue.cpp 988 to 1012, Gizmo.cpp 389 to 412), and
+  during a left drag ANOTHER BUTTON CANCELS the drag (entry 136;
+  OnViewValue.cpp 963 to 980).
+NOT said:
+a. The right click's MENU: read as kept -- a right press and release
+   without moving opens the menu, a right press that MOVES drags fine.
+b. A right-button drag with Shift held: not said (read: still fine).
+c. With "Fine" as the default behaviour: whether a right drag is then
+   coarse (the swap) or always fine. Read: always FINE, as said.
+d. (3) which settings in the view: read as the drag ones -- coarse on or
+   off, the multiplier, the rotation step, perhaps the default behaviour;
+   not the modifier key or the recompute switch.
+e. (3) whether a change there is the PREFERENCE itself (lasting, every
+   edit) or for this edit only. Read: the preference.
+f. (3) shown always during the edit, only while dragging, or only while
+   a handle is active. Not said.
+g. (3) the place: the reporter offers the bottom middle and asks for a
+   suggestion. READ: the on-view design (docs/OnViewValueEditing.md)
+   uses the top middle for the value labels and names no bottom place.
+   The step in use (fine or coarse, and its size) shown there too is
+   not said.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -23729,5 +23793,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 170
+the build session, 131 and 132 found by it; entries 134 to 171
 are of 2026-10-15, 134 said to the build session)

@@ -1,8 +1,7 @@
 # Library paths: links into named folders
 
 Status (2026-10-18): **design, nothing built.** Asked for by the user the
-same day. Q1 is ruled (section 3.3); the other questions in section 5
-need rulings first.
+same day. Q1, Q4 and Q8 are ruled (section 5); Q2, Q3 and Q5 to Q7 wait.
 
 ## 1. The ask (user, 2026-10-18)
 
@@ -75,37 +74,33 @@ was on the machine that last saved the document.
 
 ### 3.3 The save form
 
-**Ruled (user, 2026-10-18): the token in `file`, and the old path in
-schema 4.** The save form follows the schema the document is written in
-(`Writer::getSchemaVersion()`, `Document::resolveSchemaVersion`):
+**Ruled (user, 2026-10-18), after a first ruling withdrawn:** the
+library and the path under it are saved **beside** the old path, in every
+schema:
 
-- **Schema 5** -- this fork's own format, the `.TStd` that no other reader
-  opens, and everything the transaction log holds (TransactionLog sec
-  27.62): the link saves the token form in `file` itself,
+    <XLink file="../../lib/fasteners/bolt.FCStd" lib="Lib"
+           libfile="fasteners/bolt.FCStd" stamp="..." name="Bolt"/>
 
-      <XLink file="%Lib%/fasteners/bolt.FCStd" stamp="..." name="Bolt"/>
+- `lib` and `libfile` are what this build reads first (3.6).
+- `file` stays what the link's mode writes today, so an older build or
+  upstream FreeCAD opens the document as it would have -- in a schema-4
+  `.FCStd` saved for upstream, and in what `exportObjects` writes (copy,
+  paste, drag across documents, `min(SaveSchemaVersion, 4)`) alike. A
+  reader that does not know `lib` skips it, as it skips `version` and
+  `branch` (TransactionLog sec 27).
+- `Document.LibraryPaths` is written in both schemas: a reader that does
+  not know a document property skips it.
 
-  and nothing else names the path. No reader of schema 5 is without the
-  library form, so nothing is kept for one.
-- **Schema 4** -- the standard `.FCStd`, written when the user saves for
-  upstream on purpose, and by `exportObjects` (copy, paste, drag across
-  documents, which write `min(SaveSchemaVersion, 4)`): **the path as
-  today**, by the link's mode, with no token and no added attribute.
-  `Document.LibraryPaths` is still written (an unknown document property
-  is skipped by a reader that does not know it), so this build, opening
-  the file again, finds its libraries by section 4's conversion with the
-  document's folders first.
-
-A token is `%Name%/` at the very start of `file`, `Name` a library name
-(3.1). A real relative path that starts so -- a folder that is literally
-named `%Lib%` -- is written `./%Lib%/...` in schema 5, so it is never
-read as a token.
+The first ruling of the same day had the token in `file` itself in
+schema 5 and the old path in schema 4. It was withdrawn for this: one
+form in every schema, and a plain path kept to fall back to (3.6 step 3).
 
 Everywhere a path is *shown* -- `getFilePath()`, the property editor, the
-report view -- a library link reads in the same token form. Python may
-set a link with that string, and
+report view -- a library link reads in the token form,
+`%Lib%/fasteners/bolt.FCStd`. Python may set a link with that string, and
 `App.resolveLibraryPath("%Lib%/fasteners/bolt.FCStd")` gives the full
-path.
+path. The token is the display and API form; the file keeps it as `lib`
+and `libfile`.
 
 ### 3.4 When a link takes the library form
 
@@ -123,9 +118,12 @@ the library folders:
    else the first by name; said once in the report view.
 4. **A name the document maps elsewhere** -- the document has `Lib` =
    `/a/lib`, the system `Lib` = `/b/lib`, the target under `/b/lib` only:
-   Q4.
-5. **The path under the folder never climbs**: a path with `..` after
-   the token is no library path.
+   **the document gets a new name for the system's folder, `Lib_2`** (the
+   next free `_<n>`), and the link takes it; said once in the report view
+   (Q4, ruled). The document's `Lib` and the links using it are left as
+   they are.
+5. **`libfile` never climbs**: a path with `..` after the folder is no
+   library path.
 6. **Modes**: `Dynamic`, `Relative` and `RelativeCanonical` take the
    library form; `Absolute` and `Canonical` are a user's explicit choice
    of an absolute path, and keep it (Q6).
@@ -141,22 +139,17 @@ on a whole path component (`/lib` does not contain `/library/x`).
 
 ### 3.6 Resolving, on open (the ask: the document's first)
 
-For `file="%N%/F"` (schema 5):
+For `lib="N" libfile="F"`:
 
 1. **The document's folder for N**, if `<folder>/F` exists.
 2. **The system's folder for N**, if `<folder>/F` exists. This is the
    usual case on another machine: the document's folder is the path of
    the machine that saved it.
-3. **None**: the link is broken, and the report view names the library:
+3. **`file`, as today**, by the link's mode: the document opened where
+   nobody set up N still finds a library that moved with it.
+4. **None**: the link is broken, and the report view names the library:
    "library 'Lib' is not set here (the document had /a/lib)". The Gui
    offers to set it (3.9).
-
-With the token in `file` (3.3) there is no plain path to fall back to: a
-schema-5 document opened where neither its own folder nor a setting for
-N holds the file does not find a library that merely moved beside it.
-That is the price of the ruling, and what "Set library path..." is for.
-A schema-4 file has the old path only, resolved as today, and is read
-into the library form by section 4.
 
 **Both exist and differ** -- the document's `/a/lib` and the system's
 `/b/lib` both hold `F`: the document's wins, as asked. The risk is that
@@ -175,10 +168,16 @@ folder each name resolved through on this machine (Q3).
   resolved again -- detached from the file they had, attached to the new
   one, which is opened as a pending document is. One undo step, with
   the property.
-- **The system setting changed** while documents are open: nothing
-  moves until they are opened again, or the user runs "Apply library
-  paths to open documents" -- a change under an open document is the
-  user's to start.
+- **The system setting changed** while documents are open (Q8, ruled):
+  when the change is committed -- OK or Apply in the preferences, or
+  `App.setLibraryPath` / `removeLibraryPath` -- the open documents are
+  checked for links it would resolve differently: a name they use whose
+  folder changed, was added where they had none, or was removed. If there
+  are any, the Gui asks, listing the documents and the number of links
+  in each: apply to them now -- each document's map remapped as in the
+  item above, one undo step per document -- or leave them, to take the
+  change when opened again. With no Gui (Python, headless) the documents
+  are left, and the function returns what it would have changed.
 - **A name renamed in the settings** renames nothing in documents: they
   keep the old name and resolve through their own folder, or say it is
   not set.
@@ -189,12 +188,11 @@ folder each name resolved through on this machine (Q3).
   link into a library can be set and resolved from a new document. This
   also takes library links off TransactionLog sec 35 L1's list.
 - **The transaction log** (TransactionLog sec 31.8, a value merged by
-  what it holds): the log holds schema 5 only, so a link's value there
-  carries the token, and two copies of one assembly on two machines with
-  the library at two places hold the same `file` for it. `stamp` -- the
-  linked file's last-modified date -- still differs between them, as it
-  does today; whether the merge's comparison already looks past it is
-  to be checked when built.
+  what it holds): two copies of one assembly on two machines, the library
+  at two places, write different `file` (and `stamp`) for one link while
+  `lib` and `libfile` are the same. The link's value is compared by its
+  library form when it has one, or every such link conflicts. To verify
+  against the merge's comparison when built.
 - **The export of a set** (TransactionLog sec 35 L7): library files are
   outside the top's folder. Two choices for the dialog: copy them under
   `_external/` as the design says, or leave the links in the library form
@@ -221,28 +219,29 @@ is written so at the next save. Q7.
 
 | | Question | Proposed |
 | --- | --- | --- |
-| Q1 | The save form | **Ruled (user): the token in `file` in schema 5; the old path in schema 4** (3.3). |
+| Q1 | The save form | **Ruled (user): `lib` + `libfile` beside `file`, in every schema** (3.3); a first ruling, the token in `file` in schema 5, withdrawn. |
 | Q2 | Both folders hold the file and differ | **The document's** (as asked), said once, with "use the settings' folder". |
 | Q3 | The document's map after a fallback to the system's folder | **Rewritten at the next save** to the folder used here. The other way, never rewritten unless the user remaps, keeps the first machine's folder forever, and every other machine falls back. |
-| Q4 | A name the document maps to another folder, the target under the system's | **A new name in the document, `Lib_2`**, said. The others: write the link relative as today, without the library form; or remap the document's `Lib` to `/b/lib` when every link using it resolves there too. |
+| Q4 | A name the document maps to another folder, the target under the system's | **Ruled (user): a new name in the document, `Lib_2`**, said. |
 | Q5 | A document inside the library it links into | **Relative**, not the library form. |
 | Q6 | `Absolute` and `Canonical` modes | **Kept absolute.** |
 | Q7 | Links saved before this | **Converted at load in memory**, written at the next save. The other way: only links set from now on. |
-| Q8 | The system setting changed with documents open | **Nothing until reopened**, or "Apply library paths to open documents". |
+| Q8 | The system setting changed with documents open | **Ruled (user): checked when the change is committed, and asked** whether to apply it to the open documents it affects (3.7). |
 
 ## 6. Build order, once ruled
 
-1. **App**: the setting, `Document.LibraryPaths`, the save form by
-   schema (the token in 5, the old path in 4), matching and resolution in
+1. **App**: the setting, `Document.LibraryPaths`, the save form
+   (`lib` + `libfile` beside `file`), matching and resolution in
    `DocInfo::getDocPath` / `PropertyXLink::Restore`,
    the token in `getFilePath()` and in a Python `setValue`, the Python
    functions. Gtests: a link into a library saved and opened with the
    library moved (the system's folder), with only the document's, with
    neither, nested folders, the Q4 conflict, an unsaved owner, a
    document inside the library, an old document converted, a schema-4
-   save holding the old path and opened again into the library form, a
-   copy and paste across documents.
-2. **Gui**: the preference table, the notification, the remap action.
+   save opened again, a copy and paste across documents, the setting
+   changed with documents open (what would change, returned).
+2. **Gui**: the preference table, the check and the question when it is
+   committed, the notification, the remap action.
 3. **The log**: a link's value compared by its library form; a test of
    two copies with the library at two places merged without a conflict.
 4. **The export option** of TransactionLog sec 35 L7, when that is built.

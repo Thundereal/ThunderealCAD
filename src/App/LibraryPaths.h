@@ -137,9 +137,10 @@ public:
     /// The open documents whose library links the current setting
     /// resolves differently from what they resolve to now.
     static std::vector<Affected> affected();
-    /** A change of the setting committed: `before` is what it was. Emits
-     * signalChanged and returns affected(); the documents are left as they
-     * are -- the Gui asks, and applies to the ones the user picks.
+    /** A change of the setting committed: `before` is what it was. Returns
+     * affected() as the change left them, and emits signalChanged; the
+     * documents are left as they are -- the Gui asks, and applies to them
+     * if the user says so.
      */
     static std::vector<Affected> changed(const Map& before);
     /** Take the setting's folders into `doc` for the names whose links it
@@ -157,6 +158,23 @@ public:
     /// Emitted by changed(): before, after.
     static fastsignals::signal<void(const Map&, const Map&)>& signalChanged();
     //@}
+
+    /// What a document's library links met at its open (3.6, 3.9).
+    struct Problem
+    {
+        std::string name;
+        /// The document's folder for the name; empty when it has none.
+        std::string documentFolder;
+        /// The settings' folder for the name; empty when they have none.
+        std::string systemFolder;
+        /// Resolved through neither folder (3.6 step 3 or 4); otherwise both
+        /// hold the files and differ, and the document's was taken (Q2).
+        bool unresolved = false;
+        int links = 0;
+    };
+    /// One per name that resolved through no folder, or through the
+    /// document's where the settings' differs and holds the file too.
+    static std::vector<Problem> problems(const App::Document& doc);
 
     /** The library links of `doc`'s objects. */
     static std::vector<PropertyXLink*> getLinks(const App::Document& doc);

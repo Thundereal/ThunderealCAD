@@ -2171,3 +2171,10 @@ fc_add_gui_test(GuiNaviCubeClearOfPanels_tests_run
 fc_add_gui_test(GuiNaviCubeAxesOverTheCube_tests_run
                 navicube-axes-over-the-cube.py
                 --timeout 180)
+
+# Library paths in the Gui (docs/LibraryPaths.md 3.9): the report of a
+# document's open with "Use the settings' folder" (Q2), and the question on
+# a changed setting (Q8).
+fc_add_gui_test(GuiLibraryPaths_tests_run
+                library-paths.py
+                --timeout 180)

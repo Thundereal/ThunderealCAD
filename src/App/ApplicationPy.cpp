@@ -286,9 +286,10 @@ PyMethodDef Application::Methods[] = {
      "(docs/LibraryPaths.md)."},
     {"setLibraryPath", (PyCFunction) setLibraryPathPy, METH_VARARGS,
      "setLibraryPath(name, folder) -> dict\n"
-     "Set a library path of the settings. The open documents are left as they\n"
-     "are: returned is what applyLibraryPaths() would change, document name ->\n"
-     "the number of links resolved again."},
+     "Set a library path of the settings. Returned is what applyLibraryPaths()\n"
+     "would change, document name -> the number of links resolved again. With\n"
+     "no Gui the open documents are left as they are; the Gui asks whether to\n"
+     "apply the change to them."},
     {"removeLibraryPath", (PyCFunction) removeLibraryPathPy, METH_VARARGS,
      "removeLibraryPath(name) -> dict\n"
      "Remove a library path of the settings; returns as setLibraryPath()."},

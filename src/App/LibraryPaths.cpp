@@ -484,10 +484,12 @@ std::vector<LibraryPaths::Affected> LibraryPaths::affected()
 
 std::vector<LibraryPaths::Affected> LibraryPaths::changed(const Map& before)
 {
+    // What it affects as committed: the Gui's question may apply it.
+    auto ret = affected();
     const Map after = getSystem();
     if (before != after)
         signalChanged()(before, after);
-    return affected();
+    return ret;
 }
 
 fastsignals::signal<void(const LibraryPaths::Map&, const LibraryPaths::Map&)>&
@@ -547,6 +549,39 @@ int takeSystemFolders(Document& doc, const std::set<std::string>& names)
 }
 
 }  // namespace
+
+std::vector<LibraryPaths::Problem> LibraryPaths::problems(const Document& doc)
+{
+    const Map& map = doc.LibraryPaths.getValues();
+    const Map sys = getSystem();
+    std::map<std::string, Problem> found;
+    for (auto link : getLinks(doc)) {
+        const std::string& name = link->getLibraryName();
+        bool unresolved = link->getLibraryFolder().empty();
+        if (!unresolved) {
+            Resolved r;
+            if (!resolve(name, link->getLibraryFile(), map, sys, r) || !r.conflict)
+                continue;
+        }
+        auto& p = found[name];
+        if (p.name.empty()) {
+            p.name = name;
+            auto it = map.find(name);
+            if (it != map.end())
+                p.documentFolder = it->second;
+            auto itSys = sys.find(name);
+            if (itSys != sys.end())
+                p.systemFolder = itSys->second;
+        }
+        // A name with a link found nowhere is reported as that.
+        p.unresolved = p.unresolved || unresolved;
+        ++p.links;
+    }
+    std::vector<Problem> ret;
+    for (auto& v : found)
+        ret.push_back(std::move(v.second));
+    return ret;
+}
 
 int LibraryPaths::apply(Document& doc)
 {

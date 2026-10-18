@@ -324,3 +324,47 @@ old file keeps its old links. Save As in the standard format writes the
   closes the page's subwindow, which holds the document's last view, so
   `Gui::Document::canClose` asks. Diagnosed, not compared against a build
   without this work.
+
+## 8. Built: step 2, Gui (2026-10-18)
+
+`src/Gui/LibraryPathsGui.{h,cpp}`, hooked up in `Gui::Application`'s
+constructor (`LibraryPathsGui::init`); the driven test
+`tests/gui/library-paths.py` (`GuiLibraryPaths_tests_run`).
+
+- **Preferences > General > Document**, a group "Library paths" below the
+  others: a table of name and folder with a "Browse..." per row, "Add" and
+  "Remove". OK or Apply writes the setting -- a bad name or a folder that
+  is not absolute is refused, with a warning listing them -- and commits
+  the change (`LibraryPaths::changed`).
+- **The question on a committed change** (Q8): the Gui listens to
+  `LibraryPaths::signalChanged`, so a change from the page and one from
+  `App.setLibraryPath` / `removeLibraryPath` are asked about alike. With
+  open documents whose links the change resolves to other files, a
+  question lists them with their link counts: "Apply now" applies to all
+  of them (`LibraryPaths::apply`, one undo step each), "Leave them" leaves
+  them to take it when opened again. `changed()` returns what the change
+  affected before the question, so `App.setLibraryPath` returns the same
+  with the Gui as without.
+- **The report of an open** (3.9, Q2): once the documents of an open are
+  up, a non-modal "Library paths" dialog lists what their library links
+  met, one row per document and name, if anything (`LibraryPaths::
+  problems`):
+  - a name resolved through no folder -- "library 'Lib' is not set here
+    (the document had /a/lib)", or the settings' folder does not hold the
+    file -- with "Set library path...": a folder picked is set in the
+    settings and applied to that document, and the other open documents
+    it affects are asked about;
+  - the document's folder taken where the settings' differs and holds the
+    file too -- "the document uses /a/lib, the settings say /b/lib" --
+    with "Use the settings' folder" (`LibraryPaths::useSystemFolder`).
+- **The property editor** needs nothing of its own: `Document.LibraryPaths`
+  is a map property of the document, and a link's file reads
+  `getFilePath()`, the token form.
+- **The test** covers the report of a Q2 conflict and its action, the
+  question on a change from Python and "Apply now", and the page listing
+  the setting. The "Set library path..." action runs a folder dialog, which
+  the driven test does not; its effect is `setSystem` + `apply`, which the
+  gtests cover.
+- **Gates** (2026-10-18): the 20 Gui checks pass; Python 3799 OK with the
+  freeze on and off; ctest gtest 979/979 both ways; the driven tests
+  289/292, the new one passing and the three failing as in section 7.

@@ -30,6 +30,8 @@
 #include "ui_DlgSettingsDocument.h"
 #include "AutoSaver.h"
 #include "FileDialog.h"
+#include "LibraryPathsGui.h"
+#include <QGridLayout>
 
 using namespace App;
 
@@ -65,6 +67,20 @@ DlgSettingsDocumentImp::DlgSettingsDocumentImp( QWidget* parent )
 
     connect(ui->prefLicenseType, qOverload<int>(&QComboBox::currentIndexChanged),
             this, &DlgSettingsDocumentImp::onLicenseTypeChanged);
+
+    // Library paths (docs/LibraryPaths.md 3.9), above the closing spacer.
+    libraryPaths = new LibraryPathsEditor(this);
+    if (auto grid = qobject_cast<QGridLayout*>(layout())) {
+        const int last = grid->rowCount() - 1;
+        QLayoutItem* spacer = grid->itemAtPosition(last, 0);
+        if (spacer && spacer->spacerItem()) {
+            grid->takeAt(grid->indexOf(spacer));
+            grid->addWidget(libraryPaths, last, 0);
+            grid->addItem(spacer, last + 1, 0);
+        }
+        else
+            grid->addWidget(libraryPaths, last + 1, 0);
+    }
 }
 
 /**
@@ -110,6 +126,7 @@ void DlgSettingsDocumentImp::saveSettings()
     DocumentParams::setTransactionOnRecompute(ui->prefTransactionOnRecompute->isChecked());
     DocumentParams::setThumbnailNoBackground(ui->prefThumbnailNoBackground->isChecked());
     DocumentParams::setThumbnailSampleSize(ui->prefThumbnailSampleSize->value());
+    libraryPaths->save();
 }
 
 void DlgSettingsDocumentImp::loadSettings()
@@ -130,6 +147,7 @@ void DlgSettingsDocumentImp::loadSettings()
     ui->prefPartialLoading->onRestore();
     ui->prefLicenseType->onRestore();
     ui->prefLicenseUrl->onRestore();
+    libraryPaths->load();
     ui->prefAuthor->onRestore();
     ui->prefSetAuthorOnSave->onRestore();
     ui->prefCompany->onRestore();

@@ -175,12 +175,18 @@ TEST_F(LibraryPathsTest, matchTakesTheDeepestAndTheDocumentsName)
     EXPECT_EQ(m.name, "Mine");
     EXPECT_FALSE(m.added);
     // A name the document maps elsewhere: the next free one (Q4).
-    EXPECT_TRUE(LibraryPaths::match("/b/x.FCStd", {{"Lib", "/a"}}, {{"Lib", "/b"}}, "", m));
+    const std::string a = str(_root / "lib");
+    EXPECT_TRUE(LibraryPaths::match("/b/x.FCStd", {{"Lib", a}}, {{"Lib", "/b"}}, "", m));
     EXPECT_EQ(m.name, "Lib_2");
     EXPECT_TRUE(m.renamed);
-    EXPECT_TRUE(LibraryPaths::match("/b/x.FCStd", {{"Lib", "/a"}, {"Lib_2", "/c"}},
+    EXPECT_TRUE(LibraryPaths::match("/b/x.FCStd", {{"Lib", a}, {"Lib_2", "/c"}},
                                     {{"Lib", "/b"}}, "", m));
     EXPECT_EQ(m.name, "Lib_3");
+    // Elsewhere, where its folder is not here, it is no clash: the name.
+    EXPECT_TRUE(LibraryPaths::match("/b/x.FCStd", {{"Lib", "/nowhere/lib"}}, {{"Lib", "/b"}},
+                                    "", m));
+    EXPECT_EQ(m.name, "Lib");
+    EXPECT_FALSE(m.renamed);
     // A document inside the library links relatively (Q5).
     EXPECT_FALSE(LibraryPaths::match("/l/std/x.FCStd", {}, {{"Lib", "/l"}, {"Std", "/l/std"}},
                                      "/l/other/owner.FCStd", m));
@@ -504,6 +510,22 @@ TEST_F(LibraryPathsTest, aTokenSetsALink)
     EXPECT_NE(link->getValue(), nullptr);
     EXPECT_EQ(link->getLibraryName(), LibName);
     EXPECT_THROW(link->setValue(std::string("%GtNone%/x.FCStd"), "Bolt", {}), Base::ValueError);
+}
+
+TEST_F(LibraryPathsTest, theMergeComparesALibraryLinkByItsLibrary)
+{
+    const std::string a = "<XLink file=\"../../a/lib/f/bolt.FCStd\" stamp=\"2026-10-18T01:00:00Z\" "
+                          "name=\"Bolt\" lib=\"Lib\" libfile=\"f/bolt.FCStd\" sub=\"Face1\"/>";
+    const std::string b = "<XLink file=\"/b/lib/f/bolt.FCStd\" stamp=\"2026-10-17T09:00:00Z\" "
+                          "name=\"Bolt\" lib=\"Lib\" libfile=\"f/bolt.FCStd\" sub=\"Face1\"/>";
+    EXPECT_EQ(LibraryPaths::comparableSaved(a), LibraryPaths::comparableSaved(b));
+    // Another object, or another file of the library, is another link.
+    std::string other = b;
+    other.replace(other.find("Face1"), 5, "Face2");
+    EXPECT_NE(LibraryPaths::comparableSaved(a), LibraryPaths::comparableSaved(other));
+    // A link with no library is compared as it is.
+    const std::string plain = "<XLink file=\"x.FCStd\" stamp=\"s\" name=\"Bolt\"/>";
+    EXPECT_EQ(LibraryPaths::comparableSaved(plain), plain);
 }
 
 // NOLINTEND(readability-magic-numbers)

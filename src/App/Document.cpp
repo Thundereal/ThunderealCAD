@@ -6014,9 +6014,12 @@ namespace {
 /// a restore gave the document that name (sec 27.11).
 bool keptOnRestore(const char* name)
 {
+    // LibraryPaths is where the library folders are on this machine
+    // (docs/LibraryPaths.md 3.2): the links settle it, and another copy's
+    // or an older state's would only name folders of elsewhere.
     static const std::set<std::string> kept {"FileName", "TransientDir", "Uid", "Id", "Label",
         "History", "Version", "Branch", "LastModifiedBy", "LastModifiedDate", "CreatedBy",
-        "CreationDate"};
+        "CreationDate", "LibraryPaths"};
     return kept.count(name) != 0;
 }
 
@@ -9231,6 +9234,23 @@ bool netChanged(const NetChange::Val& v)
     return v.atStart != v.atEnd || v.before != v.after;
 }
 
+/// Two logged values of a link the same by what they link: a library link
+/// is known by its library and the path under it, and its old path and
+/// stamp are the machine's that wrote it (docs/LibraryPaths.md 3.8).
+bool sameLinkValue(TransactionLog& log, const std::string& ptype, const std::string& a,
+                   const std::string& b)
+{
+    if (a == b)
+        return true;
+    if (a.empty() || b.empty() || ptype.find("XLink") == std::string::npos)
+        return false;
+    CapturedValue va, vb;
+    if (!log.readValue(a, va) || !log.readValue(b, vb))
+        return false;
+    const std::string ca = LibraryPaths::comparableSaved(va.fragment);
+    return ca != va.fragment && ca == LibraryPaths::comparableSaved(vb.fragment);
+}
+
 /// A merge worked out (sec 28.2): what each side did since the base, and
 /// theirs' changes classified against ours.
 struct MergePlan
@@ -10651,7 +10671,9 @@ void planWeigh(Document& doc, TransactionLog& logRef, MergePlan& plan)
         }
         else {
             c.ours = o->second.atEnd ? o->second.after : std::string();
-            if (o->second.atEnd == v.atEnd && o->second.after == v.after)
+            if (o->second.atEnd == v.atEnd
+                    && (o->second.after == v.after
+                        || sameLinkValue(*log, v.ptype, o->second.after, v.after)))
                 c.kind = "same";
             else
                 c.kind = ckind == "view" ? "view" : "conflict";

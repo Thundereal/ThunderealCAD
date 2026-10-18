@@ -192,6 +192,14 @@ public:
      */
     static void settle(App::Document& doc, bool prune, PropertyXLink* extra = nullptr);
 
+    /** A saved link value as the transaction log's merge compares it
+     * (docs/LibraryPaths.md 3.8): in each `<XLink>` saved with a library,
+     * the old path and the stamp are left out -- they say where the library
+     * was on the machine that wrote it, and when the file was saved there,
+     * not what is linked. Other text comes back as it is.
+     */
+    static std::string comparableSaved(const std::string& fragment);
+
     /// Whether `path` is under `folder`, as written or canonical (3.5).
     static bool isUnder(const std::string& path, const std::string& folder);
 

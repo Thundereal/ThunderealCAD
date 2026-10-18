@@ -25,6 +25,7 @@
 #ifndef _PreComp_
 # include <algorithm>
 # include <cctype>
+# include <cstring>
 # include <map>
 # include <set>
 # include <string>
@@ -219,6 +220,40 @@ std::string LibraryPaths::resolveToken(const std::string& path, const Document* 
     return {};
 }
 
+std::string LibraryPaths::comparableSaved(const std::string& fragment)
+{
+    if (fragment.find(" lib=\"") == std::string::npos)
+        return fragment;
+    std::string out;
+    out.reserve(fragment.size());
+    size_t pos = 0;
+    while (true) {
+        size_t start = fragment.find("<XLink ", pos);
+        if (start == std::string::npos)
+            break;
+        size_t end = fragment.find('>', start);
+        if (end == std::string::npos)
+            break;
+        out.append(fragment, pos, start - pos);
+        std::string tag = fragment.substr(start, end - start);
+        if (tag.find(" lib=\"") != std::string::npos) {
+            // Attribute values are encoded: no quote inside one.
+            for (const char* attr : {" file=\"", " stamp=\""}) {
+                size_t a = tag.find(attr);
+                if (a == std::string::npos)
+                    continue;
+                size_t close = tag.find('"', a + std::strlen(attr));
+                if (close != std::string::npos)
+                    tag.erase(a, close + 1 - a);
+            }
+        }
+        out += tag;
+        pos = end;
+    }
+    out.append(fragment, pos, std::string::npos);
+    return out;
+}
+
 bool LibraryPaths::isUnder(const std::string& path, const std::string& folder)
 {
     return isUnderAny(path, folder);
@@ -289,7 +324,11 @@ bool LibraryPaths::match(const std::string& fullPath,
         m.file = fromQ(rel);
         m.added = true;
         auto it = docMap.find(v.first);
-        if (it == docMap.end())
+        // A folder the document names that is not here -- the library
+        // moved, or the document was saved on another machine -- is no
+        // clash: the name takes the settings' folder, as resolving it
+        // does, and the map follows (Q3).
+        if (it == docMap.end() || !QFileInfo(toQ(it->second)).isDir())
             m.name = v.first;
         else {
             // A name the document maps elsewhere: a new name for the

@@ -1,6 +1,7 @@
 # Library paths: links into named folders
 
-Status (2026-10-18): **design ruled whole; step 1 (App) built**, section 7.
+Status (2026-10-18): **design ruled whole; steps 1 to 3 built** (App, Gui, the log;
+sections 7 to 9). Step 4, the export, waits for TransactionLog sec 35 L7.
 Asked for by the user the same day. Q1 to Q8 are ruled (section 5).
 
 ## 1. The ask (user, 2026-10-18)
@@ -122,6 +123,12 @@ the library folders:
    next free `_<n>`), and the link takes it; said once in the report view
    (Q4, ruled). The document's `Lib` and the links using it are left as
    they are.
+   **Not when the document's folder is not here** (found building step 3,
+   2026-10-18; the user to confirm): a folder the document names that does
+   not exist on this machine -- the library moved, the document saved on
+   another machine -- is no clash. The link takes the name, as resolving
+   it would (3.6 step 2), and the map follows (Q3). Without that, every
+   library moved gave its next link a `Lib_2`.
 5. **`libfile` never climbs**: a path with `..` after the folder is no
    library path.
 6. **Modes**: `Dynamic`, `Relative` and `RelativeCanonical` take the
@@ -368,3 +375,36 @@ constructor (`LibraryPathsGui::init`); the driven test
 - **Gates** (2026-10-18): the 20 Gui checks pass; Python 3799 OK with the
   freeze on and off; ctest gtest 979/979 both ways; the driven tests
   289/292, the new one passing and the three failing as in section 7.
+
+## 9. Built: step 3, the log (2026-10-18)
+
+**What was verified first.** A copy from another machine comes in as a
+fork (TransactionLog sec 30.13): its rows are replayed here, against this
+machine's settings, and the link values the log records are this
+machine's -- the same text as a link set here, so a fork's and ours' link
+to one library file already compare equal. With the library not set here
+the replay stops at the row ("File ... does not exist") rather than record
+a broken link. So the comparison the design asked for is not met through
+a fork at all.
+
+**Where it is met**: two branches of one file on one machine, each linking
+the same library file through another folder -- two copies of a library,
+or a library moved between the two. Both wrote the link (`lib` and
+`libfile` the same, `file` and `stamp` not), and the merge called it a
+conflict.
+
+- **`LibraryPaths::comparableSaved`**: a saved value with the `file` and
+  `stamp` of each `<XLink>` that has a `lib` left out.
+- **The merge** (`planWeigh`, where both sides changed a property and
+  ended differently) calls two values of an XLink type the same when they
+  compare equal that way. Ours' value stays.
+- **`Document.LibraryPaths` is kept, as `FileName` is** (`keptOnRestore`):
+  a merge does not take theirs', a restore to a version does not put back
+  an older one, a fork's import does not bring the other copy's. It says
+  where the folders are on this machine, and the links settle it (3.2).
+- **Tests**: `LibraryPathsTest.theMergeComparesALibraryLinkByItsLibrary`
+  (gtest), `TransactionBranchCases.testLibraryLinksThroughTwoFoldersMergeAsTheSame`
+  (Python) -- a conflict without the change, checked; "same" with it.
+- **Gates** (2026-10-18): the Gui checks pass; Python 3800 OK with the
+  freeze on and off; ctest gtest 980/980 both ways; the driven tests
+  289/292, the three of section 7.

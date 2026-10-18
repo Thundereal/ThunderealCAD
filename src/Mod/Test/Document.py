@@ -7826,6 +7826,63 @@ class TransactionBranchCases(unittest.TestCase):
         # Imported again with nothing new, nothing comes.
         self.assertEqual(doc.importTransactionFork(copy)["rows"], 0)
 
+    def testLibraryLinksThroughTwoFoldersMergeAsTheSame(self):
+        # docs/LibraryPaths.md 3.8: two branches of one file each link the
+        # same file of a library, through another folder each -- two copies
+        # of the library, the setting and the map changed between. The old paths
+        # differ; by the library and the path under it the link is the
+        # same, and the merge says so. (A fork from another machine is not
+        # this case: its rows are replayed here, against this machine's
+        # library, and its links come in as this machine writes them.)
+        import shutil
+
+        name = "TestMergeLib"
+        libA = os.path.join(self.dir, "lib")
+        libB = os.path.join(self.dir, "moved", "libs")
+        os.makedirs(os.path.join(libA, "f"))
+        part = self.track(FreeCAD.newDocument("LibPart"))
+        part.addObject("App::FeatureTest", "Bolt")
+        part.saveAs(os.path.join(libA, "f", "bolt.FCStd"))
+        FreeCAD.closeDocument(part.Name)
+        shutil.copytree(libA, libB)
+        try:
+            FreeCAD.setLibraryPath(name, libA)
+            doc = self.track(FreeCAD.newDocument("LibOurs"))
+            doc.UndoMode = 1
+            doc.openTransaction("create")
+            holder = doc.addObject("App::FeatureTest", "Holder")
+            holder.addProperty("App::PropertyXLink", "L")
+            doc.commitTransaction()
+            doc.saveAs(os.path.join(self.dir, "asm.FCStd"))
+
+            doc.createTransactionBranch("side")
+            FreeCAD.setLibraryPath(name, libB)
+            doc.LibraryPaths = {name: libB}
+            boltB = self.track(FreeCAD.openDocument(os.path.join(libB, "f", "bolt.FCStd")))
+            doc.openTransaction("side links")
+            holder.L = boltB.Bolt
+            doc.commitTransaction()
+
+            doc.switchTransactionBranch("main")
+            FreeCAD.setLibraryPath(name, libA)
+            doc.LibraryPaths = {name: libA}
+            boltA = self.track(FreeCAD.openDocument(os.path.join(libA, "f", "bolt.FCStd")))
+            doc.openTransaction("main links")
+            holder.L = boltA.Bolt
+            doc.commitTransaction()
+
+            preview = doc.previewTransactionMerge("side")
+            links = [c for c in preview["changes"] if c["prop"] == "L"]
+            self.assertEqual([c["kind"] for c in links], ["same"], preview["changes"])
+            self.assertEqual(preview["conflicts"], 0)
+            merged = doc.mergeTransactionBranch("side")
+            self.assertEqual(merged["unresolved"], [])
+            # Ours' stays: the file through this machine's folder now.
+            self.assertEqual(os.path.normcase(os.path.realpath(holder.L.Document.FileName)),
+                             os.path.normcase(os.path.realpath(boltA.FileName)))
+        finally:
+            FreeCAD.removeLibraryPath(name)
+
     def testAForkImportTakesItsStringsByContent(self):
         # Sec 30.16 (S.f): what a copy's values name by number -- the
         # strings of an element map nothing recomputes and of a reference's

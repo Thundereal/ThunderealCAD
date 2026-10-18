@@ -404,9 +404,9 @@ App::DocumentObjectExecReturn *Feature::recompute()
     }
     App::DocumentObjectExecReturn* ret = nullptr;
     try {
-        const unsigned int refused = TopoDS_LockedShape::Raised();
+        const unsigned int refused = raisedOCCTLockedShapes();
         ret = once();
-        if (!ThawInputs::active() && TopoDS_LockedShape::Raised() != refused) {
+        if (!ThawInputs::active() && raisedOCCTLockedShapes() != refused) {
             FC_LOG(getFullName() << ": a frozen input was refused ("
                                  << (ret == App::DocumentObject::StdReturn ? "worked around" : ret->Why.c_str())
                                  << "), recomputing on copies");
@@ -2021,15 +2021,25 @@ void Feature::onChanged(const App::Property* prop)
         }
     }
 
-    if (_holdingReferences && prop == getPropertyOfGeometry()) {
-        // GeoFeature::onChanged() would re-resolve every reference into this
-        // feature, which recompute() does once it knows which run's shape
-        // stays (releaseHeldReferences())
-        _heldShapeChange = true;
-        App::DocumentObject::onChanged(prop);
+    {
+        // Whoever is told of the change can ask whether it is a look
+        // written by its name (isWritingLook())
+        struct Written {
+            const App::Property *&slot;
+            const App::Property *was;
+            ~Written() { slot = was; }
+        } written {_lookWritten, _lookWritten};
+        _lookWritten = isLookWrite(prop) ? prop : nullptr;
+        if (_holdingReferences && prop == getPropertyOfGeometry()) {
+            // GeoFeature::onChanged() would re-resolve every reference into this
+            // feature, which recompute() does once it knows which run's shape
+            // stays (releaseHeldReferences())
+            _heldShapeChange = true;
+            App::DocumentObject::onChanged(prop);
+        }
+        else
+            GeoFeature::onChanged(prop);
     }
-    else
-        GeoFeature::onChanged(prop);
 
     // GeoFeature::onChanged(Shape) has just re-resolved every reference
     // into this feature; the generations can now be kept or let go.

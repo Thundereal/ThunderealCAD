@@ -145,10 +145,13 @@ inline ReleaseNumber getReleaseNumber(std::string_view str)
  * are past 1.1 and mean opacity; the two never meet.
  *
  * NOTE: the gate is the release number, and this fork's own is still 0.22
- * (PACKAGE_VERSION in the top level CMakeLists), so the documents it writes
+ * (PACKAGE_BASE_VERSION in the top level CMakeLists -- the FreeCAD release
+ * the code derives from, which is what a document states even when the
+ * product numbers itself, "0.22R1234 (Thundereal 2026.10.15)"; that date
+ * reaches no reader as a release), so the documents it writes
  * are old-convention documents and it converts its own files on the way in.
  * writerAlphaIsOpacity() below is the same question asked of this build, and
- * the two move together the day PACKAGE_VERSION reaches 1.1.
+ * the two move together the day PACKAGE_BASE_VERSION reaches 1.1.
  *
  * A release number that is a date is no release after 1.1: this fork's
  * released images are numbered by their day ("2025.1020R14555"), and store
@@ -167,7 +170,7 @@ inline bool alphaIsOpacity(std::string_view programVersion)
 /** Whether the documents THIS build writes mean opacity by a colour's alpha
  *
  * A document states the release that wrote it, so the convention it is in is
- * this build's, not the reader's. False while PACKAGE_VERSION is below 1.1,
+ * this build's, not the reader's. False while PACKAGE_BASE_VERSION is below 1.1,
  * which is why every colour is written back inverted: a file this fork wrote
  * has to stay readable by the releases that already read its files, and by an
  * upstream 1.1 reader, both of which take the alpha for a transparency.

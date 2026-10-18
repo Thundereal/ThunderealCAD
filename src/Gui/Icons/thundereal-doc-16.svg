@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <title>Thundereal document (.TStd)</title>
+  <path d="M3.5 0.5H10L13.5 4V15.5H3.5Z" fill="#F5F7FC" stroke="#8E9AB8" stroke-linejoin="round"/>
+  <path d="M10 0.5V4H13.5" fill="#D6DDEC" stroke="#8E9AB8" stroke-linejoin="round"/>
+  <path id="strikeSide" fill="#C26F00" d="M9.94 4L9.32 9.06L10.34 9.06L11.14 9.56L7.72 14L6.92 13.5L7.48 11.26L6.18 11.26L5.38 10.76L9.14 3.5L9.94 4Z"/>
+  <path id="strike" fill="#FFB21E" d="M9.14 3.5L8.46 9.06L10.34 9.06L6.92 13.5L7.6 10.76L5.38 10.76L9.14 3.5Z"/>
+  <path id="barSide" fill="#2552C4" d="M11 5L12 5.6L12 7.6L11 7L11 5Z"/>
+  <path id="barFront" fill="#4F86F0" d="M5 5L11 5L11 7L5 7L5 5Z"/>
+  <path id="lowSide" fill="#C26F00" d="M9.51 7.5L9.32 9.06L10.34 9.06L11.14 9.56L7.72 14L6.92 13.5L7.48 11.26L6.18 11.26L5.38 10.76L7.33 7L8.71 7L9.51 7.5Z"/>
+  <path id="lowStrike" fill="#FFB21E" d="M8.71 7L8.46 9.06L10.34 9.06L6.92 13.5L7.6 10.76L5.38 10.76L7.33 7L8.71 7Z"/>
+</svg>

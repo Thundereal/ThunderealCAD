@@ -44,6 +44,8 @@
 #include "IO/WriterInventor.h"
 #include "IO/WriterOBJ.h"
 #include <Base/Builder3D.h>
+#include <App/Application.h>
+#include <App/BrandText.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/FileInfo.h>
@@ -2221,7 +2223,7 @@ bool MeshOutput::SaveSMF(std::ostream& out) const
     out << "#$vertices " << rPoints.size() << '\n';
     out << "#$faces " << rFacets.size() << '\n';
     out << "#\n";
-    out << "# Created by FreeCAD <https://www.freecad.org>\n";
+    out << "# " << App::createdBy() << "\n";
 
     out.precision(6);
     out.setf(std::ios::fixed | std::ios::showpoint);
@@ -2255,7 +2257,7 @@ bool MeshOutput::SaveSMF(std::ostream& out) const
 bool MeshOutput::SaveAsymptote(std::ostream& out) const
 {
     out << "/*\n"
-           " * Created by FreeCAD <https://www.freecad.org>\n"
+           " * " << App::createdBy() << "\n"
            " */\n\n";
 
     out << "import three;\n\n";
@@ -2456,7 +2458,7 @@ bool MeshOutput::SaveBinaryPLY(std::ostream& out) const
                             && _material->diffuseColor.size() == rPoints.size());
     out << "ply\n"
         << "format binary_little_endian 1.0\n"
-        << "comment Created by FreeCAD <https://www.freecad.org>\n"
+        << "comment " << App::createdBy() << "\n"
         << "element vertex " << v_count << '\n'
         << "property float32 x\n"
         << "property float32 y\n"
@@ -2518,7 +2520,7 @@ bool MeshOutput::SaveAsciiPLY(std::ostream& out) const
                             && _material->diffuseColor.size() == rPoints.size());
     out << "ply\n"
         << "format ascii 1.0\n"
-        << "comment Created by FreeCAD <https://www.freecad.org>\n"
+        << "comment " << App::createdBy() << "\n"
         << "element vertex " << v_count << '\n'
         << "property float32 x\n"
         << "property float32 y\n"
@@ -3154,8 +3156,8 @@ bool MeshOutput::SaveVRML(std::ostream& rstrOut) const
     rstrOut << "#VRML V2.0 utf8\n";
     rstrOut << "WorldInfo {\n"
             << "  title \"Exported triangle mesh to VRML97\"\n"
-            << "  info [\"Created by FreeCAD\"\n"
-            << "        \"<https://www.freecad.org>\"]\n"
+            << "  info [\"Created by " << App::Application::getExecutableName() << "\"\n"
+            << "        \"<" << App::programUrl() << ">\"]\n"
             << "}\n\n";
 
     // Transform

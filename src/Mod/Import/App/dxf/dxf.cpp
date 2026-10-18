@@ -165,7 +165,7 @@ void CDxfWrite::endRun()
 void CDxfWrite::writeHeaderSection()
 {
     std::stringstream ss;
-    ss << "FreeCAD v" << App::Application::Config()["BuildVersionMajor"] << "."
+    ss << App::Application::getExecutableName() << " v" << App::Application::Config()["BuildVersionMajor"] << "."
        << App::Application::Config()["BuildVersionMinor"] << " "
        << App::Application::Config()["BuildRevision"];
 

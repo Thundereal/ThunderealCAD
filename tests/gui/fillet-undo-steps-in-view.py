@@ -118,41 +118,37 @@ def arrow_offsets():
     return offsets
 
 
-def field_text(node, name):
-    value = node.getField(name).get()
-    return value.getString() if hasattr(value, "getString") else str(value)
-
-
-def arrow_screen_way(pixel, length=45):
-    """The screen offset, `length` pixels long, along the shown arrow whose
-    place is nearest `pixel` (the gizmos' frame is the world's here)"""
-    import math
+def arrow_drag(near, length=1.0):
+    """The viewport offset of a drag `length` mm out along the arrow based
+    nearest `near`: a fixed pixel offset is rounded away in a big window when
+    it runs across the arrow, since the dragger's step grows with the zoom"""
     from pivy import coin
 
-    root = view().getViewer().getSoRenderManager().getSceneGraph()
+    viewer = view().getViewer()
+    region = viewer.getSoRenderManager().getViewportRegion()
     search = coin.SoSearchAction()
     search.setType(coin.SoType.fromName("SoLinearDraggerContainer"))
     search.setInterest(coin.SoSearchAction.ALL)
     search.setSearchingAll(True)
-    search.apply(root)
+    search.apply(viewer.getSoRenderManager().getSceneGraph())
     best = None
     for p in search.getPaths():
-        node = p.getTail()
-        if field_text(node, "visible") not in ("TRUE", "1"):
+        container = p.getTail()
+        if not container.visible.getValue():
             continue
-        pos = FreeCAD.Vector(*[float(v) for v in field_text(node, "translation").split()[:3]])
-        x, y, z, angle = [float(v) for v in field_text(node, "rotation").split()[:4]]
-        way = FreeCAD.Rotation(FreeCAD.Vector(x, y, z), math.degrees(angle)).multVec(
-            FreeCAD.Vector(0, 1, 0))
-        a = view().getPointOnViewport(pos)
-        b = view().getPointOnViewport(pos + way)
-        dist = math.hypot(a[0] - pixel[0], a[1] - pixel[1])
-        if best is None or dist < best[0]:
-            best = (dist, b[0] - a[0], b[1] - a[1])
-    if best is None or math.hypot(best[1], best[2]) < 1e-6:
-        return (40, 20)
-    scale = length / math.hypot(best[1], best[2])
-    return (int(best[1] * scale), int(best[2] * scale))
+        matrix = coin.SoGetMatrixAction(region)
+        matrix.apply(p)
+        m = matrix.getMatrix()
+        t = container.translation.getValue()
+        axis = container.rotation.getValue().multVec(coin.SbVec3f(0, 1, 0))
+        base = m.multVecMatrix(t)
+        tip = m.multVecMatrix(t + axis * length)
+        b = view().getPointOnViewport(FreeCAD.Vector(base[0], base[1], base[2]))
+        e = view().getPointOnViewport(FreeCAD.Vector(tip[0], tip[1], tip[2]))
+        distance = (b[0] - near[0]) ** 2 + (b[1] - near[1]) ** 2
+        if best is None or distance < best[0]:
+            best = (distance, (int(e[0] - b[0]), int(e[1] - b[1])))
+    return best[1] if best else (40, 20)
 
 
 def undos():
@@ -266,6 +262,7 @@ def drag(start, offset, escape=False):
                 focus.metaObject().className() if focus else None,
                 viewer_widget().metaObject().className()))
 
+    dragged = doc.getObject("Fillet").Radius.Value
     if escape:
         where("in the drag, before Escape")
         real_key(viewer_widget(), Qt.Key_Escape)
@@ -275,6 +272,7 @@ def drag(start, offset, escape=False):
     pump(80)
     if escape:
         where("after the release")
+    return dragged
 
 
 def run():
@@ -346,13 +344,9 @@ def run():
         edge = box.Shape.getElement("Edge2")
         middle = edge.valueAt((edge.FirstParameter + edge.LastParameter) / 2)
         arrow = pick_arrow(view().getPointOnViewport(middle))
-        note("INFO the arrow at %s" % (arrow,))
+        along = arrow_drag(view().getPointOnViewport(middle))
+        note("INFO the arrow at %s, a drag of %s" % (arrow, along))
         if check("an arrow is found to drag", arrow is not None):
-            # along the arrow as the screen shows it: an arrow lies in the
-            # face turned to the camera (entry 142), and a fixed offset can
-            # run square to it
-            along = arrow_screen_way(arrow)
-            note("INFO the drag along %s" % (along,))
             before = undos()
             radius = fillet.Radius.Value
             drag(arrow, along)
@@ -367,7 +361,8 @@ def run():
 
             before = undos()
             offsets = arrow_offsets()
-            drag(arrow, along, escape=True)
+            dragged = drag(arrow, along, escape=True)
+            check("the drag moved the radius before Escape", abs(dragged - radius) > 1e-6, dragged)
             check("a drag with Escape: the radius as before it, no step",
                   abs(fillet.Radius.Value - radius) < 1e-6 and undos() == before,
                   (fillet.Radius.Value, undos() - before))

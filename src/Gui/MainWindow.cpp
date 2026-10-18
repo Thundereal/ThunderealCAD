@@ -2891,7 +2891,8 @@ QPixmap MainWindow::aboutImage() const
 void MainWindow::renderDevBuildWarning(
     QPainter &painter,
     const QPoint startPosition,
-    const QSize maxSize)
+    const QSize maxSize,
+    int wrapWidth)
 {
     // Create a background box that fades out the artwork for better legibility
     QColor fader (Qt::black);
@@ -2922,13 +2923,43 @@ void MainWindow::renderDevBuildWarning(
         lineHeight = painter.fontMetrics().lineSpacing();
         boxWidth = maxSize.width();
     }
-    constexpr float lineExpansionFactor(2.3F);
+
+    // A picture with art beside the version leaves the warning less room:
+    // in the same font, each line breaks between words where it would not fit
+    QStringList lines {devWarningLine1, devWarningLine2};
+    if (wrapWidth > 0 && boxWidth > wrapWidth) {
+        const QFontMetrics metrics(painter.font());
+        const int room = wrapWidth - 2 * padding;
+        QStringList wrapped;
+        int textWidth = 0;
+        for (const QString& line : lines) {
+            QString current;
+            for (const QString& word : line.split(QLatin1Char(' '), Qt::SkipEmptyParts)) {
+                const QString longer = current.isEmpty() ? word : current + QLatin1Char(' ') + word;
+                if (!current.isEmpty() && QtTools::horizontalAdvance(metrics, longer) > room) {
+                    wrapped.append(current);
+                    current = word;
+                }
+                else {
+                    current = longer;
+                }
+            }
+            if (!current.isEmpty())
+                wrapped.append(current);
+        }
+        for (const QString& line : wrapped)
+            textWidth = std::max(textWidth, QtTools::horizontalAdvance(metrics, line));
+        lines = wrapped;
+        boxWidth = textWidth + 2 * padding;
+    }
+    // Two lines are 2.3 line heights: a little room under the last one
+    const float lineExpansionFactor = static_cast<float>(lines.size()) + 0.3F;
     int boxHeight = static_cast<int>(lineHeight*lineExpansionFactor);
 
     // Draw the background rectangle and the text
     painter.drawRect(startPosition.x(), startPosition.y(), boxWidth, boxHeight);
-    painter.drawText(startPosition.x()+padding, startPosition.y()+lineHeight, devWarningLine1);
-    painter.drawText(startPosition.x()+padding, startPosition.y()+2*lineHeight, devWarningLine2);
+    for (int i = 0; i < lines.size(); ++i)
+        painter.drawText(startPosition.x()+padding, startPosition.y()+(i+1)*lineHeight, lines[i]);
 }
 
 QPixmap MainWindow::splashImage() const
@@ -3051,7 +3082,12 @@ QPixmap MainWindow::splashImage() const
                 const int padding {10}; // Distance from the edge of the graphic's bounding box
                 QPoint startPosition(padding, y + lineHeight);
                 QSize maxSize(w/pixelRatio - 2*padding, lineHeight * 3);
-                MainWindow::renderDevBuildWarning(painter, startPosition, maxSize);
+                // A picture that has art beside the version says how wide the
+                // warning may be, and the warning takes more lines to fit
+                auto ww = App::Application::Config().find("SplashWarningWidth");
+                const int wrapWidth =
+                    ww != App::Application::Config().end() ? std::stoi(ww->second) : 0;
+                MainWindow::renderDevBuildWarning(painter, startPosition, maxSize, wrapWidth);
             }
             painter.end();
         }

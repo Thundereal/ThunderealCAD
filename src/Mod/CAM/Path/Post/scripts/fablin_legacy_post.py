@@ -31,6 +31,7 @@
 # Use the generic post processor instead.
 
 import datetime
+import FreeCAD
 import Path.Post.Utils as PostUtils
 import PathScripts.PathUtils as PathUtils
 from builtins import open as pyopen
@@ -159,7 +160,7 @@ def export(objectslist, filename, argstring):
 
     # write header
     if OUTPUT_HEADER:
-        gcode += linenumber() + "(Exported by FreeCAD)\n"
+        gcode += linenumber() + "(Exported by %s)\n" % FreeCAD.ConfigGet("ExeName")
         gcode += linenumber() + "(Post Processor: " + __name__ + ")\n"
         gcode += linenumber() + "(Output Time:" + str(now) + ")\n"
 

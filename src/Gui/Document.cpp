@@ -33,6 +33,7 @@
 # include <QFileInfo>
 # include <QHBoxLayout>
 # include <QLabel>
+# include <QLineEdit>
 # include <QMessageBox>
 # include <QPushButton>
 # include <QRadioButton>
@@ -376,6 +377,7 @@ struct DocumentP
     Connection connectTransactionAppend;
     Connection connectTransactionRemove;
     Connection connectPinsReleased;
+    Connection connectLogKept;
     Connection connectTouchedObject;
     Connection connectPurgeTouchedObject;
     Connection connectChangePropertyEditor;
@@ -496,6 +498,10 @@ Document::Document(App::Document* pcDocument,Application * app)
     d->connectPinsReleased = pcDocument->signalPinsReleased.connect
         (std::bind(&Gui::Document::slotPinsReleased, this, sp::_1));
     //NOLINTEND
+    // What is kept is written by the next save (TransactionLog.md 32.11),
+    // so keeping or letting go is a change of the file like any other.
+    d->connectLogKept = pcDocument->signalLogKeptChanged.connect(
+        [this](const App::Document&) { setModified(true); });
 
     // The on-top set is stored in each view's own OnTopObjects property
     // (docs/CoinRetirement.md 5.12), so every change to it has to reach
@@ -542,6 +548,7 @@ Document::~Document()
     d->connectSkipRecompute.disconnect();
     d->connectTransactionAppend.disconnect();
     d->connectTransactionRemove.disconnect();
+    d->connectLogKept.disconnect();
     d->connectTouchedObject.disconnect();
     d->connectPurgeTouchedObject.disconnect();
     d->connectChangePropertyEditor.disconnect();
@@ -2002,6 +2009,75 @@ FormatAnswer confirmSchemaUpgrade(const QStringList &docs, bool *acked)
     return FormatAnswer::Standard;
 }
 
+/// Where a plain save of `doc` is about to go, kept to tell the user afterwards.
+struct SaveTarget
+{
+    explicit SaveTarget(App::Document* doc)
+        : doc(doc)
+        , opened(doc->FileName.getStrValue())
+        , target(doc->getSaveFileName())
+        , existed(target != opened && Base::FileInfo(target).exists())
+    {}
+
+    /** Said once the save is through: a file other builds read was left as
+     * it was and the document now lives at a sibling under the new format's
+     * extension (App::Document::getSaveFileName).
+     */
+    void report() const
+    {
+        if (doc->FileName.getStrValue() == opened)
+            return;
+        const QString saved = QString::fromUtf8(Base::FileInfo(target).fileName().c_str());
+        const QString kept = QString::fromUtf8(Base::FileInfo(opened).fileName().c_str());
+        QMessageBox box(QMessageBox::Warning, QObject::tr("Saved as a new file"),
+                        existed ? QObject::tr("<b>Saved as %1, replacing the one there.</b>")
+                                      .arg(saved.toHtmlEscaped())
+                                : QObject::tr("<b>Saved as %1.</b>").arg(saved.toHtmlEscaped()),
+                        QMessageBox::Ok, getMainWindow());
+        box.setInformativeText(
+            QObject::tr("%1 is unchanged. The new format does not open in other FreeCAD "
+                        "versions, so it gets its own file. To update %1 itself, use Save As "
+                        "with the standard format.")
+                .arg(kept));
+        box.exec();
+        getMainWindow()->appendRecentFile(QString::fromUtf8(target.c_str()));
+    }
+
+    App::Document* doc;
+    std::string opened;
+    std::string target;
+    bool existed;
+};
+
+/** `fn` given the extension of the format about to be written, asking before
+ * a renamed target replaces a file the dialog never asked about. False when
+ * the user declines.
+ */
+bool nameForSchema(QString& fn, long schema)
+{
+    const std::string named = App::Document::fileNameForSchema(fn.toUtf8().constData(), schema);
+    const QString renamed = QString::fromUtf8(named.c_str());
+    if (renamed == fn)
+        return true;
+    if (QFileInfo::exists(renamed)
+            && QMessageBox::question(getMainWindow(), QObject::tr("Replace file"),
+                                     QObject::tr("%1 already exists. Replace it?")
+                                         .arg(QFileInfo(renamed).fileName()),
+                                     QMessageBox::Yes | QMessageBox::No, QMessageBox::No)
+                != QMessageBox::Yes)
+        return false;
+    fn = renamed;
+    return true;
+}
+
+/// A save dialog's document filter, the format about to be written first so
+/// that a name typed without an extension gets that one.
+QString documentFilter(const QString& label, bool compact)
+{
+    return compact ? QStringLiteral("%1 (*.TStd *.FCStd)").arg(label)
+                   : QStringLiteral("%1 (*.FCStd *.TStd)").arg(label);
+}
+
 } // anonymous namespace
 
 /* Offer the schema their own content needs to every document about to be
@@ -2088,9 +2164,35 @@ bool saveVersionDocument(Gui::Document* gdoc)
         return false;
     }
     const QString name = QString::fromUtf8(Base::FileInfo(file).fileName().c_str());
-    QString text = linksPinnedTo(file, num).empty()
-        ? QObject::tr("This is version %1 of %2.").arg(num).arg(name)
-        : QObject::tr("This is version %1 of %2, and other documents pin it.")
+    // Said first (ruled 2026-10-15): this is not the file's own document,
+    // which is on the branch the file is checked out on -- a branch served
+    // in a document of its own is saved from a document nobody sees
+    App::Document* own = nullptr;
+    for (auto other : log->documents()) {
+        if (other != doc && !other->testStatus(App::Document::VersionDoc))
+            own = other;
+    }
+    App::LogBranch mine;
+    App::LogBranch theirs;
+    App::TransactionLog* ownLog = own ? own->getTransactionLog() : nullptr;
+    QString text;
+    if (log->branch() && log->store().getBranch(log->branch(), mine) && ownLog
+            && log->store().getBranch(ownLog->branch(), theirs) && theirs.id != mine.id)
+        text = QObject::tr("This is branch %1 of %2, not the branch the file is checked out "
+                           "on: that is %3, in %4.")
+                   .arg(QString::fromUtf8(mine.name.c_str()), name,
+                        QString::fromUtf8(theirs.name.c_str()),
+                        QString::fromUtf8(own->Label.getValue()));
+    else if (own)
+        text = QObject::tr("This is not the document %1 is checked out as: that is %2.")
+                   .arg(name, QString::fromUtf8(own->Label.getValue()));
+    else
+        text = QObject::tr("This is not the document %1 is checked out as, which is not open.")
+                   .arg(name);
+    text += QStringLiteral("\n\n");
+    text += linksPinnedTo(file, num).empty()
+        ? QObject::tr("It is version %1 of %2.").arg(num).arg(name)
+        : QObject::tr("It is version %1 of %2, and other documents pin it.")
               .arg(num).arg(name);
     App::LogBranch branch;
     if (log->branch() && log->store().getBranch(log->branch(), branch))
@@ -2285,10 +2387,12 @@ bool Document::save()
                     Command::doCommand(Command::Doc,"App.getDocument(\"%s\").recompute()",doc->getName());
                 }
 
+                SaveTarget target(doc);
                 Command::doCommand(Command::Doc,"App.getDocument(\"%s\").save()",doc->getName());
                 auto gdoc = Application::Instance->getDocument(doc);
                 if (gdoc)
                     gdoc->setModified(false);
+                target.report();
             }
 
             // empty file name signals the intention to rebuild recent file
@@ -2407,7 +2511,7 @@ public:
 
         apply();
         QObject::connect(compactBtn, &QRadioButton::toggled,
-                         [this](bool) { apply(); });
+                         [this](bool on) { apply(); renameFor(on); });
         QObject::connect(dedupPCurves, &QCheckBox::toggled,
                          [this](bool) { apply(); });
         QObject::connect(dedupCongruent, &QCheckBox::toggled,
@@ -2423,6 +2527,20 @@ private:
         result->dedupPCurves = dedupPCurves->isChecked();
         result->dedupCongruent = dedupCongruent->isChecked();
         result->dedupGeometry = dedupGeometry->isChecked();
+    }
+
+    /// The name being typed follows the format, so the dialog shows the
+    /// file the save will write: Part.TStd for compact, Part.FCStd for
+    /// standard. The edit is the dialog's own, found once this widget is in it.
+    void renameFor(bool compact)
+    {
+        auto edit = window()->findChild<QLineEdit*>(QStringLiteral("fileNameEdit"));
+        if (!edit)
+            return;
+        const std::string named = App::Document::fileNameForSchema(
+            edit->text().toUtf8().constData(),
+            compact ? App::Document::getCurrentSchemaVersion() : 4);
+        edit->setText(QString::fromUtf8(named.c_str()));
     }
 
     Choices *result;
@@ -2460,10 +2578,14 @@ bool Document::saveAs()
     chosen.dedupCongruent = App::DocumentParams::getDedupCongruentShapes();
     chosen.dedupGeometry = App::DocumentParams::getDedupCrossFileGeometry();
 
+    // The extension follows the format: what the dialog opens on is the
+    // file this format would write, and DocumentFormatOption keeps the two
+    // together as the choice changes.
+    const long schema = compact ? App::Document::getCurrentSchemaVersion() : 4;
     QString exe = qApp->applicationName();
     QString fn = FileDialog::getSaveFileName(getMainWindow(), QObject::tr("Save %1 Document").arg(exe),
-        QString::fromUtf8(getDocument()->FileName.getValue()),
-        QStringLiteral("%1 %2 (*.FCStd)").arg(exe).arg(QObject::tr("Document")),
+        QString::fromUtf8(App::Document::fileNameForSchema(curFile ? curFile : "", schema).c_str()),
+        documentFilter(QStringLiteral("%1 %2").arg(exe, QObject::tr("Document")), compact),
         nullptr, QFileDialog::Options(), QFileDialog::AnyFile,
         new DocumentFormatOption(compact, &chosen));
 
@@ -2504,6 +2626,14 @@ bool Document::saveAs()
                 getMainWindow()->showMessage(QObject::tr("Saving aborted"), 2000);
                 return false;
             }
+        }
+
+        // Whatever was typed, and whichever way the prompts above sent the
+        // format: a compact file is never written under .FCStd, where every
+        // other FreeCAD would try it and fail, nor a standard one under .TStd.
+        if (!nameForSchema(fn, chosen.compact ? App::Document::getCurrentSchemaVersion() : 4)) {
+            getMainWindow()->showMessage(QObject::tr("Saving aborted"), 2000);
+            return false;
         }
 
         // save as new file name
@@ -2606,8 +2736,10 @@ void Document::saveAll()
                 App::AutoTransaction trans("Recompute");
                 Command::doCommand(Command::Doc,"App.getDocument('%s').recompute()",doc->getName());
             }
+            SaveTarget target(doc);
             Command::doCommand(Command::Doc,"App.getDocument('%s').save()",doc->getName());
             gdoc->setModified(false);
+            target.report();
         }
         catch (const Base::Exception& e) {
             QMessageBox::critical(getMainWindow(),
@@ -2627,10 +2759,16 @@ bool Document::saveCopy()
 {
     getMainWindow()->showMessage(QObject::tr("Save a copy of the document under new filename..."));
 
+    // A copy is written at the document's own schema; its name follows that.
+    const long schema = getDocument()->getSaveSchemaVersion();
+    const bool compact = schema >= 5;
     QString exe = qApp->applicationName();
     QString fn = FileDialog::getSaveFileName(getMainWindow(), QObject::tr("Save %1 Document").arg(exe),
-                                             QString::fromUtf8(getDocument()->FileName.getValue()),
-                                             QObject::tr("%1 document (*.FCStd)").arg(exe));
+        QString::fromUtf8(App::Document::fileNameForSchema(
+            getDocument()->FileName.getStrValue(), schema).c_str()),
+        documentFilter(QObject::tr("%1 document").arg(exe), compact));
+    if (!fn.isEmpty() && !nameForSchema(fn, schema))
+        fn.clear();
     if (!fn.isEmpty()) {
         const char * DocName = App::GetApplication().getDocumentName(getDocument());
 
@@ -5201,6 +5339,66 @@ bool Document::isLastView()
  *  This method checks if the document can be closed. It checks on
  *  the save state of the document and is able to abort the closing.
  */
+namespace {
+/** Closing `closing`, the last document with a window, leaves those that
+ * have none open with nothing that shows them -- a branch served in a
+ * document of its own (docs/TransactionLog.md sec 32.23) is one. Say so and
+ * offer to show them (ruled 2026-10-15). False when the close is cancelled.
+ * A version pins show, and a temporary document, are no such: they go with
+ * what holds them.
+ */
+bool offerHiddenDocuments(Gui::Document* closing)
+{
+    std::vector<std::string> hidden;
+    QStringList labels;
+    for (auto adoc : App::GetApplication().getDocuments()) {
+        auto gdoc = Application::Instance->getDocument(adoc);
+        if (!gdoc || gdoc == closing || adoc->testStatus(App::Document::TempDoc)
+                || adoc->testStatus(App::Document::FrozenVersion))
+            continue;
+        if (!gdoc->getMDIViews().empty())
+            return true;   // another has a window: this is not the last
+        hidden.emplace_back(adoc->getName());
+        labels << QString::fromUtf8(adoc->Label.getValue());
+    }
+    if (hidden.empty())
+        return true;
+    const QString name = QString::fromUtf8(closing->getDocument()->Label.getValue());
+    const QString list = labels.join(QStringLiteral(", "));
+    const QString text = hidden.size() == 1
+        ? QObject::tr("Closing %1 leaves a document open with no window: %2. It stays open, "
+                      "and served if it is, with nothing that shows it.")
+              .arg(name, list)
+        : QObject::tr("Closing %1 leaves %2 documents open with no window: %3. They stay open, "
+                      "and served if they are, with nothing that shows them.")
+              .arg(name)
+              .arg(hidden.size())
+              .arg(list);
+    QMessageBox box(QMessageBox::Warning, QObject::tr("Documents with no window"), text,
+                    QMessageBox::Cancel, getMainWindow());
+    box.setObjectName(QStringLiteral("HiddenDocuments"));
+    QPushButton* show = box.addButton(QObject::tr("Show Them"), QMessageBox::AcceptRole);
+    show->setObjectName(QStringLiteral("HiddenDocumentsShow"));
+    QPushButton* leave = box.addButton(QObject::tr("Leave Hidden"), QMessageBox::DestructiveRole);
+    leave->setObjectName(QStringLiteral("HiddenDocumentsLeave"));
+    box.setDefaultButton(show);
+    box.exec();
+    if (box.clickedButton() == show) {
+        // After the close: each that is still there gets a window
+        QTimer::singleShot(0, getMainWindow(), [hidden]() {
+            for (const auto& name : hidden) {
+                App::Document* adoc = App::GetApplication().getDocument(name.c_str());
+                Gui::Document* gdoc = adoc ? Application::Instance->getDocument(adoc) : nullptr;
+                if (gdoc && gdoc->getMDIViews().empty())
+                    gdoc->createView(View3DInventor::getClassTypeId());
+            }
+        });
+        return true;
+    }
+    return box.clickedButton() == leave;
+}
+}   // namespace
+
 bool Document::canClose (bool checkModify, bool checkLink)
 {
     if (d->_isClosing)
@@ -5264,6 +5462,11 @@ bool Document::canClose (bool checkModify, bool checkLink)
             break;
         }
     }
+
+    // A close asked for by itself, of a document with a window: what it
+    // leaves with none is said (not when everything closes)
+    if (ok && checkModify && !getMDIViews().empty() && !getMainWindow()->isClosingAll())
+        ok = offerHiddenDocuments(this);
 
     if (ok) {
         // If a task dialog is open that doesn't allow other commands to modify

@@ -85,9 +85,9 @@ class _HeaderBuilder:
         self._fixtures = []  # List of fixture names
         self._notes = []  # list of notes
 
-    def add_exporter_info(self, exporter: str = "FreeCAD"):
-        """Add exporter information to the header."""
-        self._exporter = exporter
+    def add_exporter_info(self, exporter: str = None):
+        """Add exporter information to the header: the program's name by default."""
+        self._exporter = exporter if exporter is not None else FreeCAD.ConfigGet("ExeName")
 
     def add_machine_info(self, machine: str):
         """Add machine information to the header."""

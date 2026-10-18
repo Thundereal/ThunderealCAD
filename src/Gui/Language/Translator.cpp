@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 #ifndef _PreComp_
 # include <algorithm>
+# include <cstring>
 # include <QApplication>
 # include <QComboBox>
 # include <QDir>
@@ -34,6 +35,7 @@
 #endif
 
 #include <App/Application.h>
+#include <App/BrandText.h>
 #include <Gui/TextEdit.h>
 #include "Translator.h"
 #include <Gui/GeneralParams.h>
@@ -128,6 +130,76 @@ private:
     bool blocked;
 };
 
+/**
+ * A translator that puts the program's name for FreeCAD where FreeCAD means
+ * this program (App/BrandText.h), installed only when the program goes by
+ * another name. One loads each .qm file, so a translation is put right in
+ * whichever file it comes from; the fallback, installed before all of them and
+ * so asked last, puts it in the English text no file has a translation for.
+ */
+class BrandTranslator : public QTranslator
+{
+public:
+    explicit BrandTranslator(bool fallback)
+        : fallback(fallback)
+    {}
+
+    QString translate(const char* context,
+                      const char* sourceText,
+                      const char* disambiguation,
+                      int n) const override
+    {
+        const bool mentions = sourceText && std::strstr(sourceText, "FreeCAD");
+        const bool own = mentions && opensOwnSite(context);
+        if (fallback) {
+            if (!mentions) {
+                return {};
+            }
+            const QString source = QString::fromUtf8(sourceText);
+            QString text = own ? App::brandEvery(source) : App::brandText(source);
+            return text == source ? QString() : text;
+        }
+        QString text = QTranslator::translate(context, sourceText, disambiguation, n);
+        if (text.isEmpty() || !mentions) {
+            return text;
+        }
+        return own ? App::brandEvery(text)
+                   : App::brandTranslation(QString::fromUtf8(sourceText), text);
+    }
+
+    bool isEmpty() const override
+    {
+        return !fallback && QTranslator::isEmpty();
+    }
+
+private:
+    // A Help command whose site is the program's own (MainGui sets Url<key>
+    // for them, Gui/CommandStd.cpp): every FreeCAD in its text is the program
+    // then, "FreeCAD Forum" and "Donate to FreeCAD development" alike.
+    static bool opensOwnSite(const char* context)
+    {
+        static const char* const commands[] = {
+            "StdCmdFreeCADWebsite",
+            "StdCmdFreeCADForum",
+            "StdCmdFreeCADFAQ",
+            "StdCmdFreeCADDonation",
+            "StdCmdFreeCADUserHub",
+            "StdCmdFreeCADPowerUserHub",
+        };
+        if (!context || App::Application::Config().count("UrlWebPage") == 0) {
+            return false;
+        }
+        for (const char* command : commands) {
+            if (std::strcmp(context, command) == 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    bool fallback;
+};
+
 class TranslatorP
 {
 public:
@@ -136,6 +208,7 @@ public:
     TStringMap mapSupportedLocales;
     std::list<QTranslator*> translators; /**< A list of all created translators */
     QStringList paths;
+    BrandTranslator* brandFallback = nullptr; /**< Asked last, when rebranded */
 };
 }
 
@@ -220,12 +293,25 @@ Translator::Translator()
 
     d->paths = directories();
 
+    if (App::isRebranded()) {
+        d->brandFallback = new BrandTranslator(true);
+        qApp->installTranslator(d->brandFallback);
+    }
+
     enableDecimalPointConversion(GeneralParams::getSubstituteDecimalSeparator());
 }
 
 Translator::~Translator()
 {
+    // Removing a translator sends LanguageChange, which the filter would answer
+    // by retranslating every top-level widget, at exit. The fallback is always
+    // there when rebranded, so this is every exit then, not only a translated one.
+    qApp->removeEventFilter(this);
     removeTranslators();
+    if (d->brandFallback) {
+        qApp->removeTranslator(d->brandFallback);
+        delete d->brandFallback;
+    }
     delete d;
 }
 
@@ -417,7 +503,8 @@ void Translator::installQMFiles(const QDir& dir, const char* locale)
 
         // okay, we need to install this file
         if (!ok) {
-            auto translator = new QTranslator;
+            QTranslator* translator =
+                App::isRebranded() ? new BrandTranslator(false) : new QTranslator;
             translator->setObjectName(it);
             if (translator->load(dir.filePath(it))) {
                 qApp->installTranslator(translator);

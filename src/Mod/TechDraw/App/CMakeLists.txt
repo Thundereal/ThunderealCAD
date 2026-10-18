@@ -301,6 +301,20 @@ ADD_CUSTOM_COMMAND(TARGET TechDraw
                    ${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_DATADIR}/Mod/TechDraw/Templates
 )
 
+# The title-block logo follows THUNDEREAL_IDENTITY. This runs on every build,
+# after the copy above, and in both settings, so a flipped switch reaches the
+# templates without waiting for TechDraw to relink. The install takes these.
+add_custom_target(TechDraw_BrandTemplates ALL
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC=${CMAKE_SOURCE_DIR}/src/Mod/TechDraw/Templates
+            -DOUT=${CMAKE_BINARY_DIR}/${CMAKE_INSTALL_DATADIR}/Mod/TechDraw/Templates
+            -DLOGO=${CMAKE_SOURCE_DIR}/src/Mod/TechDraw/Branding/thundereal-logo.svg
+            -DBRAND=${THUNDEREAL_IDENTITY}
+            -P ${CMAKE_SOURCE_DIR}/src/Mod/TechDraw/Branding/BrandTemplates.cmake
+    VERBATIM
+)
+add_dependencies(TechDraw_BrandTemplates TechDraw)
+
 ADD_CUSTOM_COMMAND(TARGET TechDraw
                    POST_BUILD
                    COMMAND ${CMAKE_COMMAND} -E copy_directory

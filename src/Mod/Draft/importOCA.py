@@ -410,7 +410,7 @@ def export(exportList, filename):
 
     # writing file
     oca = pyopen(filename, "w")
-    oca.write("#oca file generated from FreeCAD\r\n")
+    oca.write("#oca file generated from %s\r\n" % FreeCAD.ConfigGet("ExeName"))
     oca.write("# edges\r\n")
     count = 1
     for e in edges:

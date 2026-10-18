@@ -766,6 +766,56 @@ class DocumentSaveRestoreCases(unittest.TestCase):
         self.assertTrue(len(Doc.Objects) == 1)
         FreeCAD.closeDocument("RestoreTests")
 
+    def testCompactSaveBesideStandardFile(self):
+        # A plain save that would raise a standard-format file into schema 5,
+        # which no other reader opens, writes Part.TStd beside it and leaves
+        # Part.FCStd as it was (ruling 2026-10-14).
+        import shutil
+        import zipfile
+
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        doc = FreeCAD.newDocument("Sibling")
+        doc.addObject("App::FeatureTest", "Obj")
+        doc.SaveSchemaVersion = 4
+        standard = os.path.join(tmp, "Part.FCStd")
+        compact = os.path.join(tmp, "Part.TStd")
+        doc.saveAs(standard)
+        FreeCAD.closeDocument(doc.Name)
+        with open(standard, "rb") as f:
+            before = f.read()
+
+        doc = FreeCAD.openDocument(standard)
+        try:
+            self.assertEqual(doc.SaveSchemaVersion, 5)
+            doc.getObject("Obj").Integer = 1
+            doc.save()
+            self.assertEqual(os.path.normcase(doc.FileName), os.path.normcase(compact))
+            with open(standard, "rb") as f:
+                self.assertEqual(f.read(), before)
+            with zipfile.ZipFile(compact) as archive:
+                self.assertIn('SchemaVersion="5"', archive.read("Document.xml").decode("utf-8"))
+
+            # The document is its .TStd from here on: the next save stays
+            # there, and the file it replaces is backed up as a .TBak.
+            doc.save()
+            self.assertEqual(os.path.normcase(doc.FileName), os.path.normcase(compact))
+            names = os.listdir(tmp)
+            self.assertTrue([n for n in names if n.endswith(".TBak")], names)
+            self.assertFalse([n for n in names if n.endswith(".FCBak")], names)
+
+            # A name given without an extension takes the schema's.
+            doc.saveAs(os.path.join(tmp, "Named"))
+            self.assertTrue(doc.FileName.endswith("Named.TStd"), doc.FileName)
+        finally:
+            FreeCAD.closeDocument(doc.Name)
+
+        # Whatever still names the old file is pointed at the new one.
+        os.remove(standard)
+        with self.assertRaises(Exception) as caught:
+            FreeCAD.openDocument(standard)
+        self.assertIn("Part.TStd", str(caught.exception))
+
     def testActiveDocument(self):
         # open 2nd doc
         Second = FreeCAD.newDocument("Active")
@@ -1387,6 +1437,47 @@ class UndoRedoCases(unittest.TestCase):
         self.Doc.undo()
         self.Doc.undo()
         self.assertTrue(self.Doc.recompute() >= 0)
+
+    def testProcessEndedFromAScriptEnds(self):
+        # A commit keeps the values it copied for the next write, and a
+        # copy takes itself out of that cache as it dies. A process ended
+        # with os._exit() while a document with committed transactions is
+        # open leaves copies in it, and on Windows that path still runs the
+        # destructors of the libraries' statics: the cache was torn down
+        # with the copies in it, each looking itself up in what was left,
+        # and the process crashed instead of ending.
+        import subprocess
+        import sys
+
+        exe = os.path.join(
+            FreeCAD.getHomePath(), "bin", "FreeCADCmd" + (".exe" if sys.platform == "win32" else "")
+        )
+        if not os.path.isfile(exe):
+            self.skipTest("no FreeCADCmd beside this build")
+        script = os.path.join(tempfile.gettempdir(), "FreeCADTestEndedFromAScript.py")
+        with open(script, "w") as f:
+            f.write(
+                "import os\n"
+                "import FreeCAD\n"
+                "doc = FreeCAD.newDocument('EndedFromAScript')\n"
+                "doc.openTransaction('make')\n"
+                "obj = doc.addObject('App::FeatureTest', 'Feature')\n"
+                "doc.commitTransaction()\n"
+                "doc.recompute()\n"
+                "doc.openTransaction('change')\n"
+                "obj.Integer = 5\n"
+                "obj.Label = 'changed'\n"
+                "doc.commitTransaction()\n"
+                "doc.recompute()\n"
+                "print('before the end', flush=True)\n"
+                "os._exit(0)\n"
+            )
+        try:
+            done = subprocess.run([exe, script], capture_output=True, timeout=300)
+        finally:
+            os.remove(script)
+        self.assertIn(b"before the end", done.stdout)
+        self.assertEqual(done.returncode, 0)
 
     def tearDown(self):
         # closing doc
@@ -5572,6 +5663,9 @@ class TransactionBranchCases(unittest.TestCase):
             "ImmutableShapeValues", True
         ):
             self.skipTest("shape values are not frozen")
+        # upstream's OCCT freezes nothing, so nothing is refused
+        if not Part.hasOCCTFunction("TKBRep", "TopoDS_LockedShape_Raised"):
+            self.skipTest("needs the OCCT fork's TopoDS_LockedShape_Raised (TKBRep)")
 
         class Tolerance:
             def __init__(self, obj):
@@ -5613,6 +5707,9 @@ class TransactionBranchCases(unittest.TestCase):
             "ImmutableShapeValues", True
         ):
             self.skipTest("shape values are not frozen")
+        # upstream's OCCT freezes nothing, so nothing is refused
+        if not Part.hasOCCTFunction("TKBRep", "TopoDS_LockedShape_Raised"):
+            self.skipTest("needs the OCCT fork's TopoDS_LockedShape_Raised (TKBRep)")
 
         runs = []
 
@@ -9103,6 +9200,60 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual((merged["unresolved"], merged["failed"]), ([], []))
         self.assertEqual(sorted(o.Name for o in doc.Objects), ["Made", "Obj", "Theirs"])
         self.assertEqual(doc.Made.Integer, 7)
+
+    def testUsersInGroups(self):
+        # docs/TransactionLog.md sec 32.32: a group is a user of kind
+        # 'group'; a user is put in one by naming it, which makes it; a
+        # group may be in a group, and not in itself.
+        doc = self.track(FreeCAD.newDocument("Groups"))
+        doc.UndoMode = 1
+        doc.openTransaction("create")
+        doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        doc.commitTransaction()
+        doc.saveAs(os.path.join(self.dir, "groups.FCStd"))
+        doc.addTransactionGroup("all")
+        doc.setTransactionUserGroup("invited", "bob", "team")
+        doc.setTransactionUserGroup("group", "team", "all")
+        users = {(u["kind"], u["name"]): u["group"] for u in doc.getTransactionUsers()}
+        self.assertEqual(users[("invited", "bob")], "team")
+        self.assertEqual(users[("group", "team")], "all")
+        self.assertEqual(users[("group", "all")], "")
+        with self.assertRaises(ValueError):
+            doc.setTransactionUserGroup("group", "all", "team")
+        with self.assertRaises(ValueError):
+            doc.setTransactionUserGroup("nosuchkind", "bob", "team")
+        # What is said of a group is said as of any user
+        doc.setTransactionAccess("group", "team", "main", True)
+        self.assertIn(("group", "team", "main", True),
+                      [(a["kind"], a["name"], a["branch"], a["write"])
+                       for a in doc.getTransactionAccess()])
+        doc.setTransactionUserGroup("invited", "bob")
+        users = {(u["kind"], u["name"]): u["group"] for u in doc.getTransactionUsers()}
+        self.assertEqual(users[("invited", "bob")], "")
+
+    def testABranchOpenedByNameLeavesAnotherBranchsDocumentWhereItIs(self):
+        # docs/TransactionLog.md sec 32.31: the tip of a branch opened by its
+        # name, where the editable instance of the version it opens at is
+        # another branch's document -- that one is not switched from under
+        # it; a second instance is opened.
+        doc = self.track(FreeCAD.newDocument("ByName"))
+        doc.UndoMode = 1
+        doc.openTransaction("create")
+        doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        doc.commitTransaction()
+        path = os.path.join(self.dir, "byname.FCStd")
+        doc.saveAs(path)
+        one = self.track(doc.openTransactionBranch("one", False))
+        doc.createTransactionBranch("two")
+        doc.switchTransactionBranch("main")
+        two = self.track(FreeCAD.openDocument(path + "@two@", hidden=True))
+        names = {b["id"]: b["name"] for b in doc.getTransactionBranches()}
+        self.assertNotEqual(two.Name, one.Name)
+        self.assertEqual(names[one.getTransactionCursor()["branch"]], "one")
+        self.assertEqual(names[two.getTransactionCursor()["branch"]], "two")
+        self.assertEqual(names[doc.getTransactionCursor()["branch"]], "main")
 
     def testABranchIsMergedAcrossOpensOlderThanTheVersionsKept(self):
         # Sec 31.15, seen on the way: whether an open found the file its

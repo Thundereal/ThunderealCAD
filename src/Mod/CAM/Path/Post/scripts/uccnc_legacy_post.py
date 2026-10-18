@@ -304,6 +304,7 @@ HEADER = """(Exported by FreeCAD for {})
 (CAM file: {})
 (Output Time: {})
 """
+HEADER = HEADER.replace("FreeCAD", FreeCAD.ConfigGet("ExeName"), 1)
 
 
 def processArguments(argstring):

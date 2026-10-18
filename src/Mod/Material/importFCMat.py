@@ -350,7 +350,7 @@ def write(filename, dictionary, write_group_section=True):
     f.write("; " + header.get("AuthorAndLicense", "no author") + "\n")
     f.write("; information about the content of such cards can be found on the wiki:\n")
     f.write("; https://www.freecad.org/wiki/Material\n")
-    f.write("; file created by FreeCAD " + rev + "\n")
+    f.write("; file created by " + FreeCAD.ConfigGet("ExeName") + " " + rev + "\n")
     # write sections
     # write standard FCMat section if write group section parameter is set to False
     if write_group_section is False:

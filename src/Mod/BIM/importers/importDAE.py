@@ -559,7 +559,7 @@ def _export(exportSet, filename, colors):
     author = author.replace(">","")
     cont.author = author
     ver = FreeCAD.Version()
-    appli = "FreeCAD v" + ver[0] + "." + ver[1] + " build" + ver[2] + "\n"
+    appli = FreeCAD.ConfigGet("ExeName") + " v" + ver[0] + "." + ver[1] + " build" + ver[2] + "\n"
     cont.authoring_tool = appli
     #print(author, appli)
     colmesh.assetInfo.contributors.append(cont)

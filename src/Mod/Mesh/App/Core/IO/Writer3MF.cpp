@@ -29,6 +29,7 @@
 #include "Core/Evaluation.h"
 #include "Core/MeshKernel.h"
 #include <Base/Tools.h>
+#include <App/Application.h>
 
 #include "Writer3MF.h"
 
@@ -59,7 +60,8 @@ void Writer3MF::Initialize(std::ostream& str)
     str << "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
            "<model unit=\"millimeter\" xml:lang=\"en-US\" "
            "xmlns=\"http://schemas.microsoft.com/3dmanufacturing/core/2015/02\">\n"
-           " <metadata name=\"Application\">FreeCAD</metadata>\n";
+           " <metadata name=\"Application\">"
+        << App::Application::getExecutableName() << "</metadata>\n";
     str << Base::blanks(1) << "<resources>\n";
 }
 

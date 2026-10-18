@@ -36,6 +36,7 @@
 #include <Base/Console.h>
 
 #include "Application.h"
+#include "BrandText.h"
 #include "SandboxParams.h"
 #include "ExpressionImageHost.h"
 #include "ExpressionPyodide.h"
@@ -355,7 +356,7 @@ std::string verifyDirectory(const std::string& dir, bool* pinned)
         return "no package.json names a pyodide version under " + dir;
     const Release* r = releaseFor(version);
     if (!r)
-        return "pyodide " + version + " is not a version this FreeCAD supports";
+        return "pyodide " + version + " is not a version this application supports";
     if (pinned)
         *pinned = true;
     for (const auto& f : r->files) {
@@ -527,7 +528,7 @@ std::string missingImport(const std::string& importName)
     }
     ExpressionSecurity::Runtime::instance().requestPending(
             ExpressionSecurity::Permission::PkgInstall, info->name);
-    return "FreeCAD can install " + info->name + " " + info->version
+    return brandText("FreeCAD can install ") + info->name + " " + info->version
         + " for the sandbox: allow pkg.install:" + info->name
         + " in the Document permissions panel";
 }

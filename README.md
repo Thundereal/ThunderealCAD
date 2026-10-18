@@ -1,148 +1,103 @@
-![Logo](https://github.com/realthunder/FreeCADMakeImage/raw/master/conda/branding/asm3/icons/hicolor/64x64/apps/freecad_link.png)
-
-This is the Link branch FreeCAD, with lots of new features and enhancement.
-This branch is original created to develop the `App::Link` feature for use
-with my [Assembly3](https://github.com/realthunder/FreeCAD_assembly3)
-workbench. The feature has since been merged to official FreeCAD, but the
-branch stayed and become a forefront of what future FreeCAD might become.
-
-It's function now is to continuously improve and test the [Topological naming
-problem](https://wiki.freecad.org/Topological_naming_problem) and it's [fix](https://github.com/realthunder/FreeCAD_assembly3/wiki/Topological-Naming).  
-Which I eventually plan to merge back in to the FreeCAD main branch.
-
-You can help test new features by trying one of the pre-built images
-released [here](https://github.com/realthunder/FreeCAD_assembly3/releases).
-There is also more frequent release in
-[snap](https://snapcraft.io/freecad-realthunder) image for Linux folks to try
-out.
-
-
-<details>
-  <summary>Original FreeCAD ReadMe. Click to Expand.</summary>
-
-<a href="https://freecad.org"><img src="https://www.freecad.org/svg/icon-freecad.svg" height="100px" width="100px"></a>
-
-### Your own 3D parametric modeler
-
-[Website](https://www.freecad.org) • 
-[Documentation](https://wiki.freecad.org) •
-[Forum](https://forum.freecad.org/) •
-[Bug tracker](https://github.com/FreeCAD/FreeCAD/issues) •
-[Git repository](https://github.com/FreeCAD/FreeCAD) •
-[Blog](https://blog.freecad.org)
-
-
-[![Release](https://img.shields.io/github/release/freecad/freecad.svg)](https://github.com/freecad/freecad/releases/latest) [![Crowdin](https://d322cqt584bo4o.cloudfront.net/freecad/localized.svg)](https://crowdin.com/project/freecad) [![Liberapay](https://img.shields.io/liberapay/receives/FreeCAD.svg?logo=liberapay)](https://liberapay.com/FreeCAD)
-
-<img src="https://user-images.githubusercontent.com/1828501/174066870-1692005b-f8d7-43fb-a289-6d2f07f73d7f.png" width="800"/>
-
-Overview
---------
-
-* **Freedom to build what you want**  FreeCAD is an open-source parametric 3D 
-modeler made primarily to design real-life objects of any size. 
-Parametric modeling allows you to easily modify your design by going back into 
-your model history to change its parameters. 
-
-* **Create 3D from 2D and back** FreeCAD lets you to sketch geometry constrained
- 2D shapes and use them as a base to build other objects. 
- It contains many components to adjust dimensions or extract design details from 
- 3D models to create high quality production-ready drawings.
-
-* **Designed for your needs** FreeCAD is designed to fit a wide range of uses
-including product design, mechanical engineering and architecture,
-whether you are a hobbyist, programmer, experienced CAD user, student or teacher.
-
-* **Cross platform** FreeCAD runs on Windows, macOS and Linux operating systems.
-
-* **Underlying technology**
-    * **OpenCASCADE** A powerful geometry kernel, the most important component of FreeCAD
-    * **Coin3D library** Open Inventor-compliant 3D scene representation model
-    * **Python** FreeCAD offers a broad Python API
-    * **Qt** Graphical user interface built with Qt
-
-
-Installing
-----------
-
-Precompiled packages for stable releases are available for Windows, macOS and Linux on the
-[Releases page](https://github.com/FreeCAD/FreeCAD/releases).
-
-On most Linux distributions, FreeCAD is also directly installable from the 
-software center application.
-
-For development releases check the [weekly-builds page](https://github.com/FreeCAD/FreeCAD-Bundle/releases/tag/weekly-builds).
-
-Other options are described at the [wiki Download page](https://wiki.freecad.org/Download).
-
-Compiling
----------
-
-Compiling FreeCAD requires installation of several libraries and their 
-development files such as OCCT (Open Cascade), Coin and Qt, listed in the 
-pages below. Once this is done, FreeCAD can be compiled with 
-CMake. On Windows, these libraries are bundled and offered by the 
-FreeCAD team in a convenient package. On Linux, they are usually found 
-in your distribution's repositories, and on macOS and other platforms, 
-you will usually have to compile them yourself.
-
-The pages below contain up-to-date build instructions:
-
-- [Linux](https://wiki.freecad.org/Compile_on_Linux)
-- [Windows](https://wiki.freecad.org/Compile_on_Windows)
-- [macOS](https://wiki.freecad.org/Compile_on_MacOS)
-- [Cygwin](https://wiki.freecad.org/Compile_on_Cygwin)
-- [MinGW](https://wiki.freecad.org/Compile_on_MinGW)
-
-
-Reporting Issues
----------
-
-To report an issue please:
-
-- First post to forum to verify the issue; 
-- Link forum thread to bug tracker ticket and vice-a-versa; 
-- Use the most updated stable or development versions of FreeCAD; 
-- Post version info from eg. `Help > About FreeCAD > Copy to clipboard`; 
-- Post a Step-By-Step explanation on how to recreate the issue; 
-- Upload an example file to demonstrate problem. 
-
-For more detail see:
-
-- [Bug Tracker](https://github.com/FreeCAD/FreeCAD/issues)
-- [Reporting Issues and Requesting Features](https://github.com/FreeCAD/FreeCAD/issues/new/choose)
-- [Contributing](https://github.com/FreeCAD/FreeCAD/blob/master/CONTRIBUTING.md)
-- [Help Forum](https://forum.freecad.org/viewforum.php?f=3)
-- [Developers Handbook](https://freecad.github.io/DevelopersHandbook/)
-
-The [FPA](https://fpa.freecad.org) offers developers the opportunity
-to apply for a grant to work on projects of their choosing. Check
-[jobs and funding](https://blog.freecad.org/jobs/) to know more.
-
-
-Usage & Getting help
---------------------
-
-The FreeCAD wiki contains documentation on 
-general FreeCAD usage, Python scripting, and development. These 
-pages might help you get started:
-
-- [Getting started](https://wiki.freecad.org/Getting_started)
-- [Features list](https://wiki.freecad.org/Feature_list)
-- [Frequent questions](https://wiki.freecad.org/FAQ/en)
-- [Workbenches](https://wiki.freecad.org/Workbenches)
-- [Scripting](https://wiki.freecad.org/Power_users_hub)
-- [Development](https://wiki.freecad.org/Developer_hub)
-
-The [FreeCAD forum](https://forum.freecad.org) is also a great place
-to find help and solve specific problems you might encounter when
-learning to use FreeCAD.
-
-
-<p>This project receives generous infrastructure support from
-  <a href="https://www.digitalocean.com/">
-    <img src="https://opensource.nyc3.cdn.digitaloceanspaces.com/attribution/assets/SVG/DO_Logo_horizontal_blue.svg" width="91px">
-  </a> and <a href="https://www.kipro-pcb.com/">KiCad Services Corp.</a>
+<p align="center">
+  <a href="https://thundereal.org"><img src="src/Gui/Icons/thundereal-mark.svg" width="96" height="96" alt="Thundereal"></a>
 </p>
 
-</details>
+<h1 align="center">Thundereal</h1>
+
+<p align="center"><b>Parametric 3D CAD. Everything you dreamed of. And then some.</b></p>
+
+<p align="center">
+  <a href="https://thundereal.org">Website</a> &middot;
+  <a href="https://github.com/Thundereal/ThunderealCAD/releases">Download</a> &middot;
+  <a href="https://github.com/Thundereal/ThunderealCAD/discussions">Discussions</a> &middot;
+  <a href="https://github.com/Thundereal/ThunderealCAD/wiki">Wiki</a> &middot;
+  <a href="https://github.com/Thundereal/ThunderealCAD/issues">Report a bug</a>
+</p>
+
+Thundereal is FreeCAD rebuilt where it counts: a renderer that brings your
+design to life while you are still building it, a geometry kernel that
+finishes the shells, fillets and drafts others give up on, and a model that
+remembers every step and branches like code.
+
+Open source (LGPL-2.1+). Opens FreeCAD files. Linux, Windows and macOS, and
+browser and mobile through sharing. The full tour is at
+**[thundereal.org](https://thundereal.org)**.
+
+## Rendering
+
+The glossy product shots in CAD tutorials are made right here, in the window
+you model in, and they stay live while you edit.
+
+- **A real-time GPU engine** -- physically based materials, soft shadows,
+  ambient occlusion, image-based lighting, glass, water and fire, on OpenGL
+  or Vulkan.
+- **Surface finish** -- screw threads that look cut, not painted, at their
+  true pitch and profile; knurled, brushed, blasted and turned too, face by
+  face, with no UV mapping.
+- **MaterialX** -- the open material standard, with a node-graph editor for
+  your own shaders.
+- **Cycles** -- Blender's path tracer inside the 3D view for the final
+  photoreal picture.
+
+## A kernel that finishes the job
+
+Thundereal ships its own fork of OpenCASCADE, fixed case by case against
+models from real bug reports and checked against upstream on every fix.
+
+- **Thickness** -- shells that fail or come out inside out upstream come out
+  right.
+- **Fillet** -- setback blends where fillets meet at a corner, and a smooth
+  patch where the corner can't be solved exactly.
+- **Draft** -- a new draft that can change topology, taken automatically
+  wherever the classic draft would cross itself.
+
+## A model with a memory
+
+Every step is written into the document's transaction log, and on it sits
+what git gives code.
+
+- **Every step, kept** -- each edit, undo, recompute and save, with every
+  value before and after, travelling inside the file.
+- **Versions** -- the whole document as it was at a moment.
+- **Branches and merge** -- try the risky idea on a branch of the same file;
+  changes merge by what they touch.
+- **Shape diff** -- see what a merge, a version or a step would change,
+  drawn as shapes, before you take it.
+
+## And then some
+
+Progressive loading for large models, live sharing to a browser or phone
+behind a sign-in door, Blender-style split views, one search box for
+objects, commands and settings (press `/`), a sandbox for formulas and
+Python features in files you were sent, and a built-in MCP server for your
+AI assistant.
+
+## Built on FreeCAD
+
+Thundereal is a fork of [FreeCAD](https://www.freecad.org) and wouldn't be
+possible without the FreeCAD community. It keeps FreeCAD's Python API, so
+macros and most add-ons work unchanged. It grew out of the Link branch,
+where `App::Link` and the first fix for topological naming started.
+
+Thundereal is not FreeCAD: please report its bugs on
+[Thundereal's tracker](https://github.com/Thundereal/ThunderealCAD/issues),
+not upstream's.
+
+## Building
+
+Thundereal builds with CMake and Ninja against a conda environment, its own
+forks of [OpenCASCADE](https://github.com/realthunder/OCCT) and
+[Coin3D](https://github.com/realthunder/coin), and Qt 6.
+[docs/DevEnvironment.md](docs/DevEnvironment.md) has the full recipe, and
+[docs/Testing.md](docs/Testing.md) runs the test suites.
+
+## Support the work
+
+Thundereal is made in the open. If it saves you time, these keep it going:
+[Patreon](https://www.patreon.com/thundereal) &middot;
+[Liberapay](https://liberapay.com/realthunder/donate) &middot;
+[PayPal](https://www.paypal.me/realthunder)
+
+## License
+
+[LGPL-2.1-or-later](LICENSE), the same as FreeCAD.

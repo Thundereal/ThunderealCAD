@@ -42,6 +42,7 @@
 #endif // HAVE_CONFIG_H
 
 #include <cstdio>
+#include <initializer_list>
 #include <map>
 #include <stdexcept>
 
@@ -57,19 +58,14 @@
 #include <Base/Exception.h>
 #include <Gui/Application.h>
 
+#include "Identity.h"
+
 
 void PrintInitHelp();
 
-const char sBanner[] = "\xc2\xa9 Juergen Riegel, Werner Mayer, Yorik van Havre and others 2001-2023\n"\
-"FreeCAD is free and open-source software licensed under the terms of LGPL2+ license.\n"\
-"FreeCAD wouldn't be possible without FreeCAD community.\n"\
-"  #####                 ####  ###   ####  \n" \
-"  #                    #      # #   #   # \n" \
-"  #     ##  #### ####  #     #   #  #   # \n" \
-"  ####  # # #  # #  #  #     #####  #   # \n" \
-"  #     #   #### ####  #    #     # #   # \n" \
-"  #     #   #    #     #    #     # #   #  ##  ##  ##\n" \
-"  #     #   #### ####   ### #     # ####   ##  ##  ##\n\n" ;
+// The name, banner and links THUNDEREAL_IDENTITY picks.
+const char sBanner[] = "\xc2\xa9 " FREECAD_COPYRIGHT_AUTHORS FREECAD_LICENSE_INFO
+                       FREECAD_CREDITS_INFO FREECAD_BANNER_ART;
 
 #if defined(_MSC_VER)
 void InitMiniDumpWriter(const std::string&);
@@ -183,10 +179,22 @@ int main( int argc, char ** argv )
 #endif
 
     // Name and Version of the Application
-    App::Application::Config()["ExeName"] = "FreeCAD";
-    App::Application::Config()["ExeVendor"] = "FreeCAD";
+    App::Application::Config()["ExeName"] = FREECAD_APP_NAME;
+    App::Application::Config()["ExeVendor"] = FREECAD_APP_NAME;
     App::Application::Config()["AppDataSkipVendor"] = "true";
-    App::Application::Config()["MaintainerUrl"] = "https://www.freecad.org/wiki/Main_Page";
+#ifdef FREECAD_PROGRAM_URL
+    App::Application::Config()["ProgramUrl"] = FREECAD_PROGRAM_URL;
+#endif
+#ifdef FREECAD_HELP_SITES
+    for (const auto& [key, url] :
+         std::initializer_list<std::pair<const char*, const char*>> {FREECAD_HELP_SITES}) {
+        App::Application::Config()[key] = url;
+    }
+#endif
+    App::Application::Config()["MaintainerUrl"] = FREECAD_MAINTAINER_URL;
+#ifdef FREECAD_ISSUE_PAGE
+    App::Application::Config()["IssuePage"] = FREECAD_ISSUE_PAGE;
+#endif
 
     // set the banner (for logging and console)
     App::Application::Config()["CopyrightInfo"] = sBanner;
@@ -198,9 +206,17 @@ int main( int argc, char ** argv )
     App::Application::Config()["SplashAlignment" ] = "Bottom|Left";
     App::Application::Config()["SplashTextColor" ] = "#8aadf4"; // light blue
     App::Application::Config()["SplashInfoColor" ] = "#8aadf4"; // light blue 
-    App::Application::Config()["SplashInfoPosition" ] = "6,75";
+    App::Application::Config()["SplashInfoPosition" ] = FREECAD_SPLASH_INFO_POSITION;
+#ifdef FREECAD_SPLASH_INFO_EXE_NAME
+    App::Application::Config()["SplashInfoExeName" ] = FREECAD_SPLASH_INFO_EXE_NAME;
+#endif
+#ifdef FREECAD_SPLASH_WARNING_WIDTH
+    App::Application::Config()["SplashWarningWidth" ] = FREECAD_SPLASH_WARNING_WIDTH;
+#endif
 
-    QGuiApplication::setDesktopFileName(QStringLiteral("org.freecad.FreeCAD.desktop"));
+    // The app id from the build (THUNDEREAL_IDENTITY): the desktop entry the shell
+    // matches windows to, and the Wayland app_id. Qt wants the name with no suffix.
+    QGuiApplication::setDesktopFileName(QStringLiteral(FREECAD_APP_ID));
 
     try {
         // Init phase ===========================================================

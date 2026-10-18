@@ -163,6 +163,7 @@
 #endif // _PreComp_
 
 #include <App/DocumentParams.h>
+#include <App/Application.h>
 #include <App/MaterialAppearance.h>
 #include <App/ElementNamingUtils.h>
 #include <Base/BoundBox.h>
@@ -872,10 +873,12 @@ void TopoShape::exportStep(const char *filename) const
         APIHeaderSection_MakeHeader makeHeader(aWriter.Model());
         // Don't set name because STEP doesn't support UTF-8
         // https://forum.freecad.org/viewtopic.php?f=8&t=52967
-        makeHeader.SetAuthorValue (1, new TCollection_HAsciiString("FreeCAD"));
-        makeHeader.SetOrganizationValue (1, new TCollection_HAsciiString("FreeCAD"));
-        makeHeader.SetOriginatingSystem(new TCollection_HAsciiString("FreeCAD"));
-        makeHeader.SetDescriptionValue(1, new TCollection_HAsciiString("FreeCAD Model"));
+        // The program, by its name, as Import's STEP writer names it (WriterStep.cpp)
+        const std::string program = App::Application::getExecutableName();
+        makeHeader.SetAuthorValue (1, new TCollection_HAsciiString(program.c_str()));
+        makeHeader.SetOrganizationValue (1, new TCollection_HAsciiString(program.c_str()));
+        makeHeader.SetOriginatingSystem(new TCollection_HAsciiString(program.c_str()));
+        makeHeader.SetDescriptionValue(1, new TCollection_HAsciiString((program + " Model").c_str()));
 
         if (aWriter.Write(encodeFilename(filename).c_str()) != IFSelect_RetDone)
             THROWM(Base::FileException, "Writing of STEP failed")
@@ -915,15 +918,15 @@ void TopoShape::applyStorageOptions(BRepTools_ShapeSet& set, bool forStorage)
     set.SetStableBytes(forStorage && App::DocumentParams::getStableShapeBytes());
     // Merging equal 2D curves is what the kernel does by default, so this only
     // ever has to turn it off.
-    set.ChangeCurves2d().SetMerging(dedup);
+    setOCCTCurve2dSetMerging(set.ChangeCurves2d(), dedup);
 }
 
 void TopoShape::applyStorageOptions(BinTools_ShapeSet& set, bool forStorage)
 {
     // The binary 2D curve set has no merging to gate, so only the pcurve drop
     // applies to this format.
-    set.SetOmitPCurvesOnPlane(forStorage && App::DocumentParams::getDedupShapePCurves());
-    set.SetStableBytes(forStorage && App::DocumentParams::getStableShapeBytes());
+    setOCCTOmitPCurvesOnPlane(set, forStorage && App::DocumentParams::getDedupShapePCurves());
+    setOCCTStableBytes(set, forStorage && App::DocumentParams::getStableShapeBytes());
 }
 
 void TopoShape::exportBrep(std::ostream& out, bool forStorage) const

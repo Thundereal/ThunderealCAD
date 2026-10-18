@@ -1,4 +1,17 @@
 
+# The executables' icon is the one THUNDEREAL_IDENTITY picks, by full path so the
+# resource compiler cannot find the other one first.
+if(THUNDEREAL_IDENTITY)
+    set(FREECAD_APP_ICO ${CMAKE_CURRENT_SOURCE_DIR}/thundereal.ico)
+else()
+    set(FREECAD_APP_ICO ${CMAKE_CURRENT_SOURCE_DIR}/icon.ico)
+endif()
+# The name, banner and links THUNDEREAL_IDENTITY picks (Identity.h), for every
+# entry point: the executables and the FreeCAD/FreeCADGui Python modules.
+set(FREECAD_IDENTITY_DEFINITIONS FREECAD_APP_NAME="${FREECAD_APP_NAME}")
+if(THUNDEREAL_IDENTITY)
+    list(APPEND FREECAD_IDENTITY_DEFINITIONS THUNDEREAL_IDENTITY)
+endif()
 configure_file(freecad.rc.cmake ${CMAKE_CURRENT_BINARY_DIR}/freecad.rc)
 configure_file(freecadCmd.rc.cmake ${CMAKE_CURRENT_BINARY_DIR}/freecadCmd.rc)
 file(COPY icon.ico DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
@@ -36,13 +49,38 @@ else(BUILD_GUI)
     )
 endif(BUILD_GUI)
 
+# The executables are named after the program (FREECAD_APP_NAME). A program
+# with a name of its own keeps FreeCAD's names beside them as links, where the
+# system has links, for the scripts, tests and add-ons that start FreeCAD or
+# FreeCADCmd by name -- in the build tree and in the installed bin. Windows
+# gets the new names only.
+function(fc_keep_upstream_name target old)
+    if(WIN32 OR FREECAD_APP_NAME STREQUAL "FreeCAD")
+        return()
+    endif()
+    get_target_property(_new ${target} OUTPUT_NAME)
+    add_custom_command(TARGET ${target} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E create_symlink ${_new} $<TARGET_FILE_DIR:${target}>/${old}
+        VERBATIM)
+    if(APPLE AND NOT BUILD_WITH_CONDA)
+        set(_dir MacOS)
+    else()
+        set(_dir ${CMAKE_INSTALL_BINDIR})
+    endif()
+    install(CODE "
+        set(_bin \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/${_dir}\")
+        file(MAKE_DIRECTORY \"\${_bin}\")
+        execute_process(COMMAND \"\${CMAKE_COMMAND}\" -E create_symlink ${_new} \"\${_bin}/${old}\")
+    ")
+endfunction()
+
 ######################## FreeCADMain ########################
 if(BUILD_GUI)
 
     SET(FreeCAD_SRCS
         ${CMAKE_CURRENT_BINARY_DIR}/freecad.rc
         ${FREECAD_MANIFEST}
-        icon.ico
+        ${FREECAD_APP_ICO}
         MainGui.cpp
     )
 
@@ -60,8 +98,12 @@ if(BUILD_GUI)
 
     add_executable(FreeCADMain WIN32 ${FreeCAD_SRCS})
     target_link_libraries(FreeCADMain ${FreeCAD_LIBS})
+    # The desktop entry the running app names itself by (THUNDEREAL_IDENTITY).
+    target_compile_definitions(FreeCADMain PRIVATE FREECAD_APP_ID="${FREECAD_APP_ID}"
+                               ${FREECAD_IDENTITY_DEFINITIONS})
 
-    SET_BIN_DIR(FreeCADMain FreeCAD)
+    SET_BIN_DIR(FreeCADMain ${FREECAD_APP_NAME})
+    fc_keep_upstream_name(FreeCADMain FreeCAD)
 
     if(MSVC)
         # The other half of the bin/FreeCAD.ilk collision -- see FreeCADMainPy.
@@ -89,11 +131,12 @@ endif(BUILD_GUI)
 SET(FreeCADMainCmd_SRCS
     ${CMAKE_CURRENT_BINARY_DIR}/freecadCmd.rc
     ${FREECAD_MANIFEST}
-    icon.ico
+    ${FREECAD_APP_ICO}
     MainCmd.cpp
 )
 
 add_executable(FreeCADMainCmd ${FreeCADMainCmd_SRCS})
+target_compile_definitions(FreeCADMainCmd PRIVATE ${FREECAD_IDENTITY_DEFINITIONS})
 
 SET(FreeCADMainCmd_LIBS
     FreeCADApp
@@ -113,7 +156,8 @@ target_link_libraries(FreeCADMainCmd
     ${FreeCADMainCmd_LIBS}
 )
 
-SET_BIN_DIR(FreeCADMainCmd FreeCADCmd)
+SET_BIN_DIR(FreeCADMainCmd ${FREECAD_APP_NAME}Cmd)
+fc_keep_upstream_name(FreeCADMainCmd FreeCADCmd)
 
 if(WIN32)
     INSTALL(TARGETS FreeCADMainCmd
@@ -138,6 +182,7 @@ SET(FreeCADMainPy_SRCS
 )
 
 add_library(FreeCADMainPy SHARED ${FreeCADMainPy_SRCS})
+target_compile_definitions(FreeCADMainPy PRIVATE ${FREECAD_IDENTITY_DEFINITIONS})
 
 target_link_libraries(FreeCADMainPy FreeCADApp)
 
@@ -183,6 +228,7 @@ if(BUILD_GUI)
     )
 
     add_library(FreeCADGuiPy SHARED ${FreeCADGuiPy_SRCS})
+    target_compile_definitions(FreeCADGuiPy PRIVATE ${FREECAD_IDENTITY_DEFINITIONS})
 
     target_link_libraries(FreeCADGuiPy FreeCADGui)
 

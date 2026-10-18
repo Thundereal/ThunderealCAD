@@ -49,6 +49,7 @@
 # include <QTimer>
 # include <QWindow>
 # include <QOpenGLWidget>
+# include <QPalette>
 #endif
 
 #include <Inventor/CoinFork.h>
@@ -859,7 +860,7 @@ void Application::open(const char* FileName, const char* Module)
 
     if (Module) {
         try {
-            if (File.isDir() || File.hasExtension("FCStd")) {
+            if (File.isDir() || File.hasExtension("FCStd") || File.hasExtension("TStd")) {
                 bool handled = false;
                 std::string filepath = File.filePath();
                 for (auto &v : d->documents) {
@@ -929,7 +930,7 @@ void Application::importFrom(const char* FileName, const char* DocName, const ch
             Command::doCommand(Command::App, "import %s", Module);
 
             // load the file with the module
-            if (File.hasExtension("FCStd")) {
+            if (File.hasExtension("FCStd") || File.hasExtension("TStd")) {
                 Command::doCommand(Command::App, "%s.open(%s)"
                                                , Module, unicodepath.c_str());
                 if (activeDocument())
@@ -1331,7 +1332,7 @@ void Application::switchActiveDocument()
     for(auto &v : d->documents) {
         if(v.second->getDocument()->testStatus(App::Document::TempDoc))
             continue;
-        else if (!gdoc)
+        else if (!gdoc && !v.second->getMDIViews().empty())
             gdoc = v.second;
         Gui::MDIView* view = v.second->getActiveView();
         if(view) {
@@ -1340,6 +1341,10 @@ void Application::switchActiveDocument()
             return;
         }
     }
+    // A document with no window -- a branch served in a document of its
+    // own -- is not given one for being left: closing the last window says
+    // what has none and offers to show it (docs/TransactionLog.md sec
+    // 32.30). With none that has a window, no document is active.
     if(gdoc) {
         setActiveDocument(gdoc);
         activateView(View3DInventor::getClassTypeId(),true);
@@ -3734,7 +3739,26 @@ bool Application::isDarkTheme()
     // when the theme follows it. Never unset here -- unlike
     // systemPrefersDarkScheme(), the pin is exactly what is being asked.
     if (qGuiApp) {
-        return qGuiApp->styleHints()->colorScheme() == Qt::ColorScheme::Dark;
+        const Qt::ColorScheme scheme = qGuiApp->styleHints()->colorScheme();
+        if (scheme != Qt::ColorScheme::Unknown) {
+            return scheme == Qt::ColorScheme::Dark;
+        }
+        // A platform that cannot take the pin answers Unknown whatever was
+        // asked -- xcb with no desktop theme plugin, the Linux box with no
+        // GNOME or KDE around it -- and the Dark theme's title buttons came
+        // out black on its dark bars. Then the pin itself, as the theme
+        // wrote it (read as applyColorScheme() reads it), and with none --
+        // the desktop deciding -- how dark the palette's ground is.
+        auto hGrp = App::GetApplication().GetParameterGroupByPath(
+            "User parameter:BaseApp/Preferences/MainWindow");
+        if (!hGrp->GetBool("ThemeAuto", false)) {
+            const std::string pinned =
+                hGrp->GetASCII("ColorScheme", MainWindowParams::defaultColorScheme().c_str());
+            if (pinned == "Dark" || pinned == "Light") {
+                return pinned == "Dark";
+            }
+        }
+        return QGuiApplication::palette().color(QPalette::Window).lightness() < 128;
     }
 #endif
     // No scheme API (or no GUI yet): fall back to the filename sniff this

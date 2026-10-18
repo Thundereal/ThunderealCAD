@@ -586,6 +586,30 @@ void StdCmdOnlineHelp::activated(int iMsg)
 }
 
 //===========================================================================
+// The Help menu's sites
+//===========================================================================
+
+// The page a Help command opens: the user's own, stored under key, else the
+// program's (MainGui sets Url<key> when it has sites of its own), else
+// upstream's. Every build stores the default it opened, so a stored upstream
+// default is no choice of the user's, and a program with a site of its own
+// takes it over.
+static std::string helpSiteUrl(const char* key, const std::string& upstream,
+                               const std::string* program = nullptr)
+{
+    ParameterGrp::handle hURLGrp = App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Websites");
+    const auto& cfg = App::Application::Config();
+    auto own = cfg.find(std::string("Url") + key);
+    const std::string def = program ? *program : own != cfg.end() ? own->second : upstream;
+    std::string url = hURLGrp->GetASCII(key, def.c_str());
+    if (url == upstream) {
+        url = def;
+    }
+    hURLGrp->SetASCII(key, url.c_str());
+    return url;
+}
+
+//===========================================================================
 // Std_OnlineHelpWebsite
 //===========================================================================
 
@@ -605,10 +629,7 @@ StdCmdOnlineHelpWebsite::StdCmdOnlineHelpWebsite()
 void StdCmdOnlineHelpWebsite::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string defaulturl = QCoreApplication::translate(this->className(),"https://wiki.freecad.org/Online_Help_Toc").toStdString();
-    ParameterGrp::handle hURLGrp = App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Websites");
-    std::string url = hURLGrp->GetASCII("OnlineHelp", defaulturl.c_str());
-    hURLGrp->SetASCII("OnlineHelp", url.c_str());
+    std::string url = helpSiteUrl("OnlineHelp", QCoreApplication::translate(this->className(),"https://wiki.freecad.org/Online_Help_Toc").toStdString());
     OpenURLInBrowser(url.c_str());
 }
 
@@ -633,9 +654,7 @@ StdCmdFreeCADDonation::StdCmdFreeCADDonation()
 void StdCmdFreeCADDonation::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    ParameterGrp::handle hURLGrp = App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Websites");
-    std::string url = hURLGrp->GetASCII("DonatePage", "https://wiki.freecad.org/Donate");
-    hURLGrp->SetASCII("DonatePage", url.c_str());
+    std::string url = helpSiteUrl("DonatePage", "https://wiki.freecad.org/Donate");
     OpenURLInBrowser(url.c_str());
 }
 
@@ -660,10 +679,7 @@ StdCmdFreeCADWebsite::StdCmdFreeCADWebsite()
 void StdCmdFreeCADWebsite::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string defaulturl = QCoreApplication::translate(this->className(),"https://www.freecad.org").toStdString();
-    ParameterGrp::handle hURLGrp = App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Websites");
-    std::string url = hURLGrp->GetASCII("WebPage", defaulturl.c_str());
-    hURLGrp->SetASCII("WebPage", url.c_str());
+    std::string url = helpSiteUrl("WebPage", QCoreApplication::translate(this->className(),"https://www.freecad.org").toStdString());
     OpenURLInBrowser(url.c_str());
 }
 
@@ -688,10 +704,7 @@ StdCmdFreeCADUserHub::StdCmdFreeCADUserHub()
 void StdCmdFreeCADUserHub::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string defaulturl = QCoreApplication::translate(this->className(),"https://wiki.freecad.org/User_hub").toStdString();
-    ParameterGrp::handle hURLGrp = App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Websites");
-    std::string url = hURLGrp->GetASCII("Documentation", defaulturl.c_str());
-    hURLGrp->SetASCII("Documentation", url.c_str());
+    std::string url = helpSiteUrl("Documentation", QCoreApplication::translate(this->className(),"https://wiki.freecad.org/User_hub").toStdString());
     OpenURLInBrowser(url.c_str());
 }
 
@@ -716,10 +729,7 @@ StdCmdFreeCADPowerUserHub::StdCmdFreeCADPowerUserHub()
 void StdCmdFreeCADPowerUserHub::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string defaulturl = QCoreApplication::translate(this->className(),"https://wiki.freecad.org/Power_users_hub").toStdString();
-    ParameterGrp::handle hURLGrp = App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Websites");
-    std::string url = hURLGrp->GetASCII("PowerUsers", defaulturl.c_str());
-    hURLGrp->SetASCII("PowerUsers", url.c_str());
+    std::string url = helpSiteUrl("PowerUsers", QCoreApplication::translate(this->className(),"https://wiki.freecad.org/Power_users_hub").toStdString());
     OpenURLInBrowser(url.c_str());
 }
 
@@ -744,10 +754,7 @@ StdCmdFreeCADForum::StdCmdFreeCADForum()
 void StdCmdFreeCADForum::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string defaulturl = QCoreApplication::translate(this->className(),"https://forum.freecad.org").toStdString();
-    ParameterGrp::handle hURLGrp = App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Websites");
-    std::string url = hURLGrp->GetASCII("UserForum", defaulturl.c_str());
-    hURLGrp->SetASCII("UserForum", url.c_str());
+    std::string url = helpSiteUrl("UserForum", QCoreApplication::translate(this->className(),"https://forum.freecad.org").toStdString());
     OpenURLInBrowser(url.c_str());
 }
 
@@ -772,10 +779,7 @@ StdCmdFreeCADFAQ::StdCmdFreeCADFAQ()
 void StdCmdFreeCADFAQ::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string defaulturl = QCoreApplication::translate(this->className(),"https://wiki.freecad.org/Frequently_asked_questions").toStdString();
-    ParameterGrp::handle hURLGrp = App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Websites");
-    std::string url = hURLGrp->GetASCII("FAQ", defaulturl.c_str());
-    hURLGrp->SetASCII("FAQ", url.c_str());
+    std::string url = helpSiteUrl("FAQ", QCoreApplication::translate(this->className(),"https://wiki.freecad.org/Frequently_asked_questions").toStdString());
     OpenURLInBrowser(url.c_str());
 }
 
@@ -825,9 +829,10 @@ StdCmdReportBug::StdCmdReportBug()
 void StdCmdReportBug::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    ParameterGrp::handle hURLGrp = App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/Websites");
-    std::string url = hURLGrp->GetASCII("IssuesPage", App::GetApplication().Config()["IssuePage"].c_str());
-    hURLGrp->SetASCII("IssuesPage", url.c_str());
+    // The tracker the program names (IssuePage), over the upstream one an
+    // earlier build stored
+    std::string url = helpSiteUrl("IssuesPage", "https://github.com/FreeCAD/FreeCAD/issues",
+                                  &App::GetApplication().Config()["IssuePage"]);
     OpenURLInBrowser(url.c_str());
 }
 

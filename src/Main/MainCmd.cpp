@@ -46,20 +46,15 @@
 // FreeCAD doc header
 #include <App/Application.h>
 
+#include "Identity.h"
+
 
 using Base::Console;
 using App::Application;
 
-const char sBanner[] = "(c) Juergen Riegel, Werner Mayer, Yorik van Havre and others 2001-2023\n"\
-                       "FreeCAD is free and open-source software licensed under the terms of LGPL2+ license.\n"\
-                       "FreeCAD wouldn't be possible without FreeCAD community.\n"\
-                       "  #####                 ####  ###   ####  \n" \
-                       "  #                    #      # #   #   # \n" \
-                       "  #     ##  #### ####  #     #   #  #   # \n" \
-                       "  ####  # # #  # #  #  #     #####  #   # \n" \
-                       "  #     #   #### ####  #    #     # #   # \n" \
-                       "  #     #   #    #     #    #     # #   #  ##  ##  ##\n" \
-                       "  #     #   #### ####   ### #     # ####   ##  ##  ##\n\n" ;
+// The name, banner and links THUNDEREAL_IDENTITY picks.
+const char sBanner[] = "(c) " FREECAD_COPYRIGHT_AUTHORS FREECAD_LICENSE_INFO
+                       FREECAD_CREDITS_INFO FREECAD_BANNER_ART;
 
 
 
@@ -77,9 +72,15 @@ int main( int argc, char ** argv )
 #endif
 
     // Name and Version of the Application
-    App::Application::Config()["ExeName"] = "FreeCAD";
-    App::Application::Config()["ExeVendor"] = "FreeCAD";
+    App::Application::Config()["ExeName"] = FREECAD_APP_NAME;
+    App::Application::Config()["ExeVendor"] = FREECAD_APP_NAME;
     App::Application::Config()["AppDataSkipVendor"] = "true";
+#ifdef FREECAD_PROGRAM_URL
+    App::Application::Config()["ProgramUrl"] = FREECAD_PROGRAM_URL;
+#endif
+#ifdef FREECAD_ISSUE_PAGE
+    App::Application::Config()["IssuePage"] = FREECAD_ISSUE_PAGE;
+#endif
 
     // set the banner (for logging and console)
     App::Application::Config()["CopyrightInfo"] = sBanner;
@@ -145,7 +146,7 @@ int main( int argc, char ** argv )
     }
 
     // Destruction phase ===========================================================
-    Console().Log("FreeCAD terminating...\n");
+    Console().Log(FREECAD_APP_NAME " terminating...\n");
 
     try {
         // close open documents
@@ -157,7 +158,7 @@ int main( int argc, char ** argv )
     // cleans up
     Application::destruct();
 
-    Console().Log("FreeCAD completely terminated\n");
+    Console().Log(FREECAD_APP_NAME " completely terminated\n");
 
     return 0;
 }

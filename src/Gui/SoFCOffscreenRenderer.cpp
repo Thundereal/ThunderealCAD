@@ -46,6 +46,7 @@
 #include <QOffscreenSurface>
 
 #include <App/Application.h>
+#include <App/BrandText.h>
 #include <Base/FileInfo.h>
 #include <Base/Exception.h>
 #include <Base/Console.h>
@@ -109,7 +110,7 @@ void SoFCOffscreenRenderer::writeToImageFile(const char* filename, const char* c
         // writing comment in case of jpeg (Qt ignores setText() in case of jpeg)
         std::string com;
         if (strcmp(comment,"")==0)
-            com = "Screenshot created by FreeCAD";
+            com = "Screenshot created by " + App::Application::getExecutableName();
         else if (strcmp(comment,"$MIBA")==0)
             com = createMIBA(mat);
         else
@@ -152,9 +153,13 @@ void SoFCOffscreenRenderer::writeToImageFile(const char* filename, const char* c
             // set keywords for PNG format
             if (file.hasExtension("PNG")) {
                 img.setText(QStringLiteral("Title"), QString::fromUtf8(filename));
-                img.setText(QStringLiteral("Author"), QStringLiteral("FreeCAD (https://www.freecad.org)"));
+                img.setText(QStringLiteral("Author"),
+                            QString::fromStdString(App::Application::getExecutableName() + " ("
+                                                   + App::programUrl() + ")"));
                 if (strcmp(comment,"")==0)
-                    img.setText(QStringLiteral("Description"), QStringLiteral("Screenshot created by FreeCAD"));
+                    img.setText(QStringLiteral("Description"),
+                                QString::fromStdString("Screenshot created by "
+                                                       + App::Application::getExecutableName()));
                 else if (strcmp(comment,"$MIBA")==0)
                     img.setText(QStringLiteral("Description"), QString::fromUtf8(createMIBA(mat).c_str()));
                 else

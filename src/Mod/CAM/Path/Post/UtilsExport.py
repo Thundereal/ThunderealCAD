@@ -97,7 +97,7 @@ def output_header(values: Values, gcode: Gcode) -> None:
 
     if not values["OUTPUT_HEADER"]:
         return
-    comment = PostUtilsParse.create_comment(values, "Exported by FreeCAD")
+    comment = PostUtilsParse.create_comment(values, "Exported by " + FreeCAD.ConfigGet("ExeName"))
     gcode.append(f"{PostUtilsParse.linenumber(values)}{comment}")
     comment = PostUtilsParse.create_comment(
         values, f'Post Processor: {values["POSTPROCESSOR_FILE_NAME"]}'

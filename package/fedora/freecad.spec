@@ -320,7 +320,7 @@ done
 
 %check
 desktop-file-validate \
-    %{buildroot}%{_datadir}/applications/org.freecad.FreeCAD.desktop
+    %{buildroot}%{_datadir}/applications/*.desktop
 %{?fedora:appstream-util validate-relax --nonet \
     %{buildroot}%{_metainfodir}/*.metainfo.xml}
 

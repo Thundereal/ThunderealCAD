@@ -38,6 +38,7 @@
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <App/PropertyElementAppearance.h>
 #include <App/PropertyLinks.h>
 #include <Base/Console.h>
 
@@ -182,16 +183,111 @@ void addDependency(const App::DocumentObject *obj,
     }
 }
 
-/// Resolve \a entry into its node key, and the object it ends at in
-/// \a leaf. False when it does not resolve -- its object gone, its path
-/// no longer through the scene -- which leaves it inert until the next
-/// resolution. \a deps gets the objects the resolution went through,
-/// resolved or not: a change to any of them may move the key.
+/// The key of an object the entry's own is seen through, and that object.
+struct MemberKey {
+    std::vector<uint32_t> key;
+    std::pair<std::string, std::string> leaf;
+};
+
 bool resolveEntry(const VisibilityEntry &entry,
                   std::vector<uint32_t> &key,
                   std::pair<std::string, std::string> &leaf,
                   std::vector<const App::DocumentObject *> &deps,
-                  std::vector<std::pair<std::string, std::string>> &steps)
+                  std::vector<std::pair<std::string, std::string>> &steps,
+                  std::vector<MemberKey> &members,
+                  bool &seenThrough,
+                  bool &ownKey,
+                  int depth = 0);
+
+/// The keys of what \a owner, the object \a entry ends at, is seen through
+/// (SeenThrough): the children of a plain group, drawn beside the group and
+/// not under it, and so on down a group in a group. Each is named as the
+/// owner is, one step up -- 'Part.Box.' for a child of 'Part.Group.', the
+/// object itself for a child of a top-level group -- and has the entry's
+/// value. What is on their paths is added to \a deps; the owner is there
+/// already, and a change of what it holds resolves the entry again.
+/// \a ownKey comes back false where a show of the owner is not one of its
+/// own nodes: those of a plain group, which hold every child once more.
+void resolveMembers(const VisibilityEntry &entry,
+                    const App::DocumentObject *owner,
+                    std::vector<const App::DocumentObject *> &deps,
+                    std::vector<MemberKey> &members,
+                    bool &seenThrough,
+                    bool &ownKey,
+                    int depth)
+{
+    // A group holding itself, some way down
+    constexpr int maxDepth = 16;
+    if (!owner || depth >= maxDepth)
+        return;
+    // More are hidden with an object than are shown with it, never fewer
+    auto list = SeenThrough::of(owner, SeenThrough::For::Hide);
+    if (list.empty())
+        return;
+    seenThrough = true;
+    if (entry.visible) {
+        list = SeenThrough::of(owner, SeenThrough::For::Show);
+        auto self = std::find(list.begin(), list.end(), owner);
+        ownKey = self != list.end();
+        if (ownKey)
+            list.erase(self);
+    }
+
+    const bool bare = !entry.rooted || entry.subname.empty();
+    std::string parent;
+    if (!bare && entry.subname.size() > 1) {
+        const auto pos = entry.subname.rfind('.', entry.subname.size() - 2);
+        if (pos != std::string::npos)
+            parent = entry.subname.substr(0, pos + 1);
+    }
+    for (auto member : list) {
+        VisibilityEntry sub;
+        sub.visible = entry.visible;
+        if (bare) {
+            sub.rooted = false;
+            sub.doc = member->getDocument()->getName();
+            sub.obj = member->getNameInDocument();
+        }
+        else {
+            sub.rooted = true;
+            sub.doc = entry.doc;
+            sub.obj = entry.obj;
+            sub.subname = parent + member->getNameInDocument() + ".";
+        }
+        MemberKey found;
+        std::vector<const App::DocumentObject *> subDeps;
+        // Those of the owner, which is one step from where the member is
+        std::vector<std::pair<std::string, std::string>> subSteps;
+        bool nested = false;
+        bool nestedOwn = true;
+        if (resolveEntry(sub, found.key, found.leaf, subDeps, subSteps, members, nested,
+                         nestedOwn, depth + 1)
+                && nestedOwn)
+            members.push_back(std::move(found));
+        for (const auto *dep : subDeps) {
+            if (std::find(deps.begin(), deps.end(), dep) == deps.end())
+                deps.push_back(dep);
+        }
+    }
+}
+
+/// Resolve \a entry into its node key, and the object it ends at in
+/// \a leaf. False when it does not resolve -- its object gone, its path
+/// no longer through the scene -- which leaves it inert until the next
+/// resolution. \a deps gets the objects the resolution went through,
+/// resolved or not: a change to any of them may move the key. \a members
+/// gets the keys of what the object is seen through, \a seenThrough
+/// whether it is seen through anything, whichever value the entry has, and
+/// \a ownKey whether the entry's own key counts (resolveMembers()).
+bool resolveEntry(const VisibilityEntry &entry,
+                  std::vector<uint32_t> &key,
+                  std::pair<std::string, std::string> &leaf,
+                  std::vector<const App::DocumentObject *> &deps,
+                  std::vector<std::pair<std::string, std::string>> &steps,
+                  std::vector<MemberKey> &members,
+                  bool &seenThrough,
+                  bool &ownKey,
+                  int depth)
 {
     key.clear();
     deps.clear();
@@ -227,6 +323,7 @@ bool resolveEntry(const VisibilityEntry &entry,
             return false;
         key.push_back(static_cast<SoFCSelectionRoot *>(root)->getSelNodeId());
         leaf = {entry.doc, entry.obj};
+        resolveMembers(entry, obj, deps, members, seenThrough, ownKey, depth);
         return true;
     }
     if (!pathOk)
@@ -257,6 +354,9 @@ bool resolveEntry(const VisibilityEntry &entry,
     leaf = {refs.back().doc, refs.back().obj};
     for (size_t i = 0; i + 1 < refs.size(); ++i)
         steps.emplace_back(refs[i].doc, refs[i].obj);
+    auto leafDoc = App::GetApplication().getDocument(leaf.first.c_str());
+    resolveMembers(entry, leafDoc ? leafDoc->getObject(leaf.second.c_str()) : nullptr,
+                   deps, members, seenThrough, ownKey, depth);
     return true;
 }
 
@@ -337,6 +437,12 @@ bool ResolvePending = false;
 std::set<const App::DocumentObject *> PendingObjects;
 bool PendingUnresolved = false;
 bool PendingAll = false;
+
+/// How many entries, over every table, show an object that is seen through
+/// others. While there is none, what a group remembers as hidden by hand
+/// moves no key, and a group writes that map every time one of its
+/// children is shown or hidden: a pass for each would be a pass for nothing.
+int ShowsSeenThrough = 0;
 
 /// Count or release \a key's object as shown by one view.
 void countShown(const std::pair<std::string, std::string> &key, bool enable)
@@ -471,8 +577,23 @@ void ViewVisibility::sceneChanged(const App::DocumentObject *container)
 
 void ViewVisibility::resolveInto(const VisibilityEntry &entry, Resolution &res)
 {
-    res.ok = resolveEntry(entry, res.entry.key, res.leaf, res.deps, res.steps);
+    std::vector<MemberKey> members;
+    res.seenThrough = false;
+    res.own = true;
+    res.ok = resolveEntry(entry, res.entry.key, res.leaf, res.deps, res.steps, members,
+                          res.seenThrough, res.own);
     res.entry.visibility = entry.visible ? 1 : 0;
+    res.members.clear();
+    if (!res.ok)
+        return;
+    res.members.reserve(members.size());
+    for (auto &member : members) {
+        Resolution::Member m;
+        m.entry.key = std::move(member.key);
+        m.entry.visibility = res.entry.visibility;
+        m.leaf = std::move(member.leaf);
+        res.members.push_back(std::move(m));
+    }
 }
 
 void ViewVisibility::connectSignals()
@@ -503,7 +624,19 @@ void ViewVisibility::connectSignals()
         });
         app.signalChangedObject.connect(
                 [](const App::DocumentObject &obj, const App::Property &prop) {
-                    if (!prop.isDerivedFrom(App::PropertyLinkBase::getClassTypeId()))
+                    // A link, or what a group remembers as hidden by hand:
+                    // no link, and what a view's show of the group leaves
+                    // out (SeenThrough)
+                    if (!prop.isDerivedFrom(App::PropertyLinkBase::getClassTypeId())
+                            && (!ShowsSeenThrough || !SeenThrough::dependsOn(prop)))
+                        return;
+                    // The look of an object is a link by its class (it may
+                    // name a material) and moves nothing in the scene. It is
+                    // written for every container as a reopened document's
+                    // view providers come up, one after the other over some
+                    // turns of the event loop: each write falling behind the
+                    // pass was a second pass over every entry under it.
+                    if (prop.isDerivedFrom(App::PropertyElementAppearance::getClassTypeId()))
                         return;
                     // An unresolved entry is tried again here too when it
                     // got through this object: its dependencies are the
@@ -539,7 +672,11 @@ bool ViewVisibility::rebuild(std::vector<VisibilityEntry> &source,
     count = 0;
     for (size_t i = 0; i < entries.size(); ++i) {
         auto it = known.find(identity(entries[i]));
-        if (it == known.end()) {
+        // What an object is seen through is not the same for a show as for
+        // a hide: such an entry is resolved again when its value changes
+        if (it == known.end()
+                || (results[it->second].seenThrough
+                    && source[it->second].visible != entries[i].visible)) {
             resolveInto(entries[i], now[i]);
             ++count;
             continue;
@@ -584,20 +721,48 @@ bool ViewVisibility::commit()
     std::vector<SoFCVisibilityElement::Entry> now;
     std::set<std::pair<std::string, std::string>> nowShown;
     now.reserve(transientRes.size() + persistedRes.size());
+    int showing = 0;
+    for (const auto *results : {&transientRes, &persistedRes}) {
+        for (const auto &res : *results) {
+            if (res.ok && res.seenThrough && res.entry.visibility)
+                ++showing;
+        }
+    }
+    ShowsSeenThrough += showing - showsSeenThrough;
+    showsSeenThrough = showing;
     for (const auto *results : {&transientRes, &persistedRes}) {
         for (const auto &res : *results) {
             if (!res.ok)
                 continue;
             if (res.entry.visibility) {
-                nowShown.insert(res.leaf);
-                // ... and what it is reached through: a body hidden in the
-                // document kept the capture from the feature this view shows
-                // in it, and an edit showed no base feature with its body
-                // hidden (docs/HandsOnQueue.md entry 108)
+                // What it is reached through: a body hidden in the document
+                // kept the capture from the feature this view shows in it,
+                // and an edit showed no base feature with its body hidden
+                // (docs/HandsOnQueue.md entry 108). Also where its own key
+                // does not count: what it is seen through is reached the
+                // same way.
                 for (const auto &step : res.steps)
                     nowShown.insert(step);
             }
+            if (!res.own)
+                continue;
+            if (res.entry.visibility)
+                nowShown.insert(res.leaf);
             now.push_back(res.entry);
+        }
+    }
+    // What the entries' objects are seen through, behind every entry given
+    // by name: the group hidden and one child of it shown shows the child,
+    // an equal key keeping this order in the table.
+    for (const auto *results : {&transientRes, &persistedRes}) {
+        for (const auto &res : *results) {
+            if (!res.ok)
+                continue;
+            for (const auto &member : res.members) {
+                if (member.entry.visibility)
+                    nowShown.insert(member.leaf);
+                now.push_back(member.entry);
+            }
         }
     }
     if (persisted.empty() && transient.empty())
@@ -659,6 +824,8 @@ bool ViewVisibility::commit()
 
 void ViewVisibility::clear()
 {
+    ShowsSeenThrough -= showsSeenThrough;
+    showsSeenThrough = 0;
     for (const auto &key : shown)
         countShown(key, false);
     shown.clear();

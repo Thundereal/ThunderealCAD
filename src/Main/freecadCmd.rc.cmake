@@ -8,7 +8,7 @@
 //
 // Icon with lowest ID value placed first to ensure application icon
 // remains consistent on all systems.
-IDI_ICON1               ICON    DISCARDABLE     "icon.ico"
+IDI_ICON1               ICON    DISCARDABLE     "@FREECAD_APP_ICO@"
 
 // File info for the FreeCADCmd.exe
 //
@@ -19,12 +19,12 @@ BEGIN
     BEGIN
         BLOCK "040904b0" // 409 stands for US English
         BEGIN
-            VALUE "CompanyName", "${PROJECT_NAME} Team"
-            VALUE "FileDescription", "${PROJECT_NAME} command line executable"
-            VALUE "InternalName", "FreeCADCmd.exe"
+            VALUE "CompanyName", "${FREECAD_APP_NAME} Team"
+            VALUE "FileDescription", "${FREECAD_APP_NAME} command line executable"
+            VALUE "InternalName", "${FREECAD_APP_NAME}Cmd.exe"
             VALUE "LegalCopyright", "Copyright (C) 2022"
-            VALUE "OriginalFilename", "FreeCADCmd.exe"
-            VALUE "ProductName", "${PROJECT_NAME}"
+            VALUE "OriginalFilename", "${FREECAD_APP_NAME}Cmd.exe"
+            VALUE "ProductName", "${FREECAD_APP_NAME}"
             VALUE "ProductVersion", "${PACKAGE_VERSION}${PACKAGE_VERSION_SUFFIX}"
         END
     END

@@ -112,6 +112,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include "private/DocumentP.h"
 #include "Application.h"
 #include "AutoTransaction.h"
+#include "BrandText.h"
 #include "DocumentObserver.h"
 #include "DocumentObject.h"
 #include "DocumentParams.h"
@@ -2583,6 +2584,55 @@ Document::~Document()
     delete d;
 }
 
+// The version a document states it was written by. It leads with the FreeCAD
+// release the code derives from, which every reader -- this one, upstream's,
+// LinkStage3's -- decides by how to read the file; a product that numbers
+// itself follows the build with its own name and version, the way upstream's
+// own "0.21R33771 (Git)" does: "0.22R1234 (Thundereal 2026.10.15)".
+static std::string programVersionAttribute()
+{
+    auto& cfg = App::Application::Config();
+    const std::string& major = cfg["BuildVersionMajor"];
+    const std::string& minor = cfg["BuildVersionMinor"];
+    auto base = cfg.find("BaseVersionMajor");
+    std::ostringstream s;
+    if (base != cfg.end() && (base->second != major || cfg["BaseVersionMinor"] != minor)) {
+        s << base->second << "." << cfg["BaseVersionMinor"] << "R" << cfg["BuildRevision"] << " ("
+          << cfg["ExeName"] << " " << major << "." << minor << "." << cfg["BuildVersionPoint"]
+          << ")";
+    }
+    else {
+        s << major << "." << minor << "R" << cfg["BuildRevision"];
+    }
+    return s.str();
+}
+
+// What a document says it is, in its zip comment and at the top of its XML:
+// upstream's words for the standard format, which any FreeCAD reads, and the
+// program's own for schema 5, which only this one does.
+// A file that is neither format: this program's and upstream's are both named
+static std::string notADocument()
+{
+    if (!isRebranded()) {
+        return "Not a FreeCAD document";
+    }
+    return "Not a " + App::Application::getExecutableName() + "/FreeCAD document";
+}
+
+static std::string documentKind(int schema)
+{
+    return (schema >= 5 ? App::Application::getExecutableName() : std::string("FreeCAD"))
+        + " Document";
+}
+
+static std::string documentBanner(int schema)
+{
+    if (schema < 5 || !isRebranded()) {
+        return " FreeCAD Document, see http://www.freecadweb.org for more information...\n";
+    }
+    return " " + documentKind(schema) + ", see " + programUrl() + " for more information...\n";
+}
+
 std::string Document::getTransientDirectoryName(const std::string& uuid, const std::string& filename) const
 {
     // Create a directory name of the form: {ExeName}_Doc_{UUID}_{HASH}_{PID}
@@ -2638,10 +2688,7 @@ void Document::Save (Base::Writer &writer) const
     writer.Stream() << '<'
                     << (writer.getSchemaVersion() >= 5 ? FC_ELEM_FCDOCUMENT : "Document")
                     << " SchemaVersion=\"" << writer.getSchemaVersion()
-                    << "\" ProgramVersion=\""
-                    << App::Application::Config()["BuildVersionMajor"] << "."
-                    << App::Application::Config()["BuildVersionMinor"] << "R"
-                    << App::Application::Config()["BuildRevision"]
+                    << "\" ProgramVersion=\"" << programVersionAttribute()
                     << "\" FileVersion=\"" << writer.getFileVersion()
                     << "\" Uid=\"" << Uid.getValueStr()
                     << "\" StringHasher=\"1\"";
@@ -2722,9 +2769,10 @@ void Document::Restore(Base::XMLReader &reader)
     reader.readElement();
     if (strcmp(reader.localName(), "Document") != 0
             && strcmp(reader.localName(), FC_ELEM_FCDOCUMENT) != 0)
-        THROWM(Base::XMLParseException, "Not a FreeCAD document")
+        THROWM(Base::XMLParseException, notADocument())
     long scheme = reader.getAttributeAsInteger("SchemaVersion");
     reader.DocumentSchema = scheme;
+    d->fileSchema = scheme;
     if (reader.hasAttribute("ProgramVersion")) {
         reader.ProgramVersion = reader.getAttribute("ProgramVersion");
     } else {
@@ -2838,13 +2886,27 @@ void Document::Restore(Base::XMLReader &reader)
     const long was = std::min<long>(scheme > 0 ? scheme : current, SaveSchemaVersion.getValue());
     if (was < current) {
         SaveSchemaVersion.setValue(current);
-        if (!d->checkingOut && !testStatus(VersionDoc) && !testStatus(Importing))
-            Base::Console().warning(DocLabel,
-                "'%s' is in an older file format (schema %ld) and will be saved in the "
-                "current one (schema %ld), which only this FreeCAD reads. To keep a copy "
-                "other FreeCAD versions can open, use Save As and choose the standard "
-                "format.\n",
-                DocLabel.c_str(), was, current);
+        if (!d->checkingOut && !testStatus(VersionDoc) && !testStatus(Importing)) {
+            // A plain Save leaves a file other builds read alone and writes
+            // the current format beside it, under its own extension.
+            const std::string target = getSaveFileName();
+            // The branded text is the format: brandText() leaves its directives alone.
+            if (target != FileName.getStrValue())
+                Base::Console().warning(DocLabel, brandText(
+                    "'%s' is in an older file format (schema %ld). Save writes the current "
+                    "one (schema %ld), which only this FreeCAD reads, to '%s' and leaves "
+                    "this file as it is. To update this file for other FreeCAD versions, "
+                    "use Save As and choose the standard format.\n").c_str(),
+                    DocLabel.c_str(), was, current,
+                    Base::FileInfo(target).fileName().c_str());
+            else
+                Base::Console().warning(DocLabel, brandText(
+                    "'%s' is in an older file format (schema %ld) and will be saved in the "
+                    "current one (schema %ld), which only this FreeCAD reads. To keep a copy "
+                    "other FreeCAD versions can open, use Save As and choose the standard "
+                    "format.\n").c_str(),
+                    DocLabel.c_str(), was, current);
+        }
     }
 
     // SchemeVersion "2"
@@ -3184,10 +3246,7 @@ void Document::exportObjects(const std::vector<App::DocumentObject*>& obj, std::
     writer.putNextEntry("Document.xml");
     writer.Stream() << "<?xml version='1.0' encoding='utf-8'?>\n";
     writer.Stream() << R"(<Document SchemaVersion=")" << writer.getSchemaVersion()
-                        << R"(" ProgramVersion=")"
-                        << App::Application::Config()["BuildVersionMajor"] << "."
-                        << App::Application::Config()["BuildVersionMinor"] << "R"
-                        << App::Application::Config()["BuildRevision"]
+                        << R"(" ProgramVersion=")" << programVersionAttribute()
                         << R"(" FileVersion="1">\n)";
     // Add this block to have the same layout as for normal documents
     writer.Stream() << "<Properties Count=\"0\">\n";
@@ -4205,7 +4264,7 @@ Document::importObjects(Base::XMLReader& reader)
     reader.readElement();
     if (strcmp(reader.localName(), "Document") != 0
             && strcmp(reader.localName(), FC_ELEM_FCDOCUMENT) != 0)
-        THROWM(Base::XMLParseException, "Not a FreeCAD document")
+        THROWM(Base::XMLParseException, notADocument())
     long scheme = reader.getAttributeAsInteger("SchemaVersion");
     reader.DocumentSchema = scheme;
     if (reader.hasAttribute("ProgramVersion")) {
@@ -4293,7 +4352,56 @@ unsigned int Document::getMemSize () const
     return size;
 }
 
-static std::string checkFileName(const char *file) {
+const char* Document::getFileExtension(long schema)
+{
+    // Schema 5 is the format no other reader opens (FC_ELEM_FCDOCUMENT), so
+    // it is the one that needs a name of its own: an extension says to the
+    // OS, the file manager and every other FreeCAD what the root element says
+    // to a reader, before anything tries to open it.
+    return schema >= 5 ? "TStd" : "FCStd";
+}
+
+const char* Document::getBackupExtension(const std::string& file)
+{
+    return boost::iequals(Base::FileInfo(file).extension(), "TStd") ? "TBak" : "FCBak";
+}
+
+bool Document::isDocumentExtension(const std::string& ext)
+{
+    return boost::iequals(ext, "FCStd") || boost::iequals(ext, "TStd");
+}
+
+std::string Document::fileNameForSchema(const std::string& file, long schema)
+{
+    const std::string ext = Base::FileInfo(file).extension();
+    const char* want = getFileExtension(schema);
+    if (!isDocumentExtension(ext) || boost::iequals(ext, want))
+        return file;
+    return file.substr(0, file.size() - ext.size()) + want;
+}
+
+std::string Document::findSiblingFile(const std::string& file)
+{
+    const std::string ext = Base::FileInfo(file).extension();
+    if (!isDocumentExtension(ext))
+        return {};
+    std::string other = file.substr(0, file.size() - ext.size())
+        + (boost::iequals(ext, "TStd") ? "FCStd" : "TStd");
+    return Base::FileInfo(other).exists() ? other : std::string();
+}
+
+std::string Document::getSaveFileName() const
+{
+    std::string file = FileName.getStrValue();
+    // Only a file this build read in a format others read too, about to be
+    // written in one they do not. Anything else is saved where it is.
+    if (file.empty() || d->fileSchema <= 0 || d->fileSchema >= 5
+            || getSaveSchemaVersion() < 5 || Base::FileInfo(file).isDir())
+        return file;
+    return fileNameForSchema(file, getSaveSchemaVersion());
+}
+
+static std::string checkFileName(const char *file, long schema) {
     Base::FileInfo fi(file);
     if(fi.isDir())
         return file;
@@ -4302,14 +4410,15 @@ static std::string checkFileName(const char *file) {
 
     // Append extension if missing. This option is added for security reason, so
     // that the user won't accidentally overwrite other file that may be critical.
+    // Either document extension counts as one; a name given without picks
+    // the one of the schema about to be written.
     if(DocumentParams::getCheckExtension())
     {
         const char *ext = strrchr(file,'.');
-        if(!ext || !boost::iequals(ext+1,"fcstd")) {
-            if(ext && ext[1] == 0)
-                fn += "FCStd";
-            else
-                fn += ".FCStd";
+        if(!ext || !Document::isDocumentExtension(ext+1)) {
+            if(!ext || ext[1] != 0)
+                fn += ".";
+            fn += Document::getFileExtension(schema);
         }
     }
     return fn;
@@ -4317,7 +4426,7 @@ static std::string checkFileName(const char *file) {
 
 bool Document::saveAs(const char* _file)
 {
-    std::string file = checkFileName(_file);
+    std::string file = checkFileName(_file, getSaveSchemaVersion());
     // Naming a host file to write is fs.write (F1, docs/Sandbox.md 7.29).
     // save() writes the document's OWN file and stays the guest's to call
     // (S1); saveAs chooses a path, so it is gated -- and a path the user
@@ -4331,13 +4440,16 @@ bool Document::saveAs(const char* _file)
         this->Label.setValue(fi.fileNamePure());
         this->Uid.touch(); // this forces a rename of the transient directory
     }
+    // A name given is the file written, whatever was there: the sibling rule
+    // of save() protects a file opened, not one asked for.
+    d->fileSchema = 0;
 
     return save();
 }
 
 bool Document::saveCopy(const char* _file, bool withHistory) const
 {
-    std::string file = checkFileName(_file);
+    std::string file = checkFileName(_file, getSaveSchemaVersion());
     // a copy is a host file written by path, exactly as saveAs (7.29)
     ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsWrite, file);
     if (this->FileName.getStrValue() != file) {
@@ -4372,6 +4484,22 @@ bool Document::save ()
     }
 
     if (*(FileName.getValue()) != '\0') {
+        // Raising a file other builds read into a format they do not is not
+        // done in place: the current format goes to a sibling under its own
+        // extension, the original is left as it was, and the document lives
+        // at the sibling from here on (user ruling 2026-10-14).
+        const std::string target = getSaveFileName();
+        if (target != FileName.getStrValue()) {
+            // A new file on the host, not the document's own (7.29).
+            ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsWrite, target);
+            // Said where a script will see it: a macro that saves what it
+            // opened finds a new file, not the one it read.
+            FC_MSG("'" << Label.getValue() << "' saved as " << target << ", beside "
+                    << FileName.getValue() << ", which is left as it was");
+            Base::FlagToggler<> quiet(d->bookkeeping, false);
+            FileName.setValue(target);
+            Uid.touch(); // a different file: rename the transient directory, as saveAs does
+        }
         {
             Base::FlagToggler<> quiet(d->bookkeeping, false);
             // Save the name of the tip object in order to handle in Restore()
@@ -4388,7 +4516,10 @@ bool Document::save ()
             }
         }
 
-        return saveToFile(FileName.getValue());
+        if (!saveToFile(FileName.getValue()))
+            return false;
+        d->fileSchema = getSaveSchemaVersion();
+        return true;
     }
 
     return false;
@@ -4417,6 +4548,10 @@ public:
     }
     void useBackupExtension(bool on) {
         useFCBakExtension = on;
+    }
+    /// "FCBak" or "TBak", without the dot (Document::getBackupExtension).
+    void setBackupExtension(const std::string& ext) {
+        backupExtension = ext;
     }
     void setDateFormat(const std::string& fmt) {
         saveBackupDateFormat = fmt;
@@ -4524,8 +4659,6 @@ private:
                     for (const Base::FileInfo& it : files) {
                         std::string file = it.fileName();
                         std::string fext = it.extension();
-                        std::string fextUp = fext;
-                        std::transform(fextUp.begin(), fextUp.end(), fextUp.begin(),(int (*)(int))toupper);
                         // re-enforcing identification of the backup file
 
 
@@ -4534,8 +4667,10 @@ private:
                              (file.length() > fn.length()) &&
                              checkDigits(file.substr(fn.length()))) ||
                              // .FCBak case : The bame starts with the base name of the project + "."
-                             // + complement with no "." + ".FCBak"
-                             ((fextUp == "FCBAK") && startsWith(file, pbn) &&
+                             // + complement with no "." + ".FCBak". Only this file's own
+                             // kind: Part.TStd and Part.FCStd share a base name, and the
+                             // backups of one are not the other's to prune.
+                             (boost::iequals(fext, backupExtension) && startsWith(file, pbn) &&
                              (checkValidComplement(file, pbn, fext)))) {
                             // Asked last, and of the entries with a backup's
                             // name alone: it is a question to the file
@@ -4595,7 +4730,7 @@ private:
                             }
                         }
                         else {
-                            if (!renameFileNoErase(fi, fn+".FCBak")) {
+                            if (!renameFileNoErase(fi, fn+"."+backupExtension)) {
                                 fn = fn + "-";
                             }
                             else {
@@ -4605,7 +4740,7 @@ private:
 
                         if (!done) {
                             while (ext < numberOfFiles + 10) {
-                                if (renameFileNoErase(fi, fn+std::to_string(ext)+".FCBak"))
+                                if (renameFileNoErase(fi, fn+std::to_string(ext)+"."+backupExtension))
                                     break;
                                 ext++;
                             }
@@ -4696,6 +4831,7 @@ private:
     Policy policy;
     int numberOfFiles;
     bool useFCBakExtension;
+    std::string backupExtension {"FCBak"};
     std::string saveBackupDateFormat;
 };
 }
@@ -4833,6 +4969,11 @@ bool Document::saveToFile(const char* filename) const
 
         save(*_writer, archive);
         fileNames = _writer->getFilenames();
+        // Known once the save has resolved the schema; written when the zip closes
+        if (archive) {
+            static_cast<Base::ZipWriter*>(_writer.get())
+                ->setComment(documentKind(_writer->getSchemaVersion()).c_str());
+        }
     }
 
 
@@ -4850,6 +4991,7 @@ bool Document::saveToFile(const char* filename) const
         if (useFCBakExtension) {
             policy.setPolicy(BackupPolicy::TimeStamp);
             policy.useBackupExtension(useFCBakExtension);
+            policy.setBackupExtension(getBackupExtension(nativePath));
             policy.setDateFormat(saveBackupDateFormat);
         }
         else {
@@ -5000,7 +5142,7 @@ void Document::save(Base::Writer &writer, bool archive) const {
 
     writer.Stream() << "<?xml version='1.0' encoding='utf-8'?>\n"
                     << "<!--\n"
-                    << " FreeCAD Document, see http://www.freecadweb.org for more information...\n"
+                    << documentBanner(writer.getSchemaVersion())
                     << "-->\n";
     Document::Save(writer);
     writer.endCapture("Document.xml");
@@ -5753,7 +5895,7 @@ int64_t Document::_snapshotToLog(const char* kind)
         writer.beginCapture();
         writer.Stream() << "<?xml version='1.0' encoding='utf-8'?>\n"
                         << "<!--\n"
-                        << " FreeCAD Document, see http://www.freecadweb.org for more information...\n"
+                        << documentBanner(writer.getSchemaVersion())
                         << "-->\n";
         Document::Save(writer);
         writer.endCapture("Document.xml");
@@ -6070,6 +6212,47 @@ std::set<int64_t> chainPoints(TransactionStore& store, int64_t head)
     if (head > 0)
         points.insert(head);
     return points;
+}
+
+/** The version the state at row `seq` is reached from by the rows: the
+ * newest on the row's chain; with none there, the one whose chain meets it
+ * latest (sec 31.15). False where none does.
+ */
+bool versionReaching(TransactionStore& store, int64_t seq, LogVersion& anchor)
+{
+    const std::set<int64_t> onChain = chainPoints(store, seq);
+    bool haveAnchor = false;
+    for (const auto& v : store.versions()) {
+        if (!onChain.count(v.seq))
+            continue;
+        if (!haveAnchor || v.seq > anchor.seq || (v.seq == anchor.seq && v.num > anchor.num)) {
+            anchor = v;
+            haveAnchor = true;
+        }
+    }
+    if (!haveAnchor) {
+        // No version behind the row (sec 31.15): the file as found is not
+        // kept for good, and a row an earlier import replayed has only
+        // that behind it. The rows lead there from any version whose chain
+        // meets the row's -- back to where they meet, then forward -- so:
+        // the one that meets it latest, and of those the oldest.
+        int64_t best = -1;
+        for (const auto& v : store.versions()) {
+            int64_t meet = -1;
+            for (const auto& t : store.chain(v.seq)) {
+                if (onChain.count(t.seq))
+                    meet = std::max(meet, t.seq);
+            }
+            if (meet < 0)
+                continue;
+            if (!haveAnchor || meet > best || (meet == best && v.seq < anchor.seq)) {
+                anchor = v;
+                best = meet;
+                haveAnchor = true;
+            }
+        }
+    }
+    return haveAnchor;
 }
 
 } // namespace
@@ -6576,6 +6759,58 @@ Document* Document::_openReadVersion(int64_t num, const std::string& stem, bool 
     return version;
 }
 
+Document* Document::openRowState(int64_t seq)
+{
+    // Sec 32.33: what the log let go of a state, computed again where it was
+    // -- read as a merge's result is (sec 32.17), into a document of its own
+    // joined to this file's history, so a value it shares with the document
+    // is the one shape.
+    TransactionLog* log = getTransactionLog();
+    if (!log)
+        THROWM(Base::RuntimeError, "the document has no transaction log");
+    log->resolvePending();
+    auto& store = log->store();
+    bool there = false;
+    for (const auto& t : store.transactions(seq, 1))
+        there = there || t.seq == seq;
+    if (seq <= 0 || !there)
+        THROWM(Base::RuntimeError, "no row " + std::to_string(seq) + " in the log");
+    LogVersion anchor;
+    if (!versionReaching(store, seq, anchor))
+        THROWM(Base::RuntimeError, "no version reaches row " + std::to_string(seq));
+    // Named as no other was: what shows its values knows them by it
+    static int made = 0;
+    Document* state = _openReadVersion(
+        anchor.num, "_row" + std::to_string(seq) + "_" + std::to_string(++made), false);
+    const std::string name = state->getName();
+    try {
+        std::set<long> letGo;
+        if (anchor.seq != seq) {
+            // A value the log does not have touches its object, as for an
+            // import's replay (sec 31.19), and is not refused
+            Base::FlagToggler<> replaying(state->d->replaying);
+            if (!state->_moveAlongLog(anchor.seq, seq, false, log, &letGo))
+                THROWM(Base::RuntimeError, "the rows from version " + std::to_string(anchor.num)
+                                               + " to row " + std::to_string(seq)
+                                               + " could not be folded");
+        }
+        // The version read has its values whole; of the rows' values, what
+        // was let go. Only those: one touched at the row is as the row left it.
+        std::vector<DocumentObject*> again;
+        for (long cid : letGo) {
+            if (auto obj = state->getObjectByID(cid))
+                again.push_back(obj);
+        }
+        if (!again.empty())
+            state->recompute(again);
+    }
+    catch (...) {
+        GetApplication().closeDocument(name.c_str());
+        throw;
+    }
+    return state;
+}
+
 void Document::_readVersion(int64_t num, const std::function<void(Document&)>& fn)
 {
     auto& app = GetApplication();
@@ -6995,7 +7230,14 @@ Document* Document::openFileBranch(const std::shared_ptr<FileHistory>& history,
     }
     if (!haveAnchor)
         THROWM(Base::RuntimeError, "branch '" + branch + "' has no version to open");
-    Document* doc = openFileVersion(history, anchor.num, createView, nullptr, false);
+    // The editable instance of that version, where one is open, is reused
+    // only while it is on no branch of its own: one that is another
+    // branch's tip is that branch's, and is not switched from under it
+    // (sec 32.31) -- a second instance is opened instead.
+    Document* doc = log.documentAt(anchor, false);
+    TransactionLog* open = doc ? doc->getTransactionLog() : nullptr;
+    if (!doc || (open && !open->detached()))
+        doc = _openVersionDocument(history, anchor, createView, nullptr, false);
     TransactionLog* dlog = doc->getTransactionLog();
     if (dlog && dlog->branch() != b.id)
         doc->switchBranch(branch);
@@ -7459,7 +7701,8 @@ bool openRecordJumps(TransactionStore& store, const std::vector<LogVersion>& ver
 
 } // namespace
 
-bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views)
+bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
+                             TransactionLog* through, std::set<long>* letGo)
 {
     // docs/TransactionLog.md sec 27.25 item 1, 27.34. From the state at row
     // `fromHead` to the state at `toSeq` by the rows between them: those on
@@ -7473,7 +7716,7 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views)
     // does not have), or a row made the document other than its ops say --
     // an open's record of a file that is not its history's tip, which a
     // save to the log only leaves (sec 27.28).
-    TransactionLog* log = getTransactionLog();
+    TransactionLog* log = through ? through : getTransactionLog();
     if (!log || fromHead < 0 || toSeq < 0)
         return false;
     // The newest rows' values may still be pending (as for a cold undo).
@@ -7679,6 +7922,8 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views)
         if (auto obj = getObjectByID(cid))
             obj->touch();
     }
+    if (letGo)
+        letGo->insert(fold.touch.begin(), fold.touch.end());
     // 5. What is gone at the end.
     for (const auto& kv : fold.objects) {
         if (kv.second.exists)
@@ -8147,6 +8392,186 @@ Shared sharedWith(TransactionStore& store, int64_t except)
 
 } // namespace
 
+namespace {
+
+/// What is said of a file's branches is every document's of the file to
+/// hear (sec 32.25): each has the one log
+void fileBranchesChanged(TransactionLog* log)
+{
+    for (Document* doc : log->documents())
+        doc->signalBranchesChanged(*doc);
+}
+
+} // namespace
+
+void Document::setBranchAccess(const std::string& kind, const std::string& name,
+                               const std::string& branchName, bool write, int64_t fromVersion)
+{
+    // docs/TransactionLog.md sec 32.25
+    TransactionLog* log = getTransactionLog();
+    if (!log)
+        THROWM(Base::RuntimeError, "the document keeps no transaction log");
+    auto& store = log->store();
+    LogBranch branch;
+    if (!store.findBranch(branchName, branch))
+        THROWM(Base::ValueError, "no branch '" + branchName + "'");
+    Actor::Kind known;
+    if (name.empty() || (kind != kLogGroupKind && !Actor::kindFromName(kind, known)))
+        THROWM(Base::ValueError, "no such user: a kind the log has, and a name");
+    LogAccess access;
+    access.kind = kind;
+    access.name = name;
+    access.branch = branch.id;
+    access.write = write;
+    if (write && fromVersion > 0) {
+        // The point is a version of the branch itself: one of another
+        // would let the user go to a state that is not this branch's
+        LogVersion version;
+        if (!store.getVersion(fromVersion, version) || version.branch != branch.id)
+            THROWM(Base::ValueError, "no such version of branch '" + branchName + "'");
+        access.fromVersion = version.num;
+        access.fromSeq = version.seq;
+    }
+    store.setAccess(access);
+    fileBranchesChanged(log);
+}
+
+bool Document::clearBranchAccess(const std::string& kind, const std::string& name,
+                                 const std::string& branchName)
+{
+    TransactionLog* log = getTransactionLog();
+    if (!log)
+        THROWM(Base::RuntimeError, "the document keeps no transaction log");
+    LogBranch branch;
+    if (!log->store().findBranch(branchName, branch))
+        THROWM(Base::ValueError, "no branch '" + branchName + "'");
+    if (!log->store().clearAccess(kind, name, branch.id))
+        return false;
+    fileBranchesChanged(log);
+    return true;
+}
+
+void Document::addUserGroup(const std::string& group)
+{
+    // docs/TransactionLog.md sec 32.32
+    TransactionLog* log = getTransactionLog();
+    if (!log)
+        THROWM(Base::RuntimeError, "the document keeps no transaction log");
+    if (group.empty())
+        THROWM(Base::ValueError, "a group needs a name");
+    log->store().user(kLogGroupKind, group);
+    fileBranchesChanged(log);
+}
+
+void Document::setUserGroup(const std::string& kind, const std::string& name,
+                            const std::string& group)
+{
+    // docs/TransactionLog.md sec 32.32: a group is a user, and a user is in
+    // one by naming it its parent
+    TransactionLog* log = getTransactionLog();
+    if (!log)
+        THROWM(Base::RuntimeError, "the document keeps no transaction log");
+    Actor::Kind known;
+    if (name.empty() || (kind != kLogGroupKind && !Actor::kindFromName(kind, known)))
+        THROWM(Base::ValueError, "no such user: a kind the log has, and a name");
+    auto& store = log->store();
+    const int64_t user = store.user(kind, name);
+    int64_t parent = 0;
+    if (!group.empty()) {
+        parent = store.user(kLogGroupKind, group);
+        // Not in itself, however far up
+        std::map<int64_t, int64_t> up;
+        for (const auto& u : store.users())
+            up[u.id] = u.parent;
+        for (int64_t at = parent, guard = 0; at && guard < 1000; at = up[at], ++guard) {
+            if (at == user)
+                THROWM(Base::ValueError, "group '" + group + "' is in '" + name + "' already");
+        }
+    }
+    store.setUserParent(user, parent);
+    fileBranchesChanged(log);
+}
+
+std::vector<std::pair<std::string, std::string>>
+Document::userGroups(const std::string& kind, const std::string& name)
+{
+    std::vector<std::pair<std::string, std::string>> out {{kind, name}};
+    TransactionLog* log = getTransactionLog();
+    if (!log)
+        return out;
+    std::map<int64_t, LogUser> byId;
+    int64_t at = 0;
+    for (const auto& u : log->store().users()) {
+        byId[u.id] = u;
+        if (u.kind == kind && u.name == name)
+            at = u.parent;
+    }
+    std::set<int64_t> seen;
+    for (; at && byId.count(at) && seen.insert(at).second; at = byId[at].parent)
+        out.emplace_back(byId[at].kind, byId[at].name);
+    return out;
+}
+
+int64_t Document::requestMerge(const std::string& source, const std::string& target,
+                               const std::string& note)
+{
+    // docs/TransactionLog.md sec 32.25
+    TransactionLog* log = getTransactionLog();
+    if (!log)
+        THROWM(Base::RuntimeError, "the document keeps no transaction log");
+    auto& store = log->store();
+    LogBranch from;
+    LogBranch into;
+    if (!store.findBranch(source, from))
+        THROWM(Base::ValueError, "no branch '" + source + "'");
+    if (!store.findBranch(target, into))
+        THROWM(Base::ValueError, "no branch '" + target + "'");
+    if (from.id == into.id)
+        THROWM(Base::ValueError, "a branch is not merged into itself");
+    for (const LogMergeRequest& r : store.mergeRequests()) {
+        if (r.state == "open" && r.source == from.id && r.target == into.id)
+            THROWM(Base::ValueError, "that merge is asked for already: request "
+                                         + std::to_string(r.id));
+    }
+    const auto who = log->userOf(ActorScope::current().get());
+    LogMergeRequest request;
+    request.source = from.id;
+    request.target = into.id;
+    request.kind = who.first;
+    request.name = who.second;
+    request.note = note;
+    request.created = std::chrono::duration<double>(
+                          std::chrono::system_clock::now().time_since_epoch()).count();
+    store.addMergeRequest(request);
+    fileBranchesChanged(log);
+    return request.id;
+}
+
+bool Document::closeMergeRequest(int64_t id, const std::string& state, int64_t result)
+{
+    TransactionLog* log = getTransactionLog();
+    if (!log)
+        return false;
+    if (state != "merged" && state != "rejected" && state != "withdrawn")
+        THROWM(Base::ValueError, "a request ends merged, rejected or withdrawn");
+    auto& store = log->store();
+    for (LogMergeRequest r : store.mergeRequests()) {
+        if (r.id != id || r.state != "open")
+            continue;
+        const auto who = log->userOf(ActorScope::current().get());
+        r.state = state;
+        r.closed = std::chrono::duration<double>(
+                       std::chrono::system_clock::now().time_since_epoch()).count();
+        r.closedKind = who.first;
+        r.closedName = who.second;
+        r.result = result;
+        store.updateMergeRequest(r);
+        fileBranchesChanged(log);
+        return true;
+    }
+    return false;
+}
+
 bool Document::renameBranch(const std::string& name, const std::string& newName)
 {
     TransactionLog* log = getTransactionLog();
@@ -8321,6 +8746,13 @@ size_t Document::deleteBranch(const std::string& name)
         THROWM(Base::ValueError, "no branch '" + name + "'");
     if (branch.id == log->branch())
         THROWM(Base::ValueError, "branch '" + name + "' is the one the document is on");
+    // Nor one another document of the file is on (sec 32.25): its rows
+    // would go from under that document
+    if (Document* holder = log->holderOf(branch.id)) {
+        if (holder != this)
+            THROWM(Base::ValueError, "branch '" + name + "' is the one document "
+                                         + holder->getName() + " is on");
+    }
 
     const Shared shared = sharedWith(store, branch.id);
     // What another branch merged of it stays (sec 31.19, the user's: "keep
@@ -10584,13 +11016,15 @@ std::string Document::logValueAt(int64_t seq, long cid, const std::string& prop)
 }
 
 std::vector<std::string> Document::keepLogValue(long cid, const std::string& prop, int64_t seq,
-                                                bool keep)
+                                                bool keep, const std::string& keeperKind,
+                                                const std::string& keeperName)
 {
     std::vector<std::string> out;
     TransactionLog* log = getTransactionLog();
     if (!log)
         return out;
     auto& store = log->store();
+    bool moved = false;
     if (seq <= 0)
         seq = log->head();
     const std::vector<std::string> props = prop.empty() ? store.derivedPropsOf(cid)
@@ -10605,13 +11039,21 @@ std::vector<std::string> Document::keepLogValue(long cid, const std::string& pro
             kept.cid = cid;
             kept.prop = name;
             kept.seq = seq;
-            store.keepValue(kept);
+            kept.kind = keeperKind;
+            kept.name = keeperName;
+            moved = store.keepValue(kept) || moved;
         }
         else if (!store.releaseValue(ref)) {
             continue;
         }
+        else {
+            moved = true;
+        }
         out.push_back(ref);
     }
+    // Kept again as it was is no change: the file is not marked modified
+    if (moved)
+        signalLogKeptChanged(*this);
     return out;
 }
 
@@ -10627,6 +11069,8 @@ std::vector<Document::KeptValue> Document::keptLogValues()
         v.cid = kept.cid;
         v.prop = kept.prop;
         v.seq = kept.seq;
+        v.kind = kept.kind;
+        v.name = kept.name;
         if (auto obj = getObjectByID(kept.cid)) {
             if (obj->getNameInDocument())
                 v.object = obj->getNameInDocument();
@@ -10639,13 +11083,22 @@ std::vector<Document::KeptValue> Document::keptLogValues()
 bool Document::releaseLogValue(const std::string& ref)
 {
     TransactionLog* log = getTransactionLog();
-    return log && log->store().releaseValue(ref);
+    if (!log || !log->store().releaseValue(ref))
+        return false;
+    signalLogKeptChanged(*this);
+    return true;
 }
 
 void Document::keepLogValuesOf(long cid, bool keep)
 {
-    if (TransactionLog* log = getTransactionLog())
-        log->store().keepObject(cid, keep);
+    TransactionLog* log = getTransactionLog();
+    if (!log)
+        return;
+    const auto before = log->store().keptObjects();
+    const bool was = std::find(before.begin(), before.end(), cid) != before.end();
+    log->store().keepObject(cid, keep);
+    if (was != keep)
+        signalLogKeptChanged(*this);
 }
 
 std::vector<long> Document::keptLogObjects()
@@ -10687,7 +11140,18 @@ Document::MergeResult Document::mergeBranch(const std::string& branch,
                                             const std::map<std::string, std::string>& picks,
                                             const std::string& fallback, int64_t version)
 {
-    return _merge(branch, picks, fallback, version, nullptr);
+    MergeResult result = _merge(branch, picks, fallback, version, nullptr);
+    // The requests that asked for this merge are answered by it (sec
+    // 32.25), by whichever way it was done
+    TransactionLog* log = getTransactionLog();
+    LogBranch source;
+    if (log && result.unresolved.empty() && log->store().findBranch(branch, source)) {
+        for (const LogMergeRequest& r : log->store().mergeRequests()) {
+            if (r.state == "open" && r.source == source.id && r.target == log->branch())
+                closeMergeRequest(r.id, "merged", result.seq);
+        }
+    }
+    return result;
 }
 
 Document::UndoneMerge Document::undoneMerge()
@@ -10793,14 +11257,41 @@ bool tipVersion(TransactionStore& store, int64_t head, LogVersion& tip)
     return true;
 }
 
+/// A result's document a preview made (sec 32.34): the document it is of,
+/// the version it was read from, the step that holds what was written to
+/// it, and each object's touched state as it was read -- what taking that
+/// step back puts back.
+struct PreviewMade
+{
+    std::string of;
+    int64_t tip {0};
+    int step {0};
+    std::map<long, TouchedState> touched;
+};
+
+/// The results made and still open, by their document's name. A name is
+/// never given twice, so one closed is only forgotten.
+std::map<std::string, PreviewMade>& previewsMade()
+{
+    static std::map<std::string, PreviewMade> made;
+    for (auto it = made.begin(); it != made.end();) {
+        if (GetApplication().getDocument(it->first.c_str()))
+            ++it;
+        else
+            it = made.erase(it);
+    }
+    return made;
+}
+
 } // namespace
 
 Document::MergeOutcome Document::previewMergeResult(const std::string& branch,
                                                     const std::map<std::string, std::string>& picks,
-                                                    const std::string& fallback, int64_t version)
+                                                    const std::string& fallback, int64_t version,
+                                                    const std::string& again)
 {
     MergeOutcome outcome;
-    MergeResult result = _merge(branch, picks, fallback, version, nullptr, &outcome);
+    MergeResult result = _merge(branch, picks, fallback, version, nullptr, &outcome, again);
     outcome.preview = std::move(result.preview);
     outcome.unresolved = std::move(result.unresolved);
     outcome.failed = std::move(result.failed);
@@ -10809,10 +11300,11 @@ Document::MergeOutcome Document::previewMergeResult(const std::string& branch,
 
 Document::MergeOutcome Document::previewPickResult(const std::vector<int64_t>& rows,
                                                    const std::map<std::string, std::string>& picks,
-                                                   const std::string& fallback)
+                                                   const std::string& fallback,
+                                                   const std::string& again)
 {
     MergeOutcome outcome;
-    MergeResult result = _merge(pickLabel(rows), picks, fallback, 0, &rows, &outcome);
+    MergeResult result = _merge(pickLabel(rows), picks, fallback, 0, &rows, &outcome, again);
     outcome.preview = std::move(result.preview);
     outcome.unresolved = std::move(result.unresolved);
     outcome.failed = std::move(result.failed);
@@ -10822,7 +11314,8 @@ Document::MergeOutcome Document::previewPickResult(const std::vector<int64_t>& r
 Document::MergeResult Document::_merge(const std::string& branch,
                                        const std::map<std::string, std::string>& picks,
                                        const std::string& fallback, int64_t version,
-                                       const std::vector<int64_t>* rows, MergeOutcome* outcome)
+                                       const std::vector<int64_t>* rows, MergeOutcome* outcome,
+                                       const std::string& again)
 {
     OperationScope scope;   // sec 27.38
     // docs/TransactionLog.md sec 28: theirs' changes since the base, less
@@ -11200,9 +11693,44 @@ Document::MergeResult Document::_merge(const std::string& branch,
         LogVersion tip;
         if (!tipVersion(log->store(), log->head(), tip))
             THROWM(Base::RuntimeError, "the document as it is could not be taken as a version");
-        // Named as no other was: what shows its values knows them by it
-        static int made = 0;
-        scratch = _openReadVersion(tip.num, "_merged" + std::to_string(++made), false);
+        // Sec 32.34: a result made before with other sides, of this
+        // document as it is still -- the same version -- has what was
+        // written to it taken back, and is written again. Reading the
+        // document is what that spares.
+        auto& results = previewsMade();
+        Document* back = again.empty() ? nullptr : GetApplication().getDocument(again.c_str());
+        auto known = back ? results.find(again) : results.end();
+        if (known != results.end() && known->second.of == getName()
+                && known->second.tip == tip.num && back->d->activeUndoTransaction
+                && back->d->activeUndoTransaction->getID() == known->second.step) {
+            back->_abortTransaction();
+            for (auto obj : back->getObjects()) {
+                auto was = known->second.touched.find(obj->getID());
+                if (was != known->second.touched.end())
+                    setTouchedState(*obj, was->second);
+            }
+            scratch = back;
+            outcome->reused = true;
+        }
+        else {
+            if (back)
+                GetApplication().closeDocument(again.c_str());
+            // Named as no other was: what shows its values knows them by it
+            static int made = 0;
+            scratch = _openReadVersion(tip.num, "_merged" + std::to_string(++made), false);
+            PreviewMade& read = results[scratch->getName()];
+            read.of = getName();
+            read.tip = tip.num;
+            for (auto obj : scratch->getObjects())
+                read.touched.emplace(obj->getID(), touchedStateOf(*obj));
+        }
+        // What is written to it is one step, held open, to be taken back
+        // when other sides are asked for
+        auto step = new Transaction(0);
+        step->Name = "preview";
+        scratch->d->activeUndoTransaction = step;
+        scratch->mUndoMap[step->getID()] = step;
+        results[scratch->getName()].step = step->getID();
     }
     Document& into = scratch ? *scratch : *this;
     struct Closer
@@ -12110,40 +12638,8 @@ Document* Document::_importReplay(int64_t base, const std::string& stem, LogBran
     LogTransaction at;
     for (const auto& t : store.transactions(base, 1))
         at = t;
-    const std::set<int64_t> onChain = chainPoints(store, base);
     LogVersion anchor;
-    bool haveAnchor = false;
-    for (const auto& v : store.versions()) {
-        if (!onChain.count(v.seq))
-            continue;
-        if (!haveAnchor || v.seq > anchor.seq || (v.seq == anchor.seq && v.num > anchor.num)) {
-            anchor = v;
-            haveAnchor = true;
-        }
-    }
-    if (!haveAnchor) {
-        // No version behind the row (sec 31.15): the file as found is not
-        // kept for good, and a row an earlier import replayed has only
-        // that behind it. The rows lead there from any version whose chain
-        // meets the row's -- back to where they meet, then forward -- so:
-        // the one that meets it latest, and of those the oldest.
-        int64_t best = -1;
-        for (const auto& v : store.versions()) {
-            int64_t meet = -1;
-            for (const auto& t : store.chain(v.seq)) {
-                if (onChain.count(t.seq))
-                    meet = std::max(meet, t.seq);
-            }
-            if (meet < 0)
-                continue;
-            if (!haveAnchor || meet > best || (meet == best && v.seq < anchor.seq)) {
-                anchor = v;
-                best = meet;
-                haveAnchor = true;
-            }
-        }
-    }
-    if (!haveAnchor)
+    if (!versionReaching(store, base, anchor))
         THROWM(Base::RuntimeError, "no version to reach the row both files hold from");
     replay = _openVersionDocument(d->history, anchor, false, this, false);
     scratch = true;
@@ -12557,8 +13053,10 @@ Document::ImportResult Document::_importState(const std::string& path, const std
     keep["branch"] = std::string();
     if (result.independent)
         keep["independent"] = true;
-    // A state that did not come is asked for again.
-    keep["state"] = result.stoppedAt ? kept.value("state", std::string()) : hash;
+    // A state that did not come is asked for again; on a first import there
+    // is no earlier one, and `kept` is null.
+    keep["state"] = !result.stoppedAt ? hash
+        : kept.is_object() ? kept.value("state", std::string()) : std::string();
     auto list = nlohmann::json::array();
     for (const auto& kv : ids)
         list.push_back({kv.first, kv.second});
@@ -13453,6 +13951,26 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
     return result;
 }
 
+namespace
+{
+
+/// The row of a sent file whose blob the store holds (sec 30.29).
+int64_t keptSentFile(Document& doc, const FileBlobHandle& blob, const std::string& file,
+                     uint64_t size, const std::string& sender, const std::string& senderKind)
+{
+    nlohmann::json j;
+    j["request"] = {{"name", file},
+                    {"size", size},
+                    {"file", blob->hash()},
+                    {"sender", sender},
+                    {"kind", senderKind}};
+    const int64_t seq = doc.getTransactionLog()->keepFile(blob, file, j.dump());
+    doc.signalBranchesChanged(doc);
+    return seq;
+}
+
+}  // namespace
+
 int64_t Document::keepSentFile(const std::string& bytes, const std::string& name,
                                const std::string& sender, const std::string& senderKind)
 {
@@ -13470,16 +13988,31 @@ int64_t Document::keepSentFile(const std::string& bytes, const std::string& name
     FileBlobHandle blob = getFileBlobManager().adoptBytes(bytes, "FCStd");
     if (!blob)
         THROWM(Base::RuntimeError, "the file's store did not take " + file);
-    nlohmann::json j;
-    j["request"] = {{"name", file},
-                    {"size", bytes.size()},
-                    {"file", blob->hash()},
-                    {"sender", sender},
-                    {"kind", senderKind}};
-    const int64_t seq = log->keepFile(blob, file, j.dump());
-    signalBranchesChanged(*this);
-    return seq;
+    return keptSentFile(*this, blob, file, uint64_t(bytes.size()), sender, senderKind);
 }
+
+int64_t Document::keepSentFileAt(const std::string& path, const std::string& name,
+                                 const std::string& sender, const std::string& senderKind)
+{
+    // As keepSentFile(), the bytes never in memory: insertFile() copies the
+    // file into the store, which hashes it as it goes (sec 32.37).
+    checkNotFrozen("keep a sent file");
+    TransactionLog* log = getTransactionLog();
+    if (!log || log->detached())
+        THROWM(Base::RuntimeError, "the document keeps no log to hold a sent file in");
+    Base::FileInfo fi(path);
+    const uint64_t size = fi.exists() ? uint64_t(fi.size()) : 0;
+    if (size == 0)
+        THROWM(Base::ValueError, "an empty file");
+    std::string file = Base::FileInfo(name).fileName();
+    if (file.empty())
+        file = "sent.FCStd";
+    FileBlobHandle blob = getFileBlobManager().insertFile(path.c_str(), "FCStd");
+    if (!blob)
+        THROWM(Base::RuntimeError, "the file's store did not take " + file);
+    return keptSentFile(*this, blob, file, size, sender, senderKind);
+}
+
 
 std::vector<Document::SentFile> Document::sentFiles()
 {

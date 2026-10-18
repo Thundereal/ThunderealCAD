@@ -330,7 +330,7 @@ def export(objectslist, filename, argstring):
 
     # Write header:
     if OUTPUT_HEADER:
-        gcode += linenumber() + "(Exported by FreeCAD)\n"
+        gcode += linenumber() + "(Exported by %s)\n" % FreeCAD.ConfigGet("ExeName")
         gcode += linenumber() + "(Post Processor: " + __name__
         gcode += ".py, version: " + Revised + ")\n"
         gcode += linenumber() + "(Output Time:" + str(datetime.now()) + ")\n"

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>Thundereal document (.TStd)</title>
+  <path d="M13 3H40L53 16V61H13Z" fill="#F5F7FC" stroke="#8E9AB8" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M40 3V16H53" fill="#D6DDEC" stroke="#8E9AB8" stroke-width="1.5" stroke-linejoin="round"/>
+  <path id="strikeSide" fill="#C26F00" d="M36.92 20.03L34.76 37.56L39.72 37.56L40.84 38.23L29.64 52.79L28.52 52.12L30.59 43.83L24.6 43.83L23.48 43.16L35.8 19.36L36.92 20.03Z"/>
+  <path id="strike" fill="#FFB21E" d="M35.8 19.36L33.56 37.56L39.72 37.56L28.52 52.12L30.76 43.16L23.48 43.16L35.8 19.36Z"/>
+  <path id="barBottom" fill="#9CC0FF" d="M20.68 29.72L41.96 29.72L44.76 31.4L23.48 31.4L20.68 29.72Z"/>
+  <path id="barSide" fill="#2552C4" d="M41.96 23L44.76 24.68L44.76 31.4L41.96 29.72L41.96 23Z"/>
+  <path id="barFront" fill="#4F86F0" d="M20.68 23L41.96 23L41.96 29.72L20.68 29.72L20.68 23Z"/>
+  <path id="hole" fill="#0F1730" d="M29.36 30.06L35.35 30.06L37.03 31.06L31.04 31.06L29.36 30.06Z"/>
+  <path id="lowSide" fill="#C26F00" d="M35.58 30.9L34.76 37.56L39.72 37.56L40.84 38.23L29.64 52.79L28.52 52.12L30.59 43.83L24.6 43.83L23.48 43.16L30.18 30.22L34.46 30.22L35.58 30.9Z"/>
+  <path id="lowStrike" fill="#FFB21E" d="M34.46 30.22L33.56 37.56L39.72 37.56L28.52 52.12L30.76 43.16L23.48 43.16L30.18 30.22L34.46 30.22Z"/>
+</svg>

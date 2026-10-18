@@ -424,7 +424,7 @@ def write_z88_mesh_to_file(femnodes_mesh, femelement_table, z88_element_type, f)
     element_count = len(femelement_table)
     dofs = node_dof * node_count
     unknown_flag = 0
-    written_by = "written by FreeCAD"
+    written_by = "written by " + FreeCAD.ConfigGet("ExeName")
 
     # first line, some z88 specific stuff
     f.write(

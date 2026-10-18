@@ -93,6 +93,7 @@ HEADER = """;Exported by FreeCAD
 ;CAM file: {}
 ;Output Time: {}
 """.format(__name__, cam_file, str(datetime.datetime.now()))
+HEADER = HEADER.replace("FreeCAD", FreeCAD.ConfigGet("ExeName"), 1)
 
 # Preamble text will appear at the beginning of the GCODE output file.
 PREAMBLE = """G53 G00 G17

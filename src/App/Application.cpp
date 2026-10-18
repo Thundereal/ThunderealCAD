@@ -49,10 +49,13 @@
 #endif
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <functional>
 #include <thread>
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
 #include <QProcessEnvironment>
 #include <QStandardPaths>
@@ -91,6 +94,7 @@
 
 #include "Annotation.h"
 #include "Application.h"
+#include "BrandText.h"
 #include "ComplexGeoData.h"
 #include "Document.h"
 #include "FileHistory.h"
@@ -1163,6 +1167,14 @@ Document* Application::openDocumentPrivate(const char * FileName,
     if (!File.exists()) {
         std::stringstream str;
         str << "File '" << FileName << "' does not exist!";
+        // Not followed, only pointed at: a plain Save of a standard-format
+        // file writes the current format beside it under the other extension
+        // (Document::getSaveFileName), and whatever links the old name --
+        // another document, the recent file list -- is left naming it.
+        std::string sibling = Document::findSiblingFile(FileName);
+        if (!sibling.empty())
+            str << " '" << FileInfo(sibling).fileName()
+                << "' is beside it -- it may have been saved in another format.";
         THROWM(Base::FileSystemError, str.str().c_str())
     }
 
@@ -3149,6 +3161,11 @@ void Application::initConfig(int argc, char ** argv)
         App::Application::Config()["BuildVersionMinor"  ] = FCVersionMinor;
         App::Application::Config()["BuildVersionPoint"  ] = FCVersionPoint;
         App::Application::Config()["BuildVersionSuffix" ] = FCVersionSuffix;
+        // The FreeCAD release documents state they were written by
+        // (Document.cpp): the one the code derives from, the same as the
+        // above unless the product numbers itself.
+        App::Application::Config()["BaseVersionMajor"   ] = FCBaseVersionMajor;
+        App::Application::Config()["BaseVersionMinor"   ] = FCBaseVersionMinor;
         App::Application::Config()["BuildRevision"      ] = FCRevision;
         App::Application::Config()["BuildRepositoryURL" ] = FCRepositoryURL;
         App::Application::Config()["BuildRevisionDate"  ] = FCRevisionDate;
@@ -3500,6 +3517,7 @@ std::list<std::string> Application::processFiles(const std::list<std::string>& f
 
         try {
             if (file.hasExtension("fcstd")
+                    || file.hasExtension("tstd")
                     || file.hasExtension("std")
                     || file.fileName() == "Document.xml"
                     || (file.isDir() && Base::FileInfo(it + "/Document.xml").exists()))
@@ -3642,6 +3660,38 @@ void Application::logStatus()
     }
 }
 
+// The colour parameters an older config means differently: their alpha
+// byte was read as a transparency, and since the convention flip
+// (Base/Color.h) it is an opacity. Only these two -- every other colour
+// preference was edited through ColorButton, which always stored a
+// QColor alpha, so its bytes already mean opacity. Converted ONLY when a
+// new vendor's config is first seeded from the previous vendor's, in
+// LoadParameters() and in migrateUserFiles(): the vendor rename is what
+// marks the convention change, so a config that already has the new name
+// is already in the new meaning.
+static void convertLegacyConfigColours(const std::string &path)
+{
+    Base::Reference<ParameterManager> mgr = ParameterManager::Create();
+    if (mgr->LoadDocument(path.c_str()) != 1)
+        return;
+    bool changed = false;
+    auto flip = [&mgr, &changed](const char *group, const char *name) {
+        Base::Reference<ParameterGrp> grp = mgr->GetGroup(group);
+        // Stated in the file, not a default: two different presets
+        // coming back equal is the only way to tell without a lookup API.
+        unsigned long v = grp->GetUnsigned(name, 0);
+        if (v != grp->GetUnsigned(name, 1))
+            return;
+        grp->SetUnsigned(name, (v & ~0xFFUL) | (0xFF - (v & 0xFF)));
+        changed = true;
+    };
+    flip("BaseApp/Preferences/Mod/Part", "DefaultDatumColor");
+    flip("BaseApp/Preferences/Mod/PartDesign", "DefaultDatumColor");
+    flip("BaseApp/Preferences/Mod/Sketcher/General", "FaceColor");
+    if (changed)
+        mgr->SaveDocument(path.c_str());
+}
+
 void Application::LoadParameters()
 {
     // Init parameter sets ===========================================================
@@ -3649,40 +3699,14 @@ void Application::LoadParameters()
     if (!mConfig.count("IssuePage")) {
         mConfig["IssuePage"] = "https://github.com/FreeCAD/FreeCAD/issues";
     }
+    auto migrated = mConfig.find("UserFilesMigrated");
+    if (migrated != mConfig.end()) {
+        Base::Console().Message("%s\n", migrated->second.c_str());
+    }
 
     std::string vendorPrefix;
     if (mConfig.count("VendorCFGPrefix"))
         vendorPrefix = mConfig["VendorCFGPrefix"];
-
-    // The colour parameters an older config means differently: their alpha
-    // byte was read as a transparency, and since the convention flip
-    // (Base/Color.h) it is an opacity. Only these two -- every other colour
-    // preference was edited through ColorButton, which always stored a
-    // QColor alpha, so its bytes already mean opacity. Converted ONLY when a
-    // new vendor's config is first seeded from the previous vendor's below:
-    // the vendor rename is what marks the convention change, so a config
-    // that already has the new name is already in the new meaning.
-    auto convertLegacyConfigColours = [](const std::string &path) {
-        Base::Reference<ParameterManager> mgr = ParameterManager::Create();
-        if (mgr->LoadDocument(path.c_str()) != 1)
-            return;
-        bool changed = false;
-        auto flip = [&mgr, &changed](const char *group, const char *name) {
-            Base::Reference<ParameterGrp> grp = mgr->GetGroup(group);
-            // Stated in the file, not a default: two different presets
-            // coming back equal is the only way to tell without a lookup API.
-            unsigned long v = grp->GetUnsigned(name, 0);
-            if (v != grp->GetUnsigned(name, 1))
-                return;
-            grp->SetUnsigned(name, (v & ~0xFFUL) | (0xFF - (v & 0xFF)));
-            changed = true;
-        };
-        flip("BaseApp/Preferences/Mod/Part", "DefaultDatumColor");
-        flip("BaseApp/Preferences/Mod/PartDesign", "DefaultDatumColor");
-        flip("BaseApp/Preferences/Mod/Sketcher/General", "FaceColor");
-        if (changed)
-            mgr->SaveDocument(path.c_str());
-    };
 
     if (mConfig.find("UserParameter") == mConfig.end()) {
         std::string path = mConfig["UserConfigPath"] + vendorPrefix + "user.cfg";
@@ -3718,9 +3742,10 @@ void Application::LoadParameters()
             // Configuration file optional when using as Python module
             if (!Py_IsInitialized()) {
                 Base::Console().Warning("   Parameter does not exist, writing initial one\n");
-                Base::Console().Message("   This warning normally means that FreeCAD is running for the first time\n"
+                Base::Console().Message("%s", brandText(
+                                        "   This warning normally means that FreeCAD is running for the first time\n"
                                         "   or the configuration was deleted or moved. FreeCAD is generating the standard\n"
-                                        "   configuration.\n");
+                                        "   configuration.\n").c_str());
             }
         }
     }
@@ -3752,9 +3777,10 @@ void Application::LoadParameters()
             // Configuration file optional when using as Python module
             if (!Py_IsInitialized()) {
                 Base::Console().Warning("   User settings do not exist, writing initial one\n");
-                Base::Console().Message("   This warning normally means that FreeCAD is running for the first time\n"
+                Base::Console().Message("%s", brandText(
+                                        "   This warning normally means that FreeCAD is running for the first time\n"
                                         "   or your configuration was deleted or moved. The system defaults\n"
-                                        "   will be automatically generated for you.\n");
+                                        "   will be automatically generated for you.\n").c_str());
             }
         }
     }
@@ -3838,6 +3864,18 @@ QString getOldGenericDataLocation(QString home)
  * \brief getSubDirectories
  * To a given path it adds the sub-directories where to store application specific files.
  */
+// The folder name the user's files go under: 'AppDataName' when the build or the
+// branding sets one, so a renamed application can keep the folder its users' files
+// are already in, else 'ExeName'.
+static std::string appDataName(std::map<std::string,std::string>& mConfig)
+{
+    auto it = mConfig.find("AppDataName");
+    if (it != mConfig.end() && !it->second.empty()) {
+        return it->second;
+    }
+    return mConfig["ExeName"];
+}
+
 void getSubDirectories(std::map<std::string,std::string>& mConfig, std::vector<std::string>& appData)
 {
     // If 'AppDataSkipVendor' is defined, the value of 'ExeVendor' must not be part of
@@ -3845,7 +3883,7 @@ void getSubDirectories(std::map<std::string,std::string>& mConfig, std::vector<s
     if (mConfig.find("AppDataSkipVendor") == mConfig.end()) {
         appData.push_back(mConfig["ExeVendor"]);
     }
-    appData.push_back(mConfig["ExeName"]);
+    appData.push_back(appDataName(mConfig));
 }
 
 /*!
@@ -3862,9 +3900,9 @@ void getOldDataLocation(std::map<std::string,std::string>& mConfig, std::vector<
     // the path.
     if (mConfig.find("AppDataSkipVendor") == mConfig.end()) {
         appData.push_back(std::string(".") + mConfig["ExeVendor"]);
-        appData.push_back(mConfig["ExeName"]);
+        appData.push_back(appDataName(mConfig));
     } else {
-        appData.push_back(std::string(".") + mConfig["ExeName"]);
+        appData.push_back(std::string(".") + appDataName(mConfig));
     }
 
 #elif defined(FC_OS_MACOSX) || defined(FC_OS_WIN32)
@@ -4002,6 +4040,189 @@ std::tuple<QString, QString, QString, QString> getStandardPaths()
 
     return std::make_tuple(configHome, dataHome, cacheHome, tempPath);
 }
+
+/*!
+ * \brief copyTree
+ * Copies the folder \a from into \a to, leaving every file already there as it
+ * is, and the top level entries \a skipTop names out. Links are copied as
+ * links. Returns the number of entries that could not be copied.
+ */
+int copyTree(const QString& from, const QString& to, const std::function<bool(const QString&)>& skipTop)
+{
+    int failed = 0;
+    const QDir source(from);
+    QDirIterator it(from, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString path = it.next();
+        const QString rel = source.relativeFilePath(path);
+        if (skipTop(rel.section(QLatin1Char('/'), 0, 0))) {
+            continue;
+        }
+        const QFileInfo fi(path);
+        const QString target = QDir(to).filePath(rel);
+        if (QFileInfo::exists(target) || QFileInfo(target).isSymLink()) {
+            continue;
+        }
+        QDir().mkpath(QFileInfo(target).absolutePath());
+        bool ok = true;
+        if (fi.isSymLink()) {
+            ok = QFile::link(fi.symLinkTarget(), target);
+        }
+        else if (fi.isDir()) {
+            ok = QDir().mkpath(target);
+        }
+        else {
+            ok = QFile::copy(path, target);
+        }
+        if (!ok) {
+            ++failed;
+        }
+    }
+    return failed;
+}
+
+/*!
+ * \brief replacePathPrefix
+ * Points every path in the text file \a file that starts with one of the
+ * folders in \a moved at the folder it moved to, in either separator.
+ */
+void replacePathPrefix(const QString& file, const std::vector<std::pair<QString, QString>>& moved)
+{
+    QFile f(file);
+    if (!f.open(QIODevice::ReadOnly)) {
+        return;
+    }
+    QByteArray text = f.readAll();
+    f.close();
+    const QByteArray original = text;
+    for (const auto& [from, to] : moved) {
+        for (const QString& form : {from, QDir::toNativeSeparators(from)}) {
+            const QByteArray old = form.toUtf8();
+            const QByteArray now = (form == from ? to : QDir::toNativeSeparators(to)).toUtf8();
+            qsizetype pos = 0;
+            while ((pos = text.indexOf(old, pos)) >= 0) {
+                // The whole folder, not one whose name starts with it
+                const qsizetype end = pos + old.size();
+                const char next = end < text.size() ? text.at(end) : '"';
+                if (next == '/' || next == '\\' || next == '"' || next == '<') {
+                    text.replace(pos, old.size(), now);
+                    pos += now.size();
+                }
+                else {
+                    pos = end;
+                }
+            }
+        }
+    }
+    if (text != original && f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write(text);
+    }
+}
+
+/*!
+ * \brief migrateUserFiles
+ * A program that renamed itself finds its users' files under FreeCAD's name.
+ * The first time it starts with no settings of its own, it copies them over:
+ * the data folder -- macros, add-ons, materials, preference packs -- and the
+ * settings, a LinkStage3 release's user.link.cfg before a plain user.cfg, as
+ * the one a user of this fork's releases has been using. A path in the
+ * settings that pointed into the old folders points into the new ones. The
+ * old folders are left as they are, for an upstream FreeCAD still using them,
+ * and a note in the new settings folder records the copy, so it is made once.
+ * Nothing is copied into a folder the user chose (FREECAD_USER_HOME, ...).
+ */
+void migrateUserFiles(std::map<std::string, std::string>& mConfig,
+                      const QString& configHome,
+                      const QString& dataHome,
+                      bool keepDeprecatedPaths)
+{
+    const std::string upstream("FreeCAD");
+    if (appDataName(mConfig) == upstream || Py_IsInitialized()) {
+        return;
+    }
+    const QDir newConfig(QString::fromStdString(mConfig["UserConfigPath"]));
+    const QDir newData(QString::fromStdString(mConfig["UserAppData"]));
+    const QString marker(QStringLiteral("MigratedFrom.txt"));
+    if (newConfig.exists(QStringLiteral("user.cfg")) || newConfig.exists(marker)) {
+        return;
+    }
+
+    std::map<std::string, std::string> old = mConfig;
+    old["ExeName"] = upstream;
+    old["ExeVendor"] = upstream;
+    old.erase("AppDataName");
+    std::vector<std::string> subdirs;
+    if (keepDeprecatedPaths) {
+        getOldDataLocation(old, subdirs);
+    }
+    else {
+        getSubDirectories(old, subdirs);
+    }
+    auto folder = [&subdirs](const QString& home) {
+        return QDir(QString::fromStdString(
+            Base::FileInfo::pathToString(findPath(home, QString(), subdirs, false))));
+    };
+    const QDir oldConfig = folder(configHome);
+    const QDir oldData = folder(dataHome);
+    if (!oldConfig.exists() && !oldData.exists()) {
+        return;
+    }
+
+    // The settings are copied below, from the file chosen there; the logs are
+    // the old program's.
+    int failed = 0;
+    if (oldData.exists()) {
+        failed += copyTree(oldData.absolutePath(), newData.absolutePath(), [](const QString& name) {
+            return name.contains(QLatin1String(".cfg")) || name.endsWith(QLatin1String(".log"))
+                || name.endsWith(QLatin1String(".conf"));
+        });
+    }
+    const std::vector<std::pair<QString, QString>> moved {
+        {oldData.absolutePath(), newData.absolutePath()},
+        {oldConfig.absolutePath(), newConfig.absolutePath()},
+    };
+    for (const char* name : {"user", "system"}) {
+        const QString linkCfg = oldConfig.filePath(QStringLiteral("%1.link.cfg").arg(QLatin1String(name)));
+        const QString plainCfg = oldConfig.filePath(QStringLiteral("%1.cfg").arg(QLatin1String(name)));
+        const bool fromLink = QFileInfo::exists(linkCfg);
+        const QString source = fromLink ? linkCfg : plainCfg;
+        if (!QFileInfo::exists(source)) {
+            continue;
+        }
+        const QString target = newConfig.filePath(QStringLiteral("%1.cfg").arg(QLatin1String(name)));
+        if (!QFile::copy(source, target)) {
+            ++failed;
+            continue;
+        }
+        // A LinkStage3 release wrote the colour convention this build no
+        // longer means; an upstream user.cfg may be in either, and is left as
+        // this build would read it in place.
+        if (fromLink) {
+            convertLegacyConfigColours(target.toStdString());
+        }
+        replacePathPrefix(target, moved);
+    }
+
+    QFile note(newConfig.filePath(marker));
+    if (note.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        note.write(QStringLiteral("Copied on first start from\n%1\n%2\n")
+                       .arg(QDir::toNativeSeparators(oldConfig.absolutePath()),
+                            QDir::toNativeSeparators(oldData.absolutePath()))
+                       .toUtf8());
+    }
+    // Said once the console is up, in LoadParameters()
+    std::ostringstream said;
+    said << "Copied the user settings and files from "
+         << QDir::toNativeSeparators(oldConfig.absolutePath()).toStdString();
+    if (oldData != oldConfig) {
+        said << " and " << QDir::toNativeSeparators(oldData.absolutePath()).toStdString();
+    }
+    if (failed) {
+        said << " (" << failed << " could not be copied)";
+    }
+    mConfig["UserFilesMigrated"] = said.str();
+}
 }
 
 void Application::ExtractUserPath()
@@ -4075,6 +4296,12 @@ void Application::ExtractUserPath()
     macrodirs.emplace_back("Macro");
     boost::filesystem::path macro = findPath(dataHome, customData, macrodirs, true);
     mConfig["UserMacroPath"] = Base::FileInfo::pathToString(macro) + PATHSEP;
+
+    // A renamed program's first start: its users' files are under FreeCAD's
+    // name. Not into a folder the user chose.
+    if (customHome.isEmpty() && customData.isEmpty()) {
+        migrateUserFiles(mConfig, configHome, dataHome, keepDeprecatedPaths);
+    }
 }
 
 #if defined (FC_OS_LINUX) || defined(FC_OS_CYGWIN) || defined(FC_OS_BSD)

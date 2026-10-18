@@ -942,7 +942,7 @@ G54
         gcode = self.post.export()[0][1]
         # print(f"--------{nl}{gcode}--------{nl}")
         split_gcode = gcode.splitlines()
-        self.assertEqual(split_gcode[0], "(Exported by FreeCAD)")
+        self.assertEqual(split_gcode[0], "(Exported by %s)" % FreeCAD.ConfigGet("ExeName"))
         self.assertEqual(split_gcode[1], "(Post Processor: test_post)")
         self.assertEqual(split_gcode[2], "(Cam File: boxtest.fcstd)")
         # The header contains a time stamp that messes up unit testing.
@@ -990,7 +990,7 @@ G54
         gcode = self.post.export()[0][1]
         split_gcode = gcode.splitlines()
         # print(f"--------{nl}{gcode}--------{nl}")
-        self.assertEqual(split_gcode[0], "(Exported by FreeCAD)")
+        self.assertEqual(split_gcode[0], "(Exported by %s)" % FreeCAD.ConfigGet("ExeName"))
         self.assertEqual(split_gcode[1], "(Post Processor: test_post)")
         self.assertEqual(split_gcode[2], "(Cam File: boxtest.fcstd)")
         # The header contains a time stamp that messes up unit testing.

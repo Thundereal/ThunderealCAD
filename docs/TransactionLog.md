@@ -21312,6 +21312,9 @@ Steps 2 and 3 do not depend on 1 and can go first if wanted.
 
 ### 35.6 The questions set out (user: elaborate, 2026-10-18)
 
+**Ruled (user, 2026-10-18): the proposals stand for now**, to be tuned
+when the work is built.
+
 **Q1. How their files are paired with ours.**
 
 Everything after depends on it. A wrong pair is the worst error the set

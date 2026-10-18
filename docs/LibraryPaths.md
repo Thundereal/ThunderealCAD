@@ -312,3 +312,15 @@ old file keeps its old links. Save As in the standard format writes the
   standard-format save opened again with the library moved; a copy into
   another document; an edit of the map as one undo step; a setting changed
   with a document open (what would change, then applied); a token.
+- **Gates** (2026-10-18, `09c2c0f455`): the transaction log's 20 Gui checks
+  pass; Python `-t 0` 3799 OK with the freeze on and off (52 and 54
+  skipped); ctest gtest 979/979 both ways; the driven tests 288/291. The
+  three are not this work's and came with the sync to `thundereal/main`,
+  whose driven tests had not run on this tree:
+  `RenderGoldenRaster` and `RenderGoldenRasterFlat` diverge in the beauty
+  pass only (0.13% of pixels, max 26); `GuiTechDrawPageBeforeItsViewProviders`
+  hangs on a "save changes?" dialog -- the test saves with
+  `App.Document.saveAs`, which leaves the Gui document modified, then
+  closes the page's subwindow, which holds the document's last view, so
+  `Gui::Document::canClose` asks. Diagnosed, not compared against a build
+  without this work.

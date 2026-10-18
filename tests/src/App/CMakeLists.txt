@@ -20,6 +20,7 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/ExpressionSecurity.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/ExpressionSecurityRuntime.cpp
             ${ExpressionImageHost_TEST_SRC}
+            ${CMAKE_CURRENT_SOURCE_DIR}/LibraryPaths.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/License.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/Metadata.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/ParamRegistry.cpp

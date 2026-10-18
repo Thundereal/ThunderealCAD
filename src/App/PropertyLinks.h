@@ -1330,6 +1330,31 @@ public:
     const std::string& getLiveBranch() const { return _liveBranch; }
     //@}
 
+    /** @name Library links (docs/LibraryPaths.md)
+     *
+     * A link to a file under a library folder keeps the library's name and
+     * the path under it, saved beside its old path; it resolves through the
+     * document's folder for the name, then the system's, then the old path.
+     */
+    //@{
+    /// The library's name; empty for a link that is no library link.
+    const std::string& getLibraryName() const { return _libName; }
+    /// The path under the library's folder.
+    const std::string& getLibraryFile() const { return _libFile; }
+    /// The folder the link resolved through here; empty when none did.
+    const std::string& getLibraryFolder() const { return _libFolder; }
+    /// The full path of the file the link resolved to; empty with none.
+    std::string getFullPath() const;
+    /** Link to the same object of the file at `path`, under `folder` of the
+     * same library: a remap (3.7). Notifies as a change of the value.
+     */
+    void relinkFile(const std::string& path, const std::string& folder);
+    /// Rename the library this link is saved under, for its folder (Q4).
+    void renameLibrary(const std::string& name);
+    /// Every library link whose owner is of `doc`.
+    static std::vector<PropertyXLink*> getLibraryLinks(const App::Document* doc);
+    //@}
+
     int checkRestore(std::string *msg=nullptr) const override;
 
     void beforeSave(Base::Writer &writer) const override;
@@ -1392,8 +1417,9 @@ public:
     bool isTouched() const override;
     void purgeTouched() override;
 
+    /// The path as shown: a library link's in the token form, `%Name%/file`.
     const char *getFilePath() const {
-        return filePath.c_str();
+        return _libName.empty() ? filePath.c_str() : _libToken.c_str();
     }
 
     virtual bool upgrade(Base::XMLReader &reader, const char *typeName);
@@ -1473,6 +1499,15 @@ protected:
     /// The link's file is its owner's own (sec 27.20): set when it resolves,
     /// so a Save As, which renames the owner's file, still saves it as such.
     bool _selfFile {false};
+    /// A library link (docs/LibraryPaths.md): the name, the path under the
+    /// folder, the folder it resolved through here, and the token form.
+    std::string _libName;
+    std::string _libFile;
+    std::string _libFolder;
+    std::string _libToken;
+    void setLibraryForm(const std::string& name, const std::string& file,
+                        const std::string& folder);
+    void clearLibraryForm();
     PathResolveMode resolveMode = PathResolveMode::Dynamic;
     std::vector<std::string> _SubList;
     std::vector<ShadowSub> _ShadowSubList;

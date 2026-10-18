@@ -124,6 +124,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #endif
 #include "GeoFeature.h"
 #include "InputStratum.h"
+#include "LibraryPaths.h"
 #include "License.h"
 #include "Link.h"
 #include "MergeDocuments.h"
@@ -1584,6 +1585,12 @@ bool Document::isPerformingTransaction() const
     return d->undoing || d->rollback || d->replaying || Transaction::isApplying();
 }
 
+void Document::setLibraryPathsQuietly(std::map<std::string, std::string>&& map)
+{
+    Base::FlagToggler<> quiet(d->bookkeeping, false);
+    LibraryPaths.setValues(std::move(map));
+}
+
 bool Document::isReplaying() const
 {
     return d->replaying || d->checkingOut;
@@ -2310,6 +2317,11 @@ void Document::onChanged(const Property* prop)
             // recursive call of onChanged()
             this->Uid.setValue(id);
         }
+    } else if (prop == &LibraryPaths) {
+        // A remap (docs/LibraryPaths.md 3.7): an undo puts the links back
+        // itself, and bookkeeping is the map following the links.
+        if (!d->bookkeeping && !testStatus(Restoring) && !isPerformingTransaction())
+            App::LibraryPaths::remap(*this);
     } else if(prop == &UseHasher) {
         for(auto obj : d->objectArray) {
             auto geofeature = dynamic_cast<GeoFeature*>(obj);
@@ -2423,6 +2435,10 @@ Document::Document(const char* documentName)
     ADD_PROPERTY_TYPE(Comment, (""), 0, Prop_None, "Additional tag to save a comment");
     ADD_PROPERTY_TYPE(Meta, (), 0, Prop_None, "Map with additional meta information");
     ADD_PROPERTY_TYPE(Material, (), 0, Prop_None, "Map with material properties");
+    ADD_PROPERTY_TYPE(LibraryPaths, (), 0, Prop_None,
+            "The library paths the document's links use: name -> folder.\n"
+            "A link to a file under one is saved as the name and the path under it,\n"
+            "and resolves through this folder first, then the one the settings name.");
     // create the uuid for the document
     Base::Uuid id;
     ADD_PROPERTY_TYPE(Id, (""), 0, Prop_None, "ID of the document");
@@ -4460,6 +4476,7 @@ bool Document::saveCopy(const char* _file, bool withHistory) const
             Guard(bool& f, bool v) : flag(f), was(f) { flag = v; }
             ~Guard() { flag = was; }
         } guard(d->savingWithoutHistory, !withHistory);
+        App::LibraryPaths::settle(const_cast<Document&>(*this), true);
         bool result = saveToFile(file.c_str());
         return result;
     }
@@ -4509,6 +4526,9 @@ bool Document::save ()
 
             std::string LastModifiedDateString = Base::TimeInfo::currentDateTimeString();
             LastModifiedDate.setValue(LastModifiedDateString.c_str());
+            // The folders the links resolved through here, and no name they
+            // do not use (docs/LibraryPaths.md 3.2, Q3).
+            App::LibraryPaths::settle(*this, true);
             // set author if needed
             bool saveAuthor = DocumentParams::getprefSetAuthorOnSave();
             if (saveAuthor) {
@@ -14429,6 +14449,9 @@ bool Document::afterRestore(bool checkPartial) {
         return false;
     }
     setStatus(Document::Restoring, false);
+    // The map follows the folders the links resolved through (Q3), in
+    // memory: nothing is written at open.
+    App::LibraryPaths::settle(*this, false);
     GetApplication().signalFinishRestoreDocument(*this);
     // The last point a referrer can turn up: the Gui document replays its
     // embedded view documents from this signal. Whatever is still unclaimed

@@ -1,6 +1,6 @@
 # Library paths: links into named folders
 
-Status (2026-10-18): **design ruled whole, build step 1 under way.**
+Status (2026-10-18): **design ruled whole; step 1 (App) built**, section 7.
 Asked for by the user the same day. Q1 to Q8 are ruled (section 5).
 
 ## 1. The ask (user, 2026-10-18)
@@ -252,3 +252,63 @@ old file keeps its old links. Save As in the standard format writes the
 3. **The log**: a link's value compared by its library form; a test of
    two copies with the library at two places merged without a conflict.
 4. **The export option** of TransactionLog sec 35 L7, when that is built.
+
+## 7. Built: step 1, App (2026-10-18)
+
+`src/App/LibraryPaths.{h,cpp}`, `PropertyXLink` (`PropertyLinks.cpp`),
+`Document.LibraryPaths`, the Python functions; gtests in
+`tests/src/App/LibraryPaths.cpp`.
+
+- **The setting**: `App::LibraryPaths::getSystem/setSystem/removeSystem`.
+  The setters only write; a caller committing a change calls
+  `changed(before)`, which emits `LibraryPaths::signalChanged(before,
+  after)` -- for the Gui's question, step 2 -- and returns the open
+  documents it affects with their link counts. A link is affected when the
+  setting now resolves it (3.6 steps 1 and 2) to another file than it has;
+  one the document's folder still holds is not (Q2). `apply(doc)` takes the
+  setting's folders into the document for the names of those links, one
+  undo step; `useSystemFolder(doc, name)` is the Q2 action.
+- **Python**: `App.getLibraryPaths()`, `App.setLibraryPath(name, folder)`
+  and `App.removeLibraryPath(name)` -> `{document name: links}` (what
+  `App.applyLibraryPaths(doc)` would change; the documents are left),
+  `App.resolveLibraryPath(token, doc=None)`.
+- **The link** keeps the name, the path under the folder, and the folder it
+  resolved through here (`getLibraryName/File/Folder()`). Its form is worked
+  out where `DocInfo::get` finds the full path -- a set, a restore, a save
+  of the linked file under a new name, a change of the resolve mode -- and
+  kept when the link resolved through its own folder. `getFilePath()`, the
+  shown path, is the token form. The C++ `setValue(file, name, subs)` takes
+  a token; the Python setter takes objects only, as before, so a token is
+  set from Python through `App.resolveLibraryPath`.
+- **The map follows the links** (`LibraryPaths::settle`), as bookkeeping
+  (no undo step, no remap): a name gets the folder its links resolved
+  through here, in memory at the end of a restore (Q3; nothing is written)
+  and again at each save, which also drops the names no link uses (3.2).
+  A name its links resolved through two folders keeps the one the document
+  names, and the links through the other are saved under a new name, as Q4
+  does for a new link. A link that resolved through neither folder keeps
+  its name and the document's folder for it, for a machine that has it.
+- **A link resolved through its old path** to a file at its place under the
+  library (the library moved with the document) takes that folder for the
+  name.
+- **An unsaved owner**: a link into a library is resolved at once, its old
+  path the full one; the owner's first save writes it in the link's mode,
+  and drops the library form if the owner was saved inside the library
+  (Q5).
+- **An edit of `Document.LibraryPaths`** remaps (3.7): the links whose name
+  now resolves to another file are linked to it, in the same transaction
+  as the edit; an undo puts both back.
+- **Not changed**: a copy of objects with external links into a document
+  never saved is refused as before ("Document must be saved at least once
+  before link to external objects", `Document::copyObject`), library
+  links or not. Once the target is saved, a copied library link resolves
+  through the setting's folder and the target takes the name.
+- **Gtests** (`LibraryPathsTest`, 17): names and tokens; matching (the
+  deepest, the document's name, Q4, Q5, whole components); resolving (the
+  document's first, Q2); saved beside the old path; opened with the
+  library moved, with only the document's folder, with neither (broken,
+  the library kept); nested folders; Q4 on a new link; an unsaved owner;
+  an owner saved inside the library; an old document converted at load; a
+  standard-format save opened again with the library moved; a copy into
+  another document; an edit of the map as one undo step; a setting changed
+  with a document open (what would change, then applied); a token.

@@ -138,6 +138,11 @@ public:
     App::PropertyMap Meta;
     /// Material descriptions, used and defined in the Material module.
     App::PropertyMap Material;
+    /** The library paths the document's links use (docs/LibraryPaths.md
+     * 3.2): name -> the folder, as it was where the document was last saved.
+     * An edit is a remap: the links using the name resolve again.
+     */
+    App::PropertyMap LibraryPaths;
     /// read-only name of the temp dir created when the document is opened
     PropertyString TransientDir;
     /// Tip object of the document (if any)
@@ -1585,6 +1590,9 @@ public:
     /// returns true if the document is in an Transaction phase, e.g. currently performing a redo/undo or rollback,
     /// or replaying transaction log rows (a branch switch, a crash recovery)
     bool isPerformingTransaction() const;
+    /// Set LibraryPaths as bookkeeping: no transaction, no remap
+    /// (docs/LibraryPaths.md 3.2, Q3).
+    void setLibraryPathsQuietly(std::map<std::string, std::string>&& map);
     /** Whether the document is being rebuilt from its transaction log: a
      * branch switch or a crash recovery replaying rows, or a restore to a
      * version (docs/TransactionLog.md sec 27.67). What it writes comes from

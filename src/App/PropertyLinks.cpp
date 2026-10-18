@@ -41,6 +41,7 @@
 #include "Application.h"
 #include "TransactionValue.h"
 #include "FileHistory.h"
+#include "LibraryPaths.h"
 #include "TransactionLog.h"
 #include "Transactions.h"
 #include "Document.h"
@@ -4053,6 +4054,119 @@ public:
         return path.toUtf8().constData();
     }
 
+    static bool takesLibraryForm(const PropertyXLink* l)
+    {
+        // Absolute and Canonical are a user's choice of an absolute path
+        // (docs/LibraryPaths.md Q6).
+        auto mode = l->getPathResolveMode();
+        return mode != PropertyXLink::PathResolveMode::Absolute
+            && mode != PropertyXLink::PathResolveMode::Canonical;
+    }
+
+    /** Work out `l`'s library form for the file at `fullPath`
+     * (docs/LibraryPaths.md 3.4); whether it is a library link.
+     */
+    static bool updateLibraryForm(PropertyXLink* l, App::Document* doc, const QString& fullPath)
+    {
+        if (fullPath.isEmpty() || fullPath.startsWith(QStringLiteral("https://"))
+                || !takesLibraryForm(l)) {
+            l->clearLibraryForm();
+            return false;
+        }
+        const std::string full = fullPath.toUtf8().constData();
+        // Restored, and found nowhere: kept for a machine that has it.
+        if (!l->_libName.empty() && l->_libFolder.empty() && !QFileInfo(fullPath).exists())
+            return false;
+        if (!l->_libName.empty()) {
+            // Resolved through its folder: a restore, a remap, a paste.
+            if (!l->_libFolder.empty()
+                    && LibraryPaths::samePath(l->_libFolder + "/" + l->_libFile, full)) {
+                noteFolder(l, doc);
+                return true;
+            }
+            // Through its old path, to a file still at its place under the
+            // library: the library moved with the document (3.6 step 3).
+            if (l->_libFolder.empty()) {
+                const std::string norm = LibraryPaths::normalize(full);
+                const std::string tail = "/" + l->_libFile;
+                if (norm.size() > tail.size()
+                        && norm.compare(norm.size() - tail.size(), tail.size(), tail) == 0) {
+                    l->_libFolder = norm.substr(0, norm.size() - tail.size());
+                    noteFolder(l, doc);
+                    return true;
+                }
+            }
+        }
+        auto owner = Base::freecad_dynamic_cast<DocumentObject>(l->getContainer());
+        LibraryPaths::Match m;
+        if (LibraryPaths::match(full,
+                                doc ? doc->LibraryPaths.getValues() : LibraryPaths::Map(),
+                                LibraryPaths::getSystem(),
+                                ownFileOf(owner),
+                                m)) {
+            if (m.renamed)
+                FC_WARN(l->getFullName() << ": library '" << m.name << "' is " << m.folder
+                        << ", which the settings name otherwise; the document names that "
+                        "name another folder");
+            l->setLibraryForm(m.name, m.file, m.folder);
+            noteFolder(l, doc);
+            return true;
+        }
+        l->clearLibraryForm();
+        return false;
+    }
+
+    /// The document's map takes the folder `l` resolved through.
+    static void noteFolder(PropertyXLink* l, App::Document* doc)
+    {
+        if (!doc || l->_libFolder.empty())
+            return;
+        const auto& map = doc->LibraryPaths.getValues();
+        auto it = map.find(l->_libName);
+        if (it != map.end() && LibraryPaths::samePath(it->second, l->_libFolder))
+            return;
+        if (it == map.end() || !doc->testStatus(App::Document::Restoring)) {
+            // Settled at the end of a restore otherwise: links read later may
+            // still resolve through the folder the document names.
+            LibraryPaths::settle(*doc, false, l);
+        }
+    }
+
+    /// Whether `filename`, the file of a document a link is set to, is in a
+    /// library: the link then needs no saved owner (3.8).
+    static bool isLibraryTarget(const PropertyXLink* l, App::Document* doc, const char* filename)
+    {
+        if (!filename || !*filename || !takesLibraryForm(l))
+            return false;
+        std::string plain(filename);
+        FileHistory::NameParts parts;
+        if (FileHistory::parseName(plain, parts))
+            plain = parts.file;
+        if (!QFileInfo(QString::fromUtf8(plain.c_str())).isAbsolute())
+            return false;
+        LibraryPaths::Match m;
+        return LibraryPaths::match(LibraryPaths::normalize(plain),
+                                   doc ? doc->LibraryPaths.getValues() : LibraryPaths::Map(),
+                                   LibraryPaths::getSystem(),
+                                   std::string(),
+                                   m);
+    }
+
+    /// `l` to the same object of the file at `path` (3.7), a change of its value.
+    static void relink(PropertyXLink* l, const std::string& path, const std::string& folder)
+    {
+        auto parent = l->parentProp;
+        if (parent)
+            parent->aboutToSetValue();
+        l->_libFolder = folder;
+        std::string name = l->objectName;
+        auto subs = l->_SubList;
+        auto shadows = l->_ShadowSubList;
+        l->setValue(std::string(path), std::move(name), std::move(subs), std::move(shadows));
+        if (parent)
+            parent->hasSetValue();
+    }
+
     static DocInfoPtr get(const char *filename,
             App::Document *pDoc,PropertyXLink *l, const char *objName)
     {
@@ -4084,7 +4198,19 @@ public:
             }
         }
         QString fullPath;
-        l->filePath = getDocPath(plain.c_str(),pDoc,l->getPathResolveMode(),&fullPath);
+        const char* ownerPath = pDoc->getFileName();
+        const QString given = QDir::cleanPath(QString::fromUtf8(plain.c_str()));
+        if ((!ownerPath || !*ownerPath) && QFileInfo(given).isAbsolute()
+                && updateLibraryForm(l, pDoc, given)) {
+            // An owner not saved yet holds a library link (docs/LibraryPaths.md
+            // 3.8): the old path is the full one till the owner has a file.
+            fullPath = given;
+            l->filePath = given.toUtf8().constData();
+        }
+        else {
+            l->filePath = getDocPath(plain.c_str(),pDoc,l->getPathResolveMode(),&fullPath);
+            updateLibraryForm(l, pDoc, fullPath);
+        }
 
         FC_LOG("finding doc " << filename);
 
@@ -4706,6 +4832,8 @@ void PropertyXLink::setValue(App::DocumentObject *lValue,
         if(lValue->getDocument() != owner->getDocument()) {
             if (!docInfo || lValue->getDocument()!=docInfo->pcDoc) {
                 this->filePath.clear();
+                // Another file: its library form is worked out afresh.
+                clearLibraryForm();
                 // An editable instance with no branch yet takes it now: the
                 // link is to the branch, and has to save its name (sec 27.23).
                 Document* linkedDoc = lValue->getDocument();
@@ -4720,7 +4848,11 @@ void PropertyXLink::setValue(App::DocumentObject *lValue,
                 FileHistory::NameParts parts;
                 if (!filename || !FileHistory::parseName(filename, parts))
                     _liveBranch.clear();
-                if(!filename || *filename==0 || !ownerPath || *ownerPath==0) {
+                // A library link needs no saved owner (docs/LibraryPaths.md 3.8).
+                if (filename && *filename && (!ownerPath || *ownerPath == 0)
+                        && DocInfo::isLibraryTarget(this, owner->getDocument(), filename)) {
+                    info = DocInfo::get(filename,owner->getDocument(),this,name);
+                } else if(!filename || *filename==0 || !ownerPath || *ownerPath==0) {
                     // linked or owner document not saved, delay getting file path till Save()
                 } else {
                     FC_LOG("xlink set to new document " << lValue->getDocument()->getName());
@@ -4767,6 +4899,19 @@ void PropertyXLink::setValue(std::string &&filename, std::string &&name,
     auto owner = dynamic_cast<DocumentObject*>(getContainer());
     if(!owner || !owner->isAttachedToDocument())
         THROWM(Base::RuntimeError, "invalid container")
+
+    // The token form, `%Name%/file` (docs/LibraryPaths.md 3.3): through the
+    // document's folder for the name, then the system's.
+    std::string libName, libFile;
+    if (LibraryPaths::parseToken(filename, libName, libFile)) {
+        LibraryPaths::Resolved r;
+        if (!LibraryPaths::resolve(libName, libFile,
+                                   owner->getDocument()->LibraryPaths.getValues(),
+                                   LibraryPaths::getSystem(), r))
+            FC_THROWM(Base::ValueError, "No library '" << libName << "' holds '" << libFile << "'");
+        setLibraryForm(libName, libFile, r.folder);
+        filename = r.path;
+    }
 
     DocumentObject *pObject=nullptr;
     DocInfoPtr info;
@@ -5047,7 +5192,61 @@ void PropertyXLink::setPathResolveMode(PathResolveMode mode)
         filePath = getFilePath(mode);
     }
     resolveMode = mode;
+    // Absolute and Canonical keep no library form, the others take one
+    // (docs/LibraryPaths.md Q6).
+    if (docInfo && owner)
+        DocInfo::updateLibraryForm(this, owner->getDocument(),
+                                   QString::fromUtf8(docInfo->filePath()));
     hasSetValue();
+}
+
+std::string PropertyXLink::getFullPath() const
+{
+    return docInfo ? std::string(docInfo->filePath()) : std::string();
+}
+
+void PropertyXLink::setLibraryForm(const std::string& name, const std::string& file,
+                                   const std::string& folder)
+{
+    _libName = name;
+    _libFile = file;
+    _libFolder = folder;
+    _libToken = LibraryPaths::makeToken(name, file);
+}
+
+void PropertyXLink::clearLibraryForm()
+{
+    _libName.clear();
+    _libFile.clear();
+    _libFolder.clear();
+    _libToken.clear();
+}
+
+void PropertyXLink::renameLibrary(const std::string& name)
+{
+    if (!_libName.empty())
+        setLibraryForm(name, _libFile, _libFolder);
+}
+
+void PropertyXLink::relinkFile(const std::string& path, const std::string& folder)
+{
+    DocInfo::relink(this, path, folder);
+}
+
+std::vector<PropertyXLink*> PropertyXLink::getLibraryLinks(const App::Document* doc)
+{
+    std::vector<PropertyXLink*> ret;
+    std::set<PropertyXLink*> seen;
+    for (auto& v : _DocInfoMap) {
+        for (auto link : v.second->links) {
+            if (link->_libName.empty() || !seen.insert(link).second)
+                continue;
+            auto owner = Base::freecad_dynamic_cast<DocumentObject>(link->getContainer());
+            if (owner && owner->getDocument() == doc)
+                ret.push_back(link);
+        }
+    }
+    return ret;
 }
 
 std::string PropertyXLink::getFilePath(PathResolveMode mode) const
@@ -5181,6 +5380,26 @@ void PropertyXLink::Save (Base::Writer &writer) const {
         }
         if(!_path.empty())
             path = _path.c_str();
+        // A library link set while its owner had no file holds the full path
+        // (docs/LibraryPaths.md 3.8): the owner has one now, and the old path
+        // is written in the link's mode.
+        else if (owner && docInfo && !_libName.empty() && DocInfo::takesLibraryForm(this)
+                 && QFileInfo(QString::fromUtf8(filePath.c_str())).isAbsolute()) {
+            const char* own = ownerDoc->getFileName();
+            if (own && *own) {
+                try {
+                    auto self = const_cast<PropertyXLink*>(this);
+                    self->filePath = DocInfo::getDocPath(
+                        docInfo->filePath(), const_cast<Document*>(ownerDoc), resolveMode);
+                    path = filePath.c_str();
+                    // Saved inside the library: a relative link (Q5).
+                    if (LibraryPaths::isUnder(own, _libFolder))
+                        self->clearLibraryForm();
+                }
+                catch (Base::Exception&) {
+                }
+            }
+        }
         // A pin or a live branch of the owner's own file is saved with no
         // file: "this document's file", whatever it is called after a Save
         // As (sec 27.20, 27.21 Q2). A FreeCAD that does not know the pin
@@ -5194,6 +5413,13 @@ void PropertyXLink::Save (Base::Writer &writer) const {
 
         if (this->resolveMode != PathResolveMode::Dynamic) {
             writer.Stream() << "\" resolve=\"" << getPathResolveModeName();
+        }
+        // A library link (docs/LibraryPaths.md 3.3): the name and the path
+        // under its folder, read first; absent otherwise, and a FreeCAD that
+        // does not know them resolves the file.
+        if (!_libName.empty() && !_libFile.empty() && *path) {
+            writer.Stream() << "\" lib=\"" << encodeAttribute(_libName)
+                            << "\" libfile=\"" << encodeAttribute(_libFile);
         }
         // Pinned (docs/TransactionLog.md sec 16.5, 27): absent otherwise,
         // and a FreeCAD that does not know them resolves the file.
@@ -5299,6 +5525,48 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
     const bool self = file.empty() && (_pinVersion > 0 || !_liveBranch.empty());
     if (self)
         file = ownFileOf(static_cast<DocumentObject*>(getContainer()));
+
+    // A library link (docs/LibraryPaths.md 3.6): through the document's
+    // folder for the name, then the system's, then the old path.
+    clearLibraryForm();
+    std::string libReport;
+    if (!self && !file.empty() && reader.hasAttribute("lib") && reader.hasAttribute("libfile")) {
+        std::string libName = reader.getAttribute("lib");
+        std::string libFile = reader.getAttribute("libfile");
+        auto ownerObj = Base::freecad_dynamic_cast<DocumentObject>(getContainer());
+        Document* doc = ownerObj ? ownerObj->getDocument() : nullptr;
+        const LibraryPaths::Map docMap = doc ? doc->LibraryPaths.getValues() : LibraryPaths::Map();
+        LibraryPaths::Resolved r;
+        if (!LibraryPaths::isValidName(libName) || libFile.empty()) {
+            FC_WARN(getFullName() << ": invalid library '" << libName << "'");
+        }
+        else if (LibraryPaths::resolve(libName, libFile, docMap, LibraryPaths::getSystem(), r)) {
+            setLibraryForm(libName, libFile, r.folder);
+            file = r.path;
+            if (r.conflict && doc) {
+                static std::set<std::string> warned;
+                if (warned.insert(doc->Uid.getValueStr() + "/" + libName).second)
+                    FC_WARN(doc->Label.getValue() << ": library '" << libName
+                            << "': the document uses " << r.folder << ", the settings say "
+                            << r.other);
+            }
+        }
+        else {
+            setLibraryForm(libName, libFile, std::string());
+            auto it = docMap.find(libName);
+            auto sys = LibraryPaths::getSystem();
+            auto itSys = sys.find(libName);
+            std::ostringstream ss;
+            if (itSys != sys.end())
+                ss << "library '" << libName << "' (" << itSys->second << ") holds no '"
+                   << libFile << "'";
+            else
+                ss << "library '" << libName << "' is not set here";
+            if (it != docMap.end())
+                ss << " (the document had " << it->second << ")";
+            libReport = ss.str();
+        }
+    }
     std::string name;
     if(file.empty())
         name = reader.getName(reader.getAttribute("name"));
@@ -5391,6 +5659,17 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
     }else
         setValue(object,std::move(subs),std::move(shadows));
     _mapped = std::move(mapped);
+
+    // Not through the library, and not at its old path either: broken, with
+    // the library named (3.6 step 4).
+    if (!libReport.empty() && _libFolder.empty()) {
+        const std::string full = getFullPath();
+        if (full.empty() || !QFileInfo(QString::fromUtf8(full.c_str())).exists()) {
+            static std::set<std::string> warned;
+            if (warned.insert(getFullName() + "/" + libReport).second)
+                FC_WARN(getFullName() << ": " << libReport);
+        }
+    }
 }
 
 Property *PropertyXLink::CopyOnImportExternal(
@@ -5466,6 +5745,10 @@ void PropertyXLink::copyTo(PropertyXLink &other,
     other._pinUuid = _pinUuid;
     other._liveBranch = _liveBranch;
     other._selfFile = _selfFile;
+    other._libName = _libName;
+    other._libFile = _libFile;
+    other._libFolder = _libFolder;
+    other._libToken = _libToken;
 }
 
 void PropertyXLink::getLinkIdentity(std::string &doc, std::string &obj) const
@@ -5516,6 +5799,10 @@ void PropertyXLink::Paste(const Property &from)
     _pinUuid = other._pinUuid;
     _liveBranch = other._liveBranch;
     _selfFile = other._selfFile;
+    _libName = other._libName;
+    _libFile = other._libFile;
+    _libFolder = other._libFolder;
+    _libToken = other._libToken;
     auto doc = other.docName.empty() ? nullptr : GetApplication().getDocument(other.docName.c_str());
     if(!other.docName.empty() && (doc || other.filePath.empty())) {
         if(!doc) {

@@ -285,8 +285,7 @@ old file keeps its old links. Save As in the standard format writes the
   of the linked file under a new name, a change of the resolve mode -- and
   kept when the link resolved through its own folder. `getFilePath()`, the
   shown path, is the token form. The C++ `setValue(file, name, subs)` takes
-  a token; the Python setter takes objects only, as before, so a token is
-  set from Python through `App.resolveLibraryPath`.
+  a token. From Python, see section 10.
 - **The map follows the links** (`LibraryPaths::settle`), as bookkeeping
   (no undo step, no remap): a name gets the folder its links resolved
   through here, in memory at the end of a restore (Q3; nothing is written)
@@ -407,4 +406,31 @@ conflict.
   (Python) -- a conflict without the change, checked; "same" with it.
 - **Gates** (2026-10-18): the Gui checks pass; Python 3800 OK with the
   freeze on and off; ctest gtest 980/980 both ways; the driven tests
+  289/292, the three of section 7.
+
+## 10. Built: a link set from Python by its file (2026-10-18)
+
+Asked by the user the same day ("Agree, go"), the shape proposed: the
+Python setters of `PropertyXLink` (and so `PropertyXLinkSub`) and
+`PropertyXLinkSubList` (and so `PropertyXLinkList`) take
+
+    obj.Link = ("%Lib%/f/bolt.FCStd", "Bolt")
+    obj.Link = ("%Lib%/f/bolt.FCStd", "Bolt", "Face1")      # or a list of subnames
+    obj.Links = [("%Lib%/f/bolt.FCStd", "Bolt", ["Face1"]), (other, "Edge1")]
+
+- The first item a string tells the form from the old ones, whose first
+  item is an object. It is a library token, an absolute path, or a path
+  relative to the owner's file -- refused for an owner never saved, while a
+  token needs no saved owner (3.8).
+- The file is opened if no document has it, and the link is set to the
+  object as any link is: the library form follows from where the file is
+  (3.4), the same as for a link set to an object.
+- Refused with `ValueError`: no library holding the token's file, no such
+  file, no such object; `TypeError` for an object name that is not a
+  string. In a list, an entry by file reports its own error.
+- **Tests**: `Document.LibraryPathCases` (Python, 4), and
+  `LibraryPathsTest.absoluteModesKeepNoLibraryForm` (gtest, Q6, which had
+  no test of its own).
+- **Gates** (2026-10-19): the Gui checks pass; Python 3804 OK with the
+  freeze on and off; ctest gtest 981/981 both ways; the driven tests
   289/292, the three of section 7.

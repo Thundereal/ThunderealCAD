@@ -10336,3 +10336,88 @@ class TransactionBranchCases(unittest.TestCase):
         doc.deleteTransactionBranch(res["branch"])
         self.assertEqual(doc.getTransactionSentFiles(), [])
         self.assertEqual(doc.Box.Height.Value, 10)
+
+
+class LibraryPathCases(unittest.TestCase):
+    # docs/LibraryPaths.md 3.3: a link set from Python by its file -- a path
+    # or a library token -- and the name of an object in it.
+
+    NAME = "TestPyLib"
+
+    def setUp(self):
+        import shutil
+
+        self.dir = tempfile.mkdtemp(prefix="fc-libpaths-")
+        self.lib = os.path.join(self.dir, "lib")
+        os.makedirs(os.path.join(self.lib, "f"))
+        part = FreeCAD.newDocument("PyLibPart")
+        part.addObject("App::FeatureTest", "Bolt")
+        part.addObject("App::FeatureTest", "Nut")
+        self.part = os.path.join(self.lib, "f", "bolt.FCStd")
+        part.saveAs(self.part)
+        FreeCAD.closeDocument(part.Name)
+        FreeCAD.setLibraryPath(self.NAME, self.lib)
+        self.doc = FreeCAD.newDocument("PyLibOwner")
+        os.makedirs(os.path.join(self.dir, "asm"))
+        self.doc.saveAs(os.path.join(self.dir, "asm", "asm.FCStd"))
+        self.holder = self.doc.addObject("App::FeatureTest", "Holder")
+        self.holder.addProperty("App::PropertyXLink", "L")
+        self.holder.addProperty("App::PropertyXLinkSubList", "LL")
+        self.token = "%" + self.NAME + "%/f/bolt.FCStd"
+
+    def tearDown(self):
+        FreeCAD.removeLibraryPath(self.NAME)
+        for name in list(FreeCAD.listDocuments()):
+            if name.startswith("PyLib"):
+                FreeCAD.closeDocument(name)
+
+    def same(self, a, b):
+        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+    def testALinkByToken(self):
+        self.holder.L = (self.token, "Bolt")
+        self.assertEqual(self.holder.L.Name, "Bolt")
+        self.assertTrue(self.same(self.holder.L.Document.FileName, self.part))
+        # A library link: the document took the name.
+        self.assertIn(self.NAME, self.doc.LibraryPaths)
+        self.holder.L = (self.token, "Nut", "Edge1")
+        self.assertEqual(self.holder.L[0].Name, "Nut")
+        self.assertEqual(self.holder.L[1], "Edge1")
+        self.holder.L = (self.token, "Bolt", ["Face1", "Face2"])
+        self.assertEqual(self.holder.L[1], ["Face1", "Face2"])
+
+    def testALinkByPath(self):
+        # Relative to the owner's file, as a link's path is; and absolute.
+        self.holder.L = (os.path.join("..", "lib", "f", "bolt.FCStd"), "Nut")
+        self.assertEqual(self.holder.L.Name, "Nut")
+        self.holder.L = (self.part, "Bolt")
+        self.assertEqual(self.holder.L.Name, "Bolt")
+
+    def testAListByFile(self):
+        other = self.doc.addObject("App::FeatureTest", "Other")
+        self.holder.LL = [(self.token, "Bolt", ["Face1"]), (other, "Edge1")]
+        got = {o.Name: subs for o, subs in self.holder.LL}
+        self.assertEqual(got, {"Bolt": ("Face1",), "Other": ("Edge1",)})
+        self.holder.LL = (self.token, "Nut")
+        self.assertEqual([o.Name for o, _ in self.holder.LL], ["Nut"])
+
+    def testWhatIsRefused(self):
+        with self.assertRaises(ValueError):
+            self.holder.L = ("%TestPyNone%/f/bolt.FCStd", "Bolt")
+        with self.assertRaises(ValueError):
+            self.holder.L = (self.token, "NoSuchObject")
+        with self.assertRaises(ValueError):
+            self.holder.L = (os.path.join(self.dir, "none.FCStd"), "Bolt")
+        with self.assertRaises(TypeError):
+            self.holder.L = (self.token, 1)
+        with self.assertRaises(ValueError):
+            self.holder.LL = [(self.token, "NoSuchObject")]
+        # Relative, with an owner never saved: relative to nothing.
+        unsaved = FreeCAD.newDocument("PyLibUnsaved")
+        h = unsaved.addObject("App::FeatureTest", "Holder")
+        h.addProperty("App::PropertyXLink", "L")
+        with self.assertRaises(ValueError):
+            h.L = (os.path.join("lib", "f", "bolt.FCStd"), "Bolt")
+        # A token needs no saved owner (3.8).
+        h.L = (self.token, "Bolt")
+        self.assertEqual(h.L.Name, "Bolt")

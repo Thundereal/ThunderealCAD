@@ -5931,8 +5931,87 @@ PyObject *PropertyXLink::getPyObject()
     return Py::new_reference_to(ret);
 }
 
+namespace {
+
+/** The form `(path, object)` or `(path, object, subs)` of a link set from
+ * Python (docs/LibraryPaths.md 3.3): `path` a file, or a library token
+ * `%Name%/file`, and `object` the name of an object in it; `subs` a string
+ * or a sequence of strings. The file is opened if it is not, and `obj` is
+ * its object. False when `value` is not in this form: its first item is
+ * not a string.
+ */
+bool linkByFile(PyObject* value, const PropertyContainer* container,
+                DocumentObject*& obj, std::vector<std::string>& subs)
+{
+    if (!PyTuple_Check(value) && !PyList_Check(value))
+        return false;
+    Py::Sequence seq(value);
+    if (seq.size() < 2 || seq.size() > 3 || !PyUnicode_Check(seq[0].ptr()))
+        return false;
+    if (!PyUnicode_Check(seq[1].ptr()))
+        THROWM(Base::TypeError, "Expect (file, object name[, subname(s)]): the object name is a string")
+    const std::string path = Py::String(seq[0].ptr()).as_std_string("utf-8");
+    const std::string name = Py::String(seq[1].ptr()).as_std_string("utf-8");
+    subs.clear();
+    if (seq.size() == 3) {
+        Py::Object pySub(seq[2].ptr());
+        if (pySub.isString())
+            subs.push_back(Py::String(pySub).as_std_string("utf-8"));
+        else if (pySub.isSequence()) {
+            Py::Sequence list(pySub);
+            for (Py_ssize_t i = 0; i < list.size(); ++i) {
+                Py::Object sub(list[i]);
+                if (!sub.isString())
+                    THROWM(Base::TypeError, "Expect only strings for the subnames")
+                subs.push_back(Py::String(sub).as_std_string("utf-8"));
+            }
+        }
+        else if (!pySub.isNone())
+            THROWM(Base::TypeError, "Expect a string or a sequence of strings for the subnames")
+    }
+
+    auto owner = Base::freecad_dynamic_cast<const DocumentObject>(container);
+    Document* ownerDoc = owner ? owner->getDocument() : nullptr;
+    std::string full = LibraryPaths::resolveToken(path, ownerDoc);
+    if (full.empty())
+        FC_THROWM(Base::ValueError, "No library holds '" << path << "'");
+    QFileInfo info(QString::fromUtf8(full.c_str()));
+    if (info.isRelative()) {
+        // Relative to the owner's file, as a link's path is.
+        const char* own = ownerDoc ? ownerDoc->getFileName() : nullptr;
+        if (!own || !*own)
+            FC_THROWM(Base::ValueError, "'" << path << "' is relative and the owner's document "
+                      "is not saved");
+        info = QFileInfo(QFileInfo(QString::fromUtf8(own)).absoluteDir(), info.filePath());
+        full = QDir::cleanPath(info.absoluteFilePath()).toUtf8().constData();
+    }
+    Document* doc = GetApplication().getDocumentByPath(
+        full.c_str(), Application::PathMatchMode::MatchCanonical);
+    if (!doc) {
+        if (!info.exists())
+            FC_THROWM(Base::ValueError, "No file '" << full << "'");
+        doc = GetApplication().openDocument(full.c_str(), false);
+        if (!doc)
+            FC_THROWM(Base::RuntimeError, "Cannot open '" << full << "'");
+    }
+    obj = doc->getObject(name.c_str());
+    if (!obj)
+        FC_THROWM(Base::ValueError, "No object '" << name << "' in '" << full << "'");
+    return true;
+}
+
+} // namespace
+
 void PropertyXLink::setPyObject(PyObject *value) {
     OperationScope scope;   // sec 27.38
+    {
+        DocumentObject* obj = nullptr;
+        std::vector<std::string> subs;
+        if (linkByFile(value, getContainer(), obj, subs)) {
+            setValue(obj, std::move(subs));
+            return;
+        }
+    }
     if(PySequence_Check(value)) {
         Py::Sequence seq(value);
         if(seq.size()!=2)
@@ -6356,6 +6435,15 @@ PyObject *PropertyXLinkSubList::getPyObject()
 
 void PropertyXLinkSubList::setPyObject(PyObject *value)
 {
+    // One link by its file (docs/LibraryPaths.md 3.3).
+    {
+        DocumentObject* obj = nullptr;
+        std::vector<std::string> subs;
+        if (linkByFile(value, getContainer(), obj, subs)) {
+            this->setValue(obj, subs);
+            return;
+        }
+    }
     try { //try PropertyLinkSub syntax
         PropertyLinkSub dummy;
         dummy.setAllowExternal(true);
@@ -6369,8 +6457,16 @@ void PropertyXLinkSubList::setPyObject(PyObject *value)
         THROWM(Base::TypeError, "Invalid type. Accepts (DocumentObject, (subname...)) or sequence of such type.")
     Py::Sequence seq(value);
     std::map<DocumentObject*, std::vector<std::string> > values;
-    try {
-        for(Py_ssize_t i=0;i<seq.size();++i) {
+    for(Py_ssize_t i=0;i<seq.size();++i) {
+        // An entry by its file says what is wrong with it itself.
+        DocumentObject* byFile = nullptr;
+        std::vector<std::string> fileSubs;
+        if (linkByFile(seq[i].ptr(), getContainer(), byFile, fileSubs)) {
+            auto &s = values[byFile];
+            s.insert(s.end(), fileSubs.begin(), fileSubs.end());
+            continue;
+        }
+        try {
             PropertyLinkSub link;
             link.setAllowExternal(true);
             link.setPyObject(seq[i].ptr());
@@ -6379,9 +6475,9 @@ void PropertyXLinkSubList::setPyObject(PyObject *value)
             s.reserve(s.size()+subs.size());
             s.insert(s.end(),subs.begin(),subs.end());
         }
-    }
-    catch(Base::Exception&){
-        THROWM(Base::TypeError, "Invalid type inside sequence. Must be type of (DocumentObject, (subname...))")
+        catch(Base::Exception&){
+            THROWM(Base::TypeError, "Invalid type inside sequence. Must be type of (DocumentObject, (subname...)) or (file, object name, (subname...))")
+        }
     }
     setValues(std::move(values));
 }

@@ -528,4 +528,24 @@ TEST_F(LibraryPathsTest, theMergeComparesALibraryLinkByItsLibrary)
     EXPECT_EQ(LibraryPaths::comparableSaved(plain), plain);
 }
 
+TEST_F(LibraryPathsTest, absoluteModesKeepNoLibraryForm)
+{
+    makePart(part());
+    LibraryPaths::setSystem(LibName, str(_root / "lib"));
+    App::Document* owner = nullptr;
+    auto link = makeOwner(owner, part());
+    ASSERT_TRUE(owner->saveAs(str(assembly()).c_str()));
+    ASSERT_EQ(link->getLibraryName(), LibName);
+    // Q6: an absolute path is the user's choice, and is kept.
+    for (const char* mode : {"Absolute", "Canonical"}) {
+        link->setPathResolveMode(mode);
+        EXPECT_TRUE(link->getLibraryName().empty()) << mode;
+        EXPECT_EQ(saved(link).find("lib="), std::string::npos) << mode;
+    }
+    link->setPathResolveMode("Dynamic");
+    EXPECT_EQ(link->getLibraryName(), LibName);
+    link->setPathResolveMode("Relative");
+    EXPECT_EQ(link->getLibraryName(), LibName);
+}
+
 // NOLINTEND(readability-magic-numbers)

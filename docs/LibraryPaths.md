@@ -1,7 +1,7 @@
 # Library paths: links into named folders
 
-Status (2026-10-18): **design, nothing built.** Asked for by the user the
-same day. Q1, Q4 and Q8 are ruled (section 5); Q2, Q3 and Q5 to Q7 wait.
+Status (2026-10-18): **design ruled whole, build step 1 under way.**
+Asked for by the user the same day. Q1 to Q8 are ruled (section 5).
 
 ## 1. The ask (user, 2026-10-18)
 
@@ -213,22 +213,29 @@ folder each name resolved through on this machine (Q3).
 A link saved before this already points into a library by a relative or
 an absolute path. It takes the library form when its path is next worked
 out -- at load, in memory, without marking the document modified -- and
-is written so at the next save. Q7.
+is written so at the next save. Q7, ruled.
+
+The next save of a document opened from an older file is a new file:
+since the merge with main, a plain Save of a schema-4 `.FCStd` writes the
+current schema to a `.TStd` beside it and leaves the `.FCStd` as it was
+(TransactionLog sec 27.62). The converted links go into that `.TStd`; the
+old file keeps its old links. Save As in the standard format writes the
+`.FCStd` with `lib` and `libfile` beside `file` (3.3).
 
 ## 5. Questions
 
 | | Question | Proposed |
 | --- | --- | --- |
 | Q1 | The save form | **Ruled (user): `lib` + `libfile` beside `file`, in every schema** (3.3); a first ruling, the token in `file` in schema 5, withdrawn. |
-| Q2 | Both folders hold the file and differ | **The document's** (as asked), said once, with "use the settings' folder". |
-| Q3 | The document's map after a fallback to the system's folder | **Rewritten at the next save** to the folder used here. The other way, never rewritten unless the user remaps, keeps the first machine's folder forever, and every other machine falls back. |
+| Q2 | Both folders hold the file and differ | **Ruled (user): the document's** (as asked), said once, with "use the settings' folder". |
+| Q3 | The document's map after a fallback to the system's folder | **Ruled (user): rewritten at the next save** to the folder used here. The other way, never rewritten unless the user remaps, keeps the first machine's folder forever, and every other machine falls back. |
 | Q4 | A name the document maps to another folder, the target under the system's | **Ruled (user): a new name in the document, `Lib_2`**, said. |
-| Q5 | A document inside the library it links into | **Relative**, not the library form. |
-| Q6 | `Absolute` and `Canonical` modes | **Kept absolute.** |
-| Q7 | Links saved before this | **Converted at load in memory**, written at the next save. The other way: only links set from now on. |
+| Q5 | A document inside the library it links into | **Ruled (user): relative**, not the library form. |
+| Q6 | `Absolute` and `Canonical` modes | **Ruled (user): kept absolute.** |
+| Q7 | Links saved before this | **Ruled (user): converted at load in memory**, written at the next save -- for an old `.FCStd`, the `.TStd` a plain Save writes beside it (section 4). |
 | Q8 | The system setting changed with documents open | **Ruled (user): checked when the change is committed, and asked** whether to apply it to the open documents it affects (3.7). |
 
-## 6. Build order, once ruled
+## 6. Build order
 
 1. **App**: the setting, `Document.LibraryPaths`, the save form
    (`lib` + `libfile` beside `file`), matching and resolution in

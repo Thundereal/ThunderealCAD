@@ -2185,3 +2185,10 @@ fc_add_gui_test(GuiLibraryPaths_tests_run
 fc_add_gui_test(GuiXLinkSnapshotSave_tests_run
                 xlink-snapshot-save.py
                 --timeout 180)
+
+# File > Export with Linked Files (docs/TransactionLog.md sec 35 L7): the
+# dialog lists the set, writes it into a new folder, and asks before
+# writing into one that is not empty.
+fc_add_gui_test(GuiExportLinkedSet_tests_run
+                export-linked-set.py
+                --timeout 180)

@@ -160,8 +160,7 @@ const char* App::exportSetManifestName()
     return "FreeCAD-set.json";
 }
 
-ExportSetResult App::exportLinkedSet(Document& top, const std::string& folder,
-                                     const ExportSetOptions& options)
+ExportSetResult App::planLinkedSet(Document& top)
 {
     // docs/TransactionLog.md sec 35 L7.
     const std::string topFile = top.FileName.getStrValue();
@@ -183,21 +182,14 @@ ExportSetResult App::exportLinkedSet(Document& top, const std::string& folder,
                                            + "' has no file: save it before the set is exported");
     }
 
-    QDir out(qs(folder));
-    if (out.exists() && !options.overwrite
-            && !out.entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden).isEmpty())
-        THROWM(Base::FileException, "the folder is not empty", folder.c_str());
-    if (!out.mkpath(QStringLiteral(".")))
-        THROWM(Base::FileException, "cannot make the folder", folder.c_str());
-
     // Q6, Q5 (sec 35.6): the layout under the top's folder kept; what lies
     // outside under _external/; a version or a branch a file of its own.
     const QDir topDir = QFileInfo(qs(topPath)).absoluteDir();
-    std::map<const Document*, std::string> files;
     std::set<std::string> taken;
     ExportSetResult result;
     for (auto doc : docs) {
         ExportSetFile f;
+        f.document = doc;
         const std::string name = doc->FileName.getStrValue();
         FileHistory::NameParts parts;
         const bool named = doc->testStatus(Document::VersionDoc)
@@ -224,17 +216,33 @@ ExportSetResult App::exportLinkedSet(Document& top, const std::string& folder,
         taken.insert(path);
         f.path = path;
         f.uid = doc->Uid.getValueStr();
-        files[doc] = ss(out.absoluteFilePath(qs(path)));
         result.files.push_back(std::move(f));
     }
+    return result;
+}
 
+ExportSetResult App::exportLinkedSet(Document& top, const std::string& folder,
+                                     const ExportSetOptions& options)
+{
+    ExportSetResult result = planLinkedSet(top);
+    QDir out(qs(folder));
+    if (out.exists() && !options.overwrite
+            && !out.entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden).isEmpty())
+        THROWM(Base::FileException, "the folder is not empty", folder.c_str());
+    if (!out.mkpath(QStringLiteral(".")))
+        THROWM(Base::FileException, "cannot make the folder", folder.c_str());
+
+    std::map<const Document*, std::string> files;
+    for (const auto& f : result.files)
+        files[f.document] = ss(out.absoluteFilePath(qs(f.path)));
     {
         ExportSetPaths scope(files);
-        for (std::size_t i = 0; i < docs.size(); ++i) {
-            const std::string& dest = files[docs[i]];
+        for (std::size_t i = 0; i < result.files.size(); ++i) {
+            Document* doc = result.files[i].document;
+            const std::string& dest = files[doc];
             QDir().mkpath(QFileInfo(qs(dest)).absolutePath());
-            ExportSetPaths::writing(docs[i]);
-            if (!docs[i]->saveCopy(dest.c_str(), options.withHistory))
+            ExportSetPaths::writing(doc);
+            if (!doc->saveCopy(dest.c_str(), options.withHistory))
                 THROWM(Base::FileException, "cannot write the copy", dest.c_str());
             FileHistory::Saved saved;
             if (FileHistory::savedAs(dest, saved))
@@ -267,6 +275,6 @@ ExportSetResult App::exportLinkedSet(Document& top, const std::string& folder,
     manifest << j.dump(2) << '\n';
     if (!manifest)
         THROWM(Base::FileException, "cannot write the manifest", result.manifest.c_str());
-    FC_LOG("set of " << topFile << ": " << result.files.size() << " files to " << folder);
+    FC_LOG("set of " << top.FileName.getStrValue() << ": " << result.files.size() << " files to " << folder);
     return result;
 }

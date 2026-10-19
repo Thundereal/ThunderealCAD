@@ -21727,9 +21727,17 @@ Found on the way, a bug of L1's: `SideDocuments` ranged over
 dangles before the loop starts -- the same form here hung the export in
 a loop. Both now hold the map first.
 
-**Not built yet**: the Gui (File > Export, the dialog listing the set);
-zipped output; LibraryPaths step 4, the export's option for library
-files, which this unblocks.
+**The Gui** (File > Export with Linked Files..., `Std_ExportLinkedSet`,
+`DlgExportLinkedSet`): the set as `planLinkedSet()` lists it -- each
+document, what it is (the file, a pinned version, a branch, a branch at a
+version) and the name it will be written under -- the folder (beside the
+document, `<name>-set`, by default), and "With history". A folder not
+empty is asked about first. The export runs as a Python command, so a
+macro records it. A document never saved is told to save first: its set
+is laid out relative to its folder.
+
+**Not built yet**: zipped output; LibraryPaths step 4, the export's
+option for library files, which this unblocks.
 
 **Test** (`Document.py`, `TransactionBranchCases`):
 `testALinkedSetIsExportedToAFolder` -- an assembly with a plain link, a
@@ -21739,7 +21747,14 @@ what each is of, no `version`/`branch` attribute in the copy; a second
 export into the folder refused, then allowed with `overwrite`; the set
 opened with the log off, every link to its copy with its value. Then the
 assembly reopened, its pin read in part, and exported again: the
-version's copy holds the object the pin had not read.
+version's copy holds the object the pin had not read. Driven
+(`tests/gui/export-linked-set.py`, `GuiExportLinkedSet_tests_run`): the
+dialog lists the three files of an assembly with a plain link and a pin,
+writes them and the manifest into a new folder, and into the same folder
+again asks first and writes when told to.
 
 **Gates** (2026-10-19): 24 Gui checks clean; Python 3811 OK, freeze on
-and off; gtest 991/991 both ways; driven 293/293. Next: L7's Gui.
+and off; gtest 991/991 both ways; driven 293/293 (before the Gui).
+
+**Gates with the Gui** (2026-10-20): 24 Gui checks clean; Python 3811
+OK, freeze on and off; gtest 991/991 both ways; driven 294/294.

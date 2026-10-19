@@ -64,6 +64,7 @@
 #include "Selection.h"
 #include "ExpressionEditorView.h"
 #include "DlgObjectSelection.h"
+#include "DlgExportLinkedSet.h"
 #include "DlgProjectInformationImp.h"
 #include "DlgProjectUtility.h"
 #include "GraphvizView.h"
@@ -544,6 +545,47 @@ void StdCmdExport::activated(int iMsg)
 bool StdCmdExport::isActive()
 {
     return (getActiveGuiDocument() ? true : false);
+}
+
+//===========================================================================
+// Std_ExportLinkedSet
+//===========================================================================
+
+DEF_STD_CMD_A(StdCmdExportLinkedSet)
+
+StdCmdExportLinkedSet::StdCmdExportLinkedSet()
+  : Command("Std_ExportLinkedSet")
+{
+    sGroup        = "File";
+    sMenuText     = QT_TR_NOOP("Export with &Linked Files...");
+    sToolTipText  = QT_TR_NOOP("Write the active document and every file it links to into a "
+                               "folder, with the links between them");
+    sWhatsThis    = "Std_ExportLinkedSet";
+    sStatusTip    = sToolTipText;
+    eType         = 0;
+}
+
+void StdCmdExportLinkedSet::activated(int iMsg)
+{
+    // docs/TransactionLog.md sec 35 L7.
+    Q_UNUSED(iMsg);
+    Gui::Document* gdoc = getActiveGuiDocument();
+    if (!gdoc)
+        return;
+    App::Document* top = gdoc->getDocument();
+    if (!top->isSaved()) {
+        QMessageBox::warning(getMainWindow(), QObject::tr("Export with Linked Files"),
+                             QObject::tr("Save the document first: its set is written "
+                                         "relative to its folder."));
+        return;
+    }
+    DlgExportLinkedSet dlg(top, getMainWindow());
+    dlg.exec();
+}
+
+bool StdCmdExportLinkedSet::isActive()
+{
+    return getActiveGuiDocument() != nullptr;
 }
 
 //===========================================================================
@@ -2017,6 +2059,7 @@ void CreateDocCommands()
     rcCmdMgr.addCommand(new StdCmdOpenDirectory());
     rcCmdMgr.addCommand(new StdCmdImport());
     rcCmdMgr.addCommand(new StdCmdExport());
+    rcCmdMgr.addCommand(new StdCmdExportLinkedSet());
     rcCmdMgr.addCommand(new StdCmdMergeProjects());
     rcCmdMgr.addCommand(new StdCmdDependencyGraph());
     rcCmdMgr.addCommand(new StdCmdExportDependencyGraph());

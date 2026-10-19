@@ -55,6 +55,7 @@ struct AppExport ExportSetFile
     int64_t version = 0;  ///< for a version's document
     std::string saveId;   ///< the copy's, as written
     std::string uid;      ///< the document's Uid
+    Document* document = nullptr;   ///< the document, while it is open
 };
 
 struct AppExport ExportSetResult
@@ -62,6 +63,13 @@ struct AppExport ExportSetResult
     std::vector<ExportSetFile> files;   ///< the top first
     std::string manifest;               ///< the manifest's full path
 };
+
+/** What exportLinkedSet() would write of `top`'s set, and under which
+ * names, with nothing written: every document of the set is read whole
+ * first, as the export reads it. Throws as the export does for a document
+ * of the set with no file.
+ */
+AppExport ExportSetResult planLinkedSet(Document& top);
 
 /// The manifest's file name in the folder.
 AppExport const char* exportSetManifestName();

@@ -173,6 +173,9 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 15:14: new entry 184 -- the task panel's list views with the property view's
+translucent background.** Under the entry.
+
 **2026-10-19 15:03, the build session (relayed): PUSHED and RESTAGED** on the reporter's
 own word typed to it, "push and restage" (the note-taker did not hear it;
 the reporter's 14:40 word to the note-taker was "merge thundereal main and
@@ -3776,6 +3779,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 181 | 2026-10-19 | a change request: (1) the on-view edit MENU BUTTON's strips SQUARER, like the view cell menu's (they look too thin); (2) TOOLTIPS and a RIGHT-CLICK CONTEXT MENU on the fillet's (preview) FACE; the same for all dress-up features | OPEN; said to the note-taker 2026-10-19 13:39. 2026-10-19 14:32 point 1 BUILT locally `aefebaa749`: the strips a square block like the cell's (t, gaps t, square ends); point 2 (face tool tips and menu) to do; NOT pushed. 2026-10-19 15:03 point 1 (square strips) PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130); point 2 to come |
 | 182 | 2026-10-19 | a change request: a dress-up feature's PREVIEW SHAPE shows the SELECTION highlight, not only the PRESELECTION highlight as now | OPEN; said to the note-taker 2026-10-19 13:43. 2026-10-19 13:49 NARROWED by the reporter: a WORKING face's click selecting the base edge with no face highlight is FINE; only a selection that really NAMES the PREVIEW FACE (a failed/missing edge's face) shows the face's selection highlight -- the note-taker's 13:43 reading a corrected. 2026-10-19 14:32 to do (as narrowed), after 181 point 2 |
 | 183 | 2026-10-19 | a change request: the 'Overlay' PRESET (data/settings/Overlay.FCParam): the BOTTOM panel TRANSPARENT and auto hide 'None'; the REPORT VIEW moved from the top panel to the bottom -- report view LEFT half, Python console RIGHT half, the selection view right-most, COLLAPSED | OPEN; said to the note-taker 2026-10-19 13:46. 2026-10-19 14:32 BUILT locally `e30b518e2d`: the bottom panel see-through, no auto hide, report view | console | selection view (collapsed), the top panel empty; overlay test 52/52; measured 925, 925, 0 at a 1910 px panel; NOT pushed. 2026-10-19 15:03 PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130) |
+| 184 | 2026-10-19 | a change request: the LIST VIEWS in the TASK PANEL styled like the PROPERTY VIEW, with a TRANSLUCENT background | OPEN; said to the note-taker 2026-10-19 15:14; READ: in the overlay style sheets QListView/QTreeView get an opaque rgb(100,100,100), the property editor's items rgba(0,0,0,0.01) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25654,6 +25658,44 @@ unreadable; the test caught it.
 Next in this batch: 181 point 2, 182 as narrowed, 180 point 2; then
 TechDraw 178 3.2 and 3.3.
 
+## 184. The task panel's list views with the property view's translucent background (a change request) -- OPEN
+
+**2026-10-19 15:14, the reporter (to the note-taker):** "new request, style background of the list view in the task panel the same way as the one in the property view, with translucent background"
+The note-taker's reading:
+- A LIST VIEW inside a TASK PANEL (e.g. a dress-up's edge list, a
+  pattern's feature list) is to have its BACKGROUND styled AS THE
+  PROPERTY VIEW's is -- TRANSLUCENT, so the 3D view shows through it as
+  through the property view in a see-through overlay panel.
+READ in the source, nothing run -- the overlay style sheets
+(src/Gui/Stylesheets/overlay/), e.g. Dark.qss 102 to 119:
+- "QTreeView, QListView, QTableView { background: rgb(100,100,100); ...
+  border: transparent; }" -- an OPAQUE grey for every list, tree and
+  table in an overlay panel;
+- "Gui--PropertyEditor--PropertyEditor { qproperty-groupBackground:
+  rgba(140,140,140,0.7); qproperty-itemBackground: rgba(0,0,0,0.01); }"
+  -- the property view's rows nearly fully transparent, its group rows
+  70% opaque.
+- The task panel's own boxes have rules of their own (QSint--ActionGroup
+  QFrame[class="content"], Dark.qss 149, 153).
+- The same pair of rules in Dark-Outline.qss (138, 151) and
+  Light-Outline.qss (129, 143); the other overlay sheets (Dark-Modern,
+  Darker, Light-Modern, Light, -off) not read.
+The note-taker's reading: the property view is see-through because its
+own rule overrides the opaque one for QTreeView; a task panel's list has
+only the opaque rule.
+NOT said:
+a. Where: read as in OVERLAY mode (the see-through panels), where the
+   property view is translucent; in a docked (non-overlay) panel -- not
+   said, read as unchanged.
+b. Which widgets: read as every list (QListView/QListWidget) in a task
+   panel; tree and table views in task panels (e.g. a sketcher's
+   constraint list, a spreadsheet-like table) -- not said, read as
+   included if they are lists to the user.
+c. The selected row: read as the selection colour as now (rgba 0.7).
+d. Every overlay style sheet (dark, light, outline, modern): read so.
+e. The property view itself, and lists outside task panels (the tree
+   view, the selection view): read as unchanged.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -25665,5 +25707,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 183
+the build session, 131 and 132 found by it; entries 134 to 184
 are of 2026-10-15, 134 said to the build session)

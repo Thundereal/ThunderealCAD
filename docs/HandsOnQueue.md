@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 16:07: new entry 187 -- a caught and survived crash tells the user nothing
+(the abort path is logged only; an access violation alone gets a box).**
+Under the entry.
+
 **2026-10-19 16:04: new entry 186 (FATAL) -- a fillet changed to one radius from a
 handle's menu: a pure virtual call in Coin's event traversal (15:59:08),
 the session frozen then the 3D view without highlight; checked read-only
@@ -3795,6 +3799,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 184 | 2026-10-19 | a change request: the LIST VIEWS in the TASK PANEL styled like the PROPERTY VIEW, with a TRANSLUCENT background | OPEN; said to the note-taker 2026-10-19 15:14; READ: in the overlay style sheets QListView/QTreeView get an opaque rgb(100,100,100), the property editor's items rgba(0,0,0,0.01). 2026-10-19 15:19 the reporter: "entry 184, yes to all" -- the note-taker's readings a-e AGREED (overlay mode only; every list in a task panel; the selection colour kept; every overlay sheet; the rest unchanged) |
 | 185 | 2026-10-19 | a defect: in a dress-up edit the HANDLES are drawn UNDER (before) the PREVIEW SHAPE; they should draw ABOVE it -- a higher show-on-top priority | OPEN; said to the note-taker 2026-10-19 15:49 |
 | 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04 |
+| 187 | 2026-10-19 | a defect, found through 186: after a CRASH that FreeCAD catches and survives, NOTHING TELLS THE USER, though the application is no longer in a stable state | OPEN; said to the note-taker 2026-10-19 16:07; READ: GUIApplication::notify shows a box for an access violation only; the purecall/abort path (Base::AbnormalProgramTermination) is caught as an ordinary Base::Exception and only logged |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25863,6 +25868,49 @@ task panel's list (its rows, 169's sync) still reacts. Consistent with
 the 16:04 reading (Coin's event state for that view left broken). Relayed
 to the build session with 186.
 
+## 187. A crash caught and survived tells the user nothing, though the application is no longer stable (a defect) -- OPEN
+
+**2026-10-19 16:07, the reporter (to the note-taker):** "so that expose another problem. There is nothing to tell the user a crash happend while the application is actually not in a stable state"
+The note-taker's reading: in 186 FreeCAD caught a fatal error (a pure
+virtual call), went on running, and showed the user NOTHING -- only the
+console and a crash log file said so; the user found a frozen, then
+half-working application with no warning that it is in an UNSTABLE
+state. Wanted: the user is TOLD when such a crash is caught.
+READ in the source, nothing run:
+- src/Gui/GuiApplication.cpp, GUIApplication::notify (470 to 520): a
+  Base::AccessViolation (a SIGSEGV turned into an exception) is logged as
+  Severity::Fatal AND shown in a QMessageBox::critical ("Access
+  violation"); every other Base::Exception is logged as Severity::Caught
+  with "Unhandled Base::Exception caught in GUIApplication::notify" --
+  NO box.
+- src/App/Application.cpp, segmentation_fault_handler (about 2381 to
+  2398): SIGABRT (the purecall -> abort path of 186) prints the backtrace
+  ("Abnormal program termination...") and THROWS
+  Base::AbnormalProgramTermination "Break signal occurred" -- which then
+  falls into notify's generic Base::Exception branch: logged, not shown.
+  The handler also sets SIGABRT back to SIG_DFL, so a SECOND abort in the
+  same session ends the process.
+- 186's timeline: FATAL backtrace written 15:59:08, the throw CAUGHT
+  16:01:53 -- 2 min 45 s apart; the note-taker's reading: the "freeze" the
+  reporter saw is that stretch -- printBacktrace resolving symbols (the
+  handler's own comment: "every turn runs printBacktrace() through
+  dbghelp's PDB loading ... reads as a HANG").
+NOT said:
+a. The FORM of the warning: read as a clear, non-dismissable-by-accident
+   message (a box, or a persistent notification / title-bar mark) saying
+   a crash was caught, the session is unstable, save to a NEW file and
+   restart, with the crash log's path.
+b. Which crashes: read as every caught FATAL kind -- access violation,
+   abort/purecall (AbnormalProgramTermination), and the like; not
+   ordinary caught exceptions.
+c. Saving after it: read as allowed, but steering to a new file name
+   (not overwriting); not said.
+d. The 2 min 45 s freeze before the throw: not asked; read as part of the
+   same experience (the user waits with no word) -- for the build session
+   to judge.
+e. Once per session or each time: read as each fatal event, shown once
+   while the earlier one is still up.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -25874,5 +25922,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 186
+the build session, 131 and 132 found by it; entries 134 to 187
 are of 2026-10-15, 134 said to the build session)

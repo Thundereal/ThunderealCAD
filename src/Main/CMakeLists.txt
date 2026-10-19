@@ -14,6 +14,13 @@ if(THUNDEREAL_IDENTITY)
 endif()
 configure_file(freecad.rc.cmake ${CMAKE_CURRENT_BINARY_DIR}/freecad.rc)
 configure_file(freecadCmd.rc.cmake ${CMAKE_CURRENT_BINARY_DIR}/freecadCmd.rc)
+# The resource compiler reports no dependency on an ICON it embeds, so a new
+# icon left both executables with the old one -- the pinned task bar icon
+# (entry 175, 2026-10-19). Named here, a changed .ico compiles the .rc again.
+set_source_files_properties(
+    ${CMAKE_CURRENT_BINARY_DIR}/freecad.rc
+    ${CMAKE_CURRENT_BINARY_DIR}/freecadCmd.rc
+    PROPERTIES OBJECT_DEPENDS ${FREECAD_APP_ICO})
 file(COPY icon.ico DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 # The longPathAware manifest. Listed as a source rather than passed as a link

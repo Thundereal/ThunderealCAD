@@ -101,9 +101,10 @@ public:
     int filteredRowCount() const;
     QModelIndex filteredRow(int row) const;
 
-    /** A row of the "/error" list picked: the text becomes the object's
-     * path in the objects mode ("/ Box", "/ Doc#<<My box>>"). With \a tab
-     * the typing goes on from there; otherwise it is Return on that text,
+    /** A row of the "/error" list picked. With \a tab the object's path is
+     * completed and the mode stays ("/error Box", "/error Doc#<<My box>>",
+     * entry 177), the list narrowed to it; otherwise the text becomes the
+     * path in the objects mode ("/ Box") and it is Return on that text,
      * which selects the object. False for a row that names no object.
      */
     bool activateErrorRow(const QModelIndex &index, bool tab);

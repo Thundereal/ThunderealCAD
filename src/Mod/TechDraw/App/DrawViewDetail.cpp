@@ -36,6 +36,7 @@
 #include <BRep_Builder.hxx>
 #include <Bnd_Box.hxx>
 #include <Message_ProgressIndicator.hxx>
+#include <QCoreApplication>
 #include <QtConcurrentRun>
 #include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
@@ -55,6 +56,7 @@
 #include <App/Application.h>
 #include <App/Document.h>
 #include <Base/Console.h>
+#include <Base/Exception.h>
 #include <Base/Parameter.h>
 #include <Base/Sequencer.h>
 #include <Mod/Part/App/ProgressIndicator.h>
@@ -205,13 +207,22 @@ void DrawViewDetail::detailExec(const TopoDS_Shape& shape, DrawViewPart* dvp, Dr
         std::shared_ptr<Base::SequencerLauncher> progress(new Base::SequencerLauncher(message.c_str()));
         m_progress = progress;
 
+        // the worker's failure, the view's recompute error once it is back
+        // on this thread (docs/TechDrawErrors.md 3.1)
+        auto failure = std::make_shared<std::string>();
         m_detailWatcher.reset(new QFutureWatcher<void>());
         QObject::connect(m_detailWatcher.get(), &QFutureWatcherBase::finished, m_detailWatcher.get(),
             [=] {
-                if (m_progress && !m_progress->wasCanceled())
+                if (m_progress && !m_progress->wasCanceled()) {
                     onMakeDetailFinished(output);
-                else
-                    abortMakeDetail();
+                    return;
+                }
+                abortMakeDetail();
+                if (!failure->empty()) {
+                    reportLateError(QCoreApplication::translate(
+                        "TechDraw", "The detail could not be made: %1")
+                        .arg(QString::fromStdString(*failure)).toStdString());
+                }
             });
 
         m_saveShape = BRepBuilderAPI_Copy(shape).Shape();
@@ -271,7 +282,7 @@ void DrawViewDetail::detailExec(const TopoDS_Shape& shape, DrawViewPart* dvp, Dr
 
         waitingForDetail(true);
         m_detailWatcher->setFuture(QtConcurrent::run(
-            [params] {
+            [params, failure] {
                 try {
                     makeDetailShape(params);
                     return;
@@ -279,9 +290,14 @@ void DrawViewDetail::detailExec(const TopoDS_Shape& shape, DrawViewPart* dvp, Dr
                     e.ReportException();
                     Base::Console().Error("DVP::%s - fail to make detail shape - %s **\n",
                                         params.featureName.c_str(), e.what());
+                    *failure = e.what();
                 } catch (Standard_Failure &e) {
                     Base::Console().Error("DVP::%s - to make detail shape - %s **\n",
                                         params.featureName.c_str(), e.GetMessageString());
+                    *failure = e.GetMessageString() ? e.GetMessageString() : "";
+                    if (failure->empty()) {
+                        *failure = "an OpenCASCADE failure with no message";
+                    }
                 }
                 params.progress->setCanceled(true);
             }));
@@ -334,17 +350,16 @@ void DrawViewDetail::makeDetailShape(const DetailParams &params)
         //square mat
         gp_Pln gpln(gpnt, gdir);
         BRepBuilderAPI_MakeFace mkFace(gpln, -radius, radius, -radius, radius);
+        // A failure here is thrown, not logged and returned: a return left an
+        // empty output that the GUI thread went on to draw, and the view
+        // said nothing (docs/TechDrawErrors.md 3.1)
         extrusionFace = mkFace.Face();
         if (extrusionFace.IsNull()) {
-            Base::Console().Warning("DVD::makeDetailShape - %s - failed to create tool base face\n",
-                                    params.featureName.c_str());
-            return;
+            THROWM(Base::RuntimeError, "the square cutting tool's face could not be made")
         }
         tool = BRepPrimAPI_MakePrism(extrusionFace, extrudeDir, false, true).Shape();
         if (tool.IsNull()) {
-            Base::Console().Warning("DVD::makeDetailShape - %s - failed to create tool (prism)\n",
-                                    params.featureName.c_str());
-            return;
+            THROWM(Base::RuntimeError, "the square cutting tool could not be made")
         }
     }
     else {
@@ -353,9 +368,7 @@ void DrawViewDetail::makeDetailShape(const DetailParams &params)
         BRepPrimAPI_MakeCylinder mkTool(cs, radius, extrudeLength);
         tool = mkTool.Shape();
         if (tool.IsNull()) {
-            Base::Console().Warning("DVD::detailExec - %s - failed to create tool (cylinder)\n",
-                                    params.featureName.c_str());
-            return;
+            THROWM(Base::RuntimeError, "the round cutting tool could not be made")
         }
     }
 
@@ -391,12 +404,12 @@ void DrawViewDetail::makeDetailShape(const DetailParams &params)
     catch (Base::Exception& e1) {
         Base::Console().Message("DVD::makeDetailShape - failed to create detail %s - %s **\n",
                                 params.featureName.c_str(), e1.what());
-        return;
+        throw;
     }
     catch (Standard_Failure& e1) {
         Base::Console().Message("DVD::makeDetailShape - failed to create detail %s - %s **\n",
                                 params.featureName.c_str(), e1.GetMessageString());
-        return;
+        throw;
     }
 }
 

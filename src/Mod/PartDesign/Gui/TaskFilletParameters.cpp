@@ -51,6 +51,7 @@
 #include <Gui/SpinBox.h>
 #include <BRepGProp.hxx>
 #include <GCPnts_AbscissaPoint.hxx>
+#include <Gui/Inventor/Draggers/Gizmo.h>
 #include <GProp_GProps.hxx>
 #include <Precision.hxx>
 
@@ -638,6 +639,20 @@ void TaskFilletParameters::updateEdgeHandles()
         handle.placed = true;
     }
     placeEdgeHandles();
+    updateFailureMarks();
+}
+
+void TaskFilletParameters::updateFailureMarks()
+{
+    auto vp = getDressUpView();
+    auto fillet = vp ? dynamic_cast<PartDesign::Fillet*>(vp->getObject()) : nullptr;
+    // where an edge's arrow starts: between its faces, at its middle
+    showFailureMarks(gizmoContainer.get(), fillet,
+                     [](Part::TopoShape& edge, Part::TopoShape& baseShape, Base::Vector3d& at) {
+                         auto [face1, face2] = getAdjacentFacesFromEdge(edge, baseShape);
+                         Base::Vector3d dir;
+                         return edgeHandlePlacement(edge, face1, 0.5, at, dir);
+                     });
 }
 
 void TaskFilletParameters::placeAlongHandle(EdgeHandle& handle, Part::TopoShape& baseShape,

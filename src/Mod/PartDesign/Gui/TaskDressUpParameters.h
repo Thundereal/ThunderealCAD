@@ -65,6 +65,11 @@ public:
 
     bool getItemElement(QTreeWidgetItem *item, std::string &subname);
     void lightPreviewFace(const std::string &subname);
+    /// The preview's faces the selection names, shown in the selection
+    /// colour (entry 182)
+    void syncPreviewSelection();
+    /// The preview's face kept for \a edge (as Base names it), 0 for none
+    int previewFaceOf(const std::string &edge) const;
     /** The row of the reference whose dress-up made \a element of the
      * preview ("Face2", as the preview names it): the reverse of
      * getItemElement(). Null for none, or more than one.

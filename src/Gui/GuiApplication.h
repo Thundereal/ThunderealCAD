@@ -65,6 +65,9 @@ private:
     /// dispatchEvent() under a native (SEH) fault guard -- MSVC only, see
     /// the comment at its definition.
     static bool guardedDispatch(GUIApplication * app, QObject * receiver, QEvent * event);
+    /// A caught crash: the user is told the session is unstable, what to do
+    /// and where the crash log is (entry 187)
+    static void warnUnstable(const QString& title, const QString& what);
 };
 
 class GUISingleApplication : public GUIApplication

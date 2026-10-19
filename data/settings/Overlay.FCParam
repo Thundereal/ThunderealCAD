@@ -25,29 +25,30 @@
             <FCInt Name="Width" Value="300"/>
             <FCInt Name="Height" Value="360"/>
           </FCParamGroup>
+          <!-- The bottom panel: see-through and always there (no auto hide),
+               the report view on the left half, the Python console on the
+               right half, the selection view right-most and collapsed (a size
+               of 0): the reporter 2026-10-19, entry 183. No double hyphen in
+               an XML comment, or the file does not parse. -->
           <FCParamGroup Name="OverlayBottom">
-            <FCText Name="Widgets">Python console,Selection view,</FCText>
-            <FCText Name="Sizes">632,631</FCText>
-            <FCBool Name="AutoHide" Value="1"/>
+            <FCText Name="Widgets">Report view,Python console,Selection view,</FCText>
+            <FCText Name="Sizes">652,652,0</FCText>
+            <FCBool Name="Transparent" Value="1"/>
+            <FCBool Name="AutoHide" Value="0"/>
             <FCBool Name="EditShow" Value="0"/>
             <FCBool Name="EditHide" Value="0"/>
             <FCBool Name="TaskShow" Value="0"/>
+            <FCBool Name="Closed" Value="0"/>
             <FCInt Name="Width" Value="1305"/>
             <FCInt Name="Height" Value="180"/>
           </FCParamGroup>
+          <!-- nothing in the top panel: the report view moved to the bottom -->
           <FCParamGroup Name="OverlayTop">
-            <FCText Name="Widgets">Report view,</FCText>
-            <FCText Name="Sizes">1263</FCText>
-            <FCBool Name="Transparent" Value="1"/>
-            <FCBool Name="AutoHide" Value="1"/>
-            <FCBool Name="EditShow" Value="0"/>
-            <FCBool Name="EditHide" Value="0"/>
-            <FCBool Name="TaskShow" Value="0"/>
-            <FCInt Name="Width" Value="803"/>
-            <FCInt Name="Height" Value="150"/>
+            <FCText Name="Widgets"></FCText>
+            <FCText Name="Sizes"></FCText>
           </FCParamGroup>
           <FCBool Name="Std_PythonView" Value="1"/>
-          <FCBool Name="Std_ReportView" Value="0"/>
+          <FCBool Name="Std_ReportView" Value="1"/>
           <FCBool Name="Std_SelectionView" Value="1"/>
         </FCParamGroup>
       </FCParamGroup>

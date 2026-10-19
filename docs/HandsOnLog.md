@@ -7689,3 +7689,153 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   fillet-radius-typed-in-view 21, fillet-handle-click-in-view 15,
   fillet-undo-steps-in-view 17, fillet-preview-pick-syncs-list 20,
   fillet-hover-outlines-face 16, none failed. NOT pushed, NOT staged.
+
+## 2026-10-19: the ThunderealCAD merge; 171 and 173 designed
+
+- 170 pushed to origin/LinkVibe 2026-10-18 evening ("push, no restage
+  yet"; 3b52423f11..15205e7387).
+- The user's task: a remote for Thundereal/ThunderealCAD, its main merged,
+  built and tested, pushed as LinkVibe, and tracked from now on. Merge
+  `e25c8e2caf`, one conflict (fillet-undo-steps-in-view.py, both sides had
+  made the drag run along the arrow; theirs taken). The merged Part code
+  reaches the OCCT fork's functions through its C exports at run time
+  (fece1a32c7): with the box's older OCCT it built, and 26 Python tests and
+  one ctest failed (ShapeStorage, ShapeDiff, TransactionBranch, Helix and
+  Suppressed volumes after a reload). OCCT fast-forwarded to 1cbd8de319.
+  r115: ctest 968 of 968, Python 3799 OK, the on-view GUI set 159 of 159
+  (fillet-undo-steps now 18: their extra claim). Pushed to
+  thundereal/LinkVibe (cf833f0c98) and LinkVibe tracks it; staged
+  (stage16, 08:25). On the way: run.cmd hung in chcp (the suite step lost
+  overnight), then in vcvars64's vswhere; the Python suite runs without
+  the VS step (s1\pytest-novs.cmd).
+- 171 (Settings sub-menu) and 173 (the edit's menu button) designed
+  together, as they are one menu: docs/OnViewValueEditing.md sec 8, under
+  the 08:48 policy (per view over shared). The question that matters
+  (8.6 a): "Show preview" today also resumes the feature's recompute,
+  which is the document's state, so a this-view-only switch cannot do
+  that part. NOT built; with the reporter.
+- 172 (PD on-view edit in the browser) sized: docs/OnViewValueEditing.md
+  sec 9. By the source the handles are streamed (overlay 7) and a left drag
+  is replayed into the client's mirror viewer, the labels go the
+  sketcher's on-view way, the panel is mirrored; missing are the value
+  set's keys and right click (a Qt filter on a widget a mirror has not),
+  the handle's menu (QMenu::exec on the host), tool tips, snapping's
+  modifiers (read from the host's keyboard), and all of touch. Nothing of
+  it seen yet; step 1 is to see it in Chrome. NOT built; 9.5 a-c with the
+  reporter.
+- 174 (per-user settings) designed: docs/UserSettings.md. The user is a
+  thread scope (Gui::PrefUser) beside the existing App::ActorScope (who
+  wrote, for the log); an edit records who began it and its events run as
+  that user's settings; values in users.cfg under <kind>/<name>/ before
+  the unchanged path, read with a fall-back to the global, written to the
+  user's only; PrefWidget and its menu sub-entries through one helper; the
+  generated accessors (MiscParams) by opt-in per parameter (user=True),
+  first 171's six. Menu items: yes, the same way. NOT built; 2.6 a-f with
+  the reporter.
+- x16 (Linux): thundereal/LinkVibe crashed at exit in GuiEditPerView and
+  GuiPartDesignDefects after their checks passed -- resetEdit() then
+  closeDocument() at once takes the views before the task dialog's
+  deferred delete, and OnViewValueSet (170) held its view as a plain
+  pointer. Their fix 2c32fdd3e9 (the view's lifetime() handle, liveView())
+  is on thundereal/main; merged here as b196d5d35f. r116 on the Windows real
+  screen: edit-per-view 25, pd-gui-defects 34, no crash file in either
+  home; the on-view set 159 of 159. NOT pushed.
+- 174 revised after 09:32: never mix with the local user (a user with no
+  value gets the default; the cases listed in UserSettings 2.2); the user
+  also from the view out of an edit; the scope moves to App (App::PrefUser)
+  as the generated classes of App and Base read it. The generator check
+  (2.5.1): possible -- a per-user twin of <Class>P's members, handles and
+  observer for flagged parameters, getters one thread-local read on the
+  local path. 173 8.6 a answered 09:34: Show preview = the panel's box.
+- 172 9.5 c: puppeteer-core was already installed (viewer-harness\ppenv,
+  2026-09-12). Off screen on Windows: yes -- headless Chrome on a served
+  pad + fillet, the edit entered from the page (an invitation grant is
+  needed, else "ViewOnly"), drew the label, preview and handles
+  (viewer-harness\probes-2026-10-19\pdedit3\2-edit.png). Drag not tried.
+- 171 + 173 BUILT (d59ba8850c), the design of OnViewValueEditing sec 8 as
+  agreed at 10:01: one menu for a handle's right click, Space and a new
+  always shown menu button left of the top-middle label -- the value's
+  entries, "Show handles" (this view, Gizmo::setHiddenInView), the panel's
+  "Show preview" (a module extension, the panel's own box), and a
+  "Settings" sub-menu of the six drag settings as widgets written to
+  MiscParams at once. The button's strips as thick as their gaps (10:29,
+  10:34). The column and the button keep to the middle of what no overlay
+  covers (by the code; not tested). r118/r119 real screen:
+  pd-edit-menu-in-view 22 of 22, edit-per-view 25, pd-gui-defects 34, the
+  on-view set as before (fillet-hover once aborted on a pointer that did
+  not reach its target -- the desktop in use; 16 of 16 on its rerun). Two
+  test lessons: a sub-menu opened by its own popup() closes the parent and
+  its widgets; and widgets of an earlier menu can leave PySide stale
+  wrappers at the addresses the next menu's take -- find by object name in
+  the same opening. A screen grab shows the window in front on a desktop
+  in use; the button renders itself instead. NOT pushed, NOT staged.
+- Pushed c1c771de51 to thundereal/LinkVibe and STAGED (stage17, 11:12,
+  build r119) on the user's direct "push and restage".
+- 175: x16's tile-less icon (thundereal/main 094770130e) merged here as
+  ca6eddfbfa. r120: tests/gui/app-icon-on-both-grounds.py 4 of 4 -- the
+  window icon set at 16-48 px, the same picture as Gui.getIcon("freecad"),
+  its corners clear; drawn on white, light grey, dark grey and black it
+  reads on all four (icons.png). The title-bar logo button was not
+  rendered: the test home has the title bar off. The real task bar
+  (running and pinned) not looked at. pd-edit-menu 22 of 22 after the
+  merge. NOT pushed.
+- 176 (the stage's title said "FreeCAD"): the program is Thundereal.exe
+  since the merge, and tools\fcad-user.cmd started a stale FreeCAD.exe stub
+  of 10-18 that the build tree still held (install-user mirrors it, and its
+  guard even required it). Fixed outside the repo: the launcher (and its
+  cdb sibling) start Thundereal.exe, the guard requires it, my GUI and
+  pytest runners and the viewer-harness serve scripts name it, and the
+  stale FreeCAD/FreeCADCmd .exe/.pdb are gone from the tree. Since the
+  merge my GUI tests and pytest ran those stubs too -- current DLLs, old
+  name. Found on the way: Thundereal.exe still carried the OLD icon (10:17),
+  as the resource compiler reports no dependency on an embedded .ico;
+  2b69e67e86 names it (OBJECT_DEPENDS). r122: both executables relinked,
+  the icon extracted from Thundereal.exe is the tile-less one. STAGED
+  (stage19, 12:03): only Thundereal.exe and ThunderealCmd.exe in the stage.
+  2b69e67e86 NOT pushed.
+- 177 BUILT (88369fc96f): Tab on an omni search /error row completes the
+  name and keeps "/error ", the list narrowed to it (the marks "Doc#" and
+  "<< >>" part words for its filter); Return as before. r123 offscreen:
+  omni-search-label-one-row 20 of 20 with the two new Tab claims,
+  slash-word 10; recent-items 16 of 18, its two property-row failures
+  older than this (10-14, 10-16) and intermittent.
+- 178: Dimension120 read in the reporter's live session (read-only probe
+  over their MCP console): an Angle dimension on SectionView004, Edge5 and
+  Edge9 both at 45 deg -- parallel, after the references were matched again
+  by geometry. Built (the next commit): the dimension's recompute error
+  names the kind, view, elements and reason, and the re-matching; TDTest
+  DrawViewDimensionTest 3 of 3 (r124). The audit of TechDraw's execute()
+  failures: docs/TechDrawErrors.md -- the threaded views (part, section,
+  detail, complex section) return success before their work, so its
+  failures never reach the recompute error; a late error through
+  Document::setErrorDescription proposed. With the reporter (a-c). Seen in
+  the reporter's console on the way: "Transaction log: no such column:
+  joined" on opening scanner -- told x16.
+- 178 3.1 BUILT (9746b8aba9), after "agree all" (13:12): a threaded
+  TechDraw view's failure is its recompute error (part view projection,
+  section and detail cuts, complex section), a partial result a warning in
+  its tool tip (part view faces); held and returned when reported inside
+  the object's own recompute. Fixed on the way: the projection worker
+  destroyed its own watcher, so its finished() never came; the detail
+  worker drew an empty output after a failed tool. r126: TDTest
+  dimension 3, detail 2 (the new testFailedDetailSaysWhy), section 1 --
+  all pass; TestTechDrawApp 9 OK. r125 had failed to compile:
+  Standard_Failure has no DynamicType() in OCCT 8. NOT pushed.
+- 180 step 1 + 181 strips + 173 menu place BUILT (aefebaa749): a red cross
+  (fixed-size marker, on top, unpickable) where a failed or missing fillet
+  or chamfer edge's handle would be, in a new GizmoContainer "marks" branch
+  beside the gizmos' switch (shown when they are hidden); the menu
+  button's strips a square block like the cell's; its click opens the
+  menu below it. r128: fillet-failed-edge-cross 8, pd-edit-menu 23, the
+  on-view set as before. Test lessons: the container's annotation hangs in
+  the editing root by itself, so search the marker set, not the kit; Coin's
+  own type names have no "So"; a script's doc.recompute() does not refresh
+  a panel's handles -- drive the panel.
+- 183 BUILT (the next commit): the Overlay preset's bottom panel
+  see-through, no auto hide, report view | Python console | selection view
+  (collapsed); the top panel empty. overlay-preset test 52 of 52, the
+  halves measured over a 3D view (overlays hide with none). My first edit's
+  XML comment held "--": the preset did not parse; the test caught it.
+- Still to do in the batch: 181 point 2 (a preview face's tool tip and
+  right-click menu), 182 (a selection naming a preview face lights it), 180
+  point 2 (label hover highlight and preselection). 178 3.2/3.3 after.

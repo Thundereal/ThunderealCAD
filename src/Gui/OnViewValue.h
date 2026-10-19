@@ -24,9 +24,11 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <QObject>
+#include <QPoint>
 #include <QPointer>
 #include <QString>
 #include <fastsignals/signal.h>
@@ -64,7 +66,8 @@ class ViewerContext;
  *   - Enter opens its label with the value selected;
  *   - Tab and Shift+Tab move to the next and the previous value;
  *   - Escape leaves no value active.
- *   - Space opens the active handle's menu, as a right click on it does.
+ *   - Space opens the active handle's menu, as a right click on it does;
+ *     with no active value, the edit's menu (the menu button's, entry 173).
  * In the open label (entry 136, the reporter 2026-10-15 10:07 and 10:13):
  * Enter commits (the box gets the value, and with it the property) and the
  * label stays open; Escape drops what was typed since the last Enter and
@@ -95,6 +98,11 @@ public:
 
     /// Fills the menu of a handle of a value
     using MenuProvider = std::function<void(QMenu& menu, Gizmo* handle)>;
+    /** Adds to the menu of every set, after the handles' switch and before
+     * the settings -- what a module has to say of any edit of its features
+     * (PartDesign's "Show preview", docs/OnViewValueEditing.md 8.2)
+     */
+    using MenuExtension = std::function<void(OnViewValueSet& set, QMenu& menu)>;
 
     explicit OnViewValueSet(QObject* parent = nullptr);
     ~OnViewValueSet() override;
@@ -149,9 +157,28 @@ public:
     /// The value \a handle belongs to, or -1
     int valueOf(const Gizmo* handle) const;
 
-    /// Open the menu of \a handle, of the active handle when null; at the
-    /// pointer, or at the handle
-    void openMenu(Gizmo* handle = nullptr, bool atPointer = false);
+    /// Open the menu of \a handle, of the active handle when null; at \a at
+    /// when given, else at the pointer, or at the handle
+    void openMenu(Gizmo* handle = nullptr, bool atPointer = false,
+                  std::optional<QPoint> at = std::nullopt);
+    /// The menu button's click: the menu below the button
+    void openMenuBelowButton();
+    /** The edit's menu (docs/OnViewValueEditing.md 8.2), one for the right
+     * click on a handle, Space and the menu button: the value's own entries
+     * when \a handle or the active value has them, "Show handles", what the
+     * modules add (addMenuExtension), and the drag "Settings" sub-menu.
+     */
+    void buildMenu(QMenu& menu, Gizmo* handle);
+    static void addMenuExtension(MenuExtension extension);
+    /** Whether the handles are shown in this set's view (8.5: the view's
+     * own, not a preference). Hidden, the values still take Tab, typing and
+     * the menu, and an active value's label stands at the top middle.
+     */
+    bool areHandlesShown() const
+    {
+        return handlesShown;
+    }
+    void setHandlesShown(bool shown);
     /// The handle made active last, if its value is still the active one
     Gizmo* getActiveHandle() const;
 
@@ -227,8 +254,24 @@ private:
     /// The view, or null once it is gone: a panel can outlive its view -- a
     /// closed document takes its views before the panel's deferred delete
     ViewerContext* liveView() const;
+    /// The "Settings" sub-menu: the drag settings as widgets, each written
+    /// to its preference as it changes (entry 171)
+    void addSettingsMenu(QMenu& menu);
+    /// The menu button's place, at the left of the first top-middle label
+    void placeMenuButton(int middle, int labelWidth);
+    /// The menu button's side: a label's height
+    int menuButtonSide() const;
+    /// The middle of the part of the view no overlay covers, in the view
+    /// widget's coordinates; the view's own middle when too little is clear
+    int clearMiddle(int needed) const;
 
     std::vector<std::unique_ptr<Entry>> entries;
+    /// "Show handles": the values' handles shown in this view
+    /// (Gizmo::setHiddenInView)
+    bool handlesShown = true;
+    /// The always shown menu button (entry 173), on a view with widgets
+    QPointer<QWidget> menuButton;
+    QMetaObject::Connection coverConnection;
     ViewerContext* view = nullptr;
     /// The view's own handle (ViewerContext::lifetime()), expired with it
     std::weak_ptr<const void> viewLife;
@@ -254,6 +297,13 @@ private:
     /// at the view widget, ahead of the navigation, which opens the view's
     /// own menu on a right click in some styles before the scene sees it.
     Gizmo* rightPressHandle = nullptr;
+    /// A left press on nothing: its release, unmoved, leaves no value
+    /// active (entry 159); setActive() counts, so a value made active in
+    /// between keeps it
+    bool clickMayClear = false;
+    QPoint clickPos;
+    int clickActivations = 0;
+    int activations = 0;
 };
 
 }  // namespace Gui

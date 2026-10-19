@@ -7732,3 +7732,11 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   generated accessors (MiscParams) by opt-in per parameter (user=True),
   first 171's six. Menu items: yes, the same way. NOT built; 2.6 a-f with
   the reporter.
+- x16 (Linux): thundereal/LinkVibe crashed at exit in GuiEditPerView and
+  GuiPartDesignDefects after their checks passed -- resetEdit() then
+  closeDocument() at once takes the views before the task dialog's
+  deferred delete, and OnViewValueSet (170) held its view as a plain
+  pointer. Their fix 2c32fdd3e9 (the view's lifetime() handle, liveView())
+  is on thundereal/main; merged here as b196d5d35f. r116 on the Windows real
+  screen: edit-per-view 25, pd-gui-defects 34, no crash file in either
+  home; the on-view set 159 of 159. NOT pushed.

@@ -7872,3 +7872,13 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   fillet-undo-steps-in-view.py, 23 of 23 on r150. Sec 9.5b. NOT pushed.
 - Left of 189: the 173 menu button drawn by the page, handle tool tips
   (9.2 #6), touch (9.3); 180/182/185/188 in the browser not yet looked at.
+- 189: 173's menu button drawn by the page (26adceee52), seen in a real
+  Chrome: at the label's left under the tool bars, its menu Show handles,
+  Settings.
+- 190 BUILT (224ec0828a), the note-taker's readings a-i and the 21:42
+  answer taken: the browser's tool bars in one card dragged by a grip, a
+  toggle collapsing it into a button dragged the same, a click opening it
+  there; kept inside the view; remembered per browser; on a phone it
+  starts collapsed and opens bounded, its bars wrapping and scrolling up
+  and down. covered.ts reports the card. Seen in a real Chrome:
+  viewer-harness drive-toolbar-card.js 13 of 13. NOT pushed.

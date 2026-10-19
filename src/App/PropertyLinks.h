@@ -1408,6 +1408,34 @@ public:
     /// The file of `doc`'s snapshot, whether written or not.
     static std::string getSnapshotPath(const App::Document* doc);
 
+    /** Their links, read into this file (docs/TransactionLog.md sec 35 L1).
+     * While an import brings a file of another folder into a document of this
+     * file, a relative path its links name is theirs: it is ours where this
+     * file's folder has that file, else their file by its full path. A link
+     * to a file neither folder has stays broken, as at an open, instead of
+     * stopping the import. Only the restores into the document given by
+     * into() are mapped -- not their file opened to be read.
+     */
+    class AppExport ImportPaths
+    {
+    public:
+        ImportPaths(const std::string& theirFile, const std::string& ourFile);
+        ~ImportPaths();
+        ImportPaths(const ImportPaths&) = delete;
+        ImportPaths& operator=(const ImportPaths&) = delete;
+        /// The document the open scope's import restores into.
+        static void into(const App::Document* doc);
+        /// The open scope, when `link` is restored into its document.
+        static const ImportPaths* covering(const PropertyXLink& link);
+        std::string map(const std::string& file) const;
+
+    private:
+        std::string _theirDir;
+        std::string _ourDir;
+        const App::Document* _into = nullptr;
+        ImportPaths* _outer;
+    };
+
     void updateElementReference(
             DocumentObject *feature,bool reverse=false, bool notify=false) override;
 

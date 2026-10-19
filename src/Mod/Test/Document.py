@@ -9998,6 +9998,92 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(doc.previewTransactionMerge(res["branch"])["changes"], [])
         self.assertEqual(doc.importTransactionFork(copy)["rows"], 0)
 
+    def assemblyCopies(self, log):
+        # Sec 35.2 item 6: `Asm` links the box of `Part`, in our folder; a
+        # copy of both in theirs, its box made longer, and its `Asm` linking
+        # a new `Bolt` too, which only their folder has. Made with the log
+        # mode given; ours is left with the log on.
+        import shutil
+
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        os.makedirs(ours)
+        self.param.SetInt("TransactionLog", log)
+        part = FreeCAD.newDocument("AsmPart")
+        box = part.addObject("Part::Box", "Box")
+        part.recompute()
+        part.saveAs(os.path.join(ours, "Part.FCStd"))
+        asm = FreeCAD.newDocument("Asm")
+        asm.addObject("App::Link", "L").LinkedObject = box
+        asm.recompute()
+        asm.saveAs(os.path.join(ours, "Asm.FCStd"))
+        FreeCAD.closeDocument(asm.Name)
+        FreeCAD.closeDocument(part.Name)
+        shutil.copytree(ours, theirs)
+        part = FreeCAD.openDocument(os.path.join(theirs, "Part.FCStd"))
+        part.Box.Length = 25
+        part.recompute()
+        part.save()
+        bolt = FreeCAD.newDocument("AsmBolt")
+        cyl = bolt.addObject("Part::Cylinder", "Cyl")
+        bolt.recompute()
+        bolt.saveAs(os.path.join(theirs, "Bolt.FCStd"))
+        asm = FreeCAD.openDocument(os.path.join(theirs, "Asm.FCStd"))
+        asm.addObject("App::Link", "L2").LinkedObject = cyl
+        asm.recompute()
+        asm.save()
+        for doc in (asm, part, bolt):
+            FreeCAD.closeDocument(doc.Name)
+        self.param.SetInt("TransactionLog", 2)
+        return ours, theirs
+
+    def importedAssembly(self, log):
+        # Sec 35 L1: their `Asm` imported here comes with its links -- the one
+        # to a file both folders have as ours, the one to a file only theirs
+        # has as theirs -- and what the import opened of their files is
+        # closed after it.
+        ours, theirs = self.assemblyCopies(log)
+        doc = self.track(FreeCAD.openDocument(os.path.join(ours, "Asm.FCStd")))
+        for name, d in FreeCAD.listDocuments().items():
+            if d.FileName == os.path.join(ours, "Part.FCStd"):
+                self.track(d)
+        before = sorted(FreeCAD.listDocuments())
+        res = doc.importTransactionFork(os.path.join(theirs, "Asm.FCStd"))
+        self.assertEqual(res["stopped_at"], 0, res)
+        self.assertGreater(res["rows"], 0, res)
+        self.assertEqual(res["independent"], log == 0, res)
+        self.assertEqual(sorted(FreeCAD.listDocuments()), before)
+
+        merged = doc.mergeTransactionBranch(res["branch"])
+        self.assertGreater(merged["seq"], 0, merged)
+        self.assertEqual(merged["failed"], [])
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+
+        def same(a, b):
+            return os.path.realpath(a) == os.path.realpath(b)
+
+        self.assertTrue(
+            same(doc.L.LinkedObject.Document.FileName, os.path.join(ours, "Part.FCStd"))
+        )
+        self.assertIsNotNone(doc.getObject("L2"))
+        self.assertIsNotNone(doc.L2.LinkedObject)
+        self.assertEqual(doc.L2.LinkedObject.Name, "Cyl")
+        self.assertTrue(
+            same(doc.L2.LinkedObject.Document.FileName, os.path.join(theirs, "Bolt.FCStd"))
+        )
+        # One file at a time: their longer box is in their `Part`, not here.
+        self.assertEqual(doc.L.LinkedObject.Length.Value, 10)
+
+    def testAFileWithLinksAndNoHistoryComesWithThem(self):
+        # Sec 35.2 item 6 (a): refused before, "Owner document not saved".
+        self.importedAssembly(0)
+
+    def testAFileWithLinksAndHistoryComesWithThem(self):
+        # Sec 35.2 item 6 (b): stopped before, at their `Bolt.FCStd` looked
+        # for in our folder.
+        self.importedAssembly(2)
+
     def testAnImportedBranchIsARequestUntilItIsMerged(self):
         # Sec 30.20 H1, H7 (S.h): a request is a branch an import made that
         # the branch the document is on has not taken -- worked out, not

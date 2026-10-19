@@ -21133,8 +21133,9 @@ for assemblies -- and first a design that says what is still lacking:
 for example exporting every linked file without history to a folder,
 and partial loading of documents on another branch or a pinned version.
 
-Nothing of this is built. The survey's measurements were run, and
-found one bug, fixed (item 6 c).
+Nothing of this was built at first. The survey's measurements were run,
+and found one bug, fixed (item 6 c). **Built since: L1 (35.7,
+2026-10-19).**
 
 ### 35.1 The case
 
@@ -21577,3 +21578,56 @@ action chosen. A library part in two sets is two branches with two set
 names, never one.
 
 Proposed: **(c)**.
+
+### 35.7 L1 built: one file to a branch, with its links (2026-10-19)
+
+Started on the user's say-so ("start sec 35", 2026-10-19), first in the
+build order (35.5). The probe of 35.2 item 6, run again before the work,
+gave what it gave on 10-17: (a) refused, "Owner document not saved", and
+their `Part.FCStd` and `Bolt.FCStd` left open; (b) stopped at row 4, their
+`Bolt.FCStd` looked for in our folder. Four things were lacking:
+
+1. **The import's document had no name.** A file with no history, or
+   none shared, comes on a branch from nothing (30.22), replayed in a new
+   document of this file that had no file name, so a relative link given
+   to it had nothing to resolve against (`DocInfo::getDocPath`). It is
+   now named as a live branch link names a branch's document (27.23),
+   `<our file>@<branch>@` (`_importReplay`); a relative link resolves
+   against our folder, as in any branch's document.
+2. **Their paths are theirs.** A value of theirs names a file relative
+   to their folder. `PropertyXLink::ImportPaths`, a scope `importFork`
+   opens, maps it as the link is restored into the import's document
+   (`into()`; their own file, opened to be read, is not mapped): to ours
+   at the same relative path when our folder has that file -- identity,
+   for one file -- else to their file by its full path. A file only they
+   have is linked where it is until L5 stages it.
+3. **A missing file stopped the import.** A value restored outside a
+   document's restore opens a linked file at once, and a file that is
+   not there threw (`Application::addPendingDocument`). Under the scope a
+   link to a file neither folder has is broken, as at an open
+   (`DocInfo::init`, with `LinkSilentRestore`).
+4. **What the import opened stayed open.** `importFork` notes the open
+   documents first and closes, after, every one it opened that no
+   document staying open links to (`SideDocuments`).
+
+And one in the merge, found by test (a): **a link's stamp is not the
+link.** `stamp` is when the link last saw its file; two copies of one
+file link the same box with stamps of their own, and the merge called
+that a conflict. `sameLinkValue` now compares link values without
+stamps, as it already left out a library link's `file` and `stamp`
+(`LibraryPaths::comparableSaved`).
+
+**Tests** (`Document.py`, `TransactionBranchCases`): the probe as
+`assemblyCopies(log)` -- `Asm` linking `Part`'s box in our folder, a copy
+in theirs whose box is longer and whose `Asm` links a new `Bolt` too --
+and `importedAssembly(log)`, run for (a) with no history
+(`testAFileWithLinksAndNoHistoryComesWithThem`) and (b) with it
+(`testAFileWithLinksAndHistoryComesWithThem`). Each: the import does not
+stop, comes independent for (a) only, leaves the same documents open as
+before it, and merges; then `L` links our `Part`, `L2` their `Bolt`, and
+our box is as it was -- their longer box is in their `Part`, another
+file, which L2 to L5 bring.
+
+**Gates** (2026-10-19): 24 Gui checks clean; Python 3809 OK, freeze on
+and off; gtest 991/991 both ways; driven 293/293. Next in 35.5: L8, then
+L7 (the export, which LibraryPaths step 4 waits for).

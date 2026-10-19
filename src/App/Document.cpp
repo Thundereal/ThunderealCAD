@@ -9252,8 +9252,19 @@ bool sameLinkValue(TransactionLog& log, const std::string& ptype, const std::str
     CapturedValue va, vb;
     if (!log.readValue(a, va) || !log.readValue(b, vb))
         return false;
-    const std::string ca = LibraryPaths::comparableSaved(va.fragment);
-    return ca != va.fragment && ca == LibraryPaths::comparableSaved(vb.fragment);
+    // A link's stamp says when it last saw its file, not what it links: two
+    // copies of one file link alike with stamps of their own (sec 35 L1).
+    auto comparable = [](const std::string& fragment) {
+        std::string out = LibraryPaths::comparableSaved(fragment);
+        for (size_t at; (at = out.find(" stamp=\"")) != std::string::npos;) {
+            const size_t close = out.find('"', at + 8);
+            if (close == std::string::npos)
+                break;
+            out.erase(at, close + 1 - at);
+        }
+        return out;
+    };
+    return comparable(va.fragment) == comparable(vb.fragment);
 }
 
 /// A merge worked out (sec 28.2): what each side did since the base, and
@@ -12671,6 +12682,13 @@ Document* Document::_importReplay(int64_t base, const std::string& stem, LogBran
             replay->d->transactionLog->setBranch(made.id);
             replay->d->undoFloor = replay->d->transactionLog->lastSeq();
             store.getBranch(made.id, mine);
+            // Named as a live link names the branch's document (27.23): a
+            // relative link it is given resolves against this file's folder
+            // (sec 35 L1) -- with no name, it was refused.
+            if (!FileName.getStrValue().empty()) {
+                Base::FlagToggler<> quiet(replay->d->bookkeeping, false);
+                replay->FileName.setValue(FileName.getStrValue() + "@" + made.name + "@");
+            }
         }
         catch (...) {
             app.closeDocument(replay->getName());
@@ -13063,6 +13081,7 @@ Document::ImportResult Document::_importState(const std::string& path, const std
     bool scratch = false;
     try {
         replay = _importReplay(result.base, file, mine, scratch);
+        PropertyXLink::ImportPaths::into(replay);
         result.branch = mine.name;
         replay->_importStateRow(*theirs, file, ids, names, result,
                                 result.independent ? this : nullptr);
@@ -13113,10 +13132,64 @@ Document::ImportResult Document::_importState(const std::string& path, const std
     return result;
 }
 
+namespace {
+/// The documents an import opens on the side -- their linked files, read
+/// with theirs -- closed when it is done (sec 35 L1), unless a document
+/// that stays open links to one.
+struct SideDocuments
+{
+    std::set<Document*> before;
+    SideDocuments()
+    {
+        for (auto doc : GetApplication().getDocuments())
+            before.insert(doc);
+    }
+    ~SideDocuments()
+    {
+        auto& app = GetApplication();
+        Document* active = app.getActiveDocument();
+        std::set<Document*> side;
+        for (auto doc : app.getDocuments()) {
+            if (!before.count(doc))
+                side.insert(doc);
+        }
+        for (bool kept = true; kept && !side.empty();) {
+            kept = false;
+            for (auto it = side.begin(); it != side.end();) {
+                bool linked = false;
+                for (auto from : PropertyXLink::getDocumentInList(*it)[*it])
+                    linked = linked || !side.count(from);
+                if (linked) {
+                    it = side.erase(it);
+                    kept = true;
+                }
+                else {
+                    ++it;
+                }
+            }
+        }
+        for (auto doc : side) {
+            try {
+                app.closeDocument(doc->getName());
+            }
+            catch (Base::Exception& e) {
+                FC_WARN("import: closing " << doc->getName() << ": " << e.what());
+            }
+        }
+        if (active && !side.count(active) && app.getActiveDocument() != active)
+            app.setActiveDocument(active);
+    }
+};
+} // namespace
+
 Document::ImportResult Document::importFork(const std::string& path, const std::string& branch,
                                             const std::string& sender)
 {
     OperationScope scope;   // sec 27.38
+    // Sec 35 L1: what the import opens of their files is closed after it,
+    // and their links come mapped to this file's folder.
+    SideDocuments side;
+    PropertyXLink::ImportPaths paths(path, FileName.getStrValue());
     // docs/TransactionLog.md sec 30.13, 30.14: replay, always (F1).
     checkNotFrozen("import a file's history");
     TransactionLog* log = getTransactionLog();
@@ -13380,6 +13453,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
         name += "@" + from.name;
     bool scratch = false;
     Document* replay = _importReplay(result.base, name, mine, scratch);
+    PropertyXLink::ImportPaths::into(replay);
     result.branch = mine.name;
     TransactionLog* rlog = replay->getTransactionLog();
 

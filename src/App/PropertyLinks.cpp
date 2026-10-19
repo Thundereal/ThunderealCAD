@@ -4368,7 +4368,10 @@ public:
                     return;
                 }
             }
-            if (l->testFlag(PropertyLinkBase::LinkSilentRestore)
+            // An import's link to a file that is not there is broken, as at
+            // an open (TransactionLog sec 35 L1), not a stop.
+            if ((l->testFlag(PropertyLinkBase::LinkSilentRestore)
+                        || PropertyXLink::ImportPaths::covering(*l))
                     && !QFileInfo(QString::fromUtf8(myPath.c_str())).exists()) {
                 FC_LOG("document file does not exists: " << filePath());
                 return;
@@ -5542,6 +5545,55 @@ void PropertyXLink::Save (Base::Writer &writer) const {
     }
 }
 
+namespace {
+thread_local PropertyXLink::ImportPaths* _ImportPaths = nullptr;
+
+std::string folderOf(const std::string& file)
+{
+    return QFileInfo(QString::fromUtf8(file.c_str())).absolutePath().toUtf8().constData();
+}
+} // namespace
+
+PropertyXLink::ImportPaths::ImportPaths(const std::string& theirFile, const std::string& ourFile)
+    : _theirDir(folderOf(theirFile))
+    , _ourDir(folderOf(ourFile))
+    , _outer(_ImportPaths)
+{
+    _ImportPaths = this;
+}
+
+PropertyXLink::ImportPaths::~ImportPaths()
+{
+    _ImportPaths = _outer;
+}
+
+void PropertyXLink::ImportPaths::into(const App::Document* doc)
+{
+    if (_ImportPaths)
+        _ImportPaths->_into = doc;
+}
+
+const PropertyXLink::ImportPaths* PropertyXLink::ImportPaths::covering(const PropertyXLink& link)
+{
+    if (!_ImportPaths || !_ImportPaths->_into)
+        return nullptr;
+    auto owner = Base::freecad_dynamic_cast<const DocumentObject>(link.getContainer());
+    return owner && owner->getDocument() == _ImportPaths->_into ? _ImportPaths : nullptr;
+}
+
+std::string PropertyXLink::ImportPaths::map(const std::string& file) const
+{
+    QString path = QString::fromUtf8(file.c_str());
+    if (path.startsWith(QStringLiteral("https://")) || QFileInfo(path).isAbsolute())
+        return file;
+    path = QDir::cleanPath(path);
+    const QString ours = QDir(QString::fromUtf8(_ourDir.c_str())).absoluteFilePath(path);
+    const QString theirs = QDir(QString::fromUtf8(_theirDir.c_str())).absoluteFilePath(path);
+    if (QFileInfo::exists(ours) || !QFileInfo::exists(theirs))
+        return file;
+    return QDir::cleanPath(theirs).toUtf8().constData();
+}
+
 void PropertyXLink::Restore(Base::XMLReader &reader)
 {
     // read my element
@@ -5551,6 +5603,11 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
         stampAttr = reader.getAttribute("stamp");
     if(reader.hasAttribute("file"))
         file = reader.getAttribute("file");
+    // Their link, brought into this file by an import (TransactionLog sec 35 L1).
+    if (!file.empty()) {
+        if (auto paths = ImportPaths::covering(*this))
+            file = paths->map(file);
+    }
 
     this->resolveMode = PathResolveMode::Dynamic;
     if(reader.hasAttribute("resolve")) {

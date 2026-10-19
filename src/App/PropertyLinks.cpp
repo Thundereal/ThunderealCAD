@@ -4265,6 +4265,16 @@ public:
                     }
                 }
             }
+            else if (objName && *objName
+                     && info->pcDoc->testStatus(App::Document::VersionDoc)
+                     && info->pcDoc->testStatus(App::Document::PartialDoc)) {
+                // A version read in part for other links (TransactionLog sec
+                // 35 L8), without this one's object: read again, with it.
+                auto obj = info->pcDoc->getObject(objName);
+                if (!obj || obj->testStatus(App::PartialObject))
+                    App::GetApplication().addPendingDocument(
+                        info->pcDoc->FileName.getValue(), objName, false);
+            }
         } else {
             info = std::make_shared<DocInfo>();
             info->history = history;

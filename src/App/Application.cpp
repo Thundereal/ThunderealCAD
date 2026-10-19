@@ -1085,8 +1085,8 @@ std::vector<Document*> Application::openDocuments(const std::vector<std::string>
 
             auto &timing = timings[doc];
             FC_TIME_INIT(t1);
-            // A version's document was restored whole when it was opened
-            // (Document::openFileVersion): nothing is left to finish.
+            // A version's document was restored when it was opened, whole or
+            // in part (Document::openFileVersion): nothing is left to finish.
             if (doc->testStatus(Document::VersionDoc)) {
                 openedDocs.emplace_back(doc);
                 it = docs.erase(it);
@@ -1169,17 +1169,32 @@ Document* Application::openDocumentPrivate(const char * FileName,
     {
         FileHistory::NameParts parts;
         if (FileHistory::parseName(FileName ? FileName : "", parts)) {
-            if (auto doc = getDocumentByPath(FileName))
-                return isMainDoc ? doc : nullptr;
+            // One read in part (sec 35 L8) goes on to openFileVersion(), which
+            // reads it again when more of it is asked for, or all of it.
+            if (Document* open = getDocumentByPath(FileName)) {
+                bool enough = !open->testStatus(Document::PartialDoc);
+                if (!enough && !isMainDoc && !objNames.empty()) {
+                    enough = true;
+                    for (const auto& name : objNames) {
+                        auto obj = open->getObject(name.c_str());
+                        enough = enough && obj && !obj->testStatus(App::PartialObject);
+                    }
+                }
+                if (enough)
+                    return isMainDoc ? open : nullptr;
+            }
             std::string reason;
             auto history = FileHistory::openFile(parts.file, &reason);
             if (!history)
                 THROWM(Base::FileSystemError, "no history in '" + parts.file + "': " + reason)
-            Document* doc = Document::openFileBranch(history, parts.branch, parts.version,
-                                                     isMainDoc && createView);
             // Asked for by a link resolving (the objects it wants are named):
             // opened for a pin, offered for closing when its pins go (27.30).
-            if (!objNames.empty() && doc->testStatus(Document::FrozenVersion))
+            const bool forLinks = !objNames.empty();
+            if (DocumentParams::getNoPartialLoading())
+                objNames.clear();
+            Document* doc = Document::openFileBranch(history, parts.branch, parts.version,
+                                                     isMainDoc && createView, objNames);
+            if (forLinks && doc->testStatus(Document::FrozenVersion))
                 doc->setStatus(Document::OpenedForPin, true);
             if (!DocFileMap.empty())
                 DocFileMap[FileInfo(doc->FileName.getValue()).filePath()] = doc;

@@ -6717,7 +6717,8 @@ bool Document::restoreVersion(int64_t num)
 }
 
 void Document::_restoreAsVersion(const std::shared_ptr<FileHistory>& history,
-                                 const std::string& dir, const std::string& fileName)
+                                 const std::string& dir, const std::string& fileName,
+                                 const std::vector<std::string>& objNames)
 {
     setStatus(VersionDoc, true);
     d->noLog = true;
@@ -6734,7 +6735,7 @@ void Document::_restoreAsVersion(const std::shared_ptr<FileHistory>& history,
         FileName.setValue(fileName);
     }
     Base::FlagToggler<> guard(d->checkingOut);
-    restore(dir.c_str(), false);
+    restore(dir.c_str(), false, objNames);
 }
 
 Document* Document::_openReadVersion(int64_t num, const std::string& stem, bool active)
@@ -7229,13 +7230,14 @@ int64_t Document::pinLink(PropertyXLink& link, int64_t version)
 }
 
 Document* Document::openFileBranch(const std::shared_ptr<FileHistory>& history,
-                                   const std::string& branch, int64_t num, bool createView)
+                                   const std::string& branch, int64_t num, bool createView,
+                                   const std::vector<std::string>& objNames)
 {
     // docs/TransactionLog.md sec 27.23, 27.24.
     if (!history)
         THROWM(Base::RuntimeError, "no file history");
     if (branch.empty())
-        return openFileVersion(history, num, createView, nullptr, true);
+        return openFileVersion(history, num, createView, nullptr, true, objNames);
     TransactionLogCore& log = TransactionLogCore::of(*history);
     auto& store = log.store();
     LogBranch b;
@@ -7341,7 +7343,8 @@ void Document::checkNotFrozen(const char* what) const
 }
 
 Document* Document::openFileVersion(const std::shared_ptr<FileHistory>& history, int64_t num,
-                                    bool createView, const Document* from, bool frozen)
+                                    bool createView, const Document* from, bool frozen,
+                                    const std::vector<std::string>& objNames)
 {
     // Sec 27.7, 27.13: with or without a document of the file open; the
     // frozen instance or the editable one (27.22), at most one of each.
@@ -7351,14 +7354,32 @@ Document* Document::openFileVersion(const std::shared_ptr<FileHistory>& history,
     LogVersion version;
     if (!log.store().getVersion(num, version))
         THROWM(Base::ValueError, "no version " + std::to_string(num));
-    if (Document* open = log.documentAt(version, frozen))
-        return open;
-    return _openVersionDocument(history, version, createView, from, frozen);
+    std::vector<std::string> names = frozen ? objNames : std::vector<std::string>();
+    if (Document* open = log.documentAt(version, frozen)) {
+        if (!open->testStatus(PartialDoc))
+            return open;
+        // Sec 35 L8: a frozen version read in part, asked for more -- or
+        // whole -- is read again, with what it has and what is asked.
+        bool enough = !names.empty();
+        for (const auto& name : names) {
+            auto obj = open->getObject(name.c_str());
+            enough = enough && obj && !obj->testStatus(PartialObject);
+        }
+        if (enough)
+            return open;
+        if (!names.empty()) {
+            for (auto obj : open->getObjects())
+                names.emplace_back(obj->getNameInDocument());
+        }
+        GetApplication().closeDocument(open->getName());
+    }
+    return _openVersionDocument(history, version, createView, from, frozen, names);
 }
 
 Document* Document::_openVersionDocument(const std::shared_ptr<FileHistory>& history,
                                          const LogVersion& version, bool createView,
-                                         const Document* from, bool frozen)
+                                         const Document* from, bool frozen,
+                                         const std::vector<std::string>& objNames)
 {
     TransactionLogCore& log = TransactionLogCore::of(*history);
     const int64_t num = version.num;
@@ -7393,7 +7414,9 @@ Document* Document::_openVersionDocument(const std::shared_ptr<FileHistory>& his
         // Named for now as the frozen instance is: the restore reads
         // relative links against the file's directory either way, and the
         // editable one is named for its branch once it has a log (27.23).
-        doc->_restoreAsVersion(history, dir, file.empty() ? file : file + suffix);
+        // Sec 35 L8: a frozen one, only what the links ask for.
+        doc->_restoreAsVersion(history, dir, file.empty() ? file : file + suffix,
+                               frozen ? objNames : std::vector<std::string>());
         doc->d->versionFile = file;
         doc->d->versionLabel = label;
         doc->d->versionTail = num;

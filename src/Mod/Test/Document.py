@@ -3357,6 +3357,71 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(os.path.normpath(link.LinkedObject.Document.FileName),
                          os.path.normpath(partPath))
 
+    def testAPinnedVersionIsReadInPartForItsLinks(self):
+        # Sec 35 L8: a frozen version opened for pins reads the objects they
+        # link and what those depend on, as a plain file opened for links
+        # does; a second link wanting more reads it again with that too, and
+        # the version opened by its own name is read whole.
+        part = self.track(FreeCAD.newDocument("PartialPart"))
+        part.UndoMode = 1
+        part.openTransaction("create")
+        base = part.addObject("App::FeatureTest", "Base")
+        top = part.addObject("App::FeatureTest", "Top")
+        top.Link = base
+        other = part.addObject("App::FeatureTest", "Other")
+        part.addObject("App::FeatureTest", "Unused")
+        part.commitTransaction()
+        partPath = os.path.join(self.dir, "partialpart.FCStd")
+        part.saveAs(partPath)
+        onDisk = int(part.Version.split()[0])
+
+        paths = []
+        for name, target in (("PartialAsmA", top), ("PartialAsmB", other)):
+            asm = self.track(FreeCAD.newDocument(name))
+            asm.UndoMode = 1
+            asm.openTransaction("link")
+            link = asm.addObject("App::Link", "L")
+            link.LinkedObject = target
+            link.pinLink("LinkedObject")
+            asm.commitTransaction()
+            paths.append(os.path.join(self.dir, name.lower() + ".FCStd"))
+            asm.saveAs(paths[-1])
+        # The file moves on: a pin to the version it was shows the version.
+        part.openTransaction("two")
+        top.Integer = 2
+        part.commitTransaction()
+        part.save()
+        for name in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(name)
+
+        # One pin: what it links, and what that depends on.
+        first = self.track(FreeCAD.openDocument(paths[0]))
+        shown = first.L.LinkedObject
+        self.assertIsNotNone(shown)
+        version = self.track(shown.Document)
+        self.assertTrue(version.FileName.endswith("@v%d" % onDisk), version.FileName)
+        self.assertTrue(version.Partial)
+        self.assertEqual(sorted(o.Name for o in version.Objects), ["Base", "Top"])
+        self.assertEqual(shown.Link.Name, "Base")
+
+        # Another pin, to an object it has not read: read again, with both.
+        second = self.track(FreeCAD.openDocument(paths[1]))
+        self.assertIsNotNone(second.L.LinkedObject)
+        self.assertEqual(second.L.LinkedObject.Name, "Other")
+        version = self.track(second.L.LinkedObject.Document)
+        self.assertTrue(version.FileName.endswith("@v%d" % onDisk), version.FileName)
+        self.assertEqual(sorted(o.Name for o in version.Objects), ["Base", "Other", "Top"])
+        self.assertEqual(first.L.LinkedObject.Name, "Top")
+        self.assertIs(first.L.LinkedObject.Document, version)
+
+        # Opened by its name: the whole version, the pins still on it.
+        whole = self.track(FreeCAD.openDocument(version.FileName))
+        self.assertFalse(whole.Partial)
+        self.assertIsNotNone(whole.getObject("Unused"))
+        self.assertIs(first.L.LinkedObject.Document, whole)
+        self.assertIs(second.L.LinkedObject.Document, whole)
+        self.assertEqual(first.L.LinkedObject.Link.Name, "Base")
+
     def testReleasedPinnedVersionClosesHeadless(self):
         # Sec 27.30, 27.38: with ClosePinnedVersion at close, a version
         # opened for pins is closed once the operation that let go of its

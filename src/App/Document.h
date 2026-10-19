@@ -447,21 +447,27 @@ public:
      * `frozen` opens the instance a pin shows (sec 27.22): status
      * FrozenVersion, named `<file>@v<num>`, every change refused; a version
      * has at most one of each.
+     * `objNames`, for a frozen one asked for by links (sec 35 L8): those
+     * objects and their dependencies only, a PartialDoc; none, or a
+     * partial one open when none are named, the whole version.
      */
     static Document* openFileVersion(const std::shared_ptr<FileHistory>& history, int64_t num,
                                      bool createView = true, const Document* from = nullptr,
-                                     bool frozen = false);
+                                     bool frozen = false,
+                                     const std::vector<std::string>& objNames = {});
 
     /** What a name of parseName() opens (docs/TransactionLog.md sec 27.23,
      * 27.24): with no `branch`, the frozen instance of version `num`; with
      * a branch and a version, the editable instance at that version; with a
      * branch and no version, the document holding the branch, or else the
      * branch's head opened as an editable instance. Throws when there is no
-     * such version or branch.
+     * such version or branch. `objNames` as openFileVersion() takes them,
+     * for the frozen instance.
      */
     static Document* openFileBranch(const std::shared_ptr<FileHistory>& history,
                                     const std::string& branch, int64_t num,
-                                    bool createView = true);
+                                    bool createView = true,
+                                    const std::vector<std::string>& objNames = {});
     /** The state at log row `seq` as a document of its own
      * (docs/TransactionLog.md sec 32.33), for what the log no longer holds
      * of that state: a value a recompute wrote is a cache, which a file's
@@ -1865,14 +1871,16 @@ protected:
     /// Restore this new document from `dir`, a materialised version of the
     /// file `history` records, as a version document named `fileName`.
     void _restoreAsVersion(const std::shared_ptr<FileHistory>& history, const std::string& dir,
-                           const std::string& fileName);
+                           const std::string& fileName,
+                           const std::vector<std::string>& objNames = {});
     /// Sec 27.7: share `history`, another document's of the same file.
     void _joinHistory(const std::shared_ptr<FileHistory>& history);
     int64_t _snapshotToLog(const char* kind);
     /// openFileVersion() once it is known no open document is the version.
     static Document* _openVersionDocument(const std::shared_ptr<FileHistory>& history,
                                           const LogVersion& version, bool createView,
-                                          const Document* from, bool frozen);
+                                          const Document* from, bool frozen,
+                                          const std::vector<std::string>& objNames = {});
     /// The log's head was moved (sec 30.4 P1, a fast-forward): the
     /// document follows from the state at row `from`, with nothing recorded.
     void _followHead(int64_t from);

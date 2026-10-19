@@ -21135,7 +21135,7 @@ and partial loading of documents on another branch or a pinned version.
 
 Nothing of this was built at first. The survey's measurements were run,
 and found one bug, fixed (item 6 c). **Built since: L1 (35.7,
-2026-10-19).**
+2026-10-19); L8 for frozen versions (35.8, 2026-10-19).**
 
 ### 35.1 The case
 
@@ -21631,3 +21631,62 @@ file, which L2 to L5 bring.
 **Gates** (2026-10-19): 24 Gui checks clean; Python 3809 OK, freeze on
 and off; gtest 991/991 both ways; driven 293/293. Next in 35.5: L8, then
 L7 (the export, which LibraryPaths step 4 waits for).
+
+### 35.8 L8 built for frozen versions; branch tips moved to L4 (2026-10-19)
+
+**Frozen versions, as a plain file is read for links.** The name a pin
+resolves to, `<file>@v<num>`, went through `parseName` in
+`Application::openDocumentPrivate`, which handed the objects the links
+asked for to nothing: every pin opened its version whole. Now the names
+go through `openFileBranch` and `openFileVersion` to
+`_openVersionDocument` and `_restoreAsVersion`, and the version's
+materialised directory is restored with them -- the restore a plain file
+has (`restore(dir, false, objNames)`): those objects and what they
+depend on, the document `PartialDoc` as well as `FrozenVersion`.
+
+- **Asked for more.** A link wanting an object the version has not read
+  asks for it: at the link's restore (`DocInfo::get`, for a version
+  document read in part -- plain files keep what they had) and through
+  the existing reload of a partial document (`restoreDocument`). The
+  name reaches `openDocumentPrivate`, which returns the open version when
+  it has every object asked for, and else `openFileVersion` reads it
+  again with what it had and what is asked.
+- **Asked for whole.** The version opened by its own name (a main
+  document), or by anything calling `openFileVersion` with no names, is
+  read again whole when only a part of it is open.
+- **The preference.** `NoPartialLoading` reads versions whole, as it
+  reads files.
+
+**Measured** (`~/.cache/lv-merge/probe/l8/measure.py`): a part of 600
+cylinders, an assembly pinning one of them at version 1 and another at
+version 2, opened with partial loading on and off, twice each:
+
+| | open | RSS | objects read |
+| --- | --- | --- | --- |
+| partial | 0.27 s | +36 MB | 1 and 1 |
+| whole | 0.35 to 0.37 s | +83 MB | 600 and 600 |
+
+Both pins resolve either way. What is left of the time is the version's
+materialisation: every entry is still written to the checkout directory
+before the restore reads what it needs. Writing only those is the next
+gain, if a larger part asks for it.
+
+**Branch tips: moved to L4.** A tip opened for a live link is a version
+document that takes its branch with `switchBranch`, which refuses a
+partial document (`_checkBranchable`); a partial tip needs a way to take
+the branch at its head without a switch. Q7 -- the tip read whole when
+the user turns to edit it -- wants a Gui hook at the start of an edit,
+which reloads the document the edit is about to begin in. And nothing
+opens tips through links yet: that is L4's set of branch links, where
+both can be built and measured on the case they serve.
+
+**Test** (`Document.py`, `TransactionBranchCases`):
+`testAPinnedVersionIsReadInPartForItsLinks` -- a part of four objects,
+`Top` depending on `Base`, two assemblies pinning `Top` and `Other` at
+one version, the part moved on: the first assembly opened reads
+`Base` and `Top` only, the second reads the version again with `Other`
+too and both links hold, and the version opened by its name is read
+whole with the pins on it.
+
+**Gates** (2026-10-19): 24 Gui checks clean; Python 3810 OK, freeze on
+and off; gtest 991/991 both ways; driven 293/293. Next in 35.5: L7.

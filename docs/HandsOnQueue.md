@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 11:11: entry 175 DONE by x16 on ThunderealCAD main (`094770130e`, pushed):
+the tile-less icon E2, one drawing for both themes; not yet merged into
+LinkVibe; the Windows task bar not checked.** Under the entry.
+
 **2026-10-19 10:46: entries 171 + 173 BUILT locally (`d59ba8850c`), NOT pushed, NOT
 staged; 22/22 on the real screen; local 31 ahead of thundereal/LinkVibe.**
 Under entry 173.
@@ -3666,7 +3670,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 172 | 2026-10-18 | a change request: ALL the PartDesign ON-VIEW EDIT (handles, the active handle and typing, the labels, the menus) working IN THE BROWSER, tested in a REAL BROWSER | OPEN; said to the note-taker 2026-10-18 22:13. 2026-10-18 22:16 the reporter: "long touch press on handle to bring up the context menu" -- touch is in scope (b): a LONG PRESS on a handle opens the HANDLE's context menu, the touch form of the right click. 2026-10-18 22:18 the reporter: "there is hover/preselection, check the browser code. task panel shall already in browser by now. Do thunderealcad merge first. then do this on the new tracked LinkVibe branch" -- the browser HAS hover/preselection (the note-taker's "no hover" on touch wrong); the task panel is already in the browser; ORDER: the ThunderealCAD merge FIRST, then 172 on the new tracked LinkVibe branch. 2026-10-19 09:03 SIZED by the build session (docs/OnViewValueEditing.md sec 9, `8cd250125b`, local), nothing built; 9.5 a-c for the reporter (c: puppeteer-core installed on the box, the reporter's yes first). 2026-10-19 09:34 the reporter: "entry 172, install the puppeteer, can windows do browser test off screen?" -- 9.5 c YES (puppeteer-core installed outside the repo); a question: can Windows run the browser test off screen. 2026-10-19 09:49 the build session: puppeteer-core was ALREADY installed (D:\works\sw\viewer-harness\ppenv since 2026-09-12), nothing new; off screen on Windows YES, SEEN -- headless Chrome (swiftshader) drew a served fillet edit: label, preview, handles (`c07c3b79d6`); dragging not tried; 9.5 a, b open. 2026-10-19 10:01 the reporter: "entry 172 shall be anwsered by 174" -- 9.5 a read as decided by 174's per-user design, not one shared value set; b not answered by name |
 | 173 | 2026-10-19 | a change request: an always-visible MENU BUTTON at the 3D view's TOP MIDDLE during an on-view edit (left of the top-middle label when there is one), like the cell menu button but label-high, keeping clear of overlay widgets (the label too); its menu = the active handle's context menu plus 'toggle handles' and 'show preview', the settings even with no active handle | OPEN; said to the note-taker 2026-10-19 08:32. 2026-10-19 08:35 the build session: one design note for 171 and 173 together (one menu), then 172's sizing; nothing built before the reporter sees the design. 2026-10-19 08:48 the reporter: "Toggle handles, this view only, same as show preview. The policy from now on is to keep in mind of multiple user editing. In the future we shall extend preference to be user aware. So browser user can have their own preference." -- toggle handles and show preview THIS VIEW ONLY; a POLICY: keep multiple users editing in mind; later, user-aware preferences. 2026-10-19 08:54 the 171+173 DESIGN written (docs/OnViewValueEditing.md sec 8, `08ff4f5181`, local), nothing built; sec 8.6 a-f for the reporter (a: the panel's Show preview also writes the global preference and resumes the recompute -- the menu's switch would only take the preview out of this view). 2026-10-19 09:03 the reporter: "Yes stay that way for now." -- read as: 171's settings stay the GLOBAL preference for now; 8.6 a-f NOT answered by it. 2026-10-19 09:34 the reporter: "entry 173, show preview should behave the same as the task panel" -- 8.6 a ANSWERED against the proposal: the menu's Show preview does what the panel's check box does (the preference and the recompute), NOT this view only; toggle handles stays this view only. 2026-10-19 09:49 the design's 8.6 noted: Show preview = the panel's check box, toggle handles this view only, the multi-user consequence noted. 2026-10-19 10:01 the reporter: "173 all agree" -- the design's 8.6 c-f AGREED as proposed (a already answered 09:34); ready to build after 171 (one design). 2026-10-19 10:15 the build session: 171+173 BUILT locally, UNCOMMITTED; r117 building with a new test pd-edit-menu-in-view.py; results to follow. 2026-10-19 10:29 the reporter: "the on view edit menu button. make those three strips thick. they are too thin now" -- the button's three bars THICKER (now max(2 px, height/12) in the uncommitted build). 2026-10-19 10:34 the reporter: "make the strip the same width as the space between them" -- each bar as thick as the clear gap between two bars. 2026-10-19 10:46 171+173 BUILT AND COMMITTED LOCALLY `d59ba8850c` (docs `137f7006fb`), NOT pushed, NOT staged; r119 real screen: pd-edit-menu-in-view 22/22, edit-per-view 25, pd-gui-defects 34, the on-view set unchanged; keeping clear of an overlay NOT tested. 2026-10-19 10:59 the reporter asked how hidden handles come back, wanting ONE toggle for all; the note-taker's "hides each handle individually" was WRONG wording -- by the source it IS one toggle for all the edit's handles in the view, brought back by the same menu item (the button always shown) |
 | 174 | 2026-10-19 | a change request FOR DESIGN: PER-USER SETTINGS -- each edit identifies the user who started it; PrefWidget checks the current editing user and PREFIXES the setting path; check whether settings in menu items can do the same | OPEN; said to the note-taker 2026-10-19 09:03. 2026-10-19 09:08 DESIGNED by the build session (new docs/UserSettings.md, `dcfa2bba59`, local), nothing built; menu settings: YES the same way; sec 2.6 a-f for the reporter. 2026-10-19 09:32 the reporter: a user's values NEVER MIX with the local user's (the design's fall-back to the global overruled); ideally all settings user aware, step by step; CHANGE: the user also taken from the VIEW outside an edit; a per-user FLAG in the cog param helper, the generated class keeping per-user values -- feasibility asked; and a question: when can a user have no value. 2026-10-19 09:49 the design updated (`59d348425a`): no mixing either way, no value -> the DEFAULT; the user from the view outside an edit (App::PrefUser); the cog per-user flag POSSIBLE (sec 2.5.1); the reporter's question answered (sec 2.2). 2026-10-19 10:01 the reporter CORRECTS the 09:32 reading: a user's INITIAL value is taken from the CURRENT setting (not the default); "not mix" was about WRITES -- a user's write never reaches the local user's settings. 2026-10-19 10:13 the reporter: "174, copied once." -- a user's initial value is COPIED ONCE from the current setting (a snapshot at first use), not read through. 2026-10-19 10:15 the design squared with "copied once" (`3dff98041b`, local): at the FIRST READ the current value is written into the user's entry; a Declared user's copy in the connection's memory; reset to default removes the entry, the next read copies again |
-| 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22. 2026-10-19 10:27 the reporter: the task bar icon follows the WINDOWS theme (a answered); x16 to be asked about a light-theme icon and every other place the logo is used -- ASKED by the note-taker 10:27, over Remote Control, no answer yet. 2026-10-19 10:29 x16 ANSWERED: no light-theme drawing in the app; the reporter approved a light-ground RECOLOUR of the BARE MARK (website); x16 suggests thundereal-mark-light.svg from the generator, the bare mark themed in 4 places (title-bar button, Std_About icon, Material library icon, template); for the TASK BAR it recommends KEEPING THE TILE (the pinned .exe icon cannot follow the theme) -- a decision for the reporter. 2026-10-19 10:36 the reporter: ONE ICON, changed to look good on BOTH themes WITHOUT its own background (no tile, no themed variants); the task bar icon the same -- supersedes the themed-variant plan and the 10:27 "follow Windows theme". 2026-10-19 10:39 ON HOLD (the reporter): the reporter asks x16 to design the icon first; nothing to be done on 175 until then |
+| 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22. 2026-10-19 10:27 the reporter: the task bar icon follows the WINDOWS theme (a answered); x16 to be asked about a light-theme icon and every other place the logo is used -- ASKED by the note-taker 10:27, over Remote Control, no answer yet. 2026-10-19 10:29 x16 ANSWERED: no light-theme drawing in the app; the reporter approved a light-ground RECOLOUR of the BARE MARK (website); x16 suggests thundereal-mark-light.svg from the generator, the bare mark themed in 4 places (title-bar button, Std_About icon, Material library icon, template); for the TASK BAR it recommends KEEPING THE TILE (the pinned .exe icon cannot follow the theme) -- a decision for the reporter. 2026-10-19 10:36 the reporter: ONE ICON, changed to look good on BOTH themes WITHOUT its own background (no tile, no themed variants); the task bar icon the same -- supersedes the themed-variant plan and the 10:27 "follow Windows theme". 2026-10-19 10:39 ON HOLD (the reporter): the reporter asks x16 to design the icon first; nothing to be done on 175 until then. 2026-10-19 11:11 DONE by x16 on Thundereal/ThunderealCAD MAIN `094770130e` (pushed, on the reporter's word to x16): the tile-less icon "E2" picked by the reporter; NOT in local LinkVibe yet (needs a merge of thundereal/main); the Windows task bar NOT checked |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -24770,6 +24774,44 @@ d. Who does it: the generator is x16's work (the build session or x16)
 The note-taker's reading: entry 175 is ON HOLD -- no work on it (by the
 build session, nor a generator change) until x16 has DESIGNED the icon.
 The REPORTER asks x16 themselves; the note-taker sends x16 nothing more.
+
+**2026-10-19 11:11, x16 (relayed; the reporter's words to x16 the note-taker did not
+hear): 175 DONE -- the tile-less application icon committed and PUSHED to
+Thundereal/ThunderealCAD MAIN as `094770130e`, by the reporter's word
+("commit, push and tell remote session notes").**
+The reporter's picks, in order, on x16's candidate page
+(https://claude.ai/artifact/QqVNRAocx5N91tHyhMfTze), as x16 quotes them:
+"I like D for both light and dark" (today's colours with a thin dark-navy
+edge); "make the bottom box face subtly tinted with the strike's color"
+-> "as if the strike lit up the bottom face"; "E2 look good"; a glow
+tried, then "no need for the glow. E2 as it is".
+E2 (src/Tools/thundereal-icons.py, ONE drawing): the T-strike at full
+size, NO navy tile; a thin edge #16203A (a stroke of the whole outline
+behind the faces -- holds the mark on light grounds, all but vanishes on
+dark); the bar's bottom face lit by the strike (a radial gradient, gold
+#FFC85A/#FFD98C at the strike, near-white #EEF0F8, back to blue #9CC0FF
+at the ends, table LIT); the drawing moved down 1.6 units; the 16 px
+drawing refitted to the whole square.
+Regenerated: thundereal.svg, thundereal-16.svg, thundereal-icon-16/32/
+48/64.png, thundereal.xpm, src/Main/thundereal.ico, the installer's
+Thundereal.ico, thundereal.icns, the browser favicon (wasm/thundereal-
+favicon.html). So the title-bar logo button, the window/task bar icon,
+Std_About and the Material library icon take it through
+":/icons/freecad.svg", and the PINNED and RUNNING icons MATCH. No wiring
+needed (dwin checked the title-bar button). Unchanged: the package box
+(keeps the tiled mark), splash, about picture, document icons, watermark,
+TechDraw logo. Also pushed: Thundereal/thundereal-feedstock main
+`db0adee` (recipe/extra/icon{,-daily}.ico = the new .ico).
+Checked on LINUX: build OK; the running window icon and
+Gui.getIcon("freecad") the new drawing, transparent corners, on white
+and dark; GuiOverlayTitleButtonsTheme passed; GuiOverlayPresetFollows
+TheTheme failed once beside it on a kept profile and passed alone from a
+fresh one ("not the icon"). NOT checked: the Windows task bar (needs the
+Windows box after a merge of main).
+READ in git by the note-taker: `094770130e` is NOT in this clone
+(thundereal/main here is `2c32fdd3e9`, not fetched since) -- so local
+LinkVibe does not have the new icon; a fetch and a merge of
+thundereal/main is the build session's, on the reporter's word.
 
 ## Inbox
 

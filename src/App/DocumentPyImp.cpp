@@ -37,6 +37,7 @@
 #include "DocumentPy.h"
 #include "DocumentSettings.h"
 #include "DocumentSettingsPy.h"
+#include "ExportSet.h"
 #include "GeoFeature.h"
 #include "DocumentPy.cpp"
 #include "TransactionLog.h"
@@ -2025,6 +2026,41 @@ PyObject* DocumentPy::getTransactionForkBranches(PyObject *args)
             list.append(d);
         }
         return Py::new_reference_to(list);
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::exportLinkedSet(PyObject* args, PyObject* kwds)
+{
+    char* folder = nullptr;
+    PyObject* withHistory = Py_False;
+    PyObject* overwrite = Py_False;
+    static const std::array<const char*, 4> kwlist {"folder", "withHistory", "overwrite", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "et|O!O!", kwlist, "utf-8", &folder,
+                                             &PyBool_Type, &withHistory, &PyBool_Type,
+                                             &overwrite))
+        return nullptr;
+    const std::string path(folder);
+    PyMem_Free(folder);
+    PY_TRY {
+        App::ExportSetOptions options;
+        options.withHistory = Base::asBoolean(withHistory);
+        options.overwrite = Base::asBoolean(overwrite);
+        const auto result = App::exportLinkedSet(*getDocumentPtr(), path, options);
+        Py::List files;
+        for (const auto& f : result.files) {
+            Py::Dict d;
+            d.setItem("path", Py::String(f.path));
+            d.setItem("file", Py::String(f.file));
+            d.setItem("branch", Py::String(f.branch));
+            d.setItem("version", Py::Long(static_cast<long long>(f.version)));
+            d.setItem("save_id", Py::String(f.saveId));
+            d.setItem("uid", Py::String(f.uid));
+            files.append(d);
+        }
+        Py::Dict d;
+        d.setItem("manifest", Py::String(result.manifest));
+        d.setItem("files", files);
+        return Py::new_reference_to(d);
     } PY_CATCH;
 }
 

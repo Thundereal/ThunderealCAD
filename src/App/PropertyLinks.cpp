@@ -38,6 +38,7 @@
 #include <Base/Tools.h>
 
 #include "PropertyLinks.h"
+#include "ExportSet.h"
 #include "Application.h"
 #include "TransactionValue.h"
 #include "FileHistory.h"
@@ -5458,11 +5459,23 @@ void PropertyXLink::Save (Base::Writer &writer) const {
                 }
             }
         }
+        // A set exported (TransactionLog sec 35 L7): a link to a document of
+        // the set names that document's copy, as a plain link.
+        std::string setPath;
+        {
+            const Document* target = docInfo && docInfo->pcDoc ? docInfo->pcDoc
+                : (_pcLink ? _pcLink->getDocument() : nullptr);
+            if (target && target != ownerDoc)
+                setPath = ExportSetPaths::pathTo(ownerDoc, target);
+        }
+        const bool plain = !setPath.empty();
+        if (plain)
+            path = setPath.c_str();
         // A pin or a live branch of the owner's own file is saved with no
         // file: "this document's file", whatever it is called after a Save
         // As (sec 27.20, 27.21 Q2). A FreeCAD that does not know the pin
         // reads a local link.
-        if (!exporting && docInfo && (_pinVersion > 0 || !_liveBranch.empty()) && _selfFile)
+        else if (!exporting && docInfo && (_pinVersion > 0 || !_liveBranch.empty()) && _selfFile)
             path = "";
         writer.Stream() << writer.ind()
             << "<XLink file=\"" << encodeAttribute(path)
@@ -5480,19 +5493,19 @@ void PropertyXLink::Save (Base::Writer &writer) const {
         // snapshot.
         if (!snapshot.empty())
             writer.Stream() << "\" snapshot=\"" << _pcLink->getDocument()->Uid.getValueStr();
-        if (!_libName.empty() && !_libFile.empty() && *path) {
+        if (!plain && !_libName.empty() && !_libFile.empty() && *path) {
             writer.Stream() << "\" lib=\"" << encodeAttribute(_libName)
                             << "\" libfile=\"" << encodeAttribute(_libFile);
         }
         // Pinned (docs/TransactionLog.md sec 16.5, 27): absent otherwise,
         // and a FreeCAD that does not know them resolves the file.
-        if (_pinVersion > 0) {
+        if (!plain && _pinVersion > 0) {
             writer.Stream() << "\" version=\"" << _pinVersion;
             if (!_pinUuid.empty())
                 writer.Stream() << "\" vuuid=\"" << encodeAttribute(_pinUuid);
         }
         // Live to a branch of the file (sec 27.23): whatever holds it.
-        else if (!_liveBranch.empty()) {
+        else if (!plain && !_liveBranch.empty()) {
             writer.Stream() << "\" branch=\"" << encodeAttribute(_liveBranch);
         }
     }

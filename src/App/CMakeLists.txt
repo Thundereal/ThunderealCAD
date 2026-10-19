@@ -443,6 +443,7 @@ SET(Document_CPP_SRCS
     FileBlobManager.cpp
     FileHistory.cpp
     LibraryPaths.cpp
+    ExportSet.cpp
     FileSet.cpp
     GroupParams.cpp
     DocumentObject.cpp
@@ -532,6 +533,7 @@ SET(Document_HPP_SRCS
     FileBlobManager.h
     FileHistory.h
     LibraryPaths.h
+    ExportSet.h
     FileSet.h
     GroupParams.h
     DocumentObject.h

@@ -13180,7 +13180,8 @@ struct SideDocuments
             kept = false;
             for (auto it = side.begin(); it != side.end();) {
                 bool linked = false;
-                for (auto from : PropertyXLink::getDocumentInList(*it)[*it])
+                auto inList = PropertyXLink::getDocumentInList(*it);
+                for (auto from : inList[*it])
                     linked = linked || !side.count(from);
                 if (linked) {
                     it = side.erase(it);

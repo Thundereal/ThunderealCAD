@@ -21135,7 +21135,8 @@ and partial loading of documents on another branch or a pinned version.
 
 Nothing of this was built at first. The survey's measurements were run,
 and found one bug, fixed (item 6 c). **Built since: L1 (35.7,
-2026-10-19); L8 for frozen versions (35.8, 2026-10-19).**
+2026-10-19); L8 for frozen versions (35.8, 2026-10-19); L7 in App (35.9,
+2026-10-19).**
 
 ### 35.1 The case
 
@@ -21690,3 +21691,55 @@ whole with the pins on it.
 
 **Gates** (2026-10-19): 24 Gui checks clean; Python 3810 OK, freeze on
 and off; gtest 991/991 both ways; driven 293/293. Next in 35.5: L7.
+
+### 35.9 L7 built in App: the set, exported to a folder (2026-10-19)
+
+`App::exportLinkedSet(top, folder, options)` (`src/App/ExportSet.cpp`),
+`Document.exportLinkedSet(folder, withHistory=False, overwrite=False)` in
+Python:
+
+- **The set**: the top and every document its links reach, transitively
+  (`PropertyXLink::getDocumentOutList`). One read in part -- a pinned
+  version (L8), or a plain file opened for links -- is read again whole
+  first: a copy is of the whole file. A document of the set with no file
+  is refused, naming it.
+- **The layout** (Q6): a file inside the top's folder at its path
+  relative to the top; one outside under `_external/`, by its name.
+- **A version or a branch** (Q5) is a file of its own beside its file:
+  `part.v3.FCStd`, `part.side.FCStd`, `part.side.v3.FCStd` for an
+  editable instance at a version. A branch's name is made a file name:
+  what is not a letter, a digit, `-` or `_` becomes `_`. Two that would
+  take one name are told apart by `~2`, `~3`.
+- **The links** (`ExportSetPaths`, read by `PropertyXLink::Save`): while
+  a copy is written, a link of it to a document of the set names that
+  document's copy, relative to its own, and as a plain link -- no
+  `version`, no `branch`, no library -- so the set opens in any FreeCAD,
+  upstream's included.
+- **Each copy** by `saveCopy(path, withHistory)`: without history by
+  default, which keeps a save id of its own (30.19 G2).
+- **The manifest**, `FreeCAD-set.json`: `top`, `history`, and per file
+  `path`, `file` (the file here), `branch`, `version`, `save_id`, `uid`
+  -- what L3 item 3 pairs a file brought back with.
+- **A folder not empty** is refused unless `overwrite`.
+
+Found on the way, a bug of L1's: `SideDocuments` ranged over
+`getDocumentInList(doc)[doc]`, an element of a temporary map, which
+dangles before the loop starts -- the same form here hung the export in
+a loop. Both now hold the map first.
+
+**Not built yet**: the Gui (File > Export, the dialog listing the set);
+zipped output; LibraryPaths step 4, the export's option for library
+files, which this unblocks.
+
+**Test** (`Document.py`, `TransactionBranchCases`):
+`testALinkedSetIsExportedToAFolder` -- an assembly with a plain link, a
+pin, a live link to a branch's document and a link to a file outside its
+folder: exported, the five files named as above, the manifest saying
+what each is of, no `version`/`branch` attribute in the copy; a second
+export into the folder refused, then allowed with `overwrite`; the set
+opened with the log off, every link to its copy with its value. Then the
+assembly reopened, its pin read in part, and exported again: the
+version's copy holds the object the pin had not read.
+
+**Gates** (2026-10-19): 24 Gui checks clean; Python 3811 OK, freeze on
+and off; gtest 991/991 both ways; driven 293/293. Next: L7's Gui.

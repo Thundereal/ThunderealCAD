@@ -876,6 +876,21 @@ what the file is now comes as a branch from nothing. Raises when the file
 cannot be read, or is this document's own.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="exportLinkedSet" Keyword="true">
+      <Documentation>
+        <UserDocu>exportLinkedSet(folder, withHistory=False, overwrite=False) -> dict
+Write this document and every document its links reach into `folder`
+(docs/TransactionLog.md sec 35 L7): the layout under this document's
+folder kept, a file outside it under `_external/`, a pinned version or a
+branch's document a file of its own (`Part.v3.FCStd`, `Part.side.FCStd`),
+and the links between them written as plain links to those files, so the
+set opens in any FreeCAD. A manifest, FreeCAD-set.json, says what each file
+is of. Returns 'manifest' (its path) and 'files', a list of dict: 'path'
+(relative to the folder), 'file' (the file here), 'branch', 'version',
+'save_id' and 'uid'. Raises when the folder is not empty and `overwrite` is
+not set, or when a document of the set has no file.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="importTransactionFork">
       <Documentation>
         <UserDocu>importTransactionFork(path, branch='', sender='') -> dict

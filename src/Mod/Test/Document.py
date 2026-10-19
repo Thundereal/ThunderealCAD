@@ -3422,6 +3422,121 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertIs(second.L.LinkedObject.Document, whole)
         self.assertEqual(first.L.LinkedObject.Link.Name, "Base")
 
+    def testALinkedSetIsExportedToAFolder(self):
+        # Sec 35 L7: the top and every document its links reach, written to a
+        # folder -- a pinned version and a branch's document as files of
+        # their own, a file outside the top's folder under _external/ -- with
+        # plain links between them, and a manifest; the set opens with the
+        # log off and every link holds.
+        import json
+        import re
+        import zipfile
+
+        top = os.path.join(self.dir, "set")
+        os.makedirs(top)
+        part = self.track(FreeCAD.newDocument("SetPart"))
+        part.UndoMode = 1
+        part.openTransaction("create")
+        target = part.addObject("App::FeatureTest", "Obj")
+        target.Integer = 1
+        part.addObject("App::FeatureTest", "Spare")
+        part.commitTransaction()
+        partPath = os.path.join(top, "part.FCStd")
+        part.saveAs(partPath)
+        onDisk = int(part.Version.split()[0])
+        lib = self.track(FreeCAD.newDocument("SetLib"))
+        bolt = lib.addObject("App::FeatureTest", "Bolt")
+        bolt.Integer = 5
+        os.makedirs(os.path.join(self.dir, "lib"))
+        lib.saveAs(os.path.join(self.dir, "lib", "bolt.FCStd"))
+
+        asm = self.track(FreeCAD.newDocument("SetAsm"))
+        asm.UndoMode = 1
+        asm.openTransaction("links")
+        asm.addObject("App::Link", "Plain").LinkedObject = target
+        pin = asm.addObject("App::Link", "Pin")
+        pin.LinkedObject = target
+        pin.pinLink("LinkedObject")
+        asm.addObject("App::Link", "Out").LinkedObject = bolt
+        asm.commitTransaction()
+        asm.saveAs(os.path.join(top, "asm.FCStd"))
+        part.openTransaction("two")
+        target.Integer = 2
+        part.commitTransaction()
+        part.save()
+        editable = self.track(FreeCAD.openFileVersion(partPath, onDisk, False))
+        eobj = editable.getObject("Obj")
+        editable.openTransaction("edit")
+        eobj.Integer = 7
+        editable.commitTransaction()
+        branch = editable.FileName[len(partPath) + 1 : editable.FileName.rindex("@")]
+        asm.openTransaction("live")
+        asm.addObject("App::Link", "Live").LinkedObject = eobj
+        asm.commitTransaction()
+        self.assertTrue(asm.Pin.LinkedObject.Document.FileName.endswith("@v%d" % onDisk))
+        asm.save()
+
+        out = os.path.join(self.dir, "out")
+        res = asm.exportLinkedSet(out)
+        # A branch's name as a file name takes: what is not a letter, a digit,
+        # '-' or '_' is '_'.
+        tail = ".%s.v%d" % (re.sub(r"[^A-Za-z0-9_-]", "_", branch), onDisk)
+        expect = [
+            "asm.FCStd",
+            "part.FCStd",
+            "part.v%d.FCStd" % onDisk,
+            "part%s.FCStd" % tail,
+            "_external/bolt.FCStd",
+        ]
+        self.assertEqual(sorted(f["path"] for f in res["files"]), sorted(expect))
+        self.assertEqual(res["files"][0]["path"], "asm.FCStd")
+        for path in expect:
+            self.assertTrue(os.path.isfile(os.path.join(out, path)), path)
+        with open(res["manifest"]) as f:
+            manifest = json.load(f)
+        self.assertEqual(manifest["top"], "asm.FCStd")
+        byPath = {e["path"]: e for e in manifest["files"]}
+        self.assertEqual(byPath["part.v%d.FCStd" % onDisk]["version"], onDisk)
+        self.assertEqual(byPath["part%s.FCStd" % tail]["branch"], branch)
+        self.assertTrue(all(e["save_id"] for e in manifest["files"]))
+        xml = zipfile.ZipFile(os.path.join(out, "asm.FCStd")).read("Document.xml").decode()
+        self.assertNotIn(' version="', xml)
+        self.assertNotIn(' branch="', xml)
+        # Not empty now: refused, unless asked to overwrite.
+        self.assertRaises(Exception, asm.exportLinkedSet, out)
+        asm.exportLinkedSet(out, overwrite=True)
+
+        for name in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(name)
+        self.param.SetInt("TransactionLog", 0)
+        again = self.track(FreeCAD.openDocument(os.path.join(out, "asm.FCStd")))
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+        seen = {}
+        for name, value in (("Plain", 2), ("Pin", 1), ("Live", 7), ("Out", 5)):
+            linked = again.getObject(name).LinkedObject
+            self.assertIsNotNone(linked, name)
+            self.assertEqual(linked.Integer, value, name)
+            seen[name] = os.path.relpath(linked.Document.FileName, out)
+        self.assertEqual(seen["Pin"], "part.v%d.FCStd" % onDisk)
+        self.assertEqual(seen["Live"], "part%s.FCStd" % tail)
+        self.assertEqual(seen["Out"], os.path.join("_external", "bolt.FCStd"))
+
+        # A pinned version open in part (L8) is read whole for its copy.
+        for name in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(name)
+        self.param.SetInt("TransactionLog", 2)
+        asm = self.track(FreeCAD.openDocument(os.path.join(top, "asm.FCStd")))
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+        self.assertTrue(asm.Pin.LinkedObject.Document.Partial)
+        res = asm.exportLinkedSet(os.path.join(self.dir, "out2"))
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+        copy = os.path.join(self.dir, "out2", "part.v%d.FCStd" % onDisk)
+        self.assertIn('name="Spare"', zipfile.ZipFile(copy).read("Document.xml").decode())
+        self.assertIsNotNone(asm.Pin.LinkedObject)
+
     def testReleasedPinnedVersionClosesHeadless(self):
         # Sec 27.30, 27.38: with ClosePinnedVersion at close, a version
         # opened for pins is closed once the operation that let go of its

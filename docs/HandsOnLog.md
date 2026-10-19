@@ -7811,3 +7811,13 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   Document::setErrorDescription proposed. With the reporter (a-c). Seen in
   the reporter's console on the way: "Transaction log: no such column:
   joined" on opening scanner -- told x16.
+- 178 3.1 BUILT (9746b8aba9), after "agree all" (13:12): a threaded
+  TechDraw view's failure is its recompute error (part view projection,
+  section and detail cuts, complex section), a partial result a warning in
+  its tool tip (part view faces); held and returned when reported inside
+  the object's own recompute. Fixed on the way: the projection worker
+  destroyed its own watcher, so its finished() never came; the detail
+  worker drew an empty output after a failed tool. r126: TDTest
+  dimension 3, detail 2 (the new testFailedDetailSaysWhy), section 1 --
+  all pass; TestTechDrawApp 9 OK. r125 had failed to compile:
+  Standard_Failure has no DynamicType() in OCCT 8. NOT pushed.

@@ -80,6 +80,15 @@ DrawViewAnnotation, DrawViewClip, DrawViewCollection, DrawPage.
 4. Tests: one per class touched, a case that fails on purpose and reads
    the message (as testAngleOnParallelEdgesSaysWhy does).
 
+**Agreed 2026-10-19 13:12 ("agree all")**: a-c as proposed below. **3.1 BUILT
+(`9746b8aba9`)**: `DrawView::reportLateError` / `reportLateWarning`, used by
+the part view (projection: error; faces: warning), the section and detail
+cuts and the complex section's aligned pieces (errors). An error reported
+inside the object's own recompute is held and returned by it (a success
+would reset it). Found on the way: the projection worker destroyed its own
+watcher (`abortMakeGeometry()` on the worker thread), so its finished()
+never came. Next: 3.2, then 3.3.
+
 ### For the reporter
 
 a. How far: all of 3.1-3.3, or 3.1 and the dimensions first? Proposed:

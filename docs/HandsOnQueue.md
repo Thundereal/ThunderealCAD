@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 13:46: new entry 183 -- the 'Overlay' preset: the bottom panel transparent,
+no auto hide; report view left half, Python console right half, selection
+view collapsed at the right.** Under the entry.
+
 **2026-10-19 13:43: new entry 182 -- a dress-up's preview shape to show the selection
 highlight, not only the preselection.** Under the entry.
 
@@ -3734,6 +3738,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 180 | 2026-10-19 | a change request: a FAILED fillet edge (no handle today) shows a RED CROSS at the CENTRE of its face (unpickable; the face is pickable); on-view LABELS get a hover HIGHLIGHT (they are clickable) and a label's hover PRESELECTS as the face's does; the same for all dress-ups; the label highlight for ALL on-view edits; no preselection where it makes no sense | OPEN; said to the note-taker 2026-10-19 13:22. 2026-10-19 13:27 the reporter: the cross for EVERY failed edge, MISSING ones too; placed at the ROOT where the HANDLE would have been (not the face centre); fixed size like a handle, NO hover effect (not pickable); clicking as now. 2026-10-19 13:37 the build session: for a MISSING edge it will propose the point on the kept face nearest where the edge was, if known, else the face's centre |
 | 181 | 2026-10-19 | a change request: (1) the on-view edit MENU BUTTON's strips SQUARER, like the view cell menu's (they look too thin); (2) TOOLTIPS and a RIGHT-CLICK CONTEXT MENU on the fillet's (preview) FACE; the same for all dress-up features | OPEN; said to the note-taker 2026-10-19 13:39 |
 | 182 | 2026-10-19 | a change request: a dress-up feature's PREVIEW SHAPE shows the SELECTION highlight, not only the PRESELECTION highlight as now | OPEN; said to the note-taker 2026-10-19 13:43 |
+| 183 | 2026-10-19 | a change request: the 'Overlay' PRESET (data/settings/Overlay.FCParam): the BOTTOM panel TRANSPARENT and auto hide 'None'; the REPORT VIEW moved from the top panel to the bottom -- report view LEFT half, Python console RIGHT half, the selection view right-most, COLLAPSED | OPEN; said to the note-taker 2026-10-19 13:46 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25333,6 +25338,43 @@ d. A missing or failed edge's face (180's red cross): read as the face
    in the selection colour too.
 e. All dress-ups: read so ("the dress up feature").
 
+## 183. The 'Overlay' preset: the bottom panel transparent with no auto hide; the report view and the Python console side by side in it, the selection view collapsed at the right (a change request) -- OPEN
+
+**2026-10-19 13:46, the reporter (to the note-taker):** "new request, change 'Overlay' preconfiguration setting to make bottom panel in Transparent Mode and 'None' (i.e. no auto hide). move the report view from top panel to the bottom. put it on left occupies half the space, put python console at right with another half space. Put selection view on the right most, collapsed."
+The note-taker's reading -- in the 'Overlay' PRESET (the preconfigured
+setting the presets menu applies):
+- The BOTTOM overlay panel: TRANSPARENT mode on; auto hide 'NONE' (no
+  auto hide).
+- The REPORT VIEW MOVES from the TOP panel to the BOTTOM.
+- In the bottom panel, left to right: the REPORT VIEW (half the width),
+  the PYTHON CONSOLE (the other half), the SELECTION VIEW right-most,
+  COLLAPSED (no width of its own).
+READ in the source, nothing run -- data/settings/Overlay.FCParam (the
+preset named "Overlay", applied by PresetsAction::applyPreset, src/Gui/
+Action.cpp 3275, which inserts the parameter set into the user's):
+- OverlayBottom (lines 28 to 37): Widgets "Python console,Selection
+  view,", Sizes "632,631", AutoHide 1, EditShow 0, EditHide 0, TaskShow
+  0, NO Transparent entry, Width 1305, Height 180.
+- OverlayTop (38 to 48): Widgets "Report view,", Sizes "1263",
+  Transparent 1, AutoHide 1, Width 803, Height 150.
+- Std_PythonView 1, Std_ReportView 0, Std_SelectionView 1 (49 to 51).
+The note-taker's reading of the change, as parameters: OverlayBottom
+Widgets "Report view,Python console,Selection view,", Sizes "<half>,
+<half>,0", Transparent 1, AutoHide 0 (the Edit/Task flags 0, as now);
+OverlayTop without the report view.
+NOT said:
+a. The TOP panel afterwards: read as EMPTY -- its group dropped or left
+   with no widgets (the build session's call).
+b. "half the space": read as the bottom panel's width split equally
+   between the report view and the console, the selection view at 0.
+c. Std_ReportView (0 today -- whether the report view is shown as a
+   dock): read as whatever makes the report view show in the bottom
+   panel.
+d. Users who applied the preset before: read as unaffected until they
+   apply it again (a preset is applied, not followed).
+e. The light/dark variants: the file says OverlayDark/OverlayLight were
+   folded into this one before 2026-10; read as only this file.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -25344,5 +25386,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 182
+the build session, 131 and 132 found by it; entries 134 to 183
 are of 2026-10-15, 134 said to the build session)

@@ -1434,6 +1434,28 @@ void TransactionLogView::reload()
     refresh();
 }
 
+template<class F>
+void TransactionLogView::guarded(F&& f)
+{
+    try {
+        f();
+        return;
+    }
+    catch (const Base::Exception& e) {
+        _readError = QString::fromUtf8(e.what());
+    }
+    catch (const std::exception& e) {
+        _readError = QString::fromUtf8(e.what());
+    }
+    FC_ERR("transaction log view: " << _readError.toStdString());
+    try {
+        updateStatus();
+    }
+    catch (...) {
+        _status->setText(tr("The log cannot be read: %1").arg(_readError));
+    }
+}
+
 void TransactionLogView::refresh()
 {
     _stale = false;
@@ -1457,11 +1479,13 @@ void TransactionLogView::refresh()
         refreshBranches();
         refreshRequests();
         applyVisibility();
+        _readError.clear();
     }
     catch (Base::Exception& e) {
         FC_ERR("transaction log view: " << e.what());
+        _readError = QString::fromUtf8(e.what());
     }
-    updateStatus();
+    guarded([this]() { updateStatus(); });
 }
 
 void TransactionLogView::refreshVersions()
@@ -1512,17 +1536,19 @@ void TransactionLogView::onTabChanged(int index)
     _detail->setVisible(index != TabKept);
     _detail->setCurrentIndex(index == TabVersions ? 1 : 0);
     _value->clear();
-    if (index == TabTransactions) {
-        onTransactionSelected();
-    }
-    else if (index == TabVersions) {
-        onVersionSelected();
-    }
-    else {
-        // Asked of the store again: what Python kept, no signal said
-        refreshKept();
-        onKeptSelected();
-    }
+    guarded([this, index]() {
+        if (index == TabTransactions) {
+            onTransactionSelected();
+        }
+        else if (index == TabVersions) {
+            onVersionSelected();
+        }
+        else {
+            // Asked of the store again: what Python kept, no signal said
+            refreshKept();
+            onKeptSelected();
+        }
+    });
 }
 
 void TransactionLogView::refreshKept()
@@ -1654,8 +1680,10 @@ void TransactionLogView::refreshKept()
 
 void TransactionLogView::keptChanged()
 {
-    refreshKept();
-    onTabChanged(_tabs->currentIndex());
+    guarded([this]() {
+        refreshKept();
+        onTabChanged(_tabs->currentIndex());
+    });
 }
 
 void TransactionLogView::onKeptSelected()
@@ -1665,7 +1693,11 @@ void TransactionLogView::onKeptSelected()
     auto items = _kept->selectedItems();
     if (items.isEmpty() || !_doc || _tabs->currentIndex() != TabKept)
         return;
-    auto item = items.front();
+    guarded([this, &items]() { showKept(items.front()); });
+}
+
+void TransactionLogView::showKept(QTreeWidgetItem* item)
+{
     const QString ref = item->data(KeptWhat, Qt::UserRole).toString();
     if (ref.isEmpty()) {
         _value->setPlainText(tr("Every value a recompute writes of this object is written into "
@@ -3979,6 +4011,11 @@ void TransactionLogView::refreshRequests()
 
 void TransactionLogView::previewRequests()
 {
+    guarded([this]() { previewRequestsNow(); });
+}
+
+void TransactionLogView::previewRequestsNow()
+{
     auto l = log();
     if (!l || !_doc || l->detached())
         return;
@@ -4765,6 +4802,11 @@ void TransactionLogView::updateStatus()
                                  .arg(QString::fromUtf8(_doc->getName())));
         _resolve->setEnabled(false);
         _snapshot->setEnabled(false);
+        return;
+    }
+    if (!_readError.isEmpty()) {
+        _status->setText(tr("%1: the log cannot be read: %2")
+                             .arg(QString::fromUtf8(_doc->getName()), _readError));
         return;
     }
     _resolve->setEnabled(true);

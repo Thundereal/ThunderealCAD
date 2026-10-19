@@ -545,6 +545,7 @@ SET(Dialog_CPP_SRCS
     DownloadItem.cpp
     DownloadManager.cpp
     DocumentRecovery.cpp
+    LibraryPathsGui.cpp
     TaskElementColors.cpp
     TaskRenderSettings.cpp
     DlgObjectSelection.cpp
@@ -587,6 +588,7 @@ SET(Dialog_HPP_SRCS
     DownloadItem.h
     DownloadManager.h
     DocumentRecovery.h
+    LibraryPathsGui.h
     TaskElementColors.h
     TaskRenderSettings.h
     DlgObjectSelection.h

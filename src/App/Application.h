@@ -112,6 +112,14 @@ public:
     std::string getUniqueDocumentName(const char *Name, bool tempDoc=false) const;
     /// Open an existing document from a file
     App::Document* openDocument(const char * FileName=nullptr, bool createView=true);
+    /** Open the file as a document never saved: its content, no file name
+     * -- a snapshot a paste links to (docs/LibraryPaths.md sec 12). Whole,
+     * with no view, the active document kept; callable from inside another
+     * document's restore or import, where openDocument() would start a
+     * restore of its own. Null while the application restores documents,
+     * or when the file cannot be read.
+     */
+    App::Document* openDocumentAsNew(const char* FileName);
     /** Recover the document of a crashed session from the transaction log it
      * left in its transient directory `transientDir` (docs/TransactionLog.md
      * sec 25): a new document, rebuilt, that takes the log and the blobs

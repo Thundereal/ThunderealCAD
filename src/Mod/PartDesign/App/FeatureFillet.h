@@ -43,12 +43,16 @@ public:
     Part::PropertyFilletSegments Segments;
     Part::PropertyFilletCorners Corners;
     App::PropertyBool UseAllEdges;
+    /// 1 from the first: a fillet's end that would cut into the body past
+    /// its vertex is flat (Part::FilletFlatEnd); 0, a file's from before
+    App::PropertyInteger _Version;
 
     /** @name methods override feature */
     //@{
     /// recalculate the feature
     App::DocumentObjectExecReturn *execute() override;
     short mustExecute() const override;
+    void setupObject() override;
     /// returns the type name of the view provider
     const char* getViewProviderName() const override {
         return "PartDesignGui::ViewProviderFillet";

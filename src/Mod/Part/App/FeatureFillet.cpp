@@ -40,9 +40,52 @@
 
 using namespace Part;
 
+namespace Part
+{
+PartExport void *lookUpTKFillet(const char *name);
+}
+
+namespace
+{
+typedef int (*FuncSetFlatEndAtVertex)(int);
+
+FuncSetFlatEndAtVertex funcSetFlatEndAtVertex()
+{
+    static const auto func =
+        (FuncSetFlatEndAtVertex)Part::lookUpTKFillet("ChFi3d_SetFlatEndAtVertex");
+    return func;
+}
+} // namespace
+
+FilletFlatEnd::FilletFlatEnd(bool enable)
+{
+    if (auto func = funcSetFlatEndAtVertex())
+        previous = func(enable ? 1 : 0);
+}
+
+FilletFlatEnd::~FilletFlatEnd()
+{
+    if (previous >= 0)
+        funcSetFlatEndAtVertex()(previous);
+}
+
+bool FilletFlatEnd::isAvailable()
+{
+    return funcSetFlatEndAtVertex() != nullptr;
+}
+
 PROPERTY_SOURCE(Part::Fillet, Part::FilletBase)
 
-Fillet::Fillet() = default;
+Fillet::Fillet()
+{
+    ADD_PROPERTY_TYPE(_Version, (0), "Base", App::Prop_Hidden, "");
+}
+
+void Fillet::setupObject()
+{
+    FilletBase::setupObject();
+    _Version.setValue(1);
+}
 
 App::DocumentObjectExecReturn *Fillet::execute()
 {
@@ -59,6 +102,7 @@ App::DocumentObjectExecReturn *Fillet::execute()
         TopoShape baseTopoShape = Feature::getTopoShape(link);
         auto baseShape = baseTopoShape.getShape();
         BRepFilletAPI_MakeFillet mkFillet(baseShape);
+        FilletFlatEnd flatEnd(_Version.getValue() >= 1);
 
 #ifdef FC_NO_ELEMENT_MAP
         TopTools_IndexedMapOfShape mapOfShape;

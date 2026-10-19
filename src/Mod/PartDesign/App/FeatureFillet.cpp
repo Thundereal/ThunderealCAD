@@ -36,6 +36,7 @@
 #include <Base/Exception.h>
 #include <Base/Reader.h>
 #include <App/Document.h>
+#include <Mod/Part/App/FeatureFillet.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/PropertyTopoShape.h>
 #include <Mod/Part/App/TopoShape.h>
@@ -72,6 +73,14 @@ Fillet::Fillet()
     ADD_PROPERTY_TYPE(UseAllEdges, (false), "Fillet", App::Prop_None,
       "Fillet all edges if true, else use only those edges in Base property.\n"
       "If true, then this overrides any edge changes made to the Base property or in the dialog.\n");
+
+    ADD_PROPERTY_TYPE(_Version, (0), "Part Design", App::Prop_Hidden, 0);
+}
+
+void Fillet::setupObject()
+{
+    DressUp::setupObject();
+    _Version.setValue(1);
 }
 
 short Fillet::mustExecute() const
@@ -132,6 +141,7 @@ App::DocumentObjectExecReturn *Fillet::execute()
         }
 
         Part::TopoShape::FilletPartial partial;
+        Part::FilletFlatEnd flatEnd(_Version.getValue() >= 1);
         shape.makEFillet(baseShape,edges,segmentList,Radius.getValue(),nullptr,
                          getCorners(baseShape),&partial);
         if (shape.isNull())

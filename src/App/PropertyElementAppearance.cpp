@@ -597,7 +597,7 @@ void PropertyElementAppearance::assignBase(Kind kind, const AppearanceList &list
 void PropertyElementAppearance::setBaseList(Kind kind, const AppearanceList &own)
 {
     if (own.getSize() != 1) {
-        throw Base::ValueError("a kind's own look is a list of one");
+        THROWM(Base::ValueError, "a kind's own look is a list of one");
     }
     if (own.isSame(listAt(SlotBase + kind))) {
         return;
@@ -614,12 +614,12 @@ void PropertyElementAppearance::setDetachedNamed(const AppearanceList &looks,
                                                  std::vector<uint16_t> &&own)
 {
     if (owner()) {
-        throw Base::RuntimeError("the names of a property on an object are the object's elements");
+        THROWM(Base::RuntimeError, "the names of a property on an object are the object's elements");
     }
     _detached = true;
     const auto count = static_cast<std::size_t>(looks.getSize());
     if (!own.empty() && own.size() != count) {
-        throw Base::ValueError("the own fields are given for each named element, or for none");
+        THROWM(Base::ValueError, "the own fields are given for each named element, or for none");
     }
     Edit edit(*this);
     for (auto &bits : own) {
@@ -918,10 +918,10 @@ void PropertyElementAppearance::setNamed(std::vector<std::string> &&names,
                                          std::vector<uint16_t> &&own)
 {
     if (looks.getSize() != static_cast<int>(names.size())) {
-        throw Base::ValueError("one look is needed for each named element");
+        THROWM(Base::ValueError, "one look is needed for each named element");
     }
     if (!own.empty() && own.size() != names.size()) {
-        throw Base::ValueError("the own fields are given for each named element, or for none");
+        THROWM(Base::ValueError, "the own fields are given for each named element, or for none");
     }
     Edit edit(*this);
     for (auto &bits : own) {
@@ -989,7 +989,7 @@ void PropertyElementAppearance::setNamedLook(const char *name, const MaterialApp
                                              uint16_t own)
 {
     if (!name || !name[0]) {
-        throw Base::ValueError("a look is given to a name");
+        THROWM(Base::ValueError, "a look is given to a name");
     }
     own &= OwnAll;
     std::vector<std::string> names = subs();
@@ -1155,7 +1155,7 @@ bool PropertyElementAppearance::resolveElement(const char *element, Kind &kind, 
 MaterialAppearance PropertyElementAppearance::getLook(Kind kind, int index) const
 {
     if (kind < 0 || kind >= KindCount) {
-        throw Base::ValueError("no such kind of element");
+        THROWM(Base::ValueError, "no such kind of element");
     }
     if (index < 0) {
         return getBase(kind);
@@ -1186,14 +1186,14 @@ void PropertyElementAppearance::setLook(Kind kind, int index, const MaterialAppe
                                         uint16_t own)
 {
     if (kind < 0 || kind >= KindCount) {
-        throw Base::ValueError("no such kind of element");
+        THROWM(Base::ValueError, "no such kind of element");
     }
     if (index < 0) {
         setBase(kind, look);
         return;
     }
     if (_pathNames) {
-        throw Base::ValueError("an element is named by its path here, not by its number");
+        THROWM(Base::ValueError, "an element is named by its path here, not by its number");
     }
     own &= OwnAll;
     if (own == OwnNone) {
@@ -2056,7 +2056,7 @@ void PropertyElementAppearance::setPyObject(PyObject *value)
     if (PyObject_TypeCheck(value, &(ElementAppearancePy::Type))) {
         auto *view = static_cast<ElementAppearancePy *>(value);
         if (!view->isValid()) {
-            throw Base::RuntimeError("the element appearance is no longer valid");
+            THROWM(Base::RuntimeError, "the element appearance is no longer valid");
         }
         Paste(*view->getPropertyElementAppearancePtr());
         return;

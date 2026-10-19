@@ -87,8 +87,8 @@ App::DocumentObjectExecReturn* SetOperations::execute()
             type = MeshCore::SetOperations::Outer;
         }
         else {
-            throw Base::ValueError("Operation type must either be 'union' or 'intersection'"
-                                   " or 'difference' or 'inner' or 'outer'");
+            THROWM(Base::ValueError, "Operation type must either be 'union' or 'intersection'"
+                                     " or 'difference' or 'inner' or 'outer'");
         }
 
         MeshCore::SetOperations setOp(meshKernel1.getKernel(),

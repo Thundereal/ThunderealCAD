@@ -443,7 +443,7 @@ PyObject* Application::sOpenFileVersion(PyObject * /*self*/, PyObject *args)
         std::string reason;
         auto history = FileHistory::openFile(path, &reason);
         if (!history)
-            throw Base::FileException(("no history in " + path + ": " + reason).c_str());
+            THROWM(Base::FileException, ("no history in " + path + ": " + reason).c_str());
         return Document::openFileVersion(history, num, Base::asBoolean(createView))->getPyObject();
     } PY_CATCH
 }
@@ -1493,9 +1493,9 @@ App::Document* libraryDocArg(PyObject* pyDoc)
     if (PyUnicode_Check(pyDoc)) {
         if (auto doc = GetApplication().getDocument(PyUnicode_AsUTF8(pyDoc)))
             return doc;
-        throw Base::ValueError("No such document");
+        THROWM(Base::ValueError, "No such document");
     }
-    throw Base::TypeError("Expect a document or a document name");
+    THROWM(Base::TypeError, "Expect a document or a document name");
 }
 
 PyObject* affectedToPy(const std::vector<LibraryPaths::Affected>& affected)
@@ -1569,7 +1569,7 @@ static PyObject *applyLibraryPathsPy(PyObject * /*self*/, PyObject *args)
     PY_TRY {
         auto doc = libraryDocArg(pyDoc);
         if (!doc)
-            throw Base::ValueError("Expect a document");
+            THROWM(Base::ValueError, "Expect a document");
         return Py::new_reference_to(Py::Long(LibraryPaths::apply(*doc)));
     }
     PY_CATCH;

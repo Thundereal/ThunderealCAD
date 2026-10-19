@@ -605,7 +605,7 @@ Part::Box* SectionCut::createBox(const char* name, const Base::Vector3f& size)  
     // create a box
     auto pcBox = dynamic_cast<Part::Box*>(doc->addObject("Part::Box", name));
     if (!pcBox) {
-        throw Base::RuntimeError(std::string("SectionCut error: ")
+        THROWM(Base::RuntimeError, std::string("SectionCut error: ")
             + std::string(name) + std::string(" could not be added\n"));
     }
 
@@ -784,7 +784,7 @@ Part::Cut* SectionCut::createCut(const char* name)
 {
     auto pcCut = dynamic_cast<Part::Cut*>(doc->addObject("Part::Cut", name));
     if (!pcCut) {
-        throw Base::RuntimeError(std::string("SectionCut error: ")
+        THROWM(Base::RuntimeError, std::string("SectionCut error: ")
             + std::string(name) + std::string(" could not be added\n"));
     }
 
@@ -2399,7 +2399,7 @@ App::DocumentObject* SectionCut::createBooleanFragments(
     auto CutLinkList = dynamic_cast<App::PropertyLinkList*>(
         CutCompoundBF ? CutCompoundBF->getPropertyByName("Objects") : nullptr);
     if (!CutLinkList) {
-        throw Base::RuntimeError((std::string("SectionCut error: ") + std::string(CompoundName)
+        THROWM(Base::RuntimeError, (std::string("SectionCut error: ") + std::string(CompoundName)
                                + std::string(" could not be added\n")).c_str());
     }
     CutLinkList->setValue(links);
@@ -2423,7 +2423,7 @@ Part::Compound* SectionCut::createCompound(const std::vector<App::DocumentObject
 {
     auto CutCompoundPart = dynamic_cast<Part::Compound*>(doc->addObject("Part::Compound", CompoundName));
     if (!CutCompoundPart) {
-        throw Base::RuntimeError((std::string("SectionCut error: ") + std::string(CompoundName)
+        THROWM(Base::RuntimeError, (std::string("SectionCut error: ") + std::string(CompoundName)
             + std::string(" could not be added\n")).c_str());
     }
 

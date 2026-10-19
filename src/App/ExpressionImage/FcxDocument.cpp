@@ -69,7 +69,7 @@ void PropertyString::setPyObject(PyObject *obj)
         str_ = PyUnicode_AsUTF8(obj);
         return;
     }
-    throw Base::TypeError("PropertyString expects a string");
+    THROWM(Base::TypeError, "PropertyString expects a string");
 }
 
 // ---------------------------------------------------------------------
@@ -163,7 +163,7 @@ PyObject *DocumentObject::getPyObject()
 {
     auto tx = Fcx::EvalTransaction::current();
     if (!tx || tx->owner() != this || !tx->ownerHandle())
-        throw Base::RuntimeError(
+        THROWM(Base::RuntimeError,
             "sandbox image: object has no host handle in this evaluation");
     nlohmann::json h;
     h[FcxWire::TagKey] = FcxWire::TagHandle;
@@ -346,16 +346,16 @@ namespace
                                     const std::string &message)
 {
     if (excType == "TypeError")
-        throw Base::TypeError(message);
+        THROWM(Base::TypeError, message);
     if (excType == "ValueError")
-        throw Base::ValueError(message);
+        THROWM(Base::ValueError, message);
     if (excType == "NameError")
-        throw Base::NameError(message);
+        THROWM(Base::NameError, message);
     if (excType == "AttributeError")
-        throw Base::AttributeError(message);
+        THROWM(Base::AttributeError, message);
     if (excType == "IndexError")
-        throw Base::IndexError(message);
-    throw Base::RuntimeError(message);
+        THROWM(Base::IndexError, message);
+    THROWM(Base::RuntimeError, message);
 }
 }  // namespace
 
@@ -375,7 +375,7 @@ std::string resolveAlias(const std::string &alias)
 {
     auto tx = EvalTransaction::current();
     if (!tx || !tx->ownerHandle())
-        throw Base::ExpressionError(
+        THROWM(Base::ExpressionError,
             "sandbox image: no owner handle to resolve range alias against");
     nlohmann::json req;
     req["op"] = FcxWire::OpResolveAlias;
@@ -385,16 +385,16 @@ std::string resolveAlias(const std::string &alias)
     if (!FcxImage::hostOp(req, reply)) {
         if (PyErr_Occurred())
             PyErr_Clear();
-        throw Base::ExpressionError("sandbox image: host bridge unavailable");
+        THROWM(Base::ExpressionError, "sandbox image: host bridge unavailable");
     }
     if (!reply.value("ok", false)) {
         std::string msg = reply.value("exc", std::string("Exception")) + ": "
             + reply.value("msg", std::string());
-        throw Base::ExpressionError(msg.c_str());
+        THROWM(Base::ExpressionError, msg.c_str());
     }
     auto val = reply.find("val");
     if (val == reply.end() || !val->is_string())
-        throw Base::ExpressionError("sandbox image: bad resolve_alias reply");
+        THROWM(Base::ExpressionError, "sandbox image: bad resolve_alias reply");
     return val->get<std::string>();
 }
 

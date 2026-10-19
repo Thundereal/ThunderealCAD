@@ -333,7 +333,7 @@ int TopoShapeFacePy::PyInit(PyObject* args, PyObject* /*kwd*/)
             } else if (PyObject_TypeCheck(pcPyShapeOrList, &(Part::TopoShapePy::Type))) {
                 auto& sh = *static_cast<Part::TopoShapePy*>(pcPyShapeOrList)->getTopoShapePtr();
                 if (sh.isNull())
-                    throw NullShapeException("Shape is null!");
+                    THROWM(NullShapeException, "Shape is null!");
                 if (sh.getShape().ShapeType() == TopAbs_COMPOUND)
                     fm->useTopoCompound(sh);
                 else

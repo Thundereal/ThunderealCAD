@@ -56,7 +56,7 @@ void FemPostGroupExtension::initExtension(App::ExtensionContainer* obj)
 {
 
     if (!obj->isDerivedFrom<FemPostObject>()) {
-        throw Base::RuntimeError("FemPostGroupExtension can only be applied to FemPostObject");
+        THROWM(Base::RuntimeError, "FemPostGroupExtension can only be applied to FemPostObject");
     }
 
     App::GroupExtension::initExtension(obj);

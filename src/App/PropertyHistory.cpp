@@ -182,7 +182,7 @@ PyObject* PropertyHistory::getPyObject()
 
 void PropertyHistory::setPyObject(PyObject*)
 {
-    throw Base::TypeError("History is set by the document's transaction log, not from Python");
+    THROWM(Base::TypeError, "History is set by the document's transaction log, not from Python");
 }
 
 Property* PropertyHistory::Copy() const
@@ -198,7 +198,7 @@ void PropertyHistory::Paste(const Property& from)
 {
     auto p = Base::freecad_dynamic_cast<const PropertyHistory>(&from);
     if (!p)
-        throw Base::TypeError("Incompatible property to paste to");
+        THROWM(Base::TypeError, "Incompatible property to paste to");
     aboutToSetValue();
     _db = p->_db;
     _blobs = p->_blobs;

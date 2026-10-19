@@ -574,11 +574,11 @@ void GeometryObject::projectShape(const Part::TopoShape& inShape, const gp_Ax2& 
         emit(Part::HLRProjector::IsoMask, false, hidIso);
     }
     catch (const Standard_Failure&) {
-        throw Base::RuntimeError(
+        THROWM(Base::RuntimeError,
             "GeometryObject::projectShape - OCC error occurred while extracting edges");
     }
     catch (...) {
-        throw Base::RuntimeError(
+        THROWM(Base::RuntimeError,
             "GeometryObject::projectShape - unknown error occurred while extracting edges");
     }
 
@@ -750,12 +750,12 @@ void GeometryObject::projectShapeWithPolygonAlgo(const Part::TopoShape& input,
         Base::Console().Error(
             "GO::projectShapeWithPolygonAlgo - OCC error - %s - while extracting edges\n",
             e.GetMessageString());
-        throw Base::RuntimeError("GeometryObject::projectShapeWithPolygonAlgo - OCC error occurred "
-                                 "while extracting edges");
+        THROWM(Base::RuntimeError, "GeometryObject::projectShapeWithPolygonAlgo - OCC error occurred "
+                                   "while extracting edges");
     }
     catch (...) {
-        throw Base::RuntimeError("GeometryObject::projectShapeWithPolygonAlgo - unknown error "
-                                 "occurred while extracting edges");
+        THROWM(Base::RuntimeError, "GeometryObject::projectShapeWithPolygonAlgo - unknown error "
+                                   "occurred while extracting edges");
     }
 
     makeTDGeometry();

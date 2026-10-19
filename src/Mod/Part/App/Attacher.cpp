@@ -181,11 +181,11 @@ void AttachEngine::setReferences(const App::PropertyLinkSubList &references) {
     std::vector<std::string> names;
     for(auto obj : references.getValues()) {
         if(!obj->getNameInDocument())
-            throw AttachEngineException("AttachEngine::invalid object");
+            THROWM(AttachEngineException, "AttachEngine::invalid object");
         if(docname.empty())
             docname = obj->getDocument()->getName();
         else if(docname!=obj->getDocument()->getName())
-            throw AttachEngineException("AttachEngine::object from multiple document");
+            THROWM(AttachEngineException, "AttachEngine::object from multiple document");
         names.emplace_back(obj->getNameInDocument());
     }
     this->docName = docname;
@@ -213,7 +213,7 @@ void AttachEngine::setReferences(const std::vector<App::SubObjectT> &references)
         if(docname.empty())
             docname = ref.getDocumentName();
         else if(docname!=ref.getDocumentName())
-            throw AttachEngineException("AttachEngine::object from multiple document");
+            THROWM(AttachEngineException, "AttachEngine::object from multiple document");
         names.push_back(ref.getObjectName());
         subnames.push_back(ref.getSubNameNoElement() + ref.getOldElementName());
         shadowSubs.push_back(ref.getSubNameNoElement() + ref.getNewElementName());
@@ -307,7 +307,7 @@ Base::Placement AttachEngine::placementFactory(const gp_Dir &ZAxis,
         //find out, to which axis of support Normal is closest to.
         //The result will be written into pos variable (0..2 = X..Z)
         if (!placeOfRef)
-            throw AttachEngineException("AttachEngine::placementFactory: for Legacy mode, placement of the reference must be supplied. Got null instead!");
+            THROWM(AttachEngineException, "AttachEngine::placementFactory: for Legacy mode, placement of the reference must be supplied. Got null instead!");
         Base::Placement &Place = *placeOfRef;
         Base::Vector3d dX,dY,dZ;//internal axes of support object, as they are in global space
         Place.getRotation().multVec(Base::Vector3d(1,0,0),dX);
@@ -560,7 +560,7 @@ eRefType AttachEngine::getShapeType(const TopoDS_Shape& sh)
     case TopAbs_VERTEX:
         return rtVertex;
     default:
-        throw AttachEngineException("AttachEngine::getShapeType: unexpected TopoDS_Shape::ShapeType");
+        THROWM(AttachEngineException, "AttachEngine::getShapeType: unexpected TopoDS_Shape::ShapeType");
     }//switch shapetype
     return rtAnything;//shouldn't happen, it's here to shut up compiler warning
 }
@@ -618,7 +618,7 @@ eRefType AttachEngine::downgradeType(eRefType type)
     case rtPart:
         return rtAnything;
     default:
-        throw AttachEngineException("AttachEngine::downgradeType: unknown type");
+        THROWM(AttachEngineException, "AttachEngine::downgradeType: unknown type");
     }
 }
 
@@ -679,7 +679,7 @@ int AttachEngine::isShapeOfType(eRefType shapeType, eRefType requirement)
 std::string AttachEngine::getModeName(eMapMode mmode)
 {
     if(mmode < 0 || mmode >= mmDummy_NumberOfModes)
-        throw AttachEngineException("AttachEngine::getModeName: Attachment Mode index is out of range");
+        THROWM(AttachEngineException, "AttachEngine::getModeName: Attachment Mode index is out of range");
     return {AttachEngine::eMapModeStrings[mmode]};
 }
 
@@ -692,14 +692,14 @@ eMapMode AttachEngine::getModeByName(const std::string &modeName)
     }
     std::stringstream errMsg;
     errMsg << "AttachEngine::getModeByName: mode with this name doesn't exist: " << modeName;
-    throw AttachEngineException(errMsg.str());
+    THROWM(AttachEngineException, errMsg.str());
 }
 
 std::string AttachEngine::getRefTypeName(eRefType shapeType)
 {
     eRefType flagless = eRefType(shapeType & 0xFF);
     if(flagless < 0 || flagless >= rtDummy_numberOfShapeTypes)
-        throw AttachEngineException("eRefType value is out of range");
+        THROWM(AttachEngineException, "eRefType value is out of range");
     std::string result = std::string(eRefTypeStrings[flagless]);
     if (shapeType & rtFlagHasPlacement){
         result.append("|Placement");
@@ -725,13 +725,13 @@ eRefType AttachEngine::getRefTypeByName(const std::string& typeName)
             } else {
                 std::stringstream errmsg;
                 errmsg << "RefType flag not recognized: " << flags;
-                throw AttachEngineException(errmsg.str());
+                THROWM(AttachEngineException, errmsg.str());
             }
         }
     }
     std::stringstream errmsg;
     errmsg << "RefType not recognized: " << typeName;
-    throw AttachEngineException(errmsg.str());
+    THROWM(AttachEngineException, errmsg.str());
 }
 
 GProp_GProps AttachEngine::getInertialPropsOfShape(const std::vector<const TopoDS_Shape*> &shapes)
@@ -743,7 +743,7 @@ GProp_GProps AttachEngine::getInertialPropsOfShape(const std::vector<const TopoD
         totalSeq.Append( xp.SeqFromCompound(*pSh, /*recursive=*/true));
     }
     if (totalSeq.Length() == 0)
-        throw AttachEngineException("AttachEngine::getInertialPropsOfShape: no geometry provided");
+        THROWM(AttachEngineException, "AttachEngine::getInertialPropsOfShape: no geometry provided");
     const TopoDS_Shape &sh0 = totalSeq.Value(1);
     switch (sh0.ShapeType()){
     case TopAbs_VERTEX:{
@@ -751,7 +751,7 @@ GProp_GProps AttachEngine::getInertialPropsOfShape(const std::vector<const TopoD
         for (int i = 0   ;   i < totalSeq.Length()   ;   i++){
             const TopoDS_Shape &sh = totalSeq.Value(i+1);
             if (sh.ShapeType() != TopAbs_VERTEX)
-                throw AttachEngineException("AttachEngine::getInertialPropsOfShape: provided shapes are incompatible (not only vertices)");
+                THROWM(AttachEngineException, "AttachEngine::getInertialPropsOfShape: provided shapes are incompatible (not only vertices)");
             gpr.AddPoint(BRep_Tool::Pnt(TopoDS::Vertex(sh)));
         }
         return gpr;
@@ -763,9 +763,9 @@ GProp_GProps AttachEngine::getInertialPropsOfShape(const std::vector<const TopoD
         for (int i = 0   ;   i < totalSeq.Length()   ;   i++){
             const TopoDS_Shape &sh = totalSeq.Value(i+1);
             if (sh.ShapeType() != TopAbs_EDGE && sh.ShapeType() != TopAbs_WIRE)
-                throw AttachEngineException("AttachEngine::getInertialPropsOfShape: provided shapes are incompatible (not only edges/wires)");
+                THROWM(AttachEngineException, "AttachEngine::getInertialPropsOfShape: provided shapes are incompatible (not only edges/wires)");
             if (sh.Infinite())
-                throw AttachEngineException("AttachEngine::getInertialPropsOfShape: infinite shape provided");
+                THROWM(AttachEngineException, "AttachEngine::getInertialPropsOfShape: infinite shape provided");
             BRepGProp::LinearProperties(sh,gpr);
             gpr_acc.Add(gpr);
         }
@@ -778,9 +778,9 @@ GProp_GProps AttachEngine::getInertialPropsOfShape(const std::vector<const TopoD
         for (int i = 0   ;   i < totalSeq.Length()   ;   i++){
             const TopoDS_Shape &sh = totalSeq.Value(i+1);
             if (sh.ShapeType() != TopAbs_FACE && sh.ShapeType() != TopAbs_SHELL)
-                throw AttachEngineException("AttachEngine::getInertialPropsOfShape: provided shapes are incompatible (not only faces/shells)");
+                THROWM(AttachEngineException, "AttachEngine::getInertialPropsOfShape: provided shapes are incompatible (not only faces/shells)");
             if (sh.Infinite())
-                throw AttachEngineException("AttachEngine::getInertialPropsOfShape: infinite shape provided");
+                THROWM(AttachEngineException, "AttachEngine::getInertialPropsOfShape: infinite shape provided");
             BRepGProp::SurfaceProperties(sh,gpr);
             gpr_acc.Add(gpr);
         }
@@ -793,16 +793,16 @@ GProp_GProps AttachEngine::getInertialPropsOfShape(const std::vector<const TopoD
         for (int i = 0   ;   i < totalSeq.Length()   ;   i++){
             const TopoDS_Shape &sh = totalSeq.Value(i+1);
             if (sh.ShapeType() != TopAbs_SOLID && sh.ShapeType() != TopAbs_COMPSOLID)
-                throw AttachEngineException("AttachEngine::getInertialPropsOfShape: provided shapes are incompatible (not only solids/compsolids)");
+                THROWM(AttachEngineException, "AttachEngine::getInertialPropsOfShape: provided shapes are incompatible (not only solids/compsolids)");
             if (sh.Infinite())
-                throw AttachEngineException("AttachEngine::getInertialPropsOfShape: infinite shape provided");
+                THROWM(AttachEngineException, "AttachEngine::getInertialPropsOfShape: infinite shape provided");
             BRepGProp::VolumeProperties(sh,gpr);
             gpr_acc.Add(gpr);
         }
         return gpr_acc;
     } break;
     default:
-        throw AttachEngineException("AttachEngine::getInertialPropsOfShape: unexpected shape type");
+        THROWM(AttachEngineException, "AttachEngine::getInertialPropsOfShape: unexpected shape type");
     }
 }
 
@@ -1106,7 +1106,7 @@ Base::Placement AttachEngine3D::_calculateAttachedPlacement(
 {
     const eMapMode mmode = this->mapMode;
     if (mmode == mmDeactivated)
-        throw ExceptionCancel();//to be handled in positionBySupport, to not do anything if disabled
+        THROW(ExceptionCancel);//to be handled in positionBySupport, to not do anything if disabled
     std::vector<App::GeoFeature*> parts;
     std::vector<const TopoDS_Shape*> shapes;
     std::vector<TopoDS_Shape> copiedShapeStorage;
@@ -1114,7 +1114,7 @@ Base::Placement AttachEngine3D::_calculateAttachedPlacement(
     readLinks(objs,subs, parts, shapes, copiedShapeStorage, types);
 
     if (parts.empty())
-        throw ExceptionCancel();
+        THROW(ExceptionCancel);
 
     //common stuff for all map modes
     gp_Pnt refOrg (0.0,0.0,0.0);//origin of linked object
@@ -1206,8 +1206,8 @@ Base::Placement AttachEngine3D::_calculateAttachedPlacement(
             break;
         case mmParallelPlane: {
             if (shapes.size() < 2) {
-                throw Base::ValueError("AttachEngine3D::calculateAttachedPlacement: not "
-                                        "enough subshapes (need one plane and one vertex).");
+                THROWM(Base::ValueError, "AttachEngine3D::calculateAttachedPlacement: not "
+                                          "enough subshapes (need one plane and one vertex).");
             }
 
             TopoDS_Vertex vertex;
@@ -1752,12 +1752,12 @@ double AttachEngine3D::calculateFoldAngle(gp_Vec axA, gp_Vec axB, gp_Vec edA, gp
     edB.Normalize();
     gp_Vec norm = axA.Crossed(axB);
     if (norm.Magnitude() < Precision::Confusion())
-        throw AttachEngineException("calculateFoldAngle: Folding axes are parallel, folding angle cannot be computed.");
+        THROWM(AttachEngineException, "calculateFoldAngle: Folding axes are parallel, folding angle cannot be computed.");
     norm.Normalize();
     double a = edA.Dot(axA);
     double ra = edA.Crossed(axA).Magnitude();
     if (fabs(ra) < Precision::Confusion())
-        throw AttachEngineException("calculateFoldAngle: axisA and edgeA are parallel, folding can't be computed.");
+        THROWM(AttachEngineException, "calculateFoldAngle: axisA and edgeA are parallel, folding can't be computed.");
     double b = edB.Dot(axB);
     double costheta = axB.Dot(axA);
     double sintheta = axA.Crossed(axB).Dot(norm);
@@ -1768,7 +1768,7 @@ double AttachEngine3D::calculateFoldAngle(gp_Vec axA, gp_Vec axB, gp_Vec edA, gp
     double xa = k + l*singama/cosgama;
     double cos_unfold = -xa/ra;
     if (fabs(cos_unfold)>0.999)
-        throw AttachEngineException("calculateFoldAngle: cosine of folding angle is too close to or above 1.");
+        THROWM(AttachEngineException, "calculateFoldAngle: cosine of folding angle is too close to or above 1.");
     return acos(cos_unfold);
 }
 
@@ -1877,7 +1877,7 @@ Base::Placement AttachEngineLine::_calculateAttachedPlacement(
     Base::Placement presuperPlacement;
     switch(mmode){
     case mmDeactivated:
-        throw ExceptionCancel();//to be handled in positionBySupport, to not do anything if disabled
+        THROW(ExceptionCancel);//to be handled in positionBySupport, to not do anything if disabled
     case mm1AxisX:
         mmode = mmObjectYZ;
         break;
@@ -1921,7 +1921,7 @@ Base::Placement AttachEngineLine::_calculateAttachedPlacement(
         readLinks(objs,subs, parts, shapes, copiedShapeStorage, types);
 
         if (parts.empty())
-            throw ExceptionCancel();
+            THROW(ExceptionCancel);
 
 
         //common stuff for all map modes
@@ -2154,7 +2154,7 @@ Base::Placement AttachEnginePoint::_calculateAttachedPlacement(
     bool bReUsed = true;
     switch(mmode){
     case mmDeactivated:
-        throw ExceptionCancel();//to be handled in positionBySupport, to not do anything if disabled
+        THROW(ExceptionCancel);//to be handled in positionBySupport, to not do anything if disabled
     case mm0Origin:
         mmode = mmObjectXY;
         break;
@@ -2178,7 +2178,7 @@ Base::Placement AttachEnginePoint::_calculateAttachedPlacement(
         readLinks(objs,subs, parts, shapes, copiedShapeStorage, types);
 
         if (parts.empty())
-            throw ExceptionCancel();
+            THROW(ExceptionCancel);
 
 
         //variables to derive the actual placement.

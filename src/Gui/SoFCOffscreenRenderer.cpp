@@ -195,7 +195,7 @@ void SoFCOffscreenRenderer::writeToImageFile(const char* filename, const char* c
         else if (isWriteSupported(file.extension().c_str())) {
             // Any format which is supported by Coin only
             if (!writeToFile(filename, file.extension().c_str()))
-                throw Base::FileException("Error writing image file", filename);
+                THROWM(Base::FileException, "Error writing image file", filename);
         }
         else if (file.hasExtension({"EPS", "PS"})) {
             // Any format which is supported by Coin only
@@ -207,7 +207,7 @@ void SoFCOffscreenRenderer::writeToImageFile(const char* filename, const char* c
             bool ok = writeToPostScript(fd);
             fclose(fd);
             if (!ok)
-                throw Base::FileException("Error writing image file", filename);
+                THROWM(Base::FileException, "Error writing image file", filename);
         }
         else if (file.hasExtension({"RGB", "SGI"})) {
             // Any format which is supported by Coin only
@@ -219,7 +219,7 @@ void SoFCOffscreenRenderer::writeToImageFile(const char* filename, const char* c
             bool ok = writeToRGB(fd);
             fclose(fd);
             if (!ok)
-                throw Base::FileException("Error writing image file", filename);
+                THROWM(Base::FileException, "Error writing image file", filename);
         }
     }
 }

@@ -123,7 +123,7 @@ bool Quantity::operator!=(const Quantity& that) const
 bool Quantity::operator<(const Quantity& that) const
 {
     if (this->myUnit != that.myUnit) {
-        throw Base::UnitsMismatchError(
+        THROWM(Base::UnitsMismatchError,
             "Quantity::operator <(): quantities need to have same unit to compare");
     }
 
@@ -133,7 +133,7 @@ bool Quantity::operator<(const Quantity& that) const
 bool Quantity::operator>(const Quantity& that) const
 {
     if (this->myUnit != that.myUnit) {
-        throw Base::UnitsMismatchError(
+        THROWM(Base::UnitsMismatchError,
             "Quantity::operator >(): quantities need to have same unit to compare");
     }
 
@@ -143,7 +143,7 @@ bool Quantity::operator>(const Quantity& that) const
 bool Quantity::operator<=(const Quantity& that) const
 {
     if (this->myUnit != that.myUnit) {
-        throw Base::UnitsMismatchError(
+        THROWM(Base::UnitsMismatchError,
             "Quantity::operator <=(): quantities need to have same unit to compare");
     }
 
@@ -153,7 +153,7 @@ bool Quantity::operator<=(const Quantity& that) const
 bool Quantity::operator>=(const Quantity& that) const
 {
     if (this->myUnit != that.myUnit) {
-        throw Base::UnitsMismatchError(
+        THROWM(Base::UnitsMismatchError,
             "Quantity::operator >=(): quantities need to have same unit to compare");
     }
 

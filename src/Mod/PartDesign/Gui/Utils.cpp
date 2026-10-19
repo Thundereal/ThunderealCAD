@@ -358,7 +358,7 @@ void fixSketchSupport (Sketcher::SketchObject* sketch)
     const App::Document* doc = sketch->getDocument();
     PartDesign::Body *body = getBodyFor(sketch, /*messageIfNot*/ false);
     if (!body) {
-        throw Base::RuntimeError ("Couldn't find body for the sketch");
+        THROWM(Base::RuntimeError, "Couldn't find body for the sketch");
     }
 
     // Get the Origin for the body
@@ -468,7 +468,7 @@ void relinkToBody (PartDesign::Feature *feature) {
     PartDesign::Body *body = PartDesign::Body::findBodyOf ( feature );
 
     if (!body) {
-        throw Base::RuntimeError ("Couldn't find body for the feature");
+        THROWM(Base::RuntimeError, "Couldn't find body for the feature");
     }
 
     for ( const auto & obj: doc->getObjects () ) {

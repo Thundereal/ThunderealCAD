@@ -33,12 +33,12 @@ int createSWIGPointerObj_T(const char* TypeName, void* obj, PyObject** ptr, int 
     if (!swig_type) {
         std::stringstream str;
         str << "SWIG: Cannot find type information for requested type: " << TypeName;
-        throw Base::RuntimeError(str.str());
+        THROWM(Base::RuntimeError, str.str());
     }
 
     *ptr = SWIG_NewPointerObj(obj, swig_type, own);
     if (!*ptr) {
-        throw Base::RuntimeError("Cannot convert into requested type");
+        THROWM(Base::RuntimeError, "Cannot convert into requested type");
     }
 
     // success
@@ -56,12 +56,12 @@ int convertSWIGPointerObj_T(const char* TypeName, PyObject* obj, void** ptr, int
     swig_type = SWIG_TypeQuery(TypeName);
 
     if (!swig_type) {
-        throw Base::RuntimeError("Cannot find type information for requested type");
+        THROWM(Base::RuntimeError, "Cannot find type information for requested type");
     }
 
     // return value of 0 is on success
     if (SWIG_ConvertPtr(obj, ptr, swig_type, flags)) {
-        throw Base::RuntimeError("Cannot convert into requested type");
+        THROWM(Base::RuntimeError, "Cannot convert into requested type");
     }
 
     // success
@@ -154,7 +154,7 @@ int getSWIGPointerTypeObj_T(const char* TypeName, PyTypeObject** ptr)
     if (!pyType) {
         std::stringstream str;
         str << "SWIG: Cannot find type information for requested type: " << TypeName;
-        throw Base::RuntimeError(str.str());
+        THROWM(Base::RuntimeError, str.str());
     }
 
     *ptr = pyType;

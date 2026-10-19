@@ -136,7 +136,7 @@ vtkSmartPointer<vtkDataObject> FemPostPipeline::dataObjectFromFile(const Base::F
 {
     // checking on the file
     if (!File.isReadable()) {
-        throw Base::FileException("File to load not existing or not readable", File);
+        THROWM(Base::FileException, "File to load not existing or not readable", File);
     }
 
     if (File.hasExtension("vtu")) {
@@ -167,7 +167,7 @@ vtkSmartPointer<vtkDataObject> FemPostPipeline::dataObjectFromFile(const Base::F
         return readPVD(File);
     }
 
-    throw Base::FileException("Unknown extension");
+    THROWM(Base::FileException, "Unknown extension");
 }
 
 vtkSmartPointer<vtkDataObject> FemPostPipeline::readPVD(const Base::FileInfo& file)
@@ -229,20 +229,20 @@ void FemPostPipeline::read(
 )
 {
     if (files.size() != values.size()) {
-        throw Base::ValueError("Result files and frame values have different length");
+        THROWM(Base::ValueError, "Result files and frame values have different length");
     }
 
     // make sure we do not have invalid values
     for (auto& value : values) {
         if (!std::isfinite(value)) {
-            throw Base::ValueError("Values need to be finite");
+            THROWM(Base::ValueError, "Values need to be finite");
         }
     }
 
     // ensure no double values for frames
     std::set<double> value_set(values.begin(), values.end());
     if (value_set.size() != values.size()) {
-        throw Base::ValueError("Values need to be unique");
+        THROWM(Base::ValueError, "Values need to be unique");
     }
 
 
@@ -265,7 +265,7 @@ void FemPostPipeline::read(
         // checking on the file
         auto File = files[i];
         if (!File.isReadable()) {
-            throw Base::FileException("File to load not existing or not readable", File);
+            THROWM(Base::FileException, "File to load not existing or not readable", File);
         }
 
         auto data = dataObjectFromFile(File);
@@ -632,20 +632,20 @@ void FemPostPipeline::load(
 {
 
     if (res.size() != values.size()) {
-        throw Base::ValueError("Result values and frame values have different length");
+        THROWM(Base::ValueError, "Result values and frame values have different length");
     }
 
     // make sure we do not have invalid values
     for (auto& value : values) {
         if (!std::isfinite(value)) {
-            throw Base::ValueError("Values need to be finite");
+            THROWM(Base::ValueError, "Values need to be finite");
         }
     }
 
     // ensure no double values for frames
     std::set<double> value_set(values.begin(), values.end());
     if (value_set.size() != values.size()) {
-        throw Base::ValueError("Values need to be unique");
+        THROWM(Base::ValueError, "Values need to be unique");
     }
 
     // setup the time information for the multiblock
@@ -658,7 +658,7 @@ void FemPostPipeline::load(
     for (ulong i = 0; i < res.size(); i++) {
 
         if (!res[i]->Mesh.getValue()->isDerivedFrom<FemMeshObject>()) {
-            throw Base::ValueError("Result mesh object is not derived from Fem::FemMeshObject");
+            THROWM(Base::ValueError, "Result mesh object is not derived from Fem::FemMeshObject");
         }
 
         // first copy the mesh over

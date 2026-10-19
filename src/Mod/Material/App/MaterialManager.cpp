@@ -297,7 +297,7 @@ void MaterialManager::createLibrary([[maybe_unused]] const QString& libraryName,
         return;
     }
 #endif
-    throw CreationError("Local library requires a path");
+    THROWM(CreationError, "Local library requires a path");
 }
 
 void MaterialManager::createLocalLibrary(const QString& libraryName,
@@ -319,7 +319,7 @@ void MaterialManager::renameLibrary(const QString& libraryName, const QString& n
                 return;
             }
 
-            throw Materials::RenameError();
+            THROW(Materials::RenameError);
         }
 #endif
         _localManager->renameLibrary(libraryName, newName);
@@ -432,7 +432,7 @@ void MaterialManager::createFolder(const std::shared_ptr<MaterialLibrary>& libra
             _externalManager->createFolder(*library, path);
     }
     else {
-        throw Materials::CreationError("External materials are not enabled");
+        THROWM(Materials::CreationError, "External materials are not enabled");
     }
 #endif
 }
@@ -453,7 +453,7 @@ void MaterialManager::renameFolder(const std::shared_ptr<MaterialLibrary>& libra
         _externalManager->renameFolder(*library, oldPath, newPath);
     }
     else {
-        throw Materials::RenameError("External materials are not enabled");
+        THROWM(Materials::RenameError, "External materials are not enabled");
     }
 #endif
 }
@@ -473,7 +473,7 @@ void MaterialManager::deleteRecursive(const std::shared_ptr<MaterialLibrary>& li
         _externalManager->deleteRecursive(*library, path);
     }
     else {
-        throw Materials::DeleteError("External materials are not enabled");
+        THROWM(Materials::DeleteError, "External materials are not enabled");
     }
 #endif
 }
@@ -556,7 +556,7 @@ std::shared_ptr<Material>
 MaterialManager::getParent(const std::shared_ptr<Material>& material) const
 {
     if (material->getParentUUID().isEmpty()) {
-        throw MaterialNotFound();
+        THROW(MaterialNotFound);
     }
 
     return getMaterial(material->getParentUUID());

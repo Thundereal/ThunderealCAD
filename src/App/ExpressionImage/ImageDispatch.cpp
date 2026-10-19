@@ -603,7 +603,7 @@ PyObject* libraryModuleFrom(LibraryModule* from, const std::string& name)
     auto it = g_libraries.find(slotWanted);
     if (it != g_libraries.end()) {
         if (it->second->building)
-            throw Base::ImportError("circular import of library '" + name + "'");
+            THROWM(Base::ImportError, "circular import of library '" + name + "'");
         const bool current = it->second->rev == wanted->second && importsCurrent(*it->second);
         it = g_libraries.find(slotWanted);  // the check may have built others
         if (it != g_libraries.end()) {
@@ -628,7 +628,7 @@ PyObject* libraryModuleFrom(LibraryModule* from, const std::string& name)
     if (reply.isNone())
         return nullptr;
     if (!PyDict_Check(reply.ptr()))
-        throw Base::RuntimeError("lib.source: malformed reply");
+        THROWM(Base::RuntimeError, "lib.source: malformed reply");
     Py::Dict d(reply);
     auto lib = std::make_unique<LibraryModule>();
     lib->key = Py::String(d.getItem("key")).as_std_string("utf-8");

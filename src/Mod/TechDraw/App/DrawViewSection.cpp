@@ -1450,7 +1450,7 @@ gp_Ax2 DrawViewSection::getProjectionCS(const Base::Vector3d pt) const
     gp_Dir gXDir(vXDir.x, vXDir.y, vXDir.z);
     if (DrawUtil::fpCompare(fabs(gNormal.Dot(gXDir)), 1.0)) {
         // can not build a gp_Ax2 from these values
-        throw Base::RuntimeError(
+        THROWM(Base::RuntimeError,
             "DVS::getProjectionCS - SectionNormal and XDirection are parallel");
     }
     gp_Pnt gOrigin(pt.x, pt.y, pt.z);

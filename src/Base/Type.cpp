@@ -107,9 +107,9 @@ void Type::importModule(const char* TypeName)
         set<string>::const_iterator pos = loadModuleSet.find(Mod);
         if (pos == loadModuleSet.end()) {
             if (!moduleAllowed(Mod)) {
-                throw RuntimeError("type '" + string(TypeName) + "' names module '" + Mod
-                                   + "', which is not a FreeCAD module (not loaded and not "
-                                     "under a Mod directory); not imported");
+                THROWM(RuntimeError, "type '" + string(TypeName) + "' names module '" + Mod
+                                     + "', which is not a FreeCAD module (not loaded and not "
+                                       "under a Mod directory); not imported");
             }
             Interpreter().loadModule(Mod.c_str());
 #ifdef FC_LOGLOADMODULE

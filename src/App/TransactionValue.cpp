@@ -420,7 +420,7 @@ void App::restoreValue(Property& prop, const CapturedValue& value)
     // Captured at the log's schema (CaptureConfig).
     reader.DocumentSchema = static_cast<int>(Document::getCurrentSchemaVersion());
     if (!reader.isValid())
-        throw Base::RuntimeError("transaction value: fragment does not parse");
+        THROWM(Base::RuntimeError, "transaction value: fragment does not parse");
     prop.Restore(reader);
     // Whatever the property registered for, served by name from the
     // attachments, in registration order like every other reader.

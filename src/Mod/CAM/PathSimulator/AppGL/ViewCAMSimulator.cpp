@@ -215,7 +215,7 @@ const std::string& ViewCAMSimulator::getCamera() const
 {
     SoCamera* Cam = mDummyViewer->getSoRenderManager()->getCamera();
     if (!Cam) {
-        throw Base::RuntimeError("Could not find reference to CAM Simulator camera");
+        THROWM(Base::RuntimeError, "Could not find reference to CAM Simulator camera");
     }
     return SoFCDB::writeNodesToString(Cam);
 }

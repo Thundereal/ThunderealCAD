@@ -4252,7 +4252,7 @@ void TransactionLogView::saveRequestAs(qulonglong id, const QString& path)
         if (request.inLog)
             _doc->writeSentFile(static_cast<int64_t>(id), path.toStdString());
         else if (!QFile::copy(request.path, path))
-            throw Base::RuntimeError("cannot copy the sent file");
+            THROWM(Base::RuntimeError, "cannot copy the sent file");
         _status->setText(tr("%1 saved as %2, still unread here").arg(request.name, path));
     }
     catch (Base::Exception& e) {

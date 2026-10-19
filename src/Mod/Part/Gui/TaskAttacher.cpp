@@ -1003,7 +1003,7 @@ void TaskAttacher::updateRefButton(int idx)
         case 1: b = ui->buttonRef2; break;
         case 2: b = ui->buttonRef3; break;
         case 3: b = ui->buttonRef4; break;
-        default: throw Base::IndexError("button index out of range");
+        default: THROWM(Base::IndexError, "button index out of range");
     }
 
     Part::AttachExtension* pcAttach = ViewProvider->getObject()->getExtensionByType<Part::AttachExtension>();

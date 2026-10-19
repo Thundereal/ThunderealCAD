@@ -115,10 +115,10 @@ QJsonObject previewExpression(const QJsonValue& id, const App::ObjectIdentifier&
             std::shared_ptr<App::Expression> expr(
                 App::Expression::parse(obj, text.toUtf8().constData()));
             if (!expr)
-                throw Base::RuntimeError("not an expression");
+                THROWM(Base::RuntimeError, "not an expression");
             const std::string invalid = obj->ExpressionEngine.validateExpression(path, expr);
             if (!invalid.empty())
-                throw Base::RuntimeError(invalid.c_str());
+                THROWM(Base::RuntimeError, invalid.c_str());
             std::unique_ptr<App::Expression> value(expr->eval());
             if (auto number = dynamic_cast<App::NumberExpression*>(value.get()))
                 result = QString::fromStdString(number->getQuantity().getUserString());
@@ -610,11 +610,11 @@ void Gui::installSceneWidgetOps()
                 App::ExpressionPtr parsed(
                     App::Expression::parse(obj, text.toUtf8().constData()));
                 if (!parsed)
-                    throw Base::RuntimeError("not an expression");
+                    THROWM(Base::RuntimeError, "not an expression");
                 expr = std::move(parsed);
                 const std::string invalid = obj->ExpressionEngine.validateExpression(*path, expr);
                 if (!invalid.empty())
-                    throw Base::RuntimeError(invalid.c_str());
+                    THROWM(Base::RuntimeError, invalid.c_str());
             }
             obj->setExpression(*path, expr);   // an empty expression clears it
         }

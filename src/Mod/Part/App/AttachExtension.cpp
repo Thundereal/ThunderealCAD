@@ -187,7 +187,7 @@ bool AttachExtension::changeAttacherType(const char* typeName, bool base)
 
     std::stringstream errMsg;
     errMsg << "Object if this type is not derived from AttachEngine: " << typeName;
-    throw AttachEngineException(errMsg.str());
+    THROWM(AttachEngineException, errMsg.str());
 }
 
 bool AttachExtension::positionBySupport()
@@ -415,7 +415,7 @@ Attacher::AttachEngine &AttachExtension::attacher(bool base) const
 {
     auto &props = base ? _baseProps : _props;
     if(!props.attacher)
-        throw AttachEngineException("AttachableObject: no attacher is set.");
+        THROWM(AttachEngineException, "AttachableObject: no attacher is set.");
     return *props.attacher;
 }
 

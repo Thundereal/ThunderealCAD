@@ -121,10 +121,10 @@ std::shared_ptr<MaterialLibrary> MaterialManagerExternal::getLibrary(const QStri
         throw LibraryNotFound(e);
     }
     catch (const ConnectionError& e) {
-        throw LibraryNotFound(e.what());
+        THROWM(LibraryNotFound, e.what());
     }
     catch (...) {
-        throw LibraryNotFound("Unknown exception");
+        THROWM(LibraryNotFound, "Unknown exception");
     }
 }
 

@@ -25856,6 +25856,12 @@ after a pure virtual call -- save to a NEW file name if anything is
 unsaved, and restart.
 NOT said: whether the change was made from a handle's right click or the
 menu button, and on which fillet (read as Fillet004, in edit then).
+**About 16:05, the reporter adds:** "3d view does not react to mouse move highlight, but mouse over task panel list still responsive"
+The note-taker's reading: the break is in the 3D VIEW's event path only
+-- mouse moves over the 3D view preselect nothing, while hovering the
+task panel's list (its rows, 169's sync) still reacts. Consistent with
+the 16:04 reading (Coin's event state for that view left broken). Relayed
+to the build session with 186.
 
 ## Inbox
 

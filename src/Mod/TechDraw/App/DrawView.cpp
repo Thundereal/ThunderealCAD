@@ -134,6 +134,63 @@ App::DocumentObjectExecReturn *DrawView::execute()
     return App::DocumentObject::StdReturn;
 }
 
+App::DocumentObjectExecReturn* DrawView::recompute()
+{
+    // what the last run's workers had to say is the last run's
+    m_lateWarnings.clear();
+    m_heldError.clear();
+    m_inRecompute = true;
+    App::DocumentObjectExecReturn* ret = nullptr;
+    try {
+        ret = App::DocumentObject::recompute();
+    }
+    catch (...) {
+        m_inRecompute = false;
+        throw;
+    }
+    m_inRecompute = false;
+    // an error reported from inside this recompute is its return: one
+    // recorded in the document now would be wiped by the success that
+    // follows (Document::_recomputeFeature resets it)
+    if (ret == App::DocumentObject::StdReturn && !m_heldError.empty()) {
+        return new App::DocumentObjectExecReturn(m_heldError, this);
+    }
+    return ret;
+}
+
+void DrawView::reportLateError(const std::string& why)
+{
+    if (!isAttachedToDocument() || why.empty()) {
+        return;
+    }
+    Base::Console().Error("%s: %s\n", Label.getValue(), why.c_str());
+    if (m_inRecompute) {
+        if (m_heldError.empty()) {
+            m_heldError = why;
+        }
+        return;
+    }
+    // the document's recompute log, which execute()'s own return fills: the
+    // object is in error with this text until its next recompute clears it
+    // (Document::_recomputeFeature), and the views are told as after one
+    getDocument()->setErrorDescription(this, why.c_str());
+    getDocument()->signalRecomputedObject(*this);
+    requestPaint();
+}
+
+void DrawView::reportLateWarning(const std::string& why)
+{
+    if (!isAttachedToDocument() || why.empty()) {
+        return;
+    }
+    Base::Console().Warning("%s: %s\n", Label.getValue(), why.c_str());
+    if (!m_lateWarnings.empty()) {
+        m_lateWarnings += "\n";
+    }
+    m_lateWarnings += why;
+    requestPaint();
+}
+
 void DrawView::checkScale()
 {
     TechDraw::DrawPage *page = findParentPage();

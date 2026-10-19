@@ -81,6 +81,9 @@ public:
     //@}
 
     virtual TechDraw::DrawView* getViewObject() const;
+    /// A warning the view's workers left (DrawView::reportLateWarning), ahead
+    /// of the usual tool tip (docs/TechDrawErrors.md 3.1)
+    QString getToolTip(const QByteArray& iconTag) const override;
     void showProgressMessage(const std::string featureName, const std::string text) const;
 
     void onGuiRepaint(const TechDraw::DrawView* dv);

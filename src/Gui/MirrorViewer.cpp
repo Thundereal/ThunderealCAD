@@ -821,9 +821,13 @@ bool MirrorViewer::takeValueSetKey(const Input& input)
     if (input.alt) {
         mods |= Qt::AltModifier;
     }
+    QString text;
+    if (input.delta > 0) {
+        text = QString(QChar(char16_t(input.delta)));
+    }
     ViewerScope scope(this);
     return OnViewValueSet::takeViewerKey(this, qtKeyForCoinKey(input.code), mods,
-                                         input.kind == Input::KeyDown);
+                                         input.kind == Input::KeyDown, text);
 }
 
 bool MirrorViewer::sendKeyEvent(QKeyEvent* event)

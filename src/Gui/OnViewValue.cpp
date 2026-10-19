@@ -257,14 +257,15 @@ OnViewValueSet::~OnViewValueSet()
 }
 
 bool OnViewValueSet::takeViewerKey(ViewerContext* viewer, int key,
-                                   Qt::KeyboardModifiers modifiers, bool press)
+                                   Qt::KeyboardModifiers modifiers, bool press,
+                                   const QString& text)
 {
     if (!viewer) {
         return false;
     }
     for (OnViewValueSet* set : liveSets()) {
         if (set->liveView() == viewer && !set->keyWidget) {
-            return set->takeMirrorKey(key, modifiers, press);
+            return set->takeMirrorKey(key, modifiers, press, text);
         }
     }
     return false;
@@ -300,7 +301,8 @@ bool OnViewValueSet::buildViewerMenu(ViewerContext* viewer, QMenu& menu)
     return false;
 }
 
-bool OnViewValueSet::takeMirrorKey(int key, Qt::KeyboardModifiers modifiers, bool press)
+bool OnViewValueSet::takeMirrorKey(int key, Qt::KeyboardModifiers modifiers, bool press,
+                                   const QString& text)
 {
     if (!press) {
         // the release of a key taken on its press is not the view's either
@@ -312,15 +314,27 @@ bool OnViewValueSet::takeMirrorKey(int key, Qt::KeyboardModifiers modifiers, boo
         return true;
     }
     // What the view widget's filter does (eventFilter(), takeKey()), less
-    // what would run on the host's screen: Space opens a QMenu there, Enter
-    // and digits open a label's box there -- sec 9.2 #4 and the labels as
-    // on-view entries are what bring those to the client
+    // Space: it opens a QMenu on the host's screen; the client's right
+    // click on a handle is its menu (buildViewerMenu()). Enter and digits
+    // open the active value's label: on a mirror its box is built unshown
+    // and streamed to the client as an on-view entry, which then has the
+    // keys (EditableDatumLabel::startEdit, docs/ThinClient.md sec 8.7)
     const bool plain =
         !(modifiers & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier));
     bool taken = false;
     if (dragHandle && key == Qt::Key_Escape) {
         dragHandle->cancelDrag();
         taken = true;
+    }
+    else if (typing < 0 && active >= 0 && plain
+             && (key == Qt::Key_Return || key == Qt::Key_Enter)) {
+        taken = startTyping(active);
+    }
+    else if (typing < 0 && active >= 0 && !dragHandle) {
+        QKeyEvent first(QEvent::KeyPress, key, modifiers, text);
+        if (startsNumber(&first)) {
+            taken = startTyping(active, &first);
+        }
     }
     else if (typing < 0 && !entries.empty() && plain
              && (key == Qt::Key_Tab || key == Qt::Key_Backtab)) {
@@ -1330,6 +1344,11 @@ void OnViewValueSet::endTyping(bool keep)
     }
     // the label's step ends, open since startTyping()
     Q_EMIT stepEnded(false);
+    // A view with no widget keeps which entry has its keys itself: the
+    // closed label's no longer, so the next key comes to this set again
+    if (!keyWidget && liveView()) {
+        view->onViewParameterFocused(nullptr);
+    }
     if (index >= count()) {
         return;
     }

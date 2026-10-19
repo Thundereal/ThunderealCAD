@@ -174,10 +174,12 @@ public:
      * offered to the set shown in \a viewer, as the view widget's filter
      * takes the desktop's (docs/OnViewValueEditing.md sec 9.2 #3): Tab and
      * Shift+Tab move the active value, Escape cancels a drag or leaves no
-     * value active. True when taken, its release too.
+     * value active, Enter and a digit (\a text) open the active value's
+     * label for typing. True when taken, its release too.
      */
     static bool takeViewerKey(ViewerContext* viewer, int key,
-                              Qt::KeyboardModifiers modifiers, bool press);
+                              Qt::KeyboardModifiers modifiers, bool press,
+                              const QString& text = QString());
     /** The menu of the handle the pointer is over in \a viewer, built into
      * \a menu -- a browser's right click on a handle (sec 9.2 #4), as the
      * view widget's filter opens it on the desktop. False when no set in
@@ -268,7 +270,8 @@ private:
     void writeTyped();
     void focusView();
     bool takeKey(QKeyEvent* event, bool overrideOnly);
-    bool takeMirrorKey(int key, Qt::KeyboardModifiers modifiers, bool press);
+    bool takeMirrorKey(int key, Qt::KeyboardModifiers modifiers, bool press,
+                       const QString& text);
     /// The view, or null once it is gone: a panel can outlive its view -- a
     /// closed document takes its views before the panel's deferred delete
     ViewerContext* liveView() const;

@@ -972,6 +972,14 @@ changes (`viewer-harness\probes-2026-10-19\drag3`):
   column goes below what covers its middle. Seen: "Radius 2 mm" under the
   fourth bar at 884 x 549, where it was hidden. The desktop's placement
   unchanged.
+- Typing in the browser BUILT and seen (r146, `type1`): Enter or a digit
+  from the page opens the active value's label, as on the desktop. On a
+  mirror the label's box is built unshown and streamed to the page as an
+  on-view entry (EditableDatumLabel, the sketcher's path), which then has
+  the keys; the set's filter on the box takes Enter, Tab and Escape as on
+  the desktop. A closed label gives the keys back to the set. Seen: Tab,
+  "5", Enter from the page -- the page's box read "5 mm", the radius 2 -> 5,
+  the box open after Enter with the value selected, as the desktop's.
 
 ### 9.6 Order of work
 

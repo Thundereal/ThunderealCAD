@@ -1,7 +1,7 @@
 # Library paths: links into named folders
 
-Status (2026-10-18): **design ruled whole; steps 1 to 3 built** (App, Gui, the log;
-sections 7 to 9). Step 4, the export, waits for TransactionLog sec 35 L7.
+Status (2026-10-19): **design ruled whole; steps 1 to 3 built** (App, Gui, the log;
+sections 7 to 11). Step 4, the export, waits for TransactionLog sec 35 L7.
 Asked for by the user the same day. Q1 to Q8 are ruled (section 5).
 
 ## 1. The ask (user, 2026-10-18)
@@ -124,7 +124,7 @@ the library folders:
    (Q4, ruled). The document's `Lib` and the links using it are left as
    they are.
    **Not when the document's folder is not here** (found building step 3,
-   2026-10-18; the user to confirm): a folder the document names that does
+   2026-10-18; confirmed by the user 2026-10-19): a folder the document names that does
    not exist on this machine -- the library moved, the document saved on
    another machine -- is no clash. The link takes the name, as resolving
    it would (3.6 step 2), and the map follows (Q3). Without that, every
@@ -304,11 +304,10 @@ old file keeps its old links. Save As in the standard format writes the
 - **An edit of `Document.LibraryPaths`** remaps (3.7): the links whose name
   now resolves to another file are linked to it, in the same transaction
   as the edit; an undo puts both back.
-- **Not changed**: a copy of objects with external links into a document
-  never saved is refused as before ("Document must be saved at least once
-  before link to external objects", `Document::copyObject`), library
-  links or not. Once the target is saved, a copied library link resolves
-  through the setting's folder and the target takes the name.
+- **A copy into a document never saved**: refused when this was built
+  (`Document::copyObject`, from 2017); taken since 2026-10-19, section 11.
+  A copied library link resolves through the setting's folder and the
+  target takes the name.
 - **Gtests** (`LibraryPathsTest`, 17): names and tokens; matching (the
   deepest, the document's name, Q4, Q5, whole components); resolving (the
   document's first, Q2); saved beside the old path; opened with the
@@ -397,7 +396,8 @@ conflict.
 - **The merge** (`planWeigh`, where both sides changed a property and
   ended differently) calls two values of an XLink type the same when they
   compare equal that way. Ours' value stays.
-- **`Document.LibraryPaths` is kept, as `FileName` is** (`keptOnRestore`):
+- **`Document.LibraryPaths` is kept, as `FileName` is** (`keptOnRestore`;
+  confirmed by the user 2026-10-19):
   a merge does not take theirs', a restore to a version does not put back
   an older one, a fork's import does not bring the other copy's. It says
   where the folders are on this machine, and the links settle it (3.2).
@@ -434,3 +434,42 @@ Python setters of `PropertyXLink` (and so `PropertyXLinkSub`) and
 - **Gates** (2026-10-19): the Gui checks pass; Python 3804 OK with the
   freeze on and off; ctest gtest 981/981 both ways; the driven tests
   289/292, the three of section 7.
+
+## 11. A copy with external links into a document never saved (2026-10-19)
+
+The user took it to be allowed already; it was not. `Document::copyObject`
+has refused it since 2017 (`b02ad7a2eb`, "Document must be saved at least
+once before link to external objects"), and the Gui's paste and Duplicate
+Selection asked to save the target first. The reason was in the restore:
+a copy is an export and an import, the export writes each link's full path,
+and turning a full path into the link's own form needs the owner's folder
+(`DocInfo::getDocPath` threw "Owner document not saved"). A link SET in an
+unsaved document was already taken -- its path waits for the save.
+
+- **Now**: an owner with no file keeps a full path as it is
+  (`getDocPath`), and its first save writes it in the link's mode
+  (`PropertyXLink::Save`, the rewrite step 1 made for a library link, for
+  every link not in `Absolute` or `Canonical` mode). The refusal and the
+  two Gui questions are gone; the source's linked documents must still be
+  saved, as before.
+- **Tests**: `Document.XLinkIntoUnsavedCases` (Python, 2): the copy links
+  the object, the save writes `../part/bolt.FCStd`, the file reopens to
+  it; and the same with the linked file closed before the save. Without
+  the rewrite both saved the full path, checked.
+
+The three driven failures of section 7 are fixed the same day, and two of
+them were misread there:
+
+- `RenderGoldenRaster` and `RenderGoldenRasterFlat` did not come with the
+  sync: `docs/Testing.md` had them since 2026-10-12, the cavity shader
+  changed on purpose on 2026-10-09 and the references not re-blessed.
+  They are re-blessed (`tests/render/refs` `18ae7a1`), beauty only.
+- `GuiTechDrawPageBeforeItsViewProviders`: a document's views now share
+  one sub-window, a `Gui::ViewArea`, and the test closed the sub-window
+  holding the page, which held the 3D view too and so closed the
+  document. It closes the page's own view, and saves the second time in
+  a step of its own, once that view is gone.
+
+- **Gates** (2026-10-19): the 24 Gui checks pass; Python 3806 OK with the
+  freeze on and off (52 and 54 skipped); ctest gtest 981/981 both ways;
+  the driven tests 292/292.

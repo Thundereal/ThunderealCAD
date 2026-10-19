@@ -16525,10 +16525,8 @@ std::vector<DocumentObject*> Document::copyObject(
     else
         deps = getDependencyList(objs,DepNoXLinked|DepSort);
 
-    if (!testStatus(TempDoc) && !isSaved() && PropertyXLink::hasXLink(deps)) {
-        throw Base::RuntimeError(
-                "Document must be saved at least once before link to external objects");
-    }
+    // A document not saved yet takes external links too: they keep the full
+    // path till its first save (PropertyXLink::Save).
 
     MergeDocuments md(this);
     // if not copying recursively then suppress possible warnings

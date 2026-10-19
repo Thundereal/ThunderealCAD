@@ -3990,8 +3990,13 @@ public:
         }
 
         const char *docPath = pDoc->getFileName();
-        if(!docPath || *docPath==0)
+        if(!docPath || *docPath==0) {
+            // An owner not saved yet keeps the full path; its Save writes it
+            // in the link's mode (PropertyXLink::Save).
+            if (absolute)
+                return path.toUtf8().constData();
             THROWM(Base::RuntimeError, "Owner document not saved")
+        }
 
         QFileInfo docInfo(QString::fromUtf8(docPath));
         QDir docDir(docInfo.absoluteDir());
@@ -5380,10 +5385,10 @@ void PropertyXLink::Save (Base::Writer &writer) const {
         }
         if(!_path.empty())
             path = _path.c_str();
-        // A library link set while its owner had no file holds the full path
-        // (docs/LibraryPaths.md 3.8): the owner has one now, and the old path
-        // is written in the link's mode.
-        else if (owner && docInfo && !_libName.empty() && DocInfo::takesLibraryForm(this)
+        // A link set or pasted while its owner had no file holds the full
+        // path (docs/LibraryPaths.md 3.8): the owner has one now, and the old
+        // path is written in the link's mode.
+        else if (owner && docInfo && DocInfo::takesLibraryForm(this)
                  && QFileInfo(QString::fromUtf8(filePath.c_str())).isAbsolute()) {
             const char* own = ownerDoc->getFileName();
             if (own && *own) {
@@ -5393,7 +5398,7 @@ void PropertyXLink::Save (Base::Writer &writer) const {
                         docInfo->filePath(), const_cast<Document*>(ownerDoc), resolveMode);
                     path = filePath.c_str();
                     // Saved inside the library: a relative link (Q5).
-                    if (LibraryPaths::isUnder(own, _libFolder))
+                    if (!_libName.empty() && LibraryPaths::isUnder(own, _libFolder))
                         self->clearLibraryForm();
                 }
                 catch (Base::Exception&) {

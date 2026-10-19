@@ -10338,6 +10338,66 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(doc.Box.Height.Value, 10)
 
 
+class XLinkIntoUnsavedCases(unittest.TestCase):
+    # A copy of objects with external links into a document never saved: the
+    # links keep the full path till its first save writes them relative.
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="fc-xunsaved-")
+        for sub in ("part", "src", "dst"):
+            os.makedirs(os.path.join(self.dir, sub))
+        part = FreeCAD.newDocument("XUnsavedPart")
+        part.addObject("App::FeatureTest", "Bolt")
+        self.part = os.path.join(self.dir, "part", "bolt.FCStd")
+        part.saveAs(self.part)
+        self.src = FreeCAD.newDocument("XUnsavedSrc")
+        holder = self.src.addObject("App::FeatureTest", "Holder")
+        holder.addProperty("App::PropertyXLink", "L")
+        holder.L = part.Bolt
+        self.src.saveAs(os.path.join(self.dir, "src", "src.FCStd"))
+
+    def tearDown(self):
+        for name in list(FreeCAD.listDocuments()):
+            if name.startswith("XUnsaved"):
+                FreeCAD.closeDocument(name)
+
+    def same(self, a, b):
+        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+    def savedPath(self, path):
+        import re
+        import zipfile
+
+        with zipfile.ZipFile(path) as z:
+            xml = z.read("Document.xml").decode("utf-8")
+        return re.search(r'<XLink file="([^"]*)"', xml).group(1)
+
+    def testACopyIntoADocumentNeverSaved(self):
+        doc = FreeCAD.newDocument("XUnsavedDst")
+        copy = doc.copyObject(self.src.Holder)
+        self.assertEqual(copy.L.Name, "Bolt")
+        self.assertTrue(self.same(copy.L.Document.FileName, self.part))
+        # Saved, the link is written relative to the new file, as one set
+        # in a saved document is.
+        path = os.path.join(self.dir, "dst", "dst.FCStd")
+        doc.saveAs(path)
+        self.assertEqual(self.savedPath(path).replace("\\", "/"), "../part/bolt.FCStd")
+        FreeCAD.closeDocument(doc.Name)
+        FreeCAD.closeDocument("XUnsavedPart")
+        doc = FreeCAD.openDocument(path)
+        self.assertEqual(doc.Holder.L.Name, "Bolt")
+        self.assertTrue(self.same(doc.Holder.L.Document.FileName, self.part))
+
+    def testTheLinkedFileClosedBeforeTheSave(self):
+        doc = FreeCAD.newDocument("XUnsavedDst")
+        doc.copyObject(self.src.Holder)
+        FreeCAD.closeDocument(self.src.Name)
+        FreeCAD.closeDocument("XUnsavedPart")
+        path = os.path.join(self.dir, "dst", "dst.FCStd")
+        doc.saveAs(path)
+        self.assertEqual(self.savedPath(path).replace("\\", "/"), "../part/bolt.FCStd")
+
+
 class LibraryPathCases(unittest.TestCase):
     # docs/LibraryPaths.md 3.3: a link set from Python by its file -- a path
     # or a library token -- and the name of an object in it.

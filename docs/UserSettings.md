@@ -46,7 +46,8 @@ browser user is to have preferences of their own.
 with local user ... in addition to remember the user on editing, get the
 user id from the view also if not in edit. Modify cog param helper to add a
 flag to indicate the setting is per user ... check if that's possible"): no
-fall-back to the local user's values anywhere (2.2); the user also comes
+writing to the local user's values, ever (2.2; a READ falls through to the
+current setting, corrected 10:01); the user also comes
 from the view (below); and 2.5 is the main road, with its feasibility
 checked in 2.5.1.
 
@@ -93,20 +94,23 @@ shared edit those two differ.
   -- the reporter's "prefix to setting path": the user's prefix put before
   the path, the path itself unchanged below it. `<name>` escaped to a group
   name.
-- **Read**: the user's entry when it has one, else the parameter's DEFAULT
-  -- never the local user's value (ruled 09:32: "it should never mix with
-  local user"). **Write**: the user's entry only. The other way round too:
-  the local user never reads a browser user's value. A user "reset to
-  default" removes their entry.
-- **When a user has no value** (the reporter's question): a setting they
-  never changed, which is most of them; their first visit; every connection
-  of a `Declared` user, whose values are not kept (2.6 d); a setting added
-  by a newer build; a user the host has forgotten. In each case the
-  parameter's default, the same as a fresh install. So a host who tuned a
-  setting does not hand that to a new browser user. If that is wanted later,
-  it is a separate, explicit "defaults for users" group the host edits
-  (`Users parameter:_defaults/...`), read before the built-in default --
-  never the host's own values.
+- **Read**: the user's entry when it has one, else the CURRENT setting
+  (the local user's value as it stands), else the default -- corrected
+  10:01: "for user value, just grab the initial value from the current
+  setting. what I mean not to mix the local user is when write the
+  settings". Read through, not copied: until the user writes a setting,
+  they see the current one, so nothing is written on a mere read and a
+  later change by the host still reaches a user who never touched it.
+  (A copy taken once at first use is the other reading of "grab the
+  initial value"; the read-through is proposed as the simpler, 2.6 g.)
+- **Write**: the user's entry only, NEVER the local user's settings -- the
+  "not mix" of 09:32. The local user never reads a browser user's value. A
+  user "reset to default" removes their entry, so the current setting
+  shows through again.
+- When a user has no value of their own: a setting they never changed,
+  their first visit, every connection of a `Declared` user (values not
+  kept, 2.6 d), a setting a newer build added, a user the host forgot --
+  the current setting in each case.
 - **Who keeps values**: `Verified`, `Invited`, `Enrolled` users in the
   file. A `Declared` name is what a connection said and anybody can say it,
   so a declared user's values are held in memory for the connection only
@@ -161,7 +165,8 @@ on hot paths (every drag step), with no user in its signature.
 - For one that is: the getter checks the preference user (one thread-local
   read); none -> the global cache as now; a user -> a per-user cache (a map
   from the user to the values, filled on first use from the user's group
-  with the parameter's default, updated by an observer of the user's group;
+  with the current (global) value standing in for a missing entry, updated
+  by observers of the user's group and of the global one;
   a map node never moves, so `const T&` stays valid); the setter writes the
   user's entry under a user.
 - A class can declare every parameter per user at once (`PerUser = True`
@@ -189,8 +194,10 @@ that the template can emit beside it, for the flagged parameters only:
   in `<Class>P` a `std::map<std::string, std::unique_ptr<UserValues>>` keyed
   by the user's id. Made on first use for a user: its handles from
   `App::UserParameter` (the user's prefix before `ParamPath` and each
-  sub-path), each member read with the parameter's default, and an observer
-  attached -- the same `funcs` table, re-pointed at the user's members (an
+  sub-path), each member read with the global member's current value as
+  its default, and observers attached to the user's group and to the global
+  one, a global change re-reading the user members with no entry of their
+  own -- the same `funcs` table, re-pointed at the user's members (an
   `update<Name>` that takes the values struct instead of `self`).
 - `get<Name>()`: `if (auto u = App::PrefUser::currentId()) return
   instance()->user(u).<Name>; return instance()-><Name>;` -- one
@@ -219,9 +226,9 @@ b. A shared edit (one set of handles for all, 172's 9.5 a) driven by
    someone who did not begin it: whose settings? Proposed: the initiating
    user's, by your "each edit shall identify the initiating user"; the log
    still names who changed what.
-c. ANSWERED 09:32: a user's settings never mix with the local user's --
-   no reading of the global as a fall-back, no writing of it. A user with
-   no value of their own gets the default (2.2).
+c. ANSWERED 09:32, corrected 10:01: a user never WRITES the local user's
+   settings; a user with no value of their own reads the current setting
+   (2.2).
 d. A `Declared` user (a name nobody checked): settings for the connection
    only, not kept? Proposed: yes; kept for verified, invited and enrolled
    users.
@@ -230,6 +237,10 @@ e. Which settings: task panels' and edit menus' widgets by default (with an
 f. One file for all users (`users.cfg`), or one file per user? Proposed:
    one file; a user's group is removed with them when the host forgets the
    user.
+g. (10:01) "Grab the initial value from the current setting": read through
+   until the user writes (a host's later change still reaches them), or a
+   copy taken at their first use (fixed from then on)? Proposed: read
+   through.
 
 ## 3. Order of work, once decided
 
@@ -238,8 +249,9 @@ f. One file for all users (`users.cfg`), or one file per user? Proposed:
    test: an edit begun by a served client records it, a replayed event runs
    under it, a view out of edit under its connection's user.
 2. `App::UserParameter` (2.2) and the declared users' memory store; C++
-   tests, the no-mix rule among them (a user's read never sees the local
-   value, the local read never sees a user's).
+   tests, the no-mix rule among them (a user's write never reaches the
+   local value, the local read never sees a user's; a user with no entry
+   reads the current value).
 3. The generator's `user=True` / `PerUser` (2.5, 2.5.1) and the six drag
    settings; 171's sub-menu then per user with no code of its own.
 4. `PrefWidget` through the helper (2.3); a test with two served users of

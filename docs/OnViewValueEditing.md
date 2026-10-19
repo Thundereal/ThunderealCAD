@@ -875,6 +875,14 @@ c. "Test in real browser" on this Windows box: the browser tests drive
    up on Linux only so far. It needs `puppeteer-core` installed beside a
    local Chrome here. Proposed: yes, in a tools directory, not in the repo.
 
+a ANSWERED 10:01: "entry 172 shall be anwsered by 174" -- whose settings
+apply among several users is docs/UserSettings.md (the edit's initiating
+user in an edit, the view's user out of one). The active value and the
+handles stay with the edit's session as 9.4 says: shared unless
+`PerViewEdit` is on.
+
+173 (8.6 c-f) ANSWERED 10:01: "all agree" -- sec 8 is decided as written.
+
 c ANSWERED 09:34: yes -- and it was already there: `puppeteer-core` against
 the installed Chrome has lived in `D:\works\sw\viewer-harness\ppenv` since
 2026-09-12 (outside the repo). "Can windows do browser test off screen?":

@@ -7117,7 +7117,62 @@ schema 5 manifest come back from one `manifest` entity), the GUI checks RC
 
 **Next.** 27.50 steps 1-4, the shared string table.
 
-### 27.55 No store schema, no migration (user, 2026-09-28)
+### 27.55 No store schema, no migration (user, 2026-09-28) -- REVERSED 2026-10-19
+
+**Reversed (user, 2026-10-19):** "start adding schema version checking to
+transactiin log from now on. We're aiming for a release by the end of the
+year". The store has a layout version again, and older stores are migrated;
+what follows down to the next heading is the ruling of 2026-09-28 and what
+it removed, kept as history. What is built now:
+
+- **The version** is `PRAGMA user_version`, `StoreVersion` in
+  `src/App/TransactionStoreSQLite.cpp`: 0 for a store from before it, 1 for
+  the layout of 2026-10-19. Written when a store is made or migrated. The
+  layout is one list, `Tables` (and `Indexes`), that both making and
+  migrating read.
+- **A newer store is refused**: "written by a newer build (layout N; this
+  one reads up to M)", thrown from the open -- never misread.
+- **An older store is migrated** on open, one SQL transaction,
+  `SQLiteStore::migrate(from)`, a step per version: `if (from < N)`. Step 1
+  brings any store of the layout settled on 2026-09-28 up to date: each
+  table compared with the current layout (made in an attached in-memory
+  database), each column it lacks added with its default (`txn.merge_from`,
+  `ord`; `session.access`, `uuid`; `op.touched`; `branch.target`, `joined`;
+  `keepvalue.kind`, `name`; `user.parent`, ...); the tables added since are
+  made. And the one change that was no addition: `session.user` held the
+  user's name until 2026-10-04 (30.6), and becomes a row of `user` of kind
+  `local` (an empty name: `host`).
+- **Before 2026-09-28** -- `meta.schema` under 7, the numbering this section
+  removed -- a store is refused: no step reads those layouts.
+- **Read-only** (the embedded copy as the guard reads it, 16.4): at the
+  current version it is read as it is; an older one is copied into memory
+  and migrated there, the file left as it was. The store the log adopts is
+  a writable copy, migrated when opened.
+- **The panel** (`Gui::TransactionLogView`): a log that cannot be read says
+  so in the status line ("the log cannot be read: ..."); the entry points a
+  timer or a signal runs are guarded and leave nothing to the event loop
+  (it was an "Unhandled Base::Exception caught in GUIApplication::notify").
+- **Found by:** the user's document "scanner", whose embedded history was
+  written before `530564c6e8` (2026-10-14) added `branch.joined` and
+  `keepvalue.kind`/`name`: "no such column: joined" on every branch query.
+- **Tests:** `TransactionLogTest.aStoreOfTheSettledLayoutIsMigrated` (a
+  store of the 2026-09-28 layout opened, read, its sessions' users made
+  rows, written on, at version 1 after), `aReadOnlyOlderStoreIsReadAsItIs`,
+  `aStoreNotOfThisBuildIsRefused` (newer; `schema` 5; a new store is at 1),
+  and `aStoreOfScannersLayoutIsMigrated` -- the layout of the user's own
+  history, read by its schema only from a copy saved on 2026-10-16
+  (`scanner2.FCStd`): no version, no `schema` key, `session.user` already an
+  id, before `branch.joined`, `keepvalue.kind`/`name`, `user.parent`,
+  `access` and `mergerequest`; its branches, kept values, users and
+  sessions read, at version 1 after.
+- **From here on** a change of the layout raises `StoreVersion` and adds its
+  step; "a column added in place" in the sections below is history.
+- **Gates** (2026-10-19): the 24 GUI checks pass; Python 3807 OK with the
+  freeze on and off (52 and 54 skipped); ctest gtest 990/990 both ways; the
+  driven tests 293/293. With the scanner case: ctest gtest 991/991 both
+  ways (a test added, nothing else changed).
+
+**The ruling of 2026-09-28:**
 
 **Ruled (user):** the log is in early development and has shipped in no
 release; there is no need to version its store yet, and migration code is
@@ -21311,6 +21366,9 @@ default the same path relative to our top -- and the links rewritten.
 Steps 2 and 3 do not depend on 1 and can go first if wanted.
 
 ### 35.6 The questions set out (user: elaborate, 2026-10-18)
+
+**Ruled (user, 2026-10-18): the proposals stand for now**, to be tuned
+when the work is built.
 
 **Q1. How their files are paired with ours.**
 

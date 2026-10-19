@@ -1370,7 +1370,6 @@ void StdCmdDuplicateSelection::activated(int iMsg)
     if(sel.empty())
         return;
 
-    bool hasXLink = false;
     Base::FileInfo fi(App::Application::getTempFileName());
     {
         auto all = App::Document::getDependencyList(sel);
@@ -1382,14 +1381,8 @@ void StdCmdDuplicateSelection::activated(int iMsg)
             if(sel.empty())
                 return;
         }
-        std::vector<App::Document*> unsaved;
-        hasXLink = App::PropertyXLink::hasXLink(sel,&unsaved);
-        if(!unsaved.empty()) {
-            QMessageBox::critical(getMainWindow(), QObject::tr("Unsaved document"),
-                QObject::tr("The exported object contains external link. Please save the document"
-                   "at least once before exporting."));
-            return;
-        }
+        // A link into a document never saved is pasted at once, to that
+        // document (docs/LibraryPaths.md sec 12).
 
         // save stuff to file
         Base::ofstream str(fi, std::ios::out | std::ios::binary);
@@ -1400,18 +1393,9 @@ void StdCmdDuplicateSelection::activated(int iMsg)
     }
     App::Document* doc = App::GetApplication().getActiveDocument();
     if (doc) {
-        bool proceed = true;
-        if(hasXLink && !doc->isSaved()) {
-            auto ret = QMessageBox::question(getMainWindow(),
-                qApp->translate("Std_DuplicateSelection","Object dependencies"),
-                qApp->translate("Std_DuplicateSelection",
-                "To link to external objects, the document must be saved at least once.\n"
-                "Do you want to save the document now?"),
-                QMessageBox::Yes,QMessageBox::No);
-            if(ret == QMessageBox::Yes)
-                proceed = Application::Instance->getDocument(doc)->saveAs();
-        }
-        if(proceed) {
+        // A document not saved yet takes external links: they keep the full
+        // path till its first save.
+        {
             doc->openTransaction("Duplicate");
             // restore objects from file and add to active document
             Base::ifstream str(fi, std::ios::in | std::ios::binary);

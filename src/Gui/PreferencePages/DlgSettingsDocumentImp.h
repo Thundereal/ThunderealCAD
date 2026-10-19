@@ -28,6 +28,7 @@
 #include <memory>
 
 namespace Gui {
+class LibraryPathsEditor;
 namespace Dialog {
 class Ui_DlgSettingsDocument;
 
@@ -56,6 +57,7 @@ protected:
 
 private:
     std::unique_ptr<Ui_DlgSettingsDocument> ui;
+    LibraryPathsEditor* libraryPaths = nullptr;
 };
 
 } // namespace Dialog

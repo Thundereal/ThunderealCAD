@@ -735,6 +735,31 @@ App::Document *Application::addPendingDocument(const char *FileName, const char 
     return nullptr;
 }
 
+App::Document* Application::openDocumentAsNew(const char* FileName)
+{
+    if (!FileName || !FileName[0] || _isRestoring)
+        return nullptr;
+    std::string currentDoc;
+    if (_pActiveDoc)
+        currentDoc = _pActiveDoc->getName();
+    Document* doc = nullptr;
+    try {
+        doc = openDocumentPrivate(FileName, FileName, nullptr, false, false, {});
+    }
+    catch (const Base::Exception& e) {
+        FC_ERR("cannot open " << FileName << ": " << e.what());
+    }
+    if (!currentDoc.empty()) {
+        if (auto restoreDocument = getDocument(currentDoc.c_str()))
+            setActiveDocument(restoreDocument);
+    }
+    if (!doc)
+        return nullptr;
+    DocFileMap.erase(FileInfo(doc->FileName.getValue()).filePath());
+    doc->FileName.setValue("");
+    return doc;
+}
+
 bool Application::isRestoring() const {
     return _isRestoring || Document::isAnyRestoring();
 }

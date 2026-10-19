@@ -2171,3 +2171,17 @@ fc_add_gui_test(GuiNaviCubeClearOfPanels_tests_run
 fc_add_gui_test(GuiNaviCubeAxesOverTheCube_tests_run
                 navicube-axes-over-the-cube.py
                 --timeout 180)
+
+# Library paths in the Gui (docs/LibraryPaths.md 3.9): the report of a
+# document's open with "Use the settings' folder" (Q2), and the question on
+# a changed setting (Q8).
+fc_add_gui_test(GuiLibraryPaths_tests_run
+                library-paths.py
+                --timeout 180)
+
+# A copy linking into a document never saved (docs/LibraryPaths.md sec 12):
+# pasted after it is gone, the snapshot opens as a document never saved, and
+# the save of what it was pasted into asks for its file first.
+fc_add_gui_test(GuiXLinkSnapshotSave_tests_run
+                xlink-snapshot-save.py
+                --timeout 180)

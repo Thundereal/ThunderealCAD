@@ -127,15 +127,19 @@ def save_and_close():
         raise RuntimeError("the page did not open")
     doc = FreeCAD.getDocument(DOC)
     doc.saveAs(PATH)
-    # and once more with no page open, for entry 151's round
-    # by what it holds: the document's name starts with "Page" too, and so
-    # does its 3D view's title -- closed with it, it took the document along
-    for sub in FreeCADGui.getMainWindow().findChild(QtWidgets.QMdiArea).subWindowList():
-        if any(v.metaObject().className() == "TechDrawGui::QGVPage"
-               for v in sub.findChildren(QtWidgets.QGraphicsView)):
-            sub.close()
-    QtCore.QCoreApplication.processEvents()
-    doc.saveAs(PATH_CLOSED)
+    # and once more with no page open, for entry 151's round: the page's own
+    # view -- it shares a sub-window (a Gui::ViewArea) with the 3D view, and
+    # closing that would close the document
+    for view in FreeCADGui.getMainWindow().findChildren(QtWidgets.QWidget):
+        if view.metaObject().className() == "TechDrawGui::MDIViewPage":
+            view.close()
+
+
+def save_closed():
+    # a step of its own: the closed view is gone once the event loop ran
+    if page_view() is not None:
+        raise RuntimeError("the page did not close")
+    FreeCAD.getDocument(DOC).saveAs(PATH_CLOSED)
     FreeCAD.closeDocument(DOC)
 
 
@@ -342,6 +346,7 @@ def advance():
 
 STEPS.append((1500, make))
 STEPS.append((6000, save_and_close))
+STEPS.append((500, save_closed))
 for _kind in ("Qt", "backend"):
     if _kind == "backend":
         STEPS.append((500, to_backend))

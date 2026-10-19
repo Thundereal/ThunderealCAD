@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 16:12: entry 186 -- the user copy's cdb now also stops on _purecall/abort
+(next start); the 16:01 break-in not the build session's; entry 187 --
+a caught crash now says so in a box (written, uncommitted).** Under the
+entries.
+
 **2026-10-19 16:08: entry 186's cause found (a right-press event grab never released under
 Blender navigation; the grabbing handle deleted by one radius), fix
 building; 159, 180, 182, 184 built (r133) and 185 in r134, all
@@ -3799,12 +3804,12 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 179 | 2026-10-19 | a defect found by the note-taker in the reporter's console log, made an entry on the reporter's "agree all" (read as yes): the document scanner's EMBEDDED TRANSACTION LOG is older than the build's schema -- "no such column: joined" -- on opening, in the transaction log view, and as an exception caught in notify | OPEN; 2026-10-19 13:12. 2026-10-19 13:37 per x16 it is oplab's (Transaction code): oplab has a fix BUILT (a layout version, migration on open, the panel showing a read error instead of throwing); x16 to merge it into thundereal/main. The build session READ scanner.FCStd: NO embedded history any more, saved 13:12:39 -- the failed history presumably DROPPED by a later save. 2026-10-19 13:40 the reporter: "I restored the scanner file. The one with history is renamed to scanner2.FCStd" -- the copy WITH the history is D:/Zheng.Lei/mech/scanner2.FCStd (READ: 9243622 bytes, modified 2026-10-16 18:06), so its log layout CAN be read for oplab |
 | 180 | 2026-10-19 | a change request: a FAILED fillet edge (no handle today) shows a RED CROSS at the CENTRE of its face (unpickable; the face is pickable); on-view LABELS get a hover HIGHLIGHT (they are clickable) and a label's hover PRESELECTS as the face's does; the same for all dress-ups; the label highlight for ALL on-view edits; no preselection where it makes no sense | OPEN; said to the note-taker 2026-10-19 13:22. 2026-10-19 13:27 the reporter: the cross for EVERY failed edge, MISSING ones too; placed at the ROOT where the HANDLE would have been (not the face centre); fixed size like a handle, NO hover effect (not pickable); clicking as now. 2026-10-19 13:37 the build session: for a MISSING edge it will propose the point on the kept face nearest where the edge was, if known, else the face's centre. 2026-10-19 14:32 point 1 BUILT locally `aefebaa749`: the red cross for failed AND missing fillet/chamfer edges (present: the arrow's root; missing: the middle of the face last made for it); fillet-failed-edge-cross 8/8; point 2 (labels) to do; NOT pushed. 2026-10-19 15:03 point 1 (the cross) PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130); point 2 to come. 2026-10-19 15:08 the reporter (on the staged cross): "make the two bars in the cross as thick and the handle arrow lines" -- the cross's two bars as THICK AS the handle ARROW's lines. 2026-10-19 16:08 the cross's bars as thick as a handle's shaft (camera-facing, scaled like the handles) BUILT, green on r133, NOT committed (working tree), NOT pushed, NOT staged |
 | 181 | 2026-10-19 | a change request: (1) the on-view edit MENU BUTTON's strips SQUARER, like the view cell menu's (they look too thin); (2) TOOLTIPS and a RIGHT-CLICK CONTEXT MENU on the fillet's (preview) FACE; the same for all dress-up features | OPEN; said to the note-taker 2026-10-19 13:39. 2026-10-19 14:32 point 1 BUILT locally `aefebaa749`: the strips a square block like the cell's (t, gaps t, square ends); point 2 (face tool tips and menu) to do; NOT pushed. 2026-10-19 15:03 point 1 (square strips) PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130); point 2 to come |
-| 182 | 2026-10-19 | a change request: a dress-up feature's PREVIEW SHAPE shows the SELECTION highlight, not only the PRESELECTION highlight as now | OPEN; said to the note-taker 2026-10-19 13:43. 2026-10-19 13:49 NARROWED by the reporter: a WORKING face's click selecting the base edge with no face highlight is FINE; only a selection that really NAMES the PREVIEW FACE (a failed/missing edge's face) shows the face's selection highlight -- the note-taker's 13:43 reading a corrected. 2026-10-19 14:32 to do (as narrowed), after 181 point 2. 2026-10-19 15:15 the reporter: "btw, the selection highlight for the failed/missing edge's face does not work" -- seen on the stage (stage21); by the build session's 14:32 report 182 is NOT BUILT yet ("still to do"), so not in stage21. 2026-10-19 15:16 the reporter's case: scanner, after a recompute, PrismLocker's failed fillet face -- hover highlight YES, selection highlight NO. 2026-10-19 16:08 the failed edge's preview face shows the selection colour (pixels 0 -> 272) BUILT, green on r133, NOT committed (working tree), NOT pushed, NOT staged |
+| 182 | 2026-10-19 | a change request: a dress-up feature's PREVIEW SHAPE shows the SELECTION highlight, not only the PRESELECTION highlight as now | OPEN; said to the note-taker 2026-10-19 13:43. 2026-10-19 13:49 NARROWED by the reporter: a WORKING face's click selecting the base edge with no face highlight is FINE; only a selection that really NAMES the PREVIEW FACE (a failed/missing edge's face) shows the face's selection highlight -- the note-taker's 13:43 reading a corrected. 2026-10-19 14:32 to do (as narrowed), after 181 point 2. 2026-10-19 15:15 the reporter: "btw, the selection highlight for the failed/missing edge's face does not work" -- seen on the stage (stage21); by the build session's 14:32 report 182 is NOT BUILT yet ("still to do"), so not in stage21. 2026-10-19 15:16 the reporter's case: scanner, after a recompute, PrismLocker's failed fillet face -- hover highlight YES, selection highlight NO. 2026-10-19 16:08 the failed edge's preview face shows the selection colour (pixels 0 -> 272) BUILT, green on r133, NOT committed (working tree), NOT pushed, NOT staged. 2026-10-19 16:12 a test claim added: a WORKING edge selected leaves the preview face unlit; runs next round |
 | 183 | 2026-10-19 | a change request: the 'Overlay' PRESET (data/settings/Overlay.FCParam): the BOTTOM panel TRANSPARENT and auto hide 'None'; the REPORT VIEW moved from the top panel to the bottom -- report view LEFT half, Python console RIGHT half, the selection view right-most, COLLAPSED | OPEN; said to the note-taker 2026-10-19 13:46. 2026-10-19 14:32 BUILT locally `e30b518e2d`: the bottom panel see-through, no auto hide, report view | console | selection view (collapsed), the top panel empty; overlay test 52/52; measured 925, 925, 0 at a 1910 px panel; NOT pushed. 2026-10-19 15:03 PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130) |
 | 184 | 2026-10-19 | a change request: the LIST VIEWS in the TASK PANEL styled like the PROPERTY VIEW, with a TRANSLUCENT background | OPEN; said to the note-taker 2026-10-19 15:14; READ: in the overlay style sheets QListView/QTreeView get an opaque rgb(100,100,100), the property editor's items rgba(0,0,0,0.01). 2026-10-19 15:19 the reporter: "entry 184, yes to all" -- the note-taker's readings a-e AGREED (overlay mode only; every list in a task panel; the selection colour kept; every overlay sheet; the rest unchanged). 2026-10-19 16:08 the task lists see-through in overlay (alpha 2/255) BUILT, green on r133, NOT committed (working tree), NOT pushed, NOT staged |
 | 185 | 2026-10-19 | a defect: in a dress-up edit the HANDLES are drawn UNDER (before) the PREVIEW SHAPE; they should draw ABOVE it -- a higher show-on-top priority | OPEN; said to the note-taker 2026-10-19 15:49. 2026-10-19 16:08 the handles above the preview (So3DAnnotation priority -1 in Coin and the render cache) in build r134, NOT committed |
-| 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04. 2026-10-19 16:08 CAUSE found by the build session from the stack (not reproduced): a right PRESS on a handle did grabEvents(), Blender navigation took the right RELEASE, the grab stayed; one radius rebuilt the handles and deleted the grabbing node; the next event traversed it. Fix: no grab on the right press -- uncommitted, building. 2026-10-19 16:10 the reporter asked why the cdb the session runs under did not catch it: READ, its arm file stops ONLY on a first-chance ACCESS VIOLATION (sxe av); a purecall -> abort -> SIGABRT is no SEH exception, so cdb saw only the handler's C++ throw (first chance, ignored); arming _purecall / abort proposed |
-| 187 | 2026-10-19 | a defect, found through 186: after a CRASH that FreeCAD catches and survives, NOTHING TELLS THE USER, though the application is no longer in a stable state | OPEN; said to the note-taker 2026-10-19 16:07; READ: GUIApplication::notify shows a box for an access violation only; the purecall/abort path (Base::AbnormalProgramTermination) is caught as an ordinary Base::Exception and only logged |
+| 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04. 2026-10-19 16:08 CAUSE found by the build session from the stack (not reproduced): a right PRESS on a handle did grabEvents(), Blender navigation took the right RELEASE, the grab stayed; one radius rebuilt the handles and deleted the grabbing node; the next event traversed it. Fix: no grab on the right press -- uncommitted, building. 2026-10-19 16:10 the reporter asked why the cdb the session runs under did not catch it: READ, its arm file stops ONLY on a first-chance ACCESS VIOLATION (sxe av); a purecall -> abort -> SIGABRT is no SEH exception, so cdb saw only the handler's C++ throw (first chance, ignored); arming _purecall / abort proposed. 2026-10-19 16:12 the user copy's cdb arm file now also stops on _purecall and abort (outside the repo; from the next start through fcad-user-cdb.cmd); the 16:01 break-in was NOT the build session's -- who, unknown |
+| 187 | 2026-10-19 | a defect, found through 186: after a CRASH that FreeCAD catches and survives, NOTHING TELLS THE USER, though the application is no longer in a stable state | OPEN; said to the note-taker 2026-10-19 16:07; READ: GUIApplication::notify shows a box for an access violation only; the purecall/abort path (Base::AbnormalProgramTermination) is caught as an ordinary Base::Exception and only logged. 2026-10-19 16:12 WRITTEN, uncommitted: notify catches Base::AbnormalProgramTermination as Fatal; one critical box at a time for both kinds ("A crash was caught ... Save your work under a NEW file name, then restart" + the error + the crash log path); a hand check on the stage; d (the 2 min 45 s wait) not addressed |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25949,6 +25954,18 @@ user copy's cdb ALSO on the abort path -- e.g. "bu VCRUNTIME140!_purecall"
 and "bu ucrtbase!abort" with the same stack + dump + gn -- so a purecall
 or abort is stopped and dumped BEFORE FreeCAD's handler runs.
 
+**2026-10-19 16:12, the build session (relayed):** the break-in through tcp:9311 at
+about 16:01 was NOT the build session ("I have never connected to the
+reporter's cdb"); who did it stays unknown. The note-taker's reading of
+why cdb did not stop agreed. DONE, outside the repo: D:\works\sw\tools\
+fcad-user-arm.cdb now ALSO has "bu VCRUNTIME140!_purecall" and "bu
+ucrtbase!abort" -- each ".echo ==== PURECALL/ABORT ====; .time; r; kv
+60", then the session's one dump (shared $t19, dbg\dumps\
+fcad_user_abort.dmp), then g; behaviour otherwise unchanged. Takes effect
+at the reporter's NEXT start through fcad-user-cdb.cmd, not in a running
+session. READ by the note-taker: the arm file's lines 21, 22 are those
+two "bu".
+
 ## 187. A crash caught and survived tells the user nothing, though the application is no longer stable (a defect) -- OPEN
 
 **2026-10-19 16:07, the reporter (to the note-taker):** "so that expose another problem. There is nothing to tell the user a crash happend while the application is actually not in a stable state"
@@ -25991,6 +26008,22 @@ d. The 2 min 45 s freeze before the throw: not asked; read as part of the
    to judge.
 e. Once per session or each time: read as each fatal event, shown once
    while the earlier one is still up.
+
+**2026-10-19 16:12, the build session (relayed): 187 WRITTEN, uncommitted.**
+GUIApplication::notify now catches Base::AbnormalProgramTermination (the
+abort path) as FATAL, like an access violation. Both show ONE critical
+box at a time: "A crash was caught. The application is still running,
+but it is no longer in a stable state. Save your work under a NEW file
+name, then restart the application." plus the error text and "Details
+are in <crash log path>". Before: an access violation showed only its
+bare text, an abort nothing. Not testable from a script (an abort cannot
+be raised from Python inside event dispatch) -- a HAND CHECK on the
+stage. The note-taker's d (the 2 min 45 s silent wait for symbol
+resolution) NOT addressed yet.
+182: the note-taker's note taken -- a test claim added: with a WORKING
+edge selected (after the radius is made good), the preview face must
+stay unlit. Runs in the next round with 186 (no grab on the handle's
+right press) and 187.
 
 ## Inbox
 

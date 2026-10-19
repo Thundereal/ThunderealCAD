@@ -173,6 +173,9 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 21:42: entry 190 -- the phone form also collapsible, expanding into a
+SCROLLING card.** Under the entry.
+
 **2026-10-19 21:38: entry 190 -- all the (browser's) toolbars in one draggable
 card, collapsible into a draggable button.** Under the entry.
 
@@ -3880,7 +3883,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 187 | 2026-10-19 | a defect, found through 186: after a CRASH that FreeCAD catches and survives, NOTHING TELLS THE USER, though the application is no longer in a stable state | OPEN; said to the note-taker 2026-10-19 16:07; READ: GUIApplication::notify shows a box for an access violation only; the purecall/abort path (Base::AbnormalProgramTermination) is caught as an ordinary Base::Exception and only logged. 2026-10-19 16:12 WRITTEN, uncommitted: notify catches Base::AbnormalProgramTermination as Fatal; one critical box at a time for both kinds ("A crash was caught ... Save your work under a NEW file name, then restart" + the error + the crash log path); a hand check on the stage; d (the 2 min 45 s wait) not addressed. 2026-10-19 16:32 the crash box COMMITTED locally `a39d10e326`, NOT pushed, NOT staged. 2026-10-19 18:06 the crash box PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session; a HAND CHECK still to do |
 | 188 | 2026-10-19 | a change request: with ONE MISSING (not failed) edge's PREVIEW SHAPE SELECTED, CLICKING ANOTHER EDGE of the BASE feature (one not already in the dress-up) CHANGES that missing reference to the clicked edge; the same for ALL other dress-up features | OPEN; said to the note-taker 2026-10-19 18:03. 2026-10-19 19:31 BUILT and COMMITTED locally `2121766927` (log `3d343d3d93`), NOT pushed, NOT staged: one missing row selected + a pick of an UNUSED base element of its kind -> REPLACED IN PLACE, every dress-up, the values follow, one undo step; the note-taker's a-g as read, h a face for draft/thickness by the same code |
 | 189 | 2026-10-19 | a question and a change request: is ALL the corresponding ON-VIEW EDIT in the BROWSER? if not, SYNC it -- the browser to carry what the desktop's on-view edit has now | OPEN; said to the note-taker 2026-10-19 18:04; answered from the queue: NO -- 172 (all PD on-view edit in the browser) was SIZED (docs/OnViewValueEditing.md sec 9, `8cd250125b`), NOTHING BUILT; the desktop's on-view work since is not in the browser either. 2026-10-19 19:31 the reporter (relayed, to the build session; the note-taker did not hear it): "After that do 189 with real browser"; FIRST STEPS COMMITTED locally `913db7b153`, NOT pushed, NOT staged: in a REAL Chrome the fillet's arrows drag live; the fine-snap key is the client's; Tab and Escape from the page move/clear the active value; found: the top-middle label UNDER the web toolbars, a radius draggable to 0 (the desktop clamps the same), no on-view entries for typing; next: the handle's menu (sec 9.2 #4, #5, #7, #10), the label clear of the toolbars, then typing and touch |
-| 190 | 2026-10-19 | a change request: ALL the TOOLBARS hosted in ONE DRAGGABLE CARD, with a TOGGLE that COLLAPSES it into a BUTTON, the button DRAGGABLE too (read as the BROWSER viewer's toolbars) | OPEN; said to the note-taker 2026-10-19 21:38 |
+| 190 | 2026-10-19 | a change request: ALL the TOOLBARS hosted in ONE DRAGGABLE CARD, with a TOGGLE that COLLAPSES it into a BUTTON, the button DRAGGABLE too (read as the BROWSER viewer's toolbars) | OPEN; said to the note-taker 2026-10-19 21:38. 2026-10-19 21:42 the reporter: the PHONE form too -- collapsible into the button, and EXPANDING into a card whose contents SCROLL (all the toolbars cannot fit a phone screen otherwise); g answered |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26322,6 +26325,22 @@ h. The on-view label (189): read as the card's area still reported by
    the card movable, the user moves it off the label.
 i. Kept inside the view: read as the card and the button clamped to the
    view's edges on a drag and on a window resize.
+
+**2026-10-19 21:42, the reporter (to the note-taker):** "phone also collapsible but also expand into a card that are scrolling, or else I guess there's no way to host all the toolbars on a phone screen"
+The note-taker's reading: g ANSWERED -- on a PHONE (the narrow form)
+the toolbars are the same COLLAPSIBLE card: collapsed, the button;
+expanded, a card of bounded size whose contents SCROLL, so every
+toolbar is reachable on a small screen (today's narrow form is a
+one-row strip scrolled sideways near the bottom). NOT said:
+- the scroll direction: read as the card scrolling its contents
+  (toolbars wrapping inside, scrolled up/down); sideways not ruled out;
+- whether the phone starts collapsed: the note-taker's g proposed it,
+  not confirmed;
+- dragging on the phone: read as the same as elsewhere (the card and the
+  button draggable by touch, by the grip so scrolling and dragging do
+  not fight);
+- the card's size on a phone: read as a part of the screen, not all of
+  it, so the view stays usable.
 
 ## Inbox
 

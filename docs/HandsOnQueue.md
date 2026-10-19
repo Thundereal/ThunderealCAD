@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 09:08: entry 174 designed (docs/UserSettings.md, `dcfa2bba59`), nothing
+built; menu settings can do the same; 2.6 a-f for the reporter.** Under
+the entry.
+
 **2026-10-19 09:03: "Yes stay that way for now" -- 171's settings global for now; new
 entry 174 -- design PER-USER SETTINGS (each edit knows its user;
 PrefWidget and the menu's settings under a per-user prefix); 172 sized
@@ -3612,7 +3616,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 171 | 2026-10-18 | a change request and a question: a RIGHT-BUTTON DRAG of a handle to do the FINE change Shift does now; where the drag increment settings are and how the fine step relates to them; the increment settings brought INTO THE VIEW during an on-view edit, at the bottom middle? | OPEN; said to the note-taker 2026-10-18 21:48; the question answered from the source. 2026-10-18 21:51 the build session: a short design for (1) and (3) after its current task; nothing built before the reporter answers. 2026-10-18 22:02 (3) CHANGED by the reporter: "ok, change idea, do not bring the setting on view. just add a settings sub menu item in the handle context menu. the sub menu has all those settings widget and change it takes effect immediately" -- no settings in the view; a SETTINGS SUB-MENU in the handle's context menu holding the settings' widgets, a change taking effect at once; (1) the right-button fine drag stands. 2026-10-18 22:04 (1) DROPPED by the reporter: "so no need right button drag, since one of the setting determin the default drag is fine or coarse" -- no right-button drag; the default drag behaviour in the Settings sub-menu does it; 171 is now the sub-menu alone. 2026-10-18 22:06 the reporter: "the setting menu shall have edit or checkbox widget like the rest of the menus." -- the sub-menu's items are EDIT or CHECK BOX widgets in the menu, as the fork's other menus have them (e.g. a preference widget's context menu, PrefWidgets.cpp 372). 2026-10-18 22:09 the reporter: "a combobox for the choice. yes leave out for the show interactive" -- the two choices as COMBO BOXES; "Show interactive draggers" LEFT OUT; the sub-menu holds six settings |
 | 172 | 2026-10-18 | a change request: ALL the PartDesign ON-VIEW EDIT (handles, the active handle and typing, the labels, the menus) working IN THE BROWSER, tested in a REAL BROWSER | OPEN; said to the note-taker 2026-10-18 22:13. 2026-10-18 22:16 the reporter: "long touch press on handle to bring up the context menu" -- touch is in scope (b): a LONG PRESS on a handle opens the HANDLE's context menu, the touch form of the right click. 2026-10-18 22:18 the reporter: "there is hover/preselection, check the browser code. task panel shall already in browser by now. Do thunderealcad merge first. then do this on the new tracked LinkVibe branch" -- the browser HAS hover/preselection (the note-taker's "no hover" on touch wrong); the task panel is already in the browser; ORDER: the ThunderealCAD merge FIRST, then 172 on the new tracked LinkVibe branch. 2026-10-19 09:03 SIZED by the build session (docs/OnViewValueEditing.md sec 9, `8cd250125b`, local), nothing built; 9.5 a-c for the reporter (c: puppeteer-core installed on the box, the reporter's yes first) |
 | 173 | 2026-10-19 | a change request: an always-visible MENU BUTTON at the 3D view's TOP MIDDLE during an on-view edit (left of the top-middle label when there is one), like the cell menu button but label-high, keeping clear of overlay widgets (the label too); its menu = the active handle's context menu plus 'toggle handles' and 'show preview', the settings even with no active handle | OPEN; said to the note-taker 2026-10-19 08:32. 2026-10-19 08:35 the build session: one design note for 171 and 173 together (one menu), then 172's sizing; nothing built before the reporter sees the design. 2026-10-19 08:48 the reporter: "Toggle handles, this view only, same as show preview. The policy from now on is to keep in mind of multiple user editing. In the future we shall extend preference to be user aware. So browser user can have their own preference." -- toggle handles and show preview THIS VIEW ONLY; a POLICY: keep multiple users editing in mind; later, user-aware preferences. 2026-10-19 08:54 the 171+173 DESIGN written (docs/OnViewValueEditing.md sec 8, `08ff4f5181`, local), nothing built; sec 8.6 a-f for the reporter (a: the panel's Show preview also writes the global preference and resumes the recompute -- the menu's switch would only take the preview out of this view). 2026-10-19 09:03 the reporter: "Yes stay that way for now." -- read as: 171's settings stay the GLOBAL preference for now; 8.6 a-f NOT answered by it |
-| 174 | 2026-10-19 | a change request FOR DESIGN: PER-USER SETTINGS -- each edit identifies the user who started it; PrefWidget checks the current editing user and PREFIXES the setting path; check whether settings in menu items can do the same | OPEN; said to the note-taker 2026-10-19 09:03 |
+| 174 | 2026-10-19 | a change request FOR DESIGN: PER-USER SETTINGS -- each edit identifies the user who started it; PrefWidget checks the current editing user and PREFIXES the setting path; check whether settings in menu items can do the same | OPEN; said to the note-taker 2026-10-19 09:03. 2026-10-19 09:08 DESIGNED by the build session (new docs/UserSettings.md, `dcfa2bba59`, local), nothing built; menu settings: YES the same way; sec 2.6 a-f for the reporter |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -24241,6 +24245,51 @@ f. How the user follows into code that reads a parameter outside a
 g. With 172's 9.5 a (one shared edit for every browser user): "each edit
    shall identify the initiating user" -- read as the user who STARTED
    the edit; whose settings apply when another user drags in it, not said.
+
+**2026-10-19 09:08, the build session (relayed): 174 DESIGNED in a new doc,
+docs/UserSettings.md, `dcfa2bba59` (local, not pushed). Nothing built.**
+- BASE: App::ActorScope already exists (src/App/Actor.h 97); the Gui
+  sets it while it replays a client's event or runs its op
+  (SceneServeSource.cpp 1901/1934, SceneControl.cpp 1388); today it only
+  names the transaction log's author. Settings get a SECOND thread scope
+  beside it, Gui::PrefUser -- kept apart because in a shared edit who
+  WROTE something (the log) and whose SETTINGS apply can differ.
+- setEdit records the INITIATING actor; while the edit is open the
+  serve source runs that edit's replayed input and panel ops under the
+  edit's user's settings.
+- STORAGE: a new users.cfg, "Users parameter:<kind>/<name>/" before the
+  unchanged path; a read FALLS BACK to the global; a write goes to the
+  user's entry only.
+- PrefWidget and its context-menu sub-entries through ONE helper,
+  Gui::UserParameter; user aware BY DEFAULT in task panels and edit
+  menus, with a userAware opt-out; the PREFERENCES DIALOG stays GLOBAL.
+- The generated accessors (MiscParams etc., cached const T&): an OPT-IN
+  per parameter (user=True in the .py declaration), a per-user cache
+  behind one thread-local check; first 171's six.
+- "Settings in menu items": YES, THE SAME WAY -- a menu widget reads and
+  writes through whatever builds it (PrefWidget sub-entries through the
+  helper, 171's sub-menu through the opted-in accessors), built and
+  written under the preference user of the event that opens it.
+Sec 2.6 FOR THE REPORTER, each with its proposal (all "yes"):
+a. The DESKTOP user: no prefix, today's paths unchanged.
+b. A SHARED edit driven by someone who did not begin it: the
+   INITIATING user's settings apply; the log still names who changed
+   what.
+c. A browser user NEVER writes the GLOBAL value, only their own; the
+   global is the desktop user's.
+d. A DECLARED user (a name nobody checked): settings for the connection
+   only, not kept; verified, invited and enrolled users' are kept.
+e. Which settings: panel and edit-menu widgets by default with an
+   opt-out; the accessors by opt-in per parameter.
+f. ONE users.cfg for all users; a user's group removed when the host
+   forgets them.
+Order (sec 3): PrefUser and the edit's user -> the UserParameter helper
+-> PrefWidget -> the generator's user=True and the six -> two Chrome
+users (with 172).
+READ by the note-taker: App::ActorScope at src/App/Actor.h 97 -- exists.
+The note-taker's reading: the note-taker's 09:03 a, c, f, g taken as
+read (a: no desktop prefix; c: fall back to global; g: the initiating
+user's settings, b here).
 
 ## Inbox
 

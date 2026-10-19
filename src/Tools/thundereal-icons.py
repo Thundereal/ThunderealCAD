@@ -196,6 +196,26 @@ def union(layers):
     return u.simplified()
 
 
+# The mark's dark edge, in the 64-unit frame: a stroke of the whole outline
+# behind the faces, half of it showing. It holds the mark on a light ground and
+# all but vanishes on a dark one. Every drawing of the mark in colour carries
+# it but the 16 px document icon, where it would fill the strike (user,
+# 2026-10-19); the watermark is a silhouette and the TechDraw logo line art.
+EDGE_WIDTH = 64 / 24
+
+
+def edge_path(layers, xf=None, width=EDGE_WIDTH):
+    """The edge of a drawing of the mark, `width` in the layers' own units."""
+    scale = xf.m11() if xf is not None else 1.0
+    return '  <path id="edge" fill="%s" stroke="%s" stroke-width="%s" stroke-linejoin="round" d="%s"/>\n' % (
+        K["edge"], K["edge"], num(width * scale), path_data(union(layers), xf))
+
+
+def edged(layers, xf=None, width=EDGE_WIDTH):
+    """The mark with its edge."""
+    return edge_path(layers, xf, width) + paths(layers, xf)
+
+
 def app_body(layers, edge, centre, radius, xf=None):
     """The application icon's drawing: the lit bottom face's gradient, the
     edge -- a stroke of the whole outline behind the faces, half of it
@@ -207,10 +227,7 @@ def app_body(layers, edge, centre, radius, xf=None):
         '  <defs><radialGradient id="lit" gradientUnits="userSpaceOnUse" cx="%s" cy="%s" r="%s">'
         "%s</radialGradient></defs>\n" % (num(centre[0]), num(centre[1]), num(radius), stops)
     )
-    outline = (
-        '  <path id="edge" fill="%s" stroke="%s" stroke-width="%s" stroke-linejoin="round"'
-        ' d="%s"/>\n' % (K["edge"], K["edge"], num(edge), path_data(union(layers), xf))
-    )
+    outline = edge_path(layers, xf, edge / (xf.m11() if xf is not None else 1.0))
     faces = paths(layers, xf).replace(
         'id="barBottom" fill="%s"' % K["barBottom"], 'id="barBottom" fill="url(#lit)"'
     )
@@ -330,7 +347,7 @@ def write_svgs():
     )
     write(
         os.path.join(ICONS, "thundereal-mark.svg"),
-        svg(64, 64, DESC + paths(mark_layers()), "Thundereal mark"),
+        svg(64, 64, DESC + edged(mark_layers(), QtGui.QTransform.fromTranslate(0, 1.6)), "Thundereal mark"),
     )
     # With no tile to sit inside, the 16 px drawing takes the whole square:
     # the strike 15 px tall, the bar's edges on whole pixels, the edge half a
@@ -357,11 +374,11 @@ def write_svgs():
     )
     write(
         os.path.join(ICONS, "thundereal-doc.svg"),
-        svg(64, 64, PAGE + paths(mark_layers(), inset(0.42, 33, 27)) + band, title),
+        svg(64, 64, PAGE + edged(mark_layers(), inset(0.42, 33, 27)) + band, title),
     )
     write(
         os.path.join(ICONS, "thundereal-doc-small.svg"),
-        svg(64, 64, PAGE + paths(mark_layers(), inset(0.56, 33, 37)), title),
+        svg(64, 64, PAGE + edged(mark_layers(), inset(0.56, 33, 37)), title),
     )
     doc16 = mark16(
         [(5, 5), (11, 5), (11, 7), (5, 7)],
@@ -795,7 +812,7 @@ def splash_svg(tagline=None):
     label = text_path("38.00", 7.5, left.x() + (right.x() - left.x()) * 0.3, dy - 2.5)
     body.append('  <path d="%s" fill="%s" fill-opacity="0.75"/>\n' % (path_data(label), k["grid"]))
 
-    body.append(paths(mark_layers(), xf))
+    body.append(edged(mark_layers(), xf))
 
     body.append(
         '  <path id="wordmark" fill="%s" d="%s"/>\n'

@@ -7714,3 +7714,12 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   (8.6 a): "Show preview" today also resumes the feature's recompute,
   which is the document's state, so a this-view-only switch cannot do
   that part. NOT built; with the reporter.
+- 172 (PD on-view edit in the browser) sized: docs/OnViewValueEditing.md
+  sec 9. By the source the handles are streamed (overlay 7) and a left drag
+  is replayed into the client's mirror viewer, the labels go the
+  sketcher's on-view way, the panel is mirrored; missing are the value
+  set's keys and right click (a Qt filter on a widget a mirror has not),
+  the handle's menu (QMenu::exec on the host), tool tips, snapping's
+  modifiers (read from the host's keyboard), and all of touch. Nothing of
+  it seen yet; step 1 is to see it in Chrome. NOT built; 9.5 a-c with the
+  reporter.

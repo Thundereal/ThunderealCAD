@@ -778,6 +778,109 @@ not be redone.
 - Show preview off in one view: the preview gone there, and still shown in
   any other view of the edit's session; the feature not recomputed.
 
+## 9. In the browser (entry 172): SIZED, NOT BUILT
+
+Asked 2026-10-18 22:13 - 22:18: "implement all the partdesign on view edit
+in browser. test in real browser"; touch in scope, a long press on a handle
+opens that handle's menu; hover exists in the browser; the task panel is
+there already; after the ThunderealCAD merge, on its LinkVibe branch.
+
+### 9.1 What the browser has already (read in the source, not yet seen)
+
+- The handles reach the browser. A gizmo container sits in the edit
+  viewer's editing root (`Gizmo.cpp` 1347-1364), which the serve source
+  publishes as overlay 7 tagged with the edit's session
+  (`SceneServeSource.cpp` 463-499, 857-904); the wasm draws the overlays of
+  its own session (`wasm/main.cpp` 181-192).
+- A drag can reach them. While a client edits, its left press, release and
+  hover moves go up as raw `'E'` input frames (`main.cpp` 4777-4806,
+  5424-5474, 5526-5535) and are replayed as SoEvents into that client's
+  `MirrorViewer` (`SceneServeSource.cpp` 673-696, `MirrorViewer.cpp`
+  606-702), where Coin's draggers take them as on the desktop. Gizmo hover
+  is a server-side `SoLocation2Event` callback, so it rides the same moves.
+- The labels reach it. An `EditableDatumLabel` is an `OnViewEntry`
+  (`EditableDatumLabel.cpp` 101-104), announced to the client with its
+  anchor (`SceneServeSource.cpp` 981-1034) and drawn by `web/src/onview.tsx`;
+  a tap focuses it, keys go to the focused entry's box -- the sketcher's
+  path, which the PartDesign labels share.
+- The task panel is mirrored (`Fw/FwPanelMirror`, `web/src/widgets/panel.tsx`
+  453-655): the spin boxes, check boxes, combo boxes and lists the PD panels
+  use are all among its kinds.
+- The scene's context menu is a server `QMenu` described to the client and
+  triggered back (`SceneContextMenu.cpp` 139-160, 693-830); a right click
+  asks for it (`main.cpp` 2097-2105).
+- Each connection has its own `MirrorViewer` (`SceneServeSource.cpp`
+  556-624). The edit session is SHARED by default (`PerViewEdit` off,
+  `Document.cpp` 845): every client sees the edit's handles; with
+  `PerViewEdit` on, only the one that began it.
+
+### 9.2 What is missing
+
+| # | Gap | Where | Size |
+|---|---|---|---|
+| 1 | Nothing of it seen in a browser: handles drawn, dragged, hovered | -- | a first test |
+| 2 | Coarse / fine snapping reads the host's keyboard (`QApplication::queryKeyboardModifiers`), not the replayed event's | `Gizmo.cpp` 724, 1039 | small |
+| 3 | The value set's keys (Tab, Enter, digits, Space, Escape cancelling a drag) and the right click on a handle come through a Qt event filter on the view's widget; a mirror has no widget, so none of them run | `OnViewValue.cpp` 413-418, 893-1030 | medium: take them from the viewer's SoEvents instead, one path for both |
+| 4 | The handle's menu is `QMenu::exec` on the host | `OnViewValue.cpp` 651-679 | medium: the scene menu's ops carry it; the server's menu at a point returns the handle's menu when a handle is under it |
+| 5 | 171's Settings widgets (check, choice, number) in a described menu: the description has actions and checks only | `SceneContextMenu.cpp` 139-160 | medium; the data of 8.7 |
+| 6 | Tool tips are `QToolTip` on the host | `Gizmo.cpp` 261-318 | small: an on-view hint |
+| 7 | Right button: the client keeps it (and the middle button, the wheel) for its camera | `main.cpp` 4684-4687 | small: a right CLICK goes to the menu of 4; a right DRAG stays the camera |
+| 8 | Touch sends no input frames at all; the long press is off while editing | `main.cpp` 5919+, 5836 | large: see 9.3 |
+| 9 | 173's button drawn by the web client, opening the menu of 4 | web | medium |
+| 10 | The mirror maps its button code 2 to Coin's BUTTON2 but Qt's middle button; FreeCAD's BUTTON2 is the right one, which the handle menu waits for | `MirrorViewer.cpp` 635-654, `Gizmo.cpp` 389 | check when 7 is done |
+
+### 9.3 Touch
+
+The client must know, at the finger's first touch, whether it is on a handle
+(then the finger drags the handle and its moves go up) or not (then it
+orbits, as now). A round trip per touch is too slow for that decision, and
+the client draws overlay 7 itself, so it has the handles' triangles: the
+client's ray pick (`pickScene`, `main.cpp` 1337, scene draws only) is
+extended to overlay 7. Then:
+
+- a finger down on a handle: press, moves and release go up as for the
+  mouse (no camera);
+- a tap on a handle: the press and release, which make it active;
+- a hold on a handle (the scene menu's hold, 350 + 500 ms): the handle's
+  menu (9.2 #4), the loupe first as anywhere;
+- the fine step: no Shift on a phone, so the Settings sub-menu's "Default
+  drag" (171), as the reporter said at 22:04;
+- typing: the label's own box, with the phone's keyboard, as the sketcher's.
+
+### 9.4 Several users (the 08:48 policy)
+
+Shared by default, an edit's handles and its active value are one for every
+client of the document, as its task panel is (`ThinClient.md` 1695-1708):
+one user making a value active makes it active for all. Per view state
+(8.5) needs one value set per view: a larger change, and only where
+`PerViewEdit` is on.
+
+### 9.5 For the reporter
+
+a. Several users in a shared edit: one active value and one set of handles
+   for all, as the one task panel? Proposed: yes for now; per view value
+   sets only with `PerViewEdit` on, later.
+b. A right drag in the browser stays the camera's, a right click on a
+   handle opens its menu? Proposed: yes.
+c. "Test in real browser" on this Windows box: the browser tests drive
+   Chrome through `node` + `puppeteer-core` (`tests/gui/*-browser.py`), set
+   up on Linux only so far. It needs `puppeteer-core` installed beside a
+   local Chrome here. Proposed: yes, in a tools directory, not in the repo.
+
+### 9.6 Order of work
+
+1. See it: a served fillet edit in Chrome on this box, dragged with the
+   mouse; write down what works (9.2 #1). A trace on the first build if a
+   drag does not take.
+2. #2 and #3: the snapping modifiers and the value set's keys from the
+   viewer's events -- desktop behaviour unchanged, tested by the existing
+   set, then in the browser.
+3. #4, #5, #7, #10: the handle's menu in the browser, with 171's widgets
+   (after 171 is decided and built on the desktop).
+4. #6 hints, #9 the button (after 173).
+5. 9.3 touch, tried with Chrome's touch emulation and, if the reporter has
+   one at hand, a phone.
+
 ## Sources
 
 1. SolidWorks, FilletXpert Change PropertyManager:

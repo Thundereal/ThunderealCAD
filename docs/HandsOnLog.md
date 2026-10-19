@@ -7723,3 +7723,12 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   modifiers (read from the host's keyboard), and all of touch. Nothing of
   it seen yet; step 1 is to see it in Chrome. NOT built; 9.5 a-c with the
   reporter.
+- 174 (per-user settings) designed: docs/UserSettings.md. The user is a
+  thread scope (Gui::PrefUser) beside the existing App::ActorScope (who
+  wrote, for the log); an edit records who began it and its events run as
+  that user's settings; values in users.cfg under <kind>/<name>/ before
+  the unchanged path, read with a fall-back to the global, written to the
+  user's only; PrefWidget and its menu sub-entries through one helper; the
+  generated accessors (MiscParams) by opt-in per parameter (user=True),
+  first 171's six. Menu items: yes, the same way. NOT built; 2.6 a-f with
+  the reporter.

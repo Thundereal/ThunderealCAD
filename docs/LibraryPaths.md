@@ -495,27 +495,23 @@ empty path, read back as a local link).
   snapshot of the copy's own document is a save of it, and a save inside
   the export would write its objects as exported ones.
 - **The paste** (`PropertyXLink::Restore`): while a document with that `Uid`
-  is open -- not one opened from the snapshot -- the link goes to it, and is
-  local when pasted into it; so a Link copied and pasted within one unsaved
-  document stays local, as before. Otherwise the snapshot file: taken if a
-  document has it open, opened if not. A FreeCAD that does not know the
-  attribute opens the snapshot.
+  is open the link goes to it, and is local when pasted into it; so a Link
+  copied and pasted within one unsaved document stays local, as before.
+  Otherwise the snapshot is opened as a document never saved (section 13),
+  which has the `Uid`, so a later paste takes it. A FreeCAD that does not
+  know the attribute opens the snapshot as a file.
 - **Written only by the clipboard's copy** (`MainWindow`), which may be
   pasted after the document is gone. Duplicate Selection and
   `Document::copyObject` paste at once, find the document open, and write
-  no file; the attribute is written all the same. A snapshot a document is
-  open from is not written again.
+  no file; the attribute is written all the same.
 - **Its life is the document's**: closing the document removes its
-  transient directory, the snapshot with it. A paste after that finds the
-  file only if the snapshot is open; a document that took a link to the
-  snapshot and was saved has a broken link once the source document is
-  closed. (The application's temporary folder would outlive the document;
-  not done, the user named the transient directory.)
+  transient directory, the snapshot with it. A snapshot opened by a paste
+  needs its file no more (section 13); a paste after the close, in this
+  FreeCAD, finds no file and leaves the link broken -- the user closed the
+  document without saving it.
 - **The refusals are gone**: `Document::copyObject` (section 11), the
   Gui's paste and Duplicate Selection questions, and their "Unsaved
-  document" errors. A save -- not a copy -- of a document linking into one
-  never saved still refuses, as before: the Gui saves the linked documents
-  first.
+  document" errors.
 - **Tests**: `XLinkSnapshotTest` (gtest, 5): the clipboard's copy writes the
   snapshot and the paste links to the open document; a copy pasted at once
   writes none, `copyObject` included; with the document gone the paste opens
@@ -526,5 +522,50 @@ empty path, read back as a local link).
   (Python).
 - **Gates** (2026-10-19): the 24 Gui checks pass; Python 3807 OK with the
   freeze on and off (52 and 54 skipped); ctest gtest 986/986 both ways;
-  the driven tests 292/292. The clipboard's own copy (`MainWindow`) has no
-  driven test: it opens the scope the gtests run.
+  the driven tests 292/292 (before section 13).
+
+## 13. A snapshot is a document never saved; the save asks for those (2026-10-19)
+
+Ruled by the user: "the current logic will prompt to save any
+modified/unsaved linked document first. check that. ... Just treat snapshot
+as unsaved document."
+
+**Checked, and it did not.** A link into a document never saved has no
+`DocInfo` -- its path waits for a file -- and the document dependency lists
+(`PropertyXLink::getDocumentOutList`, `getDocumentInList`, so
+`Document::getDependentDocuments`) are made from the `DocInfo`s only. The
+Gui's Save of a document linking into one never saved listed nothing to
+ask about; the App's save then logged "Linked document not saved" for the
+link, wrote the file without it and reported success -- the link was lost
+from the file without a word. Save As looked at no dependency at all. Only
+Save All, which lists every document and gives one never saved a Save As,
+did it right.
+
+- **The lists**: the links no `DocInfo` holds (`DocInfo::untrackedLinks`,
+  which already kept them for a close of the linked document) are
+  dependencies too.
+- **Save** (`Gui::Document::save`): a dependency never saved is kept in the
+  question whether it is modified or not, and kept if the answer is No --
+  the links into it would be lost. Each gets its file by a Save As first;
+  cancelled, nothing is saved.
+- **Save As** (`Gui::Document::saveAs`): the same, before its own dialog,
+  guarded against two documents never saved that link to each other.
+- **The snapshot** (`Application::openDocumentAsNew`): a paste that opens
+  it opens it whole, with no view, and clears its file name -- a document
+  never saved, with the `Uid` of the one it is of. What links to it is
+  saved as above: the user is asked for its file. The snapshot's file and
+  the transient directory it is in may go from then on.
+- **Not changed**: the App's own save of a document linking into one never
+  saved (a script's `doc.save()`) still writes the file without the link
+  and logs the error.
+- **Tests**: `XLinkSnapshotTest.aDocumentNeverSavedIsADependency`, and
+  `withTheDocumentGoneThePasteOpensTheSnapshotOnce` restated (opened with no
+  file and the `Uid`, a dependency, a second paste with the file gone takes
+  it); `testALinkIntoADocumentNeverSaved` checks the dependency;
+  `GuiXLinkSnapshotSave` (driven): Std_Copy writes the snapshot, the
+  document closed, Std_Paste opens the snapshot with no file, the save asks
+  for the dependent files and gives the snapshot a Save As, and the link
+  reopens to that file.
+- **Gates** (2026-10-19): the 24 Gui checks pass; Python 3807 OK with the
+  freeze on and off (52 and 54 skipped); ctest gtest 987/987 both ways;
+  the driven tests 293/293.

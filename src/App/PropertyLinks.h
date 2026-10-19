@@ -1389,7 +1389,7 @@ public:
      * sec 12). An export within the scope writes such a link as the file of
      * a snapshot of that document, in its transient directory, and its Uid;
      * a paste links to the document while one with the Uid is open, else to
-     * the snapshot -- opened if no document has it. Begun before the export
+     * the snapshot, opened as a document never saved. Begun before the export
      * marks its objects: the snapshot of the copy's own document is a save of
      * it. Scopes nest, the outermost counts.
      */
@@ -1398,8 +1398,7 @@ public:
     public:
         /** `write`: the snapshot files are written, once each -- for a copy
          * that may be pasted after its documents are gone (the clipboard);
-         * a copy pasted at once finds them open and needs none. A snapshot
-         * a document is open from is not written again.
+         * a copy pasted at once finds them open and needs none.
          */
         SnapshotScope(const std::vector<App::DocumentObject*>& objs, bool write);
         ~SnapshotScope();

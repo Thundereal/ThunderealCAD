@@ -10395,6 +10395,8 @@ class XLinkIntoUnsavedCases(unittest.TestCase):
         unsaved = FreeCAD.newDocument("XUnsavedNoFile")
         nut = unsaved.addObject("App::FeatureTest", "Nut")
         self.src.Holder.L = nut
+        # A dependency, though the link has no file to name: a save asks for it.
+        self.assertIn(unsaved.Name, [d.Name for d in self.src.getDependentDocuments()])
         for name in ("XUnsavedDst", "XUnsavedDstNoFile"):
             doc = FreeCAD.newDocument(name)
             if name == "XUnsavedDst":

@@ -5618,17 +5618,21 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
         }
     }
     // A copy's link into a document never saved (docs/LibraryPaths.md sec
-    // 12): to that document while it is open, else to its snapshot.
+    // 12): to that document while it is open -- or a snapshot of it opened
+    // by an earlier paste, which has its Uid -- else to its snapshot, opened
+    // as a document never saved: one the save of what links to it asks to
+    // save first, as any other.
     Document* live = nullptr;
     if (!self && !file.empty() && reader.hasAttribute("snapshot")) {
         const std::string uid = reader.getAttribute("snapshot");
         for (auto doc : GetApplication().getDocuments()) {
-            const char* fn = doc->getFileName();
-            if (doc->Uid.getValueStr() != uid || (fn && *fn && LibraryPaths::samePath(fn, file)))
-                continue;
-            live = doc;
-            break;
+            if (doc->Uid.getValueStr() == uid) {
+                live = doc;
+                break;
+            }
         }
+        if (!live)
+            live = GetApplication().openDocumentAsNew(file.c_str());
         auto ownerObj = Base::freecad_dynamic_cast<DocumentObject>(getContainer());
         if (live && ownerObj && live == ownerObj->getDocument()) {
             // Pasted into it: a local link.
@@ -5992,9 +5996,6 @@ PropertyXLink::SnapshotScope::SnapshotScope(const std::vector<App::DocumentObjec
         return;
     for (auto doc : queue) {
         const std::string& path = _Snapshots[doc];
-        // Open already, from an earlier paste: links attach to it as it is.
-        if (GetApplication().getDocumentByPath(path.c_str()))
-            continue;
         try {
             QDir().mkpath(QFileInfo(QString::fromUtf8(path.c_str())).absolutePath());
             doc->saveCopy(path.c_str(), false);
@@ -6011,6 +6012,31 @@ PropertyXLink::SnapshotScope::~SnapshotScope()
     if (--_SnapshotDepth == 0)
         _Snapshots.clear();
 }
+
+namespace {
+/** The links no DocInfo holds -- into a document never saved, or of an
+ * owner never saved -- as owner and linked document: a dependency all the
+ * same, whose save comes first (docs/LibraryPaths.md sec 12).
+ */
+template<class F>
+void forEachUntracked(F f)
+{
+    for (auto link : DocInfo::untrackedLinks()) {
+        auto linkedObj = link->getValue();
+        if (!linkedObj || !linkedObj->isAttachedToDocument()
+                || link->getScope() == LinkScope::Hidden
+                || link->testStatus(Property::PropTransient)
+                || link->testStatus(Property::Transient)
+                || link->testStatus(Property::PropNoPersist))
+            continue;
+        auto obj = dynamic_cast<App::DocumentObject*>(link->getContainer());
+        if (!obj || !obj->isAttachedToDocument() || !obj->getDocument())
+            continue;
+        if (linkedObj->getDocument() != obj->getDocument())
+            f(obj->getDocument(), linkedObj->getDocument());
+    }
+}
+}  // namespace
 
 std::map<App::Document*,std::set<App::Document*> >
 PropertyXLink::getDocumentOutList(App::Document *doc) {
@@ -6032,6 +6058,10 @@ PropertyXLink::getDocumentOutList(App::Document *doc) {
             ret[obj->getDocument()].insert(v.second->pcDoc);
         }
     }
+    forEachUntracked([&](App::Document* owner, App::Document* linked) {
+        if (!doc || owner == doc)
+            ret[owner].insert(linked);
+    });
     return ret;
 }
 
@@ -6053,6 +6083,10 @@ PropertyXLink::getDocumentInList(App::Document *doc) {
                 docs.insert(obj->getDocument());
         }
     }
+    forEachUntracked([&](App::Document* owner, App::Document* linked) {
+        if (!doc || linked == doc)
+            ret[linked].insert(owner);
+    });
     return ret;
 }
 

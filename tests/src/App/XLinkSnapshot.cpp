@@ -6,6 +6,7 @@
 
 #include "gtest/gtest.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <sstream>
 
@@ -117,6 +118,7 @@ TEST_F(XLinkSnapshotTest, withTheDocumentGoneThePasteOpensTheSnapshotOnce)
         / ("snapkeep-" + std::to_string(::testing::UnitTest::GetInstance()->random_seed()));
     fs::create_directories(keptDir);
     fs::copy_file(fs::u8path(path), keptDir / "snapshot", fs::copy_options::overwrite_existing);
+    const std::string uid = _unsaved->Uid.getValueStr();
     App::GetApplication().closeDocument(_unsaved->getName());
     _unsaved = nullptr;
     fs::create_directories(fs::u8path(path).parent_path());
@@ -127,10 +129,18 @@ TEST_F(XLinkSnapshotTest, withTheDocumentGoneThePasteOpensTheSnapshotOnce)
     ASSERT_NE(link, nullptr);
     auto bolt = link->getValue();
     ASSERT_NE(bolt, nullptr);
-    EXPECT_TRUE(App::LibraryPaths::samePath(bolt->getDocument()->getFileName(), path))
-        << bolt->getDocument()->getFileName();
+    // Opened as a document never saved, with the Uid of the one it is of.
+    EXPECT_FALSE(bolt->getDocument()->isSaved()) << bolt->getDocument()->getFileName();
+    EXPECT_EQ(bolt->getDocument()->Uid.getValueStr(), uid);
+    // Linked to as to any document never saved: one the save of the
+    // document linking to it asks for first.
+    const auto deps = dst->getDependentDocuments();
+    EXPECT_NE(std::find(deps.begin(), deps.end(), bolt->getDocument()), deps.end());
 
-    // Pasted again: the snapshot open already is taken, not opened twice.
+    // Pasted again, the snapshot's file gone: the one open is taken, not
+    // opened twice, and needs no file.
+    std::error_code ec;
+    fs::remove_all(fs::u8path(path).parent_path(), ec);
     const auto count = App::GetApplication().getDocuments().size();
     auto again = paste(dst, data);
     ASSERT_NE(again, nullptr);
@@ -138,9 +148,18 @@ TEST_F(XLinkSnapshotTest, withTheDocumentGoneThePasteOpensTheSnapshotOnce)
     EXPECT_EQ(App::GetApplication().getDocuments().size(), count);
 
     App::GetApplication().closeAllDocuments();
-    std::error_code ec;
     fs::remove_all(fs::u8path(path).parent_path().parent_path(), ec);
     fs::remove_all(keptDir, ec);
+}
+
+TEST_F(XLinkSnapshotTest, aDocumentNeverSavedIsADependency)
+{
+    // A link into it has no DocInfo; the documents depended on list it all
+    // the same, so a save asks to save it first.
+    auto deps = _source->getDependentDocuments();
+    EXPECT_NE(std::find(deps.begin(), deps.end(), _unsaved), deps.end());
+    auto in = App::PropertyXLink::getDocumentInList(_unsaved);
+    EXPECT_EQ(in[_unsaved].count(_source), 1U);
 }
 
 TEST_F(XLinkSnapshotTest, aLinkToAnObjectLeftOutIsLocalInItsOwnDocument)

@@ -7882,3 +7882,23 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   starts collapsed and opens bounded, its bars wrapping and scrolling up
   and down. covered.ts reports the card. Seen in a real Chrome:
   viewer-harness drive-toolbar-card.js 13 of 13. NOT pushed.
+- 190 on the user's two notes: the grip on the card's short side and no
+  card fill (00966b5d71); the grip's ends the collapse button and a bar
+  picker, one tick per bar and "Show all", remembered per browser
+  (5072ffe4c7). drive-toolbar-card.js 20 of 20. The dull buttons are not a
+  layer: probe-toolbar-dim.js found all 72 tools refused (opacity 0.38) for
+  an invited editor, only the sketcher's tools being browser safe. The
+  user: no lighter refused look; later, a traditional disabled look.
+- PUSHED to thundereal/LinkVibe on the user's "Push, chase the problem":
+  55f4145d9d..5072ffe4c7 (188, 189's steps, 190). NOT restaged.
+- 189: 182/188 in a real Chrome. A click on the missing edge's kept face
+  selected nothing: the preview is drawn unpickable (entry 170) and picked
+  in a pass ahead of the scene that needed a desktop viewer; a browser's
+  click is replayed through its mirror, so the ray went through the face.
+  FIXED (ed758230a1): the pass picks through the mirror's event root. Seen
+  in Chrome: the click selects the '?Edge11' row, the next click on an
+  unused edge replaces it (Base ['Edge5', 'Edge8']), and the kept face
+  shows selected (a thin face is picked by its edge in the pick radius;
+  that edge now lights the face). serve-dressup-preview-pick.py 11 of 11,
+  fillet-preview-pick-syncs-list.py 20 of 20, dressup-replace-missing-edge
+  .py 21 of 21 on r153. NOT pushed.

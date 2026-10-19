@@ -7158,12 +7158,19 @@ it removed, kept as history. What is built now:
 - **Tests:** `TransactionLogTest.aStoreOfTheSettledLayoutIsMigrated` (a
   store of the 2026-09-28 layout opened, read, its sessions' users made
   rows, written on, at version 1 after), `aReadOnlyOlderStoreIsReadAsItIs`,
-  `aStoreNotOfThisBuildIsRefused` (newer; `schema` 5; a new store is at 1).
+  `aStoreNotOfThisBuildIsRefused` (newer; `schema` 5; a new store is at 1),
+  and `aStoreOfScannersLayoutIsMigrated` -- the layout of the user's own
+  history, read by its schema only from a copy saved on 2026-10-16
+  (`scanner2.FCStd`): no version, no `schema` key, `session.user` already an
+  id, before `branch.joined`, `keepvalue.kind`/`name`, `user.parent`,
+  `access` and `mergerequest`; its branches, kept values, users and
+  sessions read, at version 1 after.
 - **From here on** a change of the layout raises `StoreVersion` and adds its
   step; "a column added in place" in the sections below is history.
 - **Gates** (2026-10-19): the 24 GUI checks pass; Python 3807 OK with the
   freeze on and off (52 and 54 skipped); ctest gtest 990/990 both ways; the
-  driven tests 293/293.
+  driven tests 293/293. With the scanner case: ctest gtest 991/991 both
+  ways (a test added, nothing else changed).
 
 **The ruling of 2026-09-28:**
 

@@ -2803,6 +2803,79 @@ TEST_F(TransactionLogTest, aStoreOfTheSettledLayoutIsMigrated)
     Base::FileInfo(path).deleteFile();
 }
 
+TEST_F(TransactionLogTest, aStoreOfScannersLayoutIsMigrated)
+{
+    // The layout of the user's "scanner" history (saved 2026-10-16, read by
+    // its schema only): before `branch.joined`, `keepvalue.kind`/`name`,
+    // `user.parent`, `access` and `mergerequest`; no version, no `schema`.
+    const std::string path = Base::FileInfo::getTempFileName("txnlog-scanner") + ".db";
+    rawSql(path,
+           "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);"
+           "CREATE TABLE txn(seq INTEGER PRIMARY KEY, parent INTEGER, id INTEGER,"
+           " kind TEXT, origin TEXT, name TEXT, time REAL, script TEXT, session INTEGER,"
+           " inverts INTEGER DEFAULT 0, branch INTEGER DEFAULT 1,"
+           " merge_from INTEGER DEFAULT 0, ord INTEGER DEFAULT 0);"
+           "CREATE TABLE environment(id INTEGER PRIMARY KEY, json TEXT UNIQUE);"
+           "CREATE TABLE user(id INTEGER PRIMARY KEY, kind TEXT, name TEXT, UNIQUE(kind, name));"
+           "CREATE TABLE session(id INTEGER PRIMARY KEY, env INTEGER, user INTEGER, host TEXT,"
+           " access TEXT, opened REAL, closed REAL, uuid TEXT);"
+           "CREATE TABLE op(txn INTEGER, idx INTEGER, op TEXT, ckind TEXT,"
+           " cid INTEGER, cname TEXT, ctype TEXT, prop TEXT, ptype TEXT, meta TEXT,"
+           " vbefore TEXT, vafter TEXT, derived INTEGER, touched INTEGER, PRIMARY KEY(txn, idx));"
+           "CREATE TABLE version(num INTEGER PRIMARY KEY, uuid TEXT, branch INTEGER,"
+           " kind TEXT, name TEXT, seq INTEGER, env INTEGER, docxml_hash TEXT, schema INTEGER,"
+           " created REAL, manifest BLOB);"
+           "CREATE TABLE objname(cid INTEGER PRIMARY KEY, name TEXT UNIQUE);"
+           "CREATE TABLE lastgeoid(cid INTEGER PRIMARY KEY, id INTEGER);"
+           "CREATE TABLE strtable(id INTEGER PRIMARY KEY, flags INTEGER, sids TEXT, data BLOB,"
+           " postfix BLOB);"
+           "CREATE TABLE strref(owner BLOB PRIMARY KEY, ranges BLOB) WITHOUT ROWID;"
+           "CREATE TABLE entity(hash BLOB PRIMARY KEY, kind TEXT, enc TEXT, base BLOB,"
+           " tier TEXT, size INTEGER, data BLOB);"
+           "CREATE TABLE ref(entity BLOB, target BLOB, role TEXT, name TEXT, seq INTEGER,"
+           " PRIMARY KEY(entity, role, name, target)) WITHOUT ROWID;"
+           "CREATE TABLE branch(id INTEGER PRIMARY KEY, name TEXT UNIQUE,"
+           " from_version INTEGER, from_seq INTEGER, head_seq INTEGER, id_base INTEGER,"
+           " last_id INTEGER DEFAULT 0, created REAL, closed REAL, target INTEGER DEFAULT 0);"
+           "CREATE TABLE heldfile(session INTEGER, ord INTEGER, file BLOB,"
+           " branch INTEGER DEFAULT 0, PRIMARY KEY(session, ord)) WITHOUT ROWID;"
+           "CREATE TABLE keepvalue(hash BLOB PRIMARY KEY, cid INTEGER, prop TEXT, seq INTEGER)"
+           " WITHOUT ROWID;"
+           "CREATE TABLE keepobject(cid INTEGER PRIMARY KEY);"
+           "CREATE INDEX op_container ON op(cid, prop);"
+           "CREATE INDEX ref_target ON ref(target, role);"
+           "CREATE INDEX txn_ord ON txn(session, ord);"
+           "CREATE INDEX version_hash ON version(docxml_hash);"
+           "INSERT INTO user VALUES(1,'local','host');"
+           "INSERT INTO session VALUES(1,0,1,'box','edit',1.0,0,'u-1');"
+           "INSERT INTO txn(seq,parent,id,kind,origin,name,time,script,session)"
+           " VALUES(1,0,1,'user','gui','Edit',1.5,'',1);"
+           "INSERT INTO branch VALUES(1,'main',0,0,1,0,0,1.0,0,0);"
+           "INSERT INTO branch VALUES(2,'side',0,1,1,1000,0,2.0,0,1);"
+           "INSERT INTO keepvalue VALUES(x'00112233445566778899aabbccddeeff00112233',5,'Shape',1);");
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        const auto branches = store->branches();
+        ASSERT_EQ(branches.size(), 2U);
+        EXPECT_EQ(branches[1].name, "side");
+        EXPECT_EQ(branches[1].target, 1);
+        EXPECT_EQ(branches[1].joined, 0);
+        const auto kept = store->keptValues();
+        ASSERT_EQ(kept.size(), 1U);
+        EXPECT_EQ(kept.front().prop, "Shape");
+        EXPECT_EQ(kept.front().kind, "");
+        const auto users = store->users();
+        ASSERT_EQ(users.size(), 1U);
+        EXPECT_EQ(users.front().name, "host");
+        EXPECT_EQ(users.front().parent, 0);
+        const auto sessions = store->sessions();
+        ASSERT_EQ(sessions.size(), 1U);
+        EXPECT_EQ(sessions.front().user, 1);
+    }
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 1);
+    Base::FileInfo(path).deleteFile();
+}
+
 TEST_F(TransactionLogTest, aReadOnlyOlderStoreIsReadAsItIs)
 {
     // The embedded copy as the guard reads it (sec 16.4) is a blob file that

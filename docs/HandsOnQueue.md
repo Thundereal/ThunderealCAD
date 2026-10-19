@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 12:24: entry 177 BUILT locally; entry 178 -- Dimension120 confirmed (an angle
+on two parallel edges), the described error BUILT, the audit written
+(threaded views never report their failures), a-c for the reporter.**
+Under the entries.
+
 **2026-10-19 12:11: new entry 178 -- Dimension120's recompute error (by the console log:
 an angle dimension's two edges now parallel, "Invalid selection - Det =
 0"); TechDraw execute() to give its error description; an audit. Seen on
@@ -3694,8 +3699,8 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 174 | 2026-10-19 | a change request FOR DESIGN: PER-USER SETTINGS -- each edit identifies the user who started it; PrefWidget checks the current editing user and PREFIXES the setting path; check whether settings in menu items can do the same | OPEN; said to the note-taker 2026-10-19 09:03. 2026-10-19 09:08 DESIGNED by the build session (new docs/UserSettings.md, `dcfa2bba59`, local), nothing built; menu settings: YES the same way; sec 2.6 a-f for the reporter. 2026-10-19 09:32 the reporter: a user's values NEVER MIX with the local user's (the design's fall-back to the global overruled); ideally all settings user aware, step by step; CHANGE: the user also taken from the VIEW outside an edit; a per-user FLAG in the cog param helper, the generated class keeping per-user values -- feasibility asked; and a question: when can a user have no value. 2026-10-19 09:49 the design updated (`59d348425a`): no mixing either way, no value -> the DEFAULT; the user from the view outside an edit (App::PrefUser); the cog per-user flag POSSIBLE (sec 2.5.1); the reporter's question answered (sec 2.2). 2026-10-19 10:01 the reporter CORRECTS the 09:32 reading: a user's INITIAL value is taken from the CURRENT setting (not the default); "not mix" was about WRITES -- a user's write never reaches the local user's settings. 2026-10-19 10:13 the reporter: "174, copied once." -- a user's initial value is COPIED ONCE from the current setting (a snapshot at first use), not read through. 2026-10-19 10:15 the design squared with "copied once" (`3dff98041b`, local): at the FIRST READ the current value is written into the user's entry; a Declared user's copy in the connection's memory; reset to default removes the entry, the next read copies again |
 | 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22. 2026-10-19 10:27 the reporter: the task bar icon follows the WINDOWS theme (a answered); x16 to be asked about a light-theme icon and every other place the logo is used -- ASKED by the note-taker 10:27, over Remote Control, no answer yet. 2026-10-19 10:29 x16 ANSWERED: no light-theme drawing in the app; the reporter approved a light-ground RECOLOUR of the BARE MARK (website); x16 suggests thundereal-mark-light.svg from the generator, the bare mark themed in 4 places (title-bar button, Std_About icon, Material library icon, template); for the TASK BAR it recommends KEEPING THE TILE (the pinned .exe icon cannot follow the theme) -- a decision for the reporter. 2026-10-19 10:36 the reporter: ONE ICON, changed to look good on BOTH themes WITHOUT its own background (no tile, no themed variants); the task bar icon the same -- supersedes the themed-variant plan and the 10:27 "follow Windows theme". 2026-10-19 10:39 ON HOLD (the reporter): the reporter asks x16 to design the icon first; nothing to be done on 175 until then. 2026-10-19 11:11 DONE by x16 on Thundereal/ThunderealCAD MAIN `094770130e` (pushed, on the reporter's word to x16): the tile-less icon "E2" picked by the reporter; NOT in local LinkVibe yet (needs a merge of thundereal/main); the Windows task bar NOT checked. 2026-10-19 11:51 MERGED into LinkVibe (`ca6eddfbfa`) with a test (app-icon-on-both-grounds 4/4), PUSHED `ba41cdb497` and STAGED (stage18 11:35); the .exe's embedded icon still the old one -- r122. 2026-10-19 12:04 the .exe's embedded icon now the new one (stage19 12:03, `2b69e67e86` not pushed); the Windows task bar itself still to be seen by the reporter |
 | 176 | 2026-10-19 | a defect: the STAGED copy's window title still says FREECAD -- the launch script still starts FreeCAD.exe, though the executable was renamed (Thundereal.exe) | OPEN; said to the note-taker 2026-10-19 11:46; READ: tools\fcad-user.cmd starts a STALE FreeCAD.exe (2026-10-18 12:35) left in the build tree and mirrored into the stage. 2026-10-19 11:51 FIXED by the build session, outside the repo: fcad-user.cmd (and -cdb) start Thundereal.exe (FreeCAD.exe only as a fallback), install-user.ps1's guard on Thundereal.exe, test/serve scripts renamed, the stale FreeCAD(Cmd).exe/.pdb removed from the build tree; OPEN: Thundereal.exe in stage18 still has the OLD embedded icon (r122 with a CMake fix building); the restage to finish needs the reporter's FreeCAD CLOSED. 2026-10-19 12:04 DONE: RESTAGED stage19 12:03 (r122, fcad `2b69e67e86`): the stage's bin has ONLY Thundereal.exe and ThunderealCmd.exe, both embedding the tile-less icon; the .ico dependency fix `2b69e67e86` committed locally, NOT pushed |
-| 177 | 2026-10-19 | a defect: OMNI SEARCH "/error": typing an object name and pressing TAB to complete ERASES the "/error" prefix | OPEN; said to the note-taker 2026-10-19 12:09; READ: by design today (entry 165's build) a Tab on an /error row puts the object's path in the OBJECTS mode, "/ <path>" |
-| 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL |
+| 177 | 2026-10-19 | a defect: OMNI SEARCH "/error": typing an object name and pressing TAB to complete ERASES the "/error" prefix | OPEN; said to the note-taker 2026-10-19 12:09; READ: by design today (entry 165's build) a Tab on an /error row puts the object's path in the OBJECTS mode, "/ <path>". 2026-10-19 12:24 BUILT locally `88369fc96f`: Tab completes the name and KEEPS "/error ", the list narrows to it; Enter unchanged; r123 offscreen omni-search-label-one-row 20/20; NOT pushed, NOT staged |
+| 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL. 2026-10-19 12:24 (1) CONFIRMED in the live session by a read-only probe: Dimension120 an Angle on SectionView004 Edge5, Edge9, both along (1,1) -- PARALLEL; (2) BUILT `7eac8caf7e`: a described error; (3) AUDIT docs/TechDrawErrors.md (`959d5360ea`): threaded views' failures never reach the recompute error; questions a-c for the reporter; NOT pushed |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -24970,6 +24975,13 @@ c. The <<label>> rule of 165 under "/error": read as unchanged -- the
 d. A document prefix ("Doc#") for an object of another document: read
    as kept in the completed text, after "/error ".
 
+**2026-10-19 12:24, the build session (relayed): 177 BUILT, `88369fc96f` (local, not
+pushed, not staged).** Tab on an /error row completes the name and KEEPS
+"/error "; the list narrows to it; "Doc#" and "<< >>" in the completed
+text still match the row. Enter unchanged (selects). r123 offscreen:
+omni-search-label-one-row 20/20 with both new Tab claims. The
+note-taker's readings a-d hold.
+
 ## 178. Why Dimension120 is in recompute error; TechDraw's execute() to give the error description; an audit of TechDraw for errors with no description (a change request) -- OPEN
 
 **2026-10-19 12:11, the reporter (to the note-taker):** "new request, check my live session and console log find out what causes recompute error of Dimension120, add modify techdraw code to output the error description in execute(). audit TechDraw code for missing error description in execute()"
@@ -25035,6 +25047,46 @@ b. Whether the dimension should RECOVER (e.g. show no value, or keep the
    last good angle) instead of failing: not said.
 c. The audit's reach: TechDraw/App execute() only, or also onChanged /
    the Gui: read as App execute() and what it calls.
+
+**2026-10-19 12:24, the build session (relayed): 178.**
+(1) CONFIRMED in the reporter's LIVE SESSION by a READ-ONLY probe over
+MCP 8790 (only properties read): Dimension120 is Type Angle, MeasureType
+Projected, References2D = SectionView004 (Edge5, Edge9); both edges run
+along (1,1) -- 45 deg -- so PARALLEL, no angle. Matches the note-taker's
+log reading: the inexact re-match after the section changed landed on two
+parallel edges.
+(2) BUILT, `7eac8caf7e` ("TD: a dimension's recompute error says which,
+on what, and why"), local: DrawViewDimension::execute() returns a
+DESCRIBED recompute error -- kind, view label, elements, reason, and
+"Its references were matched again by geometry after the view changed:
+check that they still name the intended elements" when that happened.
+For this case: "the edges Edge5 and Edge9 are parallel, so there is no
+angle between them". Also fixed: "second 2d reference is a ..." named
+the FIRST reference's type. TDTest DrawViewDimensionTest 3/3 on r124,
+with a new case asserting the message.
+(3) AUDIT: docs/TechDrawErrors.md (`959d5360ea`). MAIN FINDING: part,
+section, detail and complex section views run their real work on WORKER
+THREADS and execute() returns SUCCESS before it is done -- their failures
+(HLR, faces, section cut, detail cut) NEVER reach the recompute error:
+console lines plus a BLANK VIEW. Also a per-class table of other silent
+or weak exits. PROPOSAL (sec 3): 3.1 a LATE ERROR through the existing
+Document::setErrorDescription, set from the worker's finished slot
+(DrawView::reportLateError); 3.2 synchronous failures return a
+description; 3.3 the dimension texts; tests per class.
+FOR THE REPORTER (the doc's a-c, with proposals):
+a. How far: all of 3.1 to 3.3, or 3.1 and the dimensions first?
+   Proposed: 3.1 first (what makes a blank view say why), then 3.2, 3.3.
+b. A failure that leaves a view usable but PARTIAL (one solid's cut
+   failed, a break ignored, a fusion fallen back): an error, or a
+   WARNING in the tool tip with the object valid? Proposed: a warning;
+   only a view with nothing to show is an error.
+c. The messages translatable (QT_TRANSLATE_NOOP)? Proposed: yes.
+Not pushed. Local several commits ahead of thundereal/LinkVibe
+(`2b69e67e86` the icon dependency, 177, 178, docs).
+READ by the note-taker: the doc's sec 3 and "For the reporter" (lines 60
+to 92) as above; the three commits in git.
+The note-taker's question of 12:11 to the reporter (the transaction log
+"no such column: joined") NOT answered yet.
 
 ## Inbox
 

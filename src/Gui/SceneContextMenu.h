@@ -29,6 +29,7 @@
 #include <QHash>
 #include <QJsonArray>
 #include <QJsonObject>
+#include <QJsonValue>
 #include <QObject>
 #include <QPointer>
 #include <QString>
@@ -79,6 +80,11 @@ public:
         /// One of "Pick geometry"'s: select what the ray went through, in
         /// the client's selection, as a pick does
         Pick,
+        /// An entry of an on-view value set's menu (a handle's right click,
+        /// docs/OnViewValueEditing.md sec 9.2 #4): the edit's own, none of
+        /// it modal; a settings widget's is set to the value the client
+        /// sends, and the menu stays open
+        OnView,
         /// Anything else, code the host runs as it is -- possibly modal
         Action,
     };
@@ -99,7 +105,10 @@ public:
     /// \a message, why. \a extend adds a pick to the selection rather than
     /// replacing it, as Ctrl does on the desktop's.
     const char* trigger(int item, Render::ClientAccess access, QString& message,
-                        bool extend = false);
+                        bool extend = false, const QJsonValue& value = QJsonValue());
+    /// Whether the menu stays open after entry \a item ran: a settings
+    /// widget's, as a widget in a desktop menu does not close it
+    bool staysOpen(int item) const;
 
     /// Preview pick entry \a item, or none for 0, where only the host can
     /// draw it: geometry of the client's edit, preselected in the client's
@@ -146,6 +155,8 @@ private:
         bool direct = false;
         /// A pick's index in _picks
         int pick = -1;
+        /// A settings widget's control (a check box, a choice, a number)
+        QPointer<QWidget> widget;
     };
     /// Enter the target's edit mode \a mode under the edit op's rules
     void runEdit(int mode);
@@ -172,6 +183,8 @@ private:
     QPointer<QAction> _finishEdit;
     /// The menu is the client's edit mode's own (ViewProvider::editContextMenu)
     bool _inEdit = false;
+    /// The menu is a handle's (OnViewValueSet::buildViewerMenu)
+    bool _onView = false;
     /// The object in that edit
     App::DocumentObjectT _editObject;
     /// A preview() is showing

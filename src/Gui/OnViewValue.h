@@ -178,6 +178,12 @@ public:
      */
     static bool takeViewerKey(ViewerContext* viewer, int key,
                               Qt::KeyboardModifiers modifiers, bool press);
+    /** The menu of the handle the pointer is over in \a viewer, built into
+     * \a menu -- a browser's right click on a handle (sec 9.2 #4), as the
+     * view widget's filter opens it on the desktop. False when no set in
+     * \a viewer has a handle under the pointer.
+     */
+    static bool buildViewerMenu(ViewerContext* viewer, QMenu& menu);
     /** Whether the handles are shown in this set's view (8.5: the view's
      * own, not a preference). Hidden, the values still take Tab, typing and
      * the menu, and an active value's label stands at the top middle.

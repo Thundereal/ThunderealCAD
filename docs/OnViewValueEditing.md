@@ -950,6 +950,20 @@ changes (`viewer-harness\probes-2026-10-19\drag3`):
   label's box) are NOT taken for a mirror: each opens a widget on the
   host's screen. They come with #4 and with the labels as entries.
 - The desktop unchanged: the on-view set and the menu test green on r143.
+- 9.2 #4 and #5 BUILT and seen (r144, `menu1`): a right click in the page
+  on a handle under the pointer opens that handle's menu, built by the
+  set (`OnViewValueSet::buildViewerMenu`) ahead of the edit's and the
+  view's -- the fillet's "Default radius / One radius / Two radii /
+  Remove", "Show handles", "Settings". Its entries are a new kind,
+  `onView`, which an editing client may run. The Settings rows are
+  described as their controls (`widget`: check, choice, number) and set
+  to the value the client sends; the menu stays open as a desktop menu
+  does for a widget. Seen: "Enable coarse snapping" unticked from the page
+  wrote the preference (True -> False) and the menu stayed, the tick gone.
+  "Show preview" is absent in a browser-started edit, as the panel's own
+  preview box is. #7 and #10 needed nothing: the client's right click
+  already asks for the scene menu, and the hover that names the handle
+  rides the left-button moves.
 
 ### 9.6 Order of work
 

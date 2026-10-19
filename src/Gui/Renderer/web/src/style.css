@@ -2222,6 +2222,18 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
 .fc-ctx-icon img { width: 18px; height: 18px; }
 .fc-ctx-text { overflow: hidden; text-overflow: ellipsis; }
 .fc-ctx-more, .fc-ctx-shortcut { margin-left: auto; opacity: 0.6; }
+.fc-ctx-shortcut + .fc-ctx-more { margin-left: 6px; }
+/* a settings row's number (docs/OnViewValueEditing.md sec 9.2 #5) */
+.fc-ctx-number {
+  margin-left: auto;
+  width: 64px;
+  font: inherit;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
 .fc-ctx-error {
   padding: 6px 10px;
   color: #f28b82;

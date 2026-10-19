@@ -270,6 +270,27 @@ bool OnViewValueSet::takeViewerKey(ViewerContext* viewer, int key,
     return false;
 }
 
+bool OnViewValueSet::buildViewerMenu(ViewerContext* viewer, QMenu& menu)
+{
+    if (!viewer) {
+        return false;
+    }
+    for (OnViewValueSet* set : liveSets()) {
+        if (set->liveView() != viewer || set->dragHandle) {
+            continue;
+        }
+        for (const auto& entry : set->entries) {
+            for (Gizmo* handle : entry->handles) {
+                if (handle->isHovered()) {
+                    set->buildMenu(menu, handle);
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 bool OnViewValueSet::takeMirrorKey(int key, Qt::KeyboardModifiers modifiers, bool press)
 {
     if (!press) {

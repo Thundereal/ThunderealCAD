@@ -16,7 +16,7 @@ here, so a change to the mark is made once and the files follow:
     src/MacAppBundle/.../thundereal*.icns   macOS
     src/Gui/Stylesheets/images_*/background_thundereal*.svg, .png
                                             the empty-window watermark
-    src/Gui/Icons/thundereal-package.svg    the package box, wearing the icon
+    src/Gui/Icons/thundereal-package.svg    the package box, the mark going in
     src/Gui/Renderer/wasm/thundereal-favicon.html
                                             the browser viewer's tab icon
     src/Mod/TechDraw/Branding/thundereal-logo.svg
@@ -323,7 +323,6 @@ def write_svgs():
     # mark at full size -- the application icon's wider one, APP_MARK --
     # moved down just enough that its edge clears the square at the strike's
     # top point; across, it is centred already.
-    tile = '  <rect width="64" height="64" rx="14" fill="%s"/>\n' % K["tile"]
     shift = QtGui.QTransform.fromTranslate(0, 1.6)
     write(
         os.path.join(ICONS, "thundereal.svg"),
@@ -403,26 +402,83 @@ def write_svgs():
                 svg(200, 187, paths(parts, wm, fill=ink, opacity=shade), "Thundereal"),
             )
 
-    # The package box wears the mark on the tile the application icon had
-    # before entry 175, as its label: the tile keeps the mark apart from the
-    # box's own amber. The label group sits in
-    # a 64-unit frame its parents shear onto the box's front face.
-    label = re.findall(r"<(?:path|rect) [^>]*/>", tile + paths(mark_layers(), inset(0.74)))
-    pad = "\n" + " " * 12
-    group = "<g" + pad + '   id="thundereal-mark">' + pad + "  "
-    group += (pad + "  ").join(label) + pad + "</g>"
-    # Upstream's box, with its logo group swapped for the label.
+    # The package box: upstream's page, its closed box replaced by a smaller
+    # one, opened and at the bottom of the page, and the mark going into it
+    # -- its lower point already inside, behind the front walls (entry 175,
+    # the user's "K2", 2026-10-19). A label on a closed box was lost at the
+    # small sizes; this reads as "goes into the box" there too.
     with open(os.path.join(ICONS, "document-package.svg"), encoding="utf-8", newline="") as f:
-        text = replace_group(f.read(), "g3813-3", group)
+        text = replace_group_content(f.read(), "g3851", package_drawing())
     if not text:
-        sys.exit("no logo group in document-package.svg")
+        sys.exit("no box group in document-package.svg")
     p = os.path.join(ICONS, "thundereal-package.svg")
     with open(p, "w", encoding="utf-8", newline="") as f:
         f.write(text)
     print("wrote", os.path.relpath(p, ROOT))
 
 
-def replace_group(text, gid, new):
+# The opened box, in the frame of upstream's closed one (group g3851 of
+# document-package.svg, whose box spans x 3..61, y 7..55), so that its face
+# gradients still fit: corners of the top, and the walls 32 deep.
+BOX_TOP = dict(left=(3, 15), back=(27, 7), right=(61, 15), front=(37, 23))
+BOX_DEPTH = 32
+BOX_INK = "#3b2508"  # upstream's outline of the box
+BOX_PLACE = (0.66, 11, 26)  # scale, then moved by: two thirds the size, low on the page
+BOX_MARK = (0.62, 33.5, 22, 6)  # the mark: scale, centre x, y, its edge's width
+
+
+def package_drawing():
+    tl, bk, tr, tf = (BOX_TOP[k] for k in ("left", "back", "right", "front"))
+    down = lambda p: (p[0], p[1] + BOX_DEPTH)
+    opening = poly([tl, bk, tr, tf])
+    s, dx, dy = BOX_PLACE
+    xf = QtGui.QTransform()
+    xf.translate(dx, dy)
+    xf.scale(s, s)
+
+    def face(pts, fill):
+        path = pts if isinstance(pts, QtGui.QPainterPath) else poly(pts)
+        return '<path fill="%s" stroke="%s" stroke-width="1.6" stroke-linejoin="round" d="%s"/>' % (
+            fill, BOX_INK, path_data(path, xf))
+
+    def fill(path, colour):
+        return '<path fill="%s" d="%s"/>' % (colour, path_data(path, xf))
+
+    # Behind the mark: the back flaps standing up, the floor, and the back
+    # walls seen through the opening
+    back = (
+        face([tl, bk, (24, -3), (0, 5)], "url(#linearGradient3881)")
+        + face([bk, tr, (64, 5), (30, -3)], "url(#linearGradient3835)")
+        + face(opening, "#5a3a10")
+        + fill(poly([tl, bk, down(bk), down(tl)]).intersected(opening), "#8a5a1c")
+        + fill(poly([bk, tr, down(tr), down(bk)]).intersected(opening), "#6d4614")
+    )
+    # In front of it: the walls, and the front flaps folded out
+    front = (
+        face([tf, tl, down(tl), down(tf)], "url(#linearGradient3835)")
+        + face([tf, tr, down(tr), down(tf)], "url(#linearGradient3881)")
+        + face([tl, tf, (31, 32), (-4, 24)], "#e9b96e")
+        + face([tf, tr, (68, 24), (43, 32)], "#c88a3a")
+    )
+    # The mark, with a dark edge around the whole of it, as the application
+    # icon has, a little thicker: it holds against the box's amber
+    ms, cx, cy, edge = BOX_MARK
+    mx = QtGui.QTransform()
+    mx.translate(cx, cy)
+    mx.scale(ms, ms)
+    mx.translate(-AXIS, -30)
+    layers = mark_layers()
+    outline = QtGui.QPainterPath()
+    for _, p, _ in layers:
+        outline = outline.united(p)
+    mark = '<path fill="%s" stroke="%s" stroke-width="%s" stroke-linejoin="round" d="%s"/>' % (
+        K["edge"], K["edge"], num(edge * ms), path_data(outline.simplified(), mx))
+    mark += paths(layers, mx, indent="")
+    return back + mark.replace("\n", "") + front
+
+
+def replace_group_content(text, gid, new):
+    """The group's children replaced by `new`; its own tag kept."""
     m = re.search(r'<g\b[^>]*\bid="%s"[^>]*>' % re.escape(gid), text)
     if not m:
         return None
@@ -430,8 +486,10 @@ def replace_group(text, gid, new):
     for t in re.finditer(r"<g\b|</g>", text[pos:]):
         depth += 1 if t.group(0) == "<g" else -1
         if depth == 0:
-            return text[: m.start()] + new + text[pos + t.end() :]
+            return text[: m.end()] + new + text[pos + t.start() :]
     return None
+
+
 
 
 app = None

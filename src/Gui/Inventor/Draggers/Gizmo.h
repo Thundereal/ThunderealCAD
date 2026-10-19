@@ -39,6 +39,7 @@
 #include <QString>
 
 #include <Base/Color.h>
+#include <Base/Matrix.h>
 #include <Base/Placement.h>
 #include <Gui/DocumentObserver.h>
 #include <Gui/InputHint.h>
@@ -181,6 +182,31 @@ public:
     virtual void cancelDrag() {}
     //@}
 
+    /** @name Reverse by dragging past the start (entry 170, the reporter
+     * 2026-10-18 12:10: "support auto reverse on drag beyond")
+     * A drag that goes back past the value's zero calls \a callback, which
+     * turns the feature the other way (its Reversed) and says whether it
+     * did; the value then grows again the other way instead of stopping at
+     * its minimum, and dragging back past the start turns it back. While a
+     * drag has turned it (isTurnedInDrag()), the owner leaves the handle
+     * where it is -- a handle moved or turned under the pointer would read
+     * the drag the other way round -- and \a replace, called when the drag
+     * ends, puts it where the feature now has it. A cancelled drag turns
+     * the feature back. Null for a value with nothing to reverse.
+     */
+    //@{
+    using ReverseCallback = std::function<bool()>;
+    void setReverseCallback(ReverseCallback callback, std::function<void()> replace)
+    {
+        reverseCallback = std::move(callback);
+        replaceCallback = std::move(replace);
+    }
+    bool isTurnedInDrag() const
+    {
+        return dragging && reversedInDrag;
+    }
+    //@}
+
 protected:
     /// What the pointer is over or not: the handle's own geometry. Made by
     /// initDragger(), and put in the container after the dragger.
@@ -216,6 +242,18 @@ protected:
     }
     /// For the dragger's other events: Esc or another button cancels the drag
     static void otherDragEvent(void* data, SoDragger* dragger);
+
+    ReverseCallback reverseCallback;
+    std::function<void()> replaceCallback;
+    /// The feature turned by this drag, past its start
+    bool reversedInDrag = false;
+    /** \a value as dragged, from the start: past zero the feature is turned
+     * (or turned back) and the value is given back the other way round
+     */
+    double reverseIfPast(double value);
+    /// The drag's end: the feature turned back if \a cancelled, and the
+    /// handle put where the feature has it; true if it had turned the feature
+    bool endReverse(bool cancelled);
 
 protected:
     double multFactor = 1.0f;
@@ -430,6 +468,11 @@ public:
     /// Take out and delete a gizmo of this container
     void removeGizmo(Gui::Gizmo* gizmo);
     void attachViewer(Gui::ViewerContext* viewer, Base::Placement& origin);
+    /** The gizmos' frame in world coordinates: the document's editing
+     * transform and the offset from it attachViewer() was given -- where a
+     * value's label beside its handle goes (OnViewValueSet::placeAnchors)
+     */
+    Base::Matrix4D getWorldMatrix() const;
     void setUpAutoScale(SoCamera* cameraIn);
     void calculateScaleAndOrientation();
 
@@ -456,6 +499,8 @@ private:
     SoFieldSensor cameraSensor;
     SoFieldSensor cameraPositionSensor;
     WeakPtrT<ViewProviderDragger> viewProvider;
+    /// The offset from the editing transform attachViewer() was given
+    Base::Matrix4D origin;
 
     void addGizmo(Gizmo* gizmo);
 

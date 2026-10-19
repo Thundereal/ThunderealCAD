@@ -173,6 +173,86 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-18 22:18: entry 172 -- the browser has hover/preselection (a note-taker reading
+corrected); the task panel is already there; ORDER: the ThunderealCAD
+merge first, then 172 on the new tracked LinkVibe branch (the reporter).**
+Under the entry.
+
+**2026-10-18 22:16: entry 172 -- touch in scope: a long press on a handle opens the
+handle's context menu (the reporter).** Under the entry.
+
+**2026-10-18 22:13: new entry 172 -- all the PartDesign on-view edit in the browser,
+tested in a real browser.** Under the entry.
+
+**2026-10-18 22:09: entry 171 -- combo boxes for the two choices; "Show interactive
+draggers" left out of the Settings sub-menu (the reporter).** Under the
+entry.
+
+**2026-10-18 22:06: entry 171 -- the Settings sub-menu's items are edit or check box
+widgets in the menu, like the fork's other widget menus (the reporter).**
+Under the entry.
+
+**2026-10-18 22:04: entry 171 (1) dropped -- no right-button drag; the default drag
+behaviour in the Settings sub-menu does it. 171 is the sub-menu alone.**
+Under the entry.
+
+**2026-10-18 22:02: entry 171 (3) changed -- no settings in the view; a Settings sub-menu
+in the handle's context menu with the settings' widgets, effective at
+once (the reporter).** Under the entry.
+
+**2026-10-18 21:51, the build session (relayed): state.** The reporter typed to it
+about 18:00 -- the note-taker did not hear it: "push, no restage yet".
+PUSHED origin/LinkVibe `3b52423f11..15205e7387`: entry 170's set A,
+the reverse by drag, the 169 arrow-drag fix (and the queue and log
+commits to then). NOT RESTAGED: the stage is still `3b52423f11`, so the
+reporter's test copy still has the 169 arrow-drag defect and the
+chamfer's Escape.
+A NEW TASK from the reporter, typed to the build session (not heard by
+the note-taker), as it reports it: add a remote for
+Thundereal/ThunderealCAD, merge its main, build and test, push to
+ThunderealCAD as LinkVibe, and track that branch from now on. Merged
+locally as `e25c8e2caf` (one conflict, tests/gui/fillet-undo-steps-in-
+view.py, theirs taken). r114: the 8 GUI tests pass; ctest 1 failure,
+pytest 26 -- shape storage, ShapeDiff, Helix volumes after a reload.
+Likely cause (its reading): the merged Part code looks up the OCCT fork's
+C functions at run time (from OCCT `fece1a32c7`) and the local OCCT was
+71 commits behind; OCCT fast-forwarded to `1cbd8de319`, r115 (OCCT, then
+FreeCAD, then the tests) running. NOTHING pushed to ThunderealCAD yet.
+READ in git by the note-taker: origin/LinkVibe is `15205e7387`;
+`e25c8e2caf` has parents `15205e7387` and `13c3940544`; remotes origin,
+thundereal, upstream. Not a hands-on entry (a task, no defect seen by the
+reporter); kept here as state.
+
+**2026-10-18 21:48: new entry 171 -- a right-button drag for the fine change; where the
+drag increment settings are (answered from the source); those settings
+in the view during an on-view edit, the bottom middle?** Under the entry.
+
+**2026-10-18 12:49: entry 170 -- the set B design written, 7.6 a-e for the reporter;
+reverse by drag DONE LOCALLY, NOT pushed, NOT staged. Entry 169: the
+fillet's arrows could not be dragged in the pushed and staged copy;
+fixed locally.** Under the entries.
+
+**2026-10-18 12:10: entry 170 -- the click no longer flips (kept); NEW: dragging an
+arrow beyond zero reverses the feature automatically (the reporter).**
+Under the entry.
+
+**2026-10-18 12:07: entry 170 -- set B: handles only where they make sense, a design
+first; the patterns' labels onto the same machinery (the reporter).**
+Under the entry.
+
+**2026-10-18 11:27: entry 170 set A DONE LOCALLY (`313083cf4e`, `7ac52ec284`), NOT pushed,
+NOT staged; 37/37 on the real screen; the arrow click no longer flips
+Reversed; set B, c, e still the reporter's.** Under the entry.
+
+**2026-10-18 10:47: entry 169 PUSHED (`3b52423f11`) and STAGED (00:26); entry 170 sized --
+set A (the 7 panels with handles) started, Draft first; set B, the
+patterns' labels and a design note put to the reporter.** Under the
+entries.
+
+**2026-10-18 10:42: new entry 170 -- the active handle and on-view edit for the rest of
+the PartDesign features, without entry 169's 3D pick or hover of the
+preview.** Under the entry.
+
 **2026-10-18 00:07: "Push and restage" (the reporter, to the note-taker) -- entry 169 as
 committed; relayed to the build session. Not yet pushed or staged.** Under
 the entry.
@@ -3488,7 +3568,10 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 166 | 2026-10-16 | a defect: after a REVERT of the opened `scanner.FCStd`, the FILE BLOB MANAGER warns that INCLUDED FILES are MISSING from the document -- "this shouldn't happen" | OPEN; READ by the note-taker in the reporter's LIVE console on their word (the MCP log, nothing run in the session): the first open 17:36 and its recompute -- NO such warning; the revert ~17:59:35, then in its recompute FOUR hashes "is missing from the document" (FileBlobManager.cpp 2203, dispatchPending), TWICE, 17:59:52 and 17:59:57 (one "named by 3 properties"); the console copy at dl\handson\2026-10-16\e166-live-console-600.txt. 18:04 the build session: the SAME four warnings, TWICE, in the FIRST recompute after a FRESH HEADLESS open of a scanner copy (r86, ~17:40, no revert) -- so NOT the revert's doing; the reporter's GUI first open at 17:36 printed NONE (the note-taker re-checked the live copy: all 8 lines are after the revert); why the GUI first open is silent not known. 18:10 ANSWERED: the recompute after the revert BY HAND; NOTHING looked wrong. 20:39 CAUSE found and FIXED by the build session (r93, verified, NOT committed): two binders (Binder, Binder012) copy objects into TEMPORARY documents during the recompute (copy-on-change); the copies name a library material card's MaterialX files the copy stream does not carry; fix: a file missing at the end of a copy is taken from another open document's store -> 0 warnings on the scanner copy (8 before); the recompute, not the revert. 21:00 DONE LOCALLY `294697011c`, NOT pushed, NOT staged (scanner copy: 0 missing-file warnings). 2026-10-17 00:00 QUESTIONED by the reporter: "Entry 166, elaborate your fix. It doesn't sound right. How can you look for files in another document, by content hash?" -- READ in the source: yes, by content hash across every open document's store; the cause (why the copy stream leaves the files out) is NOT fixed. 2026-10-17 00:07 the build session agrees: `294697011c` is a fallback that hides the symptom; NEW: the four hashes are NOT in the pre-save file at all -- made in the session from the material library on this machine (PropertyMaterial::holdMaterialXBlobs); which property of the copy names them, and what the fragment carries, not pinned; next after r96: a probe, then the export fix, the fallback removed unless the reporter wants it kept. 2026-10-17 00:14 the fallback RULED: "Keep as safe net, but print warning". 2026-10-17 00:18 the safety net warns (not committed, r97): "Included file <hash> was missing from the document; taken from open document '<doc>' for <property full name>", once per file per referrer; r97 runs the probe on the pre-save copy. 2026-10-17 00:39 CORRECTED by the build session (r97 probe): the four files are NOT MaterialX but SHAPE files of objects Binder012 copies (Sketch018.Shape, Sketch018.InternalShape, Pad012.AddSubShape, Pad012.SuppressedShape), made in the session; something writes them by hash into the copy without the file (schema 4 should write them inline); r98 traces which Save branch. 2026-10-17 02:01 CAUSE FOUND (r99 trace): the export reset only the DESTINATION document's file manager to schema 4, while the copied objects' properties answer to the SCANNER's manager, still in the shared-file format of its last save -> the shapes written as hash references, the fragment carrying no file; FIX in r100: exportObjects begins the save on every exported object's own document manager; the safety net stays and warns. 2026-10-17 02:04 the build session: GENERAL -- any copyObject from a document last saved at schema 5 wrote shapes and included files as hash references the copy did not carry; the note-taker's reading: in the reporter's STAGED copy (no fallback) every such copy lost them, with the "is missing" warning; whether a user file was hit NOT checked; new test FileBlobs.testCopyFromASavedDocumentCarriesItsContent. 2026-10-17 03:40 DONE LOCALLY `9b2db5555f` (r102), NOT pushed, NOT staged: exportObjects begins the save on every exported object's own document manager, a copy carries its shapes and included files; the fallback stays and warns (file, source document, property); FileBlobs 96 OK with testCopyFromASavedDocumentCarriesItsContent; the scanner copy's first recompute warns of no missing file. 2026-10-17 07:39 PUSHED 07:39:07 (origin `b76481281e`) on the reporter's "Push and restage" (said to the build session; the note-taker did not hear it); the restage from build r102 RUNNING. 2026-10-17 12:19 STAGED 07:41:20 CLEAN (INSTALLED.txt: fcad `9f65f5f929`, code = pushed `b76481281e`, dirty False, FreeCADGui 03:25:38 = build r102; FreeCAD.exe present, 469504 bytes) |
 | 167 | 2026-10-16 | a defect (CRITICAL by the reporter's word): `scanner.FCStd` was SAVED, "someone (not me)"; check whether there is a transaction log inside; find new code that may cause it | OPEN; READ by the note-taker (the file and the reporter's console logs, read only): saved 18:06:52 (LastModifiedDate 10:06:52Z), schema 4 -> 5, 9.2 MB; it HOLDS a history (blobs/History.db, zstd): ONE session, the reporter's own staged FreeCAD (build hash b076aae675) opened 17:36:03, ONE save at txn 21 (18:06:52); the file was still schema 4 at the revert's read 17:59:07, so ONE save, not several; nothing in the console at 18:06:52; NO code found that saves unasked. 18:18 the 18:06:05 step READ: ONE op, a VIEW property ShowFrames set (a TechDraw page's frames toggled), 47 s before the save; no TechDraw code that saves found. 18:19 the build session (read only): NO save call added in src since 10-13 except tests; its probes open COPIES headless (FreeCADCmd) and none ran at 18:06; the session's "closed" time is written when the log is copied into the saved file, not a close -> the trigger is a SAVE ACTION in the GUI between 18:06:05 and 18:06:52; the question to the reporter: what was done in those 47 s, which window was active, did a box appear. 18:27 the PRE-SAVE content is NOT LOST: byte-identical (md5 bb568db2683b3acc217d534249778cfd, 6119171 bytes) to scanner.20261006-091732.FCBak beside it and to the build session's probe copy of 17:39 -- checked by the note-taker; the build session's 160 probes use the pre-save copy from now on. 18:33 the reporter: does NOT remember hitting any save button or anything, and saw NO format warning box; the note-taker READ: by design (the reporter's own rule of 2026-09-28) the old format is told ONCE, at the open, in the report view; a plain save then writes schema 5 with NO box -- so no box does not rule out a plain save |
 | 168 | 2026-10-16 | a change request FOR DISCUSSION: how to let the user know the RISK of saving in the NEW format, and yet ENCOURAGE it for the transaction log; eventually a NEW EXTENSION for the new format -- "one of the branch already did that" | OPEN, a discussion; the branch is `origin/Branding` (5 commits beyond LinkVibe, 10-14, not merged): schema 5 = .TStd; a plain save of an opened .FCStd writes Part.TStd BESIDE it and leaves the .FCStd as it was, with one dialog -- by the note-taker's reading it would have spared entry 167's overwrite; the note-taker's proposal under the entry. 19:00 RULED: WAIT for the other box to merge Branding first; then, on a SAVE of a file with the OLD extension, a DIALOG that ASKS -- all the facts, ENCOURAGING the new format, ASSURING the old file stays and they can save back to the old format; a "don't ask again"; when it is clicked, a dialog telling them Save As saves the new format |
-| 169 | 2026-10-17 | a change request: ALL DRESS-UP PREVIEW shapes PICKABLE in the 3D view (the unpickable style lifted); a (pre)selection there RESOLVES to the BASE EDGE's name, a missing element to its ?Edge name, so the EDIT PANEL's LIST ITEM selection SYNCS | OPEN; said to the note-taker 12:18. 12:19 the build session reading the dress-up preview code; its readings of a-f to come before it builds. 2026-10-17 12:33 the build session's readings of a-f, in build r103, nothing committed: a face resolves to the row its dress-up made, edges/vertices through their faces when one row; outside add mode a click selects (present -> the base edge, missing -> its ?Edge row), in add mode it toggles; a 3D HOVER does NOT resolve or light a row (only a selection syncs) -- the reporter wrote "(pre)selected", to be confirmed. 2026-10-17 13:47 DONE LOCALLY `1f52f9070e`, `fd8a8d4422` (log `fbcfba4541`), NOT pushed, NOT staged; readings a-f as sent; two more causes fixed (the on-top preview picked by depth, the base won every click; rmvSelection of ";AddSub;Face1" removed nothing); r105 real screen: fillet-preview-pick-syncs-list 14/14, fillet-hover-outlines-face 16/16, sketcher/box/handle tests no failure; OPEN for the reporter: d (should a hover resolve the name). 2026-10-17 13:57 d RULED (REOPENED): "Hover face should resolve the edge name too, which should trigger edge preselection highlight and edit panel list item hover plus scroll to view. Same if preselect edge in 3d view or hover list item, the othe two shall react" -- a three-way HOVER sync: preview face, base edge, list item. 2026-10-17 14:05 the build session: the hover sync in build r106, nothing committed -- the pick itself redirects a present edge's preview face to the base edge (ViewProvider::redirectEditingPick); the panel listens to preselection (row hovered in a faint selection colour, scrolled only when out of view, no scroll back; the face lit); readings a-e taken as written. 2026-10-17 14:47 the hover sync DONE LOCALLY `ebc61737c3`, `28a48ad695` (log `c93a20af5a`), NOT pushed, NOT staged; r106 crashed at the first hover (fixed); r107 real screen: fillet-preview-pick-syncs-list 20/20, 160 hover 16/16; NOT measured: the face lit for a base edge pointed at in 3D, the scroll. 2026-10-18 00:07 the reporter (to the note-taker): "Push and restage" -- relayed to the build session; NOT yet pushed or staged |
+| 169 | 2026-10-17 | a change request: ALL DRESS-UP PREVIEW shapes PICKABLE in the 3D view (the unpickable style lifted); a (pre)selection there RESOLVES to the BASE EDGE's name, a missing element to its ?Edge name, so the EDIT PANEL's LIST ITEM selection SYNCS | OPEN; said to the note-taker 12:18. 12:19 the build session reading the dress-up preview code; its readings of a-f to come before it builds. 2026-10-17 12:33 the build session's readings of a-f, in build r103, nothing committed: a face resolves to the row its dress-up made, edges/vertices through their faces when one row; outside add mode a click selects (present -> the base edge, missing -> its ?Edge row), in add mode it toggles; a 3D HOVER does NOT resolve or light a row (only a selection syncs) -- the reporter wrote "(pre)selected", to be confirmed. 2026-10-17 13:47 DONE LOCALLY `1f52f9070e`, `fd8a8d4422` (log `fbcfba4541`), NOT pushed, NOT staged; readings a-f as sent; two more causes fixed (the on-top preview picked by depth, the base won every click; rmvSelection of ";AddSub;Face1" removed nothing); r105 real screen: fillet-preview-pick-syncs-list 14/14, fillet-hover-outlines-face 16/16, sketcher/box/handle tests no failure; OPEN for the reporter: d (should a hover resolve the name). 2026-10-17 13:57 d RULED (REOPENED): "Hover face should resolve the edge name too, which should trigger edge preselection highlight and edit panel list item hover plus scroll to view. Same if preselect edge in 3d view or hover list item, the othe two shall react" -- a three-way HOVER sync: preview face, base edge, list item. 2026-10-17 14:05 the build session: the hover sync in build r106, nothing committed -- the pick itself redirects a present edge's preview face to the base edge (ViewProvider::redirectEditingPick); the panel listens to preselection (row hovered in a faint selection colour, scrolled only when out of view, no scroll back; the face lit); readings a-e taken as written. 2026-10-17 14:47 the hover sync DONE LOCALLY `ebc61737c3`, `28a48ad695` (log `c93a20af5a`), NOT pushed, NOT staged; r106 crashed at the first hover (fixed); r107 real screen: fillet-preview-pick-syncs-list 20/20, 160 hover 16/16; NOT measured: the face lit for a base edge pointed at in 3D, the scroll. 2026-10-18 00:07 the reporter (to the note-taker): "Push and restage" -- relayed to the build session; NOT yet pushed or staged. 2026-10-18 10:47 the build session: PUSHED `3b52423f11` over `b76481281e` (all of 169, up to the note-taker's queue commit) and STAGED (stage15 from r107, done 00:26, INSTALL-USER OK, fcad 3b52423f11, dirty False), on the reporter's own word to it after the relay; the two NOT MEASURED points still not measured. 2026-10-18 12:49 the build session: 169 had made the preview pickable to Coin's own pick, so the fillet's ARROWS (behind the preview) could NOT BE DRAGGED -- in the PUSHED and STAGED copy by the note-taker's reading; fixed locally in `64766eb4ac` (the preview unpickable again, only the selection's session pass picks it), NOT pushed, NOT staged; 169's 20/20 and 160's 16/16 still pass. 2026-10-18 12:51 the build session agrees: the regression came with `1f52f9070e`/`fd8a8d4422`, so it is in the staged `3b52423f11` -- a fillet's or chamfer's arrows over their preview take no drag; its reading of the cause, not seen on the staged copy. 2026-10-18 21:51 the drag fix PUSHED (origin/LinkVibe `15205e7387`, on the reporter's "push, no restage yet" to the build session about 18:00), NOT restaged -- the stage is still `3b52423f11`, with the defect |
+| 170 | 2026-10-18 | a change request: the fillet's and chamfer's ACTIVE HANDLE and ON-VIEW EDIT brought to the REST of the PartDesign features; NOT the 3D pick or mouse hover of their preview (entry 169's) | OPEN; said to the note-taker 2026-10-18 10:42. 2026-10-18 10:47 the build session sized it: set A (7 panels with handles, 14 values) started, Draft first, nothing built; set B (no handle today), c (the patterns' labels) and e (a design note first) put to the reporter. 2026-10-18 11:27 SET A DONE LOCALLY `313083cf4e`, `7ac52ec284` (log `45bd3382dc`), NOT pushed, NOT staged; r111 real screen: pd-values-in-view 37/37, chamfer/fillet tests no failure; a plain arrow click no longer flips Reversed (Pad, Revolution, Hole) -- done before the reporter answered; unused values hidden; 159's clearing click built nowhere yet (the note-taker's 10:42 reading wrong); set B, c, e still the reporter's. 2026-10-18 12:07 the reporter (to the note-taker): "Add handle only if it makes sense, yes design first. Yes pattern label the same." -- set B: handles only where they make sense, a DESIGN FIRST; the patterns' labels onto the same machinery; the click-to-flip question not answered. 2026-10-18 12:10 the reporter (to the note-taker): "Yes no longer flip, but support auto reverse on drag beyond." -- the click no longer flips (kept); NEW: dragging an arrow beyond zero REVERSES automatically. 2026-10-18 12:49 set B DESIGN written (docs/OnViewValueEditing.md sec 7, `6bad844c26`), its 7.6 a-e for the reporter; REVERSE BY DRAG DONE LOCALLY `64766eb4ac`, `b8fdb0da09` (log `80afba4680`), NOT pushed, NOT staged; only the first side reverses; r113 real screen: pad-drag-reverse 13/13, the others no failure; an Escape-cancelled drag now writes the property back. 2026-10-18 12:51 the build session: the design's 7.5 corrected to what was built (`66dd36afbd`): no per-drag undo step, a drag and its reversal go into the edit's one transaction; a cancelled drag turns the feature back and writes the value back. 2026-10-18 21:51 set A and reverse by drag PUSHED (origin/LinkVibe `15205e7387`, "push, no restage yet" about 18:00), NOT restaged (stage `3b52423f11`); set B's 7.6 a-e still the reporter's |
+| 171 | 2026-10-18 | a change request and a question: a RIGHT-BUTTON DRAG of a handle to do the FINE change Shift does now; where the drag increment settings are and how the fine step relates to them; the increment settings brought INTO THE VIEW during an on-view edit, at the bottom middle? | OPEN; said to the note-taker 2026-10-18 21:48; the question answered from the source. 2026-10-18 21:51 the build session: a short design for (1) and (3) after its current task; nothing built before the reporter answers. 2026-10-18 22:02 (3) CHANGED by the reporter: "ok, change idea, do not bring the setting on view. just add a settings sub menu item in the handle context menu. the sub menu has all those settings widget and change it takes effect immediately" -- no settings in the view; a SETTINGS SUB-MENU in the handle's context menu holding the settings' widgets, a change taking effect at once; (1) the right-button fine drag stands. 2026-10-18 22:04 (1) DROPPED by the reporter: "so no need right button drag, since one of the setting determin the default drag is fine or coarse" -- no right-button drag; the default drag behaviour in the Settings sub-menu does it; 171 is now the sub-menu alone. 2026-10-18 22:06 the reporter: "the setting menu shall have edit or checkbox widget like the rest of the menus." -- the sub-menu's items are EDIT or CHECK BOX widgets in the menu, as the fork's other menus have them (e.g. a preference widget's context menu, PrefWidgets.cpp 372). 2026-10-18 22:09 the reporter: "a combobox for the choice. yes leave out for the show interactive" -- the two choices as COMBO BOXES; "Show interactive draggers" LEFT OUT; the sub-menu holds six settings |
+| 172 | 2026-10-18 | a change request: ALL the PartDesign ON-VIEW EDIT (handles, the active handle and typing, the labels, the menus) working IN THE BROWSER, tested in a REAL BROWSER | OPEN; said to the note-taker 2026-10-18 22:13. 2026-10-18 22:16 the reporter: "long touch press on handle to bring up the context menu" -- touch is in scope (b): a LONG PRESS on a handle opens the HANDLE's context menu, the touch form of the right click. 2026-10-18 22:18 the reporter: "there is hover/preselection, check the browser code. task panel shall already in browser by now. Do thunderealcad merge first. then do this on the new tracked LinkVibe branch" -- the browser HAS hover/preselection (the note-taker's "no hover" on touch wrong); the task panel is already in the browser; ORDER: the ThunderealCAD merge FIRST, then 172 on the new tracked LinkVibe branch |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -23418,6 +23501,508 @@ NOT said:
 a. whether the two NOT MEASURED points (the face lit for a base edge
    pointed at in 3D, the scroll) are to be measured first (read: no).
 
+**2026-10-18 10:47, the build session (relayed): PUSHED and STAGED.** On the
+reporter's own word to it, after the note-taker's relay of the 00:07
+"Push and restage" -- the note-taker did not hear that word. Pushed
+`3b52423f11` over `b76481281e`: all of 169, up to the note-taker's queue
+commit. stage15 from r107 finished 00:26: INSTALL-USER OK, fcad
+3b52423f11, dirty False. The two NOT MEASURED points (the face lit for a
+base edge pointed at in 3D, the scroll) were not measured before the push.
+READ in git, nothing run: origin/LinkVibe is `3b52423f11`.
+
+**2026-10-18 12:49, the build session (relayed, under entry 170's report): a 169
+DEFECT found and fixed locally.** 169 had made the dress-up preview
+pickable to Coin's OWN pick, which is what a dragger takes a press by.
+The preview lies in front of the fillet's arrows, so those could NO
+LONGER BE DRAGGED. The preview is unpickable again; only the selection's
+session pass picks it. The 169 pick test (20/20) and the 160 hover test
+(16/16) still pass. In `64766eb4ac`, NOT pushed, NOT staged.
+The note-taker's reading: the defect is in `3b52423f11`, PUSHED and
+STAGED at 00:26 -- so the reporter's test copy, by this account, cannot
+drag a fillet's arrows now. Not checked on the staged copy.
+
+**2026-10-18 12:51, the build session (relayed): the note-taker's 12:49 reading
+agreed.** The arrow-drag regression came with 169 (`1f52f9070e`/
+`fd8a8d4422`), so it is in `3b52423f11`, pushed and STAGED 00:26: a
+fillet's OR A CHAMFER'S arrows lying over their preview take no drag
+there. Its reading of the cause; NOT seen on the staged copy. Fixed
+locally (`64766eb4ac`/`b8fdb0da09`); needs a push and restage on the
+reporter's word.
+
+## 170. The active handle and on-view edit for the rest of the PartDesign features; no 3D pick or hover of their preview (a change request) -- OPEN
+
+**2026-10-18 10:42, the reporter (to the note-taker):** "New request. Implement the same active handle and on view edit to the rest of partdesign feature. No need 3d view pick or mouse hover for preview shape"
+The note-taker's reading:
+- What the fillet and chamfer have now (entry 117, docs/OnViewValueEditing.md
+  steps 1 to 3, and the later fixes 135, 141, 159): handles in the view, an
+  ACTIVE handle that takes typed values (click on it or Tab; a digit opens
+  the box), its value label, the root button and its menu, a click that
+  selects nothing clearing the active handle (159) -- the same for every
+  other PartDesign feature.
+- "No need 3d view pick or mouse hover for preview shape": entry 169's work
+  (the preview pickable in the 3D view, its hover and click resolved to the
+  base element and synced with the panel's list) is NOT carried to the
+  other features. Their preview stays as it is.
+READ in the source, nothing run:
+- Already on the on-view machinery (`Gui::OnViewValueSet`): Fillet
+  (TaskFilletParameters.h:232) and Chamfer (TaskChamferParameters.h:190)
+  only.
+- Gizmos (handles) but no on-view values: Draft, Thickness
+  (setupGizmos), Pad/Pocket (TaskExtrudeParameters), Revolution/Groove,
+  Helix, Hole, the primitives (by `git grep Gizmo`, and the doc's 1.4).
+- Values typed in the view WITHOUT handles: the patterns' clickable extent
+  and spacing labels (PatternWidgets.cpp, the doc's 1.4).
+- No gizmo by the same grep, and no on-view value: Loft, Pipe, Boolean,
+  Wrap, Defeaturing, the datums (TaskDatumParameters), the patterns.
+NOT said:
+a. Which features "the rest" covers. Read as every PartDesign feature whose
+   panel has a value to type. That means Draft and Thickness (the doc's
+   step 4), Pad/Pocket and the other extrudes, Revolution/Groove, Helix,
+   Hole and the primitives. Whether features that have NO handle today
+   (Loft, Pipe, Boolean, Wrap, the patterns' values) get NEW handles is not
+   said.
+b. How much of "the same". Read as all that applies: the active handle,
+   typing, Tab, the value label, 159's clearing click, the root button's
+   menu where the feature has choices (reversed, the mode, the join type
+   ...), and the panel optional (the doc's 3.5.1). Per-element values
+   (the fillet's segments, the chamfer's ChamferInfo) only where the
+   feature has them.
+c. Whether the patterns' existing clickable labels move onto the same
+   machinery or stay as they are.
+d. The order, and whether it is one feature at a time, each shown on the
+   real screen as the doc's section 4 asks (read so).
+e. Whether a design note comes first for the features without handles
+   today (read: the doc's 3.4 already covers Draft and Thickness; the rest
+   would need one).
+f. The setting "Values in the view while editing" (the doc's 3.6) covering
+   them too (read so).
+Note: entry 169 is not yet pushed or staged by any report. The reporter's
+"Push and restage" (00:07) was relayed, and no result has come back.
+
+**2026-10-18 10:47, the build session (relayed): 170 sized, set A started, nothing
+built.** Its reading of the source:
+- What the fillet has, and the chamfer apart from fine undo (entry 136
+  was "fillet first"): Gui::OnViewValueSet bound to the panel's
+  QuantitySpinBoxes -- the active handle, typing, Tab, Space/Enter, the
+  value label, the root menu, 159's clearing click.
+- SET A, panels with handles today (7 panels, 14 values): Draft (Angle);
+  Thickness (Value); Pad/Pocket (Length, Length2, Offset, TaperAngle,
+  TaperAngle2); Revolution/Groove (Angle, Angle2, the start offset); Helix
+  (Height); Hole (Depth, StartOffset); the primitives (box L/W/H, cylinder
+  R/H, sphere R -- the other primitives have no handle).
+- SET B, no handle today: Loft, Pipe, Boolean, Wrap, Defeaturing, the
+  datums, the patterns (PatternWidgets labels without handles).
+Its readings of a-f:
+- a: set A now, one feature at a time, Draft first, then Thickness (the
+  doc's 3.4). Set B getting NEW handles is the reporter's call -- asked
+  through the note-taker, with c and e.
+- b: everything that applies -- the active handle, typing, Tab, the
+  label, 159, the root menu. The MENU TAKES OVER today's CLICK-TO-FLIP
+  "Reversed" on Pad, Revolution and Hole (the doc's 3.3: the arrow click
+  no longer flips by surprise). Menu entries per feature as the doc's
+  3.3/3.4. Labels: the main value at the top middle, the others beside
+  their handle while it is active.
+- f: the "Values in the view while editing" setting covers them all.
+- 169's preview pick and hover not carried over.
+- Fine undo (one step per drag or label), the fillet's only: not added
+  unless the reporter asks.
+Its log: one commit to follow.
+The note-taker's reading: the click-to-flip going away on Pad, Revolution
+and Hole is a change the reporter did NOT ask for in 170 -- it follows
+the doc's 3.3, which the reporter agreed for the fillet. Put to the
+reporter with a, c and e.
+
+**2026-10-18 11:27, the build session (relayed): SET A DONE LOCALLY, NOT pushed, NOT
+staged** -- `313083cf4e` (Gui: on-view values: hidden values, anchors from
+the gizmos' frame, the bound property's unit), `7ac52ec284` (PD: the other
+features' values shown and typed in the view), log `45bd3382dc`. Each
+feature got the fillet's OnViewValueSet bound to the panel's own boxes:
+labels -- the main value at the top middle, the others beside their
+handle while it is active, all at the top middle with handles off; Tab,
+digits, Enter, Space, Escape as on the fillet.
+- Draft: Angle; menu "Reverse pull direction", "Remove <face>".
+- Thickness: Value; menu the reverse check, "Join type", "Remove <face>".
+- Pad/Pocket: Length, Length 2, Taper angle 1 and 2, Start offset; menu
+  "Reversed", "Sides", "Type" (or "Type of side 2").
+- Revolution/Groove: Angle, Angle 2, Start offset; menu as Pad's.
+- Helix: Pitch, Height (with its handle), Turns, Cone angle, Radial
+  growth, each when the mode shows it; menu "Left handed", "Reversed",
+  "Mode".
+- Hole: Diameter (hidden when a thread size sets it), Depth, Start
+  offset; menu "Switch direction", "Depth type".
+- Box, Cylinder, Sphere: their handle values; no menu.
+CHANGED BEHAVIOUR:
+- A plain click on Pad's, Revolution's and Hole's arrows NO LONGER FLIPS
+  Reversed (the doc's 3.3); Reversed is in the menu.
+- Values the feature does not use are HIDDEN -- no label, Tab passes
+  over (Length 2 on a one-sided pad, Turns in pitch-height-angle).
+- Fixed on the way: the pad's label read "Length 5" with no unit (the Fw
+  form's widget holds none); the label takes the bound property's unit.
+Its readings, for the reporter to change: Helix and Hole also show values
+WITHOUT a handle (pitch, turns, cone angle, growth, diameter); elsewhere
+only the values with handles. The menus are its starting set by the doc's
+3.3.
+NOT carried over: 169's preview pick and hover (as said); the fillet's
+fine undo; 159's clearing click -- built NOWHERE yet, still open as entry
+159.
+Still the reporter's: set B -- Loft, Pipe, Boolean, Wrap, Defeaturing, the
+datums, the patterns (c), the primitives without handles (cone,
+ellipsoid, torus, prism, wedge) -- and e (a design note first).
+r111 on the real screen: tests/gui/pd-values-in-view.py 37/37 (each
+feature in edit: its labels, a typed value, a menu entry, no label left
+after the edit); chamfer-values-in-view 19, fillet-radius-typed-in-view
+21, fillet-handle-click-in-view 15 -- no failure.
+The note-taker's notes:
+- CORRECTION of the 10:42 reading: it listed "a click that selects
+  nothing clearing the active handle (159)" among what the fillet HAS.
+  Wrong -- by the build session, 159 is not built; it stays open there.
+- The click-to-flip question (put to the reporter 10:47, item 4) was NOT
+  answered; the change is built anyway, by the doc's 3.3. Still for the
+  reporter.
+
+**2026-10-18 12:07, the reporter (to the note-taker), answering set B, c and e:** "Add handle only if it makes sense, yes design first. Yes pattern label the same."
+The note-taker's reading:
+- SET B (Loft, Pipe, Boolean, Wrap, Defeaturing, the datums, the
+  patterns, the primitives without handles): a NEW HANDLE only where it
+  makes sense for that feature; which ones do is the design's to say.
+- e: YES, a DESIGN FIRST -- written and put to the reporter before set B
+  is built.
+- c: YES, the patterns' labels (PatternWidgets) go onto the SAME
+  machinery as the others (OnViewValueSet: the active handle, typing,
+  Tab, the menu).
+NOT said:
+a. Whether the design note is a section of docs/OnViewValueEditing.md or
+   a note of its own (read: a section of that doc).
+b. Whether the patterns' move waits for the design, or goes ahead as set
+   A did (read: it goes in the design too, since a pattern without
+   handles needs to say where its labels sit).
+c. The features with no value to type at all (Boolean, Defeaturing, read
+   so): nothing, unless the design finds a reason.
+d. The click-to-flip question (10:47, item 4: a plain arrow click on Pad,
+   Revolution and Hole no longer flips Reversed, built in set A) -- NOT
+   answered.
+e. Set A's push and restage -- not said.
+
+**2026-10-18 12:10, the reporter (to the note-taker), answering the click-to-flip
+question (10:47, item 4):** "Yes no longer flip, but support auto reverse on drag beyond."
+The note-taker's reading:
+- YES, a plain click on an arrow (Pad, Revolution, Hole) no longer flips
+  Reversed -- set A's change is kept.
+- NEW: AUTO REVERSE ON DRAG. Dragging an arrow BEYOND its zero (back
+  through the sketch plane, past the start) flips the feature's
+  direction by itself -- Reversed toggled -- and the value goes on
+  growing positive the other way, instead of stopping at zero or going
+  negative.
+NOT said:
+a. Which handles: read as every handle whose feature has a reverse
+   (Pad/Pocket Length, Revolution/Groove Angle, Hole Depth, Draft's angle
+   and Thickness's value with their reverse checks, Helix by its
+   "Reversed"); a handle with no reverse (the primitives) stops at its
+   minimum as now.
+b. Where "beyond" is: read as past the value's zero (or minimum), not
+   past some other limit.
+c. Two-sided values (Length 2, Angle 2, a symmetric pad): not said.
+d. Undo: one step for the whole drag, flip included (read so).
+e. Whether it lands in set A now or with the set B design: read as set A
+   (it belongs to the handles already built).
+
+**2026-10-18 12:49, the build session (relayed): the set B DESIGN is written; REVERSE
+BY DRAG built. NOT pushed, NOT staged.**
+1. SET B DESIGN: docs/OnViewValueEditing.md section 7, `6bad844c26`.
+   READ in the doc by the note-taker: 7.2 feature by feature -- Linear
+   and Polar patterns onto the set with an arrow / a rotation handle;
+   Circular an arrow for RadialDistance; Path, Scaled typed only; Point,
+   Mirrored nothing; MultiTransform each step as its feature; cone,
+   ellipsoid, torus, prism, wedge arrows for radii/heights/extents,
+   angles and counts typed; the datums typed plus an arrow along a
+   plane's normal; Loft, Pipe, Boolean, Wrap, Defeaturing nothing.
+   "Makes sense" read as: a length or angle seen at a place on the shape.
+   7.3: the pattern widget is SHARED with the App link arrays
+   (TaskLinkArray.cpp), so the link array panel gets the same. 7.4 the
+   machinery needed: a dimension-drawn label, counts (UIntSpinBox), a
+   top-middle-while-active place, handles from the view provider.
+   7.6 FOR THE REPORTER:
+   a. Patterns: an arrow for the extent (spacing) and a rotation handle
+      for a polar angle -- yes or no? The count typed only?
+   b. Datums: the offset panel is Part's attacher, shared with a
+      sketch's and a Part primitive's attachment. On-view values for
+      every user of it, or PartDesign's datums only? A plane's normal
+      offset as its only handle?
+   c. Primitives: the arrows in 7.2 -- all of them, the wedge's six too?
+   d. Values typed only (angles, counts): always at the top middle, or
+      only while active?
+   e. Scaled: typed only, or a handle for the factor?
+   The note-taker's readings a-c of 12:07 taken as read.
+2. REVERSE BY DRAG: `64766eb4ac` (Gui), `b8fdb0da09` (PD), log
+   `80afba4680`. The plain click stays without a flip. Dragging Pad/
+   Pocket's length, Revolution/Groove's angle, Hole's depth, Draft's
+   angle, Thickness's value or Helix's height back past its start toggles
+   the panel's reverse; the value grows again the other way; dragging back
+   past the start turns it back. Primitives stop at their minimum. The
+   note-taker's readings a, b, e as built. c (two-sided): ONLY THE FIRST
+   SIDE reverses; Length 2 and Angle 2 stop at their minimum. d (undo):
+   as any drag on those panels, which have NO per-drag undo step (only
+   the fillet has one).
+3. FOUND AND FIXED on the way:
+   (1) on every set A panel without the fillet's held undo step (the
+       chamfer too), a drag CANCELLED WITH ESCAPE restored the box but
+       not the property; it now writes the value back;
+   (2) the 169 defect -- the fillet's arrows could not be dragged (under
+       entry 169);
+   (3) fillet-undo-steps-in-view dragged at a fixed screen offset that
+       runs square to the arrow since 142; now along the arrow, 17/17.
+r113 on the real screen: pad-drag-reverse.py 13/13 (new); pd-values-in-
+view 37, chamfer 19, fillet radius 21, handle click 15, fillet undo 17,
+169 pick 20, 160 hover 16 -- no failure.
+The note-taker's notes:
+- The design's 7.5 says "The drag stays one undo step"; the build
+  session says those panels have no per-drag undo step. Not the same --
+  for the build session to square.
+- 3(1), the chamfer's cancelled drag, and 3(2) were in the PUSHED and
+  STAGED copy, by the note-taker's reading (READ in git: the chamfer's
+  OnViewValueSet is already in `b76481281e`).
+
+**2026-10-18 12:51, the build session (relayed): both of the note-taker's 12:49 notes
+right.**
+1. The design's 7.5 corrected (`66dd36afbd`) to what was built: the
+   panels have no per-drag undo step (only the fillet has one), so a drag
+   and its reversal go into the edit's ONE transaction; a cancelled drag
+   turns the feature back and writes the value back; only the first side
+   reverses.
+2. The chamfer's Escape not writing back is OLDER than `b76481281e` -- the
+   chamfer's OnViewValueSet has had no rollback since it was made; fixed
+   locally. Both fixes need a push and restage, on the reporter's own
+   word.
+
+## 171. Fine dragging by the right button; where the drag increment settings are; those settings in the view during an on-view edit (a change request, a question) -- OPEN
+
+**2026-10-18 21:48, the reporter (to the note-taker):** "new request, current handle dragging requires SHIFT key to fine change. I want right button drag to do the same. Also where are the setting for drag incremental? I assume some setting? and how is find adjustment related to the setting? a scale? I want the incremental settings to be brough to on view edit as well, suggest a place, bottom middle?"
+(as typed: "find adjustment" read as "fine adjustment", "brough" as
+"brought".)
+The note-taker's reading:
+- (1) A handle dragged with the RIGHT mouse button behaves as a left drag
+  with Shift held: the FINE change.
+- (2) A question: where the drag increment settings are, and how the fine
+  step relates to them (a scale?).
+- (3) Those increment settings shown and changed IN THE VIEW during an
+  on-view edit (the fillet's, chamfer's and entry 170's), at a place to
+  be suggested -- the reporter offers the BOTTOM MIDDLE.
+(2) ANSWERED by the note-taker, READ in the source, nothing run:
+- The settings: Preferences, Part/Part Design, General, the
+  "Experimental" group (src/Mod/Part/Gui/DlgSettingsGeneral.ui 380 to
+  560; parameters under BaseApp/Preferences/Gui/Gizmos):
+  "Show interactive draggers when editing features";
+  "Disable recompute while dragging";
+  "Enable coarse snapping while dragging" (EnableCoarseSnap, on);
+  "Fine snap modifier" (FineSnapModifier: Shift, or Ctrl);
+  "Default coarse drag behavior" (DefaultCoarseDragBehavior: Coarse, or
+  Fine);
+  "Coarse movement multiplier" (CoarseLinearSnapMultiplier, 5, 1 to 100);
+  "Coarse rotation step (degrees)" (CoarseRotationSnapMultiplier, 5).
+- How fine relates (Gizmo.cpp 578 to 584, 720 to 732, 768, 1038 to 1046):
+  FINE is NOT a setting -- it is the BASE STEP. For an arrow the base step
+  follows the ZOOM: a power of ten from the handle's scale on the screen
+  (10 to the floor of log10 of the scale), so zoomed in ten times the step
+  is ten times finer (e.g. 1 mm, then 0.1 mm). COARSE is the base step
+  TIMES the multiplier (5 x). For a rotation the base step is 1 deg, the
+  coarse step the setting's degrees (5).
+- The modifier SWAPS the default: with "Coarse" as default (the
+  default), a plain drag snaps coarse and Shift drags fine; with "Fine"
+  as default, Shift drags coarse. With coarse snapping off, every drag is
+  fine and the modifier does nothing.
+- Right button today (READ): a right click on a handle OPENS ITS MENU
+  (entry 135; OnViewValue.cpp 988 to 1012, Gizmo.cpp 389 to 412), and
+  during a left drag ANOTHER BUTTON CANCELS the drag (entry 136;
+  OnViewValue.cpp 963 to 980).
+NOT said:
+a. The right click's MENU: read as kept -- a right press and release
+   without moving opens the menu, a right press that MOVES drags fine.
+b. A right-button drag with Shift held: not said (read: still fine).
+c. With "Fine" as the default behaviour: whether a right drag is then
+   coarse (the swap) or always fine. Read: always FINE, as said.
+d. (3) which settings in the view: read as the drag ones -- coarse on or
+   off, the multiplier, the rotation step, perhaps the default behaviour;
+   not the modifier key or the recompute switch.
+e. (3) whether a change there is the PREFERENCE itself (lasting, every
+   edit) or for this edit only. Read: the preference.
+f. (3) shown always during the edit, only while dragging, or only while
+   a handle is active. Not said.
+g. (3) the place: the reporter offers the bottom middle and asks for a
+   suggestion. READ: the on-view design (docs/OnViewValueEditing.md)
+   uses the top middle for the value labels and names no bottom place.
+   The step in use (fine or coarse, and its size) shown there too is
+   not said.
+
+**2026-10-18 21:51, the build session (relayed):** 171 received; a short design for
+(1) and (3) after its current task; nothing built before the reporter
+answers.
+
+**2026-10-18 22:02, the reporter (to the note-taker), (3) CHANGED:** "ok, change idea, do not bring the setting on view. just add a settings sub menu item in the handle context menu. the sub menu has all those settings widget and change it takes effect immediately"
+The note-taker's reading:
+- (3) WITHDRAWN as asked at 21:48: NO settings shown in the view, no
+  bottom-middle place (readings d, f, g of 21:48 fall away).
+- INSTEAD: the handle's CONTEXT MENU (the right click, entry 135) gets a
+  "Settings" SUB-MENU. It holds the settings' WIDGETS themselves -- check
+  boxes, the combo boxes, the spin boxes -- not entries that open the
+  preferences dialog.
+- A change there TAKES EFFECT IMMEDIATELY: the next drag uses it, with no
+  OK or Apply. Read: it is the PREFERENCE itself (21:48 reading e kept),
+  the same value as Preferences, Part/Part Design, General,
+  "Experimental".
+- (1), the right-button drag doing the fine change, STANDS.
+NOT said:
+a. "all those settings": read as the seven of the 21:48 answer --
+   draggers shown, recompute while dragging, coarse snapping on, the fine
+   modifier, the default drag behaviour, the coarse multiplier, the coarse
+   rotation step. NOTE: "Show interactive draggers" switched off from a
+   handle's own menu takes the handles away mid-edit -- whether it belongs
+   there is not said.
+b. Whether the menu stays open while a widget is changed, so several can
+   be set at once (read so), or closes on each change.
+c. The handles with NO menu today (the Box, Cylinder, Sphere primitives
+   of 170 set A): read as getting a menu with "Settings" alone.
+d. Whether the sub-menu is in the on-view values' menu (the label's and
+   Space's) as well as the handle's (read so -- the same menu).
+e. Whether the settings' scope stays global (every feature, every edit)
+   -- read so, as the preference.
+
+**2026-10-18 22:04, the reporter (to the note-taker), (1) DROPPED:** "so no need right button drag, since one of the setting determin the default drag is fine or coarse"
+The note-taker's reading:
+- NO right-button drag. With "Default coarse drag behavior" in the
+  handle's Settings sub-menu (22:02), the reporter switches a plain drag
+  to fine there, and Shift then drags coarse (the swap, READ at 21:48,
+  Gizmo.cpp 720 to 732).
+- The right button stays as it is today: a right click on a handle opens
+  its menu (entry 135); during a left drag another button cancels it
+  (entry 136). The 21:48 readings a-c on the right button fall away.
+- 171 is now the Settings sub-menu ALONE (22:02, its a-e still open).
+Read as a ruling (no question mark); the note-taker confirmed the
+reasoning to the reporter.
+
+**2026-10-18 22:06, the reporter (to the note-taker), the sub-menu's form:** "the setting menu shall have edit or checkbox widget like the rest of the menus."
+The note-taker's reading:
+- Each setting in the Settings sub-menu is a WIDGET IN THE MENU: a CHECK
+  BOX for an on/off setting, an EDIT (a label and its number box) for a
+  value -- as the fork's other menus that carry widgets have them.
+READ in the source, nothing run:
+- Such menus: a preference widget's own context menu
+  (PrefWidget::buildContextMenu, PrefWidgets.cpp 372 to 400: a
+  QWidgetAction per entry, a QCheckBox for a bool, a label plus a box for
+  a number); the anti-aliasing and display options (DisplayOptions.cpp
+  137 to 150, also ShadingOptions.cpp 743, 1076).
+- The handle menus of 170 are NOT of that kind: plain checkable actions
+  and sub-menus of checkable entries (TaskFilletParameters.cpp 781 to
+  835, TaskThicknessParameters.cpp 141 to 153). So "the rest of the
+  menus" read as the fork's widget menus, not the handle menus.
+NOT said:
+a. The two CHOICE settings ("Fine snap modifier": Shift/Ctrl; "Default
+   coarse drag behavior": Coarse/Fine) -- neither an edit nor a check
+   box. Read: a combo box in the menu, or a check box ("Fine drag by
+   default", "Ctrl for the other step"). Not said.
+b. Whether the 22:02 open points still stand: which of the seven
+   (and "Show interactive draggers"), the menu staying open (with
+   widgets in it, read so), the primitives, the label's menu, global.
+
+**2026-10-18 22:09, the reporter (to the note-taker), answering 22:06 a and 22:02 a:**
+"a combobox for the choice. yes leave out for the show interactive"
+The note-taker's reading -- the Settings sub-menu then holds SIX widgets:
+- check box: "Disable recompute while dragging";
+- check box: "Enable coarse snapping while dragging";
+- COMBO BOX: "Fine snap modifier" (Shift / Ctrl);
+- COMBO BOX: "Default coarse drag behavior" (Coarse / Fine);
+- edit: "Coarse movement multiplier" (1 to 100);
+- edit: "Coarse rotation step (degrees)" (1 to 100).
+"Show interactive draggers when editing features" LEFT OUT.
+Still NOT said (22:02): b the menu staying open while a widget changes
+(read so), c the primitives' menu with "Settings" alone, d the label's
+menu too, e global scope (all read so).
+
+## 172. All the PartDesign on-view edit in the browser, tested in a real browser (a change request) -- OPEN
+
+**2026-10-18 22:13, the reporter (to the note-taker):** "new request, implement all the partdesign on view edit in browser. test in real browser"
+The note-taker's reading:
+- What the desktop has for PartDesign's on-view edit -- the fillet's and
+  chamfer's (117 and after), entry 170's set A and its reverse by drag,
+  and as they land 170's set B and 171's Settings sub-menu -- is to WORK
+  IN THE BROWSER viewer (the thin client: SceneServer and web/ + wasm/),
+  on a document served from FreeCAD: the handles drawn and DRAGGED, the
+  active handle and its typed value, Tab, the value labels, the handle's
+  and label's menus.
+- "test in real browser": shown in a REAL browser on this box, not only
+  by a headless or simulated client.
+READ in the source and docs, nothing run:
+- docs/OnViewValueEditing.md 3.7: the labels are OnViewEntrys, so a
+  browser gets them through the existing stream; the handles draw through
+  the editing overlay; "a claim until it is seen on the screen".
+- docs/ThinClient.md 8.7: the sketcher's on-view boxes reach a browser as
+  a server-side QuantitySpinBox mirror; the client only draws the text and
+  forwards keys (src/Gui/Renderer/web/src/onview.tsx).
+- docs/ThinClient.md 464 to 467: "Direct manipulation (later) -- push/pull
+  handles ... draggers rendered in the canvas" -- dragging a handle in the
+  browser is listed as LATER there; whether it works now is not claimed by
+  anything the note-taker read.
+- A handle's menu is a QMenu, the "Qt-only chrome" kind (ThinClient 8.7);
+  how it reaches a browser is not read.
+NOT said:
+a. "all": read as everything above, the menus and the Settings
+   sub-menu's widgets (171) included.
+b. Pointer kinds: a mouse in a desktop browser (read so, first); a
+   phone's touch (no right click, no hover, no Shift) not said.
+c. The parts not built yet (170 set B, 171): read as carried to the
+   browser as they land, not waited for.
+d. Which browser: read as Chrome on this box (the harness the earlier
+   browser work used).
+e. Its place in the order with 171's design and the ThunderealCAD merge
+   the build session has in hand: not said.
+f. The PartDesign task panel in the browser (the DOM layer's job,
+   ThinClient sec 4): in scope or not, not said.
+
+**2026-10-18 22:16, the reporter (to the note-taker), on touch (22:13 b):** "long touch press on handle to bring up the context menu"
+The note-taker's reading:
+- TOUCH IS IN SCOPE for 172, not only a mouse.
+- A LONG PRESS of a finger ON A HANDLE opens THAT HANDLE's context menu
+  -- the menu the desktop's right click opens (entry 135; with 171's
+  Settings sub-menu) -- not the scene's context menu.
+READ in the source, nothing run (src/Gui/Renderer/wasm/main.cpp):
+- The browser viewer already has a touch long press: a finger held still
+  kLoupeHoldMs = 350 ms preselects under the finger (the "loupe", 5760 to
+  5771); held kMenuHoldMs = 500 ms more opens the SCENE's context menu
+  there (5822 to 5851, docs/ThinClient.md sec 8.11b), "a touchscreen's
+  right click". So by the source a long press on a handle today would
+  open the scene's menu for whatever lies under it, if anything.
+NOT said:
+a. The timing: read as the same hold as the scene menu (350 + 500 ms).
+b. Whether the loupe (the preselect at 350 ms) shows on a handle first.
+c. A finger that presses a handle and MOVES: read as a drag of the handle
+   (the mouse's left drag), not an orbit of the camera.
+d. The fine step on touch (no Shift): read as 171's "Default coarse drag
+   behavior" in the Settings sub-menu, which the reporter gave as the
+   reason for no right-button drag (22:04).
+e. Selecting a handle (making it active) by a tap: read so.
+
+**2026-10-18 22:18, the reporter (to the note-taker), answering 22:13 b, e, f:** "there is hover/preselection, check the browser code. task panel shall already in browser by now. Do thunderealcad merge first. then do this on the new tracked LinkVibe branch"
+The note-taker's reading:
+- HOVER / PRESELECTION EXISTS in the browser -- so a handle's hover (the
+  desktop's hint and highlight, entries 135, 141) is to work there too.
+  CORRECTION of the note-taker's 22:13 b: "a phone's touch (no right
+  click, no hover ...)" was wrong as to hover -- READ now in
+  src/Gui/Renderer/wasm/main.cpp: the mouse's hover preselects by a local
+  CPU raycast against the snapshot meshes (1126, 1262, 2513); on touch the
+  LOUPE (a finger held 350 ms, 5760 to 5771) is the hover, preselecting
+  under the finger. 22:16 b (the loupe on a handle first) read so: yes.
+- f ANSWERED: the TASK PANEL is ALREADY in the browser. READ: the widget
+  mirror (src/Gui/Renderer/web/src/widgets/, a fixture pad_panel.json).
+  Not seen run by the note-taker.
+- e ANSWERED, the ORDER: the ThunderealCAD merge FIRST (the build
+  session's task in hand, 21:51 head); THEN 172, done on "the new tracked
+  LinkVibe branch" -- read as the LinkVibe branch on ThunderealCAD that
+  the merge task pushes and tracks from then on.
+READ in git: the only ThunderealCAD remote branch now is
+`thundereal/main`; local LinkVibe tracks origin/LinkVibe (ahead 194, the
+merge included). No `thundereal/LinkVibe` yet.
+NOT said: whether 171 (the Settings sub-menu) also waits for the merge
+and goes on the new branch (read so -- all new work after the merge).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -23429,5 +24014,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 169
+the build session, 131 and 132 found by it; entries 134 to 172
 are of 2026-10-15, 134 said to the build session)

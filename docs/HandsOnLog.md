@@ -7622,3 +7622,70 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   lit for a base edge pointed at in 3D (the same call as the list hover,
   which the 160 test measures), and the scroll (the test's list is two
   rows). NOT pushed, NOT staged.
+
+## 2026-10-18: 169 pushed and staged; entry 170 sized
+
+- The user's direct "Push and restage" (00:2x, after the note-taker's
+  relay of 00:07): pushed `3b52423f11` (over `b76481281e`, all of 169);
+  stage15 from r107, 00:26 INSTALL-USER OK, fcad 3b52423f11, dirty False.
+- Entry 170 (the reporter 10:42, relayed): the on-view values brought from
+  the fillet and chamfer to the PartDesign features that have handles --
+  Draft, Thickness, Pad/Pocket, Revolution/Groove, Helix, Hole, and the
+  Box, Cylinder and Sphere primitives. Each panel's values go to a
+  Gui::OnViewValueSet bound to its own spin boxes: the main value's label
+  at the top middle, the others' beside their handle while it is active
+  (at the top middle too with handles off); Tab, typing, Enter/Space as the
+  fillet's; the handles' menu holds the feature's own operations --
+  Reversed, the sides and the type (Pad, Revolution), the depth type
+  (Hole), the mode, left handed (Helix), the join type (Thickness),
+  "Reverse pull direction" (Draft), "Remove <face>" (Draft, Thickness). A
+  click on Pad's, Revolution's and Hole's arrows no longer reverses them
+  (doc 3.3). Values the feature does not use now (a pad's second length
+  on one side, a helix's turns in pitch-height-angle) are hidden: no
+  label, passed over by Tab (OnViewValueSet::setHidden). Helix and Hole
+  also take values without handles (pitch, turns, cone angle, growth;
+  diameter). Labels beside a handle are placed from the gizmo container's
+  world matrix (GizmoContainer::getWorldMatrix, placeAnchors). The pad's
+  label read "Length 5" without its unit (the Fw form's real box holds no
+  unit; the bound property's is taken). NOT carried over: 169's preview
+  pick and hover (the reporter: "No need"), the fillet's fine undo, and
+  159's clearing click (not built yet anywhere). Set B -- Loft, Pipe,
+  Boolean, Wrap, Defeaturing, the datums, the patterns, the primitives
+  without handles -- is with the reporter.
+- r111 on the real screen: pd-values-in-view.py 37 of 37 (each feature in
+  edit, its labels, a typed value, a menu entry, the edit closed with no
+  label left); chamfer-values-in-view 19, fillet-radius-typed-in-view 21,
+  fillet-handle-click-in-view 15, none failed. NOT pushed, NOT staged.
+- 170, after the reporter's answers of 12:07 and 12:10: the set B design
+  is written (docs/OnViewValueEditing.md section 7, `6bad844c26`), for the
+  reporter to decide (7.6) before any of it is built. The click on an arrow
+  stays without a flip ("Yes no longer flip"); built: REVERSE BY DRAGGING
+  PAST THE START ("support auto reverse on drag beyond"), on Pad/Pocket's
+  length, Revolution/Groove's angle, Hole's depth, Draft's angle,
+  Thickness's value and Helix's height. Past the value's zero the panel's
+  reverse is toggled and the value grows again the other way; dragged back
+  past the start it turns back; while a drag has turned the feature its
+  handle is left where it is (a handle turned under the pointer reads the
+  drag the other way round) and placed again when the drag ends
+  (Gizmo::setReverseCallback). Primitives' handles stop at their minimum
+  as before.
+- Found on the way: (1) a drag cancelled with Escape put the box back but
+  not the property, on every set A panel without the fillet's held undo
+  step (the chamfer too): the value set now gives the box's signal again
+  on a cancel (OnViewValueSet::setCancelWritesBack, off for the fillet).
+  (2) 169 had made the dress-up preview pickable to Coin's own pick, by
+  which a dragger takes a press; the preview lies in front of the arrows
+  drawn on it, so those could not be dragged. The preview is unpickable
+  again, and only the selection's session pass picks it
+  (SoFCRayPickAction::setPickUnpickable). (3) fillet-undo-steps-in-view
+  failed its drag claim with a fixed 40 x 20 pixel offset, square to the
+  arrow since arrows lie in the face turned to the camera (142): the test
+  now drags along the arrow's own screen direction, 17 of 17.
+- r113 on the real screen: pad-drag-reverse.py 13 of 13 (no flip on a
+  click; dragged 5 mm past the start the pad is reversed, its solid below
+  the sketch, the arrow pointing down; back up un-reversed; a drag past
+  the start cancelled with Escape leaves it as it was);
+  pd-values-in-view 37, chamfer-values-in-view 19,
+  fillet-radius-typed-in-view 21, fillet-handle-click-in-view 15,
+  fillet-undo-steps-in-view 17, fillet-preview-pick-syncs-list 20,
+  fillet-hover-outlines-face 16, none failed. NOT pushed, NOT staged.

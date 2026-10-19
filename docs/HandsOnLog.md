@@ -7839,3 +7839,24 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
 - Still to do in the batch: 181 point 2 (a preview face's tool tip and
   right-click menu), 182 (a selection naming a preview face lights it), 180
   point 2 (label hover highlight and preselection). 178 3.2/3.3 after.
+
+### 2026-10-19 evening: pushed + staged 55f4145d9d, then 188 and 189
+
+- PUSHED to thundereal/LinkVibe and STAGED (stage22, 17:56) 55f4145d9d on
+  the user's "push and restage": 159, 182, 184, 185, 186 (the grab guard),
+  187, and the merge of thundereal/main (179, 175). 179 checked on a copy
+  of scanner2.FCStd: 28 log rows, no "no such column"; the check now
+  answers the migration prompt and the recompute-error box itself (the
+  user had to click them once). 187 waits for a hand check.
+- 188 BUILT (2121766927): with one missing reference's row selected, a pick
+  of an unused base element of its kind replaces it in place -- every
+  dress-up; values follow; one undo step. dressup-replace-missing-edge.py
+  20 of 21 on r142, the miss my claim's (the feature stays Touched while
+  its panel is open, by design); the claim as it passed on r141 restored.
+- 189 (the user, "After that do 189 with real browser"), first steps BUILT
+  (913db7b153): a real Chrome drags the fillet's arrows live; the fine-snap
+  key is now the client's (plain 2.5, 3.5 ... / Shift 2.6, 3.6 ...); Tab and
+  Escape from the page move and clear the active value. Found: the
+  top-middle label under the web tool bars; a radius dragged to 0 (the
+  desktop's clamp too); no on-view entries for typing. OnViewValueEditing
+  sec 9.5a. NOT pushed.

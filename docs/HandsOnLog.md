@@ -7769,3 +7769,13 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   wrappers at the addresses the next menu's take -- find by object name in
   the same opening. A screen grab shows the window in front on a desktop
   in use; the button renders itself instead. NOT pushed, NOT staged.
+- Pushed c1c771de51 to thundereal/LinkVibe and STAGED (stage17, 11:12,
+  build r119) on the user's direct "push and restage".
+- 175: x16's tile-less icon (thundereal/main 094770130e) merged here as
+  ca6eddfbfa. r120: tests/gui/app-icon-on-both-grounds.py 4 of 4 -- the
+  window icon set at 16-48 px, the same picture as Gui.getIcon("freecad"),
+  its corners clear; drawn on white, light grey, dark grey and black it
+  reads on all four (icons.png). The title-bar logo button was not
+  rendered: the test home has the title bar off. The real task bar
+  (running and pinned) not looked at. pd-edit-menu 22 of 22 after the
+  merge. NOT pushed.

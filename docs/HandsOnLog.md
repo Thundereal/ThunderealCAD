@@ -7860,3 +7860,15 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   top-middle label under the web tool bars; a radius dragged to 0 (the
   desktop's clamp too); no on-view entries for typing. OnViewValueEditing
   sec 9.5a. NOT pushed.
+- 189 continued, each seen in a real Chrome on the served fillet: the
+  handle's right-click menu with its settings rows (b2ad908242); the
+  top-middle label below the page's tool bars (7238ddd227); typing a value,
+  Enter or a digit opening the label (3c3c7f5e9e); a click on nothing
+  leaves no value active (3fc186d196). OnViewValueEditing sec 9.5a.
+- The user on the radius dragged to 0: first "drag refuse if it goes to
+  zero" (built, r148, not committed), then "auto revert to the last working
+  value ... the whole drag is one transaction", "if failed, I mean": BUILT
+  (3fc186d196) for every value with a handle; seen in
+  fillet-undo-steps-in-view.py, 23 of 23 on r150. Sec 9.5b. NOT pushed.
+- Left of 189: the 173 menu button drawn by the page, handle tool tips
+  (9.2 #6), touch (9.3); 180/182/185/188 in the browser not yet looked at.

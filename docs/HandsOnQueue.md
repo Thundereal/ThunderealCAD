@@ -173,6 +173,12 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 09:03: "Yes stay that way for now" -- 171's settings global for now; new
+entry 174 -- design PER-USER SETTINGS (each edit knows its user;
+PrefWidget and the menu's settings under a per-user prefix); 172 sized
+(OnViewValueEditing sec 9), 9.5 a-c for the reporter.** Under the
+entries.
+
 **2026-10-19 08:54: entries 171+173 -- the design written (OnViewValueEditing sec 8,
 `08ff4f5181`), nothing built; 8.6 a-f for the reporter.** Under entry 173.
 
@@ -3604,8 +3610,9 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 169 | 2026-10-17 | a change request: ALL DRESS-UP PREVIEW shapes PICKABLE in the 3D view (the unpickable style lifted); a (pre)selection there RESOLVES to the BASE EDGE's name, a missing element to its ?Edge name, so the EDIT PANEL's LIST ITEM selection SYNCS | OPEN; said to the note-taker 12:18. 12:19 the build session reading the dress-up preview code; its readings of a-f to come before it builds. 2026-10-17 12:33 the build session's readings of a-f, in build r103, nothing committed: a face resolves to the row its dress-up made, edges/vertices through their faces when one row; outside add mode a click selects (present -> the base edge, missing -> its ?Edge row), in add mode it toggles; a 3D HOVER does NOT resolve or light a row (only a selection syncs) -- the reporter wrote "(pre)selected", to be confirmed. 2026-10-17 13:47 DONE LOCALLY `1f52f9070e`, `fd8a8d4422` (log `fbcfba4541`), NOT pushed, NOT staged; readings a-f as sent; two more causes fixed (the on-top preview picked by depth, the base won every click; rmvSelection of ";AddSub;Face1" removed nothing); r105 real screen: fillet-preview-pick-syncs-list 14/14, fillet-hover-outlines-face 16/16, sketcher/box/handle tests no failure; OPEN for the reporter: d (should a hover resolve the name). 2026-10-17 13:57 d RULED (REOPENED): "Hover face should resolve the edge name too, which should trigger edge preselection highlight and edit panel list item hover plus scroll to view. Same if preselect edge in 3d view or hover list item, the othe two shall react" -- a three-way HOVER sync: preview face, base edge, list item. 2026-10-17 14:05 the build session: the hover sync in build r106, nothing committed -- the pick itself redirects a present edge's preview face to the base edge (ViewProvider::redirectEditingPick); the panel listens to preselection (row hovered in a faint selection colour, scrolled only when out of view, no scroll back; the face lit); readings a-e taken as written. 2026-10-17 14:47 the hover sync DONE LOCALLY `ebc61737c3`, `28a48ad695` (log `c93a20af5a`), NOT pushed, NOT staged; r106 crashed at the first hover (fixed); r107 real screen: fillet-preview-pick-syncs-list 20/20, 160 hover 16/16; NOT measured: the face lit for a base edge pointed at in 3D, the scroll. 2026-10-18 00:07 the reporter (to the note-taker): "Push and restage" -- relayed to the build session; NOT yet pushed or staged. 2026-10-18 10:47 the build session: PUSHED `3b52423f11` over `b76481281e` (all of 169, up to the note-taker's queue commit) and STAGED (stage15 from r107, done 00:26, INSTALL-USER OK, fcad 3b52423f11, dirty False), on the reporter's own word to it after the relay; the two NOT MEASURED points still not measured. 2026-10-18 12:49 the build session: 169 had made the preview pickable to Coin's own pick, so the fillet's ARROWS (behind the preview) could NOT BE DRAGGED -- in the PUSHED and STAGED copy by the note-taker's reading; fixed locally in `64766eb4ac` (the preview unpickable again, only the selection's session pass picks it), NOT pushed, NOT staged; 169's 20/20 and 160's 16/16 still pass. 2026-10-18 12:51 the build session agrees: the regression came with `1f52f9070e`/`fd8a8d4422`, so it is in the staged `3b52423f11` -- a fillet's or chamfer's arrows over their preview take no drag; its reading of the cause, not seen on the staged copy. 2026-10-18 21:51 the drag fix PUSHED (origin/LinkVibe `15205e7387`, on the reporter's "push, no restage yet" to the build session about 18:00), NOT restaged -- the stage is still `3b52423f11`, with the defect. 2026-10-19 08:35 the drag fix RESTAGED (stage16 08:25, fcad `cf833f0c98`) |
 | 170 | 2026-10-18 | a change request: the fillet's and chamfer's ACTIVE HANDLE and ON-VIEW EDIT brought to the REST of the PartDesign features; NOT the 3D pick or mouse hover of their preview (entry 169's) | OPEN; said to the note-taker 2026-10-18 10:42. 2026-10-18 10:47 the build session sized it: set A (7 panels with handles, 14 values) started, Draft first, nothing built; set B (no handle today), c (the patterns' labels) and e (a design note first) put to the reporter. 2026-10-18 11:27 SET A DONE LOCALLY `313083cf4e`, `7ac52ec284` (log `45bd3382dc`), NOT pushed, NOT staged; r111 real screen: pd-values-in-view 37/37, chamfer/fillet tests no failure; a plain arrow click no longer flips Reversed (Pad, Revolution, Hole) -- done before the reporter answered; unused values hidden; 159's clearing click built nowhere yet (the note-taker's 10:42 reading wrong); set B, c, e still the reporter's. 2026-10-18 12:07 the reporter (to the note-taker): "Add handle only if it makes sense, yes design first. Yes pattern label the same." -- set B: handles only where they make sense, a DESIGN FIRST; the patterns' labels onto the same machinery; the click-to-flip question not answered. 2026-10-18 12:10 the reporter (to the note-taker): "Yes no longer flip, but support auto reverse on drag beyond." -- the click no longer flips (kept); NEW: dragging an arrow beyond zero REVERSES automatically. 2026-10-18 12:49 set B DESIGN written (docs/OnViewValueEditing.md sec 7, `6bad844c26`), its 7.6 a-e for the reporter; REVERSE BY DRAG DONE LOCALLY `64766eb4ac`, `b8fdb0da09` (log `80afba4680`), NOT pushed, NOT staged; only the first side reverses; r113 real screen: pad-drag-reverse 13/13, the others no failure; an Escape-cancelled drag now writes the property back. 2026-10-18 12:51 the build session: the design's 7.5 corrected to what was built (`66dd36afbd`): no per-drag undo step, a drag and its reversal go into the edit's one transaction; a cancelled drag turns the feature back and writes the value back. 2026-10-18 21:51 set A and reverse by drag PUSHED (origin/LinkVibe `15205e7387`, "push, no restage yet" about 18:00), NOT restaged (stage `3b52423f11`); set B's 7.6 a-e still the reporter's. 2026-10-19 08:35 set A and reverse by drag RESTAGED (stage16 08:25, fcad `cf833f0c98`), pushed to ThunderealCAD LinkVibe |
 | 171 | 2026-10-18 | a change request and a question: a RIGHT-BUTTON DRAG of a handle to do the FINE change Shift does now; where the drag increment settings are and how the fine step relates to them; the increment settings brought INTO THE VIEW during an on-view edit, at the bottom middle? | OPEN; said to the note-taker 2026-10-18 21:48; the question answered from the source. 2026-10-18 21:51 the build session: a short design for (1) and (3) after its current task; nothing built before the reporter answers. 2026-10-18 22:02 (3) CHANGED by the reporter: "ok, change idea, do not bring the setting on view. just add a settings sub menu item in the handle context menu. the sub menu has all those settings widget and change it takes effect immediately" -- no settings in the view; a SETTINGS SUB-MENU in the handle's context menu holding the settings' widgets, a change taking effect at once; (1) the right-button fine drag stands. 2026-10-18 22:04 (1) DROPPED by the reporter: "so no need right button drag, since one of the setting determin the default drag is fine or coarse" -- no right-button drag; the default drag behaviour in the Settings sub-menu does it; 171 is now the sub-menu alone. 2026-10-18 22:06 the reporter: "the setting menu shall have edit or checkbox widget like the rest of the menus." -- the sub-menu's items are EDIT or CHECK BOX widgets in the menu, as the fork's other menus have them (e.g. a preference widget's context menu, PrefWidgets.cpp 372). 2026-10-18 22:09 the reporter: "a combobox for the choice. yes leave out for the show interactive" -- the two choices as COMBO BOXES; "Show interactive draggers" LEFT OUT; the sub-menu holds six settings |
-| 172 | 2026-10-18 | a change request: ALL the PartDesign ON-VIEW EDIT (handles, the active handle and typing, the labels, the menus) working IN THE BROWSER, tested in a REAL BROWSER | OPEN; said to the note-taker 2026-10-18 22:13. 2026-10-18 22:16 the reporter: "long touch press on handle to bring up the context menu" -- touch is in scope (b): a LONG PRESS on a handle opens the HANDLE's context menu, the touch form of the right click. 2026-10-18 22:18 the reporter: "there is hover/preselection, check the browser code. task panel shall already in browser by now. Do thunderealcad merge first. then do this on the new tracked LinkVibe branch" -- the browser HAS hover/preselection (the note-taker's "no hover" on touch wrong); the task panel is already in the browser; ORDER: the ThunderealCAD merge FIRST, then 172 on the new tracked LinkVibe branch |
-| 173 | 2026-10-19 | a change request: an always-visible MENU BUTTON at the 3D view's TOP MIDDLE during an on-view edit (left of the top-middle label when there is one), like the cell menu button but label-high, keeping clear of overlay widgets (the label too); its menu = the active handle's context menu plus 'toggle handles' and 'show preview', the settings even with no active handle | OPEN; said to the note-taker 2026-10-19 08:32. 2026-10-19 08:35 the build session: one design note for 171 and 173 together (one menu), then 172's sizing; nothing built before the reporter sees the design. 2026-10-19 08:48 the reporter: "Toggle handles, this view only, same as show preview. The policy from now on is to keep in mind of multiple user editing. In the future we shall extend preference to be user aware. So browser user can have their own preference." -- toggle handles and show preview THIS VIEW ONLY; a POLICY: keep multiple users editing in mind; later, user-aware preferences. 2026-10-19 08:54 the 171+173 DESIGN written (docs/OnViewValueEditing.md sec 8, `08ff4f5181`, local), nothing built; sec 8.6 a-f for the reporter (a: the panel's Show preview also writes the global preference and resumes the recompute -- the menu's switch would only take the preview out of this view) |
+| 172 | 2026-10-18 | a change request: ALL the PartDesign ON-VIEW EDIT (handles, the active handle and typing, the labels, the menus) working IN THE BROWSER, tested in a REAL BROWSER | OPEN; said to the note-taker 2026-10-18 22:13. 2026-10-18 22:16 the reporter: "long touch press on handle to bring up the context menu" -- touch is in scope (b): a LONG PRESS on a handle opens the HANDLE's context menu, the touch form of the right click. 2026-10-18 22:18 the reporter: "there is hover/preselection, check the browser code. task panel shall already in browser by now. Do thunderealcad merge first. then do this on the new tracked LinkVibe branch" -- the browser HAS hover/preselection (the note-taker's "no hover" on touch wrong); the task panel is already in the browser; ORDER: the ThunderealCAD merge FIRST, then 172 on the new tracked LinkVibe branch. 2026-10-19 09:03 SIZED by the build session (docs/OnViewValueEditing.md sec 9, `8cd250125b`, local), nothing built; 9.5 a-c for the reporter (c: puppeteer-core installed on the box, the reporter's yes first) |
+| 173 | 2026-10-19 | a change request: an always-visible MENU BUTTON at the 3D view's TOP MIDDLE during an on-view edit (left of the top-middle label when there is one), like the cell menu button but label-high, keeping clear of overlay widgets (the label too); its menu = the active handle's context menu plus 'toggle handles' and 'show preview', the settings even with no active handle | OPEN; said to the note-taker 2026-10-19 08:32. 2026-10-19 08:35 the build session: one design note for 171 and 173 together (one menu), then 172's sizing; nothing built before the reporter sees the design. 2026-10-19 08:48 the reporter: "Toggle handles, this view only, same as show preview. The policy from now on is to keep in mind of multiple user editing. In the future we shall extend preference to be user aware. So browser user can have their own preference." -- toggle handles and show preview THIS VIEW ONLY; a POLICY: keep multiple users editing in mind; later, user-aware preferences. 2026-10-19 08:54 the 171+173 DESIGN written (docs/OnViewValueEditing.md sec 8, `08ff4f5181`, local), nothing built; sec 8.6 a-f for the reporter (a: the panel's Show preview also writes the global preference and resumes the recompute -- the menu's switch would only take the preview out of this view). 2026-10-19 09:03 the reporter: "Yes stay that way for now." -- read as: 171's settings stay the GLOBAL preference for now; 8.6 a-f NOT answered by it |
+| 174 | 2026-10-19 | a change request FOR DESIGN: PER-USER SETTINGS -- each edit identifies the user who started it; PrefWidget checks the current editing user and PREFIXES the setting path; check whether settings in menu items can do the same | OPEN; said to the note-taker 2026-10-19 09:03 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -24037,6 +24044,40 @@ merge included). No `thundereal/LinkVibe` yet.
 NOT said: whether 171 (the Settings sub-menu) also waits for the merge
 and goes on the new branch (read so -- all new work after the merge).
 
+**2026-10-19 09:03, the build session (relayed): 172 SIZED, docs/OnViewValueEditing.md
+section 9, `8cd250125b` (local, not pushed). Nothing built.** By the
+source, nothing of it seen yet:
+- ALREADY: the handles reach the browser (the editing root streamed as
+  overlay 7); while editing, a left drag and hover are replayed into the
+  client's MirrorViewer as SoEvents; PD labels take the sketcher's
+  on-view path; the panel is mirrored.
+- MISSING (table 9.2): the value set's keys and the right click (Tab,
+  Enter, digits, Space, Escape come through a Qt filter on the view
+  widget, which a mirror lacks); the handle's menu (QMenu::exec on the
+  host); 171's widgets in a described menu; tooltips; snapping's
+  modifiers (read from the HOST keyboard, not the event); ALL of touch
+  (no input frames sent; the long press is off while editing).
+- A possible mirror bug: button code 2 maps to BUTTON2 but to Qt middle.
+9.5 FOR THE REPORTER, each with its proposal:
+a. SHARED EDIT (PerViewEdit off is the default): one active value and
+   one set of handles for every browser user, as there is one task
+   panel. Proposed: yes for now; per-view value sets only with
+   PerViewEdit on, later.
+b. A right DRAG in the browser stays the camera's; a right CLICK on a
+   handle opens its menu. Proposed: yes.
+c. "Test in real browser" on this Windows box needs node +
+   puppeteer-core next to a local Chrome; the browser tests are set up
+   only on Linux so far. Proposed: install puppeteer-core in a tools
+   directory OUTSIDE the repo -- an install on the box, so the
+   reporter's yes first.
+Order (9.6): a served fillet edit dragged in Chrome first; then the keys
+and modifiers from the viewer's events; then the menu with 171's widgets
+(after 171 is decided); then hints and the 173 button; then touch.
+The note-taker's reading: 9.5 a (one shared active value for every
+browser user) sits against the 08:48 POLICY (keep multiple users editing
+in mind; per view over shared) -- the build session proposes it "for
+now"; for the reporter.
+
 ## 173. An on-view edit menu button at the 3D view's top middle: the active handle's menu, toggle handles, show preview; it and the top-middle label clear of overlay widgets (a change request) -- OPEN
 
 **2026-10-19 08:32, the reporter (to the note-taker):** "New request, add a menu button on in 3d view top middle, or on left of a top middle label if there's one. Similar to cell menu button with hover effect, but bigger, same height as on view  label. Should be aware of overlay widgets just like cell menu. So shall the middle label. Add toggle handle menu item, and show preview option. The menu button shall always be visible. The menu show the same content for a context menu of the active handle. If no active handle, still show those settings"
@@ -24148,6 +24189,59 @@ READ by the note-taker, nothing run: MonitorProxy::onPreview
 setPreviewDisplayMode on the edit's view provider -- as the build session
 says for the first part; the recompute part not read.
 
+**2026-10-19 09:03, the reporter (to the note-taker):** "Yes stay that way for now."
+The note-taker's reading: it answers the note-taker's question of 08:48
+(sent to the reporter after the policy): 171's Settings sub-menu STAYS
+the GLOBAL preference for now (behind one accessor, the design's 8.5),
+until preferences are user aware -- see entry 174. NOT read as answering
+the design's 8.6 a-f (the menu's "Show preview" keeping the recompute
+paused, etc.): those stay OPEN for the reporter.
+
+## 174. Per-user settings: each edit knows its user; preference widgets and the menu's settings write under a per-user prefix (a change request for design) -- OPEN
+
+**2026-10-19 09:03, the reporter (to the note-taker):** "New request, lets design the per user settings. My thoughts, each edit shall identify the initating user, prefwidget shall check current editting user and add prefix to setting path. Check if settings in menu item can do the same"
+(as typed: "initating" read as "initiating", "editting" as "editing".)
+The note-taker's reading -- the "later" of 173's 08:48 policy, now asked
+for as a DESIGN (nothing to build yet):
+- Each EDIT identifies the USER who STARTED it (on the desktop the local
+  user; in the browser the connection's user).
+- A PREFERENCE WIDGET (Gui::PrefWidget: PrefCheckBox, PrefSpinBox, ...)
+  checks the CURRENT EDITING USER and PREFIXES its setting path with that
+  user, so each user's value is stored apart.
+- CHECK whether the settings in MENU ITEMS (171's Settings sub-menu, and
+  the other widget menus) can do the same.
+READ in the source, nothing run:
+- PrefWidget keeps its path as m_sPrefGrp / m_sPrefName
+  (PrefWidgets.h 80, 198 to 207; setParamGrpPath); its sub-entries
+  already take a prefix (PrefWidget::entryPrefix, PrefWidgets.cpp 286 to
+  294: the entry name or the window parameter's group name, then "_").
+- A connection's user on the server: SceneClientInfo.identity, "as
+  verified by an authenticating front door (docs/ShareAccess.md sec 4)",
+  else the self-declared client label (SceneServer.h 284 to 312); "A user
+  is the identity a trusted front door asserted, else the grant that
+  admitted the connection, else the judged address" (SceneServer.h 443
+  to 450).
+- 171's drag settings are read through MiscParams (Gui/MiscParams.cpp):
+  cached values from fixed parameter handles (subHandles), updated by an
+  observer -- a per-user value would need the getter to know the user.
+NOT said:
+a. What "user" is for a desktop session (read: the local user, no
+   prefix -- today's paths unchanged).
+b. Where the prefix goes: a sub-group per user under each group (e.g.
+   .../Gizmos/Users/<user>/...) or a separate tree per user (read:
+   not said; the design's call).
+c. Fall-back: a user with no value of their own reads the global one
+   (read so).
+d. Which settings: every preference, or only those an edit can reach
+   (the menus') -- not said.
+e. Who may change the GLOBAL value from a browser: not said.
+f. How the user follows into code that reads a parameter outside a
+   widget (the MiscParams getters, during a drag): read as part of the
+   check asked for.
+g. With 172's 9.5 a (one shared edit for every browser user): "each edit
+   shall identify the initiating user" -- read as the user who STARTED
+   the edit; whose settings apply when another user drags in it, not said.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -24159,5 +24253,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 173
+the build session, 131 and 132 found by it; entries 134 to 174
 are of 2026-10-15, 134 said to the build session)

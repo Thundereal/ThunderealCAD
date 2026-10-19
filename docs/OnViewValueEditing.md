@@ -618,6 +618,166 @@ e. Scaled: typed only, or a handle for the factor?
 
 Each shown on the real screen with a test, as set A was.
 
+## 8. The edit's menu: Settings sub-menu and a menu button (entries 171, 173): A DESIGN, NOT BUILT
+
+Asked by the reporter 2026-10-18 21:48 - 22:09 (171) and 2026-10-19
+08:32 - 08:48 (173), through the note-taker's queue. What was ruled:
+
+- 171: the handle's context menu gets a "Settings" sub-menu holding the
+  drag settings' widgets themselves -- a check box for an on/off, an edit for
+  a number, a combo box for a choice -- "like the rest of the menus"; a
+  change takes effect at once. Six of them; "Show interactive draggers" is
+  left out. No right-button drag (dropped 22:04: the default fine/coarse is
+  one of the settings).
+- 173: an always visible MENU BUTTON at the top middle of the 3D view, or at
+  the left of the top-middle label when there is one; like the view cell's
+  menu button with its hover look, but as tall as a label; it keeps clear of
+  overlay widgets as the cell button does, and so does the top-middle label.
+  Its menu is the active handle's context menu, plus "Toggle handles" and
+  "Show preview"; with no active handle, still the settings (and the two).
+- 173, 08:48: "Toggle handles" and "Show preview" are for THIS VIEW ONLY.
+  And a standing policy: keep several users editing in mind (browser
+  clients of one served document, each in a view of their own); preferences
+  are to become user aware later.
+
+### 8.1 What exists (read in the source)
+
+- The six settings are live `MiscParams` with setters, under
+  `BaseApp/Preferences/Gui/Gizmos`, read by `Gizmo.cpp` on every drag:
+  `DelayedGizmoUpdate` ("Disable recompute while dragging"),
+  `EnableCoarseSnap`, `FineSnapModifier` (Shift / Ctrl),
+  `DefaultCoarseDragBehavior` (Coarse / Fine), `CoarseLinearSnapMultiplier`
+  and `CoarseRotationSnapMultiplier` (1 - 100). Writing one through its
+  setter is all "takes effect at once" needs; the preferences page shows the
+  new value the next time it opens.
+- A handle's menu is `OnViewValueSet::openMenu` filling a `QMenu` from the
+  value's `MenuProvider` (`OnViewValue.cpp` 651); a value with no provider
+  (the Box, Cylinder, Sphere) has no menu, and the right click does nothing.
+- Widget menus exist: `PrefWidget::buildContextMenu` (`PrefWidgets.cpp`
+  372-400), a `QWidgetAction` per entry. A widget in a `QWidgetAction` does
+  not close the menu when changed, so several settings can be set in one
+  opening.
+- The cell's button: `ViewAreaMenuButton` (`ViewArea.cpp` 132-205), 16 px,
+  three strokes, faint at rest, `paintChromeGround` when hovered; it slides
+  clear of overlays in `ViewAreaCell::placeChrome` from
+  `OverlayManager::covered()`, re-placed on `coverChanged`. The navigation
+  cube does the same for a thing drawn in the view (`NaviCube.cpp` 1295).
+- The labels are `EditableDatumLabel`s, Coin nodes placed by pixel:
+  top-middle ones in a column from `TopMargin` down at the view's middle
+  (`placeLabels`, `OnViewValue.cpp` 506).
+- "Show preview" today (`MonitorProxy::onPreview`, `Utils.cpp` 1710) is
+  NOT a view's display switch: it writes the global `PreviewOnEdit`
+  preference AND pauses or resumes the feature's recompute
+  (`setPauseRecompute`); off, the feature is recomputed into the document.
+  The preview's display itself is per view already (shown in the edit's
+  session, 2026-10-05).
+
+### 8.2 The menu, one for all three ways in
+
+One builder makes the menu, opened by the right click on a handle, by Space,
+and by the new button -- so the three never differ:
+
+1. The active value's own entries (its `MenuProvider`, as today), when there
+   is an active handle or one was right-clicked.
+2. A separator, then "Toggle handles" (check, this view) and "Show preview"
+   (check, this view, only in an edit that has a preview).
+3. "Settings" (sub-menu):
+
+       [x] Disable recompute while dragging
+       [x] Enable coarse snapping while dragging
+       Fine snap modifier        [Shift v]
+       Default drag              [Coarse v]
+       Coarse movement multiplier  [  5 ]
+       Coarse rotation step (deg)  [  5 ]
+
+   Each a `QWidgetAction` (check box; label + combo; label + spin box), the
+   label text the preference page's. A change writes the preference through
+   its `MiscParams` setter at once; the menu stays open. The coarse rows go
+   grey while coarse snapping is off, as the page has them.
+
+So the Box, Cylinder and Sphere handles get a menu: (2) and (3). The Space
+key opens it with no active value too.
+
+### 8.3 The button
+
+- A `QWidget` child of the 3D view's widget, as tall as a label (the label
+  font's height plus its padding, about 24 px at 100 %), square, the cell
+  button's three strokes, faint at rest and on its chrome ground when
+  hovered. Always shown while an edit has an `OnViewValueSet` attached to
+  that view; gone when the set detaches.
+- Opens the menu of 8.2 below itself on a left click (a tap).
+- Placed: at the left of the first top-middle label, centred with it, a
+  small gap between; with no top-middle label shown, at the top middle
+  itself, `TopMargin` down.
+
+### 8.4 Keeping clear of overlays (button and label together)
+
+- The view's clear region is its rect minus
+  `OverlayManager::covered(viewWidget)`, re-read on `coverChanged`.
+- The top-middle column (labels and button) is centred on the clear
+  region's middle rather than the view's; the button stays at the first
+  label's left. Nothing moves when the clear part is narrower than the
+  widest label plus the button (the cell button's "not worth going to").
+- The column moves as one, so the button never parts from its label.
+
+### 8.5 Per view, per user, per document (the 08:48 policy)
+
+| Thing | Scope | Why |
+|---|---|---|
+| Handles shown / hidden | the view | ruled 08:48; the container is attached to the view's editing root already (per view edit) |
+| Preview shown / hidden | the view | ruled 08:48; the session preview is per view already |
+| Active handle, open label | the view | already: the set is attached to one view |
+| The six drag settings | GLOBAL for now | they are preferences; a browser user changing one changes everyone's until preferences are user aware (later). Read and written through one accessor so that change is in one place |
+| The feature's recompute pause | the document | it is the document's object |
+
+Hidden handles: the values stay -- Tab, typing, the menu and the top-middle
+labels work as before; a value whose label goes beside its handle shows it
+at the top middle while it is active, as there is no handle to stand by.
+
+### 8.6 For the reporter
+
+a. "Show preview" off in one view: the preview leaves that view, but the
+   feature's recompute stays paused while the edit lasts (another view, or
+   another user, may still be looking at the preview), so that view shows
+   the base feature until the edit ends. Or should "off" also resume the
+   recompute, as the panel's check box does today -- which is the document's
+   state, every view's? Proposed: the menu's switch is the view's display
+   only; the panel's check box keeps its present meaning.
+b. Does the panel's "Show preview" check box follow the menu's switch in
+   the edit's own view (one switch shown in two places), or stay the
+   preference? Proposed: the panel keeps the preference (what a new edit
+   starts with); the menu's switch is the view's, starting from it.
+c. "Transparent preview": in the menu too? Proposed: no.
+d. The button's look at rest: faint like the cell's, though always there?
+   Proposed: yes.
+e. Hidden handles and AtHandle labels as in 8.5? Proposed: yes.
+f. Is "Toggle handles" also in the right-click menu of a handle (which
+   then vanishes)? Proposed: yes, one menu everywhere; the button brings
+   the handles back.
+
+### 8.7 The browser (entry 172)
+
+The button and the menu are Qt here; in the browser they are drawn by the
+web client. The menu's content therefore wants to be data -- entries with a
+kind (action, check, choice, number), a title, a value and a range -- built
+once and turned into a `QMenu` on the desktop and into the client's menu in
+the browser, each view (each user) its own. 172's sizing takes this up; the
+desktop builder of 8.2 is written over that data from the start so it need
+not be redone.
+
+### 8.8 Tests (real screen, throwaway documents)
+
+- The Settings sub-menu: each of the six widgets changes its preference at
+  once, the menu stays open, and the next drag uses it (a fine-by-default
+  drag moves by the base step).
+- The button: shown in an edit with values, left of the top-middle label,
+  opens the same menu as Space; with an overlaid panel over the top middle,
+  button and label both clear of it, and back when it goes.
+- Toggle handles in the edit's view: gone there, Tab and typing still work;
+  any other view of the document unchanged.
+- Show preview off in one view: the preview gone there, and still shown in
+  any other view of the edit's session; the feature not recomputed.
+
 ## Sources
 
 1. SolidWorks, FilletXpert Change PropertyManager:

@@ -7689,3 +7689,28 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   fillet-radius-typed-in-view 21, fillet-handle-click-in-view 15,
   fillet-undo-steps-in-view 17, fillet-preview-pick-syncs-list 20,
   fillet-hover-outlines-face 16, none failed. NOT pushed, NOT staged.
+
+## 2026-10-19: the ThunderealCAD merge; 171 and 173 designed
+
+- 170 pushed to origin/LinkVibe 2026-10-18 evening ("push, no restage
+  yet"; 3b52423f11..15205e7387).
+- The user's task: a remote for Thundereal/ThunderealCAD, its main merged,
+  built and tested, pushed as LinkVibe, and tracked from now on. Merge
+  `e25c8e2caf`, one conflict (fillet-undo-steps-in-view.py, both sides had
+  made the drag run along the arrow; theirs taken). The merged Part code
+  reaches the OCCT fork's functions through its C exports at run time
+  (fece1a32c7): with the box's older OCCT it built, and 26 Python tests and
+  one ctest failed (ShapeStorage, ShapeDiff, TransactionBranch, Helix and
+  Suppressed volumes after a reload). OCCT fast-forwarded to 1cbd8de319.
+  r115: ctest 968 of 968, Python 3799 OK, the on-view GUI set 159 of 159
+  (fillet-undo-steps now 18: their extra claim). Pushed to
+  thundereal/LinkVibe (cf833f0c98) and LinkVibe tracks it; staged
+  (stage16, 08:25). On the way: run.cmd hung in chcp (the suite step lost
+  overnight), then in vcvars64's vswhere; the Python suite runs without
+  the VS step (s1\pytest-novs.cmd).
+- 171 (Settings sub-menu) and 173 (the edit's menu button) designed
+  together, as they are one menu: docs/OnViewValueEditing.md sec 8, under
+  the 08:48 policy (per view over shared). The question that matters
+  (8.6 a): "Show preview" today also resumes the feature's recompute,
+  which is the document's state, so a this-view-only switch cannot do
+  that part. NOT built; with the reporter.

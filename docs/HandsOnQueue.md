@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 09:32: entry 174 -- a user's settings never mix with the local user's (no
+fall-back to the global); the user also taken from the view outside an
+edit; a per-user flag in the cog param helper -- feasibility asked.**
+Under the entry.
+
 **2026-10-19 09:08: entry 174 designed (docs/UserSettings.md, `dcfa2bba59`), nothing
 built; menu settings can do the same; 2.6 a-f for the reporter.** Under
 the entry.
@@ -3616,7 +3621,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 171 | 2026-10-18 | a change request and a question: a RIGHT-BUTTON DRAG of a handle to do the FINE change Shift does now; where the drag increment settings are and how the fine step relates to them; the increment settings brought INTO THE VIEW during an on-view edit, at the bottom middle? | OPEN; said to the note-taker 2026-10-18 21:48; the question answered from the source. 2026-10-18 21:51 the build session: a short design for (1) and (3) after its current task; nothing built before the reporter answers. 2026-10-18 22:02 (3) CHANGED by the reporter: "ok, change idea, do not bring the setting on view. just add a settings sub menu item in the handle context menu. the sub menu has all those settings widget and change it takes effect immediately" -- no settings in the view; a SETTINGS SUB-MENU in the handle's context menu holding the settings' widgets, a change taking effect at once; (1) the right-button fine drag stands. 2026-10-18 22:04 (1) DROPPED by the reporter: "so no need right button drag, since one of the setting determin the default drag is fine or coarse" -- no right-button drag; the default drag behaviour in the Settings sub-menu does it; 171 is now the sub-menu alone. 2026-10-18 22:06 the reporter: "the setting menu shall have edit or checkbox widget like the rest of the menus." -- the sub-menu's items are EDIT or CHECK BOX widgets in the menu, as the fork's other menus have them (e.g. a preference widget's context menu, PrefWidgets.cpp 372). 2026-10-18 22:09 the reporter: "a combobox for the choice. yes leave out for the show interactive" -- the two choices as COMBO BOXES; "Show interactive draggers" LEFT OUT; the sub-menu holds six settings |
 | 172 | 2026-10-18 | a change request: ALL the PartDesign ON-VIEW EDIT (handles, the active handle and typing, the labels, the menus) working IN THE BROWSER, tested in a REAL BROWSER | OPEN; said to the note-taker 2026-10-18 22:13. 2026-10-18 22:16 the reporter: "long touch press on handle to bring up the context menu" -- touch is in scope (b): a LONG PRESS on a handle opens the HANDLE's context menu, the touch form of the right click. 2026-10-18 22:18 the reporter: "there is hover/preselection, check the browser code. task panel shall already in browser by now. Do thunderealcad merge first. then do this on the new tracked LinkVibe branch" -- the browser HAS hover/preselection (the note-taker's "no hover" on touch wrong); the task panel is already in the browser; ORDER: the ThunderealCAD merge FIRST, then 172 on the new tracked LinkVibe branch. 2026-10-19 09:03 SIZED by the build session (docs/OnViewValueEditing.md sec 9, `8cd250125b`, local), nothing built; 9.5 a-c for the reporter (c: puppeteer-core installed on the box, the reporter's yes first) |
 | 173 | 2026-10-19 | a change request: an always-visible MENU BUTTON at the 3D view's TOP MIDDLE during an on-view edit (left of the top-middle label when there is one), like the cell menu button but label-high, keeping clear of overlay widgets (the label too); its menu = the active handle's context menu plus 'toggle handles' and 'show preview', the settings even with no active handle | OPEN; said to the note-taker 2026-10-19 08:32. 2026-10-19 08:35 the build session: one design note for 171 and 173 together (one menu), then 172's sizing; nothing built before the reporter sees the design. 2026-10-19 08:48 the reporter: "Toggle handles, this view only, same as show preview. The policy from now on is to keep in mind of multiple user editing. In the future we shall extend preference to be user aware. So browser user can have their own preference." -- toggle handles and show preview THIS VIEW ONLY; a POLICY: keep multiple users editing in mind; later, user-aware preferences. 2026-10-19 08:54 the 171+173 DESIGN written (docs/OnViewValueEditing.md sec 8, `08ff4f5181`, local), nothing built; sec 8.6 a-f for the reporter (a: the panel's Show preview also writes the global preference and resumes the recompute -- the menu's switch would only take the preview out of this view). 2026-10-19 09:03 the reporter: "Yes stay that way for now." -- read as: 171's settings stay the GLOBAL preference for now; 8.6 a-f NOT answered by it |
-| 174 | 2026-10-19 | a change request FOR DESIGN: PER-USER SETTINGS -- each edit identifies the user who started it; PrefWidget checks the current editing user and PREFIXES the setting path; check whether settings in menu items can do the same | OPEN; said to the note-taker 2026-10-19 09:03. 2026-10-19 09:08 DESIGNED by the build session (new docs/UserSettings.md, `dcfa2bba59`, local), nothing built; menu settings: YES the same way; sec 2.6 a-f for the reporter |
+| 174 | 2026-10-19 | a change request FOR DESIGN: PER-USER SETTINGS -- each edit identifies the user who started it; PrefWidget checks the current editing user and PREFIXES the setting path; check whether settings in menu items can do the same | OPEN; said to the note-taker 2026-10-19 09:03. 2026-10-19 09:08 DESIGNED by the build session (new docs/UserSettings.md, `dcfa2bba59`, local), nothing built; menu settings: YES the same way; sec 2.6 a-f for the reporter. 2026-10-19 09:32 the reporter: a user's values NEVER MIX with the local user's (the design's fall-back to the global overruled); ideally all settings user aware, step by step; CHANGE: the user also taken from the VIEW outside an edit; a per-user FLAG in the cog param helper, the generated class keeping per-user values -- feasibility asked; and a question: when can a user have no value |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -24290,6 +24295,45 @@ READ by the note-taker: App::ActorScope at src/App/Actor.h 97 -- exists.
 The note-taker's reading: the note-taker's 09:03 a, c, f, g taken as
 read (a: no desktop prefix; c: fall back to global; g: the initiating
 user's settings, b here).
+
+**2026-10-19 09:32, the reporter (to the note-taker), on the 174 design:** "entry 174, what cases where a user can have no value. be it may, it should never mix with local user. ideally, all settings shall be user aware. but let's do that step by step. change of plan, in addition to remember the user on editing, get the user id from the view also if not in edit. Modify cog param helper to add a flag to indicate the setting is per user, then in the auto generated class handler maintain per user settings. check if that's possible"
+The note-taker's reading:
+- A QUESTION to the design: in what cases can a user have NO VALUE of
+  their own (the design's fall-back case)?
+- A RULING whatever the answer: a user's settings NEVER MIX with the
+  LOCAL user's. OVERRULES the design's read rule (UserSettings.md 76:
+  "the user's entry when it has one, else the global entry, else the
+  default") and its 2.6 c ("the global is the desktop user's"): a browser
+  user with no value of their own does NOT read the local user's value.
+  Read: they get the parameter's DEFAULT.
+- IDEALLY ALL settings user aware -- reached STEP BY STEP, not at once.
+- CHANGE OF PLAN: besides remembering the user when an edit starts, take
+  the user id from the VIEW when NOT in an edit (a browser user's view
+  carries its user).
+- The COG PARAM HELPER (src/Tools/params_utils.py) gets a FLAG marking a
+  setting PER USER; the AUTO-GENERATED class's handler keeps the
+  per-user values. CHECK whether that is possible.
+READ in the source, nothing run: params_utils.py -- Param.__init__ (756
+to 758: name, default, doc, title, on_change, proxy, subpath,
+param_name, no_label, property_type -- no per-user flag yet); the
+generated <Class>P is a ParameterGrp observer holding one handle (and
+subHandles per subpath) and a table of update functions (212 to 222).
+The design's own "user=True in the .py declaration" (09:08) is the same
+idea as the flag.
+The note-taker's answer to the question, as far as the design says it:
+a user has no value of their own for a setting they never changed, on
+their first visit, and -- by the design's 2.6 d -- a Declared user on
+every new connection (not kept).
+NOT said:
+a. What a user with no value gets: read as the parameter's DEFAULT (the
+   only value that is no one's).
+b. The other way: the local user never sees a browser user's value
+   (read so -- "never mix").
+c. A view with no user (a desktop view, an offscreen view): read as the
+   local user's.
+d. A browser user with SEVERAL views: read as the same user in each.
+e. Whether the design's 2.6 a-f still stand otherwise (b, d, e, f read
+   as standing; c changed by this).
 
 ## Inbox
 

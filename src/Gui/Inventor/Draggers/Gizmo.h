@@ -535,6 +535,16 @@ private:
     /// addCross()'s crosses: where each stands, and its transform, which
     /// the camera callbacks scale and turn as they do the gizmos
     std::vector<std::pair<SbVec3f, SoTransform*>> crosses;
+    /// The view attachViewer() put the gizmos in, and its lifetime: whose
+    /// event grab a gizmo going away must not leave behind
+    ViewerContext* viewer = nullptr;
+    std::weak_ptr<const void> viewerLife;
+    /** Lets go of the view's event grab when the grabber is \a node or
+     * under it: Coin keeps the grabber as a plain pointer, and a grabber
+     * deleted with its gizmo was traversed (a pure virtual call) and then
+     * released (an access violation) -- docs/HandsOnQueue.md entry 186
+     */
+    void releaseGrabUnder(SoNode* node);
 
     void addGizmo(Gizmo* gizmo);
 

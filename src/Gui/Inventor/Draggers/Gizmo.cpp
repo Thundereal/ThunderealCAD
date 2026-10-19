@@ -37,6 +37,8 @@
 #include <Inventor/SoPickedPoint.h>
 #include <Inventor/SoRenderManager.h>
 #include <Inventor/actions/SoHandleEventAction.h>
+#include <Inventor/actions/SoSearchAction.h>
+#include <Inventor/SoEventManager.h>
 #include <Inventor/draggers/SoDragger.h>
 #include <Inventor/events/SoKeyboardEvent.h>
 #include <Inventor/events/SoLocation2Event.h>
@@ -1293,6 +1295,9 @@ GizmoContainer::~GizmoContainer()
     cameraPositionSensor.setData(nullptr);
     cameraPositionSensor.detach();
 
+    // a grab held by any of the gizmos goes before they do (entry 186)
+    releaseGrabUnder(SO_GET_ANY_PART(this, "annotation", So3DAnnotation));
+
     uninitGizmos();
 
     if (!viewProvider.expired()) {
@@ -1343,6 +1348,36 @@ void GizmoContainer::appendGizmo(Gizmo* gizmo)
     calculateScaleAndOrientation();
 }
 
+void GizmoContainer::releaseGrabUnder(SoNode* node)
+{
+    if (!node || !viewer || viewerLife.expired()) {
+        return;
+    }
+    SoEventManager* manager = viewer->getSoEventManager();
+    SoHandleEventAction* action = manager ? manager->getHandleEventAction() : nullptr;
+    SoNode* grabber = action ? action->getGrabber() : nullptr;
+    if (!grabber) {
+        return;
+    }
+    bool under = grabber == node;
+    if (!under) {
+        SoSearchAction search;
+        search.setNode(grabber);
+        search.setInterest(SoSearchAction::FIRST);
+        search.setSearchingAll(TRUE);
+        // into the draggers' kits, and back as it was: the switch is global
+        const SbBool wasSearching = SoBaseKit::isSearchingChildren();
+        SoBaseKit::setSearchingChildren(TRUE);
+        search.apply(node);
+        SoBaseKit::setSearchingChildren(wasSearching);
+        under = search.getPath() != nullptr;
+    }
+    if (under) {
+        // while the grabber still lives: releaseGrabber() calls into it
+        action->releaseGrabber();
+    }
+}
+
 void GizmoContainer::removeGizmo(Gizmo* gizmo)
 {
     auto it = std::ranges::find(gizmos, gizmo);
@@ -1353,6 +1388,9 @@ void GizmoContainer::removeGizmo(Gizmo* gizmo)
     auto geometry = SO_GET_ANY_PART(this, "geometry", SoSeparator);
     if (index < static_cast<decltype(index)>(gizmoNodes.size())) {
         auto [dragger, extra] = gizmoNodes[index];
+        for (SoNode* node : {dragger, extra}) {
+            releaseGrabUnder(node);
+        }
         for (SoNode* node : {dragger, extra}) {
             if (!node) {
                 continue;
@@ -1395,6 +1433,8 @@ void GizmoContainer::attachViewer(Gui::ViewerContext* viewer, Base::Placement& o
 
     auto mat = origin.toMatrix();
     this->origin = mat;
+    this->viewer = viewer;
+    viewerLife = viewer->lifetime();
 
     // Upstream also makes `origin` the document's editing transform. Here the
     // edit path has already set that transform for the object being edited,

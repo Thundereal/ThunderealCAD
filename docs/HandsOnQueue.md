@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 11:46: new entry 176 -- the staged copy's title says FreeCAD: the launcher
+starts a stale FreeCAD.exe left in the build tree; the executable is
+Thundereal.exe now.** Under the entry.
+
 **2026-10-19 11:11: entry 175 DONE by x16 on ThunderealCAD main (`094770130e`, pushed):
 the tile-less icon E2, one drawing for both themes; not yet merged into
 LinkVibe; the Windows task bar not checked.** Under the entry.
@@ -3671,6 +3675,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 173 | 2026-10-19 | a change request: an always-visible MENU BUTTON at the 3D view's TOP MIDDLE during an on-view edit (left of the top-middle label when there is one), like the cell menu button but label-high, keeping clear of overlay widgets (the label too); its menu = the active handle's context menu plus 'toggle handles' and 'show preview', the settings even with no active handle | OPEN; said to the note-taker 2026-10-19 08:32. 2026-10-19 08:35 the build session: one design note for 171 and 173 together (one menu), then 172's sizing; nothing built before the reporter sees the design. 2026-10-19 08:48 the reporter: "Toggle handles, this view only, same as show preview. The policy from now on is to keep in mind of multiple user editing. In the future we shall extend preference to be user aware. So browser user can have their own preference." -- toggle handles and show preview THIS VIEW ONLY; a POLICY: keep multiple users editing in mind; later, user-aware preferences. 2026-10-19 08:54 the 171+173 DESIGN written (docs/OnViewValueEditing.md sec 8, `08ff4f5181`, local), nothing built; sec 8.6 a-f for the reporter (a: the panel's Show preview also writes the global preference and resumes the recompute -- the menu's switch would only take the preview out of this view). 2026-10-19 09:03 the reporter: "Yes stay that way for now." -- read as: 171's settings stay the GLOBAL preference for now; 8.6 a-f NOT answered by it. 2026-10-19 09:34 the reporter: "entry 173, show preview should behave the same as the task panel" -- 8.6 a ANSWERED against the proposal: the menu's Show preview does what the panel's check box does (the preference and the recompute), NOT this view only; toggle handles stays this view only. 2026-10-19 09:49 the design's 8.6 noted: Show preview = the panel's check box, toggle handles this view only, the multi-user consequence noted. 2026-10-19 10:01 the reporter: "173 all agree" -- the design's 8.6 c-f AGREED as proposed (a already answered 09:34); ready to build after 171 (one design). 2026-10-19 10:15 the build session: 171+173 BUILT locally, UNCOMMITTED; r117 building with a new test pd-edit-menu-in-view.py; results to follow. 2026-10-19 10:29 the reporter: "the on view edit menu button. make those three strips thick. they are too thin now" -- the button's three bars THICKER (now max(2 px, height/12) in the uncommitted build). 2026-10-19 10:34 the reporter: "make the strip the same width as the space between them" -- each bar as thick as the clear gap between two bars. 2026-10-19 10:46 171+173 BUILT AND COMMITTED LOCALLY `d59ba8850c` (docs `137f7006fb`), NOT pushed, NOT staged; r119 real screen: pd-edit-menu-in-view 22/22, edit-per-view 25, pd-gui-defects 34, the on-view set unchanged; keeping clear of an overlay NOT tested. 2026-10-19 10:59 the reporter asked how hidden handles come back, wanting ONE toggle for all; the note-taker's "hides each handle individually" was WRONG wording -- by the source it IS one toggle for all the edit's handles in the view, brought back by the same menu item (the button always shown) |
 | 174 | 2026-10-19 | a change request FOR DESIGN: PER-USER SETTINGS -- each edit identifies the user who started it; PrefWidget checks the current editing user and PREFIXES the setting path; check whether settings in menu items can do the same | OPEN; said to the note-taker 2026-10-19 09:03. 2026-10-19 09:08 DESIGNED by the build session (new docs/UserSettings.md, `dcfa2bba59`, local), nothing built; menu settings: YES the same way; sec 2.6 a-f for the reporter. 2026-10-19 09:32 the reporter: a user's values NEVER MIX with the local user's (the design's fall-back to the global overruled); ideally all settings user aware, step by step; CHANGE: the user also taken from the VIEW outside an edit; a per-user FLAG in the cog param helper, the generated class keeping per-user values -- feasibility asked; and a question: when can a user have no value. 2026-10-19 09:49 the design updated (`59d348425a`): no mixing either way, no value -> the DEFAULT; the user from the view outside an edit (App::PrefUser); the cog per-user flag POSSIBLE (sec 2.5.1); the reporter's question answered (sec 2.2). 2026-10-19 10:01 the reporter CORRECTS the 09:32 reading: a user's INITIAL value is taken from the CURRENT setting (not the default); "not mix" was about WRITES -- a user's write never reaches the local user's settings. 2026-10-19 10:13 the reporter: "174, copied once." -- a user's initial value is COPIED ONCE from the current setting (a snapshot at first use), not read through. 2026-10-19 10:15 the design squared with "copied once" (`3dff98041b`, local): at the FIRST READ the current value is written into the user's entry; a Declared user's copy in the connection's memory; reset to default removes the entry, the next read copies again |
 | 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22. 2026-10-19 10:27 the reporter: the task bar icon follows the WINDOWS theme (a answered); x16 to be asked about a light-theme icon and every other place the logo is used -- ASKED by the note-taker 10:27, over Remote Control, no answer yet. 2026-10-19 10:29 x16 ANSWERED: no light-theme drawing in the app; the reporter approved a light-ground RECOLOUR of the BARE MARK (website); x16 suggests thundereal-mark-light.svg from the generator, the bare mark themed in 4 places (title-bar button, Std_About icon, Material library icon, template); for the TASK BAR it recommends KEEPING THE TILE (the pinned .exe icon cannot follow the theme) -- a decision for the reporter. 2026-10-19 10:36 the reporter: ONE ICON, changed to look good on BOTH themes WITHOUT its own background (no tile, no themed variants); the task bar icon the same -- supersedes the themed-variant plan and the 10:27 "follow Windows theme". 2026-10-19 10:39 ON HOLD (the reporter): the reporter asks x16 to design the icon first; nothing to be done on 175 until then. 2026-10-19 11:11 DONE by x16 on Thundereal/ThunderealCAD MAIN `094770130e` (pushed, on the reporter's word to x16): the tile-less icon "E2" picked by the reporter; NOT in local LinkVibe yet (needs a merge of thundereal/main); the Windows task bar NOT checked |
+| 176 | 2026-10-19 | a defect: the STAGED copy's window title still says FREECAD -- the launch script still starts FreeCAD.exe, though the executable was renamed (Thundereal.exe) | OPEN; said to the note-taker 2026-10-19 11:46; READ: tools\fcad-user.cmd starts a STALE FreeCAD.exe (2026-10-18 12:35) left in the build tree and mirrored into the stage |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -24813,6 +24818,53 @@ READ in git by the note-taker: `094770130e` is NOT in this clone
 LinkVibe does not have the new icon; a fetch and a merge of
 thundereal/main is the build session's, on the reporter's word.
 
+## 176. The staged copy's title still says FreeCAD: the launcher starts a stale FreeCAD.exe, the executable now being Thundereal.exe (a defect) -- OPEN
+
+**2026-10-19 11:46, the reporter (to the note-taker):** "I am trying the staged copy, but the title still says FreeCAD. I guess need to change the launch script as well. I thought the application executable has been renamed already"
+The note-taker's reading:
+- The reporter runs the STAGED copy (their test copy, .conda\user-app)
+  and its WINDOW TITLE says "FreeCAD", where the renamed product
+  (Thundereal) is expected.
+- The reporter's guess: the LAUNCH SCRIPT also needs changing -- the
+  executable has been renamed already.
+READ, nothing run (and the reporter's running session not touched):
+- The stage: .conda\user-app\INSTALLED.txt -- installed 2026-10-19
+  11:35:54, fcad `ba41cdb497` ("Tests: the application icon on light and
+  dark grounds (175)"), dirty False. (So a restage at 11:35 the
+  note-taker had no report of; and fcad `ba41cdb497` carries 175's icon
+  test, so thundereal/main seems merged -- not reported to the
+  note-taker either.)
+- .conda\user-app\bin has BOTH FreeCAD.exe (469504 bytes, 2026-10-18
+  12:35) and Thundereal.exe (393728 bytes, 2026-10-19 10:17), with
+  FreeCADCmd.exe and ThunderealCmd.exe.
+- The LAUNCHER D:\works\sw\tools\fcad-user.cmd (outside the repo) checks
+  for and STARTS "%APP%\bin\FreeCAD.exe" -- so the reporter gets the
+  OLD executable, whose ExeName (which titles the window,
+  cMake/FreeCAD_Helpers/InitializeFreeCADBuildOptions.cmake 33 to 49:
+  FREECAD_APP_NAME "Thundereal" when THUNDEREAL_IDENTITY is ON) is
+  "FreeCAD".
+- WHY a FreeCAD.exe is there at all: the stage is mirrored (robocopy
+  /MIR) from build\win-relwithdebinfo-801\bin (tools\install-user.ps1
+  20, 46 to 53), and that build tree still holds the STALE FreeCAD.exe
+  of 2026-10-18 12:35 beside the new Thundereal.exe -- the build no longer
+  makes it and nothing removed it. install-user.ps1 28 also REQUIRES
+  "$Build\bin\FreeCAD.exe" ("NO BUILD" otherwise) -- a guard that only
+  passes because of the stale file.
+- The note-taker's reading: the stale FreeCAD.exe is a launcher stub of
+  the day before, running today's DLLs -- what else it differs in (its
+  icon, its version resource) is not known; its title is the one seen.
+  fcad-user-cdb.cmd (the debugger launcher) not read.
+NOT said:
+a. The fix's reach: read as the launcher (and its cdb sibling) starting
+   Thundereal.exe, install-user.ps1's guard looking for Thundereal.exe,
+   and the stale FreeCAD.exe / FreeCADCmd.exe removed from the build tree
+   and the stage so nothing starts them by mistake.
+b. Shortcuts, the MCP endpoint, scripts that name FreeCAD.exe (the GUI
+   test runners, scripts\mcp_run.py --launch, run.cmd): not said; read as
+   to be checked with it.
+c. Whether the reporter's open session needs restarting: read so, by the
+   reporter, when the launcher is fixed.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -24824,5 +24876,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 175
+the build session, 131 and 132 found by it; entries 134 to 176
 are of 2026-10-15, 134 said to the build session)

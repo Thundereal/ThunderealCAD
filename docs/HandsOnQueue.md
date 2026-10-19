@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 13:39: new entry 181 -- the menu button's strips squarer like the cell
+menu's; tool tips and the right-click menu on a dress-up's face.** Under
+the entry.
+
 **2026-10-19 13:37: entry 178 3.1 BUILT (a threaded view's failure is its recompute
 error); entry 179 -- oplab's fix built, x16 to merge; the reporter's
 scanner.FCStd has NO embedded history since its 13:12 save; entry 180 --
@@ -3721,6 +3725,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL. 2026-10-19 12:24 (1) CONFIRMED in the live session by a read-only probe: Dimension120 an Angle on SectionView004 Edge5, Edge9, both along (1,1) -- PARALLEL; (2) BUILT `7eac8caf7e`: a described error; (3) AUDIT docs/TechDrawErrors.md (`959d5360ea`): threaded views' failures never reach the recompute error; questions a-c for the reporter; NOT pushed. 2026-10-19 13:12 the reporter: "agree all" -- a-c AGREED as proposed (3.1 the late error first, then 3.2, 3.3; a partial view a warning; the texts translatable). 2026-10-19 13:37 3.1 BUILT `9746b8aba9` (docs `9b32c0fe82`), local: a threaded view's failure is its recompute error; faces not found a warning; r126 TDTest dimension 3/3, detail 2/2, section 1/1, TestTechDrawApp 9 OK; next 3.2, 3.3 |
 | 179 | 2026-10-19 | a defect found by the note-taker in the reporter's console log, made an entry on the reporter's "agree all" (read as yes): the document scanner's EMBEDDED TRANSACTION LOG is older than the build's schema -- "no such column: joined" -- on opening, in the transaction log view, and as an exception caught in notify | OPEN; 2026-10-19 13:12. 2026-10-19 13:37 per x16 it is oplab's (Transaction code): oplab has a fix BUILT (a layout version, migration on open, the panel showing a read error instead of throwing); x16 to merge it into thundereal/main. The build session READ scanner.FCStd: NO embedded history any more, saved 13:12:39 -- the failed history presumably DROPPED by a later save |
 | 180 | 2026-10-19 | a change request: a FAILED fillet edge (no handle today) shows a RED CROSS at the CENTRE of its face (unpickable; the face is pickable); on-view LABELS get a hover HIGHLIGHT (they are clickable) and a label's hover PRESELECTS as the face's does; the same for all dress-ups; the label highlight for ALL on-view edits; no preselection where it makes no sense | OPEN; said to the note-taker 2026-10-19 13:22. 2026-10-19 13:27 the reporter: the cross for EVERY failed edge, MISSING ones too; placed at the ROOT where the HANDLE would have been (not the face centre); fixed size like a handle, NO hover effect (not pickable); clicking as now. 2026-10-19 13:37 the build session: for a MISSING edge it will propose the point on the kept face nearest where the edge was, if known, else the face's centre |
+| 181 | 2026-10-19 | a change request: (1) the on-view edit MENU BUTTON's strips SQUARER, like the view cell menu's (they look too thin); (2) TOOLTIPS and a RIGHT-CLICK CONTEXT MENU on the fillet's (preview) FACE; the same for all dress-up features | OPEN; said to the note-taker 2026-10-19 13:39 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25238,6 +25243,44 @@ For a MISSING edge (no root) it will propose in the design: the point on
 the kept face NEAREST WHERE THE EDGE WAS, if known, else the face's
 centre.
 
+## 181. The menu button's strips squarer like the cell menu's; tool tips and the right-click menu on a dress-up's face (a change request) -- OPEN
+
+**2026-10-19 13:39, the reporter (to the note-taker):** "new request, make the on view edit menu strips more squarer like the cell menu. now it looks too thin. also, add tooltips and right click context menu to fillet face as well. do the same for all dress up feature."
+The note-taker's reading:
+- (1) The on-view edit MENU BUTTON (entry 173): its three strips are to
+  look MORE SQUARE, LIKE THE VIEW CELL MENU BUTTON's -- now they look too
+  thin (after 173's "strip as thick as the gap").
+- (2) The fillet's FACE in the edit (the preview face, pickable since
+  169) gets TOOL TIPS on hover and a RIGHT-CLICK CONTEXT MENU -- read as
+  the SAME menu the edge's handle or label opens (173's one menu: the
+  value's entries, Show handles, Show preview, Settings).
+- (3) The same for ALL DRESS-UP features (chamfer, draft, thickness).
+READ in the source, nothing run -- the two buttons' drawing:
+- The CELL button (ViewArea.cpp 180 to 198): a 16 px button, pen 2 px
+  with Qt's default SQUARE caps, margin 4, three lines at y 4, 8, 12 from
+  x 4 to 12 -- so a block of about 10 x 10 px: as WIDE as it is TALL, bars
+  2 thick with 2 between.
+- The on-view MENU button (HEAD, OnViewValue.cpp about 185 to 212): bar
+  thickness t = max(3, 0.15 x height), ROUND caps, centres 2t apart, the
+  bars from width/4 + t/2 to the other side -- so the block is about
+  width/2 wide and 5t = 0.75 x height tall: TALLER than wide on a square
+  button, with rounded ends.
+The note-taker's reading of "squarer like the cell menu": the strips'
+BLOCK about as wide as tall, as the cell's, the bars longer (or the
+block shorter), and probably SQUARE ends rather than round -- the
+reporter's eye on the screen decides.
+NOT said:
+a. Square ends or round: read as square, like the cell's.
+b. Whether 10:34's rule (strip = gap) still holds: read as yes -- only
+   the block's proportion changes.
+c. The face's tool tip text: read as the handle's / label's tool tip
+   for that edge (its value, its edge name; for a failed or missing
+   edge, why -- 180).
+d. Right click on a face of a failed or missing edge: read as its row's
+   menu too (remove, etc.).
+e. The face's right click vs. the 3D view's own context menu: read as
+   the edit's menu replacing the view's over a preview face.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -25249,5 +25292,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 180
+the build session, 131 and 132 found by it; entries 134 to 181
 are of 2026-10-15, 134 said to the build session)

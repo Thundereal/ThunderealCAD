@@ -449,6 +449,35 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
     //we have either or both valid References3D and References2D
     ReferenceVector references = getEffectiveReferences();
 
+    // A failure below is the recompute error the user reads: it says which
+    // dimension of which view on which elements, and why, and whether its
+    // references were matched again by geometry -- the way a reference ends
+    // up on the wrong edge (entry 178: "Invalid selection - Det = 0" said none
+    // of it)
+    auto described = [&](const char* why) {
+        std::stringstream ss;
+        ss << Type.getValueAsString() << " dimension";
+        if (DrawViewPart* view = getViewPart()) {
+            ss << " on " << view->Label.getValue();
+        }
+        std::string subs;
+        for (const auto& ref : references) {
+            if (!ref.getSubName().empty()) {
+                subs += (subs.empty() ? "" : ", ") + ref.getSubName();
+            }
+        }
+        if (!subs.empty()) {
+            ss << " (" << subs << ")";
+        }
+        ss << ": " << (why && *why ? why : "the measurement failed");
+        if (!m_referencesCorrect && !SavedGeometry.getValues().empty()) {
+            ss << ". Its references were matched again by geometry after the view"
+                  " changed: check that they still name the intended elements";
+        }
+        return new App::DocumentObjectExecReturn(ss.str(), this);
+    };
+
+    try {
     if (Type.isValue("Distance") || Type.isValue("DistanceX") || Type.isValue("DistanceY")) {
         if (getRefType() == oneEdge) {
             m_linearPoints = getPointsOneEdge(references);
@@ -485,6 +514,13 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
         }
         m_anglePoints = getAnglePointsThreeVerts(references);
         m_hasGeometry = true;
+    }
+    }
+    catch (const Base::Exception& e) {
+        return described(e.what());
+    }
+    catch (const std::exception& e) {
+        return described(e.what());
     }
 
     overrideKeepUpdated(false);
@@ -1090,11 +1126,26 @@ anglePoints DrawViewDimension::getAnglePointsTwoEdges(ReferenceVector references
         if (geom1->getGeomType() != TechDraw::GeomType::GENERIC) {
             std::stringstream ssMessage;
             ssMessage << getNameInDocument() << " second 2d reference is a "
-                      << geom0->geomTypeName();
+                      << geom1->geomTypeName();
             THROWM(Base::RuntimeError, ssMessage.str())
         }
         TechDraw::GenericPtr generic0 = std::static_pointer_cast<TechDraw::Generic>(geom0);
         TechDraw::GenericPtr generic1 = std::static_pointer_cast<TechDraw::Generic>(geom1);
+        // Parallel legs have no apex: said in words, with the edges, before
+        // apparentInter() says "Invalid selection - Det = 0" (entry 178, a
+        // dimension whose references were repointed onto parallel edges)
+        {
+            const Base::Vector3d dir0 = generic0->asVector();
+            const Base::Vector3d dir1 = generic1->asVector();
+            const double cross = dir0.x * dir1.y - dir0.y * dir1.x;
+            if (std::fabs(cross) < 1e-10 * std::max(1.0, dir0.Length() * dir1.Length())) {
+                std::stringstream ssMessage;
+                ssMessage << "the edges " << references.at(0).getSubName() << " and "
+                          << references.at(1).getSubName()
+                          << " are parallel, so there is no angle between them";
+                THROWM(Base::ValueError, ssMessage.str())
+            }
+        }
         Base::Vector3d apex = generic0->apparentInter(generic1);
         Base::Vector3d farPoint0, farPoint1;
         //pick the end of generic0 farthest from the apex

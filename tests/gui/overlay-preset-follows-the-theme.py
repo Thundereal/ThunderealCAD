@@ -182,7 +182,50 @@ def bottom_panel():
         check("... the selection view collapsed", sizes[2] == 0, sizes)
         check("... the report view and the console half each of a real width",
               sizes[0] > 100 and abs(sizes[0] - sizes[1]) <= max(4, sizes[0] // 10), sizes)
+    task_list_see_through(doc)
     FreeCAD.closeDocument(doc.Name)
+    settle(1.0)
+
+
+def task_list_see_through(doc):
+    """Entry 184 (the reporter 2026-10-19 15:14, 15:19): in overlay mode the
+    lists of a task panel are see-through as the property view's rows. A
+    fillet in edit: its edge list, rendered through its parent onto a clear
+    image, lets the clear show in its empty part (an opaque list would
+    cover it)."""
+    import Part
+
+    body = doc.addObject("PartDesign::Body", "Body")
+    box = body.newObject("PartDesign::AdditiveBox", "Box")
+    doc.recompute()
+    fillet = body.newObject("PartDesign::Fillet", "Fillet")
+    fillet.Base = (box, ["Edge1"])
+    fillet.Radius = 1
+    doc.recompute()
+    gdoc = FreeCADGui.getDocument(doc.Name)
+    gdoc.setEdit(fillet, 0)
+    settle(3.0)
+    tree = None
+    for w in FreeCADGui.getMainWindow().findChildren(QtWidgets.QTreeWidget):
+        p = w.parentWidget()
+        while p is not None and p.metaObject().className() != "Gui::TaskView::TaskView":
+            p = p.parentWidget()
+        if p is not None and w.isVisible():
+            tree = w
+            break
+    if check("a fillet's edge list in its task panel", tree is not None):
+        vp = tree.viewport()
+        parent = tree.parentWidget()
+        img = QtGui.QImage(parent.size(), QtGui.QImage.Format_ARGB32)
+        img.fill(QtCore.Qt.transparent)
+        parent.render(img, QtCore.QPoint(), QtGui.QRegion(),
+                      QtWidgets.QWidget.RenderFlag.DrawChildren)
+        # a point in the list's empty lower part, in the parent's coordinates
+        at = vp.mapTo(parent, QtCore.QPoint(vp.width() // 2, vp.height() - 4))
+        alpha = QtGui.QColor.fromRgba(img.pixel(at.x(), at.y())).alpha()
+        note("INFO the task list's empty part, alpha %d (of 255)" % alpha)
+        check("... see-through in overlay mode, as the property view", alpha < 64, alpha)
+    gdoc.resetEdit()
     settle(1.0)
 
 

@@ -98,15 +98,15 @@ shared edit those two differ.
   (the local user's value as it stands), else the default -- corrected
   10:01: "for user value, just grab the initial value from the current
   setting. what I mean not to mix the local user is when write the
-  settings". Read through, not copied: until the user writes a setting,
-  they see the current one, so nothing is written on a mere read and a
-  later change by the host still reaches a user who never touched it.
-  (A copy taken once at first use is the other reading of "grab the
-  initial value"; the read-through is proposed as the simpler, 2.6 g.)
+  settings". COPIED ONCE (ruled 10:13, 2.6 g): at the user's first read of
+  a setting they have no entry for, the current value is written into
+  their entry and is theirs from then on -- a later change of the local
+  setting does not reach them. For a `Declared` user the copy goes to the
+  connection's memory store, as their other values do.
 - **Write**: the user's entry only, NEVER the local user's settings -- the
   "not mix" of 09:32. The local user never reads a browser user's value. A
-  user "reset to default" removes their entry, so the current setting
-  shows through again.
+  user "reset to default" removes their entry; their next read copies the
+  current setting again.
 - When a user has no value of their own: a setting they never changed,
   their first visit, every connection of a `Declared` user (values not
   kept, 2.6 d), a setting a newer build added, a user the host forgot --
@@ -164,9 +164,9 @@ on hot paths (every drag step), with no user in its signature.
   the rest are generated exactly as now.
 - For one that is: the getter checks the preference user (one thread-local
   read); none -> the global cache as now; a user -> a per-user cache (a map
-  from the user to the values, filled on first use from the user's group
-  with the current (global) value standing in for a missing entry, updated
-  by observers of the user's group and of the global one;
+  from the user to the values, filled on first use from the user's group;
+  a missing entry is copied once from the current (global) value and
+  written to the user's group; updated by an observer of the user's group;
   a map node never moves, so `const T&` stays valid); the setter writes the
   user's entry under a user.
 - A class can declare every parameter per user at once (`PerUser = True`
@@ -194,10 +194,10 @@ that the template can emit beside it, for the flagged parameters only:
   in `<Class>P` a `std::map<std::string, std::unique_ptr<UserValues>>` keyed
   by the user's id. Made on first use for a user: its handles from
   `App::UserParameter` (the user's prefix before `ParamPath` and each
-  sub-path), each member read with the global member's current value as
-  its default, and observers attached to the user's group and to the global
-  one, a global change re-reading the user members with no entry of their
-  own -- the same `funcs` table, re-pointed at the user's members (an
+  sub-path), each member read from the user's group, an entry it lacks
+  copied once from the global member's current value and written there
+  (10:13), and an observer attached to the user's group -- the same `funcs`
+  table, re-pointed at the user's members (an
   `update<Name>` that takes the values struct instead of `self`).
 - `get<Name>()`: `if (auto u = App::PrefUser::currentId()) return
   instance()->user(u).<Name>; return instance()-><Name>;` -- one
@@ -237,10 +237,8 @@ e. Which settings: task panels' and edit menus' widgets by default (with an
 f. One file for all users (`users.cfg`), or one file per user? Proposed:
    one file; a user's group is removed with them when the host forgets the
    user.
-g. (10:01) "Grab the initial value from the current setting": read through
-   until the user writes (a host's later change still reaches them), or a
-   copy taken at their first use (fixed from then on)? Proposed: read
-   through.
+g. ANSWERED 10:13: "copied once" -- at the user's first read of the
+   setting, stored as theirs (2.2).
 
 ## 3. Order of work, once decided
 
@@ -251,7 +249,8 @@ g. (10:01) "Grab the initial value from the current setting": read through
 2. `App::UserParameter` (2.2) and the declared users' memory store; C++
    tests, the no-mix rule among them (a user's write never reaches the
    local value, the local read never sees a user's; a user with no entry
-   reads the current value).
+   gets the current value copied once, and a later local change does not
+   reach them).
 3. The generator's `user=True` / `PerUser` (2.5, 2.5.1) and the six drag
    settings; 171's sub-menu then per user with no code of its own.
 4. `PrefWidget` through the helper (2.3); a test with two served users of

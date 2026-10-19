@@ -83,6 +83,24 @@ STRIKE_DEPTH = (2, 1.2)
 HOLE = [(25.5, 19.6), (36.2, 19.6), (39.2, 21.4), (28.5, 21.4)]
 EXIT = 19.9
 
+# The application icon's mark is wider (docs/HandsOnQueue.md entry 175, the
+# user's "C", 2026-10-19): with no tile, the mark above is narrow beside other
+# programs' icons, and it reaches the top and the bottom already, so it cannot
+# grow. The bar runs to nearly the full width and the strike is a fifth wider
+# about its axis. Only the application icon takes it (the window, the task bar,
+# the title bar's logo, the .ico, .icns and .xpm, the browser's tab); the mark
+# alone, the document icons, the package box, the watermark, the TechDraw logo
+# and the splash keep the mark above.
+AXIS = 31.5
+APP_WIDEN = 1.2
+APP_MARK = dict(
+    front=[(3.5, 7), (55.5, 7), (55.5, 19), (3.5, 19)],
+    bottom=[(3.5, 19), (55.5, 19), (60.5, 22), (8.5, 22)],
+    side=[(55.5, 7), (60.5, 10), (60.5, 22), (55.5, 19)],
+    strike=[(AXIS + (x - AXIS) * APP_WIDEN, y) for x, y in STRIKE],
+    hole=[(AXIS + (x - AXIS) * APP_WIDEN, y) for x, y in HOLE],
+)
+
 DESC = (
     "  <desc>Thundereal application mark: the T-strike. A bar seen a little from below,\n"
     "  struck through by a two-pointed bolt. Written by src/Tools/thundereal-icons.py.</desc>\n"
@@ -116,17 +134,19 @@ def below(path, y):
     return path.intersected(r).simplified()
 
 
-def mark_layers():
-    """The mark in paint order, as (name, outline, colour)."""
-    s = poly(STRIKE)
+def mark_layers(shape=None):
+    """The mark in paint order, as (name, outline, colour); `shape` is
+    APP_MARK for the application icon's, else the mark's own."""
+    g = shape or dict(front=BAR_FRONT, bottom=BAR_BOTTOM, side=BAR_SIDE, strike=STRIKE, hole=HOLE)
+    s = poly(g["strike"])
     low = below(s, EXIT)
     return [
         ("strikeSide", extrude_side(s, STRIKE_DEPTH), K["strikeSide"]),
         ("strike", s, K["strike"]),
-        ("barBottom", poly(BAR_BOTTOM), K["barBottom"]),
-        ("barSide", poly(BAR_SIDE), K["barSide"]),
-        ("barFront", poly(BAR_FRONT), K["barFront"]),
-        ("hole", poly(HOLE), K["hole"]),
+        ("barBottom", poly(g["bottom"]), K["barBottom"]),
+        ("barSide", poly(g["side"]), K["barSide"]),
+        ("barFront", poly(g["front"]), K["barFront"]),
+        ("hole", poly(g["hole"]), K["hole"]),
         ("lowSide", extrude_side(low, STRIKE_DEPTH), K["strikeSide"]),
         ("lowStrike", low, K["strike"]),
     ]
@@ -147,8 +167,8 @@ def partition(layers):
 # faces and the hole fall between pixels. So the mark is redrawn on the pixel
 # grid -- larger than its inset on the tile, the bar's edges on whole pixels,
 # the hole left out, and the bar's bottom face one lit row.
-def strike16(cx, top, s):
-    return [(cx + (x - 31.5) * s, top + (y - 0.5) * s) for x, y in STRIKE]
+def strike16(cx, top, s, strike=None):
+    return [(cx + (x - AXIS) * s, top + (y - 0.5) * s) for x, y in (strike or STRIKE)]
 
 
 def mark16(bar, side, bottom, strike, exit_y, depth=None):
@@ -300,13 +320,14 @@ def write_svgs():
     # The application icon has no ground of its own (docs/HandsOnQueue.md
     # entry 175): it is drawn on title bars, task bars and desktops, light
     # and dark, the pinned icon and the running one the same picture. The
-    # mark at full size, moved down and right just enough that its edge
-    # clears the square at the strike's top point.
+    # mark at full size -- the application icon's wider one, APP_MARK --
+    # moved down just enough that its edge clears the square at the strike's
+    # top point; across, it is centred already.
     tile = '  <rect width="64" height="64" rx="14" fill="%s"/>\n' % K["tile"]
-    shift = QtGui.QTransform.fromTranslate(0.5, 1.6)
+    shift = QtGui.QTransform.fromTranslate(0, 1.6)
     write(
         os.path.join(ICONS, "thundereal.svg"),
-        svg(64, 64, DESC + app_body(mark_layers(), 64 / 24, (32.9, 22.1), 36, shift), "Thundereal"),
+        svg(64, 64, DESC + app_body(mark_layers(APP_MARK), 64 / 24, (32.4, 22.1), 36, shift), "Thundereal"),
     )
     write(
         os.path.join(ICONS, "thundereal-mark.svg"),
@@ -314,12 +335,12 @@ def write_svgs():
     )
     # With no tile to sit inside, the 16 px drawing takes the whole square:
     # the strike 15 px tall, the bar's edges on whole pixels, the edge half a
-    # pixel outside.
+    # pixel outside -- the application icon's wider mark, as above.
     app16 = mark16(
-        [(2, 2), (12, 2), (12, 5), (2, 5)],
-        [(12, 2), (13, 2.8), (13, 6), (12, 5)],
-        [(2, 5), (12, 5), (13, 6), (3, 6)],
-        strike16(7.7, 0.5, 15 / 58.5),
+        [(1, 2), (13, 2), (13, 5), (1, 5)],
+        [(13, 2), (14, 2.8), (14, 6), (13, 5)],
+        [(1, 5), (13, 5), (14, 6), (2, 6)],
+        strike16(7.7, 0.5, 15 / 58.5, APP_MARK["strike"]),
         6,
     )
     write(

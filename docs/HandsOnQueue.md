@@ -173,6 +173,16 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 22:02, the build session (relayed): 190 BUILT `224ec0828a` (real Chrome
+13/13); 189's handle menu, label below the toolbars, typing, click-clear
+and the menu button BUILT (`b2ad908242`, `7238ddd227`, `3c3c7f5e9e`,
+`3fc186d196`, `26adceee52`); entry 191 NEW from the reporter's words to
+the build session -- a failed drag step goes back to the last working
+value inside the drag's one transaction, BUILT `3fc186d196`. All local,
+NOT pushed, NOT staged. Left for 189: handle tooltips, touch, and
+180/182/185/188 checked in the browser.** READ in git: the commits are
+there. Under the entries.
+
 **2026-10-19 21:42: entry 190 -- the phone form also collapsible, expanding into a
 SCROLLING card.** Under the entry.
 
@@ -3882,8 +3892,9 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04. 2026-10-19 16:08 CAUSE found by the build session from the stack (not reproduced): a right PRESS on a handle did grabEvents(), Blender navigation took the right RELEASE, the grab stayed; one radius rebuilt the handles and deleted the grabbing node; the next event traversed it. Fix: no grab on the right press -- uncommitted, building. 2026-10-19 16:10 the reporter asked why the cdb the session runs under did not catch it: READ, its arm file stops ONLY on a first-chance ACCESS VIOLATION (sxe av); a purecall -> abort -> SIGABRT is no SEH exception, so cdb saw only the handler's C++ throw (first chance, ignored); arming _purecall / abort proposed. 2026-10-19 16:12 the user copy's cdb arm file now also stops on _purecall and abort (outside the repo; from the next start through fcad-user-cdb.cmd); the 16:01 break-in was NOT the build session's -- who, unknown. 2026-10-19 16:12 the reporter: the 16:01 break-in was the REPORTER, typing in the cdb console window -- answered. 2026-10-19 16:29 CLOSING the unstable session crashed (16:27:32, an access violation, dumped by the user copy's cdb): resetEdit -> SoHandleEventAction::releaseGrabber -> grabEventsCleanup() on the SAME DELETED grabber as 186 -- a second effect of the one bug, confirming the build session's cause; a guard proposed (a node releases the grab before it is deleted). 2026-10-19 16:32 the fix (no grab on the right press) COMMITTED locally `36440fa751`, NOT pushed, NOT staged; the note-taker's guard (a) WRITTEN, uncommitted: GizmoContainer releases the viewer's grab if the grabber is one of its nodes, before removing a gizmo and in its destructor. 2026-10-19 17:53 the guard (a) COMMITTED locally `55f4145d9d` (READ in git: Gizmo.cpp/.h), NOT pushed, NOT staged. 2026-10-19 18:06 the fix and the guard PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session |
 | 187 | 2026-10-19 | a defect, found through 186: after a CRASH that FreeCAD catches and survives, NOTHING TELLS THE USER, though the application is no longer in a stable state | OPEN; said to the note-taker 2026-10-19 16:07; READ: GUIApplication::notify shows a box for an access violation only; the purecall/abort path (Base::AbnormalProgramTermination) is caught as an ordinary Base::Exception and only logged. 2026-10-19 16:12 WRITTEN, uncommitted: notify catches Base::AbnormalProgramTermination as Fatal; one critical box at a time for both kinds ("A crash was caught ... Save your work under a NEW file name, then restart" + the error + the crash log path); a hand check on the stage; d (the 2 min 45 s wait) not addressed. 2026-10-19 16:32 the crash box COMMITTED locally `a39d10e326`, NOT pushed, NOT staged. 2026-10-19 18:06 the crash box PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session; a HAND CHECK still to do |
 | 188 | 2026-10-19 | a change request: with ONE MISSING (not failed) edge's PREVIEW SHAPE SELECTED, CLICKING ANOTHER EDGE of the BASE feature (one not already in the dress-up) CHANGES that missing reference to the clicked edge; the same for ALL other dress-up features | OPEN; said to the note-taker 2026-10-19 18:03. 2026-10-19 19:31 BUILT and COMMITTED locally `2121766927` (log `3d343d3d93`), NOT pushed, NOT staged: one missing row selected + a pick of an UNUSED base element of its kind -> REPLACED IN PLACE, every dress-up, the values follow, one undo step; the note-taker's a-g as read, h a face for draft/thickness by the same code |
-| 189 | 2026-10-19 | a question and a change request: is ALL the corresponding ON-VIEW EDIT in the BROWSER? if not, SYNC it -- the browser to carry what the desktop's on-view edit has now | OPEN; said to the note-taker 2026-10-19 18:04; answered from the queue: NO -- 172 (all PD on-view edit in the browser) was SIZED (docs/OnViewValueEditing.md sec 9, `8cd250125b`), NOTHING BUILT; the desktop's on-view work since is not in the browser either. 2026-10-19 19:31 the reporter (relayed, to the build session; the note-taker did not hear it): "After that do 189 with real browser"; FIRST STEPS COMMITTED locally `913db7b153`, NOT pushed, NOT staged: in a REAL Chrome the fillet's arrows drag live; the fine-snap key is the client's; Tab and Escape from the page move/clear the active value; found: the top-middle label UNDER the web toolbars, a radius draggable to 0 (the desktop clamps the same), no on-view entries for typing; next: the handle's menu (sec 9.2 #4, #5, #7, #10), the label clear of the toolbars, then typing and touch |
-| 190 | 2026-10-19 | a change request: ALL the TOOLBARS hosted in ONE DRAGGABLE CARD, with a TOGGLE that COLLAPSES it into a BUTTON, the button DRAGGABLE too (read as the BROWSER viewer's toolbars) | OPEN; said to the note-taker 2026-10-19 21:38. 2026-10-19 21:42 the reporter: the PHONE form too -- collapsible into the button, and EXPANDING into a card whose contents SCROLL (all the toolbars cannot fit a phone screen otherwise); g answered |
+| 189 | 2026-10-19 | a question and a change request: is ALL the corresponding ON-VIEW EDIT in the BROWSER? if not, SYNC it -- the browser to carry what the desktop's on-view edit has now | OPEN; said to the note-taker 2026-10-19 18:04; answered from the queue: NO -- 172 (all PD on-view edit in the browser) was SIZED (docs/OnViewValueEditing.md sec 9, `8cd250125b`), NOTHING BUILT; the desktop's on-view work since is not in the browser either. 2026-10-19 19:31 the reporter (relayed, to the build session; the note-taker did not hear it): "After that do 189 with real browser"; FIRST STEPS COMMITTED locally `913db7b153`, NOT pushed, NOT staged: in a REAL Chrome the fillet's arrows drag live; the fine-snap key is the client's; Tab and Escape from the page move/clear the active value; found: the top-middle label UNDER the web toolbars, a radius draggable to 0 (the desktop clamps the same), no on-view entries for typing; next: the handle's menu (sec 9.2 #4, #5, #7, #10), the label clear of the toolbars, then typing and touch. 2026-10-19 22:02 more steps COMMITTED locally, each checked in Chrome, NOT pushed, NOT staged: the handle's menu `b2ad908242`, the label below the page's toolbars `7238ddd227`, TYPING (Enter or a digit opens the label) `3c3c7f5e9e`, the click-clear (159) `3fc186d196`, 173's menu button drawn by the page `26adceee52` (logs `e6cea1186f`, `3476f0c714`); left: handle tooltips, touch, and 180/182/185/188 checked in the browser |
+| 190 | 2026-10-19 | a change request: ALL the TOOLBARS hosted in ONE DRAGGABLE CARD, with a TOGGLE that COLLAPSES it into a BUTTON, the button DRAGGABLE too (read as the BROWSER viewer's toolbars) | OPEN; said to the note-taker 2026-10-19 21:38. 2026-10-19 21:42 the reporter: the PHONE form too -- collapsible into the button, and EXPANDING into a card whose contents SCROLL (all the toolbars cannot fit a phone screen otherwise); g answered. 2026-10-19 22:02 BUILT and COMMITTED locally `224ec0828a` (log `3476f0c714`), NOT pushed, NOT staged; the note-taker's a-i and the 21:42 phone answer as written: one card by a grip, a toggle collapses it to a button dragged the same way, a click opens the card at its place, both kept inside the view, place and state per browser; the PHONE starts collapsed, opened a bounded card, bars wrapping, scrolling up/down only; covered.ts reports the card; real Chrome 13/13 |
+| 191 | 2026-10-19 | a change request (said to the build session, relayed): a handle DRAG whose RECOMPUTE FAILS (e.g. a radius dragged to 0) AUTO-REVERTS to the LAST WORKING VALUE, NOT through the normal undo stack -- the whole drag stays ONE transaction; the earlier "refuse at zero" DROPPED | OPEN; relayed to the note-taker 2026-10-19 22:02; BUILT and COMMITTED locally `3fc186d196` (log `e6cea1186f`), NOT pushed, NOT staged |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26342,6 +26353,32 @@ one-row strip scrolled sideways near the bottom). NOT said:
 - the card's size on a phone: read as a part of the screen, not all of
   it, so the view stays usable.
 
+## 191. A drag whose recompute fails goes back to the last working value, inside the drag's one step (a change request) -- OPEN
+
+**Before 2026-10-19 22:02, the reporter (to the BUILD SESSION, relayed; the note-taker
+did not hear it), on 189's finding that a radius can be dragged to 0:**
+first "drag refuse if it goes to zero", then "how about instead of zero
+refuse, just auto revert to the last working value. Do not go through
+the normal undo stack, as the whole drag may continue multiple working
+step, but the whole drag is one transaction" -- "if failed, I mean".
+The note-taker's reading: the ZERO REFUSAL is DROPPED; instead, while a
+handle is dragged, a value whose RECOMPUTE FAILS is not kept -- the
+feature goes back to the LAST value that recomputed, without an undo of
+its own; the whole drag, through any number of working steps, stays ONE
+transaction (one undo step), as 170's 7.5 has it.
+**2026-10-19 22:02, the build session (relayed):** BUILT, `3fc186d196` (log
+`e6cea1186f`), local, NOT pushed, NOT staged: "a failed recompute in a
+drag goes back to the last working value, inside the drag's one step".
+NOT said, with the note-taker's readings:
+a. Where the handle stands after a revert: read as the mouse keeps
+   moving, the value and the handle stay at the last working one until
+   the mouse reaches a working value again.
+b. Telling the user: not said; read as the failure is visible only as
+   the value not following -- perhaps a short note in the label.
+c. Typed values (not a drag): not covered by the words; read as today's
+   behaviour (the failure shown, the value kept).
+d. The browser and the desktop alike: read as yes (the same code path).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -26353,5 +26390,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 190
+the build session, 131 and 132 found by it; entries 134 to 191
 are of 2026-10-15, 134 said to the build session)

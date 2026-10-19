@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 10:29: entry 173 -- the menu button's three bars too thin, make them thicker;
+entry 175 -- x16 answered: theme the BARE MARK by a recolour (no
+light drawing yet), four places need it; for the task bar it recommends
+keeping the tile -- for the reporter.** Under the entries.
+
 **2026-10-19 10:27: entry 175 -- the task bar icon follows the Windows theme; x16 asked
 about a light-theme logo and every place the logo is used (no answer
 yet).** Under the entry.
@@ -3645,9 +3650,9 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 170 | 2026-10-18 | a change request: the fillet's and chamfer's ACTIVE HANDLE and ON-VIEW EDIT brought to the REST of the PartDesign features; NOT the 3D pick or mouse hover of their preview (entry 169's) | OPEN; said to the note-taker 2026-10-18 10:42. 2026-10-18 10:47 the build session sized it: set A (7 panels with handles, 14 values) started, Draft first, nothing built; set B (no handle today), c (the patterns' labels) and e (a design note first) put to the reporter. 2026-10-18 11:27 SET A DONE LOCALLY `313083cf4e`, `7ac52ec284` (log `45bd3382dc`), NOT pushed, NOT staged; r111 real screen: pd-values-in-view 37/37, chamfer/fillet tests no failure; a plain arrow click no longer flips Reversed (Pad, Revolution, Hole) -- done before the reporter answered; unused values hidden; 159's clearing click built nowhere yet (the note-taker's 10:42 reading wrong); set B, c, e still the reporter's. 2026-10-18 12:07 the reporter (to the note-taker): "Add handle only if it makes sense, yes design first. Yes pattern label the same." -- set B: handles only where they make sense, a DESIGN FIRST; the patterns' labels onto the same machinery; the click-to-flip question not answered. 2026-10-18 12:10 the reporter (to the note-taker): "Yes no longer flip, but support auto reverse on drag beyond." -- the click no longer flips (kept); NEW: dragging an arrow beyond zero REVERSES automatically. 2026-10-18 12:49 set B DESIGN written (docs/OnViewValueEditing.md sec 7, `6bad844c26`), its 7.6 a-e for the reporter; REVERSE BY DRAG DONE LOCALLY `64766eb4ac`, `b8fdb0da09` (log `80afba4680`), NOT pushed, NOT staged; only the first side reverses; r113 real screen: pad-drag-reverse 13/13, the others no failure; an Escape-cancelled drag now writes the property back. 2026-10-18 12:51 the build session: the design's 7.5 corrected to what was built (`66dd36afbd`): no per-drag undo step, a drag and its reversal go into the edit's one transaction; a cancelled drag turns the feature back and writes the value back. 2026-10-18 21:51 set A and reverse by drag PUSHED (origin/LinkVibe `15205e7387`, "push, no restage yet" about 18:00), NOT restaged (stage `3b52423f11`); set B's 7.6 a-e still the reporter's. 2026-10-19 08:35 set A and reverse by drag RESTAGED (stage16 08:25, fcad `cf833f0c98`), pushed to ThunderealCAD LinkVibe |
 | 171 | 2026-10-18 | a change request and a question: a RIGHT-BUTTON DRAG of a handle to do the FINE change Shift does now; where the drag increment settings are and how the fine step relates to them; the increment settings brought INTO THE VIEW during an on-view edit, at the bottom middle? | OPEN; said to the note-taker 2026-10-18 21:48; the question answered from the source. 2026-10-18 21:51 the build session: a short design for (1) and (3) after its current task; nothing built before the reporter answers. 2026-10-18 22:02 (3) CHANGED by the reporter: "ok, change idea, do not bring the setting on view. just add a settings sub menu item in the handle context menu. the sub menu has all those settings widget and change it takes effect immediately" -- no settings in the view; a SETTINGS SUB-MENU in the handle's context menu holding the settings' widgets, a change taking effect at once; (1) the right-button fine drag stands. 2026-10-18 22:04 (1) DROPPED by the reporter: "so no need right button drag, since one of the setting determin the default drag is fine or coarse" -- no right-button drag; the default drag behaviour in the Settings sub-menu does it; 171 is now the sub-menu alone. 2026-10-18 22:06 the reporter: "the setting menu shall have edit or checkbox widget like the rest of the menus." -- the sub-menu's items are EDIT or CHECK BOX widgets in the menu, as the fork's other menus have them (e.g. a preference widget's context menu, PrefWidgets.cpp 372). 2026-10-18 22:09 the reporter: "a combobox for the choice. yes leave out for the show interactive" -- the two choices as COMBO BOXES; "Show interactive draggers" LEFT OUT; the sub-menu holds six settings. 2026-10-19 10:15 BUILT locally with 173, uncommitted; r117 building |
 | 172 | 2026-10-18 | a change request: ALL the PartDesign ON-VIEW EDIT (handles, the active handle and typing, the labels, the menus) working IN THE BROWSER, tested in a REAL BROWSER | OPEN; said to the note-taker 2026-10-18 22:13. 2026-10-18 22:16 the reporter: "long touch press on handle to bring up the context menu" -- touch is in scope (b): a LONG PRESS on a handle opens the HANDLE's context menu, the touch form of the right click. 2026-10-18 22:18 the reporter: "there is hover/preselection, check the browser code. task panel shall already in browser by now. Do thunderealcad merge first. then do this on the new tracked LinkVibe branch" -- the browser HAS hover/preselection (the note-taker's "no hover" on touch wrong); the task panel is already in the browser; ORDER: the ThunderealCAD merge FIRST, then 172 on the new tracked LinkVibe branch. 2026-10-19 09:03 SIZED by the build session (docs/OnViewValueEditing.md sec 9, `8cd250125b`, local), nothing built; 9.5 a-c for the reporter (c: puppeteer-core installed on the box, the reporter's yes first). 2026-10-19 09:34 the reporter: "entry 172, install the puppeteer, can windows do browser test off screen?" -- 9.5 c YES (puppeteer-core installed outside the repo); a question: can Windows run the browser test off screen. 2026-10-19 09:49 the build session: puppeteer-core was ALREADY installed (D:\works\sw\viewer-harness\ppenv since 2026-09-12), nothing new; off screen on Windows YES, SEEN -- headless Chrome (swiftshader) drew a served fillet edit: label, preview, handles (`c07c3b79d6`); dragging not tried; 9.5 a, b open. 2026-10-19 10:01 the reporter: "entry 172 shall be anwsered by 174" -- 9.5 a read as decided by 174's per-user design, not one shared value set; b not answered by name |
-| 173 | 2026-10-19 | a change request: an always-visible MENU BUTTON at the 3D view's TOP MIDDLE during an on-view edit (left of the top-middle label when there is one), like the cell menu button but label-high, keeping clear of overlay widgets (the label too); its menu = the active handle's context menu plus 'toggle handles' and 'show preview', the settings even with no active handle | OPEN; said to the note-taker 2026-10-19 08:32. 2026-10-19 08:35 the build session: one design note for 171 and 173 together (one menu), then 172's sizing; nothing built before the reporter sees the design. 2026-10-19 08:48 the reporter: "Toggle handles, this view only, same as show preview. The policy from now on is to keep in mind of multiple user editing. In the future we shall extend preference to be user aware. So browser user can have their own preference." -- toggle handles and show preview THIS VIEW ONLY; a POLICY: keep multiple users editing in mind; later, user-aware preferences. 2026-10-19 08:54 the 171+173 DESIGN written (docs/OnViewValueEditing.md sec 8, `08ff4f5181`, local), nothing built; sec 8.6 a-f for the reporter (a: the panel's Show preview also writes the global preference and resumes the recompute -- the menu's switch would only take the preview out of this view). 2026-10-19 09:03 the reporter: "Yes stay that way for now." -- read as: 171's settings stay the GLOBAL preference for now; 8.6 a-f NOT answered by it. 2026-10-19 09:34 the reporter: "entry 173, show preview should behave the same as the task panel" -- 8.6 a ANSWERED against the proposal: the menu's Show preview does what the panel's check box does (the preference and the recompute), NOT this view only; toggle handles stays this view only. 2026-10-19 09:49 the design's 8.6 noted: Show preview = the panel's check box, toggle handles this view only, the multi-user consequence noted. 2026-10-19 10:01 the reporter: "173 all agree" -- the design's 8.6 c-f AGREED as proposed (a already answered 09:34); ready to build after 171 (one design). 2026-10-19 10:15 the build session: 171+173 BUILT locally, UNCOMMITTED; r117 building with a new test pd-edit-menu-in-view.py; results to follow |
+| 173 | 2026-10-19 | a change request: an always-visible MENU BUTTON at the 3D view's TOP MIDDLE during an on-view edit (left of the top-middle label when there is one), like the cell menu button but label-high, keeping clear of overlay widgets (the label too); its menu = the active handle's context menu plus 'toggle handles' and 'show preview', the settings even with no active handle | OPEN; said to the note-taker 2026-10-19 08:32. 2026-10-19 08:35 the build session: one design note for 171 and 173 together (one menu), then 172's sizing; nothing built before the reporter sees the design. 2026-10-19 08:48 the reporter: "Toggle handles, this view only, same as show preview. The policy from now on is to keep in mind of multiple user editing. In the future we shall extend preference to be user aware. So browser user can have their own preference." -- toggle handles and show preview THIS VIEW ONLY; a POLICY: keep multiple users editing in mind; later, user-aware preferences. 2026-10-19 08:54 the 171+173 DESIGN written (docs/OnViewValueEditing.md sec 8, `08ff4f5181`, local), nothing built; sec 8.6 a-f for the reporter (a: the panel's Show preview also writes the global preference and resumes the recompute -- the menu's switch would only take the preview out of this view). 2026-10-19 09:03 the reporter: "Yes stay that way for now." -- read as: 171's settings stay the GLOBAL preference for now; 8.6 a-f NOT answered by it. 2026-10-19 09:34 the reporter: "entry 173, show preview should behave the same as the task panel" -- 8.6 a ANSWERED against the proposal: the menu's Show preview does what the panel's check box does (the preference and the recompute), NOT this view only; toggle handles stays this view only. 2026-10-19 09:49 the design's 8.6 noted: Show preview = the panel's check box, toggle handles this view only, the multi-user consequence noted. 2026-10-19 10:01 the reporter: "173 all agree" -- the design's 8.6 c-f AGREED as proposed (a already answered 09:34); ready to build after 171 (one design). 2026-10-19 10:15 the build session: 171+173 BUILT locally, UNCOMMITTED; r117 building with a new test pd-edit-menu-in-view.py; results to follow. 2026-10-19 10:29 the reporter: "the on view edit menu button. make those three strips thick. they are too thin now" -- the button's three bars THICKER (now max(2 px, height/12) in the uncommitted build) |
 | 174 | 2026-10-19 | a change request FOR DESIGN: PER-USER SETTINGS -- each edit identifies the user who started it; PrefWidget checks the current editing user and PREFIXES the setting path; check whether settings in menu items can do the same | OPEN; said to the note-taker 2026-10-19 09:03. 2026-10-19 09:08 DESIGNED by the build session (new docs/UserSettings.md, `dcfa2bba59`, local), nothing built; menu settings: YES the same way; sec 2.6 a-f for the reporter. 2026-10-19 09:32 the reporter: a user's values NEVER MIX with the local user's (the design's fall-back to the global overruled); ideally all settings user aware, step by step; CHANGE: the user also taken from the VIEW outside an edit; a per-user FLAG in the cog param helper, the generated class keeping per-user values -- feasibility asked; and a question: when can a user have no value. 2026-10-19 09:49 the design updated (`59d348425a`): no mixing either way, no value -> the DEFAULT; the user from the view outside an edit (App::PrefUser); the cog per-user flag POSSIBLE (sec 2.5.1); the reporter's question answered (sec 2.2). 2026-10-19 10:01 the reporter CORRECTS the 09:32 reading: a user's INITIAL value is taken from the CURRENT setting (not the default); "not mix" was about WRITES -- a user's write never reaches the local user's settings. 2026-10-19 10:13 the reporter: "174, copied once." -- a user's initial value is COPIED ONCE from the current setting (a snapshot at first use), not read through. 2026-10-19 10:15 the design squared with "copied once" (`3dff98041b`, local): at the FIRST READ the current value is written into the user's entry; a Declared user's copy in the connection's memory; reset to default removes the entry, the next read copies again |
-| 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22. 2026-10-19 10:27 the reporter: the task bar icon follows the WINDOWS theme (a answered); x16 to be asked about a light-theme icon and every other place the logo is used -- ASKED by the note-taker 10:27, over Remote Control, no answer yet |
+| 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22. 2026-10-19 10:27 the reporter: the task bar icon follows the WINDOWS theme (a answered); x16 to be asked about a light-theme icon and every other place the logo is used -- ASKED by the note-taker 10:27, over Remote Control, no answer yet. 2026-10-19 10:29 x16 ANSWERED: no light-theme drawing in the app; the reporter approved a light-ground RECOLOUR of the BARE MARK (website); x16 suggests thundereal-mark-light.svg from the generator, the bare mark themed in 4 places (title-bar button, Std_About icon, Material library icon, template); for the TASK BAR it recommends KEEPING THE TILE (the pinned .exe icon cannot follow the theme) -- a decision for the reporter |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -24309,6 +24314,17 @@ plus x16's two tests and the on-view set; results to follow.
 READ in git by the note-taker: uncommitted changes in Gizmo.cpp/.h,
 OnViewValue.cpp/.h, PartDesign/Gui/Utils.cpp, and the new test untracked.
 
+**2026-10-19 10:29, the reporter (to the note-taker):** "the on view edit menu button. make those three strips thick. they are too thin now"
+The note-taker's reading: the 173 MENU BUTTON's three bars (strips) are
+TOO THIN; make them THICKER. The reporter has seen the built button
+(how -- a run on the screen -- not said).
+READ in the working tree (uncommitted, nothing run): the button paints
+the three bars with a pen of width std::max(2.0, height() / 12.0), round
+caps, margin height/4, three lines evenly between -- so at a label-high
+button of about 24 to 30 px, 2 to 2.5 px.
+NOT said: how thick (read: clearly thicker -- about twice, the build
+session's call, shown by a picture).
+
 ## 174. Per-user settings: each edit knows its user; preference widgets and the menu's settings write under a per-user prefix (a change request for design) -- OPEN
 
 **2026-10-19 09:03, the reporter (to the note-taker):** "New request, lets design the per user settings. My thoughts, each edit shall identify the initating user, prefwidget shall check current editting user and add prefix to setting path. Check if settings in menu item can do the same"
@@ -24573,6 +24589,73 @@ DONE by the note-taker 10:27: a message to x16 (route: Remote Control,
    others (the browser viewer/favicon, the start page, the conda
    package).
 NO ANSWER yet.
+
+**2026-10-19 10:29, x16 (a Remote Control session, answering the note-taker's 10:27
+questions):** in short, as received:
+- NO separate LIGHT-THEME DRAWING in the app; the reporter has APPROVED a
+  light-ground RECOLOUR of the BARE MARK (on the website). The thing to
+  theme is the BARE MARK, not the TILE icon.
+- The Thundereal art lives under thundereal* names, chosen by
+  FREECAD_APP_ICON when THUNDEREAL_IDENTITY is ON (Branding.qrc.in
+  aliases freecad.svg -> thundereal.svg). All of it is written by ONE
+  GENERATOR, src/Tools/thundereal-icons.py, from one colour table K
+  (about line 50): edit there and regenerate, never the files.
+- Two forms: thundereal.svg (and -16.svg, icon-NN.png, .ico, .icns,
+  .xpm) -- the T-strike on its OWN NAVY TILE (#1B2744), reads the same on
+  any ground; it is what "freecad"/AppIcon resolves to today in BOTH the
+  title-bar menu button and the window/task-bar icon. thundereal-mark.svg
+  -- the mark alone, one colour set, for a dark ground.
+- The only light-ground variant so far is the website's: the bar's lit
+  bottom face #9CC0FF becomes #7FA6F2 (CSS --wm-low), the rest
+  unchanged (#9CC0FF too faint on white); the reporter picked it
+  (variant "B"/"C2" of the wordmark rounds). Upstream FreeCAD has no
+  themed logo either.
+- SUGGESTION: a RECOLOUR, not a second drawing, not an outline: add
+  thundereal-mark-light.svg to the generator (K with barBottom #7FA6F2),
+  keep thundereal-mark.svg as the dark-ground one; themed places take the
+  bare mark in the variant for their ground. (An outline exists only as
+  the empty-window watermark, too weak for a logo.)
+EVERY USE, per x16:
+- NEEDS A VARIANT (drawn on a theme colour -> the bare mark + variant):
+  the title-bar menu button (MainWindow.cpp 2055, the tile now);
+  Help > About's menu/tool bar icon (Std_About, CommandStd.cpp 94,
+  "freecad"); the Material editor/tree's built-in library icon
+  (":/icons/freecad.svg": MaterialManagerLocal.cpp 537, ModelLoader.cpp
+  376, materialtools/cardutils.py 166, 212); the _TEMPLATEPY_ workbench
+  pixmap (a template, low priority).
+- ALREADY THEMED: the empty-window watermark (Stylesheets
+  background_thundereal{,_dark,_light}, per .qss); the website lockup.
+- NO VARIANT (own ground, or file content): the splash and about
+  pictures; the document icon thundereal-doc* (FileDialog.cpp 801,
+  Start's FileCardDelegate.cpp 221/226, the XDG mimetype icons); the
+  package icon; the TechDraw title-block logo (always on paper); the
+  thumbnail logo stamped into saved files (Thumbnail.cpp 126) and the
+  screenshot watermark (CommandView.cpp 2694); the installer and OS
+  icons (src/Main/thundereal.ico, the installer's Thundereal.ico, .icns,
+  the XDG PNGs; the feedstock copies icon{,-daily}.ico over it in
+  bld.bat; all four .ico byte-identical, the tile); the browser viewer's
+  tab icon (wasm/thundereal-favicon.html, the tile).
+THE TASK BAR -- x16: "needs a decision from the user":
+- qApp->setWindowIcon can follow the Windows theme only for the RUNNING
+  window. The PINNED/launch icon (the .exe's embedded .ico, the Start
+  menu shortcut conda menuinst makes, the installer's) is ONE picture:
+  Win32 apps get no light/dark task bar assets (only packaged MSIX apps,
+  altform-lightunplated). A themed running icon would DIFFER from the
+  pinned one whenever theme and variant disagree.
+- The task bar follows "Windows mode" (HKCU ... Themes\Personalize
+  SystemUsesLightTheme), which can differ from "App mode"
+  (AppsUseLightTheme) -- what Qt's styleHints()->colorScheme() reports.
+  To follow the task bar: read SystemUsesLightTheme, again on
+  WM_SETTINGCHANGE "ImmersiveColorSet".
+- x16's RECOMMENDATION: KEEP THE TILE for the window/task bar icon (drawn
+  to read on both); theme only the four bare-mark uses. If the reporter
+  still wants the task bar themed: the bare mark in two variants,
+  switched on SystemUsesLightTheme, the mismatch with the pinned icon
+  accepted.
+The note-taker's reading: x16's recommendation for the task bar goes
+AGAINST the reporter's 10:27 "task bar icon follow Windows theme" -- put
+to the reporter. NOT CHECKED by the note-taker: the generator, the
+colours, the file list (x16's word).
 
 ## Inbox
 

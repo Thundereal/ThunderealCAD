@@ -7793,3 +7793,21 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   the icon extracted from Thundereal.exe is the tile-less one. STAGED
   (stage19, 12:03): only Thundereal.exe and ThunderealCmd.exe in the stage.
   2b69e67e86 NOT pushed.
+- 177 BUILT (88369fc96f): Tab on an omni search /error row completes the
+  name and keeps "/error ", the list narrowed to it (the marks "Doc#" and
+  "<< >>" part words for its filter); Return as before. r123 offscreen:
+  omni-search-label-one-row 20 of 20 with the two new Tab claims,
+  slash-word 10; recent-items 16 of 18, its two property-row failures
+  older than this (10-14, 10-16) and intermittent.
+- 178: Dimension120 read in the reporter's live session (read-only probe
+  over their MCP console): an Angle dimension on SectionView004, Edge5 and
+  Edge9 both at 45 deg -- parallel, after the references were matched again
+  by geometry. Built (the next commit): the dimension's recompute error
+  names the kind, view, elements and reason, and the re-matching; TDTest
+  DrawViewDimensionTest 3 of 3 (r124). The audit of TechDraw's execute()
+  failures: docs/TechDrawErrors.md -- the threaded views (part, section,
+  detail, complex section) return success before their work, so its
+  failures never reach the recompute error; a late error through
+  Document::setErrorDescription proposed. With the reporter (a-c). Seen in
+  the reporter's console on the way: "Transaction log: no such column:
+  joined" on opening scanner -- told x16.

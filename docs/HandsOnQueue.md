@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 16:29: entry 186 -- closing the unstable session crashed on the SAME deleted
+grabber (resetEdit -> releaseGrabber -> grabEventsCleanup), dumped by cdb;
+the cause confirmed; a destroy-time guard proposed.** Under the entry.
+
 **2026-10-19 16:13: x16 pushed thundereal/main `05ea85f14f` -- entry 179's log-store
 migration (oplab) and entry 175's enlarged app mark (no background);
 neither in LinkVibe until merged.** Under the entries.
@@ -3812,7 +3816,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 183 | 2026-10-19 | a change request: the 'Overlay' PRESET (data/settings/Overlay.FCParam): the BOTTOM panel TRANSPARENT and auto hide 'None'; the REPORT VIEW moved from the top panel to the bottom -- report view LEFT half, Python console RIGHT half, the selection view right-most, COLLAPSED | OPEN; said to the note-taker 2026-10-19 13:46. 2026-10-19 14:32 BUILT locally `e30b518e2d`: the bottom panel see-through, no auto hide, report view | console | selection view (collapsed), the top panel empty; overlay test 52/52; measured 925, 925, 0 at a 1910 px panel; NOT pushed. 2026-10-19 15:03 PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130) |
 | 184 | 2026-10-19 | a change request: the LIST VIEWS in the TASK PANEL styled like the PROPERTY VIEW, with a TRANSLUCENT background | OPEN; said to the note-taker 2026-10-19 15:14; READ: in the overlay style sheets QListView/QTreeView get an opaque rgb(100,100,100), the property editor's items rgba(0,0,0,0.01). 2026-10-19 15:19 the reporter: "entry 184, yes to all" -- the note-taker's readings a-e AGREED (overlay mode only; every list in a task panel; the selection colour kept; every overlay sheet; the rest unchanged). 2026-10-19 16:08 the task lists see-through in overlay (alpha 2/255) BUILT, green on r133, NOT committed (working tree), NOT pushed, NOT staged |
 | 185 | 2026-10-19 | a defect: in a dress-up edit the HANDLES are drawn UNDER (before) the PREVIEW SHAPE; they should draw ABOVE it -- a higher show-on-top priority | OPEN; said to the note-taker 2026-10-19 15:49. 2026-10-19 16:08 the handles above the preview (So3DAnnotation priority -1 in Coin and the render cache) in build r134, NOT committed |
-| 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04. 2026-10-19 16:08 CAUSE found by the build session from the stack (not reproduced): a right PRESS on a handle did grabEvents(), Blender navigation took the right RELEASE, the grab stayed; one radius rebuilt the handles and deleted the grabbing node; the next event traversed it. Fix: no grab on the right press -- uncommitted, building. 2026-10-19 16:10 the reporter asked why the cdb the session runs under did not catch it: READ, its arm file stops ONLY on a first-chance ACCESS VIOLATION (sxe av); a purecall -> abort -> SIGABRT is no SEH exception, so cdb saw only the handler's C++ throw (first chance, ignored); arming _purecall / abort proposed. 2026-10-19 16:12 the user copy's cdb arm file now also stops on _purecall and abort (outside the repo; from the next start through fcad-user-cdb.cmd); the 16:01 break-in was NOT the build session's -- who, unknown. 2026-10-19 16:12 the reporter: the 16:01 break-in was the REPORTER, typing in the cdb console window -- answered |
+| 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04. 2026-10-19 16:08 CAUSE found by the build session from the stack (not reproduced): a right PRESS on a handle did grabEvents(), Blender navigation took the right RELEASE, the grab stayed; one radius rebuilt the handles and deleted the grabbing node; the next event traversed it. Fix: no grab on the right press -- uncommitted, building. 2026-10-19 16:10 the reporter asked why the cdb the session runs under did not catch it: READ, its arm file stops ONLY on a first-chance ACCESS VIOLATION (sxe av); a purecall -> abort -> SIGABRT is no SEH exception, so cdb saw only the handler's C++ throw (first chance, ignored); arming _purecall / abort proposed. 2026-10-19 16:12 the user copy's cdb arm file now also stops on _purecall and abort (outside the repo; from the next start through fcad-user-cdb.cmd); the 16:01 break-in was NOT the build session's -- who, unknown. 2026-10-19 16:12 the reporter: the 16:01 break-in was the REPORTER, typing in the cdb console window -- answered. 2026-10-19 16:29 CLOSING the unstable session crashed (16:27:32, an access violation, dumped by the user copy's cdb): resetEdit -> SoHandleEventAction::releaseGrabber -> grabEventsCleanup() on the SAME DELETED grabber as 186 -- a second effect of the one bug, confirming the build session's cause; a guard proposed (a node releases the grab before it is deleted) |
 | 187 | 2026-10-19 | a defect, found through 186: after a CRASH that FreeCAD catches and survives, NOTHING TELLS THE USER, though the application is no longer in a stable state | OPEN; said to the note-taker 2026-10-19 16:07; READ: GUIApplication::notify shows a box for an access violation only; the purecall/abort path (Base::AbnormalProgramTermination) is caught as an ordinary Base::Exception and only logged. 2026-10-19 16:12 WRITTEN, uncommitted: notify catches Base::AbnormalProgramTermination as Fatal; one critical box at a time for both kinds ("A crash was caught ... Save your work under a NEW file name, then restart" + the error + the crash log path); a hand check on the stage; d (the 2 min 45 s wait) not addressed |
 
 ## 1. Idle progress bar in the status bar -- STAGED
@@ -26014,6 +26018,47 @@ The note-taker's note: "~0" switched to the main thread but the "K" that
 followed printed thread 23's stack again (the break thread) -- in cdb a
 "~0" alone lists the thread; "~0s" switches to it, or "~0k" prints its
 stack. And the "g" let the abort handler's throw go on (16:01:53).
+
+**2026-10-19 16:29, the reporter (to the note-taker):** "I am clsoing the unstable application and it crashed, somewhat expected, but check cdb anyway and see if you can find any real bug"
+(as typed: "clsoing" read as "closing".)
+CHECKED by the note-taker, READ ONLY -- the user copy's cdb log
+(D:\works\sw\tools\dbg\cdb_fcad_user.log) and its dumps folder; nothing
+run against the process:
+- 16:27:32 FIRST-CHANCE ACCESS VIOLATION on the main thread (9eb4),
+  caught by the arm file's "sxe av" -- stack printed and a dump written:
+  D:\works\sw\tools\dbg\dumps\fcad_user_av_0540_2026-10-19_16-27-39-025_
+  c26c.dmp (9015954 bytes) -- then the SECOND CHANCE: the process ended.
+- The fault: "call qword ptr [rax+0C0h]" with rax = 25ff012b52c425ff --
+  a VIRTUAL CALL through a GARBAGE vtable (freed memory), reading
+  ffffffffffffffff.
+- The stack, from the bottom: the window's close button -> MainWindow::
+  closeEvent -> Application::tryClose -> MainWindow::closeAllDocuments ->
+  Gui::Document::canClose -> Gui::Document::_resetEdit -> Gui::
+  ViewerContext::resetEditingViewProvider -> CoinRT4!SoHandleEventAction::
+  releaseGrabber -> [the virtual call]. (cdb names the two top frames
+  "SoPath::readInstance" and "SoBase::read" -- identical-code-folded
+  stubs; by the source the call is the one below.)
+- coin src/actions/SoHandleEventAction.cpp 271 to 281, releaseGrabber():
+  "SoNode * old = PRIVATE(this)->grabber; PRIVATE(this)->grabber = NULL;
+  if (old) old->grabEventsCleanup();" -- a VIRTUAL call on the node still
+  recorded as the GRABBER.
+The note-taker's reading: the SAME BUG as 186, a SECOND EFFECT -- the
+handle's node that took the event grab on the right press (never
+released under Blender navigation) was DELETED when one radius rebuilt
+the handles; Coin still held it as the grabber. 15:59 a mouse event
+TRAVERSED it (purecall); 16:27, on closing, resetEdit RELEASED the grab
+and called grabEventsCleanup() on it (access violation). It CONFIRMS the
+build session's 16:08 cause (found from the 15:59 stack alone).
+"Real bug" beyond 186: the one real bug is the dangling grab. The
+note-taker's proposals, beside the build session's fix (no grab on the
+right press):
+a. A GUARD: any node that may grab events (the gizmos / handles) checks,
+   when it is DESTROYED or removed from the scene, whether it is the
+   viewer's current grabber and releases the grab first -- so a dangling
+   grabber cannot happen again from another path.
+b. The dump (above) holds the main thread's stack and the memory it
+   points at -- for the build session if it wants to confirm the node's
+   type.
 
 ## 187. A crash caught and survived tells the user nothing, though the application is no longer stable (a defect) -- OPEN
 

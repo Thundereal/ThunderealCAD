@@ -621,9 +621,11 @@ Each shown on the real screen with a test, as set A was.
 ## 8. The edit's menu: Settings sub-menu and a menu button (entries 171, 173): BUILT
 
 **Built 2026-10-19 (`d59ba8850c`)**, after "173 all agree" (10:01). Where
-the build differs from the design below: "Show handles" goes through each
-handle (`Gizmo::setHiddenInView`, beside the owner's `setVisibility`), not
-the container's `visible`, which the fillet and the chamfer drive
+the build differs from the design below: "Show handles" is one switch for
+all the edit's handles in the view, and the same item (from the button or
+Space) brings them all back -- underneath, it is applied to every handle
+(`Gizmo::setHiddenInView`, beside the owner's `setVisibility`) rather than
+through the container's `visible`, which the fillet and the chamfer drive
 themselves; the coarse rows do NOT go grey with coarse snapping off, since
 the preferences page does not either; Space opens the menu with no active
 value too; the button's strips are as thick as the gaps between them (the

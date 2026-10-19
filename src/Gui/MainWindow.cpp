@@ -3149,14 +3149,11 @@ QMimeData * MainWindow::createMimeDataFromSelection () const
             return nullptr;
     }
 
-    std::vector<App::Document*> unsaved;
-    bool hasXLink = App::PropertyXLink::hasXLink(sel,&unsaved);
-    if(!unsaved.empty()) {
-        QMessageBox::critical(getMainWindow(), tr("Unsaved document"),
-            tr("The exported object contains external link. Please save the document"
-                "at least once before exporting."));
-        return nullptr;
-    }
+    bool hasXLink = App::PropertyXLink::hasXLink(sel);
+    // A link into a document never saved is copied as a snapshot of it, written
+    // now: the paste may come after the document is gone (docs/LibraryPaths.md
+    // sec 12).
+    App::PropertyXLink::SnapshotScope snapshots(sel, true);
 
     unsigned int memsize=1000; // ~ for the meta-information
     for (const auto & it : sel)

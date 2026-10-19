@@ -10388,6 +10388,21 @@ class XLinkIntoUnsavedCases(unittest.TestCase):
         self.assertEqual(doc.Holder.L.Name, "Bolt")
         self.assertTrue(self.same(doc.Holder.L.Document.FileName, self.part))
 
+    def testALinkIntoADocumentNeverSaved(self):
+        # The linked document has no file: the copy links to it while it is
+        # open (docs/LibraryPaths.md sec 12); "Linked document not saved"
+        # before.
+        unsaved = FreeCAD.newDocument("XUnsavedNoFile")
+        nut = unsaved.addObject("App::FeatureTest", "Nut")
+        self.src.Holder.L = nut
+        for name in ("XUnsavedDst", "XUnsavedDstNoFile"):
+            doc = FreeCAD.newDocument(name)
+            if name == "XUnsavedDst":
+                doc.saveAs(os.path.join(self.dir, "dst", "dst.FCStd"))
+            copy = doc.copyObject(self.src.Holder)
+            self.assertEqual(copy.L.Name, "Nut")
+            self.assertEqual(copy.L.Document.Name, unsaved.Name)
+
     def testTheLinkedFileClosedBeforeTheSave(self):
         doc = FreeCAD.newDocument("XUnsavedDst")
         doc.copyObject(self.src.Holder)

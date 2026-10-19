@@ -1381,14 +1381,8 @@ void StdCmdDuplicateSelection::activated(int iMsg)
             if(sel.empty())
                 return;
         }
-        std::vector<App::Document*> unsaved;
-        App::PropertyXLink::hasXLink(sel,&unsaved);
-        if(!unsaved.empty()) {
-            QMessageBox::critical(getMainWindow(), QObject::tr("Unsaved document"),
-                QObject::tr("The exported object contains external link. Please save the document"
-                   "at least once before exporting."));
-            return;
-        }
+        // A link into a document never saved is pasted at once, to that
+        // document (docs/LibraryPaths.md sec 12).
 
         // save stuff to file
         Base::ofstream str(fi, std::ios::out | std::ios::binary);

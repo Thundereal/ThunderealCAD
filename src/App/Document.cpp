@@ -3212,6 +3212,11 @@ Document::ExportStatus Document::isExporting(const App::DocumentObject *obj) con
 
 void Document::exportObjects(const std::vector<App::DocumentObject*>& obj, std::ostream& out) {
 
+    // Links into a document never saved name its snapshot, set before the
+    // objects are marked (docs/LibraryPaths.md sec 12). No file written
+    // here: a copy pasted at once finds the document open; the clipboard's
+    // caller opens a scope that writes them.
+    PropertyXLink::SnapshotScope snapshots(obj, false);
     DocumentExporting exporting(obj);
     d->hashers.clear();
 

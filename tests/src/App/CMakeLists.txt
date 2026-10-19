@@ -30,6 +30,7 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/TransactionMeasure.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/TypeImport.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/TypeRename.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/XLinkSnapshot.cpp
 )
 
 # The deferred archive-entry restore (docs/DocumentLoad.md §14) is App's own

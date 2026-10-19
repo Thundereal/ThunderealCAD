@@ -473,3 +473,58 @@ them were misread there:
 - **Gates** (2026-10-19): the 24 Gui checks pass; Python 3806 OK with the
   freeze on and off (52 and 54 skipped); ctest gtest 981/981 both ways;
   the driven tests 292/292.
+
+## 12. A copy linking into a document never saved: a snapshot (2026-10-19)
+
+Ruled by the user after section 11: "lift all refusal, when copy unsaved
+document, take a snapshot of that document. Then point the link to the
+file at the transient directory. When copy, check if the snapshot document
+is already open, only load if not."
+
+What was still refused after section 11: a copy whose links reach a
+document with no file -- another document never saved ("Linked document not
+saved", `PropertyXLink::Save`), or an object left out of the copy in its
+own document never saved (the Gui's "Unsaved document"; the App wrote an
+empty path, read back as a local link).
+
+- **The copy** (`PropertyXLink::SnapshotScope`): each such document gets a
+  snapshot file, `<its TransientDir>/Snapshot/<Name>.<ext>`, and the links
+  to it are written with that file and a `snapshot` attribute holding the
+  document's `Uid`. The documents the snapshots link on to get theirs the
+  same way. The scope is opened before the export marks its objects: a
+  snapshot of the copy's own document is a save of it, and a save inside
+  the export would write its objects as exported ones.
+- **The paste** (`PropertyXLink::Restore`): while a document with that `Uid`
+  is open -- not one opened from the snapshot -- the link goes to it, and is
+  local when pasted into it; so a Link copied and pasted within one unsaved
+  document stays local, as before. Otherwise the snapshot file: taken if a
+  document has it open, opened if not. A FreeCAD that does not know the
+  attribute opens the snapshot.
+- **Written only by the clipboard's copy** (`MainWindow`), which may be
+  pasted after the document is gone. Duplicate Selection and
+  `Document::copyObject` paste at once, find the document open, and write
+  no file; the attribute is written all the same. A snapshot a document is
+  open from is not written again.
+- **Its life is the document's**: closing the document removes its
+  transient directory, the snapshot with it. A paste after that finds the
+  file only if the snapshot is open; a document that took a link to the
+  snapshot and was saved has a broken link once the source document is
+  closed. (The application's temporary folder would outlive the document;
+  not done, the user named the transient directory.)
+- **The refusals are gone**: `Document::copyObject` (section 11), the
+  Gui's paste and Duplicate Selection questions, and their "Unsaved
+  document" errors. A save -- not a copy -- of a document linking into one
+  never saved still refuses, as before: the Gui saves the linked documents
+  first.
+- **Tests**: `XLinkSnapshotTest` (gtest, 5): the clipboard's copy writes the
+  snapshot and the paste links to the open document; a copy pasted at once
+  writes none, `copyObject` included; with the document gone the paste opens
+  the snapshot, and a second paste takes it without opening it again; a
+  link to an object left out is local in its own document and live in
+  another; a snapshot's own links name their snapshots.
+  `Document.XLinkIntoUnsavedCases.testALinkIntoADocumentNeverSaved`
+  (Python).
+- **Gates** (2026-10-19): the 24 Gui checks pass; Python 3807 OK with the
+  freeze on and off (52 and 54 skipped); ctest gtest 986/986 both ways;
+  the driven tests 292/292. The clipboard's own copy (`MainWindow`) has no
+  driven test: it opens the scope the gtests run.

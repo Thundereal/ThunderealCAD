@@ -1385,6 +1385,30 @@ public:
     static std::map<App::Document*,std::set<App::Document*> > getDocumentInList(App::Document *doc=nullptr);
     static void restoreDocument(const App::Document &doc);
 
+    /** Links into a document never saved, in a copy (docs/LibraryPaths.md
+     * sec 12). An export within the scope writes such a link as the file of
+     * a snapshot of that document, in its transient directory, and its Uid;
+     * a paste links to the document while one with the Uid is open, else to
+     * the snapshot -- opened if no document has it. Begun before the export
+     * marks its objects: the snapshot of the copy's own document is a save of
+     * it. Scopes nest, the outermost counts.
+     */
+    class AppExport SnapshotScope
+    {
+    public:
+        /** `write`: the snapshot files are written, once each -- for a copy
+         * that may be pasted after its documents are gone (the clipboard);
+         * a copy pasted at once finds them open and needs none. A snapshot
+         * a document is open from is not written again.
+         */
+        SnapshotScope(const std::vector<App::DocumentObject*>& objs, bool write);
+        ~SnapshotScope();
+        SnapshotScope(const SnapshotScope&) = delete;
+        SnapshotScope& operator=(const SnapshotScope&) = delete;
+    };
+    /// The file of `doc`'s snapshot, whether written or not.
+    static std::string getSnapshotPath(const App::Document* doc);
+
     void updateElementReference(
             DocumentObject *feature,bool reverse=false, bool notify=false) override;
 

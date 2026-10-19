@@ -5317,6 +5317,40 @@ void PropertyXLink::beforeSave(Base::Writer &writer) const
     markShadowIDs(_ShadowSubList, getContainer());
 }
 
+namespace {
+// The snapshots of the current SnapshotScope: document -> file.
+std::map<const App::Document*, std::string> _Snapshots;
+int _SnapshotDepth;
+
+/// The objects `obj`'s external link properties point to.
+void xlinkTargets(App::DocumentObject* obj, std::vector<App::DocumentObject*>& out)
+{
+    std::vector<App::Property*> props;
+    obj->getPropertyList(props);
+    for (auto prop : props) {
+        if (prop->isDerivedFrom<PropertyXLink>() || prop->isDerivedFrom<PropertyXLinkSubList>()
+                || prop->isDerivedFrom<PropertyXLinkContainer>())
+            static_cast<PropertyLinkBase*>(prop)->getLinks(out, true);
+    }
+}
+
+/// The snapshot `link` is written as, in a scope; empty for none.
+const std::string& snapshotOf(const PropertyXLink& link, const App::DocumentObject* target,
+                              bool exporting)
+{
+    static const std::string none;
+    if (!_SnapshotDepth || !target)
+        return none;
+    auto owner = Base::freecad_dynamic_cast<const App::DocumentObject>(link.getContainer());
+    auto doc = target->getDocument();
+    // A link within the document a snapshot is saved from stays local.
+    if (!exporting && owner && owner->getDocument() == doc)
+        return none;
+    auto it = _Snapshots.find(doc);
+    return it == _Snapshots.end() ? none : it->second;
+}
+}  // namespace
+
 void PropertyXLink::Save (Base::Writer &writer) const {
     auto owner = dynamic_cast<const DocumentObject *>(getContainer());
     // A detached copy -- a before value the undo system took, a value the
@@ -5335,7 +5369,11 @@ void PropertyXLink::Save (Base::Writer &writer) const {
         // Lets save the export name
         writer.Stream() << writer.ind() << "<XLink name=\"" << _pcLink->getExportName();
     }else {
-        if (owner && filePath.empty() && _pcLink && _pcLink->getDocument() != owner->getDocument()) {
+        // Into a document never saved, in a copy: its snapshot (sec 12 of
+        // docs/LibraryPaths.md).
+        const std::string& snapshot = snapshotOf(*this, _pcLink, exporting);
+        if (snapshot.empty() && owner && filePath.empty() && _pcLink
+                && _pcLink->getDocument() != owner->getDocument()) {
             const char *filename = _pcLink->getDocument()->getFileName();
             if(!filename || *filename == 0) {
                 FC_ERR("Linked document not saved for object " << _pcLink->getFullName());
@@ -5365,7 +5403,9 @@ void PropertyXLink::Save (Base::Writer &writer) const {
                 }
             }
         }
-        if(exporting) {
+        if (!snapshot.empty())
+            _path = snapshot;
+        else if(exporting) {
             // docInfo!=nullptr means we are exporting the owner but not exporting the
             // linked object.  Try to use absolute file path for easy transition
             // into document at different directory
@@ -5422,6 +5462,11 @@ void PropertyXLink::Save (Base::Writer &writer) const {
         // A library link (docs/LibraryPaths.md 3.3): the name and the path
         // under its folder, read first; absent otherwise, and a FreeCAD that
         // does not know them resolves the file.
+        // The document the snapshot is of: a paste links to it while it is
+        // open. Absent otherwise; a FreeCAD that does not know it opens the
+        // snapshot.
+        if (!snapshot.empty())
+            writer.Stream() << "\" snapshot=\"" << _pcLink->getDocument()->Uid.getValueStr();
         if (!_libName.empty() && !_libFile.empty() && *path) {
             writer.Stream() << "\" lib=\"" << encodeAttribute(_libName)
                             << "\" libfile=\"" << encodeAttribute(_libFile);
@@ -5572,6 +5617,25 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
             libReport = ss.str();
         }
     }
+    // A copy's link into a document never saved (docs/LibraryPaths.md sec
+    // 12): to that document while it is open, else to its snapshot.
+    Document* live = nullptr;
+    if (!self && !file.empty() && reader.hasAttribute("snapshot")) {
+        const std::string uid = reader.getAttribute("snapshot");
+        for (auto doc : GetApplication().getDocuments()) {
+            const char* fn = doc->getFileName();
+            if (doc->Uid.getValueStr() != uid || (fn && *fn && LibraryPaths::samePath(fn, file)))
+                continue;
+            live = doc;
+            break;
+        }
+        auto ownerObj = Base::freecad_dynamic_cast<DocumentObject>(getContainer());
+        if (live && ownerObj && live == ownerObj->getDocument()) {
+            // Pasted into it: a local link.
+            file.clear();
+            live = nullptr;
+        }
+    }
     std::string name;
     if(file.empty())
         name = reader.getName(reader.getAttribute("name"));
@@ -5656,6 +5720,14 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
         _mapped = std::move(mapped);
         hasSetValue();
         return;
+    }
+
+    if (live) {
+        if (auto obj = live->getObject(name.c_str())) {
+            setValue(obj, std::move(subs), std::move(shadows));
+            _mapped = std::move(mapped);
+            return;
+        }
     }
 
     if(!file.empty() || (!object && !name.empty())) {
@@ -5865,6 +5937,79 @@ bool PropertyXLink::hasXLink(
 
 void PropertyXLink::restoreDocument(const App::Document &doc) {
     DocInfo::restoreDocument(doc);
+}
+
+std::string PropertyXLink::getSnapshotPath(const App::Document* doc)
+{
+    QDir dir(QString::fromUtf8(doc->TransientDir.getValue()));
+    return QDir::cleanPath(dir.absoluteFilePath(
+               QStringLiteral("Snapshot/") + QString::fromUtf8(doc->getName())
+               + QStringLiteral(".")
+               + QString::fromUtf8(Document::getFileExtension(doc->getSaveSchemaVersion()))))
+        .toUtf8()
+        .constData();
+}
+
+PropertyXLink::SnapshotScope::SnapshotScope(const std::vector<App::DocumentObject*>& objs,
+                                            bool write)
+{
+    if (_SnapshotDepth++ > 0)
+        return;
+    std::vector<App::Document*> queue;
+    auto want = [&](App::Document* doc) {
+        if (!doc || doc->isSaved() || doc->testStatus(Document::TempDoc)
+                || _Snapshots.count(doc))
+            return;
+        _Snapshots[doc] = getSnapshotPath(doc);
+        queue.push_back(doc);
+    };
+    // What the copy links to in a document never saved: another document,
+    // or an object of its own document left out of it.
+    std::set<const App::DocumentObject*> copied(objs.begin(), objs.end());
+    std::vector<App::DocumentObject*> targets;
+    for (auto obj : objs) {
+        if (!obj || !obj->isAttachedToDocument())
+            continue;
+        targets.clear();
+        xlinkTargets(obj, targets);
+        for (auto target : targets) {
+            if (target && (target->getDocument() != obj->getDocument() || !copied.count(target)))
+                want(target->getDocument());
+        }
+    }
+    // And what those link to: a snapshot has its links written the same way.
+    for (std::size_t i = 0; i < queue.size(); ++i) {
+        for (auto obj : queue[i]->getObjects()) {
+            targets.clear();
+            xlinkTargets(obj, targets);
+            for (auto target : targets) {
+                if (target && target->getDocument() != queue[i])
+                    want(target->getDocument());
+            }
+        }
+    }
+    if (!write)
+        return;
+    for (auto doc : queue) {
+        const std::string& path = _Snapshots[doc];
+        // Open already, from an earlier paste: links attach to it as it is.
+        if (GetApplication().getDocumentByPath(path.c_str()))
+            continue;
+        try {
+            QDir().mkpath(QFileInfo(QString::fromUtf8(path.c_str())).absolutePath());
+            doc->saveCopy(path.c_str(), false);
+        }
+        catch (Base::Exception& e) {
+            FC_ERR("cannot write the snapshot of " << doc->getName() << " to " << path << ": "
+                                                   << e.what());
+        }
+    }
+}
+
+PropertyXLink::SnapshotScope::~SnapshotScope()
+{
+    if (--_SnapshotDepth == 0)
+        _Snapshots.clear();
 }
 
 std::map<App::Document*,std::set<App::Document*> >

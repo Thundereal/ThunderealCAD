@@ -127,6 +127,65 @@ def in_overlay(title):
     return None
 
 
+def panel_of(title):
+    """The overlay panel a dock window sits in, and the dock"""
+    for dock in FreeCADGui.getMainWindow().findChildren(QtWidgets.QDockWidget):
+        if dock.objectName() == title:
+            w = dock.parentWidget()
+            while w is not None:
+                if w.metaObject().className() == "Gui::OverlayTabWidget":
+                    return w, dock
+                w = w.parentWidget()
+            return None, dock
+    return None, None
+
+
+def bottom_panel():
+    """Entry 183 (the reporter 2026-10-19 13:46): the bottom panel see-through
+    and never auto hidden, the report view moved there from the top, on the
+    left half, the Python console on the right half, the selection view
+    right-most and collapsed"""
+    group = FreeCAD.ParamGet("User parameter:BaseApp/MainWindow/DockWindows/OverlayBottom")
+    check("the bottom panel: see-through, no auto hide",
+          group.GetBool("Transparent", False) and not group.GetBool("AutoHide", True),
+          (group.GetBool("Transparent", False), group.GetBool("AutoHide", True)))
+    check("the top panel lists nothing",
+          FreeCAD.ParamGet("User parameter:BaseApp/MainWindow/DockWindows/OverlayTop")
+          .GetString("Widgets", "?") == "")
+    names = ("Report view", "Python console", "Selection view")
+    panels = [panel_of(n) for n in names]
+    homes = [p.objectName() if p is not None else None for p, _ in panels]
+    check("report view, Python console and selection view in the bottom panel",
+          homes == ["OverlayBottom"] * 3, homes)
+    panel = panels[0][0]
+    splitter = panel.findChild(QtWidgets.QSplitter) if panel is not None else None
+    if splitter is None:
+        check("... the bottom panel has its splitter", False)
+        return
+    order = []
+    for i in range(splitter.count()):
+        w = splitter.widget(i)
+        dock = w if isinstance(w, QtWidgets.QDockWidget) else w.findChild(QtWidgets.QDockWidget)
+        order.append(dock.objectName() if dock is not None else None)
+    check("... left to right: report view, Python console, selection view",
+          order[:3] == list(names), order)
+    # The panels show over a 3D view only (DockOverlayAutoView): with none
+    # open the panel is hidden and its sizes mean nothing. A throwaway
+    # document gives it one.
+    doc = FreeCAD.newDocument("OverlayProbe")
+    settle(3.0)
+    sizes = splitter.sizes()
+    note("INFO bottom panel over a 3D view: sizes %s; panel %dx%d visible %s"
+         % (sizes, panel.width(), panel.height(), panel.isVisible()))
+    check("... shown over a 3D view, with no auto hide", panel.isVisible(), panel.isVisible())
+    if len(sizes) >= 3:
+        check("... the selection view collapsed", sizes[2] == 0, sizes)
+        check("... the report view and the console half each of a real width",
+              sizes[0] > 100 and abs(sizes[0] - sizes[1]) <= max(4, sizes[0] // 10), sizes)
+    FreeCAD.closeDocument(doc.Name)
+    settle(1.0)
+
+
 def menus():
     """The presets menu as it would open: its own entries (text -> action), and Themes'"""
     action = FreeCADGui.Command.get("Std_CmdPresets").getAction()[0]
@@ -195,6 +254,7 @@ def run():
         settle(4.0)
         check("the preset applied: the tree is in an overlay", in_overlay("Tree view") is True,
               in_overlay("Tree view"))
+        bottom_panel()
         check("the theme is still Dark", main.GetString("Theme", "") == "Dark",
               main.GetString("Theme", ""))
         check("and the application is styled exactly as before", sheet() == look["Dark"],

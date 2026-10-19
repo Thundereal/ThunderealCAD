@@ -281,7 +281,25 @@ export function ToolbarStrip(props: {
   const saved = loadCard(props.narrow());
   const [pos, setPos] = createSignal<{ x: number; y: number }>({ x: saved.x, y: saved.y });
   const [collapsed, setCollapsed] = createSignal(saved.collapsed);
+  // The grip along the card's short side (the user, 2026-10-19: "would it be
+  // better to draw the drag handle at the short dimension"): down the left
+  // edge of a card wider than tall, across the top of one taller than wide
+  const [side, setSide] = createSignal(true);
   let card: HTMLDivElement | undefined;
+  createEffect(() => {
+    if (!shown() || collapsed() || !card) return;
+    const el = card;
+    const body = () => el.querySelector('.fc-toolbars') as HTMLElement | null;
+    const ro = new ResizeObserver(() => {
+      const b = body();
+      if (!b) return;
+      const r = b.getBoundingClientRect();
+      setSide(r.width >= r.height);
+    });
+    const b = body();
+    if (b) ro.observe(b);
+    onCleanup(() => ro.disconnect());
+  });
   const keep = () => saveCard({ ...pos(), collapsed: collapsed() });
   // inside the view, the whole card or button
   const clamp = () => {
@@ -342,7 +360,8 @@ export function ToolbarStrip(props: {
   return (
     <Show when={shown()}>
       <div class="fc-tbcard"
-           classList={{ 'fc-tbcard-collapsed': collapsed(), 'fc-tbcard-narrow': props.narrow() }}
+           classList={{ 'fc-tbcard-collapsed': collapsed(), 'fc-tbcard-narrow': props.narrow(),
+                        'fc-tbcard-side': side() }}
            ref={(el) => { card = el; strip = el; }}
            style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
            onPointerDown={(e) => e.stopPropagation()}>

@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 13:37: entry 178 3.1 BUILT (a threaded view's failure is its recompute
+error); entry 179 -- oplab's fix built, x16 to merge; the reporter's
+scanner.FCStd has NO embedded history since its 13:12 save; entry 180 --
+a missing edge's cross place to be proposed.** Under the entries.
+
 **2026-10-19 13:27: entry 180 -- the cross for every failed edge, missing ones too, at
 the root where the handle would have been; fixed size, no hover.** Under
 the entry.
@@ -3713,9 +3718,9 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22. 2026-10-19 10:27 the reporter: the task bar icon follows the WINDOWS theme (a answered); x16 to be asked about a light-theme icon and every other place the logo is used -- ASKED by the note-taker 10:27, over Remote Control, no answer yet. 2026-10-19 10:29 x16 ANSWERED: no light-theme drawing in the app; the reporter approved a light-ground RECOLOUR of the BARE MARK (website); x16 suggests thundereal-mark-light.svg from the generator, the bare mark themed in 4 places (title-bar button, Std_About icon, Material library icon, template); for the TASK BAR it recommends KEEPING THE TILE (the pinned .exe icon cannot follow the theme) -- a decision for the reporter. 2026-10-19 10:36 the reporter: ONE ICON, changed to look good on BOTH themes WITHOUT its own background (no tile, no themed variants); the task bar icon the same -- supersedes the themed-variant plan and the 10:27 "follow Windows theme". 2026-10-19 10:39 ON HOLD (the reporter): the reporter asks x16 to design the icon first; nothing to be done on 175 until then. 2026-10-19 11:11 DONE by x16 on Thundereal/ThunderealCAD MAIN `094770130e` (pushed, on the reporter's word to x16): the tile-less icon "E2" picked by the reporter; NOT in local LinkVibe yet (needs a merge of thundereal/main); the Windows task bar NOT checked. 2026-10-19 11:51 MERGED into LinkVibe (`ca6eddfbfa`) with a test (app-icon-on-both-grounds 4/4), PUSHED `ba41cdb497` and STAGED (stage18 11:35); the .exe's embedded icon still the old one -- r122. 2026-10-19 12:04 the .exe's embedded icon now the new one (stage19 12:03, `2b69e67e86` not pushed); the Windows task bar itself still to be seen by the reporter |
 | 176 | 2026-10-19 | a defect: the STAGED copy's window title still says FREECAD -- the launch script still starts FreeCAD.exe, though the executable was renamed (Thundereal.exe) | OPEN; said to the note-taker 2026-10-19 11:46; READ: tools\fcad-user.cmd starts a STALE FreeCAD.exe (2026-10-18 12:35) left in the build tree and mirrored into the stage. 2026-10-19 11:51 FIXED by the build session, outside the repo: fcad-user.cmd (and -cdb) start Thundereal.exe (FreeCAD.exe only as a fallback), install-user.ps1's guard on Thundereal.exe, test/serve scripts renamed, the stale FreeCAD(Cmd).exe/.pdb removed from the build tree; OPEN: Thundereal.exe in stage18 still has the OLD embedded icon (r122 with a CMake fix building); the restage to finish needs the reporter's FreeCAD CLOSED. 2026-10-19 12:04 DONE: RESTAGED stage19 12:03 (r122, fcad `2b69e67e86`): the stage's bin has ONLY Thundereal.exe and ThunderealCmd.exe, both embedding the tile-less icon; the .ico dependency fix `2b69e67e86` committed locally, NOT pushed |
 | 177 | 2026-10-19 | a defect: OMNI SEARCH "/error": typing an object name and pressing TAB to complete ERASES the "/error" prefix | OPEN; said to the note-taker 2026-10-19 12:09; READ: by design today (entry 165's build) a Tab on an /error row puts the object's path in the OBJECTS mode, "/ <path>". 2026-10-19 12:24 BUILT locally `88369fc96f`: Tab completes the name and KEEPS "/error ", the list narrows to it; Enter unchanged; r123 offscreen omni-search-label-one-row 20/20; NOT pushed, NOT staged |
-| 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL. 2026-10-19 12:24 (1) CONFIRMED in the live session by a read-only probe: Dimension120 an Angle on SectionView004 Edge5, Edge9, both along (1,1) -- PARALLEL; (2) BUILT `7eac8caf7e`: a described error; (3) AUDIT docs/TechDrawErrors.md (`959d5360ea`): threaded views' failures never reach the recompute error; questions a-c for the reporter; NOT pushed. 2026-10-19 13:12 the reporter: "agree all" -- a-c AGREED as proposed (3.1 the late error first, then 3.2, 3.3; a partial view a warning; the texts translatable) |
-| 179 | 2026-10-19 | a defect found by the note-taker in the reporter's console log, made an entry on the reporter's "agree all" (read as yes): the document scanner's EMBEDDED TRANSACTION LOG is older than the build's schema -- "no such column: joined" -- on opening, in the transaction log view, and as an exception caught in notify | OPEN; 2026-10-19 13:12 |
-| 180 | 2026-10-19 | a change request: a FAILED fillet edge (no handle today) shows a RED CROSS at the CENTRE of its face (unpickable; the face is pickable); on-view LABELS get a hover HIGHLIGHT (they are clickable) and a label's hover PRESELECTS as the face's does; the same for all dress-ups; the label highlight for ALL on-view edits; no preselection where it makes no sense | OPEN; said to the note-taker 2026-10-19 13:22. 2026-10-19 13:27 the reporter: the cross for EVERY failed edge, MISSING ones too; placed at the ROOT where the HANDLE would have been (not the face centre); fixed size like a handle, NO hover effect (not pickable); clicking as now |
+| 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL. 2026-10-19 12:24 (1) CONFIRMED in the live session by a read-only probe: Dimension120 an Angle on SectionView004 Edge5, Edge9, both along (1,1) -- PARALLEL; (2) BUILT `7eac8caf7e`: a described error; (3) AUDIT docs/TechDrawErrors.md (`959d5360ea`): threaded views' failures never reach the recompute error; questions a-c for the reporter; NOT pushed. 2026-10-19 13:12 the reporter: "agree all" -- a-c AGREED as proposed (3.1 the late error first, then 3.2, 3.3; a partial view a warning; the texts translatable). 2026-10-19 13:37 3.1 BUILT `9746b8aba9` (docs `9b32c0fe82`), local: a threaded view's failure is its recompute error; faces not found a warning; r126 TDTest dimension 3/3, detail 2/2, section 1/1, TestTechDrawApp 9 OK; next 3.2, 3.3 |
+| 179 | 2026-10-19 | a defect found by the note-taker in the reporter's console log, made an entry on the reporter's "agree all" (read as yes): the document scanner's EMBEDDED TRANSACTION LOG is older than the build's schema -- "no such column: joined" -- on opening, in the transaction log view, and as an exception caught in notify | OPEN; 2026-10-19 13:12. 2026-10-19 13:37 per x16 it is oplab's (Transaction code): oplab has a fix BUILT (a layout version, migration on open, the panel showing a read error instead of throwing); x16 to merge it into thundereal/main. The build session READ scanner.FCStd: NO embedded history any more, saved 13:12:39 -- the failed history presumably DROPPED by a later save |
+| 180 | 2026-10-19 | a change request: a FAILED fillet edge (no handle today) shows a RED CROSS at the CENTRE of its face (unpickable; the face is pickable); on-view LABELS get a hover HIGHLIGHT (they are clickable) and a label's hover PRESELECTS as the face's does; the same for all dress-ups; the label highlight for ALL on-view edits; no preselection where it makes no sense | OPEN; said to the note-taker 2026-10-19 13:22. 2026-10-19 13:27 the reporter: the cross for EVERY failed edge, MISSING ones too; placed at the ROOT where the HANDLE would have been (not the face centre); fixed size like a handle, NO hover effect (not pickable); clicking as now. 2026-10-19 13:37 the build session: for a MISSING edge it will propose the point on the kept face nearest where the edge was, if known, else the face's centre |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25115,6 +25120,18 @@ The same two words read as also answering the note-taker's 12:11
 question (the transaction log "no such column: joined" as an entry of its
 own): YES -- entry 179. If the reporter meant only a-c, 179 is withdrawn.
 
+**2026-10-19 13:37, the build session (relayed): 3.1 BUILT, `9746b8aba9` (docs
+`9b32c0fe82`), local, not pushed.** A threaded TechDraw view's failure is
+now its RECOMPUTE ERROR -- the part view's projection, the section and
+detail cuts, the complex section's aligned pieces. Faces not found on a
+part view: a WARNING in its tool tip, the view valid (rule b). The
+messages translatable. Fixed on the way: the projection worker destroyed
+its own watcher, so its finished() never came; the detail worker drew an
+empty output after a failed tool. r126: TDTest dimension 3/3, detail 2/2
+with the new testFailedDetailSaysWhy (radius 0 fails the tool in the
+worker; the view shows "The detail could not be made: ..."), section
+1/1; TestTechDrawApp 9 OK. Next 3.2, then 3.3.
+
 ## 179. The document's embedded transaction log older than the build: "no such column: joined" (a defect, found by the note-taker) -- OPEN
 
 **2026-10-19 12:11, found by the note-taker** in the reporter's console
@@ -25141,6 +25158,23 @@ NOT said: what is expected -- read as: an older embedded log is
 MIGRATED (the column added) or read without it, with no error and no
 exception escaping to notify; whether the history it holds must survive
 (read so).
+
+**2026-10-19 13:37, the build session (relayed):** per x16 the transaction log is
+OPLAB's (a Remote Control session; the Transaction code). oplab has a
+FIX BUILT: a layout version (PRAGMA user_version), MIGRATION ON OPEN, and
+the panel showing a read error instead of throwing into notify; x16 will
+merge it into thundereal/main. oplab asked for scanner's store layout:
+the build session READ the reporter's D:/Zheng.Lei/mech/scanner.FCStd
+(read only): it has NO EMBEDDED HISTORY any more (no History property,
+no SQLite inside), and its mtime is 13:12:39 today, after the 12:07
+failure. So the history that failed was presumably DROPPED by a later
+save, and its layout cannot be read now. oplab told; its fix stands on
+its own.
+READ by the note-taker: scanner.FCStd 6119171 bytes, modified Oct 19
+13:12.
+The note-taker's reading: the reporter's document LOST its embedded
+history on the 13:12 save -- whether by the reporter's choice, or because
+the failing log was not written back -- not known; for the reporter.
 
 ## 180. A failed fillet edge marked by a red cross; on-view labels highlighted on hover and preselecting their geometry; all dress-ups, all on-view edits (a change request) -- OPEN
 
@@ -25198,6 +25232,11 @@ NOT said: for a MISSING edge, where "the handle would have been" is --
 there is no base edge to put a root on; read as the root's place on the
 kept face the edit shows for it (the build session's call, to say).
 e, f, g of 13:22 not answered (read as written).
+
+**2026-10-19 13:37, the build session (relayed):** 180 noted with the 13:27 answers.
+For a MISSING edge (no root) it will propose in the design: the point on
+the kept face NEAREST WHERE THE EDGE WAS, if known, else the face's
+centre.
 
 ## Inbox
 

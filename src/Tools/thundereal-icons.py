@@ -6,7 +6,7 @@ The mark is the T-strike: a bar seen a little from below, struck through by
 a two-pointed bolt. Everything that shows it is written from the geometry
 here, so a change to the mark is made once and the files follow:
 
-    src/Gui/Icons/thundereal.svg            the application icon
+    src/Gui/Icons/thundereal.svg            the application icon, on no ground
     src/Gui/Icons/thundereal-16.svg         the same, fitted to 16 px
     src/Gui/Icons/thundereal-mark.svg       the mark alone, for other grounds
     src/Gui/Icons/thundereal-doc*.svg       the .TStd document icon
@@ -60,7 +60,15 @@ K = dict(
     pageEdge="#8E9AB8",
     fold="#D6DDEC",
     ink="#16203A",
+    # The application icon's thin edge, which holds it on a light ground and
+    # all but vanishes on a dark one
+    edge="#16203A",
 )
+# The application icon's bar bottom face, lit by the strike where it comes
+# out: warm at the strike, brightening to near-white, its own blue at the ends
+# (a radial gradient's stops; None is the face's own colour). The light
+# brightens the face: mixed into the blue, the amber would go grey.
+LIT = [(0, "#FFC85A"), (0.3, "#FFD98C"), (0.62, "#EEF0F8"), (1, None)]
 
 # All in a 64-unit square. The bar is a box whose depth runs along (5, 3): a
 # front face, and the bottom and right side that a view from a little below
@@ -159,6 +167,34 @@ def mark16(bar, side, bottom, strike, exit_y, depth=None):
         + edge("lowSide", low)
         + [("lowStrike", low, K["strike"])]
     )
+
+
+def union(layers):
+    u = QtGui.QPainterPath()
+    for _, p, _ in layers:
+        u = u.united(p)
+    return u.simplified()
+
+
+def app_body(layers, edge, centre, radius, xf=None):
+    """The application icon's drawing: the lit bottom face's gradient, the
+    edge -- a stroke of the whole outline behind the faces, half of it
+    showing -- and the faces."""
+    stops = "".join(
+        '<stop offset="%s" stop-color="%s"/>' % (num(o), c or K["barBottom"]) for o, c in LIT
+    )
+    lit = (
+        '  <defs><radialGradient id="lit" gradientUnits="userSpaceOnUse" cx="%s" cy="%s" r="%s">'
+        "%s</radialGradient></defs>\n" % (num(centre[0]), num(centre[1]), num(radius), stops)
+    )
+    outline = (
+        '  <path id="edge" fill="%s" stroke="%s" stroke-width="%s" stroke-linejoin="round"'
+        ' d="%s"/>\n' % (K["edge"], K["edge"], num(edge), path_data(union(layers), xf))
+    )
+    faces = paths(layers, xf).replace(
+        'id="barBottom" fill="%s"' % K["barBottom"], 'id="barBottom" fill="url(#lit)"'
+    )
+    return lit + outline + faces
 
 
 def num(v):
@@ -261,30 +297,34 @@ PAGE16 = (
 
 
 def write_svgs():
+    # The application icon has no ground of its own (docs/HandsOnQueue.md
+    # entry 175): it is drawn on title bars, task bars and desktops, light
+    # and dark, the pinned icon and the running one the same picture. The
+    # mark at full size, moved down and right just enough that its edge
+    # clears the square at the strike's top point.
     tile = '  <rect width="64" height="64" rx="14" fill="%s"/>\n' % K["tile"]
+    shift = QtGui.QTransform.fromTranslate(0.5, 1.6)
     write(
         os.path.join(ICONS, "thundereal.svg"),
-        svg(64, 64, DESC + tile + paths(mark_layers(), inset(0.74)), "Thundereal"),
+        svg(64, 64, DESC + app_body(mark_layers(), 64 / 24, (32.9, 22.1), 36, shift), "Thundereal"),
     )
     write(
         os.path.join(ICONS, "thundereal-mark.svg"),
         svg(64, 64, DESC + paths(mark_layers()), "Thundereal mark"),
     )
+    # With no tile to sit inside, the 16 px drawing takes the whole square:
+    # the strike 15 px tall, the bar's edges on whole pixels, the edge half a
+    # pixel outside.
     app16 = mark16(
-        [(3, 3), (11, 3), (11, 5), (3, 5)],
-        [(11, 3), (12, 3.6), (12, 6), (11, 5)],
-        [(3, 5), (11, 5), (12, 6), (4, 6)],
-        strike16(8, 1.5, 13 / 58.5),
+        [(2, 2), (12, 2), (12, 5), (2, 5)],
+        [(12, 2), (13, 2.8), (13, 6), (12, 5)],
+        [(2, 5), (12, 5), (13, 6), (3, 6)],
+        strike16(7.7, 0.5, 15 / 58.5),
         6,
     )
     write(
         os.path.join(ICONS, "thundereal-16.svg"),
-        svg(
-            16,
-            16,
-            '  <rect width="16" height="16" rx="3.5" fill="%s"/>\n' % K["tile"] + paths(app16),
-            "Thundereal",
-        ),
+        svg(16, 16, app_body(app16, 1, (7.4, 5.5), 9), "Thundereal"),
     )
 
     # The .TStd document: a page with its corner folded, the mark, and a band
@@ -342,8 +382,9 @@ def write_svgs():
                 svg(200, 187, paths(parts, wm, fill=ink, opacity=shade), "Thundereal"),
             )
 
-    # The package box wears the application icon as its label: the tile
-    # keeps the mark apart from the box's own amber. The label group sits in
+    # The package box wears the mark on the tile the application icon had
+    # before entry 175, as its label: the tile keeps the mark apart from the
+    # box's own amber. The label group sits in
     # a 64-unit frame its parents shear onto the box's front face.
     label = re.findall(r"<(?:path|rect) [^>]*/>", tile + paths(mark_layers(), inset(0.74)))
     pad = "\n" + " " * 12
@@ -481,9 +522,9 @@ def write_rasters():
     )
 
     # macOS draws an application icon inside the grid's 824 of 1024 units;
-    # a tile to the edge stands larger than every other icon in the Dock.
-    # The 16 px drawing is fitted to the pixel grid and keeps its full tile:
-    # shrunk into the grid it would land between pixels again.
+    # a mark to the edge stands larger than every other icon in the Dock.
+    # The 16 px drawing is fitted to the pixel grid and keeps its full
+    # square: shrunk into the grid it would land between pixels again.
     def mac_app(px, scale):
         return app_image(16) if px == 16 and scale == 1 else app_image(px, 824 / 1024)
 
@@ -558,7 +599,8 @@ def write_favicon():
         body = f.read()
     drop = r"<\?xml[^>]*>\s*|<title>.*?</title>\s*|<desc>.*?</desc>\s*"
     body = re.sub(drop, "", body, flags=re.S)
-    body = re.sub(r' id="[^"]*"', "", re.sub(r"\s*\n\s*", "", body)).replace('"', "'")
+    # the ids go, but the bottom face's gradient, which is named by its id
+    body = re.sub(r' id="(?!lit")[^"]*"', "", re.sub(r"\s*\n\s*", "", body)).replace('"', "'")
     data = body.replace("%", "%25").replace("#", "%23").replace("<", "%3C").replace(">", "%3E")
     link = '<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%s">' % data
     write(out, link + "\n")

@@ -47,6 +47,7 @@
 #include <App/DocumentObject.h>
 #include <App/Expression.h>
 #include <App/PropertyUnits.h>
+#include <Base/Console.h>
 #include <Base/Placement.h>
 #include <Base/Quantity.h>
 
@@ -271,6 +272,95 @@ bool OnViewValueSet::takeViewerKey(ViewerContext* viewer, int key,
     return false;
 }
 
+void OnViewValueSet::viewerLeftButton(ViewerContext* viewer, bool press, const QPoint& pos)
+{
+    for (OnViewValueSet* set : liveSets()) {
+        if (!viewer || set->liveView() != viewer || set->keyWidget) {
+            continue;
+        }
+        // The desktop's filter (eventFilter(), entry 159): only a click --
+        // a press that moves is the camera's -- and only if nothing was
+        // made active by it meanwhile
+        if (press) {
+            set->clickMayClear = false;
+            if (set->active >= 0 && !set->dragHandle) {
+                bool overHandle = false;
+                for (const auto& entry : set->entries) {
+                    for (Gizmo* handle : entry->handles) {
+                        overHandle = overHandle || handle->isHovered();
+                    }
+                }
+                if (!overHandle) {
+                    set->clickMayClear = true;
+                    set->clickPos = pos;
+                    set->clickActivations = set->activations;
+                }
+            }
+        }
+        else if (set->clickMayClear) {
+            set->clickMayClear = false;
+            const double slack = QApplication::startDragDistance() * viewer->devicePixelRatio();
+            if ((pos - set->clickPos).manhattanLength() <= slack) {
+                const int before = set->clickActivations;
+                QPointer<OnViewValueSet> self(set);
+                QTimer::singleShot(0, set, [self, before]() {
+                    if (self && self->activations == before && self->active >= 0
+                        && self->typing < 0 && !self->dragHandle) {
+                        self->setActive(-1);
+                    }
+                });
+            }
+        }
+    }
+}
+
+void OnViewValueSet::featureRecomputed(const App::Document* doc, bool failed)
+{
+    for (OnViewValueSet* set : liveSets()) {
+        if (!set->dragBox || (!set->dragHandle && !set->dragSettling)) {
+            continue;
+        }
+        ViewerContext* view = set->liveView();
+        Gui::Document* gdoc = view ? view->getDocument() : nullptr;
+        if (doc && gdoc && gdoc->getDocument() != doc) {
+            continue;
+        }
+        set->dragRecomputed(failed);
+    }
+}
+
+void OnViewValueSet::dragRecomputed(bool failed)
+{
+    // "how about instead of zero refuse, just auto revert to the last
+    // working value. Do not go through the normal undo stack, as the whole
+    // drag may continue multiple working step, but the whole drag is one
+    // transaction" -- "if failed, I mean" (the user, 2026-10-19). The box
+    // written back is written by its owner as any change of it, inside the
+    // drag's step, which stays open until the recompute that write
+    // schedules has run (TaskFeatureParameters::closeStep).
+    QPointer<QuantitySpinBox> box = dragBox;
+    if (!box) {
+        dragBox = nullptr;
+        dragSettling = false;
+        return;
+    }
+    const bool atGood = std::abs(box->rawValue() - dragGood) < 1e-12;
+    if (!failed) {
+        dragGood = box->rawValue();
+    }
+    else if (!atGood) {
+        Base::Console().Log("On-view drag: %s failed, back to %g\n",
+                            box->text().toUtf8().constData(), dragGood);
+        box->setValue(dragGood);
+        // still settling: the write back's own recompute comes next
+        return;
+    }
+    if (dragSettling) {
+        dragSettling = false;
+        dragBox = nullptr;
+    }
+}
+
 void OnViewValueSet::viewCoverChanged(ViewerContext* viewer)
 {
     for (OnViewValueSet* set : liveSets()) {
@@ -404,12 +494,25 @@ void OnViewValueSet::setupHandle(int index, Gizmo* handle)
         switch (event) {
             case Gizmo::DragEvent::Started:
                 self->dragHandle = handle;
+                // The value it starts from is taken to work: a failed
+                // recompute in the drag goes back to the last that did
+                // (featureRecomputed())
+                self->dragBox = index < self->count() ? self->entries[index]->box : nullptr;
+                self->dragGood = self->dragBox ? self->dragBox->rawValue() : 0.0;
+                self->dragSettling = false;
                 Q_EMIT self->stepBegun();
                 break;
             case Gizmo::DragEvent::Finished:
             case Gizmo::DragEvent::Cancelled:
                 if (self->dragHandle == handle) {
                     self->dragHandle = nullptr;
+                }
+                // A finished drag's last value is still to be recomputed --
+                // its step stays open for that recompute -- and may still
+                // go back; a cancelled one is rolled back as it is
+                self->dragSettling = event == Gizmo::DragEvent::Finished && self->dragBox;
+                if (!self->dragSettling) {
+                    self->dragBox = nullptr;
                 }
                 Q_EMIT self->stepEnded(event == Gizmo::DragEvent::Cancelled);
                 break;

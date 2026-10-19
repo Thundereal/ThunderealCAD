@@ -38,6 +38,7 @@
 #include <Gui/CommandT.h>
 #include <Gui/Inventor/Draggers/Gizmo.h>
 #include <Gui/MainWindow.h>
+#include <Gui/OnViewValue.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/PrefWidgets.h>
 #include <Gui/WaitCursor.h>
@@ -270,6 +271,10 @@ void TaskFeatureParameters::recomputeFeature(bool delay)
             finishedRecomputeFeature();
         }
         updateFailCursor();
+        // A handle's drag that failed goes back to its last working value,
+        // inside the drag's step (the user, 2026-10-19)
+        if (App::DocumentObject* obj = vp ? vp->getObject() : nullptr)
+            Gui::OnViewValueSet::featureRecomputed(obj->getDocument(), obj->isError());
     }
 }
 

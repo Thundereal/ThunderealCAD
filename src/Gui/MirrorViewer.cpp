@@ -680,6 +680,13 @@ bool MirrorViewer::handleInput(const Input& input)
             stamp(event);
             event.setButton(button(input.code));
             event.setState(press ? SoButtonEvent::DOWN : SoButtonEvent::UP);
+            // Seen by an edit's on-view values ahead of the scene, as the
+            // desktop's view widget filter sees it: a click on nothing
+            // leaves no value active (entry 159)
+            if (qtButton(input.code) == Qt::LeftButton) {
+                const SbVec2s at = event.getPosition();
+                OnViewValueSet::viewerLeftButton(this, press, QPoint(at[0], at[1]));
+            }
             return replay(event);
         }
         case Input::Wheel: {

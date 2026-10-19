@@ -980,6 +980,34 @@ changes (`viewer-harness\probes-2026-10-19\drag3`):
   the desktop. A closed label gives the keys back to the set. Seen: Tab,
   "5", Enter from the page -- the page's box read "5 mm", the radius 2 -> 5,
   the box open after Enter with the value selected, as the desktop's.
+- 159 in the browser BUILT and seen (r147, `click1`): a mirror hands its
+  left press and release to the sets shown in it ahead of the scene
+  (`OnViewValueSet::viewerLeftButton`), which apply the desktop filter's
+  rule: a click on no handle leaves no value active. Seen: Tab made the
+  radius active (green), a click on nothing left none (red).
+
+### 9.5b A failed drag goes back (the user, 2026-10-19)
+
+Asked about the radius dragged to 0, the user first said "drag refuse if
+it goes to zero" (built as such in r148), then: "how about instead of
+zero refuse, just auto revert to the last working value. Do not go through
+the normal undo stack, as the whole drag may continue multiple working
+step, but the whole drag is one transaction" -- "if failed, I mean".
+
+BUILT (r150), for every value with a handle, desktop and browser alike:
+the set keeps, for the drag in progress, the last value of the dragged
+box that recomputed (the value it starts from first). Each recompute of a
+PartDesign panel reports whether it failed
+(`TaskFeatureParameters::recomputeFeature` ->
+`OnViewValueSet::featureRecomputed`); a failure writes the box back to
+the last working value, which its owner writes as any change, inside the
+drag's step -- the step stays open until the recompute a write schedules
+has run (`closeStep`). A finished drag's last recompute, which comes after
+the release, is watched too; with recompute off while dragging that is
+the only one, and a failure goes back to where the drag began. The zero
+refusal is gone. Seen in fillet-undo-steps-in-view.py: a drag 1 -> 0.5,
+then one far past zero -- "0.00 mm failed, back to 0.5" in the log three
+times, the radius 0.5, the fillet valid, the drag one undo step.
 
 ### 9.6 Order of work
 

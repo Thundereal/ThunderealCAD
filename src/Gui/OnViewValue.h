@@ -42,6 +42,11 @@ class QMenu;
 class QWidget;
 class SoNodeSensor;
 
+namespace App
+{
+class Document;
+}
+
 namespace Gui
 {
 
@@ -189,6 +194,17 @@ public:
     /// What a client covers of \a viewer changed (ViewerContext::
     /// coveredRects): the labels of the sets shown there placed again
     static void viewCoverChanged(ViewerContext* viewer);
+    /** A feature of \a doc was recomputed, \a failed or not. During a drag
+     * of a handle -- and for the recompute of its last value -- a failure
+     * writes the dragged value back to the last that worked, inside the
+     * drag's undo step (the user, 2026-10-19)
+     */
+    static void featureRecomputed(const App::Document* doc, bool failed);
+    /** A left press or release in \a viewer, a view with no widget, at
+     * \a pos, ahead of the scene: a click on no handle leaves no value
+     * active, as on the desktop (entry 159)
+     */
+    static void viewerLeftButton(ViewerContext* viewer, bool press, const QPoint& pos);
     /** Whether the handles are shown in this set's view (8.5: the view's
      * own, not a preference). Hidden, the values still take Tab, typing and
      * the menu, and an active value's label stands at the top middle.
@@ -272,6 +288,8 @@ private:
     bool takeKey(QKeyEvent* event, bool overrideOnly);
     bool takeMirrorKey(int key, Qt::KeyboardModifiers modifiers, bool press,
                        const QString& text);
+    /// featureRecomputed() for this set's drag
+    void dragRecomputed(bool failed);
     /// The view, or null once it is gone: a panel can outlive its view -- a
     /// closed document takes its views before the panel's deferred delete
     ViewerContext* liveView() const;
@@ -309,6 +327,12 @@ private:
     int typing = -1;
     /// The handle being dragged, between its drag's start and end
     Gizmo* dragHandle = nullptr;
+    /// The box the drag in progress changes, the last value of it that
+    /// recomputed, and whether a finished drag's last recompute is still to
+    /// come (featureRecomputed())
+    QPointer<QuantitySpinBox> dragBox;
+    double dragGood = 0.0;
+    bool dragSettling = false;
     /// The value whose handle the pointer is over, -1 for none: its handles
     /// and its group's lit as a shape under the pointer is (entry 144)
     int preselected = -1;

@@ -216,6 +216,26 @@ def edged(layers, xf=None, width=EDGE_WIDTH):
     return edge_path(layers, xf, width) + paths(layers, xf)
 
 
+def app_fit(shape):
+    """Where the application icon's mark goes in its 64-unit square: as large
+    as its strike, edge and all, fits the square's height, centred on it
+    (user, 2026-10-19, after 7, 8 and 10% larger cropped the strike's points:
+    2.6% larger than at full size). Across, the mark is centred; its bar fits
+    with room to spare."""
+    layers = mark_layers(shape)
+    half = EDGE_WIDTH / 2
+    strike = union([l for l in layers if l[0] in ("strike", "strikeSide", "lowStrike", "lowSide")])
+    whole = union(layers).boundingRect()
+    top = strike.boundingRect().top() - half
+    bottom = strike.boundingRect().bottom() + half
+    scale = 64 / (bottom - top)
+    xf = QtGui.QTransform()
+    xf.translate(32, 32)
+    xf.scale(scale, scale)
+    xf.translate(-(whole.left() + whole.right()) / 2, -(top + bottom) / 2)
+    return xf
+
+
 def app_body(layers, edge, centre, radius, xf=None):
     """The application icon's drawing: the lit bottom face's gradient, the
     edge -- a stroke of the whole outline behind the faces, half of it
@@ -337,13 +357,18 @@ def write_svgs():
     # The application icon has no ground of its own (docs/HandsOnQueue.md
     # entry 175): it is drawn on title bars, task bars and desktops, light
     # and dark, the pinned icon and the running one the same picture. The
-    # mark at full size -- the application icon's wider one, APP_MARK --
-    # moved down just enough that its edge clears the square at the strike's
-    # top point; across, it is centred already.
-    shift = QtGui.QTransform.fromTranslate(0, 1.6)
+    # mark -- the application icon's wider one, APP_MARK -- as large as its
+    # strike fits the square (app_fit).
+    fit = app_fit(APP_MARK)
+    lit = fit.map(QtCore.QPointF(32.4, 20.5))
     write(
         os.path.join(ICONS, "thundereal.svg"),
-        svg(64, 64, DESC + app_body(mark_layers(APP_MARK), 64 / 24, (32.4, 22.1), 36, shift), "Thundereal"),
+        svg(
+            64,
+            64,
+            DESC + app_body(mark_layers(APP_MARK), EDGE_WIDTH * fit.m11(), (lit.x(), lit.y()), 36 * fit.m11(), fit),
+            "Thundereal",
+        ),
     )
     write(
         os.path.join(ICONS, "thundereal-mark.svg"),

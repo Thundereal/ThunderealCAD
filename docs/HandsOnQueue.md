@@ -3784,7 +3784,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 181 | 2026-10-19 | a change request: (1) the on-view edit MENU BUTTON's strips SQUARER, like the view cell menu's (they look too thin); (2) TOOLTIPS and a RIGHT-CLICK CONTEXT MENU on the fillet's (preview) FACE; the same for all dress-up features | OPEN; said to the note-taker 2026-10-19 13:39. 2026-10-19 14:32 point 1 BUILT locally `aefebaa749`: the strips a square block like the cell's (t, gaps t, square ends); point 2 (face tool tips and menu) to do; NOT pushed. 2026-10-19 15:03 point 1 (square strips) PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130); point 2 to come |
 | 182 | 2026-10-19 | a change request: a dress-up feature's PREVIEW SHAPE shows the SELECTION highlight, not only the PRESELECTION highlight as now | OPEN; said to the note-taker 2026-10-19 13:43. 2026-10-19 13:49 NARROWED by the reporter: a WORKING face's click selecting the base edge with no face highlight is FINE; only a selection that really NAMES the PREVIEW FACE (a failed/missing edge's face) shows the face's selection highlight -- the note-taker's 13:43 reading a corrected. 2026-10-19 14:32 to do (as narrowed), after 181 point 2. 2026-10-19 15:15 the reporter: "btw, the selection highlight for the failed/missing edge's face does not work" -- seen on the stage (stage21); by the build session's 14:32 report 182 is NOT BUILT yet ("still to do"), so not in stage21. 2026-10-19 15:16 the reporter's case: scanner, after a recompute, PrismLocker's failed fillet face -- hover highlight YES, selection highlight NO |
 | 183 | 2026-10-19 | a change request: the 'Overlay' PRESET (data/settings/Overlay.FCParam): the BOTTOM panel TRANSPARENT and auto hide 'None'; the REPORT VIEW moved from the top panel to the bottom -- report view LEFT half, Python console RIGHT half, the selection view right-most, COLLAPSED | OPEN; said to the note-taker 2026-10-19 13:46. 2026-10-19 14:32 BUILT locally `e30b518e2d`: the bottom panel see-through, no auto hide, report view | console | selection view (collapsed), the top panel empty; overlay test 52/52; measured 925, 925, 0 at a 1910 px panel; NOT pushed. 2026-10-19 15:03 PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130) |
-| 184 | 2026-10-19 | a change request: the LIST VIEWS in the TASK PANEL styled like the PROPERTY VIEW, with a TRANSLUCENT background | OPEN; said to the note-taker 2026-10-19 15:14; READ: in the overlay style sheets QListView/QTreeView get an opaque rgb(100,100,100), the property editor's items rgba(0,0,0,0.01) |
+| 184 | 2026-10-19 | a change request: the LIST VIEWS in the TASK PANEL styled like the PROPERTY VIEW, with a TRANSLUCENT background | OPEN; said to the note-taker 2026-10-19 15:14; READ: in the overlay style sheets QListView/QTreeView get an opaque rgb(100,100,100), the property editor's items rgba(0,0,0,0.01). 2026-10-19 15:20 the reporter: "entry 184, yes to all" -- the note-taker's readings a-e AGREED (overlay mode only; every list in a task panel; the selection colour kept; every overlay sheet; the rest unchanged) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25738,6 +25738,15 @@ c. The selected row: read as the selection colour as now (rgba 0.7).
 d. Every overlay style sheet (dark, light, outline, modern): read so.
 e. The property view itself, and lists outside task panels (the tree
    view, the selection view): read as unchanged.
+
+**2026-10-19 15:20, the reporter (to the note-taker):** "entry 184, yes to all"
+The note-taker's reading: the 15:14 readings a-e AGREED --
+a. in OVERLAY mode (see-through panels) only; docked panels unchanged;
+b. EVERY list in a task panel (trees and tables there too where they are
+   lists to the user);
+c. the selected row keeps its selection colour;
+d. EVERY overlay style sheet (dark, light, outline, modern);
+e. the property view itself and lists outside task panels unchanged.
 
 ## Inbox
 

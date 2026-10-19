@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 13:22: new entry 180 -- a red cross at a failed fillet edge's face; on-view
+labels highlighted on hover and preselecting their geometry; all
+dress-ups, all on-view edits.** Under the entry.
+
 **2026-10-19 13:12: entry 178 -- a-c agreed (the late error first; partial = warning;
 translatable); new entry 179 -- the document's embedded transaction log
 older than the build ("no such column: joined"), on "agree all" read as
@@ -3707,6 +3711,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 177 | 2026-10-19 | a defect: OMNI SEARCH "/error": typing an object name and pressing TAB to complete ERASES the "/error" prefix | OPEN; said to the note-taker 2026-10-19 12:09; READ: by design today (entry 165's build) a Tab on an /error row puts the object's path in the OBJECTS mode, "/ <path>". 2026-10-19 12:24 BUILT locally `88369fc96f`: Tab completes the name and KEEPS "/error ", the list narrows to it; Enter unchanged; r123 offscreen omni-search-label-one-row 20/20; NOT pushed, NOT staged |
 | 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL. 2026-10-19 12:24 (1) CONFIRMED in the live session by a read-only probe: Dimension120 an Angle on SectionView004 Edge5, Edge9, both along (1,1) -- PARALLEL; (2) BUILT `7eac8caf7e`: a described error; (3) AUDIT docs/TechDrawErrors.md (`959d5360ea`): threaded views' failures never reach the recompute error; questions a-c for the reporter; NOT pushed. 2026-10-19 13:12 the reporter: "agree all" -- a-c AGREED as proposed (3.1 the late error first, then 3.2, 3.3; a partial view a warning; the texts translatable) |
 | 179 | 2026-10-19 | a defect found by the note-taker in the reporter's console log, made an entry on the reporter's "agree all" (read as yes): the document scanner's EMBEDDED TRANSACTION LOG is older than the build's schema -- "no such column: joined" -- on opening, in the transaction log view, and as an exception caught in notify | OPEN; 2026-10-19 13:12 |
+| 180 | 2026-10-19 | a change request: a FAILED fillet edge (no handle today) shows a RED CROSS at the CENTRE of its face (unpickable; the face is pickable); on-view LABELS get a hover HIGHLIGHT (they are clickable) and a label's hover PRESELECTS as the face's does; the same for all dress-ups; the label highlight for ALL on-view edits; no preselection where it makes no sense | OPEN; said to the note-taker 2026-10-19 13:22 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25133,6 +25138,47 @@ MIGRATED (the column added) or read without it, with no error and no
 exception escaping to notify; whether the history it holds must survive
 (read so).
 
+## 180. A failed fillet edge marked by a red cross; on-view labels highlighted on hover and preselecting their geometry; all dress-ups, all on-view edits (a change request) -- OPEN
+
+**2026-10-19 13:22, the reporter (to the note-taker):** "new request, current failed fillet has no handle. I want to show a red cross at the center of the face. it can be unpicable, since the face is already pickable. also, add overlay highlight to label as well to signal they are clickable. label hover shall preselect just like the face. do the same for all other dress up feature. label highlight for all on view edit. it does need to preselect any geometry if it does not make sense"
+(as typed: "unpicable" read as "unpickable"; the last sentence read as
+"it does NOT need to preselect any geometry if it does not make sense".)
+The note-taker's reading:
+- (1) A fillet edge that FAILED has NO HANDLE today. Show a RED CROSS
+  at the CENTRE of its FACE (the face that stands for it in the edit --
+  read as the face entry 169 makes pickable for a missing/failed edge).
+  The cross may be UNPICKABLE -- the face already is pickable.
+- (2) The on-view value LABELS get an overlay HIGHLIGHT on hover, so the
+  user sees they are CLICKABLE.
+- (3) A label's HOVER PRESELECTS its geometry, just as hovering the face
+  does (169's three-way hover sync: the face, the base edge, the row).
+- (4) The same for ALL the OTHER DRESS-UP features (chamfer, draft,
+  thickness) -- read as (1) to (3).
+- (5) The label highlight (2) for ALL on-view edits (entry 170's Pad,
+  Revolution, Helix, Hole, the primitives ...).
+- (6) Where preselecting geometry from a label makes NO SENSE (a value
+  with no element of its own -- a pad's length, a primitive's size, the
+  fillet's default radius?), it does not preselect anything.
+READ in the source, nothing run:
+- PartDesign::Fillet has a FailedEdges property (FeatureFillet.cpp 105,
+  143; the error "Fillet failed on ..." at 181). The panel reads it
+  (TaskFilletParameters.cpp 1253 to 1284, isDragFailing).
+NOT said:
+a. "failed": read as an edge named in FailedEdges (the fillet failed on
+   it) AND a missing edge (?Edge, no base edge) -- both have no handle;
+   not said whether the missing one gets the cross too.
+b. Which face, and its "centre": read as the face shown for that edge in
+   the edit; its centre by area or by its bounding box -- not said.
+c. The cross's size and drawing: read as a fixed size on the screen, red,
+   drawn on top, like a handle.
+d. Clicking the cross or the failed face: read as 169's -- selects the
+   row (the cross itself not pickable).
+e. The default radius's label (it stands for many edges): read as
+   preselecting nothing -- (6).
+f. The label highlight's look: read as like the 173 button's hover (the
+   accent ground), not said.
+g. The browser (172): read as included when 172 is built.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -25144,5 +25190,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 179
+the build session, 131 and 132 found by it; entries 134 to 180
 are of 2026-10-15, 134 said to the build session)

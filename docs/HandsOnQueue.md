@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 13:40: entry 179 -- the history is kept: scanner2.FCStd (2026-10-16 18:06)
+has it, scanner.FCStd is the restored one (the reporter).** Under the
+entry.
+
 **2026-10-19 13:39: new entry 181 -- the menu button's strips squarer like the cell
 menu's; tool tips and the right-click menu on a dress-up's face.** Under
 the entry.
@@ -3723,7 +3727,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 176 | 2026-10-19 | a defect: the STAGED copy's window title still says FREECAD -- the launch script still starts FreeCAD.exe, though the executable was renamed (Thundereal.exe) | OPEN; said to the note-taker 2026-10-19 11:46; READ: tools\fcad-user.cmd starts a STALE FreeCAD.exe (2026-10-18 12:35) left in the build tree and mirrored into the stage. 2026-10-19 11:51 FIXED by the build session, outside the repo: fcad-user.cmd (and -cdb) start Thundereal.exe (FreeCAD.exe only as a fallback), install-user.ps1's guard on Thundereal.exe, test/serve scripts renamed, the stale FreeCAD(Cmd).exe/.pdb removed from the build tree; OPEN: Thundereal.exe in stage18 still has the OLD embedded icon (r122 with a CMake fix building); the restage to finish needs the reporter's FreeCAD CLOSED. 2026-10-19 12:04 DONE: RESTAGED stage19 12:03 (r122, fcad `2b69e67e86`): the stage's bin has ONLY Thundereal.exe and ThunderealCmd.exe, both embedding the tile-less icon; the .ico dependency fix `2b69e67e86` committed locally, NOT pushed |
 | 177 | 2026-10-19 | a defect: OMNI SEARCH "/error": typing an object name and pressing TAB to complete ERASES the "/error" prefix | OPEN; said to the note-taker 2026-10-19 12:09; READ: by design today (entry 165's build) a Tab on an /error row puts the object's path in the OBJECTS mode, "/ <path>". 2026-10-19 12:24 BUILT locally `88369fc96f`: Tab completes the name and KEEPS "/error ", the list narrows to it; Enter unchanged; r123 offscreen omni-search-label-one-row 20/20; NOT pushed, NOT staged |
 | 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL. 2026-10-19 12:24 (1) CONFIRMED in the live session by a read-only probe: Dimension120 an Angle on SectionView004 Edge5, Edge9, both along (1,1) -- PARALLEL; (2) BUILT `7eac8caf7e`: a described error; (3) AUDIT docs/TechDrawErrors.md (`959d5360ea`): threaded views' failures never reach the recompute error; questions a-c for the reporter; NOT pushed. 2026-10-19 13:12 the reporter: "agree all" -- a-c AGREED as proposed (3.1 the late error first, then 3.2, 3.3; a partial view a warning; the texts translatable). 2026-10-19 13:37 3.1 BUILT `9746b8aba9` (docs `9b32c0fe82`), local: a threaded view's failure is its recompute error; faces not found a warning; r126 TDTest dimension 3/3, detail 2/2, section 1/1, TestTechDrawApp 9 OK; next 3.2, 3.3 |
-| 179 | 2026-10-19 | a defect found by the note-taker in the reporter's console log, made an entry on the reporter's "agree all" (read as yes): the document scanner's EMBEDDED TRANSACTION LOG is older than the build's schema -- "no such column: joined" -- on opening, in the transaction log view, and as an exception caught in notify | OPEN; 2026-10-19 13:12. 2026-10-19 13:37 per x16 it is oplab's (Transaction code): oplab has a fix BUILT (a layout version, migration on open, the panel showing a read error instead of throwing); x16 to merge it into thundereal/main. The build session READ scanner.FCStd: NO embedded history any more, saved 13:12:39 -- the failed history presumably DROPPED by a later save |
+| 179 | 2026-10-19 | a defect found by the note-taker in the reporter's console log, made an entry on the reporter's "agree all" (read as yes): the document scanner's EMBEDDED TRANSACTION LOG is older than the build's schema -- "no such column: joined" -- on opening, in the transaction log view, and as an exception caught in notify | OPEN; 2026-10-19 13:12. 2026-10-19 13:37 per x16 it is oplab's (Transaction code): oplab has a fix BUILT (a layout version, migration on open, the panel showing a read error instead of throwing); x16 to merge it into thundereal/main. The build session READ scanner.FCStd: NO embedded history any more, saved 13:12:39 -- the failed history presumably DROPPED by a later save. 2026-10-19 13:40 the reporter: "I restored the scanner file. The one with history is renamed to scanner2.FCStd" -- the copy WITH the history is D:/Zheng.Lei/mech/scanner2.FCStd (READ: 9243622 bytes, modified 2026-10-16 18:06), so its log layout CAN be read for oplab |
 | 180 | 2026-10-19 | a change request: a FAILED fillet edge (no handle today) shows a RED CROSS at the CENTRE of its face (unpickable; the face is pickable); on-view LABELS get a hover HIGHLIGHT (they are clickable) and a label's hover PRESELECTS as the face's does; the same for all dress-ups; the label highlight for ALL on-view edits; no preselection where it makes no sense | OPEN; said to the note-taker 2026-10-19 13:22. 2026-10-19 13:27 the reporter: the cross for EVERY failed edge, MISSING ones too; placed at the ROOT where the HANDLE would have been (not the face centre); fixed size like a handle, NO hover effect (not pickable); clicking as now. 2026-10-19 13:37 the build session: for a MISSING edge it will propose the point on the kept face nearest where the edge was, if known, else the face's centre |
 | 181 | 2026-10-19 | a change request: (1) the on-view edit MENU BUTTON's strips SQUARER, like the view cell menu's (they look too thin); (2) TOOLTIPS and a RIGHT-CLICK CONTEXT MENU on the fillet's (preview) FACE; the same for all dress-up features | OPEN; said to the note-taker 2026-10-19 13:39 |
 
@@ -25180,6 +25184,21 @@ READ by the note-taker: scanner.FCStd 6119171 bytes, modified Oct 19
 The note-taker's reading: the reporter's document LOST its embedded
 history on the 13:12 save -- whether by the reporter's choice, or because
 the failing log was not written back -- not known; for the reporter.
+
+**2026-10-19 13:40, the reporter (to the note-taker), answering the 13:37 question:**
+"I restored the scanner file. The one with history is renamed to scanner2.FCStd"
+The note-taker's reading: the history was NOT lost -- the reporter keeps
+the document WITH its embedded history as scanner2.FCStd; scanner.FCStd
+is the restored one (without it). So the layout oplab asked for CAN be
+read from scanner2.FCStd (read only).
+READ by the note-taker (ls only): D:/Zheng.Lei/mech/scanner.FCStd
+6119171 bytes, modified 2026-10-19 13:12; D:/Zheng.Lei/mech/
+scanner2.FCStd 9243622 bytes, modified 2026-10-16 18:06.
+NOT said: whether the reporter wants the history moved back into
+scanner.FCStd once oplab's migration is in (read: not asked).
+The note-taker's note: 18:06 on 2026-10-16 is the time entry 167 asks
+about ("what happened at 18:06") -- the same minute; a link, not
+checked.
 
 ## 180. A failed fillet edge marked by a red cross; on-view labels highlighted on hover and preselecting their geometry; all dress-ups, all on-view edits (a change request) -- OPEN
 

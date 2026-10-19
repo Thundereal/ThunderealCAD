@@ -173,6 +173,9 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 21:38: entry 190 -- all the (browser's) toolbars in one draggable
+card, collapsible into a draggable button.** Under the entry.
+
 **2026-10-19 19:31, the build session (relayed): 188 BUILT, COMMITTED locally
 `2121766927`; 189's FIRST STEPS COMMITTED locally `913db7b153` (log
 `3d343d3d93`); NOT pushed, NOT staged.** 188: with one MISSING row
@@ -3877,6 +3880,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 187 | 2026-10-19 | a defect, found through 186: after a CRASH that FreeCAD catches and survives, NOTHING TELLS THE USER, though the application is no longer in a stable state | OPEN; said to the note-taker 2026-10-19 16:07; READ: GUIApplication::notify shows a box for an access violation only; the purecall/abort path (Base::AbnormalProgramTermination) is caught as an ordinary Base::Exception and only logged. 2026-10-19 16:12 WRITTEN, uncommitted: notify catches Base::AbnormalProgramTermination as Fatal; one critical box at a time for both kinds ("A crash was caught ... Save your work under a NEW file name, then restart" + the error + the crash log path); a hand check on the stage; d (the 2 min 45 s wait) not addressed. 2026-10-19 16:32 the crash box COMMITTED locally `a39d10e326`, NOT pushed, NOT staged. 2026-10-19 18:06 the crash box PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session; a HAND CHECK still to do |
 | 188 | 2026-10-19 | a change request: with ONE MISSING (not failed) edge's PREVIEW SHAPE SELECTED, CLICKING ANOTHER EDGE of the BASE feature (one not already in the dress-up) CHANGES that missing reference to the clicked edge; the same for ALL other dress-up features | OPEN; said to the note-taker 2026-10-19 18:03. 2026-10-19 19:31 BUILT and COMMITTED locally `2121766927` (log `3d343d3d93`), NOT pushed, NOT staged: one missing row selected + a pick of an UNUSED base element of its kind -> REPLACED IN PLACE, every dress-up, the values follow, one undo step; the note-taker's a-g as read, h a face for draft/thickness by the same code |
 | 189 | 2026-10-19 | a question and a change request: is ALL the corresponding ON-VIEW EDIT in the BROWSER? if not, SYNC it -- the browser to carry what the desktop's on-view edit has now | OPEN; said to the note-taker 2026-10-19 18:04; answered from the queue: NO -- 172 (all PD on-view edit in the browser) was SIZED (docs/OnViewValueEditing.md sec 9, `8cd250125b`), NOTHING BUILT; the desktop's on-view work since is not in the browser either. 2026-10-19 19:31 the reporter (relayed, to the build session; the note-taker did not hear it): "After that do 189 with real browser"; FIRST STEPS COMMITTED locally `913db7b153`, NOT pushed, NOT staged: in a REAL Chrome the fillet's arrows drag live; the fine-snap key is the client's; Tab and Escape from the page move/clear the active value; found: the top-middle label UNDER the web toolbars, a radius draggable to 0 (the desktop clamps the same), no on-view entries for typing; next: the handle's menu (sec 9.2 #4, #5, #7, #10), the label clear of the toolbars, then typing and touch |
+| 190 | 2026-10-19 | a change request: ALL the TOOLBARS hosted in ONE DRAGGABLE CARD, with a TOGGLE that COLLAPSES it into a BUTTON, the button DRAGGABLE too (read as the BROWSER viewer's toolbars) | OPEN; said to the note-taker 2026-10-19 21:38 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26272,6 +26276,53 @@ d. The per-view / per-user parts (toggle handles per view; the settings
    multi-user policy (08:48) and 172 -> 174.
 e. Tested in a real browser, as 172 said: read as still required.
 
+## 190. All the toolbars in one draggable card, collapsible into a draggable button (a change request) -- OPEN
+
+**2026-10-19 21:38, the reporter (to the note-taker):** "new request, host all the toolbars with one draggable card, add some toggle there to make it collapsible into a button, also draggable"
+The note-taker's reading: in the BROWSER viewer -- said right after
+189's finding that the top-middle label sits UNDER the web toolbars --
+the toolbars now laid along the view's top edge go into ONE CARD (a
+floating panel) the user can DRAG anywhere over the view; a TOGGLE on
+the card COLLAPSES it to a single BUTTON, which can also be DRAGGED, and
+which brings the card back.
+READ in the source, nothing run:
+- src/Gui/Renderer/web/src/toolbar.tsx, ToolbarStrip (91 on): the
+  desktop's toolbars mirrored through widgets.subscribe {toolbars}; drawn
+  as div.fc-toolbars (264) holding one div.fc-tb-bar per toolbar (296).
+- src/Gui/Renderer/web/src/style.css 1499 to 1522: .fc-toolbars is
+  absolute, top 6 px, left 6 px, right 150 px, wrapping; the NARROW form
+  (.fc-toolbars-narrow) is a one-row strip scrolled sideways, 108 px
+  above the bottom.
+- src/Gui/Renderer/web/src/main.tsx 339 to 352, 437 to 439: a "Toolbars"
+  menu item shows/hides them all, remembered in localStorage
+  'fcviewer.toolbars'.
+- src/Gui/Renderer/web/src/covered.ts 50 to 65: the area .fc-toolbars
+  covers is watched (ResizeObserver) and sent to the server, so on-view
+  chrome keeps clear of it.
+NOT said, with the note-taker's readings:
+a. Which toolbars: read as the BROWSER's (the web viewer's mirrored
+   toolbars); the desktop's Qt toolbars not meant -- not said.
+b. Inside the card: read as the toolbars as now, one row each, wrapping
+   to the card's width; the card's width/height by the user (resizable)
+   not said.
+c. Where it is dragged by: read as a grip / title strip on the card, so
+   a drag never presses a tool button; touch drag as mouse drag.
+d. The toggle: read as a small button on the card's grip; the collapsed
+   BUTTON shows a toolbar-ish icon; a click (not a drag) on it expands
+   the card again, at the button's place.
+e. Remembered: read as the card's place, and collapsed or not, kept per
+   BROWSER (this viewer's own, localStorage) -- per the multi-user policy
+   (08:48), each browser user their own; not said.
+f. The "Toolbars" menu item (hide all): read as kept, beside the
+   collapse.
+g. The narrow (phone) form: not said; read as the same card, starting
+   collapsed -- for the reporter.
+h. The on-view label (189): read as the card's area still reported by
+   covered.ts, so the label keeps clear wherever the card is; or, with
+   the card movable, the user moves it off the label.
+i. Kept inside the view: read as the card and the button clamped to the
+   view's edges on a drag and on a window resize.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -26283,5 +26334,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 189
+the build session, 131 and 132 found by it; entries 134 to 190
 are of 2026-10-15, 134 said to the build session)

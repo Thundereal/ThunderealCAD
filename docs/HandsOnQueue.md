@@ -173,6 +173,9 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 15:49: new entry 185 -- the handles drawn under the preview shape; they
+should be on top of it.** Under the entry.
+
 **2026-10-19 15:18: entry 159 reminded by the reporter -- a click in the 3D view on
 nothing still does not clear the active handle (not built); entries 182
 (the PrismLocker case) and 184 (translucent task panel lists) recorded.**
@@ -3785,6 +3788,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 182 | 2026-10-19 | a change request: a dress-up feature's PREVIEW SHAPE shows the SELECTION highlight, not only the PRESELECTION highlight as now | OPEN; said to the note-taker 2026-10-19 13:43. 2026-10-19 13:49 NARROWED by the reporter: a WORKING face's click selecting the base edge with no face highlight is FINE; only a selection that really NAMES the PREVIEW FACE (a failed/missing edge's face) shows the face's selection highlight -- the note-taker's 13:43 reading a corrected. 2026-10-19 14:32 to do (as narrowed), after 181 point 2. 2026-10-19 15:15 the reporter: "btw, the selection highlight for the failed/missing edge's face does not work" -- seen on the stage (stage21); by the build session's 14:32 report 182 is NOT BUILT yet ("still to do"), so not in stage21. 2026-10-19 15:16 the reporter's case: scanner, after a recompute, PrismLocker's failed fillet face -- hover highlight YES, selection highlight NO |
 | 183 | 2026-10-19 | a change request: the 'Overlay' PRESET (data/settings/Overlay.FCParam): the BOTTOM panel TRANSPARENT and auto hide 'None'; the REPORT VIEW moved from the top panel to the bottom -- report view LEFT half, Python console RIGHT half, the selection view right-most, COLLAPSED | OPEN; said to the note-taker 2026-10-19 13:46. 2026-10-19 14:32 BUILT locally `e30b518e2d`: the bottom panel see-through, no auto hide, report view | console | selection view (collapsed), the top panel empty; overlay test 52/52; measured 925, 925, 0 at a 1910 px panel; NOT pushed. 2026-10-19 15:03 PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130) |
 | 184 | 2026-10-19 | a change request: the LIST VIEWS in the TASK PANEL styled like the PROPERTY VIEW, with a TRANSLUCENT background | OPEN; said to the note-taker 2026-10-19 15:14; READ: in the overlay style sheets QListView/QTreeView get an opaque rgb(100,100,100), the property editor's items rgba(0,0,0,0.01). 2026-10-19 15:19 the reporter: "entry 184, yes to all" -- the note-taker's readings a-e AGREED (overlay mode only; every list in a task panel; the selection colour kept; every overlay sheet; the rest unchanged) |
+| 185 | 2026-10-19 | a defect: in a dress-up edit the HANDLES are drawn UNDER (before) the PREVIEW SHAPE; they should draw ABOVE it -- a higher show-on-top priority | OPEN; said to the note-taker 2026-10-19 15:49 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25767,6 +25771,33 @@ c. the selected row keeps its selection colour;
 d. EVERY overlay style sheet (dark, light, outline, modern);
 e. the property view itself and lists outside task panels unchanged.
 
+## 185. The handles drawn under the preview shape; they should be on top of it (a defect) -- OPEN
+
+**2026-10-19 15:49, the reporter (to the note-taker):** "new defect, just found out that the handle is displayed after the preview shape. It should draw above it, i.e. with higher show-on-top priority"
+The note-taker's reading:
+- In an edit with a PREVIEW (a dress-up's preview shape, which is drawn
+  on top of the model), the HANDLES (arrows, the red cross of 180) are
+  drawn BEFORE the preview, so the preview COVERS them where they
+  overlap.
+- Wanted: the handles draw ABOVE the preview -- a HIGHER SHOW-ON-TOP
+  PRIORITY than the preview's.
+From the queue, nothing read for this: the preview is the edit
+session's ON-TOP node (169: `1f52f9070e` "the edit session's on-top
+nodes take a pick ahead of the scene"), and on 2026-10-18 (12:49) a 169
+regression came from the preview lying IN FRONT of the fillet's arrows
+for PICKING (fixed by making the preview unpickable to Coin's pick) --
+this entry is the same overlap for DRAWING. The handles hang under the
+editing root, captured as the OverlayEditing overlay (OnViewValueEditing
+sec 1.4).
+NOT said:
+a. Which edits: read as every edit whose preview is on top (the
+   dress-ups; any other PartDesign preview on top) with handles.
+b. The value labels: read as above both already (the on-view overlay);
+   unchanged.
+c. Both renderers (Coin and the bgfx/Direct3D engine): read as both.
+d. The picking order: already the handles' (entry 169 fix) -- read as
+   unchanged.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -25778,5 +25809,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 184
+the build session, 131 and 132 found by it; entries 134 to 185
 are of 2026-10-15, 134 said to the build session)

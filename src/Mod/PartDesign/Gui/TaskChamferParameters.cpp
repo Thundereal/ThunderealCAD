@@ -346,6 +346,9 @@ void TaskChamferParameters::setGizmoPositions()
     // Not hidden when the chamfer fails: a reference that is gone fails it,
     // and the handles of the edges that are there stay (entry 135)
     gizmoContainer->visible = !edgeHandles.empty();
+    // a red cross where a failed or missing edge's handle would be (entry
+    // 180); a chamfer's handles stand at the edge's middle
+    showFailureMarks(gizmoContainer.get(), getChamfer());
 }
 
 namespace {

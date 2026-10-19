@@ -24,9 +24,11 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include <QObject>
+#include <QPoint>
 #include <QPointer>
 #include <QString>
 #include <fastsignals/signal.h>
@@ -155,9 +157,12 @@ public:
     /// The value \a handle belongs to, or -1
     int valueOf(const Gizmo* handle) const;
 
-    /// Open the menu of \a handle, of the active handle when null; at the
-    /// pointer, or at the handle
-    void openMenu(Gizmo* handle = nullptr, bool atPointer = false);
+    /// Open the menu of \a handle, of the active handle when null; at \a at
+    /// when given, else at the pointer, or at the handle
+    void openMenu(Gizmo* handle = nullptr, bool atPointer = false,
+                  std::optional<QPoint> at = std::nullopt);
+    /// The menu button's click: the menu below the button
+    void openMenuBelowButton();
     /** The edit's menu (docs/OnViewValueEditing.md 8.2), one for the right
      * click on a handle, Space and the menu button: the value's own entries
      * when \a handle or the active value has them, "Show handles", what the

@@ -36,6 +36,14 @@
 # include <QTreeWidget>
 # include <Precision.hxx>
 # include <gp_Pln.hxx>
+# include <BRepAdaptor_Curve.hxx>
+# include <BRepBndLib.hxx>
+# include <Bnd_Box.hxx>
+# include <TopoDS.hxx>
+# include <Inventor/nodes/SoBaseColor.h>
+# include <Inventor/nodes/SoCoordinate3.h>
+# include <Inventor/nodes/SoMarkerSet.h>
+# include <Inventor/nodes/SoSeparator.h>
 # include <functional>
 #endif
 
@@ -58,6 +66,8 @@
 #include <Gui/MainWindow.h>
 #include <Gui/MDIView.h>
 #include <Gui/OnViewValue.h>
+#include <Gui/Inventor/Draggers/Gizmo.h>
+#include <Gui/Inventor/MarkerBitmaps.h>
 #include <Gui/ViewProviderPart.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
@@ -71,6 +81,7 @@
 #include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/DatumCS.h>
+#include <Mod/PartDesign/App/FeatureDressUp.h>
 #include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/FeatureSketchBased.h>
 #include <Mod/PartDesign/App/FeatureBoolean.h>
@@ -2053,6 +2064,87 @@ void toggleShowOnTop(Gui::ViewProviderDocumentObject *vp,
         last.emplace_back(link, "");
         showObjectOnTop(last.back());
     }
+}
+
+void showFailureMarks(Gui::GizmoContainer* container, PartDesign::DressUp* dressUp,
+                      const EdgeHandleRoot& root)
+{
+    if (!container) {
+        return;
+    }
+    container->clearMarks();
+    if (!dressUp) {
+        return;
+    }
+    // The edges the dress-up failed on, and those it no longer finds ("all
+    // failed fillet including missing edge", the reporter 2026-10-19 13:27)
+    std::vector<std::string> marked = dressUp->FailedEdges.getValues();
+    for (const auto& sub : dressUp->Base.getSubValues(false)) {
+        if (boost::starts_with(sub, "?Edge")
+                && std::find(marked.begin(), marked.end(), sub) == marked.end()) {
+            marked.push_back(sub);
+        }
+    }
+    if (marked.empty()) {
+        return;
+    }
+    Part::TopoShape baseShape = dressUp->getBaseShape(true);
+    std::vector<SbVec3f> points;
+    for (const auto& name : marked) {
+        Base::Vector3d at;
+        bool found = false;
+        // "at the root where the handle would have been"
+        if (!name.empty() && name[0] != '?') {
+            try {
+                Part::TopoShape edge = baseShape.getSubTopoShape(name.c_str(), true);
+                if (!edge.isNull()) {
+                    found = root && root(edge, baseShape, at);
+                    if (!found) {
+                        BRepAdaptor_Curve curve(TopoDS::Edge(edge.getShape()));
+                        gp_Pnt mid = curve.Value(
+                            (curve.FirstParameter() + curve.LastParameter()) / 2);
+                        at = Base::Vector3d(mid.X(), mid.Y(), mid.Z());
+                        found = true;
+                    }
+                }
+            }
+            catch (Standard_Failure&) {
+            }
+            catch (Base::Exception&) {
+            }
+        }
+        // a missing edge has no root: the middle of the face last made for it
+        if (!found) {
+            TopoDS_Shape made = dressUp->getMadeFaces(name);
+            if (!made.IsNull()) {
+                Bnd_Box box;
+                BRepBndLib::Add(made, box);
+                if (!box.IsVoid()) {
+                    double x0, y0, z0, x1, y1, z1;
+                    box.Get(x0, y0, z0, x1, y1, z1);
+                    at = Base::Vector3d((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+                    found = true;
+                }
+            }
+        }
+        if (found) {
+            points.emplace_back(float(at.x), float(at.y), float(at.z));
+        }
+    }
+    if (points.empty()) {
+        return;
+    }
+    auto marks = container->getMarks();
+    auto color = new SoBaseColor;
+    color->rgb.setValue(1.0F, 0.0F, 0.0F);
+    marks->addChild(color);
+    auto coords = new SoCoordinate3;
+    coords->point.setValues(0, static_cast<int>(points.size()), points.data());
+    marks->addChild(coords);
+    // a marker keeps its size on the screen, as a handle does
+    auto cross = new SoMarkerSet;
+    cross->markerIndex = Gui::Inventor::MarkerBitmaps::getMarkerIndex("CROSS", 20);
+    marks->addChild(cross);
 }
 
 void fitViewWithDelay(int delay)

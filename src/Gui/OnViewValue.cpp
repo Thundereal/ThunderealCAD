@@ -164,7 +164,7 @@ protected:
             // after the press: the menu runs a loop of its own
             QTimer::singleShot(0, set, [keep]() {
                 if (keep) {
-                    keep->openMenu(nullptr, false);
+                    keep->openMenuBelowButton();
                 }
             });
         }
@@ -195,19 +195,20 @@ protected:
         if (!hover) {
             c.setAlpha(110);
         }
-        // Thick strips, each as thick as the gap between two (the reporter
-        // 2026-10-19 10:29 and 10:34: "make the strip the same width as the
-        // space between them"): strips of t, centres 2t apart, round ends
-        // kept inside the side margins
-        const double t = std::max(3.0, height() * 0.15);
-        QPen pen(c);
-        pen.setWidthF(t);
-        pen.setCapStyle(Qt::RoundCap);
-        p.setPen(pen);
-        const double side = width() * 0.25 + t / 2;
-        for (int i = -1; i <= 1; ++i) {
-            const double y = height() / 2.0 + i * 2 * t;
-            p.drawLine(QPointF(side, y), QPointF(width() - side, y));
+        // The cell button's mark scaled up (the reporter 2026-10-19 10:29,
+        // 10:34, 13:39: strips as thick as the gaps between them, the whole
+        // "more squarer like the cell menu"): three strips of t with gaps of
+        // t make a block 5t tall, as wide as it is tall, square ended, on
+        // whole pixels so the strips stay sharp
+        const int t = std::max(3, int(std::lround(height() * 0.13)));
+        const int block = 5 * t;
+        const int left = (width() - block) / 2;
+        const int top = (height() - block) / 2;
+        p.setPen(Qt::NoPen);
+        p.setBrush(c);
+        p.setRenderHint(QPainter::Antialiasing, false);
+        for (int i = 0; i < 3; ++i) {
+            p.drawRect(QRect(left, top + i * 2 * t, block, t));
         }
     }
 
@@ -806,7 +807,19 @@ int OnViewValueSet::getTyping() const
     return typing;
 }
 
-void OnViewValueSet::openMenu(Gizmo* handle, bool atPointer)
+void OnViewValueSet::openMenuBelowButton()
+{
+    // The button's click: below the button, whatever handle is active -- at
+    // the active handle it opened far from where the user clicked (entry
+    // 173, the reporter 2026-10-19 14:09)
+    if (!menuButton || !menuButton->isVisible()) {
+        openMenu(nullptr, true);
+        return;
+    }
+    openMenu(nullptr, false, menuButton->mapToGlobal(QPoint(0, menuButton->height())));
+}
+
+void OnViewValueSet::openMenu(Gizmo* handle, bool atPointer, std::optional<QPoint> at)
 {
     if (!handle) {
         handle = getActiveHandle();
@@ -815,6 +828,11 @@ void OnViewValueSet::openMenu(Gizmo* handle, bool atPointer)
     QMenu menu(keyWidget);
     buildMenu(menu, handle);
     if (menu.isEmpty()) {
+        return;
+    }
+    if (at) {
+        menu.exec(*at);
+        focusView();
         return;
     }
     // Opened by a click, where the pointer is; by a key, at the handle, or

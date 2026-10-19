@@ -1242,6 +1242,8 @@ GizmoContainer::GizmoContainer()
     FC_ADD_CATALOG_ENTRY(pickStyle, SoPickStyle, annotation);
     FC_ADD_CATALOG_ENTRY(toggleSwitch, SoToggleSwitch, annotation);
     FC_ADD_CATALOG_ENTRY(geometry, SoSeparator, toggleSwitch);
+    // beside the switch, not under it: shown when the gizmos are not
+    FC_ADD_CATALOG_ENTRY(marks, SoSeparator, annotation);
 
     SO_KIT_INIT_INSTANCE();
 
@@ -1254,6 +1256,14 @@ GizmoContainer::GizmoContainer()
     toggleSwitch->on.connectFrom(&visible);
 
     setPart("geometry", new SoSeparator);
+
+    // the marks are not picked: what is under them is (entry 180, "it can be
+    // unpicable, since the face is already pickable")
+    auto marks = new SoSeparator;
+    auto marksPick = new SoPickStyle;
+    marksPick->style = SoPickStyle::UNPICKABLE;
+    marks->addChild(marksPick);
+    setPart("marks", marks);
 
     cameraSensor.setFunction(&GizmoContainer::cameraChangeCallback);
     cameraSensor.setData(this);
@@ -1446,6 +1456,20 @@ void GizmoContainer::cameraPositionChangeCallback(void* data, SoSensor*)
         for (auto gizmo : sudoThis->gizmos) {
             gizmo->orientAlongCamera(camera);
         }
+    }
+}
+
+SoSeparator* GizmoContainer::getMarks()
+{
+    return SO_GET_ANY_PART(this, "marks", SoSeparator);
+}
+
+void GizmoContainer::clearMarks()
+{
+    auto marks = getMarks();
+    // the pick style stays
+    while (marks->getNumChildren() > 1) {
+        marks->removeChild(marks->getNumChildren() - 1);
     }
 }
 

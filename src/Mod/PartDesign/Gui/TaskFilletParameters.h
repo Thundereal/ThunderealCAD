@@ -184,6 +184,11 @@ private:
     void clearEdgeHandles();
     /// Put each arrow at its placement, its label beside it
     void placeEdgeHandles();
+    /** A red cross for each failed edge where its arrow's root would be,
+     * and for each missing one on the face last made for it (entry 180):
+     * fixed size, on top, not picked -- the face under it is
+     */
+    void updateFailureMarks();
     /// From the gizmos' frame to the world's
     Base::Matrix4D gizmoToWorld() const;
     EdgeHandle* findEdgeHandle(const Gui::Gizmo* gizmo);

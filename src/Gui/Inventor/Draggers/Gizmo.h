@@ -452,6 +452,7 @@ class GuiExport GizmoContainer: public SoBaseKit
     SO_KIT_CATALOG_ENTRY_HEADER(pickStyle);
     SO_KIT_CATALOG_ENTRY_HEADER(toggleSwitch);
     SO_KIT_CATALOG_ENTRY_HEADER(geometry);
+    SO_KIT_CATALOG_ENTRY_HEADER(marks);
 
 public:
     static void initClass();
@@ -486,6 +487,16 @@ public:
     Base::Matrix4D getWorldMatrix() const;
     void setUpAutoScale(SoCamera* cameraIn);
     void calculateScaleAndOrientation();
+
+    /** Marks drawn with the gizmos, in their frame and on top, but not
+     * picked and not hidden with them (`visible`): what an owner shows where
+     * a gizmo cannot be -- a fillet's red cross where a failed edge's arrow
+     * would stand (docs/HandsOnQueue.md entry 180). Its first child is the
+     * pick style that makes it unpickable; an owner adds after it and
+     * removes what it added with clearMarks().
+     */
+    SoSeparator* getMarks();
+    void clearMarks();
 
     // Checks if the gizmos are enabled in the preferences
     static bool isEnabled();

@@ -386,6 +386,21 @@ def run():
             pump(80)
             check("... and back", pbox.isChecked() == was, pbox.isChecked())
 
+        # The button's menu below the button, even with a handle active (entry
+        # 173, the reporter 14:09: it "popups near the handle far from the
+        # menu button")
+        viewer_widget().setFocus()
+        key(Qt.Key_Tab)
+        below = btn.mapToGlobal(QtCore.QPoint(0, btn.height()))
+        at = with_menu(lambda: QtTest.QTest.mouseClick(btn, Qt.LeftButton),
+                       lambda m: m.geometry().topLeft())
+        note("INFO with a handle active, the button's menu at %s, the button's bottom left %s"
+             % (at, below))
+        check("with a handle active, the button's menu opens below the button",
+              at is not None and abs(at.x() - below.x()) <= 40 and abs(at.y() - below.y()) <= 40,
+              (at, below))
+        key(Qt.Key_Escape)
+
         # Space with nothing active
         no_active()
         names = with_menu(lambda: key(Qt.Key_Space), items) or []

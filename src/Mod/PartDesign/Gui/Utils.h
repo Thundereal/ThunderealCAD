@@ -26,6 +26,8 @@
 #include <functional>
 #include <QStringList>
 
+#include <Base/Vector3D.h>
+
 #include "Workbench.h"
 #include <Gui/ActiveObjectList.h>
 
@@ -43,7 +45,16 @@ class QObject;
  */
 namespace PartDesign {
     class Body;
+    class DressUp;
     class Feature;
+}
+
+namespace Part {
+    class TopoShape;
+}
+
+namespace Gui {
+    class GizmoContainer;
 }
 
 namespace App {
@@ -196,6 +207,20 @@ protected Q_SLOTS:
 };
 
 QGridLayout *addTaskCheckBox(Gui::ViewProviderDocumentObject *vp, QWidget * widget, int index = 0);
+
+/** Where a dress-up's handle for \a edge of \a baseShape stands, its root,
+ * in the gizmos' frame; false for none (the edge's middle is taken then)
+ */
+using EdgeHandleRoot = std::function<bool(Part::TopoShape& edge, Part::TopoShape& baseShape,
+                                          Base::Vector3d& at)>;
+/** A red cross in \a container's marks (Gui::GizmoContainer::getMarks) for
+ * each edge \a dressUp failed on, at its handle's root, and for each edge it
+ * no longer finds, on the face last made for it (docs/HandsOnQueue.md entry
+ * 180): fixed size, on top, not picked. Clears what it showed before; none
+ * without a container or a dress-up.
+ */
+void showFailureMarks(Gui::GizmoContainer* container, PartDesign::DressUp* dressUp,
+                      const EdgeHandleRoot& root = {});
 
 void fitViewWithDelay(int);
 

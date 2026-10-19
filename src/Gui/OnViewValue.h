@@ -224,9 +224,14 @@ private:
     void writeTyped();
     void focusView();
     bool takeKey(QKeyEvent* event, bool overrideOnly);
+    /// The view, or null once it is gone: a panel can outlive its view -- a
+    /// closed document takes its views before the panel's deferred delete
+    ViewerContext* liveView() const;
 
     std::vector<std::unique_ptr<Entry>> entries;
     ViewerContext* view = nullptr;
+    /// The view's own handle (ViewerContext::lifetime()), expired with it
+    std::weak_ptr<const void> viewLife;
     QPointer<QWidget> keyWidget;
     SoNodeSensor* cameraSensor = nullptr;
     fastsignals::scoped_connection connCameraReplaced;

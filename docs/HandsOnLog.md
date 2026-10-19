@@ -7779,3 +7779,17 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   rendered: the test home has the title bar off. The real task bar
   (running and pinned) not looked at. pd-edit-menu 22 of 22 after the
   merge. NOT pushed.
+- 176 (the stage's title said "FreeCAD"): the program is Thundereal.exe
+  since the merge, and tools\fcad-user.cmd started a stale FreeCAD.exe stub
+  of 10-18 that the build tree still held (install-user mirrors it, and its
+  guard even required it). Fixed outside the repo: the launcher (and its
+  cdb sibling) start Thundereal.exe, the guard requires it, my GUI and
+  pytest runners and the viewer-harness serve scripts name it, and the
+  stale FreeCAD/FreeCADCmd .exe/.pdb are gone from the tree. Since the
+  merge my GUI tests and pytest ran those stubs too -- current DLLs, old
+  name. Found on the way: Thundereal.exe still carried the OLD icon (10:17),
+  as the resource compiler reports no dependency on an embedded .ico;
+  2b69e67e86 names it (OBJECT_DEPENDS). r122: both executables relinked,
+  the icon extracted from Thundereal.exe is the tile-less one. STAGED
+  (stage19, 12:03): only Thundereal.exe and ThunderealCmd.exe in the stage.
+  2b69e67e86 NOT pushed.

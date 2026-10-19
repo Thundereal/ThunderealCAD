@@ -141,6 +141,13 @@ fc_add_gui_test(GuiServePatternLabels_tests_run serve-pattern-labels.py
 fc_add_gui_test(GuiServePatternMarkers_tests_run serve-pattern-markers.py
                 --timeout 200)
 
+# Entry 189: a dress-up's preview, which the edit session hangs beside the
+# scene and draws unpickable, is picked by a replayed click through the
+# client's mirror -- a missing edge's kept face selects its row, and a base
+# edge then replaces the reference.
+fc_add_gui_test(GuiServeDressUpPreviewPick_tests_run serve-dressup-preview-pick.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

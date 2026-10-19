@@ -1325,11 +1325,18 @@ void TaskDressUpParameters::syncPreviewSelection()
         if (!own)
             continue;
         const char *element = subname.c_str() + pos + prefix.size();
-        if (boost::starts_with(element, "Face")) {
-            const int face = std::atoi(element + 4);
-            if (face > 0 && std::find(faces.begin(), faces.end(), face) == faces.end())
-                faces.push_back(face);
+        int face = 0;
+        if (boost::starts_with(element, "Face"))
+            face = std::atoi(element + 4);
+        else if (QTreeWidgetItem *item = getPreviewItem(element)) {
+            // an edge of a missing edge's face, which a thin face is picked
+            // by within the pick radius -- a browser's, mostly (entry 189):
+            // it selects that row as the face does, and shows it as the face
+            if (!getGeometryItemReference(item).isEmpty())
+                face = previewFaceOf(getGeometryItemText(item).constData());
         }
+        if (face > 0 && std::find(faces.begin(), faces.end(), face) == faces.end())
+            faces.push_back(face);
     }
     // A failed edge that is still there: a click on its face selects the
     // base's edge (ViewProviderDressUp::redirectEditingPick), but the red

@@ -977,18 +977,29 @@ SoFCUnifiedSelection::Private::getPickedInfoInSession(std::vector<PickedInfo> &r
     // drawn: picked with the rest, the base in front of it always had the
     // click (docs/HandsOnQueue.md entry 169). Only a hit some view provider
     // names counts; a node no one picks leaves the pick to the scene.
-    if (!pcViewer || !pcDocument)
+    if (!pcDocument)
         return;
     EditingRoot *session = pcDocument->editingRoot();
-    const SoPath *onTop = pcViewer->getGroupOnTopPath();
-    const SoPath *rootPath = pcViewer->getRootPath();
-    if (!session || !session->node() || !onTop || !rootPath
-            || onTop->getLength() <= rootPath->getLength())
+    if (!session || !session->node())
         return;
-    // the view's aux root, which the session root hangs under in each of
-    // its views (View3DInventorViewer::hangEditingRoot)
-    SoNode *aux = onTop->getNode(rootPath->getLength());
-    if (!aux->isOfType(SoGroup::getClassTypeId())
+    // Where the session root hangs in the view picking: the desktop's aux
+    // root (View3DInventorViewer::hangEditingRoot), reached by the view's
+    // root path; or, for a view-less root, the replaying mirror's event
+    // root, the camera and the served scene beside it
+    // (MirrorViewer::hangEditingRoot) -- without which a browser's click
+    // went through the preview to whatever lay behind it (entry 189)
+    const SoPath *rootPath = nullptr;
+    SoNode *aux = nullptr;
+    if (pcViewer) {
+        const SoPath *onTop = pcViewer->getGroupOnTopPath();
+        rootPath = pcViewer->getRootPath();
+        if (!onTop || !rootPath || onTop->getLength() <= rootPath->getLength())
+            return;
+        aux = onTop->getNode(rootPath->getLength());
+    }
+    else if (ViewerContext *view = pickView())
+        aux = view->getPickRoot();
+    if (!aux || !aux->isOfType(SoGroup::getClassTypeId())
             || static_cast<SoGroup*>(aux)->findChild(session->node()) < 0)
         return;
 
@@ -1000,7 +1011,8 @@ SoFCUnifiedSelection::Private::getPickedInfoInSession(std::vector<PickedInfo> &r
         if (!node || !node->isOfType(SoFCPathAnnotation::getClassTypeId()))
             continue;
         tmpPath.truncate(0);
-        tmpPath.append(rootPath);
+        if (rootPath)
+            tmpPath.append(rootPath);
         tmpPath.append(aux);
         tmpPath.append(session->node());
         tmpPath.append(holder);

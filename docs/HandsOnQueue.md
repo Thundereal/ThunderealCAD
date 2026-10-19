@@ -173,6 +173,15 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 18:04: entry 189 -- is all the on-view edit in the browser? NO (172
+sized, nothing built); the reporter: sync it -- 172 widened to all the
+desktop's on-view edit since.** Under the entry.
+
+**2026-10-19 18:03: entry 188 -- with a MISSING edge's preview selected, a click on
+another base edge re-points that reference to it; all dress-ups.** Under
+the entry. Also READ in git: 186's guard (a) COMMITTED locally
+`55f4145d9d` (17:53), NOT pushed, NOT staged.
+
 **2026-10-19 16:32, the build session (relayed): committed locally, NOT pushed, NOT
 staged --** `36440fa751` (185 handles over the preview, 121 -> 155 arrow
 pixels; 186 no right-press grab; 180 thick cross; 182 the selected failed
@@ -3833,8 +3842,10 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 183 | 2026-10-19 | a change request: the 'Overlay' PRESET (data/settings/Overlay.FCParam): the BOTTOM panel TRANSPARENT and auto hide 'None'; the REPORT VIEW moved from the top panel to the bottom -- report view LEFT half, Python console RIGHT half, the selection view right-most, COLLAPSED | OPEN; said to the note-taker 2026-10-19 13:46. 2026-10-19 14:32 BUILT locally `e30b518e2d`: the bottom panel see-through, no auto hide, report view | console | selection view (collapsed), the top panel empty; overlay test 52/52; measured 925, 925, 0 at a 1910 px panel; NOT pushed. 2026-10-19 15:03 PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130) |
 | 184 | 2026-10-19 | a change request: the LIST VIEWS in the TASK PANEL styled like the PROPERTY VIEW, with a TRANSLUCENT background | OPEN; said to the note-taker 2026-10-19 15:14; READ: in the overlay style sheets QListView/QTreeView get an opaque rgb(100,100,100), the property editor's items rgba(0,0,0,0.01). 2026-10-19 15:19 the reporter: "entry 184, yes to all" -- the note-taker's readings a-e AGREED (overlay mode only; every list in a task panel; the selection colour kept; every overlay sheet; the rest unchanged). 2026-10-19 16:08 the task lists see-through in overlay (alpha 2/255) BUILT, green on r133, NOT committed (working tree), NOT pushed, NOT staged. 2026-10-19 16:32 COMMITTED locally `5cb250119d`, NOT pushed, NOT staged |
 | 185 | 2026-10-19 | a defect: in a dress-up edit the HANDLES are drawn UNDER (before) the PREVIEW SHAPE; they should draw ABOVE it -- a higher show-on-top priority | OPEN; said to the note-taker 2026-10-19 15:49. 2026-10-19 16:08 the handles above the preview (So3DAnnotation priority -1 in Coin and the render cache) in build r134, NOT committed. 2026-10-19 16:32 handles over the preview (121 -> 155 arrow pixels) COMMITTED locally `36440fa751`, NOT pushed, NOT staged |
-| 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04. 2026-10-19 16:08 CAUSE found by the build session from the stack (not reproduced): a right PRESS on a handle did grabEvents(), Blender navigation took the right RELEASE, the grab stayed; one radius rebuilt the handles and deleted the grabbing node; the next event traversed it. Fix: no grab on the right press -- uncommitted, building. 2026-10-19 16:10 the reporter asked why the cdb the session runs under did not catch it: READ, its arm file stops ONLY on a first-chance ACCESS VIOLATION (sxe av); a purecall -> abort -> SIGABRT is no SEH exception, so cdb saw only the handler's C++ throw (first chance, ignored); arming _purecall / abort proposed. 2026-10-19 16:12 the user copy's cdb arm file now also stops on _purecall and abort (outside the repo; from the next start through fcad-user-cdb.cmd); the 16:01 break-in was NOT the build session's -- who, unknown. 2026-10-19 16:12 the reporter: the 16:01 break-in was the REPORTER, typing in the cdb console window -- answered. 2026-10-19 16:29 CLOSING the unstable session crashed (16:27:32, an access violation, dumped by the user copy's cdb): resetEdit -> SoHandleEventAction::releaseGrabber -> grabEventsCleanup() on the SAME DELETED grabber as 186 -- a second effect of the one bug, confirming the build session's cause; a guard proposed (a node releases the grab before it is deleted). 2026-10-19 16:32 the fix (no grab on the right press) COMMITTED locally `36440fa751`, NOT pushed, NOT staged; the note-taker's guard (a) WRITTEN, uncommitted: GizmoContainer releases the viewer's grab if the grabber is one of its nodes, before removing a gizmo and in its destructor |
+| 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04. 2026-10-19 16:08 CAUSE found by the build session from the stack (not reproduced): a right PRESS on a handle did grabEvents(), Blender navigation took the right RELEASE, the grab stayed; one radius rebuilt the handles and deleted the grabbing node; the next event traversed it. Fix: no grab on the right press -- uncommitted, building. 2026-10-19 16:10 the reporter asked why the cdb the session runs under did not catch it: READ, its arm file stops ONLY on a first-chance ACCESS VIOLATION (sxe av); a purecall -> abort -> SIGABRT is no SEH exception, so cdb saw only the handler's C++ throw (first chance, ignored); arming _purecall / abort proposed. 2026-10-19 16:12 the user copy's cdb arm file now also stops on _purecall and abort (outside the repo; from the next start through fcad-user-cdb.cmd); the 16:01 break-in was NOT the build session's -- who, unknown. 2026-10-19 16:12 the reporter: the 16:01 break-in was the REPORTER, typing in the cdb console window -- answered. 2026-10-19 16:29 CLOSING the unstable session crashed (16:27:32, an access violation, dumped by the user copy's cdb): resetEdit -> SoHandleEventAction::releaseGrabber -> grabEventsCleanup() on the SAME DELETED grabber as 186 -- a second effect of the one bug, confirming the build session's cause; a guard proposed (a node releases the grab before it is deleted). 2026-10-19 16:32 the fix (no grab on the right press) COMMITTED locally `36440fa751`, NOT pushed, NOT staged; the note-taker's guard (a) WRITTEN, uncommitted: GizmoContainer releases the viewer's grab if the grabber is one of its nodes, before removing a gizmo and in its destructor. 2026-10-19 17:53 the guard (a) COMMITTED locally `55f4145d9d` (READ in git: Gizmo.cpp/.h), NOT pushed, NOT staged |
 | 187 | 2026-10-19 | a defect, found through 186: after a CRASH that FreeCAD catches and survives, NOTHING TELLS THE USER, though the application is no longer in a stable state | OPEN; said to the note-taker 2026-10-19 16:07; READ: GUIApplication::notify shows a box for an access violation only; the purecall/abort path (Base::AbnormalProgramTermination) is caught as an ordinary Base::Exception and only logged. 2026-10-19 16:12 WRITTEN, uncommitted: notify catches Base::AbnormalProgramTermination as Fatal; one critical box at a time for both kinds ("A crash was caught ... Save your work under a NEW file name, then restart" + the error + the crash log path); a hand check on the stage; d (the 2 min 45 s wait) not addressed. 2026-10-19 16:32 the crash box COMMITTED locally `a39d10e326`, NOT pushed, NOT staged |
+| 188 | 2026-10-19 | a change request: with ONE MISSING (not failed) edge's PREVIEW SHAPE SELECTED, CLICKING ANOTHER EDGE of the BASE feature (one not already in the dress-up) CHANGES that missing reference to the clicked edge; the same for ALL other dress-up features | OPEN; said to the note-taker 2026-10-19 18:03 |
+| 189 | 2026-10-19 | a question and a change request: is ALL the corresponding ON-VIEW EDIT in the BROWSER? if not, SYNC it -- the browser to carry what the desktop's on-view edit has now | OPEN; said to the note-taker 2026-10-19 18:04; answered from the queue: NO -- 172 (all PD on-view edit in the browser) was SIZED (docs/OnViewValueEditing.md sec 9, `8cd250125b`), NOTHING BUILT; the desktop's on-view work since is not in the browser either |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26136,6 +26147,100 @@ edge selected (after the radius is made good), the preview face must
 stay unlit. Runs in the next round with 186 (no grab on the handle's
 right press) and 187.
 
+## 188. A selected missing edge's preview: a click on another base edge re-points it to that edge (a change request) -- OPEN
+
+**2026-10-19 18:03, the reporter (to the note-taker):** "new request. when one missing (not failed) preview shape is selected, clicking another edge (not already filleted) on base feature shall change the edge reference inside the failed one. apply this to all other dressup features"
+The note-taker's reading: a dress-up keeps a MISSING edge (one its base
+feature no longer has -- the '?Edge' rows, the preview face from the
+file's last result) as a reference; today the only way out is to remove
+it and add a new edge. Wanted: SELECT the missing one's preview shape,
+then CLICK an edge of the BASE feature that the dress-up does not already
+use -> the missing reference is REPLACED by that edge ("change the edge
+reference inside the failed one": read as inside the dress-up's
+reference list, at the missing one's place -- "the failed one" read as
+the dress-up feature / the missing reference, the words said "missing
+(not failed)" first). The same for chamfer, draft, thickness and any
+other dress-up.
+READ in the source, nothing run:
+- src/Mod/PartDesign/Gui/TaskDressUpParameters.cpp, onPreviewSelected
+  (465 to 522): a pick on a MISSING edge's preview face keeps that pick
+  as the selection and selects its row (508 to 521); in the add/remove
+  mode it removes the row. A present edge's pick is passed on to the base
+  feature's edge (493 to 506).
+- the same file, onSelectionChanged (318 to 463): a pick on the BASE
+  feature's element (438 to 462) selects its row if listed, or in the
+  add/remove mode toggles it; otherwise syncItems() from the selection.
+  This is where the replacement would be decided.
+- src/Mod/PartDesign/App/FeatureDressUp.h 53, 72 to 110: FailedEdges,
+  the '?Edge3' names of missing edges.
+NOT said, with the note-taker's readings:
+a. "Missing (not failed)": read as ONLY the missing ones ('?Edge', the
+   base has no such edge); a FAILED one (the edge exists, the fillet
+   failed on it) keeps today's behaviour.
+b. How it is "selected": read as either way -- its preview face picked
+   in the 3D view, or its row selected in the task panel list; both end
+   with the row selected.
+c. Exactly ONE missing selected: read as the condition; with two or more
+   selected, or another edge selected beside it, today's behaviour.
+d. The add/remove mode: not said; read as the plain mode (no Add/Remove
+   button pressed) -- in the add mode a click adds, as today.
+e. The clicked edge ALREADY in the dress-up: read as today's behaviour
+   (its row selected), no replacement -- the words exclude it.
+f. What the new edge keeps: read as the missing one's PLACE in the list
+   and its own values where the feature has per-edge ones (a radius, a
+   size); one undo step; the feature recomputes, and the missing name
+   leaves FailedEdges.
+g. Afterwards: read as the new edge's row selected, the missing one's
+   selection gone -- not a chain where the next click replaces again.
+h. "Edge" for the face-based dress-ups (draft, thickness): read as
+   "the element the feature takes" -- a FACE for those.
+i. Outside the task panel (on-view edit with no panel; the browser): not
+   said; read as wherever the dress-up's preview is picked, per the 170
+   and 172 work.
+
+## 189. The browser to carry all the desktop's on-view edit (a question and a change request) -- OPEN
+
+**2026-10-19 18:04, the reporter (to the note-taker):** "also, have you implemented all corresponding on view edit on browser? if not, new request to sync that"
+ANSWERED by the note-taker from the queue (READ, nothing run): NO. 172
+(2026-10-18 22:13, "implement all the partdesign on view edit in
+browser. test in real browser") was SIZED by the build session
+(docs/OnViewValueEditing.md sec 9, `8cd250125b`); only an off-screen
+headless Chrome look at a served fillet edit was taken (label, preview,
+handles drawn, `c07c3b79d6`, dragging not tried); NOTHING of 172 BUILT.
+Its 9.5 a was read as answered by 174 (10:01), b not answered by name.
+The note-taker's reading: the request is 172 WIDENED -- not only the
+on-view edit as it stood at 172's sizing, but everything the desktop's
+on-view edit has gained since, kept in step ("sync"). The desktop items
+since 172 the note-taker reads as included (by the queue):
+- 170 set A and reverse by drag (the 7 panels with handles; an arrow
+  dragged past zero reverses).
+- 171 the handle's Settings sub-menu (six settings, edits / check boxes /
+  combo boxes, at once).
+- 173 the always-visible menu button top middle, the menu below it;
+  toggle handles (this view only), show preview (as the panel's).
+- 180 the red cross on a failed edge's face (pt 1); pt 2 the label hover
+  highlight and preselect, not built on the desktop yet.
+- 181 the squarer strips (pt 1); pt 2 the face tooltips and right-click
+  menu, not built on the desktop yet.
+- 182 the selected failed/missing face lit.
+- 185 handles drawn over the preview.
+- 159 a click on anything clears the active handle.
+- 172's own: the long touch press opens the handle's context menu.
+- 188 (just asked) the missing reference re-pointed by a click.
+NOT said, with the note-taker's readings:
+a. One entry or two: read as 172 and 189 TOGETHER -- 189 is 172's scope
+   brought up to date; 172's design (sec 9) needs a pass for the items
+   above.
+b. "Sync" from now on: read as a standing wish -- a desktop on-view
+   change also lands in the browser (or is noted as not yet there); not
+   said as a rule; for the reporter to say.
+c. The order against the desktop items still open (181 pt 2, 180 pt 2,
+   188, 178 3.2/3.3, 174): not said.
+d. The per-view / per-user parts (toggle handles per view; the settings
+   per user, 174): read as the browser's own view and user, per the
+   multi-user policy (08:48) and 172 -> 174.
+e. Tested in a real browser, as 172 said: read as still required.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -26147,5 +26252,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 187
+the build session, 131 and 132 found by it; entries 134 to 189
 are of 2026-10-15, 134 said to the build session)

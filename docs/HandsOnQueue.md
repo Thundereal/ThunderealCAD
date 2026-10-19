@@ -3803,7 +3803,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 183 | 2026-10-19 | a change request: the 'Overlay' PRESET (data/settings/Overlay.FCParam): the BOTTOM panel TRANSPARENT and auto hide 'None'; the REPORT VIEW moved from the top panel to the bottom -- report view LEFT half, Python console RIGHT half, the selection view right-most, COLLAPSED | OPEN; said to the note-taker 2026-10-19 13:46. 2026-10-19 14:32 BUILT locally `e30b518e2d`: the bottom panel see-through, no auto hide, report view | console | selection view (collapsed), the top panel empty; overlay test 52/52; measured 925, 925, 0 at a 1910 px panel; NOT pushed. 2026-10-19 15:03 PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130) |
 | 184 | 2026-10-19 | a change request: the LIST VIEWS in the TASK PANEL styled like the PROPERTY VIEW, with a TRANSLUCENT background | OPEN; said to the note-taker 2026-10-19 15:14; READ: in the overlay style sheets QListView/QTreeView get an opaque rgb(100,100,100), the property editor's items rgba(0,0,0,0.01). 2026-10-19 15:19 the reporter: "entry 184, yes to all" -- the note-taker's readings a-e AGREED (overlay mode only; every list in a task panel; the selection colour kept; every overlay sheet; the rest unchanged). 2026-10-19 16:08 the task lists see-through in overlay (alpha 2/255) BUILT, green on r133, NOT committed (working tree), NOT pushed, NOT staged |
 | 185 | 2026-10-19 | a defect: in a dress-up edit the HANDLES are drawn UNDER (before) the PREVIEW SHAPE; they should draw ABOVE it -- a higher show-on-top priority | OPEN; said to the note-taker 2026-10-19 15:49. 2026-10-19 16:08 the handles above the preview (So3DAnnotation priority -1 in Coin and the render cache) in build r134, NOT committed |
-| 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04. 2026-10-19 16:08 CAUSE found by the build session from the stack (not reproduced): a right PRESS on a handle did grabEvents(), Blender navigation took the right RELEASE, the grab stayed; one radius rebuilt the handles and deleted the grabbing node; the next event traversed it. Fix: no grab on the right press -- uncommitted, building |
+| 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04. 2026-10-19 16:08 CAUSE found by the build session from the stack (not reproduced): a right PRESS on a handle did grabEvents(), Blender navigation took the right RELEASE, the grab stayed; one radius rebuilt the handles and deleted the grabbing node; the next event traversed it. Fix: no grab on the right press -- uncommitted, building. 2026-10-19 16:10 the reporter asked why the cdb the session runs under did not catch it: READ, its arm file stops ONLY on a first-chance ACCESS VIOLATION (sxe av); a purecall -> abort -> SIGABRT is no SEH exception, so cdb saw only the handler's C++ throw (first chance, ignored); arming _purecall / abort proposed |
 | 187 | 2026-10-19 | a defect, found through 186: after a CRASH that FreeCAD catches and survives, NOTHING TELLS THE USER, though the application is no longer in a stable state | OPEN; said to the note-taker 2026-10-19 16:07; READ: GUIApplication::notify shows a box for an access violation only; the purecall/abort path (Base::AbnormalProgramTermination) is caught as an ordinary Base::Exception and only logged |
 
 ## 1. Idle progress bar in the status bar -- STAGED
@@ -25916,6 +25916,38 @@ WORKING face's click selecting the base edge does NOT light the face;
 "the selection names the base edge, so the face is lit for it" is right
 for a FAILED edge's face -- that a working face stays unlit is to be
 shown too.
+
+**2026-10-19 16:10, the reporter (to the note-taker):** "also, since cdb is running, why it didn't catch the crash first"
+CORRECTION of the note-taker's 16:04 record: the reporter's FreeCAD was
+NOT free of a debugger -- READ: pid 49772's PARENT is cdb.exe pid 132416
+(started 15:04:29: "cdb.exe -server tcp:port=9311 -G -lines -logo
+D:\works\sw\tools\dbg\cdb_fcad_user.log -cf D:\works\sw\tools\
+fcad-user-arm.cdb ...\user-app\bin\Thundereal.exe" -- fcad-user-cdb.cmd).
+(The note-taker's own non-invasive attach at about 16:03 was a SECOND,
+read-only look beside it.)
+WHY IT DID NOT STOP, READ in the arm file and its log, nothing run:
+- D:\works\sw\tools\fcad-user-arm.cdb arms ONE event: "sxe -c ... av" --
+  a FIRST-CHANCE ACCESS VIOLATION (stack + one /mhtipu dump, then gn).
+  Nothing else is armed.
+- 186's crash is NOT an access violation: a pure virtual call goes
+  VCRUNTIME140!_purecall -> ucrtbase!abort -> raise(SIGABRT) -> FreeCAD's
+  own SIGABRT handler (App/Application.cpp segmentation_fault_handler) --
+  all inside the process, NO SEH exception, so the debugger is never
+  told. The only event cdb saw was the handler's C++ throw (code
+  e06d7363, first chance), which cdb lets pass by default -- one of 339
+  such lines in the log (OCCT and Python throw them all the time).
+- The log shows, at about 16:01 (line 867), a BREAK-IN through the cdb
+  server (DbgUiRemoteBreakin, thread 23), a "k" and "~0" / "K" that printed
+  the break thread's stack again (not the main thread's), then "g" -- and
+  right after it the handler's C++ throw (16:01:53). Who broke in: not the
+  note-taker; not known (the reporter or the build session through
+  tcp:9311).
+- The dumps folder (tools\dbg\dumps) has no dump from today -- the "av"
+  arm never fired.
+The note-taker's proposal (for the build session / the reporter): arm the
+user copy's cdb ALSO on the abort path -- e.g. "bu VCRUNTIME140!_purecall"
+and "bu ucrtbase!abort" with the same stack + dump + gn -- so a purecall
+or abort is stopped and dumped BEFORE FreeCAD's handler runs.
 
 ## 187. A crash caught and survived tells the user nothing, though the application is no longer stable (a defect) -- OPEN
 

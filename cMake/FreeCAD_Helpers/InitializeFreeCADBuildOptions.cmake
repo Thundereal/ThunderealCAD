@@ -233,14 +233,29 @@ macro(InitializeFreeCADBuildOptions)
     endif()
     option(BUILD_EXPR_IMAGE_HOST "Build the Python sandbox host seam (ImageHost); needs at least one runtime, BUILD_EXPR_PYODIDE_HOST or BUILD_EXPR_WASI_RUNTIME" ${_expr_host_default})
     # Blender's Cycles path tracer as a vendored renderer
-    # (docs/CyclesIntegration.md). OFF: it is a heavy build with
-    # environment dependencies (OpenImageIO, Embree, OpenImageDenoise),
-    # so it is asked for rather than degraded into like bgfx.
-    option(BUILD_CYCLES "Build the Cycles path tracer renderer module" OFF)
+    # (docs/CyclesIntegration.md). ON (user, 2026-10-19): the path tracer
+    # is part of the product. A clone without the submodule builds without
+    # it and says so, as MaterialX does; missing environment dependencies
+    # (OpenImageIO, Embree, OpenImageDenoise) stop the configure instead,
+    # because a package quietly built without its path tracer is the
+    # failure that matters.
+    option(BUILD_CYCLES "Build the Cycles path tracer renderer module" ON)
     if(BUILD_CYCLES AND NOT EXISTS "${CMAKE_SOURCE_DIR}/src/3rdParty/cycles/CMakeLists.txt")
-        message(FATAL_ERROR "BUILD_CYCLES is ON but the cycles submodule is not "
-                            "checked out (git submodule update --init "
-                            "src/3rdParty/cycles).")
+        message(WARNING "BUILD_CYCLES is ON but the cycles submodule is not "
+                        "checked out (git submodule update --init "
+                        "src/3rdParty/cycles); building without it.")
+        set(BUILD_CYCLES OFF)
+    endif()
+    if(BUILD_CYCLES)
+        # The lookup Cycles' own external_libs.cmake makes, REQUIRED there:
+        # asked here first so that the error says what to do
+        find_package(OpenImageIO CONFIG QUIET)
+        if(NOT OpenImageIO_FOUND)
+            message(FATAL_ERROR "BUILD_CYCLES is ON but OpenImageIO is not found. Install "
+                                "Cycles' dependencies (conda: openimageio embree "
+                                "openimagedenoise; docs/DevEnvironment.md, \"Cycles\"), "
+                                "or configure with -DBUILD_CYCLES=OFF.")
+        endif()
     endif()
     # MaterialX: the node-graph material description language both
     # renderer back-ends read (docs/CyclesIntegration.md sec 8 item 15

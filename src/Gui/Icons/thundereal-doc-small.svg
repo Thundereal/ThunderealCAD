@@ -3,6 +3,7 @@
   <title>Thundereal document (.TStd)</title>
   <path d="M13 3H40L53 16V61H13Z" fill="#F5F7FC" stroke="#8E9AB8" stroke-width="1.5" stroke-linejoin="round"/>
   <path d="M40 3V16H53" fill="#D6DDEC" stroke="#8E9AB8" stroke-width="1.5" stroke-linejoin="round"/>
+  <path id="edge" fill="#16203A" stroke="#16203A" stroke-width="1.49" stroke-linejoin="round" d="M36.92 20.03L36.55 23L41.96 23L44.76 24.68L44.76 31.4L35.52 31.4L34.76 37.56L39.72 37.56L40.84 38.23L29.64 52.79L28.52 52.12L30.59 43.83L24.6 43.83L23.48 43.16L29.57 31.4L23.48 31.4L20.68 29.72L20.68 23L33.92 23L35.8 19.36L36.92 20.03Z"/>
   <path id="strikeSide" fill="#C26F00" d="M36.92 20.03L34.76 37.56L39.72 37.56L40.84 38.23L29.64 52.79L28.52 52.12L30.59 43.83L24.6 43.83L23.48 43.16L35.8 19.36L36.92 20.03Z"/>
   <path id="strike" fill="#FFB21E" d="M35.8 19.36L33.56 37.56L39.72 37.56L28.52 52.12L30.76 43.16L23.48 43.16L35.8 19.36Z"/>
   <path id="barBottom" fill="#9CC0FF" d="M20.68 29.72L41.96 29.72L44.76 31.4L23.48 31.4L20.68 29.72Z"/>

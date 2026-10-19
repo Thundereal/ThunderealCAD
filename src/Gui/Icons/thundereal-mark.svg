@@ -3,12 +3,13 @@
   <title>Thundereal mark</title>
   <desc>Thundereal application mark: the T-strike. A bar seen a little from below,
   struck through by a two-pointed bolt. Written by src/Tools/thundereal-icons.py.</desc>
-  <path id="strikeSide" fill="#C26F00" d="M39 1.7L35.15 33L44 33L46 34.2L26 60.2L24 59L27.7 44.2L17 44.2L15 43L37 0.5L39 1.7Z"/>
-  <path id="strike" fill="#FFB21E" d="M37 0.5L33 33L44 33L24 59L28 43L15 43L37 0.5Z"/>
-  <path id="barBottom" fill="#9CC0FF" d="M10 19L48 19L53 22L15 22L10 19Z"/>
-  <path id="barSide" fill="#2552C4" d="M48 7L53 10L53 22L48 19L48 7Z"/>
-  <path id="barFront" fill="#4F86F0" d="M10 7L48 7L48 19L10 19L10 7Z"/>
-  <path id="hole" fill="#0F1730" d="M25.5 19.6L36.2 19.6L39.2 21.4L28.5 21.4L25.5 19.6Z"/>
-  <path id="lowSide" fill="#C26F00" d="M36.61 21.1L35.15 33L44 33L46 34.2L26 60.2L24 59L27.7 44.2L17 44.2L15 43L26.96 19.9L34.61 19.9L36.61 21.1Z"/>
-  <path id="lowStrike" fill="#FFB21E" d="M34.61 19.9L33 33L44 33L24 59L28 43L15 43L26.96 19.9L34.61 19.9Z"/>
+  <path id="edge" fill="#16203A" stroke="#16203A" stroke-width="2.67" stroke-linejoin="round" d="M39 3.3L38.35 8.6L48 8.6L53 11.6L53 23.6L36.5 23.6L35.15 34.6L44 34.6L46 35.8L26 61.8L24 60.6L27.7 45.8L17 45.8L15 44.6L25.87 23.6L15 23.6L10 20.6L10 8.6L33.64 8.6L37 2.1L39 3.3Z"/>
+  <path id="strikeSide" fill="#C26F00" d="M39 3.3L35.15 34.6L44 34.6L46 35.8L26 61.8L24 60.6L27.7 45.8L17 45.8L15 44.6L37 2.1L39 3.3Z"/>
+  <path id="strike" fill="#FFB21E" d="M37 2.1L33 34.6L44 34.6L24 60.6L28 44.6L15 44.6L37 2.1Z"/>
+  <path id="barBottom" fill="#9CC0FF" d="M10 20.6L48 20.6L53 23.6L15 23.6L10 20.6Z"/>
+  <path id="barSide" fill="#2552C4" d="M48 8.6L53 11.6L53 23.6L48 20.6L48 8.6Z"/>
+  <path id="barFront" fill="#4F86F0" d="M10 8.6L48 8.6L48 20.6L10 20.6L10 8.6Z"/>
+  <path id="hole" fill="#0F1730" d="M25.5 21.2L36.2 21.2L39.2 23L28.5 23L25.5 21.2Z"/>
+  <path id="lowSide" fill="#C26F00" d="M36.61 22.7L35.15 34.6L44 34.6L46 35.8L26 61.8L24 60.6L27.7 45.8L17 45.8L15 44.6L26.96 21.5L34.61 21.5L36.61 22.7Z"/>
+  <path id="lowStrike" fill="#FFB21E" d="M34.61 21.5L33 34.6L44 34.6L24 60.6L28 44.6L15 44.6L26.96 21.5L34.61 21.5Z"/>
 </svg>

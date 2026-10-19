@@ -2,10 +2,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
   <title>Thundereal</title>
   <defs><radialGradient id="lit" gradientUnits="userSpaceOnUse" cx="7.4" cy="5.5" r="9"><stop offset="0" stop-color="#FFC85A"/><stop offset="0.3" stop-color="#FFD98C"/><stop offset="0.62" stop-color="#EEF0F8"/><stop offset="1" stop-color="#9CC0FF"/></radialGradient></defs>
-  <path id="edge" fill="#16203A" stroke="#16203A" stroke-width="1" stroke-linejoin="round" d="M9.11 0.5L8.93 2L12 2L13 2.8L13 6L8.43 6L8.08 8.83L10.91 8.83L5.78 15.5L6.8 11.4L3.47 11.4L6.26 6L3 6L2 5L2 2L8.33 2L9.11 0.5Z"/>
-  <path id="strike" fill="#FFB21E" d="M9.11 0.5L8.08 8.83L10.91 8.83L5.78 15.5L6.8 11.4L3.47 11.4L9.11 0.5Z"/>
-  <path id="barBottom" fill="url(#lit)" d="M2 5L12 5L13 6L3 6L2 5Z"/>
-  <path id="barSide" fill="#2552C4" d="M12 2L13 2.8L13 6L12 5L12 2Z"/>
-  <path id="barFront" fill="#4F86F0" d="M2 2L12 2L12 5L2 5L2 2Z"/>
-  <path id="lowStrike" fill="#FFB21E" d="M8.43 6L8.08 8.83L10.91 8.83L5.78 15.5L6.8 11.4L3.47 11.4L6.26 6L8.43 6Z"/>
+  <path id="edge" fill="#16203A" stroke="#16203A" stroke-width="1" stroke-linejoin="round" d="M9.39 0.5L9.17 2L13 2L14 2.8L14 6L8.58 6L8.16 8.83L11.55 8.83L5.39 15.5L6.62 11.4L2.62 11.4L5.98 6L2 6L1 5L1 2L8.46 2L9.39 0.5Z"/>
+  <path id="strike" fill="#FFB21E" d="M9.39 0.5L8.16 8.83L11.55 8.83L5.39 15.5L6.62 11.4L2.62 11.4L9.39 0.5Z"/>
+  <path id="barBottom" fill="url(#lit)" d="M1 5L13 5L14 6L2 6L1 5Z"/>
+  <path id="barSide" fill="#2552C4" d="M13 2L14 2.8L14 6L13 5L13 2Z"/>
+  <path id="barFront" fill="#4F86F0" d="M1 2L13 2L13 5L1 5L1 2Z"/>
+  <path id="lowStrike" fill="#FFB21E" d="M8.58 6L8.16 8.83L11.55 8.83L5.39 15.5L6.62 11.4L2.62 11.4L5.98 6L8.58 6Z"/>
 </svg>

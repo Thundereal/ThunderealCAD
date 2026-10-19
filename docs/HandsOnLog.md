@@ -7747,3 +7747,8 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   (2.5.1): possible -- a per-user twin of <Class>P's members, handles and
   observer for flagged parameters, getters one thread-local read on the
   local path. 173 8.6 a answered 09:34: Show preview = the panel's box.
+- 172 9.5 c: puppeteer-core was already installed (viewer-harness\ppenv,
+  2026-09-12). Off screen on Windows: yes -- headless Chrome on a served
+  pad + fillet, the edit entered from the page (an invitation grant is
+  needed, else "ViewOnly"), drew the label, preview and handles
+  (viewer-harness\probes-2026-10-19\pdedit3\2-edit.png). Drag not tried.

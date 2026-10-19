@@ -875,6 +875,18 @@ c. "Test in real browser" on this Windows box: the browser tests drive
    up on Linux only so far. It needs `puppeteer-core` installed beside a
    local Chrome here. Proposed: yes, in a tools directory, not in the repo.
 
+c ANSWERED 09:34: yes -- and it was already there: `puppeteer-core` against
+the installed Chrome has lived in `D:\works\sw\viewer-harness\ppenv` since
+2026-09-12 (outside the repo). "Can windows do browser test off screen?":
+yes, seen 2026-10-19 -- a headless Chrome (swiftshader, no window) on a
+served pad + fillet, the fillet entered from the page
+(`window.fcviewerEdit`, which needs an invitation grant or it is refused
+"ViewOnly"), drew the top-middle label "Radius 2 mm", the preview and the
+handles (`viewer-harness\probes-2026-10-19\pdedit3\2-edit.png`). So 9.2 #1's
+drawing half is seen; dragging is not tried yet. Under swiftshader CDP
+input can starve on a populated scene (the harness README), so a drag test
+synthesizes its events or runs a headful Chrome when it must.
+
 ### 9.6 Order of work
 
 1. See it: a served fillet edit in Chrome on this box, dragged with the

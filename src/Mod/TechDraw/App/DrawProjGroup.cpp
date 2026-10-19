@@ -935,7 +935,7 @@ void DrawProjGroup::arrangeViewPointers(
     if (strcmp(projType, "Third Angle") != 0 && strcmp(projType, "First Angle") != 0) {
         Base::Console().Warning("DPG: %s - unknown Projection convention: %s\n",
                                 getNameInDocument(), projType);
-        throw Base::ValueError(
+        THROWM(Base::ValueError,
             "Unknown Projection convention in DrawProjGroup::arrangeViewPointers");
     }
 
@@ -993,7 +993,7 @@ void DrawProjGroup::arrangeViewPointers(
             else {
                 Base::Console().Warning("DPG: %s - unknown view type: %s. \n",
                                         getNameInDocument(), viewTypeCStr);
-                throw Base::TypeError(
+                THROWM(Base::TypeError,
                     "Unknown view type in DrawProjGroup::arrangeViewPointers.");
             }
         }

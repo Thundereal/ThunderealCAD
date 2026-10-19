@@ -2685,7 +2685,7 @@ App::Document* Gui::serveBranchOf(App::Document* doc, const std::string& name, i
 {
     App::TransactionLog* log = doc ? doc->getTransactionLog() : nullptr;
     if (!log)
-        throw Base::RuntimeError("the document keeps no transaction log");
+        THROWM(Base::RuntimeError, "the document keeps no transaction log");
     App::Document* branch = nullptr;
     App::LogBranch existing;
     if (!name.empty() && log->store().findBranch(name, existing)) {
@@ -2699,12 +2699,12 @@ App::Document* Gui::serveBranchOf(App::Document* doc, const std::string& name, i
                 continue;
             if (servedBranches().count(other->getName()))
                 return other;
-            throw Base::RuntimeError("branch '" + name + "' is the one "
-                                     + std::string(other->Label.getValue())
-                                     + " is on: share that document instead");
+            THROWM(Base::RuntimeError, "branch '" + name + "' is the one "
+                                       + std::string(other->Label.getValue())
+                                       + " is on: share that document instead");
         }
         if (existing.closed)
-            throw Base::RuntimeError("branch '" + name + "' is closed");
+            THROWM(Base::RuntimeError, "branch '" + name + "' is closed");
         branch = App::Document::openFileBranch(doc->getFileHistory().shared_from_this(), name,
                                                0, false);
     }
@@ -2712,12 +2712,12 @@ App::Document* Gui::serveBranchOf(App::Document* doc, const std::string& name, i
         branch = doc->openNewBranch(name, false);
     }
     if (!branch)
-        throw Base::RuntimeError("the branch could not be opened");
+        THROWM(Base::RuntimeError, "the branch could not be opened");
     Gui::Document* gdoc = Application::Instance->getDocument(branch);
     if (!gdoc || !SceneServeSource::serve(gdoc, port) || !serveLogBranch(branch)) {
         // The branch stays in the log; its document goes
         App::GetApplication().closeDocument(branch->getName());
-        throw Base::RuntimeError("the branch could not be served");
+        THROWM(Base::RuntimeError, "the branch could not be served");
     }
     return branch;
 }

@@ -372,7 +372,7 @@ void SequencerBar::checkAbort()
 
     // force to abort the operation
     if ( ok ) {
-        throw Base::AbortException();
+        THROW(Base::AbortException);
     } else {
         rejectCancel();
     }

@@ -260,7 +260,7 @@ private:
             throw;
         }
         catch (...) {
-            throw Base::CADKernelError(
+            THROWM(Base::CADKernelError,
                 "BRepOffsetAPI_MakeOffset has crashed! (Unknown exception caught)"
             );
         }

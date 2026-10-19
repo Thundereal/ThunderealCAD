@@ -1336,10 +1336,10 @@ Base::ZipFileReader::ZipFileReader(const std::string &fileName, Base::XMLReader 
                 _entryOrder.push_back(entry->getName());
         }
     } catch (const std::exception &e) {
-        throw Base::FileException(e.what(), fileName.c_str());
+        THROWM(Base::FileException, e.what(), fileName.c_str());
     }
     if (_entryOrder.empty())
-        throw Base::FileException("Empty project archive", fileName.c_str());
+        THROWM(Base::FileException, "Empty project archive", fileName.c_str());
     // Stream the first entry (the document's main XML) through this
     // reader, as the forward-only reader did.
     _mainStream = openEntry(_entryOrder.front());

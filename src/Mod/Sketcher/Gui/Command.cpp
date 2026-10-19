@@ -720,12 +720,12 @@ void CmdSketcherMapSketch::activated(int iMsg)
             App::DocumentObject* part = static_cast<Part::Feature*>(selobjs[i].getObject());
             if (!part) {
                 assert(0);
-                throw Base::ValueError(
+                THROWM(Base::ValueError,
                     "Unexpected null pointer in CmdSketcherMapSketch::activated");
             }
             std::vector<App::DocumentObject*> input = part->getOutListRecursive();
             if (std::find(input.begin(), input.end(), sketch) != input.end()) {
-                throw ExceptionWrongInput(
+                THROWM(ExceptionWrongInput,
                     QT_TR_NOOP("Some of the selected objects depend on the sketch to be mapped. "
                                "Circular dependencies are not allowed."));
             }

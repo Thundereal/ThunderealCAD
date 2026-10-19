@@ -190,7 +190,7 @@ MeshIO::Format MeshInput::getFormat(const char* FileName)
         return MeshIO::Format::SMF;
     }
     else {
-        throw Base::FileException("File extension not supported", FileName);
+        THROWM(Base::FileException, "File extension not supported", FileName);
     }
 }
 
@@ -199,10 +199,10 @@ bool MeshInput::LoadAny(const char* FileName)
     // ask for read permission
     Base::FileInfo fi(FileName);
     if (!fi.exists() || !fi.isFile()) {
-        throw Base::FileException("File does not exist", FileName);
+        THROWM(Base::FileException, "File does not exist", FileName);
     }
     if (!fi.isReadable()) {
-        throw Base::FileException("No permission on the file", FileName);
+        THROWM(Base::FileException, "No permission on the file", FileName);
     }
 
     Base::ifstream str(fi, std::ios::in | std::ios::binary);
@@ -242,7 +242,7 @@ bool MeshInput::LoadAny(const char* FileName)
             ok = LoadPLY(str);
         }
         else {
-            throw Base::FileException("File extension not supported", FileName);
+            THROWM(Base::FileException, "File extension not supported", FileName);
         }
 
         return ok;
@@ -1873,7 +1873,7 @@ bool MeshOutput::SaveAny(const char* FileName, MeshIO::Format format) const
     Base::FileInfo file(FileName);
     Base::FileInfo directory(file.dirPath());
     if ((file.exists() && !file.isWritable()) || !directory.exists() || !directory.isWritable()) {
-        throw Base::FileException("No write permission for file", FileName);
+        THROWM(Base::FileException, "No write permission for file", FileName);
     }
 
     MeshIO::Format fileformat = format;
@@ -1894,7 +1894,7 @@ bool MeshOutput::SaveAny(const char* FileName, MeshIO::Format format) const
         bool ok = false;
         ok = aWriter.SaveBinarySTL(str);
         if (!ok) {
-            throw Base::FileException("Export of STL mesh failed", FileName);
+            THROWM(Base::FileException, "Export of STL mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::ASTL) {
@@ -1906,61 +1906,61 @@ bool MeshOutput::SaveAny(const char* FileName, MeshIO::Format format) const
         bool ok = false;
         ok = aWriter.SaveAsciiSTL(str);
         if (!ok) {
-            throw Base::FileException("Export of STL mesh failed", FileName);
+            THROWM(Base::FileException, "Export of STL mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::OBJ) {
         // write file
         if (!SaveOBJ(str, FileName)) {
-            throw Base::FileException("Export of OBJ mesh failed", FileName);
+            THROWM(Base::FileException, "Export of OBJ mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::SMF) {
         // write file
         if (!SaveSMF(str)) {
-            throw Base::FileException("Export of SMF mesh failed", FileName);
+            THROWM(Base::FileException, "Export of SMF mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::OFF) {
         // write file
         if (!SaveOFF(str)) {
-            throw Base::FileException("Export of OFF mesh failed", FileName);
+            THROWM(Base::FileException, "Export of OFF mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::PLY) {
         // write file
         if (!SaveBinaryPLY(str)) {
-            throw Base::FileException("Export of PLY mesh failed", FileName);
+            THROWM(Base::FileException, "Export of PLY mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::APLY) {
         // write file
         if (!SaveAsciiPLY(str)) {
-            throw Base::FileException("Export of PLY mesh failed", FileName);
+            THROWM(Base::FileException, "Export of PLY mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::IDTF) {
         // write file
         if (!SaveIDTF(str)) {
-            throw Base::FileException("Export of IDTF mesh failed", FileName);
+            THROWM(Base::FileException, "Export of IDTF mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::MGL) {
         // write file
         if (!SaveMGL(str)) {
-            throw Base::FileException("Export of MGL mesh failed", FileName);
+            THROWM(Base::FileException, "Export of MGL mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::IV) {
         // write file
         if (!SaveInventor(str)) {
-            throw Base::FileException("Export of Inventor mesh failed", FileName);
+            THROWM(Base::FileException, "Export of Inventor mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::X3D) {
         // write file
         if (!SaveX3D(str)) {
-            throw Base::FileException("Export of X3D failed", FileName);
+            THROWM(Base::FileException, "Export of X3D failed", FileName);
         }
     }
     else if (fileformat == MeshIO::X3DZ) {
@@ -1968,31 +1968,31 @@ bool MeshOutput::SaveAny(const char* FileName, MeshIO::Format format) const
         zipios::GZIPOutputStream gzip(str);
         // write file
         if (!SaveX3D(gzip)) {
-            throw Base::FileException("Export of compressed X3D mesh failed", FileName);
+            THROWM(Base::FileException, "Export of compressed X3D mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::X3DOM) {
         // write file
         if (!SaveX3DOM(str)) {
-            throw Base::FileException("Export of X3DOM failed", FileName);
+            THROWM(Base::FileException, "Export of X3DOM failed", FileName);
         }
     }
     else if (fileformat == MeshIO::ThreeMF) {
         // write file
         if (!Save3MF(str)) {
-            throw Base::FileException("Export of 3MF failed", FileName);
+            THROWM(Base::FileException, "Export of 3MF failed", FileName);
         }
     }
     else if (fileformat == MeshIO::PY) {
         // write file
         if (!SavePython(str)) {
-            throw Base::FileException("Export of Python mesh failed", FileName);
+            THROWM(Base::FileException, "Export of Python mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::VRML) {
         // write file
         if (!SaveVRML(str)) {
-            throw Base::FileException("Export of VRML mesh failed", FileName);
+            THROWM(Base::FileException, "Export of VRML mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::WRZ) {
@@ -2005,23 +2005,23 @@ bool MeshOutput::SaveAny(const char* FileName, MeshIO::Format format) const
         zipios::GZIPOutputStream gzip(str);
         // write file
         if (!SaveVRML(gzip)) {
-            throw Base::FileException("Export of compressed VRML mesh failed", FileName);
+            THROWM(Base::FileException, "Export of compressed VRML mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::NAS) {
         // write file
         if (!SaveNastran(str)) {
-            throw Base::FileException("Export of NASTRAN mesh failed", FileName);
+            THROWM(Base::FileException, "Export of NASTRAN mesh failed", FileName);
         }
     }
     else if (fileformat == MeshIO::ASY) {
         // write file
         if (!SaveAsymptote(str)) {
-            throw Base::FileException("Export of ASY mesh failed", FileName);
+            THROWM(Base::FileException, "Export of ASY mesh failed", FileName);
         }
     }
     else {
-        throw Base::FileException("File format not supported", FileName);
+        THROWM(Base::FileException, "File format not supported", FileName);
     }
 
     return true;

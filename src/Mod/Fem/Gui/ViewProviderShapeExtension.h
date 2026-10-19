@@ -70,7 +70,7 @@ protected:
     {
         auto extension = m_object->getExtension<T>();
         if (!extension) {
-            throw Base::AbortException(
+            THROWM(Base::AbortException,
                 "Provided viewproviders object does not have the correct extension"
             );
         }
@@ -135,7 +135,7 @@ protected:
     {
         auto extension = getExtendedViewProvider()->getObject()->getExtension<T>();
         if (!extension) {
-            throw Base::AbortException(
+            THROWM(Base::AbortException,
                 "Provided viewproviders object does not have the correct extension"
             );
         }

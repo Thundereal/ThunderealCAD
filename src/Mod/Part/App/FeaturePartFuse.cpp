@@ -101,7 +101,7 @@ App::DocumentObjectExecReturn *MultiFuse::execute()
     for (it = obj.begin(); it != obj.end(); ++it) {
         s.push_back(Feature::getShape(*it));
         if(s.back().IsNull())
-            throw NullShapeException("Input shape is null");
+            THROWM(NullShapeException, "Input shape is null");
     }
 
     bool argumentsAreInCompound = false;

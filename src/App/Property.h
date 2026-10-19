@@ -408,7 +408,7 @@ public:
         (void)from;
         (void)to;
         (void)t;
-        throw Base::NotImplementedError();
+        THROW(Base::NotImplementedError);
     }
 
     /// Called when a child property has changed value
@@ -665,7 +665,7 @@ protected:
     virtual void setPyValues(const std::vector<PyObject*> &vals, const std::vector<int> &indices) {
         (void)vals;
         (void)indices;
-        throw Base::NotImplementedError();
+        THROW(Base::NotImplementedError);
     }
     void _setPyObject(PyObject *);
 
@@ -721,7 +721,7 @@ protected:
 
     /// Called to restore the content from the document XML
     virtual void restoreXML(Base::XMLReader &) {
-        throw Base::NotImplementedError();
+        THROW(Base::NotImplementedError);
     }
     /** Called to save the content from the document XML
      *
@@ -732,7 +732,7 @@ protected:
      * whether to store value as attribute or child elements.
      */
     virtual bool saveXML(Base::Writer &) const {
-        throw Base::NotImplementedError();
+        THROW(Base::NotImplementedError);
         return false;
     }
 
@@ -745,12 +745,12 @@ protected:
     virtual void restoreStream(Base::InputStream &s, unsigned count) {
         (void)s;
         (void)count;
-        throw Base::NotImplementedError();
+        THROW(Base::NotImplementedError);
     }
 
     /// Called to restore the content from a separate (file) stream
     virtual void saveStream(Base::OutputStream &) const {
-        throw Base::NotImplementedError();
+        THROW(Base::NotImplementedError);
     }
 };
 
@@ -863,7 +863,7 @@ public:
         (void)from;
         (void)to;
         (void)t;
-        throw Base::NotImplementedError();
+        THROW(Base::NotImplementedError);
     }
 
     virtual unsigned int getMemSize (void) const override {

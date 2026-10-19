@@ -339,7 +339,7 @@ void InteractiveInterpreter::runCode(PyCodeObject* code) const
     if (!presult) {
         if (PyErr_ExceptionMatches(PyExc_SystemExit)) {
             // throw SystemExit exception
-            throw Base::SystemExitException();
+            THROW(Base::SystemExitException);
         }
         if (PyErr_Occurred()) {                   /* get latest python exception information */
             PyObject *errobj, *errdata, *errtraceback;

@@ -99,7 +99,7 @@ const TopoDS_Face& Part::FaceMaker::Face()
 
 const Part::TopoShape &Part::FaceMaker::TopoFace() const{
     if(this->myTopoShape.isNull())
-        throw NullShapeException("Part::FaceMaker: result shape is null.");
+        THROWM(NullShapeException, "Part::FaceMaker: result shape is null.");
     if (this->myTopoShape.getShape().ShapeType() != TopAbs_FACE)
         THROWM(Base::TypeError, "Part::FaceMaker: return shape is not a single face.")
     return this->myTopoShape;
@@ -107,7 +107,7 @@ const Part::TopoShape &Part::FaceMaker::TopoFace() const{
 
 const Part::TopoShape &Part::FaceMaker::getTopoShape() const{
     if(this->myTopoShape.isNull())
-        throw NullShapeException("Part::FaceMaker: result shape is null.");
+        THROWM(NullShapeException, "Part::FaceMaker: result shape is null.");
     return this->myTopoShape;
 }
 

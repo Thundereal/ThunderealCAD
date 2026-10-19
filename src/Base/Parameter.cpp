@@ -311,7 +311,7 @@ void ParameterGrp::importFrom(const char* FileName)
     auto Mngr = ParameterManager::Create();
 
     if (Mngr->LoadDocument(FileName) != 1) {
-        throw FileException("ParameterGrp::import() cannot load document", FileName);
+        THROWM(FileException, "ParameterGrp::import() cannot load document", FileName);
     }
 
     Mngr->copyTo(Base::Reference<ParameterGrp>(this));
@@ -322,7 +322,7 @@ void ParameterGrp::insert(const char* FileName)
     auto Mngr = ParameterManager::Create();
 
     if (Mngr->LoadDocument(FileName) != 1) {
-        throw FileException("ParameterGrp::import() cannot load document", FileName);
+        THROWM(FileException, "ParameterGrp::import() cannot load document", FileName);
     }
 
     Mngr->insertTo(Base::Reference<ParameterGrp>(this));
@@ -333,7 +333,7 @@ void ParameterGrp::revert(const char* FileName)
     auto Mngr = ParameterManager::Create();
 
     if (Mngr->LoadDocument(FileName) != 1) {
-        throw FileException("ParameterGrp::revert() cannot load document", FileName);
+        THROWM(FileException, "ParameterGrp::revert() cannot load document", FileName);
     }
 
     revert(Base::Reference<ParameterGrp>(Mngr));
@@ -391,7 +391,7 @@ void ParameterGrp::revert(Base::Reference<ParameterGrp> Grp)
 Base::Reference<ParameterGrp> ParameterGrp::GetGroup(const char* Name)
 {
     if (!Name)
-        throw Base::ValueError("Empty group name");
+        THROWM(Base::ValueError, "Empty group name");
 
     Base::Reference<ParameterGrp> hGrp = this;
     std::vector<std::string> tokens;
@@ -412,7 +412,7 @@ Base::Reference<ParameterGrp> ParameterGrp::GetGroup(const char* Name)
     if (hGrp == this) {
         // the name held no group at all -- empty, or nothing but separators.
         // Handing back the group we started from makes that read as success.
-        throw Base::ValueError("Empty group name");
+        THROWM(Base::ValueError, "Empty group name");
     }
     return hGrp;
 }
@@ -1780,7 +1780,7 @@ void ParameterManager::Init()
             err << "Error during Xerces-c Initialization.\n"
                 << "  Exception message:" << pMsg;
             XMLString::release(&pMsg);
-            throw XMLBaseException(err.str().c_str());
+            THROWM(XMLBaseException, err.str().c_str());
         }
         Init = true;
     }
@@ -1931,18 +1931,18 @@ int ParameterManager::LoadDocument(const XERCES_CPP_NAMESPACE_QUALIFIER InputSou
     delete errReporter;
 
     if (!_pDocument) {
-        throw XMLBaseException("Malformed Parameter document: Invalid document");
+        THROWM(XMLBaseException, "Malformed Parameter document: Invalid document");
     }
 
     DOMElement* rootElem = _pDocument->getDocumentElement();
     if (!rootElem) {
-        throw XMLBaseException("Malformed Parameter document: Root group not found");
+        THROWM(XMLBaseException, "Malformed Parameter document: Root group not found");
     }
 
     _pGroupNode = FindElement(rootElem, "FCParamGroup", "Root");
 
     if (!_pGroupNode) {
-        throw XMLBaseException("Malformed Parameter document: Root group not found");
+        THROWM(XMLBaseException, "Malformed Parameter document: Root group not found");
     }
 
     return 1;

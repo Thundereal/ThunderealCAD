@@ -204,7 +204,7 @@ std::string UnitsSchema::translate(const Quantity& quant, double& factor, std::s
     auto unitSpecs = spec.translationSpecs.at(unitName);
     const auto unitSpec = std::find_if(unitSpecs.begin(), unitSpecs.end(), isSuitable);
     if (unitSpec == unitSpecs.end()) {
-        throw RuntimeError(
+        THROWM(RuntimeError,
             "Suitable threshold not found. Schema: " + spec.name + " value: " + std::to_string(value)
         );
     }

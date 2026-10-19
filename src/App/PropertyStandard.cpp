@@ -233,7 +233,7 @@ PyObject *PropertyPath::getPyObject()
 
     // Returns a new reference, don't increment it!
     PyObject *p = PyUnicode_DecodeUTF8(str.c_str(),str.size(),nullptr);
-    if (!p) throw Base::UnicodeError("UTF8 conversion failure at PropertyPath::getPyObject()");
+    if (!p) THROWM(Base::UnicodeError, "UTF8 conversion failure at PropertyPath::getPyObject()");
     return p;
 }
 
@@ -938,11 +938,11 @@ void PropertyIntPairList::setPyObject(PyObject* value)
 PropertyIntPairList::IntPair PropertyIntPairList::getPyValue(PyObject* item) const
 {
     if ((!PyTuple_Check(item) && !PyList_Check(item)) || PySequence_Size(item) != 2) {
-        throw Base::TypeError("Expected a pair of integers");
+        THROWM(Base::TypeError, "Expected a pair of integers");
     }
     Py::Sequence pair(item);
     if (!PyLong_Check(pair[0].ptr()) || !PyLong_Check(pair[1].ptr())) {
-        throw Base::TypeError("Pair components must be integers");
+        THROWM(Base::TypeError, "Pair components must be integers");
     }
     int firstOverflow = 0;
     int secondOverflow = 0;
@@ -972,7 +972,7 @@ void PropertyIntPairList::restoreXML(Base::XMLReader& reader)
 {
     const long count = reader.getAttributeAsInteger("count");
     if (count < 0) {
-        throw Base::ValueError("Integer pair list size must not be negative");
+        THROWM(Base::ValueError, "Integer pair list size must not be negative");
     }
     std::vector<IntPair> values;
     values.reserve(count);
@@ -1847,7 +1847,7 @@ const char* PropertyString::getValue() const
 PyObject *PropertyString::getPyObject()
 {
     PyObject *p = PyUnicode_DecodeUTF8(_cValue.c_str(),_cValue.size(),nullptr);
-    if (!p) throw Base::UnicodeError("UTF8 conversion failure at PropertyString::getPyObject()");
+    if (!p) THROWM(Base::UnicodeError, "UTF8 conversion failure at PropertyString::getPyObject()");
     return p;
 }
 
@@ -4207,14 +4207,14 @@ void PropertyAppearanceList::installBase(const MaterialAppearance &base, int8_t 
     uint32_t last = 0;
     for (uint32_t idx : d.overrides) {
         if (idx >= static_cast<uint32_t>(d.count) || (!first && idx <= last))
-            throw Base::FileException("overriding faces are not sorted, or name no entry");
+            THROWM(Base::FileException, "overriding faces are not sorted, or name no entry");
         last = idx;
         first = false;
     }
     const std::size_t n = d.overrides.size();
     auto check = [n](const auto &field) {
         if (!field.empty() && field.size() != n)
-            throw Base::FileException("material field length does not match the override list");
+            THROWM(Base::FileException, "material field length does not match the override list");
     };
     check(d.ambient);
     check(d.diffuse);
@@ -4230,7 +4230,7 @@ void PropertyAppearanceList::installBase(const MaterialAppearance &base, int8_t 
     check(d.textureIndex);
     for (uint16_t slot : d.textureIndex) {
         if (slot >= d.texturePalette.size())
-            throw Base::FileException("texture index names no palette entry");
+            THROWM(Base::FileException, "texture index names no palette entry");
     }
     d.base = base;
     AppearanceList::setMaterialType(d.base, type);
@@ -4264,7 +4264,7 @@ void PropertyAppearanceList::applyPendingTexture()
         // before the list it belongs to has a length
         const int count = _list.getSize();
         if (!index.empty() && static_cast<int>(index.size()) != count)
-            throw Base::FileException("texture index length does not match the list");
+            THROWM(Base::FileException, "texture index length does not match the list");
         // The companion states one record per ENTRY; which of them the
         // object is, is the base's question and setTextures asks it
         std::vector<SurfaceTexture> values;
@@ -4618,7 +4618,7 @@ std::string hexToken(const std::string &token)
     if (token == "-")
         return {};
     if (token.size() % 2 != 0)
-        throw Base::FileException("odd-length hex in a material string");
+        THROWM(Base::FileException, "odd-length hex in a material string");
     std::string value(token.size() / 2, '\0');
     for (std::size_t i = 0; i < value.size(); ++i) {
         value[i] = static_cast<char>(std::stoi(token.substr(i * 2, 2), nullptr, 16));
@@ -4674,7 +4674,7 @@ void writeBaseTokens(std::ostream &out, const MaterialAppearance &base, bool con
 void checkPaletteSize(std::size_t size)
 {
     if (size > AppearanceList::MaxPaletteSize)
-        throw Base::FileException("texture palette is longer than the index can address");
+        THROWM(Base::FileException, "texture palette is longer than the index can address");
 }
 
 /// An index is one slot per entry of the list, or absent because the field
@@ -4685,7 +4685,7 @@ void checkPaletteSize(std::size_t size)
 void checkIndexSize(std::size_t size, int expected)
 {
     if (expected >= 0 && size != 0 && size != static_cast<std::size_t>(expected))
-        throw Base::FileException("texture index length does not match the list");
+        THROWM(Base::FileException, "texture index length does not match the list");
 }
 
 /// \a count is what the run head said, so the index length can be checked
@@ -5098,7 +5098,7 @@ void PropertyAppearanceList::restoreFieldStream(Base::InputStream &str, unsigned
         // installBase or by the dense adoption; this only keeps a number out
         // of a file from sizing an allocation
         if (bit != FieldBase && count != 1 && count > uCt)
-            throw Base::FileException("material field length does not match the list");
+            THROWM(Base::FileException, "material field length does not match the list");
 
         std::vector<Color> colors;
         std::vector<float> floats;
@@ -5150,11 +5150,11 @@ void PropertyAppearanceList::restoreFieldStream(Base::InputStream &str, unsigned
                 // Both numbers came out of a file: no more faces than the
                 // list has entries, and the ranges are what the head said
                 if (count > uCt)
-                    throw Base::FileException("more overriding faces than the list has entries");
+                    THROWM(Base::FileException, "more overriding faces than the list has entries");
                 uint32_t rangeCount = 0;
                 str >> rangeCount;
                 if (rangeCount > count)
-                    throw Base::FileException("more ranges of overriding faces than faces");
+                    THROWM(Base::FileException, "more ranges of overriding faces than faces");
                 indices.reserve(count);
                 for (uint32_t i = 0; i < rangeCount; ++i) {
                     uint32_t first = 0;
@@ -5162,12 +5162,12 @@ void PropertyAppearanceList::restoreFieldStream(Base::InputStream &str, unsigned
                     str >> first;
                     str >> length;
                     if (length > count - indices.size())
-                        throw Base::FileException("ranges of overriding faces overrun their count");
+                        THROWM(Base::FileException, "ranges of overriding faces overrun their count");
                     for (uint32_t k = 0; k < length; ++k)
                         indices.push_back(first + k);
                 }
                 if (indices.size() != count)
-                    throw Base::FileException("ranges of overriding faces fall short of their count");
+                    THROWM(Base::FileException, "ranges of overriding faces fall short of their count");
             }
             else {
                 indices.resize(count);
@@ -5251,7 +5251,7 @@ void PropertyAppearanceList::restoreFieldStream(Base::InputStream &str, unsigned
             continue;
         }
         if (count != 1 && count > uCt)
-            throw Base::FileException("material field length does not match the list");
+            THROWM(Base::FileException, "material field length does not match the list");
         std::string baseValue;
         str >> baseValue;
         std::vector<std::string> strings(count);
@@ -5522,7 +5522,7 @@ void PropertyAppearanceList::restoreFieldXML(Base::XMLReader &reader, unsigned u
             // One index per overriding face, which is what every field line
             // after this one is as long as
             if (tokens > uCt)
-                throw Base::FileException("more overriding faces than the list has");
+                THROWM(Base::FileException, "more overriding faces than the list has");
             sparse = true;
             auto &overrides = _list.wd().overrides;
             overrides.reserve(tokens);
@@ -5534,7 +5534,7 @@ void PropertyAppearanceList::restoreFieldXML(Base::XMLReader &reader, unsigned u
         if (key[0] == 'm') {
             // The base value first, then the column (see saveFieldXML)
             if (tokens < 1)
-                throw Base::FileException("MaterialX field states no base");
+                THROWM(Base::FileException, "MaterialX field states no base");
             std::string token;
             if (!(s >> token))
                 break;
@@ -5542,7 +5542,7 @@ void PropertyAppearanceList::restoreFieldXML(Base::XMLReader &reader, unsigned u
                 base.materialx = hexToken(token);
             const unsigned count = tokens - 1;
             if (count != 1 && count > uCt)
-                throw Base::FileException("material field length does not match the list");
+                THROWM(Base::FileException, "material field length does not match the list");
             auto &field = _list.wd().materialx;
             field.resize(count);
             for (auto &value : field) {
@@ -5562,13 +5562,13 @@ void PropertyAppearanceList::restoreFieldXML(Base::XMLReader &reader, unsigned u
             continue;
         }
         if (tokens % stride != 0)
-            throw Base::FileException("material field length is not a whole number of entries");
+            THROWM(Base::FileException, "material field length is not a whole number of entries");
         const unsigned count = tokens / stride;
         // The exact length is checked below, once the whole element has been
         // read and it is known whether there was an override list at all;
         // this only keeps a number out of a file from sizing an allocation
         if (count != 1 && count > uCt)
-            throw Base::FileException("material field length does not match the list");
+            THROWM(Base::FileException, "material field length does not match the list");
 
         auto readColors = [&s, count](std::vector<Color> &field) {
             field.resize(count);
@@ -5781,14 +5781,14 @@ PyObject *PropertySurfaceFinishList::getPyObject()
 void PropertySurfaceFinishList::setPyObject(PyObject *value)
 {
     if (!PySequence_Check(value))
-        throw Base::TypeError("a sequence of (pattern, pitch, depth, angle) is required");
+        THROWM(Base::TypeError, "a sequence of (pattern, pitch, depth, angle) is required");
     Py::Sequence seq(value);
     std::vector<SurfaceFinish> values;
     values.reserve(seq.size());
     for (int i = 0; i < seq.size(); ++i) {
         Py::Sequence entry(seq[i].ptr());
         if (entry.size() != 4)
-            throw Base::ValueError("a surface finish is (pattern, pitch, depth, angle)");
+            THROWM(Base::ValueError, "a surface finish is (pattern, pitch, depth, angle)");
         SurfaceFinish finish;
         Py::Object pattern(entry[0].ptr());
         // The pattern by name, as everywhere else it is spelled; an integer
@@ -5927,8 +5927,8 @@ void PropertySurfaceTextureList::setPyObject(PyObject *value)
     // property is where a texture is set, and the two halves only mean
     // anything together
     (void)value;
-    throw Base::AttributeError("the texture carrier is read only; "
-                               "set ShapeAppearance instead");
+    THROWM(Base::AttributeError, "the texture carrier is read only; "
+                                 "set ShapeAppearance instead");
 }
 
 //**************************************************************************

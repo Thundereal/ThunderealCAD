@@ -1799,7 +1799,7 @@ long logObjectId(PyObject* which)
         return static_cast<App::DocumentObjectPy*>(which)->getDocumentObjectPtr()->getID();
     if (PyLong_Check(which))
         return PyLong_AsLong(which);
-    throw Base::TypeError("expects an object of the document, or its id");
+    THROWM(Base::TypeError, "expects an object of the document, or its id");
 }
 }  // namespace
 
@@ -2083,7 +2083,7 @@ PyObject* DocumentPy::keepTransactionSentFile(PyObject *args)
         Base::FileInfo fi(file);
         Base::ifstream in(fi, std::ios::in | std::ios::binary);
         if (!in)
-            throw Base::FileException("cannot read the file", fi);
+            THROWM(Base::FileException, "cannot read the file", fi);
         std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         const std::string as = *name ? std::string(name) : fi.fileName();
         return Py::new_reference_to(Py::Long(static_cast<long long>(

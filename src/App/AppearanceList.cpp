@@ -236,7 +236,7 @@ uint16_t paletteSlot(std::vector<SurfaceTexture> &palette, const SurfaceTexture 
             return static_cast<uint16_t>(i);
     }
     if (palette.size() >= AppearanceList::MaxPaletteSize)
-        throw Base::ValueError("too many distinct textures");
+        THROWM(Base::ValueError, "too many distinct textures");
     palette.push_back(value);
     return static_cast<uint16_t>(palette.size() - 1);
 }
@@ -1578,7 +1578,7 @@ float AppearanceList::shininessDefault() const
 void AppearanceList::requirePBR() const
 {
     if (!rd().pbr)
-        throw Base::RuntimeError("material list is not in PBR mode");
+        THROWM(Base::RuntimeError, "material list is not in PBR mode");
 }
 
 MaterialAppearance AppearanceList::inMode(const MaterialAppearance &mat) const
@@ -1844,7 +1844,7 @@ void AppearanceList::setSize(int newSize, const MaterialAppearance &fill)
     if (newSize == rd().count)
         return;
     if (newSize < 0)
-        throw Base::ValueError("negative list size");
+        THROWM(Base::ValueError, "negative list size");
 
     touchFields();
     if (newSize < rd().count) {
@@ -1933,7 +1933,7 @@ void AppearanceList::applyEntry(int idx, const MaterialAppearance &mat)
 void AppearanceList::setTypeValue(int idx, int8_t value)
 {
     if (idx < 0 || idx >= rd().count)
-        throw Base::RuntimeError("index out of bound");
+        THROWM(Base::RuntimeError, "index out of bound");
     const int8_t base = static_cast<int8_t>(rd().base.getType());
     if (sparseAt(rd().type, overridePos(idx), base) == value)
         return;
@@ -2051,7 +2051,7 @@ void AppearanceList::setValues(const std::vector<MaterialAppearance> &values)
 void AppearanceList::set1Value(int idx, const MaterialAppearance &value)
 {
     if (idx < -1 || idx > rd().count)
-        throw Base::RuntimeError("index out of bound");
+        THROWM(Base::RuntimeError, "index out of bound");
 
     // One entry cannot restate the whole list's mode, so it is converted
     // to it instead
@@ -2328,7 +2328,7 @@ void AppearanceList::setFieldValue(T MaterialAppearance::*base, std::vector<T> D
                                  const T &value)
 {
     if (idx < 0 || idx > rd().count)
-        throw Base::RuntimeError("index out of bound");
+        THROWM(Base::RuntimeError, "index out of bound");
     if (idx == rd().count) {
         setSize(rd().count + 1);
     }
@@ -2411,7 +2411,7 @@ void AppearanceList::setTexture(int idx, const SurfaceTexture &value)
     // setFieldValue's body, over the pair: the palette is not a field the
     // member pointer form can address
     if (idx < 0 || idx > rd().count)
-        throw Base::RuntimeError("index out of bound");
+        THROWM(Base::RuntimeError, "index out of bound");
     const SurfaceTexture stored = storedTexture(value);
     if (idx == rd().count) {
         setSize(rd().count + 1);

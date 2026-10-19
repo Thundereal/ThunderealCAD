@@ -494,7 +494,7 @@ TopoShape ProfileBased::getProfileShape() const {
         shape = TopoShape(shape.Tag).makECompound(shapes);
     }
     if(shape.isNull())
-        throw Part::NullShapeException("Linked shape object is empty");
+        THROWM(Part::NullShapeException, "Linked shape object is empty");
     return shape;
 }
 
@@ -548,7 +548,7 @@ std::vector<TopoShape> ProfileBased::getProfileWires() const {
 
     auto wires = shape.makEWires().getSubTopoShapes(TopAbs_WIRE);
     if(wires.empty())
-        throw Part::NullShapeException("Linked shape object is not a wire");
+        THROWM(Part::NullShapeException, "Linked shape object is not a wire");
     return wires;
 }
 

@@ -1579,7 +1579,7 @@ void FemMesh::readAbaqus(const std::string& FileName)
                            // https://forum.freecad.org/viewtopic.php?f=10&t=31999&start=10#p274241
         }
         else {
-            throw Base::FileException("Problems reading file");
+            THROWM(Base::FileException, "Problems reading file");
         }
     }
     catch (Py::Exception& e) {
@@ -1619,7 +1619,7 @@ void FemMesh::readZ88(const std::string& FileName)
                            // https://forum.freecad.org/viewtopic.php?f=10&t=31999&start=10#p274241
         }
         else {
-            throw Base::FileException("Problems reading file");
+            THROWM(Base::FileException, "Problems reading file");
         }
     }
     catch (Py::Exception& e) {
@@ -1635,7 +1635,7 @@ void FemMesh::read(const char* FileName)
 
     // checking on the file
     if (!File.isReadable()) {
-        throw Base::FileException("File to load not existing or not readable", File);
+        THROWM(Base::FileException, "File to load not existing or not readable", File);
     }
 
     if (File.hasExtension("unv")) {
@@ -1674,7 +1674,7 @@ void FemMesh::read(const char* FileName)
         readZ88(File.filePath());
     }
     else {
-        throw Base::FileException("Unknown extension");
+        THROWM(Base::FileException, "Unknown extension");
     }
 }
 
@@ -1685,7 +1685,7 @@ void FemMesh::readVTKWithGroups(const char* FileName, const char* vtk_group_cell
     if (File.hasExtension({"vtk", "vtu", "pvtu"})) {
         // checking on the file
         if (!File.isReadable()) {
-            throw Base::FileException("File to load not existing or not readable", File);
+            THROWM(Base::FileException, "File to load not existing or not readable", File);
         }
 
         // read *.vtk legacy format or *.vtu XML unstructure Mesh
@@ -2369,7 +2369,7 @@ void FemMesh::write(const char* FileName) const
         writeZ88(File.filePath());
     }
     else {
-        throw Base::FileException("An unknown file extension was added!");
+        THROWM(Base::FileException, "An unknown file extension was added!");
     }
 }
 

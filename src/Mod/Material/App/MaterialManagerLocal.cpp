@@ -135,7 +135,7 @@ std::shared_ptr<MaterialLibrary> MaterialManagerLocal::getLibrary(const QString&
         }
     }
 
-    throw LibraryNotFound();
+    THROW(LibraryNotFound);
 }
 
 void MaterialManagerLocal::createLibrary(const QString& libraryName,
@@ -146,7 +146,7 @@ void MaterialManagerLocal::createLibrary(const QString& libraryName,
     QDir dir;
     if (!dir.exists(directory)) {
         if (!dir.mkpath(directory)) {
-            throw CreationError("Unable to create library path");
+            THROWM(CreationError, "Unable to create library path");
         }
     }
 
@@ -164,14 +164,14 @@ void MaterialManagerLocal::renameLibrary(const QString& libraryName, const QStri
             auto materialLibrary =
                 std::dynamic_pointer_cast<Materials::MaterialLibraryLocal>(library);
             if (!materialLibrary) {
-                throw LibraryNotFound();
+                THROW(LibraryNotFound);
             }
             materialLibrary->setName(newName);
             return;
         }
     }
 
-    throw LibraryNotFound();
+    THROW(LibraryNotFound);
 }
 
 void MaterialManagerLocal::changeIcon(const QString& libraryName, const QByteArray& icon)
@@ -181,14 +181,14 @@ void MaterialManagerLocal::changeIcon(const QString& libraryName, const QByteArr
             auto materialLibrary =
                 std::dynamic_pointer_cast<Materials::MaterialLibraryLocal>(library);
             if (!materialLibrary) {
-                throw LibraryNotFound();
+                THROW(LibraryNotFound);
             }
             materialLibrary->setIcon(icon);
             return;
         }
     }
 
-    throw LibraryNotFound();
+    THROW(LibraryNotFound);
 }
 
 void MaterialManagerLocal::removeLibrary(const QString& libraryName)
@@ -202,7 +202,7 @@ void MaterialManagerLocal::removeLibrary(const QString& libraryName)
         }
     }
 
-    throw LibraryNotFound();
+    THROW(LibraryNotFound);
 }
 
 std::shared_ptr<std::vector<LibraryObject>>
@@ -308,7 +308,7 @@ std::shared_ptr<Material> MaterialManagerLocal::getMaterial(const QString& uuid)
         return _materialMap->at(uuid);
     }
     catch (std::out_of_range&) {
-        throw MaterialNotFound();
+        THROW(MaterialNotFound);
     }
 }
 
@@ -364,7 +364,7 @@ std::shared_ptr<Material> MaterialManagerLocal::getMaterialByPath(const QString&
         }
     }
 
-    throw MaterialNotFound();
+    THROW(MaterialNotFound);
 }
 
 std::shared_ptr<Material> MaterialManagerLocal::getMaterialByPath(const QString& path,
@@ -375,12 +375,12 @@ std::shared_ptr<Material> MaterialManagerLocal::getMaterialByPath(const QString&
         auto materialLibrary =
             std::dynamic_pointer_cast<Materials::MaterialLibraryLocal>(library);
         if (!materialLibrary) {
-            throw LibraryNotFound();
+            THROW(LibraryNotFound);
         }
         return materialLibrary->getMaterialByPath(path);  // May throw MaterialNotFound
     }
 
-    throw LibraryNotFound();
+    THROW(LibraryNotFound);
 }
 
 bool MaterialManagerLocal::exists(const QString& uuid) const

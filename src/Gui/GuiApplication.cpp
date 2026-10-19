@@ -66,6 +66,7 @@
 #include <Base/Console.h>
 #include <Base/CrashLog.h>
 #include <Base/Exception.h>
+#include <Base/Tools.h>
 
 #include "GuiApplication.h"
 #include "Application.h"
@@ -452,6 +453,29 @@ bool GUIApplication::guardedDispatch(GUIApplication * app, QObject * receiver, Q
 }
 #endif
 
+void GUIApplication::warnUnstable(const QString& title, const QString& what)
+{
+    // A crash the application caught and survived: it runs on, but in no
+    // stable state, and the user is to know it (docs/HandsOnQueue.md entry
+    // 187, the reporter 2026-10-19 16:07: "There is nothing to tell the user a
+    // crash happend while the application is actually not in a stable
+    // state"). One box at a time: a second fault while it is up is logged.
+    static bool showing = false;
+    if (showing)
+        return;
+    Base::StateLocker guard(showing);
+    QString text = QObject::tr(
+        "A crash was caught. The application is still running, but it is no "
+        "longer in a stable state.\n\n"
+        "Save your work under a NEW file name, then restart the application.");
+    if (!what.isEmpty())
+        text += QStringLiteral("\n\n") + what;
+    const std::string log = Base::CrashLog::fileName();
+    if (!log.empty())
+        text += QStringLiteral("\n\n") + QObject::tr("Details are in %1").arg(QString::fromUtf8(log.c_str()));
+    QMessageBox::critical(getMainWindow(), title, text);
+}
+
 bool GUIApplication::notify (QObject * receiver, QEvent * event)
 {
     if (!receiver) {
@@ -478,7 +502,15 @@ bool GUIApplication::notify (QObject * receiver, QEvent * event)
         // Fatal: the process survived, but only because the fault was turned
         // into an exception. Whatever it corrupted is still corrupted.
         logNotifyException(Base::CrashLog::Severity::Fatal, "Base::AccessViolation", &e, e.what(), receiver, event);
-        QMessageBox::critical(getMainWindow(), QObject::tr("Access violation"), QObject::tr(e.what()));
+        warnUnstable(QObject::tr("Access violation"), QString::fromUtf8(e.what()));
+    }
+    catch (const Base::AbnormalProgramTermination &e) {
+        // Fatal too: an abort -- a pure virtual call, a failed check -- turned
+        // into this exception by the signal handler. It was logged as caught
+        // and nothing told the user, who went on in a session that no longer
+        // drew its highlight (docs/HandsOnQueue.md entries 186, 187).
+        logNotifyException(Base::CrashLog::Severity::Fatal, "Base::AbnormalProgramTermination", &e, e.what(), receiver, event);
+        warnUnstable(QObject::tr("Program error"), QString::fromUtf8(e.what()));
     } catch (const Base::SystemExitException &e) {
         // Not a leak -- this is how a Python sys.exit() reaches the event loop.
         caughtException.reset(new Base::SystemExitException(e));

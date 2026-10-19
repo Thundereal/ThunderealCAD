@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 16:04: new entry 186 (FATAL) -- a fillet changed to one radius from a
+handle's menu: a pure virtual call in Coin's event traversal (15:59:08),
+the session frozen then the 3D view without highlight; checked read-only
+with cdb.** Under the entry.
+
 **2026-10-19 15:49: new entry 185 -- the handles drawn under the preview shape; they
 should be on top of it.** Under the entry.
 
@@ -3789,6 +3794,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 183 | 2026-10-19 | a change request: the 'Overlay' PRESET (data/settings/Overlay.FCParam): the BOTTOM panel TRANSPARENT and auto hide 'None'; the REPORT VIEW moved from the top panel to the bottom -- report view LEFT half, Python console RIGHT half, the selection view right-most, COLLAPSED | OPEN; said to the note-taker 2026-10-19 13:46. 2026-10-19 14:32 BUILT locally `e30b518e2d`: the bottom panel see-through, no auto hide, report view | console | selection view (collapsed), the top panel empty; overlay test 52/52; measured 925, 925, 0 at a 1910 px panel; NOT pushed. 2026-10-19 15:03 PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130) |
 | 184 | 2026-10-19 | a change request: the LIST VIEWS in the TASK PANEL styled like the PROPERTY VIEW, with a TRANSLUCENT background | OPEN; said to the note-taker 2026-10-19 15:14; READ: in the overlay style sheets QListView/QTreeView get an opaque rgb(100,100,100), the property editor's items rgba(0,0,0,0.01). 2026-10-19 15:19 the reporter: "entry 184, yes to all" -- the note-taker's readings a-e AGREED (overlay mode only; every list in a task panel; the selection colour kept; every overlay sheet; the rest unchanged) |
 | 185 | 2026-10-19 | a defect: in a dress-up edit the HANDLES are drawn UNDER (before) the PREVIEW SHAPE; they should draw ABOVE it -- a higher show-on-top priority | OPEN; said to the note-taker 2026-10-19 15:49 |
+| 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25798,6 +25804,59 @@ c. Both renderers (Coin and the bgfx/Direct3D engine): read as both.
 d. The picking order: already the handles' (entry 169 fix) -- read as
    unchanged.
 
+## 186. A fillet changed to one radius from a handle's menu: a pure virtual call in Coin's event traversal; FreeCAD frozen, then the 3D view dead to highlight (a defect, FATAL) -- OPEN
+
+**2026-10-19 16:02, the reporter (to the note-taker):** "check my live session. it's frozen. I used context menu to change one fillet to one-radius"
+**About 16:02, the reporter adds:** "you can check through cdb"
+**About 16:03, the reporter adds:** "now UI is responding, but 3D view highlight no response anymore"
+The note-taker's reading: in the reporter's live FreeCAD (the staged
+copy, stage21), the reporter used a HANDLE's CONTEXT MENU (173) to switch
+a fillet to ONE RADIUS; FreeCAD FROZE. Later the UI responded again, but
+the 3D VIEW gives NO HIGHLIGHT (preselection) any more.
+CHECKED by the note-taker, READ ONLY -- the console log, the crash log,
+the process list, and a NON-INVASIVE cdb attach (cdb -pv, "~;~0k 60;qd",
+log copied to D:\works\sw\dl\handson\2026-10-19-cdb-49772.log), on the
+reporter's word "you can check through cdb"; nothing changed in the
+session:
+- Process: Thundereal.exe pid 49772 (the stage, .conda\user-app, started
+  15:04:30), Responding True, CPU moving slowly. (A second Thundereal at
+  16:02:51, pid 35720, is the BUILD session's test run from the build
+  tree -- not the reporter's.)
+- Console (%APPDATA%\Thundereal\mcp_console.log): 15:07:05 Fillet004
+  in edit, "missing element reference ... Fillet004.Base" for Edge21,
+  Edge22, Edge9, Edge7, Edge17; 15:17:23 and 15:59:04 "Failed to
+  recompute scanner#Fillet004: Fillet failed on ?Edge21, ?Edge22, ?Edge9,
+  ?Edge7, ?Edge17" -- the 15:59:04 recompute read as the one-radius
+  change.
+- 15:59:08 FATAL (crash-2026_10_19-15_59_08_046.log), pid 49772, the main
+  thread: segmentation_fault_handler <- raise <- abort <- PURECALL
+  (VCRUNTIME140) <- SoAction::traverse (coin SoAction.cpp 944) <-
+  SoHandleEventAction::beginTraversal (381) <- SoAction::apply <-
+  SoEventManager::actuallyProcessEvent / processEvent <- QuarterWidget::
+  processSoEvent <- NavigationStyle / BlenderNavigationStyle <-
+  View3DInventorViewer::processSoEvent (7556) <- a MOUSE event
+  (QApplicationPrivate::sendMouseEvent). A pure virtual call while Coin
+  traverses the scene for an event = a node in the graph DESTROYED (or
+  half destroyed) but still reached -- read as a handle/marker node
+  (the one-radius change rebuilding the handles) taken away under the
+  event traversal.
+- 16:01:53 "CAUGHT ... AbnormalProgramTermination: Break signal
+  occurred", event type 5 (mouse move) on the QOpenGLWidget, "Unhandled
+  Base::Exception caught in GUIApplication::notify" -- the fatal handler's
+  exception unwound out of the event; the session went on.
+- cdb at about 16:03: the main thread (0, id 9eb4) PAINTING the main
+  window (QWidgetRepaintManager::paintAndFlush, a tool bar's paintEvent)
+  -- not stuck; the freeze is over.
+The note-taker's reading of "no highlight": the 15:59:08 failure and the
+16:01:53 throw unwound Coin's SoHandleEventAction / SoEventManager mid-
+traversal, so its state (a grabber, an action "in progress") is left
+broken -- every mouse event since does not preselect. NOT verified.
+The note-taker's advice to the reporter: the session is not trustworthy
+after a pure virtual call -- save to a NEW file name if anything is
+unsaved, and restart.
+NOT said: whether the change was made from a handle's right click or the
+menu button, and on which fillet (read as Fillet004, in edit then).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -25809,5 +25868,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 185
+the build session, 131 and 132 found by it; entries 134 to 186
 are of 2026-10-15, 134 said to the build session)

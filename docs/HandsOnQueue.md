@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 10:27: entry 175 -- the task bar icon follows the Windows theme; x16 asked
+about a light-theme logo and every place the logo is used (no answer
+yet).** Under the entry.
+
 **2026-10-19 10:21: new entry 175 -- the title bar's app logo menu icon and the task bar
 icon theme aware.** Under the entry.
 
@@ -3643,7 +3647,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 172 | 2026-10-18 | a change request: ALL the PartDesign ON-VIEW EDIT (handles, the active handle and typing, the labels, the menus) working IN THE BROWSER, tested in a REAL BROWSER | OPEN; said to the note-taker 2026-10-18 22:13. 2026-10-18 22:16 the reporter: "long touch press on handle to bring up the context menu" -- touch is in scope (b): a LONG PRESS on a handle opens the HANDLE's context menu, the touch form of the right click. 2026-10-18 22:18 the reporter: "there is hover/preselection, check the browser code. task panel shall already in browser by now. Do thunderealcad merge first. then do this on the new tracked LinkVibe branch" -- the browser HAS hover/preselection (the note-taker's "no hover" on touch wrong); the task panel is already in the browser; ORDER: the ThunderealCAD merge FIRST, then 172 on the new tracked LinkVibe branch. 2026-10-19 09:03 SIZED by the build session (docs/OnViewValueEditing.md sec 9, `8cd250125b`, local), nothing built; 9.5 a-c for the reporter (c: puppeteer-core installed on the box, the reporter's yes first). 2026-10-19 09:34 the reporter: "entry 172, install the puppeteer, can windows do browser test off screen?" -- 9.5 c YES (puppeteer-core installed outside the repo); a question: can Windows run the browser test off screen. 2026-10-19 09:49 the build session: puppeteer-core was ALREADY installed (D:\works\sw\viewer-harness\ppenv since 2026-09-12), nothing new; off screen on Windows YES, SEEN -- headless Chrome (swiftshader) drew a served fillet edit: label, preview, handles (`c07c3b79d6`); dragging not tried; 9.5 a, b open. 2026-10-19 10:01 the reporter: "entry 172 shall be anwsered by 174" -- 9.5 a read as decided by 174's per-user design, not one shared value set; b not answered by name |
 | 173 | 2026-10-19 | a change request: an always-visible MENU BUTTON at the 3D view's TOP MIDDLE during an on-view edit (left of the top-middle label when there is one), like the cell menu button but label-high, keeping clear of overlay widgets (the label too); its menu = the active handle's context menu plus 'toggle handles' and 'show preview', the settings even with no active handle | OPEN; said to the note-taker 2026-10-19 08:32. 2026-10-19 08:35 the build session: one design note for 171 and 173 together (one menu), then 172's sizing; nothing built before the reporter sees the design. 2026-10-19 08:48 the reporter: "Toggle handles, this view only, same as show preview. The policy from now on is to keep in mind of multiple user editing. In the future we shall extend preference to be user aware. So browser user can have their own preference." -- toggle handles and show preview THIS VIEW ONLY; a POLICY: keep multiple users editing in mind; later, user-aware preferences. 2026-10-19 08:54 the 171+173 DESIGN written (docs/OnViewValueEditing.md sec 8, `08ff4f5181`, local), nothing built; sec 8.6 a-f for the reporter (a: the panel's Show preview also writes the global preference and resumes the recompute -- the menu's switch would only take the preview out of this view). 2026-10-19 09:03 the reporter: "Yes stay that way for now." -- read as: 171's settings stay the GLOBAL preference for now; 8.6 a-f NOT answered by it. 2026-10-19 09:34 the reporter: "entry 173, show preview should behave the same as the task panel" -- 8.6 a ANSWERED against the proposal: the menu's Show preview does what the panel's check box does (the preference and the recompute), NOT this view only; toggle handles stays this view only. 2026-10-19 09:49 the design's 8.6 noted: Show preview = the panel's check box, toggle handles this view only, the multi-user consequence noted. 2026-10-19 10:01 the reporter: "173 all agree" -- the design's 8.6 c-f AGREED as proposed (a already answered 09:34); ready to build after 171 (one design). 2026-10-19 10:15 the build session: 171+173 BUILT locally, UNCOMMITTED; r117 building with a new test pd-edit-menu-in-view.py; results to follow |
 | 174 | 2026-10-19 | a change request FOR DESIGN: PER-USER SETTINGS -- each edit identifies the user who started it; PrefWidget checks the current editing user and PREFIXES the setting path; check whether settings in menu items can do the same | OPEN; said to the note-taker 2026-10-19 09:03. 2026-10-19 09:08 DESIGNED by the build session (new docs/UserSettings.md, `dcfa2bba59`, local), nothing built; menu settings: YES the same way; sec 2.6 a-f for the reporter. 2026-10-19 09:32 the reporter: a user's values NEVER MIX with the local user's (the design's fall-back to the global overruled); ideally all settings user aware, step by step; CHANGE: the user also taken from the VIEW outside an edit; a per-user FLAG in the cog param helper, the generated class keeping per-user values -- feasibility asked; and a question: when can a user have no value. 2026-10-19 09:49 the design updated (`59d348425a`): no mixing either way, no value -> the DEFAULT; the user from the view outside an edit (App::PrefUser); the cog per-user flag POSSIBLE (sec 2.5.1); the reporter's question answered (sec 2.2). 2026-10-19 10:01 the reporter CORRECTS the 09:32 reading: a user's INITIAL value is taken from the CURRENT setting (not the default); "not mix" was about WRITES -- a user's write never reaches the local user's settings. 2026-10-19 10:13 the reporter: "174, copied once." -- a user's initial value is COPIED ONCE from the current setting (a snapshot at first use), not read through. 2026-10-19 10:15 the design squared with "copied once" (`3dff98041b`, local): at the FIRST READ the current value is written into the user's entry; a Declared user's copy in the connection's memory; reset to default removes the entry, the next read copies again |
-| 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22 |
+| 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22. 2026-10-19 10:27 the reporter: the task bar icon follows the WINDOWS theme (a answered); x16 to be asked about a light-theme icon and every other place the logo is used -- ASKED by the note-taker 10:27, over Remote Control, no answer yet |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -24547,6 +24551,28 @@ d. Changes at run time: switching the theme (or the OS mode) while
    FreeCAD runs updates both at once (read so).
 e. Other places the logo shows (the about box, the splash, the document
    icon freecad-doc): not said; read as not asked.
+
+**2026-10-19 10:27, the reporter (to the note-taker):** "ask remote session x16 about light theme icon, also ask about all other places where logo is used too. And yes, task bar icon follow Windows theme."
+The note-taker's reading:
+- a ANSWERED for the task bar: the TASK BAR ICON follows the WINDOWS
+  light/dark setting (not FreeCAD's theme). The logo button: FreeCAD's
+  theme, read so (not said otherwise).
+- The note-taker to ASK the remote session x16 (a Remote Control session
+  on another machine) (1) about a LIGHT-THEME icon, and (2) about ALL the
+  OTHER PLACES the logo is used.
+DONE by the note-taker 10:27: a message to x16 (route: Remote Control,
+"not confirmed read ... this route reports nothing back") asking:
+1. is there a light-theme (or dark-theme) version of the logo,
+   ThunderealCAD's or FreeCAD's -- where, or who has it; if none, a
+   second drawing, a recolour or an outline?
+2. in all the places the logo is used, which would need a theme variant
+   -- listing the ones the note-taker knows (the title bar menu button,
+   the window/task bar icon, the about box freecadabout.png, the splash
+   freecadsplash*.png, the document icon freecad-doc, the Windows
+   installer .ico files, TechDraw's thundereal-logo.svg) and asking for
+   others (the browser viewer/favicon, the start page, the conda
+   package).
+NO ANSWER yet.
 
 ## Inbox
 

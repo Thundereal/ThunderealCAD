@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 13:27: entry 180 -- the cross for every failed edge, missing ones too, at
+the root where the handle would have been; fixed size, no hover.** Under
+the entry.
+
 **2026-10-19 13:22: new entry 180 -- a red cross at a failed fillet edge's face; on-view
 labels highlighted on hover and preselecting their geometry; all
 dress-ups, all on-view edits.** Under the entry.
@@ -3711,7 +3715,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 177 | 2026-10-19 | a defect: OMNI SEARCH "/error": typing an object name and pressing TAB to complete ERASES the "/error" prefix | OPEN; said to the note-taker 2026-10-19 12:09; READ: by design today (entry 165's build) a Tab on an /error row puts the object's path in the OBJECTS mode, "/ <path>". 2026-10-19 12:24 BUILT locally `88369fc96f`: Tab completes the name and KEEPS "/error ", the list narrows to it; Enter unchanged; r123 offscreen omni-search-label-one-row 20/20; NOT pushed, NOT staged |
 | 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL. 2026-10-19 12:24 (1) CONFIRMED in the live session by a read-only probe: Dimension120 an Angle on SectionView004 Edge5, Edge9, both along (1,1) -- PARALLEL; (2) BUILT `7eac8caf7e`: a described error; (3) AUDIT docs/TechDrawErrors.md (`959d5360ea`): threaded views' failures never reach the recompute error; questions a-c for the reporter; NOT pushed. 2026-10-19 13:12 the reporter: "agree all" -- a-c AGREED as proposed (3.1 the late error first, then 3.2, 3.3; a partial view a warning; the texts translatable) |
 | 179 | 2026-10-19 | a defect found by the note-taker in the reporter's console log, made an entry on the reporter's "agree all" (read as yes): the document scanner's EMBEDDED TRANSACTION LOG is older than the build's schema -- "no such column: joined" -- on opening, in the transaction log view, and as an exception caught in notify | OPEN; 2026-10-19 13:12 |
-| 180 | 2026-10-19 | a change request: a FAILED fillet edge (no handle today) shows a RED CROSS at the CENTRE of its face (unpickable; the face is pickable); on-view LABELS get a hover HIGHLIGHT (they are clickable) and a label's hover PRESELECTS as the face's does; the same for all dress-ups; the label highlight for ALL on-view edits; no preselection where it makes no sense | OPEN; said to the note-taker 2026-10-19 13:22 |
+| 180 | 2026-10-19 | a change request: a FAILED fillet edge (no handle today) shows a RED CROSS at the CENTRE of its face (unpickable; the face is pickable); on-view LABELS get a hover HIGHLIGHT (they are clickable) and a label's hover PRESELECTS as the face's does; the same for all dress-ups; the label highlight for ALL on-view edits; no preselection where it makes no sense | OPEN; said to the note-taker 2026-10-19 13:22. 2026-10-19 13:27 the reporter: the cross for EVERY failed edge, MISSING ones too; placed at the ROOT where the HANDLE would have been (not the face centre); fixed size like a handle, NO hover effect (not pickable); clicking as now |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25178,6 +25182,22 @@ e. The default radius's label (it stands for many edges): read as
 f. The label highlight's look: read as like the 173 button's hover (the
    accent ground), not said.
 g. The browser (172): read as included when 172 is built.
+
+**2026-10-19 13:27, the reporter (to the note-taker), answering a-d:** "entry 180. yes all failed fillet including missing edge. at the root where the handle would have been. yes fixed-size like handle, does not need hover effect as its not pickable. yes clicking behave the same."
+The note-taker's reading:
+a. ANSWERED: the red cross for ALL failed fillet edges, INCLUDING MISSING
+   edges (?Edge).
+b. ANSWERED, and it CHANGES the 13:22 place: the cross goes at the ROOT
+   -- WHERE THE HANDLE WOULD HAVE BEEN (the handle's base on the edge),
+   not at the face's centre.
+c. ANSWERED: FIXED SIZE like a handle; NO HOVER EFFECT, since it is not
+   pickable.
+d. ANSWERED: clicking behaves the same (the face picked -> the row
+   selected, as 169).
+NOT said: for a MISSING edge, where "the handle would have been" is --
+there is no base edge to put a root on; read as the root's place on the
+kept face the edit shows for it (the build session's call, to say).
+e, f, g of 13:22 not answered (read as written).
 
 ## Inbox
 

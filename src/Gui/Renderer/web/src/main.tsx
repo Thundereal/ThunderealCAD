@@ -18,6 +18,7 @@ import { SplitOverlay } from './splitview';
 import { OmniBox } from './omni';
 import { ToolbarStrip } from './toolbar';
 import { installCovered } from './covered';
+import { OnViewMenuButton } from './onviewbutton';
 import type { LoupeMark } from './loupe';
 import { NARROW } from './panel';
 import { EDIT_VALUE_DIFF, sendOp, sendRequestFile } from './control';
@@ -410,6 +411,7 @@ render(() => (
                    viewOnly={viewOnly} onSearch={() => setOmniOpen(true)} />
     <LoupeOverlay mark={loupe} />
     <OnViewParams params={onView} places={onViewPlaces} />
+    <OnViewMenuButton />
     <HudCard text={hud} onClose={() => window.fcviewerSetHud?.(false)} />
     {sending() && <div class="fc-sending" role="status">{sending()}</div>}
     <NaviCubeMenu />

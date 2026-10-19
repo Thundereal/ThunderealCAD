@@ -22,6 +22,7 @@
 #ifndef GUI_ONVIEWVALUE_H
 #define GUI_ONVIEWVALUE_H
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -190,7 +191,12 @@ public:
      * view widget's filter opens it on the desktop. False when no set in
      * \a viewer has a handle under the pointer.
      */
-    static bool buildViewerMenu(ViewerContext* viewer, QMenu& menu);
+    static bool buildViewerMenu(ViewerContext* viewer, QMenu& menu, bool button = false);
+    /** Where the menu button (entry 173) of the set shown in \a viewer, a
+     * view with no widget, stands: {x, y, side} in logical pixels from the
+     * view's top left -- the page draws it. False when there is none.
+     */
+    static bool viewerMenuButton(ViewerContext* viewer, std::array<int, 3>& place);
     /// What a client covers of \a viewer changed (ViewerContext::
     /// coveredRects): the labels of the sets shown there placed again
     static void viewCoverChanged(ViewerContext* viewer);
@@ -330,6 +336,8 @@ private:
     /// The box the drag in progress changes, the last value of it that
     /// recomputed, and whether a finished drag's last recompute is still to
     /// come (featureRecomputed())
+    /// The menu button's place in a view with no widget (viewerMenuButton())
+    std::array<int, 3> viewerButton {0, 0, 0};
     QPointer<QuantitySpinBox> dragBox;
     double dragGood = 0.0;
     bool dragSettling = false;

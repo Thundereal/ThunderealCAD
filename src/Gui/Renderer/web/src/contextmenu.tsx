@@ -159,6 +159,22 @@ export function SceneContextMenu(props: { viewOnly: () => boolean }) {
       })
       .catch(() => {});
   };
+  // The edit's menu button (onviewbutton.tsx): the edit's menu, no ray
+  const onViewMenu = (e: Event) => {
+    const d = (e as CustomEvent).detail as { x: number; y: number } | null;
+    if (!d) return;
+    close();
+    const ask = ++asked;
+    sendOp('contextMenu', { onViewButton: true })
+      .then((r) => {
+        if (ask !== asked) return;
+        const items = (r.items as Entry[]) ?? [];
+        if (!items.length) return;
+        window.fcviewerHoldHover?.(true);
+        setMenu({ token: r.menu as number, x: d.x, y: d.y, path: [items], titles: [] });
+      })
+      .catch(() => {});
+  };
   const onDown = (e: PointerEvent) => {
     if (menu() && !(root && root.contains(e.target as Node))) close();
   };
@@ -166,10 +182,12 @@ export function SceneContextMenu(props: { viewOnly: () => boolean }) {
     if (e.key === 'Escape' && menu()) close();
   };
   window.addEventListener('fc:contextmenu', onOpen);
+  window.addEventListener('fc:onviewmenu', onViewMenu);
   document.addEventListener('pointerdown', onDown, true);
   window.addEventListener('keydown', onKey);
   onCleanup(() => {
     window.removeEventListener('fc:contextmenu', onOpen);
+    window.removeEventListener('fc:onviewmenu', onViewMenu);
     document.removeEventListener('pointerdown', onDown, true);
     window.removeEventListener('keydown', onKey);
   });

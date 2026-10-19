@@ -986,6 +986,15 @@ changes (`viewer-harness\probes-2026-10-19\drag3`):
   rule: a click on no handle leaves no value active. Seen: Tab made the
   radius active (green), a click on nothing left none (red).
 
+- 9.2 #9, 173's menu button in the browser, BUILT and seen (r151,
+  `button1`): in a view with no widget the set works out where the
+  desktop's button would stand -- at the first top-middle label's left,
+  below what covers the view -- and the `view.covered` reply tells the page
+  (`menuButton`: x, y, side); the page draws it (`web/src/onviewbutton.tsx`,
+  three strips) and its click asks for the edit's menu with no handle
+  (`contextMenu` {onViewButton}). Seen: the button at the label's left
+  under the tool bars, its menu "Show handles", "Settings".
+
 ### 9.5b A failed drag goes back (the user, 2026-10-19)
 
 Asked about the radius dragged to 0, the user first said "drag refuse if

@@ -361,6 +361,18 @@ void OnViewValueSet::dragRecomputed(bool failed)
     }
 }
 
+bool OnViewValueSet::viewerMenuButton(ViewerContext* viewer, std::array<int, 3>& place)
+{
+    for (OnViewValueSet* set : liveSets()) {
+        if (viewer && set->liveView() == viewer && !set->keyWidget && set->count() > 0
+            && set->viewerButton[2] > 0) {
+            place = set->viewerButton;
+            return true;
+        }
+    }
+    return false;
+}
+
 void OnViewValueSet::viewCoverChanged(ViewerContext* viewer)
 {
     for (OnViewValueSet* set : liveSets()) {
@@ -370,9 +382,20 @@ void OnViewValueSet::viewCoverChanged(ViewerContext* viewer)
     }
 }
 
-bool OnViewValueSet::buildViewerMenu(ViewerContext* viewer, QMenu& menu)
+bool OnViewValueSet::buildViewerMenu(ViewerContext* viewer, QMenu& menu, bool button)
 {
     if (!viewer) {
+        return false;
+    }
+    if (button) {
+        // The page's menu button: the edit's menu with no handle, the
+        // active value's entries first, as the desktop's button opens it
+        for (OnViewValueSet* set : liveSets()) {
+            if (set->liveView() == viewer && set->count() > 0) {
+                set->buildMenu(menu, nullptr);
+                return true;
+            }
+        }
         return false;
     }
     for (OnViewValueSet* set : liveSets()) {
@@ -878,6 +901,12 @@ void OnViewValueSet::placeLabels()
                 below = std::max(below, r[1] + r[3]);
             }
         }
+        // The menu button (entry 173) is the page's to draw: where the
+        // desktop's would stand, told to it (viewerMenuButton())
+        const int side = menuButtonSide();
+        const int mid = int(width / 2);
+        const int x = firstWidth > 0 ? mid - firstWidth / 2 - 8 - side : mid - side / 2;
+        viewerButton = {std::max(0, x), std::max(0, below + TopMargin - side / 2), side};
     }
 
     int row = 0;

@@ -234,10 +234,12 @@ QJsonArray SceneContextMenu::build(Render::ClientAccess access)
     // A click on a handle of an edit's values in this client's view: the
     // handle's menu, ahead of all, as the view widget's filter takes the
     // desktop's right click on one (docs/OnViewValueEditing.md sec 9.2 #4)
-    if (OnViewValueSet::buildViewerMenu(viewer, *_menu)) {
+    if (OnViewValueSet::buildViewerMenu(viewer, *_menu, _onViewButton)) {
         _onView = true;
         return describe(access);
     }
+    if (_onViewButton)
+        return {};
 
     // An edit mode with a right click of its own -- the sketcher's -- has
     // it first, as on the desktop the view's popup is then never reached;
@@ -817,20 +819,26 @@ void Gui::installSceneContextMenuOps()
             return sceneControlError(id, "NotServed", QString::fromUtf8(doc->getName()));
         if (!source->viewerFor(client))
             return sceneControlError(id, "NoView", QStringLiteral("state a camera first"));
-        const QJsonArray ray = req.value(QLatin1String("ray")).toArray();
-        if (ray.size() != 6)
-            return sceneControlError(id, "BadRequest", QStringLiteral("ray: [ox,oy,oz,dx,dy,dz]"));
-        const SbVec3f origin(float(ray[0].toDouble()), float(ray[1].toDouble()),
-                             float(ray[2].toDouble()));
-        const SbVec3f dir(float(ray[3].toDouble()), float(ray[4].toDouble()),
-                          float(ray[5].toDouble()));
-
+        // The page's menu button of an edit's values (entry 173, sec 9.2
+        // #9): the edit's menu, no ray
+        const bool onViewButton = req.value(QLatin1String("onViewButton")).toBool(false);
         App::SubObjectT target;
-        source->pickSubObject(origin, dir, client, target);
-        // The desktop offers "Pick geometry" when the click hit anything
         std::vector<App::SubObjectT> picks;
-        if (!target.getObjectName().empty())
-            picks = source->pickAllSubObjects(origin, dir, client);
+        if (!onViewButton) {
+            const QJsonArray ray = req.value(QLatin1String("ray")).toArray();
+            if (ray.size() != 6)
+                return sceneControlError(id, "BadRequest",
+                                         QStringLiteral("ray: [ox,oy,oz,dx,dy,dz]"));
+            const SbVec3f origin(float(ray[0].toDouble()), float(ray[1].toDouble()),
+                                 float(ray[2].toDouble()));
+            const SbVec3f dir(float(ray[3].toDouble()), float(ray[4].toDouble()),
+                              float(ray[5].toDouble()));
+
+            source->pickSubObject(origin, dir, client, target);
+            // The desktop offers "Pick geometry" when the click hit anything
+            if (!target.getObjectName().empty())
+                picks = source->pickAllSubObjects(origin, dir, client);
+        }
 
         auto& menus = openMenus();
         auto previous = menus.find(client);
@@ -840,6 +848,7 @@ void Gui::installSceneContextMenuOps()
         }
         auto menu = std::make_unique<SceneContextMenu>(client, doc->getName(), target,
                                                        std::move(picks));
+        menu->setOnViewButton(onViewButton);
         QJsonArray items;
         try {
             items = menu->build(sceneControlAccess());
@@ -946,6 +955,13 @@ void Gui::installSceneContextMenuOps()
         QJsonObject reply;
         reply[QLatin1String("id")] = id;
         reply[QLatin1String("ok")] = true;
+        // Where the edit's menu button goes (entry 173): the page draws it
+        // there, and asks for the menu with `contextMenu` {onViewButton}
+        std::array<int, 3> place {};
+        if (OnViewValueSet::viewerMenuButton(mirror, place))
+            reply[QLatin1String("menuButton")] = QJsonArray {place[0], place[1], place[2]};
+        else
+            reply[QLatin1String("menuButton")] = QJsonValue::Null;
         return reply;
     });
 

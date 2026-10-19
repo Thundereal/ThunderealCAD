@@ -5,6 +5,7 @@
 // this client edits, on entering the edit and whenever the bars or the
 // window change size.
 import { sendOp } from './control';
+import { setOnViewMenuButton } from './onviewbutton';
 
 let timer: number | undefined;
 let last = '';
@@ -24,12 +25,21 @@ function measure(): number[][] {
 }
 
 function send(force = false) {
-  if (!window.fcviewerEditing) return;
+  if (!window.fcviewerEditing) {
+    setOnViewMenuButton(null);
+    return;
+  }
   const rects = measure();
   const key = JSON.stringify(rects);
   if (!force && key === last) return;
   last = key;
-  sendOp('view.covered', { rects }).catch(() => { last = ''; });
+  // the reply says where the edit's menu button goes (entry 173)
+  sendOp('view.covered', { rects })
+    .then((r) => {
+      const p = r?.menuButton;
+      setOnViewMenuButton(Array.isArray(p) && p.length === 3 ? (p as number[]) : null);
+    })
+    .catch(() => { last = ''; });
 }
 
 function later(force = false) {
@@ -38,7 +48,12 @@ function later(force = false) {
 }
 
 export function installCovered() {
-  window.addEventListener('fc:edit', () => later(true));
+  window.addEventListener('fc:edit', () => {
+    if (!window.fcviewerEditing) setOnViewMenuButton(null);
+    later(true);
+    // the panel and its values come a moment after the edit: asked again
+    window.setTimeout(() => send(true), 1500);
+  });
   window.addEventListener('resize', () => later());
   const observer = new ResizeObserver(() => later());
   const watch = () => {

@@ -106,6 +106,13 @@ public:
     /// replacing it, as Ctrl does on the desktop's.
     const char* trigger(int item, Render::ClientAccess access, QString& message,
                         bool extend = false, const QJsonValue& value = QJsonValue());
+    /// The menu asked by the page's menu button of an edit's values (entry
+    /// 173): the edit's menu with no handle, as the desktop's button opens
+    void setOnViewButton(bool on)
+    {
+        _onViewButton = on;
+    }
+
     /// Whether the menu stays open after entry \a item ran: a settings
     /// widget's, as a widget in a desktop menu does not close it
     bool staysOpen(int item) const;
@@ -185,6 +192,8 @@ private:
     bool _inEdit = false;
     /// The menu is a handle's (OnViewValueSet::buildViewerMenu)
     bool _onView = false;
+    /// Asked by the page's menu button (setOnViewButton())
+    bool _onViewButton = false;
     /// The object in that edit
     App::DocumentObjectT _editObject;
     /// A preview() is showing

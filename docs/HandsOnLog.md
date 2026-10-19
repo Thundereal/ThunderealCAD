@@ -7821,3 +7821,21 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   dimension 3, detail 2 (the new testFailedDetailSaysWhy), section 1 --
   all pass; TestTechDrawApp 9 OK. r125 had failed to compile:
   Standard_Failure has no DynamicType() in OCCT 8. NOT pushed.
+- 180 step 1 + 181 strips + 173 menu place BUILT (aefebaa749): a red cross
+  (fixed-size marker, on top, unpickable) where a failed or missing fillet
+  or chamfer edge's handle would be, in a new GizmoContainer "marks" branch
+  beside the gizmos' switch (shown when they are hidden); the menu
+  button's strips a square block like the cell's; its click opens the
+  menu below it. r128: fillet-failed-edge-cross 8, pd-edit-menu 23, the
+  on-view set as before. Test lessons: the container's annotation hangs in
+  the editing root by itself, so search the marker set, not the kit; Coin's
+  own type names have no "So"; a script's doc.recompute() does not refresh
+  a panel's handles -- drive the panel.
+- 183 BUILT (the next commit): the Overlay preset's bottom panel
+  see-through, no auto hide, report view | Python console | selection view
+  (collapsed); the top panel empty. overlay-preset test 52 of 52, the
+  halves measured over a 3D view (overlays hide with none). My first edit's
+  XML comment held "--": the preset did not parse; the test caught it.
+- Still to do in the batch: 181 point 2 (a preview face's tool tip and
+  right-click menu), 182 (a selection naming a preview face lights it), 180
+  point 2 (label hover highlight and preselection). 178 3.2/3.3 after.

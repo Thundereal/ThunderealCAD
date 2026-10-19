@@ -240,10 +240,22 @@ export function ToolbarStrip(props: {
       report(0);
       return;
     }
+    // The card floats (entry 190): the panels anchored to the top edge move
+    // down only while it is open there
     const el = strip;
-    const ro = new ResizeObserver(() => report(Math.ceil(el.getBoundingClientRect().bottom)));
+    const tell = () => {
+      const r = el.getBoundingClientRect();
+      report(r.top < 60 && !el.classList.contains('fc-tbcard-collapsed')
+        ? Math.ceil(r.bottom) : 0);
+    };
+    const ro = new ResizeObserver(tell);
     ro.observe(el);
-    onCleanup(() => { ro.disconnect(); report(0); });
+    window.addEventListener('fc:toolbarsmoved', tell);
+    onCleanup(() => {
+      ro.disconnect();
+      window.removeEventListener('fc:toolbarsmoved', tell);
+      report(0);
+    });
   });
 
   const run = (name: string, index: number) => {
@@ -259,22 +271,139 @@ export function ToolbarStrip(props: {
     });
   };
 
+  // ---- The card (entry 190) ----------------------------------------------
+  // "host all the toolbars with one draggable card, add some toggle there to
+  // make it collapsible into a button, also draggable" -- and on a phone
+  // "also collapsible but also expand into a card that are scrolling". The
+  // card is dragged by its grip, so a drag never presses a tool; collapsed
+  // it is one button, dragged the same, a click opening the card where it
+  // is. Where it stands and whether it is collapsed are this browser's.
+  const saved = loadCard(props.narrow());
+  const [pos, setPos] = createSignal<{ x: number; y: number }>({ x: saved.x, y: saved.y });
+  const [collapsed, setCollapsed] = createSignal(saved.collapsed);
+  let card: HTMLDivElement | undefined;
+  const keep = () => saveCard({ ...pos(), collapsed: collapsed() });
+  // inside the view, the whole card or button
+  const clamp = () => {
+    const el = card;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const p = pos();
+    const x = Math.max(0, Math.min(p.x, window.innerWidth - Math.max(r.width, 40)));
+    const y = Math.max(0, Math.min(p.y, window.innerHeight - Math.max(r.height, 40)));
+    if (x !== p.x || y !== p.y) setPos({ x, y });
+  };
+  const onResize = () => clamp();
+  window.addEventListener('resize', onResize);
+  onCleanup(() => window.removeEventListener('resize', onResize));
+  createEffect(on([collapsed, () => bars().length], () => {
+    requestAnimationFrame(() => { clamp(); moved(); });
+  }));
+
+  /// A drag by `e`'s pointer of the card or the button; `click` when it did
+  /// not move (the button's click opens the card)
+  const drag = (e: PointerEvent, click?: () => void) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const start = { x: e.clientX, y: e.clientY };
+    const from = pos();
+    let dragging = false;
+    const move = (m: PointerEvent) => {
+      const dx = m.clientX - start.x, dy = m.clientY - start.y;
+      if (!dragging && Math.abs(dx) + Math.abs(dy) < 5) return;
+      dragging = true;
+      setPos({ x: from.x + dx, y: from.y + dy });
+      clamp();
+    };
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+      target.removeEventListener('pointercancel', up);
+      if (dragging) {
+        keep();
+        moved();
+      }
+      else if (click) {
+        click();
+      }
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+    target.addEventListener('pointercancel', up);
+  };
+  const toggle = (on: boolean) => {
+    setCollapsed(on);
+    keep();
+  };
+
   return (
     <Show when={shown()}>
-      <div class={`fc-toolbars ${props.narrow() ? 'fc-toolbars-narrow' : ''}`}
-           ref={strip} onPointerDown={(e) => e.stopPropagation()}>
-        <For each={bars()}>
-          {(id) => (
-            <Bar id={id} objs={objs} setObjs={setObjs} theme={theme}
-                 narrow={props.narrow} host={props.host} run={run} />
-          )}
-        </For>
+      <div class="fc-tbcard"
+           classList={{ 'fc-tbcard-collapsed': collapsed(), 'fc-tbcard-narrow': props.narrow() }}
+           ref={(el) => { card = el; strip = el; }}
+           style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
+           onPointerDown={(e) => e.stopPropagation()}>
+        <Show when={!collapsed()} fallback={
+          <button class="fc-tbcard-button" title="Tool bars (drag to move, click to open)"
+                  aria-label="Tool bars" onPointerDown={(e) => drag(e, () => toggle(false))}>
+            <span /><span /><span />
+          </button>
+        }>
+          <div class="fc-tbcard-grip" onPointerDown={(e) => drag(e)}
+               title="Drag to move the tool bars">
+            <span class="fc-tbcard-dots" />
+            <button class="fc-tbcard-toggle" title="Collapse into a button"
+                    aria-label="Collapse the tool bars"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => toggle(true)}>
+              {'-'}
+            </button>
+          </div>
+          <div class="fc-toolbars">
+            <For each={bars()}>
+              {(id) => (
+                <Bar id={id} objs={objs} setObjs={setObjs} theme={theme}
+                     narrow={props.narrow} host={props.host} run={run} />
+              )}
+            </For>
+          </div>
+        </Show>
         <Show when={error()}>
           <div class="fc-tb-error" role="status">{error()}</div>
         </Show>
       </div>
     </Show>
   );
+}
+
+// ---- The card's memory (entry 190) ----------------------------------------
+
+const CARD_KEY = 'fcviewer.toolbarCard';
+
+/// Where the card stands and whether it is collapsed, as this browser left
+/// it; a phone starts collapsed, at the top left either way
+function loadCard(narrow: boolean): { x: number; y: number; collapsed: boolean } {
+  try {
+    const v = JSON.parse(localStorage.getItem(CARD_KEY) || 'null');
+    if (v && typeof v.x === 'number' && typeof v.y === 'number')
+      return { x: v.x, y: v.y, collapsed: !!v.collapsed };
+  }
+  catch { /* no memory: the default */ }
+  return { x: 6, y: 6, collapsed: narrow };
+}
+
+function saveCard(v: { x: number; y: number; collapsed: boolean }) {
+  try { localStorage.setItem(CARD_KEY, JSON.stringify(v)); }
+  catch { /* this session only */ }
+}
+
+/// The card moved or changed size: what it covers is told to the host
+/// (covered.ts), so an edit's labels keep clear of it
+function moved() {
+  window.dispatchEvent(new CustomEvent('fc:toolbarsmoved'));
 }
 
 interface ButtonCtx {

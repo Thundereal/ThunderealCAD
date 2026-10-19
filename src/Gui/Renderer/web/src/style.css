@@ -1496,30 +1496,99 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
  * the NaviCube's corner; the panels anchored to the top edge move down
  * by its height (--fc-top, set on #fc-ui while it is shown). Narrow: one
  * row along the bottom, above the launcher, that scrolls sideways. */
+/* Entry 190: every bar in one card that floats over the view, dragged by
+ * its grip, collapsible into a button that is dragged the same. On a phone
+ * the open card is bounded and its bars scroll up and down. */
+.fc-tbcard {
+  position: fixed;
+  z-index: 20;
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  max-width: min(760px, calc(100vw - 12px));
+  background: rgba(30, 30, 34, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  padding: 0 4px 4px;
+  touch-action: none;
+}
+.fc-tbcard-collapsed {
+  padding: 0;
+  background: none;
+  border: none;
+}
+.fc-tbcard-narrow:not(.fc-tbcard-collapsed) {
+  width: calc(100vw - 12px);
+  max-height: 45vh;
+}
+.fc-tbcard-grip {
+  display: flex;
+  align-items: center;
+  height: 18px;
+  cursor: grab;
+  touch-action: none;
+}
+.fc-tbcard-grip:active { cursor: grabbing; }
+.fc-tbcard-dots {
+  flex: 1;
+  height: 6px;
+  margin: 0 6px;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.45) 1px, transparent 1.5px);
+  background-size: 6px 6px;
+}
+.fc-tbcard-toggle {
+  width: 22px;
+  height: 16px;
+  padding: 0;
+  line-height: 14px;
+  font-size: 14px;
+  color: #e8e8e8;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.fc-tbcard-button {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: rgba(40, 40, 44, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  cursor: grab;
+  touch-action: none;
+}
+.fc-tbcard-button span {
+  display: block;
+  width: 20px;
+  height: 4px;
+  background: #7fb2ff;
+  border-radius: 1px;
+}
 .fc-toolbars {
-  pointer-events: none;
-  position: absolute;
-  top: 6px;
-  left: calc(6px + env(safe-area-inset-left));
-  right: 150px;
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 4px;
+  min-height: 0;
 }
-.fc-toolbars-narrow {
-  top: auto;
-  right: 0;
-  left: 0;
-  bottom: calc(108px + env(safe-area-inset-bottom));
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding: 0 6px;
-  scrollbar-width: none;
-  pointer-events: auto;
-  touch-action: pan-x;
+.fc-tbcard-narrow .fc-toolbars {
+  overflow-x: hidden;
+  overflow-y: auto;
+  touch-action: pan-y;
 }
-.fc-toolbars-narrow::-webkit-scrollbar { display: none; }
+/* a bar wider than the phone wraps inside itself: every tool reached by
+   scrolling up and down alone */
+.fc-tbcard-narrow .fc-tb-bar {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
 
 .fc-tb-bar {
   pointer-events: auto;
@@ -1553,7 +1622,7 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
   font-size: 12px;
   cursor: pointer;
 }
-.fc-toolbars-narrow .fc-tb-btn { min-width: 40px; min-height: 40px; }
+.fc-tbcard-narrow .fc-tb-btn { min-width: 40px; min-height: 40px; }
 .fc-tb-caret { min-width: 12px; padding: 0 1px; color: #9aa0a6; }
 .fc-tb-btn:hover:not(:disabled), .fc-tb-caret:hover {
   background: rgba(255, 255, 255, 0.1);
@@ -1628,7 +1697,7 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
   color: #ffb4ab;
   font-size: 12px;
 }
-.fc-toolbars-narrow .fc-tb-error {
+.fc-tbcard-narrow .fc-tb-error {
   position: fixed;
   left: 8px;
   right: 8px;

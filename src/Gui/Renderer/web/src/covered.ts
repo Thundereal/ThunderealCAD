@@ -15,7 +15,8 @@ function measure(): number[][] {
   if (!canvas) return [];
   const c = canvas.getBoundingClientRect();
   const out: number[][] = [];
-  for (const bar of Array.from(document.querySelectorAll('.fc-tb-bar'))) {
+  // the tool bars' card, or its button when collapsed (entry 190)
+  for (const bar of Array.from(document.querySelectorAll('.fc-tbcard'))) {
     const r = bar.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) continue;
     out.push([Math.round(r.left - c.left), Math.round(r.top - c.top),
@@ -55,9 +56,10 @@ export function installCovered() {
     window.setTimeout(() => send(true), 1500);
   });
   window.addEventListener('resize', () => later());
+  window.addEventListener('fc:toolbarsmoved', () => later());
   const observer = new ResizeObserver(() => later());
   const watch = () => {
-    const bars = document.querySelector('.fc-toolbars');
+    const bars = document.querySelector('.fc-tbcard');
     if (bars) observer.observe(bars);
     else window.setTimeout(watch, 1000);
   };

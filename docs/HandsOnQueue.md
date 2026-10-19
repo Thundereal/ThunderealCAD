@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 13:49: entry 182 narrowed -- only a selection naming the preview face (a
+failed/missing edge's face) lights it; a working face's click selecting
+the base edge stays as it is.** Under the entry.
+
 **2026-10-19 13:46: new entry 183 -- the 'Overlay' preset: the bottom panel transparent,
 no auto hide; report view left half, Python console right half, selection
 view collapsed at the right.** Under the entry.
@@ -3737,7 +3741,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 179 | 2026-10-19 | a defect found by the note-taker in the reporter's console log, made an entry on the reporter's "agree all" (read as yes): the document scanner's EMBEDDED TRANSACTION LOG is older than the build's schema -- "no such column: joined" -- on opening, in the transaction log view, and as an exception caught in notify | OPEN; 2026-10-19 13:12. 2026-10-19 13:37 per x16 it is oplab's (Transaction code): oplab has a fix BUILT (a layout version, migration on open, the panel showing a read error instead of throwing); x16 to merge it into thundereal/main. The build session READ scanner.FCStd: NO embedded history any more, saved 13:12:39 -- the failed history presumably DROPPED by a later save. 2026-10-19 13:40 the reporter: "I restored the scanner file. The one with history is renamed to scanner2.FCStd" -- the copy WITH the history is D:/Zheng.Lei/mech/scanner2.FCStd (READ: 9243622 bytes, modified 2026-10-16 18:06), so its log layout CAN be read for oplab |
 | 180 | 2026-10-19 | a change request: a FAILED fillet edge (no handle today) shows a RED CROSS at the CENTRE of its face (unpickable; the face is pickable); on-view LABELS get a hover HIGHLIGHT (they are clickable) and a label's hover PRESELECTS as the face's does; the same for all dress-ups; the label highlight for ALL on-view edits; no preselection where it makes no sense | OPEN; said to the note-taker 2026-10-19 13:22. 2026-10-19 13:27 the reporter: the cross for EVERY failed edge, MISSING ones too; placed at the ROOT where the HANDLE would have been (not the face centre); fixed size like a handle, NO hover effect (not pickable); clicking as now. 2026-10-19 13:37 the build session: for a MISSING edge it will propose the point on the kept face nearest where the edge was, if known, else the face's centre |
 | 181 | 2026-10-19 | a change request: (1) the on-view edit MENU BUTTON's strips SQUARER, like the view cell menu's (they look too thin); (2) TOOLTIPS and a RIGHT-CLICK CONTEXT MENU on the fillet's (preview) FACE; the same for all dress-up features | OPEN; said to the note-taker 2026-10-19 13:39 |
-| 182 | 2026-10-19 | a change request: a dress-up feature's PREVIEW SHAPE shows the SELECTION highlight, not only the PRESELECTION highlight as now | OPEN; said to the note-taker 2026-10-19 13:43 |
+| 182 | 2026-10-19 | a change request: a dress-up feature's PREVIEW SHAPE shows the SELECTION highlight, not only the PRESELECTION highlight as now | OPEN; said to the note-taker 2026-10-19 13:43. 2026-10-19 13:49 NARROWED by the reporter: a WORKING face's click selecting the base edge with no face highlight is FINE; only a selection that really NAMES the PREVIEW FACE (a failed/missing edge's face) shows the face's selection highlight -- the note-taker's 13:43 reading a corrected |
 | 183 | 2026-10-19 | a change request: the 'Overlay' PRESET (data/settings/Overlay.FCParam): the BOTTOM panel TRANSPARENT and auto hide 'None'; the REPORT VIEW moved from the top panel to the bottom -- report view LEFT half, Python console RIGHT half, the selection view right-most, COLLAPSED | OPEN; said to the note-taker 2026-10-19 13:46 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
@@ -25337,6 +25341,21 @@ c. Several rows selected: each face highlighted (read so).
 d. A missing or failed edge's face (180's red cross): read as the face
    in the selection colour too.
 e. All dress-ups: read so ("the dress up feature").
+
+**2026-10-19 13:49, the reporter (to the note-taker), NARROWING the request:** "entry 182, click a working preview face selects the base edge, and not highlight the preview face, which is fine. What I want is that if the selection is really named to the preview face, like clicking a failed/missing face will do, then the preview face shall show the highlight"
+The note-taker's reading:
+- A click on a WORKING (present) edge's preview face selects the BASE
+  EDGE and does NOT highlight the preview face -- that is FINE, unchanged.
+- WANTED: when the selection is REALLY NAMED TO THE PREVIEW FACE -- as a
+  click on a FAILED or MISSING edge's face does (169: the kept face
+  itself selected) -- the PREVIEW FACE shows the SELECTION highlight.
+CORRECTION of the note-taker's 13:43 reading a ("the preview FACE for
+that edge, in the selection colour, together with the base edge's own
+selection") and b ("selected from the list ... both"): too wide -- only
+a selection naming the preview face itself lights the face.
+NOT said: a failed/missing edge's ROW selected in the list -- whether
+that names the preview face (and so lights it): read so, if the row's
+selection is the face's name (169's "?Edge" row stands for the kept face).
 
 ## 183. The 'Overlay' preset: the bottom panel transparent with no auto hide; the report view and the Python console side by side in it, the selection view collapsed at the right (a change request) -- OPEN
 

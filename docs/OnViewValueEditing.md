@@ -725,7 +725,7 @@ key opens it with no active value too.
 | Thing | Scope | Why |
 |---|---|---|
 | Handles shown / hidden | the view | ruled 08:48; the container is attached to the view's editing root already (per view edit) |
-| Preview shown / hidden | the view | ruled 08:48; the session preview is per view already |
+| Preview shown / hidden | the preference + the document | ruled 09:34, replacing 08:48: as the panel's check box (8.6) |
 | Active handle, open label | the view | already: the set is attached to one view |
 | The six drag settings | GLOBAL for now | they are preferences; a browser user changing one changes everyone's until preferences are user aware (later). Read and written through one accessor so that change is in one place |
 | The feature's recompute pause | the document | it is the document's object |
@@ -736,7 +736,15 @@ at the top middle while it is active, as there is no handle to stand by.
 
 ### 8.6 For the reporter
 
-a. "Show preview" off in one view: the preview leaves that view, but the
+ANSWERED 2026-10-19 09:34 for a: "show preview should behave the same as
+the task panel" -- the menu's "Show preview" is the panel's check box in
+the menu: it writes `PreviewOnEdit` and, off, resumes the recompute
+(`MonitorProxy::onPreview`); b falls away. "Toggle handles" stays this view
+only. Under 174 `PreviewOnEdit` becomes a per user setting
+(docs/UserSettings.md), but the recompute it resumes is the document's, so
+a browser user switching it off changes what every viewer of the edit sees.
+
+a. (as proposed before the answer) "Show preview" off in one view: the preview leaves that view, but the
    feature's recompute stays paused while the edit lasts (another view, or
    another user, may still be looking at the preview), so that view shows
    the base feature until the edit ends. Or should "off" also resume the

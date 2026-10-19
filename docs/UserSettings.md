@@ -42,8 +42,17 @@ browser user is to have preferences of their own.
 
 ### 2.1 Who "the user" is
 
-A second thread scope beside the actor: `Gui::PrefUser` (an RAII scope,
-nesting, innermost wins), read by everything below. Kept apart from
+**Revised after the reporter's answers of 09:32** ("it should never mix
+with local user ... in addition to remember the user on editing, get the
+user id from the view also if not in edit. Modify cog param helper to add a
+flag to indicate the setting is per user ... check if that's possible"): no
+fall-back to the local user's values anywhere (2.2); the user also comes
+from the view (below); and 2.5 is the main road, with its feasibility
+checked in 2.5.1.
+
+A second thread scope beside the actor: `App::PrefUser` (an RAII scope,
+nesting, innermost wins; in App, not Gui, because the generated accessor
+classes of App and Base read it too), read by everything below. Kept apart from
 `ActorScope` on purpose: the actor is who WROTE (the log's author must stay
 the client who typed), the preference user is whose SETTINGS apply, and in a
 shared edit those two differ.
@@ -61,6 +70,17 @@ shared edit those two differ.
   `ActorScope`. So the panel's widgets and the handles' drag settings are
   the initiating user's, whoever of a shared edit's users touches them
   (2.6 b), and the log still names who touched them.
+- **Out of an edit, the VIEW says who** (09:32): every viewer carries the
+  user it is for -- a `MirrorViewer` its connection's actor, a desktop view
+  none (the local user). Whatever runs for one view -- its events replayed,
+  its render, its navigation -- runs under `PrefUser` = that view's user,
+  unless the view is in an edit, whose user then wins. One user with
+  several views is the same user in each.
+- Code that runs for no view and no client (a timer, a recompute, a worker
+  thread) has no preference user: the local user's values. A worker
+  computing for a browser user therefore reads the local user's settings;
+  a setting that matters there has to be read on the GUI thread and passed
+  in.
 
 ### 2.2 Where a user's values live
 
@@ -73,28 +93,37 @@ shared edit those two differ.
   -- the reporter's "prefix to setting path": the user's prefix put before
   the path, the path itself unchanged below it. `<name>` escaped to a group
   name.
-- **Read**: the user's entry when it has one, else the global entry, else
-  the default. **Write**: the user's entry only; the global is the desktop
-  user's (2.6 c). A user "reset to default" removes their entry, so the
-  global shows through again.
+- **Read**: the user's entry when it has one, else the parameter's DEFAULT
+  -- never the local user's value (ruled 09:32: "it should never mix with
+  local user"). **Write**: the user's entry only. The other way round too:
+  the local user never reads a browser user's value. A user "reset to
+  default" removes their entry.
+- **When a user has no value** (the reporter's question): a setting they
+  never changed, which is most of them; their first visit; every connection
+  of a `Declared` user, whose values are not kept (2.6 d); a setting added
+  by a newer build; a user the host has forgotten. In each case the
+  parameter's default, the same as a fresh install. So a host who tuned a
+  setting does not hand that to a new browser user. If that is wanted later,
+  it is a separate, explicit "defaults for users" group the host edits
+  (`Users parameter:_defaults/...`), read before the built-in default --
+  never the host's own values.
 - **Who keeps values**: `Verified`, `Invited`, `Enrolled` users in the
   file. A `Declared` name is what a connection said and anybody can say it,
   so a declared user's values are held in memory for the connection only
   and dropped when it goes (2.6 d).
 
 One helper does the lookup for both callers below:
-`Gui::UserParameter::group(path)` -> the global group and, under a
-preference user, theirs; `get*(path, name, def)` with the fall-back;
-`set*(...)` to the right one; and an observer of both.
+`App::UserParameter::group(path)` -> under a preference user their group
+(made on first use, in memory for a declared user), else the global one --
+one group, never a blend of two.
 
 ### 2.3 Preference widgets
 
 `PrefWidget` resolves its group through the helper instead of holding one
 handle:
 
-- restore: the fall-back read; save: the user's write; observe both groups,
-  so a value changed under the global (the desktop user, the preferences
-  dialog) shows in a user's widget that has no value of its own.
+- restore: the user's read (the default when they have none); save: the
+  user's write; observe the group it read.
 - **Which user**: the preference user at the moment of the read or write
   (2.1). A panel's widgets are made inside `setEdit`, read again on every
   restore, and written under the edit's user by 2.1, so a panel shows and
@@ -131,15 +160,56 @@ on hot paths (every drag step), with no user in its signature.
   the rest are generated exactly as now.
 - For one that is: the getter checks the preference user (one thread-local
   read); none -> the global cache as now; a user -> a per-user cache (a map
-  from the user to the values, filled on first use with the fall-back read,
-  updated by an observer of the user's group; a map node never moves, so
-  `const T&` stays valid); the setter writes the user's entry under a user.
+  from the user to the values, filled on first use from the user's group
+  with the parameter's default, updated by an observer of the user's group;
+  a map node never moves, so `const T&` stays valid); the setter writes the
+  user's entry under a user.
+- A class can declare every parameter per user at once (`PerUser = True`
+  beside `ParamPath` in its `.py`), the step-by-step road to "ideally, all
+  settings shall be user aware": one class at a time, then the flag on the
+  rest.
 - First the six drag settings of 171, then whatever an edit reaches as the
   browser work (172) needs them. The generator change is one template in
   `params_utils.py`; the regenerated files are the cog blocks of each
   class.
 - Python's `App.ParamGet` and code that reads a group directly stay global
   -- out of scope until a caller needs otherwise.
+
+### 2.5.1 Is it possible in the generator? Yes (read in `params_utils.py`)
+
+What `define()` makes today (`params_utils.py` 186-436): one hidden
+`<Class>P`, a `ParameterGrp` observer with `handle` and `subHandles` (one per
+sub-path), a member per parameter holding its cached value, a `funcs` map
+from entry name to an `update<Name>` that re-reads it, and `OnChange`
+dispatching through that map. The public statics return `instance()-><Name>`
+and write through `handle`/`subHandles`. Every piece has a per-user twin
+that the template can emit beside it, for the flagged parameters only:
+
+- `struct UserValues { handle; subHandles; <the flagged members>; }`, and
+  in `<Class>P` a `std::map<std::string, std::unique_ptr<UserValues>>` keyed
+  by the user's id. Made on first use for a user: its handles from
+  `App::UserParameter` (the user's prefix before `ParamPath` and each
+  sub-path), each member read with the parameter's default, and an observer
+  attached -- the same `funcs` table, re-pointed at the user's members (an
+  `update<Name>` that takes the values struct instead of `self`).
+- `get<Name>()`: `if (auto u = App::PrefUser::currentId()) return
+  instance()->user(u).<Name>; return instance()-><Name>;` -- one
+  thread-local read on the local path; a map lookup under a user.
+- `set<Name>()` and `remove<Name>()`: the user's handle under a user.
+  `default<Name>()` is unchanged.
+- `on<Name>Changed()` and `signalParamChanged` fire for a user's change too,
+  under that user's `PrefUser`, so a handler reading the getter sees the
+  value that changed. Most flagged parameters have neither.
+- Threads: the map is touched only under a preference user, which only the
+  GUI thread sets (2.1); a mutex around the lookup costs nothing on the
+  local path and keeps a stray reader safe.
+- The parameter registry (omni search, `App::ParamRegistry`) builds editors
+  from proxies that read and write the global group; a flagged parameter's
+  proxy goes through the getter and setter instead, so an editor opened by
+  a browser user edits their value. To be checked when built.
+- Cost: nothing for an unflagged class (the template emits what it does
+  today); a flagged class regenerates its cog blocks. The 47 classes whose
+  output is committed are regenerated by hand (`CLAUDE.md`, cog).
 
 ### 2.6 For the reporter
 
@@ -149,8 +219,9 @@ b. A shared edit (one set of handles for all, 172's 9.5 a) driven by
    someone who did not begin it: whose settings? Proposed: the initiating
    user's, by your "each edit shall identify the initiating user"; the log
    still names who changed what.
-c. May a browser user change the GLOBAL value? Proposed: no -- a browser
-   user writes only their own; the global is the desktop user's (the host).
+c. ANSWERED 09:32: a user's settings never mix with the local user's --
+   no reading of the global as a fall-back, no writing of it. A user with
+   no value of their own gets the default (2.2).
 d. A `Declared` user (a name nobody checked): settings for the connection
    only, not kept? Proposed: yes; kept for verified, invited and enrolled
    users.
@@ -162,13 +233,15 @@ f. One file for all users (`users.cfg`), or one file per user? Proposed:
 
 ## 3. Order of work, once decided
 
-1. `Gui::PrefUser` and the edit's user (2.1), with the serve source setting
-   it; a test: an edit begun by a served client records it, a replayed
-   event runs under it.
-2. `Gui::UserParameter` (2.2) with its fall-back and the declared users'
-   memory store; C++ tests.
-3. `PrefWidget` through it (2.3); a test with two served users of one
-   document changing one panel setting each.
-4. The generator's `user=True` (2.5) and the six drag settings; 171's
-   sub-menu then per user with no code of its own.
+1. `App::PrefUser`, a viewer's user, and the edit's user (2.1), with the
+   serve source setting it for a client's events and its view's render; a
+   test: an edit begun by a served client records it, a replayed event runs
+   under it, a view out of edit under its connection's user.
+2. `App::UserParameter` (2.2) and the declared users' memory store; C++
+   tests, the no-mix rule among them (a user's read never sees the local
+   value, the local read never sees a user's).
+3. The generator's `user=True` / `PerUser` (2.5, 2.5.1) and the six drag
+   settings; 171's sub-menu then per user with no code of its own.
+4. `PrefWidget` through the helper (2.3); a test with two served users of
+   one document changing one panel setting each.
 5. In the browser (with 172): two Chrome users, each their own coarse step.

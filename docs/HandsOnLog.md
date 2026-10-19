@@ -7740,3 +7740,10 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   is on thundereal/main; merged here as b196d5d35f. r116 on the Windows real
   screen: edit-per-view 25, pd-gui-defects 34, no crash file in either
   home; the on-view set 159 of 159. NOT pushed.
+- 174 revised after 09:32: never mix with the local user (a user with no
+  value gets the default; the cases listed in UserSettings 2.2); the user
+  also from the view out of an edit; the scope moves to App (App::PrefUser)
+  as the generated classes of App and Base read it. The generator check
+  (2.5.1): possible -- a per-user twin of <Class>P's members, handles and
+  observer for flagged parameters, getters one thread-local read on the
+  local path. 173 8.6 a answered 09:34: Show preview = the panel's box.

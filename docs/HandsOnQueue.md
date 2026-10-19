@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 08:32: new entry 173 -- an always-visible on-view edit menu button at the 3D
+view's top middle (the active handle's menu, toggle handles, show
+preview), clear of overlay widgets with the top-middle label.** Under the
+entry.
+
 **2026-10-18 22:18: entry 172 -- the browser has hover/preselection (a note-taker reading
 corrected); the task panel is already there; ORDER: the ThunderealCAD
 merge first, then 172 on the new tracked LinkVibe branch (the reporter).**
@@ -3572,6 +3577,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 170 | 2026-10-18 | a change request: the fillet's and chamfer's ACTIVE HANDLE and ON-VIEW EDIT brought to the REST of the PartDesign features; NOT the 3D pick or mouse hover of their preview (entry 169's) | OPEN; said to the note-taker 2026-10-18 10:42. 2026-10-18 10:47 the build session sized it: set A (7 panels with handles, 14 values) started, Draft first, nothing built; set B (no handle today), c (the patterns' labels) and e (a design note first) put to the reporter. 2026-10-18 11:27 SET A DONE LOCALLY `313083cf4e`, `7ac52ec284` (log `45bd3382dc`), NOT pushed, NOT staged; r111 real screen: pd-values-in-view 37/37, chamfer/fillet tests no failure; a plain arrow click no longer flips Reversed (Pad, Revolution, Hole) -- done before the reporter answered; unused values hidden; 159's clearing click built nowhere yet (the note-taker's 10:42 reading wrong); set B, c, e still the reporter's. 2026-10-18 12:07 the reporter (to the note-taker): "Add handle only if it makes sense, yes design first. Yes pattern label the same." -- set B: handles only where they make sense, a DESIGN FIRST; the patterns' labels onto the same machinery; the click-to-flip question not answered. 2026-10-18 12:10 the reporter (to the note-taker): "Yes no longer flip, but support auto reverse on drag beyond." -- the click no longer flips (kept); NEW: dragging an arrow beyond zero REVERSES automatically. 2026-10-18 12:49 set B DESIGN written (docs/OnViewValueEditing.md sec 7, `6bad844c26`), its 7.6 a-e for the reporter; REVERSE BY DRAG DONE LOCALLY `64766eb4ac`, `b8fdb0da09` (log `80afba4680`), NOT pushed, NOT staged; only the first side reverses; r113 real screen: pad-drag-reverse 13/13, the others no failure; an Escape-cancelled drag now writes the property back. 2026-10-18 12:51 the build session: the design's 7.5 corrected to what was built (`66dd36afbd`): no per-drag undo step, a drag and its reversal go into the edit's one transaction; a cancelled drag turns the feature back and writes the value back. 2026-10-18 21:51 set A and reverse by drag PUSHED (origin/LinkVibe `15205e7387`, "push, no restage yet" about 18:00), NOT restaged (stage `3b52423f11`); set B's 7.6 a-e still the reporter's |
 | 171 | 2026-10-18 | a change request and a question: a RIGHT-BUTTON DRAG of a handle to do the FINE change Shift does now; where the drag increment settings are and how the fine step relates to them; the increment settings brought INTO THE VIEW during an on-view edit, at the bottom middle? | OPEN; said to the note-taker 2026-10-18 21:48; the question answered from the source. 2026-10-18 21:51 the build session: a short design for (1) and (3) after its current task; nothing built before the reporter answers. 2026-10-18 22:02 (3) CHANGED by the reporter: "ok, change idea, do not bring the setting on view. just add a settings sub menu item in the handle context menu. the sub menu has all those settings widget and change it takes effect immediately" -- no settings in the view; a SETTINGS SUB-MENU in the handle's context menu holding the settings' widgets, a change taking effect at once; (1) the right-button fine drag stands. 2026-10-18 22:04 (1) DROPPED by the reporter: "so no need right button drag, since one of the setting determin the default drag is fine or coarse" -- no right-button drag; the default drag behaviour in the Settings sub-menu does it; 171 is now the sub-menu alone. 2026-10-18 22:06 the reporter: "the setting menu shall have edit or checkbox widget like the rest of the menus." -- the sub-menu's items are EDIT or CHECK BOX widgets in the menu, as the fork's other menus have them (e.g. a preference widget's context menu, PrefWidgets.cpp 372). 2026-10-18 22:09 the reporter: "a combobox for the choice. yes leave out for the show interactive" -- the two choices as COMBO BOXES; "Show interactive draggers" LEFT OUT; the sub-menu holds six settings |
 | 172 | 2026-10-18 | a change request: ALL the PartDesign ON-VIEW EDIT (handles, the active handle and typing, the labels, the menus) working IN THE BROWSER, tested in a REAL BROWSER | OPEN; said to the note-taker 2026-10-18 22:13. 2026-10-18 22:16 the reporter: "long touch press on handle to bring up the context menu" -- touch is in scope (b): a LONG PRESS on a handle opens the HANDLE's context menu, the touch form of the right click. 2026-10-18 22:18 the reporter: "there is hover/preselection, check the browser code. task panel shall already in browser by now. Do thunderealcad merge first. then do this on the new tracked LinkVibe branch" -- the browser HAS hover/preselection (the note-taker's "no hover" on touch wrong); the task panel is already in the browser; ORDER: the ThunderealCAD merge FIRST, then 172 on the new tracked LinkVibe branch |
+| 173 | 2026-10-19 | a change request: an always-visible MENU BUTTON at the 3D view's TOP MIDDLE during an on-view edit (left of the top-middle label when there is one), like the cell menu button but label-high, keeping clear of overlay widgets (the label too); its menu = the active handle's context menu plus 'toggle handles' and 'show preview', the settings even with no active handle | OPEN; said to the note-taker 2026-10-19 08:32 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -24003,6 +24009,54 @@ merge included). No `thundereal/LinkVibe` yet.
 NOT said: whether 171 (the Settings sub-menu) also waits for the merge
 and goes on the new branch (read so -- all new work after the merge).
 
+## 173. An on-view edit menu button at the 3D view's top middle: the active handle's menu, toggle handles, show preview; it and the top-middle label clear of overlay widgets (a change request) -- OPEN
+
+**2026-10-19 08:32, the reporter (to the note-taker):** "New request, add a menu button on in 3d view top middle, or on left of a top middle label if there's one. Similar to cell menu button with hover effect, but bigger, same height as on view  label. Should be aware of overlay widgets just like cell menu. So shall the middle label. Add toggle handle menu item, and show preview option. The menu button shall always be visible. The menu show the same content for a context menu of the active handle. If no active handle, still show those settings"
+The note-taker's reading:
+- A MENU BUTTON in the 3D view during an on-view edit, at the TOP
+  MIDDLE; when a top-middle value label is shown, the button sits at
+  that LABEL's LEFT.
+- Its look: like the view cell's menu button, with its hover effect, but
+  BIGGER -- the SAME HEIGHT as an on-view label.
+- It keeps CLEAR OF OVERLAY WIDGETS (the overlaid tree, property view,
+  task panel) as the cell menu button does; the TOP-MIDDLE LABEL shall do
+  the same.
+- ALWAYS VISIBLE (not only on hover, not only with an active handle).
+- Its MENU: the SAME CONTENT as the ACTIVE HANDLE's context menu (the
+  feature's entries, 171's Settings sub-menu), PLUS a "toggle handles"
+  item and a "show preview" option. With NO active handle it still shows
+  the settings (and, read so, the two new items).
+READ in the source, nothing run:
+- The cell menu button: ViewAreaMenuButton (src/Gui/ViewArea.cpp 132 to
+  205): 16 px, three lines, "Subtle until hovered", the hover painted on
+  a ground of its own (paintChromeGround, the overlay's accent colour).
+- Keeping clear of overlays: ViewAreaCell::placeChrome (ViewArea.cpp
+  900 to 930, entry 83): on OverlayManager::coverChanged each piece
+  slides past what OverlayManager::covered() says covers it, along its
+  edge, "as the navigation cube does", and comes back when it goes.
+- The top-middle place: OnViewValue.h 91 (TopMiddle).
+- "show preview": the PartDesign panels already have a "Show preview"
+  check box (PartParams PreviewOnEdit) and a "Transparent preview" one
+  beside it (src/Mod/PartDesign/Gui/Utils.cpp 1673 to 1690, Monitor::
+  addCheckBox).
+NOT said:
+a. "toggle handle": read as SHOWING or HIDING the handles. For this edit
+   only, or the preference "Show interactive draggers" (the one LEFT OUT
+   of 171's sub-menu because it would take the handles away mid-edit --
+   with this button always there, the way back stays) -- not said.
+b. "show preview": read as the panels' "Show preview" check box (the
+   same PreviewOnEdit), as a check box in the menu. "Transparent
+   preview" too -- not said.
+c. Which edits: read as every edit with on-view values (fillet, chamfer,
+   170's), not the sketcher's.
+d. The button's own hover: like the cell's, subtle at rest (read so),
+   though always shown.
+e. With BOTH a top-middle label and the button sliding for an overlay:
+   read as moving together, the button staying at the label's left.
+f. The browser (172): the button there too -- not said (read so, as all
+   the on-view edit goes there).
+g. The menu: read as a click (or a tap) opening it below the button.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -24014,5 +24068,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 172
+the build session, 131 and 132 found by it; entries 134 to 173
 are of 2026-10-15, 134 said to the build session)

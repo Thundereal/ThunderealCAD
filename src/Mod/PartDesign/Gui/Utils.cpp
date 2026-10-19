@@ -57,6 +57,7 @@
 #include <Gui/CommandT.h>
 #include <Gui/MainWindow.h>
 #include <Gui/MDIView.h>
+#include <Gui/OnViewValue.h>
 #include <Gui/ViewProviderPart.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
@@ -1588,6 +1589,10 @@ public:
     
     Gui::View3DInventor *editView = nullptr;
     QPointer<QWidget> taskWidget;
+    /// The panel's "Show preview" box: the edit's menu shows the same switch
+    /// (docs/OnViewValueEditing.md 8.6 a, the reporter 2026-10-19 09:34:
+    /// "show preview should behave the same as the task panel")
+    QPointer<QCheckBox> previewBox;
 
     MonitorProxy proxy;
     QTimer editTimer;
@@ -1610,8 +1615,33 @@ public:
 static Monitor *_MonitorInstance;
 void initMonitor()
 {
-    if (!_MonitorInstance)
+    if (!_MonitorInstance) {
         _MonitorInstance = new Monitor;
+        // The edit's menu (the handles' right click, Space, the menu button)
+        // has the panel's "Show preview": the same box, so the two never
+        // differ and the menu's does all the panel's does
+        Gui::OnViewValueSet::addMenuExtension([](Gui::OnViewValueSet&, QMenu& menu) {
+            if (!_MonitorInstance) {
+                return;
+            }
+            QPointer<QCheckBox> box = _MonitorInstance->previewBox;
+            if (!box || !box->isVisibleTo(box->window()) || !box->isEnabled()) {
+                return;
+            }
+            QAction* action = menu.addAction(box->text());
+            action->setToolTip(box->toolTip());
+            action->setCheckable(true);
+            action->setChecked(box->isChecked());
+            QObject::connect(action, &QAction::toggled, box, [box](bool on) {
+                // after the menu has closed: switching it recomputes
+                QTimer::singleShot(0, box, [box, on]() {
+                    if (box && box->isChecked() != on) {
+                        box->setChecked(on);
+                    }
+                });
+            });
+        });
+    }
 }
 
 void beforeEdit(App::DocumentObject *obj)
@@ -1686,6 +1716,7 @@ QGridLayout *Monitor::addCheckBox(Gui::ViewProviderDocumentObject *vp, QWidget *
     checkbox->setChecked(PartGui::PartParams::getPreviewOnEdit());
     QObject::connect(checkbox, SIGNAL(toggled(bool)), &proxy, SLOT(onPreview(bool)));
     grid->addWidget(checkbox, 0, 0);
+    previewBox = checkbox;
 
     checkbox = new QCheckBox(widget);
     checkbox->setText(QObject::tr("Transparent preview"));

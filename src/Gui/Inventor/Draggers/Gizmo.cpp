@@ -637,7 +637,16 @@ void LinearGizmo::setClickCallback(ClickCallback callback)
 void LinearGizmo::setVisibility(bool visible)
 {
     this->visible = visible;
-    getDraggerContainer()->visible = visible && !property->hasExpression();
+    getDraggerContainer()->visible = visible && !hiddenInView && !property->hasExpression();
+}
+
+void LinearGizmo::setHiddenInView(bool hidden)
+{
+    hiddenInView = hidden;
+    // before initDragger() there is nothing to switch: it applies it
+    if (draggerContainer && property) {
+        setVisibility(visible);
+    }
 }
 
 void LinearGizmo::draggingStarted()
@@ -1117,7 +1126,16 @@ void RotationGizmo::setClickCallback(ClickCallback callback)
 void RotationGizmo::setVisibility(bool visible)
 {
     this->visible = visible;
-    getDraggerContainer()->visible = visible && !property->hasExpression();
+    getDraggerContainer()->visible = visible && !hiddenInView && !property->hasExpression();
+}
+
+void RotationGizmo::setHiddenInView(bool hidden)
+{
+    hiddenInView = hidden;
+    // before initDragger() there is nothing to switch: it applies it
+    if (draggerContainer && property) {
+        setVisibility(visible);
+    }
 }
 
 DirectedRotationGizmo::DirectedRotationGizmo(QuantitySpinBox* property)

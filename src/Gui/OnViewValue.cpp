@@ -23,12 +23,22 @@
 
 #include <algorithm>
 #include <QApplication>
+#include <QCheckBox>
+#include <QComboBox>
 #include <QCursor>
+#include <QFontMetrics>
+#include <QHBoxLayout>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QMenu>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QRegion>
+#include <QSpinBox>
+#include <QStyle>
 #include <QTimer>
 #include <QWidget>
+#include <QWidgetAction>
 #include <Inventor/nodes/SoCamera.h>
 #include <Inventor/sensors/SoNodeSensor.h>
 
@@ -44,6 +54,9 @@
 #include "Control.h"
 #include "Document.h"
 #include "EditableDatumLabel.h"
+#include "MiscParams.h"
+#include "OverlayManager.h"
+#include "OverlayWidgets.h"
 #include "QuantitySpinBox.h"
 #include "SoDatumLabel.h"
 #include "SpinBox.h"
@@ -118,6 +131,103 @@ Base::Rotation facingCamera(SoCamera* camera)
     float q0 {}, q1 {}, q2 {}, q3 {};
     camera->orientation.getValue().getValue(q0, q1, q2, q3);
     return {q0, q1, q2, q3};
+}
+
+/** The edit's menu button (entry 173, docs/OnViewValueEditing.md 8.3): the
+ * view cell's menu button (ViewArea.cpp) -- three strokes, faint at rest, on
+ * a ground of its own when hovered -- as tall as an on-view label, always
+ * shown while the set is in a view with widgets. A click opens the edit's
+ * menu below it.
+ */
+class OnViewMenuButton: public QWidget
+{
+public:
+    OnViewMenuButton(OnViewValueSet* set, QWidget* parent)
+        : QWidget(parent)
+        , set(set)
+    {
+        setObjectName(QStringLiteral("OnViewMenuButton"));
+        setCursor(Qt::ArrowCursor);
+        setToolTip(OnViewValueSet::tr("Edit menu"));
+        setAttribute(Qt::WA_Hover);
+    }
+
+protected:
+    void mousePressEvent(QMouseEvent* event) override
+    {
+        if (event->button() != Qt::LeftButton) {
+            return QWidget::mousePressEvent(event);
+        }
+        event->accept();
+        if (set) {
+            QPointer<OnViewValueSet> keep = set;
+            // after the press: the menu runs a loop of its own
+            QTimer::singleShot(0, set, [keep]() {
+                if (keep) {
+                    keep->openMenu(nullptr, false);
+                }
+            });
+        }
+    }
+    void enterEvent(QEnterEvent* event) override
+    {
+        QWidget::enterEvent(event);
+        hover = true;
+        update();
+    }
+    void leaveEvent(QEvent* event) override
+    {
+        QWidget::leaveEvent(event);
+        hover = false;
+        update();
+    }
+    void paintEvent(QPaintEvent*) override
+    {
+        QPainter p(this);
+        p.setRenderHint(QPainter::Antialiasing);
+        if (hover) {
+            // the cell button's chrome ground (ViewArea.cpp paintChromeGround)
+            p.setPen(QPen(QColor(255, 255, 255), 1));
+            p.setBrush(OverlayDragFrame::accentColor(this));
+            p.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), 3, 3);
+        }
+        QColor c = hover ? QColor(Qt::white) : palette().color(QPalette::WindowText);
+        if (!hover) {
+            c.setAlpha(110);
+        }
+        // Thick strips, each as thick as the gap between two (the reporter
+        // 2026-10-19 10:29 and 10:34: "make the strip the same width as the
+        // space between them"): strips of t, centres 2t apart, round ends
+        // kept inside the side margins
+        const double t = std::max(3.0, height() * 0.15);
+        QPen pen(c);
+        pen.setWidthF(t);
+        pen.setCapStyle(Qt::RoundCap);
+        p.setPen(pen);
+        const double side = width() * 0.25 + t / 2;
+        for (int i = -1; i <= 1; ++i) {
+            const double y = height() / 2.0 + i * 2 * t;
+            p.drawLine(QPointF(side, y), QPointF(width() - side, y));
+        }
+    }
+
+private:
+    QPointer<OnViewValueSet> set;
+    bool hover = false;
+};
+
+/// How wide and tall \a label draws its text, in the view widget's pixels:
+/// the font and size SoDatumLabel::drawImage() takes
+QSize labelTextSize(const EditableDatumLabel* label)
+{
+    const SoDatumLabel* datum = label->label;
+    if (!datum || datum->string.getNum() == 0) {
+        return {};
+    }
+    QFont font(QString::fromUtf8(datum->name.getValue().getString()), datum->size.getValue());
+    QFontMetrics fm(font);
+    const QString text = QString::fromUtf8(datum->string[0].getString());
+    return {fm.horizontalAdvance(text), fm.height()};
 }
 }  // namespace
 
@@ -232,6 +342,7 @@ void OnViewValueSet::addHandle(int index, Gizmo* handle)
     entry->anchors.emplace_back();
     setupHandle(index, handle);
     handle->setHighlighted(index == active);
+    handle->setHiddenInView(!handlesShown);
 }
 
 void OnViewValueSet::clearHandles(int index)
@@ -249,6 +360,7 @@ void OnViewValueSet::clearHandles(int index)
         handle->setDragCallback(nullptr);
         handle->setHoverCallback(nullptr);
         handle->setPreselected(false);
+        handle->setHiddenInView(false);
         if (handle == rightPressHandle) {
             rightPressHandle = nullptr;
         }
@@ -392,6 +504,8 @@ void OnViewValueSet::attach(ViewerContext* newView)
             keyWidget->removeEventFilter(this);
         }
         keyWidget = nullptr;
+        delete menuButton.data();
+        QObject::disconnect(coverConnection);
     }
     view = newView;
     viewLife = view ? view->lifetime() : std::weak_ptr<const void>();
@@ -424,6 +538,15 @@ void OnViewValueSet::attach(ViewerContext* newView)
     keyWidget = view->getWidget();
     if (keyWidget) {
         keyWidget->installEventFilter(this);
+        // The edit's menu button, always shown (entry 173); the column of
+        // top-middle labels and it keep clear of what is laid over the view
+        // (8.4), placed again when that moves
+        menuButton = new OnViewMenuButton(this, keyWidget);
+        menuButton->show();
+        coverConnection = connect(OverlayManager::instance(), &OverlayManager::coverChanged,
+                                  this, [this]() {
+                                      placeLabels();
+                                  });
     }
 
     makeLabels();
@@ -502,6 +625,32 @@ void OnViewValueSet::placeLabels()
     // Facing the camera, so that the text is upright on the screen
     const Base::Rotation rotation = facingCamera(camera);
 
+    // At the top middle: a feature's default value, and an active value
+    // whose handles this view hides, as there is none to stand by (8.5)
+    auto atTop = [this](int i) {
+        const auto& entry = entries[i];
+        return !entry->hidden && entry->label
+            && (entry->place == Place::TopMiddle || (!handlesShown && i == active));
+    };
+    // The column stands in the middle of what no overlay covers (8.4), the
+    // menu button at the first label's left
+    int widest = 0;
+    int firstWidth = 0;
+    bool first = true;
+    for (int i = 0; i < count(); ++i) {
+        if (atTop(i)) {
+            const int w = labelTextSize(entries[i]->label.get()).width();
+            widest = std::max(widest, w);
+            if (first) {
+                firstWidth = w;
+                first = false;
+            }
+        }
+    }
+    int middle = clearMiddle(widest + 2 * (menuButtonSide() + 8));
+    const short middlePixel = middle >= 0 ? short(middle * ratio) : short(size[0] / 2);
+    placeMenuButton(middle, firstWidth);
+
     int row = 0;
     for (int i = 0; i < count(); ++i) {
         auto& entry = entries[i];
@@ -512,9 +661,9 @@ void OnViewValueSet::placeLabels()
         if (entry->hidden) {
             continue;
         }
-        if (entry->place == Place::TopMiddle) {
+        if (atTop(i)) {
             // One under the other, from the top middle down
-            pixel = SbVec2s(short(size[0] / 2), short(size[1] - int((TopMargin + row * TopMargin) * ratio)));
+            pixel = SbVec2s(middlePixel, short(size[1] - int((TopMargin + row * TopMargin) * ratio)));
             ++row;
         }
         else {
@@ -663,17 +812,18 @@ void OnViewValueSet::openMenu(Gizmo* handle, bool atPointer)
         handle = getActiveHandle();
     }
     const int index = handle ? valueOf(handle) : active;
-    if (index < 0 || !entries[index]->menu) {
-        return;
-    }
     QMenu menu(keyWidget);
-    entries[index]->menu(menu, handle);
+    buildMenu(menu, handle);
     if (menu.isEmpty()) {
         return;
     }
-    // Opened by a click, where the pointer is; by a key, at the handle
+    // Opened by a click, where the pointer is; by a key, at the handle, or
+    // below the menu button with no handle to stand by
     QPoint where = QCursor::pos();
-    if (!atPointer && handle && liveView() && keyWidget) {
+    if (!atPointer && !handle && menuButton && menuButton->isVisible()) {
+        where = menuButton->mapToGlobal(QPoint(0, menuButton->height()));
+    }
+    if (!atPointer && handle && index >= 0 && liveView() && keyWidget) {
         const auto& entry = entries[index];
         auto it = std::find(entry->handles.begin(), entry->handles.end(), handle);
         if (it != entry->handles.end()) {
@@ -685,6 +835,214 @@ void OnViewValueSet::openMenu(Gizmo* handle, bool atPointer)
     }
     menu.exec(where);
     focusView();
+}
+
+namespace
+{
+std::vector<OnViewValueSet::MenuExtension>& menuExtensions()
+{
+    static std::vector<OnViewValueSet::MenuExtension> extensions;
+    return extensions;
+}
+
+/// A row of a menu that is a widget: a label and \a field, laid out as the
+/// menu's text is
+QWidgetAction* fieldRow(QMenu* menu, const QString& text, QWidget* field)
+{
+    auto action = new QWidgetAction(menu);
+    auto row = new QWidget(menu);
+    auto layout = new QHBoxLayout(row);
+    layout->setContentsMargins(menu->style()->pixelMetric(QStyle::PM_MenuHMargin) + 24, 2, 8, 2);
+    auto label = new QLabel(text, row);
+    layout->addWidget(label);
+    layout->addStretch();
+    field->setParent(row);
+    layout->addWidget(field);
+    action->setDefaultWidget(row);
+    return action;
+}
+
+/// A check box row of a menu
+QWidgetAction* checkRow(QMenu* menu, const QString& text, QCheckBox*& box)
+{
+    auto action = new QWidgetAction(menu);
+    auto row = new QWidget(menu);
+    auto layout = new QHBoxLayout(row);
+    layout->setContentsMargins(menu->style()->pixelMetric(QStyle::PM_MenuHMargin) + 4, 2, 8, 2);
+    box = new QCheckBox(text, row);
+    layout->addWidget(box);
+    action->setDefaultWidget(row);
+    return action;
+}
+}  // namespace
+
+void OnViewValueSet::addMenuExtension(MenuExtension extension)
+{
+    menuExtensions().push_back(std::move(extension));
+}
+
+void OnViewValueSet::buildMenu(QMenu& menu, Gizmo* handle)
+{
+    const int index = handle ? valueOf(handle) : active;
+    if (index >= 0 && index < count() && entries[index]->menu) {
+        entries[index]->menu(menu, handle);
+    }
+    if (!menu.isEmpty()) {
+        menu.addSeparator();
+    }
+    // The view's own, not a preference (8.5); after the menu has closed: a
+    // handle hidden under the pointer while its menu runs is taken from it
+    QAction* shown = menu.addAction(tr("Show handles"));
+    shown->setCheckable(true);
+    shown->setChecked(handlesShown);
+    connect(shown, &QAction::toggled, this, [this](bool on) {
+        QTimer::singleShot(0, this, [this, on]() {
+            setHandlesShown(on);
+        });
+    });
+    for (const auto& extension : menuExtensions()) {
+        extension(*this, menu);
+    }
+    addSettingsMenu(menu);
+}
+
+void OnViewValueSet::addSettingsMenu(QMenu& menu)
+{
+    // The drag settings of Preferences > Part/Part Design > General, as
+    // widgets written to the preference the moment they change (entry 171:
+    // "change it takes effect immediately"); a widget in a menu does not
+    // close it, so several can be set at once. Global for now
+    // (docs/UserSettings.md: per user later, through these same accessors).
+    QMenu* settings = menu.addMenu(tr("Settings"));
+
+    QCheckBox* delayed = nullptr;
+    settings->addAction(checkRow(settings, tr("Disable recompute while dragging"), delayed));
+    // each named after its preference, which is what a test finds it by
+    delayed->setObjectName(QStringLiteral("OnViewSettingDelayedGizmoUpdate"));
+    delayed->setChecked(MiscParams::getDelayedGizmoUpdate());
+    delayed->setToolTip(tr("Prevents the model from recalculating while manipulating draggers. "
+                           "The shape updates only after release of the mouse button."));
+    connect(delayed, &QCheckBox::toggled, [](bool on) {
+        MiscParams::setDelayedGizmoUpdate(on);
+    });
+
+    QCheckBox* coarse = nullptr;
+    settings->addAction(checkRow(settings, tr("Enable coarse snapping while dragging"), coarse));
+    coarse->setObjectName(QStringLiteral("OnViewSettingEnableCoarseSnap"));
+    coarse->setChecked(MiscParams::getEnableCoarseSnap());
+    coarse->setToolTip(tr("Enables larger snapping increments while manipulating draggers"));
+    connect(coarse, &QCheckBox::toggled, [](bool on) {
+        MiscParams::setEnableCoarseSnap(on);
+    });
+
+    auto modifier = new QComboBox;
+    modifier->setObjectName(QStringLiteral("OnViewSettingFineSnapModifier"));
+    modifier->addItem(tr("Shift"), static_cast<int>(Qt::ShiftModifier));
+    modifier->addItem(tr("Ctrl"), static_cast<int>(Qt::ControlModifier));
+    modifier->setCurrentIndex(
+        GizmoContainer::getFineSnapModifier() == Qt::ControlModifier ? 1 : 0);
+    modifier->setToolTip(tr("Defines the modifier key used for fine snapping while dragging"));
+    settings->addAction(fieldRow(settings, tr("Fine snap modifier"), modifier));
+    connect(modifier, qOverload<int>(&QComboBox::currentIndexChanged), [modifier](int i) {
+        MiscParams::setFineSnapModifier(modifier->itemData(i).toInt());
+    });
+
+    auto behavior = new QComboBox;
+    behavior->setObjectName(QStringLiteral("OnViewSettingDefaultCoarseDragBehavior"));
+    behavior->addItem(tr("Coarse"), 0);
+    behavior->addItem(tr("Fine"), 1);
+    behavior->setCurrentIndex(GizmoContainer::isCoarseByDefault() ? 0 : 1);
+    behavior->setToolTip(
+        tr("Determines whether the drag is coarse or fine without holding the modifier key"));
+    settings->addAction(fieldRow(settings, tr("Default coarse drag behavior"), behavior));
+    connect(behavior, qOverload<int>(&QComboBox::currentIndexChanged), [behavior](int i) {
+        MiscParams::setDefaultCoarseDragBehavior(behavior->itemData(i).toInt());
+    });
+
+    auto linear = new QSpinBox;
+    linear->setObjectName(QStringLiteral("OnViewSettingCoarseLinearSnapMultiplier"));
+    linear->setRange(1, 100);
+    linear->setValue(int(MiscParams::getCoarseLinearSnapMultiplier()));
+    linear->setToolTip(tr("Multiplies the base movement increment when coarse snapping is active"));
+    settings->addAction(fieldRow(settings, tr("Coarse movement multiplier"), linear));
+    connect(linear, qOverload<int>(&QSpinBox::valueChanged), [](int v) {
+        MiscParams::setCoarseLinearSnapMultiplier(v);
+    });
+
+    auto rotation = new QSpinBox;
+    rotation->setObjectName(QStringLiteral("OnViewSettingCoarseRotationSnapMultiplier"));
+    rotation->setRange(1, 100);
+    rotation->setValue(int(MiscParams::getCoarseRotationSnapMultiplier()));
+    rotation->setToolTip(
+        tr("Sets the rotation step in degrees applied when coarse snapping is active"));
+    settings->addAction(fieldRow(settings, tr("Coarse rotation step (degrees)"), rotation));
+    connect(rotation, qOverload<int>(&QSpinBox::valueChanged), [](int v) {
+        MiscParams::setCoarseRotationSnapMultiplier(v);
+    });
+}
+
+int OnViewValueSet::menuButtonSide() const
+{
+    // as tall as a label: its text's height and a margin
+    for (const auto& entry : entries) {
+        if (entry->label) {
+            const int h = labelTextSize(entry->label.get()).height();
+            if (h > 0) {
+                return h + 8;
+            }
+        }
+    }
+    return 24;
+}
+
+int OnViewValueSet::clearMiddle(int needed) const
+{
+    if (!keyWidget) {
+        return -1;
+    }
+    const int middle = keyWidget->width() / 2;
+    const QRegion covered = OverlayManager::instance()->covered(keyWidget);
+    if (covered.isEmpty()) {
+        return middle;
+    }
+    // Only the band the column stands in counts: an overlay lower down hides
+    // none of it
+    const QRect band(0, 0, keyWidget->width(), TopMargin * 2 + menuButtonSide());
+    const QRect clear = (QRegion(band) - covered).boundingRect();
+    if (clear.isEmpty() || clear.width() < needed) {
+        return middle;
+    }
+    return clear.center().x();
+}
+
+void OnViewValueSet::placeMenuButton(int middle, int labelWidth)
+{
+    if (!menuButton || !keyWidget || middle < 0) {
+        return;
+    }
+    const int side = menuButtonSide();
+    // at the first top-middle label's left, centred with it; with none, at
+    // the top middle itself
+    const int x = labelWidth > 0 ? middle - labelWidth / 2 - 8 - side : middle - side / 2;
+    menuButton->setGeometry(std::max(0, x), std::max(0, TopMargin - side / 2), side, side);
+    menuButton->raise();
+}
+
+void OnViewValueSet::setHandlesShown(bool shown)
+{
+    if (handlesShown == shown) {
+        return;
+    }
+    handlesShown = shown;
+    for (const auto& entry : entries) {
+        for (Gizmo* handle : entry->handles) {
+            handle->setHiddenInView(!shown);
+        }
+    }
+    // an active value with no handle to stand by has its label at the top
+    // middle (8.5)
+    showLabels();
+    placeLabels();
 }
 
 bool OnViewValueSet::startTyping(int index, QKeyEvent* first)
@@ -915,6 +1273,19 @@ bool OnViewValueSet::takeKey(QKeyEvent* event, bool overrideOnly)
         moveActive(key == Qt::Key_Backtab || (event->modifiers() & Qt::ShiftModifier));
         return true;
     }
+    // Space: the edit's menu (docs/OnViewValueEditing.md 8.2) -- the active
+    // handle's, as a right click on it opens it, or with no active value
+    // the menu button's. In an edit with values Space no longer toggles
+    // visibility.
+    if (key == Qt::Key_Space && plain) {
+        if (!overrideOnly) {
+            // after the key: the menu runs a loop of its own
+            QTimer::singleShot(0, this, [this]() {
+                openMenu();
+            });
+        }
+        return true;
+    }
     if (active < 0) {
         return false;
     }
@@ -927,17 +1298,6 @@ bool OnViewValueSet::takeKey(QKeyEvent* event, bool overrideOnly)
     if ((key == Qt::Key_Return || key == Qt::Key_Enter) && plain) {
         if (!overrideOnly) {
             startTyping(active);
-        }
-        return true;
-    }
-    // Space: the menu of the active handle, as a right click on it opens it.
-    // Otherwise Space keeps its own meaning (toggling visibility).
-    if (key == Qt::Key_Space && plain && entries[active]->menu) {
-        if (!overrideOnly) {
-            // after the key: the menu runs a loop of its own
-            QTimer::singleShot(0, this, [this]() {
-                openMenu();
-            });
         }
         return true;
     }
@@ -1022,6 +1382,12 @@ bool OnViewValueSet::eventFilter(QObject* watched, QEvent* event)
             });
         }
         return true;
+    }
+    if (watched == keyWidget && event->type() == QEvent::Resize) {
+        // the column and the menu button stand by the view's middle
+        QTimer::singleShot(0, this, [this]() {
+            placeLabels();
+        });
     }
     if (watched == keyWidget) {
         switch (event->type()) {

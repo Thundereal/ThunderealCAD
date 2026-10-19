@@ -153,6 +153,14 @@ public:
             menuCallback();
         }
     }
+    /** Hidden by the view's "Show handles" (OnViewValueSet::setHandlesShown,
+     * docs/OnViewValueEditing.md 8.5), whatever the owner's setVisibility()
+     * says; shown again as the owner has it
+     */
+    virtual void setHiddenInView(bool hidden)
+    {
+        hiddenInView = hidden;
+    }
     //@}
 
     /** @name A drag as one undo step (entry 136)
@@ -263,6 +271,7 @@ protected:
     double initialValue;
 
     bool visible = true;
+    bool hiddenInView = false;
 };
 
 enum class LinearDraggerStyle
@@ -301,6 +310,7 @@ public:
     void setClickCallback(ClickCallback callback);
     void setReleaseCallback(ReleaseCallback callback) override;
     void setVisibility(bool visible);
+    void setHiddenInView(bool hidden) override;
     /** Draw the handle in its active colour while not dragged: the handle
      * that takes typed values (docs/OnViewValueEditing.md 3.2).
      */
@@ -370,6 +380,7 @@ public:
     void setAddFactor(const double val);
     void setClickCallback(ClickCallback callback);
     void setVisibility(bool visible);
+    void setHiddenInView(bool hidden) override;
 
     /// As a linear handle's (an angle typed in the view, a chamfer's), but
     /// with no root button: its value's menu is opened from another handle

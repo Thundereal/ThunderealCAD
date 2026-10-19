@@ -173,6 +173,12 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 12:11: new entry 178 -- Dimension120's recompute error (by the console log:
+an angle dimension's two edges now parallel, "Invalid selection - Det =
+0"); TechDraw execute() to give its error description; an audit. Seen on
+the way: the document's transaction log lacks a column ("joined").**
+Under the entry.
+
 **2026-10-19 12:09: new entry 177 -- omni search: Tab completion in "/error" erases the
 "/error" prefix (by entry 165's design, which switches to the objects
 mode).** Under the entry.
@@ -3689,6 +3695,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22. 2026-10-19 10:27 the reporter: the task bar icon follows the WINDOWS theme (a answered); x16 to be asked about a light-theme icon and every other place the logo is used -- ASKED by the note-taker 10:27, over Remote Control, no answer yet. 2026-10-19 10:29 x16 ANSWERED: no light-theme drawing in the app; the reporter approved a light-ground RECOLOUR of the BARE MARK (website); x16 suggests thundereal-mark-light.svg from the generator, the bare mark themed in 4 places (title-bar button, Std_About icon, Material library icon, template); for the TASK BAR it recommends KEEPING THE TILE (the pinned .exe icon cannot follow the theme) -- a decision for the reporter. 2026-10-19 10:36 the reporter: ONE ICON, changed to look good on BOTH themes WITHOUT its own background (no tile, no themed variants); the task bar icon the same -- supersedes the themed-variant plan and the 10:27 "follow Windows theme". 2026-10-19 10:39 ON HOLD (the reporter): the reporter asks x16 to design the icon first; nothing to be done on 175 until then. 2026-10-19 11:11 DONE by x16 on Thundereal/ThunderealCAD MAIN `094770130e` (pushed, on the reporter's word to x16): the tile-less icon "E2" picked by the reporter; NOT in local LinkVibe yet (needs a merge of thundereal/main); the Windows task bar NOT checked. 2026-10-19 11:51 MERGED into LinkVibe (`ca6eddfbfa`) with a test (app-icon-on-both-grounds 4/4), PUSHED `ba41cdb497` and STAGED (stage18 11:35); the .exe's embedded icon still the old one -- r122. 2026-10-19 12:04 the .exe's embedded icon now the new one (stage19 12:03, `2b69e67e86` not pushed); the Windows task bar itself still to be seen by the reporter |
 | 176 | 2026-10-19 | a defect: the STAGED copy's window title still says FREECAD -- the launch script still starts FreeCAD.exe, though the executable was renamed (Thundereal.exe) | OPEN; said to the note-taker 2026-10-19 11:46; READ: tools\fcad-user.cmd starts a STALE FreeCAD.exe (2026-10-18 12:35) left in the build tree and mirrored into the stage. 2026-10-19 11:51 FIXED by the build session, outside the repo: fcad-user.cmd (and -cdb) start Thundereal.exe (FreeCAD.exe only as a fallback), install-user.ps1's guard on Thundereal.exe, test/serve scripts renamed, the stale FreeCAD(Cmd).exe/.pdb removed from the build tree; OPEN: Thundereal.exe in stage18 still has the OLD embedded icon (r122 with a CMake fix building); the restage to finish needs the reporter's FreeCAD CLOSED. 2026-10-19 12:04 DONE: RESTAGED stage19 12:03 (r122, fcad `2b69e67e86`): the stage's bin has ONLY Thundereal.exe and ThunderealCmd.exe, both embedding the tile-less icon; the .ico dependency fix `2b69e67e86` committed locally, NOT pushed |
 | 177 | 2026-10-19 | a defect: OMNI SEARCH "/error": typing an object name and pressing TAB to complete ERASES the "/error" prefix | OPEN; said to the note-taker 2026-10-19 12:09; READ: by design today (entry 165's build) a Tab on an /error row puts the object's path in the OBJECTS mode, "/ <path>" |
+| 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -24963,6 +24970,72 @@ c. The <<label>> rule of 165 under "/error": read as unchanged -- the
 d. A document prefix ("Doc#") for an object of another document: read
    as kept in the completed text, after "/error ".
 
+## 178. Why Dimension120 is in recompute error; TechDraw's execute() to give the error description; an audit of TechDraw for errors with no description (a change request) -- OPEN
+
+**2026-10-19 12:11, the reporter (to the note-taker):** "new request, check my live session and console log find out what causes recompute error of Dimension120, add modify techdraw code to output the error description in execute(). audit TechDraw code for missing error description in execute()"
+(as typed: "add modify" read as "modify".)
+The note-taker's reading:
+- (1) FIND THE CAUSE of Dimension120's recompute error (a TechDraw
+  dimension in the reporter's document "scanner"), from the reporter's
+  LIVE SESSION and its CONSOLE LOG.
+- (2) CHANGE TechDraw so execute() GIVES THE ERROR DESCRIPTION -- the
+  object's error says why, not only that it failed.
+- (3) AUDIT TechDraw's code for execute() paths that fail WITHOUT an
+  error description.
+(1) FROM THE CONSOLE LOG -- READ by the note-taker, nothing run; the
+LIVE SESSION NOT TOUCHED (the note-taker never touches it; the build
+session's to check there):
+- The log: C:\Users\lei.zheng\AppData\Roaming\Thundereal\
+  mcp_console.log (session started 12:06:31; the reporter's Thundereal,
+  pid 3976).
+- 12:07:31 and 12:07:32: "Dimension120 - no exact match for changed 2d
+  reference: 0" and "... 1" -- BOTH its 2d references changed and had
+  no exact match (DrawViewDimension.cpp 1708).
+- 12:07:32: "<Exception> Geometry.cpp(1087): scanner#Dimension120:
+  Invalid selection - Det = 0".
+- Geometry.cpp 1079 to 1087: Generic::apparentInter -- the apparent
+  intersection of two LINES; det = dir0 x dir1; |det| < 1e-10 -> that
+  throw. It is called from DrawViewDimension.cpp 1098 (the angle between
+  TWO EDGES, getAnglePointsTwoEdges, from execute() about line 480).
+- The note-taker's reading of the cause, NOT confirmed in the session:
+  Dimension120 is an ANGLE dimension between two edges; after the model
+  changed, both its references were re-matched inexactly and now name
+  two PARALLEL (or collinear) lines, which have no angle -- so the throw.
+  The model around it was failing too at that time (12:07:45 to 12:08:01:
+  Fillet011, Fillet004, Fillet007 failed; "Recompute failed!";
+  SectionView003 "Bnd_Box is void"), which may be what moved the edges.
+- The description the reporter sees: the message is a THROWM (Base::
+  ValueError) out of execute(), whose text is "Invalid selection - Det =
+  0" -- it names neither that it is an angle dimension nor that the
+  lines are parallel.
+- (2)/(3) READ: DrawViewDimension::execute() (from line 400) returns
+  "Dimension object has invalid 2d references" once (446) and otherwise
+  THROWs (non-edge references, 3-point non-vertex) or lets the geometry
+  code throw; across TechDraw/App only a few files return a
+  DocumentObjectExecReturn with a text (DrawParametricTemplate,
+  DrawProjGroupItem, DrawViewDimension, DrawViewMulti, DrawViewSection,
+  DrawViewSpreadsheet, FeatureProjection, by a count) -- the audit's
+  start, not its result.
+SEEN ON THE WAY, NOT ASKED (the note-taker's, for the reporter):
+- 12:07:27 "embedded history of scanner: Transaction log: no such column:
+  joined preparing SELECT ... FROM branch" (Document.cpp 5843); 12:07:31
+  the transaction log view the same error; 12:07:39 the same as an
+  "Unhandled Base::Exception caught in GUIApplication::notify" from a
+  QSingleShotTimer, written as crash-2026_10_19-12_07_39_688.log
+  ("CAUGHT", not a crash). The document's embedded transaction log lacks
+  a column ("joined") this build asks for -- an older log than the
+  build's schema.
+- The user folder is new: MigratedFrom.txt "Copied on first start from
+  ...\Roaming\FreeCAD" (12:06).
+NOT said:
+a. What the description should say for Dimension120: read as naming the
+   dimension's kind and the reason ("angle dimension: the two edges are
+   parallel") and, where known, the references.
+b. Whether the dimension should RECOVER (e.g. show no value, or keep the
+   last good angle) instead of failing: not said.
+c. The audit's reach: TechDraw/App execute() only, or also onChanged /
+   the Gui: read as App execute() and what it calls.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -24974,5 +25047,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 177
+the build session, 131 and 132 found by it; entries 134 to 178
 are of 2026-10-15, 134 said to the build session)

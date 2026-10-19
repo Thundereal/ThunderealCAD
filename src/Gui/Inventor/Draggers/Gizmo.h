@@ -35,6 +35,7 @@
 #include <Inventor/sensors/SoFieldSensor.h>
 #include <Inventor/nodekits/SoBaseKit.h>
 #include <Inventor/SbVec3f.h>
+#include <Inventor/SbColor.h>
 #include <QMetaObject>
 #include <QString>
 
@@ -54,6 +55,8 @@ class SoInteractionKit;
 class SoNode;
 class SoScale;
 class SoSwitch;
+class SoSeparator;
+class SoTransform;
 
 namespace Gui
 {
@@ -491,12 +494,18 @@ public:
     /** Marks drawn with the gizmos, in their frame and on top, but not
      * picked and not hidden with them (`visible`): what an owner shows where
      * a gizmo cannot be -- a fillet's red cross where a failed edge's arrow
-     * would stand (docs/HandsOnQueue.md entry 180). Its first child is the
-     * pick style that makes it unpickable; an owner adds after it and
-     * removes what it added with clearMarks().
+     * would stand (docs/HandsOnQueue.md entry 180, addCross()). Its first
+     * child is the pick style that makes it unpickable; clearMarks()
+     * removes everything after it.
      */
     SoSeparator* getMarks();
     void clearMarks();
+    /** A cross at \a pos in the marks: two bars as thick as a linear
+     * handle's shaft, facing the camera and kept at the handles' size on
+     * the screen as they are (the reporter 2026-10-19 15:08: "make the two
+     * bars in the cross as thick as the handle arrow lines")
+     */
+    void addCross(const SbVec3f& pos, const SbColor& color);
 
     // Checks if the gizmos are enabled in the preferences
     static bool isEnabled();
@@ -523,6 +532,9 @@ private:
     WeakPtrT<ViewProviderDragger> viewProvider;
     /// The offset from the editing transform attachViewer() was given
     Base::Matrix4D origin;
+    /// addCross()'s crosses: where each stands, and its transform, which
+    /// the camera callbacks scale and turn as they do the gizmos
+    std::vector<std::pair<SbVec3f, SoTransform*>> crosses;
 
     void addGizmo(Gizmo* gizmo);
 

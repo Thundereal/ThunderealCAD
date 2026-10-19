@@ -40,10 +40,6 @@
 # include <BRepBndLib.hxx>
 # include <Bnd_Box.hxx>
 # include <TopoDS.hxx>
-# include <Inventor/nodes/SoBaseColor.h>
-# include <Inventor/nodes/SoCoordinate3.h>
-# include <Inventor/nodes/SoMarkerSet.h>
-# include <Inventor/nodes/SoSeparator.h>
 # include <functional>
 #endif
 
@@ -67,7 +63,6 @@
 #include <Gui/MDIView.h>
 #include <Gui/OnViewValue.h>
 #include <Gui/Inventor/Draggers/Gizmo.h>
-#include <Gui/Inventor/MarkerBitmaps.h>
 #include <Gui/ViewProviderPart.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
@@ -2131,20 +2126,11 @@ void showFailureMarks(Gui::GizmoContainer* container, PartDesign::DressUp* dress
             points.emplace_back(float(at.x), float(at.y), float(at.z));
         }
     }
-    if (points.empty()) {
-        return;
+    // bars as thick as a handle's shaft, at the handles' size (the reporter
+    // 2026-10-19 15:08; a bitmap marker's lines were thinner)
+    for (const auto& point : points) {
+        container->addCross(point, SbColor(1.0F, 0.0F, 0.0F));
     }
-    auto marks = container->getMarks();
-    auto color = new SoBaseColor;
-    color->rgb.setValue(1.0F, 0.0F, 0.0F);
-    marks->addChild(color);
-    auto coords = new SoCoordinate3;
-    coords->point.setValues(0, static_cast<int>(points.size()), points.data());
-    marks->addChild(coords);
-    // a marker keeps its size on the screen, as a handle does
-    auto cross = new SoMarkerSet;
-    cross->markerIndex = Gui::Inventor::MarkerBitmaps::getMarkerIndex("CROSS", 20);
-    marks->addChild(cross);
 }
 
 void fitViewWithDelay(int delay)

@@ -297,6 +297,13 @@ private:
     /// at the view widget, ahead of the navigation, which opens the view's
     /// own menu on a right click in some styles before the scene sees it.
     Gizmo* rightPressHandle = nullptr;
+    /// A left press on nothing: its release, unmoved, leaves no value
+    /// active (entry 159); setActive() counts, so a value made active in
+    /// between keeps it
+    bool clickMayClear = false;
+    QPoint clickPos;
+    int clickActivations = 0;
+    int activations = 0;
 };
 
 }  // namespace Gui

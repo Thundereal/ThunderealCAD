@@ -401,6 +401,45 @@ def run():
               (at, below))
         key(Qt.Key_Escape)
 
+        # A click on nothing leaves no value active (entry 159, the reporter
+        # 2026-10-16 10:37, 2026-10-19 15:18): Tab makes the length active,
+        # whose menu has "Reversed"; a click at the view's left edge, where
+        # nothing is, then Space: the menu has no "Reversed"
+        viewer_widget().setFocus()
+        key(Qt.Key_Tab)
+        names = with_menu(lambda: key(Qt.Key_Space), items) or []
+        active_has = "Reversed" in names
+        vp_ = viewer_widget().viewport() if hasattr(viewer_widget(), "viewport") else viewer_widget()
+        empty = QtCore.QPoint(12, vp_.height() // 2)
+        QtTest.QTest.mouseMove(vp_, empty)
+        pump(20)
+        QtTest.QTest.mouseClick(vp_, Qt.LeftButton, Qt.NoModifier, empty)
+        pump(40)
+        names = with_menu(lambda: key(Qt.Key_Space), items) or []
+        note("INFO after a click on nothing, Space's menu: %s" % names)
+        check("a click on nothing leaves no value active", active_has and "Reversed" not in names
+              and "Settings" in names, (active_has, names))
+        # and a click picking something else does too (15:21): the pad's
+        # front face, as the view projects it -- the top face's middle is
+        # where the length's arrow stands, a click on which keeps it active.
+        # What the click picked is what it selected.
+        key(Qt.Key_Tab)
+        FreeCADGui.Selection.clearSelection()
+        x, y = view().getPointOnViewport(FreeCAD.Vector(5, 0, 2.5))
+        mid = QtCore.QPoint(int(x), int(vp_.height() - y))
+        QtTest.QTest.mouseMove(vp_, mid)
+        pump(20)
+        QtTest.QTest.mouseClick(vp_, Qt.LeftButton, Qt.NoModifier, mid)
+        pump(40)
+        picked = ",".join("%s%s" % (s.ObjectName, list(s.SubElementNames))
+                          for s in FreeCADGui.Selection.getSelectionEx("", 0))
+        names = with_menu(lambda: key(Qt.Key_Space), items) or []
+        note("INFO a click picking %r, then Space's menu: %s" % (picked, names))
+        check("a click picking something else leaves no value active too",
+              bool(picked) and "Reversed" not in names and "Settings" in names, (picked, names))
+        FreeCADGui.Selection.clearSelection()
+        pump(10)
+
         # Space with nothing active
         no_active()
         names = with_menu(lambda: key(Qt.Key_Space), items) or []

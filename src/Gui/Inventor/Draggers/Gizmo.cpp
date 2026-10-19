@@ -42,11 +42,13 @@
 #include <Inventor/events/SoLocation2Event.h>
 #include <Inventor/events/SoMouseButtonEvent.h>
 #include <Inventor/nodes/SoBaseColor.h>
+#include <Inventor/nodes/SoCube.h>
 #include <Inventor/nodes/SoEventCallback.h>
 #include <Inventor/nodes/SoLightModel.h>
 #include <Inventor/nodes/SoOrthographicCamera.h>
 #include <Inventor/nodes/SoPerspectiveCamera.h>
 #include <Inventor/nodes/SoPickStyle.h>
+#include <Inventor/nodes/SoRotationXYZ.h>
 #include <Inventor/nodes/SoScale.h>
 #include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/nodes/SoSphere.h>
@@ -394,8 +396,14 @@ void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
                 QToolTip::hideText();
             }
             cb->setHandled();
-            // the release comes back here, not to the view
-            cb->grabEvents();
+            // No grabEvents() here. A navigation style can take the release
+            // before the scene sees it (one opens the view's menu on a right
+            // release), and the grab was then never let go of; the handle
+            // whose node held it went with a change made from the menu, and
+            // the next mouse event traversed the dead grabber: a pure virtual
+            // call in SoHandleEventAction::beginTraversal (docs/HandsOnQueue.md
+            // entry 186, the reporter's session 2026-10-19 15:59). The release
+            // reaches this callback through the scene as any event does.
         }
         return;
     }
@@ -403,7 +411,6 @@ void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
         const bool pressed = self->menuPressed;
         self->menuPressed = false;
         if (pressed) {
-            cb->releaseEvents();
             cb->setHandled();
             if (over) {
                 // After the event: the menu runs a loop of its own, and what
@@ -1252,6 +1259,12 @@ GizmoContainer::GizmoContainer()
     auto pickStyle = SO_GET_ANY_PART(this, "pickStyle", SoPickStyle);
     pickStyle->style = SoPickStyle::SHAPE_ON_TOP;
 
+    // Drawn over a dress-up's on-top preview (its priority -2) and under the
+    // on-view labels (1): the handles were drawn before the preview, which
+    // covered them (docs/HandsOnQueue.md entry 185, the reporter 2026-10-19
+    // 15:49). Picking is not ordered by this.
+    SO_GET_ANY_PART(this, "annotation", So3DAnnotation)->priority = -1;
+
     auto toggleSwitch = SO_GET_ANY_PART(this, "toggleSwitch", SoToggleSwitch);
     toggleSwitch->on.connectFrom(&visible);
 
@@ -1443,6 +1456,11 @@ void GizmoContainer::cameraChangeCallback(void* data, SoSensor*)
         float localScale = viewVolume.getWorldToScreenScale(gizmo->getDraggerPlacement().pos, 0.015);
         gizmo->setGeometryScale(localScale);
     }
+    // the crosses at the gizmos' size
+    for (auto& [pos, transform] : sudoThis->crosses) {
+        const float s = viewVolume.getWorldToScreenScale(pos, 0.015);
+        transform->scaleFactor.setValue(s, s, s);
+    }
 }
 
 void GizmoContainer::cameraPositionChangeCallback(void* data, SoSensor*)
@@ -1455,6 +1473,10 @@ void GizmoContainer::cameraPositionChangeCallback(void* data, SoSensor*)
 
         for (auto gizmo : sudoThis->gizmos) {
             gizmo->orientAlongCamera(camera);
+        }
+        // a cross lies in the screen's plane
+        for (auto& cross : sudoThis->crosses) {
+            cross.second->rotation = camera->orientation.getValue();
         }
     }
 }
@@ -1471,6 +1493,43 @@ void GizmoContainer::clearMarks()
     while (marks->getNumChildren() > 1) {
         marks->removeChild(marks->getNumChildren() - 1);
     }
+    crosses.clear();
+}
+
+void GizmoContainer::addCross(const SbVec3f& pos, const SbColor& color)
+{
+    // A linear handle's shaft is 0.4 across (SoArrowGeometry, cylinderRadius
+    // 0.2), in the units its geometry scale makes a size on the screen; the
+    // bars are that thick, and about as long as the bitmap cross they
+    // replace was wide
+    constexpr float thickness = 0.4F;
+    constexpr float length = 2.2F;
+    auto cross = new SoSeparator;
+    auto transform = new SoTransform;
+    transform->translation = pos;
+    cross->addChild(transform);
+    auto light = new SoLightModel;
+    light->model = SoLightModel::BASE_COLOR;
+    cross->addChild(light);
+    auto base = new SoBaseColor;
+    base->rgb = color;
+    cross->addChild(base);
+    for (float angle : {float(M_PI / 4), float(-M_PI / 4)}) {
+        auto bar = new SoSeparator;
+        auto turn = new SoRotationXYZ;
+        turn->axis = SoRotationXYZ::Z;
+        turn->angle = angle;
+        bar->addChild(turn);
+        auto cube = new SoCube;
+        cube->width = length;
+        cube->height = thickness;
+        cube->depth = thickness;
+        bar->addChild(cube);
+        cross->addChild(bar);
+    }
+    getMarks()->addChild(cross);
+    crosses.emplace_back(pos, transform);
+    calculateScaleAndOrientation();
 }
 
 bool GizmoContainer::isEnabled()

@@ -326,6 +326,12 @@ void TaskDressUpParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
         onPreselectChanged(msg);
         return;
     }
+    if (msg.Type == Gui::SelectionChanges::AddSelection
+            || msg.Type == Gui::SelectionChanges::RmvSelection
+            || msg.Type == Gui::SelectionChanges::ClrSelection
+            || msg.Type == Gui::SelectionChanges::SetSelection) {
+        syncPreviewSelection();
+    }
 
     bool addSel = false;
     switch(msg.Type) {
@@ -1150,6 +1156,86 @@ void TaskDressUpParameters::onTimer() {
         Gui::Selection().rmvPreselect();
         lightPreviewFace(std::string());
     }
+}
+
+void TaskDressUpParameters::syncPreviewSelection()
+{
+    // A selection that names the preview's face itself -- a failed or
+    // missing edge's, which a click on it or its row selects (a working
+    // edge's face selects the base's edge instead) -- shows the face in the
+    // selection colour (the reporter 2026-10-19 13:49, entry 182)
+    auto view = getDressUpView();
+    auto obj = view ? view->getObject() : nullptr;
+    if (!obj || !obj->isAttachedToDocument())
+        return;
+    const std::string &prefix = PartDesign::FeatureAddSub::addsubElementPrefix();
+    const std::string owner = std::string(obj->getNameInDocument()) + ".";
+    std::vector<int> faces;
+    for (const auto &sel : Gui::Selection().getCompleteSelection(Gui::ResolveMode::NoResolve)) {
+        if (!sel.pObject || sel.pObject->getDocument() != obj->getDocument() || !sel.SubName)
+            continue;
+        const std::string subname(sel.SubName);
+        auto pos = subname.rfind(prefix);
+        if (pos == std::string::npos)
+            continue;
+        // the preview of this feature: its name ends the path before the prefix,
+        // or the feature is the selected object itself
+        const bool own = sel.pObject == obj
+            || (pos >= owner.size() && subname.compare(pos - owner.size(), owner.size(), owner) == 0);
+        if (!own)
+            continue;
+        const char *element = subname.c_str() + pos + prefix.size();
+        if (boost::starts_with(element, "Face")) {
+            const int face = std::atoi(element + 4);
+            if (face > 0 && std::find(faces.begin(), faces.end(), face) == faces.end())
+                faces.push_back(face);
+        }
+    }
+    // A failed edge that is still there: a click on its face selects the
+    // base's edge (ViewProviderDressUp::redirectEditingPick), but the red
+    // face is what stands for it, so that face shows selected with it (the
+    // reporter's PrismLocker in scanner, 2026-10-19 15:16)
+    auto dressUp = Base::freecad_dynamic_cast<PartDesign::DressUp>(obj);
+    App::DocumentObject *base = dressUp ? dressUp->getBaseObject(true) : nullptr;
+    const auto &failed = dressUp ? dressUp->FailedEdges.getValues() : std::vector<std::string>();
+    if (base && !failed.empty()) {
+        for (const auto &sel : Gui::Selection().getSelectionEx(
+                 obj->getDocument()->getName(), App::DocumentObject::getClassTypeId(),
+                 Gui::ResolveMode::OldStyleElement)) {
+            if (sel.getObject() != base)
+                continue;
+            for (const auto &name : sel.getSubNames()) {
+                if (std::find(failed.begin(), failed.end(), name) == failed.end())
+                    continue;
+                const int face = previewFaceOf(name);
+                if (face > 0 && std::find(faces.begin(), faces.end(), face) == faces.end())
+                    faces.push_back(face);
+            }
+        }
+    }
+    view->selectPreviewFaces(faces);
+}
+
+int TaskDressUpParameters::previewFaceOf(const std::string &edge) const
+{
+    // the face of the preview the feature keeps for \a edge, as last made:
+    // by partner with the faces getMadeFaces() names (as getItemElement())
+    auto view = getDressUpView();
+    auto dressUp = view ? Base::freecad_dynamic_cast<PartDesign::DressUp>(view->getObject()) : nullptr;
+    if (!dressUp)
+        return 0;
+    TopoDS_Shape made = dressUp->getMadeFaces(edge);
+    auto preview = dressUp->DressUpShape.getShape();
+    if (made.IsNull() || preview.isNull())
+        return 0;
+    for (int i = 1, c = preview.countSubShapes(TopAbs_FACE); i <= c; ++i) {
+        const TopoDS_Shape face = preview.getSubShape(TopAbs_FACE, i);
+        for (TopExp_Explorer exp(made, TopAbs_FACE); exp.More(); exp.Next()) {
+            if (face.IsPartner(exp.Current()))
+                return i;
+        }
+    }
+    return 0;
 }
 
 void TaskDressUpParameters::lightPreviewFace(const std::string &subname)

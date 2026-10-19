@@ -759,6 +759,8 @@ void OnViewValueSet::setActive(int index, Gizmo* handle)
     if (index < -1 || index >= count()) {
         index = -1;
     }
+    // what a click on nothing checks for: a value made active meanwhile
+    ++activations;
     // A value an expression drives is not typed in the view, nor one the
     // feature does not use now
     if (index >= 0
@@ -1400,6 +1402,43 @@ bool OnViewValueSet::eventFilter(QObject* watched, QEvent* event)
             });
         }
         return true;
+    }
+    // A click anywhere but on a handle -- on nothing, or picking anything
+    // else -- leaves no value active (entry 159, the reporter 2026-10-16
+    // 10:37, and 2026-10-19 15:18 and 15:21: "click picking anything else
+    // should also clear the active handle"); what it picks is selected as
+    // usual. Only a click: a press that moves is the camera's. Looked at
+    // after the scene had the release, and only if nothing was made active
+    // meanwhile -- a click on a handle or on a label makes its value active.
+    if (watched == keyWidget && !dragHandle && event->type() == QEvent::MouseButtonPress
+        && static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton) {
+        clickMayClear = false;
+        if (active >= 0) {
+            bool overHandle = false;
+            for (const auto& entry : entries) {
+                for (Gizmo* handle : entry->handles) {
+                    overHandle = overHandle || handle->isHovered();
+                }
+            }
+            if (!overHandle) {
+                clickMayClear = true;
+                clickPos = static_cast<QMouseEvent*>(event)->globalPosition().toPoint();
+                clickActivations = activations;
+            }
+        }
+    }
+    if (watched == keyWidget && clickMayClear && event->type() == QEvent::MouseButtonRelease
+        && static_cast<QMouseEvent*>(event)->button() == Qt::LeftButton) {
+        clickMayClear = false;
+        const QPoint at = static_cast<QMouseEvent*>(event)->globalPosition().toPoint();
+        if ((at - clickPos).manhattanLength() <= QApplication::startDragDistance()) {
+            const int before = clickActivations;
+            QTimer::singleShot(0, this, [this, before]() {
+                if (activations == before && active >= 0 && typing < 0 && !dragHandle) {
+                    setActive(-1);
+                }
+            });
+        }
     }
     if (watched == keyWidget && event->type() == QEvent::Resize) {
         // the column and the menu button stand by the view's middle

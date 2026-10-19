@@ -215,7 +215,7 @@ int OnViewValueSet::addValue(QuantitySpinBox* box, const QString& title, Place p
     if (handle) {
         addHandle(index, handle);
     }
-    if (view) {
+    if (liveView()) {
         makeLabels();
         placeLabels();
     }
@@ -362,12 +362,20 @@ int OnViewValueSet::valueOf(const Gizmo* handle) const
 
 ViewerContext* OnViewValueSet::getView() const
 {
-    return view;
+    return liveView();
+}
+
+ViewerContext* OnViewValueSet::liveView() const
+{
+    return viewLife.expired() ? nullptr : view;
 }
 
 void OnViewValueSet::attach(ViewerContext* newView)
 {
-    if (newView == view) {
+    // A view that is gone is only let go of: every use of it below asks
+    // liveView(), its labels forgot it with it (OnViewEntry::forgetViewer),
+    // and the camera sensor and the connection let go of what is gone
+    if (newView == view && liveView()) {
         return;
     }
     if (view) {
@@ -386,6 +394,7 @@ void OnViewValueSet::attach(ViewerContext* newView)
         keyWidget = nullptr;
     }
     view = newView;
+    viewLife = view ? view->lifetime() : std::weak_ptr<const void>();
     if (!view) {
         return;
     }
@@ -481,7 +490,7 @@ void OnViewValueSet::showLabels()
 
 void OnViewValueSet::placeLabels()
 {
-    if (!view) {
+    if (!liveView()) {
         return;
     }
     SoCamera* camera = view->getCamera();
@@ -664,7 +673,7 @@ void OnViewValueSet::openMenu(Gizmo* handle, bool atPointer)
     }
     // Opened by a click, where the pointer is; by a key, at the handle
     QPoint where = QCursor::pos();
-    if (!atPointer && handle && view && keyWidget) {
+    if (!atPointer && handle && liveView() && keyWidget) {
         const auto& entry = entries[index];
         auto it = std::find(entry->handles.begin(), entry->handles.end(), handle);
         if (it != entry->handles.end()) {
@@ -680,7 +689,7 @@ void OnViewValueSet::openMenu(Gizmo* handle, bool atPointer)
 
 bool OnViewValueSet::startTyping(int index, QKeyEvent* first)
 {
-    if (index < 0 || index >= count() || !view) {
+    if (index < 0 || index >= count() || !liveView()) {
         return false;
     }
     auto& entry = entries[index];
@@ -845,7 +854,7 @@ void OnViewValueSet::endTyping(bool keep)
 
 void OnViewValueSet::focusView()
 {
-    if (view && keyWidget && !keyWidget->hasFocus()) {
+    if (liveView() && keyWidget && !keyWidget->hasFocus()) {
         view->setFocusToView();
     }
 }

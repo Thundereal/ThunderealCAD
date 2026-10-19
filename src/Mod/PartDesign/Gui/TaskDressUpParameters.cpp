@@ -45,6 +45,7 @@
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <App/ElementNamingUtils.h>
 #include <App/MappedElement.h>
 #include <Base/Tools.h>
 #include <Gui/Application.h>
@@ -337,6 +338,13 @@ void TaskDressUpParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
     switch(msg.Type) {
     case Gui::SelectionChanges::ClrSelection: {
         showMessage();
+        // A click clears the selection before it adds its pick: a missing
+        // row selected until then is kept for that pick, and forgotten once
+        // the click is over
+        if (QTreeWidgetItem *item = getSoleMissingRow()) {
+            missingPick = getGeometryItemText(item).constData();
+            QTimer::singleShot(0, this, [this]() { missingPick.clear(); });
+        }
         Base::StateLocker guard(busy);
         treeWidget->selectionModel()->clearSelection();
         break;
@@ -413,6 +421,8 @@ void TaskDressUpParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
             }
 
             if(onTopObjs.empty()) {
+                if (sels.size() && replaceMissing(sels.back().getOldElementName()))
+                    return;
                 // If no on top display at the moment, just sync the reference
                 // selection.
                 syncItems(sels);
@@ -440,6 +450,8 @@ void TaskDressUpParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
 
     bool check = true;
     auto items = treeWidget->findItems(QString::fromUtf8(msg.pSubName), Qt::MatchExactly);
+    if (items.empty() && addSel && msg.pSubName && replaceMissing(msg.pSubName))
+        return;
     if(items.size()) {
         Base::StateLocker guard(busy);
         if(selectionMode == refToggle && addSel) {
@@ -518,6 +530,134 @@ bool TaskDressUpParameters::onPreviewSelected(const Gui::SelectionChanges& msg)
     }
     Base::StateLocker guard(busy);
     item->setSelected(true);
+    return true;
+}
+
+QTreeWidgetItem *TaskDressUpParameters::getSoleMissingRow() const
+{
+    if (!treeWidget)
+        return nullptr;
+    QTreeWidgetItem *found = nullptr;
+    for (auto item : treeWidget->selectedItems()) {
+        if (auto parent = item->parent())
+            item = parent;
+        if (found && found != item)
+            return nullptr;
+        found = item;
+    }
+    if (!found || !isBaseItem(found) || getGeometryItemReference(found).isEmpty())
+        return nullptr;
+    return found;
+}
+
+bool TaskDressUpParameters::replaceMissing(const std::string &picked)
+{
+    // "when one missing (not failed) preview shape is selected, clicking
+    // another edge (not already filleted) on base feature shall change the
+    // edge reference inside the failed one. apply this to all other dressup
+    // features" (docs/HandsOnQueue.md entry 188)
+    std::string old;
+    old.swap(missingPick);
+    auto DressUpView = getDressUpView();
+    if (!treeWidget || !DressUpView || selectionMode == refToggle)
+        return false;
+    // the element by its old style name, as the rows have it
+    std::string element = picked;
+    auto dot = element.rfind('.');
+    if (dot != std::string::npos)
+        element.erase(0, dot + 1);
+    if (element.empty())
+        return false;
+
+    QTreeWidgetItem *item = nullptr;
+    if (!old.empty()) {
+        for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i) {
+            auto row = treeWidget->topLevelItem(i);
+            if (getGeometryItemText(row) == old.c_str()) {
+                item = row;
+                break;
+            }
+        }
+        if (item && (!isBaseItem(item) || getGeometryItemReference(item).isEmpty()))
+            item = nullptr;
+    }
+    else
+        item = getSoleMissingRow();
+    if (!item)
+        return false;
+    old = getGeometryItemText(item).constData();
+
+    // an element of the kind the missing one was, and not one in use
+    auto kind = [](const std::string &name) {
+        std::size_t start = name.find_first_not_of(Data::missingPrefix());
+        std::size_t end = name.find_first_of("0123456789", start);
+        return start == std::string::npos ? std::string() : name.substr(start, end - start);
+    };
+    if (kind(old) != kind(element)
+            || !treeWidget->findItems(QString::fromUtf8(element.c_str()), Qt::MatchExactly).empty())
+        return false;
+
+    auto* pcDressUp = static_cast<PartDesign::DressUp*>(DressUpView->getObject());
+    App::DocumentObject* base = pcDressUp->Base.getValue();
+    if (!base)
+        return false;
+
+    std::vector<std::string> subs;
+    {
+        Base::StateLocker guard(busy);
+        // in its place in the list, with its values (a fillet's points and
+        // group, a chamfer's sizes) under the new name
+        item->setText(0, QString::fromUtf8(element.c_str()));
+        setGeometryItemText(item, element);
+        setGeometryItemReference(item, std::string());
+        item->setForeground(0, QBrush());
+        std::set<std::string> subset;
+        for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i) {
+            auto row = treeWidget->topLevelItem(i);
+            std::string s = row->text(0).toStdString();
+            if (subset.insert(s).second && isBaseItem(row))
+                subs.push_back(std::move(s));
+        }
+        treeWidget->clearSelection();
+        item->setSelected(true);
+    }
+
+    try {
+        setupTransaction();
+        // what the values are kept under follows the reference, as when the
+        // element map renames it
+        pcDressUp->Base.signalUpdateElementReference(old, element);
+        pcDressUp->Base.setValue(base, subs);
+        recompute();
+    }
+    catch (Base::Exception &e) {
+        e.ReportException();
+    }
+
+    // the new edge the selection, and its row, once the recompute has
+    // refilled the list
+    std::string sub;
+    if (auto obj = getInEdit(sub)) {
+        sub += element;
+        App::SubObjectT sel(obj, sub.c_str());
+        QTimer::singleShot(0, this, [this, sel, element]() {
+            if (!treeWidget)
+                return;
+            {
+                Base::StateLocker guard(busy);
+                treeWidget->clearSelection();
+                for (auto row : treeWidget->findItems(QString::fromUtf8(element.c_str()),
+                                                      Qt::MatchExactly))
+                    row->setSelected(true);
+            }
+            bool blocked = blockSelection(true);
+            Gui::Selection().clearSelection();
+            Gui::Selection().addSelection(sel.getDocumentName().c_str(),
+                                          sel.getObjectName().c_str(),
+                                          sel.getSubName().c_str());
+            blockSelection(blocked);
+        });
+    }
     return true;
 }
 

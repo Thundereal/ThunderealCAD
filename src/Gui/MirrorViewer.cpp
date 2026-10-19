@@ -224,6 +224,8 @@ public:
      * through the same setFocusToSpinbox() the controller already calls.
      */
     OnViewEntry* focusedParam = nullptr;
+    /// What the client's own interface covers (setCoveredRects())
+    std::vector<std::array<int, 4>> covered;
     std::function<void()> onViewParamsChanged;
     /** The key frame being routed into an entry box, if any.
      *
@@ -1016,6 +1018,20 @@ const Render::VisibilitySet* MirrorViewer::objectVisibilities()
 float MirrorViewer::getPickRadius() const
 {
     return pimpl->state.pickRadius;
+}
+
+std::vector<std::array<int, 4>> MirrorViewer::coveredRects() const
+{
+    return pimpl->covered;
+}
+
+void MirrorViewer::setCoveredRects(std::vector<std::array<int, 4>> rects)
+{
+    if (rects == pimpl->covered) {
+        return;
+    }
+    pimpl->covered = std::move(rects);
+    OnViewValueSet::viewCoverChanged(this);
 }
 
 double MirrorViewer::devicePixelRatio() const

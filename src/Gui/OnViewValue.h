@@ -184,6 +184,9 @@ public:
      * \a viewer has a handle under the pointer.
      */
     static bool buildViewerMenu(ViewerContext* viewer, QMenu& menu);
+    /// What a client covers of \a viewer changed (ViewerContext::
+    /// coveredRects): the labels of the sets shown there placed again
+    static void viewCoverChanged(ViewerContext* viewer);
     /** Whether the handles are shown in this set's view (8.5: the view's
      * own, not a preference). Hidden, the values still take Tab, typing and
      * the menu, and an active value's label stands at the top middle.

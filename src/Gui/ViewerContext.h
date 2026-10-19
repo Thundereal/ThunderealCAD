@@ -31,6 +31,7 @@
 #include <string>
 #include <vector>
 
+#include <array>
 #include <map>
 #include <memory>
 
@@ -600,6 +601,15 @@ public:
     virtual bool cameraIsRemote() const
     {
         return false;
+    }
+    /** What a client's own interface covers of this view -- a browser's
+     * tool bars -- as rectangles {x, y, width, height} in logical pixels
+     * from the top left. None for a desktop view: its overlays are its
+     * widget's (OverlayManager::covered).
+     */
+    virtual std::vector<std::array<int, 4>> coveredRects() const
+    {
+        return {};
     }
     /** The world-space size of what the viewport shows.
      *

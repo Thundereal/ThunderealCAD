@@ -248,6 +248,10 @@ public:
     {
         return true;
     }
+    std::vector<std::array<int, 4>> coveredRects() const override;
+    /// What the client says its own interface covers of the view (the
+    /// `view.covered` op); the on-view labels move clear of it
+    void setCoveredRects(std::vector<std::array<int, 4>> rects);
     SoFCRenderCacheManager* getRenderCacheManager() const override;
     Render::Renderer* getExternalRenderer() const override;
     const SoFCVisibilityElement::Table* visibilityElementTable() const override;

@@ -51,6 +51,7 @@
 #include "Document.h"
 #include "Fw/FwImage.h"
 #include "MenuManager.h"
+#include "MirrorViewer.h"
 #include "OnViewValue.h"
 #include "SceneContextMenu.h"
 #include "SceneControl.h"
@@ -919,6 +920,32 @@ void Gui::installSceneContextMenuOps()
         reply[QLatin1String("id")] = id;
         reply[QLatin1String("ok")] = true;
         reply[QLatin1String("item")] = item;
+        return reply;
+    });
+
+    // What the client's own interface covers of its view -- its tool bars --
+    // so that what the host places on the view goes clear of it: the
+    // on-view labels' top-middle column (docs/OnViewValueEditing.md sec
+    // 9.5a). Not a write: the client's own layout.
+    registerSceneControlOp(QStringLiteral("view.covered"), false,
+                           [](const QJsonObject& req, const std::string& boundDoc, uint64_t client) {
+        const QJsonValue id = req.value(QLatin1String("id"));
+        App::Document* doc = sceneControlDocument(req, boundDoc);
+        auto mirror = dynamic_cast<MirrorViewer*>(clientViewer(doc, client));
+        if (!mirror)
+            return sceneControlError(id, "NoView", QStringLiteral("state a camera first"));
+        std::vector<std::array<int, 4>> rects;
+        for (const QJsonValue& v : req.value(QLatin1String("rects")).toArray()) {
+            const QJsonArray r = v.toArray();
+            if (r.size() != 4)
+                return sceneControlError(id, "BadRequest", QStringLiteral("rects: [[x,y,w,h],...]"));
+            rects.push_back({int(r[0].toDouble()), int(r[1].toDouble()),
+                             int(r[2].toDouble()), int(r[3].toDouble())});
+        }
+        mirror->setCoveredRects(std::move(rects));
+        QJsonObject reply;
+        reply[QLatin1String("id")] = id;
+        reply[QLatin1String("ok")] = true;
         return reply;
     });
 

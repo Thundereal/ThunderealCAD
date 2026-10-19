@@ -964,6 +964,14 @@ changes (`viewer-harness\probes-2026-10-19\drag3`):
   preview box is. #7 and #10 needed nothing: the client's right click
   already asks for the scene menu, and the hover that names the handle
   rides the left-button moves.
+- The top-middle label clear of the web tool bars, BUILT and seen (r145,
+  `label1`): the page tells the host what its tool bars cover of the view
+  (the `view.covered` op, `web/src/covered.ts`) while it edits, on
+  entering the edit and on any resize; a mirror keeps it
+  (`ViewerContext::coveredRects`), and in a view with no widget the
+  column goes below what covers its middle. Seen: "Radius 2 mm" under the
+  fourth bar at 884 x 549, where it was hidden. The desktop's placement
+  unchanged.
 
 ### 9.6 Order of work
 

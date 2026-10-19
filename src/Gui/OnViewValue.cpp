@@ -270,6 +270,15 @@ bool OnViewValueSet::takeViewerKey(ViewerContext* viewer, int key,
     return false;
 }
 
+void OnViewValueSet::viewCoverChanged(ViewerContext* viewer)
+{
+    for (OnViewValueSet* set : liveSets()) {
+        if (viewer && set->liveView() == viewer) {
+            set->placeLabels();
+        }
+    }
+}
+
 bool OnViewValueSet::buildViewerMenu(ViewerContext* viewer, QMenu& menu)
 {
     if (!viewer) {
@@ -734,9 +743,25 @@ void OnViewValueSet::placeLabels()
             }
         }
     }
-    int middle = clearMiddle(widest + 2 * (menuButtonSide() + 8));
+    const int needed = widest + 2 * (menuButtonSide() + 8);
+    int middle = clearMiddle(needed);
     const short middlePixel = middle >= 0 ? short(middle * ratio) : short(size[0] / 2);
     placeMenuButton(middle, firstWidth);
+    // A view with no widget is a client's, whose own interface may cover
+    // its top -- a browser's tool bars: the column goes below what covers
+    // its middle (docs/OnViewValueEditing.md sec 9.5a)
+    int below = 0;
+    if (!keyWidget) {
+        const double width = size[0] / ratio;
+        const double height = size[1] / ratio;
+        const double left = width / 2 - needed / 2.0;
+        const double right = width / 2 + needed / 2.0;
+        for (const auto& r : view->coveredRects()) {
+            if (r[0] < right && r[0] + r[2] > left && r[1] < height / 3) {
+                below = std::max(below, r[1] + r[3]);
+            }
+        }
+    }
 
     int row = 0;
     for (int i = 0; i < count(); ++i) {
@@ -750,7 +775,8 @@ void OnViewValueSet::placeLabels()
         }
         if (atTop(i)) {
             // One under the other, from the top middle down
-            pixel = SbVec2s(middlePixel, short(size[1] - int((TopMargin + row * TopMargin) * ratio)));
+            pixel = SbVec2s(middlePixel,
+                            short(size[1] - int((below + TopMargin + row * TopMargin) * ratio)));
             ++row;
         }
         else {

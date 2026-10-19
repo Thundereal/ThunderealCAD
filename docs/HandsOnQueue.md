@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-19 13:12: entry 178 -- a-c agreed (the late error first; partial = warning;
+translatable); new entry 179 -- the document's embedded transaction log
+older than the build ("no such column: joined"), on "agree all" read as
+yes.** Under the entries.
+
 **2026-10-19 12:24: entry 177 BUILT locally; entry 178 -- Dimension120 confirmed (an angle
 on two parallel edges), the described error BUILT, the audit written
 (threaded views never report their failures), a-c for the reporter.**
@@ -3700,7 +3705,8 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22. 2026-10-19 10:27 the reporter: the task bar icon follows the WINDOWS theme (a answered); x16 to be asked about a light-theme icon and every other place the logo is used -- ASKED by the note-taker 10:27, over Remote Control, no answer yet. 2026-10-19 10:29 x16 ANSWERED: no light-theme drawing in the app; the reporter approved a light-ground RECOLOUR of the BARE MARK (website); x16 suggests thundereal-mark-light.svg from the generator, the bare mark themed in 4 places (title-bar button, Std_About icon, Material library icon, template); for the TASK BAR it recommends KEEPING THE TILE (the pinned .exe icon cannot follow the theme) -- a decision for the reporter. 2026-10-19 10:36 the reporter: ONE ICON, changed to look good on BOTH themes WITHOUT its own background (no tile, no themed variants); the task bar icon the same -- supersedes the themed-variant plan and the 10:27 "follow Windows theme". 2026-10-19 10:39 ON HOLD (the reporter): the reporter asks x16 to design the icon first; nothing to be done on 175 until then. 2026-10-19 11:11 DONE by x16 on Thundereal/ThunderealCAD MAIN `094770130e` (pushed, on the reporter's word to x16): the tile-less icon "E2" picked by the reporter; NOT in local LinkVibe yet (needs a merge of thundereal/main); the Windows task bar NOT checked. 2026-10-19 11:51 MERGED into LinkVibe (`ca6eddfbfa`) with a test (app-icon-on-both-grounds 4/4), PUSHED `ba41cdb497` and STAGED (stage18 11:35); the .exe's embedded icon still the old one -- r122. 2026-10-19 12:04 the .exe's embedded icon now the new one (stage19 12:03, `2b69e67e86` not pushed); the Windows task bar itself still to be seen by the reporter |
 | 176 | 2026-10-19 | a defect: the STAGED copy's window title still says FREECAD -- the launch script still starts FreeCAD.exe, though the executable was renamed (Thundereal.exe) | OPEN; said to the note-taker 2026-10-19 11:46; READ: tools\fcad-user.cmd starts a STALE FreeCAD.exe (2026-10-18 12:35) left in the build tree and mirrored into the stage. 2026-10-19 11:51 FIXED by the build session, outside the repo: fcad-user.cmd (and -cdb) start Thundereal.exe (FreeCAD.exe only as a fallback), install-user.ps1's guard on Thundereal.exe, test/serve scripts renamed, the stale FreeCAD(Cmd).exe/.pdb removed from the build tree; OPEN: Thundereal.exe in stage18 still has the OLD embedded icon (r122 with a CMake fix building); the restage to finish needs the reporter's FreeCAD CLOSED. 2026-10-19 12:04 DONE: RESTAGED stage19 12:03 (r122, fcad `2b69e67e86`): the stage's bin has ONLY Thundereal.exe and ThunderealCmd.exe, both embedding the tile-less icon; the .ico dependency fix `2b69e67e86` committed locally, NOT pushed |
 | 177 | 2026-10-19 | a defect: OMNI SEARCH "/error": typing an object name and pressing TAB to complete ERASES the "/error" prefix | OPEN; said to the note-taker 2026-10-19 12:09; READ: by design today (entry 165's build) a Tab on an /error row puts the object's path in the OBJECTS mode, "/ <path>". 2026-10-19 12:24 BUILT locally `88369fc96f`: Tab completes the name and KEEPS "/error ", the list narrows to it; Enter unchanged; r123 offscreen omni-search-label-one-row 20/20; NOT pushed, NOT staged |
-| 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL. 2026-10-19 12:24 (1) CONFIRMED in the live session by a read-only probe: Dimension120 an Angle on SectionView004 Edge5, Edge9, both along (1,1) -- PARALLEL; (2) BUILT `7eac8caf7e`: a described error; (3) AUDIT docs/TechDrawErrors.md (`959d5360ea`): threaded views' failures never reach the recompute error; questions a-c for the reporter; NOT pushed |
+| 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL. 2026-10-19 12:24 (1) CONFIRMED in the live session by a read-only probe: Dimension120 an Angle on SectionView004 Edge5, Edge9, both along (1,1) -- PARALLEL; (2) BUILT `7eac8caf7e`: a described error; (3) AUDIT docs/TechDrawErrors.md (`959d5360ea`): threaded views' failures never reach the recompute error; questions a-c for the reporter; NOT pushed. 2026-10-19 13:12 the reporter: "agree all" -- a-c AGREED as proposed (3.1 the late error first, then 3.2, 3.3; a partial view a warning; the texts translatable) |
+| 179 | 2026-10-19 | a defect found by the note-taker in the reporter's console log, made an entry on the reporter's "agree all" (read as yes): the document scanner's EMBEDDED TRANSACTION LOG is older than the build's schema -- "no such column: joined" -- on opening, in the transaction log view, and as an exception caught in notify | OPEN; 2026-10-19 13:12 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -25088,6 +25094,45 @@ to 92) as above; the three commits in git.
 The note-taker's question of 12:11 to the reporter (the transaction log
 "no such column: joined") NOT answered yet.
 
+**2026-10-19 13:12, the reporter (to the note-taker):** "agree all"
+The note-taker's reading: the audit's a-c (put to the reporter 12:24)
+AGREED as proposed --
+a. 3.1 (the LATE ERROR for the threaded views) FIRST, then 3.2
+   (synchronous failures described), then 3.3 (the dimension texts);
+b. a view usable but PARTIAL is a WARNING in the tool tip, the object
+   valid; only a view with nothing to show is an ERROR;
+c. the messages TRANSLATABLE (QT_TRANSLATE_NOOP).
+The same two words read as also answering the note-taker's 12:11
+question (the transaction log "no such column: joined" as an entry of its
+own): YES -- entry 179. If the reporter meant only a-c, 179 is withdrawn.
+
+## 179. The document's embedded transaction log older than the build: "no such column: joined" (a defect, found by the note-taker) -- OPEN
+
+**2026-10-19 12:11, found by the note-taker** in the reporter's console
+log (C:\Users\lei.zheng\AppData\Roaming\Thundereal\mcp_console.log,
+the session from 12:06:31, Thundereal pid 3976), READ, nothing run:
+- 12:07:27 "Error 0 <App> Document.cpp(5843): embedded history of
+  scanner: Transaction log: no such column: joined preparing SELECT
+  id,name,from_version,from_seq,head_seq,id_base,last_id,created,closed,
+  target,joined FROM branch ORDER BY id".
+- 12:07:31 "<Gui> TransactionLogView.cpp(1462): transaction log view:"
+  the same error.
+- 12:07:39 the same as "Unhandled Base::Exception caught in
+  GUIApplication::notify", event type 1, receiver QSingleShotTimer --
+  written as crash-2026_10_19-12_07_39_688.log ("CAUGHT", not a crash;
+  the session went on: lines to 12:08:01).
+The note-taker's reading: the document scanner's EMBEDDED transaction
+log (its branch table) lacks a column, "joined", that this build's
+queries ask for -- a log written by an older build than the schema
+read now, and not migrated on open. Put to the reporter at 12:11 ("Do
+you want that as its own entry?").
+**2026-10-19 13:12, the reporter (to the note-taker):** "agree all" -- read as YES (see entry
+178, same time).
+NOT said: what is expected -- read as: an older embedded log is
+MIGRATED (the column added) or read without it, with no error and no
+exception escaping to notify; whether the history it holds must survive
+(read so).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -25099,5 +25144,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 178
+the build session, 131 and 132 found by it; entries 134 to 179
 are of 2026-10-15, 134 said to the build session)

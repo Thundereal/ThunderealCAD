@@ -618,7 +618,22 @@ e. Scaled: typed only, or a handle for the factor?
 
 Each shown on the real screen with a test, as set A was.
 
-## 8. The edit's menu: Settings sub-menu and a menu button (entries 171, 173): A DESIGN, NOT BUILT
+## 8. The edit's menu: Settings sub-menu and a menu button (entries 171, 173): BUILT
+
+**Built 2026-10-19 (`d59ba8850c`)**, after "173 all agree" (10:01). Where
+the build differs from the design below: "Show handles" goes through each
+handle (`Gizmo::setHiddenInView`, beside the owner's `setVisibility`), not
+the container's `visible`, which the fillet and the chamfer drive
+themselves; the coarse rows do NOT go grey with coarse snapping off, since
+the preferences page does not either; Space opens the menu with no active
+value too; the button's strips are as thick as the gaps between them (the
+reporter 10:29, 10:34). Seen on the real screen by
+`tests/gui/pd-edit-menu-in-view.py` (22 checks): the button and its place,
+the menu's items, the six widgets writing their preferences at once with
+the sub-menu staying open, "Show handles" off and on with Tab still
+working, "Show preview" following the panel's box, Space, and the box's
+new menu. NOT tested: keeping clear of an overlay (8.4) -- by the code
+only.
 
 Asked by the reporter 2026-10-18 21:48 - 22:09 (171) and 2026-10-19
 08:32 - 08:48 (173), through the note-taker's queue. What was ruled:

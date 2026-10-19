@@ -7752,3 +7752,20 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   pad + fillet, the edit entered from the page (an invitation grant is
   needed, else "ViewOnly"), drew the label, preview and handles
   (viewer-harness\probes-2026-10-19\pdedit3\2-edit.png). Drag not tried.
+- 171 + 173 BUILT (d59ba8850c), the design of OnViewValueEditing sec 8 as
+  agreed at 10:01: one menu for a handle's right click, Space and a new
+  always shown menu button left of the top-middle label -- the value's
+  entries, "Show handles" (this view, Gizmo::setHiddenInView), the panel's
+  "Show preview" (a module extension, the panel's own box), and a
+  "Settings" sub-menu of the six drag settings as widgets written to
+  MiscParams at once. The button's strips as thick as their gaps (10:29,
+  10:34). The column and the button keep to the middle of what no overlay
+  covers (by the code; not tested). r118/r119 real screen:
+  pd-edit-menu-in-view 22 of 22, edit-per-view 25, pd-gui-defects 34, the
+  on-view set as before (fillet-hover once aborted on a pointer that did
+  not reach its target -- the desktop in use; 16 of 16 on its rerun). Two
+  test lessons: a sub-menu opened by its own popup() closes the parent and
+  its widgets; and widgets of an earlier menu can leave PySide stale
+  wrappers at the addresses the next menu's take -- find by object name in
+  the same opening. A screen grab shows the window in front on a desktop
+  in use; the button renders itself instead. NOT pushed, NOT staged.

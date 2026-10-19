@@ -64,6 +64,7 @@
 #include "InventorBase.h"
 #include "MainWindow.h"
 #include "MirrorViewer.h"
+#include "OnViewValue.h"
 #include "Selection.h"
 #include "SoFCUnifiedSelection.h"
 #include "SoMouseWheelEvent.h"
@@ -695,6 +696,12 @@ bool MirrorViewer::handleInput(const Input& input)
             if (pimpl->focusedParam) {
                 return routeKeyToParameter(input);
             }
+            // Then an on-view value set of an edit in this view: on the
+            // desktop it filters the view widget's keys, and a mirror has
+            // no widget (docs/OnViewValueEditing.md sec 9.2 #3)
+            if (takeValueSetKey(input)) {
+                return true;
+            }
             return replayKey(input);
         }
     }
@@ -798,6 +805,23 @@ bool MirrorViewer::routeKeyToParameter(const Input& input)
     const bool handled = param->sendKeyEvent(&event);
     pimpl->hasPendingKey = false;
     return handled;
+}
+
+bool MirrorViewer::takeValueSetKey(const Input& input)
+{
+    Qt::KeyboardModifiers mods = Qt::NoModifier;
+    if (input.shift) {
+        mods |= Qt::ShiftModifier;
+    }
+    if (input.ctrl) {
+        mods |= Qt::ControlModifier;
+    }
+    if (input.alt) {
+        mods |= Qt::AltModifier;
+    }
+    ViewerScope scope(this);
+    return OnViewValueSet::takeViewerKey(this, qtKeyForCoinKey(input.code), mods,
+                                         input.kind == Input::KeyDown);
 }
 
 bool MirrorViewer::sendKeyEvent(QKeyEvent* event)

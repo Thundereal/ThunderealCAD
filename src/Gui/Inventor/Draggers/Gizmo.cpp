@@ -199,6 +199,33 @@ bool Gizmo::getVisibility()
     return visible;
 }
 
+/** Whether the fine-snap modifier is held for the drag \a dragger is in: read
+ * from the event it is handling -- a browser's drag is replayed into a mirror
+ * viewer with the client's keys on its events, and the host's own keyboard
+ * says nothing about them (docs/OnViewValueEditing.md sec 9.2 #2). On the
+ * desktop the event carries the same keys as the keyboard.
+ */
+static bool fineModifierHeld(const SoDragger* dragger)
+{
+    const SoEvent* event = dragger ? dragger->getEvent() : nullptr;
+    Qt::KeyboardModifiers modifiers;
+    if (event) {
+        if (event->wasShiftDown()) {
+            modifiers |= Qt::ShiftModifier;
+        }
+        if (event->wasCtrlDown()) {
+            modifiers |= Qt::ControlModifier;
+        }
+        if (event->wasAltDown()) {
+            modifiers |= Qt::AltModifier;
+        }
+    }
+    else {
+        modifiers = QApplication::queryKeyboardModifiers();
+    }
+    return modifiers == GizmoContainer::getFineSnapModifier();
+}
+
 void Gizmo::otherDragEvent(void* data, SoDragger* dragger)
 {
     // While the dragger holds the pointer, the events that are no motion and
@@ -738,9 +765,7 @@ void LinearGizmo::draggingContinued()
     hasDragged = true;
     double value = initialValue + getDragLength();
 
-    auto fineModifier = GizmoContainer::getFineSnapModifier();
-    auto modifiers = QApplication::queryKeyboardModifiers();
-    bool fineModifierPressed = modifiers == fineModifier;
+    bool fineModifierPressed = fineModifierHeld(dragger);
     bool coarseByDefault = GizmoContainer::isCoarseByDefault();
     bool useCoarseSnap = coarseByDefault != fineModifierPressed;
 
@@ -1053,9 +1078,7 @@ void RotationGizmo::draggingContinued()
     lastDragOffset = dragOffset;
     double value = initialValue + dragOffset;
 
-    auto fineModifier = GizmoContainer::getFineSnapModifier();
-    auto modifiers = QApplication::queryKeyboardModifiers();
-    bool fineModifierPressed = modifiers == fineModifier;
+    bool fineModifierPressed = fineModifierHeld(dragger);
     bool coarseByDefault = GizmoContainer::isCoarseByDefault();
     bool useCoarseSnap = coarseByDefault != fineModifierPressed;
 

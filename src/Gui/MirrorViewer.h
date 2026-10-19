@@ -368,6 +368,9 @@ private:
     bool replayKey(const Input& input);
     /// Hand a key frame to the focused entry box as the Qt event it is.
     bool routeKeyToParameter(const Input& input);
+    /// Offer a key frame to the on-view value set of an edit in this view
+    /// (OnViewValueSet::takeViewerKey)
+    bool takeValueSetKey(const Input& input);
 
     class Private;
     std::unique_ptr<Private> pimpl;

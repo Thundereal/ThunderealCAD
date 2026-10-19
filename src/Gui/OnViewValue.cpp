@@ -232,14 +232,79 @@ QSize labelTextSize(const EditableDatumLabel* label)
 }
 }  // namespace
 
+namespace
+{
+/// The sets alive, for a key of a view without a widget (takeViewerKey())
+std::vector<OnViewValueSet*>& liveSets()
+{
+    static std::vector<OnViewValueSet*> sets;
+    return sets;
+}
+}  // namespace
+
 OnViewValueSet::OnViewValueSet(QObject* parent)
     : QObject(parent)
-{}
+{
+    liveSets().push_back(this);
+}
 
 OnViewValueSet::~OnViewValueSet()
 {
+    auto& sets = liveSets();
+    sets.erase(std::remove(sets.begin(), sets.end(), this), sets.end());
     attach(nullptr);
     truncate(0);
+}
+
+bool OnViewValueSet::takeViewerKey(ViewerContext* viewer, int key,
+                                   Qt::KeyboardModifiers modifiers, bool press)
+{
+    if (!viewer) {
+        return false;
+    }
+    for (OnViewValueSet* set : liveSets()) {
+        if (set->liveView() == viewer && !set->keyWidget) {
+            return set->takeMirrorKey(key, modifiers, press);
+        }
+    }
+    return false;
+}
+
+bool OnViewValueSet::takeMirrorKey(int key, Qt::KeyboardModifiers modifiers, bool press)
+{
+    if (!press) {
+        // the release of a key taken on its press is not the view's either
+        auto it = std::find(takenKeys.begin(), takenKeys.end(), key);
+        if (it == takenKeys.end()) {
+            return false;
+        }
+        takenKeys.erase(it);
+        return true;
+    }
+    // What the view widget's filter does (eventFilter(), takeKey()), less
+    // what would run on the host's screen: Space opens a QMenu there, Enter
+    // and digits open a label's box there -- sec 9.2 #4 and the labels as
+    // on-view entries are what bring those to the client
+    const bool plain =
+        !(modifiers & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier));
+    bool taken = false;
+    if (dragHandle && key == Qt::Key_Escape) {
+        dragHandle->cancelDrag();
+        taken = true;
+    }
+    else if (typing < 0 && !entries.empty() && plain
+             && (key == Qt::Key_Tab || key == Qt::Key_Backtab)) {
+        moveActive(key == Qt::Key_Backtab || (modifiers & Qt::ShiftModifier));
+        taken = true;
+    }
+    else if (typing < 0 && active >= 0 && plain && key == Qt::Key_Escape) {
+        setActive(-1);
+        taken = true;
+    }
+    if (taken && std::find(takenKeys.begin(), takenKeys.end(), key) == takenKeys.end()) {
+        takenKeys.push_back(key);
+    }
+    return taken;
 }
 
 void OnViewValueSet::setupHandle(int index, Gizmo* handle)

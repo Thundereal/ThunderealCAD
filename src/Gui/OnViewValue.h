@@ -170,6 +170,14 @@ public:
      */
     void buildMenu(QMenu& menu, Gizmo* handle);
     static void addMenuExtension(MenuExtension extension);
+    /** A key of a view without a widget -- a browser's mirror viewer --
+     * offered to the set shown in \a viewer, as the view widget's filter
+     * takes the desktop's (docs/OnViewValueEditing.md sec 9.2 #3): Tab and
+     * Shift+Tab move the active value, Escape cancels a drag or leaves no
+     * value active. True when taken, its release too.
+     */
+    static bool takeViewerKey(ViewerContext* viewer, int key,
+                              Qt::KeyboardModifiers modifiers, bool press);
     /** Whether the handles are shown in this set's view (8.5: the view's
      * own, not a preference). Hidden, the values still take Tab, typing and
      * the menu, and an active value's label stands at the top middle.
@@ -251,6 +259,7 @@ private:
     void writeTyped();
     void focusView();
     bool takeKey(QKeyEvent* event, bool overrideOnly);
+    bool takeMirrorKey(int key, Qt::KeyboardModifiers modifiers, bool press);
     /// The view, or null once it is gone: a panel can outlive its view -- a
     /// closed document takes its views before the panel's deferred delete
     ViewerContext* liveView() const;

@@ -912,6 +912,45 @@ drawing half is seen; dragging is not tried yet. Under swiftshader CDP
 input can starve on a populated scene (the harness README), so a drag test
 synthesizes its events or runs a headful Chrome when it must.
 
+### 9.5a Seen in a real browser (entry 189, 2026-10-19 evening)
+
+Entry 189 (the reporter, 18:04): "have you implemented all corresponding on
+view edit on browser? if not, new request to sync that" -- 172 widened to
+everything the desktop edit gained since. The user, 18:2x: "After that do
+189 with real browser". Step 1 of 9.6, a HEADFUL Chrome (real GPU; CDP
+input starves under swiftshader) driven by
+`viewer-harness\drive-pdedit-drag.js` on the served pad + fillet, the edit
+entered from the page, the server logging the fillet's radius as it
+changes (`viewer-harness\probes-2026-10-19\drag3`):
+
+- Seen working: the handles drawn (the radius arrows, the preview's
+  outline), hover highlights the arrow, and a mouse drag of an arrow
+  changes the radius live, 2 -> 7 mm in ten moves of 4 px.
+- Found: the top-middle label ("Radius 2 mm", drawn as a datum label in the
+  scene) is under the web client's tool bars at 884 x 549; at 480 x 380
+  with the bars collapsed it showed. `clearMiddle()` knows the desktop's
+  overlays only.
+- Found: a drag of the arrow seen end-on (the top edge's, pointing at the
+  camera) took the radius to 0, and the recompute failed "Fillet radius
+  must be greater than zero". The drag clamps to the box's minimum, 0 for
+  the radius; the desktop clamps the same way, so it is not the browser's.
+- No on-view entry is announced to the client in a PD edit
+  (`fcviewerOnView` empty): typing a value in the browser has no path yet.
+- 9.2 #2 BUILT and seen (r143, `drag7`/`drag8`): the fine-snap modifier is
+  read from the event the dragger is handling, which carries the client's
+  keys, not from the host's keyboard. The same drag from the page: plain
+  2 -> 2.5, 3.5, 4.5, 5.5, 6.5, 7 (the coarse step); with Shift held
+  2 -> 2.6, 3.6, 4.5, 5.7, 6.7, 7.1.
+- 9.2 #3 BUILT and seen in part (r143, `keys1`): a key frame no on-view
+  entry has is offered to the value set shown in that mirror
+  (`OnViewValueSet::takeViewerKey`): Tab and Shift+Tab move the active
+  value, Escape cancels a drag or leaves no value active, and their
+  releases are taken too. Seen: Tab made the radius active (the arrows
+  green), Escape left none (red). Space (the menu), Enter and digits (the
+  label's box) are NOT taken for a mirror: each opens a widget on the
+  host's screen. They come with #4 and with the labels as entries.
+- The desktop unchanged: the on-view set and the menu test green on r143.
+
 ### 9.6 Order of work
 
 1. See it: a served fillet edit in Chrome on this box, dragged with the

@@ -1524,8 +1524,8 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 18px;
-  padding: 0 2px;
+  height: 30px;
+  padding: 0 1px;
   background: rgba(28, 30, 34, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 6px;
@@ -1535,8 +1535,8 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
 .fc-tbcard-side .fc-tbcard-grip {
   flex-direction: column;
   height: auto;
-  width: 18px;
-  padding: 2px 0;
+  width: 30px;
+  padding: 1px 0;
   align-self: stretch;
 }
 .fc-tbcard-grip:active { cursor: grabbing; }
@@ -1549,19 +1549,6 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
   background-position: center;
 }
 .fc-tbcard-side .fc-tbcard-dots { margin: 0 5px; }
-.fc-tbcard-toggle { order: -1; flex: none; }
-.fc-tbcard-toggle {
-  width: 16px;
-  height: 16px;
-  padding: 0;
-  line-height: 14px;
-  font-size: 14px;
-  color: #e8e8e8;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 3px;
-  cursor: pointer;
-}
 .fc-tbcard-button {
   width: 40px;
   height: 40px;
@@ -1597,6 +1584,48 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
   overflow-x: hidden;
   overflow-y: auto;
   touch-action: pan-y;
+}
+/* the grip's ends (the user, 2026-10-19): the collapse button, drawn as
+   the collapsed button is, and the picker of the bars the card shows */
+.fc-tbcard-collapse {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  gap: 3px;
+  border-radius: 4px;
+}
+.fc-tbcard-collapse span { width: 14px; height: 3px; }
+.fc-tbcard-pick {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.fc-tbcard-pick span {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #e8e8e8;
+}
+.fc-tbcard-pick:hover, .fc-tbcard-collapse:hover { background: rgba(70, 70, 76, 0.95); }
+.fc-tbcard-picker {
+  position: fixed;
+  bottom: auto;
+  z-index: 42;
+  width: 240px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
+  pointer-events: auto;
 }
 /* a bar wider than the phone wraps inside itself: every tool reached by
    scrolling up and down alone */

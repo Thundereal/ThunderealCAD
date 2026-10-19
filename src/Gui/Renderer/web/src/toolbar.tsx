@@ -232,6 +232,37 @@ export function ToolbarStrip(props: {
 
   const shown = () => want() && bars().length > 0;
 
+  // Which bars the card shows: all but those this browser left out (the
+  // user, 2026-10-19), chosen in the picker at the grip's far end
+  const barKey = (id: string) => plainText(objs[id]?.state.q_windowTitle) || id;
+  const [hiddenBars, setHidden] = createSignal<Set<string>>(loadHidden());
+  const setHiddenBars = (v: Set<string>) => {
+    setHidden(v);
+    saveHidden(v);
+    requestAnimationFrame(() => moved());
+  };
+  const cardBars = createMemo(() => bars().filter((id) => !hiddenBars().has(barKey(id))));
+  const [picker, setPicker] = createSignal<{ x: number; y: number } | null>(null);
+  const openPicker = (button: HTMLElement) => {
+    if (picker()) {
+      setPicker(null);
+      return;
+    }
+    const r = button.getBoundingClientRect();
+    const w = 240;
+    setPicker({
+      x: Math.max(4, Math.min(r.right - w, window.innerWidth - w - 4)),
+      y: Math.max(4, Math.min(r.bottom + 4, window.innerHeight - 120)),
+    });
+  };
+  const closePicker = (e: PointerEvent) => {
+    const t = e.target as Element | null;
+    if (picker() && !(t && t.closest && t.closest('.fc-tbcard-picker, .fc-tbcard-pick')))
+      setPicker(null);
+  };
+  document.addEventListener('pointerdown', closePicker, true);
+  onCleanup(() => document.removeEventListener('pointerdown', closePicker, true));
+
   let strip: HTMLDivElement | undefined;
   createEffect(() => {
     const report = props.onTopInset;
@@ -314,7 +345,7 @@ export function ToolbarStrip(props: {
   const onResize = () => clamp();
   window.addEventListener('resize', onResize);
   onCleanup(() => window.removeEventListener('resize', onResize));
-  createEffect(on([collapsed, () => bars().length], () => {
+  createEffect(on([collapsed, () => cardBars().length], () => {
     requestAnimationFrame(() => { clamp(); moved(); });
   }));
 
@@ -352,7 +383,13 @@ export function ToolbarStrip(props: {
     target.addEventListener('pointerup', up);
     target.addEventListener('pointercancel', up);
   };
+  // The collapse button stands where the collapsed button was: a tap's
+  // late compatibility click, after the release that opened the card,
+  // would land on it and close the card again
+  let openedAt = 0;
   const toggle = (on: boolean) => {
+    if (on && performance.now() - openedAt < 500) return;
+    if (!on) openedAt = performance.now();
     setCollapsed(on);
     keep();
   };
@@ -371,18 +408,28 @@ export function ToolbarStrip(props: {
             <span /><span /><span />
           </button>
         }>
+          {/* The user, 2026-10-19: "when expanded, make the button and one
+              end of the drag handle as the collapse button, add another
+              button at the other end to show a menu to select which
+              toolbars to show in the card" */}
           <div class="fc-tbcard-grip" onPointerDown={(e) => drag(e)}
                title="Drag to move the tool bars">
-            <span class="fc-tbcard-dots" />
-            <button class="fc-tbcard-toggle" title="Collapse into a button"
+            <button class="fc-tbcard-button fc-tbcard-collapse" title="Collapse into a button"
                     aria-label="Collapse the tool bars"
                     onPointerDown={(e) => e.stopPropagation()}
                     onClick={() => toggle(true)}>
-              {'-'}
+              <span /><span /><span />
+            </button>
+            <span class="fc-tbcard-dots" />
+            <button class="fc-tbcard-pick" title="Which tool bars the card shows"
+                    aria-label="Choose the tool bars"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => openPicker(e.currentTarget as HTMLElement)}>
+              <span /><span /><span />
             </button>
           </div>
           <div class="fc-toolbars">
-            <For each={bars()}>
+            <For each={cardBars()}>
               {(id) => (
                 <Bar id={id} objs={objs} setObjs={setObjs} theme={theme}
                      narrow={props.narrow} host={props.host} run={run} />
@@ -394,8 +441,55 @@ export function ToolbarStrip(props: {
           <div class="fc-tb-error" role="status">{error()}</div>
         </Show>
       </div>
+      <Show when={picker()}>
+        <div class="fc-tbcard-picker fc-menu" role="menu" aria-label="Tool bars to show"
+             style={{ left: `${picker()!.x}px`, top: `${picker()!.y}px` }}
+             onPointerDown={(e) => e.stopPropagation()}>
+          <button class="fc-menu-item" role="menuitem"
+                  onClick={() => setHiddenBars(new Set<string>())}>
+            <span class="fc-menu-tick" />
+            Show all
+          </button>
+          <div class="fc-tb-menu-sep" />
+          <For each={bars()}>
+            {(id) => (
+              <button class="fc-menu-item" role="menuitemcheckbox"
+                      aria-checked={!hiddenBars().has(barKey(id))}
+                      onClick={() => {
+                        const next = new Set(hiddenBars());
+                        const key = barKey(id);
+                        if (next.has(key)) next.delete(key);
+                        else next.add(key);
+                        setHiddenBars(next);
+                      }}>
+                <span class="fc-menu-tick">{hiddenBars().has(barKey(id)) ? '' : '\u2713'}</span>
+                {barKey(id)}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
     </Show>
   );
+}
+
+// ---- Which bars the card shows (entry 190) --------------------------------
+
+const HIDDEN_KEY = 'fcviewer.toolbarHidden';
+
+/// The bars this browser left out of the card, by title
+function loadHidden(): Set<string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]');
+    if (Array.isArray(v)) return new Set(v.filter((s) => typeof s === 'string'));
+  }
+  catch { /* no memory: every bar */ }
+  return new Set();
+}
+
+function saveHidden(v: Set<string>) {
+  try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...v])); }
+  catch { /* this session only */ }
 }
 
 // ---- The card's memory (entry 190) ----------------------------------------

@@ -173,6 +173,13 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-20 09:56: entry 196, PRIORITY FIRST -- fillet on-view edit: a working
+preview face not preselected and not synced to the panel; the label not
+lit on hover and outranked by the geometry behind it; the handles'
+silhouette outline (ruled possible 2026-10-16, way B, never built) and
+their flat colour. Then WAIT for the reporter's hands-on on the build
+tree.** Under the entry.
+
 **2026-10-20 09:40: entry 195 ON HOLD -- a performance test first, the default-on
 decision after it.** Under the entry.
 
@@ -3964,6 +3971,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 193 | 2026-10-20 | a change request: ALL LIST VIEWS in OVERLAY PANELS get ALTERNATING row backgrounds WITH TRANSPARENCY, as the PROPERTY VIEW has; 184's transparent background is in, the alternating rows are not | OPEN; said to the note-taker 2026-10-20 09:18. 2026-10-20 09:20 SIZED by the build session, nothing built: the property view and the SELECTION VIEW already alternate overlaid, each by its own code; a sheet rule cannot (the sheet's opacity), a delegate cannot be swapped (task panels and the tree have their own); PROPOSED: OverlayManager watches item views in overlaid panels (also on child-added) and fills each visible row's band on the viewport's paint before the items, the same two colours at the overlay alpha, rows counted as the property view; d open for the reporter's look; waiting for the reporter's word |
 | 194 | 2026-10-20 | a defect (two): in the FILLET edit panel, (1) selecting a MISSING edge's ROW does NOT select its PREVIEW FACE in the 3D view; (2) after selecting a row in the panel, then a PREVIEW FACE in the 3D view, the panel's earlier selection is NOT CLEARED -- TWO rows end up selected | OPEN; said to the note-taker 2026-10-20 09:29. 2026-10-20 09:38 CAUSE FOUND (one for both, the note-taker's candidate): a missing row put NOTHING in Gui::Selection, so its face was not lit, and the 3D click's clearSelection had nothing to clear and sent no ClrSelection (Selection.cpp 2022) -- the panel kept its row; before-run r155: both claims FAIL (rows ['?Edge11','Edge8']); FIXED in the working tree (the row selects its preview face, ';AddSub;FaceN' by getItemElement), r156 building; fillet-preview-pick-syncs-list.py 3 new claims; NOT committed. 2026-10-20 09:43 r157 building with 194 ALONE (a large rebuild, Command.h touched and restored); then fillet-preview-pick-syncs-list, dressup-replace-missing-edge, serve-dressup-preview-pick one at a time. READ: git status -- TaskDressUpParameters.cpp and the test modified, uncommitted |
 | 195 | 2026-10-20 | a change request: 'Measure (pre)selected geometry' (the Part preselection macro, Std_Macro_Presel_PartMeasure) ON BY DEFAULT | OPEN; said to the note-taker 2026-10-20 09:34. 2026-10-20 09:38 DONE in the working tree, r156 building, NOT committed: MacroCommand gets a per-command default (defaultOption), TRUE for Std_Macro_Presel_PartMeasure only; a stored value wins, the default not written; test part-presel-measure-default.py. c CHECKED by the note-taker (READ only): the reporter's %APPDATA%/Thundereal/user.cfg and %APPDATA%/FreeCAD/user.cfg hold NO stored bool for it (only an FCText toolbar entry of that name, 'PartDesignWorkbench') -- the reporter WILL see the new default. 2026-10-20 09:40 ON HOLD by the reporter: a PERFORMANCE TEST first (in the future), then the decision whether to make it default on. 2026-10-20 09:43 HELD and PARKED by the build session, NOT in the tree (the default stays off): the change saved as D:/works/sw/dl/handson/2026-10-12/195-presel-measure-default.patch (5068 bytes) with its test part-presel-measure-default.py beside it; to revive: git apply the patch, move the test back; r156 stopped (it carried 195). READ by the note-taker: both files there; git status shows no 195 file |
+| 196 | 2026-10-20 | defects (four), PRIORITY FIRST: fillet on-view edit -- (1) a NORMAL (working) preview face is selectable but NOT PRESELECTABLE, and a 3D selection of it does NOT SYNC the edit panel; (2) the on-view LABEL has NO PRESELECTION highlight; (3) the label LOSES to base geometry behind it on a click; (4) the handles' SILHOUETTE (pre)selection outline asked (144, 159) never came -- is it possible? and the handles are drawn FLAT, no shading | OPEN; said to the note-taker 2026-10-20 09:56; the reporter: the build session to do this FIRST, then WAIT for the reporter's hands-on test on the TEST BUILD directly |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26695,6 +26703,65 @@ a. The build session's working-tree change (MacroCommand's per-command
 b. The performance test: when, on what model, against what limit -- not
    said; read as a future entry.
 
+## 196. Fillet on-view edit: a working preview face not preselected nor synced; the label not lit and outranked; the handles' outline and flat colour (defects, priority) -- OPEN
+
+**2026-10-20 09:56, the reporter (to the note-taker):** "new defect. 1, fillet on view edit, normal preview face can be selected, but cannot be preselected. in addition, when selected in 3d view, edit panel does not sync the selection. 2, on view label no preselection highlight. 3, on view label has lower selection priority, so click it with any base geometry behind it will select the geometry instead. 4, I remembereded to request for silloute (pre)selection highlight for handle, but never got it. is it actually possibe? also the handle is rendered without any shading, the color is flat, check on that too. ask the build session to prioirtize on this issue first. and once done, wait for my hands on test with the test build directly."
+(as typed: "remembereded" read as "remembered", "silloute" as
+"silhouette", "possibe" as "possible", "prioirtize" as "prioritize".)
+The note-taker's reading, point by point:
+1. In the fillet's on-view edit, a WORKING edge's preview face (not a
+   failed or missing one): a click SELECTS it (by 182 it selects the
+   base's edge, the face unlit -- "fine"), but HOVER gives NO
+   PRESELECTION; and after the 3D selection the TASK PANEL does not
+   select the matching row.
+2. The on-view value LABEL shows NO preselection highlight on hover --
+   by the note-taker's reading this is 180's point 2 ("label hover shall
+   preselect just like the face"; the label HIGHLIGHT for all on-view
+   edits), never built.
+3. A click on the LABEL with base geometry BEHIND it selects the
+   GEOMETRY, not the label -- the label should win (it is drawn on top).
+4. The handles' SILHOUETTE OUTLINE on (pre)selection -- asked in 144
+   (2026-10-15) and 159 (2026-10-16), never delivered; the reporter asks
+   whether it is possible at all. And the handles look FLAT -- one colour,
+   no shading -- to be checked.
+ORDER (the reporter): the build session does 196 FIRST, before the rest
+of its queue; when done it WAITS for the reporter's hands-on test "with
+the test build directly" -- read as the build tree's own FreeCAD
+(build/conda-relwithdebinfo-801), NOT pushed and NOT restaged first.
+ANSWERED by the note-taker from the queue (READ, nothing run), 4's
+question: the outline was judged POSSIBLE and RULED on 2026-10-16:
+- 144's row: pre-selection and selection light the arrow's whole group
+  (built `62a8af9234`) "EXCEPT the OUTLINE part (needs the screen under
+  D3D11)".
+- 159, 10:41: the reporter -- the Coin render cache path (mode 3) can
+  render the outline too; 10:44: route by getDetailPath/getPickedElement,
+  "check if it's possible first" -- the note-taker's check: names can be
+  routed (Sketcher does), but the handles hang OUTSIDE the selection
+  root whose render cache draws the outline; 10:52 RULED: WAY B -- the
+  handles stay in the editing root and the EDIT CAPTURE gets an outline
+  (bgfx overlay highlight; a render cache for the Coin edit root); way A
+  (handles into the object's nodes) rejected, "defeats per view edit";
+  10:54: element-name routing only if necessary.
+- So: possible by the ruled way B; NOT BUILT since (the queue has no
+  build of it).
+NOT said, with the note-taker's readings:
+a. 1's preselection: read as the preview face lit in the PRESELECTION
+   colour on hover, as a failed/missing face is; or the base EDGE
+   preselected (the click selects the edge) -- for the reporter if it
+   matters; the note-taker reads it as the face lit.
+b. 1's sync: read as the base edge's ROW selected in the panel, as a
+   base-edge click in 3D does.
+c. 3's priority: read as the label above ALL scene geometry (base, the
+   preview, other objects) -- the handles' order against the label not
+   said.
+d. 4's shading: read as the handles lit like other 3D geometry (a
+   shaded cone/cylinder), keeping their colours; whether a flat look was
+   chosen on purpose (for reading on any background) -- for the build
+   session to say.
+e. All dress-ups: not said this time; read as yes (the same code).
+f. The browser: not said; read as the desktop first, the browser after
+   (189's way).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -26706,5 +26773,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 195
+the build session, 131 and 132 found by it; entries 134 to 196
 are of 2026-10-15, 134 said to the build session)

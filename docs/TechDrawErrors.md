@@ -111,10 +111,24 @@ DrawViewDetailTest and DrawViewDimensionTest each gained a case that fails
 on purpose and reads the message; TestTechDrawApp 9 OK. The TechDraw GUI
 gate on Windows: 21 run, 20 pass; the miss, DrawStoredGeometryTest
 testASilhouetteIsNamedFromItsFaceAndSurvivesAReload, fails the same with
-these changes taken out. Not covered by this entry: the "weak" messages of
-DrawBrokenView, DrawViewMulti, DrawViewSpreadsheet, DrawViewArch,
-DrawViewSymbol and DrawParametricTemplate (raw OCCT / Python text, no view
-named) -- outside the agreed 3.1-3.3.
+these changes taken out.
+
+**The audit's last row, BUILT** (the reporter, 2026-10-20 15:18, "Yes, cover
+them"), under 3.2's rule: the broken view with no source shape is in error
+as the part view is (one `DrawViewPart::nothingToDraw()`), and a break that
+could not be applied a warning naming it; the spreadsheet view's range
+errors (were console lines and an empty view) name the cell -- not a cell
+address, a row or a column out of range, a reversed range; the Arch view
+with no source, a source that is not a section plane, or a getSVG() that
+failed names the plane; a symbol whose SVG does not parse says the line and
+column; the parametric template whose script cannot be read (was success)
+or fails names the script. DrawViewMulti left as it is: it is no longer
+registered (AppTechDraw.cpp), so no document can hold one. Tests: TDTest
+DrawViewPartTest testABrokenViewWithNoSourceSaysWhy; DrawViewSymbolTest
+testASymbolWithBrokenSvgSaysWhere, testASpreadsheetViewWithABadRangeSaysWhich,
+testAnArchViewOfNoSectionPlaneSaysWhy,
+testAParametricTemplateWithNoScriptSaysWhich. The GUI gate: 32 run, 31
+pass, the miss the silhouette test as above; TestTechDrawApp 13 OK.
 
 ### For the reporter
 

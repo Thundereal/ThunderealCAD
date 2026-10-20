@@ -29,8 +29,11 @@
 #include <boost_regex.hpp>
 #endif
 
+#include <QCoreApplication>
+
 #include <App/Property.h>
 #include <Base/Console.h>
+#include <Base/Exception.h>
 #include <Mod/Spreadsheet/App/Cell.h>
 #include <Mod/Spreadsheet/App/Sheet.h>
 
@@ -98,14 +101,25 @@ App::DocumentObjectExecReturn *DrawViewSpreadsheet::execute()
     App::DocumentObject* link = Source.getValue();
     std::string scellstart = CellStart.getValue();
     std::string scellend = CellEnd.getValue();
+    // a view with nothing to show says why (docs/TechDrawErrors.md 3.2)
+    auto fail = [this](const QString& why) {
+        return new App::DocumentObjectExecReturn(why.toStdString(), this);
+    };
     if (!link)
-        return new App::DocumentObjectExecReturn("No spreadsheet linked");
+        return fail(QCoreApplication::translate("TechDraw", "The view has no spreadsheet to show"));
     if (!link->isDerivedFrom<Spreadsheet::Sheet>())
-        return new App::DocumentObjectExecReturn("The linked object is not a spreadsheet");
+        return fail(QCoreApplication::translate("TechDraw", "%1 is not a spreadsheet")
+                        .arg(QString::fromUtf8(link->Label.getValue())));
     if (scellstart.empty() || scellend.empty())
-        return new App::DocumentObjectExecReturn("Empty cell value");
+        return fail(QCoreApplication::translate("TechDraw",
+                                                "The cell range has no start or no end cell"));
 
-    Symbol.setValue(getSheetImage());
+    try {
+        Symbol.setValue(getSheetImage());
+    }
+    catch (const Base::Exception& e) {
+        return fail(QString::fromUtf8(e.what()));
+    }
 
     overrideKeepUpdated(false);
     return TechDraw::DrawView::execute();
@@ -150,73 +164,58 @@ std::string DrawViewSpreadsheet::getSheetImage()
     transform(scellstart.begin(), scellstart.end(), scellstart.begin(), ::toupper);
     transform(scellend.begin(), scellend.end(), scellend.begin(), ::toupper);
 
-    std::string colPart;
-    std::string rowPart;
-    boost::regex re{"([A-Z]*)([0-9]*)"};
-    boost::smatch what;
-    int iRowStart = 0, iRowEnd = 0;
-    std::string sColStart, sColEnd;
-    if (boost::regex_search(scellstart, what, re)) {
-        if (what.size() < 3) {
-            Base::Console().Error("%s - start cell (%s) is invalid\n", getNameInDocument(),
-                                  CellStart.getValue());
-            return std::string();
+    // what is wrong with the range is the view's error, naming the cell
+    // (docs/TechDrawErrors.md 3.2); execute() returns it
+    const std::vector <std::string> availcolumns = getAvailColumns();
+    boost::regex re{"([A-Z]+)([0-9]+)"};
+    auto parseCell = [&](const std::string& cell, const char* given, std::string& column,
+                         int& row) {
+        boost::smatch what;
+        if (!boost::regex_match(cell, what, re)) {
+            throw Base::ValueError(
+                QCoreApplication::translate("TechDraw",
+                                            "%1 is not a cell address such as A1")
+                    .arg(QString::fromUtf8(given))
+                    .toStdString());
         }
-
-        colPart = what[1];
-        sColStart = colPart;
-        rowPart = what[2];
+        column = what[1];
         try {
-            iRowStart = std::stoi(rowPart);
+            row = std::stoi(what[2]);
         }
         catch (...) {
-            Base::Console().Error("%s - start cell (%s) invalid row\n",
-                                    getNameInDocument(), rowPart.c_str());
-            return std::string();
+            row = -1;
         }
-    }
-
-    if (boost::regex_search(scellend, what, re)) {
-        if (what.size() < 3) {
-            Base::Console().Error("%s - end cell (%s) is invalid\n", getNameInDocument(), CellEnd.getValue());
-        } else {
-            colPart = what[1];
-            sColEnd = colPart;
-            rowPart = what[2];
-            try {
-                iRowEnd = std::stoi(rowPart);
-            }
-            catch (...) {
-                Base::Console().Error("%s - end cell (%s) invalid row\n",
-                                      getNameInDocument(), rowPart.c_str());
-                return std::string();
-            }
+        if (row < 1) {
+            throw Base::ValueError(
+                QCoreApplication::translate("TechDraw", "The row of the cell %1 is not valid")
+                    .arg(QString::fromUtf8(given))
+                    .toStdString());
         }
-    }
-
-    const std::vector <std::string> availcolumns = getAvailColumns();
-
-    //validate range start column in sheet's available columns
-    int iAvailColStart = colInList(availcolumns, sColStart);
-    if (iAvailColStart < 0) {               //not found range start column in availcolumns list
-        Base::Console().Error("DVS - %s - start Column (%s) is invalid\n",
-                               getNameInDocument(), sColStart.c_str());
-        return std::string();
-    }
-
-    //validate range end column in sheet's available columns
-    int iAvailColEnd = colInList(availcolumns, sColEnd);
-    if (iAvailColEnd < 0) {
-        Base::Console().Error("DVS - %s - end Column (%s) is invalid\n",
-                              getNameInDocument(), sColEnd.c_str());
-        return std::string();
-    }
+        int index = colInList(availcolumns, column);
+        if (index < 0) {
+            throw Base::ValueError(
+                QCoreApplication::translate("TechDraw",
+                                            "The column of the cell %1 is outside A to ZZ")
+                    .arg(QString::fromUtf8(given))
+                    .toStdString());
+        }
+        return index;
+    };
+    int iRowStart = 0, iRowEnd = 0;
+    std::string sColStart, sColEnd;
+    int iAvailColStart = parseCell(scellstart, CellStart.getValue(), sColStart, iRowStart);
+    int iAvailColEnd = parseCell(scellend, CellEnd.getValue(), sColEnd, iRowEnd);
 
     //check for logical range
     if ( (iAvailColStart > iAvailColEnd) ||
          (iRowStart > iRowEnd) ) {
-        Base::Console().Error("%s - cell range is illogical\n", getNameInDocument());
-        return std::string();
+        throw Base::ValueError(
+            QCoreApplication::translate("TechDraw",
+                                        "The cell range %1:%2 is reversed: its start cell is "
+                                        "below or to the right of its end cell")
+                .arg(QString::fromUtf8(CellStart.getValue()),
+                     QString::fromUtf8(CellEnd.getValue()))
+                .toStdString());
     }
 
     // build row and column ranges

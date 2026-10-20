@@ -67,6 +67,8 @@
 #include <gp_Dir.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Pnt.hxx>
+#include <QCoreApplication>
+#include <QStringList>
 
 #include <numbers>
 
@@ -148,15 +150,27 @@ App::DocumentObjectExecReturn* DrawBrokenView::execute()
 
     TopoDS_Shape shape = getSourceShape().getShape();
     if (shape.IsNull()) {
-        Base::Console().message("DBV::execute - %s - Source shape is Null.\n", getNameInDocument());
-        return DrawView::execute();     // NOLINT
+        // nothing to draw is the view's error (docs/TechDrawErrors.md 3.2)
+        return nothingToDraw(Source.getValues().empty() && XSource.getValues().empty());
     }
 
     BRepBuilderAPI_Copy BuilderCopy(shape);
     TopoDS_Shape safeShape = BuilderCopy.Shape();
     m_unbrokenCenter = SU::findCentroidVec(safeShape, getProjectionCS());
 
-    TopoDS_Shape brokenShape = breakShape(safeShape);
+    std::vector<std::string> failed;
+    TopoDS_Shape brokenShape = breakShape(safeShape, failed);
+    if (!failed.empty()) {
+        // the view is drawn without those breaks: a warning, not an error
+        QStringList labels;
+        for (const auto& label : failed) {
+            labels << QString::fromStdString(label);
+        }
+        reportLateWarning(QCoreApplication::translate(
+            "TechDraw", "The breaks %1 could not be applied; the view is drawn without them")
+            .arg(labels.join(QStringLiteral(", ")))
+            .toStdString());
+    }
     m_compressedShape = compressShape(brokenShape);
 
     partExec(m_compressedShape);
@@ -167,7 +181,8 @@ App::DocumentObjectExecReturn* DrawBrokenView::execute()
 
 //! applies the breaks to the input shape.  returns a compound of broken
 //! pieces moved so they are separated by a distance of Gap.
-TopoDS_Shape DrawBrokenView::breakShape(const TopoDS_Shape& shapeToBreak) const
+TopoDS_Shape DrawBrokenView::breakShape(const TopoDS_Shape& shapeToBreak,
+                                        std::vector<std::string>& failed) const
 {
     auto breaksAll = Breaks.getValues();
     TopoDS_Shape updatedShape = shapeToBreak;
@@ -175,7 +190,7 @@ TopoDS_Shape DrawBrokenView::breakShape(const TopoDS_Shape& shapeToBreak) const
         TopoDS_Shape previousShape = updatedShape;
         updatedShape = apply1Break(*item, updatedShape);
         if (updatedShape.IsNull()) {
-            Base::Console().warning("Failed to apply break %s\n", item->Label.getValue());
+            failed.emplace_back(item->Label.getValue());
             updatedShape = previousShape;
         }
     }

@@ -86,5 +86,14 @@ class DrawViewPartTest(unittest.TestCase):
         self.assertTrue("Invalid" in hatch.State, hatch.State)
         self.assertIn("Face99", hatch.getStatusString())
 
+    def testABrokenViewWithNoSourceSaysWhy(self):
+        """A broken view with nothing to draw is in error, and says why: it
+        logged a line and stayed valid (docs/TechDrawErrors.md 3.2)"""
+        view = FreeCAD.ActiveDocument.addObject("TechDraw::DrawBrokenView", "Broken")
+        self.page.addView(view)
+        FreeCAD.ActiveDocument.recompute()
+        self.assertTrue("Invalid" in view.State, view.State)
+        self.assertIn("no source objects", view.getStatusString())
+
 if __name__ == "__main__":
     unittest.main()

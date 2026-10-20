@@ -287,17 +287,7 @@ App::DocumentObjectExecReturn* DrawViewPart::execute(void)
     if (sourceShape.isNull()) {
         // nothing to draw is the view's error, not a console line and an
         // empty view (docs/TechDrawErrors.md 3.2)
-        if (Source.getValues().empty() && XSource.getValues().empty()) {
-            return new App::DocumentObjectExecReturn(
-                QCoreApplication::translate("TechDraw", "The view has no source objects to draw")
-                    .toStdString(),
-                this);
-        }
-        return new App::DocumentObjectExecReturn(
-            QCoreApplication::translate("TechDraw",
-                                        "The view's source objects have no shape to draw")
-                .toStdString(),
-            this);
+        return nothingToDraw(Source.getValues().empty() && XSource.getValues().empty());
     }
     //make sure the XDirection property is valid. Mostly for older models.
     if (!checkXDirection()) {
@@ -675,6 +665,20 @@ void DrawViewPart::postHlrTasks()
     overrideKeepUpdated(false);
 
     requestPaint();
+}
+
+App::DocumentObjectExecReturn* DrawViewPart::nothingToDraw(bool noSources)
+{
+    if (noSources) {
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The view has no source objects to draw")
+                .toStdString(),
+            this);
+    }
+    return new App::DocumentObjectExecReturn(
+        QCoreApplication::translate("TechDraw", "The view's source objects have no shape to draw")
+            .toStdString(),
+        this);
 }
 
 //! A hatch whose faces are gone from this view, said where it is seen: on the

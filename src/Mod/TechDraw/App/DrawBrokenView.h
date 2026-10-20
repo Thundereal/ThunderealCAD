@@ -105,7 +105,8 @@ public:
 
 
 private:
-    TopoDS_Shape    breakShape(const TopoDS_Shape& shapeToBreak) const;
+    TopoDS_Shape    breakShape(const TopoDS_Shape& shapeToBreak,
+                               std::vector<std::string>& failed) const;
     TopoDS_Shape    compressShape(const TopoDS_Shape& shapeToCompress) const;
     TopoDS_Shape    apply1Break(const App::DocumentObject& breakObj, const TopoDS_Shape& inShape) const;
     TopoDS_Shape    makeHalfSpace(const Base::Vector3d& point,

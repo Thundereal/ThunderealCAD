@@ -1974,6 +1974,13 @@ fc_add_gui_test(GuiOverlayPresetFollowsTheTheme_tests_run
                 overlay-preset-follows-the-theme.py
                 --timeout 300)
 
+# Every list, tree and table of an overlaid panel has the property view's
+# alternating rows at the overlays' opacity, painted by the overlay: a task
+# panel's list, the property view as before; none docked.
+fc_add_gui_test(GuiOverlayListRowBands_tests_run
+                overlay-list-row-bands.py
+                --timeout 180)
+
 # The Python editor and console take a theme's colours when it is applied --
 # the band on the current line, the text already in the console -- and each
 # theme's syntax colours can be read on its page.

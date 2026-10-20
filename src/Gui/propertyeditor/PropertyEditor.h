@@ -99,12 +99,10 @@ public:
     int overlayAlpha() const { return _overlayAlpha; }
     void setOverlayAlpha(int alpha);
     /// Whether the view has its overlaid look: see-through but for its
-    /// rows, which it backs itself (the overlay tab widget says when)
+    /// rows, which the overlay's bands back (the overlay tab widget says
+    /// when; OverlayManager::hasOverlayRowBands())
     bool overlayLook() const { return _overlayLook; }
     void setOverlayLook(bool on);
-    /// What an ordinary row and an alternate one are backed with in that
-    /// look: the alternate colour is the sheet's, at the overlay's opacity
-    QBrush overlayRowBackground(const QModelIndex& index) const;
 
     bool isBinding() const { return binding; }
     void openEditor(const QModelIndex &index);

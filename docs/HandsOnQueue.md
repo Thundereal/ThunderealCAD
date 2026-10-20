@@ -173,6 +173,17 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-20 11:14: a second build session, x16win, shares the fixes and
+requests.** The reporter, verbatim: "I asked another remote session x16win
+to share the task for bug fixes and feature request. it will notify you
+once it finished merge build there". The note-taker's reading: x16win is a
+remote session that takes part of the open entries; it tells the
+note-taker when its merge build is done, and the note-taker records that
+like the build session's reports. NOT said: which entries x16win takes,
+whether it pushes or stages, and how it and the build session split the
+work (the note-taker does not assign it). 196 stays first with the build
+session unless the reporter says otherwise.
+
 **2026-10-20 10:02: entry 197 -- scanner.FCStd: Binder008 updated after the
 migration flips Pocket022's Fit (0.1) from grow to shrink; keep the
 file's side, or fail.** Under the entry.

@@ -547,6 +547,7 @@ SET(Dialog_CPP_SRCS
     DocumentRecovery.cpp
     LibraryPathsGui.cpp
     DlgExportLinkedSet.cpp
+    DlgImportLinkedSet.cpp
     TaskElementColors.cpp
     TaskRenderSettings.cpp
     DlgObjectSelection.cpp
@@ -591,6 +592,7 @@ SET(Dialog_HPP_SRCS
     DocumentRecovery.h
     LibraryPathsGui.h
     DlgExportLinkedSet.h
+    DlgImportLinkedSet.h
     TaskElementColors.h
     TaskRenderSettings.h
     DlgObjectSelection.h

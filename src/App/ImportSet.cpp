@@ -592,6 +592,11 @@ void closeOpened(const std::set<Document*>& before)
 SetImportResult App::importSet(const SetImportPlan& plan)
 {
     // docs/TransactionLog.md sec 35 L4.
+    // The documents this opens -- branches' tips, to replay into and to
+    // relink -- it fills in itself, as a load does: what the Gui still fills
+    // in of them is their views, and their changes are the program's, not
+    // the command's that runs the import.
+    Document::UserEditSuspend suspend;
     SetImportResult result;
     std::set<Document*> before;
     for (auto doc : GetApplication().getDocuments())
@@ -762,7 +767,9 @@ void recordTaken(Document& doc, const std::string& branch, const char* how)
 SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& files,
                              const SetMergeOptions& options)
 {
-    // docs/TransactionLog.md sec 35 L6.
+    // docs/TransactionLog.md sec 35 L6. The branches' documents it opens it
+    // changes itself, as importSet() does.
+    Document::UserEditSuspend suspend;
     auto& app = GetApplication();
     SetMergeResult result;
     for (const auto& f : files) {

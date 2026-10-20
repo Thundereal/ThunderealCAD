@@ -21138,8 +21138,8 @@ and found one bug, fixed (item 6 c). **Built since: L1 (35.7,
 2026-10-19); L8 for frozen versions (35.8, 2026-10-19); L7 in App (35.9,
 2026-10-19); L2 and L3, the set read and paired (35.10, 2026-10-20); L4,
 the set imported as branches linked to each other (35.11, 2026-10-20); L5,
-their files alone held (35.12, 2026-10-20); L6 in App, the set's merge
-(35.13, 2026-10-20).**
+their files alone held (35.12, 2026-10-20); L6, the set's merge and its
+dialog (35.13, 2026-10-20).**
 
 ### 35.1 The case
 
@@ -21916,7 +21916,7 @@ their `Part` changed and their `Asm` given an object with the log off,
 brought back: the top's branch has the object, its live link shows their
 `Part` through its branch, and its pin our `Part` at v1.
 
-### 35.13 L6 built in App: the set's merge, one undo step (2026-10-20)
+### 35.13 L6 built: the set's merge, one undo step, its dialog (2026-10-20)
 
 On the user's "push and continue" (2026-10-20). `App::mergeSet(ourTop,
 files, options)` (`src/App/ImportSet.cpp`), in Python
@@ -21975,8 +21975,30 @@ restore and the merge go into the one open.
   restore -- the object and every reference to it -- which is not built;
   a link from outside the set to `Asm#L` breaks where it would have held.
 - the Q4 preview (references that will not resolve, on the top's line);
-- the set's record (Q9), so the set's dialog can be opened again later;
-- the Gui: the set's dialog, and a command to bring a set in.
+- the set's record (Q9), so the set's dialog can be opened again later --
+  closed after Import and before Merge, the branches stay as requests,
+  merged one by one as any;
+- the Import and the Merge are not recorded as a macro: they call App,
+  not a Python command, the plan and the pairs being more than a line.
+
+**The Gui** (File > Import a Linked Set..., `Std_ImportLinkedSet`,
+`DlgImportLinkedSet`), for a document with a file and its history: their
+top chosen and read, each file of theirs listed with what of ours it is
+paired with -- a list of our set's documents and "none", changeable -- how
+(a guess said so, two of ours alike said so), its action and, for one
+alone, where it is written; Import brings them in with the pairing as
+listed, and says per file what it came as (a branch, nothing new, held);
+Merge merges with the actions as listed, and asks before writing over a
+file that is there. Changing a file's pair to one of ours makes it
+Merge by default, to none Write.
+
+**Found on the way, in the Gui**: the documents the import and the merge
+open -- branches' tips -- carry LiveImport while the Gui fills in their
+views, and a change to them inside the command was refused ("still being
+filled in"): the relink row of the top's branch, a shape written in a
+part's. Their objects are read when `openDocument` returns; they are the
+program's to change, as a load's are, and `importSet` and `mergeSet` run
+under `Document::UserEditSuspend`.
 
 **Tests** (`Document.py`, `TransactionBranchCases`):
 `testASetIsMergedAsOneStep` -- 35.2 item 6's copies: the default actions
@@ -21987,4 +22009,8 @@ our `Part` with their longer box, the held file let go.
 `testAStrangersSetIsTakenWhole` -- a set made apart from ours and laid
 out alike: both files Take theirs by default, both under the step's id;
 our `Part` holds their `Cyl` and not our `Box`, and our `Asm`'s one link
-is to it in our `Part`.
+is to it in our `Part`. Driven (`tests/gui/import-linked-set.py`,
+`GuiImportLinkedSet_tests_run`): the dialog lists the three files with
+`Part` and `Asm` paired by the history and merged, `Bolt` written; Import
+says two branches and one held; Merge takes the set in; one Std_Undo
+takes it back in both documents.

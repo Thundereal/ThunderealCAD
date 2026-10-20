@@ -65,6 +65,7 @@
 #include "ExpressionEditorView.h"
 #include "DlgObjectSelection.h"
 #include "DlgExportLinkedSet.h"
+#include "DlgImportLinkedSet.h"
 #include "DlgProjectInformationImp.h"
 #include "DlgProjectUtility.h"
 #include "GraphvizView.h"
@@ -584,6 +585,47 @@ void StdCmdExportLinkedSet::activated(int iMsg)
 }
 
 bool StdCmdExportLinkedSet::isActive()
+{
+    return getActiveGuiDocument() != nullptr;
+}
+
+//===========================================================================
+// Std_ImportLinkedSet
+//===========================================================================
+
+DEF_STD_CMD_A(StdCmdImportLinkedSet)
+
+StdCmdImportLinkedSet::StdCmdImportLinkedSet()
+  : Command("Std_ImportLinkedSet")
+{
+    sGroup        = "File";
+    sMenuText     = QT_TR_NOOP("Import a Linked &Set...");
+    sToolTipText  = QT_TR_NOOP("Bring another copy of the active document's set of linked "
+                               "files in as branches, and merge it file by file");
+    sWhatsThis    = "Std_ImportLinkedSet";
+    sStatusTip    = sToolTipText;
+    eType         = 0;
+}
+
+void StdCmdImportLinkedSet::activated(int iMsg)
+{
+    // docs/TransactionLog.md sec 35 L6.
+    Q_UNUSED(iMsg);
+    Gui::Document* gdoc = getActiveGuiDocument();
+    if (!gdoc)
+        return;
+    App::Document* top = gdoc->getDocument();
+    if (!top->isSaved() || !top->getTransactionLog()) {
+        QMessageBox::warning(getMainWindow(), QObject::tr("Import a Linked Set"),
+                             QObject::tr("The document needs a file and its history: their "
+                                         "files come as branches of ours."));
+        return;
+    }
+    DlgImportLinkedSet dlg(top, getMainWindow());
+    dlg.exec();
+}
+
+bool StdCmdImportLinkedSet::isActive()
 {
     return getActiveGuiDocument() != nullptr;
 }
@@ -2060,6 +2102,7 @@ void CreateDocCommands()
     rcCmdMgr.addCommand(new StdCmdImport());
     rcCmdMgr.addCommand(new StdCmdExport());
     rcCmdMgr.addCommand(new StdCmdExportLinkedSet());
+    rcCmdMgr.addCommand(new StdCmdImportLinkedSet());
     rcCmdMgr.addCommand(new StdCmdMergeProjects());
     rcCmdMgr.addCommand(new StdCmdDependencyGraph());
     rcCmdMgr.addCommand(new StdCmdExportDependencyGraph());

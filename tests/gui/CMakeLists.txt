@@ -2192,3 +2192,10 @@ fc_add_gui_test(GuiXLinkSnapshotSave_tests_run
 fc_add_gui_test(GuiExportLinkedSet_tests_run
                 export-linked-set.py
                 --timeout 180)
+
+# File > Import a Linked Set (docs/TransactionLog.md sec 35 L6): the dialog
+# pairs another copy of the set with ours, imports it as branches and
+# merges it as one undo step.
+fc_add_gui_test(GuiImportLinkedSet_tests_run
+                import-linked-set.py
+                --timeout 180)

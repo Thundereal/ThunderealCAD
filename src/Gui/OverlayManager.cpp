@@ -1901,6 +1901,10 @@ void OverlayManager::onTaskViewUpdate()
     auto taskview = qobject_cast<TaskView::TaskView*>(sender());
     if (!taskview)
         return;
+    // A page shown now was not there when its overlay set its look on the
+    // widgets it holds: touched, the overlay sets it again, the new page's
+    // included (its lists' row bands, docs/HandsOnQueue.md entry 193)
+    d->refresh(taskview);
     QDockWidget *dock = nullptr;
     for (QWidget *w=taskview; w; w=w->parentWidget()) {
         if ((dock = qobject_cast<QDockWidget*>(w)))

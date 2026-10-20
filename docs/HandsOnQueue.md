@@ -4059,7 +4059,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 197 | 2026-10-20 | a defect: scanner.FCStd, the MIGRATION RECOMPUTE -> Binder008 'No context' (expected); a DOUBLE CLICK to UPDATE it -> Pocket022's FIT (the cut's tolerance, 0.1) CHANGES SIDE (the grow becomes a shrink); must not happen -- backward compatibility kept, or, where it cannot be, the feature marked in ERROR | OPEN; said to the note-taker 2026-10-20 10:02. 2026-10-20 10:07 the reporter: Binder008's update binds the SAME SHAPE, NO VISUAL CHANGE -- c answered; the flip is not a moved or different shape. 2026-10-20 11:50 ASSIGNED to x16win (the note-taker's split, 11:40), acknowledged: its full build running; to work on a scratch COPY of dl/handson/2026-10-06/scanner.FCStd (the same Pocket022, Binder018, Binder008). 2026-10-20 11:52 x16win STARTED 197: LinkVibe `fdf4dccef5` built clean on its box (build/win-relwithdebinfo-801, OCCT `1e2de2a74e`), baseline suites running; whether the flip reproduces on the scratch copy comes first. 2026-10-20 12:17 REPRODUCED headless, CAUSE found (the Fit's side follows the outer wire's turn, not the orientation flag), FIXED by x16win: `c8e5aca952` on ITS LinkVibe (another box), NOT pushed, NOT staged, not in this tree; _FitRule 2 judges the side by geometry; Pocket022 keeps +-7.6, Pocket040 r 13; TestPocket 14 OK, TestPartDesignApp 478 OK; the GUI double click not driven. 2026-10-20 16:08 PUSHED by x16win (thundereal/LinkVibe `fdf4dccef5..72396a7ff4`, fast-forward) on the reporter's word to it (relayed), NOT restaged |
 | 198 | 2026-10-20 | a defect found by x16win (on 197), made an entry on the reporter's "Yes, new entry": FIT does NOTHING on OPEN-WIRE profiles -- getVerifiedFace() makes openshape.makeOffset2D(Fit) and DROPS the result | OPEN; 2026-10-20 15:18; ASSIGNED to x16win (PartDesign App), after 158 and 178's six classes. 2026-10-20 15:35 CAUSE CONFIRMED by x16win (only Revolution reaches it; Fit +-0.5 give the identical shape); a DECISION put to the reporter: (1) make it work, one-sided, the side by geometry, old files unchanged, recommended; or (2) refuse with an error; nothing built. 2026-10-20 15:40 DECIDED by the reporter: (1) MAKE IT WORK ("Make it work (Recommended)"), passed to x16win. 2026-10-20 15:57 BUILT and COMMITTED by x16win, `72396a7ff4` on ITS LinkVibe, NOT pushed, NOT staged: _FitRule 3, open wires offset one-sided by geometry, older features unchanged, an end moved off the axis the Revolution's error; TestRevolve 29 OK (3 new), TestPocket 14 OK. 2026-10-20 15:59 TestPartDesignApp re-run whole: 481 OK. 2026-10-20 16:08 PUSHED by x16win (thundereal/LinkVibe `fdf4dccef5..72396a7ff4`, fast-forward) on the reporter's word to it (relayed), NOT restaged |
 | 199 | 2026-10-20 | a test defect found by x16win, made an entry on the reporter's "Yes, new entry": XLinkSnapshotTest.theClipboardsCopyWritesTheSnapshotAndPastesToTheDocument FAILS EVERY TIME on Windows -- getSnapshotPath() forward slashes vs TransientDir backslashes, the prefix check (tests/src/App/XLinkSnapshot.cpp:81) never matches | OPEN; 2026-10-20 15:18; ASSIGNED to fcad-dc (idle while the reporter's 196 hands-on is pending). 2026-10-20 15:29 FIX WRITTEN by fcad-dc in tests/src/App/XLinkSnapshot.cpp only (both paths compared in generic form), NOT verified: the build needs the dev app closed (every build relinks FreeCADBase.dll) -- waits for the reporter's 196 hands-on to end; no harm outside the test by its reading |
-| 200 | 2026-10-20 | a test failure found by x16win (on 193), made an entry on the reporter's choice: 3 DARK-theme claims of tests/gui/overlay-see-through.py FAIL on x16win's box with or without 193 (the tree's ground below the items; two property-row claims) -- a real defect or the test? | OPEN; 2026-10-20 17:12; ASSIGNED to x16win |
+| 200 | 2026-10-20 | a test failure found by x16win (on 193), made an entry on the reporter's choice: 3 DARK-theme claims of tests/gui/overlay-see-through.py FAIL on x16win's box with or without 193 (the tree's ground below the items; two property-row claims) -- a real defect or the test? | OPEN; 2026-10-20 17:12; ASSIGNED to x16win. 2026-10-20 17:27 CAUSE FOUND by x16win: all three FAULTS IN THE TEST (samples outside short panels), not defects; FIXED and COMMITTED on ITS LinkVibe after `5f507995a3` ("Gui: overlay-see-through reads only what its panels show room for", the test only; hash not given), NOT pushed, NOT staged; 62/62 twice |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -27506,6 +27506,34 @@ the test's (fix the claim, saying why). NOT said: whether the failures
 show on this box too (the build session's tree) -- read as worth a
 comparison if it can be had without the build session's runs. ASSIGNED
 to x16win.
+
+**2026-10-20 17:27, x16win: 200 CAUSE FOUND -- all three are FAULTS IN THE TEST, not
+defects; FIXED and COMMITTED locally on its LinkVibe after `5f507995a3`
+("Gui: overlay-see-through reads only what its panels show room for",
+tests/gui/overlay-see-through.py only; the hash not given), NOT pushed,
+NOT staged.**
+(1) The tree's ground below its items: in a fresh profile the first
+theme (Dark) runs with an 800x800 main window (3836x881 by the time Light
+runs); the tree viewport is 89 px and the document + six boxes fill it to
+the bottom -- there was NO ground below the items, and the empty region
+read as clear "over 0%". Fix: when the items fill the view, fold them up
+to the document row, measure, unfold.
+(2)+(3) Property rows of two kinds (and its alpha-80 repeat): the last
+row listed began 2 px above the bottom of the 138 px view; its sample (2
+px inset) lay wholly outside the picture, and the empty sample read as a
+clear row, a third kind. Fix: read a row only while its sample has >= 3
+lines inside the picture (Light's 6-px-visible last row in a 91 px view
+stays in). Checked first that it is NOT a defect: the property view's
+visualRect/indexAt and its painted rows agree (17 px each) under both
+themes, and every painted row is banded. The baseline without 193 failed
+identically; the painted rows show 193's bands correct.
+RESULT: overlay-see-through.py 62/62, twice (four claims that sat behind
+the failing ones now run too). On the reporter's box: they would fail
+there only with panels as short; what shows it is running the test there
+and reading the property claim's new detail line ("every [...], view N
+px") and whether "folded up to measure" appears. The test is NOT
+registered in tests/gui/CMakeLists.txt -- it runs by hand only. x16win
+IDLE.
 
 ## Inbox
 

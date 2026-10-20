@@ -275,10 +275,12 @@ static SbColor litColor(const SbColor& own, bool selected, bool preselected)
     if (!selected && !preselected) {
         return own;
     }
+    // Under the pointer wins over selected, as on a shape; the selected
+    // colour is back once the pointer leaves
     float transparency = 0.0F;
     SbColor lit;
-    lit.setPackedValue(static_cast<uint32_t>(selected ? ViewParams::getSelectionColor()
-                                                      : ViewParams::getHighlightColor()),
+    lit.setPackedValue(static_cast<uint32_t>(preselected ? ViewParams::getHighlightColor()
+                                                         : ViewParams::getSelectionColor()),
                        transparency);
     makeDistinctColor(lit, lit, own);
     return lit;
@@ -374,6 +376,7 @@ void Gizmo::releaseEventNode()
 {
     dropTip();
     hovered = false;
+    hoverHeld = false;
     ++hoverSerial;
     menuPressed = false;
     ownNode = nullptr;
@@ -389,7 +392,13 @@ void Gizmo::setHovered(bool over)
         return;
     }
     hovered = over;
-    if (hoverCallback) {
+    // Pressed on: told off at the press already, and not on again until the
+    // pointer has left (pressedOn())
+    const bool held = hoverHeld;
+    if (!over) {
+        hoverHeld = false;
+    }
+    if (hoverCallback && !held) {
         hoverCallback(over);
     }
     const int serial = ++hoverSerial;
@@ -433,6 +442,19 @@ void Gizmo::setHovered(bool over)
         }
         dropTip();
     });
+}
+
+void Gizmo::pressedOn()
+{
+    // The dragger takes the press before the event node: its start is where
+    // the click begins
+    if (!hovered || hoverHeld) {
+        return;
+    }
+    hoverHeld = true;
+    if (hoverCallback) {
+        hoverCallback(false);
+    }
 }
 
 void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
@@ -725,6 +747,7 @@ void LinearGizmo::draggingStarted()
     dragging = true;
     dragCancelled = false;
     reversedInDrag = false;
+    pressedOn();
     notifyDrag(DragEvent::Started);
     dragger->translationIncrementCount.setValue(0);
 
@@ -1039,6 +1062,7 @@ void RotationGizmo::draggingStarted()
     dragging = true;
     dragCancelled = false;
     reversedInDrag = false;
+    pressedOn();
     notifyDrag(DragEvent::Started);
     dragger->rotationIncrementCount.setValue(0);
 

@@ -80,6 +80,10 @@ public:
      * allow a transaction live past any command scope.
      */
     static void setEnable(bool enable);
+    /// Whether AutoTransaction instances in the current stack hold the active
+    /// transaction open: false where none is standing, or setEnable(false)
+    /// turned them off.
+    static bool isEnabled();
 
     /// Check if view object changes are recorded in transaction
     static bool recordViewObjectChange();

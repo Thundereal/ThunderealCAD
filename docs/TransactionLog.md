@@ -21139,7 +21139,7 @@ and found one bug, fixed (item 6 c). **Built since: L1 (35.7,
 2026-10-19); L2 and L3, the set read and paired (35.10, 2026-10-20); L4,
 the set imported as branches linked to each other (35.11, 2026-10-20); L5,
 their files alone held (35.12, 2026-10-20); L6, the set's merge and its
-dialog (35.13, 2026-10-20).**
+dialog (35.13, 2026-10-20); Q9, the set's record (35.14, 2026-10-20).**
 
 ### 35.1 The case
 
@@ -21975,9 +21975,7 @@ restore and the merge go into the one open.
   restore -- the object and every reference to it -- which is not built;
   a link from outside the set to `Asm#L` breaks where it would have held.
 - the Q4 preview (references that will not resolve, on the top's line);
-- the set's record (Q9), so the set's dialog can be opened again later --
-  closed after Import and before Merge, the branches stay as requests,
-  merged one by one as any;
+- the set's record (Q9) -- built since, 35.14;
 - the Import and the Merge are not recorded as a macro: they call App,
   not a Python command, the plan and the pairs being more than a line.
 
@@ -22014,3 +22012,48 @@ is to it in our `Part`. Driven (`tests/gui/import-linked-set.py`,
 `Part` and `Asm` paired by the history and merged, `Bolt` written; Import
 says two branches and one held; Merge takes the set in; one Std_Undo
 takes it back in both documents.
+
+### 35.14 Q9 built: the set's record (2026-10-20)
+
+As Q9 (c) proposed: every file's import record names the set, and our
+top's log holds its map.
+
+- **Each file's** `import` record carries `set: {id, name}`
+  (`ImportSetRecord`, a scope `importSet` opens and `importFork` reads):
+  a part file knows its branch is a set's.
+- **The top's map**: once the files are imported, a record of kind `set`
+  in our top's log -- no ops, no undo step -- holds the set's id, its name
+  (their top's file name), their top, and per file what `importLinkedSet`
+  returns: their file and its path in their set, how it was paired, ours,
+  the branch, the held row, the default action and `write_to`, and an
+  error where there was one.
+- **Merged**: `mergeSet` with the set's id (`SetMergeOptions::set`, in
+  Python `mergeLinkedSet(files, set=...)`) writes a second `set` record,
+  `merged`; the set is no longer pending.
+- **Pending** (`App::pendingSets`, in Python
+  `Document.getLinkedSetImports()`): the `set` records of the branch our
+  top is on, imported and not merged, oldest first, each as
+  `importLinkedSet` returned it.
+- **The Gui**: Std_ImportLinkedSet offers the newest set pending first --
+  "The set from ... was imported and is not merged yet. Merge it now?" --
+  and the dialog opens at its merge, the pairing fixed, the actions as the
+  record has them and changeable.
+
+**Found on the way, in the Gui**: inside a command the command's
+transaction is held open until it ends, and a document opened in it takes
+its first change into that transaction. A branch's document opened for
+the relink row had one open, the row went into it, and the merge of the
+branch refused: "branch 'Asm' has a transaction open". The relink lets
+the command's hold go for its document (`AutoTransaction::setEnable`, as
+`setEdit()` does; `AutoTransaction::isEnabled()` new, to put back exactly
+what was there), commits what the document had, then writes and commits
+its row. The dialog pairs a file by hand only where the user changed its
+pair, so the record says how it was paired.
+
+**Tests**: `testASetIsMergedAsOneStep` now finds the set pending with the
+import's branches and actions, the set named in our `Part`'s import
+record, merges from the map the log holds -- as the dialog opened again
+does -- and finds nothing pending after. Driven: the dialog closed after
+Import, the command run again offers the set and opens at its merge; the
+merge takes the set in, nothing more is asked, nothing is pending, and
+one Std_Undo takes it back.

@@ -9,6 +9,8 @@ Claims:
     the history both hold and merged by default, their `Bolt` alone and
     written by default;
   - Import brings `Part` and `Asm` as branches and holds `Bolt`;
+  - the dialog closed, the command run again offers the set imported and
+    not merged (sec 35 Q9), and opens at its merge;
   - Merge takes them in: our `Asm` links our `Part` with their longer box,
     and their `Bolt` written beside it;
   - as one undo step: undone from the Gui, our `Part`'s box is as it was
@@ -76,9 +78,49 @@ def drive(left=[60]):
         STATE["read"] = rows(dlg)
         dlg.findChild(QtWidgets.QPushButton, "import").click()
         STATE["imported"] = rows(dlg)
-        dlg.findChild(QtWidgets.QPushButton, "merge").click()
+        # Closed before the merge: the set waits.
+        dlg.reject()
+        QtCore.QTimer.singleShot(300, again)
     except Exception:
         note("ABORT drive:\n" + traceback.format_exc())
+        dlg.reject()
+        QtCore.QTimer.singleShot(300, merged)
+
+
+def answer():
+    for w in QtWidgets.QApplication.topLevelWidgets():
+        if w.isVisible() and isinstance(w, QtWidgets.QMessageBox):
+            STATE.setdefault("asked", []).append(w.text())
+            (w.button(QtWidgets.QMessageBox.Yes) or w.defaultButton()).click()
+
+
+ANSWER = QtCore.QTimer()
+ANSWER.timeout.connect(answer)
+
+
+def again():
+    QtCore.QTimer.singleShot(200, resumed)
+    ANSWER.start(200)
+    FreeCADGui.runCommand("Std_ImportLinkedSet")
+
+
+def resumed(left=[60]):
+    dlg = dialog()
+    if dlg is None:
+        left[0] -= 1
+        if left[0] <= 0:
+            ANSWER.stop()
+            note("FAIL the dialog did not show again")
+            QtCore.QTimer.singleShot(300, merged)
+            return
+        QtCore.QTimer.singleShot(200, resumed)
+        return
+    try:
+        STATE["resumed"] = rows(dlg)
+        STATE["mergeable"] = dlg.findChild(QtWidgets.QPushButton, "merge").isEnabled()
+        dlg.findChild(QtWidgets.QPushButton, "merge").click()
+    except Exception:
+        note("ABORT resumed:\n" + traceback.format_exc())
         dlg.reject()
     QtCore.QTimer.singleShot(300, merged)
 
@@ -133,6 +175,7 @@ def build():
 
 
 def merged():
+    ANSWER.stop()
     try:
         read = STATE.get("read", {})
         check(
@@ -151,6 +194,16 @@ def merged():
             and imported.get("Bolt.FCStd", {}).get("state") == "held",
             imported,
         )
+        resumed = STATE.get("resumed", {})
+        check(
+            "opened again, the set waiting is offered at its merge",
+            len(STATE.get("asked", [])) >= 1
+            and "not merged" in STATE["asked"][0]
+            and STATE.get("mergeable")
+            and resumed.get("Asm.FCStd", {}).get("state", "").startswith("branch")
+            and resumed.get("Bolt.FCStd", {}).get("action") == "Write",
+            (STATE.get("asked"), resumed),
+        )
         doc = FreeCAD.getDocument(STATE["doc"])
         bolt = os.path.join(STATE["ours"], "Bolt.FCStd")
         l2 = doc.getObject("L2")
@@ -162,6 +215,8 @@ def merged():
             and os.path.realpath(l2.LinkedObject.Document.FileName) == os.path.realpath(bolt),
             (doc.L.LinkedObject.Length.Value, l2 and l2.LinkedObject),
         )
+        check("and the set no longer waits", doc.getLinkedSetImports() == [])
+        check("with nothing more asked", len(STATE.get("asked", [])) == 1, STATE.get("asked"))
         STATE["box"] = doc.L.LinkedObject
         FreeCAD.setActiveDocument(doc.Name)
         FreeCADGui.ActiveDocument = FreeCADGui.getDocument(doc.Name)

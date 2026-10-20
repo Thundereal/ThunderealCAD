@@ -219,6 +219,8 @@ void DlgImportLinkedSet::readSet()
             if (f.ours && name == f.ours->getName())
                 ours->setCurrentIndex(ours->count() - 1);
         }
+        // What the reading paired it with: a row left so is not paired by hand.
+        item->setData(Ours, Qt::UserRole, ours->currentData());
         _files->setItemWidget(item, Ours, ours);
         QString how = qs(App::setPairingName(f.pairing));
         if (f.ambiguous)
@@ -265,6 +267,8 @@ void DlgImportLinkedSet::bringIn()
         for (int i = 0; i < _files->topLevelItemCount(); ++i) {
             auto item = _files->topLevelItem(i);
             auto ours = qobject_cast<QComboBox*>(_files->itemWidget(item, Ours));
+            if (ours->currentData() == item->data(Ours, Qt::UserRole))
+                continue;
             const std::string name = ss(ours->currentData().toString());
             App::Document* pick = name.empty() ? nullptr
                 : App::GetApplication().getDocument(name.c_str());
@@ -276,6 +280,46 @@ void DlgImportLinkedSet::bringIn()
         QMessageBox::critical(this, windowTitle(), qs(e.what()));
         return;
     }
+    showImported();
+}
+
+void DlgImportLinkedSet::resume(const App::PendingSet& set)
+{
+    _files->clear();
+    _imported = set.imported;
+    _theirs->setText(QDir::toNativeSeparators(qs(set.imported.theirTop)));
+    int row = 0;
+    for (const auto& f : set.imported.files) {
+        auto item = new QTreeWidgetItem(_files);
+        item->setText(TheirFile, qs(f.relative.empty() ? f.theirs : f.relative));
+        item->setToolTip(TheirFile, qs(f.theirs));
+        item->setData(TheirFile, Qt::UserRole, qs(f.theirs));
+        auto ours = new QComboBox(_files);
+        ours->setObjectName(QStringLiteral("ours%1").arg(row));
+        ours->addItem(f.ourFile.empty() ? tr("(none: theirs alone)")
+                                        : QFileInfo(qs(f.ourFile)).fileName(),
+                      qs(f.ourFile));
+        _files->setItemWidget(item, Ours, ours);
+        item->setText(PairedBy, qs(App::setPairingName(f.pairing)));
+        auto action = new QComboBox(_files);
+        action->setObjectName(QStringLiteral("action%1").arg(row));
+        _files->setItemWidget(item, Action, action);
+        auto writeTo = new QLineEdit(_files);
+        writeTo->setObjectName(QStringLiteral("writeTo%1").arg(row));
+        writeTo->setText(QDir::toNativeSeparators(qs(f.writeTo)));
+        _files->setItemWidget(item, WriteTo, writeTo);
+        fillActions(item, !f.ourFile.empty(), true);
+        const int at = action->findData(int(f.action));
+        if (at >= 0)
+            action->setCurrentIndex(at);
+        ++row;
+    }
+    _files->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    showImported();
+}
+
+void DlgImportLinkedSet::showImported()
+{
     for (int i = 0; i < _files->topLevelItemCount(); ++i) {
         auto item = _files->topLevelItem(i);
         if (auto ours = _files->itemWidget(item, Ours))
@@ -327,6 +371,7 @@ void DlgImportLinkedSet::merge()
     }
     App::SetMergeOptions options;
     options.name = ss(tr("Merge their set"));
+    options.set = _imported.id;
     App::SetMergeResult result;
     try {
         result = App::mergeSet(*doc, files, options);

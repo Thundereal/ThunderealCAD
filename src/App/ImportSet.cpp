@@ -487,9 +487,31 @@ int relinkBranch(const std::string& ourFile, const std::string& branch,
                  const char* rowName = "Link their set", bool plainly = false)
 {
     auto& app = GetApplication();
+    // The branch's rows are committed as they are written: inside a command,
+    // the command's transaction is held open to its end, and what the
+    // branch's document took into it -- opened in the command, its first
+    // change -- with it; the branch then has a transaction open, and a merge
+    // of it refuses. The hold is let go here, as setEdit() lets it go, and
+    // put back.
+    struct Release
+    {
+        bool held = AutoTransaction::isEnabled();
+        Release()
+        {
+            if (held)
+                AutoTransaction::setEnable(false);
+        }
+        ~Release()
+        {
+            if (held)
+                AutoTransaction::setEnable(true);
+        }
+    } release;
     Document* doc = app.openDocument((ourFile + "@" + branch + "@").c_str(), false);
     if (!doc)
         return 0;
+    if (doc->hasPendingTransaction())
+        doc->commitTransaction();
     std::vector<std::pair<PropertyXLink*, App::DocumentObject*>> changes;
     std::vector<std::pair<PropertyXLink*, std::string>> plain;
     for (auto obj : doc->getObjects()) {
@@ -535,22 +557,16 @@ int relinkBranch(const std::string& ourFile, const std::string& branch,
     const int mode = doc->getUndoMode();
     if (!mode)
         doc->setUndoMode(1);
-    // One open already -- a set's merge's step, which a change of a file it
-    // links opened here -- takes the row; a document holds one per id.
-    const bool open = doc->hasPendingTransaction();
-    if (!open)
-        doc->openTransaction(rowName);
+    doc->openTransaction(rowName);
     try {
         for (auto& [link, target] : changes)
             link->setValue(target, std::vector<std::string>(link->getSubValues()));
         for (auto& [link, file] : plain)
             link->setPlainFile(file);
-        if (!open)
-            doc->commitTransaction();
+        doc->commitTransaction();
     }
     catch (...) {
-        if (!open)
-            doc->abortTransaction();
+        doc->abortTransaction();
         if (!mode)
             doc->setUndoMode(0);
         throw;
@@ -608,10 +624,15 @@ SetImportResult App::importSet(const SetImportPlan& plan)
     // the top's transient directory at its path in their set, so that links
     // between them hold; links to them are to that file, held.
     std::map<std::string, std::pair<int64_t, std::string>> held;   // theirs -> row, staged
+    // Q9: the set, named in every file's import record and mapped in the
+    // top's.
+    const std::string setId = Base::Uuid::createUuid().substr(0, 8);
+    result.id = setId;
+    result.theirTop = plan.files.empty() ? std::string() : plan.files.back().theirs;
+    result.name = ss(QFileInfo(qs(result.theirTop)).fileName());
+    ImportSetRecord setRecord(result.id, result.name);
     if (plan.ourTop && plan.ourTop->getTransactionLog()) {
-        const std::string setId = Base::Uuid::createUuid().substr(0, 8);
-        const std::string theirTop = plan.files.empty() ? std::string()
-            : ss(QFileInfo(qs(plan.files.back().theirs)).fileName());
+        const std::string& theirTop = result.name;
         for (const auto& f : plan.files) {
             if (f.ours || f.ambiguous)
                 continue;
@@ -652,6 +673,8 @@ SetImportResult App::importSet(const SetImportPlan& plan)
     for (const auto& f : plan.files) {
         SetImportedFile r;
         r.theirs = f.theirs;
+        r.relative = f.relative;
+        r.pairing = f.pairing;
         r.action = defaultSetMergeAction(f);
         if (!f.ours && !f.ambiguous)
             r.writeTo = ss(QDir::cleanPath(ourDir.absoluteFilePath(qs(f.relative))));
@@ -714,6 +737,31 @@ SetImportResult App::importSet(const SetImportPlan& plan)
         for (const auto& r : result.files) {
             if (r.held)
                 plan.ourTop->holdSentFileFor(r.held, top->branch);
+        }
+    }
+    // Q9: the map, in our top's log -- a record, no undo step.
+    if (plan.ourTop) {
+        if (TransactionLog* log = plan.ourTop->getTransactionLog()) {
+            auto list = nlohmann::json::array();
+            for (std::size_t i = 0; i < result.files.size(); ++i) {
+                const auto& r = result.files[i];
+                list.push_back({{"theirs", r.theirs},
+                                {"relative", r.relative},
+                                {"our_file", r.ourFile},
+                                {"pairing", setPairingName(r.pairing)},
+                                {"branch", r.branch},
+                                {"held", r.held},
+                                {"action", setMergeActionName(r.action)},
+                                {"write_to", r.writeTo},
+                                {"error", r.error}});
+            }
+            nlohmann::json j;
+            j["set"] = {{"id", result.id},
+                        {"name", result.name},
+                        {"top", result.theirTop},
+                        {"files", std::move(list)}};
+            result.record = log->record("set", "Import set " + result.name, j.dump());
+            log->flush();
         }
     }
     closeOpened(before);
@@ -935,6 +983,74 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
             }
         }
     }
+    // Q9: the set no longer pending.
+    if (!options.set.empty()) {
+        if (TransactionLog* log = ourTop.getTransactionLog()) {
+            nlohmann::json j;
+            j["set"] = {{"id", options.set}, {"merged", true}};
+            log->record("set", "Merged set", j.dump());
+            log->flush();
+        }
+    }
     closeOpened(before);
     return result;
+}
+
+std::vector<PendingSet> App::pendingSets(Document& ourTop)
+{
+    std::vector<PendingSet> out;
+    TransactionLog* log = ourTop.getTransactionLog();
+    if (!log)
+        return out;
+    log->flush();
+    std::set<std::string> merged;
+    std::vector<std::pair<LogTransaction, nlohmann::json>> imports;
+    for (const auto& t : log->store().history(log->head())) {
+        if (t.kind != "set")
+            continue;
+        const auto j = nlohmann::json::parse(t.script, nullptr, false);
+        if (!j.is_object() || !j.contains("set") || !j["set"].is_object())
+            continue;
+        const auto& set = j["set"];
+        if (set.value("merged", false))
+            merged.insert(set.value("id", std::string()));
+        else
+            imports.emplace_back(t, set);
+    }
+    for (const auto& [t, set] : imports) {
+        PendingSet p;
+        p.when = t.time;
+        auto& r = p.imported;
+        r.id = set.value("id", std::string());
+        if (merged.count(r.id))
+            continue;
+        r.name = set.value("name", std::string());
+        r.theirTop = set.value("top", std::string());
+        r.record = t.seq;
+        for (const auto& e : set.value("files", nlohmann::json::array())) {
+            SetImportedFile f;
+            f.theirs = e.value("theirs", std::string());
+            f.relative = e.value("relative", std::string());
+            const std::string pairing = e.value("pairing", std::string());
+            for (auto how : {SetPairing::History, SetPairing::SaveId, SetPairing::Manifest,
+                             SetPairing::Uid, SetPairing::Path, SetPairing::User}) {
+                if (pairing == setPairingName(how))
+                    f.pairing = how;
+            }
+            f.ourFile = e.value("our_file", std::string());
+            f.branch = e.value("branch", std::string());
+            f.held = e.value("held", int64_t(0));
+            f.writeTo = e.value("write_to", std::string());
+            f.error = e.value("error", std::string());
+            const std::string action = e.value("action", std::string());
+            for (auto a : {SetMergeAction::Merge, SetMergeAction::TakeTheirs, SetMergeAction::KeepOurs,
+                           SetMergeAction::Write, SetMergeAction::Drop}) {
+                if (action == setMergeActionName(a))
+                    f.action = a;
+            }
+            r.files.push_back(std::move(f));
+        }
+        out.push_back(std::move(p));
+    }
+    return out;
 }

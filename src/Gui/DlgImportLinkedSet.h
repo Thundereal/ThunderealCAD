@@ -54,6 +54,8 @@ class GuiExport DlgImportLinkedSet: public QDialog
 
 public:
     explicit DlgImportLinkedSet(App::Document* top, QWidget* parent = nullptr);
+    /// A set imported before and not merged (sec 35 Q9), at its merge.
+    void resume(const App::PendingSet& set);
 
 private:
     void browse();
@@ -65,6 +67,8 @@ private:
     void merge();
     /// The actions a row offers, for whether it is paired.
     void fillActions(QTreeWidgetItem* item, bool paired, bool certain);
+    /// The rows' states, as the import left them; the merge next.
+    void showImported();
     App::Document* top() const;
 
     std::string _docName;

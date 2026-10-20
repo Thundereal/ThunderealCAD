@@ -119,6 +119,8 @@ enum class SetMergeAction
 struct AppExport SetImportedFile
 {
     std::string theirs;    ///< their file
+    std::string relative;  ///< its path under their top's folder
+    SetPairing pairing = SetPairing::None;   ///< how it was paired
     std::string ourFile;   ///< ours it came to; empty for a file of theirs alone
     /// The branch of ours it came as; empty when it brought nothing new.
     std::string branch;
@@ -146,6 +148,13 @@ struct AppExport SetImportedFile
 struct AppExport SetImportResult
 {
     std::vector<SetImportedFile> files;   ///< in the plan's order
+    /// The set (Q9): its id, its name -- their top's file name -- and their
+    /// top, as the top's record holds them.
+    std::string id;
+    std::string name;
+    std::string theirTop;
+    /// The record in our top's log that holds the set's map; 0 for none.
+    int64_t record = 0;
 };
 
 /** Bring their set in (sec 35 L4): each file of the plan paired with one of
@@ -188,6 +197,9 @@ struct AppExport SetMergeOptions
 {
     std::string name = "Merge their set";   ///< the undo step's
     bool overwrite = false;   ///< Write over a file that is there
+    /// The set merged (SetImportResult::id): our top's log says so, and it is
+    /// no longer pending. Empty for none.
+    std::string set;
 };
 
 struct AppExport SetMergedFile
@@ -223,6 +235,18 @@ struct AppExport SetMergeResult
  */
 AppExport SetMergeResult mergeSet(Document& ourTop, const std::vector<SetMergeFile>& files,
                                   const SetMergeOptions& options = {});
+
+/** The sets imported into `ourTop` and not merged yet (sec 35 Q9), oldest
+ * first, as the records of the branch it is on hold them: what importSet()
+ * returned for each, with `when` it was imported. A set's dialog opened
+ * again shows them.
+ */
+struct AppExport PendingSet
+{
+    SetImportResult imported;
+    double when = 0;
+};
+AppExport std::vector<PendingSet> pendingSets(Document& ourTop);
 
 }  // namespace App
 

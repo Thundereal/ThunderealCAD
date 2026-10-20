@@ -6704,6 +6704,29 @@ bool SetMergeScope::active()
     return _SetMergeScopes > 0;
 }
 
+namespace
+{
+thread_local ImportSetRecord* _ImportSetRecord = nullptr;
+}
+
+ImportSetRecord::ImportSetRecord(std::string id, std::string name)
+    : id(std::move(id))
+    , name(std::move(name))
+    , _outer(_ImportSetRecord)
+{
+    _ImportSetRecord = this;
+}
+
+ImportSetRecord::~ImportSetRecord()
+{
+    _ImportSetRecord = _outer;
+}
+
+const ImportSetRecord* ImportSetRecord::current()
+{
+    return _ImportSetRecord;
+}
+
 bool Document::restoreVersion(int64_t num)
 {
     OperationScope scope;   // sec 27.38
@@ -13182,6 +13205,9 @@ Document::ImportResult Document::_importState(const std::string& path, const std
         m["sender"] = sender;
     if (!d->importingRequest.empty())
         m["request"] = d->importingRequest;
+    // Sec 35 Q9: the set it is of.
+    if (auto set = ImportSetRecord::current())
+        m["set"] = {{"id", set->id}, {"name", set->name}};
     if (result.independent)
         m["independent"] = true;
     if (result.stoppedAt) {
@@ -14123,6 +14149,9 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
         m["sender"] = sender;
     if (!d->importingRequest.empty())
         m["request"] = d->importingRequest;
+    // Sec 35 Q9: the set it is of.
+    if (auto set = ImportSetRecord::current())
+        m["set"] = {{"id", set->id}, {"name", set->name}};
     if (gap)
         m["state"] = state;
     if (result.stoppedAt) {

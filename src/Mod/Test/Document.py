@@ -10504,6 +10504,16 @@ class TransactionBranchCases(unittest.TestCase):
         )
         bolt = os.path.join(ours, "Bolt.FCStd")
         self.assertEqual(os.path.realpath(got["Bolt.FCStd"]["write_to"]), os.path.realpath(bolt))
+        # Q9: the set pending, its map in our top's log, its name in each
+        # file's import record.
+        pending = doc.getLinkedSetImports()
+        self.assertEqual([p["set"] for p in pending], [res["set"]])
+        self.assertEqual(
+            [(f["theirs"], f["branch"], f["action"]) for f in pending[0]["files"]],
+            [(f["theirs"], f["branch"], f["action"]) for f in res["files"]],
+        )
+        part = doc.L.LinkedObject.Document
+        self.assertTrue(any(res["set"] in r.get("script", "") for r in part.getTransactionLog()))
 
         with open(bolt, "w") as f:
             f.write("in the way")
@@ -10513,8 +10523,11 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(doc.L.LinkedObject.Length.Value, 10)
         self.assertIsNone(doc.getObject("L2"))
 
-        m = doc.mergeLinkedSet(res["files"], overwrite=True)
+        # Merged from the map the log holds, as the set's dialog opened
+        # again does.
+        m = doc.mergeLinkedSet(pending[0]["files"], overwrite=True, set=res["set"])
         self.assertFalse(m["refused"], m)
+        self.assertEqual(doc.getLinkedSetImports(), [])
         for f in m["files"]:
             self.assertEqual(f["error"], "", f)
         done = {os.path.basename(f["theirs"]): f for f in m["files"]}

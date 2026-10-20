@@ -2111,6 +2111,43 @@ PyObject* DocumentPy::planLinkedSetImport(PyObject* args)
     } PY_CATCH;
 }
 
+namespace
+{
+
+/// A set imported (TransactionLog sec 35 L4, Q9), as Python is given it.
+Py::Dict setImportDict(const App::SetImportResult& result)
+{
+    Py::List files;
+    for (const auto& f : result.files) {
+        Py::Dict d;
+        d.setItem("theirs", Py::String(f.theirs));
+        d.setItem("relative", Py::String(f.relative));
+        d.setItem("pairing", Py::String(App::setPairingName(f.pairing)));
+        d.setItem("our_file", Py::String(f.ourFile));
+        d.setItem("branch", Py::String(f.branch));
+        d.setItem("rows", Py::Long(static_cast<unsigned long long>(f.rows)));
+        d.setItem("independent", Py::Boolean(f.independent));
+        d.setItem("stopped_at", Py::Long(static_cast<long long>(f.stoppedAt)));
+        d.setItem("reason", Py::String(f.reason));
+        d.setItem("held", Py::Long(static_cast<long long>(f.held)));
+        d.setItem("staged", Py::String(f.staged));
+        d.setItem("relinked", Py::Long(f.relinked));
+        d.setItem("action", Py::String(App::setMergeActionName(f.action)));
+        d.setItem("write_to", Py::String(f.writeTo));
+        d.setItem("error", Py::String(f.error));
+        files.append(d);
+    }
+    Py::Dict d;
+    d.setItem("files", files);
+    d.setItem("set", Py::String(result.id));
+    d.setItem("name", Py::String(result.name));
+    d.setItem("top", Py::String(result.theirTop));
+    d.setItem("record", Py::Long(static_cast<long long>(result.record)));
+    return d;
+}
+
+}  // namespace
+
 PyObject* DocumentPy::importLinkedSet(PyObject* args, PyObject* kwds)
 {
     char* path = nullptr;
@@ -2140,28 +2177,22 @@ PyObject* DocumentPy::importLinkedSet(PyObject* args, PyObject* kwds)
                 App::pairByHand(plan, theirs, ours);
             }
         }
-        const auto result = App::importSet(plan);
-        Py::List files;
-        for (const auto& f : result.files) {
-            Py::Dict d;
-            d.setItem("theirs", Py::String(f.theirs));
-            d.setItem("our_file", Py::String(f.ourFile));
-            d.setItem("branch", Py::String(f.branch));
-            d.setItem("rows", Py::Long(static_cast<unsigned long long>(f.rows)));
-            d.setItem("independent", Py::Boolean(f.independent));
-            d.setItem("stopped_at", Py::Long(static_cast<long long>(f.stoppedAt)));
-            d.setItem("reason", Py::String(f.reason));
-            d.setItem("held", Py::Long(static_cast<long long>(f.held)));
-            d.setItem("staged", Py::String(f.staged));
-            d.setItem("relinked", Py::Long(f.relinked));
-            d.setItem("action", Py::String(App::setMergeActionName(f.action)));
-            d.setItem("write_to", Py::String(f.writeTo));
-            d.setItem("error", Py::String(f.error));
-            files.append(d);
+        return Py::new_reference_to(setImportDict(App::importSet(plan)));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::getLinkedSetImports(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        Py::List out;
+        for (const auto& p : App::pendingSets(*getDocumentPtr())) {
+            Py::Dict d = setImportDict(p.imported);
+            d.setItem("when", Py::Float(p.when));
+            out.append(d);
         }
-        Py::Dict d;
-        d.setItem("files", files);
-        return Py::new_reference_to(d);
+        return Py::new_reference_to(out);
     } PY_CATCH;
 }
 
@@ -2170,9 +2201,10 @@ PyObject* DocumentPy::mergeLinkedSet(PyObject* args, PyObject* kwds)
     PyObject* list = nullptr;
     PyObject* overwrite = Py_False;
     const char* name = "Merge their set";
-    static const std::array<const char*, 4> kwlist {"files", "overwrite", "name", nullptr};
-    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "O|O!s", kwlist, &list, &PyBool_Type,
-                                             &overwrite, &name))
+    const char* set = "";
+    static const std::array<const char*, 5> kwlist {"files", "overwrite", "name", "set", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "O|O!ss", kwlist, &list, &PyBool_Type,
+                                             &overwrite, &name, &set))
         return nullptr;
     PY_TRY {
         auto text = [](const Py::Dict& d, const char* key) {
@@ -2212,6 +2244,7 @@ PyObject* DocumentPy::mergeLinkedSet(PyObject* args, PyObject* kwds)
         App::SetMergeOptions options;
         options.name = name;
         options.overwrite = Base::asBoolean(overwrite);
+        options.set = set;
         const auto result = App::mergeSet(*getDocumentPtr(), files, options);
         Py::List out;
         for (const auto& f : result.files) {

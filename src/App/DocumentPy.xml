@@ -927,13 +927,15 @@ top's branch is merged or deleted. Nothing is merged. Returns 'files', a
 list of dict in the plan's order: 'theirs', 'our_file' (empty for a file
 alone), 'branch' (empty when it brought nothing new), 'rows',
 'independent', 'stopped_at', 'reason', 'held' (the row holding a file
-alone, 0 for none), 'staged' (where it is written), 'relinked' and
-'error'.</UserDocu>
+alone, 0 for none), 'staged' (where it is written), 'relinked', 'relative',
+'pairing', the default 'action' and 'write_to' (for mergeLinkedSet()), and
+'error'; and the set (sec 35 Q9): 'set' (its id), 'name', 'top' and
+'record', the row of this document's log that maps it.</UserDocu>
       </Documentation>
     </Methode>
     <Methode Name="mergeLinkedSet" Keyword="true">
       <Documentation>
-        <UserDocu>mergeLinkedSet(files, overwrite=False, name='Merge their set') -> dict
+        <UserDocu>mergeLinkedSet(files, overwrite=False, name='Merge their set', set='') -> dict
 The set's merge (docs/TransactionLog.md sec 35 L6): `files` as
 importLinkedSet() lists them, the files each links first, each a dict with
 'theirs', 'our_file', 'branch', 'held', 'write_to' and 'action' -- 'merge',
@@ -946,7 +948,17 @@ Otherwise the files alone are written, each branch's links to the set's
 branches made links to ours, and each file merged, taken or kept, as one undo
 step across the documents. Returns 'files' (per file 'action', 'seq',
 'written', 'undo_id', 'unresolved', 'failed', 'error'), 'transaction' (the
-undo step's id) and 'refused'.</UserDocu>
+undo step's id) and 'refused'. `set`, the id importLinkedSet() gave the set,
+records it merged: getLinkedSetImports() no longer lists it.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getLinkedSetImports">
+      <Documentation>
+        <UserDocu>getLinkedSetImports() -> list of dict
+The sets imported into this document and not merged yet
+(docs/TransactionLog.md sec 35 Q9), oldest first, as the records of the
+branch it is on hold them: each as importLinkedSet() returned it, with 'when'
+it was imported -- to be merged later by mergeLinkedSet(files, set=...).</UserDocu>
       </Documentation>
     </Methode>
     <Methode Name="importTransactionFork">

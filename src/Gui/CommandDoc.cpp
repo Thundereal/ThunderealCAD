@@ -622,6 +622,17 @@ void StdCmdImportLinkedSet::activated(int iMsg)
         return;
     }
     DlgImportLinkedSet dlg(top, getMainWindow());
+    // Sec 35 Q9: a set imported before and not merged is offered first.
+    const auto pending = App::pendingSets(*top);
+    if (!pending.empty()) {
+        const auto& last = pending.back();
+        if (QMessageBox::question(getMainWindow(), QObject::tr("Import a Linked Set"),
+                                  QObject::tr("The set from %1 was imported and is not merged "
+                                              "yet. Merge it now?")
+                                      .arg(QString::fromUtf8(last.imported.theirTop.c_str())))
+                == QMessageBox::Yes)
+            dlg.resume(last);
+    }
     dlg.exec();
 }
 

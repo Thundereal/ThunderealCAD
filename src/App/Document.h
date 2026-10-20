@@ -86,6 +86,26 @@ public:
     static bool active();
 };
 
+/** While one is open in this thread (docs/TransactionLog.md sec 35 Q9): an
+ * import's record names the set it is of -- its id and name -- so a part
+ * file knows its branch is a set's.
+ */
+class AppExport ImportSetRecord
+{
+public:
+    ImportSetRecord(std::string id, std::string name);
+    ~ImportSetRecord();
+    ImportSetRecord(const ImportSetRecord&) = delete;
+    ImportSetRecord& operator=(const ImportSetRecord&) = delete;
+    /// The innermost one open; null when none is.
+    static const ImportSetRecord* current();
+    const std::string id;
+    const std::string name;
+
+private:
+    ImportSetRecord* _outer;
+};
+
 /// The document class
 class AppExport Document : public App::PropertyContainer
 {

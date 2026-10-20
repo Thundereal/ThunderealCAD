@@ -145,6 +145,10 @@ void AutoTransaction::setEnable(bool enable) {
     }
 }
 
+bool AutoTransaction::isEnabled() {
+    return GetApplication()._activeTransactionGuard > 0;
+}
+
 Application::InvocationScope::InvocationScope(const char* origin)
 {
     GetApplication()._invocations.push_back(origin ? origin : "");

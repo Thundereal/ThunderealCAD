@@ -119,10 +119,14 @@ std::string not3d(const ReferenceEntry& ref, TopAbs_ShapeEnum wanted)
     }
     const char* kinds[] = {"compound", "compsolid", "solid", "shell", "face",
                            "wire", "edge", "vertex", "shape"};
-    return QCoreApplication::translate("TechDraw", "the 3D reference %1 is a %2, not a %3")
-        .arg(name,
-             QString::fromLatin1(kinds[std::min<int>(shape.ShapeType(), 8)]),
-             QString::fromLatin1(kinds[std::min<int>(wanted, 8)]))
+    const QString found = QString::fromLatin1(kinds[std::min<int>(shape.ShapeType(), 8)]);
+    if (wanted == TopAbs_EDGE) {
+        return QCoreApplication::translate("TechDraw", "the 3D reference %1 is a %2, not an edge")
+            .arg(name, found)
+            .toStdString();
+    }
+    return QCoreApplication::translate("TechDraw", "the 3D reference %1 is a %2, not a vertex")
+        .arg(name, found)
         .toStdString();
 }
 

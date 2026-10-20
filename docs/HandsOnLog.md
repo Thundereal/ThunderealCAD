@@ -7933,3 +7933,30 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   selecting the base edge only) left as is, the user's word. r174: all 8
   handle/value/label tests green. NOT pushed, NOT staged; the dev build
   launched 15:17 for the user's hands-on test.
+- 196 on the user's hands-on of r174-r177, 2026-10-20 afternoon:
+  a handle under the pointer lit as hovered, selected or not, the selected
+  colour back when it leaves; a press drops the hover until the pointer
+  has left, so a click shows the handle selected; the settings menu names
+  the drag key by what it does against the default ("Hold for fine drag"
+  / "Hold for coarse drag") (6f98a451b6). A drag beside a missing edge
+  keeps its value: a drag fails only for an edge of the dragged value
+  failing anew, the feature failing whole, or another error -- the
+  delayed second recompute the user saw was the wrong revert's write
+  back (de17c0aace). A drag cancelled by Esc or another button no longer
+  looks dragged: the arrow drops its dragged look and stays where the
+  drag began until the button is up; the grab is kept, so the navigation
+  style never gets half a press (6a8b259b6c).
+  fillet-drag-beside-missing-edge.py 20 of 20 (twice); fillet-partial-in-
+  view.py follows the go-back of 3fc186d196. The user on r177: "looks good".
+- PUSHED and STAGED 2026-10-20 on the user's "looks good, fetch and merge,
+  build test and push" and "then restage": thundereal/LinkVibe merged
+  (5f507995a3: x16win's 197, 178, 198, 193) as 9c50071301, built r178,
+  11 GUI tests green (the fillet handle set and overlay-list-row-bands.py),
+  pushed 5f507995a3..b245d01c73; stage24 17:47, INSTALL-USER: OK, the copy
+  b245d01c73 = r178 (dirty: only 199's test file, not built into the app).
+- 199 (XLinkSnapshotTest on Windows): the test's fix written
+  (tests/src/App/XLinkSnapshot.cpp, the two paths compared in one
+  spelling), NOT built or run, uncommitted: held on the user's word to stay
+  on the fillet work. Its first run started Tests_run.exe bare and put the
+  "DLL was not found" boxes on the user's screen (163); t199.cmd now runs
+  it through ctest only.

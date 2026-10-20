@@ -155,6 +155,10 @@ fc_add_gui_test(GuiServeHandleHint_tests_run serve-handle-hint.py
 # model is lit on hover, and a click on it is the label's.
 fc_add_gui_test(GuiOnViewLabelOverGeometry_tests_run onview-label-over-geometry.py
                 --timeout 200)
+# Entry 196, the hands-on of 2026-10-20: a drag of a working edge's handle
+# keeps its value beside a missing edge; a selected handle lights on hover.
+fc_add_gui_test(GuiFilletDragBesideMissingEdge_tests_run fillet-drag-beside-missing-edge.py
+                --timeout 200)
 
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit

@@ -38,6 +38,8 @@
 # include <cmath>
 #endif
 
+#include <algorithm>
+
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <TopExp_Explorer.hxx>
@@ -1506,6 +1508,43 @@ bool TaskDressUpParameters::eventFilter(QObject *o, QEvent *e)
     }
     // the base's: a panel box holding an undo step while it has the focus
     return TaskFeatureParameters::eventFilter(o,e);
+}
+
+void TaskDressUpParameters::heldStepBegun()
+{
+    failedAtStepStart.clear();
+    errorAtStepStart.clear();
+    auto dressUp = vp ? Base::freecad_dynamic_cast<PartDesign::DressUp>(vp->getObject()) : nullptr;
+    if (!dressUp || !dressUp->isError())
+        return;
+    failedAtStepStart = dressUp->FailedEdges.getValues();
+    if (const char *error = dressUp->getStatusString())
+        errorAtStepStart = error;
+}
+
+std::vector<std::string> TaskDressUpParameters::failedSinceStepBegun(bool &whole) const
+{
+    whole = false;
+    std::vector<std::string> fresh;
+    auto dressUp = vp ? Base::freecad_dynamic_cast<PartDesign::DressUp>(vp->getObject()) : nullptr;
+    if (!dressUp || !dressUp->isError())
+        return fresh;
+    const auto &failed = dressUp->FailedEdges.getValues();
+    // Nothing named: the feature as a whole failed
+    if (failed.empty()) {
+        whole = true;
+        return fresh;
+    }
+    for (const auto &edge : failed) {
+        if (std::find(failedAtStepStart.begin(), failedAtStepStart.end(), edge)
+                == failedAtStepStart.end())
+            fresh.push_back(edge);
+    }
+    // The same edges, and another error: the result itself
+    const char *error = dressUp->getStatusString();
+    if (fresh.empty() && errorAtStepStart != (error ? error : ""))
+        whole = true;
+    return fresh;
 }
 
 //**************************************************************************

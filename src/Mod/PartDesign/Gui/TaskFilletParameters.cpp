@@ -1272,10 +1272,14 @@ bool TaskFilletParameters::isDragFailing() const
     auto fillet = vp ? dynamic_cast<PartDesign::Fillet*>(vp->getObject()) : nullptr;
     if (!fillet || !fillet->isError())
         return false;
-    const auto& failed = fillet->FailedEdges.getValues();
-    // Nothing named: the fillet as a whole failed
-    if (failed.empty())
+    // Only what failed since the drag began: an edge missing or failing
+    // before it is no failure of the drag
+    bool whole = false;
+    const auto failed = failedSinceStepBegun(whole);
+    if (whole)
         return true;
+    if (failed.empty())
+        return false;
     auto isFailed = [&failed](const std::string& edge) {
         return std::find(failed.begin(), failed.end(), edge) != failed.end();
     };

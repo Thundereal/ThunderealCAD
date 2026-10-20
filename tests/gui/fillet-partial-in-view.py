@@ -16,9 +16,10 @@ edit. Claims:
     failed, the result holds the vertical edge's fillet, and the preview has
     its faces and the top edge's from 0.5 (FailedShape);
   - 0.5 again: nothing failed, the feature valid;
-  - a drag of the top edge's arrow out past 2: the stop sign is the pointer
-    while the button is down; after the release it is not, and the top edge
-    stays failed.
+  - a drag of the top edge's arrow out past 2: the radius goes back to the
+    last that worked, 0.5, inside the drag (the user, 2026-10-19: "just auto
+    revert to the last working value"); after the release no stop sign, and
+    nothing failed.
 
 Runs with QT_QPA_PLATFORM=offscreen; the drag goes through the window. That
 the kept faces are red is not read here: the preview's colours are not
@@ -269,15 +270,19 @@ def run():
             during = cursor_shape()
             note("INFO in the drag: Radius %s, failed %s, the cursor %s"
                  % (fillet.Radius, list(fillet.FailedEdges), during))
-            check("a drag that fails the top edge: the stop sign",
-                  during == Qt.ForbiddenCursor, (during, fillet.Radius, list(fillet.FailedEdges)))
+            # Since 2026-10-19 (3fc186d196) a drag whose recompute fails goes
+            # back to the last working value inside the drag: the stop sign
+            # shows only between the two recomputes
+            check("a drag that fails the top edge goes back to the last working radius",
+                  abs(fillet.Radius.Value - 0.5) < 1e-9 and list(fillet.FailedEdges) == [],
+                  (fillet.Radius, list(fillet.FailedEdges)))
             QtTest.QTest.mouseRelease(win, Qt.LeftButton, Qt.NoModifier, q)
             pump(80)
             after = cursor_shape()
             check("released: the stop sign gone", after != Qt.ForbiddenCursor, after)
-            check("released: the top edge stays failed", top in list(fillet.FailedEdges)
-                  and faces(fillet.FailedShape) > 0,
-                  (list(fillet.FailedEdges), faces(fillet.FailedShape)))
+            check("released: the radius 0.5, nothing failed",
+                  abs(fillet.Radius.Value - 0.5) < 1e-9 and list(fillet.FailedEdges) == [],
+                  (fillet.Radius, list(fillet.FailedEdges)))
         check("still in edit", gdoc.getInEdit() is not None)
     except Exception:
         note("ABORT " + traceback.format_exc().replace("\n", " | "))

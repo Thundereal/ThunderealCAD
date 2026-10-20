@@ -573,7 +573,7 @@ void TaskChamferParameters::updateEdgeHandles()
                 else {
                     handle.gizmo = new Gui::LinearGizmo(box);
                 }
-                handle.gizmo->setColor(groupColor(group));
+                // the theme's one colour, as every handle (entry 196)
                 // The group, then which value: "2  S", "2  S1" ...
                 const int index = onViewValues->addValue(
                     box, QStringLiteral("%1  %2").arg(group).arg(name),

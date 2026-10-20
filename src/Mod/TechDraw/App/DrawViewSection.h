@@ -253,6 +253,9 @@ protected:
         std::vector<Part::TopoShape> solids;
         Part::TopoShape cuttingTool;
         bool trimAfterCut;
+        /// Solids the cut failed on, the rest cut: a warning once the cut
+        /// is back on the main thread (docs/TechDrawErrors.md 3.2)
+        std::shared_ptr<int> failedSolids;
     };
     static void doSectionCut(const SectionParams &params);
 

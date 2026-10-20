@@ -30,6 +30,8 @@
 # include <sstream>
 #endif
 
+#include <QCoreApplication>
+
 #include <App/Application.h>
 #include <App/Document.h>
 #include <Base/Console.h>
@@ -116,6 +118,14 @@ App::DocumentObjectExecReturn *DrawHatch::execute(void)
     DrawViewPart* parent = getSourceView();
     if (parent) {
         parent->requestPaint();
+    }
+    // a pattern that cannot be read hatches nothing (docs/TechDrawErrors.md 3.2)
+    if (!SvgIncluded.isEmpty() && !Base::FileInfo(SvgIncluded.getValue()).isReadable()) {
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The pattern file %1 cannot be read")
+                .arg(QString::fromUtf8(HatchPattern.getValue()))
+                .toStdString(),
+            this);
     }
     return App::DocumentObject::StdReturn;
 }

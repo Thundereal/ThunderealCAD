@@ -81,6 +81,7 @@
 #include <App/Document.h>
 #include <Base/BoundBox.h>
 #include <Base/Console.h>
+#include <Base/Exception.h>
 #include <Base/FileInfo.h>
 #include <Base/Parameter.h>
 
@@ -437,14 +438,31 @@ App::DocumentObjectExecReturn* DrawViewSection::execute()
         return App::DocumentObject::StdReturn;
     }
 
+    // What leaves the section nothing to cut is its error, and what may leave
+    // it cut wrongly a warning (docs/TechDrawErrors.md 3.2)
     if (!isBaseValid()) {
-        return new App::DocumentObjectExecReturn("BaseView object not found");
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw",
+                                        "The section has no base view, or its base view is "
+                                        "not a part view")
+                .toStdString(),
+            this);
     }
 
     Part::TopoShape baseShape = getShapeToCut();
 
     if (baseShape.isNull()) {
-        return DrawView::execute();
+        auto* base = static_cast<DrawViewPart*>(BaseView.getValue());
+        if (base->waitingForResult()) {
+            // a section still cutting: it recomputes this once it has its
+            // shape (postSectionCutTasks)
+            return DrawView::execute();
+        }
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The base view %1 has no shape to cut")
+                .arg(QString::fromUtf8(BaseView.getValue()->Label.getValue()))
+                .toStdString(),
+            this);
     }
 
     // is SectionOrigin valid?
@@ -454,8 +472,10 @@ App::DocumentObjectExecReturn* DrawViewSection::execute()
     Base::Vector3d orgPnt = SectionOrigin.getValue();
 
     if (!isReallyInBox(gp_Pnt(orgPnt.x, orgPnt.y, orgPnt.z), centerBox)) {
-        Base::Console().Warning("DVS: SectionOrigin doesn't intersect part in %s\n",
-                                getNameInDocument());
+        reportLateWarning(QCoreApplication::translate(
+            "TechDraw", "The section origin is outside the part, so the section may cut "
+                        "nothing or not where it is meant to")
+            .toStdString());
     }
 
     // save important info for later use
@@ -525,11 +545,19 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
         // the worker's failure, the view's recompute error once it is back
         // on this thread (docs/TechDrawErrors.md 3.1)
         auto failure = std::make_shared<std::string>();
+        auto failedSolids = std::make_shared<int>(0);
         m_cutWatcher.reset(new QFutureWatcher<void>());
         QObject::connect(m_cutWatcher.get(), &QFutureWatcherBase::finished, m_cutWatcher.get(),
             [=] {
                 if (m_progress && !m_progress->wasCanceled()) {
                     onSectionCutFinished(cutPieces);
+                    // the rest is drawn: a warning (docs/TechDrawErrors.md 3 b)
+                    if (*failedSolids > 0) {
+                        reportLateWarning(QCoreApplication::translate(
+                            "TechDraw", "The section cut failed on %n solid(s), which are "
+                                        "left out of the section", nullptr, *failedSolids)
+                            .toStdString());
+                    }
                     return;
                 }
                 abortSectionCut();
@@ -555,6 +583,7 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
         params.history->tool = params.cuttingTool;
         m_cuttingTool = params.cuttingTool;
         params.trimAfterCut = TrimAfterCut.getValue();
+        params.failedSolids = failedSolids;
 
         waitingForCut(true);
         m_cutWatcher->setFuture(QtConcurrent::run(
@@ -578,9 +607,23 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
                 params.progress->setCanceled(true);
             }));
     }
+    // The cutting tool is made here, on this thread, and what it threw says
+    // why -- a complex section's profile that gives no wire, for one; a
+    // catch-all that only logged lost it (docs/TechDrawErrors.md 3.2)
+    catch (Base::Exception& e) {
+        reportLateError(QCoreApplication::translate(
+            "TechDraw", "The section cut could not be started: %1")
+            .arg(QString::fromUtf8(e.what())).toStdString());
+    }
+    catch (Standard_Failure& e) {
+        reportLateError(QCoreApplication::translate(
+            "TechDraw", "The section cut could not be started: %1")
+            .arg(QString::fromUtf8(e.GetMessageString() ? e.GetMessageString() : ""))
+            .toStdString());
+    }
     catch (...) {
-        Base::Console().Error("DVS::sectionExec - failed to make section cut");
-        return;
+        reportLateError(QCoreApplication::translate(
+            "TechDraw", "The section cut could not be started").toStdString());
     }
 }
 
@@ -624,6 +667,9 @@ void DrawViewSection::doSectionCut(const SectionParams &params)
 #endif
         if (!mkCut->IsDone()) {
             Base::Console().Warning("DVS: Section cut of some solid has failed in %s\n", params.featureName.c_str());
+            if (params.failedSolids) {
+                ++*params.failedSolids;
+            }
         }
         else {
             builder.Add(cutPieces, mkCut->Shape());
@@ -685,9 +731,8 @@ void DrawViewSection::doSectionCut(const SectionParams &params)
     testBox.SetGap(0.0);
 
     if (testBox.IsVoid()) {//prism & input don't intersect.  rawShape is garbage, don't bother.
-        Base::Console().Warning("DVS::makeSectionCut - prism & input don't intersect - %s\n",
-                                params.featureName.c_str());
-        return;
+        // nothing to draw: thrown, the view's error (docs/TechDrawErrors.md 3.2)
+        THROWM(Base::RuntimeError, "the cutting tool does not meet the shape, so nothing is left")
     }
 }
 

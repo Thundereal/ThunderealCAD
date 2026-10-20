@@ -50,5 +50,41 @@ class DrawViewPartTest(unittest.TestCase):
         self.assertEqual(len(edges), 4, "DrawViewPart has wrong number of edges")
         self.assertTrue("Up-to-date" in view.State, "DrawViewPart is not Up-to-date")
 
+    @staticmethod
+    def _waitForThreads(ms=2000):
+        loop = QtCore.QEventLoop()
+        timer = QtCore.QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(loop.quit)
+        timer.start(ms)
+        loop.exec_()
+
+    def testAViewWithNoSourceSaysWhy(self):
+        """A view with nothing to draw is in error, and says why: it used to
+        log a console line and stay valid and empty (docs/TechDrawErrors.md
+        3.2)"""
+        view = FreeCAD.ActiveDocument.addObject("TechDraw::DrawViewPart", "View")
+        self.page.addView(view)
+        FreeCAD.ActiveDocument.recompute()
+        self.assertTrue("Invalid" in view.State, view.State)
+        self.assertIn("no source objects", view.getStatusString())
+
+    def testAHatchOfAFaceNotInTheViewSaysWhy(self):
+        """A hatch of a face the view does not have is in error, and says
+        which: its faces are checked once the view has found its own, after
+        the hatch's recompute (docs/TechDrawErrors.md 3.2)"""
+        view = FreeCAD.ActiveDocument.addObject("TechDraw::DrawViewPart", "View")
+        self.page.addView(view)
+        view.Source = [FreeCAD.ActiveDocument.Box]
+        FreeCAD.ActiveDocument.recompute()
+        self._waitForThreads()
+        hatch = FreeCAD.ActiveDocument.addObject("TechDraw::DrawHatch", "Hatch")
+        hatch.Source = (view, ["Face99"])
+        view.touch()
+        FreeCAD.ActiveDocument.recompute()
+        self._waitForThreads()
+        self.assertTrue("Invalid" in hatch.State, hatch.State)
+        self.assertIn("Face99", hatch.getStatusString())
+
 if __name__ == "__main__":
     unittest.main()

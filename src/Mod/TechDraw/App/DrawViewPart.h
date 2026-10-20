@@ -289,6 +289,7 @@ public:
 
     virtual void postHlrTasks();
     virtual void postFaceExtractionTasks();
+    void checkHatchFaces(App::DocumentObject* hatch, const std::vector<std::string>& subNames);
     bool waitingForFaces() const { return m_waitingForFaces; }
     bool waitingForHlr() const { return m_waitingForHlr; }
     virtual bool waitingForResult() const;

@@ -14302,6 +14302,25 @@ Document::ImportResult Document::importSentFile(int64_t seq, const std::string& 
     return result;
 }
 
+bool Document::holdSentFileFor(int64_t seq, const std::string& branch)
+{
+    TransactionLog* log = getTransactionLog();
+    if (!log || log->detached())
+        return false;
+    auto& store = log->store();
+    LogBranch b;
+    if (!store.findBranch(branch, b))
+        return false;
+    for (const auto& f : sentFiles()) {
+        if (f.seq == seq) {
+            store.setHeldFileBranch(seq, b.id);
+            signalBranchesChanged(*this);
+            return true;
+        }
+    }
+    return false;
+}
+
 void Document::_releaseSentFiles()
 {
     // Ruled (user, 2026-10-05): the file is dropped after merging. A sent

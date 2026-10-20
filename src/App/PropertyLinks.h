@@ -1444,6 +1444,8 @@ public:
             bool set = false;
             std::string branch;
             int64_t version = 0;
+            std::string held;       ///< a file of theirs held (L5)
+            std::string heldPath;
         };
         std::string map(const std::string& file, Mapped* mapped = nullptr) const;
 
@@ -1467,6 +1469,10 @@ public:
             std::string file;     ///< ours, its full path
             std::string branch;   ///< live to this branch, when not empty
             int64_t version = 0;  ///< else pinned to this version, when not 0
+            /// A file of theirs alone, held (L5): the bytes' hash and the
+            /// path under `held/`; `file` is where it is written now.
+            std::string held;
+            std::string heldPath;
         };
         ImportSetLinks();
         ~ImportSetLinks();
@@ -1590,6 +1596,11 @@ protected:
     /// A live link to a branch of the file (docs/TransactionLog.md sec
     /// 27.23): to whatever document holds it.
     std::string _liveBranch;
+    /// To a file of theirs a set import holds (docs/TransactionLog.md sec 35
+    /// L5): the held bytes' hash, and the path under a document's
+    /// `held/` the file is written to when it is not there.
+    std::string _heldHash;
+    std::string _heldPath;
     /// Restored pinned to a version of its own file: resolved in
     /// afterRestore(), once the document's history is read (sec 27.20).
     bool _restoreSelf {false};

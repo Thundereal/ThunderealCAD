@@ -921,10 +921,14 @@ planLinkedSetImport() pairs them -- `pairs`, a dict of their file to the name
 of one of our documents or None, changes that by hand -- each paired file
 imported as a branch of ours, the files it links first, and in the rows
 brought a link to a paired file made a link to ours, live to the branch it
-came to. A file of theirs alone is not brought. Nothing is merged. Returns
-'files', a list of dict in the plan's order: 'theirs', 'our_file' (empty
-for a file alone), 'branch' (empty when it brought nothing new), 'rows',
-'independent', 'stopped_at', 'reason' and 'error'.</UserDocu>
+came to. A file of theirs alone is held in this document's log (sec 35 L5),
+written to its transient directory, and linked there; it is let go when the
+top's branch is merged or deleted. Nothing is merged. Returns 'files', a
+list of dict in the plan's order: 'theirs', 'our_file' (empty for a file
+alone), 'branch' (empty when it brought nothing new), 'rows',
+'independent', 'stopped_at', 'reason', 'held' (the row holding a file
+alone, 0 for none), 'staged' (where it is written), 'relinked' and
+'error'.</UserDocu>
       </Documentation>
     </Methode>
     <Methode Name="importTransactionFork">

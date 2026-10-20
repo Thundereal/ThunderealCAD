@@ -21137,7 +21137,8 @@ Nothing of this was built at first. The survey's measurements were run,
 and found one bug, fixed (item 6 c). **Built since: L1 (35.7,
 2026-10-19); L8 for frozen versions (35.8, 2026-10-19); L7 in App (35.9,
 2026-10-19); L2 and L3, the set read and paired (35.10, 2026-10-20); L4,
-the set imported as branches linked to each other (35.11, 2026-10-20).**
+the set imported as branches linked to each other (35.11, 2026-10-20); L5,
+their files alone held (35.12, 2026-10-20).**
 
 ### 35.1 The case
 
@@ -21857,6 +21858,51 @@ a link names it. Nothing is merged; a file of theirs alone is not brought
 - a branch tip read in part for its links (moved here from L8, 35.8): the
   tips open whole;
 - the set's record (Q9) and its dialog (L6).
+
+### 35.12 L5 built: a file of theirs alone, held (2026-10-20)
+
+The two details Q2 (c) left open were put to the user and agreed ("agree,
+do it", 2026-10-20): the file written to the transient directory lasts the
+session only, so a link to it carries what writes it again; and what holds
+it when the top brings nothing new.
+
+- **Held** (`importSet`, before any file is imported): each file of the
+  plan paired with none -- not one marked ambiguous, which waits for the
+  user -- is kept in our top's log by `keepSentFileAt`, its sender their
+  top's file name, its kind `set` (so the requests list tells it from a
+  file a person sent), and written to `<top's TransientDir>/held/<set
+  id>/<its path in their set>` -- `..` made `_up` -- so links between their
+  files alone hold as they did. The set id is new per import. Never written
+  into our folder.
+- **Linked** (`ImportSetLinks` again): a link in the rows brought to such
+  a file is to the file written, by its full path, and **held**: saved
+  with `held="<the bytes' hash>"` and `heldpath="<set id>/<path>"` beside
+  `file`. At a restore where `file` is not there -- another session, the
+  transient directory gone with the document -- the bytes are written
+  again from the log that holds them, the owner's first and then any open
+  document's, under that document's transient directory, and the link
+  resolves there (`writeHeldFile`, as a snapshot link does, LibraryPaths
+  sec 12). A FreeCAD that does not know the attributes finds the file or
+  not. Set to anything else, a link is no longer held.
+- **For the top's branch** (`Document::holdSentFileFor`): once the top is
+  imported, each held file is held for the top's branch, as a sent file
+  brought in is for its branch (30.29): let go when that branch is merged
+  into ours or deleted. With no branch of the top -- it brought nothing
+  new -- it waits as a sent file does, until dropped.
+
+**Not built yet**: a file of theirs alone that links one of theirs paired
+with ours links their file as it was, not ours (the copy written is
+theirs, untouched); at the merge (L6) it is written where the user says
+and its links made ours.
+
+**Test** (`Document.py`, `TransactionBranchCases`):
+`testTheirFileAloneIsHeldForTheTopsBranch` -- their `Bolt` held, kind
+`set`, for the top's branch, nothing written into our folder; our top
+saved and every document closed, which takes the written file with the
+transient directory; reopened, the top's branch's link to `Cyl` resolves
+to the file written again; the branch deleted, the file is let go.
+`testASetComesAsBranchesLinkedToEachOther` now finds `L2` at the held
+file.
 
 **Tests** (`Document.py`, `TransactionBranchCases`):
 `testASetComesAsBranchesLinkedToEachOther` -- 35.2 item 6's copies with

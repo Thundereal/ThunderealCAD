@@ -79,6 +79,8 @@ struct AppExport SetImportFile
 
 struct AppExport SetImportPlan
 {
+    /// Our top, whose log holds their files alone (L5).
+    Document* ourTop = nullptr;
     /// Their set, the files each links before it, their top last.
     std::vector<SetImportFile> files;
     /// Files their set links that are ours already -- the same file on
@@ -114,6 +116,10 @@ struct AppExport SetImportedFile
     /// Where the import stopped, and why (Document::ImportResult).
     int64_t stoppedAt = 0;
     std::string reason;
+    /// A file of theirs alone, held in our top's log (L5): the row that
+    /// holds it, and where it is written to be opened, read-only.
+    int64_t held = 0;
+    std::string staged;
     /// Links of its branch made links to what the files of the set came
     /// as, in a row of their own: the links the copies had in common.
     int relinked = 0;
@@ -133,7 +139,10 @@ struct AppExport SetImportResult
  * it brought nothing new, to what the manifest says it was of ours, a
  * branch or a version, else plain. A link the copies had in common, in no
  * row brought, is made so by a row of the branch after the import. A file
- * of theirs alone is not brought,
+ * of theirs alone is held in our top's log (L5) -- written to its transient
+ * directory to be opened, and links to it made to that file, held -- for
+ * the top's branch, let go when that is merged or deleted; with no branch
+ * of the top, it waits as a sent file does. It is not brought,
  * and links to it stay theirs (L5). A file that cannot be imported is
  * reported, and the rest go on.
  */

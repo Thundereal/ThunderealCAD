@@ -39,6 +39,7 @@
 #include <Base/Exception.h>
 #include <Base/FileInfo.h>
 #include <Base/Stream.h>
+#include <Base/Uuid.h>
 
 #include "Application.h"
 #include "Document.h"
@@ -291,6 +292,7 @@ SetImportPlan App::planSetImport(Document& ourTop, const std::string& theirTop)
 
     // L2: their set, from the files. Ours by the same file are shared.
     SetImportPlan plan;
+    plan.ourTop = &ourTop;
     std::map<std::string, Theirs> theirs;
     std::vector<std::string> order;
     std::set<std::string> visiting;
@@ -567,10 +569,59 @@ SetImportResult App::importSet(const SetImportPlan& plan)
         before.insert(doc);
     std::map<LinkKey, Target> targets;
     PropertyXLink::ImportSetLinks links;
+
+    // L5, Q2: their files alone held in our top's log, each written under
+    // the top's transient directory at its path in their set, so that links
+    // between them hold; links to them are to that file, held.
+    std::map<std::string, std::pair<int64_t, std::string>> held;   // theirs -> row, staged
+    if (plan.ourTop && plan.ourTop->getTransactionLog()) {
+        const std::string setId = Base::Uuid::createUuid().substr(0, 8);
+        const std::string theirTop = plan.files.empty() ? std::string()
+            : ss(QFileInfo(qs(plan.files.back().theirs)).fileName());
+        for (const auto& f : plan.files) {
+            if (f.ours || f.ambiguous)
+                continue;
+            // Their path, with no way out of the folder it is written in.
+            QStringList parts = QDir::cleanPath(qs(f.relative)).split(QLatin1Char('/'));
+            for (auto& part : parts) {
+                if (part == QStringLiteral(".."))
+                    part = QStringLiteral("_up");
+            }
+            const std::string heldPath = setId + "/" + ss(parts.join(QLatin1Char('/')));
+            try {
+                const int64_t seq = plan.ourTop->keepSentFileAt(
+                    f.theirs, ss(QFileInfo(qs(f.theirs)).fileName()), theirTop, "set");
+                std::string hash;
+                for (const auto& sent : plan.ourTop->sentFiles()) {
+                    if (sent.seq == seq)
+                        hash = sent.hash;
+                }
+                const std::string staged =
+                    plan.ourTop->TransientDir.getStrValue() + "/held/" + heldPath;
+                QDir().mkpath(QFileInfo(qs(staged)).absolutePath());
+                plan.ourTop->writeSentFile(seq, staged);
+                Target target;
+                target.file = staged;
+                target.held = hash;
+                target.heldPath = heldPath;
+                PropertyXLink::ImportSetLinks::add(f.theirs, target);
+                held[f.theirs] = {seq, staged};
+            }
+            catch (Base::Exception& e) {
+                FC_ERR("set import: " << f.theirs << " not held: " << e.what());
+            }
+        }
+    }
+
     for (const auto& f : plan.files) {
         SetImportedFile r;
         r.theirs = f.theirs;
         if (!f.ours) {
+            auto it = held.find(f.theirs);
+            if (it != held.end()) {
+                r.held = it->second.first;
+                r.staged = it->second.second;
+            }
             result.files.push_back(std::move(r));
             continue;
         }
@@ -615,6 +666,15 @@ SetImportResult App::importSet(const SetImportPlan& plan)
         }
         catch (Base::Exception& e) {
             r.error = std::string("links not made the set's: ") + e.what();
+        }
+    }
+    // Held for the top's branch: what links them, until it is merged or
+    // deleted. With none, they wait as a sent file does.
+    const SetImportedFile* top = result.files.empty() ? nullptr : &result.files.back();
+    if (top && !top->branch.empty() && plan.ourTop) {
+        for (const auto& r : result.files) {
+            if (r.held)
+                plan.ourTop->holdSentFileFor(r.held, top->branch);
         }
     }
     closeOpened(before);

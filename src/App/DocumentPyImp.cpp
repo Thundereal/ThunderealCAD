@@ -2151,6 +2151,8 @@ PyObject* DocumentPy::importLinkedSet(PyObject* args, PyObject* kwds)
             d.setItem("independent", Py::Boolean(f.independent));
             d.setItem("stopped_at", Py::Long(static_cast<long long>(f.stoppedAt)));
             d.setItem("reason", Py::String(f.reason));
+            d.setItem("held", Py::Long(static_cast<long long>(f.held)));
+            d.setItem("staged", Py::String(f.staged));
             d.setItem("relinked", Py::Long(f.relinked));
             d.setItem("error", Py::String(f.error));
             files.append(d);

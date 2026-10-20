@@ -4844,6 +4844,14 @@ void PropertyXLink::setValue(App::DocumentObject *lValue,
 
     aboutToSetValue();
 
+    // Held (sec 35 L5) while it is to the held file.
+    if (!_heldHash.empty()) {
+        const std::string tail = "/held/" + _heldPath;
+        const std::string file = lValue ? lValue->getDocument()->FileName.getStrValue() : "";
+        if (file.size() < tail.size() || file.compare(file.size() - tail.size(), tail.size(), tail))
+            _heldHash.clear(), _heldPath.clear();
+    }
+
     DocInfoPtr info;
     const char *name = "";
     if(lValue) {
@@ -5505,6 +5513,13 @@ void PropertyXLink::Save (Base::Writer &writer) const {
             writer.Stream() << "\" lib=\"" << encodeAttribute(_libName)
                             << "\" libfile=\"" << encodeAttribute(_libFile);
         }
+        // Held (sec 35 L5): the file is written again from the log where the
+        // path is gone. Absent otherwise; a FreeCAD that does not know it
+        // finds the file or not.
+        if (!plain && !_heldHash.empty()) {
+            writer.Stream() << "\" held=\"" << encodeAttribute(_heldHash)
+                            << "\" heldpath=\"" << encodeAttribute(_heldPath);
+        }
         // Pinned (docs/TransactionLog.md sec 16.5, 27): absent otherwise,
         // and a FreeCAD that does not know them resolves the file.
         if (!plain && _pinVersion > 0) {
@@ -5583,6 +5598,44 @@ thread_local PropertyXLink::ImportSetLinks* _ImportSetLinks = nullptr;
 std::string folderOf(const std::string& file)
 {
     return QFileInfo(QString::fromUtf8(file.c_str())).absolutePath().toUtf8().constData();
+}
+
+/** The file of theirs a set import holds by `hash` (sec 35 L5), written to
+ * `held/<heldPath>` in the transient directory of the document whose log
+ * holds it -- `owner` first, then every open one -- unless it is there
+ * already. Its path; empty when no document holds it.
+ */
+std::string writeHeldFile(const std::string& hash, const std::string& heldPath,
+                          App::Document* owner)
+{
+    std::vector<App::Document*> docs;
+    if (owner)
+        docs.push_back(owner);
+    for (auto doc : GetApplication().getDocuments()) {
+        if (doc != owner)
+            docs.push_back(doc);
+    }
+    for (auto doc : docs) {
+        if (!doc->getTransactionLog())
+            continue;
+        for (const auto& f : doc->sentFiles()) {
+            if (f.hash != hash)
+                continue;
+            const std::string path = doc->TransientDir.getStrValue() + "/held/" + heldPath;
+            if (!QFileInfo::exists(QString::fromUtf8(path.c_str()))) {
+                QDir().mkpath(QFileInfo(QString::fromUtf8(path.c_str())).absolutePath());
+                try {
+                    doc->writeSentFile(f.seq, path);
+                }
+                catch (Base::Exception& e) {
+                    FC_ERR("cannot write the held file " << path << ": " << e.what());
+                    return {};
+                }
+            }
+            return path;
+        }
+    }
+    return {};
 }
 
 /// A full path, cleaned, the one key of a file.
@@ -5664,7 +5717,12 @@ std::string PropertyXLink::ImportPaths::map(const std::string& file, Mapped* map
             mapped->set = true;
             mapped->branch = target->branch;
             mapped->version = target->version;
+            mapped->held = target->held;
+            mapped->heldPath = target->heldPath;
         }
+        // Held: where it is written, which is no place relative to ours.
+        if (!target->held.empty())
+            return target->file;
         return QDir(QString::fromUtf8(_ourDir.c_str()))
             .relativeFilePath(QString::fromUtf8(target->file.c_str())).toUtf8().constData();
     }
@@ -5716,6 +5774,22 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
         _liveBranch = setTarget.branch;
         _pinVersion = setTarget.branch.empty() ? setTarget.version : 0;
         _pinUuid.clear();
+    }
+    // A file of theirs a set import holds (sec 35 L5): written again from
+    // the log that holds it when it is not where the link last saw it.
+    _heldHash = setTarget.set ? setTarget.held
+        : (reader.hasAttribute("held") ? reader.getAttribute("held") : "");
+    _heldPath = setTarget.set ? setTarget.heldPath
+        : (reader.hasAttribute("heldpath") ? reader.getAttribute("heldpath") : "");
+    if (!setTarget.set && !_heldHash.empty() && !_heldPath.empty()
+            && !QFileInfo::exists(QString::fromUtf8(file.c_str()))) {
+        auto ownerObj = Base::freecad_dynamic_cast<DocumentObject>(getContainer());
+        const std::string written =
+            writeHeldFile(_heldHash, _heldPath, ownerObj ? ownerObj->getDocument() : nullptr);
+        if (!written.empty())
+            file = written;
+        else
+            FC_WARN(getFullName() << ": the held file " << _heldPath << " is held by no open document");
     }
     // No file with a pin or a branch: the owner's own file (sec 27.20). Not
     // saved (a copy being pasted into a new document): a local link.
@@ -5973,6 +6047,8 @@ void PropertyXLink::copyTo(PropertyXLink &other,
     other._pinVersion = _pinVersion;
     other._pinUuid = _pinUuid;
     other._liveBranch = _liveBranch;
+    other._heldHash = _heldHash;
+    other._heldPath = _heldPath;
     other._selfFile = _selfFile;
     other._libName = _libName;
     other._libFile = _libFile;
@@ -6007,7 +6083,7 @@ bool PropertyXLink::isSame(const Property &other) const
         && filePath == o.filePath
         && _SubList == o._SubList
         && _pinVersion == o._pinVersion && _pinUuid == o._pinUuid
-        && _liveBranch == o._liveBranch;
+        && _liveBranch == o._liveBranch && _heldHash == o._heldHash;
 }
 
 Property *PropertyXLink::Copy() const
@@ -6027,6 +6103,8 @@ void PropertyXLink::Paste(const Property &from)
     _pinVersion = other._pinVersion;
     _pinUuid = other._pinUuid;
     _liveBranch = other._liveBranch;
+    _heldHash = other._heldHash;
+    _heldPath = other._heldPath;
     _selfFile = other._selfFile;
     _libName = other._libName;
     _libFile = other._libFile;

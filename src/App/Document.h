@@ -1075,6 +1075,13 @@ public:
      * that has nothing to give is let go at once.
      */
     ImportResult importSentFile(int64_t seq, const std::string& branch = std::string());
+    /** Hold the file of row `seq` for `branch` of this file, as a file
+     * brought in is held for the branch it came to: let go once that branch
+     * is merged into this one or deleted (sec 30.29). A file of a set's
+     * that only links of the branch name (sec 35 L5). False when no file is
+     * held for the row, or there is no such branch.
+     */
+    bool holdSentFileFor(int64_t seq, const std::string& branch);
 
     /** Crash recovery (docs/TransactionLog.md sec 25): make this new, empty
      * document what the session that crashed with transient directory

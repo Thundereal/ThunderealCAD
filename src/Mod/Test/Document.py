@@ -10406,7 +10406,8 @@ class TransactionBranchCases(unittest.TestCase):
         # Sec 35 L4: each paired file of theirs a branch of ours, and in the
         # top's branch the link to their Part a link to our Part live to that
         # branch -- so the top's branch shows their whole set -- while their
-        # Bolt, alone, is linked where it is (L5). Ours stay as they were.
+        # Bolt, alone, is held in our top's log and linked where it is
+        # written (L5). Ours stay as they were.
         ours, theirs = self.assemblyCopies(2, rows=True)
         doc = self.openedSet(os.path.join(ours, "Asm.FCStd"))
         before = sorted(FreeCAD.listDocuments())
@@ -10436,10 +10437,52 @@ class TransactionBranchCases(unittest.TestCase):
         # The branch's head, an editable instance of it, which the link follows.
         self.assertIn("@" + got["Part.FCStd"]["branch"] + "@", box.Document.FileName)
         self.assertEqual(tip.L2.LinkedObject.Name, "Cyl")
+        self.assertGreater(got["Bolt.FCStd"]["held"], 0)
         self.assertEqual(
             os.path.realpath(tip.L2.LinkedObject.Document.FileName),
-            os.path.realpath(os.path.join(theirs, "Bolt.FCStd")),
+            os.path.realpath(got["Bolt.FCStd"]["staged"]),
         )
+
+    def testTheirFileAloneIsHeldForTheTopsBranch(self):
+        # Sec 35 L5, Q2 (c): their Bolt, which we have no file of, is held in
+        # our top's log for the top's branch -- not written into our folder
+        # -- and its link is to the file held: written again from the log
+        # where it is gone, as in another session; let go with the branch.
+        ours, theirs = self.assemblyCopies(2, rows=True)
+        asmPath = os.path.join(ours, "Asm.FCStd")
+        doc = self.openedSet(asmPath)
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        got = {os.path.basename(f["theirs"]): f for f in res["files"]}
+        bolt, branch = got["Bolt.FCStd"], got["Asm.FCStd"]["branch"]
+        self.assertFalse(os.path.exists(os.path.join(ours, "Bolt.FCStd")))
+        self.assertTrue(os.path.isfile(bolt["staged"]))
+        sent = {f["seq"]: f for f in doc.getTransactionSentFiles()}
+        self.assertIn(bolt["held"], sent)
+        self.assertEqual(sent[bolt["held"]]["branch"], branch)
+        self.assertEqual(sent[bolt["held"]]["sender_kind"], "set")
+
+        # Closed, the file written is gone with the transient directory, as
+        # in another session; the log holds it.
+        doc.save()
+        for name in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(name)
+        self.assertFalse(os.path.exists(bolt["staged"]))
+        doc = self.openedSet(asmPath)
+        tip = self.track(FreeCAD.openDocument(asmPath + "@" + branch + "@"))
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+        cyl = tip.L2.LinkedObject
+        self.assertIsNotNone(cyl)
+        self.assertEqual(cyl.Name, "Cyl")
+        self.assertTrue(os.path.isfile(cyl.Document.FileName))
+        self.assertTrue(cyl.Document.FileName.endswith(bolt["staged"].split("/held/")[1]))
+
+        # The branch deleted: nothing links it, and it is let go.
+        for name in list(FreeCAD.listDocuments()):
+            if FreeCAD.getDocument(name) is not doc:
+                FreeCAD.closeDocument(name)
+        doc.deleteTransactionBranch(branch)
+        self.assertNotIn(bolt["held"], [f["seq"] for f in doc.getTransactionSentFiles()])
 
     def testAnExportedSetIsBroughtBack(self):
         # Sec 35.5 step 4's round trip: our set exported (L7), edited where

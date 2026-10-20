@@ -151,6 +151,10 @@ fc_add_gui_test(GuiServeDressUpPreviewPick_tests_run serve-dressup-preview-pick.
 # pushed to the client after the tool tip's wait, and taken back off it.
 fc_add_gui_test(GuiServeHandleHint_tests_run serve-handle-hint.py
                 --timeout 240)
+# docs/HandsOnQueue.md entry 196, points 2 and 3: an on-view label over the
+# model is lit on hover, and a click on it is the label's.
+fc_add_gui_test(GuiOnViewLabelOverGeometry_tests_run onview-label-over-geometry.py
+                --timeout 200)
 
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit

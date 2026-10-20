@@ -1604,9 +1604,7 @@ void GizmoContainer::addCross(const SbVec3f& pos, const SbColor& color)
     auto transform = new SoTransform;
     transform->translation = pos;
     cross->addChild(transform);
-    auto light = new SoLightModel;
-    light->model = SoLightModel::BASE_COLOR;
-    cross->addChild(light);
+    // lit as the view draws, as the handles it stands among (entry 196)
     auto base = new SoBaseColor;
     base->rgb = color;
     cross->addChild(base);

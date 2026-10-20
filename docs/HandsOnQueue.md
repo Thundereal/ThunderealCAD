@@ -173,6 +173,9 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-20 09:34: entry 195 -- 'Measure (pre)selected geometry' on by default.**
+Under the entry.
+
 **2026-10-20 09:29: entry 194 -- fillet panel: a missing row does not select its
 preview face; a 3D face pick leaves the earlier row selected (two rows).**
 Under the entry.
@@ -3949,6 +3952,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 192 | 2026-10-20 | a defect and a question: TechDraw, page frames HIDDEN -- SELECTING an ACTIVE VIEW shows its frame (as 155 asked), but after DESELECTING it the frame STAYS; and WHY show the frame at all, since the Active View can be dragged by its PICTURE | OPEN; said to the note-taker 2026-10-20 09:15; the why ANSWERED from entry 155 (2026-10-16 11:20 to 11:24). 2026-10-20 09:17 the build session: CAUSE FOUND by reading, nothing built -- the note-taker's candidate right: a deselect made IN THE PAGE draws the border while Gui::Selection still holds the view, then setTreeToSceneSelect clears Gui::Selection under blockSelection(true), so onSelectionChanged and its refreshSelectedFrames() never run (a deselect from the TREE is fine); proposed: refreshSelectedFrames() at the end of setTreeToSceneSelect, every view kind; on a: a frameless part view still has nothing to drag by (lines select edges/vertices, the inside passes) -- the rule's reason holds for part views and groups; a drag from a line NOT run; waiting for the reporter's word on a and on building. 2026-10-20 09:24 the reporter: option 3 -- KEEP the frame-on-selection for EVERY view kind (frames hidden -> the frame shown while any of its children is selected); FIX the deselect |
 | 193 | 2026-10-20 | a change request: ALL LIST VIEWS in OVERLAY PANELS get ALTERNATING row backgrounds WITH TRANSPARENCY, as the PROPERTY VIEW has; 184's transparent background is in, the alternating rows are not | OPEN; said to the note-taker 2026-10-20 09:18. 2026-10-20 09:20 SIZED by the build session, nothing built: the property view and the SELECTION VIEW already alternate overlaid, each by its own code; a sheet rule cannot (the sheet's opacity), a delegate cannot be swapped (task panels and the tree have their own); PROPOSED: OverlayManager watches item views in overlaid panels (also on child-added) and fills each visible row's band on the viewport's paint before the items, the same two colours at the overlay alpha, rows counted as the property view; d open for the reporter's look; waiting for the reporter's word |
 | 194 | 2026-10-20 | a defect (two): in the FILLET edit panel, (1) selecting a MISSING edge's ROW does NOT select its PREVIEW FACE in the 3D view; (2) after selecting a row in the panel, then a PREVIEW FACE in the 3D view, the panel's earlier selection is NOT CLEARED -- TWO rows end up selected | OPEN; said to the note-taker 2026-10-20 09:29 |
+| 195 | 2026-10-20 | a change request: 'Measure (pre)selected geometry' (the Part preselection macro, Std_Macro_Presel_PartMeasure) ON BY DEFAULT | OPEN; said to the note-taker 2026-10-20 09:34 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26631,6 +26635,40 @@ c. All dress-ups: not said this time; read as yes (the same panel code,
    as 182/188).
 d. The browser: read as the same (189's preview pick goes the same way).
 
+## 195. 'Measure (pre)selected geometry' on by default (a change request) -- OPEN
+
+**2026-10-20 09:34, the reporter (to the note-taker):** "new request, default enable 'Measure (pre)selection geometry'"
+The note-taker's reading: the command the menu calls "Measure
+(pre)selected geometry" (the reporter's "selection" read as "selected")
+-- a PRESELECTION MACRO of Part that shows measurements of the
+(pre)selected geometry -- is to be CHECKED (enabled) by default, for a
+user who never set it.
+READ in the source, nothing run:
+- src/Mod/Part/Gui/Command.cpp 2402 to 2425: CmdPartPreselMeasure, a
+  MacroCommand "Std_Macro_Presel_PartMeasure" (system, preselect), menu
+  text "Measure (pre)selected geometry"; iMsg 2 runs
+  BasicShapes.Shapes.showPreselectMeasure().
+- src/Gui/Command.cpp 1504 to 1515: a preselection macro's iMsg 0/1 sets
+  its option (checked); 1636 to 1641 getOption(): the parameter
+  BaseApp/Preferences/Commands/<command name>, DEFAULT FALSE -- one
+  default for ALL preselection macros. src/Gui/Selection/Selection.cpp
+  1213: on preselection, a macro runs when isPreselectionMacro() and
+  getOption().
+- 2110 to 2153: the "Preselection Macros" menu (Std_MacroPreselectionCommands,
+  M, P) lists them.
+NOT said, with the note-taker's readings:
+a. Only this macro: read as yes -- the other preselection macros stay
+   off by default (so a per-command default, not the shared false).
+b. A user who already has the parameter written (turned it off, or on
+   and off again): read as their value kept -- only "never set" gets the
+   new default.
+c. The user's test copy: the reporter's own user.cfg may hold a value;
+   read as their value kept, so they may not see a change -- to be
+   checked on the stage.
+d. Per user (174's design): read as an ordinary preference for now.
+e. The cost: the macro runs Python on every preselection; read as
+   accepted by asking for it.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -26642,5 +26680,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 194
+the build session, 131 and 132 found by it; entries 134 to 195
 are of 2026-10-15, 134 said to the build session)

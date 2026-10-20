@@ -122,7 +122,7 @@ void femVTKWriter(const char* filename, const vtkSmartPointer<vtkDataObject>& da
 {
     if (dataObject->IsA("vtkDataSet")
         && vtkDataSet::SafeDownCast(dataObject)->GetNumberOfPoints() <= 0) {
-        throw Base::ValueError("Empty data object");
+        THROWM(Base::ValueError, "Empty data object");
     }
 
     vtkSmartPointer<T> writer = vtkSmartPointer<T>::New();
@@ -171,7 +171,7 @@ void FemPostObject::writeVTK(const char* filename) const
     std::string name(filename);
     std::string extension = vtkWriterExtension(data);
     if (extension.empty()) {
-        throw Base::TypeError("Unsupported data type");
+        THROWM(Base::TypeError, "Unsupported data type");
     }
 
     std::string::size_type pos = name.find_last_of('.');

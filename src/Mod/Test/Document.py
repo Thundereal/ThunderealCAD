@@ -7826,6 +7826,63 @@ class TransactionBranchCases(unittest.TestCase):
         # Imported again with nothing new, nothing comes.
         self.assertEqual(doc.importTransactionFork(copy)["rows"], 0)
 
+    def testLibraryLinksThroughTwoFoldersMergeAsTheSame(self):
+        # docs/LibraryPaths.md 3.8: two branches of one file each link the
+        # same file of a library, through another folder each -- two copies
+        # of the library, the setting and the map changed between. The old paths
+        # differ; by the library and the path under it the link is the
+        # same, and the merge says so. (A fork from another machine is not
+        # this case: its rows are replayed here, against this machine's
+        # library, and its links come in as this machine writes them.)
+        import shutil
+
+        name = "TestMergeLib"
+        libA = os.path.join(self.dir, "lib")
+        libB = os.path.join(self.dir, "moved", "libs")
+        os.makedirs(os.path.join(libA, "f"))
+        part = self.track(FreeCAD.newDocument("LibPart"))
+        part.addObject("App::FeatureTest", "Bolt")
+        part.saveAs(os.path.join(libA, "f", "bolt.FCStd"))
+        FreeCAD.closeDocument(part.Name)
+        shutil.copytree(libA, libB)
+        try:
+            FreeCAD.setLibraryPath(name, libA)
+            doc = self.track(FreeCAD.newDocument("LibOurs"))
+            doc.UndoMode = 1
+            doc.openTransaction("create")
+            holder = doc.addObject("App::FeatureTest", "Holder")
+            holder.addProperty("App::PropertyXLink", "L")
+            doc.commitTransaction()
+            doc.saveAs(os.path.join(self.dir, "asm.FCStd"))
+
+            doc.createTransactionBranch("side")
+            FreeCAD.setLibraryPath(name, libB)
+            doc.LibraryPaths = {name: libB}
+            boltB = self.track(FreeCAD.openDocument(os.path.join(libB, "f", "bolt.FCStd")))
+            doc.openTransaction("side links")
+            holder.L = boltB.Bolt
+            doc.commitTransaction()
+
+            doc.switchTransactionBranch("main")
+            FreeCAD.setLibraryPath(name, libA)
+            doc.LibraryPaths = {name: libA}
+            boltA = self.track(FreeCAD.openDocument(os.path.join(libA, "f", "bolt.FCStd")))
+            doc.openTransaction("main links")
+            holder.L = boltA.Bolt
+            doc.commitTransaction()
+
+            preview = doc.previewTransactionMerge("side")
+            links = [c for c in preview["changes"] if c["prop"] == "L"]
+            self.assertEqual([c["kind"] for c in links], ["same"], preview["changes"])
+            self.assertEqual(preview["conflicts"], 0)
+            merged = doc.mergeTransactionBranch("side")
+            self.assertEqual(merged["unresolved"], [])
+            # Ours' stays: the file through this machine's folder now.
+            self.assertEqual(os.path.normcase(os.path.realpath(holder.L.Document.FileName)),
+                             os.path.normcase(os.path.realpath(boltA.FileName)))
+        finally:
+            FreeCAD.removeLibraryPath(name)
+
     def testAForkImportTakesItsStringsByContent(self):
         # Sec 30.16 (S.f): what a copy's values name by number -- the
         # strings of an element map nothing recomputes and of a reference's
@@ -10279,3 +10336,165 @@ class TransactionBranchCases(unittest.TestCase):
         doc.deleteTransactionBranch(res["branch"])
         self.assertEqual(doc.getTransactionSentFiles(), [])
         self.assertEqual(doc.Box.Height.Value, 10)
+
+
+class XLinkIntoUnsavedCases(unittest.TestCase):
+    # A copy of objects with external links into a document never saved: the
+    # links keep the full path till its first save writes them relative.
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp(prefix="fc-xunsaved-")
+        for sub in ("part", "src", "dst"):
+            os.makedirs(os.path.join(self.dir, sub))
+        part = FreeCAD.newDocument("XUnsavedPart")
+        part.addObject("App::FeatureTest", "Bolt")
+        self.part = os.path.join(self.dir, "part", "bolt.FCStd")
+        part.saveAs(self.part)
+        self.src = FreeCAD.newDocument("XUnsavedSrc")
+        holder = self.src.addObject("App::FeatureTest", "Holder")
+        holder.addProperty("App::PropertyXLink", "L")
+        holder.L = part.Bolt
+        self.src.saveAs(os.path.join(self.dir, "src", "src.FCStd"))
+
+    def tearDown(self):
+        for name in list(FreeCAD.listDocuments()):
+            if name.startswith("XUnsaved"):
+                FreeCAD.closeDocument(name)
+
+    def same(self, a, b):
+        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+    def savedPath(self, path):
+        import re
+        import zipfile
+
+        with zipfile.ZipFile(path) as z:
+            xml = z.read("Document.xml").decode("utf-8")
+        return re.search(r'<XLink file="([^"]*)"', xml).group(1)
+
+    def testACopyIntoADocumentNeverSaved(self):
+        doc = FreeCAD.newDocument("XUnsavedDst")
+        copy = doc.copyObject(self.src.Holder)
+        self.assertEqual(copy.L.Name, "Bolt")
+        self.assertTrue(self.same(copy.L.Document.FileName, self.part))
+        # Saved, the link is written relative to the new file, as one set
+        # in a saved document is.
+        path = os.path.join(self.dir, "dst", "dst.FCStd")
+        doc.saveAs(path)
+        self.assertEqual(self.savedPath(path).replace("\\", "/"), "../part/bolt.FCStd")
+        FreeCAD.closeDocument(doc.Name)
+        FreeCAD.closeDocument("XUnsavedPart")
+        doc = FreeCAD.openDocument(path)
+        self.assertEqual(doc.Holder.L.Name, "Bolt")
+        self.assertTrue(self.same(doc.Holder.L.Document.FileName, self.part))
+
+    def testALinkIntoADocumentNeverSaved(self):
+        # The linked document has no file: the copy links to it while it is
+        # open (docs/LibraryPaths.md sec 12); "Linked document not saved"
+        # before.
+        unsaved = FreeCAD.newDocument("XUnsavedNoFile")
+        nut = unsaved.addObject("App::FeatureTest", "Nut")
+        self.src.Holder.L = nut
+        # A dependency, though the link has no file to name: a save asks for it.
+        self.assertIn(unsaved.Name, [d.Name for d in self.src.getDependentDocuments()])
+        for name in ("XUnsavedDst", "XUnsavedDstNoFile"):
+            doc = FreeCAD.newDocument(name)
+            if name == "XUnsavedDst":
+                doc.saveAs(os.path.join(self.dir, "dst", "dst.FCStd"))
+            copy = doc.copyObject(self.src.Holder)
+            self.assertEqual(copy.L.Name, "Nut")
+            self.assertEqual(copy.L.Document.Name, unsaved.Name)
+
+    def testTheLinkedFileClosedBeforeTheSave(self):
+        doc = FreeCAD.newDocument("XUnsavedDst")
+        doc.copyObject(self.src.Holder)
+        FreeCAD.closeDocument(self.src.Name)
+        FreeCAD.closeDocument("XUnsavedPart")
+        path = os.path.join(self.dir, "dst", "dst.FCStd")
+        doc.saveAs(path)
+        self.assertEqual(self.savedPath(path).replace("\\", "/"), "../part/bolt.FCStd")
+
+
+class LibraryPathCases(unittest.TestCase):
+    # docs/LibraryPaths.md 3.3: a link set from Python by its file -- a path
+    # or a library token -- and the name of an object in it.
+
+    NAME = "TestPyLib"
+
+    def setUp(self):
+        import shutil
+
+        self.dir = tempfile.mkdtemp(prefix="fc-libpaths-")
+        self.lib = os.path.join(self.dir, "lib")
+        os.makedirs(os.path.join(self.lib, "f"))
+        part = FreeCAD.newDocument("PyLibPart")
+        part.addObject("App::FeatureTest", "Bolt")
+        part.addObject("App::FeatureTest", "Nut")
+        self.part = os.path.join(self.lib, "f", "bolt.FCStd")
+        part.saveAs(self.part)
+        FreeCAD.closeDocument(part.Name)
+        FreeCAD.setLibraryPath(self.NAME, self.lib)
+        self.doc = FreeCAD.newDocument("PyLibOwner")
+        os.makedirs(os.path.join(self.dir, "asm"))
+        self.doc.saveAs(os.path.join(self.dir, "asm", "asm.FCStd"))
+        self.holder = self.doc.addObject("App::FeatureTest", "Holder")
+        self.holder.addProperty("App::PropertyXLink", "L")
+        self.holder.addProperty("App::PropertyXLinkSubList", "LL")
+        self.token = "%" + self.NAME + "%/f/bolt.FCStd"
+
+    def tearDown(self):
+        FreeCAD.removeLibraryPath(self.NAME)
+        for name in list(FreeCAD.listDocuments()):
+            if name.startswith("PyLib"):
+                FreeCAD.closeDocument(name)
+
+    def same(self, a, b):
+        return os.path.normcase(os.path.realpath(a)) == os.path.normcase(os.path.realpath(b))
+
+    def testALinkByToken(self):
+        self.holder.L = (self.token, "Bolt")
+        self.assertEqual(self.holder.L.Name, "Bolt")
+        self.assertTrue(self.same(self.holder.L.Document.FileName, self.part))
+        # A library link: the document took the name.
+        self.assertIn(self.NAME, self.doc.LibraryPaths)
+        self.holder.L = (self.token, "Nut", "Edge1")
+        self.assertEqual(self.holder.L[0].Name, "Nut")
+        self.assertEqual(self.holder.L[1], "Edge1")
+        self.holder.L = (self.token, "Bolt", ["Face1", "Face2"])
+        self.assertEqual(self.holder.L[1], ["Face1", "Face2"])
+
+    def testALinkByPath(self):
+        # Relative to the owner's file, as a link's path is; and absolute.
+        self.holder.L = (os.path.join("..", "lib", "f", "bolt.FCStd"), "Nut")
+        self.assertEqual(self.holder.L.Name, "Nut")
+        self.holder.L = (self.part, "Bolt")
+        self.assertEqual(self.holder.L.Name, "Bolt")
+
+    def testAListByFile(self):
+        other = self.doc.addObject("App::FeatureTest", "Other")
+        self.holder.LL = [(self.token, "Bolt", ["Face1"]), (other, "Edge1")]
+        got = {o.Name: subs for o, subs in self.holder.LL}
+        self.assertEqual(got, {"Bolt": ("Face1",), "Other": ("Edge1",)})
+        self.holder.LL = (self.token, "Nut")
+        self.assertEqual([o.Name for o, _ in self.holder.LL], ["Nut"])
+
+    def testWhatIsRefused(self):
+        with self.assertRaises(ValueError):
+            self.holder.L = ("%TestPyNone%/f/bolt.FCStd", "Bolt")
+        with self.assertRaises(ValueError):
+            self.holder.L = (self.token, "NoSuchObject")
+        with self.assertRaises(ValueError):
+            self.holder.L = (os.path.join(self.dir, "none.FCStd"), "Bolt")
+        with self.assertRaises(TypeError):
+            self.holder.L = (self.token, 1)
+        with self.assertRaises(ValueError):
+            self.holder.LL = [(self.token, "NoSuchObject")]
+        # Relative, with an owner never saved: relative to nothing.
+        unsaved = FreeCAD.newDocument("PyLibUnsaved")
+        h = unsaved.addObject("App::FeatureTest", "Holder")
+        h.addProperty("App::PropertyXLink", "L")
+        with self.assertRaises(ValueError):
+            h.L = (os.path.join("lib", "f", "bolt.FCStd"), "Bolt")
+        # A token needs no saved owner (3.8).
+        h.L = (self.token, "Bolt")
+        self.assertEqual(h.L.Name, "Bolt")

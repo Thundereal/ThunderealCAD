@@ -528,3 +528,18 @@ TechDraw::DrawView* ViewProviderDrawingView::getViewObject() const
 {
     return dynamic_cast<TechDraw::DrawView*>(pcObject);
 }
+
+QString ViewProviderDrawingView::getToolTip(const QByteArray& iconTag) const
+{
+    QString tip = Gui::ViewProviderDocumentObject::getToolTip(iconTag);
+    auto view = getViewObject();
+    if (!view || view->getLateWarnings().empty()) {
+        return tip;
+    }
+    // a result usable but partial: the object is valid, and says what it
+    // lacks (the reporter 2026-10-19 13:12, "agree all", TechDrawErrors 3 b)
+    QString warning = QCoreApplication::translate("TechDrawGui::ViewProviderDrawingView",
+                                                  "Warning: %1")
+                          .arg(QString::fromUtf8(view->getLateWarnings().c_str()));
+    return tip.isEmpty() ? warning : warning + QStringLiteral("\n\n") + tip;
+}

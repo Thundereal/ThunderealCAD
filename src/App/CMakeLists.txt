@@ -442,6 +442,7 @@ SET(Document_CPP_SRCS
     SandboxParams.cpp
     FileBlobManager.cpp
     FileHistory.cpp
+    LibraryPaths.cpp
     FileSet.cpp
     GroupParams.cpp
     DocumentObject.cpp
@@ -530,6 +531,7 @@ SET(Document_HPP_SRCS
     SandboxParams.h
     FileBlobManager.h
     FileHistory.h
+    LibraryPaths.h
     FileSet.h
     GroupParams.h
     DocumentObject.h

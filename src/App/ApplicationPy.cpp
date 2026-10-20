@@ -44,6 +44,7 @@
 #include "TransactionMeasure.h"
 #include "ExpressionSecurityRuntime.h"
 #include "FileHistory.h"
+#include "LibraryPaths.h"
 
 
 //using Base::GetConsole;
@@ -57,6 +58,11 @@ using namespace App;
 static PyObject *getProgressPy(PyObject *self, PyObject *args);
 static PyObject *registerParamPy(PyObject *self, PyObject *args, PyObject *kwd);
 static PyObject *listParamsPy(PyObject *self, PyObject *args);
+static PyObject *getLibraryPathsPy(PyObject *self, PyObject *args);
+static PyObject *setLibraryPathPy(PyObject *self, PyObject *args);
+static PyObject *removeLibraryPathPy(PyObject *self, PyObject *args);
+static PyObject *resolveLibraryPathPy(PyObject *self, PyObject *args);
+static PyObject *applyLibraryPathsPy(PyObject *self, PyObject *args);
 
 // Application methods structure
 PyMethodDef Application::Methods[] = {
@@ -273,6 +279,30 @@ PyMethodDef Application::Methods[] = {
      "of the libraries loaded so far and those registered from Python, in the\n"
      "order they were registered. With a query, those whose path, name, title\n"
      "or documentation contain every word of it, whatever the case."},
+    {"getLibraryPaths", (PyCFunction) getLibraryPathsPy, METH_VARARGS,
+     "getLibraryPaths() -> dict\n"
+     "The library paths of the settings: name -> folder. A link to a file\n"
+     "under one is saved as the name and the path under it\n"
+     "(docs/LibraryPaths.md)."},
+    {"setLibraryPath", (PyCFunction) setLibraryPathPy, METH_VARARGS,
+     "setLibraryPath(name, folder) -> dict\n"
+     "Set a library path of the settings. Returned is what applyLibraryPaths()\n"
+     "would change, document name -> the number of links resolved again. With\n"
+     "no Gui the open documents are left as they are; the Gui asks whether to\n"
+     "apply the change to them."},
+    {"removeLibraryPath", (PyCFunction) removeLibraryPathPy, METH_VARARGS,
+     "removeLibraryPath(name) -> dict\n"
+     "Remove a library path of the settings; returns as setLibraryPath()."},
+    {"resolveLibraryPath", (PyCFunction) resolveLibraryPathPy, METH_VARARGS,
+     "resolveLibraryPath(path, doc=None) -> str\n"
+     "The full path of '%Name%/file', through the document's folder for the\n"
+     "name, then the settings'; empty when neither holds the file. A path that\n"
+     "is no such token comes back as it is."},
+    {"applyLibraryPaths", (PyCFunction) applyLibraryPathsPy, METH_VARARGS,
+     "applyLibraryPaths(doc) -> int\n"
+     "Take the settings' folders into the document for the names whose links\n"
+     "they resolve differently, as one undo step; returns the number of links\n"
+     "resolved again."},
    {nullptr, nullptr, 0, nullptr} /* Sentinel */
 };
 
@@ -413,7 +443,7 @@ PyObject* Application::sOpenFileVersion(PyObject * /*self*/, PyObject *args)
         std::string reason;
         auto history = FileHistory::openFile(path, &reason);
         if (!history)
-            throw Base::FileException(("no history in " + path + ": " + reason).c_str());
+            THROWM(Base::FileException, ("no history in " + path + ": " + reason).c_str());
         return Document::openFileVersion(history, num, Base::asBoolean(createView))->getPyObject();
     } PY_CATCH
 }
@@ -1452,3 +1482,95 @@ PyObject *Application::sDumpSWIG(PyObject * /*self*/, PyObject *args)
     Py_Return;
 }
 
+namespace {
+
+App::Document* libraryDocArg(PyObject* pyDoc)
+{
+    if (!pyDoc || pyDoc == Py_None)
+        return nullptr;
+    if (PyObject_TypeCheck(pyDoc, &DocumentPy::Type))
+        return static_cast<DocumentPy*>(pyDoc)->getDocumentPtr();
+    if (PyUnicode_Check(pyDoc)) {
+        if (auto doc = GetApplication().getDocument(PyUnicode_AsUTF8(pyDoc)))
+            return doc;
+        THROWM(Base::ValueError, "No such document");
+    }
+    THROWM(Base::TypeError, "Expect a document or a document name");
+}
+
+PyObject* affectedToPy(const std::vector<LibraryPaths::Affected>& affected)
+{
+    Py::Dict ret;
+    for (auto& v : affected)
+        ret.setItem(v.document->getName(), Py::Long(v.links));
+    return Py::new_reference_to(ret);
+}
+
+} // namespace
+
+static PyObject *getLibraryPathsPy(PyObject * /*self*/, PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        Py::Dict ret;
+        for (auto& v : LibraryPaths::getSystem())
+            ret.setItem(v.first, Py::String(v.second));
+        return Py::new_reference_to(ret);
+    }
+    PY_CATCH;
+}
+
+static PyObject *setLibraryPathPy(PyObject * /*self*/, PyObject *args)
+{
+    const char* name;
+    const char* folder;
+    if (!PyArg_ParseTuple(args, "ss", &name, &folder))
+        return nullptr;
+    PY_TRY {
+        auto before = LibraryPaths::getSystem();
+        LibraryPaths::setSystem(name, folder);
+        return affectedToPy(LibraryPaths::changed(before));
+    }
+    PY_CATCH;
+}
+
+static PyObject *removeLibraryPathPy(PyObject * /*self*/, PyObject *args)
+{
+    const char* name;
+    if (!PyArg_ParseTuple(args, "s", &name))
+        return nullptr;
+    PY_TRY {
+        auto before = LibraryPaths::getSystem();
+        LibraryPaths::removeSystem(name);
+        return affectedToPy(LibraryPaths::changed(before));
+    }
+    PY_CATCH;
+}
+
+static PyObject *resolveLibraryPathPy(PyObject * /*self*/, PyObject *args)
+{
+    const char* path;
+    PyObject* pyDoc = Py_None;
+    if (!PyArg_ParseTuple(args, "s|O", &path, &pyDoc))
+        return nullptr;
+    PY_TRY {
+        return Py::new_reference_to(
+            Py::String(LibraryPaths::resolveToken(path, libraryDocArg(pyDoc))));
+    }
+    PY_CATCH;
+}
+
+static PyObject *applyLibraryPathsPy(PyObject * /*self*/, PyObject *args)
+{
+    PyObject* pyDoc;
+    if (!PyArg_ParseTuple(args, "O", &pyDoc))
+        return nullptr;
+    PY_TRY {
+        auto doc = libraryDocArg(pyDoc);
+        if (!doc)
+            THROWM(Base::ValueError, "Expect a document");
+        return Py::new_reference_to(Py::Long(LibraryPaths::apply(*doc)));
+    }
+    PY_CATCH;
+}

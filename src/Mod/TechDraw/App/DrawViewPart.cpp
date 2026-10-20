@@ -54,6 +54,7 @@
 #include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <HLRAlgo_Projector.hxx>
+#include <QCoreApplication>
 #include <QtConcurrentRun>
 #include <ShapeAnalysis.hxx>
 #include <TopExp.hxx>
@@ -415,13 +416,22 @@ void DrawViewPart::buildGeometryObject(const Part::TopoShape& shape, const gp_Ax
         onHlrFinished(go);
     }
     else {
+        // what the worker says when it fails: the view's recompute error,
+        // given once it is back on this thread (docs/TechDrawErrors.md 3.1)
+        auto failure = std::make_shared<std::string>();
         m_hlrWatcher.reset(new QFutureWatcher<void>());
         QObject::connect(m_hlrWatcher.get(), &QFutureWatcherBase::finished, m_hlrWatcher.get(),
             [=] {
-                if (m_progress && !m_progress->wasCanceled())
+                if (m_progress && !m_progress->wasCanceled()) {
                     onHlrFinished(go);
-                else
-                    abortMakeGeometry();
+                    return;
+                }
+                abortMakeGeometry();
+                if (!failure->empty()) {
+                    reportLateError(QCoreApplication::translate(
+                        "TechDraw", "The hidden line projection failed: %1")
+                        .arg(QString::fromStdString(*failure)).toStdString());
+                }
             });
 
         std::string message(Label.getValue());
@@ -441,11 +451,20 @@ void DrawViewPart::buildGeometryObject(const Part::TopoShape& shape, const gp_Ax
                     e.ReportException();
                     Base::Console().Error("DVP %s - HLR projection failed - %s **\n",
                                         featureName.c_str(), e.what());
+                    *failure = e.what();
                 } catch (Standard_Failure &e) {
                     Base::Console().Error("DVP %s - HLR projection failed - %s **\n",
                                         featureName.c_str(), e.GetMessageString());
+                    *failure = e.GetMessageString() ? e.GetMessageString() : "";
+                    if (failure->empty()) {
+                        *failure = "an OpenCASCADE failure with no message";
+                    }
                 }
-                abortMakeGeometry();
+                // Only marked here: abortMakeGeometry() resets the watcher,
+                // which on this thread destroyed the watcher waiting for it,
+                // and its finished() -- where the failure is reported and the
+                // rest is let go of, on the GUI thread -- never came
+                progress->setCanceled(true);
             }));
     }
 }
@@ -478,13 +497,23 @@ void DrawViewPart::onHlrFinished(GeometryObjectPtr geometryObject)
         m_progress = progress;
 
         auto faces = std::shared_ptr<std::vector<FacePtr>>(new std::vector<FacePtr>());
+        // faces failed: the edges are drawn, so a warning, not an error
+        // (docs/TechDrawErrors.md 3 b)
+        auto failure = std::make_shared<std::string>();
         m_faceWatcher.reset(new QFutureWatcher<void>());
         QObject::connect(m_faceWatcher.get(), &QFutureWatcherBase::finished, m_faceWatcher.get(),
             [=] {
-                if (m_progress && !m_progress->wasCanceled())
+                if (m_progress && !m_progress->wasCanceled()) {
                     onFacesFinished(faces);
-                else
-                    abortMakeGeometry();
+                    return;
+                }
+                abortMakeGeometry();
+                if (!failure->empty()) {
+                    reportLateWarning(QCoreApplication::translate(
+                        "TechDraw", "No faces were found, so hatches and face references "
+                                    "do not work in this view: %1")
+                        .arg(QString::fromStdString(*failure)).toStdString());
+                }
             });
 
         ExtractFaceParams params;
@@ -505,9 +534,14 @@ void DrawViewPart::onHlrFinished(GeometryObjectPtr geometryObject)
                     e.ReportException();
                     Base::Console().Error("DVP::partExec - %s - extractFaces failed - %s **\n",
                                         params.featureName.c_str(), e.what());
+                    *failure = e.what();
                 } catch (Standard_Failure& e) {
                     Base::Console().Error("DVP::partExec - %s - extractFaces failed - %s **\n",
                                         params.featureName.c_str(), e.GetMessageString());
+                    *failure = e.GetMessageString() ? e.GetMessageString() : "";
+                    if (failure->empty()) {
+                        *failure = "an OpenCASCADE failure with no message";
+                    }
                 }
                 params.progress->setCanceled(true);
             }));

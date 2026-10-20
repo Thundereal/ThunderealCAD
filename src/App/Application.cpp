@@ -735,6 +735,31 @@ App::Document *Application::addPendingDocument(const char *FileName, const char 
     return nullptr;
 }
 
+App::Document* Application::openDocumentAsNew(const char* FileName)
+{
+    if (!FileName || !FileName[0] || _isRestoring)
+        return nullptr;
+    std::string currentDoc;
+    if (_pActiveDoc)
+        currentDoc = _pActiveDoc->getName();
+    Document* doc = nullptr;
+    try {
+        doc = openDocumentPrivate(FileName, FileName, nullptr, false, false, {});
+    }
+    catch (const Base::Exception& e) {
+        FC_ERR("cannot open " << FileName << ": " << e.what());
+    }
+    if (!currentDoc.empty()) {
+        if (auto restoreDocument = getDocument(currentDoc.c_str()))
+            setActiveDocument(restoreDocument);
+    }
+    if (!doc)
+        return nullptr;
+    DocFileMap.erase(FileInfo(doc->FileName.getValue()).filePath());
+    doc->FileName.setValue("");
+    return doc;
+}
+
 bool Application::isRestoring() const {
     return _isRestoring || Document::isAnyRestoring();
 }
@@ -1858,7 +1883,7 @@ void Application::addTranslatableExportType(const std::string& description,
                                             const std::string& moduleName)
 {
     if (extensions.empty()) {
-        throw Base::ValueError("addTranslatableExportType: no extension given");
+        THROWM(Base::ValueError, "addTranslatableExportType: no extension given");
     }
 
     std::string filter =
@@ -2173,14 +2198,16 @@ void Application::destructObserver()
 #ifdef _MSC_VER // New handler for Microsoft Visual C++ compiler
 int __cdecl freecadNewHandler(size_t size )
 {
-    // throw an exception
+    // A bare throw: THROW would allocate the throw site's strings, with
+    // the memory already gone.
     throw Base::MemoryException();
     return 0;
 }
 #else // Ansi C/C++ new handler
 static void freecadNewHandler ()
 {
-    // throw an exception
+    // A bare throw: THROW would allocate the throw site's strings, with
+    // the memory already gone.
     throw Base::MemoryException();
 }
 #endif
@@ -2437,7 +2464,7 @@ void my_se_translator_filter(unsigned int code, EXCEPTION_POINTERS* pExp)
             CrashStackWalker sw(entry, 0);
             sw.ShowCallstack(GetCurrentThread(), pExp->ContextRecord);
         }
-        throw Base::AccessViolation();
+        THROW(Base::AccessViolation);
     case EXCEPTION_FLT_DIVIDE_BY_ZERO:
     case EXCEPTION_INT_DIVIDE_BY_ZERO:
         //throw Base::ZeroDivisionError("Division by zero!");

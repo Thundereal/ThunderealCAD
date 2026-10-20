@@ -1149,9 +1149,15 @@ bool OmniSearchEdit::activateErrorRow(const QModelIndex &index, bool tab)
     if (!owner() || doc != owner()->getDocument())
         path = QString::fromUtf8(doc->getName()) + QLatin1Char('#') + path;
 
-    setInputText(QString::fromLatin1(modePrefix(Mode::Object)) + path);
-    if (tab)
+    // Tab completes the name and stays in "/error " (entry 177, the reporter
+    // 2026-10-19 12:09: Tab "will erase the /error prefix"), the list
+    // narrowed to it; Return is the object chosen, which the objects mode
+    // selects
+    if (tab) {
+        setInputText(QString::fromLatin1(modePrefix(Mode::Error)) + path);
         return true;
+    }
+    setInputText(QString::fromLatin1(modePrefix(Mode::Object)) + path);
     hidePopups();
     Q_EMIT enterPressed();
     return true;
@@ -1409,7 +1415,17 @@ void OmniSearchEdit::onTextEdited(const QString &text)
         // at each key stroke (docs/HandsOnQueue.md entry 165)
         if (changed || errorsStale)
             fillErrors();
-        errorFilter->setKeywords(input.query);
+        {
+            // A name completed by Tab stays in this mode (entry 177) as the
+            // objects mode writes it -- "Doc#Box", "<<My box>>": the marks
+            // are no part of any row's words, so they part words here
+            QString keys = input.query;
+            for (QChar &c : keys) {
+                if (c == QLatin1Char('#') || c == QLatin1Char('<') || c == QLatin1Char('>'))
+                    c = QLatin1Char(' ');
+            }
+            errorFilter->setKeywords(keys);
+        }
         if (errorFilter->rowCount())
             showListPopup(errorCompleter, popupRect());
         else

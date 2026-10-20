@@ -456,6 +456,9 @@ void MeshLevelPlanner::observe(const float *viewMatrix,
         m_timer->setSingleShot(true);
         m_timer->setInterval(300);
         QObject::connect(m_timer.get(), &QTimer::timeout, [this]() {
+            // hurry() fires with no interval; the next settle waits
+            // the whole window again.
+            m_timer->setInterval(300);
             // Answered BEFORE the planned camera is overwritten, since
             // that is the only moment the two can still be compared.
             // The first plan of all counts as moved: nothing has been
@@ -487,4 +490,10 @@ void MeshLevelPlanner::observe(const float *viewMatrix,
          || matricesDiffer(m_proj, m_projPlanned))
         && !m_timer->isActive())
         m_timer->start();
+}
+
+void MeshLevelPlanner::hurry()
+{
+    if (m_timer && m_timer->isActive() && m_timer->interval() != 0)
+        m_timer->start(0);
 }

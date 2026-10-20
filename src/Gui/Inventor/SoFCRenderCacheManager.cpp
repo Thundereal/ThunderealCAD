@@ -96,6 +96,7 @@
 #include "../SoFCSelectionAction.h"
 #include "../SoFCSelection.h"
 
+#include "So3DAnnotation.h"
 #include "SoFCVertexCache.h"
 #include "SoFCRenderCache.h"
 #include "SoFCRenderer.h"
@@ -424,6 +425,8 @@ public:
   static SoCallbackAction::Response postAnnotation(void *, SoCallbackAction *action, const SoNode * node);
   static SoCallbackAction::Response prePathAnnotation(void *, SoCallbackAction *action, const SoNode * node);
   static SoCallbackAction::Response postPathAnnotation(void *, SoCallbackAction *action, const SoNode * node);
+  static SoCallbackAction::Response pre3DAnnotation(void *, SoCallbackAction *action, const SoNode * node);
+  static SoCallbackAction::Response post3DAnnotation(void *, SoCallbackAction *action, const SoNode * node);
   static SoCallbackAction::Response preSkipBounds(void *, SoCallbackAction *action, const SoNode * node);
   static SoCallbackAction::Response postSkipBounds(void *, SoCallbackAction *action, const SoNode * node);
   static SoCallbackAction::Response preShape(void *, SoCallbackAction *action, const SoNode * node);
@@ -911,6 +914,8 @@ void SoFCRenderCacheManagerP::initAction()
   this->action->addPostCallback(SoAnnotation::getClassTypeId(), &postAnnotation, this);
   this->action->addPreCallback(SoFCPathAnnotation::getClassTypeId(), &prePathAnnotation, this);
   this->action->addPostCallback(SoFCPathAnnotation::getClassTypeId(), &postPathAnnotation, this);
+  this->action->addPreCallback(Gui::So3DAnnotation::getClassTypeId(), &pre3DAnnotation, this);
+  this->action->addPostCallback(Gui::So3DAnnotation::getClassTypeId(), &post3DAnnotation, this);
   this->action->addPreCallback(SoSkipBoundingGroup::getClassTypeId(), &preSkipBounds, this);
   this->action->addPostCallback(SoSkipBoundingGroup::getClassTypeId(), &postSkipBounds, this);
   this->action->addPreCallback(SoShape::getClassTypeId(), &preShape, this);
@@ -2125,6 +2130,34 @@ SoFCRenderCacheManagerP::postPathAnnotation(void *userdata,
     SoFCCapturedModeElement::set(action->getState(), self->hostonly.back());
     self->hostonly.pop_back();
   }
+  return SoCallbackAction::CONTINUE;
+}
+
+// A 3D annotation with a priority -- a gizmo container's -- is ordered as a
+// path annotation of that priority, so that a gizmo draws over a dress-up's
+// on-top preview (-2) and under the on-view labels (1): docs/HandsOnQueue.md
+// entry 185, "the handle is displayed after the preview shape"
+SoCallbackAction::Response
+SoFCRenderCacheManagerP::pre3DAnnotation(void *userdata,
+                                         SoCallbackAction *action,
+                                         const SoNode * node)
+{
+  SoFCRenderCacheManagerP *self = reinterpret_cast<SoFCRenderCacheManagerP*>(userdata);
+  auto annotation = static_cast<const Gui::So3DAnnotation*>(node);
+  if (!self->stack.empty() && annotation->priority.getValue())
+    self->stack.back()->increaseRenderingOrder(action->getState(), annotation->priority.getValue());
+  return SoCallbackAction::CONTINUE;
+}
+
+SoCallbackAction::Response
+SoFCRenderCacheManagerP::post3DAnnotation(void *userdata,
+                                          SoCallbackAction *action,
+                                          const SoNode * node)
+{
+  SoFCRenderCacheManagerP *self = reinterpret_cast<SoFCRenderCacheManagerP*>(userdata);
+  auto annotation = static_cast<const Gui::So3DAnnotation*>(node);
+  if (!self->stack.empty() && annotation->priority.getValue())
+    self->stack.back()->decreaseRenderingOrder(action->getState(), annotation->priority.getValue());
   return SoCallbackAction::CONTINUE;
 }
 

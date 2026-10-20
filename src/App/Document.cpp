@@ -124,6 +124,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #endif
 #include "GeoFeature.h"
 #include "InputStratum.h"
+#include "LibraryPaths.h"
 #include "License.h"
 #include "Link.h"
 #include "MergeDocuments.h"
@@ -861,7 +862,7 @@ void Document::_applyRevert(ColdRevert& revert)
                 o->ctype.c_str(), DocumentObject::getClassTypeId(), true);
             auto obj = static_cast<DocumentObject*>(type.createInstance());
             if (!obj)
-                throw Base::RuntimeError("cannot create " + o->ctype);
+                THROWM(Base::RuntimeError, "cannot create " + o->ctype);
             obj->_Id = o->cid;
             addObject(obj, o->cname.c_str(), false);
             for (auto& kv : dynamicSets) {
@@ -925,7 +926,7 @@ void Document::_applyRevert(ColdRevert& revert)
                 return;
             }
             if (!prop)
-                throw Base::RuntimeError("no property " + o->prop);
+                THROWM(Base::RuntimeError, "no property " + o->prop);
             restoreValue(*prop, it->second);
         });
     }
@@ -1582,6 +1583,12 @@ bool Document::isPerformingTransaction() const
     // 27.68). A replay records nothing already (transactionsWanted()). A
     // restore to a version is not one: it is a recorded step.
     return d->undoing || d->rollback || d->replaying || Transaction::isApplying();
+}
+
+void Document::setLibraryPathsQuietly(std::map<std::string, std::string>&& map)
+{
+    Base::FlagToggler<> quiet(d->bookkeeping, false);
+    LibraryPaths.setValues(std::move(map));
 }
 
 bool Document::isReplaying() const
@@ -2310,6 +2317,11 @@ void Document::onChanged(const Property* prop)
             // recursive call of onChanged()
             this->Uid.setValue(id);
         }
+    } else if (prop == &LibraryPaths) {
+        // A remap (docs/LibraryPaths.md 3.7): an undo puts the links back
+        // itself, and bookkeeping is the map following the links.
+        if (!d->bookkeeping && !testStatus(Restoring) && !isPerformingTransaction())
+            App::LibraryPaths::remap(*this);
     } else if(prop == &UseHasher) {
         for(auto obj : d->objectArray) {
             auto geofeature = dynamic_cast<GeoFeature*>(obj);
@@ -2423,6 +2435,10 @@ Document::Document(const char* documentName)
     ADD_PROPERTY_TYPE(Comment, (""), 0, Prop_None, "Additional tag to save a comment");
     ADD_PROPERTY_TYPE(Meta, (), 0, Prop_None, "Map with additional meta information");
     ADD_PROPERTY_TYPE(Material, (), 0, Prop_None, "Map with material properties");
+    ADD_PROPERTY_TYPE(LibraryPaths, (), 0, Prop_None,
+            "The library paths the document's links use: name -> folder.\n"
+            "A link to a file under one is saved as the name and the path under it,\n"
+            "and resolves through this folder first, then the one the settings name.");
     // create the uuid for the document
     Base::Uuid id;
     ADD_PROPERTY_TYPE(Id, (""), 0, Prop_None, "ID of the document");
@@ -3196,6 +3212,11 @@ Document::ExportStatus Document::isExporting(const App::DocumentObject *obj) con
 
 void Document::exportObjects(const std::vector<App::DocumentObject*>& obj, std::ostream& out) {
 
+    // Links into a document never saved name its snapshot, set before the
+    // objects are marked (docs/LibraryPaths.md sec 12). No file written
+    // here: a copy pasted at once finds the document open; the clipboard's
+    // caller opens a scope that writes them.
+    PropertyXLink::SnapshotScope snapshots(obj, false);
     DocumentExporting exporting(obj);
     d->hashers.clear();
 
@@ -3461,7 +3482,7 @@ void Document::checkUserEdit(const Document *doc, const DocumentObject *obj,
     // unwinds without the modal dialog a Base::Exception would raise -- and a
     // modal dialog is exactly what a user clicking through a live load must
     // not be given.
-    throw Base::AbortException(str.str().c_str());
+    THROWM(Base::AbortException, str.str().c_str());
 }
 
 Document::RestoreDrainGuard::RestoreDrainGuard(Document *doc)
@@ -4460,6 +4481,7 @@ bool Document::saveCopy(const char* _file, bool withHistory) const
             Guard(bool& f, bool v) : flag(f), was(f) { flag = v; }
             ~Guard() { flag = was; }
         } guard(d->savingWithoutHistory, !withHistory);
+        App::LibraryPaths::settle(const_cast<Document&>(*this), true);
         bool result = saveToFile(file.c_str());
         return result;
     }
@@ -4509,6 +4531,9 @@ bool Document::save ()
 
             std::string LastModifiedDateString = Base::TimeInfo::currentDateTimeString();
             LastModifiedDate.setValue(LastModifiedDateString.c_str());
+            // The folders the links resolved through here, and no name they
+            // do not use (docs/LibraryPaths.md 3.2, Q3).
+            App::LibraryPaths::settle(*this, true);
             // set author if needed
             bool saveAuthor = DocumentParams::getprefSetAuthorOnSave();
             if (saveAuthor) {
@@ -4625,7 +4650,7 @@ private:
 
         Base::FileInfo tmp(sourcename);
         if (!tmp.renameFile(targetname.c_str())) {
-            throw Base::FileException(
+            THROWM(Base::FileException,
                 "Cannot rename tmp save file to project file", Base::FileInfo(targetname));
         }
     }
@@ -4775,7 +4800,7 @@ private:
 
         Base::FileInfo tmp(sourcename);
         if (!tmp.renameFile(targetname.c_str())) {
-            throw Base::FileException(
+            THROWM(Base::FileException,
                 "Save interrupted: Cannot rename temporary file to project file", tmp);
         }
 
@@ -4793,7 +4818,7 @@ private:
         }
 
         if (backupManagementError) {
-            throw Base::FileException("Warning: Save complete, but error while managing backup history.", fi);
+            THROWM(Base::FileException, "Warning: Save complete, but error while managing backup history.", fi);
         }
     }
     static bool fileComparisonByDate(const Base::FileInfo& i,
@@ -4958,7 +4983,7 @@ bool Document::saveToFile(const char* filename) const
         if(archive) {
             file.open(tmp, std::ios::out | std::ios::binary);
             if (!file.is_open())
-                throw Base::FileException("Failed to open file", tmp);
+                THROWM(Base::FileException, "Failed to open file", tmp);
             auto zipwriter = new Base::ZipWriter(file);
             _writer.reset(zipwriter);
             zipwriter->setComment("FreeCAD Document");
@@ -5213,7 +5238,7 @@ void Document::restore (const char *filename,
     if(fi.isDir()) {
         fi.setFile(std::string(filename)+'/'+"Document.xml");
         if(!fi.exists()) 
-            throw Base::FileException("Project file not found", fi);
+            THROWM(Base::FileException, "Project file not found", fi);
     }
 
     std::unique_ptr<Base::Reader> _reader;
@@ -5507,7 +5532,7 @@ void Document::restore(Base::XMLReader &reader,
         bool delaySignal, const std::vector<std::string> &objNames)
 {
     if (!reader.isValid())
-        throw Base::FileException("Error reading project file", FileName.getValue());
+        THROWM(Base::FileException, "Error reading project file", FileName.getValue());
 
     clearUndos();
     d->files.clear();
@@ -5994,9 +6019,12 @@ namespace {
 /// a restore gave the document that name (sec 27.11).
 bool keptOnRestore(const char* name)
 {
+    // LibraryPaths is where the library folders are on this machine
+    // (docs/LibraryPaths.md 3.2): the links settle it, and another copy's
+    // or an older state's would only name folders of elsewhere.
     static const std::set<std::string> kept {"FileName", "TransientDir", "Uid", "Id", "Label",
         "History", "Version", "Branch", "LastModifiedBy", "LastModifiedDate", "CreatedBy",
-        "CreationDate"};
+        "CreationDate", "LibraryPaths"};
     return kept.count(name) != 0;
 }
 
@@ -6013,7 +6041,7 @@ void copyBlob(FileBlobManager& manager, const FileBlobManager& from, const FileB
     if (!mine) {
         std::string bytes;
         if (!blob->read(bytes))
-            throw Base::RuntimeError("cannot read blob " + blob->hash());
+            THROWM(Base::RuntimeError, "cannot read blob " + blob->hash());
         std::string ext = blob->extension();
         mine = manager.adoptBytes(bytes, ext.empty() ? nullptr : ext.c_str());
     }
@@ -6065,10 +6093,10 @@ void Document::_applyVersion(Document& version, bool views)
         const char* name = kv.second->getNameInDocument();
         guarded(name, [&]() {
             if (getObject(name))
-                throw Base::RuntimeError("name taken by another object");
+                THROWM(Base::RuntimeError, "name taken by another object");
             auto obj = static_cast<DocumentObject*>(kv.second->getTypeId().createInstance());
             if (!obj)
-                throw Base::RuntimeError("cannot create the object");
+                THROWM(Base::RuntimeError, "cannot create the object");
             obj->_Id = kv.first;
             addObject(obj, name, false);
         });
@@ -6134,7 +6162,7 @@ void Document::_applyVersion(Document& version, bool views)
                     return;
                 CapturedValue want = captureValue(config, *kv.second);
                 if (!want.ok)
-                    throw Base::RuntimeError("cannot read the version's value");
+                    THROWM(Base::RuntimeError, "cannot read the version's value");
                 CapturedValue now = captureValue(config, *prop);
                 if (now.ok && now.fragment == want.fragment
                         && now.attachments.size() == want.attachments.size()
@@ -6452,7 +6480,7 @@ size_t Document::_replayLog(int64_t after, int64_t& last, int64_t head, bool* wh
                 kv.second.type.c_str(), DocumentObject::getClassTypeId(), true);
             auto obj = type.isBad() ? nullptr : static_cast<DocumentObject*>(type.createInstance());
             if (!obj)
-                throw Base::RuntimeError("cannot create " + kv.second.type);
+                THROWM(Base::RuntimeError, "cannot create " + kv.second.type);
             obj->_Id = kv.first;
             addObject(obj, kv.second.name.c_str(), false);
         });
@@ -6488,10 +6516,10 @@ size_t Document::_replayLog(int64_t after, int64_t& last, int64_t head, bool* wh
                 return;   // a view with no Gui, or an object gone
             Property* prop = c->getPropertyByName(std::get<2>(kv.first).c_str());
             if (!prop)
-                throw Base::RuntimeError("no such property");
+                THROWM(Base::RuntimeError, "no such property");
             CapturedValue v;
             if (!log->readValue(kv.second, v))
-                throw Base::RuntimeError("value " + kv.second + " is not in the log");
+                THROWM(Base::RuntimeError, "value " + kv.second + " is not in the log");
             log->restoreBlobsOf(kv.second);
             restoreValue(*prop, v);
         });
@@ -7852,12 +7880,12 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
             continue;
         guarded("create", kv.second.name, [&]() {
             if (getObject(kv.second.name.c_str()))
-                throw Base::RuntimeError("name taken by another object");
+                THROWM(Base::RuntimeError, "name taken by another object");
             Base::Type type = Base::Type::getTypeIfDerivedFrom(
                 kv.second.type.c_str(), DocumentObject::getClassTypeId(), true);
             auto obj = type.isBad() ? nullptr : static_cast<DocumentObject*>(type.createInstance());
             if (!obj)
-                throw Base::RuntimeError("cannot create " + kv.second.type);
+                THROWM(Base::RuntimeError, "cannot create " + kv.second.type);
             obj->_Id = kv.first;
             addObject(obj, kv.second.name.c_str(), false);
         });
@@ -7895,7 +7923,7 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
                 return;   // a view with no Gui, or an object gone
             Property* prop = c->getPropertyByName(std::get<2>(kv.first).c_str());
             if (!prop)
-                throw Base::RuntimeError("no such property");
+                THROWM(Base::RuntimeError, "no such property");
             // A name over a value kept elsewhere: a row has it only from
             // before it was one, and that value is not its own any more
             if (prop->testStatus(Property::Legacy))
@@ -9209,6 +9237,23 @@ int64_t mergeBaseOf(TransactionStore& store, const std::vector<LogVersion>& vers
 bool netChanged(const NetChange::Val& v)
 {
     return v.atStart != v.atEnd || v.before != v.after;
+}
+
+/// Two logged values of a link the same by what they link: a library link
+/// is known by its library and the path under it, and its old path and
+/// stamp are the machine's that wrote it (docs/LibraryPaths.md 3.8).
+bool sameLinkValue(TransactionLog& log, const std::string& ptype, const std::string& a,
+                   const std::string& b)
+{
+    if (a == b)
+        return true;
+    if (a.empty() || b.empty() || ptype.find("XLink") == std::string::npos)
+        return false;
+    CapturedValue va, vb;
+    if (!log.readValue(a, va) || !log.readValue(b, vb))
+        return false;
+    const std::string ca = LibraryPaths::comparableSaved(va.fragment);
+    return ca != va.fragment && ca == LibraryPaths::comparableSaved(vb.fragment);
 }
 
 /// A merge worked out (sec 28.2): what each side did since the base, and
@@ -10631,7 +10676,9 @@ void planWeigh(Document& doc, TransactionLog& logRef, MergePlan& plan)
         }
         else {
             c.ours = o->second.atEnd ? o->second.after : std::string();
-            if (o->second.atEnd == v.atEnd && o->second.after == v.after)
+            if (o->second.atEnd == v.atEnd
+                    && (o->second.after == v.after
+                        || sameLinkValue(*log, v.ptype, o->second.after, v.after)))
                 c.kind = "same";
             else
                 c.kind = ckind == "view" ? "view" : "conflict";
@@ -11806,13 +11853,13 @@ Document::MergeResult Document::_merge(const std::string& branch,
                 continue;
             guarded("create", made.name, [&]() {
                 if (into.getObject(made.name.c_str()))
-                    throw Base::RuntimeError("name taken by another object");
+                    THROWM(Base::RuntimeError, "name taken by another object");
                 Base::Type type = Base::Type::getTypeIfDerivedFrom(
                     made.type.c_str(), DocumentObject::getClassTypeId(), true);
                 auto obj = type.isBad() ? nullptr
                                         : static_cast<DocumentObject*>(type.createInstance());
                 if (!obj)
-                    throw Base::RuntimeError("cannot create " + made.type);
+                    THROWM(Base::RuntimeError, "cannot create " + made.type);
                 obj->_Id = made.cid;
                 into.addObject(obj, made.name.c_str(), false);
                 wrote = true;
@@ -11870,7 +11917,7 @@ Document::MergeResult Document::_merge(const std::string& branch,
                     return;   // a view with no Gui
                 Property* prop = c->getPropertyByName(std::get<2>(kv.first).c_str());
                 if (!prop)
-                    throw Base::RuntimeError("no such property");
+                    THROWM(Base::RuntimeError, "no such property");
                 // Only what differs is written, as a move along the log
                 // does: a write touches its object, and view properties
                 // that are one value under several names -- a colour, its
@@ -12723,8 +12770,8 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
         if (!mine) {
             auto obj = static_cast<DocumentObject*>(theirs->getTypeId().createInstance());
             if (!obj)
-                throw Base::RuntimeError(std::string("cannot create ")
-                                         + theirs->getTypeId().getName());
+                THROWM(Base::RuntimeError, std::string("cannot create ")
+                                           + theirs->getTypeId().getName());
             // On a branch from nothing (sec 30.22) there is no object to be
             // the same as, but the file may still be this file's kin: an
             // object whose id this file gave that very name is that object
@@ -12814,7 +12861,7 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
                 continue;
             CapturedValue theirs = captureValue(theirConfig, *kv.second);
             if (!theirs.ok)
-                throw Base::RuntimeError("cannot read the value of " + kv.first);
+                THROWM(Base::RuntimeError, "cannot read the value of " + kv.first);
             const CapturedValue now = captureValue(config, *prop);
             if (now.ok && now.fragment == theirs.fragment
                     && now.attachments.size() == theirs.attachments.size()
@@ -13390,7 +13437,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                 FileBlobHandle blob = fork.core->liveBlob(hash);
                 std::string bytes;
                 if (!blob || !blob->read(bytes))
-                    throw Base::RuntimeError(
+                    THROWM(Base::RuntimeError,
                         "a file the value names is not in the copy's history");
                 mine = d->history->blobs().adoptBytes(bytes, ext.empty() ? nullptr : ext.c_str());
             }
@@ -13550,17 +13597,17 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                         if (Base::Type::getTypeIfDerivedFrom(o.ctype.c_str(),
                                                              DocumentObject::getClassTypeId(), true)
                                 .isBad())
-                            throw Base::RuntimeError("no object type " + o.ctype
-                                                     + " in this build");
+                            THROWM(Base::RuntimeError, "no object type " + o.ctype
+                                                       + " in this build");
                     }
                     if (o.op != "set" || o.derived || removed.count(o.cid))
                         continue;
                     if (o.vafter.empty())
-                        throw Base::RuntimeError("the value of " + o.prop
-                                                 + " never reached its log");
+                        THROWM(Base::RuntimeError, "the value of " + o.prop
+                                                   + " never reached its log");
                     CapturedValue v;
                     if (!fork.core->readValue(o.vafter, v))
-                        throw Base::RuntimeError("the value of " + o.prop + " is not in its log");
+                        THROWM(Base::RuntimeError, "the value of " + o.prop + " is not in its log");
                     LogEntity e;
                     if (theirs.getEntity(o.vafter, e)) {
                         for (const auto& r : e.refs) {
@@ -13576,7 +13623,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                 // of this name is one.
                 if (const char* stop = std::getenv("FC_TXNLOG_IMPORT_STOP_AT")) {
                     if (t.name == stop)
-                        throw Base::RuntimeError("stopped for a test");
+                        THROWM(Base::RuntimeError, "stopped for a test");
                 }
                 // A merge of rows this file has not got is a row like any
                 // (sec 30.15); one of rows it has stays a merge (sec 30.34).
@@ -13665,7 +13712,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                         }
                         auto obj = static_cast<DocumentObject*>(type.createInstance());
                         if (!obj)
-                            throw Base::RuntimeError("cannot create " + o.ctype);
+                            THROWM(Base::RuntimeError, "cannot create " + o.ctype);
                         if (asId)
                             obj->_Id = asId;
                         replay->addObject(obj, wanted.c_str(), false);
@@ -13689,7 +13736,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                         if (!c) {
                             if (o.ckind == "view")
                                 continue;   // no Gui
-                            throw Base::RuntimeError("no object for property " + o.prop);
+                            THROWM(Base::RuntimeError, "no object for property " + o.prop);
                         }
                         const bool has = c->getPropertyByName(o.prop.c_str()) != nullptr;
                         if (o.op == "addprop" && !has) {
@@ -13755,7 +13802,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                             if (!c) {
                                 if (o.ckind == "view")
                                     continue;   // no Gui
-                                throw Base::RuntimeError("no object for the value of " + o.prop);
+                                THROWM(Base::RuntimeError, "no object for the value of " + o.prop);
                             }
                             Property* prop = c->getPropertyByName(o.prop.c_str());
                             if (!prop) {
@@ -13763,7 +13810,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                                     continue;
                                 // A property of the object's type the copy's
                                 // build had and this one has not.
-                                throw Base::RuntimeError("no property " + o.prop);
+                                THROWM(Base::RuntimeError, "no property " + o.prop);
                             }
                             // A view provider has one value under several
                             // names -- a colour, its appearance, its
@@ -14090,7 +14137,7 @@ void Document::writeSentFile(int64_t seq, const std::string& path)
     out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
     out.close();
     if (!out)
-        throw Base::FileException("cannot write the sent file", fi);
+        THROWM(Base::FileException, "cannot write the sent file", fi);
 }
 
 Document::ImportResult Document::importSentFile(int64_t seq, const std::string& branch)
@@ -14429,6 +14476,9 @@ bool Document::afterRestore(bool checkPartial) {
         return false;
     }
     setStatus(Document::Restoring, false);
+    // The map follows the folders the links resolved through (Q3), in
+    // memory: nothing is written at open.
+    App::LibraryPaths::settle(*this, false);
     GetApplication().signalFinishRestoreDocument(*this);
     // The last point a referrer can turn up: the Gui document replays its
     // embedded view documents from this signal. Whatever is still unclaimed
@@ -15486,7 +15536,7 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
     }
 
     if (aborted)
-        throw Base::AbortException();
+        THROW(Base::AbortException);
 
     // The recompute record (docs/TransactionLog.md sec 11), read here, before
     // anything else runs: with undo off both the commit below and an observer
@@ -16480,10 +16530,8 @@ std::vector<DocumentObject*> Document::copyObject(
     else
         deps = getDependencyList(objs,DepNoXLinked|DepSort);
 
-    if (!testStatus(TempDoc) && !isSaved() && PropertyXLink::hasXLink(deps)) {
-        throw Base::RuntimeError(
-                "Document must be saved at least once before link to external objects");
-    }
+    // A document not saved yet takes external links too: they keep the full
+    // path till its first save (PropertyXLink::Save).
 
     MergeDocuments md(this);
     // if not copying recursively then suppress possible warnings
@@ -16559,7 +16607,7 @@ Document::importLinks(const std::vector<App::DocumentObject*> &objArray)
         }
         ++it;
         if(obj->testStatus(App::PartialObject)) {
-            throw Base::RuntimeError(
+            THROWM(Base::RuntimeError,
                 "Cannot import partial loaded object. Please reload the current document");
         }
     }

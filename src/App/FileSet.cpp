@@ -97,7 +97,7 @@ void FileSet::setFile(FileBlobManager &manager, const char *name, const char *pa
                       const char *original)
 {
     if (!name || !name[0]) {
-        throw Base::ValueError("An included file needs a name");
+        THROWM(Base::ValueError, "An included file needs a name");
     }
     FileBlobHandle blob;
     if (path && path[0]) {
@@ -113,7 +113,7 @@ void FileSet::setBlob(FileBlobManager &manager, const char *name, const FileBlob
                       const char *original)
 {
     if (!name || !name[0]) {
-        throw Base::ValueError("An included file needs a name");
+        THROWM(Base::ValueError, "An included file needs a name");
     }
     FileBlobHandle blob = handle;
     if (blob && blob->owner() != &manager) {

@@ -16,7 +16,7 @@ here, so a change to the mark is made once and the files follow:
     src/MacAppBundle/.../thundereal*.icns   macOS
     src/Gui/Stylesheets/images_*/background_thundereal*.svg, .png
                                             the empty-window watermark
-    src/Gui/Icons/thundereal-package.svg    the package box, wearing the icon
+    src/Gui/Icons/thundereal-package.svg    the package box, the mark going in
     src/Gui/Renderer/wasm/thundereal-favicon.html
                                             the browser viewer's tab icon
     src/Mod/TechDraw/Branding/thundereal-logo.svg
@@ -83,6 +83,24 @@ STRIKE_DEPTH = (2, 1.2)
 HOLE = [(25.5, 19.6), (36.2, 19.6), (39.2, 21.4), (28.5, 21.4)]
 EXIT = 19.9
 
+# The application icon's mark is wider (docs/HandsOnQueue.md entry 175, the
+# user's "C", 2026-10-19): with no tile, the mark above is narrow beside other
+# programs' icons, and it reaches the top and the bottom already, so it cannot
+# grow. The bar runs to nearly the full width and the strike is a fifth wider
+# about its axis. Only the application icon takes it (the window, the task bar,
+# the title bar's logo, the .ico, .icns and .xpm, the browser's tab); the mark
+# alone, the document icons, the package box, the watermark, the TechDraw logo
+# and the splash keep the mark above.
+AXIS = 31.5
+APP_WIDEN = 1.2
+APP_MARK = dict(
+    front=[(3.5, 7), (55.5, 7), (55.5, 19), (3.5, 19)],
+    bottom=[(3.5, 19), (55.5, 19), (60.5, 22), (8.5, 22)],
+    side=[(55.5, 7), (60.5, 10), (60.5, 22), (55.5, 19)],
+    strike=[(AXIS + (x - AXIS) * APP_WIDEN, y) for x, y in STRIKE],
+    hole=[(AXIS + (x - AXIS) * APP_WIDEN, y) for x, y in HOLE],
+)
+
 DESC = (
     "  <desc>Thundereal application mark: the T-strike. A bar seen a little from below,\n"
     "  struck through by a two-pointed bolt. Written by src/Tools/thundereal-icons.py.</desc>\n"
@@ -116,17 +134,19 @@ def below(path, y):
     return path.intersected(r).simplified()
 
 
-def mark_layers():
-    """The mark in paint order, as (name, outline, colour)."""
-    s = poly(STRIKE)
+def mark_layers(shape=None):
+    """The mark in paint order, as (name, outline, colour); `shape` is
+    APP_MARK for the application icon's, else the mark's own."""
+    g = shape or dict(front=BAR_FRONT, bottom=BAR_BOTTOM, side=BAR_SIDE, strike=STRIKE, hole=HOLE)
+    s = poly(g["strike"])
     low = below(s, EXIT)
     return [
         ("strikeSide", extrude_side(s, STRIKE_DEPTH), K["strikeSide"]),
         ("strike", s, K["strike"]),
-        ("barBottom", poly(BAR_BOTTOM), K["barBottom"]),
-        ("barSide", poly(BAR_SIDE), K["barSide"]),
-        ("barFront", poly(BAR_FRONT), K["barFront"]),
-        ("hole", poly(HOLE), K["hole"]),
+        ("barBottom", poly(g["bottom"]), K["barBottom"]),
+        ("barSide", poly(g["side"]), K["barSide"]),
+        ("barFront", poly(g["front"]), K["barFront"]),
+        ("hole", poly(g["hole"]), K["hole"]),
         ("lowSide", extrude_side(low, STRIKE_DEPTH), K["strikeSide"]),
         ("lowStrike", low, K["strike"]),
     ]
@@ -147,8 +167,8 @@ def partition(layers):
 # faces and the hole fall between pixels. So the mark is redrawn on the pixel
 # grid -- larger than its inset on the tile, the bar's edges on whole pixels,
 # the hole left out, and the bar's bottom face one lit row.
-def strike16(cx, top, s):
-    return [(cx + (x - 31.5) * s, top + (y - 0.5) * s) for x, y in STRIKE]
+def strike16(cx, top, s, strike=None):
+    return [(cx + (x - AXIS) * s, top + (y - 0.5) * s) for x, y in (strike or STRIKE)]
 
 
 def mark16(bar, side, bottom, strike, exit_y, depth=None):
@@ -176,6 +196,46 @@ def union(layers):
     return u.simplified()
 
 
+# The mark's dark edge, in the 64-unit frame: a stroke of the whole outline
+# behind the faces, half of it showing. It holds the mark on a light ground and
+# all but vanishes on a dark one. Every drawing of the mark in colour carries
+# it but the 16 px document icon, where it would fill the strike (user,
+# 2026-10-19); the watermark is a silhouette and the TechDraw logo line art.
+EDGE_WIDTH = 64 / 24
+
+
+def edge_path(layers, xf=None, width=EDGE_WIDTH):
+    """The edge of a drawing of the mark, `width` in the layers' own units."""
+    scale = xf.m11() if xf is not None else 1.0
+    return '  <path id="edge" fill="%s" stroke="%s" stroke-width="%s" stroke-linejoin="round" d="%s"/>\n' % (
+        K["edge"], K["edge"], num(width * scale), path_data(union(layers), xf))
+
+
+def edged(layers, xf=None, width=EDGE_WIDTH):
+    """The mark with its edge."""
+    return edge_path(layers, xf, width) + paths(layers, xf)
+
+
+def app_fit(shape):
+    """Where the application icon's mark goes in its 64-unit square: as large
+    as its strike, edge and all, fits the square's height, centred on it
+    (user, 2026-10-19, after 7, 8 and 10% larger cropped the strike's points:
+    2.6% larger than at full size). Across, the mark is centred; its bar fits
+    with room to spare."""
+    layers = mark_layers(shape)
+    half = EDGE_WIDTH / 2
+    strike = union([l for l in layers if l[0] in ("strike", "strikeSide", "lowStrike", "lowSide")])
+    whole = union(layers).boundingRect()
+    top = strike.boundingRect().top() - half
+    bottom = strike.boundingRect().bottom() + half
+    scale = 64 / (bottom - top)
+    xf = QtGui.QTransform()
+    xf.translate(32, 32)
+    xf.scale(scale, scale)
+    xf.translate(-(whole.left() + whole.right()) / 2, -(top + bottom) / 2)
+    return xf
+
+
 def app_body(layers, edge, centre, radius, xf=None):
     """The application icon's drawing: the lit bottom face's gradient, the
     edge -- a stroke of the whole outline behind the faces, half of it
@@ -187,10 +247,7 @@ def app_body(layers, edge, centre, radius, xf=None):
         '  <defs><radialGradient id="lit" gradientUnits="userSpaceOnUse" cx="%s" cy="%s" r="%s">'
         "%s</radialGradient></defs>\n" % (num(centre[0]), num(centre[1]), num(radius), stops)
     )
-    outline = (
-        '  <path id="edge" fill="%s" stroke="%s" stroke-width="%s" stroke-linejoin="round"'
-        ' d="%s"/>\n' % (K["edge"], K["edge"], num(edge), path_data(union(layers), xf))
-    )
+    outline = edge_path(layers, xf, edge / (xf.m11() if xf is not None else 1.0))
     faces = paths(layers, xf).replace(
         'id="barBottom" fill="%s"' % K["barBottom"], 'id="barBottom" fill="url(#lit)"'
     )
@@ -300,26 +357,31 @@ def write_svgs():
     # The application icon has no ground of its own (docs/HandsOnQueue.md
     # entry 175): it is drawn on title bars, task bars and desktops, light
     # and dark, the pinned icon and the running one the same picture. The
-    # mark at full size, moved down and right just enough that its edge
-    # clears the square at the strike's top point.
-    tile = '  <rect width="64" height="64" rx="14" fill="%s"/>\n' % K["tile"]
-    shift = QtGui.QTransform.fromTranslate(0.5, 1.6)
+    # mark -- the application icon's wider one, APP_MARK -- as large as its
+    # strike fits the square (app_fit).
+    fit = app_fit(APP_MARK)
+    lit = fit.map(QtCore.QPointF(32.4, 20.5))
     write(
         os.path.join(ICONS, "thundereal.svg"),
-        svg(64, 64, DESC + app_body(mark_layers(), 64 / 24, (32.9, 22.1), 36, shift), "Thundereal"),
+        svg(
+            64,
+            64,
+            DESC + app_body(mark_layers(APP_MARK), EDGE_WIDTH * fit.m11(), (lit.x(), lit.y()), 36 * fit.m11(), fit),
+            "Thundereal",
+        ),
     )
     write(
         os.path.join(ICONS, "thundereal-mark.svg"),
-        svg(64, 64, DESC + paths(mark_layers()), "Thundereal mark"),
+        svg(64, 64, DESC + edged(mark_layers(), QtGui.QTransform.fromTranslate(0, 1.6)), "Thundereal mark"),
     )
     # With no tile to sit inside, the 16 px drawing takes the whole square:
     # the strike 15 px tall, the bar's edges on whole pixels, the edge half a
-    # pixel outside.
+    # pixel outside -- the application icon's wider mark, as above.
     app16 = mark16(
-        [(2, 2), (12, 2), (12, 5), (2, 5)],
-        [(12, 2), (13, 2.8), (13, 6), (12, 5)],
-        [(2, 5), (12, 5), (13, 6), (3, 6)],
-        strike16(7.7, 0.5, 15 / 58.5),
+        [(1, 2), (13, 2), (13, 5), (1, 5)],
+        [(13, 2), (14, 2.8), (14, 6), (13, 5)],
+        [(1, 5), (13, 5), (14, 6), (2, 6)],
+        strike16(7.7, 0.5, 15 / 58.5, APP_MARK["strike"]),
         6,
     )
     write(
@@ -337,11 +399,11 @@ def write_svgs():
     )
     write(
         os.path.join(ICONS, "thundereal-doc.svg"),
-        svg(64, 64, PAGE + paths(mark_layers(), inset(0.42, 33, 27)) + band, title),
+        svg(64, 64, PAGE + edged(mark_layers(), inset(0.42, 33, 27)) + band, title),
     )
     write(
         os.path.join(ICONS, "thundereal-doc-small.svg"),
-        svg(64, 64, PAGE + paths(mark_layers(), inset(0.56, 33, 37)), title),
+        svg(64, 64, PAGE + edged(mark_layers(), inset(0.56, 33, 37)), title),
     )
     doc16 = mark16(
         [(5, 5), (11, 5), (11, 7), (5, 7)],
@@ -382,26 +444,83 @@ def write_svgs():
                 svg(200, 187, paths(parts, wm, fill=ink, opacity=shade), "Thundereal"),
             )
 
-    # The package box wears the mark on the tile the application icon had
-    # before entry 175, as its label: the tile keeps the mark apart from the
-    # box's own amber. The label group sits in
-    # a 64-unit frame its parents shear onto the box's front face.
-    label = re.findall(r"<(?:path|rect) [^>]*/>", tile + paths(mark_layers(), inset(0.74)))
-    pad = "\n" + " " * 12
-    group = "<g" + pad + '   id="thundereal-mark">' + pad + "  "
-    group += (pad + "  ").join(label) + pad + "</g>"
-    # Upstream's box, with its logo group swapped for the label.
+    # The package box: upstream's page, its closed box replaced by a smaller
+    # one, opened and at the bottom of the page, and the mark going into it
+    # -- its lower point already inside, behind the front walls (entry 175,
+    # the user's "K2", 2026-10-19). A label on a closed box was lost at the
+    # small sizes; this reads as "goes into the box" there too.
     with open(os.path.join(ICONS, "document-package.svg"), encoding="utf-8", newline="") as f:
-        text = replace_group(f.read(), "g3813-3", group)
+        text = replace_group_content(f.read(), "g3851", package_drawing())
     if not text:
-        sys.exit("no logo group in document-package.svg")
+        sys.exit("no box group in document-package.svg")
     p = os.path.join(ICONS, "thundereal-package.svg")
     with open(p, "w", encoding="utf-8", newline="") as f:
         f.write(text)
     print("wrote", os.path.relpath(p, ROOT))
 
 
-def replace_group(text, gid, new):
+# The opened box, in the frame of upstream's closed one (group g3851 of
+# document-package.svg, whose box spans x 3..61, y 7..55), so that its face
+# gradients still fit: corners of the top, and the walls 32 deep.
+BOX_TOP = dict(left=(3, 15), back=(27, 7), right=(61, 15), front=(37, 23))
+BOX_DEPTH = 32
+BOX_INK = "#3b2508"  # upstream's outline of the box
+BOX_PLACE = (0.66, 11, 26)  # scale, then moved by: two thirds the size, low on the page
+BOX_MARK = (0.62, 33.5, 22, 6)  # the mark: scale, centre x, y, its edge's width
+
+
+def package_drawing():
+    tl, bk, tr, tf = (BOX_TOP[k] for k in ("left", "back", "right", "front"))
+    down = lambda p: (p[0], p[1] + BOX_DEPTH)
+    opening = poly([tl, bk, tr, tf])
+    s, dx, dy = BOX_PLACE
+    xf = QtGui.QTransform()
+    xf.translate(dx, dy)
+    xf.scale(s, s)
+
+    def face(pts, fill):
+        path = pts if isinstance(pts, QtGui.QPainterPath) else poly(pts)
+        return '<path fill="%s" stroke="%s" stroke-width="1.6" stroke-linejoin="round" d="%s"/>' % (
+            fill, BOX_INK, path_data(path, xf))
+
+    def fill(path, colour):
+        return '<path fill="%s" d="%s"/>' % (colour, path_data(path, xf))
+
+    # Behind the mark: the back flaps standing up, the floor, and the back
+    # walls seen through the opening
+    back = (
+        face([tl, bk, (24, -3), (0, 5)], "url(#linearGradient3881)")
+        + face([bk, tr, (64, 5), (30, -3)], "url(#linearGradient3835)")
+        + face(opening, "#5a3a10")
+        + fill(poly([tl, bk, down(bk), down(tl)]).intersected(opening), "#8a5a1c")
+        + fill(poly([bk, tr, down(tr), down(bk)]).intersected(opening), "#6d4614")
+    )
+    # In front of it: the walls, and the front flaps folded out
+    front = (
+        face([tf, tl, down(tl), down(tf)], "url(#linearGradient3835)")
+        + face([tf, tr, down(tr), down(tf)], "url(#linearGradient3881)")
+        + face([tl, tf, (31, 32), (-4, 24)], "#e9b96e")
+        + face([tf, tr, (68, 24), (43, 32)], "#c88a3a")
+    )
+    # The mark, with a dark edge around the whole of it, as the application
+    # icon has, a little thicker: it holds against the box's amber
+    ms, cx, cy, edge = BOX_MARK
+    mx = QtGui.QTransform()
+    mx.translate(cx, cy)
+    mx.scale(ms, ms)
+    mx.translate(-AXIS, -30)
+    layers = mark_layers()
+    outline = QtGui.QPainterPath()
+    for _, p, _ in layers:
+        outline = outline.united(p)
+    mark = '<path fill="%s" stroke="%s" stroke-width="%s" stroke-linejoin="round" d="%s"/>' % (
+        K["edge"], K["edge"], num(edge * ms), path_data(outline.simplified(), mx))
+    mark += paths(layers, mx, indent="")
+    return back + mark.replace("\n", "") + front
+
+
+def replace_group_content(text, gid, new):
+    """The group's children replaced by `new`; its own tag kept."""
     m = re.search(r'<g\b[^>]*\bid="%s"[^>]*>' % re.escape(gid), text)
     if not m:
         return None
@@ -409,8 +528,10 @@ def replace_group(text, gid, new):
     for t in re.finditer(r"<g\b|</g>", text[pos:]):
         depth += 1 if t.group(0) == "<g" else -1
         if depth == 0:
-            return text[: m.start()] + new + text[pos + t.end() :]
+            return text[: m.end()] + new + text[pos + t.start() :]
     return None
+
+
 
 
 app = None
@@ -716,7 +837,7 @@ def splash_svg(tagline=None):
     label = text_path("38.00", 7.5, left.x() + (right.x() - left.x()) * 0.3, dy - 2.5)
     body.append('  <path d="%s" fill="%s" fill-opacity="0.75"/>\n' % (path_data(label), k["grid"]))
 
-    body.append(paths(mark_layers(), xf))
+    body.append(edged(mark_layers(), xf))
 
     body.append(
         '  <path id="wordmark" fill="%s" d="%s"/>\n'

@@ -47,7 +47,7 @@ namespace {
 void ensureValidWall(const TopoShape &wall, const char *message)
 {
     if (wall.isNull() || !wall.isValid() || wall.countSubShapes(TopAbs_SOLID) != 1)
-        throw Base::CADKernelError(message);
+        THROWM(Base::CADKernelError, message);
 }
 
 /** A wall of the given total thickness centred on a solid's faces (upstream
@@ -64,7 +64,7 @@ TopoShape makeRectoVersoThickness(const TopoShape &solid, const std::vector<Topo
 {
     const double distance = std::fabs(thickness) / 2.0;
     if (distance <= tol)
-        throw Base::CADKernelError("Recto-verso half-thickness must exceed the modeling tolerance");
+        THROWM(Base::CADKernelError, "Recto-verso half-thickness must exceed the modeling tolerance");
 
     // Signed offsets need a consistently oriented solid, which an imported
     // one need not be; this keeps the element names
@@ -94,7 +94,7 @@ TopoShape makeRectoVersoThickness(const TopoShape &solid, const std::vector<Topo
     else
         result.makEFuse({recto, verso}, "RectoVerso", tol);
     if (result.isNull() || !result.isValid() || result.countSubShapes(TopAbs_SOLID) != 1)
-        throw Base::CADKernelError("Recto-verso thickness produced an invalid solid");
+        THROWM(Base::CADKernelError, "Recto-verso thickness produced an invalid solid");
     return result;
 }
 

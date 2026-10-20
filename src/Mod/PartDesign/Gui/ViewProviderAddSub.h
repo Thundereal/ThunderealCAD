@@ -112,6 +112,12 @@ public:
      * 160); the colour is what is left for a view that cannot.
      */
     void highlightPreviewFace(int face);
+    /** Shows \a faces of the preview (numbers from 1) in the selection
+     * colour, as highlightPreviewFace() lights one: for a selection that
+     * names the preview's face itself -- a failed or missing edge's
+     * (docs/HandsOnQueue.md entry 182). Empty for none.
+     */
+    void selectPreviewFaces(const std::vector<int> &faces);
 
 protected:
     /** The preview's faces' own colours, by face, for a preview of \a count
@@ -144,6 +150,8 @@ protected:
     int previewLitFace = 0;
     /// That face is lit by the session's views, not by its colour
     bool previewLitInViews = false;
+    /// The faces selectPreviewFaces() shows selected
+    std::vector<int> previewSelectedFaces;
     /** Lights \a face of the preview in every view of the session, 0 for
      * none; false, and nothing lit there, where a view cannot
      */

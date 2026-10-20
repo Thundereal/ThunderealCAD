@@ -100,6 +100,105 @@ bool packHash(const char* hex, size_t n, unsigned char* out)
     return true;
 }
 
+/** The store's layout version, PRAGMA user_version (docs/TransactionLog.md
+ * sec 27.55: none from 2026-09-28, one again from 2026-10-19 for the release
+ * at the end of 2026). 0 is a store from before it; 1 is the layout of
+ * 2026-10-19. A change of the layout raises it and adds a step to
+ * SQLiteStore::migrate(); a store of a higher number than this is refused.
+ */
+constexpr int StoreVersion = 1;
+
+/// A table of the layout: its name and its columns, as CREATE TABLE has them.
+struct TableDef
+{
+    const char* name;
+    const char* columns;
+};
+
+const TableDef Tables[] = {
+    {"meta", "(key TEXT PRIMARY KEY, value TEXT)"},
+    {"txn",
+     "(seq INTEGER PRIMARY KEY, parent INTEGER, id INTEGER,"
+     " kind TEXT, origin TEXT, name TEXT, time REAL, script TEXT, session INTEGER,"
+     " inverts INTEGER DEFAULT 0, branch INTEGER DEFAULT 1,"
+     " merge_from INTEGER DEFAULT 0, ord INTEGER DEFAULT 0)"},
+    {"environment", "(id INTEGER PRIMARY KEY, json TEXT UNIQUE)"},
+    // Sec 30.6: a session is one login of one user.
+    // (sec 32.32: `parent`, the group a user is in)
+    {"user",
+     "(id INTEGER PRIMARY KEY, kind TEXT, name TEXT,"
+     " parent INTEGER DEFAULT 0, UNIQUE(kind, name))"},
+    {"session",
+     "(id INTEGER PRIMARY KEY, env INTEGER,"
+     " user INTEGER, host TEXT, access TEXT, opened REAL, closed REAL,"
+     " uuid TEXT)"},
+    {"op",
+     "(txn INTEGER, idx INTEGER, op TEXT, ckind TEXT,"
+     " cid INTEGER, cname TEXT, ctype TEXT, prop TEXT, ptype TEXT, meta TEXT,"
+     " vbefore TEXT, vafter TEXT, derived INTEGER, touched INTEGER, PRIMARY KEY(txn, idx))"},
+    // `manifest` names the version's entry list, an entity of kind
+    // `manifest` (sec 27.54).
+    {"version",
+     "(num INTEGER PRIMARY KEY, uuid TEXT, branch INTEGER,"
+     " kind TEXT, name TEXT, seq INTEGER, env INTEGER, docxml_hash TEXT, schema INTEGER,"
+     " created REAL, manifest BLOB)"},
+    // Sec 27.40 item 3: the file's object names, one to one.
+    {"objname", "(cid INTEGER PRIMARY KEY, name TEXT UNIQUE)"},
+    // Item 4: the last geometry id of each object.
+    {"lastgeoid", "(cid INTEGER PRIMARY KEY, id INTEGER)"},
+    // Sec 27.50 item 2: the file's string table, kept once for every
+    // version; item 4: the ids each version and value uses, as ranges.
+    {"strtable", "(id INTEGER PRIMARY KEY, flags INTEGER, sids TEXT, data BLOB, postfix BLOB)"},
+    // One row per owner, its ranges packed (packRanges): a recomputed
+    // shape's ids come in hundreds of short runs.
+    {"strref", "(owner BLOB PRIMARY KEY, ranges BLOB) WITHOUT ROWID"},
+    {"entity", FC_ENTITY_COLUMNS},
+    {"ref", FC_REF_COLUMNS},
+    // Sec 26: branches; `main` is id 1.
+    {"branch",
+     "(id INTEGER PRIMARY KEY, name TEXT UNIQUE,"
+     " from_version INTEGER, from_seq INTEGER, head_seq INTEGER, id_base INTEGER,"
+     " last_id INTEGER DEFAULT 0, created REAL, closed REAL,"
+     " target INTEGER DEFAULT 0, joined INTEGER DEFAULT 0)"},
+    // Sec 30.29: the files of requests, held until they are dealt with.
+    // By the row's identity, not its number: a fast-forward writes a
+    // record again under a new one (sec 30.4 P1).
+    {"heldfile",
+     "(session INTEGER, ord INTEGER, file BLOB,"
+     " branch INTEGER DEFAULT 0, PRIMARY KEY(session, ord)) WITHOUT ROWID"},
+    // Sec 32.11: the values kept, one by one and by their object.
+    // The keeper (sec 32.27): empty for the host.
+    {"keepvalue",
+     "(hash BLOB PRIMARY KEY, cid INTEGER,"
+     " prop TEXT, seq INTEGER, kind TEXT DEFAULT '', name TEXT DEFAULT '')"
+     " WITHOUT ROWID"},
+    {"keepobject", "(cid INTEGER PRIMARY KEY)"},
+    // Sec 32.25: what a user may do of a branch, and the requests to
+    // merge one branch into another.
+    {"access",
+     "(kind TEXT, name TEXT, branch INTEGER,"
+     " write INTEGER DEFAULT 0, from_seq INTEGER DEFAULT 0,"
+     " from_version INTEGER DEFAULT 0, made INTEGER DEFAULT 0,"
+     " PRIMARY KEY(kind, name, branch)) WITHOUT ROWID"},
+    // AUTOINCREMENT: a request's number is never another's later, though
+    // the last one went with its branch
+    {"mergerequest",
+     "(id INTEGER PRIMARY KEY AUTOINCREMENT,"
+     " source INTEGER,"
+     " target INTEGER, kind TEXT, name TEXT, note TEXT, created REAL,"
+     " state TEXT DEFAULT 'open', closed REAL DEFAULT 0, closed_kind TEXT DEFAULT '',"
+     " closed_name TEXT DEFAULT '', result INTEGER DEFAULT 0)"},
+};
+
+/// The indexes, made once the tables have every column they name.
+const char* const Indexes[] = {
+    // Sec 30.3 S.e: a row found by what it is known by across copies.
+    "txn_ord ON txn(session, ord)",
+    "op_container ON op(cid, prop)",
+    "version_hash ON version(docxml_hash)",
+    "ref_target ON ref(target, role)",
+};
+
 /** The SQLite log (docs/TransactionLog.md sec 13). One database per
  * document history; every append is one SQL transaction, so atomicity
  * and crash recovery are the database's, not ours.
@@ -115,91 +214,204 @@ public:
             if (db)
                 sqlite3_close(db);
             db = nullptr;
-            throw Base::RuntimeError("Cannot open transaction log " + path + ": " + msg);
+            THROWM(Base::RuntimeError, "Cannot open transaction log " + path + ": " + msg);
         }
-        // Read-only -- the embedded copy as the guard reads it (sec 16.4),
-        // a blob file -- is read as it is: no journal mode set, no table
-        // made. The store the log adopts is a writable copy.
-        if (sqlite3_db_readonly(db, "main") == 1)
-            return;
-        exec("PRAGMA journal_mode=WAL");
-        exec("PRAGMA synchronous=NORMAL");
-        // One layout, no schema number and no migration: the log has shipped
-        // in no release (user, 2026-09-28, sec 27.55).
-        exec("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT)");
-        exec("CREATE TABLE IF NOT EXISTS txn(seq INTEGER PRIMARY KEY, parent INTEGER, id INTEGER,"
-             " kind TEXT, origin TEXT, name TEXT, time REAL, script TEXT, session INTEGER,"
-             " inverts INTEGER DEFAULT 0, branch INTEGER DEFAULT 1,"
-             " merge_from INTEGER DEFAULT 0, ord INTEGER DEFAULT 0)");
-        exec("CREATE TABLE IF NOT EXISTS environment(id INTEGER PRIMARY KEY, json TEXT UNIQUE)");
-        // Sec 30.6: a session is one login of one user.
-        // (sec 32.32: `parent`, the group a user is in)
-        exec("CREATE TABLE IF NOT EXISTS user(id INTEGER PRIMARY KEY, kind TEXT, name TEXT,"
-             " parent INTEGER DEFAULT 0, UNIQUE(kind, name))");
-        exec("CREATE TABLE IF NOT EXISTS session(id INTEGER PRIMARY KEY, env INTEGER,"
-             " user INTEGER, host TEXT, access TEXT, opened REAL, closed REAL,"
-             " uuid TEXT)");
-        // Sec 30.3 S.e: a row found by what it is known by across copies.
-        exec("CREATE INDEX IF NOT EXISTS txn_ord ON txn(session, ord)");
-        exec("CREATE TABLE IF NOT EXISTS op(txn INTEGER, idx INTEGER, op TEXT, ckind TEXT,"
-             " cid INTEGER, cname TEXT, ctype TEXT, prop TEXT, ptype TEXT, meta TEXT,"
-             " vbefore TEXT, vafter TEXT, derived INTEGER, touched INTEGER, PRIMARY KEY(txn, idx))");
-        exec("CREATE INDEX IF NOT EXISTS op_container ON op(cid, prop)");
-        // `manifest` names the version's entry list, an entity of kind
-        // `manifest` (sec 27.54).
-        exec("CREATE TABLE IF NOT EXISTS version(num INTEGER PRIMARY KEY, uuid TEXT, branch INTEGER,"
-             " kind TEXT, name TEXT, seq INTEGER, env INTEGER, docxml_hash TEXT, schema INTEGER,"
-             " created REAL, manifest BLOB)");
-        exec("CREATE INDEX IF NOT EXISTS version_hash ON version(docxml_hash)");
-        // Sec 27.40 item 3: the file's object names, one to one.
-        exec("CREATE TABLE IF NOT EXISTS objname(cid INTEGER PRIMARY KEY, name TEXT UNIQUE)");
-        // Item 4: the last geometry id of each object.
-        exec("CREATE TABLE IF NOT EXISTS lastgeoid(cid INTEGER PRIMARY KEY, id INTEGER)");
-        // Sec 27.50 item 2: the file's string table, kept once for every
-        // version; item 4: the ids each version and value uses, as ranges.
-        exec("CREATE TABLE IF NOT EXISTS strtable(id INTEGER PRIMARY KEY, flags INTEGER,"
-             " sids TEXT, data BLOB, postfix BLOB)");
-        // One row per owner, its ranges packed (packRanges): a recomputed
-        // shape's ids come in hundreds of short runs.
-        exec("CREATE TABLE IF NOT EXISTS strref(owner BLOB PRIMARY KEY, ranges BLOB)"
-             " WITHOUT ROWID");
-        exec("CREATE TABLE IF NOT EXISTS entity" FC_ENTITY_COLUMNS);
-        exec("CREATE TABLE IF NOT EXISTS ref" FC_REF_COLUMNS);
-        exec("CREATE INDEX IF NOT EXISTS ref_target ON ref(target, role)");
-        // Sec 26: branches; `main` is id 1.
-        exec("CREATE TABLE IF NOT EXISTS branch(id INTEGER PRIMARY KEY, name TEXT UNIQUE,"
-             " from_version INTEGER, from_seq INTEGER, head_seq INTEGER, id_base INTEGER,"
-             " last_id INTEGER DEFAULT 0, created REAL, closed REAL,"
-             " target INTEGER DEFAULT 0, joined INTEGER DEFAULT 0)");
-        // Sec 30.29: the files of requests, held until they are dealt with.
-        // By the row's identity, not its number: a fast-forward writes a
-        // record again under a new one (sec 30.4 P1).
-        exec("CREATE TABLE IF NOT EXISTS heldfile(session INTEGER, ord INTEGER, file BLOB,"
-             " branch INTEGER DEFAULT 0, PRIMARY KEY(session, ord)) WITHOUT ROWID");
-        // Sec 32.11: the values kept, one by one and by their object.
-        // The keeper (sec 32.27): empty for the host.
-        exec("CREATE TABLE IF NOT EXISTS keepvalue(hash BLOB PRIMARY KEY, cid INTEGER,"
-             " prop TEXT, seq INTEGER, kind TEXT DEFAULT '', name TEXT DEFAULT '')"
-             " WITHOUT ROWID");
-        exec("CREATE TABLE IF NOT EXISTS keepobject(cid INTEGER PRIMARY KEY)");
-        // Sec 32.25: what a user may do of a branch, and the requests to
-        // merge one branch into another.
-        exec("CREATE TABLE IF NOT EXISTS access(kind TEXT, name TEXT, branch INTEGER,"
-             " write INTEGER DEFAULT 0, from_seq INTEGER DEFAULT 0,"
-             " from_version INTEGER DEFAULT 0, made INTEGER DEFAULT 0,"
-             " PRIMARY KEY(kind, name, branch)) WITHOUT ROWID");
-        // AUTOINCREMENT: a request's number is never another's later, though
-        // the last one went with its branch
-        exec("CREATE TABLE IF NOT EXISTS mergerequest(id INTEGER PRIMARY KEY AUTOINCREMENT,"
-             " source INTEGER,"
-             " target INTEGER, kind TEXT, name TEXT, note TEXT, created REAL,"
-             " state TEXT DEFAULT 'open', closed REAL DEFAULT 0, closed_kind TEXT DEFAULT '',"
-             " closed_name TEXT DEFAULT '', result INTEGER DEFAULT 0)");
+        try {
+            setUp();
+        }
+        catch (...) {
+            for (auto& st : stmts)
+                sqlite3_finalize(st.second);
+            stmts.clear();
+            sqlite3_close(db);
+            db = nullptr;
+            throw;
+        }
+    }
+
+    /** The layout, made or brought up to StoreVersion (docs/TransactionLog.md
+     * sec 27.55, as ruled again on 2026-10-19). A store of a newer build is
+     * refused, never misread; one older is migrated, step by step.
+     */
+    void setUp()
+    {
+        const bool readOnly = sqlite3_db_readonly(db, "main") == 1;
+        const int version = pragmaInt("PRAGMA user_version");
+        if (version > StoreVersion)
+            THROWM(Base::RuntimeError, "Transaction log: written by a newer build (layout "
+                                       + std::to_string(version) + "; this one reads up to "
+                                       + std::to_string(StoreVersion) + ")");
+        // Before the version: the meta key `schema` numbered the layouts till
+        // 2026-09-28 (sec 27.55); a store from before the last of them, 7, is
+        // of a layout no step here knows.
+        if (version == 0 && hasTable("meta")) {
+            const std::string schema = metaValue("schema");
+            if (!schema.empty() && std::atoi(schema.c_str()) < 7)
+                THROWM(Base::RuntimeError, "Transaction log: of layout " + schema
+                                           + " (before 2026-09-28), which this build does not read");
+        }
+        if (readOnly) {
+            // The embedded copy as the guard reads it (sec 16.4), a blob
+            // file: read as it is, no journal mode set and no table made.
+            // The store the log adopts is a writable copy, migrated when
+            // opened. An older one read here is migrated in memory.
+            if (version == StoreVersion)
+                return;
+            copyToMemory();
+        }
+        else {
+            exec("PRAGMA journal_mode=WAL");
+            exec("PRAGMA synchronous=NORMAL");
+        }
+        for (const auto& t : Tables)
+            exec(std::string("CREATE TABLE IF NOT EXISTS main.") + t.name + t.columns);
+        if (version < StoreVersion)
+            migrate(version);
+        for (const char* index : Indexes)
+            exec(std::string("CREATE INDEX IF NOT EXISTS ") + index);
         if (!hasRow("SELECT 1 FROM branch WHERE id=1"))
             exec("INSERT INTO branch(id,name,from_version,from_seq,head_seq,id_base,created,"
                  "closed) VALUES(1,'main',0,0,(SELECT COALESCE(MAX(seq),0) FROM txn),0,"
                  "(SELECT COALESCE(MIN(time),0) FROM txn),0)");
     }
+
+    /** From `from` to StoreVersion, one transaction. A new layout adds its
+     * step here: `if (from < N) { ... }`, written against the layout of N-1.
+     */
+    void migrate(int from)
+    {
+        // The current layout beside the store, to compare with.
+        exec("ATTACH DATABASE ':memory:' AS layout");
+        try {
+            for (const auto& t : Tables)
+                exec(std::string("CREATE TABLE layout.") + t.name + t.columns);
+            exec("BEGIN");
+            try {
+                if (from < 1) {
+                    // A store from before the version: what the layout added
+                    // since 2026-09-28, the columns with their defaults --
+                    // the tables are made above.
+                    for (const auto& t : Tables)
+                        addMissingColumns(t.name);
+                    // 2026-10-04 (sec 30.6): a session names its user by
+                    // the row of `user`, where it held the name.
+                    exec("INSERT OR IGNORE INTO user(kind,name) SELECT DISTINCT 'local',"
+                         " CASE WHEN user='' THEN 'host' ELSE user END FROM session"
+                         " WHERE typeof(user)='text'");
+                    exec("UPDATE session SET user=(SELECT id FROM user WHERE kind='local' AND"
+                         " name=CASE WHEN session.user='' THEN 'host' ELSE session.user END)"
+                         " WHERE typeof(user)='text'");
+                }
+                exec(("PRAGMA user_version=" + std::to_string(StoreVersion)).c_str());
+                exec("COMMIT");
+            }
+            catch (...) {
+                sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);
+                throw;
+            }
+        }
+        catch (...) {
+            sqlite3_exec(db, "DETACH DATABASE layout", nullptr, nullptr, nullptr);
+            throw;
+        }
+        exec("DETACH DATABASE layout");
+    }
+
+    /// The columns of `table` the current layout has and the store not.
+    void addMissingColumns(const char* table)
+    {
+        auto columns = [this](const std::string& schema, const char* table) {
+            // name -> (type, default, part of the key)
+            std::map<std::string, std::tuple<std::string, std::string, bool>> out;
+            Statement s(db, "PRAGMA " + schema + ".table_info(" + table + ")");
+            while (sqlite3_step(s.stmt) == SQLITE_ROW) {
+                auto col = [&](int i) {
+                    auto t = reinterpret_cast<const char*>(sqlite3_column_text(s.stmt, i));
+                    return std::string(t ? t : "");
+                };
+                out[col(1)] = {col(2), col(4), sqlite3_column_int(s.stmt, 5) != 0};
+            }
+            return out;
+        };
+        const auto have = columns("main", table);
+        for (const auto& c : columns("layout", table)) {
+            if (have.count(c.first))
+                continue;
+            const auto& [type, dflt, key] = c.second;
+            if (key)
+                THROWM(Base::RuntimeError, std::string("Transaction log: table ") + table
+                                           + " lacks its key column " + c.first);
+            std::string sql = std::string("ALTER TABLE main.") + table + " ADD COLUMN "
+                + c.first + " " + type;
+            if (!dflt.empty())
+                sql += " DEFAULT " + dflt;
+            exec(sql);
+        }
+    }
+
+    /// The store read into memory, the file left as it is.
+    void copyToMemory()
+    {
+        sqlite3* mem = nullptr;
+        if (sqlite3_open(":memory:", &mem) != SQLITE_OK) {
+            sqlite3_close(mem);
+            THROWM(Base::RuntimeError, "Transaction log: cannot read an older store in memory");
+        }
+        sqlite3_backup* b = sqlite3_backup_init(mem, "main", db, "main");
+        const int rc = b ? sqlite3_backup_step(b, -1) : SQLITE_ERROR;
+        if (b)
+            sqlite3_backup_finish(b);
+        if (rc != SQLITE_DONE) {
+            std::string msg = sqlite3_errmsg(mem);
+            sqlite3_close(mem);
+            THROWM(Base::RuntimeError, "Transaction log: cannot copy an older store: " + msg);
+        }
+        sqlite3_close(db);
+        db = mem;
+    }
+
+    int pragmaInt(const char* sql)
+    {
+        Statement s(db, sql);
+        return sqlite3_step(s.stmt) == SQLITE_ROW ? sqlite3_column_int(s.stmt, 0) : 0;
+    }
+
+    bool hasTable(const char* name)
+    {
+        Statement s(db, "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?");
+        sqlite3_bind_text(s.stmt, 1, name, -1, SQLITE_TRANSIENT);
+        return sqlite3_step(s.stmt) == SQLITE_ROW;
+    }
+
+    std::string metaValue(const char* key)
+    {
+        Statement s(db, "SELECT value FROM meta WHERE key=?");
+        sqlite3_bind_text(s.stmt, 1, key, -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(s.stmt) != SQLITE_ROW)
+            return {};
+        auto t = reinterpret_cast<const char*>(sqlite3_column_text(s.stmt, 0));
+        return t ? t : "";
+    }
+
+    /// A statement of its own, not kept: what the layout's set-up reads once.
+    struct Statement
+    {
+        sqlite3_stmt* stmt {nullptr};
+        Statement(sqlite3* db, const std::string& sql)
+        {
+            if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+                std::string msg = sqlite3_errmsg(db);
+                sqlite3_finalize(stmt);
+                THROWM(Base::RuntimeError, "Transaction log: " + msg + " preparing " + sql);
+            }
+        }
+        ~Statement()
+        {
+            sqlite3_finalize(stmt);
+        }
+        Statement(const Statement&) = delete;
+        Statement& operator=(const Statement&) = delete;
+    };
 
     bool hasRow(const char* sql)
     {
@@ -2268,13 +2480,18 @@ public:
     }
 
 private:
+    void exec(const std::string& sql)
+    {
+        exec(sql.c_str());
+    }
+
     void exec(const char* sql)
     {
         char* err = nullptr;
         if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
             std::string msg = err ? err : "unknown";
             sqlite3_free(err);
-            throw Base::RuntimeError(std::string("Transaction log: ") + msg + " in " + sql);
+            THROWM(Base::RuntimeError, std::string("Transaction log: ") + msg + " in " + sql);
         }
     }
 
@@ -2288,8 +2505,8 @@ private:
         }
         sqlite3_stmt* s = nullptr;
         if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) != SQLITE_OK)
-            throw Base::RuntimeError(std::string("Transaction log: ") + sqlite3_errmsg(db)
-                                     + " preparing " + sql);
+            THROWM(Base::RuntimeError, std::string("Transaction log: ") + sqlite3_errmsg(db)
+                                       + " preparing " + sql);
         stmts[sql] = s;
         return s;
     }
@@ -2300,7 +2517,7 @@ private:
         if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
             std::string msg = sqlite3_errmsg(db);
             sqlite3_reset(s);
-            throw Base::RuntimeError("Transaction log: " + msg);
+            THROWM(Base::RuntimeError, "Transaction log: " + msg);
         }
         sqlite3_reset(s);
     }

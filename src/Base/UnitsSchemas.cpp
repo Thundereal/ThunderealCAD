@@ -118,7 +118,7 @@ UnitsSchemaSpec UnitsSchemas::findSpec(const std::function<bool(UnitsSchemaSpec)
     const auto found = std::find_if(pack.specs.begin(), pack.specs.end(), fn);
 
     if (found == pack.specs.end()) {
-        throw RuntimeError {"UnitSchemaSpec not found"};
+        THROWM(RuntimeError, "UnitSchemaSpec not found");
     }
 
     return *found;

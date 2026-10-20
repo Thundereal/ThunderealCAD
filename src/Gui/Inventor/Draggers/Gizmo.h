@@ -35,6 +35,7 @@
 #include <Inventor/sensors/SoFieldSensor.h>
 #include <Inventor/nodekits/SoBaseKit.h>
 #include <Inventor/SbVec3f.h>
+#include <Inventor/SbColor.h>
 #include <QMetaObject>
 #include <QString>
 
@@ -54,6 +55,8 @@ class SoInteractionKit;
 class SoNode;
 class SoScale;
 class SoSwitch;
+class SoSeparator;
+class SoTransform;
 
 namespace Gui
 {
@@ -152,6 +155,14 @@ public:
         if (menuCallback) {
             menuCallback();
         }
+    }
+    /** Hidden by the view's "Show handles" (OnViewValueSet::setHandlesShown,
+     * docs/OnViewValueEditing.md 8.5), whatever the owner's setVisibility()
+     * says; shown again as the owner has it
+     */
+    virtual void setHiddenInView(bool hidden)
+    {
+        hiddenInView = hidden;
     }
     //@}
 
@@ -263,6 +274,7 @@ protected:
     double initialValue;
 
     bool visible = true;
+    bool hiddenInView = false;
 };
 
 enum class LinearDraggerStyle
@@ -301,6 +313,7 @@ public:
     void setClickCallback(ClickCallback callback);
     void setReleaseCallback(ReleaseCallback callback) override;
     void setVisibility(bool visible);
+    void setHiddenInView(bool hidden) override;
     /** Draw the handle in its active colour while not dragged: the handle
      * that takes typed values (docs/OnViewValueEditing.md 3.2).
      */
@@ -370,6 +383,7 @@ public:
     void setAddFactor(const double val);
     void setClickCallback(ClickCallback callback);
     void setVisibility(bool visible);
+    void setHiddenInView(bool hidden) override;
 
     /// As a linear handle's (an angle typed in the view, a chamfer's), but
     /// with no root button: its value's menu is opened from another handle
@@ -441,6 +455,7 @@ class GuiExport GizmoContainer: public SoBaseKit
     SO_KIT_CATALOG_ENTRY_HEADER(pickStyle);
     SO_KIT_CATALOG_ENTRY_HEADER(toggleSwitch);
     SO_KIT_CATALOG_ENTRY_HEADER(geometry);
+    SO_KIT_CATALOG_ENTRY_HEADER(marks);
 
 public:
     static void initClass();
@@ -476,6 +491,22 @@ public:
     void setUpAutoScale(SoCamera* cameraIn);
     void calculateScaleAndOrientation();
 
+    /** Marks drawn with the gizmos, in their frame and on top, but not
+     * picked and not hidden with them (`visible`): what an owner shows where
+     * a gizmo cannot be -- a fillet's red cross where a failed edge's arrow
+     * would stand (docs/HandsOnQueue.md entry 180, addCross()). Its first
+     * child is the pick style that makes it unpickable; clearMarks()
+     * removes everything after it.
+     */
+    SoSeparator* getMarks();
+    void clearMarks();
+    /** A cross at \a pos in the marks: two bars as thick as a linear
+     * handle's shaft, facing the camera and kept at the handles' size on
+     * the screen as they are (the reporter 2026-10-19 15:08: "make the two
+     * bars in the cross as thick as the handle arrow lines")
+     */
+    void addCross(const SbVec3f& pos, const SbColor& color);
+
     // Checks if the gizmos are enabled in the preferences
     static bool isEnabled();
     // Checks if coarse snapping is enabled in the preferences
@@ -501,6 +532,19 @@ private:
     WeakPtrT<ViewProviderDragger> viewProvider;
     /// The offset from the editing transform attachViewer() was given
     Base::Matrix4D origin;
+    /// addCross()'s crosses: where each stands, and its transform, which
+    /// the camera callbacks scale and turn as they do the gizmos
+    std::vector<std::pair<SbVec3f, SoTransform*>> crosses;
+    /// The view attachViewer() put the gizmos in, and its lifetime: whose
+    /// event grab a gizmo going away must not leave behind
+    ViewerContext* viewer = nullptr;
+    std::weak_ptr<const void> viewerLife;
+    /** Lets go of the view's event grab when the grabber is \a node or
+     * under it: Coin keeps the grabber as a plain pointer, and a grabber
+     * deleted with its gizmo was traversed (a pure virtual call) and then
+     * released (an access violation) -- docs/HandsOnQueue.md entry 186
+     */
+    void releaseGrabUnder(SoNode* node);
 
     void addGizmo(Gizmo* gizmo);
 

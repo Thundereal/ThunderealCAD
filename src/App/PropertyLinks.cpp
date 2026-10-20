@@ -41,6 +41,7 @@
 #include "Application.h"
 #include "TransactionValue.h"
 #include "FileHistory.h"
+#include "LibraryPaths.h"
 #include "TransactionLog.h"
 #include "Transactions.h"
 #include "Document.h"
@@ -3989,8 +3990,13 @@ public:
         }
 
         const char *docPath = pDoc->getFileName();
-        if(!docPath || *docPath==0)
+        if(!docPath || *docPath==0) {
+            // An owner not saved yet keeps the full path; its Save writes it
+            // in the link's mode (PropertyXLink::Save).
+            if (absolute)
+                return path.toUtf8().constData();
             THROWM(Base::RuntimeError, "Owner document not saved")
+        }
 
         QFileInfo docInfo(QString::fromUtf8(docPath));
         QDir docDir(docInfo.absoluteDir());
@@ -4053,6 +4059,119 @@ public:
         return path.toUtf8().constData();
     }
 
+    static bool takesLibraryForm(const PropertyXLink* l)
+    {
+        // Absolute and Canonical are a user's choice of an absolute path
+        // (docs/LibraryPaths.md Q6).
+        auto mode = l->getPathResolveMode();
+        return mode != PropertyXLink::PathResolveMode::Absolute
+            && mode != PropertyXLink::PathResolveMode::Canonical;
+    }
+
+    /** Work out `l`'s library form for the file at `fullPath`
+     * (docs/LibraryPaths.md 3.4); whether it is a library link.
+     */
+    static bool updateLibraryForm(PropertyXLink* l, App::Document* doc, const QString& fullPath)
+    {
+        if (fullPath.isEmpty() || fullPath.startsWith(QStringLiteral("https://"))
+                || !takesLibraryForm(l)) {
+            l->clearLibraryForm();
+            return false;
+        }
+        const std::string full = fullPath.toUtf8().constData();
+        // Restored, and found nowhere: kept for a machine that has it.
+        if (!l->_libName.empty() && l->_libFolder.empty() && !QFileInfo(fullPath).exists())
+            return false;
+        if (!l->_libName.empty()) {
+            // Resolved through its folder: a restore, a remap, a paste.
+            if (!l->_libFolder.empty()
+                    && LibraryPaths::samePath(l->_libFolder + "/" + l->_libFile, full)) {
+                noteFolder(l, doc);
+                return true;
+            }
+            // Through its old path, to a file still at its place under the
+            // library: the library moved with the document (3.6 step 3).
+            if (l->_libFolder.empty()) {
+                const std::string norm = LibraryPaths::normalize(full);
+                const std::string tail = "/" + l->_libFile;
+                if (norm.size() > tail.size()
+                        && norm.compare(norm.size() - tail.size(), tail.size(), tail) == 0) {
+                    l->_libFolder = norm.substr(0, norm.size() - tail.size());
+                    noteFolder(l, doc);
+                    return true;
+                }
+            }
+        }
+        auto owner = Base::freecad_dynamic_cast<DocumentObject>(l->getContainer());
+        LibraryPaths::Match m;
+        if (LibraryPaths::match(full,
+                                doc ? doc->LibraryPaths.getValues() : LibraryPaths::Map(),
+                                LibraryPaths::getSystem(),
+                                ownFileOf(owner),
+                                m)) {
+            if (m.renamed)
+                FC_WARN(l->getFullName() << ": library '" << m.name << "' is " << m.folder
+                        << ", which the settings name otherwise; the document names that "
+                        "name another folder");
+            l->setLibraryForm(m.name, m.file, m.folder);
+            noteFolder(l, doc);
+            return true;
+        }
+        l->clearLibraryForm();
+        return false;
+    }
+
+    /// The document's map takes the folder `l` resolved through.
+    static void noteFolder(PropertyXLink* l, App::Document* doc)
+    {
+        if (!doc || l->_libFolder.empty())
+            return;
+        const auto& map = doc->LibraryPaths.getValues();
+        auto it = map.find(l->_libName);
+        if (it != map.end() && LibraryPaths::samePath(it->second, l->_libFolder))
+            return;
+        if (it == map.end() || !doc->testStatus(App::Document::Restoring)) {
+            // Settled at the end of a restore otherwise: links read later may
+            // still resolve through the folder the document names.
+            LibraryPaths::settle(*doc, false, l);
+        }
+    }
+
+    /// Whether `filename`, the file of a document a link is set to, is in a
+    /// library: the link then needs no saved owner (3.8).
+    static bool isLibraryTarget(const PropertyXLink* l, App::Document* doc, const char* filename)
+    {
+        if (!filename || !*filename || !takesLibraryForm(l))
+            return false;
+        std::string plain(filename);
+        FileHistory::NameParts parts;
+        if (FileHistory::parseName(plain, parts))
+            plain = parts.file;
+        if (!QFileInfo(QString::fromUtf8(plain.c_str())).isAbsolute())
+            return false;
+        LibraryPaths::Match m;
+        return LibraryPaths::match(LibraryPaths::normalize(plain),
+                                   doc ? doc->LibraryPaths.getValues() : LibraryPaths::Map(),
+                                   LibraryPaths::getSystem(),
+                                   std::string(),
+                                   m);
+    }
+
+    /// `l` to the same object of the file at `path` (3.7), a change of its value.
+    static void relink(PropertyXLink* l, const std::string& path, const std::string& folder)
+    {
+        auto parent = l->parentProp;
+        if (parent)
+            parent->aboutToSetValue();
+        l->_libFolder = folder;
+        std::string name = l->objectName;
+        auto subs = l->_SubList;
+        auto shadows = l->_ShadowSubList;
+        l->setValue(std::string(path), std::move(name), std::move(subs), std::move(shadows));
+        if (parent)
+            parent->hasSetValue();
+    }
+
     static DocInfoPtr get(const char *filename,
             App::Document *pDoc,PropertyXLink *l, const char *objName)
     {
@@ -4084,7 +4203,19 @@ public:
             }
         }
         QString fullPath;
-        l->filePath = getDocPath(plain.c_str(),pDoc,l->getPathResolveMode(),&fullPath);
+        const char* ownerPath = pDoc->getFileName();
+        const QString given = QDir::cleanPath(QString::fromUtf8(plain.c_str()));
+        if ((!ownerPath || !*ownerPath) && QFileInfo(given).isAbsolute()
+                && updateLibraryForm(l, pDoc, given)) {
+            // An owner not saved yet holds a library link (docs/LibraryPaths.md
+            // 3.8): the old path is the full one till the owner has a file.
+            fullPath = given;
+            l->filePath = given.toUtf8().constData();
+        }
+        else {
+            l->filePath = getDocPath(plain.c_str(),pDoc,l->getPathResolveMode(),&fullPath);
+            updateLibraryForm(l, pDoc, fullPath);
+        }
 
         FC_LOG("finding doc " << filename);
 
@@ -4706,6 +4837,8 @@ void PropertyXLink::setValue(App::DocumentObject *lValue,
         if(lValue->getDocument() != owner->getDocument()) {
             if (!docInfo || lValue->getDocument()!=docInfo->pcDoc) {
                 this->filePath.clear();
+                // Another file: its library form is worked out afresh.
+                clearLibraryForm();
                 // An editable instance with no branch yet takes it now: the
                 // link is to the branch, and has to save its name (sec 27.23).
                 Document* linkedDoc = lValue->getDocument();
@@ -4720,7 +4853,11 @@ void PropertyXLink::setValue(App::DocumentObject *lValue,
                 FileHistory::NameParts parts;
                 if (!filename || !FileHistory::parseName(filename, parts))
                     _liveBranch.clear();
-                if(!filename || *filename==0 || !ownerPath || *ownerPath==0) {
+                // A library link needs no saved owner (docs/LibraryPaths.md 3.8).
+                if (filename && *filename && (!ownerPath || *ownerPath == 0)
+                        && DocInfo::isLibraryTarget(this, owner->getDocument(), filename)) {
+                    info = DocInfo::get(filename,owner->getDocument(),this,name);
+                } else if(!filename || *filename==0 || !ownerPath || *ownerPath==0) {
                     // linked or owner document not saved, delay getting file path till Save()
                 } else {
                     FC_LOG("xlink set to new document " << lValue->getDocument()->getName());
@@ -4767,6 +4904,19 @@ void PropertyXLink::setValue(std::string &&filename, std::string &&name,
     auto owner = dynamic_cast<DocumentObject*>(getContainer());
     if(!owner || !owner->isAttachedToDocument())
         THROWM(Base::RuntimeError, "invalid container")
+
+    // The token form, `%Name%/file` (docs/LibraryPaths.md 3.3): through the
+    // document's folder for the name, then the system's.
+    std::string libName, libFile;
+    if (LibraryPaths::parseToken(filename, libName, libFile)) {
+        LibraryPaths::Resolved r;
+        if (!LibraryPaths::resolve(libName, libFile,
+                                   owner->getDocument()->LibraryPaths.getValues(),
+                                   LibraryPaths::getSystem(), r))
+            FC_THROWM(Base::ValueError, "No library '" << libName << "' holds '" << libFile << "'");
+        setLibraryForm(libName, libFile, r.folder);
+        filename = r.path;
+    }
 
     DocumentObject *pObject=nullptr;
     DocInfoPtr info;
@@ -5047,7 +5197,61 @@ void PropertyXLink::setPathResolveMode(PathResolveMode mode)
         filePath = getFilePath(mode);
     }
     resolveMode = mode;
+    // Absolute and Canonical keep no library form, the others take one
+    // (docs/LibraryPaths.md Q6).
+    if (docInfo && owner)
+        DocInfo::updateLibraryForm(this, owner->getDocument(),
+                                   QString::fromUtf8(docInfo->filePath()));
     hasSetValue();
+}
+
+std::string PropertyXLink::getFullPath() const
+{
+    return docInfo ? std::string(docInfo->filePath()) : std::string();
+}
+
+void PropertyXLink::setLibraryForm(const std::string& name, const std::string& file,
+                                   const std::string& folder)
+{
+    _libName = name;
+    _libFile = file;
+    _libFolder = folder;
+    _libToken = LibraryPaths::makeToken(name, file);
+}
+
+void PropertyXLink::clearLibraryForm()
+{
+    _libName.clear();
+    _libFile.clear();
+    _libFolder.clear();
+    _libToken.clear();
+}
+
+void PropertyXLink::renameLibrary(const std::string& name)
+{
+    if (!_libName.empty())
+        setLibraryForm(name, _libFile, _libFolder);
+}
+
+void PropertyXLink::relinkFile(const std::string& path, const std::string& folder)
+{
+    DocInfo::relink(this, path, folder);
+}
+
+std::vector<PropertyXLink*> PropertyXLink::getLibraryLinks(const App::Document* doc)
+{
+    std::vector<PropertyXLink*> ret;
+    std::set<PropertyXLink*> seen;
+    for (auto& v : _DocInfoMap) {
+        for (auto link : v.second->links) {
+            if (link->_libName.empty() || !seen.insert(link).second)
+                continue;
+            auto owner = Base::freecad_dynamic_cast<DocumentObject>(link->getContainer());
+            if (owner && owner->getDocument() == doc)
+                ret.push_back(link);
+        }
+    }
+    return ret;
 }
 
 std::string PropertyXLink::getFilePath(PathResolveMode mode) const
@@ -5113,6 +5317,40 @@ void PropertyXLink::beforeSave(Base::Writer &writer) const
     markShadowIDs(_ShadowSubList, getContainer());
 }
 
+namespace {
+// The snapshots of the current SnapshotScope: document -> file.
+std::map<const App::Document*, std::string> _Snapshots;
+int _SnapshotDepth;
+
+/// The objects `obj`'s external link properties point to.
+void xlinkTargets(App::DocumentObject* obj, std::vector<App::DocumentObject*>& out)
+{
+    std::vector<App::Property*> props;
+    obj->getPropertyList(props);
+    for (auto prop : props) {
+        if (prop->isDerivedFrom<PropertyXLink>() || prop->isDerivedFrom<PropertyXLinkSubList>()
+                || prop->isDerivedFrom<PropertyXLinkContainer>())
+            static_cast<PropertyLinkBase*>(prop)->getLinks(out, true);
+    }
+}
+
+/// The snapshot `link` is written as, in a scope; empty for none.
+const std::string& snapshotOf(const PropertyXLink& link, const App::DocumentObject* target,
+                              bool exporting)
+{
+    static const std::string none;
+    if (!_SnapshotDepth || !target)
+        return none;
+    auto owner = Base::freecad_dynamic_cast<const App::DocumentObject>(link.getContainer());
+    auto doc = target->getDocument();
+    // A link within the document a snapshot is saved from stays local.
+    if (!exporting && owner && owner->getDocument() == doc)
+        return none;
+    auto it = _Snapshots.find(doc);
+    return it == _Snapshots.end() ? none : it->second;
+}
+}  // namespace
+
 void PropertyXLink::Save (Base::Writer &writer) const {
     auto owner = dynamic_cast<const DocumentObject *>(getContainer());
     // A detached copy -- a before value the undo system took, a value the
@@ -5131,7 +5369,11 @@ void PropertyXLink::Save (Base::Writer &writer) const {
         // Lets save the export name
         writer.Stream() << writer.ind() << "<XLink name=\"" << _pcLink->getExportName();
     }else {
-        if (owner && filePath.empty() && _pcLink && _pcLink->getDocument() != owner->getDocument()) {
+        // Into a document never saved, in a copy: its snapshot (sec 12 of
+        // docs/LibraryPaths.md).
+        const std::string& snapshot = snapshotOf(*this, _pcLink, exporting);
+        if (snapshot.empty() && owner && filePath.empty() && _pcLink
+                && _pcLink->getDocument() != owner->getDocument()) {
             const char *filename = _pcLink->getDocument()->getFileName();
             if(!filename || *filename == 0) {
                 FC_ERR("Linked document not saved for object " << _pcLink->getFullName());
@@ -5161,7 +5403,9 @@ void PropertyXLink::Save (Base::Writer &writer) const {
                 }
             }
         }
-        if(exporting) {
+        if (!snapshot.empty())
+            _path = snapshot;
+        else if(exporting) {
             // docInfo!=nullptr means we are exporting the owner but not exporting the
             // linked object.  Try to use absolute file path for easy transition
             // into document at different directory
@@ -5181,6 +5425,26 @@ void PropertyXLink::Save (Base::Writer &writer) const {
         }
         if(!_path.empty())
             path = _path.c_str();
+        // A link set or pasted while its owner had no file holds the full
+        // path (docs/LibraryPaths.md 3.8): the owner has one now, and the old
+        // path is written in the link's mode.
+        else if (owner && docInfo && DocInfo::takesLibraryForm(this)
+                 && QFileInfo(QString::fromUtf8(filePath.c_str())).isAbsolute()) {
+            const char* own = ownerDoc->getFileName();
+            if (own && *own) {
+                try {
+                    auto self = const_cast<PropertyXLink*>(this);
+                    self->filePath = DocInfo::getDocPath(
+                        docInfo->filePath(), const_cast<Document*>(ownerDoc), resolveMode);
+                    path = filePath.c_str();
+                    // Saved inside the library: a relative link (Q5).
+                    if (!_libName.empty() && LibraryPaths::isUnder(own, _libFolder))
+                        self->clearLibraryForm();
+                }
+                catch (Base::Exception&) {
+                }
+            }
+        }
         // A pin or a live branch of the owner's own file is saved with no
         // file: "this document's file", whatever it is called after a Save
         // As (sec 27.20, 27.21 Q2). A FreeCAD that does not know the pin
@@ -5194,6 +5458,18 @@ void PropertyXLink::Save (Base::Writer &writer) const {
 
         if (this->resolveMode != PathResolveMode::Dynamic) {
             writer.Stream() << "\" resolve=\"" << getPathResolveModeName();
+        }
+        // A library link (docs/LibraryPaths.md 3.3): the name and the path
+        // under its folder, read first; absent otherwise, and a FreeCAD that
+        // does not know them resolves the file.
+        // The document the snapshot is of: a paste links to it while it is
+        // open. Absent otherwise; a FreeCAD that does not know it opens the
+        // snapshot.
+        if (!snapshot.empty())
+            writer.Stream() << "\" snapshot=\"" << _pcLink->getDocument()->Uid.getValueStr();
+        if (!_libName.empty() && !_libFile.empty() && *path) {
+            writer.Stream() << "\" lib=\"" << encodeAttribute(_libName)
+                            << "\" libfile=\"" << encodeAttribute(_libFile);
         }
         // Pinned (docs/TransactionLog.md sec 16.5, 27): absent otherwise,
         // and a FreeCAD that does not know them resolves the file.
@@ -5299,6 +5575,71 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
     const bool self = file.empty() && (_pinVersion > 0 || !_liveBranch.empty());
     if (self)
         file = ownFileOf(static_cast<DocumentObject*>(getContainer()));
+
+    // A library link (docs/LibraryPaths.md 3.6): through the document's
+    // folder for the name, then the system's, then the old path.
+    clearLibraryForm();
+    std::string libReport;
+    if (!self && !file.empty() && reader.hasAttribute("lib") && reader.hasAttribute("libfile")) {
+        std::string libName = reader.getAttribute("lib");
+        std::string libFile = reader.getAttribute("libfile");
+        auto ownerObj = Base::freecad_dynamic_cast<DocumentObject>(getContainer());
+        Document* doc = ownerObj ? ownerObj->getDocument() : nullptr;
+        const LibraryPaths::Map docMap = doc ? doc->LibraryPaths.getValues() : LibraryPaths::Map();
+        LibraryPaths::Resolved r;
+        if (!LibraryPaths::isValidName(libName) || libFile.empty()) {
+            FC_WARN(getFullName() << ": invalid library '" << libName << "'");
+        }
+        else if (LibraryPaths::resolve(libName, libFile, docMap, LibraryPaths::getSystem(), r)) {
+            setLibraryForm(libName, libFile, r.folder);
+            file = r.path;
+            if (r.conflict && doc) {
+                static std::set<std::string> warned;
+                if (warned.insert(doc->Uid.getValueStr() + "/" + libName).second)
+                    FC_WARN(doc->Label.getValue() << ": library '" << libName
+                            << "': the document uses " << r.folder << ", the settings say "
+                            << r.other);
+            }
+        }
+        else {
+            setLibraryForm(libName, libFile, std::string());
+            auto it = docMap.find(libName);
+            auto sys = LibraryPaths::getSystem();
+            auto itSys = sys.find(libName);
+            std::ostringstream ss;
+            if (itSys != sys.end())
+                ss << "library '" << libName << "' (" << itSys->second << ") holds no '"
+                   << libFile << "'";
+            else
+                ss << "library '" << libName << "' is not set here";
+            if (it != docMap.end())
+                ss << " (the document had " << it->second << ")";
+            libReport = ss.str();
+        }
+    }
+    // A copy's link into a document never saved (docs/LibraryPaths.md sec
+    // 12): to that document while it is open -- or a snapshot of it opened
+    // by an earlier paste, which has its Uid -- else to its snapshot, opened
+    // as a document never saved: one the save of what links to it asks to
+    // save first, as any other.
+    Document* live = nullptr;
+    if (!self && !file.empty() && reader.hasAttribute("snapshot")) {
+        const std::string uid = reader.getAttribute("snapshot");
+        for (auto doc : GetApplication().getDocuments()) {
+            if (doc->Uid.getValueStr() == uid) {
+                live = doc;
+                break;
+            }
+        }
+        if (!live)
+            live = GetApplication().openDocumentAsNew(file.c_str());
+        auto ownerObj = Base::freecad_dynamic_cast<DocumentObject>(getContainer());
+        if (live && ownerObj && live == ownerObj->getDocument()) {
+            // Pasted into it: a local link.
+            file.clear();
+            live = nullptr;
+        }
+    }
     std::string name;
     if(file.empty())
         name = reader.getName(reader.getAttribute("name"));
@@ -5385,12 +5726,31 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
         return;
     }
 
+    if (live) {
+        if (auto obj = live->getObject(name.c_str())) {
+            setValue(obj, std::move(subs), std::move(shadows));
+            _mapped = std::move(mapped);
+            return;
+        }
+    }
+
     if(!file.empty() || (!object && !name.empty())) {
         this->stamp = stampAttr;
         setValue(std::move(file),std::move(name),std::move(subs),std::move(shadows));
     }else
         setValue(object,std::move(subs),std::move(shadows));
     _mapped = std::move(mapped);
+
+    // Not through the library, and not at its old path either: broken, with
+    // the library named (3.6 step 4).
+    if (!libReport.empty() && _libFolder.empty()) {
+        const std::string full = getFullPath();
+        if (full.empty() || !QFileInfo(QString::fromUtf8(full.c_str())).exists()) {
+            static std::set<std::string> warned;
+            if (warned.insert(getFullName() + "/" + libReport).second)
+                FC_WARN(getFullName() << ": " << libReport);
+        }
+    }
 }
 
 Property *PropertyXLink::CopyOnImportExternal(
@@ -5466,6 +5826,10 @@ void PropertyXLink::copyTo(PropertyXLink &other,
     other._pinUuid = _pinUuid;
     other._liveBranch = _liveBranch;
     other._selfFile = _selfFile;
+    other._libName = _libName;
+    other._libFile = _libFile;
+    other._libFolder = _libFolder;
+    other._libToken = _libToken;
 }
 
 void PropertyXLink::getLinkIdentity(std::string &doc, std::string &obj) const
@@ -5516,6 +5880,10 @@ void PropertyXLink::Paste(const Property &from)
     _pinUuid = other._pinUuid;
     _liveBranch = other._liveBranch;
     _selfFile = other._selfFile;
+    _libName = other._libName;
+    _libFile = other._libFile;
+    _libFolder = other._libFolder;
+    _libToken = other._libToken;
     auto doc = other.docName.empty() ? nullptr : GetApplication().getDocument(other.docName.c_str());
     if(!other.docName.empty() && (doc || other.filePath.empty())) {
         if(!doc) {
@@ -5575,6 +5943,101 @@ void PropertyXLink::restoreDocument(const App::Document &doc) {
     DocInfo::restoreDocument(doc);
 }
 
+std::string PropertyXLink::getSnapshotPath(const App::Document* doc)
+{
+    QDir dir(QString::fromUtf8(doc->TransientDir.getValue()));
+    return QDir::cleanPath(dir.absoluteFilePath(
+               QStringLiteral("Snapshot/") + QString::fromUtf8(doc->getName())
+               + QStringLiteral(".")
+               + QString::fromUtf8(Document::getFileExtension(doc->getSaveSchemaVersion()))))
+        .toUtf8()
+        .constData();
+}
+
+PropertyXLink::SnapshotScope::SnapshotScope(const std::vector<App::DocumentObject*>& objs,
+                                            bool write)
+{
+    if (_SnapshotDepth++ > 0)
+        return;
+    std::vector<App::Document*> queue;
+    auto want = [&](App::Document* doc) {
+        if (!doc || doc->isSaved() || doc->testStatus(Document::TempDoc)
+                || _Snapshots.count(doc))
+            return;
+        _Snapshots[doc] = getSnapshotPath(doc);
+        queue.push_back(doc);
+    };
+    // What the copy links to in a document never saved: another document,
+    // or an object of its own document left out of it.
+    std::set<const App::DocumentObject*> copied(objs.begin(), objs.end());
+    std::vector<App::DocumentObject*> targets;
+    for (auto obj : objs) {
+        if (!obj || !obj->isAttachedToDocument())
+            continue;
+        targets.clear();
+        xlinkTargets(obj, targets);
+        for (auto target : targets) {
+            if (target && (target->getDocument() != obj->getDocument() || !copied.count(target)))
+                want(target->getDocument());
+        }
+    }
+    // And what those link to: a snapshot has its links written the same way.
+    for (std::size_t i = 0; i < queue.size(); ++i) {
+        for (auto obj : queue[i]->getObjects()) {
+            targets.clear();
+            xlinkTargets(obj, targets);
+            for (auto target : targets) {
+                if (target && target->getDocument() != queue[i])
+                    want(target->getDocument());
+            }
+        }
+    }
+    if (!write)
+        return;
+    for (auto doc : queue) {
+        const std::string& path = _Snapshots[doc];
+        try {
+            QDir().mkpath(QFileInfo(QString::fromUtf8(path.c_str())).absolutePath());
+            doc->saveCopy(path.c_str(), false);
+        }
+        catch (Base::Exception& e) {
+            FC_ERR("cannot write the snapshot of " << doc->getName() << " to " << path << ": "
+                                                   << e.what());
+        }
+    }
+}
+
+PropertyXLink::SnapshotScope::~SnapshotScope()
+{
+    if (--_SnapshotDepth == 0)
+        _Snapshots.clear();
+}
+
+namespace {
+/** The links no DocInfo holds -- into a document never saved, or of an
+ * owner never saved -- as owner and linked document: a dependency all the
+ * same, whose save comes first (docs/LibraryPaths.md sec 12).
+ */
+template<class F>
+void forEachUntracked(F f)
+{
+    for (auto link : DocInfo::untrackedLinks()) {
+        auto linkedObj = link->getValue();
+        if (!linkedObj || !linkedObj->isAttachedToDocument()
+                || link->getScope() == LinkScope::Hidden
+                || link->testStatus(Property::PropTransient)
+                || link->testStatus(Property::Transient)
+                || link->testStatus(Property::PropNoPersist))
+            continue;
+        auto obj = dynamic_cast<App::DocumentObject*>(link->getContainer());
+        if (!obj || !obj->isAttachedToDocument() || !obj->getDocument())
+            continue;
+        if (linkedObj->getDocument() != obj->getDocument())
+            f(obj->getDocument(), linkedObj->getDocument());
+    }
+}
+}  // namespace
+
 std::map<App::Document*,std::set<App::Document*> >
 PropertyXLink::getDocumentOutList(App::Document *doc) {
     std::map<App::Document*,std::set<App::Document*> > ret;
@@ -5595,6 +6058,10 @@ PropertyXLink::getDocumentOutList(App::Document *doc) {
             ret[obj->getDocument()].insert(v.second->pcDoc);
         }
     }
+    forEachUntracked([&](App::Document* owner, App::Document* linked) {
+        if (!doc || owner == doc)
+            ret[owner].insert(linked);
+    });
     return ret;
 }
 
@@ -5616,6 +6083,10 @@ PropertyXLink::getDocumentInList(App::Document *doc) {
                 docs.insert(obj->getDocument());
         }
     }
+    forEachUntracked([&](App::Document* owner, App::Document* linked) {
+        if (!doc || linked == doc)
+            ret[linked].insert(owner);
+    });
     return ret;
 }
 
@@ -5644,8 +6115,87 @@ PyObject *PropertyXLink::getPyObject()
     return Py::new_reference_to(ret);
 }
 
+namespace {
+
+/** The form `(path, object)` or `(path, object, subs)` of a link set from
+ * Python (docs/LibraryPaths.md 3.3): `path` a file, or a library token
+ * `%Name%/file`, and `object` the name of an object in it; `subs` a string
+ * or a sequence of strings. The file is opened if it is not, and `obj` is
+ * its object. False when `value` is not in this form: its first item is
+ * not a string.
+ */
+bool linkByFile(PyObject* value, const PropertyContainer* container,
+                DocumentObject*& obj, std::vector<std::string>& subs)
+{
+    if (!PyTuple_Check(value) && !PyList_Check(value))
+        return false;
+    Py::Sequence seq(value);
+    if (seq.size() < 2 || seq.size() > 3 || !PyUnicode_Check(seq[0].ptr()))
+        return false;
+    if (!PyUnicode_Check(seq[1].ptr()))
+        THROWM(Base::TypeError, "Expect (file, object name[, subname(s)]): the object name is a string")
+    const std::string path = Py::String(seq[0].ptr()).as_std_string("utf-8");
+    const std::string name = Py::String(seq[1].ptr()).as_std_string("utf-8");
+    subs.clear();
+    if (seq.size() == 3) {
+        Py::Object pySub(seq[2].ptr());
+        if (pySub.isString())
+            subs.push_back(Py::String(pySub).as_std_string("utf-8"));
+        else if (pySub.isSequence()) {
+            Py::Sequence list(pySub);
+            for (Py_ssize_t i = 0; i < list.size(); ++i) {
+                Py::Object sub(list[i]);
+                if (!sub.isString())
+                    THROWM(Base::TypeError, "Expect only strings for the subnames")
+                subs.push_back(Py::String(sub).as_std_string("utf-8"));
+            }
+        }
+        else if (!pySub.isNone())
+            THROWM(Base::TypeError, "Expect a string or a sequence of strings for the subnames")
+    }
+
+    auto owner = Base::freecad_dynamic_cast<const DocumentObject>(container);
+    Document* ownerDoc = owner ? owner->getDocument() : nullptr;
+    std::string full = LibraryPaths::resolveToken(path, ownerDoc);
+    if (full.empty())
+        FC_THROWM(Base::ValueError, "No library holds '" << path << "'");
+    QFileInfo info(QString::fromUtf8(full.c_str()));
+    if (info.isRelative()) {
+        // Relative to the owner's file, as a link's path is.
+        const char* own = ownerDoc ? ownerDoc->getFileName() : nullptr;
+        if (!own || !*own)
+            FC_THROWM(Base::ValueError, "'" << path << "' is relative and the owner's document "
+                      "is not saved");
+        info = QFileInfo(QFileInfo(QString::fromUtf8(own)).absoluteDir(), info.filePath());
+        full = QDir::cleanPath(info.absoluteFilePath()).toUtf8().constData();
+    }
+    Document* doc = GetApplication().getDocumentByPath(
+        full.c_str(), Application::PathMatchMode::MatchCanonical);
+    if (!doc) {
+        if (!info.exists())
+            FC_THROWM(Base::ValueError, "No file '" << full << "'");
+        doc = GetApplication().openDocument(full.c_str(), false);
+        if (!doc)
+            FC_THROWM(Base::RuntimeError, "Cannot open '" << full << "'");
+    }
+    obj = doc->getObject(name.c_str());
+    if (!obj)
+        FC_THROWM(Base::ValueError, "No object '" << name << "' in '" << full << "'");
+    return true;
+}
+
+} // namespace
+
 void PropertyXLink::setPyObject(PyObject *value) {
     OperationScope scope;   // sec 27.38
+    {
+        DocumentObject* obj = nullptr;
+        std::vector<std::string> subs;
+        if (linkByFile(value, getContainer(), obj, subs)) {
+            setValue(obj, std::move(subs));
+            return;
+        }
+    }
     if(PySequence_Check(value)) {
         Py::Sequence seq(value);
         if(seq.size()!=2)
@@ -5680,7 +6230,7 @@ void PropertyXLink::setPyObject(PyObject *value) {
     } else if (Py_None == value) {
         setValue(nullptr);
     } else {
-        throw Base::TypeError("type must be 'DocumentObject', 'None', or '(DocumentObject, SubName)' or "
+        THROWM(Base::TypeError, "type must be 'DocumentObject', 'None', or '(DocumentObject, SubName)' or "
                 "'DocumentObject, [SubName..])");
     }
 }
@@ -6069,6 +6619,15 @@ PyObject *PropertyXLinkSubList::getPyObject()
 
 void PropertyXLinkSubList::setPyObject(PyObject *value)
 {
+    // One link by its file (docs/LibraryPaths.md 3.3).
+    {
+        DocumentObject* obj = nullptr;
+        std::vector<std::string> subs;
+        if (linkByFile(value, getContainer(), obj, subs)) {
+            this->setValue(obj, subs);
+            return;
+        }
+    }
     try { //try PropertyLinkSub syntax
         PropertyLinkSub dummy;
         dummy.setAllowExternal(true);
@@ -6082,8 +6641,16 @@ void PropertyXLinkSubList::setPyObject(PyObject *value)
         THROWM(Base::TypeError, "Invalid type. Accepts (DocumentObject, (subname...)) or sequence of such type.")
     Py::Sequence seq(value);
     std::map<DocumentObject*, std::vector<std::string> > values;
-    try {
-        for(Py_ssize_t i=0;i<seq.size();++i) {
+    for(Py_ssize_t i=0;i<seq.size();++i) {
+        // An entry by its file says what is wrong with it itself.
+        DocumentObject* byFile = nullptr;
+        std::vector<std::string> fileSubs;
+        if (linkByFile(seq[i].ptr(), getContainer(), byFile, fileSubs)) {
+            auto &s = values[byFile];
+            s.insert(s.end(), fileSubs.begin(), fileSubs.end());
+            continue;
+        }
+        try {
             PropertyLinkSub link;
             link.setAllowExternal(true);
             link.setPyObject(seq[i].ptr());
@@ -6092,9 +6659,9 @@ void PropertyXLinkSubList::setPyObject(PyObject *value)
             s.reserve(s.size()+subs.size());
             s.insert(s.end(),subs.begin(),subs.end());
         }
-    }
-    catch(Base::Exception&){
-        THROWM(Base::TypeError, "Invalid type inside sequence. Must be type of (DocumentObject, (subname...))")
+        catch(Base::Exception&){
+            THROWM(Base::TypeError, "Invalid type inside sequence. Must be type of (DocumentObject, (subname...)) or (file, object name, (subname...))")
+        }
     }
     setValues(std::move(values));
 }

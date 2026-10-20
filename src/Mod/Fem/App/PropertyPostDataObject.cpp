@@ -190,7 +190,7 @@ void PropertyPostDataObject::setPyObject([[maybe_unused]] PyObject* value)
 #ifdef FC_USE_VTK_PYTHON
     vtkObjectBase* obj = vtkPythonUtil::GetPointerFromObject(value, "vtkDataObject");
     if (!obj) {
-        throw Base::TypeError("Can only set vtkDataObject");
+        THROWM(Base::TypeError, "Can only set vtkDataObject");
     }
     auto dobj = static_cast<vtkDataObject*>(obj);
     createDataObjectByExternalType(dobj);
@@ -199,7 +199,7 @@ void PropertyPostDataObject::setPyObject([[maybe_unused]] PyObject* value)
     m_dataObject->DeepCopy(dobj);
     hasSetValue();
 #else
-    throw Base::NotImplementedError();
+    THROW(Base::NotImplementedError);
 #endif
 }
 
@@ -248,7 +248,7 @@ void PropertyPostDataObject::createDataObjectByExternalType(vtkSmartPointer<vtkD
             m_dataObject = vtkSmartPointer<vtkTable>::New();
             break;
         default:
-            throw Base::TypeError("Unsupported VTK data type");
+            THROWM(Base::TypeError, "Unsupported VTK data type");
     };
 }
 

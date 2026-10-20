@@ -105,6 +105,7 @@
 #include "DlgCheckableMessageBox.h"
 #include "DocumentPy.h"
 #include "DocumentRecovery.h"
+#include "LibraryPathsGui.h"
 #include "EditorView.h"
 #include "ExpressionBindingPy.h"
 #include "FileDialog.h"
@@ -557,6 +558,9 @@ Application::Application(bool GUIenabled)
         // A released pinned version is the Gui's: it asks, and closes on
         // its event loop (Gui::Document::slotPinsReleased, sec 27.30).
         App::GetApplication().setReleasedVersionsHandled(true);
+        // Library paths: the question on a changed setting, the report of
+        // what a document's links met at its open (docs/LibraryPaths.md 3.9).
+        LibraryPathsGui::init();
         //NOLINTBEGIN
         App::GetApplication().signalNewDocument.connect(
             std::bind(&Gui::Application::slotNewDocument, this, sp::_1, sp::_2));
@@ -2712,8 +2716,8 @@ void Application::initOpenInventor()
             "loaded library (%s) reports ABI %d. Rebuild/reinstall the Coin "
             "fork and anything linking it (pivy), then rebuild FreeCAD.\n",
             COIN_FORK_ABI_VERSION, libpath, coin_fork_abi());
-        throw Base::RuntimeError("Coin library ABI mismatch, refusing to start "
-                                 "(see the log for the loaded library path)");
+        THROWM(Base::RuntimeError, "Coin library ABI mismatch, refusing to start "
+                                   "(see the log for the loaded library path)");
     }
 
     // init the Inventor subsystem

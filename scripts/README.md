@@ -77,6 +77,24 @@ about **payload**: what a publish costs and how a scene arrives
 |--------|--------------|
 | `material-icons.py` | In-FreeCAD script that renders the **bundled material icons** -- one per shipped appearance preset and per surface finish pattern -- into `src/Mod/Material/Gui/Resources/icons/materials/` and rewrites the matching block of `Material.qrc`. Run it on the real GPU (`renderer-desktop.sh`'s d3d12 env; the docstring has the exact command) whenever a preset, the shading model or the engine's output changes, then commit what differs. A few icons come back differing by GPU noise every run (mean difference well under one level); revert those. `FC_ICON_DIR` writes elsewhere, `FC_ICON_KEEP=1` leaves the GUI up. |
 
+## Brand artwork
+
+Thundereal's mark, the T-strike, is drawn by one generator,
+`src/Tools/thundereal-icons.py` -- the application icon (and its .ico, .icns,
+.xpm and PNG sizes), the bare mark, the document and package icons, the
+watermark, the TechDraw title-block logo, the splash, the About picture and the
+browser viewer's favicon all come from its one description of the mark. Change
+the drawing there, never the files it writes, and run it again:
+`QT_QPA_PLATFORM=offscreen .conda/run.sh python src/Tools/thundereal-icons.py`
+(`... splash` for the splash and About picture alone). The two scripts below are
+for judging a change before it is committed; each writes one self-contained HTML
+page (the pictures inline) and runs under the same command prefix.
+
+| Script | What it does |
+|--------|--------------|
+| `brand-icons-compare.py out.html [--base REV] [--other REV]` | Every drawing of the mark the generator writes, at one revision beside another -- `--base` defaults to `HEAD`, `--other` to the working tree -- each on the ground it really sits on (the light and dark task bars, GitHub's light and dark, the page) and at the sizes it is drawn at, the small ones pixel-zoomed. An item that did not change says so. |
+| `brand-icon-taskbar.py out.html [--rev REV ...]` | The application icon in a mock Windows 11 task bar, light and dark, at 24 px (100% display scale) and 32 px (125%), between generic full-square placeholder icons, then large: how full it reads beside other programs'. Each `--rev` (or `worktree`, the default) is a row. |
+
 ## Shader rebuilds
 
 | Script | What it does |

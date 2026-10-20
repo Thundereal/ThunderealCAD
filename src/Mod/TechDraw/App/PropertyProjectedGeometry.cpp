@@ -553,5 +553,5 @@ PyObject* PropertyProjectedGeometry::getPyObject()
 void PropertyProjectedGeometry::setPyObject(PyObject* value)
 {
     (void)value;
-    throw Base::AttributeError("the stored projection is derived state and is not assignable");
+    THROWM(Base::AttributeError, "the stored projection is derived state and is not assignable");
 }

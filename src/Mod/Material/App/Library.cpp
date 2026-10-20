@@ -166,19 +166,19 @@ bool Library::operator==(const Library& library) const
 void Library::validate(const Library& remote) const
 {
     if (getName() != remote.getName()) {
-        throw InvalidLibrary("Library names don't match");
+        THROWM(InvalidLibrary, "Library names don't match");
     }
     if (getIcon() != remote.getIcon()) {
-        throw InvalidLibrary("Library icons don't match");
+        THROWM(InvalidLibrary, "Library icons don't match");
     }
 
     // Local and remote paths will differ
     if (!remote.getDirectory().isEmpty()) {
-        throw InvalidLibrary("Remote library should not have a path");
+        THROWM(InvalidLibrary, "Remote library should not have a path");
     }
 
     if (isReadOnly() != remote.isReadOnly()) {
-        throw InvalidLibrary("Library readonly settings don't match");
+        THROWM(InvalidLibrary, "Library readonly settings don't match");
     }
 }
 

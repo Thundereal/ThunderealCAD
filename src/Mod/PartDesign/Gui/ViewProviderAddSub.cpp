@@ -196,7 +196,19 @@ void ViewProviderAddSub::highlightPreviewFace(int face)
     if (!view || face == previewLitFace)
         return;
     previewLitFace = face;
-    previewLitInViews =lightPreviewFaceInViews(face) && face > 0;
+    previewLitInViews = lightPreviewFaceInViews(face)
+        && (face > 0 || !previewSelectedFaces.empty());
+    applyPreviewFaceColors();
+}
+
+void ViewProviderAddSub::selectPreviewFaces(const std::vector<int> &faces)
+{
+    auto view = getAddSubView();
+    if (!view || faces == previewSelectedFaces)
+        return;
+    previewSelectedFaces = faces;
+    previewLitInViews = lightPreviewFaceInViews(previewLitFace)
+        && (previewLitFace > 0 || !previewSelectedFaces.empty());
     applyPreviewFaceColors();
 }
 
@@ -228,10 +240,17 @@ bool ViewProviderAddSub::lightPreviewFaceInViews(int face)
     }
 
     // The face by its number in the preview's face set, as a pick of it
-    // would name it
-    SoFCDetail detail;
+    // would name it; the faces a selection names in the selection colour
+    // (docs/HandsOnQueue.md entry 182), the lit one in the highlight colour
+    // over them
+    std::vector<int> selected;
+    for (int f : previewSelectedFaces) {
+        if (f > 0 && f != face)
+            selected.push_back(f);
+    }
+    std::vector<SoFCDetail> details(selected.size() + 1);
     std::vector<SoFCRenderCacheManager::HighlightItem> items;
-    if (face > 0) {
+    if (face > 0 || !selected.empty()) {
         auto view = getAddSubView();
         SoSearchAction sa;
         sa.setType(PartGui::SoBrepFaceSet::getClassTypeId());
@@ -241,13 +260,25 @@ bool ViewProviderAddSub::lightPreviewFaceInViews(int face)
         SoNode *faces = sa.getPath() ? sa.getPath()->getTail() : nullptr;
         if (!faces)
             return clear();
-        detail.setContext(SoFCDetail::Face, faces);
-        detail.addIndex(SoFCDetail::Face, face - 1);
-        SbColor color;
-        float transparency = 0.0f;
-        color.setPackedValue(static_cast<uint32_t>(Gui::ViewParams::getHighlightColor()),
-                             transparency);
-        items.push_back({&detail, color.getPackedValue()});
+        auto packed = [](unsigned long param) {
+            SbColor color;
+            float transparency = 0.0f;
+            color.setPackedValue(static_cast<uint32_t>(param), transparency);
+            return color.getPackedValue();
+        };
+        std::size_t next = 0;
+        for (int f : selected) {
+            SoFCDetail &detail = details[next++];
+            detail.setContext(SoFCDetail::Face, faces);
+            detail.addIndex(SoFCDetail::Face, f - 1);
+            items.push_back({&detail, packed(Gui::ViewParams::getSelectionColor())});
+        }
+        if (face > 0) {
+            SoFCDetail &detail = details[next++];
+            detail.setContext(SoFCDetail::Face, faces);
+            detail.addIndex(SoFCDetail::Face, face - 1);
+            items.push_back({&detail, packed(Gui::ViewParams::getHighlightColor())});
+        }
     }
     for (auto *v : views) {
         if (!v->setEditingHighlight(items))
@@ -269,7 +300,7 @@ void ViewProviderAddSub::applyPreviewFaceColors()
     if (previewLitFace > count)
         previewLitFace = 0;
     std::vector<App::Color> colors = previewFaceColors(count);
-    if (previewLitFace <= 0 && colors.empty()) {
+    if (previewLitFace <= 0 && previewSelectedFaces.empty() && colors.empty()) {
         view->unsetHighlightedFaces();
         return;
     }
@@ -279,7 +310,17 @@ void ViewProviderAddSub::applyPreviewFaceColors()
         own.setTransparency(view->Transparency.getValue() / 100.0f);
         colors.assign(count, own);
     }
-    // but the one lit, unless the views light it
+    // the ones a selection names, and the one lit over them, unless the
+    // views show them
+    if (!previewLitInViews) {
+        App::Color selected;
+        selected.setPackedValue(static_cast<uint32_t>(Gui::ViewParams::getSelectionColor()));
+        selected.setTransparency(0.0f);
+        for (int f : previewSelectedFaces) {
+            if (f > 0 && f <= count)
+                colors[f - 1] = selected;
+        }
+    }
     if (previewLitFace > 0 && !previewLitInViews) {
         App::Color lit;
         lit.setPackedValue(static_cast<uint32_t>(Gui::ViewParams::getHighlightColor()));
@@ -430,12 +471,14 @@ bool ViewProviderAddSub::dropPreviewFromSession()
 {
     if (!isPreviewInSession())
         return false;
-    // a face it lit in the views goes with it
+    // a face it lit in the views goes with it, and the ones it showed selected
     if (previewLitInViews) {
+        previewSelectedFaces.clear();
         lightPreviewFaceInViews(0);
         previewLitInViews = false;
         previewLitFace = 0;
     }
+    previewSelectedFaces.clear();
     auto doc = App::GetApplication().getDocument(previewSession.c_str());
     auto gdoc = doc ? Gui::Application::Instance->getDocument(doc) : nullptr;
     previewSession.clear();
@@ -464,7 +507,8 @@ bool ViewProviderAddSub::isPreviewMode() const
 
 void ViewProviderAddSub::setPreviewDisplayMode(bool on, const App::SubObjectT &occurrence) {
     // (a preview switched on or off is in its own colours: no face of it is
-    // lit, by its colour or in the views)
+    // lit, by its colour or in the views, nor shown selected)
+    previewSelectedFaces.clear();
     if (previewLitInViews)
         lightPreviewFaceInViews(0);
     previewLitInViews = false;

@@ -3149,14 +3149,11 @@ QMimeData * MainWindow::createMimeDataFromSelection () const
             return nullptr;
     }
 
-    std::vector<App::Document*> unsaved;
-    bool hasXLink = App::PropertyXLink::hasXLink(sel,&unsaved);
-    if(!unsaved.empty()) {
-        QMessageBox::critical(getMainWindow(), tr("Unsaved document"),
-            tr("The exported object contains external link. Please save the document"
-                "at least once before exporting."));
-        return nullptr;
-    }
+    bool hasXLink = App::PropertyXLink::hasXLink(sel);
+    // A link into a document never saved is copied as a snapshot of it, written
+    // now: the paste may come after the document is gone (docs/LibraryPaths.md
+    // sec 12).
+    App::PropertyXLink::SnapshotScope snapshots(sel, true);
 
     unsigned int memsize=1000; // ~ for the meta-information
     for (const auto & it : sel)
@@ -3229,20 +3226,17 @@ void MainWindow::insertFromMimeData (const QMimeData * mimeData)
     if (!mimeData)
         return;
     bool fromDoc = false;
-    bool hasXLink = false;
     QString format;
     if(mimeData->hasFormat(_MimeDocObj))
         format = _MimeDocObj;
     else if(mimeData->hasFormat(_MimeDocObjX)) {
         format = _MimeDocObjX;
-        hasXLink = true;
     }else if(mimeData->hasFormat(_MimeDocObjFile)) {
         format = _MimeDocObjFile;
         fromDoc = true;
     }else if(mimeData->hasFormat(_MimeDocObjXFile)) {
         format = _MimeDocObjXFile;
         fromDoc = true;
-        hasXLink = true;
     }else {
         if (mimeData->hasUrls())
             loadUrls(App::GetApplication().getActiveDocument(), mimeData->urls());
@@ -3252,14 +3246,8 @@ void MainWindow::insertFromMimeData (const QMimeData * mimeData)
     App::Document* doc = App::GetApplication().getActiveDocument();
     if(!doc) doc = App::GetApplication().newDocument();
 
-    if(hasXLink && !doc->isSaved()) {
-        int ret = QMessageBox::question(getMainWindow(), tr("Unsaved document"),
-            tr("To link to external objects, the document must be saved at least once.\n"
-               "Do you want to save the document now?"),
-            QMessageBox::Yes,QMessageBox::No);
-        if(ret != QMessageBox::Yes || !Application::Instance->getDocument(doc)->saveAs())
-            return;
-    }
+    // A document not saved yet takes external links: they keep the full
+    // path till its first save.
     if(!fromDoc) {
         QByteArray res = mimeData->data(format);
 

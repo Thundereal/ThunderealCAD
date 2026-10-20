@@ -208,6 +208,10 @@ private:
     void refreshKept();
     /// refreshKept(), and what the tab shown says of what is selected.
     void keptChanged();
+    /// onKeptSelected(), the item there: the value it keeps.
+    void showKept(QTreeWidgetItem* item);
+    /// previewRequests() unguarded.
+    void previewRequestsNow();
     /// The value behind `ref` as the store holds it, under `label`.
     QString valueText(const QString& label, const QString& ref) const;
     /// The branch switcher's items (docs/TransactionLog.md sec 26).
@@ -242,6 +246,13 @@ private:
     /// A merge is being looked at: brought to the front, and said.
     bool mergeIsOpen();
     void updateStatus();
+    /** `f`, what a timer or a signal runs: a log that cannot be read -- a
+     * store of another layout, a broken file -- is said in the status line,
+     * never left to the event loop. */
+    template<class F>
+    void guarded(F&& f);
+    /// What the last read of the log failed with; empty when it did not.
+    QString _readError;
     App::TransactionLog* log() const;
     void scheduleRefresh();
 

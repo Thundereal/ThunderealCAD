@@ -89,11 +89,11 @@ App::DocumentObjectExecReturn *Boolean::execute()
         shapes.push_back(Feature::getTopoShape(Base.getValue()));
         auto BaseShape = shapes[0].getShape();
         if (BaseShape.IsNull())
-            throw NullShapeException("Base shape is null");
+            THROWM(NullShapeException, "Base shape is null");
         shapes.push_back(Feature::getTopoShape(Tool.getValue()));
         auto ToolShape = shapes[1].getShape();
         if (ToolShape.IsNull())
-            throw NullShapeException("Tool shape is null");
+            THROWM(NullShapeException, "Tool shape is null");
 
         std::unique_ptr<BRepAlgoAPI_BooleanOperation> mkBool(makeOperation(BaseShape, ToolShape));
         if (!mkBool->IsDone()) {

@@ -17,7 +17,10 @@ in error. Claims:
   - a clash, a cylinder Pillar labelled "Pillar post": Tab on "/ Pil" gives
     "/ Pillar", on "/ <<Pil" "/ <<Pillar post>>" ("with << label wins,
     without internal name wins", the reporter 23:52);
-  - "/error ": the cut is listed, Crate and Pillar are not.
+  - "/error ": the cut is listed, Crate and Pillar are not;
+  - Tab on "/error Bro": "/error Broken", and on "/error <<Bad" (a second
+    cut, labelled "Bad cut"): "/error <<Bad cut>>" -- the prefix kept and
+    the error list still showing the object (entry 177).
 
 Run with QT_QPA_PLATFORM=offscreen, as omni-search-object-typing.py.
 """
@@ -158,6 +161,8 @@ def start():
     pillar = doc.addObject("Part::Cylinder", "Pillar")
     pillar.Label = "Pillar post"
     doc.addObject("Part::Cut", "Broken")
+    cracked = doc.addObject("Part::Cut", "Cracked")
+    cracked.Label = "Bad cut"
     doc.recompute()
     note("INFO in error: %s" % [o.Name for o in doc.Objects if "Invalid" in o.State])
     settle(800)
@@ -214,6 +219,18 @@ def errors():
     check("'/error ': the cut in error is listed", any(n.endswith("Broken") for n in names), rows[:6])
     check("... and nothing that is not in error",
           not any(n.endswith("Crate") or n.endswith("Pillar") for n in names), names)
+    # Tab completes the name and keeps "/error " (entry 177, the reporter
+    # 2026-10-19 12:09), the list narrowed to the completed name
+    for text, expected, row in (("/error Bro", "/error Broken", "Broken"),
+                                ("/error <<Bad", "/error <<Bad cut>>", "Cracked")):
+        tab(text, expected)
+        after = popup()
+        listed = []
+        if after is not None:
+            m = after.model()
+            listed = [str(m.index(i, 0).data()) for i in range(m.rowCount())]
+        check("... after Tab the error list shows %s" % row,
+              any(n.endswith(row) for n in listed), listed[:6])
 
 
 def finish():

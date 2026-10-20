@@ -91,7 +91,7 @@ void ReaderGltf::read(Handle(TDocStd_Document) hDoc)
     TCollection_AsciiString filename(file.filePath().c_str());
     Standard_Boolean ret = aReader.Perform(filename, Message_ProgressRange());
     if (!ret) {
-        throw Base::FileException("Cannot read from file: ", file);
+        THROWM(Base::FileException, "Cannot read from file: ", file);
     }
 
     processDocument(hDoc);

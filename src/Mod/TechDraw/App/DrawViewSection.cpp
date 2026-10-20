@@ -58,6 +58,7 @@
 #include <BRepTools.hxx>
 #include <BRep_Builder.hxx>
 #include <Bnd_Box.hxx>
+#include <QCoreApplication>
 #include <QtConcurrentRun>
 #include <ShapeAnalysis.hxx>
 #include <ShapeFix_Shape.hxx>
@@ -521,13 +522,22 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
         std::shared_ptr<Base::SequencerLauncher> progress(new Base::SequencerLauncher(message.c_str()));
         m_progress = progress;
 
+        // the worker's failure, the view's recompute error once it is back
+        // on this thread (docs/TechDrawErrors.md 3.1)
+        auto failure = std::make_shared<std::string>();
         m_cutWatcher.reset(new QFutureWatcher<void>());
         QObject::connect(m_cutWatcher.get(), &QFutureWatcherBase::finished, m_cutWatcher.get(),
             [=] {
-                if (m_progress && !m_progress->wasCanceled())
+                if (m_progress && !m_progress->wasCanceled()) {
                     onSectionCutFinished(cutPieces);
-                else
-                    abortSectionCut();
+                    return;
+                }
+                abortSectionCut();
+                if (!failure->empty()) {
+                    reportLateError(QCoreApplication::translate(
+                        "TechDraw", "The section cut failed: %1")
+                        .arg(QString::fromStdString(*failure)).toStdString());
+                }
             });
 
         SectionParams params;
@@ -548,7 +558,7 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
 
         waitingForCut(true);
         m_cutWatcher->setFuture(QtConcurrent::run(
-            [params] {
+            [params, failure] {
                 try {
                     doSectionCut(params);
                     return;
@@ -556,9 +566,14 @@ void DrawViewSection::makeSectionCut(const Part::TopoShape &baseShape)
                     e.ReportException();
                     Base::Console().Error("DVP::%s - section cut failed - %s **\n",
                                         params.featureName.c_str(), e.what());
+                    *failure = e.what();
                 } catch (Standard_Failure &e) {
                     Base::Console().Error("DVP::%s - section cut failed - %s **\n",
                                         params.featureName.c_str(), e.GetMessageString());
+                    *failure = e.GetMessageString() ? e.GetMessageString() : "";
+                    if (failure->empty()) {
+                        *failure = "an OpenCASCADE failure with no message";
+                    }
                 }
                 params.progress->setCanceled(true);
             }));
@@ -1450,7 +1465,7 @@ gp_Ax2 DrawViewSection::getProjectionCS(const Base::Vector3d pt) const
     gp_Dir gXDir(vXDir.x, vXDir.y, vXDir.z);
     if (DrawUtil::fpCompare(fabs(gNormal.Dot(gXDir)), 1.0)) {
         // can not build a gp_Ax2 from these values
-        throw Base::RuntimeError(
+        THROWM(Base::RuntimeError,
             "DVS::getProjectionCS - SectionNormal and XDirection are parallel");
     }
     gp_Pnt gOrigin(pt.x, pt.y, pt.z);

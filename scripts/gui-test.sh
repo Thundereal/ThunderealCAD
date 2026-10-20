@@ -78,6 +78,11 @@ SCRIPT=$(cd "$(dirname "$SCRIPT")" && pwd)/$(basename "$SCRIPT")
 mkdir -p "$OUT"
 OUT=$(cd "$OUT" && pwd)
 ISO="$OUT/.iso"
+# Every run starts from a fresh profile: what an earlier run stored -- a
+# theme, a language, a window's geometry in Thundereal.conf -- fails the
+# next run of any test that reads a default. The cache is kept (Qt's and
+# Mesa's shader caches), as it only makes the start faster.
+rm -rf "$ISO/user.cfg" "$ISO/config"
 mkdir -p "$ISO/cache" "$ISO/config"
 rm -f "$ISO/cache/FreeCAD/Cache/FreeCAD_"*.lock 2>/dev/null
 RESULT="$OUT/result.txt"

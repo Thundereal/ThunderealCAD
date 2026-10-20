@@ -100,3 +100,12 @@ QSint--ActionGroup QFrame[class="content"] {
 QAbstractItemView {
   alternate-background-color: #313131;
 }
+
+/* The lists of a task panel, see-through as the property view's rows
+   (the reporter 2026-10-19, entry 184): the property editor's own item
+   background; a selected row keeps its selection colour. */
+Gui--TaskView--TaskView QTreeView,
+Gui--TaskView--TaskView QListView,
+Gui--TaskView--TaskView QTableView {
+  background: rgba(0, 0, 0, 0.01);
+}

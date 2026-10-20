@@ -124,7 +124,7 @@ void PropertyMaterial::setPyObject(PyObject* value)
     else {
         std::string error = std::string("type must be 'Material' not ");
         error += value->ob_type->tp_name;
-        throw Base::TypeError(error);
+        THROWM(Base::TypeError, error);
     }
 }
 

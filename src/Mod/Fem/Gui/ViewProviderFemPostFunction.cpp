@@ -212,7 +212,7 @@ ShapeWidget* ViewProviderFemPostFunction::createControlWidget()
 {
     auto extension = getExtension<ViewProviderShapeExtension>();
     if (!extension) {
-        throw Base::AttributeError("ViewProvider does not have a ShapeExtension");
+        THROWM(Base::AttributeError, "ViewProvider does not have a ShapeExtension");
     }
 
     return extension->createShapeWidget();

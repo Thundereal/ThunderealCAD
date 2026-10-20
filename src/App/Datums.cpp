@@ -163,7 +163,7 @@ App::DatumElement* LocalCoordinateSystem::getDatumElement(const char* role) cons
         std::stringstream err;
         err << "LocalCoordinateSystem \"" << getFullName()
             << "\" doesn't contain feature with role \"" << role << '"';
-        throw Base::RuntimeError(err.str().c_str());
+        THROWM(Base::RuntimeError, err.str().c_str());
     }
     return nullptr;
 }
@@ -177,7 +177,7 @@ App::Line* LocalCoordinateSystem::getAxis(const char* role) const
     std::stringstream err;
     err << "LocalCoordinateSystem \"" << getFullName() << "\" contains bad Axis object for role \""
         << role << '"';
-    throw Base::RuntimeError(err.str().c_str());
+    THROWM(Base::RuntimeError, err.str().c_str());
 }
 
 App::Plane* LocalCoordinateSystem::getPlane(const char* role) const
@@ -189,7 +189,7 @@ App::Plane* LocalCoordinateSystem::getPlane(const char* role) const
     std::stringstream err;
     err << "LocalCoordinateSystem \"" << getFullName() << "\" contains bad Plane object for role \""
         << role << '"';
-    throw Base::RuntimeError(err.str().c_str());
+    THROWM(Base::RuntimeError, err.str().c_str());
 }
 
 App::Point* LocalCoordinateSystem::getPoint(const char* role) const
@@ -201,7 +201,7 @@ App::Point* LocalCoordinateSystem::getPoint(const char* role) const
     std::stringstream err;
     err << "LocalCoordinateSystem \"" << getFullName() << "\" contains bad Point object for role \""
         << role << '"';
-    throw Base::RuntimeError(err.str().c_str());
+    THROWM(Base::RuntimeError, err.str().c_str());
 }
 
 short LocalCoordinateSystem::mustExecute() const

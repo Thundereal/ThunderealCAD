@@ -170,7 +170,7 @@ DocumentObjectExecReturn *FeatureTest::execute()
     {
         case 0: break;
         case 1: throw std::runtime_error("Test Exception");
-        case 2: throw Base::RuntimeError("FeatureTestException::execute(): Testexception");
+        case 2: THROWM(Base::RuntimeError, "FeatureTestException::execute(): Testexception");
         default: (void)i; (void)j; (void)f; (void)s; (void)t; break;
     }
 

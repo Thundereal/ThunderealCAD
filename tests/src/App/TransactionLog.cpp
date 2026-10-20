@@ -2679,6 +2679,247 @@ TEST_F(TransactionLogTest, recoversACrashedSessionFromItsLog)
     App::GetApplication().closeDocument(name.c_str());
 }
 
+namespace
+{
+/// `sql` run on the database at `path` by a connection of its own.
+void rawSql(const std::string& path, const char* sql)
+{
+    sqlite3* db = nullptr;
+    ASSERT_EQ(sqlite3_open(path.c_str(), &db), SQLITE_OK);
+    char* err = nullptr;
+    const int rc = sqlite3_exec(db, sql, nullptr, nullptr, &err);
+    EXPECT_EQ(rc, SQLITE_OK) << (err ? err : "") << " in " << sql;
+    sqlite3_free(err);
+    sqlite3_close(db);
+}
+
+int rawInt(const std::string& path, const char* sql)
+{
+    sqlite3* db = nullptr;
+    if (sqlite3_open(path.c_str(), &db) != SQLITE_OK)
+        return -1;
+    sqlite3_stmt* s = nullptr;
+    int v = -1;
+    if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) == SQLITE_OK && sqlite3_step(s) == SQLITE_ROW)
+        v = sqlite3_column_int(s, 0);
+    sqlite3_finalize(s);
+    sqlite3_close(db);
+    return v;
+}
+
+/** A store as the log wrote it on 2026-09-28, when the layout settled
+ * without a version (docs/TransactionLog.md sec 27.55): one row on main,
+ * one session by its user's name.
+ */
+std::string makeSettledStore(const char* name)
+{
+    const std::string path = Base::FileInfo::getTempFileName(name) + ".db";
+    rawSql(path,
+           "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);"
+           "CREATE TABLE txn(seq INTEGER PRIMARY KEY, parent INTEGER, id INTEGER,"
+           " kind TEXT, origin TEXT, name TEXT, time REAL, script TEXT, session INTEGER,"
+           " inverts INTEGER DEFAULT 0, branch INTEGER DEFAULT 1);"
+           "CREATE TABLE environment(id INTEGER PRIMARY KEY, json TEXT UNIQUE);"
+           "CREATE TABLE session(id INTEGER PRIMARY KEY, env INTEGER, user TEXT,"
+           " host TEXT, opened REAL, closed REAL);"
+           "CREATE TABLE op(txn INTEGER, idx INTEGER, op TEXT, ckind TEXT,"
+           " cid INTEGER, cname TEXT, ctype TEXT, prop TEXT, ptype TEXT, meta TEXT,"
+           " vbefore TEXT, vafter TEXT, derived INTEGER, PRIMARY KEY(txn, idx));"
+           "CREATE TABLE version(num INTEGER PRIMARY KEY, uuid TEXT, branch INTEGER,"
+           " kind TEXT, name TEXT, seq INTEGER, env INTEGER, docxml_hash TEXT, schema INTEGER,"
+           " created REAL, manifest BLOB);"
+           "CREATE TABLE objname(cid INTEGER PRIMARY KEY, name TEXT UNIQUE);"
+           "CREATE TABLE lastgeoid(cid INTEGER PRIMARY KEY, id INTEGER);"
+           "CREATE TABLE entity(hash BLOB PRIMARY KEY, kind TEXT, enc TEXT, base BLOB,"
+           " tier TEXT, size INTEGER, data BLOB);"
+           "CREATE TABLE ref(entity BLOB, target BLOB, role TEXT, name TEXT, seq INTEGER,"
+           " PRIMARY KEY(entity, role, name, target)) WITHOUT ROWID;"
+           "CREATE TABLE branch(id INTEGER PRIMARY KEY, name TEXT UNIQUE,"
+           " from_version INTEGER, from_seq INTEGER, head_seq INTEGER, id_base INTEGER,"
+           " last_id INTEGER DEFAULT 0, created REAL, closed REAL);"
+           "INSERT INTO meta VALUES('schema','7'),('save_id','abc');"
+           "INSERT INTO session VALUES(1,0,'thunder','box',1.0,0);"
+           "INSERT INTO session VALUES(2,0,'',NULL,2.0,0);"
+           "INSERT INTO txn(seq,parent,id,kind,origin,name,time,script,session)"
+           " VALUES(1,0,1,'user','gui','Edit',1.5,'',1);"
+           "INSERT INTO branch VALUES(1,'main',0,0,1,0,0,1.0,0);");
+    return path;
+}
+}  // namespace
+
+TEST_F(TransactionLogTest, aStoreOfTheSettledLayoutIsMigrated)
+{
+    // docs/TransactionLog.md sec 27.55 (2026-10-19): a store from before the
+    // version -- "scanner"'s, "no such column: joined" -- is brought up to
+    // date when opened: the columns added since, with their defaults, and a
+    // session's user, which was a name, as a row of `user`.
+    const std::string path = makeSettledStore("txnlog-settled");
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 0);
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        App::LogBranch main;
+        ASSERT_TRUE(store->findBranch("main", main));
+        EXPECT_EQ(main.head, 1);
+        EXPECT_EQ(main.joined, 0);
+        EXPECT_EQ(main.target, 0);
+        EXPECT_EQ(store->branches().size(), 1U);
+        EXPECT_EQ(store->getMeta("save_id"), "abc");
+        const auto rows = store->transactions(1, 1);
+        ASSERT_EQ(rows.size(), 1U);
+        EXPECT_EQ(rows.front().name, "Edit");
+        EXPECT_EQ(rows.front().ordinal, 0);
+
+        std::map<int64_t, App::LogUser> users;
+        for (const auto& u : store->users())
+            users[u.id] = u;
+        std::map<int64_t, int64_t> userOf;
+        for (const auto& s : store->sessions())
+            userOf[s.id] = s.user;
+        ASSERT_EQ(userOf.size(), 2U);
+        ASSERT_TRUE(users.count(userOf[1]));
+        EXPECT_EQ(users[userOf[1]].kind, "local");
+        EXPECT_EQ(users[userOf[1]].name, "thunder");
+        ASSERT_TRUE(users.count(userOf[2]));
+        EXPECT_EQ(users[userOf[2]].name, "host");
+
+        // And written on as any store.
+        App::LogTransaction t;
+        t.parent = 1;
+        t.branch = 1;
+        t.kind = "user";
+        t.name = "More";
+        std::vector<App::LogOp> ops;
+        EXPECT_GT(store->append(t, ops), 1);
+        App::LogKept kept;
+        kept.hash = std::string(40, 'a');
+        kept.cid = 1;
+        kept.prop = "Shape";
+        kept.seq = 1;
+        EXPECT_TRUE(store->keepValue(kept));
+    }
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 1);
+    // Opened again: nothing left to do.
+    EXPECT_NO_THROW(App::TransactionStore::openSQLite(path));
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST_F(TransactionLogTest, aStoreOfScannersLayoutIsMigrated)
+{
+    // The layout of the user's "scanner" history (saved 2026-10-16, read by
+    // its schema only): before `branch.joined`, `keepvalue.kind`/`name`,
+    // `user.parent`, `access` and `mergerequest`; no version, no `schema`.
+    const std::string path = Base::FileInfo::getTempFileName("txnlog-scanner") + ".db";
+    rawSql(path,
+           "CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT);"
+           "CREATE TABLE txn(seq INTEGER PRIMARY KEY, parent INTEGER, id INTEGER,"
+           " kind TEXT, origin TEXT, name TEXT, time REAL, script TEXT, session INTEGER,"
+           " inverts INTEGER DEFAULT 0, branch INTEGER DEFAULT 1,"
+           " merge_from INTEGER DEFAULT 0, ord INTEGER DEFAULT 0);"
+           "CREATE TABLE environment(id INTEGER PRIMARY KEY, json TEXT UNIQUE);"
+           "CREATE TABLE user(id INTEGER PRIMARY KEY, kind TEXT, name TEXT, UNIQUE(kind, name));"
+           "CREATE TABLE session(id INTEGER PRIMARY KEY, env INTEGER, user INTEGER, host TEXT,"
+           " access TEXT, opened REAL, closed REAL, uuid TEXT);"
+           "CREATE TABLE op(txn INTEGER, idx INTEGER, op TEXT, ckind TEXT,"
+           " cid INTEGER, cname TEXT, ctype TEXT, prop TEXT, ptype TEXT, meta TEXT,"
+           " vbefore TEXT, vafter TEXT, derived INTEGER, touched INTEGER, PRIMARY KEY(txn, idx));"
+           "CREATE TABLE version(num INTEGER PRIMARY KEY, uuid TEXT, branch INTEGER,"
+           " kind TEXT, name TEXT, seq INTEGER, env INTEGER, docxml_hash TEXT, schema INTEGER,"
+           " created REAL, manifest BLOB);"
+           "CREATE TABLE objname(cid INTEGER PRIMARY KEY, name TEXT UNIQUE);"
+           "CREATE TABLE lastgeoid(cid INTEGER PRIMARY KEY, id INTEGER);"
+           "CREATE TABLE strtable(id INTEGER PRIMARY KEY, flags INTEGER, sids TEXT, data BLOB,"
+           " postfix BLOB);"
+           "CREATE TABLE strref(owner BLOB PRIMARY KEY, ranges BLOB) WITHOUT ROWID;"
+           "CREATE TABLE entity(hash BLOB PRIMARY KEY, kind TEXT, enc TEXT, base BLOB,"
+           " tier TEXT, size INTEGER, data BLOB);"
+           "CREATE TABLE ref(entity BLOB, target BLOB, role TEXT, name TEXT, seq INTEGER,"
+           " PRIMARY KEY(entity, role, name, target)) WITHOUT ROWID;"
+           "CREATE TABLE branch(id INTEGER PRIMARY KEY, name TEXT UNIQUE,"
+           " from_version INTEGER, from_seq INTEGER, head_seq INTEGER, id_base INTEGER,"
+           " last_id INTEGER DEFAULT 0, created REAL, closed REAL, target INTEGER DEFAULT 0);"
+           "CREATE TABLE heldfile(session INTEGER, ord INTEGER, file BLOB,"
+           " branch INTEGER DEFAULT 0, PRIMARY KEY(session, ord)) WITHOUT ROWID;"
+           "CREATE TABLE keepvalue(hash BLOB PRIMARY KEY, cid INTEGER, prop TEXT, seq INTEGER)"
+           " WITHOUT ROWID;"
+           "CREATE TABLE keepobject(cid INTEGER PRIMARY KEY);"
+           "CREATE INDEX op_container ON op(cid, prop);"
+           "CREATE INDEX ref_target ON ref(target, role);"
+           "CREATE INDEX txn_ord ON txn(session, ord);"
+           "CREATE INDEX version_hash ON version(docxml_hash);"
+           "INSERT INTO user VALUES(1,'local','host');"
+           "INSERT INTO session VALUES(1,0,1,'box','edit',1.0,0,'u-1');"
+           "INSERT INTO txn(seq,parent,id,kind,origin,name,time,script,session)"
+           " VALUES(1,0,1,'user','gui','Edit',1.5,'',1);"
+           "INSERT INTO branch VALUES(1,'main',0,0,1,0,0,1.0,0,0);"
+           "INSERT INTO branch VALUES(2,'side',0,1,1,1000,0,2.0,0,1);"
+           "INSERT INTO keepvalue VALUES(x'00112233445566778899aabbccddeeff00112233',5,'Shape',1);");
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        const auto branches = store->branches();
+        ASSERT_EQ(branches.size(), 2U);
+        EXPECT_EQ(branches[1].name, "side");
+        EXPECT_EQ(branches[1].target, 1);
+        EXPECT_EQ(branches[1].joined, 0);
+        const auto kept = store->keptValues();
+        ASSERT_EQ(kept.size(), 1U);
+        EXPECT_EQ(kept.front().prop, "Shape");
+        EXPECT_EQ(kept.front().kind, "");
+        const auto users = store->users();
+        ASSERT_EQ(users.size(), 1U);
+        EXPECT_EQ(users.front().name, "host");
+        EXPECT_EQ(users.front().parent, 0);
+        const auto sessions = store->sessions();
+        ASSERT_EQ(sessions.size(), 1U);
+        EXPECT_EQ(sessions.front().user, 1);
+    }
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 1);
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST_F(TransactionLogTest, aReadOnlyOlderStoreIsReadAsItIs)
+{
+    // The embedded copy as the guard reads it (sec 16.4) is a blob file that
+    // may not be written: an older one is migrated in memory, the file left.
+    const std::string path = makeSettledStore("txnlog-settled-ro");
+    Base::FileInfo(path).setPermissions(Base::FileInfo::ReadOnly);
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        EXPECT_EQ(store->getMeta("save_id"), "abc");
+        App::LogBranch main;
+        ASSERT_TRUE(store->findBranch("main", main));
+        EXPECT_EQ(main.joined, 0);
+    }
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 0);
+    Base::FileInfo(path).setPermissions(Base::FileInfo::ReadWrite);
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST_F(TransactionLogTest, aStoreNotOfThisBuildIsRefused)
+{
+    // Newer than this build: refused, never misread. From before the layout
+    // settled (meta `schema` under 7): no step here knows it.
+    const std::string newer = Base::FileInfo::getTempFileName("txnlog-newer") + ".db";
+    {
+        auto store = App::TransactionStore::openSQLite(newer);
+    }
+    rawSql(newer, "PRAGMA user_version=99");
+    EXPECT_THROW(App::TransactionStore::openSQLite(newer), Base::RuntimeError);
+    Base::FileInfo(newer).deleteFile();
+
+    const std::string older = makeSettledStore("txnlog-older");
+    rawSql(older, "UPDATE meta SET value='5' WHERE key='schema'");
+    EXPECT_THROW(App::TransactionStore::openSQLite(older), Base::RuntimeError);
+    Base::FileInfo(older).deleteFile();
+
+    // A new store has the version from the start.
+    const std::string fresh = Base::FileInfo::getTempFileName("txnlog-fresh") + ".db";
+    {
+        auto store = App::TransactionStore::openSQLite(fresh);
+    }
+    EXPECT_EQ(rawInt(fresh, "PRAGMA user_version"), 1);
+    Base::FileInfo(fresh).deleteFile();
+}
+
 TEST_F(TransactionLogTest, branchesAreChainsInTheStore)
 {
     // docs/TransactionLog.md sec 26 (4.a): a branch is a named tip into the

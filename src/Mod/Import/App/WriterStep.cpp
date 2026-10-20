@@ -78,6 +78,6 @@ void WriterStep::write(Handle(TDocStd_Document) hDoc) const  // NOLINT
         new TCollection_HAsciiString((App::Application::getExecutableName() + " Model").c_str()));
     IFSelect_ReturnStatus ret = writer.Write(name8bit.c_str());
     if (ret == IFSelect_RetError || ret == IFSelect_RetFail || ret == IFSelect_RetStop) {
-        throw Base::FileException("Cannot open file: ", file);
+        THROWM(Base::FileException, "Cannot open file: ", file);
     }
 }

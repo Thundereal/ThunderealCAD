@@ -1166,7 +1166,7 @@ struct Cloud::CloudReader::FileEntry &Cloud::CloudReader::GetEntry(const char *F
 {
     auto it = FileList.find(FileName);
     if(it == FileList.end()) {
-        throw Base::FileException("No file entry found", FileName);
+        THROWM(Base::FileException, "No file entry found", FileName);
     }
     if(!it->second.touch) {
         DownloadFile(&it->second);

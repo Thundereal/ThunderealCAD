@@ -2317,6 +2317,39 @@ void Document::slotPinsReleased(const App::Document& doc)
 }
 
 /// Save the document
+namespace {
+/// The documents a Save As is running for, so two never saved that link to
+/// each other do not ask in turn for ever.
+std::set<const App::Document*> SavingAs;
+
+/** The documents `doc` links to that were never saved, each given its file
+ * by a Save As first: the links into them cannot be written without it
+ * (docs/LibraryPaths.md sec 12). False when one is cancelled.
+ */
+bool saveUnsavedDependents(App::Document* doc)
+{
+    std::vector<App::Document*> docs;
+    try {
+        docs = doc->getDependentDocuments();
+    }
+    catch (const Base::Exception& e) {
+        e.ReportException();
+        return true;
+    }
+    for (auto dep : docs) {
+        if (dep == doc || dep->isSaved() || SavingAs.count(dep)
+                || dep->testStatus(App::Document::PartialDoc)
+                || dep->testStatus(App::Document::VersionDoc)
+                || dep->testStatus(App::Document::TempDoc))
+            continue;
+        auto gdoc = Application::Instance->getDocument(dep);
+        if (gdoc && !gdoc->saveAs())
+            return false;
+    }
+    return true;
+}
+}  // namespace
+
 bool Document::save()
 {
     if (d->_pcDocument->testStatus(App::Document::VersionDoc))
@@ -2335,7 +2368,10 @@ bool Document::save()
                         continue;
                     }
                     auto gdoc = Application::Instance->getDocument(doc);
-                    if ((gdoc && !gdoc->isModified())
+                    // One never saved is kept, modified or not: what links
+                    // to it cannot be written without its file -- a pasted
+                    // snapshot is one (docs/LibraryPaths.md sec 12).
+                    if ((gdoc && !gdoc->isModified() && doc->isSaved())
                             || doc->testStatus(App::Document::PartialDoc)
                             || doc->testStatus(App::Document::VersionDoc)
                             || doc->testStatus(App::Document::TempDoc))
@@ -2361,10 +2397,38 @@ bool Document::save()
                         QMessageBox::Yes,QMessageBox::No);
 
                 if (ret != QMessageBox::Yes) {
-                    docs = {getDocument()};
-                    dmap.clear();
-                    dmap[getDocument()] = getDocument()->mustExecute();
+                    // Those never saved still are: the links into them
+                    // would be lost.
+                    std::map<App::Document*,bool> kept;
+                    std::vector<App::Document*> keptDocs;
+                    for (auto doc : docs) {
+                        if (doc == getDocument() || !doc->isSaved()) {
+                            kept[doc] = dmap[doc];
+                            keptDocs.push_back(doc);
+                        }
+                    }
+                    docs = std::move(keptDocs);
+                    dmap = std::move(kept);
                 }
+            }
+
+            // Those never saved get their file first, as Save All gives it;
+            // cancelled, nothing is saved.
+            std::set<App::Document*> unsaved;
+            for (auto doc : docs) {
+                if (doc != getDocument() && !doc->isSaved())
+                    unsaved.insert(doc);
+            }
+            if (!saveUnsavedDependents(getDocument()))
+                return false;
+            // Written by their Save As: not again.
+            for (auto it = docs.begin(); it != docs.end();) {
+                if (unsaved.count(*it)) {
+                    dmap.erase(*it);
+                    it = docs.erase(it);
+                    continue;
+                }
+                ++it;
             }
 
             if (!checkCanonicalPath(dmap))
@@ -2555,6 +2619,15 @@ private:
 /// Save the document under a new file name
 bool Document::saveAs()
 {
+    struct Running
+    {
+        const App::Document* doc;
+        explicit Running(const App::Document* d) : doc(d) { SavingAs.insert(d); }
+        ~Running() { SavingAs.erase(doc); }
+    } running(getDocument());
+    if (!saveUnsavedDependents(getDocument()))
+        return false;
+
     getMainWindow()->showMessage(QObject::tr("Save document under new filename..."));
 
     // The format is the document's own promise -- SaveSchemaVersion, shown

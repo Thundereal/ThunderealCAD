@@ -45,11 +45,18 @@ struct AppExport ExportSetOptions
     bool withHistory = false;
     /// Write into a folder that is not empty.
     bool overwrite = false;
+    /// A file in a library, reached only by library links, is left there:
+    /// the copies link it in the library form, for a recipient with the
+    /// same library (docs/LibraryPaths.md 3.8). Without, it is copied under
+    /// `_external/` as any file outside the top's folder.
+    bool keepLibraries = false;
 };
 
 struct AppExport ExportSetFile
 {
-    std::string path;     ///< written, relative to the folder
+    std::string path;     ///< written, relative to the folder; empty for a file left in its library
+    std::string library;  ///< the library a file left there is in
+    std::string libraryFile;  ///< and its path under the library's folder
     std::string file;     ///< the file here it is of
     std::string branch;   ///< for a branch's document
     int64_t version = 0;  ///< for a version's document
@@ -60,16 +67,16 @@ struct AppExport ExportSetFile
 
 struct AppExport ExportSetResult
 {
-    std::vector<ExportSetFile> files;   ///< the top first
+    std::vector<ExportSetFile> files;   ///< the top first, the files left in a library last
     std::string manifest;               ///< the manifest's full path
 };
 
 /** What exportLinkedSet() would write of `top`'s set, and under which
  * names, with nothing written: every document of the set is read whole
  * first, as the export reads it. Throws as the export does for a document
- * of the set with no file.
+ * of the set with no file. Of `options`, only `keepLibraries` is read.
  */
-AppExport ExportSetResult planLinkedSet(Document& top);
+AppExport ExportSetResult planLinkedSet(Document& top, const ExportSetOptions& options = {});
 
 /// The manifest's file name in the folder.
 AppExport const char* exportSetManifestName();
@@ -99,6 +106,8 @@ public:
     /// set is being written, `owner` is not the copy being written, or
     /// `target` is not of the set.
     static std::string pathTo(const Document* owner, const Document* target);
+    /// Whether `owner`'s copy is the one being written now.
+    static bool writingCopyOf(const Document* owner);
 
 private:
     std::map<const Document*, std::string> _files;

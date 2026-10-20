@@ -29,6 +29,7 @@
 
 class QCheckBox;
 class QLineEdit;
+class QPushButton;
 class QTreeWidget;
 
 namespace App
@@ -42,7 +43,9 @@ namespace Gui
 /** File > Export with linked files (docs/TransactionLog.md sec 35 L7): the
  * set of the document -- every file its links reach -- listed with what
  * each is and the name it will be written under, the folder, and whether
- * the files keep their history. Accepted, the set is written by
+ * the files keep their history -- and, when library links reach some, whether
+ * those stay in their library (docs/LibraryPaths.md step 4). Accepted, the
+ * set is written by
  * Document.exportLinkedSet(), recorded as a macro command.
  */
 class GuiExport DlgExportLinkedSet: public QDialog
@@ -55,11 +58,16 @@ public:
 
 private:
     void browse();
+    /// The list, from the plan of the set with the options as they are.
+    void fill();
 
     std::string _docName;
     QTreeWidget* _files;
     QLineEdit* _folder;
     QCheckBox* _history;
+    QCheckBox* _libraries;
+    QPushButton* _export;
+    int _written = 0;
 };
 
 }  // namespace Gui

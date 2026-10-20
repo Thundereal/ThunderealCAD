@@ -61,20 +61,51 @@ std::string ss(const QString& s)
     return s.toUtf8().constData();
 }
 
-/// The documents `top`'s links reach, transitively, `top` first.
-std::vector<Document*> closureOf(Document& top)
+/// A file left in its library, with the library and the path under it.
+struct Kept
 {
-    std::vector<Document*> out {&top};
-    std::set<Document*> seen {&top};
-    for (std::size_t i = 0; i < out.size(); ++i) {
-        // The map held: a range over an element of a temporary dangles.
-        auto outList = PropertyXLink::getDocumentOutList(out[i]);
-        for (auto doc : outList[out[i]]) {
-            if (doc && seen.insert(doc).second)
-                out.push_back(doc);
+    Document* document;
+    std::string library;
+    std::string libraryFile;
+};
+
+/// The documents `top`'s links reach, transitively, `top` first: those
+/// copied, and with `keepLibraries`, those left in their library -- reached
+/// from the copied only by library links, and not the top. Their own links
+/// are not followed: they stay where they link.
+struct Closure
+{
+    std::vector<Document*> copied;
+    std::vector<Kept> kept;
+};
+
+Closure closureOf(Document& top, bool keepLibraries)
+{
+    Closure c;
+    c.copied.push_back(&top);
+    std::set<Document*> copied {&top};
+    std::map<Document*, Kept> kept;
+    std::vector<Document*> keptOrder;
+    for (std::size_t i = 0; i < c.copied.size(); ++i) {
+        for (const auto& [doc, linked] : PropertyXLink::getLinkedDocuments(c.copied[i])) {
+            if (!doc || copied.count(doc))
+                continue;
+            if (keepLibraries && linked.library) {
+                if (kept.emplace(doc, Kept {doc, linked.libName, linked.libFile}).second)
+                    keptOrder.push_back(doc);
+                continue;
+            }
+            // A plain link to it from a copied document, though another
+            // reached it by its library: copied, so that one links the copy.
+            copied.insert(doc);
+            c.copied.push_back(doc);
         }
     }
-    return out;
+    for (auto doc : keptOrder) {
+        if (!copied.count(doc))
+            c.kept.push_back(kept[doc]);
+    }
+    return c;
 }
 
 /// A document of the set read in part (sec 35 L8, or a plain file opened
@@ -143,6 +174,11 @@ void ExportSetPaths::writing(const Document* doc)
         _ExportSetPaths->_writing = doc;
 }
 
+bool ExportSetPaths::writingCopyOf(const Document* owner)
+{
+    return _ExportSetPaths && owner && _ExportSetPaths->_writing == owner;
+}
+
 std::string ExportSetPaths::pathTo(const Document* owner, const Document* target)
 {
     auto scope = _ExportSetPaths;
@@ -160,7 +196,7 @@ const char* App::exportSetManifestName()
     return "FreeCAD-set.json";
 }
 
-ExportSetResult App::planLinkedSet(Document& top)
+ExportSetResult App::planLinkedSet(Document& top, const ExportSetOptions& options)
 {
     // docs/TransactionLog.md sec 35 L7.
     const std::string topFile = top.FileName.getStrValue();
@@ -170,9 +206,10 @@ ExportSetResult App::planLinkedSet(Document& top)
                                        + "' has no file: save it before its set is exported");
     const std::string topPath = FileHistory::parseName(topFile, topParts) ? topParts.file : topFile;
 
-    std::vector<Document*> docs = closureOf(top);
-    for (int i = 0; i < 4 && readWhole(docs); ++i)
-        docs = closureOf(top);
+    Closure closure = closureOf(top, options.keepLibraries);
+    for (int i = 0; i < 4 && readWhole(closure.copied); ++i)
+        closure = closureOf(top, options.keepLibraries);
+    const std::vector<Document*>& docs = closure.copied;
     for (auto doc : docs) {
         if (doc->testStatus(Document::PartialDoc))
             THROWM(Base::RuntimeError, "'" + std::string(doc->Label.getValue())
@@ -187,22 +224,31 @@ ExportSetResult App::planLinkedSet(Document& top)
     const QDir topDir = QFileInfo(qs(topPath)).absoluteDir();
     std::set<std::string> taken;
     ExportSetResult result;
-    for (auto doc : docs) {
-        ExportSetFile f;
+    // The file, and the branch and version of a version's or a branch's
+    // document; whether it is one.
+    auto describe = [](Document* doc, ExportSetFile& f, FileHistory::NameParts& parts) {
         f.document = doc;
+        f.uid = doc->Uid.getValueStr();
         const std::string name = doc->FileName.getStrValue();
-        FileHistory::NameParts parts;
         const bool named = doc->testStatus(Document::VersionDoc)
             && FileHistory::parseName(name, parts);
         f.file = named ? parts.file : name;
+        if (named) {
+            f.branch = parts.branch;
+            f.version = parts.version;
+        }
+        return named;
+    };
+    for (auto doc : docs) {
+        ExportSetFile f;
+        FileHistory::NameParts parts;
+        const bool named = describe(doc, f, parts);
         const QString abs = QFileInfo(qs(f.file)).absoluteFilePath();
         QString rel = topDir.relativeFilePath(abs);
         if (rel.startsWith(QStringLiteral("..")) || QFileInfo(rel).isAbsolute())
             rel = QStringLiteral("_external/") + QFileInfo(abs).fileName();
         std::string path = ss(rel);
         if (named) {
-            f.branch = parts.branch;
-            f.version = parts.version;
             std::string tail;
             if (!parts.branch.empty())
                 tail += "." + fileSafe(parts.branch);
@@ -215,7 +261,15 @@ ExportSetResult App::planLinkedSet(Document& top)
             path = withTail(wanted, "~" + std::to_string(n));
         taken.insert(path);
         f.path = path;
-        f.uid = doc->Uid.getValueStr();
+        result.files.push_back(std::move(f));
+    }
+    // LibraryPaths.md step 4: left in the library, nothing written.
+    for (const auto& k : closure.kept) {
+        ExportSetFile f;
+        FileHistory::NameParts parts;
+        describe(k.document, f, parts);
+        f.library = k.library;
+        f.libraryFile = k.libraryFile;
         result.files.push_back(std::move(f));
     }
     return result;
@@ -224,7 +278,7 @@ ExportSetResult App::planLinkedSet(Document& top)
 ExportSetResult App::exportLinkedSet(Document& top, const std::string& folder,
                                      const ExportSetOptions& options)
 {
-    ExportSetResult result = planLinkedSet(top);
+    ExportSetResult result = planLinkedSet(top, options);
     QDir out(qs(folder));
     if (out.exists() && !options.overwrite
             && !out.entryList(QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden).isEmpty())
@@ -233,11 +287,15 @@ ExportSetResult App::exportLinkedSet(Document& top, const std::string& folder,
         THROWM(Base::FileException, "cannot make the folder", folder.c_str());
 
     std::map<const Document*, std::string> files;
-    for (const auto& f : result.files)
-        files[f.document] = ss(out.absoluteFilePath(qs(f.path)));
+    for (const auto& f : result.files) {
+        if (!f.path.empty())
+            files[f.document] = ss(out.absoluteFilePath(qs(f.path)));
+    }
     {
         ExportSetPaths scope(files);
         for (std::size_t i = 0; i < result.files.size(); ++i) {
+            if (result.files[i].path.empty())
+                continue;
             Document* doc = result.files[i].document;
             const std::string& dest = files[doc];
             QDir().mkpath(QFileInfo(qs(dest)).absolutePath());
@@ -256,20 +314,31 @@ ExportSetResult App::exportLinkedSet(Document& top, const std::string& folder,
     j["format"] = 1;
     j["top"] = result.files.front().path;
     j["history"] = options.withHistory;
+    // A file left in its library is listed apart, by its library: nothing
+    // of it is in the folder.
     auto list = nlohmann::json::array();
+    auto libraries = nlohmann::json::array();
     for (const auto& f : result.files) {
         nlohmann::json e;
-        e["path"] = f.path;
+        if (f.path.empty()) {
+            e["lib"] = f.library;
+            e["libfile"] = f.libraryFile;
+        }
+        else
+            e["path"] = f.path;
         e["file"] = f.file;
         if (!f.branch.empty())
             e["branch"] = f.branch;
         if (f.version > 0)
             e["version"] = f.version;
-        e["save_id"] = f.saveId;
+        if (!f.path.empty())
+            e["save_id"] = f.saveId;
         e["uid"] = f.uid;
-        list.push_back(std::move(e));
+        (f.path.empty() ? libraries : list).push_back(std::move(e));
     }
     j["files"] = std::move(list);
+    if (!libraries.empty())
+        j["library"] = std::move(libraries);
     result.manifest = ss(out.absoluteFilePath(QString::fromLatin1(exportSetManifestName())));
     Base::ofstream manifest(Base::FileInfo(result.manifest), std::ios::out | std::ios::trunc);
     manifest << j.dump(2) << '\n';

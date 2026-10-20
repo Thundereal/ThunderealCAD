@@ -10764,3 +10764,50 @@ class LibraryPathCases(unittest.TestCase):
         # A token needs no saved owner (3.8).
         h.L = (self.token, "Bolt")
         self.assertEqual(h.L.Name, "Bolt")
+
+    def testAnExportedSetLeavesItsLibraryFiles(self):
+        # docs/LibraryPaths.md step 4: the set exported (TransactionLog sec
+        # 35 L7) copies a library file under _external/ by default, and with
+        # keepLibraries leaves it where it is, the copy's link in the library
+        # form -- which a recipient whose library is elsewhere resolves.
+        import json
+        import shutil
+
+        self.holder.L = (self.token, "Bolt")
+        self.doc.save()
+        out = os.path.join(self.dir, "copied")
+        files = self.doc.exportLinkedSet(out)["files"]
+        self.assertEqual(
+            sorted(f["path"] for f in files), ["_external/bolt.FCStd", "asm.FCStd"]
+        )
+
+        out = os.path.join(self.dir, "kept")
+        res = self.doc.exportLinkedSet(out, keepLibraries=True)
+        got = {f["path"]: f for f in res["files"]}
+        self.assertEqual(sorted(got), ["", "asm.FCStd"])
+        self.assertEqual((got[""]["lib"], got[""]["libfile"]), (self.NAME, "f/bolt.FCStd"))
+        self.assertEqual(sorted(os.listdir(out)), ["FreeCAD-set.json", "asm.FCStd"])
+        with open(res["manifest"]) as f:
+            manifest = json.load(f)
+        self.assertEqual([e["path"] for e in manifest["files"]], ["asm.FCStd"])
+        self.assertEqual(
+            [(e["lib"], e["libfile"]) for e in manifest["library"]], [(self.NAME, "f/bolt.FCStd")]
+        )
+
+        # The recipient: the library elsewhere, under the same name.
+        for name in list(FreeCAD.listDocuments()):
+            if name.startswith("PyLib"):
+                FreeCAD.closeDocument(name)
+        moved = os.path.join(self.dir, "moved")
+        shutil.move(self.lib, moved)
+        FreeCAD.setLibraryPath(self.NAME, moved)
+        copy = FreeCAD.openDocument(os.path.join(out, "asm.FCStd"))
+        bolt = copy.getObject("Holder").L
+        self.assertIsNotNone(bolt)
+        self.assertEqual(bolt.Name, "Bolt")
+        self.assertTrue(
+            self.same(bolt.Document.FileName, os.path.join(moved, "f", "bolt.FCStd"))
+        )
+        boltDoc = bolt.Document.Name
+        FreeCAD.closeDocument(copy.Name)
+        FreeCAD.closeDocument(boltDoc)

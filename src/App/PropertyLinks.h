@@ -1383,6 +1383,17 @@ public:
     static bool hasXLink(const std::vector<App::DocumentObject*> &objs, std::vector<App::Document*> *unsaved=nullptr);
     static std::map<App::Document*,std::set<App::Document*> > getDocumentOutList(App::Document *doc=nullptr);
     static std::map<App::Document*,std::set<App::Document*> > getDocumentInList(App::Document *doc=nullptr);
+    /// A document another's links reach (docs/LibraryPaths.md step 4).
+    struct LinkedDocument
+    {
+        /// Every link to it is a library link.
+        bool library = true;
+        /// The library and the path under it, of the first library link.
+        std::string libName;
+        std::string libFile;
+    };
+    /// The documents `doc`'s links reach, as getDocumentOutList() has them.
+    static std::map<App::Document*, LinkedDocument> getLinkedDocuments(App::Document* doc);
     static void restoreDocument(const App::Document &doc);
 
     /** Links into a document never saved, in a copy (docs/LibraryPaths.md

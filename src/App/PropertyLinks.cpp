@@ -5471,6 +5471,14 @@ void PropertyXLink::Save (Base::Writer &writer) const {
         const bool plain = !setPath.empty();
         if (plain)
             path = setPath.c_str();
+        // A link of the copy to a document left out of the set -- a file in
+        // a library (LibraryPaths.md step 4), or one not open -- names its
+        // file in full: the copy is not where its owner is. A library link
+        // keeps its library and resolves through it first.
+        else if (docInfo && ExportSetPaths::writingCopyOf(ownerDoc)) {
+            _path = docInfo->filePath();
+            path = _path.c_str();
+        }
         // A pin or a live branch of the owner's own file is saved with no
         // file: "this document's file", whatever it is called after a Save
         // As (sec 27.20, 27.21 Q2). A FreeCAD that does not know the pin
@@ -6141,6 +6149,38 @@ PropertyXLink::getDocumentOutList(App::Document *doc) {
     forEachUntracked([&](App::Document* owner, App::Document* linked) {
         if (!doc || owner == doc)
             ret[owner].insert(linked);
+    });
+    return ret;
+}
+
+std::map<App::Document*, PropertyXLink::LinkedDocument>
+PropertyXLink::getLinkedDocuments(App::Document* doc)
+{
+    std::map<App::Document*, LinkedDocument> ret;
+    for (auto& v : _DocInfoMap) {
+        for (auto link : v.second->links) {
+            if (!v.second->pcDoc
+                    || link->getScope() == LinkScope::Hidden
+                    || link->testStatus(Property::PropTransient)
+                    || link->testStatus(Property::Transient)
+                    || link->testStatus(Property::PropNoPersist))
+                continue;
+            auto obj = dynamic_cast<App::DocumentObject*>(link->getContainer());
+            if (!obj || !obj->isAttachedToDocument() || obj->getDocument() != doc)
+                continue;
+            auto& linked = ret[v.second->pcDoc];
+            if (link->_libName.empty())
+                linked.library = false;
+            else if (linked.libName.empty()) {
+                linked.libName = link->_libName;
+                linked.libFile = link->_libFile;
+            }
+        }
+    }
+    // Set with no file: never a library link.
+    forEachUntracked([&](App::Document* owner, App::Document* linked) {
+        if (owner == doc)
+            ret[linked].library = false;
     });
     return ret;
 }

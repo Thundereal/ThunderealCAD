@@ -2034,10 +2034,12 @@ PyObject* DocumentPy::exportLinkedSet(PyObject* args, PyObject* kwds)
     char* folder = nullptr;
     PyObject* withHistory = Py_False;
     PyObject* overwrite = Py_False;
-    static const std::array<const char*, 4> kwlist {"folder", "withHistory", "overwrite", nullptr};
-    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "et|O!O!", kwlist, "utf-8", &folder,
+    PyObject* keepLibraries = Py_False;
+    static const std::array<const char*, 5> kwlist {"folder", "withHistory", "overwrite",
+                                                    "keepLibraries", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "et|O!O!O!", kwlist, "utf-8", &folder,
                                              &PyBool_Type, &withHistory, &PyBool_Type,
-                                             &overwrite))
+                                             &overwrite, &PyBool_Type, &keepLibraries))
         return nullptr;
     const std::string path(folder);
     PyMem_Free(folder);
@@ -2045,6 +2047,7 @@ PyObject* DocumentPy::exportLinkedSet(PyObject* args, PyObject* kwds)
         App::ExportSetOptions options;
         options.withHistory = Base::asBoolean(withHistory);
         options.overwrite = Base::asBoolean(overwrite);
+        options.keepLibraries = Base::asBoolean(keepLibraries);
         const auto result = App::exportLinkedSet(*getDocumentPtr(), path, options);
         Py::List files;
         for (const auto& f : result.files) {
@@ -2055,6 +2058,10 @@ PyObject* DocumentPy::exportLinkedSet(PyObject* args, PyObject* kwds)
             d.setItem("version", Py::Long(static_cast<long long>(f.version)));
             d.setItem("save_id", Py::String(f.saveId));
             d.setItem("uid", Py::String(f.uid));
+            if (!f.library.empty()) {
+                d.setItem("lib", Py::String(f.library));
+                d.setItem("libfile", Py::String(f.libraryFile));
+            }
             files.append(d);
         }
         Py::Dict d;

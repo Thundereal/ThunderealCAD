@@ -878,7 +878,7 @@ cannot be read, or is this document's own.</UserDocu>
     </Methode>
     <Methode Name="exportLinkedSet" Keyword="true">
       <Documentation>
-        <UserDocu>exportLinkedSet(folder, withHistory=False, overwrite=False) -> dict
+        <UserDocu>exportLinkedSet(folder, withHistory=False, overwrite=False, keepLibraries=False) -> dict
 Write this document and every document its links reach into `folder`
 (docs/TransactionLog.md sec 35 L7): the layout under this document's
 folder kept, a file outside it under `_external/`, a pinned version or a
@@ -887,8 +887,11 @@ and the links between them written as plain links to those files, so the
 set opens in any FreeCAD. A manifest, FreeCAD-set.json, says what each file
 is of. Returns 'manifest' (its path) and 'files', a list of dict: 'path'
 (relative to the folder), 'file' (the file here), 'branch', 'version',
-'save_id' and 'uid'. Raises when the folder is not empty and `overwrite` is
-not set, or when a document of the set has no file.</UserDocu>
+'save_id' and 'uid'. With `keepLibraries`, a file in a library that only
+library links reach is left there, its links kept in the library form for a
+recipient with the same library (docs/LibraryPaths.md step 4): listed with
+'path' empty, and 'lib' and 'libfile'. Raises when the folder is not empty
+and `overwrite` is not set, or when a document of the set has no file.</UserDocu>
       </Documentation>
     </Methode>
     <Methode Name="importTransactionFork">

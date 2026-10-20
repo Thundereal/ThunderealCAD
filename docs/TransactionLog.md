@@ -21736,8 +21736,9 @@ empty is asked about first. The export runs as a Python command, so a
 macro records it. A document never saved is told to save first: its set
 is laid out relative to its folder.
 
-**Not built yet**: zipped output; LibraryPaths step 4, the export's
-option for library files, which this unblocks.
+**Not built yet**: zipped output. LibraryPaths step 4, the export's
+option for library files, is built (2026-10-20, LibraryPaths.md sec 14):
+`keepLibraries` leaves a file only library links reach in its library.
 
 **Test** (`Document.py`, `TransactionBranchCases`):
 `testALinkedSetIsExportedToAFolder` -- an assembly with a plain link, a

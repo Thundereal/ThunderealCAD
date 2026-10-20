@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <algorithm>
 # include <QCheckBox>
 # include <QDialogButtonBox>
 # include <QDir>
@@ -37,6 +38,7 @@
 # include <QVBoxLayout>
 #endif
 
+#include <App/Application.h>
 #include <App/Document.h>
 #include <App/ExportSet.h>
 #include <Base/Console.h>
@@ -88,15 +90,57 @@ DlgExportLinkedSet::DlgExportLinkedSet(App::Document* top, QWidget* parent)
                             "Without, a file brought back pairs with this one by its save."));
     layout->addWidget(_history);
 
+    _libraries = new QCheckBox(tr("Leave library files in their library"), this);
+    _libraries->setObjectName(QStringLiteral("libraries"));
+    _libraries->setToolTip(tr("A file in a library, that only links into the library reach, is "
+                              "not written: the links to it keep the library, for someone with "
+                              "the same library. Without, it is written under _external."));
+    connect(_libraries, &QCheckBox::toggled, this, &DlgExportLinkedSet::fill);
+    layout->addWidget(_libraries);
+
     auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->button(QDialogButtonBox::Ok)->setText(tr("Export"));
     connect(buttons, &QDialogButtonBox::accepted, this, &DlgExportLinkedSet::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &DlgExportLinkedSet::reject);
     layout->addWidget(buttons);
+    _export = buttons->button(QDialogButtonBox::Ok);
 
+    // The option only when library links reach a file it would leave.
+    try {
+        App::ExportSetOptions options;
+        options.keepLibraries = true;
+        const auto plan = App::planLinkedSet(*top, options);
+        _libraries->setVisible(std::any_of(plan.files.begin(), plan.files.end(),
+                                           [](const auto& f) { return f.path.empty(); }));
+    }
+    catch (Base::Exception&) {
+        _libraries->setVisible(false);
+    }
+    fill();
+
+    // Beside the document, named after it.
+    const QFileInfo file(QString::fromUtf8(top->FileName.getValue()));
+    if (!file.fileName().isEmpty())
+        _folder->setText(QDir::toNativeSeparators(
+            file.absoluteDir().absoluteFilePath(file.completeBaseName() + tr("-set"))));
+    resize(640, 400);
+}
+
+void DlgExportLinkedSet::fill()
+{
+    _files->clear();
+    _written = 0;
+    _export->setEnabled(true);
+    auto top = App::GetApplication().getDocument(_docName.c_str());
+    if (!top) {
+        _export->setEnabled(false);
+        return;
+    }
     // What the export will write, from the plan it writes by.
     try {
-        for (const auto& f : App::planLinkedSet(*top).files) {
+        App::ExportSetOptions options;
+        options.keepLibraries = _libraries->isChecked();
+        for (const auto& f : App::planLinkedSet(*top, options).files) {
             QString is;
             if (!f.branch.empty() && f.version > 0)
                 is = tr("branch %1 at version %2")
@@ -113,22 +157,21 @@ DlgExportLinkedSet::DlgExportLinkedSet(App::Document* top, QWidget* parent)
                                         : QString());
             item->setToolTip(0, QString::fromUtf8(f.file.c_str()));
             item->setText(1, is);
-            item->setText(2, QString::fromUtf8(f.path.c_str()));
+            if (f.path.empty())
+                item->setText(2, tr("left in library %1")
+                                     .arg(QString::fromUtf8(f.library.c_str())));
+            else {
+                item->setText(2, QString::fromUtf8(f.path.c_str()));
+                ++_written;
+            }
         }
     }
     catch (Base::Exception& e) {
         auto item = new QTreeWidgetItem(_files);
         item->setText(0, QString::fromUtf8(e.what()));
-        buttons->button(QDialogButtonBox::Ok)->setEnabled(false);
+        _export->setEnabled(false);
     }
     _files->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
-
-    // Beside the document, named after it.
-    const QFileInfo file(QString::fromUtf8(top->FileName.getValue()));
-    if (!file.fileName().isEmpty())
-        _folder->setText(QDir::toNativeSeparators(
-            file.absoluteDir().absoluteFilePath(file.completeBaseName() + tr("-set"))));
-    resize(640, 400);
 }
 
 void DlgExportLinkedSet::browse()
@@ -161,16 +204,17 @@ void DlgExportLinkedSet::accept()
     try {
         Command::doCommand(Command::Doc,
                            "App.getDocument('%s').exportLinkedSet(u'%s', withHistory=%s, "
-                           "overwrite=%s)",
+                           "overwrite=%s, keepLibraries=%s)",
                            _docName.c_str(), Base::Tools::escapeEncodeString(path).c_str(),
                            _history->isChecked() ? "True" : "False",
-                           overwrite ? "True" : "False");
+                           overwrite ? "True" : "False",
+                           _libraries->isChecked() ? "True" : "False");
     }
     catch (Base::Exception& e) {
         QMessageBox::critical(this, windowTitle(), QString::fromUtf8(e.what()));
         return;
     }
-    getMainWindow()->showMessage(tr("%1 files written to %2").arg(_files->topLevelItemCount())
+    getMainWindow()->showMessage(tr("%1 files written to %2").arg(_written)
                                      .arg(folder));
     QDialog::accept();
 }

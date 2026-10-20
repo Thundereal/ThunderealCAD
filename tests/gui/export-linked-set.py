@@ -5,7 +5,8 @@ version; Std_ExportLinkedSet opens the dialog, which lists the set.
 
 Claims:
   - the dialog lists the three files of the set: the assembly, the part,
-    and the pinned version as a file of its own;
+    and the pinned version as a file of its own; with no file in a library,
+    it does not offer to leave those (docs/LibraryPaths.md sec 14);
   - Export into a new folder writes them and the manifest;
   - into the same folder again, it asks first, and writes when told to.
 """
@@ -66,6 +67,7 @@ def drive(folder, then):
             STATE["listed"] = sorted(
                 tree.topLevelItem(i).text(2) for i in range(tree.topLevelItemCount())
             )
+            STATE["libraries"] = dlg.findChild(QtWidgets.QCheckBox, "libraries").isVisible()
             dlg.findChild(QtWidgets.QLineEdit, "folder").setText(folder)
             box = dlg.findChild(QtWidgets.QDialogButtonBox)
             ANSWER.start(200)
@@ -120,6 +122,7 @@ def exported():
     try:
         want = sorted(["asm.FCStd", "part.FCStd", "part.v%d.FCStd" % STATE["v"]])
         check("the dialog lists the set", STATE.get("listed") == want, STATE.get("listed"))
+        check("with no library file, no library option", STATE.get("libraries") is False)
         out = STATE["out"]
         check(
             "Export wrote the files",

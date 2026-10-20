@@ -42,11 +42,14 @@
 # include <QStyleHints>
 #endif
 
+#include <QListView>
 #include <QPainterPath>
 #include <QPropertyAnimation>
 #include <QRegularExpression>
+#include <QTableView>
 #include <QTextBlock>
 #include <QTextLayout>
+#include <QTreeView>
 
 #include <algorithm>
 #include <array>
@@ -1960,6 +1963,8 @@ isNear(const QPoint &a, const QPoint &b, int tol = 16)
     return d.x()*d.x() + d.y()*d.y() < tol;
 }
 
+static void paintRowBands(QAbstractItemView *view, const QPaintEvent *ev);
+
 bool OverlayManager::eventFilter(QObject *o, QEvent *ev)
 {
     if (d->intercepting || !getMainWindow() || !o->isWidgetType())
@@ -2026,13 +2031,17 @@ bool OverlayManager::eventFilter(QObject *o, QEvent *ev)
     }
     case QEvent::Paint:
         if (auto widget = qobject_cast<QWidget*>(o)) {
+            auto view = qobject_cast<QAbstractItemView*>(widget->parentWidget());
+            // The overlay's row bands, under what the view paints next
+            // (docs/HandsOnQueue.md entry 193)
+            if (view && view->viewport() == widget)
+                paintRowBands(view, static_cast<QPaintEvent*>(ev));
             // QAbstractItemView optimize redraw using its item delegate's
             // visualRect(). However, if we are using QGraphicsEffects, the
             // effect may touch areas outside of visualRect(), so
             // OverlayTabWidget offers a timer for a delayed redraw.
-            widget = qobject_cast<QAbstractItemView*>(widget->parentWidget());
-            if(widget) {
-                auto tabWidget = findTabWidget(widget, true);
+            if(view) {
+                auto tabWidget = findTabWidget(view, true);
                 if (tabWidget)
                     tabWidget->scheduleRepaint();
             }
@@ -2646,6 +2655,140 @@ QBrush OverlayManager::overlayItemBackground(const QBrush &own, int alpha, const
         brush.setColor(colour);
     }
     return brush;
+}
+
+bool OverlayManager::hasOverlayRowBands(const QWidget *view)
+{
+    if (!view || !(qobject_cast<const QListView*>(view) || qobject_cast<const QTreeView*>(view)
+                   || qobject_cast<const QTableView*>(view)))
+        return false;
+    // The model tree keeps its own: a ground behind each item's text alone,
+    // by its own settings (entries 69, 87, 98; the reporter, entry 193)
+    if (qobject_cast<const TreeWidget*>(view))
+        return false;
+    auto tab = overlayOf(view);
+    // a combo box's list is a window of its own
+    if (!tab || view->window() != tab->window())
+        return false;
+    // The overlay look is set on each widget of the panel, but not inside a
+    // task panel's boxes (OverlayTabWidget::setOverlayMode()): there the
+    // widget the outermost box is in says
+    const QWidget *decides = view;
+    for (const QWidget *w = view; w && w != tab; w = w->parentWidget()) {
+        if (qobject_cast<const TaskView::TaskBox*>(w))
+            decides = w->parentWidget();
+    }
+    return decides && decides->testAttribute(Qt::WA_NoSystemBackground);
+}
+
+/// The overlay's row bands of \a view, painted on its viewport before its
+/// items are (OverlayManager::hasOverlayRowBands()). Every second row shown,
+/// counted by the rows shown above it as the style counts them -- in a tree
+/// a row with a colour to show is taller than one with a number, and
+/// collapsed rows do not count.
+static void paintRowBands(QAbstractItemView *view, const QPaintEvent *ev)
+{
+    // The view's own alternate fill is the style sheet's, at its opacity
+    // and no other: off while the bands are on, back after
+    static const char *ownAlternate = "_fc_overlayOwnAlternate";
+    if (!OverlayManager::hasOverlayRowBands(view)) {
+        if (view->property(ownAlternate).toBool()) {
+            view->setProperty(ownAlternate, QVariant());
+            view->setAlternatingRowColors(true);
+        }
+        return;
+    }
+    if (view->alternatingRowColors()) {
+        view->setProperty(ownAlternate, true);
+        view->setAlternatingRowColors(false);
+    }
+    if (!view->model())
+        return;
+    // The rows as the view is about to paint them: its paint event lays out
+    // what is pending first, and this runs before it -- a property view's
+    // rows read here were those of before a row grew taller
+    struct LayoutAccess : QAbstractItemView {
+        using QAbstractItemView::executeDelayedItemsLayout;
+    };
+    (view->*&LayoutAccess::executeDelayedItemsLayout)();
+
+    // what a style sheet set on the view, as for its items (PropertyEditor,
+    // TreeWidget): its overlayItemBackground and overlayAlpha
+    QBrush own;
+    int alpha = -1;
+    const QVariant ownBrush = view->property("overlayItemBackground");
+    if (ownBrush.canConvert<QBrush>())
+        own = ownBrush.value<QBrush>();
+    const QVariant ownAlpha = view->property("overlayAlpha");
+    if (ownAlpha.isValid())
+        alpha = ownAlpha.toInt();
+    const QBrush even = OverlayManager::overlayItemBackground(own, alpha, view);
+    QColor odd = view->palette().color(QPalette::AlternateBase);
+    odd.setAlpha(OverlayManager::overlayAlpha(alpha));
+
+    QWidget *viewport = view->viewport();
+    const int width = viewport->width();
+    const int height = viewport->height();
+    QPainter painter(viewport);
+    painter.setClipRegion(ev->region());
+    auto band = [&](int top, int rowHeight, int shown) {
+        const QBrush &brush = (shown & 1) ? QBrush(odd) : even;
+        if (brush.style() != Qt::NoBrush && brush.color().alpha() != 0)
+            painter.fillRect(QRect(0, top, width, rowHeight), brush);
+    };
+
+    if (auto tree = qobject_cast<QTreeView*>(view)) {
+        // a point past the indentation, in the first column shown
+        auto header = tree->header();
+        const int first = header->logicalIndexAt(0) >= 0 ? header->logicalIndexAt(0) : 0;
+        const int x = std::max(header->sectionViewportPosition(first)
+                               + header->sectionSize(first) - 2, 0);
+        QModelIndex index = tree->indexAt(QPoint(x, 0));
+        if (!index.isValid())
+            index = tree->indexAt(QPoint(x, 1));
+        int shown = 0;
+        for (QModelIndex i = tree->indexAbove(index); i.isValid(); i = tree->indexAbove(i))
+            ++shown;
+        for (; index.isValid(); index = tree->indexBelow(index), ++shown) {
+            const QRect rect = tree->visualRect(index);
+            if (rect.top() >= height)
+                break;
+            band(rect.top(), rect.height(), shown);
+        }
+    }
+    else if (auto table = qobject_cast<QTableView*>(view)) {
+        const int rows = table->model()->rowCount(table->rootIndex());
+        int shown = 0;
+        for (int row = 0; row < rows; ++row) {
+            if (table->isRowHidden(row))
+                continue;
+            const int top = table->rowViewportPosition(row);
+            if (top >= height)
+                break;
+            const int rowHeight = table->rowHeight(row);
+            if (top + rowHeight > 0)
+                band(top, rowHeight, shown);
+            ++shown;
+        }
+    }
+    else if (auto list = qobject_cast<QListView*>(view)) {
+        // a list of rows, as a task panel's and the selection view's are
+        if (list->viewMode() != QListView::ListMode || list->flow() != QListView::TopToBottom)
+            return;
+        const QModelIndex root = list->rootIndex();
+        const int rows = list->model()->rowCount(root);
+        int shown = 0;
+        for (int row = 0; row < rows; ++row) {
+            if (list->isRowHidden(row))
+                continue;
+            const QRect rect = list->visualRect(list->model()->index(row, list->modelColumn(), root));
+            if (rect.top() >= height)
+                break;
+            if (rect.bottom() >= 0)
+                band(rect.top(), rect.height(), shown);
+            ++shown;
+        }
+    }
 }
 
 void OverlayManager::addCover(QWidget *cover)

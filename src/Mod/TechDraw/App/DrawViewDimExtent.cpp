@@ -28,8 +28,11 @@
 # include <sstream>
 #endif
 
+#include <QCoreApplication>
+
 #include <App/Document.h>
 #include <Base/Console.h>
+#include <Base/Exception.h>
 #include <Mod/TechDraw/App/DrawViewDimExtentPy.h>  // generated from DrawViewDimExtentPy.xml
 
 #include "DrawViewDimExtent.h"
@@ -68,16 +71,33 @@ App::DocumentObjectExecReturn *DrawViewDimExtent::execute(void)
     if (!keepUpdated()) {
         return App::DocumentObject::StdReturn;
     }
+    // nothing to measure is the dimension's error, and a failed measurement
+    // says on what (docs/TechDrawErrors.md 3.3)
     App::DocumentObject* docObj = Source.getValue();
-    if (!docObj)
-        return App::DocumentObject::StdReturn;
+    if (!docObj) {
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The extent dimension has no view to measure")
+                .toStdString(),
+            this);
+    }
     DrawViewPart* dvp = dynamic_cast<DrawViewPart*>(docObj);
-    if (!dvp)
-        return App::DocumentObject::StdReturn;
+    if (!dvp) {
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw",
+                                        "The extent dimension's view %1 is not a part view")
+                .arg(QString::fromUtf8(docObj->Label.getValue()))
+                .toStdString(),
+            this);
+    }
 
     ReferenceVector references = getEffectiveReferences();
-    if (references.empty())
-        return App::DocumentObject::StdReturn;
+    if (references.empty()) {
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The extent dimension on %1 has no references")
+                .arg(QString::fromUtf8(dvp->Label.getValue()))
+                .toStdString(),
+            this);
+    }
 
     resetLinear();
     resetAngular();
@@ -86,7 +106,16 @@ App::DocumentObjectExecReturn *DrawViewDimExtent::execute(void)
     if ( Type.isValue("Distance")  ||
         Type.isValue("DistanceX") ||
         Type.isValue("DistanceY") )  {
-        setLinearPoints(getPointsExtent(references));
+        try {
+            setLinearPoints(getPointsExtent(references));
+        }
+        catch (const Base::Exception& e) {
+            return new App::DocumentObjectExecReturn(
+                QCoreApplication::translate("TechDraw", "The extent dimension on %1 failed: %2")
+                    .arg(QString::fromUtf8(dvp->Label.getValue()), QString::fromUtf8(e.what()))
+                    .toStdString(),
+                this);
+        }
     }
 
     overrideKeepUpdated(false);

@@ -55,6 +55,7 @@
 #include <Bnd_Box.hxx>
 #include <HLRAlgo_Projector.hxx>
 #include <QCoreApplication>
+#include <QStringList>
 #include <QtConcurrentRun>
 #include <ShapeAnalysis.hxx>
 #include <TopExp.hxx>
@@ -284,8 +285,9 @@ App::DocumentObjectExecReturn* DrawViewPart::execute(void)
     }
     Part::TopoShape sourceShape = getSourceShape();
     if (sourceShape.isNull()) {
-        Base::Console().Message("DVP::execute - %s - Source shape is Null.\n", getNameInDocument());
-        return DrawView::execute();
+        // nothing to draw is the view's error, not a console line and an
+        // empty view (docs/TechDrawErrors.md 3.2)
+        return nothingToDraw(Source.getValues().empty() && XSource.getValues().empty());
     }
     //make sure the XDirection property is valid. Mostly for older models.
     if (!checkXDirection()) {
@@ -665,6 +667,63 @@ void DrawViewPart::postHlrTasks()
     requestPaint();
 }
 
+App::DocumentObjectExecReturn* DrawViewPart::nothingToDraw(bool noSources)
+{
+    if (noSources) {
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The view has no source objects to draw")
+                .toStdString(),
+            this);
+    }
+    return new App::DocumentObjectExecReturn(
+        QCoreApplication::translate("TechDraw", "The view's source objects have no shape to draw")
+            .toStdString(),
+        this);
+}
+
+//! A hatch whose faces are gone from this view, said where it is seen: on the
+//! hatch, in error, when none is left; on this view, a warning, when some
+//! are (docs/TechDrawErrors.md 3.2). Its faces can only be checked once the
+//! view's faces exist, after the hatch's own recompute.
+void DrawViewPart::checkHatchFaces(App::DocumentObject* hatch,
+                                   const std::vector<std::string>& subNames)
+{
+    const size_t faceCount = getFaceGeometry().size();
+    if (!hatch || subNames.empty() || faceCount == 0) {
+        // no faces at all is the view's own warning
+        return;
+    }
+    QStringList lost;
+    for (const auto& sub : subNames) {
+        int index = -1;
+        try {
+            index = DrawUtil::getIndexFromName(sub);
+        }
+        catch (const Base::Exception&) {
+        }
+        if (index < 0 || static_cast<size_t>(index) >= faceCount) {
+            lost << QString::fromStdString(sub);
+        }
+    }
+    if (lost.isEmpty()) {
+        return;
+    }
+    if (lost.size() == static_cast<int>(subNames.size())) {
+        std::string why = QCoreApplication::translate(
+            "TechDraw", "The faces it hatches (%1) are no longer in the view %2")
+            .arg(lost.join(QStringLiteral(", ")), QString::fromUtf8(Label.getValue()))
+            .toStdString();
+        Base::Console().Error("%s: %s\n", hatch->Label.getValue(), why.c_str());
+        getDocument()->setErrorDescription(hatch, why.c_str());
+        getDocument()->signalRecomputedObject(*hatch);
+        return;
+    }
+    reportLateWarning(QCoreApplication::translate(
+        "TechDraw", "The hatch %1 has lost faces %2, which are no longer in this view")
+        .arg(QString::fromUtf8(hatch->Label.getValue()), lost.join(QStringLiteral(", ")))
+        .toStdString());
+}
+
 // Run any tasks that need to be done after faces are available
 void DrawViewPart::postFaceExtractionTasks()
 {
@@ -677,10 +736,12 @@ void DrawViewPart::postFaceExtractionTasks()
     for (auto& hatch : getHatches()) {
         hatch->fixByName();
         hatch->updateSavedNames();
+        checkHatchFaces(hatch, hatch->Source.getSubValues());
     }
     for (auto& hatch : getGeomHatches()) {
         hatch->fixByName();
         hatch->updateSavedNames();
+        checkHatchFaces(hatch, hatch->Source.getSubValues());
     }
 
     // Dimensions need to be recomputed because their references will be invalid

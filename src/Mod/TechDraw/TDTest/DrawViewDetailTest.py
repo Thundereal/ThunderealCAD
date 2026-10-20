@@ -97,5 +97,14 @@ class DrawViewDetailTest(unittest.TestCase):
         why = detail.getStatusString()
         self.assertIn("detail could not be made", why)
 
+    def testADetailWithNoBaseViewSaysWhy(self):
+        """A detail with no base view has nothing to show: in error, and says
+        so. It used to succeed and stay empty (docs/TechDrawErrors.md 3.2)"""
+        detail = FreeCAD.ActiveDocument.addObject("TechDraw::DrawViewDetail", "Detail001")
+        self.page.addView(detail)
+        FreeCAD.ActiveDocument.recompute()
+        self.assertTrue("Invalid" in detail.State, detail.State)
+        self.assertIn("no base view", detail.getStatusString())
+
 if __name__ == "__main__":
     unittest.main()

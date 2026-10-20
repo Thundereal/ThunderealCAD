@@ -111,6 +111,41 @@ class DrawViewDimensionTest(unittest.TestCase):
         self.assertIn("Edge%d" % pair[0], why)
         self.assertNotIn("Det = 0", why)
 
+    def testAReferenceNotInTheViewSaysWhich(self):
+        """A dimension on an element the view does not have names it: it said
+        "Dimension object has invalid 2d references" (docs/TechDrawErrors.md
+        3.3)"""
+        dimension = self.document.addObject("TechDraw::DrawViewDimension", "Dimension003")
+        self.page.addView(dimension)
+        dimension.Type = "Distance"
+        dimension.References2D = [(self.view, "Edge99")]
+        self.document.recompute()
+        self.assertTrue("Invalid" in dimension.State, dimension.State)
+        why = dimension.getStatusString()
+        self.assertIn("Distance dimension on View", why)
+        self.assertIn("no Edge99", why)
+
+    def testADistanceOnThreeElementsSaysWhatItNeeds(self):
+        """A distance on references it cannot measure fails and says what it
+        needs: it succeeded with the points of nothing (docs/TechDrawErrors.md
+        3.3)"""
+        dimension = self.document.addObject("TechDraw::DrawViewDimension", "Dimension004")
+        self.page.addView(dimension)
+        dimension.Type = "Distance"
+        dimension.References2D = [(self.view, ("Vertex0", "Vertex1", "Vertex2"))]
+        self.document.recompute()
+        self.assertTrue("Invalid" in dimension.State, dimension.State)
+        self.assertIn("a distance needs", dimension.getStatusString())
+
+    def testAnExtentDimensionWithNoViewSaysWhy(self):
+        """An extent dimension with no view to measure is in error: it
+        succeeded (docs/TechDrawErrors.md 3.3)"""
+        dimension = self.document.addObject("TechDraw::DrawViewDimExtent", "Extent")
+        self.page.addView(dimension)
+        self.document.recompute()
+        self.assertTrue("Invalid" in dimension.State, dimension.State)
+        self.assertIn("no view to measure", dimension.getStatusString())
+
 
 if __name__ == "__main__":
     unittest.main()

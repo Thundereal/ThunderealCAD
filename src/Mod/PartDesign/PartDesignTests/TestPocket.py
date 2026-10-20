@@ -385,15 +385,20 @@ class TestPocket(unittest.TestCase):
         self.Doc.recompute()
         self.assertIn('Invalid', self.Pocket.State)
 
-    def testFitOnAReversedFaceProfile(self):
-        # entry 160 (scanner.FCStd, Pocket040): a profile face's Fit ran by
-        # the face's orientation, which a boolean may hand back either way.
-        # A new feature takes the face forward, as a sketch's: a negative Fit
-        # shrinks. An older one keeps the side its file made: the face was
-        # reversed there, and its -0.5 grew the profile.
+    def _reopened(self, setup):
+        """The document saved with \a setup applied to it, and opened again"""
         import os
         import tempfile
 
+        setup()
+        path = os.path.join(tempfile.mkdtemp(), 'PartDesignTestPocket.FCStd')
+        self.Doc.saveAs(path)
+        FreeCAD.closeDocument(self.Doc.Name)
+        self.Doc = FreeCAD.openDocument(path)
+        return self.Doc
+
+    def _fitBoxPocket(self, profile, fit):
+        """A pocket 2 deep in a 10 mm box of \a profile, a face of the box"""
         body = self.Doc.addObject('PartDesign::Body', 'FitBody')
         box = body.newObject('PartDesign::AdditiveBox', 'FitBox')
         self.Doc.recompute()
@@ -401,29 +406,126 @@ class TestPocket(unittest.TestCase):
                           if f.Orientation == 'Reversed' and f.Surface.TypeId == 'Part::GeomPlane']
         if not reversed_faces:
             self.skipTest('the box has no reversed face')
+        link = profile(body, box, reversed_faces[0])
         pocket = body.newObject('PartDesign::Pocket', 'FitPocket')
-        pocket.Profile = (box, [reversed_faces[0]])
+        pocket.Profile = link
         pocket.Length = 2
-        pocket.Fit = -0.5
+        pocket.Fit = fit
         self.Doc.recompute()
-        self.assertEqual(pocket._FitRule, 1)
-        self.assertFalse(pocket._FitFlip)
-        # the 10 by 10 face shrunk to 9 by 9, 2 deep
-        self.assertAlmostEqual(pocket.AddSubShape.Volume, 9 * 9 * 2, places=3)
+        self.assertNotIn('Invalid', pocket.State)
+        return pocket
 
-        # as a feature from before the rule: its file decides
-        pocket._FitRule = 0
-        path = os.path.join(tempfile.mkdtemp(), 'PartDesignTestPocket.FCStd')
-        self.Doc.saveAs(path)
-        FreeCAD.closeDocument(self.Doc.Name)
-        self.Doc = FreeCAD.openDocument(path)
-        pocket = self.Doc.getObject('FitPocket')
-        self.assertEqual(pocket._FitRule, 1)
+    # the 10 by 10 face grown by 0.5 all round, its corners rounded, 2 deep
+    _grown = (100 + 4 * 10 * 0.5 + math.pi * 0.5 ** 2) * 2
+    # and shrunk to 9 by 9
+    _shrunk = 9 * 9 * 2
+
+    def testFitOnAReversedFaceProfile(self):
+        # entry 160 (scanner.FCStd, Pocket040): a positive Fit grows a
+        # profile face, as a sketch's, whatever its orientation.
+        pocket = self._fitBoxPocket(lambda body, box, face: (box, [face]), -0.5)
+        # a new feature: rule 3, rule 2 with open wires fitted (entry 198)
+        self.assertEqual(pocket._FitRule, 3)
+        self.assertFalse(pocket._FitFlip)
+        self.assertAlmostEqual(pocket.AddSubShape.Volume, self._shrunk, places=3)
+
+        # As a feature from before the rule its file decides, and the Fit of
+        # a face with no hole ran by its outline there, the flag aside: its
+        # -0.5 shrank it, as now. Entry 160 read the flag as the side.
+        def older():
+            pocket._FitRule = 0
+
+        pocket = self._reopened(older).getObject('FitPocket')
+        self.assertEqual(pocket._FitRule, 2)
+        self.assertFalse(pocket._FitFlip)
+        pocket.touch()
+        self.Doc.recompute()
+        self.assertAlmostEqual(pocket.AddSubShape.Volume, self._shrunk, places=3)
+
+    def testFitOnABinderOfAReversedFace(self):
+        # entry 197 (scanner.FCStd, Pocket022 on Binder018): a binder's face
+        # copied reversed, a Fit of 0.1 that grew it, read at the open as a
+        # shrink by the face's flag; an update of the binder then shrank the
+        # pocket. The side the file made is kept, whichever rule made it.
+        def binder(body, box, face):
+            b = body.newObject('PartDesign::SubShapeBinder', 'FitBinder')
+            b.Support = [(box, face)]
+            b.MakeFace = True
+            self.Doc.recompute()
+            self.assertEqual(b.Shape.Faces[0].Orientation, 'Reversed')
+            return (b, [''])
+
+        pocket = self._fitBoxPocket(binder, 0.5)
+        self.assertAlmostEqual(pocket.AddSubShape.Volume, self._grown, places=3)
+
+        def older():
+            pocket._FitRule = 0
+
+        pocket = self._reopened(older).getObject('FitPocket')
+        self.assertEqual(pocket._FitRule, 2)
+        self.assertFalse(pocket._FitFlip)
+        self.Doc.getObject('FitBinder').touch()
+        self.Doc.recompute()
+        self.assertAlmostEqual(pocket.AddSubShape.Volume, self._grown, places=3)
+
+        # a file of entry 160's rule, which read the flag: its pocket shrank
+        def rule160():
+            pocket._FitRule = 1
+            pocket._FitFlip = True
+
+        pocket = self._reopened(rule160).getObject('FitPocket')
+        self.assertEqual(pocket._FitRule, 2)
+        self.assertTrue(pocket._FitFlip)
+        self.Doc.getObject('FitBinder').touch()
+        self.Doc.recompute()
+        self.assertAlmostEqual(pocket.AddSubShape.Volume, self._shrunk, places=3)
+
+    def testFitByTheOuterWiresTurn(self):
+        # entry 197: an offset runs by the outer wire's turn about the plane
+        # it finds, a circle's own axis -- Pocket040's face of a hole came
+        # back from a recompute turned the other way, and the same Fit of
+        # -0.5 shrank it. A circle about -Z: the same face either way.
+        import Part
+
+        body = self.Doc.addObject('PartDesign::Body', 'FitBody')
+        body.newObject('PartDesign::AdditiveBox', 'FitBox')
+        sketch = body.newObject('Sketcher::SketchObject', 'FitSketch')
+        sketch.Placement = FreeCAD.Placement(FreeCAD.Vector(0, 0, 10), FreeCAD.Rotation())
+        sketch.addGeometry(Part.Circle(FreeCAD.Vector(5, 5, 0), FreeCAD.Vector(0, 0, -1), 3))
+        pocket = body.newObject('PartDesign::Pocket', 'FitPocket')
+        pocket.Profile = sketch
+        pocket.Length = 2
+        pocket.Fit = 0.5
+        self.Doc.recompute()
+        self.assertNotIn('Invalid', pocket.State)
+        self.assertAlmostEqual(pocket.AddSubShape.BoundBox.XLength, 7, places=5)
+
+        # before the rule, the turn decided: that 0.5 shrank it, and the file
+        # keeps it so
+        def older():
+            pocket._FitRule = 0
+
+        pocket = self._reopened(older).getObject('FitPocket')
+        self.assertEqual(pocket._FitRule, 2)
         self.assertTrue(pocket._FitFlip)
         pocket.touch()
         self.Doc.recompute()
-        # grown by 0.5 all round, the corners rounded: more than 10 by 10
-        self.assertGreater(pocket.AddSubShape.Volume, 10 * 10 * 2)
+        self.assertAlmostEqual(pocket.AddSubShape.BoundBox.XLength, 5, places=5)
+
+    def testFitWhoseSideIsNotToldFails(self):
+        # entry 197: a file whose Fit side cannot be told fails, not changes
+        # unseen, until Fit is changed
+        pocket = self._fitBoxPocket(lambda body, box, face: (box, [face]), 0.5)
+        pocket._FitRule = -1
+        pocket.touch()
+        self.Doc.recompute()
+        self.assertIn('Invalid', pocket.State)
+        pocket.Fit = 0.4
+        self.assertEqual(pocket._FitRule, 2)
+        self.Doc.recompute()
+        self.assertNotIn('Invalid', pocket.State)
+        self.assertAlmostEqual(pocket.AddSubShape.Volume,
+                               (100 + 4 * 10 * 0.4 + math.pi * 0.4 ** 2) * 2, places=3)
 
     def tearDown(self):
         #closing doc

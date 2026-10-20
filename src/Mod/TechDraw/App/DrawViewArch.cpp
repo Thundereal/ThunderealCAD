@@ -27,6 +27,8 @@
 # include <sstream>
 #endif
 
+#include <QCoreApplication>
+
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <App/Document.h>
@@ -97,14 +99,24 @@ App::DocumentObjectExecReturn *DrawViewArch::execute()
         return App::DocumentObject::StdReturn;
     }
 
+    // a view with nothing to show says why (docs/TechDrawErrors.md 3.2)
     App::DocumentObject* sourceObj = Source.getValue();
-    if (sourceObj) {
+    if (!sourceObj) {
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The view has no section plane to draw")
+                .toStdString(),
+            this);
+    }
+    {
         //if (sourceObj is not ArchSection) return
         App::Property* proxy = sourceObj->getPropertyByName("Proxy");
         if (!proxy) {
-            Base::Console().Error("DVA::execute - %s is not an ArchSection\n", sourceObj->Label.getValue());
             //this is definitely not an ArchSection
-            return DrawView::execute();
+            return new App::DocumentObjectExecReturn(
+                QCoreApplication::translate("TechDraw", "%1 is not a section plane")
+                    .arg(QString::fromUtf8(sourceObj->Label.getValue()))
+                    .toStdString(),
+                this);
         }
 
       //std::string svgFrag;
@@ -127,11 +139,22 @@ App::DocumentObjectExecReturn *DrawViewArch::execute()
                  << ", linespacing=" << LineSpacing.getValue()
                  << ", joinArch=" << (JoinArch.getValue() ? "True" : "False");
 
-        Base::Interpreter().runString("import ArchSectionPlane");
-        Base::Interpreter().runStringArg("svgBody = ArchSectionPlane.getSVG(%s %s)",
-                                         sourceObj->getFullName(true).c_str(),paramStr.str().c_str());
-        Base::Interpreter().runStringArg("%s.Symbol = '%s' + svgBody + '%s'",
-                                         this->getFullName(true).c_str(),svgHead.c_str(),svgTail.c_str());
+        try {
+            Base::Interpreter().runString("import ArchSectionPlane");
+            Base::Interpreter().runStringArg("svgBody = ArchSectionPlane.getSVG(%s %s)",
+                                             sourceObj->getFullName(true).c_str(),paramStr.str().c_str());
+            Base::Interpreter().runStringArg("%s.Symbol = '%s' + svgBody + '%s'",
+                                             this->getFullName(true).c_str(),svgHead.c_str(),svgTail.c_str());
+        }
+        catch (const Base::Exception& e) {
+            return new App::DocumentObjectExecReturn(
+                QCoreApplication::translate("TechDraw",
+                                            "The section plane %1 gave no drawing: %2")
+                    .arg(QString::fromUtf8(sourceObj->Label.getValue()),
+                         QString::fromUtf8(e.what()))
+                    .toStdString(),
+                this);
+        }
     }
     overrideKeepUpdated(false);
     return DrawView::execute();

@@ -26,6 +26,8 @@
 # include <sstream>
 #endif
 
+#include <QCoreApplication>
+
 #include <Base/Exception.h>
 #include <Base/FileInfo.h>
 #include <Base/Interpreter.h>
@@ -92,10 +94,15 @@ App::DocumentObjectExecReturn *DrawParametricTemplate::execute()
         return App::DocumentObject::StdReturn;
     }
 
+    // a template that draws nothing says why, naming its script
+    // (docs/TechDrawErrors.md 3.2)
     Base::FileInfo tfi(temp);
     if (!tfi.isReadable()) {
-        // if there is a old absolute template file set use a redirect
-        return App::DocumentObject::StdReturn;
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The template script %1 cannot be read")
+                .arg(QString::fromUtf8(temp.c_str()))
+                .toStdString(),
+            this);
     }
 
     try {
@@ -105,7 +112,11 @@ App::DocumentObjectExecReturn *DrawParametricTemplate::execute()
         // a template script that failed to run is a failed recompute, not a
         // success; reporting it through a Python error left that error set for
         // an unrelated later call to trip over, and told the document nothing
-        return new App::DocumentObjectExecReturn(e.what());
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The template script %1 failed: %2")
+                .arg(QString::fromUtf8(tfi.fileName().c_str()), QString::fromUtf8(e.what()))
+                .toStdString(),
+            this);
     }
     return App::DocumentObject::StdReturn;
 }

@@ -166,7 +166,13 @@ Part::TopoShape DrawComplexSection::makeCuttingTool(double dMax)
     //    Base::Console().Message("DCS::makeCuttingTool()\n");
     Part::TopoShape profileShape = makeProfileShape();
     if (profileShape.isNull()) {
-        THROWM(Base::RuntimeError, "Can not make wire from cutting tool (1)")
+        // said with the profile it is about (docs/TechDrawErrors.md 3.2)
+        App::DocumentObject* profile = CuttingToolWireObject.getValue();
+        THROWM(Base::RuntimeError,
+               QCoreApplication::translate("TechDraw",
+                                           "the cutting profile %1 gives no wire to cut with")
+                   .arg(QString::fromUtf8(profile ? profile->Label.getValue() : "(none)"))
+                   .toStdString())
     }
     TopoDS_Wire profileWire = TopoDS::Wire(profileShape.getShape());
 
@@ -180,8 +186,10 @@ Part::TopoShape DrawComplexSection::makeCuttingTool(double dMax)
     bool isPositionOK = validateProfilePosition(profileWire, sectionCS, gClosestBasis);
     if (!isPositionOK) {
         //profile is not in a good position.  Result might not be right.
-        Base::Console().Warning("DCS::makeCuttingTool - %s - profile is outside shape box\n",
-                                getNameInDocument());
+        reportLateWarning(QCoreApplication::translate(
+            "TechDraw", "The cutting profile is outside the part, so the section may not be "
+                        "right")
+            .toStdString());
     }
 
     //move the profile wire to one side of the shape
@@ -330,13 +338,22 @@ void DrawComplexSection::makeSectionCut(const Part::TopoShape& baseShape)
         ComplexParams params;
         params.sectionCS = getSectionCS();
         if (!canBuild(params.sectionCS, CuttingToolWireObject.getValue())) {
-            THROWM(Base::RuntimeError, "Profile is parallel to Section Normal")
+            THROWM(Base::RuntimeError,
+                   QCoreApplication::translate("TechDraw",
+                                               "the cutting profile is parallel to the section "
+                                               "normal")
+                       .toStdString())
         }
 
         //get a vector that describes the profile's orientation
         params.profileWire = makeProfileWire();
         if (params.profileWire.IsNull()) {
-            THROWM(Base::RuntimeError, "Can not make wire from cutting tool (2)")
+            App::DocumentObject* profile = CuttingToolWireObject.getValue();
+            THROWM(Base::RuntimeError,
+                   QCoreApplication::translate("TechDraw",
+                                               "the cutting profile %1 gives no wire to cut with")
+                       .arg(QString::fromUtf8(profile ? profile->Label.getValue() : "(none)"))
+                       .toStdString())
         }
 
         m_alignWatcher.reset(new QFutureWatcher<void>());

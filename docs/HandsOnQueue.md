@@ -4009,7 +4009,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 194 | 2026-10-20 | a defect (two): in the FILLET edit panel, (1) selecting a MISSING edge's ROW does NOT select its PREVIEW FACE in the 3D view; (2) after selecting a row in the panel, then a PREVIEW FACE in the 3D view, the panel's earlier selection is NOT CLEARED -- TWO rows end up selected | OPEN; said to the note-taker 2026-10-20 09:29. 2026-10-20 09:38 CAUSE FOUND (one for both, the note-taker's candidate): a missing row put NOTHING in Gui::Selection, so its face was not lit, and the 3D click's clearSelection had nothing to clear and sent no ClrSelection (Selection.cpp 2022) -- the panel kept its row; before-run r155: both claims FAIL (rows ['?Edge11','Edge8']); FIXED in the working tree (the row selects its preview face, ';AddSub;FaceN' by getItemElement), r156 building; fillet-preview-pick-syncs-list.py 3 new claims; NOT committed. 2026-10-20 09:43 r157 building with 194 ALONE (a large rebuild, Command.h touched and restored); then fillet-preview-pick-syncs-list, dressup-replace-missing-edge, serve-dressup-preview-pick one at a time. READ: git status -- TaskDressUpParameters.cpp and the test modified, uncommitted |
 | 195 | 2026-10-20 | a change request: 'Measure (pre)selected geometry' (the Part preselection macro, Std_Macro_Presel_PartMeasure) ON BY DEFAULT | OPEN; said to the note-taker 2026-10-20 09:34. 2026-10-20 09:38 DONE in the working tree, r156 building, NOT committed: MacroCommand gets a per-command default (defaultOption), TRUE for Std_Macro_Presel_PartMeasure only; a stored value wins, the default not written; test part-presel-measure-default.py. c CHECKED by the note-taker (READ only): the reporter's %APPDATA%/Thundereal/user.cfg and %APPDATA%/FreeCAD/user.cfg hold NO stored bool for it (only an FCText toolbar entry of that name, 'PartDesignWorkbench') -- the reporter WILL see the new default. 2026-10-20 09:40 ON HOLD by the reporter: a PERFORMANCE TEST first (in the future), then the decision whether to make it default on. 2026-10-20 09:43 HELD and PARKED by the build session, NOT in the tree (the default stays off): the change saved as D:/works/sw/dl/handson/2026-10-12/195-presel-measure-default.patch (5068 bytes) with its test part-presel-measure-default.py beside it; to revive: git apply the patch, move the test back; r156 stopped (it carried 195). READ by the note-taker: both files there; git status shows no 195 file |
 | 196 | 2026-10-20 | defects (four), PRIORITY FIRST: fillet on-view edit -- (1) a NORMAL (working) preview face is selectable but NOT PRESELECTABLE, and a 3D selection of it does NOT SYNC the edit panel; (2) the on-view LABEL has NO PRESELECTION highlight; (3) the label LOSES to base geometry behind it on a click; (4) the handles' SILHOUETTE (pre)selection outline asked (144, 159) never came -- is it possible? and the handles are drawn FLAT, no shading | OPEN; said to the note-taker 2026-10-20 09:56; the reporter: the build session to do this FIRST, then WAIT for the reporter's hands-on test on the TEST BUILD directly. 2026-10-20 10:10 the reporter to the build session (relayed): point 4's outline made GENERAL -- every gizmo, the "original axis arrow" and the LEGACY DRAGGERS too; the build session's plan: one mechanism (the selection node's isOverEditHandle reports any SoDragger's path; the view routes it to the capture holding it as an outlined highlight item, pre-/selection colour, following ShowPreSelectedFaceOutline/ShowSelectedFaceOutline; the gizmos keep 144's group colouring); ASKED the reporter: "original axis arrow" = the transform dragger's arrows (assumed) or the body origin's axes; order: 3, 2, 1 (repro with PerViewEdit OFF, the reporter's default), shading, the outline. 2026-10-20 10:10 the reporter to the build session (relayed): "both" -- the outline covers the TRANSFORM DRAGGER and the ORIGIN's AXES; the build session: the origin's axes are ordinary objects (preselected by the selection, not draggers), so through the normal scene highlight, with the same outline rule for their arrows. 2026-10-20 10:11 the reporter to the build session (relayed): "also make the shading works on the others too" -- LIT SHADING (not the flat BASE_COLOR) on EVERY handle: the gizmos' linear, rotation and planar parts, the transform dragger, the light handle, the origin's axis arrows if flat too; one shared setting, not file by file. 2026-10-20 10:12 the reporter to the build session (relayed): "just remove the base color override, make them following the view's draw style" -- the SoLightModel BASE_COLOR nodes TAKEN OUT of the handle parts (linear, rotation, planar, transform dragger), so they follow the view's draw style and lighting; NO shared setting of our own (the 10:11 reading replaced). 2026-10-20 11:46 points 2 and 3 WORK in the build tree (r168: label test 7/7, arrow test 15/15), the shading DONE, uncommitted; the outline still chased (the hovered handle's highlight reaches the backend but does not land on the arrow; r171 traces it) |
-| 197 | 2026-10-20 | a defect: scanner.FCStd, the MIGRATION RECOMPUTE -> Binder008 'No context' (expected); a DOUBLE CLICK to UPDATE it -> Pocket022's FIT (the cut's tolerance, 0.1) CHANGES SIDE (the grow becomes a shrink); must not happen -- backward compatibility kept, or, where it cannot be, the feature marked in ERROR | OPEN; said to the note-taker 2026-10-20 10:02. 2026-10-20 10:07 the reporter: Binder008's update binds the SAME SHAPE, NO VISUAL CHANGE -- c answered; the flip is not a moved or different shape. 2026-10-20 11:50 ASSIGNED to x16win (the note-taker's split, 11:40), acknowledged: its full build running; to work on a scratch COPY of dl/handson/2026-10-06/scanner.FCStd (the same Pocket022, Binder018, Binder008). 2026-10-20 11:52 x16win STARTED 197: LinkVibe `fdf4dccef5` built clean on its box (build/win-relwithdebinfo-801, OCCT `1e2de2a74e`), baseline suites running; whether the flip reproduces on the scratch copy comes first |
+| 197 | 2026-10-20 | a defect: scanner.FCStd, the MIGRATION RECOMPUTE -> Binder008 'No context' (expected); a DOUBLE CLICK to UPDATE it -> Pocket022's FIT (the cut's tolerance, 0.1) CHANGES SIDE (the grow becomes a shrink); must not happen -- backward compatibility kept, or, where it cannot be, the feature marked in ERROR | OPEN; said to the note-taker 2026-10-20 10:02. 2026-10-20 10:07 the reporter: Binder008's update binds the SAME SHAPE, NO VISUAL CHANGE -- c answered; the flip is not a moved or different shape. 2026-10-20 11:50 ASSIGNED to x16win (the note-taker's split, 11:40), acknowledged: its full build running; to work on a scratch COPY of dl/handson/2026-10-06/scanner.FCStd (the same Pocket022, Binder018, Binder008). 2026-10-20 11:52 x16win STARTED 197: LinkVibe `fdf4dccef5` built clean on its box (build/win-relwithdebinfo-801, OCCT `1e2de2a74e`), baseline suites running; whether the flip reproduces on the scratch copy comes first. 2026-10-20 12:17 REPRODUCED headless, CAUSE found (the Fit's side follows the outer wire's turn, not the orientation flag), FIXED by x16win: `c8e5aca952` on ITS LinkVibe (another box), NOT pushed, NOT staged, not in this tree; _FitRule 2 judges the side by geometry; Pocket022 keeps +-7.6, Pocket040 r 13; TestPocket 14 OK, TestPartDesignApp 478 OK; the GUI double click not driven |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26952,6 +26952,69 @@ Windows box (build/win-relwithdebinfo-801, the OCCT fork `1e2de2a74e`);
 the baseline ctest and Python modules running in the background. 197
 begun on the scratch copy of dl/handson/2026-10-06/scanner.FCStd; first
 report: whether the flip reproduces there, before anything else.
+
+**2026-10-20 12:17, x16win: 197 REPRODUCED, CAUSE FOUND, FIXED -- `c8e5aca952` on
+x16win's LinkVibe (its own box), NOT pushed, NOT staged; not in this
+tree.**
+REPRO (headless, the scratch copy of dl/handson/2026-10-06/scanner.FCStd):
+the migration recompute -> Binder008 "No context" (expected). The double
+click is read as Context = Binder008 itself (it lists at the root, so it
+binds in place: no visual change -- with LinkGroup001 as the context it
+moves 53 mm instead). Then Pocket022's cut goes from y +-7.6 to +-7.4:
+the 0.1 expand becomes a shrink, and Fillet004 fails. Binder018's face
+comes back IDENTICAL: Reversed, the same normal, the same centre.
+CAUSE: the note-taker's candidate was close but NOT it. 93b9b8a440 read
+the file's side off the face's ORIENTATION FLAG (Reversed -> _FitFlip
+true), but the flag never decided the side: a planar face's offset runs
+by the OUTER WIRE'S TURN about the plane the offset finds (for a circle,
+the circle's own axis). Measured: Pocket040's circular face grows on
+-0.5; Pocket022's square face and a box face grow on +0.5; all three
+Reversed; forwardFaces() changes neither. 160's fix held by chance (the
+flag happened to follow the turn there); with 160's flag rule replaced by
+a judgement at the open alone, Pocket040 regressed to r 12. So the rule
+itself had to become geometric.
+FIX (FeatureSketchBased.cpp/.h): _FitRule 2 tells the side BY GEOMETRY,
+as a sketch's runs: +Fit grows the outer boundary (checked by the
+bounding box), +InnerFit grows the holes (checked by area); a face that
+ran the wrong way is offset again with the opposite sign; several faces
+that agree still go through ONE offset, so the element names stay. At
+the open, a file of rule 0 (before 160) or rule 1 (160 to now) has ITS
+OWN rule replayed on the file's face, and _FitFlip is set to whichever
+side reproduces that profile; if neither does, the feature FAILS with a
+translatable message ("Which way this feature's Fit runs cannot be told
+from its file. Change Fit to have it run as now: ...") until Fit is
+changed -- the reporter's "or mark it as error".
+RESULTS on the copy: Pocket022 keeps +-7.6 and Pocket040 keeps r 13
+through the migration recompute AND the binder update; no object
+invalid. Sketch profiles unchanged (measured: square and circle, with and
+without holes, Fit and InnerFit +-0.5). ONE BEHAVIOUR CHANGE: a sketch
+circle with axis -Z, whose +Fit used to SHRINK, now GROWS like every
+other profile.
+TESTS: TestPocket 14 OK -- testFitOnAReversedFaceProfile restated (the
+old code shrank that box face on -0.5; the test had asserted the flag's
+reading); new testFitOnABinderOfAReversedFace (197, also replays a rule-1
+file), testFitByTheOuterWiresTurn, testFitWhoseSideIsNotToldFails.
+TestPartDesignApp 478 OK (was 475). BASELINE before the fix,
+`fdf4dccef5` on Windows: Python 31 modules all OK; ctest 894/896 --
+TransactionLogTest.aReadOnlyOlderStoreIsReadAsItIs passed on a re-run (a
+flake); XLinkSnapshotTest.theClipboardsCopyWritesTheSnapshotAndPastesToTheDocument
+fails every time on Windows: getSnapshotPath() returns a Qt-cleaned path
+with forward slashes, TransientDir has backslashes, so the prefix check at
+tests/src/App/XLinkSnapshot.cpp:81 never matches -- a TEST defect, App,
+left alone (not x16win's area).
+FOR THE REPORTER, from x16win:
+(a) the GUI double click itself was NOT driven; the headless step runs
+    the same update(UpdateForced) + recompute.
+(b) unrelated, seen in passing: getVerifiedFace() does
+    openshape.makEOffset2D(Fit) and DROPS the result, so Fit does nothing
+    on OPEN-WIRE profiles. Not touched.
+NEXT for x16win: 178 points 3.2 and 3.3.
+The note-taker's reading: the fix is what the reporter asked -- the
+file's side kept, an error where it cannot be told. NOT decided, the
+reporter's: the -Z sketch circle's +Fit now growing (a change for files
+of rule 2 only? -- by x16win's account old files replay their own rule,
+so read as new edits only, NOT checked); (b) and the XLinkSnapshot test
+are NOT entries -- they become entries on the reporter's word.
 
 ## Inbox
 

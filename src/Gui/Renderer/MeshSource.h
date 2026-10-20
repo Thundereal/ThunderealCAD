@@ -506,6 +506,12 @@ public:
     /// The scene feed changed: replan even with a still camera.
     void markDirty() { m_dirty = true; }
 
+    /// Someone is waiting on the plan -- a capture whose picture owes
+    /// a refine (BGFXFrame.cpp, the frame tail): a plan already due
+    /// fires on the next turn of the event loop instead of at the end
+    /// of the settle window. Nothing happens when none is due.
+    void hurry();
+
     /// Whether the plan now running is for a camera the last one did
     /// not see -- valid inside the plan callback, and only there.
     ///

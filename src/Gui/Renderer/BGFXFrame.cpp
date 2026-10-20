@@ -877,6 +877,7 @@ bool BGFXRenderer::Private::render(const QColor &col,
                 const float refineTolerance = levelPressure.update(
                     underPressure, accepted, levelPlanner.tolerance(), h,
                     levelPressureReleaseFrac);
+                lastRefineTolerance = refineTolerance;
                 // The edge gate's latch (see pressureStanding): held
                 // for as long as the ladder holds raised error, and
                 // released with it -- the same statement about the
@@ -6796,6 +6797,39 @@ bool BGFXRenderer::Private::render(const QColor &col,
     // boundary because the hold decides whether to copy at all; its
     // inputs are all settled by submission, and the assignments that
     // publish it stay where they were.
+    // A capture that waits for the picture waits for the scene's
+    // refines too. A coarse-first shape is first drawn on a rough rung
+    // with its edges held back (gatedByContract: lines wait for exact
+    // faces), and the exact rung is asked for only by the level plan,
+    // ~300 ms after the camera settles, and lands some time after that.
+    // The plan's own frameOwes cannot cover it: the plan runs from its
+    // timer between frames, and the next frame's start clears the flag,
+    // so a View.saveImage() taken right after a shape appeared was
+    // judged complete and came out with shaded faces and no edges. So a
+    // frame with a waiting capture asks the plan's question itself, at
+    // the last plan's tolerance: anything on screen it would still
+    // refine means the picture is not there yet -- and a plan already
+    // due is hurried, so the refine is asked now. Only while a capture
+    // waits, never on an ordinary frame; bounded by the request's age,
+    // after which the capture takes what it has rather than fail.
+    if (dumpPending && pendingDump.waitComplete && viewMatrix && projMatrix
+            && !getenv("FC_BGFX_SERVE_SCENE")) {
+        const double waitedMs = double(bx::getHPCounter() - dumpRequestTicks)
+            * 1000.0 / double(bx::getHPFrequency());
+        if (waitedMs < captureRefineWaitMs) {
+            const float tol = lastRefineTolerance >= 0.0f
+                ? lastRefineTolerance : levelPlanner.tolerance();
+            const float h = float(widget->height()
+                                  * widget->devicePixelRatioF());
+            if (!Render::planMeshRefines(
+                     scene, reinterpret_cast<const float *>(viewMatrix),
+                     reinterpret_cast<const float *>(projMatrix), h, tol)
+                     .empty()) {
+                frameOwes = true;
+                levelPlanner.hurry();
+            }
+        }
+    }
     const bool frameWasComplete = !_BGFXLib.userProgramStoodIn
         && !hostHold && !frameOwes;
     const bool holdDump = dumpPending && !frameWasComplete

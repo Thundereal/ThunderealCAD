@@ -18,7 +18,13 @@
 //   label     a tap on the value's label: its box in the page, a value
 //             typed into it;
 //   orbit     a finger off the handles, moved: the camera turns and no
-//             radius changes.
+//             radius changes;
+//   sketch    the sketch's edit: a finger on its line (found by the pick
+//             and by its magenta), moved, drags it; a finger on empty
+//             space orbits.
+//
+// Between hold and finedrag the menu is closed with a keyboard Escape,
+// which must close the menu alone (entry 201).
 //
 // The serving process reads the radius and the counters on the phase
 // marks. Usage: node scripts/handle-touch-drive.js <url> <settle_ms>
@@ -86,14 +92,16 @@ function densest(hits, reach) {
   return best;
 }
 
-// Green pixels within 24 px of `at`: an active value's arrows are green,
-// the others red
-async function greenNear(page, at) {
+// Pixels within `half` px of `at` that are green (an active value's
+// arrows are green, the others red) or magenta (the sketch's edited-edge
+// colour the serving process sets)
+async function colourNear(page, at, half, magenta) {
   const b = await page.screenshot({
     encoding: 'base64',
-    clip: {x: Math.round(at[0] - 24), y: Math.round(at[1] - 24), width: 48, height: 48},
+    clip: {x: Math.round(at[0] - half), y: Math.round(at[1] - half),
+           width: 2 * half, height: 2 * half},
   });
-  return page.evaluate(async (b64) => {
+  return page.evaluate(async (b64, magenta) => {
     const img = new Image();
     img.src = 'data:image/png;base64,' + b64;
     await img.decode();
@@ -105,10 +113,42 @@ async function greenNear(page, at) {
     const d = g.getImageData(0, 0, c.width, c.height).data;
     let n = 0;
     for (let i = 0; i < d.length; i += 4)
-      if (d[i + 1] > 150 && d[i] < 110 && d[i + 2] < 110)
+      if (magenta ? d[i] > 180 && d[i + 2] > 180 && d[i + 1] < 90
+                  : d[i + 1] > 150 && d[i] < 110 && d[i + 2] < 110)
         ++n;
     return n;
-  }, b);
+  }, b, magenta);
+}
+const greenNear = (page, at) => colourNear(page, at, 24, false);
+const magentaNear = (page, at, half) => colourNear(page, at, half, true);
+
+// The points of `pts` (CSS px) with a magenta pixel within `half` px, off
+// one screenshot of the viewport
+async function onMagenta(page, pts, half) {
+  const b = await page.screenshot({encoding: 'base64'});
+  return page.evaluate(async (b64, pts, half) => {
+    const img = new Image();
+    img.src = 'data:image/png;base64,' + b64;
+    await img.decode();
+    const c = document.createElement('canvas');
+    c.width = img.width;
+    c.height = img.height;
+    const g = c.getContext('2d', {willReadFrequently: true});
+    g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
+    const sx = img.width / window.innerWidth, sy = img.height / window.innerHeight;
+    return pts.filter(([x, y]) => {
+      for (let v = Math.round((y - half) * sy); v <= Math.round((y + half) * sy); ++v)
+        for (let u = Math.round((x - half) * sx); u <= Math.round((x + half) * sx); ++u) {
+          if (u < 0 || v < 0 || u >= c.width || v >= c.height)
+            continue;
+          const i = 4 * (v * c.width + u);
+          if (d[i] > 180 && d[i + 2] > 180 && d[i + 1] < 90)
+            return true;
+        }
+      return false;
+    });
+  }, b, pts, half);
 }
 
 // The camera as the page's HUD shows it: yaw, pitch, distance
@@ -288,11 +328,14 @@ async function hudCamera(page) {
     out.tappedFine = await tapRow(page, 'Fine');
     await shot(page, '5-fine');
     phase('fine');
-    // close the menu as a phone does: a tap outside it, on the empty
-    // background of the canvas's bottom right
-    await tap(r.x + r.w * 0.92, r.y + r.h * 0.9);
-    await sleep(700);
+    // close the menu with Escape, a keyboard's: the menu's alone, the edit
+    // goes on (entry 201)
+    out.menuBeforeEscape = await menuRows(page);
+    await page.keyboard.press('Escape');
+    await sleep(1200);
     out.menuAfterClose = await menuRows(page);
+    out.editingAfterEscape = await page.evaluate(() => window.fcviewerEditing || null);
+    phase('menuescaped');
 
     // the fine drag, the same as the first
     h = await findHandle(page, 'fine');
@@ -360,6 +403,63 @@ async function hudCamera(page) {
     phase('orbited');
 
     out.left = await page.evaluate(() => window.fcviewerResetEdit());
+    for (let i = 0; i < 40 && (await page.evaluate(() => window.fcviewerEditing)); ++i)
+      await sleep(250);
+    phase('left');
+
+    // the sketch: a finger on its line works the sketcher as a mouse press
+    // would, and only empty space orbits
+    for (let i = 0; i < 160 && (await page.evaluate(() => window.fcviewerEditing)) !== 'Sketch'; ++i) {
+      if (i % 12 === 0)
+        await page.evaluate(() => window.fcviewerEdit('Sketch', 0, ''));
+      await sleep(250);
+    }
+    out.sketchEditing = await page.evaluate(() => window.fcviewerEditing || null);
+    // the line: the client's pick hits that are on its colour (the sketch's
+    // axes and origin are picked too)
+    let line = null;
+    for (let i = 0; i < 40 && !line; ++i) {
+      await sleep(250);
+      const hits = await handleHits(page, 4);
+      out.sketchHits = hits.length;
+      const on = await onMagenta(page, hits, 3);
+      out.sketchLineHits = on.length;
+      if (on.length)
+        line = densest(on, 12);
+    }
+    out.lineAt = line;
+    await shot(page, '10-sketch');
+    phase('sketchentered');
+    if (!line)
+      throw new Error('no sketch line found on the canvas');
+    out.cameraBeforeLine = await hudCamera(page);
+    // across the line, so the drag is not along it
+    await drag(line[0], line[1], 0, 5, 10);
+    await sleep(1500);
+    out.cameraAfterLine = await hudCamera(page);
+    await shot(page, '11-linedragged');
+    phase('linedragged');
+
+    // empty space: no pick there, and no magenta
+    let empty = null;
+    for (const f of [[0.25, 0.75], [0.75, 0.75], [0.25, 0.3], [0.75, 0.3], [0.5, 0.85]]) {
+      const p = [r.x + r.w * f[0], r.y + r.h * f[1]];
+      if (!(await page.evaluate((p) => window.fcviewerEditHandleAt(p[0], p[1]), p))
+          && (await magentaNear(page, p, 24)) === 0) {
+        empty = p;
+        break;
+      }
+    }
+    out.emptyAt = empty;
+    if (empty) {
+      out.cameraBeforeSketchOrbit = await hudCamera(page);
+      await drag(empty[0], empty[1], 6, 0, 10);
+      await sleep(1500);
+      out.cameraAfterSketchOrbit = await hudCamera(page);
+    }
+    await shot(page, '12-sketchorbited');
+    phase('sketchorbited');
+    await page.evaluate(() => window.fcviewerResetEdit());
     await sleep(1500);
     phase('done');
   }

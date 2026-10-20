@@ -20,10 +20,16 @@ serving process, on the driver's phase marks:
     radius"), not the view's;
   - its Settings, "Default drag", "Fine", tapped in that menu: the
     preference is fine -- a phone has no Shift;
+  - Escape with that menu open closes the menu and nothing else: the edit
+    goes on, and the key never goes up (entry 201);
   - the same drag again: the radius changes off the coarse step;
   - a tap on the value's label: its box in the page, and a value typed
     into it is the radius;
-  - a finger off the handles, moved: the camera turns, and nothing goes up.
+  - a finger off the handles, moved: the camera turns, and nothing goes up;
+  - then a sketch's edit: a finger on its line, moved, drags the line as a
+    mouse press would, and the camera stays; a finger on empty space
+    orbits and sends nothing. The fillet's see-through preview is under an
+    Unpickable selection root and takes no finger (Material::unpickable).
 
 Needs build/wasm (cmake --build build/wasm), node (NODE, or on PATH), a
 puppeteer-core install (PUPPETEER_PATH) and a Chrome (CHROME). Skips
@@ -158,16 +164,29 @@ def viewer_client():
     return rows[-1] if rows else None
 
 
+def line_start():
+    p = state["doc"].getObject("Sketch").Geometry[0].StartPoint
+    return (round(p.x, 3), round(p.y, 3))
+
+
+def in_edit():
+    vp = FreeCADGui.getDocument(DOC).getInEdit()
+    return vp.Object.Name if vp is not None else None
+
+
 def sample():
     client = viewer_client()
     return {"radius": radius(),
-            "edit": FreeCADGui.getDocument(DOC).getInEdit() is not None,
+            "edit": in_edit(),
+            "line": line_start(),
             "inputs": client["inputMsgs"] if client else None,
             "coarse": FreeCAD.ParamGet(GIZMOS).GetInt("DefaultCoarseDragBehavior", 0)}
 
 
 def build():
     try:
+        import Part
+
         if not os.path.exists(os.path.join(WASM, "fcviewer.html")):
             skip("no built viewer at %s" % WASM)
             return
@@ -198,6 +217,13 @@ def build():
         if not check("the fillet is valid", fillet.isValid() and not fillet.Shape.isNull()):
             finish()
             return
+        # A sketch outside the body, beside the box: one line, magenta when
+        # edited, which is how the driver tells it from the sketch's axes
+        FreeCAD.ParamGet(VIEW).SetUnsigned("EditedEdgeColor", 0xFF00FFFF)
+        sketch = doc.addObject("Sketcher::SketchObject", "Sketch")
+        sketch.addGeometry(Part.LineSegment(FreeCAD.Vector(0, -3, 0),
+                                            FreeCAD.Vector(10, -3, 0)), False)
+        doc.recompute()
 
         port = free_port()
         if not check("the document is served headless",
@@ -259,8 +285,9 @@ def verify():
         if not check("the browser run had no error", run.error is None and not said.get("error"),
                      run.error or said.get("error")):
             note(run.tail())
-        for name in ("entered", "tapped", "dragged", "held", "fine", "finedragged", "typed",
-                     "orbited"):
+        for name in ("entered", "tapped", "dragged", "held", "fine", "menuescaped",
+                     "finedragged", "typed",
+                     "orbited", "sketchentered", "linedragged", "sketchorbited"):
             if name not in s:
                 check("the run reached '%s'" % name, False, run.phases())
                 finish()
@@ -303,6 +330,18 @@ def verify():
               (said.get("settingsRows"), said.get("defaultDragRows")))
         check("... make the default drag fine", s["fine"]["coarse"] == 1, s["fine"]["coarse"])
 
+        # Escape on the open menu is the menu's (entry 201)
+        check("Escape with the menu open closes the menu",
+              bool(said.get("menuBeforeEscape")) and not said.get("menuAfterClose"),
+              (said.get("menuBeforeEscape"), said.get("menuAfterClose")))
+        check("... and the edit goes on, on both sides",
+              s["menuescaped"]["edit"] == "Fillet"
+              and said.get("editingAfterEscape") == "Fillet",
+              (s["menuescaped"]["edit"], said.get("editingAfterEscape")))
+        check("... and neither its press nor its release went up",
+              s["menuescaped"]["inputs"] == s["fine"]["inputs"],
+              (s["fine"]["inputs"], s["menuescaped"]["inputs"]))
+
         # fine drag
         r2, r3 = s["fine"]["radius"], s["finedragged"]["radius"]
         fine_steps = steps_between(state["radii"], 0, 1e9)
@@ -331,6 +370,33 @@ def verify():
               and s["orbited"]["radius"] == s["typed"]["radius"],
               (s["typed"], s["orbited"]))
         note("INFO radius values seen: %s" % fine_steps)
+
+        # the sketch: a finger on its line is the sketcher's, as a mouse
+        # press there is on the desktop; empty space orbits
+        check("the page entered the sketch's edit", said.get("sketchEditing") == "Sketch"
+              and s["sketchentered"]["edit"] == "Sketch",
+              (said.get("sketchEditing"), s["sketchentered"]["edit"]))
+        check("the client finds the sketch line by its own pick", said.get("lineAt") is not None,
+              (said.get("sketchHits"), said.get("sketchLineHits")))
+        l0, l1 = s["sketchentered"]["line"], s["linedragged"]["line"]
+        check("a finger on the sketch line, moved, drags the line", l1 != l0, (l0, l1))
+        check("... its press, moves and release went up",
+              (s["linedragged"]["inputs"] or 0) - (s["sketchentered"]["inputs"] or 0) >= 3,
+              (s["sketchentered"]["inputs"], s["linedragged"]["inputs"]))
+        check("... and the camera stayed",
+              said.get("cameraBeforeLine") is not None
+              and said.get("cameraAfterLine") == said.get("cameraBeforeLine"),
+              (said.get("cameraBeforeLine"), said.get("cameraAfterLine")))
+        check("there is empty space off the sketch", said.get("emptyAt") is not None,
+              said.get("emptyAt"))
+        check("a finger on empty space in the sketch turns the camera",
+              said.get("cameraBeforeSketchOrbit") is not None
+              and said.get("cameraAfterSketchOrbit") != said.get("cameraBeforeSketchOrbit"),
+              (said.get("cameraBeforeSketchOrbit"), said.get("cameraAfterSketchOrbit")))
+        check("... sends nothing up, and moves no line",
+              s["sketchorbited"]["inputs"] == s["linedragged"]["inputs"]
+              and s["sketchorbited"]["line"] == l1,
+              (s["linedragged"], s["sketchorbited"]))
     except Exception:
         note("ABORT verify:\n" + traceback.format_exc())
     finish()

@@ -5778,17 +5778,18 @@ static EM_BOOL onKeyUp(int, const EmscriptenKeyboardEvent *e, void *)
     return sendEditKey(e, false) ? EM_TRUE : EM_FALSE;
 }
 
-/// Whether a draw of the edit session's overlay is a handle's: solid and
-/// opaque, and placed by its own transform. The overlay holds more than
-/// the handles -- a dress-up's preview, see-through, with its outline and
-/// points, which the desktop does not pick either (docs/HandsOnQueue.md
-/// entry 160); the values' labels, sized in screen pixels per frame
-/// (Material::autozoom), whose captured geometry is not where they are
-/// drawn (pickLabelDraw); a sketch's lines and points. A finger on the
-/// preview or on a sketch is the camera's.
-static bool isHandleDraw(const Render::DrawCall &d)
+/// Whether a draw of the edit session's overlay takes a finger as a mouse
+/// press: what the desktop would pick there -- a handle, a sketch's line
+/// or point -- and is drawn opaque. Not a dress-up's preview, which sits
+/// under an Unpickable selection root (Material::unpickable) and is
+/// see-through, with an outline and invisible points: a click goes past
+/// it on the desktop (docs/HandsOnQueue.md entry 160), and taking it
+/// would leave the camera almost no canvas. Not a value's label either,
+/// sized in screen pixels per frame (Material::autozoom), whose captured
+/// geometry is not where it is drawn (pickLabelDraw).
+static bool isEditPickDraw(const Render::DrawCall &d)
 {
-    return d.material.type == Render::Material::Triangle
+    return !d.material.unpickable
         && d.material.autozoom.empty()
         && !d.material.transparent
         && (d.material.diffuse & 0xff) == 0xff;
@@ -5870,9 +5871,10 @@ static bool pickLabelDraw(const Render::DrawCall &d, float px, float py)
 }
 
 /// Whether canvas pixel (px, py) is on a handle of the edit session this
-/// client is in, or on a value's label, which ride the session's overlay
-/// (docs/OnViewValueEditing.md sec 9.3): a label is tapped to type its
-/// value, as it is clicked on the desktop.
+/// client is in, on a sketch's line or point, or on a value's label, which
+/// ride the session's overlay (docs/OnViewValueEditing.md sec 9.3): a
+/// label is tapped to type its value, a sketch line dragged, as each is
+/// with the mouse on the desktop. Only empty space orbits.
 ///
 /// A finger has to be told apart at its first touch -- a handle to drag,
 /// or the camera to orbit -- and a round trip per touch is too slow to
@@ -5886,7 +5888,7 @@ static bool pickEditHandle(float px, float py)
     for (const auto &ov : s_snap.overlays) {
         if (!ov.anchor.sceneCamera || ov.anchor.session != s_editSession)
             continue;
-        if (pickDraws(ov.draws, false, px, py, isHandleDraw).kind != PickNone)
+        if (pickDraws(ov.draws, false, px, py, isEditPickDraw).kind != PickNone)
             return true;
         for (const auto &d : ov.draws) {
             if (pickLabelDraw(d, px, py))

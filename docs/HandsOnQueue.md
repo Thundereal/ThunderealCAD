@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-20 09:18: entry 193 -- every list view in an overlay panel with the
+property view's translucent ALTERNATING rows (184's see-through is in,
+the alternation is not).** Under the entry.
+
 **2026-10-20 09:15: entry 192 -- TechDraw, frames hidden: a deselected Active View
 keeps its frame; and why the frame on selection at all (answered from
 155: something to drag a frameless view by -- needed for part views,
@@ -3936,6 +3940,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 190 | 2026-10-19 | a change request: ALL the TOOLBARS hosted in ONE DRAGGABLE CARD, with a TOGGLE that COLLAPSES it into a BUTTON, the button DRAGGABLE too (read as the BROWSER viewer's toolbars) | OPEN; said to the note-taker 2026-10-19 21:38. 2026-10-19 21:42 the reporter: the PHONE form too -- collapsible into the button, and EXPANDING into a card whose contents SCROLL (all the toolbars cannot fit a phone screen otherwise); g answered. 2026-10-19 22:02 BUILT and COMMITTED locally `224ec0828a` (log `3476f0c714`), NOT pushed, NOT staged; the note-taker's a-i and the 21:42 phone answer as written: one card by a grip, a toggle collapses it to a button dragged the same way, a click opens the card at its place, both kept inside the view, place and state per browser; the PHONE starts collapsed, opened a bounded card, bars wrapping, scrolling up/down only; covered.ts reports the card; real Chrome 13/13. 2026-10-20 06:56 PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged, with the reporter's changes to the build session (the note-taker did not hear them): the grip on the card's SHORT side, NO FILL under the bars (`00966b5d71`), the grip ending in the COLLAPSE BUTTON and a BAR PICKER (`5072ffe4c7`); the DULL tool buttons: every tool REFUSED for an INVITED EDITOR (opacity 0.38), not a layer -- the reporter: no lighter look, LATER a traditional DISABLED look. 2026-10-20 08:20 PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session |
 | 191 | 2026-10-19 | a change request (said to the build session, relayed): a handle DRAG whose RECOMPUTE FAILS (e.g. a radius dragged to 0) AUTO-REVERTS to the LAST WORKING VALUE, NOT through the normal undo stack -- the whole drag stays ONE transaction; the earlier "refuse at zero" DROPPED | OPEN; relayed to the note-taker 2026-10-19 22:02; BUILT and COMMITTED locally `3fc186d196` (log `e6cea1186f`), NOT pushed, NOT staged. 2026-10-20 06:56 PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged. 2026-10-20 08:20 PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session |
 | 192 | 2026-10-20 | a defect and a question: TechDraw, page frames HIDDEN -- SELECTING an ACTIVE VIEW shows its frame (as 155 asked), but after DESELECTING it the frame STAYS; and WHY show the frame at all, since the Active View can be dragged by its PICTURE | OPEN; said to the note-taker 2026-10-20 09:15; the why ANSWERED from entry 155 (2026-10-16 11:20 to 11:24). 2026-10-20 09:17 the build session: CAUSE FOUND by reading, nothing built -- the note-taker's candidate right: a deselect made IN THE PAGE draws the border while Gui::Selection still holds the view, then setTreeToSceneSelect clears Gui::Selection under blockSelection(true), so onSelectionChanged and its refreshSelectedFrames() never run (a deselect from the TREE is fine); proposed: refreshSelectedFrames() at the end of setTreeToSceneSelect, every view kind; on a: a frameless part view still has nothing to drag by (lines select edges/vertices, the inside passes) -- the rule's reason holds for part views and groups; a drag from a line NOT run; waiting for the reporter's word on a and on building |
+| 193 | 2026-10-20 | a change request: ALL LIST VIEWS in OVERLAY PANELS get ALTERNATING row backgrounds WITH TRANSPARENCY, as the PROPERTY VIEW has; 184's transparent background is in, the alternating rows are not | OPEN; said to the note-taker 2026-10-20 09:18 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26497,6 +26502,48 @@ building the fix.
 READ by the note-taker: MDIViewPage.cpp 763 refreshSelectedFrames, 958
 setTreeToSceneSelect, 961/1138 blockSelection -- the lines are there.
 
+## 193. Every list view in an overlay panel with the property view's translucent alternating rows (a change request) -- OPEN
+
+**2026-10-20 09:18, the reporter (to the note-taker):** "new request, style all list view in overlay panels with alternating background with transparency just like property view. previous request for transparent background is in, but not the alternating item background"
+The note-taker's reading: 184 (`5cb250119d`, staged in stage22) made the
+task panel's lists SEE-THROUGH in overlay mode (rgba(0,0,0,0.01)), but
+every row looks the same; the property view's rows ALTERNATE, each kind
+translucent. Wanted: EVERY list view in an OVERLAY panel -- not only the
+task panel's -- with the property view's alternating, translucent rows.
+READ in the source, nothing run:
+- src/Gui/propertyeditor/PropertyEditor.cpp 205 to 230: in overlay look
+  the property editor turns Qt's alternatingRowColors OFF (212: "the
+  style's own alternate fill has the sheet's opacity and no other") and
+  PAINTS both kinds itself (overlayRowBackground): even rows
+  OverlayManager::overlayItemBackground(...), odd rows the palette's
+  AlternateBase with OverlayManager::overlayAlpha(...); a row counted by
+  the rows shown above it.
+- src/Gui/Stylesheets/overlay/Dark.qss 3: "* { alternate-background-color:
+  rgba(50,50,50,120) }" (Light.qss rgba(250,250,250,120); the _overlay
+  sheets other values); 161 to 167: 184's rule for the task panel's
+  QTreeView/QListView/QTableView.
+- The note-taker's reading: a style sheet alone gives alternating rows
+  only where the view has alternatingRowColors on (most task panel lists
+  do not -- e.g. the widget fixtures show q_alternatingRowColors false),
+  and with the sheet's fixed opacity, not the overlay's alpha setting --
+  which is why the property editor paints them itself. So the build
+  session's choice between a sheet rule (qproperty-alternatingRowColors)
+  and the property editor's painting reused for other views.
+NOT said, with the note-taker's readings:
+a. "All list view in overlay panels": read as every QListView/QTreeView/
+   QTableView in a panel while it is OVERLAID -- the task panel's lists,
+   the model tree (combo view), the selection view's list, the report
+   view's? (a text view, not a list -- read as not); not in docked
+   (non-overlay) mode.
+b. The look: read as the SAME as the property view's -- the same two
+   colours and the same overlay alpha setting, following the theme.
+c. The selection and hover colours: read as kept (as 184's c).
+d. The model tree: it has its own item backgrounds (selection, the
+   in-edit colour); read as alternating under those -- for the build
+   session to check it reads well.
+e. Every overlay sheet (Dark, Light, the Outline, _overlay and Split
+   kinds): read as yes, as 184.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -26508,5 +26555,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 192
+the build session, 131 and 132 found by it; entries 134 to 193
 are of 2026-10-15, 134 said to the build session)

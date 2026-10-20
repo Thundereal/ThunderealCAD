@@ -141,6 +141,25 @@ fc_add_gui_test(GuiServePatternLabels_tests_run serve-pattern-labels.py
 fc_add_gui_test(GuiServePatternMarkers_tests_run serve-pattern-markers.py
                 --timeout 200)
 
+# Entry 189: a dress-up's preview, which the edit session hangs beside the
+# scene and draws unpickable, is picked by a replayed click through the
+# client's mirror -- a missing edge's kept face selects its row, and a base
+# edge then replaces the reference.
+fc_add_gui_test(GuiServeDressUpPreviewPick_tests_run serve-dressup-preview-pick.py
+                --timeout 200)
+# docs/OnViewValueEditing.md 9.2 #6: a handle's hint in a client's view is
+# pushed to the client after the tool tip's wait, and taken back off it.
+fc_add_gui_test(GuiServeHandleHint_tests_run serve-handle-hint.py
+                --timeout 240)
+# docs/HandsOnQueue.md entry 196, points 2 and 3: an on-view label over the
+# model is lit on hover, and a click on it is the label's.
+fc_add_gui_test(GuiOnViewLabelOverGeometry_tests_run onview-label-over-geometry.py
+                --timeout 200)
+# Entry 196, the hands-on of 2026-10-20: a drag of a working edge's handle
+# keeps its value beside a missing edge; a selected handle lights on hover.
+fc_add_gui_test(GuiFilletDragBesideMissingEdge_tests_run fillet-drag-beside-missing-edge.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.
@@ -1966,6 +1985,13 @@ fc_add_gui_test(GuiOmniSearchHighlightedRow_tests_run
 fc_add_gui_test(GuiOverlayPresetFollowsTheTheme_tests_run
                 overlay-preset-follows-the-theme.py
                 --timeout 300)
+
+# Every list, tree and table of an overlaid panel has the property view's
+# alternating rows at the overlays' opacity, painted by the overlay: a task
+# panel's list, the property view as before; none docked.
+fc_add_gui_test(GuiOverlayListRowBands_tests_run
+                overlay-list-row-bands.py
+                --timeout 180)
 
 # The Python editor and console take a theme's colours when it is applied --
 # the band on the current line, the text already in the console -- and each

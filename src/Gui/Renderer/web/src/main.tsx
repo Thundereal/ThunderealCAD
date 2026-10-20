@@ -17,6 +17,9 @@ import type { OnViewParam, OnViewPlace } from './onview';
 import { SplitOverlay } from './splitview';
 import { OmniBox } from './omni';
 import { ToolbarStrip } from './toolbar';
+import { installCovered } from './covered';
+import { OnViewMenuButton } from './onviewbutton';
+import { HandleHint } from './hint';
 import type { LoupeMark } from './loupe';
 import { NARROW } from './panel';
 import { EDIT_VALUE_DIFF, sendOp, sendRequestFile } from './control';
@@ -365,6 +368,8 @@ const [taskPanelOpen, setTaskPanelOpen] = createSignal(
 // (docs/TransactionLog.md sec 32.19; Gui::ViewProvider::ValueDiff) --
 // brings the card up with it, and takes it away again if it did.
 let panelOpenedForEdit = false;
+// The tool bars' place, told to the host while this client edits
+installCovered();
 window.addEventListener('fc:edit', (e: Event) => {
   const d = (e as CustomEvent).detail ?? {};
   if (d.editing && d.mode === EDIT_VALUE_DIFF) {
@@ -407,6 +412,8 @@ render(() => (
                    viewOnly={viewOnly} onSearch={() => setOmniOpen(true)} />
     <LoupeOverlay mark={loupe} />
     <OnViewParams params={onView} places={onViewPlaces} />
+    <OnViewMenuButton />
+    <HandleHint />
     <HudCard text={hud} onClose={() => window.fcviewerSetHud?.(false)} />
     {sending() && <div class="fc-sending" role="status">{sending()}</div>}
     <NaviCubeMenu />

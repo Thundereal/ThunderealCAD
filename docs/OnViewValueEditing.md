@@ -912,6 +912,125 @@ drawing half is seen; dragging is not tried yet. Under swiftshader CDP
 input can starve on a populated scene (the harness README), so a drag test
 synthesizes its events or runs a headful Chrome when it must.
 
+### 9.5a Seen in a real browser (entry 189, 2026-10-19 evening)
+
+Entry 189 (the reporter, 18:04): "have you implemented all corresponding on
+view edit on browser? if not, new request to sync that" -- 172 widened to
+everything the desktop edit gained since. The user, 18:2x: "After that do
+189 with real browser". Step 1 of 9.6, a HEADFUL Chrome (real GPU; CDP
+input starves under swiftshader) driven by
+`viewer-harness\drive-pdedit-drag.js` on the served pad + fillet, the edit
+entered from the page, the server logging the fillet's radius as it
+changes (`viewer-harness\probes-2026-10-19\drag3`):
+
+- Seen working: the handles drawn (the radius arrows, the preview's
+  outline), hover highlights the arrow, and a mouse drag of an arrow
+  changes the radius live, 2 -> 7 mm in ten moves of 4 px.
+- Found: the top-middle label ("Radius 2 mm", drawn as a datum label in the
+  scene) is under the web client's tool bars at 884 x 549; at 480 x 380
+  with the bars collapsed it showed. `clearMiddle()` knows the desktop's
+  overlays only.
+- Found: a drag of the arrow seen end-on (the top edge's, pointing at the
+  camera) took the radius to 0, and the recompute failed "Fillet radius
+  must be greater than zero". The drag clamps to the box's minimum, 0 for
+  the radius; the desktop clamps the same way, so it is not the browser's.
+- No on-view entry is announced to the client in a PD edit
+  (`fcviewerOnView` empty): typing a value in the browser has no path yet.
+- 9.2 #2 BUILT and seen (r143, `drag7`/`drag8`): the fine-snap modifier is
+  read from the event the dragger is handling, which carries the client's
+  keys, not from the host's keyboard. The same drag from the page: plain
+  2 -> 2.5, 3.5, 4.5, 5.5, 6.5, 7 (the coarse step); with Shift held
+  2 -> 2.6, 3.6, 4.5, 5.7, 6.7, 7.1.
+- 9.2 #3 BUILT and seen in part (r143, `keys1`): a key frame no on-view
+  entry has is offered to the value set shown in that mirror
+  (`OnViewValueSet::takeViewerKey`): Tab and Shift+Tab move the active
+  value, Escape cancels a drag or leaves no value active, and their
+  releases are taken too. Seen: Tab made the radius active (the arrows
+  green), Escape left none (red). Space (the menu), Enter and digits (the
+  label's box) are NOT taken for a mirror: each opens a widget on the
+  host's screen. They come with #4 and with the labels as entries.
+- The desktop unchanged: the on-view set and the menu test green on r143.
+- 9.2 #4 and #5 BUILT and seen (r144, `menu1`): a right click in the page
+  on a handle under the pointer opens that handle's menu, built by the
+  set (`OnViewValueSet::buildViewerMenu`) ahead of the edit's and the
+  view's -- the fillet's "Default radius / One radius / Two radii /
+  Remove", "Show handles", "Settings". Its entries are a new kind,
+  `onView`, which an editing client may run. The Settings rows are
+  described as their controls (`widget`: check, choice, number) and set
+  to the value the client sends; the menu stays open as a desktop menu
+  does for a widget. Seen: "Enable coarse snapping" unticked from the page
+  wrote the preference (True -> False) and the menu stayed, the tick gone.
+  "Show preview" is absent in a browser-started edit, as the panel's own
+  preview box is. #7 and #10 needed nothing: the client's right click
+  already asks for the scene menu, and the hover that names the handle
+  rides the left-button moves.
+- The top-middle label clear of the web tool bars, BUILT and seen (r145,
+  `label1`): the page tells the host what its tool bars cover of the view
+  (the `view.covered` op, `web/src/covered.ts`) while it edits, on
+  entering the edit and on any resize; a mirror keeps it
+  (`ViewerContext::coveredRects`), and in a view with no widget the
+  column goes below what covers its middle. Seen: "Radius 2 mm" under the
+  fourth bar at 884 x 549, where it was hidden. The desktop's placement
+  unchanged.
+- Typing in the browser BUILT and seen (r146, `type1`): Enter or a digit
+  from the page opens the active value's label, as on the desktop. On a
+  mirror the label's box is built unshown and streamed to the page as an
+  on-view entry (EditableDatumLabel, the sketcher's path), which then has
+  the keys; the set's filter on the box takes Enter, Tab and Escape as on
+  the desktop. A closed label gives the keys back to the set. Seen: Tab,
+  "5", Enter from the page -- the page's box read "5 mm", the radius 2 -> 5,
+  the box open after Enter with the value selected, as the desktop's.
+- 159 in the browser BUILT and seen (r147, `click1`): a mirror hands its
+  left press and release to the sets shown in it ahead of the scene
+  (`OnViewValueSet::viewerLeftButton`), which apply the desktop filter's
+  rule: a click on no handle leaves no value active. Seen: Tab made the
+  radius active (green), a click on nothing left none (red).
+
+- 9.2 #9, 173's menu button in the browser, BUILT and seen (r151,
+  `button1`): in a view with no widget the set works out where the
+  desktop's button would stand -- at the first top-middle label's left,
+  below what covers the view -- and the `view.covered` reply tells the page
+  (`menuButton`: x, y, side); the page draws it (`web/src/onviewbutton.tsx`,
+  three strips) and its click asks for the edit's menu with no handle
+  (`contextMenu` {onViewButton}). Seen: the button at the label's left
+  under the tool bars, its menu "Show handles", "Settings".
+- 9.2 #6, the handle's hint in the browser, BUILT and seen (r154,
+  `hint1`): Qt asks a desktop view's widget for a tool tip; a view with no
+  widget has nobody to ask, so the handle keeps Qt's wait itself
+  (`SH_ToolTip_WakeUpDelay`) and gives its hint to the view
+  (`ViewerContext::setHint`). A mirror pushes it to its client
+  (`{"op":"hint","text":...}`, an empty text when the pointer is off the
+  handle again), and the page shows it at its own pointer
+  (`web/src/hint.tsx`); a press or a right click hides it there, as a
+  desktop tip goes at a click. Seen: resting on the radius arrow, the two
+  lines "Drag to change the value; click to type it. / Right click for the
+  menu." below and right of the pointer; none at once, none after moving
+  off. tests/gui/serve-handle-hint.py; the desktop's tip unchanged
+  (fillet-handle-click-in-view.py).
+
+### 9.5b A failed drag goes back (the user, 2026-10-19)
+
+Asked about the radius dragged to 0, the user first said "drag refuse if
+it goes to zero" (built as such in r148), then: "how about instead of
+zero refuse, just auto revert to the last working value. Do not go through
+the normal undo stack, as the whole drag may continue multiple working
+step, but the whole drag is one transaction" -- "if failed, I mean".
+
+BUILT (r150), for every value with a handle, desktop and browser alike:
+the set keeps, for the drag in progress, the last value of the dragged
+box that recomputed (the value it starts from first). Each recompute of a
+PartDesign panel reports whether it failed
+(`TaskFeatureParameters::recomputeFeature` ->
+`OnViewValueSet::featureRecomputed`); a failure writes the box back to
+the last working value, which its owner writes as any change, inside the
+drag's step -- the step stays open until the recompute a write schedules
+has run (`closeStep`). A finished drag's last recompute, which comes after
+the release, is watched too; with recompute off while dragging that is
+the only one, and a failure goes back to where the drag began. The zero
+refusal is gone. Seen in fillet-undo-steps-in-view.py: a drag 1 -> 0.5,
+then one far past zero -- "0.00 mm failed, back to 0.5" in the log three
+times, the radius 0.5, the fillet valid, the drag one undo step.
+
 ### 9.6 Order of work
 
 1. See it: a served fillet edit in Chrome on this box, dragged with the

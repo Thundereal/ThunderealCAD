@@ -139,6 +139,14 @@ protected:
     /// A selection of the preview, taken as one of the row its element
     /// names; false when it is not one
     bool onPreviewSelected(const Gui::SelectionChanges& msg);
+    /** With one missing reference's row selected, a pick of a base element
+     * the feature does not use yet takes its place: the row renamed where it
+     * is, its values following it (entry 188). False when that is not the
+     * case, and the pick goes on as before.
+     */
+    bool replaceMissing(const std::string &element);
+    /// The selected rows, when one missing reference's is all of them
+    QTreeWidgetItem *getSoleMissingRow() const;
     /** A preselection in the 3D view -- the base's edge, or the preview's
      * face of a missing one -- lights its row as hovered and its preview
      * face; the reverse of a hover of the row (onTimer()), entry 169
@@ -154,6 +162,15 @@ protected:
     { return static_cast<ViewProviderDressUp*>(vp); }
 
     bool eventFilter(QObject *o, QEvent *e) override;
+
+    /// The failed edges and the error as the held step began
+    void heldStepBegun() override;
+    /** For isDragFailing(): the edges failed now that did not when the held
+     * step began -- a missing edge failed before the drag, and fails after
+     * it, whatever the drag does. \a whole is set when the feature failed as
+     * a whole, or with the same edges with another error (an invalid result).
+     */
+    std::vector<std::string> failedSinceStepBegun(bool &whole) const;
 
 protected:
     QWidget* proxy;
@@ -182,6 +199,12 @@ protected:
     std::vector<QBrush> hoverBrushes;
     /// The panel itself preselects, for a hover of its list
     bool hoverFromList = false;
+    /// The missing row that was the selection when a click cleared it, for
+    /// the pick the same click makes next (replaceMissing())
+    std::string missingPick;
+    /// heldStepBegun()'s
+    std::vector<std::string> failedAtStepStart;
+    std::string errorAtStepStart;
 };
 
 /// simulation dialog for the TaskView

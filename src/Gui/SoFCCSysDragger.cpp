@@ -179,9 +179,8 @@ SoGroup* TDragger::buildGeometry()
     auto cylinderSeparator = new SoSeparator();
     root->addChild(cylinderSeparator);
 
-    auto cylinderLightModel = new SoLightModel();
-    cylinderLightModel->model = SoLightModel::BASE_COLOR;
-    cylinderSeparator->addChild(cylinderLightModel);
+    // No light model of its own, here or below: lit as the view draws, its
+    // draw style included (docs/HandsOnQueue.md entry 196)
 
     auto cylinderTranslation = new SoTranslation();
     cylinderTranslation->translation.setValue(0.0, cylinderHeight / 2.0, 0.0);
@@ -197,10 +196,6 @@ SoGroup* TDragger::buildGeometry()
     float coneHeight = 2.5;
     auto coneSeparator = new SoSeparator();
     root->addChild(coneSeparator);
-
-    auto coneLightModel = new SoLightModel();
-    coneLightModel->model = SoLightModel::BASE_COLOR;
-    coneSeparator->addChild(coneLightModel);
 
     auto pickStyle = new SoPickStyle();
     pickStyle->style.setValue(SoPickStyle::SHAPE);
@@ -493,10 +488,7 @@ SoGroup* TPlanarDragger::buildGeometry()
     pickStyle->setOverride(TRUE);
     root->addChild(pickStyle);
 
-    auto lightModel = new SoLightModel();
-    lightModel->model = SoLightModel::BASE_COLOR;
-    root->addChild(lightModel);
-
+    // lit as the view draws (entry 196)
     auto cube = new SoCube();
     cube->width.setValue(cubeWidthHeight);
     cube->height.setValue(cubeWidthHeight);
@@ -791,10 +783,7 @@ SoGroup* RDragger::buildGeometry()
     drawStyle->lineWidth = 4.0;
     root->addChild(drawStyle);
 
-    auto lightModel = new SoLightModel();
-    lightModel->model = SoLightModel::BASE_COLOR;
-    root->addChild(lightModel);
-
+    // lit as the view draws (entry 196)
     auto lineSet = new SoLineSet();
     lineSet->numVertices.setValue(segments + 1);
     root->addChild(lineSet);

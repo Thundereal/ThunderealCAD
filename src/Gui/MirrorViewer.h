@@ -248,6 +248,15 @@ public:
     {
         return true;
     }
+    std::vector<std::array<int, 4>> coveredRects() const override;
+    /// What the client says its own interface covers of the view (the
+    /// `view.covered` op); the on-view labels move clear of it
+    void setCoveredRects(std::vector<std::array<int, 4>> rects);
+    /// A handle's hint, which the client shows at its pointer
+    void setHint(const QString& text) override;
+    QString hint() const override;
+    /// Told when the hint changes, so the connection can state it.
+    void setHintCallback(std::function<void()> callback);
     SoFCRenderCacheManager* getRenderCacheManager() const override;
     Render::Renderer* getExternalRenderer() const override;
     const SoFCVisibilityElement::Table* visibilityElementTable() const override;
@@ -368,6 +377,9 @@ private:
     bool replayKey(const Input& input);
     /// Hand a key frame to the focused entry box as the Qt event it is.
     bool routeKeyToParameter(const Input& input);
+    /// Offer a key frame to the on-view value set of an edit in this view
+    /// (OnViewValueSet::takeViewerKey)
+    bool takeValueSetKey(const Input& input);
 
     class Private;
     std::unique_ptr<Private> pimpl;

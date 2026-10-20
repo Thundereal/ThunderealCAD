@@ -507,8 +507,10 @@ void TaskFilletParameters::updateEdgeHandles()
                 box->setValue(segments[point].radius);
                 handle.box = box;
                 const int group = fillet->Segments.getGroup(edge);
+                // every handle in the theme's one colour, whatever its
+                // group: lit in the selection colours, a handle of another
+                // colour read as lit (docs/HandsOnQueue.md entry 196)
                 handle.gizmo = new Gui::LinearGizmo(box);
-                handle.gizmo->setColor(groupColor(group));
                 // The group, then "R", or which of its points: "2  R1" ...
                 QString title = segments.size() == 1
                     ? tr("R") : tr("R%1").arg(point + 1);
@@ -546,7 +548,6 @@ void TaskFilletParameters::updateEdgeHandles()
                 along.box = alongBox;
                 along.gizmo = new Gui::LinearGizmo(alongBox);
                 along.gizmo->setDraggerStyle(Gui::LinearDraggerStyle::Sphere);
-                along.gizmo->setColor(groupColor(group));
                 const int place = onViewValues->addValue(
                     alongBox, QStringLiteral("%1  %2").arg(group).arg(tr("P%1").arg(point + 1)),
                     Gui::OnViewValueSet::Place::AtHandle, along.gizmo);
@@ -1271,10 +1272,14 @@ bool TaskFilletParameters::isDragFailing() const
     auto fillet = vp ? dynamic_cast<PartDesign::Fillet*>(vp->getObject()) : nullptr;
     if (!fillet || !fillet->isError())
         return false;
-    const auto& failed = fillet->FailedEdges.getValues();
-    // Nothing named: the fillet as a whole failed
-    if (failed.empty())
+    // Only what failed since the drag began: an edge missing or failing
+    // before it is no failure of the drag
+    bool whole = false;
+    const auto failed = failedSinceStepBegun(whole);
+    if (whole)
         return true;
+    if (failed.empty())
+        return false;
     auto isFailed = [&failed](const std::string& edge) {
         return std::find(failed.begin(), failed.end(), edge) != failed.end();
     };

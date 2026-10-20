@@ -47,6 +47,7 @@
 #include <App/DocumentObject.h>
 #include <App/Expression.h>
 #include <App/PropertyUnits.h>
+#include <Base/Console.h>
 #include <Base/Placement.h>
 #include <Base/Quantity.h>
 
@@ -232,14 +233,235 @@ QSize labelTextSize(const EditableDatumLabel* label)
 }
 }  // namespace
 
+namespace
+{
+/// The sets alive, for a key of a view without a widget (takeViewerKey())
+std::vector<OnViewValueSet*>& liveSets()
+{
+    static std::vector<OnViewValueSet*> sets;
+    return sets;
+}
+}  // namespace
+
 OnViewValueSet::OnViewValueSet(QObject* parent)
     : QObject(parent)
-{}
+{
+    liveSets().push_back(this);
+}
 
 OnViewValueSet::~OnViewValueSet()
 {
+    auto& sets = liveSets();
+    sets.erase(std::remove(sets.begin(), sets.end(), this), sets.end());
     attach(nullptr);
     truncate(0);
+}
+
+bool OnViewValueSet::takeViewerKey(ViewerContext* viewer, int key,
+                                   Qt::KeyboardModifiers modifiers, bool press,
+                                   const QString& text)
+{
+    if (!viewer) {
+        return false;
+    }
+    for (OnViewValueSet* set : liveSets()) {
+        if (set->liveView() == viewer && !set->keyWidget) {
+            return set->takeMirrorKey(key, modifiers, press, text);
+        }
+    }
+    return false;
+}
+
+void OnViewValueSet::viewerLeftButton(ViewerContext* viewer, bool press, const QPoint& pos)
+{
+    for (OnViewValueSet* set : liveSets()) {
+        if (!viewer || set->liveView() != viewer || set->keyWidget) {
+            continue;
+        }
+        // The desktop's filter (eventFilter(), entry 159): only a click --
+        // a press that moves is the camera's -- and only if nothing was
+        // made active by it meanwhile
+        if (press) {
+            set->clickMayClear = false;
+            if (set->active >= 0 && !set->dragHandle) {
+                bool overHandle = false;
+                for (const auto& entry : set->entries) {
+                    for (Gizmo* handle : entry->handles) {
+                        overHandle = overHandle || handle->isHovered();
+                    }
+                }
+                if (!overHandle) {
+                    set->clickMayClear = true;
+                    set->clickPos = pos;
+                    set->clickActivations = set->activations;
+                }
+            }
+        }
+        else if (set->clickMayClear) {
+            set->clickMayClear = false;
+            const double slack = QApplication::startDragDistance() * viewer->devicePixelRatio();
+            if ((pos - set->clickPos).manhattanLength() <= slack) {
+                const int before = set->clickActivations;
+                QPointer<OnViewValueSet> self(set);
+                QTimer::singleShot(0, set, [self, before]() {
+                    if (self && self->activations == before && self->active >= 0
+                        && self->typing < 0 && !self->dragHandle) {
+                        self->setActive(-1);
+                    }
+                });
+            }
+        }
+    }
+}
+
+void OnViewValueSet::featureRecomputed(const App::Document* doc, bool failed)
+{
+    for (OnViewValueSet* set : liveSets()) {
+        if (!set->dragBox || (!set->dragHandle && !set->dragSettling)) {
+            continue;
+        }
+        ViewerContext* view = set->liveView();
+        Gui::Document* gdoc = view ? view->getDocument() : nullptr;
+        if (doc && gdoc && gdoc->getDocument() != doc) {
+            continue;
+        }
+        set->dragRecomputed(failed);
+    }
+}
+
+void OnViewValueSet::dragRecomputed(bool failed)
+{
+    // "how about instead of zero refuse, just auto revert to the last
+    // working value. Do not go through the normal undo stack, as the whole
+    // drag may continue multiple working step, but the whole drag is one
+    // transaction" -- "if failed, I mean" (the user, 2026-10-19). The box
+    // written back is written by its owner as any change of it, inside the
+    // drag's step, which stays open until the recompute that write
+    // schedules has run (TaskFeatureParameters::closeStep).
+    QPointer<QuantitySpinBox> box = dragBox;
+    if (!box) {
+        dragBox = nullptr;
+        dragSettling = false;
+        return;
+    }
+    const bool atGood = std::abs(box->rawValue() - dragGood) < 1e-12;
+    if (!failed) {
+        dragGood = box->rawValue();
+    }
+    else if (!atGood) {
+        Base::Console().Log("On-view drag: %s failed, back to %g\n",
+                            box->text().toUtf8().constData(), dragGood);
+        box->setValue(dragGood);
+        // still settling: the write back's own recompute comes next
+        return;
+    }
+    if (dragSettling) {
+        dragSettling = false;
+        dragBox = nullptr;
+    }
+}
+
+bool OnViewValueSet::viewerMenuButton(ViewerContext* viewer, std::array<int, 3>& place)
+{
+    for (OnViewValueSet* set : liveSets()) {
+        if (viewer && set->liveView() == viewer && !set->keyWidget && set->count() > 0
+            && set->viewerButton[2] > 0) {
+            place = set->viewerButton;
+            return true;
+        }
+    }
+    return false;
+}
+
+void OnViewValueSet::viewCoverChanged(ViewerContext* viewer)
+{
+    for (OnViewValueSet* set : liveSets()) {
+        if (viewer && set->liveView() == viewer) {
+            set->placeLabels();
+        }
+    }
+}
+
+bool OnViewValueSet::buildViewerMenu(ViewerContext* viewer, QMenu& menu, bool button)
+{
+    if (!viewer) {
+        return false;
+    }
+    if (button) {
+        // The page's menu button: the edit's menu with no handle, the
+        // active value's entries first, as the desktop's button opens it
+        for (OnViewValueSet* set : liveSets()) {
+            if (set->liveView() == viewer && set->count() > 0) {
+                set->buildMenu(menu, nullptr);
+                return true;
+            }
+        }
+        return false;
+    }
+    for (OnViewValueSet* set : liveSets()) {
+        if (set->liveView() != viewer || set->dragHandle) {
+            continue;
+        }
+        for (const auto& entry : set->entries) {
+            for (Gizmo* handle : entry->handles) {
+                if (handle->isHovered()) {
+                    set->buildMenu(menu, handle);
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+bool OnViewValueSet::takeMirrorKey(int key, Qt::KeyboardModifiers modifiers, bool press,
+                                   const QString& text)
+{
+    if (!press) {
+        // the release of a key taken on its press is not the view's either
+        auto it = std::find(takenKeys.begin(), takenKeys.end(), key);
+        if (it == takenKeys.end()) {
+            return false;
+        }
+        takenKeys.erase(it);
+        return true;
+    }
+    // What the view widget's filter does (eventFilter(), takeKey()), less
+    // Space: it opens a QMenu on the host's screen; the client's right
+    // click on a handle is its menu (buildViewerMenu()). Enter and digits
+    // open the active value's label: on a mirror its box is built unshown
+    // and streamed to the client as an on-view entry, which then has the
+    // keys (EditableDatumLabel::startEdit, docs/ThinClient.md sec 8.7)
+    const bool plain =
+        !(modifiers & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier));
+    bool taken = false;
+    if (dragHandle && key == Qt::Key_Escape) {
+        dragHandle->cancelDrag();
+        taken = true;
+    }
+    else if (typing < 0 && active >= 0 && plain
+             && (key == Qt::Key_Return || key == Qt::Key_Enter)) {
+        taken = startTyping(active);
+    }
+    else if (typing < 0 && active >= 0 && !dragHandle) {
+        QKeyEvent first(QEvent::KeyPress, key, modifiers, text);
+        if (startsNumber(&first)) {
+            taken = startTyping(active, &first);
+        }
+    }
+    else if (typing < 0 && !entries.empty() && plain
+             && (key == Qt::Key_Tab || key == Qt::Key_Backtab)) {
+        moveActive(key == Qt::Key_Backtab || (modifiers & Qt::ShiftModifier));
+        taken = true;
+    }
+    else if (typing < 0 && active >= 0 && plain && key == Qt::Key_Escape) {
+        setActive(-1);
+        taken = true;
+    }
+    if (taken && std::find(takenKeys.begin(), takenKeys.end(), key) == takenKeys.end()) {
+        takenKeys.push_back(key);
+    }
+    return taken;
 }
 
 void OnViewValueSet::setupHandle(int index, Gizmo* handle)
@@ -295,12 +517,25 @@ void OnViewValueSet::setupHandle(int index, Gizmo* handle)
         switch (event) {
             case Gizmo::DragEvent::Started:
                 self->dragHandle = handle;
+                // The value it starts from is taken to work: a failed
+                // recompute in the drag goes back to the last that did
+                // (featureRecomputed())
+                self->dragBox = index < self->count() ? self->entries[index]->box : nullptr;
+                self->dragGood = self->dragBox ? self->dragBox->rawValue() : 0.0;
+                self->dragSettling = false;
                 Q_EMIT self->stepBegun();
                 break;
             case Gizmo::DragEvent::Finished:
             case Gizmo::DragEvent::Cancelled:
                 if (self->dragHandle == handle) {
                     self->dragHandle = nullptr;
+                }
+                // A finished drag's last value is still to be recomputed --
+                // its step stays open for that recompute -- and may still
+                // go back; a cancelled one is rolled back as it is
+                self->dragSettling = event == Gizmo::DragEvent::Finished && self->dragBox;
+                if (!self->dragSettling) {
+                    self->dragBox = nullptr;
                 }
                 Q_EMIT self->stepEnded(event == Gizmo::DragEvent::Cancelled);
                 break;
@@ -648,9 +883,31 @@ void OnViewValueSet::placeLabels()
             }
         }
     }
-    int middle = clearMiddle(widest + 2 * (menuButtonSide() + 8));
+    const int needed = widest + 2 * (menuButtonSide() + 8);
+    int middle = clearMiddle(needed);
     const short middlePixel = middle >= 0 ? short(middle * ratio) : short(size[0] / 2);
     placeMenuButton(middle, firstWidth);
+    // A view with no widget is a client's, whose own interface may cover
+    // its top -- a browser's tool bars: the column goes below what covers
+    // its middle (docs/OnViewValueEditing.md sec 9.5a)
+    int below = 0;
+    if (!keyWidget) {
+        const double width = size[0] / ratio;
+        const double height = size[1] / ratio;
+        const double left = width / 2 - needed / 2.0;
+        const double right = width / 2 + needed / 2.0;
+        for (const auto& r : view->coveredRects()) {
+            if (r[0] < right && r[0] + r[2] > left && r[1] < height / 3) {
+                below = std::max(below, r[1] + r[3]);
+            }
+        }
+        // The menu button (entry 173) is the page's to draw: where the
+        // desktop's would stand, told to it (viewerMenuButton())
+        const int side = menuButtonSide();
+        const int mid = int(width / 2);
+        const int x = firstWidth > 0 ? mid - firstWidth / 2 - 8 - side : mid - side / 2;
+        viewerButton = {std::max(0, x), std::max(0, below + TopMargin - side / 2), side};
+    }
 
     int row = 0;
     for (int i = 0; i < count(); ++i) {
@@ -664,7 +921,8 @@ void OnViewValueSet::placeLabels()
         }
         if (atTop(i)) {
             // One under the other, from the top middle down
-            pixel = SbVec2s(middlePixel, short(size[1] - int((TopMargin + row * TopMargin) * ratio)));
+            pixel = SbVec2s(middlePixel,
+                            short(size[1] - int((below + TopMargin + row * TopMargin) * ratio)));
             ++row;
         }
         else {
@@ -733,7 +991,8 @@ void OnViewValueSet::highlight()
         const bool prelit = i == hovered || (hoverGroup > 0 && entries[i]->group == hoverGroup);
         for (Gizmo* handle : entries[i]->handles) {
             handle->setHighlighted(lit);
-            handle->setPreselected(prelit && !lit);
+            // a selected one too: lit by the pointer while over it
+            handle->setPreselected(prelit);
         }
     }
 }
@@ -955,28 +1214,40 @@ void OnViewValueSet::addSettingsMenu(QMenu& menu)
         MiscParams::setEnableCoarseSnap(on);
     });
 
-    auto modifier = new QComboBox;
-    modifier->setObjectName(QStringLiteral("OnViewSettingFineSnapModifier"));
-    modifier->addItem(tr("Shift"), static_cast<int>(Qt::ShiftModifier));
-    modifier->addItem(tr("Ctrl"), static_cast<int>(Qt::ControlModifier));
-    modifier->setCurrentIndex(
-        GizmoContainer::getFineSnapModifier() == Qt::ControlModifier ? 1 : 0);
-    modifier->setToolTip(tr("Defines the modifier key used for fine snapping while dragging"));
-    settings->addAction(fieldRow(settings, tr("Fine snap modifier"), modifier));
-    connect(modifier, qOverload<int>(&QComboBox::currentIndexChanged), [modifier](int i) {
-        MiscParams::setFineSnapModifier(modifier->itemData(i).toInt());
-    });
-
+    // The key toggles: held, the drag is the other of the default -- fine when
+    // coarse is the default, coarse when fine is -- and its row says which
     auto behavior = new QComboBox;
     behavior->setObjectName(QStringLiteral("OnViewSettingDefaultCoarseDragBehavior"));
     behavior->addItem(tr("Coarse"), 0);
     behavior->addItem(tr("Fine"), 1);
     behavior->setCurrentIndex(GizmoContainer::isCoarseByDefault() ? 0 : 1);
     behavior->setToolTip(
-        tr("Determines whether the drag is coarse or fine without holding the modifier key"));
-    settings->addAction(fieldRow(settings, tr("Default coarse drag behavior"), behavior));
-    connect(behavior, qOverload<int>(&QComboBox::currentIndexChanged), [behavior](int i) {
+        tr("Whether a drag is coarse or fine without the modifier key held"));
+    settings->addAction(fieldRow(settings, tr("Default drag"), behavior));
+
+    auto modifier = new QComboBox;
+    modifier->setObjectName(QStringLiteral("OnViewSettingFineSnapModifier"));
+    modifier->addItem(tr("Shift"), static_cast<int>(Qt::ShiftModifier));
+    modifier->addItem(tr("Ctrl"), static_cast<int>(Qt::ControlModifier));
+    modifier->setCurrentIndex(
+        GizmoContainer::getFineSnapModifier() == Qt::ControlModifier ? 1 : 0);
+    settings->addAction(fieldRow(settings, QString(), modifier));
+    auto modifierLabel = modifier->parentWidget()->findChild<QLabel*>();
+    auto nameModifier = [modifier, modifierLabel](bool coarseByDefault) {
+        modifierLabel->setText(coarseByDefault ? tr("Hold for fine drag")
+                                               : tr("Hold for coarse drag"));
+        modifier->setToolTip(coarseByDefault
+                                 ? tr("The key that makes a drag fine while held")
+                                 : tr("The key that makes a drag coarse while held"));
+    };
+    nameModifier(GizmoContainer::isCoarseByDefault());
+    connect(modifier, qOverload<int>(&QComboBox::currentIndexChanged), [modifier](int i) {
+        MiscParams::setFineSnapModifier(modifier->itemData(i).toInt());
+    });
+    connect(behavior, qOverload<int>(&QComboBox::currentIndexChanged),
+            [behavior, nameModifier](int i) {
         MiscParams::setDefaultCoarseDragBehavior(behavior->itemData(i).toInt());
+        nameModifier(GizmoContainer::isCoarseByDefault());
     });
 
     auto linear = new QSpinBox;
@@ -1218,6 +1489,11 @@ void OnViewValueSet::endTyping(bool keep)
     }
     // the label's step ends, open since startTyping()
     Q_EMIT stepEnded(false);
+    // A view with no widget keeps which entry has its keys itself: the
+    // closed label's no longer, so the next key comes to this set again
+    if (!keyWidget && liveView()) {
+        view->onViewParameterFocused(nullptr);
+    }
     if (index >= count()) {
         return;
     }

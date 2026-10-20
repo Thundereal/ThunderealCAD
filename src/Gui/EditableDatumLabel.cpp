@@ -29,6 +29,7 @@
 # include <QLineEdit>
 # include <Inventor/SoPath.h>
 # include <Inventor/SoPickedPoint.h>
+# include <Inventor/events/SoLocation2Event.h>
 # include <Inventor/events/SoMouseButtonEvent.h>
 # include <Inventor/sensors/SoNodeSensor.h>
 # include <Inventor/nodes/SoEventCallback.h>
@@ -43,6 +44,7 @@
 #include <Gui/View3DInventorViewer.h>
 #include <Gui/SoFCUnifiedSelection.h>
 #include <Gui/ViewerContext.h>
+#include <Gui/ViewParams.h>
 
 #include "EditableDatumLabel.h"
 
@@ -96,6 +98,7 @@ EditableDatumLabel::EditableDatumLabel(ViewerContext* view,
     , editStartValue(0.0)
     , lockedAppearance(false)
     , function(Function::Positioning)
+    , ownColor(color)
 {
     initColors();
     if (viewer) {
@@ -118,6 +121,8 @@ EditableDatumLabel::EditableDatumLabel(ViewerContext* view,
     clickCallback = new SoEventCallback;
     clickCallback->ref();
     clickCallback->addEventCallback(SoMouseButtonEvent::getClassTypeId(), eventCallback, this);
+    // and the pointer over it, which lights it (entry 196)
+    clickCallback->addEventCallback(SoLocation2Event::getClassTypeId(), eventCallback, this);
     root->addChild(clickCallback);
     pickStyle = new SoPickStyle;
     pickStyle->ref();
@@ -155,6 +160,7 @@ EditableDatumLabel::~EditableDatumLabel()
     forgetViewer(true);
     transform->unref();
     clickCallback->removeEventCallback(SoMouseButtonEvent::getClassTypeId(), eventCallback, this);
+    clickCallback->removeEventCallback(SoLocation2Event::getClassTypeId(), eventCallback, this);
     clickCallback->unref();
     pickStyle->unref();
     root->unref();
@@ -642,7 +648,29 @@ void EditableDatumLabel::setPlacement(const Base::Placement& plc)
 // NOLINTNEXTLINE
 void EditableDatumLabel::setColor(SbColor color)
 {
+    ownColor = color;
+    if (hovered) {
+        return;
+    }
     label->textColor = color;
+    notifyChanged();
+}
+
+void EditableDatumLabel::showHover(bool over)
+{
+    if (over == hovered) {
+        return;
+    }
+    hovered = over;
+    if (over) {
+        float transparency = 0.0F;
+        SbColor lit;
+        lit.setPackedValue(static_cast<uint32_t>(ViewParams::getHighlightColor()), transparency);
+        label->textColor = lit;
+    }
+    else {
+        label->textColor = ownColor;
+    }
     notifyChanged();
 }
 
@@ -738,6 +766,16 @@ void EditableDatumLabel::handleEvent(SoEventCallback* cb)
     // Before asking for the pick: every label of a set sits in the scene
     // with a callback of its own
     if (pickStyle->style.getValue() == SoPickStyle::UNPICKABLE) {
+        showHover(false);
+        return;
+    }
+    if (cb->getEvent()->isOfType(SoLocation2Event::getClassTypeId())) {
+        // "on view label no preselection highlight" (docs/HandsOnQueue.md
+        // entry 196, point 2; entry 180): lit while the pointer is on it,
+        // as a handle is. Picked on top (SHAPE_ON_TOP), so the geometry
+        // behind it does not hide it from the pick.
+        const SoPickedPoint* picked = cb->getPickedPoint();
+        showHover(picked && picked->getPath()->containsNode(root));
         return;
     }
     const auto* event = static_cast<const SoMouseButtonEvent*>(cb->getEvent());

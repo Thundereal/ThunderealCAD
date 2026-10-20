@@ -64,6 +64,7 @@
 #include "InventorBase.h"
 #include "MainWindow.h"
 #include "MirrorViewer.h"
+#include "OnViewValue.h"
 #include "Selection.h"
 #include "SoFCUnifiedSelection.h"
 #include "SoMouseWheelEvent.h"
@@ -223,7 +224,12 @@ public:
      * through the same setFocusToSpinbox() the controller already calls.
      */
     OnViewEntry* focusedParam = nullptr;
+    /// What the client's own interface covers (setCoveredRects())
+    std::vector<std::array<int, 4>> covered;
     std::function<void()> onViewParamsChanged;
+    /// The hint shown at the client's pointer (setHint())
+    QString hint;
+    std::function<void()> onHintChanged;
     /** The key frame being routed into an entry box, if any.
      *
      * The box may hand the key back (DrawSketchKeyboardManager decides
@@ -677,6 +683,13 @@ bool MirrorViewer::handleInput(const Input& input)
             stamp(event);
             event.setButton(button(input.code));
             event.setState(press ? SoButtonEvent::DOWN : SoButtonEvent::UP);
+            // Seen by an edit's on-view values ahead of the scene, as the
+            // desktop's view widget filter sees it: a click on nothing
+            // leaves no value active (entry 159)
+            if (qtButton(input.code) == Qt::LeftButton) {
+                const SbVec2s at = event.getPosition();
+                OnViewValueSet::viewerLeftButton(this, press, QPoint(at[0], at[1]));
+            }
             return replay(event);
         }
         case Input::Wheel: {
@@ -694,6 +707,12 @@ bool MirrorViewer::handleInput(const Input& input)
             // (docs/ThinClient.md section 8.7).
             if (pimpl->focusedParam) {
                 return routeKeyToParameter(input);
+            }
+            // Then an on-view value set of an edit in this view: on the
+            // desktop it filters the view widget's keys, and a mirror has
+            // no widget (docs/OnViewValueEditing.md sec 9.2 #3)
+            if (takeValueSetKey(input)) {
+                return true;
             }
             return replayKey(input);
         }
@@ -798,6 +817,27 @@ bool MirrorViewer::routeKeyToParameter(const Input& input)
     const bool handled = param->sendKeyEvent(&event);
     pimpl->hasPendingKey = false;
     return handled;
+}
+
+bool MirrorViewer::takeValueSetKey(const Input& input)
+{
+    Qt::KeyboardModifiers mods = Qt::NoModifier;
+    if (input.shift) {
+        mods |= Qt::ShiftModifier;
+    }
+    if (input.ctrl) {
+        mods |= Qt::ControlModifier;
+    }
+    if (input.alt) {
+        mods |= Qt::AltModifier;
+    }
+    QString text;
+    if (input.delta > 0) {
+        text = QString(QChar(char16_t(input.delta)));
+    }
+    ViewerScope scope(this);
+    return OnViewValueSet::takeViewerKey(this, qtKeyForCoinKey(input.code), mods,
+                                         input.kind == Input::KeyDown, text);
 }
 
 bool MirrorViewer::sendKeyEvent(QKeyEvent* event)
@@ -992,6 +1032,41 @@ const Render::VisibilitySet* MirrorViewer::objectVisibilities()
 float MirrorViewer::getPickRadius() const
 {
     return pimpl->state.pickRadius;
+}
+
+std::vector<std::array<int, 4>> MirrorViewer::coveredRects() const
+{
+    return pimpl->covered;
+}
+
+void MirrorViewer::setCoveredRects(std::vector<std::array<int, 4>> rects)
+{
+    if (rects == pimpl->covered) {
+        return;
+    }
+    pimpl->covered = std::move(rects);
+    OnViewValueSet::viewCoverChanged(this);
+}
+
+void MirrorViewer::setHint(const QString& text)
+{
+    if (text == pimpl->hint) {
+        return;
+    }
+    pimpl->hint = text;
+    if (pimpl->onHintChanged) {
+        pimpl->onHintChanged();
+    }
+}
+
+QString MirrorViewer::hint() const
+{
+    return pimpl->hint;
+}
+
+void MirrorViewer::setHintCallback(std::function<void()> callback)
+{
+    pimpl->onHintChanged = std::move(callback);
 }
 
 double MirrorViewer::devicePixelRatio() const

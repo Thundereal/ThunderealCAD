@@ -211,6 +211,17 @@ public:
      */
     static QBrush overlayHoverBackground(int alpha = -1);
 
+    /** Whether the rows of \a view -- a list, tree or table in an overlay --
+     * are backed by the overlay's alternating bands (docs/HandsOnQueue.md
+     * entry 193): while its panel shows the overlay look. The bands are
+     * painted under the items, every second row shown the items' ground
+     * (overlayItemBackground()) and the others the palette's alternate
+     * colour, both at the overlay's opacity; a view whose own delegate gives
+     * its items a ground leaves it out while this is true. Not the model
+     * tree, which keeps its ground behind each item's text (TreeWidget).
+     */
+    static bool hasOverlayRowBands(const QWidget *view);
+
     /** The parts of \a widget that are laid over: by the overlaid docks,
      * as occupied() answers, and by whatever else registered itself with
      * addCover() -- a task panel shown over its view.

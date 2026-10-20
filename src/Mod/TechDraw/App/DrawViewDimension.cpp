@@ -56,6 +56,8 @@
 # include <TopoDS_Shape.hxx>
 #endif
 
+#include <QCoreApplication>
+
 #include <App/Application.h>
 #include <App/Document.h>
 #include <Base/Console.h>
@@ -82,6 +84,91 @@
 using namespace TechDraw;
 using namespace Part;
 using DU = DrawUtil;
+
+// Reasons a dimension fails, said with the element they are about; the
+// dimension's kind and view are put round them by execute()'s described()
+// (docs/TechDrawErrors.md 3.3)
+namespace
+{
+/// \a text, marked with QT_TRANSLATE_NOOP("TechDraw", ...), translated
+std::string translated(const char* text)
+{
+    return QCoreApplication::translate("TechDraw", text).toStdString();
+}
+
+/// \a sub (Edge5, Vertex2) is not in the view
+std::string notInView(const std::string& sub)
+{
+    return QCoreApplication::translate("TechDraw", "the view has no %1 now")
+        .arg(QString::fromStdString(sub))
+        .toStdString();
+}
+
+/// \a shape of a 3D reference is not the \a wanted kind
+std::string not3d(const ReferenceEntry& ref, TopAbs_ShapeEnum wanted)
+{
+    const TopoDS_Shape shape = ref.getGeometry();
+    QString name = QString::fromStdString(ref.getSubName());
+    if (App::DocumentObject* obj = ref.getObject()) {
+        name = QString::fromUtf8(obj->Label.getValue()) + QStringLiteral(".") + name;
+    }
+    if (shape.IsNull()) {
+        return QCoreApplication::translate("TechDraw", "the 3D reference %1 has no shape")
+            .arg(name)
+            .toStdString();
+    }
+    const char* kinds[] = {"compound", "compsolid", "solid", "shell", "face",
+                           "wire", "edge", "vertex", "shape"};
+    const QString found = QString::fromLatin1(kinds[std::min<int>(shape.ShapeType(), 8)]);
+    if (wanted == TopAbs_EDGE) {
+        return QCoreApplication::translate("TechDraw", "the 3D reference %1 is a %2, not an edge")
+            .arg(name, found)
+            .toStdString();
+    }
+    return QCoreApplication::translate("TechDraw", "the 3D reference %1 is a %2, not a vertex")
+        .arg(name, found)
+        .toStdString();
+}
+
+/// What is wrong with \a dim's 2D references, or nothing: checkReferences2D()
+/// said only that something was ("Dimension object has invalid 2d
+/// references")
+std::string whyReferences2DInvalid(const DrawViewDimension* dim)
+{
+    const std::vector<App::DocumentObject*>& objects = dim->References2D.getValues();
+    const std::vector<std::string>& subElements = dim->References2D.getSubValues();
+    if (objects.empty() || subElements.empty()) {
+        return translated(QT_TRANSLATE_NOOP("TechDraw", "it has no references"));
+    }
+    if (subElements.front().empty() && !dim->References3D.getValues().empty()) {
+        return {};
+    }
+    DrawViewPart* view = dim->getViewPart();
+    for (const auto& sub : subElements) {
+        if (sub.empty()) {
+            return translated(
+                QT_TRANSLATE_NOOP("TechDraw", "a reference names no element of the view"));
+        }
+        int index = -1;
+        try {
+            index = DrawUtil::getIndexFromName(sub);
+        }
+        catch (const Base::Exception&) {
+            return QCoreApplication::translate("TechDraw", "%1 is not an element name")
+                .arg(QString::fromStdString(sub))
+                .toStdString();
+        }
+        const std::string kind = DrawUtil::getGeomTypeFromName(sub);
+        if (kind == "Edge" && (!view || !view->getGeomByIndex(index))) {
+            return notInView(sub);
+        }
+        if (kind == "Vertex" && (!view || !view->getProjVertexByIndex(index))) {
+            return notInView(sub);
+        }
+    }
+    return {};
+}
+}// namespace
 
 //===========================================================================
 // DrawViewDimension
@@ -401,6 +488,19 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
 {
 //    Base::Console().Message("DVD::execute() - %s\n", getNameInDocument());
     if (!okToProceed()) {
+        // A view done projecting with nothing drawn will not recompute this:
+        // the dimension would keep the points of what it measured before
+        // (docs/TechDrawErrors.md 3.3). One still projecting will.
+        DrawViewPart* view = getViewPart();
+        if (keepUpdated() && view && (has2DReferences() || has3DReferences())
+            && !view->hasGeometry() && !view->waitingForResult()) {
+            return new App::DocumentObjectExecReturn(
+                QCoreApplication::translate("TechDraw",
+                                            "The view %1 has nothing drawn to measure")
+                    .arg(QString::fromUtf8(view->Label.getValue()))
+                    .toStdString(),
+                this);
+        }
         return App::DocumentObject::StdReturn;
     }
 
@@ -415,67 +515,84 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
         m_savedGeometryFrameChecked = migrateSavedGeometryFrame();
     }
 
-    // the first rung of the recovery ladder: an element that still carries the
-    // name the reference was made against is the element the reference means,
-    // whatever number the projection gives it now.  the geometry comparison
-    // below is the fallback for a reference this cannot place.
-    fixByName();
-
-    const std::vector<TopoShape> savedGeometry = SavedGeometry.getValues();
-    if (!savedGeometry.empty()) {
-        // we can only correct references if we have saved geometry for comparison
-        m_referencesCorrect = compareSavedGeometry();
-        if (!m_referencesCorrect) {
-            m_referencesCorrect = fixExactMatch();
-            if (!m_referencesCorrect) {
-                handleNoExactMatch();
-            }
-        }
-    }
-
-    // record the names of the references we believe in.  that is what gives a
-    // document written before names existed something to recover with, and
-    // what keeps a reference the ladder just repointed current.
-    if (!isRestoring() && m_referencesCorrect) {
-        updateSavedNames();
-    }
-
-    if (References3D.getValues().empty() && !checkReferences2D()) {
-        Base::Console().Warning("%s has invalid 2D References\n",
-                                getNameInDocument());
-        return new App::DocumentObjectExecReturn("Dimension object has invalid 2d references");
-    }
-
-    //we have either or both valid References3D and References2D
+    // what described() names; read again after the recovery ladder below
     ReferenceVector references = getEffectiveReferences();
 
     // A failure below is the recompute error the user reads: it says which
     // dimension of which view on which elements, and why, and whether its
     // references were matched again by geometry -- the way a reference ends
     // up on the wrong edge (entry 178: "Invalid selection - Det = 0" said none
-    // of it)
-    auto described = [&](const char* why) {
-        std::stringstream ss;
-        ss << Type.getValueAsString() << " dimension";
-        if (DrawViewPart* view = getViewPart()) {
-            ss << " on " << view->Label.getValue();
-        }
-        std::string subs;
+    // of it). Translatable (docs/TechDrawErrors.md 3.3).
+    auto described = [&](const std::string& why) {
+        QString subs;
         for (const auto& ref : references) {
             if (!ref.getSubName().empty()) {
-                subs += (subs.empty() ? "" : ", ") + ref.getSubName();
+                subs += (subs.isEmpty() ? QString() : QStringLiteral(", "))
+                    + QString::fromStdString(ref.getSubName());
             }
         }
-        if (!subs.empty()) {
-            ss << " (" << subs << ")";
-        }
-        ss << ": " << (why && *why ? why : "the measurement failed");
+        DrawViewPart* view = getViewPart();
+        QString text = QCoreApplication::translate("TechDraw", "%1 dimension on %2 (%3): %4")
+                           .arg(QString::fromLatin1(Type.getValueAsString()),
+                                view ? QString::fromUtf8(view->Label.getValue()) : QString(),
+                                subs,
+                                why.empty() ? QCoreApplication::translate(
+                                    "TechDraw", "the measurement failed")
+                                            : QString::fromStdString(why));
         if (!m_referencesCorrect && !SavedGeometry.getValues().empty()) {
-            ss << ". Its references were matched again by geometry after the view"
-                  " changed: check that they still name the intended elements";
+            text += QCoreApplication::translate(
+                "TechDraw", ". Its references were matched again by geometry after the "
+                            "view changed: check that they still name the intended elements");
         }
-        return new App::DocumentObjectExecReturn(ss.str(), this);
+        return new App::DocumentObjectExecReturn(text.toStdString(), this);
     };
+
+    try {
+        // the first rung of the recovery ladder: an element that still carries the
+        // name the reference was made against is the element the reference means,
+        // whatever number the projection gives it now.  the geometry comparison
+        // below is the fallback for a reference this cannot place.
+        fixByName();
+
+        const std::vector<TopoShape> savedGeometry = SavedGeometry.getValues();
+        if (!savedGeometry.empty()) {
+            // we can only correct references if we have saved geometry for comparison
+            m_referencesCorrect = compareSavedGeometry();
+            if (!m_referencesCorrect) {
+                m_referencesCorrect = fixExactMatch();
+                if (!m_referencesCorrect) {
+                    handleNoExactMatch();
+                }
+            }
+        }
+
+        // record the names of the references we believe in.  that is what gives a
+        // document written before names existed something to recover with, and
+        // what keeps a reference the ladder just repointed current.
+        if (!isRestoring() && m_referencesCorrect) {
+            updateSavedNames();
+        }
+    }
+    catch (const Base::Exception& e) {
+        // a reference with no geometry fails here first ("Dimension Reference
+        // has null geometry"): said with the element it names, where it can be
+        // (docs/TechDrawErrors.md 3.3)
+        references = getEffectiveReferences();
+        std::string why =
+            References3D.getValues().empty() ? whyReferences2DInvalid(this) : std::string();
+        return described(why.empty() ? std::string(e.what()) : why);
+    }
+
+    //we have either or both valid References3D and References2D
+    references = getEffectiveReferences();
+
+    if (References3D.getValues().empty()) {
+        std::string why = whyReferences2DInvalid(this);
+        if (!why.empty()) {
+            Base::Console().Warning("%s has invalid 2D References\n", getNameInDocument());
+            return described(why);
+        }
+    }
 
     try {
     if (Type.isValue("Distance") || Type.isValue("DistanceX") || Type.isValue("DistanceY")) {
@@ -491,6 +608,13 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
         else if (getRefType() == vertexEdge) {
             m_linearPoints = getPointsEdgeVert(references);
         }
+        else {
+            // it "succeeded" with the points of nothing (docs/TechDrawErrors.md 3.3)
+            THROWM(Base::RuntimeError,
+                   translated(QT_TRANSLATE_NOOP("TechDraw",
+                                                "a distance needs one edge, two edges, two "
+                                                "vertices, or an edge and a vertex")))
+        }
         m_hasGeometry = true;
     }
     else if (Type.isValue("Radius")) {
@@ -503,14 +627,17 @@ App::DocumentObjectExecReturn* DrawViewDimension::execute()
     }
     else if (Type.isValue("Angle")) {
         if (getRefType() != twoEdge) {
-            THROWM(Base::RuntimeError, "Angle dimension has non-edge references")
+            THROWM(Base::RuntimeError,
+                   translated(QT_TRANSLATE_NOOP("TechDraw", "an angle needs two edges")))
         }
         m_anglePoints = getAnglePointsTwoEdges(references);
         m_hasGeometry = true;
     }
     else if (Type.isValue("Angle3Pt")) {
         if (getRefType() != threeVertex) {
-            THROWM(Base::RuntimeError, "3 point angle dimension has non-vertex references")
+            THROWM(Base::RuntimeError,
+                   translated(QT_TRANSLATE_NOOP("TechDraw",
+                                                "a three point angle needs three vertices")))
         }
         m_anglePoints = getAnglePointsThreeVerts(references);
         m_hasGeometry = true;
@@ -709,14 +836,14 @@ pointPair DrawViewDimension::getPointsOneEdge(ReferenceVector references)
         //this is a 2d object (a DVP + subelements)
         TechDraw::BaseGeomPtr geom = getViewPart()->getGeomByIndex(iSubelement);
         if (!geom) {
-            std::stringstream ssMessage;
-            ssMessage << getNameInDocument() << " can not find geometry for 2d reference (1)";
-            THROWM(Base::RuntimeError, ssMessage.str())
+            THROWM(Base::RuntimeError, notInView(references.at(0).getSubName()))
         }
         if (geom->getGeomType() != TechDraw::GeomType::GENERIC) {
-            std::stringstream ssMessage;
-            ssMessage << getNameInDocument() << " 2d reference is a " << geom->geomTypeName();
-            THROWM(Base::RuntimeError, ssMessage.str())
+            THROWM(Base::RuntimeError,
+                   QCoreApplication::translate("TechDraw", "%1 is a %2, not a straight line")
+                       .arg(QString::fromStdString(references.at(0).getSubName()),
+                            QString::fromStdString(geom->geomTypeName()))
+                       .toStdString())
         }
         TechDraw::GenericPtr generic = std::static_pointer_cast<TechDraw::Generic>(geom);
         return {generic->points[0], generic->points[1]};
@@ -727,7 +854,7 @@ pointPair DrawViewDimension::getPointsOneEdge(ReferenceVector references)
     Base::Vector3d edgeEnd0, edgeEnd1;
     TopoDS_Shape geometry = references.front().getGeometry();
     if (geometry.IsNull() || geometry.ShapeType() != TopAbs_EDGE) {
-        THROWM(Base::RuntimeError, "Geometry for dimension reference is null.")
+        THROWM(Base::RuntimeError, not3d(references.front(), TopAbs_EDGE))
     }
     const TopoDS_Edge& edge = TopoDS::Edge(geometry);
     gp_Pnt gEnd0 = BRep_Tool::Pnt(TopExp::FirstVertex(edge));
@@ -751,9 +878,7 @@ pointPair DrawViewDimension::getPointsTwoEdges(ReferenceVector references)
         TechDraw::BaseGeomPtr geom0 = getViewPart()->getGeomByIndex(iSubelement0);
         TechDraw::BaseGeomPtr geom1 = getViewPart()->getGeomByIndex(iSubelement1);
         if (!geom0 || !geom1) {
-            std::stringstream ssMessage;
-            ssMessage << getNameInDocument() << " can not find geometry for 2d reference (2)";
-            THROWM(Base::RuntimeError, ssMessage.str())
+            THROWM(Base::RuntimeError, notInView(references.at(geom0 ? 1 : 0).getSubName()))
         }
         return closestPoints(geom0->getOCCEdge(), geom1->getOCCEdge());
     }
@@ -761,9 +886,11 @@ pointPair DrawViewDimension::getPointsTwoEdges(ReferenceVector references)
     //this is a 3d object
     TopoDS_Shape geometry0 = references.at(0).getGeometry();
     TopoDS_Shape geometry1 = references.at(1).getGeometry();
-    if (geometry0.IsNull() || geometry1.IsNull() || geometry0.ShapeType() != TopAbs_EDGE
-        || geometry1.ShapeType() != TopAbs_EDGE) {
-        THROWM(Base::RuntimeError, "Geometry for dimension reference is null.")
+    if (geometry0.IsNull() || geometry0.ShapeType() != TopAbs_EDGE) {
+        THROWM(Base::RuntimeError, not3d(references.at(0), TopAbs_EDGE))
+    }
+    if (geometry1.IsNull() || geometry1.ShapeType() != TopAbs_EDGE) {
+        THROWM(Base::RuntimeError, not3d(references.at(1), TopAbs_EDGE))
     }
 
     pointPair pts = closestPoints(geometry0, geometry1);
@@ -784,9 +911,7 @@ pointPair DrawViewDimension::getPointsTwoVerts(ReferenceVector references)
         TechDraw::VertexPtr v0 = getViewPart()->getProjVertexByIndex(iSubelement0);
         TechDraw::VertexPtr v1 = getViewPart()->getProjVertexByIndex(iSubelement1);
         if (!v0 || !v1) {
-            std::stringstream ssMessage;
-            ssMessage << getNameInDocument() << " can not find geometry for 2d reference (3)";
-            THROWM(Base::RuntimeError, ssMessage.str())
+            THROWM(Base::RuntimeError, notInView(references.at(v0 ? 1 : 0).getSubName()))
         }
 
         return {v0->point(), v1->point()};
@@ -795,9 +920,11 @@ pointPair DrawViewDimension::getPointsTwoVerts(ReferenceVector references)
     //this is a 3d object
     TopoDS_Shape geometry0 = references.at(0).getGeometry();
     TopoDS_Shape geometry1 = references.at(1).getGeometry();
-    if (geometry0.IsNull() || geometry1.IsNull() || geometry0.ShapeType() != TopAbs_VERTEX
-        || geometry1.ShapeType() != TopAbs_VERTEX) {
-        THROWM(Base::RuntimeError, "Geometry for dimension reference is null.")
+    if (geometry0.IsNull() || geometry0.ShapeType() != TopAbs_VERTEX) {
+        THROWM(Base::RuntimeError, not3d(references.at(0), TopAbs_VERTEX))
+    }
+    if (geometry1.IsNull() || geometry1.ShapeType() != TopAbs_VERTEX) {
+        THROWM(Base::RuntimeError, not3d(references.at(1), TopAbs_VERTEX))
     }
     const TopoDS_Vertex& vertex0 = TopoDS::Vertex(geometry0);
     const TopoDS_Vertex& vertex1 = TopoDS::Vertex(geometry1);
@@ -830,7 +957,11 @@ pointPair DrawViewDimension::getPointsEdgeVert(ReferenceVector references)
             vertex = getViewPart()->getProjVertexByIndex(iSubelement0);
         }
         if (!vertex || !edge) {
-            THROWM(Base::RuntimeError, "Missing geometry for dimension (4)")
+            const bool edgeFirst =
+                DrawUtil::getGeomTypeFromName(references.at(0).getSubName()) == "Edge";
+            // the missing one: the edge if it is, else the vertex
+            const size_t missing = edge ? (edgeFirst ? 1 : 0) : (edgeFirst ? 0 : 1);
+            THROWM(Base::RuntimeError, notInView(references.at(missing).getSubName()))
         }
 
         //get curve from edge
@@ -864,7 +995,8 @@ pointPair DrawViewDimension::getPointsEdgeVert(ReferenceVector references)
     TopoDS_Shape geometry1 = references.at(1).getGeometry();
     if (geometry0.IsNull() || geometry1.IsNull() || geometry0.ShapeType() != TopAbs_VERTEX
         || geometry1.ShapeType() != TopAbs_VERTEX) {
-        THROWM(Base::RuntimeError, "Geometry for dimension reference is null.")
+        const bool firstBad = geometry0.IsNull() || geometry0.ShapeType() != TopAbs_VERTEX;
+        THROWM(Base::RuntimeError, not3d(references.at(firstBad ? 0 : 1), TopAbs_VERTEX))
     }
 
     pointPair pts = closestPoints(geometry0, geometry1);
@@ -883,9 +1015,7 @@ arcPoints DrawViewDimension::getArcParameters(ReferenceVector references)
         //this is a 2d object (a DVP + subelements)
         TechDraw::BaseGeomPtr geom = getViewPart()->getGeomByIndex(iSubelement);
         if (!geom) {
-            std::stringstream ssMessage;
-            ssMessage << getNameInDocument() << " can not find geometry for 2d reference (4)";
-            THROWM(Base::RuntimeError, ssMessage.str())
+            THROWM(Base::RuntimeError, notInView(references.front().getSubName()))
         }
         return arcPointsFromBaseGeom(getViewPart()->getGeomByIndex(iSubelement));
     }
@@ -893,7 +1023,7 @@ arcPoints DrawViewDimension::getArcParameters(ReferenceVector references)
     //this is a 3d reference
     TopoDS_Shape geometry = references.front().getGeometry();
     if (geometry.IsNull() || geometry.ShapeType() != TopAbs_EDGE) {
-        THROWM(Base::RuntimeError, "Geometry for dimension reference is null.")
+        THROWM(Base::RuntimeError, not3d(references.front(), TopAbs_EDGE))
     }
     const TopoDS_Edge& edge = TopoDS::Edge(geometry);
     arcPoints pts = arcPointsFromEdge(edge);
@@ -1113,21 +1243,17 @@ anglePoints DrawViewDimension::getAnglePointsTwoEdges(ReferenceVector references
         TechDraw::BaseGeomPtr geom0 = getViewPart()->getGeomByIndex(iSubelement0);
         TechDraw::BaseGeomPtr geom1 = getViewPart()->getGeomByIndex(iSubelement1);
         if (!geom0 || !geom1) {
-            std::stringstream ssMessage;
-            ssMessage << getNameInDocument() << " can not find geometry for 2d reference (5)";
-            THROWM(Base::RuntimeError, ssMessage.str())
+            THROWM(Base::RuntimeError, notInView(references.at(geom0 ? 1 : 0).getSubName()))
         }
-        if (geom0->getGeomType() != TechDraw::GeomType::GENERIC) {
-            std::stringstream ssMessage;
-            ssMessage << getNameInDocument() << " first 2d reference is a "
-                      << geom0->geomTypeName();
-            THROWM(Base::RuntimeError, ssMessage.str())
-        }
-        if (geom1->getGeomType() != TechDraw::GeomType::GENERIC) {
-            std::stringstream ssMessage;
-            ssMessage << getNameInDocument() << " second 2d reference is a "
-                      << geom1->geomTypeName();
-            THROWM(Base::RuntimeError, ssMessage.str())
+        for (size_t i = 0; i < 2; ++i) {
+            const TechDraw::BaseGeomPtr& geom = i == 0 ? geom0 : geom1;
+            if (geom->getGeomType() != TechDraw::GeomType::GENERIC) {
+                THROWM(Base::RuntimeError,
+                       QCoreApplication::translate("TechDraw", "%1 is a %2, not a straight line")
+                           .arg(QString::fromStdString(references.at(i).getSubName()),
+                                QString::fromStdString(geom->geomTypeName()))
+                           .toStdString())
+            }
         }
         TechDraw::GenericPtr generic0 = std::static_pointer_cast<TechDraw::Generic>(geom0);
         TechDraw::GenericPtr generic1 = std::static_pointer_cast<TechDraw::Generic>(geom1);
@@ -1139,11 +1265,13 @@ anglePoints DrawViewDimension::getAnglePointsTwoEdges(ReferenceVector references
             const Base::Vector3d dir1 = generic1->asVector();
             const double cross = dir0.x * dir1.y - dir0.y * dir1.x;
             if (std::fabs(cross) < 1e-10 * std::max(1.0, dir0.Length() * dir1.Length())) {
-                std::stringstream ssMessage;
-                ssMessage << "the edges " << references.at(0).getSubName() << " and "
-                          << references.at(1).getSubName()
-                          << " are parallel, so there is no angle between them";
-                THROWM(Base::ValueError, ssMessage.str())
+                THROWM(Base::ValueError,
+                       QCoreApplication::translate(
+                           "TechDraw",
+                           "the edges %1 and %2 are parallel, so there is no angle between them")
+                           .arg(QString::fromStdString(references.at(0).getSubName()),
+                                QString::fromStdString(references.at(1).getSubName()))
+                           .toStdString())
             }
         }
         Base::Vector3d apex = generic0->apparentInter(generic1);
@@ -1200,9 +1328,11 @@ anglePoints DrawViewDimension::getAnglePointsTwoEdges(ReferenceVector references
     //this is a 3d object
     TopoDS_Shape geometry0 = references.at(0).getGeometry();
     TopoDS_Shape geometry1 = references.at(1).getGeometry();
-    if (geometry0.IsNull() || geometry1.IsNull() || geometry0.ShapeType() != TopAbs_EDGE
-        || geometry1.ShapeType() != TopAbs_EDGE) {
-        THROWM(Base::RuntimeError, "Geometry for dimension reference is null.")
+    if (geometry0.IsNull() || geometry0.ShapeType() != TopAbs_EDGE) {
+        THROWM(Base::RuntimeError, not3d(references.at(0), TopAbs_EDGE))
+    }
+    if (geometry1.IsNull() || geometry1.ShapeType() != TopAbs_EDGE) {
+        THROWM(Base::RuntimeError, not3d(references.at(1), TopAbs_EDGE))
     }
     TopoDS_Edge edge0 = TopoDS::Edge(geometry0);
     BRepAdaptor_Curve adapt0(edge0);
@@ -1261,7 +1391,8 @@ anglePoints DrawViewDimension::getAnglePointsThreeVerts(ReferenceVector referenc
         TechDraw::VertexPtr vert1 = getViewPart()->getProjVertexByIndex(iSubelement1);
         TechDraw::VertexPtr vert2 = getViewPart()->getProjVertexByIndex(iSubelement2);
         if (!vert0 || !vert1 || !vert2) {
-            THROWM(Base::RuntimeError, "References for three point angle dimension are not vertices")
+            THROWM(Base::RuntimeError,
+                   notInView(references.at(!vert0 ? 0 : (!vert1 ? 1 : 2)).getSubName()))
         }
         anglePoints pts(vert1->point(), vert0->point(), vert2->point());
         return pts;
@@ -1274,7 +1405,13 @@ anglePoints DrawViewDimension::getAnglePointsThreeVerts(ReferenceVector referenc
     if (geometry0.IsNull() || geometry1.IsNull() || geometry2.IsNull()
         || geometry0.ShapeType() != TopAbs_VERTEX || geometry1.ShapeType() != TopAbs_VERTEX
         || geometry2.ShapeType() != TopAbs_VERTEX) {
-        THROWM(Base::RuntimeError, "Geometry for dimension reference is null.")
+        const TopoDS_Shape* shapes[] = {&geometry0, &geometry1, &geometry2};
+        size_t bad = 0;
+        while (bad < 2 && !shapes[bad]->IsNull()
+               && shapes[bad]->ShapeType() == TopAbs_VERTEX) {
+            ++bad;
+        }
+        THROWM(Base::RuntimeError, not3d(references.at(bad), TopAbs_VERTEX))
     }
     TopoDS_Vertex vertex0 = TopoDS::Vertex(geometry0);
     gp_Pnt point0 = BRep_Tool::Pnt(vertex0);

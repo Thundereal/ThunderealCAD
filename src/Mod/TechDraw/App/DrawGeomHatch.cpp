@@ -47,6 +47,8 @@
 #include <TopTools_IndexedMapOfShape.hxx>
 #endif
 
+#include <QCoreApplication>
+
 #include <App/Application.h>
 #include <App/Document.h>
 #include <Base/Console.h>
@@ -165,6 +167,17 @@ App::DocumentObjectExecReturn *DrawGeomHatch::execute()
     DrawViewPart* parent = getSourceView();
     if (parent) {
         parent->requestPaint();
+    }
+    // A pattern that cannot be read hatches nothing: the hatch's error, not
+    // a console line at the first paint (docs/TechDrawErrors.md 3.2). Only
+    // whether it can be read: the file is opened when the hatch is drawn
+    // (onDocumentRestored(), entry 47)
+    if (!PatIncluded.isEmpty() && !Base::FileInfo(PatIncluded.getValue()).isReadable()) {
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The pattern file %1 cannot be read")
+                .arg(QString::fromUtf8(FilePattern.getValue()))
+                .toStdString(),
+            this);
     }
     return App::DocumentObject::StdReturn;
 }

@@ -146,14 +146,22 @@ App::DocumentObjectExecReturn* DrawViewDetail::execute()
         return DrawView::execute();
     }
 
+    // nothing to detail is the view's error, not an empty view
+    // (docs/TechDrawErrors.md 3.2)
     App::DocumentObject* baseObj = BaseView.getValue();
     if (!baseObj) {
-        return DrawView::execute();
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The detail has no base view").toStdString(),
+            this);
     }
 
     if (!baseObj->isDerivedFrom<TechDraw::DrawViewPart>()) {
         //this can only happen via scripting?
-        return DrawView::execute();
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The detail's base view %1 is not a part view")
+                .arg(QString::fromUtf8(baseObj->Label.getValue()))
+                .toStdString(),
+            this);
     }
 
     DrawViewPart* dvp = static_cast<DrawViewPart*>(baseObj);
@@ -164,7 +172,16 @@ App::DocumentObjectExecReturn* DrawViewDetail::execute()
     }
 
     if (shape.IsNull()) {
-        return DrawView::execute();
+        if (dvp->waitingForResult()) {
+            // a section still cutting: it recomputes this once it has its
+            // shape (DrawViewSection::postSectionCutTasks)
+            return DrawView::execute();
+        }
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The base view %1 has no shape to detail")
+                .arg(QString::fromUtf8(dvp->Label.getValue()))
+                .toStdString(),
+            this);
     }
 
     bool haveX = checkXDirection();

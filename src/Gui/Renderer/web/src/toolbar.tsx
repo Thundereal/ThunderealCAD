@@ -232,6 +232,37 @@ export function ToolbarStrip(props: {
 
   const shown = () => want() && bars().length > 0;
 
+  // Which bars the card shows: all but those this browser left out (the
+  // user, 2026-10-19), chosen in the picker at the grip's far end
+  const barKey = (id: string) => plainText(objs[id]?.state.q_windowTitle) || id;
+  const [hiddenBars, setHidden] = createSignal<Set<string>>(loadHidden());
+  const setHiddenBars = (v: Set<string>) => {
+    setHidden(v);
+    saveHidden(v);
+    requestAnimationFrame(() => moved());
+  };
+  const cardBars = createMemo(() => bars().filter((id) => !hiddenBars().has(barKey(id))));
+  const [picker, setPicker] = createSignal<{ x: number; y: number } | null>(null);
+  const openPicker = (button: HTMLElement) => {
+    if (picker()) {
+      setPicker(null);
+      return;
+    }
+    const r = button.getBoundingClientRect();
+    const w = 240;
+    setPicker({
+      x: Math.max(4, Math.min(r.right - w, window.innerWidth - w - 4)),
+      y: Math.max(4, Math.min(r.bottom + 4, window.innerHeight - 120)),
+    });
+  };
+  const closePicker = (e: PointerEvent) => {
+    const t = e.target as Element | null;
+    if (picker() && !(t && t.closest && t.closest('.fc-tbcard-picker, .fc-tbcard-pick')))
+      setPicker(null);
+  };
+  document.addEventListener('pointerdown', closePicker, true);
+  onCleanup(() => document.removeEventListener('pointerdown', closePicker, true));
+
   let strip: HTMLDivElement | undefined;
   createEffect(() => {
     const report = props.onTopInset;
@@ -240,10 +271,22 @@ export function ToolbarStrip(props: {
       report(0);
       return;
     }
+    // The card floats (entry 190): the panels anchored to the top edge move
+    // down only while it is open there
     const el = strip;
-    const ro = new ResizeObserver(() => report(Math.ceil(el.getBoundingClientRect().bottom)));
+    const tell = () => {
+      const r = el.getBoundingClientRect();
+      report(r.top < 60 && !el.classList.contains('fc-tbcard-collapsed')
+        ? Math.ceil(r.bottom) : 0);
+    };
+    const ro = new ResizeObserver(tell);
     ro.observe(el);
-    onCleanup(() => { ro.disconnect(); report(0); });
+    window.addEventListener('fc:toolbarsmoved', tell);
+    onCleanup(() => {
+      ro.disconnect();
+      window.removeEventListener('fc:toolbarsmoved', tell);
+      report(0);
+    });
   });
 
   const run = (name: string, index: number) => {
@@ -259,22 +302,221 @@ export function ToolbarStrip(props: {
     });
   };
 
+  // ---- The card (entry 190) ----------------------------------------------
+  // "host all the toolbars with one draggable card, add some toggle there to
+  // make it collapsible into a button, also draggable" -- and on a phone
+  // "also collapsible but also expand into a card that are scrolling". The
+  // card is dragged by its grip, so a drag never presses a tool; collapsed
+  // it is one button, dragged the same, a click opening the card where it
+  // is. Where it stands and whether it is collapsed are this browser's.
+  const saved = loadCard(props.narrow());
+  const [pos, setPos] = createSignal<{ x: number; y: number }>({ x: saved.x, y: saved.y });
+  const [collapsed, setCollapsed] = createSignal(saved.collapsed);
+  // The grip along the card's short side (the user, 2026-10-19: "would it be
+  // better to draw the drag handle at the short dimension"): down the left
+  // edge of a card wider than tall, across the top of one taller than wide
+  const [side, setSide] = createSignal(true);
+  let card: HTMLDivElement | undefined;
+  createEffect(() => {
+    if (!shown() || collapsed() || !card) return;
+    const el = card;
+    const body = () => el.querySelector('.fc-toolbars') as HTMLElement | null;
+    const ro = new ResizeObserver(() => {
+      const b = body();
+      if (!b) return;
+      const r = b.getBoundingClientRect();
+      setSide(r.width >= r.height);
+    });
+    const b = body();
+    if (b) ro.observe(b);
+    onCleanup(() => ro.disconnect());
+  });
+  const keep = () => saveCard({ ...pos(), collapsed: collapsed() });
+  // inside the view, the whole card or button
+  const clamp = () => {
+    const el = card;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const p = pos();
+    const x = Math.max(0, Math.min(p.x, window.innerWidth - Math.max(r.width, 40)));
+    const y = Math.max(0, Math.min(p.y, window.innerHeight - Math.max(r.height, 40)));
+    if (x !== p.x || y !== p.y) setPos({ x, y });
+  };
+  const onResize = () => clamp();
+  window.addEventListener('resize', onResize);
+  onCleanup(() => window.removeEventListener('resize', onResize));
+  createEffect(on([collapsed, () => cardBars().length], () => {
+    requestAnimationFrame(() => { clamp(); moved(); });
+  }));
+
+  /// A drag by `e`'s pointer of the card or the button; `click` when it did
+  /// not move (the button's click opens the card)
+  const drag = (e: PointerEvent, click?: () => void) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const target = e.currentTarget as HTMLElement;
+    target.setPointerCapture(e.pointerId);
+    const start = { x: e.clientX, y: e.clientY };
+    const from = pos();
+    let dragging = false;
+    const move = (m: PointerEvent) => {
+      const dx = m.clientX - start.x, dy = m.clientY - start.y;
+      if (!dragging && Math.abs(dx) + Math.abs(dy) < 5) return;
+      dragging = true;
+      setPos({ x: from.x + dx, y: from.y + dy });
+      clamp();
+    };
+    const up = () => {
+      target.removeEventListener('pointermove', move);
+      target.removeEventListener('pointerup', up);
+      target.removeEventListener('pointercancel', up);
+      if (dragging) {
+        keep();
+        moved();
+      }
+      else if (click) {
+        click();
+      }
+    };
+    target.addEventListener('pointermove', move);
+    target.addEventListener('pointerup', up);
+    target.addEventListener('pointercancel', up);
+  };
+  // The collapse button stands where the collapsed button was: a tap's
+  // late compatibility click, after the release that opened the card,
+  // would land on it and close the card again
+  let openedAt = 0;
+  const toggle = (on: boolean) => {
+    if (on && performance.now() - openedAt < 500) return;
+    if (!on) openedAt = performance.now();
+    setCollapsed(on);
+    keep();
+  };
+
   return (
     <Show when={shown()}>
-      <div class={`fc-toolbars ${props.narrow() ? 'fc-toolbars-narrow' : ''}`}
-           ref={strip} onPointerDown={(e) => e.stopPropagation()}>
-        <For each={bars()}>
-          {(id) => (
-            <Bar id={id} objs={objs} setObjs={setObjs} theme={theme}
-                 narrow={props.narrow} host={props.host} run={run} />
-          )}
-        </For>
+      <div class="fc-tbcard"
+           classList={{ 'fc-tbcard-collapsed': collapsed(), 'fc-tbcard-narrow': props.narrow(),
+                        'fc-tbcard-side': side() }}
+           ref={(el) => { card = el; strip = el; }}
+           style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
+           onPointerDown={(e) => e.stopPropagation()}>
+        <Show when={!collapsed()} fallback={
+          <button class="fc-tbcard-button" title="Tool bars (drag to move, click to open)"
+                  aria-label="Tool bars" onPointerDown={(e) => drag(e, () => toggle(false))}>
+            <span /><span /><span />
+          </button>
+        }>
+          {/* The user, 2026-10-19: "when expanded, make the button and one
+              end of the drag handle as the collapse button, add another
+              button at the other end to show a menu to select which
+              toolbars to show in the card" */}
+          <div class="fc-tbcard-grip" onPointerDown={(e) => drag(e)}
+               title="Drag to move the tool bars">
+            <button class="fc-tbcard-button fc-tbcard-collapse" title="Collapse into a button"
+                    aria-label="Collapse the tool bars"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => toggle(true)}>
+              <span /><span /><span />
+            </button>
+            <span class="fc-tbcard-dots" />
+            <button class="fc-tbcard-pick" title="Which tool bars the card shows"
+                    aria-label="Choose the tool bars"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => openPicker(e.currentTarget as HTMLElement)}>
+              <span /><span /><span />
+            </button>
+          </div>
+          <div class="fc-toolbars">
+            <For each={cardBars()}>
+              {(id) => (
+                <Bar id={id} objs={objs} setObjs={setObjs} theme={theme}
+                     narrow={props.narrow} host={props.host} run={run} />
+              )}
+            </For>
+          </div>
+        </Show>
         <Show when={error()}>
           <div class="fc-tb-error" role="status">{error()}</div>
         </Show>
       </div>
+      <Show when={picker()}>
+        <div class="fc-tbcard-picker fc-menu" role="menu" aria-label="Tool bars to show"
+             style={{ left: `${picker()!.x}px`, top: `${picker()!.y}px` }}
+             onPointerDown={(e) => e.stopPropagation()}>
+          <button class="fc-menu-item" role="menuitem"
+                  onClick={() => setHiddenBars(new Set<string>())}>
+            <span class="fc-menu-tick" />
+            Show all
+          </button>
+          <div class="fc-tb-menu-sep" />
+          <For each={bars()}>
+            {(id) => (
+              <button class="fc-menu-item" role="menuitemcheckbox"
+                      aria-checked={!hiddenBars().has(barKey(id))}
+                      onClick={() => {
+                        const next = new Set(hiddenBars());
+                        const key = barKey(id);
+                        if (next.has(key)) next.delete(key);
+                        else next.add(key);
+                        setHiddenBars(next);
+                      }}>
+                <span class="fc-menu-tick">{hiddenBars().has(barKey(id)) ? '' : '\u2713'}</span>
+                {barKey(id)}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
     </Show>
   );
+}
+
+// ---- Which bars the card shows (entry 190) --------------------------------
+
+const HIDDEN_KEY = 'fcviewer.toolbarHidden';
+
+/// The bars this browser left out of the card, by title
+function loadHidden(): Set<string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]');
+    if (Array.isArray(v)) return new Set(v.filter((s) => typeof s === 'string'));
+  }
+  catch { /* no memory: every bar */ }
+  return new Set();
+}
+
+function saveHidden(v: Set<string>) {
+  try { localStorage.setItem(HIDDEN_KEY, JSON.stringify([...v])); }
+  catch { /* this session only */ }
+}
+
+// ---- The card's memory (entry 190) ----------------------------------------
+
+const CARD_KEY = 'fcviewer.toolbarCard';
+
+/// Where the card stands and whether it is collapsed, as this browser left
+/// it; a phone starts collapsed, at the top left either way
+function loadCard(narrow: boolean): { x: number; y: number; collapsed: boolean } {
+  try {
+    const v = JSON.parse(localStorage.getItem(CARD_KEY) || 'null');
+    if (v && typeof v.x === 'number' && typeof v.y === 'number')
+      return { x: v.x, y: v.y, collapsed: !!v.collapsed };
+  }
+  catch { /* no memory: the default */ }
+  return { x: 6, y: 6, collapsed: narrow };
+}
+
+function saveCard(v: { x: number; y: number; collapsed: boolean }) {
+  try { localStorage.setItem(CARD_KEY, JSON.stringify(v)); }
+  catch { /* this session only */ }
+}
+
+/// The card moved or changed size: what it covers is told to the host
+/// (covered.ts), so an edit's labels keep clear of it
+function moved() {
+  window.dispatchEvent(new CustomEvent('fc:toolbarsmoved'));
 }
 
 interface ButtonCtx {

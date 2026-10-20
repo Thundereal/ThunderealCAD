@@ -573,7 +573,7 @@ void TaskChamferParameters::updateEdgeHandles()
                 else {
                     handle.gizmo = new Gui::LinearGizmo(box);
                 }
-                handle.gizmo->setColor(groupColor(group));
+                // the theme's one colour, as every handle (entry 196)
                 // The group, then which value: "2  S", "2  S1" ...
                 const int index = onViewValues->addValue(
                     box, QStringLiteral("%1  %2").arg(group).arg(name),
@@ -722,10 +722,14 @@ bool TaskChamferParameters::isDragFailing() const
     auto chamfer = getChamfer();
     if (!chamfer || !chamfer->isError())
         return false;
-    const auto& failed = chamfer->FailedEdges.getValues();
-    // Nothing named: the chamfer as a whole failed
-    if (failed.empty())
+    // Only what failed since the drag began: an edge missing or failing
+    // before it is no failure of the drag
+    bool whole = false;
+    const auto failed = failedSinceStepBegun(whole);
+    if (whole)
         return true;
+    if (failed.empty())
+        return false;
     auto isFailed = [&failed](const std::string& edge) {
         return std::find(failed.begin(), failed.end(), edge) != failed.end();
     };

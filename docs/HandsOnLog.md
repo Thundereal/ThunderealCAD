@@ -7839,3 +7839,97 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
 - Still to do in the batch: 181 point 2 (a preview face's tool tip and
   right-click menu), 182 (a selection naming a preview face lights it), 180
   point 2 (label hover highlight and preselection). 178 3.2/3.3 after.
+
+### 2026-10-19 evening: pushed + staged 55f4145d9d, then 188 and 189
+
+- PUSHED to thundereal/LinkVibe and STAGED (stage22, 17:56) 55f4145d9d on
+  the user's "push and restage": 159, 182, 184, 185, 186 (the grab guard),
+  187, and the merge of thundereal/main (179, 175). 179 checked on a copy
+  of scanner2.FCStd: 28 log rows, no "no such column"; the check now
+  answers the migration prompt and the recompute-error box itself (the
+  user had to click them once). 187 waits for a hand check.
+- 188 BUILT (2121766927): with one missing reference's row selected, a pick
+  of an unused base element of its kind replaces it in place -- every
+  dress-up; values follow; one undo step. dressup-replace-missing-edge.py
+  20 of 21 on r142, the miss my claim's (the feature stays Touched while
+  its panel is open, by design); the claim as it passed on r141 restored.
+- 189 (the user, "After that do 189 with real browser"), first steps BUILT
+  (913db7b153): a real Chrome drags the fillet's arrows live; the fine-snap
+  key is now the client's (plain 2.5, 3.5 ... / Shift 2.6, 3.6 ...); Tab and
+  Escape from the page move and clear the active value. Found: the
+  top-middle label under the web tool bars; a radius dragged to 0 (the
+  desktop's clamp too); no on-view entries for typing. OnViewValueEditing
+  sec 9.5a. NOT pushed.
+- 189 continued, each seen in a real Chrome on the served fillet: the
+  handle's right-click menu with its settings rows (b2ad908242); the
+  top-middle label below the page's tool bars (7238ddd227); typing a value,
+  Enter or a digit opening the label (3c3c7f5e9e); a click on nothing
+  leaves no value active (3fc186d196). OnViewValueEditing sec 9.5a.
+- The user on the radius dragged to 0: first "drag refuse if it goes to
+  zero" (built, r148, not committed), then "auto revert to the last working
+  value ... the whole drag is one transaction", "if failed, I mean": BUILT
+  (3fc186d196) for every value with a handle; seen in
+  fillet-undo-steps-in-view.py, 23 of 23 on r150. Sec 9.5b. NOT pushed.
+- Left of 189: the 173 menu button drawn by the page, handle tool tips
+  (9.2 #6), touch (9.3); 180/182/185/188 in the browser not yet looked at.
+- 189: 173's menu button drawn by the page (26adceee52), seen in a real
+  Chrome: at the label's left under the tool bars, its menu Show handles,
+  Settings.
+- 190 BUILT (224ec0828a), the note-taker's readings a-i and the 21:42
+  answer taken: the browser's tool bars in one card dragged by a grip, a
+  toggle collapsing it into a button dragged the same, a click opening it
+  there; kept inside the view; remembered per browser; on a phone it
+  starts collapsed and opens bounded, its bars wrapping and scrolling up
+  and down. covered.ts reports the card. Seen in a real Chrome:
+  viewer-harness drive-toolbar-card.js 13 of 13. NOT pushed.
+- 190 on the user's two notes: the grip on the card's short side and no
+  card fill (00966b5d71); the grip's ends the collapse button and a bar
+  picker, one tick per bar and "Show all", remembered per browser
+  (5072ffe4c7). drive-toolbar-card.js 20 of 20. The dull buttons are not a
+  layer: probe-toolbar-dim.js found all 72 tools refused (opacity 0.38) for
+  an invited editor, only the sketcher's tools being browser safe. The
+  user: no lighter refused look; later, a traditional disabled look.
+- PUSHED to thundereal/LinkVibe on the user's "Push, chase the problem":
+  55f4145d9d..5072ffe4c7 (188, 189's steps, 190). NOT restaged.
+- 189: 182/188 in a real Chrome. A click on the missing edge's kept face
+  selected nothing: the preview is drawn unpickable (entry 170) and picked
+  in a pass ahead of the scene that needed a desktop viewer; a browser's
+  click is replayed through its mirror, so the ray went through the face.
+  FIXED (ed758230a1): the pass picks through the mirror's event root. Seen
+  in Chrome: the click selects the '?Edge11' row, the next click on an
+  unused edge replaces it (Base ['Edge5', 'Edge8']), and the kept face
+  shows selected (a thin face is picked by its edge in the pick radius;
+  that edge now lights the face). serve-dressup-preview-pick.py 11 of 11,
+  fillet-preview-pick-syncs-list.py 20 of 20, dressup-replace-missing-edge
+  .py 21 of 21 on r153. NOT pushed.
+- PUSHED and STAGED 2026-10-20 on the user's "Push and continue", then
+  "Restage first": thundereal/LinkVibe 5072ffe4c7..fdf4dccef5; stage23
+  08:20, INSTALL-USER: OK, the copy fdf4dccef5 = r153 (188, 189's steps
+  and the preview pick, 190, 191). Note-taker told.
+- 189, 9.2 #6, the handle's hint in the browser: DONE (4c6455244c). A view
+  with no widget gets no tool tip request from Qt, so the handle keeps
+  Qt's wait itself and the client's mirror pushes the hint (op "hint");
+  the page shows it at its pointer. Seen in a real Chrome (hint1): the two
+  lines of the desktop's tip beside the pointer resting on the radius
+  arrow, none at once, none after moving off. serve-handle-hint.py 9 of 9,
+  fillet-handle-click-in-view.py all green (the desktop's tip unchanged)
+  on r154. NOT pushed. Left of 189: touch (9.3).
+- 192, a view deselected in a TechDraw page kept its selection frame: the
+  tree-to-scene sync blocks the observer whose redraw drops it. FIXED
+  (01d32da5c6): the sync ends with the frame refresh.
+  techdraw-view-click-through.py with 8 new claims. NOT pushed.
+- 194, a missing row selected in a dress-up panel now selects its preview
+  face too (c4c8e1a792); fillet-preview-pick-syncs-list.py 3 new claims.
+  NOT pushed.
+- 195 HELD by the note-taker's split; a first cut is parked, not in the
+  tree (dl\handson\2026-10-12\195-presel-measure-default.patch).
+- 196 on the user's r172/r173 hands-on: the on-view label lights on hover
+  and takes a click ahead of the geometry under it; every handle and
+  dragger loses its BASE_COLOR light model and follows the view's draw
+  style (f3dc8f68d2); dress-up handles are one colour whatever their group
+  (6d8ff90769). The silhouette outline is REVERTED on the user's word (it
+  fought Coin's dragger kits) and parked as 196-outline-attempt.patch;
+  the preview face highlight kept. Point 1 (the working edge's preview face
+  selecting the base edge only) left as is, the user's word. r174: all 8
+  handle/value/label tests green. NOT pushed, NOT staged; the dev build
+  launched 15:17 for the user's hands-on test.

@@ -199,6 +199,33 @@ bool Gizmo::getVisibility()
     return visible;
 }
 
+/** Whether the fine-snap modifier is held for the drag \a dragger is in: read
+ * from the event it is handling -- a browser's drag is replayed into a mirror
+ * viewer with the client's keys on its events, and the host's own keyboard
+ * says nothing about them (docs/OnViewValueEditing.md sec 9.2 #2). On the
+ * desktop the event carries the same keys as the keyboard.
+ */
+static bool fineModifierHeld(const SoDragger* dragger)
+{
+    const SoEvent* event = dragger ? dragger->getEvent() : nullptr;
+    Qt::KeyboardModifiers modifiers;
+    if (event) {
+        if (event->wasShiftDown()) {
+            modifiers |= Qt::ShiftModifier;
+        }
+        if (event->wasCtrlDown()) {
+            modifiers |= Qt::ControlModifier;
+        }
+        if (event->wasAltDown()) {
+            modifiers |= Qt::AltModifier;
+        }
+    }
+    else {
+        modifiers = QApplication::queryKeyboardModifiers();
+    }
+    return modifiers == GizmoContainer::getFineSnapModifier();
+}
+
 void Gizmo::otherDragEvent(void* data, SoDragger* dragger)
 {
     // While the dragger holds the pointer, the events that are no motion and
@@ -248,10 +275,12 @@ static SbColor litColor(const SbColor& own, bool selected, bool preselected)
     if (!selected && !preselected) {
         return own;
     }
+    // Under the pointer wins over selected, as on a shape; the selected
+    // colour is back once the pointer leaves
     float transparency = 0.0F;
     SbColor lit;
-    lit.setPackedValue(static_cast<uint32_t>(selected ? ViewParams::getSelectionColor()
-                                                      : ViewParams::getHighlightColor()),
+    lit.setPackedValue(static_cast<uint32_t>(preselected ? ViewParams::getHighlightColor()
+                                                         : ViewParams::getSelectionColor()),
                        transparency);
     makeDistinctColor(lit, lit, own);
     return lit;
@@ -310,8 +339,20 @@ void Gizmo::setMenu(MenuCallback callback, const QString& toolTip)
     }
 }
 
+void Gizmo::dropViewHint()
+{
+    ViewerContext* view = hintView;
+    hintView = nullptr;
+    // only its own hint: another handle's may have come up since
+    if (view && !hintViewLife.expired() && view->hint() == menuToolTip) {
+        view->setHint(QString());
+    }
+    hintViewLife.reset();
+}
+
 void Gizmo::dropTip()
 {
+    dropViewHint();
     if (tipHandle != this) {
         return;
     }
@@ -335,6 +376,7 @@ void Gizmo::releaseEventNode()
 {
     dropTip();
     hovered = false;
+    hoverHeld = false;
     ++hoverSerial;
     menuPressed = false;
     ownNode = nullptr;
@@ -350,7 +392,13 @@ void Gizmo::setHovered(bool over)
         return;
     }
     hovered = over;
-    if (hoverCallback) {
+    // Pressed on: told off at the press already, and not on again until the
+    // pointer has left (pressedOn())
+    const bool held = hoverHeld;
+    if (!over) {
+        hoverHeld = false;
+    }
+    if (hoverCallback && !held) {
         hoverCallback(over);
     }
     const int serial = ++hoverSerial;
@@ -360,9 +408,29 @@ void Gizmo::setHovered(bool over)
         // the arrow" (the reporter, 2026-10-15 15:29): Qt's tool tip request
         // is that timer, and it is answered while this handle is the one
         // (HandleTipFilter)
-        if (!menuToolTip.isEmpty()) {
-            tipHandle = this;
+        if (menuToolTip.isEmpty()) {
+            return;
         }
+        ViewerContext* view = ViewerContext::current();
+        if (!view || view->getWidget()) {
+            tipHandle = this;
+            return;
+        }
+        // A view with no widget, a browser's (docs/OnViewValueEditing.md
+        // 9.2 #6): no Qt request comes, so the same wait is kept here, and
+        // the view hands the hint to its client, which shows it at its
+        // pointer
+        std::weak_ptr<const void> viewLife = view->lifetime();
+        const int wait = qApp ? qApp->style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay) : 700;
+        QTimer::singleShot(wait, [this, life, serial, view, viewLife]() {
+            auto still = life.lock();
+            if (!still || !*still || serial != hoverSerial || !hovered || viewLife.expired()) {
+                return;
+            }
+            hintView = view;
+            hintViewLife = viewLife;
+            view->setHint(menuToolTip);
+        });
         return;
     }
     // "any repeated hitting do not hide tooltip": gone only when the pointer
@@ -374,6 +442,19 @@ void Gizmo::setHovered(bool over)
         }
         dropTip();
     });
+}
+
+void Gizmo::pressedOn()
+{
+    // The dragger takes the press before the event node: its start is where
+    // the click begins
+    if (!hovered || hoverHeld) {
+        return;
+    }
+    hoverHeld = true;
+    if (hoverCallback) {
+        hoverCallback(false);
+    }
 }
 
 void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
@@ -397,6 +478,7 @@ void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
             if (QToolTip::isVisible() && QToolTip::text() == self->menuToolTip) {
                 QToolTip::hideText();
             }
+            self->dropViewHint();
             cb->setHandled();
             // No grabEvents() here. A navigation style can take the release
             // before the scene sees it (one opens the view's menu on a right
@@ -665,6 +747,7 @@ void LinearGizmo::draggingStarted()
     dragging = true;
     dragCancelled = false;
     reversedInDrag = false;
+    pressedOn();
     notifyDrag(DragEvent::Started);
     dragger->translationIncrementCount.setValue(0);
 
@@ -727,20 +810,26 @@ void LinearGizmo::cancelDrag()
     // a feature the drag turned, turned back
     endReverse(true);
     setDragLength(initialValue);
+    // No longer shown dragged (the user, 2026-10-20: "the dragging is still
+    // active, no aborting"): the dragger keeps the pointer until its button
+    // is up, its moves undone as they come (draggingContinued()). Letting
+    // the pointer go here would hand the rest of a held left button to the
+    // navigation style, which never saw it pressed.
+    dragger->active = false;
     notifyDrag(DragEvent::Cancelled);
 }
 
 void LinearGizmo::draggingContinued()
 {
     if (dragCancelled) {
+        // cancelled: the arrow stays where the drag began
+        setDragLength(initialValue);
         return;
     }
     hasDragged = true;
     double value = initialValue + getDragLength();
 
-    auto fineModifier = GizmoContainer::getFineSnapModifier();
-    auto modifiers = QApplication::queryKeyboardModifiers();
-    bool fineModifierPressed = modifiers == fineModifier;
+    bool fineModifierPressed = fineModifierHeld(dragger);
     bool coarseByDefault = GizmoContainer::isCoarseByDefault();
     bool useCoarseSnap = coarseByDefault != fineModifierPressed;
 
@@ -981,6 +1070,7 @@ void RotationGizmo::draggingStarted()
     dragging = true;
     dragCancelled = false;
     reversedInDrag = false;
+    pressedOn();
     notifyDrag(DragEvent::Started);
     dragger->rotationIncrementCount.setValue(0);
 
@@ -1039,12 +1129,17 @@ void RotationGizmo::cancelDrag()
     // a feature the drag turned, turned back
     endReverse(true);
     setRotAngle(initialValue);
+    // no longer shown dragged, its moves undone until the button is up (as
+    // a linear handle's)
+    dragger->active = false;
     notifyDrag(DragEvent::Cancelled);
 }
 
 void RotationGizmo::draggingContinued()
 {
     if (dragCancelled) {
+        // cancelled: the arc stays where the drag began
+        setRotAngle(initialValue);
         return;
     }
     hasDragged = true;
@@ -1053,9 +1148,7 @@ void RotationGizmo::draggingContinued()
     lastDragOffset = dragOffset;
     double value = initialValue + dragOffset;
 
-    auto fineModifier = GizmoContainer::getFineSnapModifier();
-    auto modifiers = QApplication::queryKeyboardModifiers();
-    bool fineModifierPressed = modifiers == fineModifier;
+    bool fineModifierPressed = fineModifierHeld(dragger);
     bool coarseByDefault = GizmoContainer::isCoarseByDefault();
     bool useCoarseSnap = coarseByDefault != fineModifierPressed;
 
@@ -1548,9 +1641,7 @@ void GizmoContainer::addCross(const SbVec3f& pos, const SbColor& color)
     auto transform = new SoTransform;
     transform->translation = pos;
     cross->addChild(transform);
-    auto light = new SoLightModel;
-    light->model = SoLightModel::BASE_COLOR;
-    cross->addChild(light);
+    // lit as the view draws, as the handles it stands among (entry 196)
     auto base = new SoBaseColor;
     base->rgb = color;
     cross->addChild(base);

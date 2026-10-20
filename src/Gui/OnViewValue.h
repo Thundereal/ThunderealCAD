@@ -22,6 +22,7 @@
 #ifndef GUI_ONVIEWVALUE_H
 #define GUI_ONVIEWVALUE_H
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -41,6 +42,11 @@ class QKeyEvent;
 class QMenu;
 class QWidget;
 class SoNodeSensor;
+
+namespace App
+{
+class Document;
+}
 
 namespace Gui
 {
@@ -170,6 +176,41 @@ public:
      */
     void buildMenu(QMenu& menu, Gizmo* handle);
     static void addMenuExtension(MenuExtension extension);
+    /** A key of a view without a widget -- a browser's mirror viewer --
+     * offered to the set shown in \a viewer, as the view widget's filter
+     * takes the desktop's (docs/OnViewValueEditing.md sec 9.2 #3): Tab and
+     * Shift+Tab move the active value, Escape cancels a drag or leaves no
+     * value active, Enter and a digit (\a text) open the active value's
+     * label for typing. True when taken, its release too.
+     */
+    static bool takeViewerKey(ViewerContext* viewer, int key,
+                              Qt::KeyboardModifiers modifiers, bool press,
+                              const QString& text = QString());
+    /** The menu of the handle the pointer is over in \a viewer, built into
+     * \a menu -- a browser's right click on a handle (sec 9.2 #4), as the
+     * view widget's filter opens it on the desktop. False when no set in
+     * \a viewer has a handle under the pointer.
+     */
+    static bool buildViewerMenu(ViewerContext* viewer, QMenu& menu, bool button = false);
+    /** Where the menu button (entry 173) of the set shown in \a viewer, a
+     * view with no widget, stands: {x, y, side} in logical pixels from the
+     * view's top left -- the page draws it. False when there is none.
+     */
+    static bool viewerMenuButton(ViewerContext* viewer, std::array<int, 3>& place);
+    /// What a client covers of \a viewer changed (ViewerContext::
+    /// coveredRects): the labels of the sets shown there placed again
+    static void viewCoverChanged(ViewerContext* viewer);
+    /** A feature of \a doc was recomputed, \a failed or not. During a drag
+     * of a handle -- and for the recompute of its last value -- a failure
+     * writes the dragged value back to the last that worked, inside the
+     * drag's undo step (the user, 2026-10-19)
+     */
+    static void featureRecomputed(const App::Document* doc, bool failed);
+    /** A left press or release in \a viewer, a view with no widget, at
+     * \a pos, ahead of the scene: a click on no handle leaves no value
+     * active, as on the desktop (entry 159)
+     */
+    static void viewerLeftButton(ViewerContext* viewer, bool press, const QPoint& pos);
     /** Whether the handles are shown in this set's view (8.5: the view's
      * own, not a preference). Hidden, the values still take Tab, typing and
      * the menu, and an active value's label stands at the top middle.
@@ -251,6 +292,10 @@ private:
     void writeTyped();
     void focusView();
     bool takeKey(QKeyEvent* event, bool overrideOnly);
+    bool takeMirrorKey(int key, Qt::KeyboardModifiers modifiers, bool press,
+                       const QString& text);
+    /// featureRecomputed() for this set's drag
+    void dragRecomputed(bool failed);
     /// The view, or null once it is gone: a panel can outlive its view -- a
     /// closed document takes its views before the panel's deferred delete
     ViewerContext* liveView() const;
@@ -288,6 +333,14 @@ private:
     int typing = -1;
     /// The handle being dragged, between its drag's start and end
     Gizmo* dragHandle = nullptr;
+    /// The box the drag in progress changes, the last value of it that
+    /// recomputed, and whether a finished drag's last recompute is still to
+    /// come (featureRecomputed())
+    /// The menu button's place in a view with no widget (viewerMenuButton())
+    std::array<int, 3> viewerButton {0, 0, 0};
+    QPointer<QuantitySpinBox> dragBox;
+    double dragGood = 0.0;
+    bool dragSettling = false;
     /// The value whose handle the pointer is over, -1 for none: its handles
     /// and its group's lit as a shape under the pointer is (entry 144)
     int preselected = -1;

@@ -26,6 +26,8 @@
 # include <QDomDocument>
 #endif
 
+#include <QCoreApplication>
+
 #include <Base/Console.h>
 
 #include "DrawViewSymbol.h"
@@ -80,6 +82,27 @@ App::DocumentObjectExecReturn* DrawViewSymbol::execute()
 {
     //nothing to do. DVS is just a container for properties.
     //the action takes place on the Gui side.
+    // An SVG that does not parse draws nothing: the view's error, saying
+    // where it broke (docs/TechDrawErrors.md 3.2)
+    const char* symbol = Symbol.getValue();
+    if (symbol && *symbol) {
+        QDomDocument symbolDocument;
+        QString errorMsg;
+        int errorLine = 0;
+        int errorCol = 0;
+        if (!symbolDocument.setContent(QByteArray(symbol), false, &errorMsg, &errorLine,
+                                       &errorCol)) {
+            return new App::DocumentObjectExecReturn(
+                QCoreApplication::translate("TechDraw",
+                                            "The symbol's SVG is not valid: %1 (line %2, "
+                                            "column %3)")
+                    .arg(errorMsg)
+                    .arg(errorLine)
+                    .arg(errorCol)
+                    .toStdString(),
+                this);
+        }
+    }
     return DrawView::execute();
 }
 

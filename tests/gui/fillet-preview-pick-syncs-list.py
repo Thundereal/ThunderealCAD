@@ -200,7 +200,10 @@ def run():
     try:
         FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt(
             "AutoSaveTimeout", 0)
-        FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetBool("PerViewEdit", True)
+        # GT_PER_VIEW_EDIT=0: the default the reporter runs (entry 196)
+        per_view = os.environ.get("GT_PER_VIEW_EDIT", "1") != "0"
+        note("INFO PerViewEdit %s" % per_view)
+        FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetBool("PerViewEdit", per_view)
         mw().showNormal()
         mw().setGeometry(QtGui.QGuiApplication.primaryScreen().availableGeometry())
         pump(30)
@@ -305,6 +308,45 @@ def run():
         check("a click on the missing top edge's kept face: its '?Edge' row is the one selected",
               selected_rows(widget) == [missing[0]], "rows %s, selection %s"
               % (selected_rows(widget), sel))
+
+        # entry 194 (the reporter, 2026-10-20: "select missing edge in fillet
+        # edit panel does not select the preview face in 3d view.
+        # additionally, if after selecting on item in the panel, and then
+        # select a preview face in the 3d view, the selection done it the
+        # panel is not cleared, so it ends up with two item selected")
+        def row_item(text):
+            for i in range(widget.topLevelItemCount()):
+                if widget.topLevelItem(i).text(0) == text:
+                    return widget.topLevelItem(i)
+            return None
+
+        FreeCADGui.Selection.clearSelection()
+        pump(20)
+        row_item(missing[0]).setSelected(True)
+        pump(30)
+        sel = selection()
+        names = [n for _, subs in sel for n in subs]
+        check("entry 194: the missing row selected in the panel selects its preview face",
+              len(names) == 1 and PREFIX in names[0], sel)
+        face_on(normal[0])
+        fx, fy = spot(normal[0])
+        move_to(fx, fy)
+        click(fx, fy)
+        check("entry 194: then a click on the bottom edge's fillet face: its row alone is selected",
+              selected_rows(widget) == [present[0]], "rows %s, selection %s"
+              % (selected_rows(widget), selection()))
+        FreeCADGui.Selection.clearSelection()
+        pump(20)
+        row_item(present[0]).setSelected(True)
+        pump(30)
+        face_on(kept.Faces[0])
+        x, y = spot(kept.Faces[0])
+        move_to(x, y)
+        click(x, y)
+        check("entry 194: the bottom row selected in the panel, then a click on the kept face:"
+              " the '?Edge' row alone is selected",
+              selected_rows(widget) == [missing[0]], "rows %s, selection %s"
+              % (selected_rows(widget), selection()))
 
         # the add mode: a click on it toggles the reference
         FreeCADGui.Selection.clearSelection()

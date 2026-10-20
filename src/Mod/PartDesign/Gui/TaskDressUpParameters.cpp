@@ -1053,12 +1053,22 @@ void TaskDressUpParameters::onItemSelectionChanged()
 
     std::set<QTreeWidgetItem*> itemSet;
     std::vector<std::string> subs;
+    const std::string &prefix = PartDesign::FeatureAddSub::addsubElementPrefix();
     for(auto item : treeWidget->selectedItems()) {
         if (auto parent = item->parent())
             item = parent;
         if (itemSet.insert(item).second) {
-            if (getGeometryItemReference(item).isEmpty())
+            if (getGeometryItemReference(item).isEmpty()) {
                 subs.push_back(subname + getGeometryItemText(item).constData());
+                continue;
+            }
+            // A missing edge has nothing in the base to select: its preview
+            // face stands for it, as a click on that face selects its row --
+            // which also makes the next plain click in the view replace this
+            // one, not add to it (docs/HandsOnQueue.md entry 194)
+            std::string face;
+            if (getItemElement(item, face) && face.find(prefix) != std::string::npos)
+                subs.push_back(face);
         }
     }
 
@@ -1067,6 +1077,8 @@ void TaskDressUpParameters::onItemSelectionChanged()
     Gui::Selection().addSelections(obj->getDocument()->getName(),
             obj->getNameInDocument(), subs);
     blockSelection(blocked);
+    // the panel heard none of it: the preview's faces in the selection colour
+    syncPreviewSelection();
 }
 
 App::SubObjectT TaskDressUpParameters::getInEdit(App::DocumentObject *base, const char *sub) {

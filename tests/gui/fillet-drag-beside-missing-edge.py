@@ -17,7 +17,10 @@ reference is missing. In edit. Claims:
     on again: the hover's;
   - a drag of it toward its edge: after the release the radius is the
     dragged one (not 2 again), the top edge still the only failed one, and
-    the result holds the bottom edge's fillet.
+    the result holds the bottom edge's fillet;
+  - a drag cancelled by Esc with the button still down: the radius back, the
+    arrow staying where the drag began while the pointer goes on, not shown
+    dragged; released, the radius the start's and the edit still open.
 
 Runs with QT_QPA_PLATFORM=offscreen; the drag goes through the window.
 Coarse snapping is turned off, so a short drag changes the value.
@@ -298,7 +301,13 @@ def run():
             q = QtCore.QPoint(int(p.x() + offset[0] * i / 10), int(p.y() - offset[1] * i / 10))
             QtTest.QTest.mouseMove(win, q)
             pump(5)
-        pump(120)
+        # the value written as the drag's moves come in: waited for, not a
+        # fixed pause (one run read 2 still, then 0.6 after the release)
+        for _ in range(30):
+            pump(10)
+            if abs(fillet.Radius.Value - RADIUS) > 1e-6:
+                break
+        pump(60)
         during = fillet.Radius.Value
         QtTest.QTest.mouseRelease(win, Qt.LeftButton, Qt.NoModifier, q)
         pump(150)
@@ -314,6 +323,60 @@ def run():
               fillet.Shape.isValid() and fillet.Shape.Volume < wedge.Shape.Volume - 1e-3,
               (fillet.Shape.Volume, wedge.Shape.Volume))
         check("still in edit", gdoc.getInEdit() is not None)
+
+        # A drag cancelled by Esc, the button still down: the radius back,
+        # and the arrow no longer dragged -- it stays where the drag began
+        # however the pointer goes on (the user, 2026-10-20: "the dragging is
+        # still active, no aborting")
+        pump(60)
+        arrow = pick_arrow(view().getPointOnViewport(middle))
+        note("INFO the arrow for the cancel at %s" % (arrow,))
+        if check("the arrow is found again", arrow is not None):
+            dragger = dragger_at(*arrow)
+            start = fillet.Radius.Value
+            placed = tuple(round(v, 4) for v in dragger.getField("translation").getValue())
+            p = to_window(*arrow)
+            QtTest.QTest.mouseMove(win, p)
+            pump(5)
+            QtTest.QTest.mousePress(win, Qt.LeftButton, Qt.NoModifier, p)
+            pump(5)
+            q = p
+            # away from the edge: a bigger radius (0.6 leaves little to go down)
+            for i in range(1, 6):
+                q = QtCore.QPoint(int(p.x() - offset[0] * i / 10),
+                                  int(p.y() + offset[1] * i / 10))
+                QtTest.QTest.mouseMove(win, q)
+                pump(5)
+            for _ in range(30):
+                pump(10)
+                if abs(fillet.Radius.Value - start) > 1e-6:
+                    break
+            pump(30)
+            moved = fillet.Radius.Value
+            QtTest.QTest.keyClick(viewer_widget(), Qt.Key_Escape)
+            pump(60)
+            # the pointer goes on, the button still down
+            for i in range(6, 11):
+                q = QtCore.QPoint(int(p.x() - offset[0] * i / 10),
+                                  int(p.y() + offset[1] * i / 10))
+                QtTest.QTest.mouseMove(win, q)
+                pump(5)
+            pump(60)
+            held = tuple(round(v, 4) for v in dragger.getField("translation").getValue())
+            active = dragger.getField("active").getValue()
+            note("INFO cancel: radius start %g, moved %g, after Esc %g; arrow %s -> %s; active %s"
+                 % (start, moved, fillet.Radius.Value, placed, held, active))
+            check("the drag moved the radius before Esc", abs(moved - start) > 1e-6, (start, moved))
+            check("Esc, the button down, the pointer moving on: the radius back",
+                  abs(fillet.Radius.Value - start) < 1e-9, (start, fillet.Radius.Value))
+            check("... the arrow where the drag began, not following the pointer",
+                  held == placed, (placed, held))
+            check("... and not shown dragged", not active, active)
+            QtTest.QTest.mouseRelease(win, Qt.LeftButton, Qt.NoModifier, q)
+            pump(80)
+            check("released: the radius still the start's, still in edit",
+                  abs(fillet.Radius.Value - start) < 1e-9 and gdoc.getInEdit() is not None,
+                  (fillet.Radius.Value, gdoc.getInEdit() is not None))
     except Exception:
         note("ABORT " + traceback.format_exc().replace("\n", " | "))
     finally:

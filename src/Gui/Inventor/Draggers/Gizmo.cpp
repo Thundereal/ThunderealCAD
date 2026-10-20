@@ -810,12 +810,20 @@ void LinearGizmo::cancelDrag()
     // a feature the drag turned, turned back
     endReverse(true);
     setDragLength(initialValue);
+    // No longer shown dragged (the user, 2026-10-20: "the dragging is still
+    // active, no aborting"): the dragger keeps the pointer until its button
+    // is up, its moves undone as they come (draggingContinued()). Letting
+    // the pointer go here would hand the rest of a held left button to the
+    // navigation style, which never saw it pressed.
+    dragger->active = false;
     notifyDrag(DragEvent::Cancelled);
 }
 
 void LinearGizmo::draggingContinued()
 {
     if (dragCancelled) {
+        // cancelled: the arrow stays where the drag began
+        setDragLength(initialValue);
         return;
     }
     hasDragged = true;
@@ -1121,12 +1129,17 @@ void RotationGizmo::cancelDrag()
     // a feature the drag turned, turned back
     endReverse(true);
     setRotAngle(initialValue);
+    // no longer shown dragged, its moves undone until the button is up (as
+    // a linear handle's)
+    dragger->active = false;
     notifyDrag(DragEvent::Cancelled);
 }
 
 void RotationGizmo::draggingContinued()
 {
     if (dragCancelled) {
+        // cancelled: the arc stays where the drag began
+        setRotAngle(initialValue);
         return;
     }
     hasDragged = true;

@@ -122,37 +122,10 @@ void ProfileBased::setupObject()
     AllowMultiFace.setValue(true);
     Linearize.setValue(Part::PartParams::getLinearizeExtrusionDraft());
     _ProfileBasedVersion.setValue(2);
-    _FitRule.setValue(1);
+    _FitRule.setValue(2);
 }
 
-void ProfileBased::onDocumentRestored()
-{
-    FeatureAddSub::onDocumentRestored();
-    if (_FitRule.getValue() >= 1)
-        return;
-    // Made before the rule: Fit ran with the profile face as its solid had
-    // it, and the side it made is the one the file holds. Kept, whatever
-    // the solid's next recompute hands back (docs/HandsOnQueue.md entry
-    // 160, Pocket040 in scanner.FCStd). The profile's shape is the file's
-    // now, before any recompute.
-    _FitRule.setValue(1);
-    if (std::abs(Fit.getValue()) <= Precision::Confusion()
-            && std::abs(InnerFit.getValue()) <= Precision::Confusion())
-        return;
-    try {
-        TopoShape face = getVerifiedFace(/*silent*/true, /*doFit*/false, /*allowOpen*/true);
-        TopExp_Explorer exp(face.getShape(), TopAbs_FACE);
-        if (exp.More())
-            _FitFlip.setValue(exp.Current().Orientation() == TopAbs_REVERSED);
-    }
-    catch (Base::Exception &) {
-    }
-    catch (Standard_Failure &) {
-    }
-}
-
-/// \a shape with each of its faces forward: an offset runs by the face's
-/// orientation, and a sketch's faces are made forward
+/// \a shape with each of its faces forward, which is what rule 1 offset
 static TopoShape forwardFaces(const TopoShape &shape)
 {
     if (shape.isNull())
@@ -177,6 +150,173 @@ static TopoShape forwardFaces(const TopoShape &shape)
     TopoShape res(shape.Tag, shape.Hasher);
     res.makECompound(faces);
     return res;
+}
+
+namespace {
+double shapeArea(const TopoShape &shape)
+{
+    GProp_GProps props;
+    BRepGProp::SurfaceProperties(shape.getShape(), props);
+    return props.Mass();
+}
+
+/// The size of \a shape's bounding box, which an offset of a planar face's
+/// outer boundary grows or shrinks with the offset, whatever its holes do
+double shapeExtent(const TopoShape &shape)
+{
+    Bnd_Box box;
+    BRepBndLib::AddOptimal(shape.getShape(), box, false, false);
+    if (box.IsVoid())
+        return 0.0;
+    double x0, y0, z0, x1, y1, z1;
+    box.Get(x0, y0, z0, x1, y1, z1);
+    return (x1 - x0) + (y1 - y0) + (z1 - z0);
+}
+
+/// The signs that make \a face's offset run as a sketch's does: a positive
+/// \a outer grows the outer boundary, a positive \a inner the holes. Which
+/// way an offset runs comes of the outer wire's turn about the plane the
+/// offset finds -- a circle's own axis, for one -- and a solid's face may
+/// have it either way, the same face from one recompute to the next (entry
+/// 197). \a res is the offset with the signs found.
+void fitSigns(const TopoShape &face, double outer, double inner,
+              TopoShape::JoinType join, TopoShape::JoinType innerJoin,
+              double &outerSign, double &innerSign, TopoShape &res)
+{
+    const double tiny = Precision::Confusion();
+    outerSign = innerSign = 1.0;
+    TopoShape outerOnly = face;
+    if (std::abs(outer) > tiny) {
+        const double extent = shapeExtent(face);
+        outerOnly = face.makEOffsetFace(outer, 0.0, join, innerJoin);
+        if ((shapeExtent(outerOnly) - extent) * outer < 0.0) {
+            outerSign = -1.0;
+            outerOnly = face.makEOffsetFace(-outer, 0.0, join, innerJoin);
+        }
+    }
+    if (std::abs(inner) <= tiny) {
+        res = outerOnly;
+        return;
+    }
+    const double area = shapeArea(outerOnly);
+    res = face.makEOffsetFace(outerSign * outer, inner, join, innerJoin);
+    // a hole grown is less of the face
+    if ((shapeArea(res) - area) * inner > 0.0) {
+        innerSign = -1.0;
+        res = face.makEOffsetFace(outerSign * outer, -inner, join, innerJoin);
+    }
+}
+} // namespace
+
+/// \a shape fitted by \a rule (ProfileBased::_FitRule), the earlier ones as
+/// they ran, for a file that has them
+static TopoShape fitProfile(const TopoShape &shape, int rule, bool flip,
+                            double fit, double innerFit,
+                            TopoShape::JoinType join, TopoShape::JoinType innerJoin)
+{
+    const double sign = flip ? -1.0 : 1.0;
+    if (rule == 0)
+        return shape.makEOffsetFace(fit, innerFit, join, innerJoin);
+    if (rule == 1)
+        return forwardFaces(shape).makEOffsetFace(sign * fit, sign * innerFit, join, innerJoin);
+
+    // By the geometry: each face as a sketch's, and a face of a solid too
+    TopoShape res;
+    double outerSign, innerSign;
+    std::vector<TopoShape> faces = shape.getSubTopoShapes(TopAbs_FACE);
+    if (faces.size() <= 1) {
+        fitSigns(shape, sign * fit, sign * innerFit, join, innerJoin, outerSign, innerSign, res);
+        return res;
+    }
+    // Several: one offset of them all, as before, where they agree; the
+    // faces one by one where they do not
+    std::vector<TopoShape> fitted;
+    bool agree = true;
+    double firstOuter = 0.0, firstInner = 0.0;
+    for (auto &face : faces) {
+        fitSigns(face, sign * fit, sign * innerFit, join, innerJoin, outerSign, innerSign, res);
+        fitted.push_back(res);
+        if (fitted.size() == 1) {
+            firstOuter = outerSign;
+            firstInner = innerSign;
+        }
+        else if (outerSign != firstOuter || innerSign != firstInner)
+            agree = false;
+    }
+    if (agree)
+        return shape.makEOffsetFace(firstOuter * sign * fit, firstInner * sign * innerFit,
+                                    join, innerJoin);
+    return TopoShape(shape.Tag, shape.Hasher).makECompound(fitted, nullptr, false);
+}
+
+void ProfileBased::onDocumentRestored()
+{
+    FeatureAddSub::onDocumentRestored();
+    const int rule = _FitRule.getValue();
+    if (rule < 0 || rule >= 2)
+        return;
+    // Made by an earlier rule, whose side is the one the file holds: 0, the
+    // face as its solid had it (before entry 160), 1, the face forward with
+    // _FitFlip read off its orientation flag (160 to 197). Neither tells the
+    // side by the geometry: Pocket022 in scanner.FCStd had its reversed
+    // face's 0.1 read as a shrink, and an update of the binder under it
+    // shrank the pocket (entry 197). The side is that of the earlier rule
+    // run on the file's face, which the profile still is before any
+    // recompute, and kept by the geometry from here on, whatever the
+    // solid's next recompute hands back.
+    const bool oldFlip = _FitFlip.getValue();
+    _FitRule.setValue(2);
+    _FitFlip.setValue(false);
+    const double fit = Fit.getValue();
+    const double innerFit = InnerFit.getValue();
+    const double tiny = Precision::Confusion();
+    if (std::abs(fit) <= tiny && std::abs(innerFit) <= tiny)
+        return;
+    try {
+        TopoShape face = getVerifiedFace(/*silent*/true, /*doFit*/false, /*allowOpen*/true);
+        if (face.isNull() || !face.hasSubShape(TopAbs_FACE))
+            return;
+        const auto join = static_cast<TopoShape::JoinType>(FitJoin.getValue());
+        const auto innerJoin = static_cast<TopoShape::JoinType>(InnerFitJoin.getValue());
+        TopoShape before = fitProfile(face, rule, oldFlip, fit, innerFit, join, innerJoin);
+        TopoShape same = fitProfile(face, 2, false, fit, innerFit, join, innerJoin);
+        TopoShape flipped = fitProfile(face, 2, true, fit, innerFit, join, innerJoin);
+
+        const double area = shapeArea(before), extent = shapeExtent(before);
+        const double areaApart = std::abs(shapeArea(same) - shapeArea(flipped));
+        const double extentApart = std::abs(shapeExtent(same) - shapeExtent(flipped));
+        if (areaApart <= tiny && extentApart <= tiny)
+            return; // either way the same profile
+        // How far the file's profile is from \a m, in parts of the distance
+        // between the two sides
+        auto distance = [&](const TopoShape &m) {
+            double d = 0.0;
+            if (areaApart > tiny)
+                d += std::abs(area - shapeArea(m)) / areaApart;
+            if (extentApart > tiny)
+                d += std::abs(extent - shapeExtent(m)) / extentApart;
+            return d;
+        };
+        const double toSame = distance(same);
+        const double toFlipped = distance(flipped);
+        if (toSame < 0.1 && toSame <= toFlipped)
+            return;
+        if (toFlipped < 0.1) {
+            _FitFlip.setValue(true);
+            return;
+        }
+        // Neither: Fit and InnerFit ran different ways there, or faces did.
+        // It fails rather than change unseen, until Fit is set again
+        // (getVerifiedFace(), onChanged())
+        _FitRule.setValue(-1);
+        FC_WARN(getFullName() << ": which way its Fit ran cannot be told from its file");
+    }
+    catch (Base::Exception &) {
+        _FitFlip.setValue(oldFlip);
+    }
+    catch (Standard_Failure &) {
+        _FitFlip.setValue(oldFlip);
+    }
 }
 
 TopLoc_Location ProfileBased::positionByPrevious(void)
@@ -357,19 +497,30 @@ TopoShape ProfileBased::getVerifiedFace(bool silent,
         if (doFit && (std::abs(Fit.getValue()) > Precision::Confusion()
                       || std::abs(InnerFit.getValue()) > Precision::Confusion())) {
 
-            // Each face forward, as a sketch's is: the offset runs by the
-            // face's orientation, which a boolean may hand back either way
-            // for the very same face -- a recompute that moved a base by
-            // 1e-6 gave Hole007's Face56 in scanner.FCStd back forward, and
-            // Pocket040's Fit of -0.5 shrank the profile it had grown
-            // (docs/HandsOnQueue.md entry 160). An older feature runs as its
-            // file made it (_FitFlip).
-            const double sign = _FitFlip.getValue() ? -1.0 : 1.0;
+            // As a sketch's face: a positive Fit grows the profile, a
+            // positive InnerFit its holes, told by the geometry. The offset
+            // runs by the outer wire's turn, which a boolean may hand back
+            // either way for the very same face -- a recompute that moved a
+            // base by 1e-6 gave Hole007's Face56 in scanner.FCStd back the
+            // other way, and Pocket040's Fit of -0.5 shrank the profile it
+            // had grown (docs/HandsOnQueue.md entries 160, 197). An older
+            // feature runs as its file made it (_FitFlip), and one whose
+            // side its file could not tell fails until Fit is set again.
+            if (_FitRule.getValue() < 0) {
+                if (silent)
+                    return TopoShape();
+                THROWM(Base::RuntimeError,
+                       QT_TRANSLATE_NOOP("Exception",
+                                         "Which way this feature's Fit runs cannot be told "
+                                         "from its file. Change Fit to have it run as now: "
+                                         "a positive Fit expands the profile, a negative "
+                                         "one shrinks it."))
+            }
             if (!shape.isNull())
-                shape = forwardFaces(shape).makEOffsetFace(sign * Fit.getValue(),
-                                            sign * InnerFit.getValue(),
-                                            static_cast<Part::TopoShape::JoinType>(FitJoin.getValue()),
-                                            static_cast<Part::TopoShape::JoinType>(InnerFitJoin.getValue()));
+                shape = fitProfile(shape, _FitRule.getValue(), _FitFlip.getValue(),
+                                   Fit.getValue(), InnerFit.getValue(),
+                                   static_cast<Part::TopoShape::JoinType>(FitJoin.getValue()),
+                                   static_cast<Part::TopoShape::JoinType>(InnerFitJoin.getValue()));
             if (!openshape.isNull())
                 openshape.makEOffset2D(Fit.getValue());
         }
@@ -658,6 +809,14 @@ void ProfileBased::onChanged(const App::Property* prop)
     if (prop == &Profile) {
         // if attached to a sketch then mark it as read-only
         this->Placement.setStatus(App::Property::ReadOnly, Profile.getValue() != nullptr);
+    }
+    else if ((prop == &Fit || prop == &InnerFit) && _FitRule.getValue() < 0
+             && !isRestoring() && getDocument()
+             && !getDocument()->isPerformingTransaction()) {
+        // A Fit whose side its file could not tell, set again: it runs by
+        // the rule now (onDocumentRestored(), entry 197)
+        _FitRule.setValue(2);
+        _FitFlip.setValue(false);
     }
 
     FeatureAddSub::onChanged(prop);

@@ -77,11 +77,14 @@ public:
 
     App::PropertyInteger _ProfileBasedVersion;
     /// How Fit reads a profile face: 0, as the solid it came from had the
-    /// face (the face's own orientation); 1, as a sketch's face, whatever
-    /// the solid did (getVerifiedFace(), docs/HandsOnQueue.md entry 160)
+    /// face; 1, the face forward (docs/HandsOnQueue.md entry 160); 2, by
+    /// the geometry, a positive Fit growing the profile and a positive
+    /// InnerFit its holes, as a sketch's (getVerifiedFace(), entry 197); -1,
+    /// an older feature whose side its file could not tell, which fails
+    /// until Fit is set again. 0 and 1 are read at the open into 2.
     App::PropertyInteger _FitRule;
-    /// Fit and InnerFit run the other way: an older feature whose profile
-    /// face was reversed in its file, which its Fit ran with
+    /// Fit and InnerFit run the other way: an older feature whose Fit made
+    /// the other side of its profile in its file than the rule does
     App::PropertyBool    _FitFlip;
 
     short mustExecute() const override;

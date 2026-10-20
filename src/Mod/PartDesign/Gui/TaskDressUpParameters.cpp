@@ -38,6 +38,8 @@
 # include <cmath>
 #endif
 
+#include <algorithm>
+
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <TopExp_Explorer.hxx>
@@ -1053,12 +1055,22 @@ void TaskDressUpParameters::onItemSelectionChanged()
 
     std::set<QTreeWidgetItem*> itemSet;
     std::vector<std::string> subs;
+    const std::string &prefix = PartDesign::FeatureAddSub::addsubElementPrefix();
     for(auto item : treeWidget->selectedItems()) {
         if (auto parent = item->parent())
             item = parent;
         if (itemSet.insert(item).second) {
-            if (getGeometryItemReference(item).isEmpty())
+            if (getGeometryItemReference(item).isEmpty()) {
                 subs.push_back(subname + getGeometryItemText(item).constData());
+                continue;
+            }
+            // A missing edge has nothing in the base to select: its preview
+            // face stands for it, as a click on that face selects its row --
+            // which also makes the next plain click in the view replace this
+            // one, not add to it (docs/HandsOnQueue.md entry 194)
+            std::string face;
+            if (getItemElement(item, face) && face.find(prefix) != std::string::npos)
+                subs.push_back(face);
         }
     }
 
@@ -1067,6 +1079,8 @@ void TaskDressUpParameters::onItemSelectionChanged()
     Gui::Selection().addSelections(obj->getDocument()->getName(),
             obj->getNameInDocument(), subs);
     blockSelection(blocked);
+    // the panel heard none of it: the preview's faces in the selection colour
+    syncPreviewSelection();
 }
 
 App::SubObjectT TaskDressUpParameters::getInEdit(App::DocumentObject *base, const char *sub) {
@@ -1494,6 +1508,43 @@ bool TaskDressUpParameters::eventFilter(QObject *o, QEvent *e)
     }
     // the base's: a panel box holding an undo step while it has the focus
     return TaskFeatureParameters::eventFilter(o,e);
+}
+
+void TaskDressUpParameters::heldStepBegun()
+{
+    failedAtStepStart.clear();
+    errorAtStepStart.clear();
+    auto dressUp = vp ? Base::freecad_dynamic_cast<PartDesign::DressUp>(vp->getObject()) : nullptr;
+    if (!dressUp || !dressUp->isError())
+        return;
+    failedAtStepStart = dressUp->FailedEdges.getValues();
+    if (const char *error = dressUp->getStatusString())
+        errorAtStepStart = error;
+}
+
+std::vector<std::string> TaskDressUpParameters::failedSinceStepBegun(bool &whole) const
+{
+    whole = false;
+    std::vector<std::string> fresh;
+    auto dressUp = vp ? Base::freecad_dynamic_cast<PartDesign::DressUp>(vp->getObject()) : nullptr;
+    if (!dressUp || !dressUp->isError())
+        return fresh;
+    const auto &failed = dressUp->FailedEdges.getValues();
+    // Nothing named: the feature as a whole failed
+    if (failed.empty()) {
+        whole = true;
+        return fresh;
+    }
+    for (const auto &edge : failed) {
+        if (std::find(failedAtStepStart.begin(), failedAtStepStart.end(), edge)
+                == failedAtStepStart.end())
+            fresh.push_back(edge);
+    }
+    // The same edges, and another error: the result itself
+    const char *error = dressUp->getStatusString();
+    if (fresh.empty() && errorAtStepStart != (error ? error : ""))
+        whole = true;
+    return fresh;
 }
 
 //**************************************************************************

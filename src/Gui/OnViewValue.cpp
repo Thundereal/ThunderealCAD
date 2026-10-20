@@ -991,7 +991,8 @@ void OnViewValueSet::highlight()
         const bool prelit = i == hovered || (hoverGroup > 0 && entries[i]->group == hoverGroup);
         for (Gizmo* handle : entries[i]->handles) {
             handle->setHighlighted(lit);
-            handle->setPreselected(prelit && !lit);
+            // a selected one too: lit by the pointer while over it
+            handle->setPreselected(prelit);
         }
     }
 }
@@ -1213,28 +1214,40 @@ void OnViewValueSet::addSettingsMenu(QMenu& menu)
         MiscParams::setEnableCoarseSnap(on);
     });
 
-    auto modifier = new QComboBox;
-    modifier->setObjectName(QStringLiteral("OnViewSettingFineSnapModifier"));
-    modifier->addItem(tr("Shift"), static_cast<int>(Qt::ShiftModifier));
-    modifier->addItem(tr("Ctrl"), static_cast<int>(Qt::ControlModifier));
-    modifier->setCurrentIndex(
-        GizmoContainer::getFineSnapModifier() == Qt::ControlModifier ? 1 : 0);
-    modifier->setToolTip(tr("Defines the modifier key used for fine snapping while dragging"));
-    settings->addAction(fieldRow(settings, tr("Fine snap modifier"), modifier));
-    connect(modifier, qOverload<int>(&QComboBox::currentIndexChanged), [modifier](int i) {
-        MiscParams::setFineSnapModifier(modifier->itemData(i).toInt());
-    });
-
+    // The key toggles: held, the drag is the other of the default -- fine when
+    // coarse is the default, coarse when fine is -- and its row says which
     auto behavior = new QComboBox;
     behavior->setObjectName(QStringLiteral("OnViewSettingDefaultCoarseDragBehavior"));
     behavior->addItem(tr("Coarse"), 0);
     behavior->addItem(tr("Fine"), 1);
     behavior->setCurrentIndex(GizmoContainer::isCoarseByDefault() ? 0 : 1);
     behavior->setToolTip(
-        tr("Determines whether the drag is coarse or fine without holding the modifier key"));
-    settings->addAction(fieldRow(settings, tr("Default coarse drag behavior"), behavior));
-    connect(behavior, qOverload<int>(&QComboBox::currentIndexChanged), [behavior](int i) {
+        tr("Whether a drag is coarse or fine without the modifier key held"));
+    settings->addAction(fieldRow(settings, tr("Default drag"), behavior));
+
+    auto modifier = new QComboBox;
+    modifier->setObjectName(QStringLiteral("OnViewSettingFineSnapModifier"));
+    modifier->addItem(tr("Shift"), static_cast<int>(Qt::ShiftModifier));
+    modifier->addItem(tr("Ctrl"), static_cast<int>(Qt::ControlModifier));
+    modifier->setCurrentIndex(
+        GizmoContainer::getFineSnapModifier() == Qt::ControlModifier ? 1 : 0);
+    settings->addAction(fieldRow(settings, QString(), modifier));
+    auto modifierLabel = modifier->parentWidget()->findChild<QLabel*>();
+    auto nameModifier = [modifier, modifierLabel](bool coarseByDefault) {
+        modifierLabel->setText(coarseByDefault ? tr("Hold for fine drag")
+                                               : tr("Hold for coarse drag"));
+        modifier->setToolTip(coarseByDefault
+                                 ? tr("The key that makes a drag fine while held")
+                                 : tr("The key that makes a drag coarse while held"));
+    };
+    nameModifier(GizmoContainer::isCoarseByDefault());
+    connect(modifier, qOverload<int>(&QComboBox::currentIndexChanged), [modifier](int i) {
+        MiscParams::setFineSnapModifier(modifier->itemData(i).toInt());
+    });
+    connect(behavior, qOverload<int>(&QComboBox::currentIndexChanged),
+            [behavior, nameModifier](int i) {
         MiscParams::setDefaultCoarseDragBehavior(behavior->itemData(i).toInt());
+        nameModifier(GizmoContainer::isCoarseByDefault());
     });
 
     auto linear = new QSpinBox;

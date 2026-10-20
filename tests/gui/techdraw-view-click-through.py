@@ -491,6 +491,103 @@ def group_frame():
           bool(got) and got[0][0] == name and got[0][1] in ([], [""]), got)
 
 
+# entry 192 (the reporter, 2026-10-20): "keep it everywhere, i.e. when frame
+# is set to hidden, show it when any of its child is selected. but make
+# deselection work properly" -- a view deselected in the page kept its frame
+EMPTY_X, EMPTY_Y = VIEW_X - 80.0, VIEW_Y + 30.0
+
+
+@step(300)
+def select_edge_in_page():
+    v = page_view()
+    v.centerOn(QtCore.QPointF(VIEW_X * 10.0, -VIEW_Y * 10.0))
+    QtWidgets.QApplication.processEvents()
+    FreeCADGui.Selection.clearSelection()
+    got = []
+    for dx in (0.0, 0.1, -0.1, 0.2):
+        got = raw_click_mm(VIEW_X - 30.0 + dx, VIEW_Y + 10.0)
+        if got and got[0][1] and got[0][1][0].startswith("Edge"):
+            break
+    check("entry 192: an edge of the part view selected in the page",
+          len(got) == 1 and got[0][0] == "View" and got[0][1]
+          and got[0][1][0].startswith("Edge"), got)
+
+
+@step(500)
+def deselect_in_page():
+    got = raw_click_mm(EMPTY_X, EMPTY_Y)
+    check("entry 192: a click on the empty page deselects it", got == [], got)
+
+
+@step(800)
+def frame_gone_after_page_deselect():
+    page_view().grab().save(os.path.join(OUT, "frame-after-page-deselect.png"))
+    got = raw_click_mm(VIEW_X, VIEW_Y + FRAMES.get("view", 10.5))
+    check("entry 192: deselected in the page, the part view's frame is gone"
+          " (a click where its line was goes through)", got == [], got)
+
+
+@step(300)
+def deselect_in_tree():
+    FreeCADGui.Selection.clearSelection()
+    FreeCADGui.Selection.addSelection(DOC, "View", "Edge1")
+    QtWidgets.QApplication.processEvents()
+    FreeCADGui.Selection.clearSelection()
+
+
+@step(800)
+def frame_gone_after_tree_deselect():
+    got = raw_click_mm(VIEW_X, VIEW_Y + FRAMES.get("view", 10.5))
+    check("entry 192: deselected from the tree, the part view's frame is gone",
+          got == [], got)
+
+
+PICTURE = {}
+
+
+@step(300)
+def picture_frame_line():
+    """Where the picture's frame line is, while it is selected: looked for
+    above its top, reselected before each try (a miss deselects it)"""
+    v = page_view()
+    v.centerOn(QtCore.QPointF((VIEW_X + 30.0) * 10.0, -VIEW_Y * 10.0))
+    QtWidgets.QApplication.processEvents()
+    for dy in [19.0 + 0.25 * k for k in range(25)]:
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.Selection.addSelection(DOC, "Picture")
+        QtWidgets.QApplication.processEvents()
+        got = raw_click_mm(VIEW_X + 30.0, VIEW_Y + dy)
+        if [n for n, _ in got] == ["Picture"]:
+            PICTURE["dy"] = dy
+            break
+    note("INFO the picture's frame line %s mm above its middle" % PICTURE.get("dy"))
+    check("entry 192: frames hidden, the selected picture shows its frame, which a click takes",
+          "dy" in PICTURE, PICTURE)
+
+
+@step(300)
+def select_picture_in_page():
+    FreeCADGui.Selection.clearSelection()
+    QtWidgets.QApplication.processEvents()
+    got = raw_click_mm(VIEW_X + 30.0, VIEW_Y)
+    check("entry 192: the picture selected in the page", [n for n, _ in got] == ["Picture"], got)
+
+
+@step(500)
+def deselect_picture_in_page():
+    got = raw_click_mm(EMPTY_X, EMPTY_Y)
+    check("entry 192: a click on the empty page deselects the picture", got == [], got)
+
+
+@step(800)
+def picture_frame_gone():
+    page_view().grab().save(os.path.join(OUT, "picture-after-page-deselect.png"))
+    if "dy" not in PICTURE:
+        return
+    got = raw_click_mm(VIEW_X + 30.0, VIEW_Y + PICTURE["dy"])
+    check("entry 192: deselected in the page, the picture's frame is gone", got == [], got)
+
+
 def finish():
     GEN.SetBool("PageRendererVg", HAD)
     try:

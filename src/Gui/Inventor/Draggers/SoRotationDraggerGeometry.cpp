@@ -71,7 +71,7 @@ SoRotatorGeometry::SoRotatorGeometry()
 {
     SO_KIT_CONSTRUCTOR(SoRotatorGeometry);
     SO_KIT_ADD_CATALOG_ENTRY(separator, SoSeparator, false, this, "", false);
-    SO_KIT_ADD_CATALOG_ENTRY(lightModel, SoLightModel, false, separator, "", false);
+    SO_KIT_ADD_CATALOG_ENTRY(lightModel, SoLightModel, true, separator, "", false);
     SO_KIT_ADD_CATALOG_ENTRY(pickStyle, SoPickStyle, false, separator, "", false);
     SO_KIT_ADD_CATALOG_ENTRY(drawStyle, SoDrawStyle, false, separator, "", false);
     SO_KIT_ADD_CATALOG_ENTRY(arcCoords, SoCoordinate3, false, separator, "", true);
@@ -88,8 +88,8 @@ SoRotatorGeometry::SoRotatorGeometry()
 
     SO_KIT_INIT_INSTANCE();
 
-    auto lightModel = SO_GET_ANY_PART(this, "lightModel", SoLightModel);
-    lightModel->model = SoLightModel::BASE_COLOR;
+    // No light model of its own (the part stays empty): lit as the view
+    // draws, its draw style included (docs/HandsOnQueue.md entry 196)
 
     auto pickStyle = SO_GET_ANY_PART(this, "pickStyle", SoPickStyle);
     pickStyle->style = SoPickStyle::SHAPE_ON_TOP;
@@ -215,7 +215,7 @@ SoRotatorArrow::SoRotatorArrow()
 {
     SO_KIT_CONSTRUCTOR(SoRotatorArrow);
     SO_KIT_ADD_CATALOG_ENTRY(separator, SoSeparator, false, this, "", false);
-    SO_KIT_ADD_CATALOG_ENTRY(lightModel, SoLightModel, false, separator, "", false);
+    SO_KIT_ADD_CATALOG_ENTRY(lightModel, SoLightModel, true, separator, "", false);
     SO_KIT_ADD_CATALOG_ENTRY(pickStyle, SoPickStyle, false, separator, "", false);
     SO_KIT_ADD_CATALOG_ENTRY(arrowBody, SoCylinder, false, separator, "", true);
     SO_KIT_ADD_CATALOG_ENTRY(arrowTip, SoCone, false, separator, "", true);
@@ -233,8 +233,8 @@ SoRotatorArrow::SoRotatorArrow()
 
     SO_KIT_INIT_INSTANCE();
 
-    auto lightModel = SO_GET_ANY_PART(this, "lightModel", SoLightModel);
-    lightModel->model = SoLightModel::BASE_COLOR;
+    // No light model of its own (the part stays empty): lit as the view
+    // draws, its draw style included (docs/HandsOnQueue.md entry 196)
 
     auto pickStyle = SO_GET_ANY_PART(this, "pickStyle", SoPickStyle);
     pickStyle->style = SoPickStyle::SHAPE_ON_TOP;
@@ -317,7 +317,7 @@ SoRotatorBase::SoRotatorBase()
 {
     SO_KIT_CONSTRUCTOR(SoRotatorBase);
     SO_KIT_ADD_CATALOG_ENTRY(separator, SoSeparator, false, this, "", false);
-    SO_KIT_ADD_CATALOG_ENTRY(lightModel, SoLightModel, false, separator, "", false);
+    SO_KIT_ADD_CATALOG_ENTRY(lightModel, SoLightModel, true, separator, "", false);
     SO_KIT_ADD_CATALOG_ENTRY(pickStyle, SoPickStyle, false, separator, "", false);
     SO_KIT_ADD_CATALOG_ENTRY(baseColor, SoBaseColor, false, separator, "", true);
     SO_KIT_ADD_CATALOG_ENTRY(drawStyle, SoDrawStyle, false, separator, "", false);
@@ -331,8 +331,8 @@ SoRotatorBase::SoRotatorBase()
 
     SO_KIT_INIT_INSTANCE();
 
-    auto lightModel = SO_GET_ANY_PART(this, "lightModel", SoLightModel);
-    lightModel->model = SoLightModel::BASE_COLOR;
+    // No light model of its own (the part stays empty): lit as the view
+    // draws, its draw style included (docs/HandsOnQueue.md entry 196)
 
     auto pickStyle = SO_GET_ANY_PART(this, "pickStyle", SoPickStyle);
     pickStyle->style = SoPickStyle::UNPICKABLE;

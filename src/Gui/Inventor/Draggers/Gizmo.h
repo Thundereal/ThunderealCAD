@@ -123,11 +123,16 @@ public:
     virtual void setColor([[maybe_unused]] const std::optional<Base::Color>& color) {}
     /** Lit as a shape is under the pointer: View/HighlightColor, made
      * distinct from the handle's own colour where the two are close
-     * (docs/HandsOnQueue.md entry 144); the highlighted state above,
-     * View/SelectionColor, the same way, wins over it
+     * (docs/HandsOnQueue.md entry 144); it wins over the highlighted state
+     * above, View/SelectionColor, as on a shape (entry 196)
      */
     virtual void setPreselected([[maybe_unused]] bool preselected) {}
-    /// Told when the pointer comes onto the handle and leaves it
+    /** Told when the pointer comes onto the handle and leaves it. A press on
+     * the handle tells it left, though the pointer stays: the click shows
+     * the handle selected (the user, 2026-10-20: "when click to select the
+     * handle, its highlight should change from hover to selection"); it is
+     * told on again once the pointer has left and come back.
+     */
     using HoverCallback = std::function<void(bool over)>;
     void setHoverCallback(HoverCallback callback)
     {
@@ -231,6 +236,10 @@ protected:
     QString menuToolTip;
     bool menuPressed = false;
     bool hovered = false;
+    /// Pressed on while hovered: no hover until the pointer leaves
+    bool hoverHeld = false;
+    /// The press on the handle (its dragger's start): the hover dropped
+    void pressedOn();
     HoverCallback hoverCallback;
     /// Bumped at each change of hovered: a timer of an older one does nothing
     int hoverSerial = 0;
@@ -241,6 +250,11 @@ protected:
     void setHovered(bool over);
     /// No longer the handle whose hint shows; its tip hidden
     void dropTip();
+    /// The view with no widget -- a browser's -- this handle's hint was
+    /// given to (ViewerContext::setHint), and that view's lifetime
+    ViewerContext* hintView = nullptr;
+    std::weak_ptr<const void> hintViewLife;
+    void dropViewHint();
 
     DragCallback dragCallback;
     bool dragging = false;

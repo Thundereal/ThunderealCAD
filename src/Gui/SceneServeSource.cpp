@@ -615,6 +615,12 @@ public:
                 owner->announceVisibility(client);
             }
         });
+        // A handle's hint has no tool tip to show it in a view with no
+        // widget: the client shows it at its own pointer
+        // (docs/OnViewValueEditing.md 9.2 #6).
+        mirror->setHintCallback([this, client]() {
+            announceHint(client);
+        });
         // What the others already have selected, for the ones whose
         // route says this client may see it (8.11a). Said now rather
         // than waiting for them to pick again; the viewer keeps the
@@ -975,6 +981,21 @@ public:
             json += '}';
         }
         json += "]}";
+        Render::SceneStreamServer::instance().sendControl(client, json);
+    }
+
+    /// The hint the client shows at its pointer, empty for none: a push
+    /// with no id, which the page takes by its op
+    void announceHint(uint64_t client)
+    {
+        MirrorViewer *mirror = mirrorFor(client);
+        if (!mirror)
+            return;
+        std::string json = "{\"op\":\"hint\",\"doc\":";
+        jsonQuoted(json, groupName);
+        json += ",\"text\":";
+        jsonQuoted(json, mirror->hint().toStdString());
+        json += '}';
         Render::SceneStreamServer::instance().sendControl(client, json);
     }
 

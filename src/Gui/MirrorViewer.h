@@ -252,6 +252,11 @@ public:
     /// What the client says its own interface covers of the view (the
     /// `view.covered` op); the on-view labels move clear of it
     void setCoveredRects(std::vector<std::array<int, 4>> rects);
+    /// A handle's hint, which the client shows at its pointer
+    void setHint(const QString& text) override;
+    QString hint() const override;
+    /// Told when the hint changes, so the connection can state it.
+    void setHintCallback(std::function<void()> callback);
     SoFCRenderCacheManager* getRenderCacheManager() const override;
     Render::Renderer* getExternalRenderer() const override;
     const SoFCVisibilityElement::Table* visibilityElementTable() const override;

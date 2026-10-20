@@ -19,6 +19,7 @@ import { OmniBox } from './omni';
 import { ToolbarStrip } from './toolbar';
 import { installCovered } from './covered';
 import { OnViewMenuButton } from './onviewbutton';
+import { HandleHint } from './hint';
 import type { LoupeMark } from './loupe';
 import { NARROW } from './panel';
 import { EDIT_VALUE_DIFF, sendOp, sendRequestFile } from './control';
@@ -412,6 +413,7 @@ render(() => (
     <LoupeOverlay mark={loupe} />
     <OnViewParams params={onView} places={onViewPlaces} />
     <OnViewMenuButton />
+    <HandleHint />
     <HudCard text={hud} onClose={() => window.fcviewerSetHud?.(false)} />
     {sending() && <div class="fc-sending" role="status">{sending()}</div>}
     <NaviCubeMenu />

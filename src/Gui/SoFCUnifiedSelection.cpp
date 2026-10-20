@@ -125,6 +125,8 @@
 #include "SoMouseWheelEvent.h"
 #include "Tree.h"
 #include "ViewerContext.h"
+#include "EditableDatumLabel.h"
+#include "SoDatumLabel.h"
 
 FC_LOG_LEVEL_INIT("SoFCUnifiedSelection",false,true)
 
@@ -376,7 +378,7 @@ public:
 
     void onPreselectTimer();
     /// While an object is in edit: whether the event's pick runs through a
-    /// dragger, a handle of the edit
+    /// dragger, a handle of the edit, or an on-view value's label
     bool isOverEditHandle(SoHandleEventAction * action) const;
 
     SoFCUnifiedSelection * master;
@@ -2123,6 +2125,12 @@ SoFCUnifiedSelection::handleEvent(SoHandleEventAction * action)
                 }
             }
         }
+        // An on-view value's label, picked on top: its root hangs beside
+        // this one, after it, so the press it takes is not known here yet
+        // either; the release, which is its click, must reach it
+        // (docs/HandsOnQueue.md entry 196, point 3)
+        if (!pimpl->pressGrabbedBelow && pimpl->isOverEditHandle(action))
+            pimpl->pressGrabbedBelow = true;
     }
 }
 
@@ -2163,8 +2171,20 @@ SoFCUnifiedSelection::Private::isOverEditHandle(SoHandleEventAction * action) co
     // The whole path: an SoPath hides what is inside a node kit, and a
     // gizmo's dragger is a part of its container
     const auto* path = static_cast<const SoFullPath*>(picked->getPath());
+    bool label = false;
     for (int i = path->getLength() - 1; i >= 0; --i) {
-        if (path->getNode(i)->isOfType(SoDragger::getClassTypeId()))
+        SoNode *node = path->getNode(i);
+        if (node->isOfType(SoDragger::getClassTypeId()))
+            return true;
+        // An on-view value's label, picked on top of what is behind it
+        // (EditableDatumLabel: its root an annotation of OnViewPriority):
+        // nothing behind it is preselected (entry 196, points 2 and 3). A
+        // sketch's constraint labels are not under such a root.
+        if (node->isOfType(SoDatumLabel::getClassTypeId()))
+            label = true;
+        else if (label && node->isOfType(SoFCPathAnnotation::getClassTypeId())
+                && static_cast<SoFCPathAnnotation*>(node)->priority.getValue()
+                    == EditableDatumLabel::OnViewPriority)
             return true;
     }
     return false;

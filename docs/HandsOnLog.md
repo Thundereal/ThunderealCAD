@@ -7902,3 +7902,34 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   that edge now lights the face). serve-dressup-preview-pick.py 11 of 11,
   fillet-preview-pick-syncs-list.py 20 of 20, dressup-replace-missing-edge
   .py 21 of 21 on r153. NOT pushed.
+- PUSHED and STAGED 2026-10-20 on the user's "Push and continue", then
+  "Restage first": thundereal/LinkVibe 5072ffe4c7..fdf4dccef5; stage23
+  08:20, INSTALL-USER: OK, the copy fdf4dccef5 = r153 (188, 189's steps
+  and the preview pick, 190, 191). Note-taker told.
+- 189, 9.2 #6, the handle's hint in the browser: DONE (4c6455244c). A view
+  with no widget gets no tool tip request from Qt, so the handle keeps
+  Qt's wait itself and the client's mirror pushes the hint (op "hint");
+  the page shows it at its pointer. Seen in a real Chrome (hint1): the two
+  lines of the desktop's tip beside the pointer resting on the radius
+  arrow, none at once, none after moving off. serve-handle-hint.py 9 of 9,
+  fillet-handle-click-in-view.py all green (the desktop's tip unchanged)
+  on r154. NOT pushed. Left of 189: touch (9.3).
+- 192, a view deselected in a TechDraw page kept its selection frame: the
+  tree-to-scene sync blocks the observer whose redraw drops it. FIXED
+  (01d32da5c6): the sync ends with the frame refresh.
+  techdraw-view-click-through.py with 8 new claims. NOT pushed.
+- 194, a missing row selected in a dress-up panel now selects its preview
+  face too (c4c8e1a792); fillet-preview-pick-syncs-list.py 3 new claims.
+  NOT pushed.
+- 195 HELD by the note-taker's split; a first cut is parked, not in the
+  tree (dl\handson\2026-10-12\195-presel-measure-default.patch).
+- 196 on the user's r172/r173 hands-on: the on-view label lights on hover
+  and takes a click ahead of the geometry under it; every handle and
+  dragger loses its BASE_COLOR light model and follows the view's draw
+  style (f3dc8f68d2); dress-up handles are one colour whatever their group
+  (6d8ff90769). The silhouette outline is REVERTED on the user's word (it
+  fought Coin's dragger kits) and parked as 196-outline-attempt.patch;
+  the preview face highlight kept. Point 1 (the working edge's preview face
+  selecting the base edge only) left as is, the user's word. r174: all 8
+  handle/value/label tests green. NOT pushed, NOT staged; the dev build
+  launched 15:17 for the user's hands-on test.

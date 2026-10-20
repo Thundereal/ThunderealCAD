@@ -227,6 +227,9 @@ public:
     /// What the client's own interface covers (setCoveredRects())
     std::vector<std::array<int, 4>> covered;
     std::function<void()> onViewParamsChanged;
+    /// The hint shown at the client's pointer (setHint())
+    QString hint;
+    std::function<void()> onHintChanged;
     /** The key frame being routed into an entry box, if any.
      *
      * The box may hand the key back (DrawSketchKeyboardManager decides
@@ -1043,6 +1046,27 @@ void MirrorViewer::setCoveredRects(std::vector<std::array<int, 4>> rects)
     }
     pimpl->covered = std::move(rects);
     OnViewValueSet::viewCoverChanged(this);
+}
+
+void MirrorViewer::setHint(const QString& text)
+{
+    if (text == pimpl->hint) {
+        return;
+    }
+    pimpl->hint = text;
+    if (pimpl->onHintChanged) {
+        pimpl->onHintChanged();
+    }
+}
+
+QString MirrorViewer::hint() const
+{
+    return pimpl->hint;
+}
+
+void MirrorViewer::setHintCallback(std::function<void()> callback)
+{
+    pimpl->onHintChanged = std::move(callback);
 }
 
 double MirrorViewer::devicePixelRatio() const

@@ -246,6 +246,11 @@ private:
     SoEventCallback* clickCallback;
     SoPickStyle* pickStyle;
     fastsignals::scoped_connection connCameraReplaced;
+    /// The colour setColor() last gave, which the hover light covers
+    SbColor ownColor;
+    /// The pointer over a pickable label: drawn in the preselection colour
+    bool hovered = false;
+    void showHover(bool over);
 };
 
 }

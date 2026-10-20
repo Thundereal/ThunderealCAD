@@ -994,6 +994,19 @@ changes (`viewer-harness\probes-2026-10-19\drag3`):
   three strips) and its click asks for the edit's menu with no handle
   (`contextMenu` {onViewButton}). Seen: the button at the label's left
   under the tool bars, its menu "Show handles", "Settings".
+- 9.2 #6, the handle's hint in the browser, BUILT and seen (r154,
+  `hint1`): Qt asks a desktop view's widget for a tool tip; a view with no
+  widget has nobody to ask, so the handle keeps Qt's wait itself
+  (`SH_ToolTip_WakeUpDelay`) and gives its hint to the view
+  (`ViewerContext::setHint`). A mirror pushes it to its client
+  (`{"op":"hint","text":...}`, an empty text when the pointer is off the
+  handle again), and the page shows it at its own pointer
+  (`web/src/hint.tsx`); a press or a right click hides it there, as a
+  desktop tip goes at a click. Seen: resting on the radius arrow, the two
+  lines "Drag to change the value; click to type it. / Right click for the
+  menu." below and right of the pointer; none at once, none after moving
+  off. tests/gui/serve-handle-hint.py; the desktop's tip unchanged
+  (fillet-handle-click-in-view.py).
 
 ### 9.5b A failed drag goes back (the user, 2026-10-19)
 

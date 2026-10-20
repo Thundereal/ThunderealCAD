@@ -163,6 +163,15 @@ protected:
 
     bool eventFilter(QObject *o, QEvent *e) override;
 
+    /// The failed edges and the error as the held step began
+    void heldStepBegun() override;
+    /** For isDragFailing(): the edges failed now that did not when the held
+     * step began -- a missing edge failed before the drag, and fails after
+     * it, whatever the drag does. \a whole is set when the feature failed as
+     * a whole, or with the same edges with another error (an invalid result).
+     */
+    std::vector<std::string> failedSinceStepBegun(bool &whole) const;
+
 protected:
     QWidget* proxy;
 
@@ -193,6 +202,9 @@ protected:
     /// The missing row that was the selection when a click cleared it, for
     /// the pick the same click makes next (replaceMissing())
     std::string missingPick;
+    /// heldStepBegun()'s
+    std::vector<std::string> failedAtStepStart;
+    std::string errorAtStepStart;
 };
 
 /// simulation dialog for the TaskView

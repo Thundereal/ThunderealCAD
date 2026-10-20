@@ -188,6 +188,10 @@ merged or rebased onto `72396a7ff4` before its next push -- told to it.
 test (Tests_run.exe, FreeCADApp.dll then FreeCADBase.dll).** Under the
 entry.
 
+**2026-10-20 17:12: entry 200 -- three Dark-theme claims of overlay-see-through.py
+fail on x16win's box, with or without 193; to x16win.** Under the entry.
+Also 193 COMMITTED by x16win, `5f507995a3` on its box, not pushed.
+
 **2026-10-20 15:18: the reporter's answers to four questions (put by the note-taker
 with the tool's choices, after x16win's reports).** (1) 158, real-screen
 runs on x16win's box: "Yes, real screen OK". (2) 178, the six classes
@@ -4055,6 +4059,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 197 | 2026-10-20 | a defect: scanner.FCStd, the MIGRATION RECOMPUTE -> Binder008 'No context' (expected); a DOUBLE CLICK to UPDATE it -> Pocket022's FIT (the cut's tolerance, 0.1) CHANGES SIDE (the grow becomes a shrink); must not happen -- backward compatibility kept, or, where it cannot be, the feature marked in ERROR | OPEN; said to the note-taker 2026-10-20 10:02. 2026-10-20 10:07 the reporter: Binder008's update binds the SAME SHAPE, NO VISUAL CHANGE -- c answered; the flip is not a moved or different shape. 2026-10-20 11:50 ASSIGNED to x16win (the note-taker's split, 11:40), acknowledged: its full build running; to work on a scratch COPY of dl/handson/2026-10-06/scanner.FCStd (the same Pocket022, Binder018, Binder008). 2026-10-20 11:52 x16win STARTED 197: LinkVibe `fdf4dccef5` built clean on its box (build/win-relwithdebinfo-801, OCCT `1e2de2a74e`), baseline suites running; whether the flip reproduces on the scratch copy comes first. 2026-10-20 12:17 REPRODUCED headless, CAUSE found (the Fit's side follows the outer wire's turn, not the orientation flag), FIXED by x16win: `c8e5aca952` on ITS LinkVibe (another box), NOT pushed, NOT staged, not in this tree; _FitRule 2 judges the side by geometry; Pocket022 keeps +-7.6, Pocket040 r 13; TestPocket 14 OK, TestPartDesignApp 478 OK; the GUI double click not driven. 2026-10-20 16:08 PUSHED by x16win (thundereal/LinkVibe `fdf4dccef5..72396a7ff4`, fast-forward) on the reporter's word to it (relayed), NOT restaged |
 | 198 | 2026-10-20 | a defect found by x16win (on 197), made an entry on the reporter's "Yes, new entry": FIT does NOTHING on OPEN-WIRE profiles -- getVerifiedFace() makes openshape.makeOffset2D(Fit) and DROPS the result | OPEN; 2026-10-20 15:18; ASSIGNED to x16win (PartDesign App), after 158 and 178's six classes. 2026-10-20 15:35 CAUSE CONFIRMED by x16win (only Revolution reaches it; Fit +-0.5 give the identical shape); a DECISION put to the reporter: (1) make it work, one-sided, the side by geometry, old files unchanged, recommended; or (2) refuse with an error; nothing built. 2026-10-20 15:40 DECIDED by the reporter: (1) MAKE IT WORK ("Make it work (Recommended)"), passed to x16win. 2026-10-20 15:57 BUILT and COMMITTED by x16win, `72396a7ff4` on ITS LinkVibe, NOT pushed, NOT staged: _FitRule 3, open wires offset one-sided by geometry, older features unchanged, an end moved off the axis the Revolution's error; TestRevolve 29 OK (3 new), TestPocket 14 OK. 2026-10-20 15:59 TestPartDesignApp re-run whole: 481 OK. 2026-10-20 16:08 PUSHED by x16win (thundereal/LinkVibe `fdf4dccef5..72396a7ff4`, fast-forward) on the reporter's word to it (relayed), NOT restaged |
 | 199 | 2026-10-20 | a test defect found by x16win, made an entry on the reporter's "Yes, new entry": XLinkSnapshotTest.theClipboardsCopyWritesTheSnapshotAndPastesToTheDocument FAILS EVERY TIME on Windows -- getSnapshotPath() forward slashes vs TransientDir backslashes, the prefix check (tests/src/App/XLinkSnapshot.cpp:81) never matches | OPEN; 2026-10-20 15:18; ASSIGNED to fcad-dc (idle while the reporter's 196 hands-on is pending). 2026-10-20 15:29 FIX WRITTEN by fcad-dc in tests/src/App/XLinkSnapshot.cpp only (both paths compared in generic form), NOT verified: the build needs the dev app closed (every build relinks FreeCADBase.dll) -- waits for the reporter's 196 hands-on to end; no harm outside the test by its reading |
+| 200 | 2026-10-20 | a test failure found by x16win (on 193), made an entry on the reporter's choice: 3 DARK-theme claims of tests/gui/overlay-see-through.py FAIL on x16win's box with or without 193 (the tree's ground below the items; two property-row claims) -- a real defect or the test? | OPEN; 2026-10-20 17:12; ASSIGNED to x16win |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -27479,6 +27484,23 @@ fully forward-slash, not mixed; it is used for mkpath, saveCopy and
 openDocumentAsNew, and the paste matches the open document by Uid, never
 by path -- no harm outside the test by its reading (read, not run).
 
+## 200. Three Dark-theme claims of overlay-see-through.py fail on x16win's box (a test failure, found by x16win) -- OPEN
+
+**2026-10-20 17:12, the reporter (to the note-taker, the tool's choice):** asked what
+x16win takes next after 193, the reporter chose "overlay-see-through
+fails" -- the option: "3 Dark-theme claims of overlay-see-through.py fail
+on x16win's box with or without 193 (tree ground below items, two
+property rows). Find out whether they are real defects or the test."
+x16win's finding (2026-10-20, on 193): tests/gui/overlay-see-through.py
+56/59 offscreen on Windows; the 3 failures, all under DARK, the same on a
+baseline build without 193: the model tree's ground BELOW the items, and
+two property-row claims.
+The note-taker's reading: find whether each is a real defect (fix it) or
+the test's (fix the claim, saying why). NOT said: whether the failures
+show on this box too (the build session's tree) -- read as worth a
+comparison if it can be had without the build session's runs. ASSIGNED
+to x16win.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -27490,5 +27512,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 199
+the build session, 131 and 132 found by it; entries 134 to 200
 are of 2026-10-15, 134 said to the build session)

@@ -3975,7 +3975,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 193 | 2026-10-20 | a change request: ALL LIST VIEWS in OVERLAY PANELS get ALTERNATING row backgrounds WITH TRANSPARENCY, as the PROPERTY VIEW has; 184's transparent background is in, the alternating rows are not | OPEN; said to the note-taker 2026-10-20 09:18. 2026-10-20 09:20 SIZED by the build session, nothing built: the property view and the SELECTION VIEW already alternate overlaid, each by its own code; a sheet rule cannot (the sheet's opacity), a delegate cannot be swapped (task panels and the tree have their own); PROPOSED: OverlayManager watches item views in overlaid panels (also on child-added) and fills each visible row's band on the viewport's paint before the items, the same two colours at the overlay alpha, rows counted as the property view; d open for the reporter's look; waiting for the reporter's word |
 | 194 | 2026-10-20 | a defect (two): in the FILLET edit panel, (1) selecting a MISSING edge's ROW does NOT select its PREVIEW FACE in the 3D view; (2) after selecting a row in the panel, then a PREVIEW FACE in the 3D view, the panel's earlier selection is NOT CLEARED -- TWO rows end up selected | OPEN; said to the note-taker 2026-10-20 09:29. 2026-10-20 09:38 CAUSE FOUND (one for both, the note-taker's candidate): a missing row put NOTHING in Gui::Selection, so its face was not lit, and the 3D click's clearSelection had nothing to clear and sent no ClrSelection (Selection.cpp 2022) -- the panel kept its row; before-run r155: both claims FAIL (rows ['?Edge11','Edge8']); FIXED in the working tree (the row selects its preview face, ';AddSub;FaceN' by getItemElement), r156 building; fillet-preview-pick-syncs-list.py 3 new claims; NOT committed. 2026-10-20 09:43 r157 building with 194 ALONE (a large rebuild, Command.h touched and restored); then fillet-preview-pick-syncs-list, dressup-replace-missing-edge, serve-dressup-preview-pick one at a time. READ: git status -- TaskDressUpParameters.cpp and the test modified, uncommitted |
 | 195 | 2026-10-20 | a change request: 'Measure (pre)selected geometry' (the Part preselection macro, Std_Macro_Presel_PartMeasure) ON BY DEFAULT | OPEN; said to the note-taker 2026-10-20 09:34. 2026-10-20 09:38 DONE in the working tree, r156 building, NOT committed: MacroCommand gets a per-command default (defaultOption), TRUE for Std_Macro_Presel_PartMeasure only; a stored value wins, the default not written; test part-presel-measure-default.py. c CHECKED by the note-taker (READ only): the reporter's %APPDATA%/Thundereal/user.cfg and %APPDATA%/FreeCAD/user.cfg hold NO stored bool for it (only an FCText toolbar entry of that name, 'PartDesignWorkbench') -- the reporter WILL see the new default. 2026-10-20 09:40 ON HOLD by the reporter: a PERFORMANCE TEST first (in the future), then the decision whether to make it default on. 2026-10-20 09:43 HELD and PARKED by the build session, NOT in the tree (the default stays off): the change saved as D:/works/sw/dl/handson/2026-10-12/195-presel-measure-default.patch (5068 bytes) with its test part-presel-measure-default.py beside it; to revive: git apply the patch, move the test back; r156 stopped (it carried 195). READ by the note-taker: both files there; git status shows no 195 file |
-| 196 | 2026-10-20 | defects (four), PRIORITY FIRST: fillet on-view edit -- (1) a NORMAL (working) preview face is selectable but NOT PRESELECTABLE, and a 3D selection of it does NOT SYNC the edit panel; (2) the on-view LABEL has NO PRESELECTION highlight; (3) the label LOSES to base geometry behind it on a click; (4) the handles' SILHOUETTE (pre)selection outline asked (144, 159) never came -- is it possible? and the handles are drawn FLAT, no shading | OPEN; said to the note-taker 2026-10-20 09:56; the reporter: the build session to do this FIRST, then WAIT for the reporter's hands-on test on the TEST BUILD directly |
+| 196 | 2026-10-20 | defects (four), PRIORITY FIRST: fillet on-view edit -- (1) a NORMAL (working) preview face is selectable but NOT PRESELECTABLE, and a 3D selection of it does NOT SYNC the edit panel; (2) the on-view LABEL has NO PRESELECTION highlight; (3) the label LOSES to base geometry behind it on a click; (4) the handles' SILHOUETTE (pre)selection outline asked (144, 159) never came -- is it possible? and the handles are drawn FLAT, no shading | OPEN; said to the note-taker 2026-10-20 09:56; the reporter: the build session to do this FIRST, then WAIT for the reporter's hands-on test on the TEST BUILD directly. 2026-10-20 10:10 the reporter to the build session (relayed): point 4's outline made GENERAL -- every gizmo, the "original axis arrow" and the LEGACY DRAGGERS too; the build session's plan: one mechanism (the selection node's isOverEditHandle reports any SoDragger's path; the view routes it to the capture holding it as an outlined highlight item, pre-/selection colour, following ShowPreSelectedFaceOutline/ShowSelectedFaceOutline; the gizmos keep 144's group colouring); ASKED the reporter: "original axis arrow" = the transform dragger's arrows (assumed) or the body origin's axes; order: 3, 2, 1 (repro with PerViewEdit OFF, the reporter's default), shading, the outline |
 | 197 | 2026-10-20 | a defect: scanner.FCStd, the MIGRATION RECOMPUTE -> Binder008 'No context' (expected); a DOUBLE CLICK to UPDATE it -> Pocket022's FIT (the cut's tolerance, 0.1) CHANGES SIDE (the grow becomes a shrink); must not happen -- backward compatibility kept, or, where it cannot be, the feature marked in ERROR | OPEN; said to the note-taker 2026-10-20 10:02. 2026-10-20 10:07 the reporter: Binder008's update binds the SAME SHAPE, NO VISUAL CHANGE -- c answered; the flip is not a moved or different shape |
 
 ## 1. Idle progress bar in the status bar -- STAGED
@@ -26833,6 +26833,32 @@ REPRESENTATION -- the same geometry handed on with another orientation
 or surface normal (or another face named Face1 of the same-looking
 shape), which the flag-only rule (forwardFaces + the file's _FitFlip)
 cannot tell. NOT checked.
+
+**2026-10-20 10:10, the build session (relayed): point 4 widened by the reporter's
+words to the build session (the note-taker did not hear them):**
+"regarding the handle outline highlight, make it general, so that it can
+be extend it to all other gazmo as well, including original axis arrow
+and legacy draggers" (as relayed; "gazmo" read as "gizmo").
+The build session's PLAN, sent to the reporter: ONE general mechanism.
+The selection node already sees the pointer over any SoDragger in the
+pick path (isOverEditHandle); it reports that dragger's path to the view
+(hovered, or active while dragged); the view routes the path to the
+capture holding it (the edit root, the on-view root, the light handle)
+as a highlight item with an OUTLINE flag, in the preselection or
+selection colour, following ShowPreSelectedFaceOutline /
+ShowSelectedFaceOutline; the backend draws a whole-object outline for
+flagged items in the overlay highlight; the sketcher's label highlights
+untouched; the gizmos keep their group colouring (144).
+ASKED the reporter by the build session: "original axis arrow" -- the
+transform dragger's arrows (SoTransformDragger, assumed) or the body
+origin's axes (not draggers today)?
+ORDER in 196: 3 and 2 (the label), 1 (reproduced with PerViewEdit OFF,
+the reporter's default -- the passing test forces it on), the shading,
+then the outline.
+The note-taker's reading: consistent with 159's ruling (way B: the
+handles stay in the editing root, the capture gets the outline; names
+routed only if needed) -- the plan routes by the dragger's PATH, not by
+element names.
 
 ## Inbox
 

@@ -35,6 +35,8 @@
 # include <HLRAlgo_Projector.hxx>
 #endif
 
+#include <QCoreApplication>
+
 #include <App/Document.h>
 #include <Base/Console.h>
 
@@ -101,7 +103,13 @@ App::DocumentObjectExecReturn *LandmarkDimension::execute()
     //if angle, required size = 3;    //not implemented yet
     unsigned int requiredSize = 2;
     if (features.size() < requiredSize) {
-        return App::DocumentObject::StdReturn;
+        // it "succeeded" with nothing to measure (docs/TechDrawErrors.md 3.3)
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw",
+                                        "A landmark dimension needs two 3D points, and it has %n",
+                                        nullptr, static_cast<int>(features.size()))
+                .toStdString(),
+            this);
     }
 
     std::vector<Base::Vector3d> points;

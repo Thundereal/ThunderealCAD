@@ -444,6 +444,7 @@ SET(Document_CPP_SRCS
     FileHistory.cpp
     LibraryPaths.cpp
     ExportSet.cpp
+    ImportSet.cpp
     FileSet.cpp
     GroupParams.cpp
     DocumentObject.cpp
@@ -534,6 +535,7 @@ SET(Document_HPP_SRCS
     FileHistory.h
     LibraryPaths.h
     ExportSet.h
+    ImportSet.h
     FileSet.h
     GroupParams.h
     DocumentObject.h

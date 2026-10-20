@@ -10178,11 +10178,12 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(doc.previewTransactionMerge(res["branch"])["changes"], [])
         self.assertEqual(doc.importTransactionFork(copy)["rows"], 0)
 
-    def assemblyCopies(self, log):
+    def assemblyCopies(self, log, rows=False):
         # Sec 35.2 item 6: `Asm` links the box of `Part`, in our folder; a
         # copy of both in theirs, its box made longer, and its `Asm` linking
         # a new `Bolt` too, which only their folder has. Made with the log
-        # mode given; ours is left with the log on.
+        # mode given; ours is left with the log on. With `rows`, each file is
+        # made in a transaction, so a history holds a row of it.
         import shutil
 
         ours = os.path.join(self.dir, "ours")
@@ -10190,12 +10191,22 @@ class TransactionBranchCases(unittest.TestCase):
         os.makedirs(ours)
         self.param.SetInt("TransactionLog", log)
         part = FreeCAD.newDocument("AsmPart")
+        if rows:
+            part.UndoMode = 1
+            part.openTransaction("box")
         box = part.addObject("Part::Box", "Box")
         part.recompute()
+        if rows:
+            part.commitTransaction()
         part.saveAs(os.path.join(ours, "Part.FCStd"))
         asm = FreeCAD.newDocument("Asm")
+        if rows:
+            asm.UndoMode = 1
+            asm.openTransaction("link")
         asm.addObject("App::Link", "L").LinkedObject = box
         asm.recompute()
+        if rows:
+            asm.commitTransaction()
         asm.saveAs(os.path.join(ours, "Asm.FCStd"))
         FreeCAD.closeDocument(asm.Name)
         FreeCAD.closeDocument(part.Name)
@@ -10302,6 +10313,143 @@ class TransactionBranchCases(unittest.TestCase):
         got = [r["name"] for r in part.getTransactionLog()]
         self.assertEqual(got[: len(names)], names)
         self.assertIn("edit", got[len(names) :])
+
+    def openedSet(self, top):
+        doc = self.track(FreeCAD.openDocument(top))
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+        return doc
+
+    def pairs(self, plan):
+        return {
+            os.path.basename(f["theirs"]): (os.path.basename(f["our_file"]), f["pairing"])
+            for f in plan["files"]
+        }
+
+    def testASetIsPairedByTheHistoryBothHold(self):
+        # Sec 35 L2, L3: their set read from their files -- nothing of it
+        # opened -- their top last, each file after what it links; a file
+        # both copies ran the log on paired by the history, their Bolt alone.
+        ours, theirs = self.assemblyCopies(2, rows=True)
+        doc = self.openedSet(os.path.join(ours, "Asm.FCStd"))
+        before = sorted(FreeCAD.listDocuments())
+        plan = doc.planLinkedSetImport(os.path.join(theirs, "Asm.FCStd"))
+        self.assertEqual(sorted(FreeCAD.listDocuments()), before)
+        names = [os.path.basename(f["theirs"]) for f in plan["files"]]
+        self.assertEqual(names[-1], "Asm.FCStd")
+        self.assertEqual(sorted(names), ["Asm.FCStd", "Bolt.FCStd", "Part.FCStd"])
+        asm = plan["files"][-1]
+        self.assertEqual(sorted(os.path.basename(p) for p in asm["links"]), sorted(names[:2]))
+        self.assertEqual(
+            self.pairs(plan),
+            {
+                "Asm.FCStd": ("Asm.FCStd", "history"),
+                "Part.FCStd": ("Part.FCStd", "history"),
+                "Bolt.FCStd": ("", "none"),
+            },
+        )
+        self.assertEqual(asm["ours"], doc.Name)
+        self.assertTrue(asm["certain"])
+        self.assertEqual((plan["shared"], plan["missing"]), ([], []))
+
+    def testASetWithNoHistoryIsPairedByAGuess(self):
+        # Sec 35.6 Q1 item 4: no log either side, the copies paired by the
+        # Uid read from the files -- a guess, not certain.
+        ours, theirs = self.assemblyCopies(0)
+        doc = self.openedSet(os.path.join(ours, "Asm.FCStd"))
+        plan = doc.planLinkedSetImport(os.path.join(theirs, "Asm.FCStd"))
+        self.assertEqual(
+            self.pairs(plan),
+            {
+                "Asm.FCStd": ("Asm.FCStd", "uid"),
+                "Part.FCStd": ("Part.FCStd", "uid"),
+                "Bolt.FCStd": ("", "none"),
+            },
+        )
+        self.assertFalse(any(f["certain"] for f in plan["files"]))
+
+    def testTwoOfOursAlikePairNone(self):
+        # Sec 35.6 Q1: a part started as a copy of another holds its Uid; their
+        # copy of either answers to both, and is paired with none, for the
+        # user to say.
+        import shutil
+
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        os.makedirs(ours)
+        self.param.SetInt("TransactionLog", 0)
+        part = FreeCAD.newDocument("AlikePart")
+        part.addObject("Part::Box", "Box")
+        part.recompute()
+        part.saveAs(os.path.join(ours, "Part.FCStd"))
+        FreeCAD.closeDocument(part.Name)
+        shutil.copyfile(os.path.join(ours, "Part.FCStd"), os.path.join(ours, "Part2.FCStd"))
+        one = FreeCAD.openDocument(os.path.join(ours, "Part.FCStd"))
+        two = FreeCAD.openDocument(os.path.join(ours, "Part2.FCStd"))
+        asm = FreeCAD.newDocument("AlikeAsm")
+        asm.addObject("App::Link", "L").LinkedObject = one.Box
+        asm.addObject("App::Link", "L2").LinkedObject = two.Box
+        asm.saveAs(os.path.join(ours, "Asm.FCStd"))
+        for d in (asm, one, two):
+            FreeCAD.closeDocument(d.Name)
+        shutil.copytree(ours, theirs)
+        self.param.SetInt("TransactionLog", 2)
+        doc = self.openedSet(os.path.join(ours, "Asm.FCStd"))
+        plan = doc.planLinkedSetImport(os.path.join(theirs, "Asm.FCStd"))
+        got = {os.path.basename(f["theirs"]): f for f in plan["files"]}
+        for name in ("Part.FCStd", "Part2.FCStd"):
+            self.assertTrue(got[name]["ambiguous"], got[name])
+            self.assertEqual((got[name]["ours"], got[name]["pairing"]), ("", "none"))
+        self.assertEqual(got["Asm.FCStd"]["pairing"], "uid")
+
+    def testAnExportedSetComesBackPaired(self):
+        # Sec 35 L3 items 2 and 3: our set exported without history (L7) and
+        # edited where there is no log comes back paired by the save each
+        # copy names; the pinned version's file is ours at that version, as
+        # the manifest says.
+        top = os.path.join(self.dir, "ours")
+        os.makedirs(top)
+        part = self.track(FreeCAD.newDocument("BackPart"))
+        part.UndoMode = 1
+        part.openTransaction("create")
+        obj = part.addObject("App::FeatureTest", "Obj")
+        obj.Integer = 1
+        part.commitTransaction()
+        part.saveAs(os.path.join(top, "Part.FCStd"))
+        v = int(part.Version.split()[0])
+        asm = self.track(FreeCAD.newDocument("BackAsm"))
+        asm.addObject("App::Link", "Live").LinkedObject = obj
+        pin = asm.addObject("App::Link", "Pin")
+        pin.LinkedObject = obj
+        pin.pinLink("LinkedObject")
+        asm.saveAs(os.path.join(top, "Asm.FCStd"))
+        part.openTransaction("two")
+        obj.Integer = 2
+        part.commitTransaction()
+        part.save()
+        asm.save()
+        out = os.path.join(self.dir, "out")
+        written = asm.exportLinkedSet(out)["files"]
+        self.assertEqual(len(written), 3)
+
+        # Theirs: edited with the log off.
+        self.param.SetInt("TransactionLog", 0)
+        copy = FreeCAD.openDocument(os.path.join(out, "Part.FCStd"))
+        copy.Obj.Integer = 5
+        copy.save()
+        FreeCAD.closeDocument(copy.Name)
+        self.param.SetInt("TransactionLog", 2)
+
+        plan = asm.planLinkedSetImport(os.path.join(out, "Asm.FCStd"))
+        got = {f["relative"]: f for f in plan["files"]}
+        pinned = "Part.v%d.FCStd" % v
+        self.assertEqual(sorted(got), sorted(["Asm.FCStd", "Part.FCStd", pinned]))
+        self.assertEqual(got["Asm.FCStd"]["pairing"], "save")
+        self.assertEqual(got["Part.FCStd"]["pairing"], "save")
+        self.assertEqual(got["Part.FCStd"]["ours"], part.Name)
+        self.assertTrue(got[pinned]["certain"], got[pinned])
+        self.assertEqual(got[pinned]["ours"], part.Name)
+        self.assertEqual(got[pinned]["version"], v)
 
     def testAnImportedBranchIsARequestUntilItIsMerged(self):
         # Sec 30.20 H1, H7 (S.h): a request is a branch an import made that

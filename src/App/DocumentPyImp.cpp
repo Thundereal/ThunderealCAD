@@ -38,6 +38,7 @@
 #include "DocumentSettings.h"
 #include "DocumentSettingsPy.h"
 #include "ExportSet.h"
+#include "ImportSet.h"
 #include "GeoFeature.h"
 #include "DocumentPy.cpp"
 #include "TransactionLog.h"
@@ -2067,6 +2068,45 @@ PyObject* DocumentPy::exportLinkedSet(PyObject* args, PyObject* kwds)
         Py::Dict d;
         d.setItem("manifest", Py::String(result.manifest));
         d.setItem("files", files);
+        return Py::new_reference_to(d);
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::planLinkedSetImport(PyObject* args)
+{
+    char* path = nullptr;
+    if (!PyArg_ParseTuple(args, "et", "utf-8", &path))
+        return nullptr;
+    const std::string file(path);
+    PyMem_Free(path);
+    PY_TRY {
+        const auto plan = App::planSetImport(*getDocumentPtr(), file);
+        auto strings = [](const std::vector<std::string>& v) {
+            Py::List l;
+            for (const auto& s : v)
+                l.append(Py::String(s));
+            return l;
+        };
+        Py::List files;
+        for (const auto& f : plan.files) {
+            Py::Dict d;
+            d.setItem("theirs", Py::String(f.theirs));
+            d.setItem("relative", Py::String(f.relative));
+            d.setItem("uid", Py::String(f.uid));
+            d.setItem("links", strings(f.links));
+            d.setItem("ours", Py::String(f.ours ? f.ours->getName() : ""));
+            d.setItem("our_file", Py::String(f.ourFile));
+            d.setItem("pairing", Py::String(App::setPairingName(f.pairing)));
+            d.setItem("certain", Py::Boolean(f.certain()));
+            d.setItem("ambiguous", Py::Boolean(f.ambiguous));
+            d.setItem("branch", Py::String(f.branch));
+            d.setItem("version", Py::Long(static_cast<long long>(f.version)));
+            files.append(d);
+        }
+        Py::Dict d;
+        d.setItem("files", files);
+        d.setItem("shared", strings(plan.shared));
+        d.setItem("missing", strings(plan.missing));
         return Py::new_reference_to(d);
     } PY_CATCH;
 }

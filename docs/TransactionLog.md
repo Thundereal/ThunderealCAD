@@ -21136,7 +21136,7 @@ and partial loading of documents on another branch or a pinned version.
 Nothing of this was built at first. The survey's measurements were run,
 and found one bug, fixed (item 6 c). **Built since: L1 (35.7,
 2026-10-19); L8 for frozen versions (35.8, 2026-10-19); L7 in App (35.9,
-2026-10-19).**
+2026-10-19); L2 and L3, the set read and paired (35.10, 2026-10-20).**
 
 ### 35.1 The case
 
@@ -21759,3 +21759,60 @@ and off; gtest 991/991 both ways; driven 293/293 (before the Gui).
 
 **Gates with the Gui** (2026-10-20): 24 Gui checks clean; Python 3811
 OK, freeze on and off; gtest 991/991 both ways; driven 294/294.
+
+### 35.10 L2 and L3 built: their set read and paired, nothing imported (2026-10-20)
+
+The first of 35.5 step 4, on the user's "continue": what an import of a
+set will bring and where, before anything is brought.
+`App::planSetImport(ourTop, theirTop)` (`src/App/ImportSet.cpp`), in
+Python `Document.planLinkedSetImport(path)`.
+
+- **Their set (L2)** is read from their files, none opened: each
+  `Document.xml` read out of its archive and its `<XLink>` elements --
+  every external link is saved as one, alone or in a list -- taken for the
+  files they name: through `lib`/`libfile` when a library of that name is
+  here, else by `file`, relative to the owner's folder. A link to the
+  owner's own file is no file of the set. Their top last, each file after
+  the files it links. A file theirs links that is one of ours -- the same
+  file on disk, a library both use -- is **shared**, nothing to bring, and
+  not read further; one that is not there is **missing**.
+- **Ours** are the documents our top's links reach, by their file; a
+  version's or a branch's document stands for no file of its own.
+- **Paired (L3, Q1)** by the first that answers: (1) a history both hold
+  and (2) a save of ours a copy without history names, both by
+  `forkBranches` -- a branch of theirs that is not independent; which of
+  the two by whether their file carries a history; (3) our manifest beside
+  their top, which names our file for their path; (4) the `Uid` read from
+  both files, never from an open document (35.2 item 8); (5) the same path
+  under the top; else (6) none. Where two of ours answer one signal alike
+  the file is paired with none and marked **ambiguous**, for the user to
+  say -- a weaker signal does not break the tie. The manifest's `branch`
+  and `version` are given whatever paired the file: `Part.v3.FCStd` is our
+  `Part` at v3.
+
+**Found on the way, a loss of history: a file opened for a link.** The
+first test paired our `Part` by its Uid, though both copies held its
+history: our `Part`, opened by the assembly's link, had an empty log. A
+file read for the objects a link asks for (16.1) was never tapped -- a
+partial document is not snapshotted -- and when those objects were all of
+them the document was not partial at all: editable, saved as the file,
+and its save wrote a fresh history over the file's. Measured: a part of 7
+rows opened through an assembly, edited and saved, reopened with 3. The
+tap now runs for such a read too, and what it took is let go only when
+the document is left partial (`Document::restore`); the part keeps its 7
+rows and the edit after them.
+
+**Tests** (`Document.py`, `TransactionBranchCases`):
+`testAFileOpenedForALinkKeepsItsHistory` (the loss above);
+`testASetIsPairedByTheHistoryBothHold` -- 35.2 item 6's copies made in
+transactions (`assemblyCopies(log, rows=True)`): nothing opened, their top
+last, `Asm` and `Part` by the history, their `Bolt` none;
+`testASetWithNoHistoryIsPairedByAGuess` -- with no log, both by the Uid,
+none certain; `testTwoOfOursAlikePairNone` -- `Part2.FCStd` a copy of
+`Part.FCStd`, both linked: their copies of either ambiguous, paired with
+none; `testAnExportedSetComesBackPaired` -- our set exported (L7), their
+`Part` edited with the log off: `Asm` and `Part` by the save each names,
+`Part.v1.FCStd` certain, ours, at version 1.
+
+**Next**: L4, the paired files imported as branches of ours and their
+links to them made branch links; then L5, their files alone held.

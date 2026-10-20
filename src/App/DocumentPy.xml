@@ -894,6 +894,24 @@ recipient with the same library (docs/LibraryPaths.md step 4): listed with
 and `overwrite` is not set, or when a document of the set has no file.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="planLinkedSetImport">
+      <Documentation>
+        <UserDocu>planLinkedSetImport(path) -> dict
+Another set of linked files, its top at `path`, and how its files pair with
+this document's set (docs/TransactionLog.md sec 35 L2, L3), with nothing
+imported: the files the top's links reach, read from the files, each paired
+with one of the documents this one's links reach by the first that answers
+of a history both hold, a save of ours it names, our export's manifest, the
+Uid in its Document.xml, the same path under the top. Returns 'files', a
+list of dict, their top last: 'theirs' (the full path), 'relative' (under
+their top's folder), 'uid', 'links' (their files it links), 'ours' (the
+document's name, empty for none), 'our_file', 'pairing' ('history', 'save',
+'manifest', 'uid', 'path' or 'none'), 'certain', 'ambiguous' (two of ours
+answered alike and none is paired), and 'branch' and 'version' when the
+manifest says the file was one of ours'; 'shared', the files it links that
+are ours already; and 'missing', those that are not there.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="importTransactionFork">
       <Documentation>
         <UserDocu>importTransactionFork(path, branch='', sender='') -> dict

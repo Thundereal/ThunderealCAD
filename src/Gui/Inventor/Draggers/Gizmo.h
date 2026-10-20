@@ -241,6 +241,11 @@ protected:
     void setHovered(bool over);
     /// No longer the handle whose hint shows; its tip hidden
     void dropTip();
+    /// The view with no widget -- a browser's -- this handle's hint was
+    /// given to (ViewerContext::setHint), and that view's lifetime
+    ViewerContext* hintView = nullptr;
+    std::weak_ptr<const void> hintViewLife;
+    void dropViewHint();
 
     DragCallback dragCallback;
     bool dragging = false;

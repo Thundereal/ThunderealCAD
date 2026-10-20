@@ -37,6 +37,7 @@
 
 #include <QtCore/qnamespace.h>
 #include <QtCore/QPoint>
+#include <QtCore/QString>
 
 #include <Inventor/SbBox3f.h>
 #include <Inventor/SbRotation.h>
@@ -608,6 +609,19 @@ public:
      * widget's (OverlayManager::covered).
      */
     virtual std::vector<std::array<int, 4>> coveredRects() const
+    {
+        return {};
+    }
+    /** The hint a view with no widget shows at its client's pointer: a
+     * handle's tool tip (Gizmo, docs/OnViewValueEditing.md 9.2 #6), empty for
+     * none. A desktop view answers Qt's own tool tip request instead and
+     * keeps nothing here.
+     */
+    virtual void setHint(const QString& text)
+    {
+        (void)text;
+    }
+    virtual QString hint() const
     {
         return {};
     }

@@ -2361,6 +2361,22 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
   background: #e8e8e8;
 }
 .fc-onview-menubtn:hover { background: rgba(70, 70, 76, 0.95); }
+/* a handle's hint (docs/OnViewValueEditing.md sec 9.2 #6): a tool tip at
+   the pointer, which it must never take */
+.fc-hint {
+  position: fixed;
+  z-index: 60;
+  max-width: 320px;
+  padding: 3px 7px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #f0f0f0;
+  background: rgba(30, 30, 34, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  pointer-events: none;
+  white-space: pre-line;
+}
 /* a settings row's number (docs/OnViewValueEditing.md sec 9.2 #5) */
 .fc-ctx-number {
   margin-left: auto;

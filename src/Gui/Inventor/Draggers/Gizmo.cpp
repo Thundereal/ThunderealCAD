@@ -337,8 +337,20 @@ void Gizmo::setMenu(MenuCallback callback, const QString& toolTip)
     }
 }
 
+void Gizmo::dropViewHint()
+{
+    ViewerContext* view = hintView;
+    hintView = nullptr;
+    // only its own hint: another handle's may have come up since
+    if (view && !hintViewLife.expired() && view->hint() == menuToolTip) {
+        view->setHint(QString());
+    }
+    hintViewLife.reset();
+}
+
 void Gizmo::dropTip()
 {
+    dropViewHint();
     if (tipHandle != this) {
         return;
     }
@@ -387,9 +399,29 @@ void Gizmo::setHovered(bool over)
         // the arrow" (the reporter, 2026-10-15 15:29): Qt's tool tip request
         // is that timer, and it is answered while this handle is the one
         // (HandleTipFilter)
-        if (!menuToolTip.isEmpty()) {
-            tipHandle = this;
+        if (menuToolTip.isEmpty()) {
+            return;
         }
+        ViewerContext* view = ViewerContext::current();
+        if (!view || view->getWidget()) {
+            tipHandle = this;
+            return;
+        }
+        // A view with no widget, a browser's (docs/OnViewValueEditing.md
+        // 9.2 #6): no Qt request comes, so the same wait is kept here, and
+        // the view hands the hint to its client, which shows it at its
+        // pointer
+        std::weak_ptr<const void> viewLife = view->lifetime();
+        const int wait = qApp ? qApp->style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay) : 700;
+        QTimer::singleShot(wait, [this, life, serial, view, viewLife]() {
+            auto still = life.lock();
+            if (!still || !*still || serial != hoverSerial || !hovered || viewLife.expired()) {
+                return;
+            }
+            hintView = view;
+            hintViewLife = viewLife;
+            view->setHint(menuToolTip);
+        });
         return;
     }
     // "any repeated hitting do not hide tooltip": gone only when the pointer
@@ -424,6 +456,7 @@ void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
             if (QToolTip::isVisible() && QToolTip::text() == self->menuToolTip) {
                 QToolTip::hideText();
             }
+            self->dropViewHint();
             cb->setHandled();
             // No grabEvents() here. A navigation style can take the release
             // before the scene sees it (one opens the view's menu on a right

@@ -173,6 +173,28 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-20 11:40: the work SPLIT between the two build sessions, by the
+note-taker on the reporter's word.** The reporter, verbatim: "you can
+coordinate to assign each session a separate tasks so they can work
+indepenently". The note-taker's split, by code area so the two trees do
+not touch the same files:
+- **fcad-dc (this box)**, PartDesign on-view edit, the draggers and the
+  browser: 196 (first, then the reporter's hands-on on the build tree),
+  194 (`c4c8e1a792`, local), 180 point 2 and 181 point 2 (the dress-up
+  faces), 189's touch (9.3), 174's build (it wrote the design).
+- **x16win (remote)**, PartDesign App and TechDraw: 197 (Pocket022's Fit
+  flip, src/Mod/PartDesign/App/FeatureSketchBased.cpp), 178 points 3.2 and
+  3.3 (TechDraw execute() errors with a description, the dimension texts),
+  158 (the first switch to a TechDraw page freezes about 5 s).
+- Held, with neither until the reporter speaks: 193 (the go-ahead and its
+  choices), 195 (the performance test), 157 and 168 (discussions).
+Rules for both: the queue is the note-taker's alone, each session reports
+its states to the note-taker; docs/HandsOnLog.md stays fcad-dc's; NO push
+and NO restage without the reporter's word. x16win's tree lacks the
+local, unpushed commits (192's `01d32da5c6` in TechDraw QGIView among
+them). NOT said: whether the split is the reporter's to change (it is),
+and the order inside x16win's three -- the note-taker's: 197, 178, 158.
+
 **2026-10-20 11:14: a second build session, x16win, shares the fixes and
 requests.** The reporter, verbatim: "I asked another remote session x16win
 to share the task for bug fixes and feature request. it will notify you

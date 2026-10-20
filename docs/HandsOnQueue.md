@@ -23164,6 +23164,22 @@ without its DLLs on PATH, by any session; the boxes kept off the screen
 SEM_FAILCRITICALERRORS so the loader fails silently) -- relayed to fcad-dc
 and, for its box, to x16win.
 
+**2026-10-20 15:29, the reporter (to the note-taker), a question on the same boxes:**
+"BTW, why the dll still named FreeCAD, I thought we renamed those"
+ANSWERED by the note-taker from docs/RenameInventory.md (READ, nothing
+run): the rename (decided 2026-08-07, "Rename the product identity. Keep
+the formats and the APIs.") renamed the EXECUTABLES -- `Thundereal`,
+`ThunderealCmd` (sec 2 table, src/Main/CMakeLists.txt) -- the icons, the
+app id, the user folders and the text shown. The DLLs (FreeCADBase,
+FreeCADApp, FreeCADGui, ...) are CMake TARGET names, which sec 5 "Keep --
+deliberately unchanged" lists with the internal C++ naming as invisible to
+users and a rebase-conflict liability against upstream; sec 6 phase 5
+"Never (until an actual hard fork is decided)". The Python modules
+`FreeCAD`/`FreeCADGui` are kept for the add-ons and macros. So the box
+naming FreeCADApp.dll is by that decision, not a rename left half done.
+NOT said: whether the reporter wants the DLLs renamed now (read as a
+question only; renaming them would be a new decision against sec 5).
+
 ## 164. The object's full name in execute()'s error messages, the binder's "No context" first; an audit (a change request) -- OPEN
 
 **2026-10-16 17:40, the reporter:** "new request, add full object name

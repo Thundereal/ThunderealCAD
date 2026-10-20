@@ -87,7 +87,34 @@ cuts and the complex section's aligned pieces (errors). An error reported
 inside the object's own recompute is held and returned by it (a success
 would reset it). Found on the way: the projection worker destroyed its own
 watcher (`abortMakeGeometry()` on the worker thread), so its finished()
-never came. Next: 3.2, then 3.3.
+never came.
+
+**3.2 BUILT (`c24089f3a5`)**: a view with nothing to show is in error and
+says why, one usable but partial keeps its result with a warning -- the part
+view with no source shape; the section with no base view, nothing to cut, a
+cut that leaves nothing (error) or fails on some solids (warning), the origin
+outside the part (warning); the complex section's wire messages naming the
+profile; the detail with no usable base; a hatch whose faces are gone, or
+whose pattern file cannot be read. A base still cutting waits quietly and
+recomputes its dependants when done.
+
+**3.3 BUILT (`e74f1a5b29`, `dde6537cae`)**: every dimension failure goes
+through `described()` and names the element at fault and what was needed
+("the view has no Edge99 now", "Edge5 is a circle, not a straight line",
+"the 3D reference Box.Edge3 is a face, not an edge"); a distance on an
+unsupported mix of references fails instead of succeeding; a dimension on
+a view that drew nothing is in error rather than keeping stale points; the
+extent and landmark dimensions report a missing view or references.
+
+3.4, the tests: TDTest DrawViewPartTest, DrawViewSectionTest,
+DrawViewDetailTest and DrawViewDimensionTest each gained a case that fails
+on purpose and reads the message; TestTechDrawApp 9 OK. The TechDraw GUI
+gate on Windows: 21 run, 20 pass; the miss, DrawStoredGeometryTest
+testASilhouetteIsNamedFromItsFaceAndSurvivesAReload, fails the same with
+these changes taken out. Not covered by this entry: the "weak" messages of
+DrawBrokenView, DrawViewMulti, DrawViewSpreadsheet, DrawViewArch,
+DrawViewSymbol and DrawParametricTemplate (raw OCCT / Python text, no view
+named) -- outside the agreed 3.1-3.3.
 
 ### For the reporter
 

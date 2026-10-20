@@ -184,11 +184,28 @@ def item_ground(tag, tree, label="Box3"):
 
 
 def below_items(tag, tree):
-    shown = rows(tree)
-    bottom = tree.visualRect(shown[-1]).bottom() if shown else 0
+    """The ground below the tree's last item. A panel too short for its
+    items has no ground below them, and an empty part read as clear at 0%
+    (docs/HandsOnQueue.md entry 200: the overlays the first theme is
+    applied with are a third of the height they have later): the items
+    are folded up to the document's row then, which leaves room"""
+    def bottom():
+        shown = rows(tree)
+        return tree.visualRect(shown[-1]).bottom() if shown else 0
+    folded = tree.viewport().height() - bottom() < 20
+    if folded:
+        tree.collapseAll()
+        settle(500)
+        note("INFO the tree's items fill its %d px: folded up to measure below them"
+             % tree.viewport().height())
+    below = bottom()
     image = painted(tag, tree.viewport())
-    return ground(image, QtCore.QRect(0, bottom + 6, image.width(),
-                                      image.height() - bottom - 6))
+    found = ground(image, QtCore.QRect(0, below + 6, image.width(),
+                                       image.height() - below - 6))
+    if folded:
+        tree.expandAll()
+        settle(500)
+    return found
 
 
 def rows_ground(tag, editor):
@@ -199,7 +216,11 @@ def rows_ground(tag, editor):
     out = []
     for index in rows(editor):
         rect = editor.visualRect(index)
-        if rect.top() >= image.height():
+        # a row the view's bottom edge cuts so that its sample (2 px in from
+        # its edges) has fewer than 3 lines inside the picture: an empty
+        # sample read as a clear row, a third kind (docs/HandsOnQueue.md
+        # entry 200, a row 2 px into a 138 px view)
+        if rect.top() + 2 + 3 > image.height():
             break
         if model.rowCount(index) == 0 and index != editor.currentIndex():
             out.append(ground(image, QtCore.QRect(rect.left() + 2, rect.top() + 2,
@@ -311,7 +332,9 @@ def one_theme(theme):
     backed = [r for r in every if r is not None]
     kinds = sorted(set(backed))
     if check("%s: the property view shows rows of two kinds" % theme,
-             len(backed) >= 4 and len(kinds) == 2, "%d rows, %s" % (len(backed), kinds)):
+             len(backed) >= 4 and len(kinds) == 2,
+             "%d rows, %s; every %s, view %d px" % (len(backed), kinds, every,
+                                                   editor.viewport().height())):
         check("%s: one kind is backed as the tree's items are" % theme,
               any(near(k, item) for k in kinds), "%s, the tree's %s" % (kinds, item))
         check("%s: both kinds at %d" % (theme, ALPHA),

@@ -7902,3 +7902,15 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   that edge now lights the face). serve-dressup-preview-pick.py 11 of 11,
   fillet-preview-pick-syncs-list.py 20 of 20, dressup-replace-missing-edge
   .py 21 of 21 on r153. NOT pushed.
+- PUSHED and STAGED 2026-10-20 on the user's "Push and continue", then
+  "Restage first": thundereal/LinkVibe 5072ffe4c7..fdf4dccef5; stage23
+  08:20, INSTALL-USER: OK, the copy fdf4dccef5 = r153 (188, 189's steps
+  and the preview pick, 190, 191). Note-taker told.
+- 189, 9.2 #6, the handle's hint in the browser: DONE (4c6455244c). A view
+  with no widget gets no tool tip request from Qt, so the handle keeps
+  Qt's wait itself and the client's mirror pushes the hint (op "hint");
+  the page shows it at its pointer. Seen in a real Chrome (hint1): the two
+  lines of the desktop's tip beside the pointer resting on the radius
+  arrow, none at once, none after moving off. serve-handle-hint.py 9 of 9,
+  fillet-handle-click-in-view.py all green (the desktop's tip unchanged)
+  on r154. NOT pushed. Left of 189: touch (9.3).

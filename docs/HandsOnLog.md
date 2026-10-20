@@ -7914,3 +7914,22 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   arrow, none at once, none after moving off. serve-handle-hint.py 9 of 9,
   fillet-handle-click-in-view.py all green (the desktop's tip unchanged)
   on r154. NOT pushed. Left of 189: touch (9.3).
+- 192, a view deselected in a TechDraw page kept its selection frame: the
+  tree-to-scene sync blocks the observer whose redraw drops it. FIXED
+  (01d32da5c6): the sync ends with the frame refresh.
+  techdraw-view-click-through.py with 8 new claims. NOT pushed.
+- 194, a missing row selected in a dress-up panel now selects its preview
+  face too (c4c8e1a792); fillet-preview-pick-syncs-list.py 3 new claims.
+  NOT pushed.
+- 195 HELD by the note-taker's split; a first cut is parked, not in the
+  tree (dl\handson\2026-10-12\195-presel-measure-default.patch).
+- 196 on the user's r172/r173 hands-on: the on-view label lights on hover
+  and takes a click ahead of the geometry under it; every handle and
+  dragger loses its BASE_COLOR light model and follows the view's draw
+  style (f3dc8f68d2); dress-up handles are one colour whatever their group
+  (6d8ff90769). The silhouette outline is REVERTED on the user's word (it
+  fought Coin's dragger kits) and parked as 196-outline-attempt.patch;
+  the preview face highlight kept. Point 1 (the working edge's preview face
+  selecting the base edge only) left as is, the user's word. r174: all 8
+  handle/value/label tests green. NOT pushed, NOT staged; the dev build
+  launched 15:17 for the user's hands-on test.

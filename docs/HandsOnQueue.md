@@ -173,6 +173,9 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-20 09:40: entry 195 ON HOLD -- a performance test first, the default-on
+decision after it.** Under the entry.
+
 **2026-10-20 09:38, the build session (relayed): 192 FIXED `01d32da5c6` (local; the
 page-deselect claims failed on r154, all pass on r155); 194 cause found
 -- ONE cause for both, as the note-taker read it -- fixed in the tree;
@@ -3960,7 +3963,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 192 | 2026-10-20 | a defect and a question: TechDraw, page frames HIDDEN -- SELECTING an ACTIVE VIEW shows its frame (as 155 asked), but after DESELECTING it the frame STAYS; and WHY show the frame at all, since the Active View can be dragged by its PICTURE | OPEN; said to the note-taker 2026-10-20 09:15; the why ANSWERED from entry 155 (2026-10-16 11:20 to 11:24). 2026-10-20 09:17 the build session: CAUSE FOUND by reading, nothing built -- the note-taker's candidate right: a deselect made IN THE PAGE draws the border while Gui::Selection still holds the view, then setTreeToSceneSelect clears Gui::Selection under blockSelection(true), so onSelectionChanged and its refreshSelectedFrames() never run (a deselect from the TREE is fine); proposed: refreshSelectedFrames() at the end of setTreeToSceneSelect, every view kind; on a: a frameless part view still has nothing to drag by (lines select edges/vertices, the inside passes) -- the rule's reason holds for part views and groups; a drag from a line NOT run; waiting for the reporter's word on a and on building. 2026-10-20 09:24 the reporter: option 3 -- KEEP the frame-on-selection for EVERY view kind (frames hidden -> the frame shown while any of its children is selected); FIX the deselect. 2026-10-20 09:38 FIXED, COMMITTED locally `01d32da5c6`, NOT pushed, NOT staged: refreshSelectedFrames() after the page's own selection change, the rule kept everywhere; techdraw-view-click-through.py 8 new claims -- the two page-deselect claims FAILED on r154 (part view, picture), every claim passes on r155 |
 | 193 | 2026-10-20 | a change request: ALL LIST VIEWS in OVERLAY PANELS get ALTERNATING row backgrounds WITH TRANSPARENCY, as the PROPERTY VIEW has; 184's transparent background is in, the alternating rows are not | OPEN; said to the note-taker 2026-10-20 09:18. 2026-10-20 09:20 SIZED by the build session, nothing built: the property view and the SELECTION VIEW already alternate overlaid, each by its own code; a sheet rule cannot (the sheet's opacity), a delegate cannot be swapped (task panels and the tree have their own); PROPOSED: OverlayManager watches item views in overlaid panels (also on child-added) and fills each visible row's band on the viewport's paint before the items, the same two colours at the overlay alpha, rows counted as the property view; d open for the reporter's look; waiting for the reporter's word |
 | 194 | 2026-10-20 | a defect (two): in the FILLET edit panel, (1) selecting a MISSING edge's ROW does NOT select its PREVIEW FACE in the 3D view; (2) after selecting a row in the panel, then a PREVIEW FACE in the 3D view, the panel's earlier selection is NOT CLEARED -- TWO rows end up selected | OPEN; said to the note-taker 2026-10-20 09:29. 2026-10-20 09:38 CAUSE FOUND (one for both, the note-taker's candidate): a missing row put NOTHING in Gui::Selection, so its face was not lit, and the 3D click's clearSelection had nothing to clear and sent no ClrSelection (Selection.cpp 2022) -- the panel kept its row; before-run r155: both claims FAIL (rows ['?Edge11','Edge8']); FIXED in the working tree (the row selects its preview face, ';AddSub;FaceN' by getItemElement), r156 building; fillet-preview-pick-syncs-list.py 3 new claims; NOT committed |
-| 195 | 2026-10-20 | a change request: 'Measure (pre)selected geometry' (the Part preselection macro, Std_Macro_Presel_PartMeasure) ON BY DEFAULT | OPEN; said to the note-taker 2026-10-20 09:34. 2026-10-20 09:38 DONE in the working tree, r156 building, NOT committed: MacroCommand gets a per-command default (defaultOption), TRUE for Std_Macro_Presel_PartMeasure only; a stored value wins, the default not written; test part-presel-measure-default.py. c CHECKED by the note-taker (READ only): the reporter's %APPDATA%/Thundereal/user.cfg and %APPDATA%/FreeCAD/user.cfg hold NO stored bool for it (only an FCText toolbar entry of that name, 'PartDesignWorkbench') -- the reporter WILL see the new default |
+| 195 | 2026-10-20 | a change request: 'Measure (pre)selected geometry' (the Part preselection macro, Std_Macro_Presel_PartMeasure) ON BY DEFAULT | OPEN; said to the note-taker 2026-10-20 09:34. 2026-10-20 09:38 DONE in the working tree, r156 building, NOT committed: MacroCommand gets a per-command default (defaultOption), TRUE for Std_Macro_Presel_PartMeasure only; a stored value wins, the default not written; test part-presel-measure-default.py. c CHECKED by the note-taker (READ only): the reporter's %APPDATA%/Thundereal/user.cfg and %APPDATA%/FreeCAD/user.cfg hold NO stored bool for it (only an FCText toolbar entry of that name, 'PartDesignWorkbench') -- the reporter WILL see the new default. 2026-10-20 09:40 ON HOLD by the reporter: a PERFORMANCE TEST first (in the future), then the decision whether to make it default on |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26676,6 +26679,21 @@ c. The user's test copy: the reporter's own user.cfg may hold a value;
 d. Per user (174's design): read as an ordinary preference for now.
 e. The cost: the macro runs Python on every preselection; read as
    accepted by asking for it.
+
+**2026-10-20 09:40, the reporter (to the note-taker):** "hold on 195 first, we'll do performance test in the future, after which we'll decide whether to make it default on"
+The note-taker's reading: 195 is ON HOLD -- the default stays OFF for
+now; a PERFORMANCE TEST of the measure macro (it runs Python on every
+preselection -- the note-taker's e) comes first, at a later time, and
+the default-on decision after it.
+NOT said, with the note-taker's readings:
+a. The build session's working-tree change (MacroCommand's per-command
+   defaultOption, true for the measure macro; test
+   part-presel-measure-default.py; r156): read as NOT to go in as is --
+   whether to drop it, keep it parked (a branch or a stash), or commit
+   the per-command default MECHANISM with the measure macro left OFF --
+   for the build session to propose, the reporter to say.
+b. The performance test: when, on what model, against what limit -- not
+   said; read as a future entry.
 
 ## Inbox
 

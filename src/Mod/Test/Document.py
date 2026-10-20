@@ -10484,6 +10484,99 @@ class TransactionBranchCases(unittest.TestCase):
         doc.deleteTransactionBranch(branch)
         self.assertNotIn(bolt["held"], [f["seq"] for f in doc.getTransactionSentFiles()])
 
+    def testASetIsMergedAsOneStep(self):
+        # Sec 35 L6: the set's merge with the actions importLinkedSet gives
+        # by default -- Merge for the files paired by their history, Write
+        # for their Bolt, at its path under our top's folder. Refused, with
+        # nothing moved, while a file is where Bolt would go; with
+        # `overwrite`, each branch merged, their Bolt written and linked
+        # there, our top's links plain links to ours -- one undo step, its
+        # id every document's -- and the held file let go.
+        ours, theirs = self.assemblyCopies(2, rows=True)
+        doc = self.openedSet(os.path.join(ours, "Asm.FCStd"))
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        for d in FreeCAD.listDocuments().values():
+            d.UndoMode = 1   # as the Gui has it
+        got = {os.path.basename(f["theirs"]): f for f in res["files"]}
+        self.assertEqual(
+            {k: v["action"] for k, v in got.items()},
+            {"Part.FCStd": "merge", "Asm.FCStd": "merge", "Bolt.FCStd": "write"},
+        )
+        bolt = os.path.join(ours, "Bolt.FCStd")
+        self.assertEqual(os.path.realpath(got["Bolt.FCStd"]["write_to"]), os.path.realpath(bolt))
+
+        with open(bolt, "w") as f:
+            f.write("in the way")
+        m = doc.mergeLinkedSet(res["files"])
+        self.assertTrue(m["refused"])
+        self.assertIn("is there", {os.path.basename(f["theirs"]): f for f in m["files"]}["Bolt.FCStd"]["error"])
+        self.assertEqual(doc.L.LinkedObject.Length.Value, 10)
+        self.assertIsNone(doc.getObject("L2"))
+
+        m = doc.mergeLinkedSet(res["files"], overwrite=True)
+        self.assertFalse(m["refused"], m)
+        for f in m["files"]:
+            self.assertEqual(f["error"], "", f)
+        done = {os.path.basename(f["theirs"]): f for f in m["files"]}
+        for name in ("Part.FCStd", "Asm.FCStd"):
+            self.assertGreater(done[name]["seq"], 0, done[name])
+            self.assertEqual(done[name]["undo_id"], m["transaction"], done[name])
+        self.assertTrue(os.path.isfile(bolt))
+
+        box = doc.L.LinkedObject
+        self.assertEqual(box.Length.Value, 25)
+        self.assertEqual(os.path.realpath(box.Document.FileName), os.path.realpath(os.path.join(ours, "Part.FCStd")))
+        cyl = doc.L2.LinkedObject
+        self.assertEqual(cyl.Name, "Cyl")
+        self.assertEqual(os.path.realpath(cyl.Document.FileName), os.path.realpath(bolt))
+        self.assertNotIn(
+            got["Bolt.FCStd"]["held"], [f["seq"] for f in doc.getTransactionSentFiles()]
+        )
+
+    def testAStrangersSetIsTakenWhole(self):
+        # Sec 35 L6, Q8: their set made apart from ours, laid out alike --
+        # paired by the path, a guess, and taken whole by default: our Part
+        # made theirs, one row, and our Asm linking it as theirs did. Their
+        # objects keep the names the import gave them: their `L`, a name our
+        # Asm had, is `L001` (35.13, not built: their names).
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        for folder, kind, name in ((ours, "Part::Box", "Box"), (theirs, "Part::Cylinder", "Cyl")):
+            os.makedirs(folder)
+            part = FreeCAD.newDocument("StrangePart")
+            part.UndoMode = 1
+            part.openTransaction("make")
+            made = part.addObject(kind, name)
+            part.recompute()
+            part.commitTransaction()
+            part.saveAs(os.path.join(folder, "Part.FCStd"))
+            asm = FreeCAD.newDocument("StrangeAsm")
+            asm.UndoMode = 1
+            asm.openTransaction("link")
+            asm.addObject("App::Link", "L").LinkedObject = made
+            asm.commitTransaction()
+            asm.saveAs(os.path.join(folder, "Asm.FCStd"))
+            FreeCAD.closeDocument(asm.Name)
+            FreeCAD.closeDocument(part.Name)
+
+        doc = self.openedSet(os.path.join(ours, "Asm.FCStd"))
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        for d in FreeCAD.listDocuments().values():
+            d.UndoMode = 1   # as the Gui has it
+        self.assertEqual({f["action"] for f in res["files"]}, {"theirs"})
+        m = doc.mergeLinkedSet(res["files"])
+        self.assertFalse(m["refused"], m)
+        for f in m["files"]:
+            self.assertEqual(f["error"], "", f)
+            self.assertEqual(f["undo_id"], m["transaction"], f)
+        links = [o for o in doc.Objects if o.isDerivedFrom("App::Link")]
+        self.assertEqual(len(links), 1, [o.Name for o in doc.Objects])
+        cyl = links[0].LinkedObject
+        self.assertEqual(cyl.Name, "Cyl")
+        part = cyl.Document
+        self.assertEqual(os.path.realpath(part.FileName), os.path.realpath(os.path.join(ours, "Part.FCStd")))
+        self.assertIsNone(part.getObject("Box"))
+
     def testAnExportedSetIsBroughtBack(self):
         # Sec 35.5 step 4's round trip: our set exported (L7), edited where
         # there is no log -- their Part changed, their Asm given an object --

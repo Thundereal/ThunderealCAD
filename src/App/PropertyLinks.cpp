@@ -5056,6 +5056,33 @@ void PropertyXLink::setPin(int64_t version, const std::string& uuid)
     hasSetValue();
 }
 
+void PropertyXLink::setPlainFile(const std::string& path)
+{
+    OperationScope scope;   // sec 27.38
+    auto owner = dynamic_cast<DocumentObject*>(getContainer());
+    if (!owner || !owner->isAttachedToDocument())
+        THROWM(Base::RuntimeError, "invalid container")
+    std::string name = _pcLink && _pcLink->isAttachedToDocument()
+        ? std::string(_pcLink->getNameInDocument()) : objectName;
+    if (name.empty() || path.empty())
+        return;
+    std::vector<std::string> subs(_SubList);
+    std::vector<ShadowSub> shadows(_ShadowSubList);
+    aboutToSetValue();
+    _pinVersion = 0;
+    _pinUuid.clear();
+    _liveBranch.clear();
+    _heldHash.clear();
+    _heldPath.clear();
+    clearLibraryForm();
+    if (docInfo) {
+        docInfo->remove(this);
+        docInfo.reset();
+    }
+    setValue(std::string(path), std::move(name), std::move(subs), std::move(shadows));
+    hasSetValue();
+}
+
 std::vector<PropertyXLink*> PropertyXLink::getPinsTo(const std::string& path)
 {
     std::vector<PropertyXLink*> pins;

@@ -21138,7 +21138,8 @@ and found one bug, fixed (item 6 c). **Built since: L1 (35.7,
 2026-10-19); L8 for frozen versions (35.8, 2026-10-19); L7 in App (35.9,
 2026-10-19); L2 and L3, the set read and paired (35.10, 2026-10-20); L4,
 the set imported as branches linked to each other (35.11, 2026-10-20); L5,
-their files alone held (35.12, 2026-10-20).**
+their files alone held (35.12, 2026-10-20); L6 in App, the set's merge
+(35.13, 2026-10-20).**
 
 ### 35.1 The case
 
@@ -21914,3 +21915,76 @@ their top's branch opened, its link reaches their longer box through our
 their `Part` changed and their `Asm` given an object with the log off,
 brought back: the top's branch has the object, its live link shows their
 `Part` through its branch, and its pin our `Part` at v1.
+
+### 35.13 L6 built in App: the set's merge, one undo step (2026-10-20)
+
+On the user's "push and continue" (2026-10-20). `App::mergeSet(ourTop,
+files, options)` (`src/App/ImportSet.cpp`), in Python
+`Document.mergeLinkedSet(files, overwrite=False, name=...)`. `files` is
+what `importLinkedSet` returns, which now gives each file its default
+action and, for a file alone, `write_to`.
+
+- **The actions** (Q8): `merge` (`mergeBranch`, with the file's `picks`
+  and `fallback`), `theirs` (Take theirs), `ours` (Keep ours), `write` (a
+  file of theirs alone written where `write_to` says), `drop`. By default:
+  Merge for a file paired with certainty (Q1 items 1 to 3, and by hand),
+  Take theirs for one paired by a guess (Uid, path), Write for a file
+  alone, at its path in their set under our top's folder (Q2).
+- **Nothing moves until all of it can**: a Merge whose preview has a
+  conflict with no pick and no fallback, or a Write to a file that is
+  there without `overwrite`, refuses the whole -- `refused`, the file's
+  `error` saying why.
+- **Then, in order**: the files alone written (`writeSentFile`); each
+  branch given a row, "Link our set", making its links to the set's
+  branches plain links to ours and its held links links to the files
+  written -- by name (`PropertyXLink::setPlainFile`), since an object of
+  theirs is ours only once its file is merged, and before the step, so
+  no row of a branch is in it; and each file merged, taken or kept, the
+  files each links first.
+- **One undo step across the documents (Q3)**: the step is held open as a
+  command holds its own (`AutoTransaction`), and under a `SetMergeScope` a
+  merge and a restore of a version open their transaction under the
+  application's -- or go into the one open already, which a change of a
+  file it links opened in this document -- and a merge writes its row
+  where it could take the other branch's rows as they are (a
+  fast-forward writes none, and would be as many undo steps as rows).
+  Every file's `undo_id` is the step's `transaction`; the Gui undoes and
+  redoes it across the documents as any step with one id.
+- **Take theirs** (Q8): a version taken at the branch's head, and ours
+  restored to it (`restoreVersion`): one row, ours' objects removed and
+  theirs made, ours kept in the history. Then a record with no ops whose
+  second parent is the branch's head takes the branch in, so it is not
+  asked again and what is held for it is let go. **Keep ours** is that
+  record alone.
+
+**Found on the way**: a document commit under the application's active
+transaction closes it -- the branch's relink row did, and the files after
+it got undo steps of their own; the step is held open now, and the rows
+of branches are written before it. A change a file's merge makes to
+another document through a link opens that document's transaction under
+the step's id, and a restore there then refused ("inside a transaction")
+or, opening one more under the id, threw "invalid transaction id"; the
+restore and the merge go into the one open.
+
+**Not built yet**:
+
+- **Their names under Take theirs.** Q8 says theirs are made "under their
+  names -- free once ours are gone". They come under the names the import
+  gave them (P4): their `L`, a name ours had when the branch was made, is
+  `L001` after the take. Giving the names back means renaming in the
+  restore -- the object and every reference to it -- which is not built;
+  a link from outside the set to `Asm#L` breaks where it would have held.
+- the Q4 preview (references that will not resolve, on the top's line);
+- the set's record (Q9), so the set's dialog can be opened again later;
+- the Gui: the set's dialog, and a command to bring a set in.
+
+**Tests** (`Document.py`, `TransactionBranchCases`):
+`testASetIsMergedAsOneStep` -- 35.2 item 6's copies: the default actions
+Merge, Merge, Write; refused while a file is where `Bolt` would go, our
+`Asm` unchanged; with `overwrite`, both merged under the step's id, their
+`Bolt` written beside our `Asm` and `L2` linked to it, `L` a plain link to
+our `Part` with their longer box, the held file let go.
+`testAStrangersSetIsTakenWhole` -- a set made apart from ours and laid
+out alike: both files Take theirs by default, both under the step's id;
+our `Part` holds their `Cyl` and not our `Box`, and our `Asm`'s one link
+is to it in our `Part`.

@@ -1318,6 +1318,12 @@ public:
     /// an undoable change of the link's value. Throws when the link is not
     /// to another saved file.
     void setPin(int64_t version, const std::string& uuid = std::string());
+    /** Link to the object of the same name in the file at `path`, plainly:
+     * no pin, no branch, not held, no library (docs/TransactionLog.md sec 35
+     * L6). The object need not be there yet: the link names it, and holds
+     * once it is. An undoable change of the link's value.
+     */
+    void setPlainFile(const std::string& path);
     int64_t getPinVersion() const { return _pinVersion; }
     const std::string& getPinUuid() const { return _pinUuid; }
     /// The pinned version could not be opened and the link shows the file.
@@ -1328,6 +1334,9 @@ public:
     /// when the link is to an editable instance of a version, whose name
     /// carries its branch; empty for a link to the file.
     const std::string& getLiveBranch() const { return _liveBranch; }
+    /// The hash of the held file of theirs it links (sec 35 L5); empty for
+    /// one that links none.
+    const std::string& getHeldHash() const { return _heldHash; }
     //@}
 
     /** @name Library links (docs/LibraryPaths.md)

@@ -6665,6 +6665,45 @@ void Document::_rebuildUndoFromLog(int64_t after)
     }
 }
 
+namespace
+{
+thread_local int _SetMergeScopes = 0;
+
+/// The application's active transaction's id under a SetMergeScope, else 0:
+/// a transaction of its own.
+int setMergeTransactionId()
+{
+    int tid = 0;
+    if (SetMergeScope::active())
+        GetApplication().getActiveTransaction(&tid);
+    return tid > 0 ? tid : 0;
+}
+
+/// `t`, open, is the set's merge's step: a change this document took from
+/// another's in that step -- a link's -- opened it under the shared id, and
+/// a merge or a restore of it goes in it too.
+bool joinsSetStep(const Transaction* t)
+{
+    return t && SetMergeScope::active() && setMergeTransactionId()
+        && t->getID() == setMergeTransactionId();
+}
+}  // namespace
+
+SetMergeScope::SetMergeScope()
+{
+    ++_SetMergeScopes;
+}
+
+SetMergeScope::~SetMergeScope()
+{
+    --_SetMergeScopes;
+}
+
+bool SetMergeScope::active()
+{
+    return _SetMergeScopes > 0;
+}
+
 bool Document::restoreVersion(int64_t num)
 {
     OperationScope scope;   // sec 27.38
@@ -6677,20 +6716,23 @@ bool Document::restoreVersion(int64_t num)
         return false;
     if (d->checkingOut || testStatus(Restoring) || isPerformingTransaction() || d->committing)
         THROWM(Base::RuntimeError, "cannot restore a version now");
-    if (d->activeUndoTransaction)
+    const bool joined = joinsSetStep(d->activeUndoTransaction);
+    if (d->activeUndoTransaction && !joined)
         commitImplicitTransaction();
-    if (d->activeUndoTransaction)
+    if (d->activeUndoTransaction && !joined)
         THROWM(Base::RuntimeError, "cannot restore a version inside a transaction");
     LogVersion version;
     if (!log->store().getVersion(num, version))
         THROWM(Base::RuntimeError, "no such version");
 
-    _clearMyRedos();
-    d->activeUndoTransaction = new Transaction(0);
+    if (!joined) {
+        _clearMyRedos();
+        d->activeUndoTransaction = new Transaction(setMergeTransactionId());
+        mUndoMap[d->activeUndoTransaction->getID()] = d->activeUndoTransaction;
+    }
     d->activeUndoTransaction->Name = "Restore version " + std::to_string(num)
         + (version.name.empty() ? "" : " " + version.name);
     d->activeUndoTransaction->LogKind = "restore";
-    mUndoMap[d->activeUndoTransaction->getID()] = d->activeUndoTransaction;
     // Through the rows between here and the version when the log has them
     // (sec 27.34): only what changed since is written. Else the version is
     // read whole into a document of its own and its difference applied --
@@ -11472,7 +11514,8 @@ Document::MergeResult Document::_merge(const std::string& branch,
     for (const auto& c : plan.preview.changes)
         anyLeft = anyLeft || leftOut(c);
     // What is taken in part is not taken as it is: the merge writes its row.
-    if (anyLeft)
+    // So does a set's merge, one undo step across its documents (sec 35 L6).
+    if (anyLeft || SetMergeScope::active())
         plan.preview.forward.clear();
     result.preview = plan.preview;
     const MergePreview& pv = plan.preview;
@@ -11857,12 +11900,14 @@ Document::MergeResult Document::_merge(const std::string& branch,
         if (!picked)
             _leaveBranch();
 
-        _clearMyRedos();
-        d->activeUndoTransaction = new Transaction(0);
+        if (!joinsSetStep(d->activeUndoTransaction)) {
+            _clearMyRedos();
+            d->activeUndoTransaction = new Transaction(setMergeTransactionId());
+            mUndoMap[d->activeUndoTransaction->getID()] = d->activeUndoTransaction;
+        }
         d->activeUndoTransaction->Name = (picked ? "Apply " : "Merge ") + branch;
         d->activeUndoTransaction->LogKind = picked ? "pick" : "merge";
         d->activeUndoTransaction->MergeFrom = picked ? 0 : pv.theirs;
-        mUndoMap[d->activeUndoTransaction->getID()] = d->activeUndoTransaction;
     }
 
     // Ours unchanged since the base: the document moved to theirs' state

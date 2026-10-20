@@ -42,6 +42,7 @@
 #include <Base/Uuid.h>
 
 #include "Application.h"
+#include "AutoTransaction.h"
 #include "Document.h"
 #include "DocumentObject.h"
 #include "ExportSet.h"
@@ -50,6 +51,8 @@
 #include "ImportSet.h"
 #include "LibraryPaths.h"
 #include "PropertyLinks.h"
+#include "TransactionLog.h"
+#include "TransactionStore.h"
 
 FC_LOG_LEVEL_INIT("App", true, true)
 
@@ -479,13 +482,16 @@ std::string nameOf(const Target& t)
  * a list is left as it is.
  */
 int relinkBranch(const std::string& ourFile, const std::string& branch,
-                 const std::map<LinkKey, Target>& targets)
+                 const std::map<LinkKey, Target>& targets,
+                 const std::map<std::string, Target>& byHeld = {},
+                 const char* rowName = "Link their set", bool plainly = false)
 {
     auto& app = GetApplication();
     Document* doc = app.openDocument((ourFile + "@" + branch + "@").c_str(), false);
     if (!doc)
         return 0;
     std::vector<std::pair<PropertyXLink*, App::DocumentObject*>> changes;
+    std::vector<std::pair<PropertyXLink*, std::string>> plain;
     for (auto obj : doc->getObjects()) {
         std::vector<App::Property*> props;
         obj->getPropertyList(props);
@@ -496,39 +502,62 @@ int relinkBranch(const std::string& ourFile, const std::string& branch,
             const Document* linked = link->getValue()->getDocument();
             if (linked == doc)
                 continue;
-            auto it = targets.find(keyOfDocument(linked));
-            if (it == targets.end() || nameOf(it->second) == linked->FileName.getStrValue())
+            const Target* found = nullptr;
+            auto held = link->getHeldHash().empty() ? byHeld.end()
+                                                    : byHeld.find(link->getHeldHash());
+            if (held != byHeld.end())
+                found = &held->second;
+            else {
+                auto it = targets.find(keyOfDocument(linked));
+                if (it != targets.end())
+                    found = &it->second;
+            }
+            if (!found || nameOf(*found) == linked->FileName.getStrValue())
                 continue;
-            Document* to = app.openDocument(nameOf(it->second).c_str(), false);
+            if (plainly) {
+                // By name: the object may be ours only once the file it is
+                // in is merged.
+                plain.emplace_back(link, found->file);
+                continue;
+            }
+            Document* to = app.openDocument(nameOf(*found).c_str(), false);
             auto target = to ? to->getObject(link->getValue()->getNameInDocument()) : nullptr;
             if (!target) {
                 FC_WARN("set import: " << link->getFullName() << " has no "
-                        << link->getValue()->getNameInDocument() << " in " << nameOf(it->second));
+                        << link->getValue()->getNameInDocument() << " in " << nameOf(*found));
                 continue;
             }
             changes.emplace_back(link, target);
         }
     }
-    if (changes.empty())
+    if (changes.empty() && plain.empty())
         return 0;
     const int mode = doc->getUndoMode();
     if (!mode)
         doc->setUndoMode(1);
-    doc->openTransaction("Link their set");
+    // One open already -- a set's merge's step, which a change of a file it
+    // links opened here -- takes the row; a document holds one per id.
+    const bool open = doc->hasPendingTransaction();
+    if (!open)
+        doc->openTransaction(rowName);
     try {
         for (auto& [link, target] : changes)
             link->setValue(target, std::vector<std::string>(link->getSubValues()));
-        doc->commitTransaction();
+        for (auto& [link, file] : plain)
+            link->setPlainFile(file);
+        if (!open)
+            doc->commitTransaction();
     }
     catch (...) {
-        doc->abortTransaction();
+        if (!open)
+            doc->abortTransaction();
         if (!mode)
             doc->setUndoMode(0);
         throw;
     }
     if (!mode)
         doc->setUndoMode(0);
-    return static_cast<int>(changes.size());
+    return static_cast<int>(changes.size() + plain.size());
 }
 
 /// Close what was opened since `before`, unless a document staying open
@@ -613,9 +642,14 @@ SetImportResult App::importSet(const SetImportPlan& plan)
         }
     }
 
+    const QDir ourDir = plan.ourTop
+        ? QFileInfo(qs(plan.ourTop->FileName.getStrValue())).absoluteDir() : QDir();
     for (const auto& f : plan.files) {
         SetImportedFile r;
         r.theirs = f.theirs;
+        r.action = defaultSetMergeAction(f);
+        if (!f.ours && !f.ambiguous)
+            r.writeTo = ss(QDir::cleanPath(ourDir.absoluteFilePath(qs(f.relative))));
         if (!f.ours) {
             auto it = held.find(f.theirs);
             if (it != held.end()) {
@@ -675,6 +709,223 @@ SetImportResult App::importSet(const SetImportPlan& plan)
         for (const auto& r : result.files) {
             if (r.held)
                 plan.ourTop->holdSentFileFor(r.held, top->branch);
+        }
+    }
+    closeOpened(before);
+    return result;
+}
+
+const char* App::setMergeActionName(SetMergeAction action)
+{
+    switch (action) {
+        case SetMergeAction::Merge:
+            return "merge";
+        case SetMergeAction::TakeTheirs:
+            return "theirs";
+        case SetMergeAction::KeepOurs:
+            return "ours";
+        case SetMergeAction::Write:
+            return "write";
+        case SetMergeAction::Drop:
+            break;
+    }
+    return "drop";
+}
+
+SetMergeAction App::defaultSetMergeAction(const SetImportFile& file)
+{
+    if (!file.ours)
+        return SetMergeAction::Write;
+    return file.certain() ? SetMergeAction::Merge : SetMergeAction::TakeTheirs;
+}
+
+namespace
+{
+
+/// The branch `branch` of `doc`'s file taken in as merged, by a record with
+/// no ops whose second parent is its head: not asked again, and what is held
+/// for it let go. No undo step.
+void recordTaken(Document& doc, const std::string& branch, const char* how)
+{
+    TransactionLog* log = doc.getTransactionLog();
+    LogBranch b;
+    if (!log || !log->store().findBranch(branch, b))
+        return;
+    nlohmann::json j;
+    j["set"] = {{"branch", branch}, {"action", how}};
+    log->record("merge", std::string(how) + " " + branch, j.dump(), b.head);
+    log->flush();
+}
+
+}  // namespace
+
+SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& files,
+                             const SetMergeOptions& options)
+{
+    // docs/TransactionLog.md sec 35 L6.
+    auto& app = GetApplication();
+    SetMergeResult result;
+    for (const auto& f : files) {
+        SetMergedFile r;
+        r.theirs = f.theirs;
+        r.ourFile = f.ourFile;
+        r.action = f.action;
+        result.files.push_back(std::move(r));
+    }
+    auto docOf = [&app](const std::string& file) -> Document* {
+        for (auto doc : app.getDocuments()) {
+            if (!doc->testStatus(Document::VersionDoc)
+                    && keyOf(doc->FileName.getStrValue()) == keyOf(file))
+                return doc;
+        }
+        return app.openDocument(file.c_str(), false);
+    };
+
+    // Nothing moves until all of it can: conflicts with no side, a file to
+    // be written that is there.
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        const auto& f = files[i];
+        auto& r = result.files[i];
+        if (f.action == SetMergeAction::Write) {
+            if (!f.held)
+                r.error = "no file is held for it";
+            else if (f.writeTo.empty())
+                r.error = "no place to write it";
+            else if (!options.overwrite && QFileInfo::exists(qs(f.writeTo)))
+                r.error = "'" + f.writeTo + "' is there";
+        }
+        else if (f.action == SetMergeAction::Merge && !f.branch.empty()) {
+            Document* ours = docOf(f.ourFile);
+            if (!ours) {
+                r.error = "cannot open '" + f.ourFile + "'";
+                continue;
+            }
+            try {
+                for (const auto& c : ours->previewMerge(f.branch).changes) {
+                    if ((c.kind == "conflict" || c.kind == "unit") && f.fallback.empty()
+                            && !f.picks.count(c.key))
+                        ++r.unresolved;
+                }
+                if (r.unresolved)
+                    r.error = std::to_string(r.unresolved) + " conflicts with no side";
+            }
+            catch (Base::Exception& e) {
+                r.error = e.what();
+            }
+        }
+        if (!r.error.empty())
+            result.refused = true;
+    }
+    if (result.refused)
+        return result;
+
+    std::set<Document*> before;
+    for (auto doc : app.getDocuments())
+        before.insert(doc);
+
+    // Their files alone, where the user says; links to them, there.
+    std::map<std::string, Target> byHeld;
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        const auto& f = files[i];
+        if (f.action != SetMergeAction::Write)
+            continue;
+        std::string hash;
+        for (const auto& sent : ourTop.sentFiles()) {
+            if (sent.seq == f.held)
+                hash = sent.hash;
+        }
+        QDir().mkpath(QFileInfo(qs(f.writeTo)).absolutePath());
+        ourTop.writeSentFile(f.held, f.writeTo);
+        result.files[i].written = f.writeTo;
+        Target t;
+        t.file = f.writeTo;
+        if (!hash.empty())
+            byHeld[hash] = t;
+    }
+    // Each branch's links to the set's branches made plain links to ours,
+    // which hold what they had once merged; one row of the branch, before
+    // the step, so the merge takes them so. By name: an object of theirs is
+    // ours only once its file is merged.
+    std::map<LinkKey, Target> plain;
+    for (const auto& f : files) {
+        if (f.ourFile.empty() || f.branch.empty())
+            continue;
+        Target t;
+        t.file = keyOf(f.ourFile);
+        plain[LinkKey {keyOf(f.ourFile), 0, f.branch}] = t;
+    }
+
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        const auto& f = files[i];
+        if (f.ourFile.empty() || f.branch.empty() || f.action == SetMergeAction::KeepOurs)
+            continue;
+        try {
+            relinkBranch(keyOf(f.ourFile), f.branch, plain, byHeld, "Link our set", true);
+        }
+        catch (Base::Exception& e) {
+            result.files[i].error = std::string("links not made ours: ") + e.what();
+        }
+    }
+
+    // One undo step across the documents (Q3), held open as a command holds
+    // its own: a branch's row committed on the way does not close it.
+    {
+        AutoTransaction step(options.name.c_str());
+        int tid = 0;
+        app.getActiveTransaction(&tid);
+        result.transaction = tid;
+        SetMergeScope scope;
+        for (std::size_t i = 0; i < files.size(); ++i) {
+            const auto& f = files[i];
+            auto& r = result.files[i];
+            if (f.ourFile.empty() || f.branch.empty() || !r.error.empty())
+                continue;
+            Document* ours = docOf(f.ourFile);
+            if (!ours) {
+                r.error = "cannot open '" + f.ourFile + "'";
+                continue;
+            }
+            try {
+                switch (f.action) {
+                    case SetMergeAction::Merge: {
+                        const auto m = ours->mergeBranch(f.branch, f.picks, f.fallback);
+                        r.seq = m.seq;
+                        r.failed = m.failed;
+                        r.unresolved = m.unresolved.size();
+                        if (r.unresolved)
+                            r.error = "conflicts with no side";
+                        break;
+                    }
+                    case SetMergeAction::TakeTheirs: {
+                        // Q8: ours made what the branch's head is, one row as a
+                        // restore is; then the branch is taken in.
+                        Document* tip = app.openDocument(
+                            (keyOf(f.ourFile) + "@" + f.branch + "@").c_str(), false);
+                        const int64_t num = tip ? tip->snapshotToLog() : 0;
+                        if (!num) {
+                            r.error = "no version of the branch's head";
+                            break;
+                        }
+                        ours->restoreVersion(num);
+                        r.seq = ours->getTransactionLog() ? ours->getTransactionLog()->lastSeq() : 0;
+                        recordTaken(*ours, f.branch, "Take theirs");
+                        break;
+                    }
+                    case SetMergeAction::KeepOurs:
+                        recordTaken(*ours, f.branch, "Keep ours");
+                        break;
+                    default:
+                        break;
+                }
+                if (f.action == SetMergeAction::Merge || f.action == SetMergeAction::TakeTheirs)
+                    r.undoId = ours->getTransactionID(true, 0);
+            }
+            catch (Base::Exception& e) {
+                r.error = e.what();
+            }
+            catch (std::exception& e) {
+                r.error = e.what();
+            }
         }
     }
     closeOpened(before);

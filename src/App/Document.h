@@ -70,6 +70,22 @@ namespace App
 namespace App
 {
 
+/** While one is open in this thread (docs/TransactionLog.md sec 35 L6, Q3):
+ * a merge writes its row where it could take the other branch's rows as
+ * they are, and a merge or a restore of a version opens its transaction
+ * under the application's active one -- so a set's merge is one undo step
+ * across its documents.
+ */
+class AppExport SetMergeScope
+{
+public:
+    SetMergeScope();
+    ~SetMergeScope();
+    SetMergeScope(const SetMergeScope&) = delete;
+    SetMergeScope& operator=(const SetMergeScope&) = delete;
+    static bool active();
+};
+
 /// The document class
 class AppExport Document : public App::PropertyContainer
 {

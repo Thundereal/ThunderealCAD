@@ -25,6 +25,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -104,6 +105,16 @@ AppExport SetImportPlan planSetImport(Document& ourTop, const std::string& their
  */
 AppExport void pairByHand(SetImportPlan& plan, const std::string& theirs, Document* ours);
 
+/// What the set's merge does with a file (sec 35 L6).
+enum class SetMergeAction
+{
+    Merge,        ///< its branch merged into ours
+    TakeTheirs,   ///< ours made theirs, one row (Q8); ours kept in the history
+    KeepOurs,     ///< ours as it is; the branch is not asked again
+    Write,        ///< a file of theirs alone written where `writeTo` says
+    Drop,         ///< a file of theirs alone left out
+};
+
 /// What the import of a file of their set did.
 struct AppExport SetImportedFile
 {
@@ -123,6 +134,11 @@ struct AppExport SetImportedFile
     /// Links of its branch made links to what the files of the set came
     /// as, in a row of their own: the links the copies had in common.
     int relinked = 0;
+    /// What the set's merge does with it by default (Q8), and for a file of
+    /// theirs alone where it is written: its path in their set, under our
+    /// top's folder (Q2).
+    SetMergeAction action = SetMergeAction::Merge;
+    std::string writeTo;
     /// The import could not be made at all.
     std::string error;
 };
@@ -147,6 +163,66 @@ struct AppExport SetImportResult
  * reported, and the rest go on.
  */
 AppExport SetImportResult importSet(const SetImportPlan& plan);
+
+AppExport const char* setMergeActionName(SetMergeAction action);
+/// The action a file is given by default (Q8): Merge for one paired with
+/// certainty, Take theirs for one paired by a guess, Write for one of theirs
+/// alone.
+AppExport SetMergeAction defaultSetMergeAction(const SetImportFile& file);
+
+/// A file of the set, as the merge takes it.
+struct AppExport SetMergeFile
+{
+    std::string theirs;
+    std::string ourFile;    ///< empty for a file of theirs alone
+    std::string branch;     ///< what it came as; empty when it brought nothing new
+    int64_t held = 0;       ///< a file of theirs alone, held in our top's log
+    SetMergeAction action = SetMergeAction::Merge;
+    std::string writeTo;    ///< Write: the full path
+    /// Merge: the sides of its conflicts, as Document::mergeBranch() takes them.
+    std::map<std::string, std::string> picks;
+    std::string fallback;
+};
+
+struct AppExport SetMergeOptions
+{
+    std::string name = "Merge their set";   ///< the undo step's
+    bool overwrite = false;   ///< Write over a file that is there
+};
+
+struct AppExport SetMergedFile
+{
+    std::string theirs;
+    std::string ourFile;
+    SetMergeAction action = SetMergeAction::Merge;
+    int64_t seq = 0;          ///< the merge's or the restore's row
+    std::string written;      ///< Write: where
+    int undoId = 0;           ///< the undo step it is in; 0 for none
+    std::size_t unresolved = 0;
+    std::vector<std::string> failed;   ///< objects whose recompute failed
+    std::string error;
+};
+
+struct AppExport SetMergeResult
+{
+    std::vector<SetMergedFile> files;
+    int transaction = 0;      ///< the one undo step's id
+    /// Nothing moved: a merge has conflicts with no side, or a file to be
+    /// written is there; `files` says which.
+    bool refused = false;
+};
+
+/** The set's merge (sec 35 L6): `files` in the order importSet() gives them,
+ * the files each links first. Before anything moves, a Merge with a
+ * conflict that has no side, or a Write to a file that is there without
+ * `overwrite`, refuses the whole. Then their files alone are written; each
+ * branch is given a row making its links to the set's branches plain links
+ * to ours, now that ours holds what they had, and its held links links to
+ * the files written; and each file is merged, taken or kept, as one undo
+ * step across the documents (Q3).
+ */
+AppExport SetMergeResult mergeSet(Document& ourTop, const std::vector<SetMergeFile>& files,
+                                  const SetMergeOptions& options = {});
 
 }  // namespace App
 

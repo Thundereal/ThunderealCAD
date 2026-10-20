@@ -931,6 +931,24 @@ alone, 0 for none), 'staged' (where it is written), 'relinked' and
 'error'.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="mergeLinkedSet" Keyword="true">
+      <Documentation>
+        <UserDocu>mergeLinkedSet(files, overwrite=False, name='Merge their set') -> dict
+The set's merge (docs/TransactionLog.md sec 35 L6): `files` as
+importLinkedSet() lists them, the files each links first, each a dict with
+'theirs', 'our_file', 'branch', 'held', 'write_to' and 'action' -- 'merge',
+'theirs' (ours made theirs, one row), 'ours', 'write' (a file of theirs
+alone written to 'write_to') or 'drop' -- and for a merge 'picks' and
+'fallback' as mergeTransactionBranch() takes them. Nothing moves when a merge
+has a conflict with no side, or a file to be written is there and
+`overwrite` is not set: 'refused', and the file's 'error' says why.
+Otherwise the files alone are written, each branch's links to the set's
+branches made links to ours, and each file merged, taken or kept, as one undo
+step across the documents. Returns 'files' (per file 'action', 'seq',
+'written', 'undo_id', 'unresolved', 'failed', 'error'), 'transaction' (the
+undo step's id) and 'refused'.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="importTransactionFork">
       <Documentation>
         <UserDocu>importTransactionFork(path, branch='', sender='') -> dict

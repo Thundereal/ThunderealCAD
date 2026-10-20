@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-20 10:02: entry 197 -- scanner.FCStd: Binder008 updated after the
+migration flips Pocket022's Fit (0.1) from grow to shrink; keep the
+file's side, or fail.** Under the entry.
+
 **2026-10-20 09:56: entry 196, PRIORITY FIRST -- fillet on-view edit: a working
 preview face not preselected and not synced to the panel; the label not
 lit on hover and outranked by the geometry behind it; the handles'
@@ -3972,6 +3976,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 194 | 2026-10-20 | a defect (two): in the FILLET edit panel, (1) selecting a MISSING edge's ROW does NOT select its PREVIEW FACE in the 3D view; (2) after selecting a row in the panel, then a PREVIEW FACE in the 3D view, the panel's earlier selection is NOT CLEARED -- TWO rows end up selected | OPEN; said to the note-taker 2026-10-20 09:29. 2026-10-20 09:38 CAUSE FOUND (one for both, the note-taker's candidate): a missing row put NOTHING in Gui::Selection, so its face was not lit, and the 3D click's clearSelection had nothing to clear and sent no ClrSelection (Selection.cpp 2022) -- the panel kept its row; before-run r155: both claims FAIL (rows ['?Edge11','Edge8']); FIXED in the working tree (the row selects its preview face, ';AddSub;FaceN' by getItemElement), r156 building; fillet-preview-pick-syncs-list.py 3 new claims; NOT committed. 2026-10-20 09:43 r157 building with 194 ALONE (a large rebuild, Command.h touched and restored); then fillet-preview-pick-syncs-list, dressup-replace-missing-edge, serve-dressup-preview-pick one at a time. READ: git status -- TaskDressUpParameters.cpp and the test modified, uncommitted |
 | 195 | 2026-10-20 | a change request: 'Measure (pre)selected geometry' (the Part preselection macro, Std_Macro_Presel_PartMeasure) ON BY DEFAULT | OPEN; said to the note-taker 2026-10-20 09:34. 2026-10-20 09:38 DONE in the working tree, r156 building, NOT committed: MacroCommand gets a per-command default (defaultOption), TRUE for Std_Macro_Presel_PartMeasure only; a stored value wins, the default not written; test part-presel-measure-default.py. c CHECKED by the note-taker (READ only): the reporter's %APPDATA%/Thundereal/user.cfg and %APPDATA%/FreeCAD/user.cfg hold NO stored bool for it (only an FCText toolbar entry of that name, 'PartDesignWorkbench') -- the reporter WILL see the new default. 2026-10-20 09:40 ON HOLD by the reporter: a PERFORMANCE TEST first (in the future), then the decision whether to make it default on. 2026-10-20 09:43 HELD and PARKED by the build session, NOT in the tree (the default stays off): the change saved as D:/works/sw/dl/handson/2026-10-12/195-presel-measure-default.patch (5068 bytes) with its test part-presel-measure-default.py beside it; to revive: git apply the patch, move the test back; r156 stopped (it carried 195). READ by the note-taker: both files there; git status shows no 195 file |
 | 196 | 2026-10-20 | defects (four), PRIORITY FIRST: fillet on-view edit -- (1) a NORMAL (working) preview face is selectable but NOT PRESELECTABLE, and a 3D selection of it does NOT SYNC the edit panel; (2) the on-view LABEL has NO PRESELECTION highlight; (3) the label LOSES to base geometry behind it on a click; (4) the handles' SILHOUETTE (pre)selection outline asked (144, 159) never came -- is it possible? and the handles are drawn FLAT, no shading | OPEN; said to the note-taker 2026-10-20 09:56; the reporter: the build session to do this FIRST, then WAIT for the reporter's hands-on test on the TEST BUILD directly |
+| 197 | 2026-10-20 | a defect: scanner.FCStd, the MIGRATION RECOMPUTE -> Binder008 'No context' (expected); a DOUBLE CLICK to UPDATE it -> Pocket022's FIT (the cut's tolerance, 0.1) CHANGES SIDE (the grow becomes a shrink); must not happen -- backward compatibility kept, or, where it cannot be, the feature marked in ERROR | OPEN; said to the note-taker 2026-10-20 10:02 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26762,6 +26767,63 @@ e. All dress-ups: not said this time; read as yes (the same code).
 f. The browser: not said; read as the desktop first, the browser after
    (189's way).
 
+## 197. scanner.FCStd: updating Binder008 after the migration flips Pocket022's Fit from grow to shrink (a defect) -- OPEN
+
+**2026-10-20 10:02, the reporter (to the note-taker):** "new defect, after open scanner.FCStd, perform migration recomputer. Binder008 shows no context error, which is expected. after double click to update it, Pocket022's cut with tolerance changed direction (i.e. expand become shrink). this shouldn't happen, either backward compatibility is broken. or if cannot maintain, should mark it as error."
+(as typed: "recomputer" read as "recompute".)
+The note-taker's reading: open scanner.FCStd, run the migration
+recompute; Binder008 ends in "No context ..." (expected, entry 105's
+rule). DOUBLE-CLICK Binder008 to UPDATE it (re-resolve); after that,
+Pocket022's cut, made with a TOLERANCE (its Fit), is on the OTHER SIDE:
+where the profile was GROWN by the fit it is now SHRUNK. Wanted: the
+result as the file made it (backward compatible); if that cannot be
+kept, Pocket022 must go into ERROR rather than silently change.
+READ in the reporter's file, nothing run (D:/Zheng.Lei/mech/scanner.FCStd,
+2026-10-19 13:12, read with Python's zipfile, Document.xml only):
+- Pocket022 (PartDesign::Pocket): Profile = Binder018 (whole), Fit =
+  0.1, InnerFit 0, FitJoin 0, Type 4, Length 8, Length2 0.3, Reversed
+  false, BaseFeature Hole002. NO _FitRule / _FitFlip in the file -- made
+  before 93b9b8a440's rule.
+- Binder018 (SubShapeBinder, "Binder018(*Prism001)"): Support =
+  Binder008 "Face1" (shadow name ";#98;:G;XTR;...;BND:-1:0;...F.Face1"),
+  Context Body007 "Misc.Binder018.", MakeFace true.
+- Binder008 (SubShapeBinder, "Binder008(Prism001)"): Support = Body004
+  (whole), Context EMPTY (file="" name=""), Relative true, BindMode 0.
+  So: Binder008 -> Binder018 (its Face1) -> Pocket022's profile.
+READ in the source, nothing run -- src/Mod/PartDesign/App/
+FeatureSketchBased.cpp:
+- 130 to 152, onDocumentRestored: a feature made before the rule
+  (_FitRule < 1) with a Fit gets _FitFlip = the file's profile face was
+  REVERSED, taken from the profile shape AS RESTORED (before any
+  recompute) -- "Kept, whatever the solid's next recompute hands back
+  (docs/HandsOnQueue.md entry 160, Pocket040 in scanner.FCStd)".
+- 357 to 372, getVerifiedFace: the Fit runs on forwardFaces(shape)
+  (each face's orientation flag set FORWARD) with sign -1 when _FitFlip.
+  Commit 93b9b8a440 (2026-10-16): "a profile face's Fit no longer
+  follows the face's orientation flag".
+The note-taker's CANDIDATE, NOT checked: forwardFaces resets only the
+face's ORIENTATION FLAG; the side an offset grows to also follows the
+face's SURFACE NORMAL (with the wire's direction). If Binder008's update
+(a new context, Body004 under another placement path) hands Binder018 a
+Face1 that is the same face on a plane of the OPPOSITE normal -- or a
+different face of Binder008 named Face1 -- the flag rule cannot see it,
+_FitFlip (taken from the file's face) no longer matches, and the 0.1
+grows the other way. Entry 160 (Pocket040) is the same kind of flip.
+NOT said, with the note-taker's readings:
+a. "Backward compatibility broken": read as the Fit's side must be the
+   one the FILE made, through any recompute or re-resolve of the
+   profile's sources -- the rule judged by GEOMETRY (the side the file's
+   result grew to), not by flags.
+b. "Mark it as error": read as when the side cannot be decided (the
+   profile no longer matches the file's), Pocket022 fails with a clear
+   message, not a silent change.
+c. Whether Binder008's update itself is right (the same face, the same
+   place): not said; read as to be checked too -- Binder018 and
+   Pocket022's base (Hole002) unmoved after it.
+d. Other features with a Fit on a binder's face in scanner.FCStd: read
+   as the same check for each.
+e. Order against 196 (asked FIRST): not said; read as after 196.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -26773,5 +26835,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 196
+the build session, 131 and 132 found by it; entries 134 to 197
 are of 2026-10-15, 134 said to the build session)

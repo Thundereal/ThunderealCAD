@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-20 09:29: entry 194 -- fillet panel: a missing row does not select its
+preview face; a 3D face pick leaves the earlier row selected (two rows).**
+Under the entry.
+
 **2026-10-20 09:24: entry 192 -- the reporter: keep the frame-on-selection for every
 view; fix the deselect.** Under the entry.
 
@@ -3944,6 +3948,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 191 | 2026-10-19 | a change request (said to the build session, relayed): a handle DRAG whose RECOMPUTE FAILS (e.g. a radius dragged to 0) AUTO-REVERTS to the LAST WORKING VALUE, NOT through the normal undo stack -- the whole drag stays ONE transaction; the earlier "refuse at zero" DROPPED | OPEN; relayed to the note-taker 2026-10-19 22:02; BUILT and COMMITTED locally `3fc186d196` (log `e6cea1186f`), NOT pushed, NOT staged. 2026-10-20 06:56 PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged. 2026-10-20 08:20 PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session |
 | 192 | 2026-10-20 | a defect and a question: TechDraw, page frames HIDDEN -- SELECTING an ACTIVE VIEW shows its frame (as 155 asked), but after DESELECTING it the frame STAYS; and WHY show the frame at all, since the Active View can be dragged by its PICTURE | OPEN; said to the note-taker 2026-10-20 09:15; the why ANSWERED from entry 155 (2026-10-16 11:20 to 11:24). 2026-10-20 09:17 the build session: CAUSE FOUND by reading, nothing built -- the note-taker's candidate right: a deselect made IN THE PAGE draws the border while Gui::Selection still holds the view, then setTreeToSceneSelect clears Gui::Selection under blockSelection(true), so onSelectionChanged and its refreshSelectedFrames() never run (a deselect from the TREE is fine); proposed: refreshSelectedFrames() at the end of setTreeToSceneSelect, every view kind; on a: a frameless part view still has nothing to drag by (lines select edges/vertices, the inside passes) -- the rule's reason holds for part views and groups; a drag from a line NOT run; waiting for the reporter's word on a and on building. 2026-10-20 09:24 the reporter: option 3 -- KEEP the frame-on-selection for EVERY view kind (frames hidden -> the frame shown while any of its children is selected); FIX the deselect |
 | 193 | 2026-10-20 | a change request: ALL LIST VIEWS in OVERLAY PANELS get ALTERNATING row backgrounds WITH TRANSPARENCY, as the PROPERTY VIEW has; 184's transparent background is in, the alternating rows are not | OPEN; said to the note-taker 2026-10-20 09:18. 2026-10-20 09:20 SIZED by the build session, nothing built: the property view and the SELECTION VIEW already alternate overlaid, each by its own code; a sheet rule cannot (the sheet's opacity), a delegate cannot be swapped (task panels and the tree have their own); PROPOSED: OverlayManager watches item views in overlaid panels (also on child-added) and fills each visible row's band on the viewport's paint before the items, the same two colours at the overlay alpha, rows counted as the property view; d open for the reporter's look; waiting for the reporter's word |
+| 194 | 2026-10-20 | a defect (two): in the FILLET edit panel, (1) selecting a MISSING edge's ROW does NOT select its PREVIEW FACE in the 3D view; (2) after selecting a row in the panel, then a PREVIEW FACE in the 3D view, the panel's earlier selection is NOT CLEARED -- TWO rows end up selected | OPEN; said to the note-taker 2026-10-20 09:29 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26584,6 +26589,48 @@ note-taker's reading this is the build session's proposed fix
 reporter's go-ahead to build it -- read as YES ("make deselection work
 properly"), not said in those words.
 
+## 194. Fillet panel: a missing edge's row does not select its preview face; a 3D pick of a preview face leaves the panel's earlier row selected (a defect) -- OPEN
+
+**2026-10-20 09:29, the reporter (to the note-taker):** "new defect, select missing edge in fillet edit panel does not select the preview face in 3d view. additionally, if after selecting on item in the panel, and then select a preview face in the 3d view, the selection done it the panel is not cleared, so it ends up with two item selected in the panel"
+(as typed: "the selection done it the panel" read as "the selection done
+in the panel".)
+The note-taker's reading:
+1. In the fillet's task panel, clicking a MISSING edge's row ('?Edge')
+   selects nothing in the 3D view -- its PREVIEW FACE should show
+   selected, as a 3D click on that face does (182, 188).
+2. Select a row in the panel, then click a PREVIEW FACE in the 3D view:
+   the row picked first STAYS selected, the face's row is selected too
+   -- two rows; a plain 3D click should REPLACE the panel's selection.
+READ in the source, nothing run -- src/Mod/PartDesign/Gui/
+TaskDressUpParameters.cpp:
+- onItemSelectionChanged (1039 to 1070): the panel's selected rows go to
+  Gui::Selection -- but only rows whose reference is EMPTY (1060: a
+  PRESENT edge, selected as the base's edge); a MISSING row (a '?Edge'
+  reference) adds NOTHING, and the selection is cleared first (1066).
+  The note-taker's CANDIDATE for 1: so the missing row's preview face is
+  never named in Gui::Selection, and syncPreviewSelection (1301 on) --
+  which lights a face only when the selection names it -- has nothing to
+  light.
+- onPreviewSelected (465 to 522): a 3D pick of a missing edge's face, not
+  in the add mode, does "item->setSelected(true)" under busy (519 to
+  521) -- it ADDS the row to the panel's selection, it clears no other
+  row. onSelectionChanged's ClrSelection branch (338 to 343) clears the
+  panel only when Gui::Selection sends a clear.
+- The note-taker's CANDIDATE for 2, NOT checked: after a MISSING row was
+  selected in the panel, Gui::Selection is EMPTY (per 1 above), so the
+  3D click has nothing to clear and sends no ClrSelection -- the panel's
+  first row stays, and setSelected(true) adds the second. If so, 1 and 2
+  share one cause; fixing 1 (the missing row naming its preview face in
+  Gui::Selection) would let the 3D click's clear reach the panel.
+NOT said, with the note-taker's readings:
+a. Which rows in 2: read as any first row (present or missing) and a
+   preview face of a missing or failed edge; the candidate above fits a
+   missing first row.
+b. A Ctrl+click in the 3D view: read as ADDING (two rows then right).
+c. All dress-ups: not said this time; read as yes (the same panel code,
+   as 182/188).
+d. The browser: read as the same (189's preview pick goes the same way).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -26595,5 +26642,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 193
+the build session, 131 and 132 found by it; entries 134 to 194
 are of 2026-10-15, 134 said to the build session)

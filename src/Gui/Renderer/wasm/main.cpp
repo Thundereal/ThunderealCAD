@@ -675,6 +675,11 @@ EM_JS(void, fcviewer_install_control, (), {
     window.fcviewerResetEdit = function() {
         return !!_fcviewer_reset_edit();
     };
+    // Whether a finger at CSS pixel (x, y) lands on the edit session's
+    // handles, as a touch decides it (docs/OnViewValueEditing.md sec 9.3).
+    window.fcviewerEditHandleAt = function(x, y) {
+        return !!_fcviewer_edit_handle_at(x, y);
+    };
     // Paint {obj, sub} as the hover would, '' to drop it: a context menu's
     // "Pick geometry" entry under the pointer.
     window.fcviewerHoverNamed = function(obj, sub) {
@@ -1332,9 +1337,15 @@ static void feedVisibility()
 /// within the pick radius) of the draw scene at canvas pixel (px, py), then
 /// resolve by the desktop's vertex > edge > face priority — a higher-priority
 /// element wins only when its hit is essentially as near the eye as the
-/// frontmost (SoFCUnifiedSelection::postProcessPickedList). Draw kinds the
-/// pick filter forbids are not considered at all.
-static PickHit pickScene(float px, float py)
+/// frontmost (SoFCUnifiedSelection::postProcessPickedList).
+///
+/// \a draws is the scene's draw list or an overlay's. For the scene
+/// (\a scene true) what this client hides is skipped and so are the draw
+/// kinds the pick filter forbids; an overlay's draws are all taken, or
+/// those \a keep accepts.
+static PickHit pickDraws(const Render::DrawCallList &draws, bool scene,
+                         float px, float py,
+                         bool (*keep)(const Render::DrawCall &) = nullptr)
 {
     bx::Vec3 orig(bx::InitZero), rdir(bx::InitZero);
     screenRay(px, py, orig, rdir);
@@ -1350,18 +1361,20 @@ static PickHit pickScene(float px, float py)
     float edgeDist2 = radius * radius;       // edge/vertex nearest, in px^2
     float vertDist2 = radius * radius;
 
-    for (size_t di = 0; di < s_snap.scene.size(); ++di) {
-        const auto &dc = s_snap.scene[di];
+    for (size_t di = 0; di < draws.size(); ++di) {
+        const auto &dc = draws[di];
         if (!dc.mesh || !dc.mesh->positions)
             continue;
         // What this client does not see, it does not pick.
-        if (clientHides(dc))
+        if (scene && clientHides(dc))
+            continue;
+        if (keep && !keep(dc))
             continue;
         const float *pos = dc.mesh->positions;
 
         if (dc.material.type == Render::Material::Triangle
                 && dc.mesh->triangleIndices) {
-            if (!pickFilterAllows(PickFace))
+            if (scene && !pickFilterAllows(PickFace))
                 continue;
             if (dc.bboxMin[0] <= dc.bboxMax[0]
                     && !rayHitsBBox(dc.bboxMin, dc.bboxMax, orig, rdir, faceRayT))
@@ -1406,7 +1419,7 @@ static PickHit pickScene(float px, float py)
         }
         else if (dc.material.type == Render::Material::Line
                 && dc.mesh->lineIndices) {
-            if (!pickFilterAllows(PickEdge))
+            if (scene && !pickFilterAllows(PickEdge))
                 continue;
             const int total = dc.mesh->numLineIndices;
             int start = dc.indexStart;
@@ -1443,7 +1456,7 @@ static PickHit pickScene(float px, float py)
         }
         else if (dc.material.type == Render::Material::Point
                 && dc.mesh->pointIndices) {
-            if (!pickFilterAllows(PickVertex))
+            if (scene && !pickFilterAllows(PickVertex))
                 continue;
             const int total = dc.mesh->numPointIndices;
             int start = dc.indexStart;
@@ -1483,6 +1496,13 @@ static PickHit pickScene(float px, float py)
     if (edge.kind && edge.t <= depthMin + tol)
         return edge;
     return face;
+}
+
+/// The draw scene's pick at canvas pixel (px, py) -- pickDraws over what
+/// this client draws of the scene.
+static PickHit pickScene(float px, float py)
+{
+    return pickDraws(s_snap.scene, true, px, py);
 }
 
 //////////////////////////////////////////////////////////////////////
@@ -4704,6 +4724,14 @@ static bool s_editPointer = true;
 /// makes a drag a drag rather than a hover, and what says the release
 /// belongs to the edit mode and not to the camera.
 static bool s_editButtonDown = false;
+/// A single finger that came down on the edit session's handles
+/// (docs/OnViewValueEditing.md sec 9.3): it is the edit mode's, not the
+/// camera's, for as long as it is down. Its press goes up once the finger
+/// moves past the tap slop (a drag), or with its release when it lifts
+/// (a tap); a hold opens the handle's menu instead.
+static bool s_touchHandle = false;
+/// Whether the press of that finger has gone up, so its release must.
+static bool s_touchHandleDown = false;
 
 /// Ids for the viewer's own control ops, kept clear of the DOM layer's
 /// (which counts up from small numbers): the answer has to be recognised
@@ -4852,6 +4880,8 @@ static void setEditing(bool on, const char *obj)
     // send, and a session that starts with it down never saw the press.
     s_editButtonDown = false;
     s_editMovePending = false;
+    s_touchHandle = false;
+    s_touchHandleDown = false;
     // No session, no entry boxes. A tool that ends normally does push an
     // empty set, but that push is coalesced onto the next publish and a
     // session can end with the source going away underneath it. The end
@@ -5748,6 +5778,155 @@ static EM_BOOL onKeyUp(int, const EmscriptenKeyboardEvent *e, void *)
     return sendEditKey(e, false) ? EM_TRUE : EM_FALSE;
 }
 
+/// Whether a draw of the edit session's overlay is a handle's: solid and
+/// opaque, and placed by its own transform. The overlay holds more than
+/// the handles -- a dress-up's preview, see-through, with its outline and
+/// points, which the desktop does not pick either (docs/HandsOnQueue.md
+/// entry 160); the values' labels, sized in screen pixels per frame
+/// (Material::autozoom), whose captured geometry is not where they are
+/// drawn (pickLabelDraw); a sketch's lines and points. A finger on the
+/// preview or on a sketch is the camera's.
+static bool isHandleDraw(const Render::DrawCall &d)
+{
+    return d.material.type == Render::Material::Triangle
+        && d.material.autozoom.empty()
+        && !d.material.transparent
+        && (d.material.diffuse & 0xff) == 0xff;
+}
+
+/// Whether canvas pixel (px, py) is on a value's label of the session's
+/// overlay: a draw sized in screen pixels (Material::autozoom with a pixel
+/// scale), whose captured geometry is in those pixels around its anchor.
+/// Placed as the backend places it (setDrawTransform): the last entry's
+/// matrix, its rows -- or the camera's axes, for one that faces the
+/// viewer -- scaled to the pixel scale at the anchor's depth. A label's
+/// per-frame flip mirrors it about its anchor, which leaves a centred
+/// label where it was, so it is not replayed here.
+static bool pickLabelDraw(const Render::DrawCall &d, float px, float py)
+{
+    const auto &az = d.material.autozoom;
+    if (d.material.type != Render::Material::Triangle || az.empty()
+            || az.back().pixelscale <= 0.0f || !d.mesh || !d.mesh->positions
+            || !d.mesh->triangleIndices)
+        return false;
+    const auto &entry = az.back();
+    float m[16];
+    if (entry.identity)
+        bx::mtxIdentity(m);
+    else
+        std::memcpy(m, entry.matrix, sizeof(m));
+    const CamFrame f = camFrame();
+    const bx::Vec3 fwd = bx::normalize(bx::sub(f.at, f.eye));
+    const float aspect = vpH() > 0.0f ? vpW() / vpH() : 1.0f;
+    const float th = std::tan(0.5f * kFovY * bx::kPi / 180.0f);
+    const bx::Vec3 anchor(m[12], m[13], m[14]);
+    const float depth = std::max(1e-4f, bx::dot(bx::sub(anchor, f.eye), fwd));
+    // world units per pixel at the anchor: 2 * depth * tan(fov / 2) / H
+    const float sf = entry.pixelscale * 2.0f * th * depth / std::max(1.0f, vpH());
+    bx::Vec3 axes[3] = {bx::Vec3(bx::InitZero), bx::Vec3(bx::InitZero),
+                        bx::Vec3(bx::InitZero)};
+    if (entry.billboard) {
+        axes[0] = bx::neg(f.right);
+        axes[1] = f.up;
+        axes[2] = bx::neg(fwd);
+    }
+    else {
+        for (int r = 0; r < 3; ++r)
+            axes[r] = bx::normalize(bx::Vec3(m[4 * r], m[4 * r + 1], m[4 * r + 2]));
+    }
+    auto place = [&](const float *p, float &sx, float &sy) {
+        bx::Vec3 v(p[0], p[1], p[2]);
+        if (!d.identity)
+            v = bx::mul(v, d.model);
+        bx::Vec3 w = bx::add(anchor, bx::mul(bx::add(bx::mul(axes[0], v.x),
+                                                     bx::add(bx::mul(axes[1], v.y),
+                                                             bx::mul(axes[2], v.z))),
+                                             sf));
+        float sd;
+        return projectToScreen(w, f, fwd, th, aspect, sx, sy, sd);
+    };
+    const int total = d.mesh->numTriangleIndices;
+    const int start = d.indexStart;
+    const int count = d.indexCount ? d.indexCount : total - start;
+    if (start < 0 || start + count > total)
+        return false;
+    const int32_t *idx = d.mesh->triangleIndices;
+    const float *pos = d.mesh->positions;
+    for (int i = start; i + 2 < start + count; i += 3) {
+        float x[3], y[3];
+        if (!place(pos + 3 * idx[i], x[0], y[0]) || !place(pos + 3 * idx[i + 1], x[1], y[1])
+                || !place(pos + 3 * idx[i + 2], x[2], y[2]))
+            continue;
+        // inside when on one side of all three edges, either winding
+        float s[3];
+        for (int k = 0; k < 3; ++k) {
+            const int n = (k + 1) % 3;
+            s[k] = (x[n] - x[k]) * (py - y[k]) - (y[n] - y[k]) * (px - x[k]);
+        }
+        if ((s[0] >= 0 && s[1] >= 0 && s[2] >= 0) || (s[0] <= 0 && s[1] <= 0 && s[2] <= 0))
+            return true;
+    }
+    return false;
+}
+
+/// Whether canvas pixel (px, py) is on a handle of the edit session this
+/// client is in, or on a value's label, which ride the session's overlay
+/// (docs/OnViewValueEditing.md sec 9.3): a label is tapped to type its
+/// value, as it is clicked on the desktop.
+///
+/// A finger has to be told apart at its first touch -- a handle to drag,
+/// or the camera to orbit -- and a round trip per touch is too slow to
+/// ask, so the client picks what it draws itself. Only while the edit
+/// mode takes the pointer: one that only shows something leaves the
+/// finger to the camera, as it leaves the mouse's left button.
+static bool pickEditHandle(float px, float py)
+{
+    if (!s_editing || !s_editPointer || !s_editSession || activeIsPage())
+        return false;
+    for (const auto &ov : s_snap.overlays) {
+        if (!ov.anchor.sceneCamera || ov.anchor.session != s_editSession)
+            continue;
+        if (pickDraws(ov.draws, false, px, py, isHandleDraw).kind != PickNone)
+            return true;
+        for (const auto &d : ov.draws) {
+            if (pickLabelDraw(d, px, py))
+                return true;
+        }
+    }
+    return false;
+}
+
+/// pickEditHandle at CSS pixel (clientX, clientY), for the page.
+extern "C" EMSCRIPTEN_KEEPALIVE int fcviewer_edit_handle_at(float clientX, float clientY)
+{
+    float px, py;
+    clientToCanvas(clientX, clientY, px, py);
+    return pickEditHandle(px, py) ? 1 : 0;
+}
+
+/// Send the press of a handle finger at canvas pixel (px, py), preceded by
+/// a move there: the handle under it is found by the server's hover, as a
+/// mouse that came to rest on it before pressing.
+static void sendHandlePress(float px, float py)
+{
+    queueEditMove(px, py, 0);
+    flushEditMove();
+    sendInputFrame(1, 0, buttonCode(0), px, py, 0);
+    s_touchHandleDown = true;
+}
+
+/// Lift a handle finger at canvas pixel (px, py): the release of a press
+/// that went up, and the finger is the camera's again.
+static void releaseHandleTouch(float px, float py)
+{
+    if (s_touchHandleDown) {
+        flushEditMove();
+        sendInputFrame(2, 0, buttonCode(0), px, py, 0);
+    }
+    s_touchHandle = false;
+    s_touchHandleDown = false;
+}
+
 // Touch: one finger orbits, two fingers pan (centroid) and pinch-zoom
 // (distance ratio). State resets whenever the touch count changes.
 static int s_numTouch = 0;
@@ -5813,7 +5992,13 @@ static void loupePick()
 {
     float px, py;
     clientToCanvas(s_loupeX, s_loupeY, px, py);
-    applySceneHover(px, py);
+    // In an edit mode that takes the pointer the edit mode preselects, as
+    // it does under the mouse: the move goes up, and a handle it lights is
+    // the one the menu is for
+    if (s_editing && s_editPointer)
+        queueEditMove(px, py, 0);
+    else
+        applySceneHover(px, py);
     fcviewer_loupe_mark(s_loupeX, s_loupeY, s_touchX[0], s_touchY[0], 1);
     markDirty();
 }
@@ -5833,13 +6018,19 @@ static void menuHoldFired(void *arg)
 {
     if (uint32_t(uintptr_t(arg)) != s_menuHoldGen)
         return;
-    if (!s_loupe || s_numTouch != 1 || s_editing || activeIsPage())
+    if (!s_loupe || s_numTouch != 1 || activeIsPage())
         return;
     float px, py;
     clientToCanvas(s_loupeX, s_loupeY, px, py);
+    // While editing, only with the loupe on a handle: its menu (sec 9.3)
+    if (s_editing && !pickEditHandle(px, py))
+        return;
     cancelLoupe();
     s_tapOk = false;
     s_menuHeld = true;
+    // The server finds the handle by its hover: the loupe's last move goes
+    // ahead of the ask, on the same socket
+    flushEditMove();
     openContextMenu(px, py);
 }
 
@@ -5963,6 +6154,18 @@ static EM_BOOL onTouch(int type, const EmscriptenTouchEvent *e, void *)
             clientToCanvas(x[0], y[0], px, py);
             s_navi.armed = s_haveScene && naviInDragZone(px, py);
             s_navi.dragging = false;
+            // A finger on a handle is the edit mode's; the cube, over
+            // everything, keeps its own
+            bx::Vec3 dir(bx::InitZero);
+            s_touchHandle = !s_navi.armed && !pickNaviCube(px, py, dir)
+                && pickNaviButton(px, py) == NaviBtnNone
+                && pickEditHandle(px, py);
+            s_touchHandleDown = false;
+            // The edit mode is told where the finger is at once, as a mouse
+            // comes to rest on a handle before it presses: what the press
+            // grabs is what the hover found
+            if (s_touchHandle)
+                queueEditMove(px, py, 0);
             // Arm the hold: if this finger is still here, and still still,
             // when the timer fires, the press becomes a preselection.
             s_loupeX = x[0];
@@ -5975,7 +6178,12 @@ static EM_BOOL onTouch(int type, const EmscriptenTouchEvent *e, void *)
         else {
             s_tapOk = false;
             // A second finger is a camera gesture, whatever the first was
-            // doing.
+            // doing: a handle it was dragging is let go where it was
+            if (s_touchHandle) {
+                float px, py;
+                clientToCanvas(s_touchX[0], s_touchY[0], px, py);
+                releaseHandleTouch(px, py);
+            }
             cancelLoupe();
             if (s_navi.dragging)
                 naviDragEnd();
@@ -6004,6 +6212,26 @@ static EM_BOOL onTouch(int type, const EmscriptenTouchEvent *e, void *)
         if (s_menuHeld && n == 1) {
             // The finger that opened the menu is still down: it is not
             // orbiting
+            s_numTouch = n;
+            s_touchX[0] = x[0];
+            s_touchY[0] = y[0];
+            return EM_TRUE;
+        }
+        if (s_touchHandle && n == 1) {
+            // A finger on a handle drags it, once it is past the tap slop;
+            // the camera stays
+            float px, py;
+            if (!s_touchHandleDown) {
+                if (std::abs(x[0] - s_tapX) <= 8.0f
+                        && std::abs(y[0] - s_tapY) <= 8.0f)
+                    return EM_TRUE;
+                s_tapOk = false;
+                ++s_loupeGen;   // a drag, not a hold
+                clientToCanvas(s_tapX, s_tapY, px, py);
+                sendHandlePress(px, py);
+            }
+            clientToCanvas(x[0], y[0], px, py);
+            queueEditMove(px, py, 0);
             s_numTouch = n;
             s_touchX[0] = x[0];
             s_touchY[0] = y[0];
@@ -6090,7 +6318,32 @@ static EM_BOOL onTouch(int type, const EmscriptenTouchEvent *e, void *)
         // run the same NaviCube-first pick as a mouse click, at the touch-down
         // point. (On a clean tap the lone touch is the one just lifted, so
         // e->numTouches == 1.)
-        if (s_navi.dragging) {
+        if (s_touchHandle) {
+            // A handle finger: a drag is let go where the finger last was;
+            // a tap, or a loupe lifted with no menu, is a click on what
+            // it points at -- which makes that value active, as a click
+            // does. Never the camera's double tap.
+            float px, py;
+            if (s_touchHandleDown) {
+                clientToCanvas(s_touchX[0], s_touchY[0], px, py);
+                releaseHandleTouch(px, py);
+            }
+            else if (type == EMSCRIPTEN_EVENT_TOUCHEND && !s_menuHeld
+                     && (s_loupe || s_tapOk)) {
+                clientToCanvas(s_loupe ? s_loupeX : s_tapX,
+                               s_loupe ? s_loupeY : s_tapY, px, py);
+                sendHandlePress(px, py);
+                releaseHandleTouch(px, py);
+            }
+            s_touchHandle = false;
+            s_touchHandleDown = false;
+            s_navi.armed = false;
+            if (s_loupe)
+                cancelLoupe();
+            ++s_loupeGen;
+            s_tapOk = false;
+        }
+        else if (s_navi.dragging) {
             naviDragEnd();
             s_tapOk = false;
         }

@@ -27016,6 +27016,22 @@ of rule 2 only? -- by x16win's account old files replay their own rule,
 so read as new edits only, NOT checked); (b) and the XLinkSnapshot test
 are NOT entries -- they become entries on the reporter's word.
 
+**2026-10-20 12:18, x16win: 197, the -Z sketch circle -- MEASURED (build with
+`c8e5aca952`): an OLD file KEEPS its old side; only new features and new
+edits run by rule 2.** The setup: a pocket on a sketch circle with axis
+-Z, Fit +0.5, r 3 (the old side: shrinks to r 2.5, bbox 5). Saved as rule
+0 (before 160) and again as rule 1 (160 to 197, _FitFlip false as that
+rule set it for a forward sketch face), each reopened and recomputed: both
+came back _FitRule=2, _FitFlip=True, bbox x 5.0000 -- the old shrink kept.
+The rule-0 case is also in TestPocket.testFitByTheOuterWiresTurn. A NEW
+pocket on the same circle grows to bbox 7 (r 3.5). CAVEAT, by
+construction: the flip is decided per feature, so editing Fit on such an
+old feature later KEEPS the flip -- its Fit stays inverted relative to
+rule 2 for that one feature (as 160's _FitFlip already did). The
+note-taker's 2026-10-20 reading above ("read as new edits only, NOT
+checked") is now CHECKED, with the caveat: "new edits" means new FEATURES;
+an edit of an old feature's Fit keeps that feature's side.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;

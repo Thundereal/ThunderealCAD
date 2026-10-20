@@ -23,6 +23,7 @@
 #ifndef APP_IMPORTSET_H
 #define APP_IMPORTSET_H
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -44,6 +45,7 @@ enum class SetPairing
     Uid,        ///< the Uid in their Document.xml: guessed
     Path,       ///< the same path relative to the top: guessed
     None,       ///< a file of theirs alone
+    User,       ///< the user said so (pairByHand)
 };
 
 AppExport const char* setPairingName(SetPairing pairing);
@@ -71,7 +73,7 @@ struct AppExport SetImportFile
     bool certain() const
     {
         return pairing == SetPairing::History || pairing == SetPairing::SaveId
-            || pairing == SetPairing::Manifest;
+            || pairing == SetPairing::Manifest || pairing == SetPairing::User;
     }
 };
 
@@ -93,6 +95,49 @@ struct AppExport SetImportPlan
  * `theirTop` cannot be read, or is our top's own file.
  */
 AppExport SetImportPlan planSetImport(Document& ourTop, const std::string& theirTop);
+
+/** The user's pairing (sec 35 L3: "can be changed by hand"): their file
+ * `theirs` paired with `ours`, or with none for null. Throws when `theirs`
+ * is no file of the plan.
+ */
+AppExport void pairByHand(SetImportPlan& plan, const std::string& theirs, Document* ours);
+
+/// What the import of a file of their set did.
+struct AppExport SetImportedFile
+{
+    std::string theirs;    ///< their file
+    std::string ourFile;   ///< ours it came to; empty for a file of theirs alone
+    /// The branch of ours it came as; empty when it brought nothing new.
+    std::string branch;
+    std::size_t rows = 0;
+    bool independent = false;
+    /// Where the import stopped, and why (Document::ImportResult).
+    int64_t stoppedAt = 0;
+    std::string reason;
+    /// Links of its branch made links to what the files of the set came
+    /// as, in a row of their own: the links the copies had in common.
+    int relinked = 0;
+    /// The import could not be made at all.
+    std::string error;
+};
+
+struct AppExport SetImportResult
+{
+    std::vector<SetImportedFile> files;   ///< in the plan's order
+};
+
+/** Bring their set in (sec 35 L4): each file of the plan paired with one of
+ * ours imported as a branch of it (Document::importFork), the files each
+ * links first; in the rows brought, a link to a file of theirs paired with
+ * ours is a link to ours, live to the branch that file came to -- or, when
+ * it brought nothing new, to what the manifest says it was of ours, a
+ * branch or a version, else plain. A link the copies had in common, in no
+ * row brought, is made so by a row of the branch after the import. A file
+ * of theirs alone is not brought,
+ * and links to it stay theirs (L5). A file that cannot be imported is
+ * reported, and the rest go on.
+ */
+AppExport SetImportResult importSet(const SetImportPlan& plan);
 
 }  // namespace App
 

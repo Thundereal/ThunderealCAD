@@ -21136,7 +21136,8 @@ and partial loading of documents on another branch or a pinned version.
 Nothing of this was built at first. The survey's measurements were run,
 and found one bug, fixed (item 6 c). **Built since: L1 (35.7,
 2026-10-19); L8 for frozen versions (35.8, 2026-10-19); L7 in App (35.9,
-2026-10-19); L2 and L3, the set read and paired (35.10, 2026-10-20).**
+2026-10-19); L2 and L3, the set read and paired (35.10, 2026-10-20); L4,
+the set imported as branches linked to each other (35.11, 2026-10-20).**
 
 ### 35.1 The case
 
@@ -21816,3 +21817,54 @@ none; `testAnExportedSetComesBackPaired` -- our set exported (L7), their
 
 **Next**: L4, the paired files imported as branches of ours and their
 links to them made branch links; then L5, their files alone held.
+
+### 35.11 L4 built: their set as branches of ours, linked to each other (2026-10-20)
+
+`App::importSet(plan)` (`src/App/ImportSet.cpp`), in Python
+`Document.importLinkedSet(path, pairs=None)`: the plan of 35.10 made, the
+pairs changed by hand where `pairs` says (`App::pairByHand`, pairing
+`user`, certain), and each paired file imported into its document of ours
+by `importFork` -- the files each links first, so a branch is there before
+a link names it. Nothing is merged; a file of theirs alone is not brought
+(L5), and links to it stay theirs, as L1 left them.
+
+- **Their links in the rows brought** (`PropertyXLink::ImportSetLinks`, a
+  scope `ImportPaths::map` reads): a link to a paired file of theirs is
+  restored as a link to ours -- live to the branch that file came to; when
+  it brought nothing new, to what the manifest says it was (a branch, or
+  pinned at the version, so `Part.v1.FCStd` is our `Part` at v1 again);
+  else plain. Whatever pin or branch their link had of theirs is dropped,
+  and its library form with it.
+- **The links the copies had in common.** A link set before the copies
+  parted is in the base, not in a row brought, and stays a plain link to
+  our file: the top's branch then shows our part, not theirs. Found by the
+  first test, whose box came back 10 long, not their 25. After the import,
+  each branch made is opened for editing, every link of it to a file of
+  the set as it is here pointed at what that file came as (keyed by the
+  file and the version or branch it links), and that is one row of the
+  branch, "Link their set" -- what `relinked` counts. A file with no
+  history in common came whole as one row and needs none.
+- **What the import opened** -- branches' documents, tips their links
+  pulled in -- is closed after it, unless a document open before links it.
+
+**Not built yet**:
+
+- a link inside a list (`PropertyXLinkSubList`, a container's links) is
+  left out of the relink row: only a property that is a link is;
+- a file of theirs that brought nothing new but links one that did -- an
+  unchanged sub-assembly over a changed part -- is given no branch, so the
+  top's branch shows our sub-assembly and our part under it;
+- a branch tip read in part for its links (moved here from L8, 35.8): the
+  tips open whole;
+- the set's record (Q9) and its dialog (L6).
+
+**Tests** (`Document.py`, `TransactionBranchCases`):
+`testASetComesAsBranchesLinkedToEachOther` -- 35.2 item 6's copies with
+rows: `Part` and `Asm` branches, one relink row on `Asm`'s, their `Bolt`
+not brought, the same documents open after as before, ours unchanged;
+their top's branch opened, its link reaches their longer box through our
+`Part`'s branch, and `L2` their `Bolt`. `testAnExportedSetIsBroughtBack` --
+35.5's round trip: our set exported (L7) with a live link and a pin,
+their `Part` changed and their `Asm` given an object with the log off,
+brought back: the top's branch has the object, its live link shows their
+`Part` through its branch, and its pin our `Part` at v1.

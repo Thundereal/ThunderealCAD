@@ -10402,6 +10402,112 @@ class TransactionBranchCases(unittest.TestCase):
             self.assertEqual((got[name]["ours"], got[name]["pairing"]), ("", "none"))
         self.assertEqual(got["Asm.FCStd"]["pairing"], "uid")
 
+    def testASetComesAsBranchesLinkedToEachOther(self):
+        # Sec 35 L4: each paired file of theirs a branch of ours, and in the
+        # top's branch the link to their Part a link to our Part live to that
+        # branch -- so the top's branch shows their whole set -- while their
+        # Bolt, alone, is linked where it is (L5). Ours stay as they were.
+        ours, theirs = self.assemblyCopies(2, rows=True)
+        doc = self.openedSet(os.path.join(ours, "Asm.FCStd"))
+        before = sorted(FreeCAD.listDocuments())
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        self.assertEqual(sorted(FreeCAD.listDocuments()), before)
+        got = {os.path.basename(f["theirs"]): f for f in res["files"]}
+        # Their link to Part was made before the copies parted: in no row
+        # brought, made the set's by a row of its own.
+        self.assertEqual(got["Asm.FCStd"]["relinked"], 1)
+        for name in ("Part.FCStd", "Asm.FCStd"):
+            self.assertEqual(got[name]["error"], "", got[name])
+            self.assertEqual(got[name]["stopped_at"], 0, got[name])
+            self.assertNotEqual(got[name]["branch"], "", got[name])
+        self.assertEqual(got["Bolt.FCStd"]["our_file"], "")
+        self.assertEqual(doc.L.LinkedObject.Length.Value, 10)
+
+        tip = self.track(
+            FreeCAD.openDocument(
+                os.path.join(ours, "Asm.FCStd") + "@" + got["Asm.FCStd"]["branch"] + "@"
+            )
+        )
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+        box = tip.L.LinkedObject
+        self.assertIsNotNone(box)
+        self.assertEqual(box.Length.Value, 25)
+        # The branch's head, an editable instance of it, which the link follows.
+        self.assertIn("@" + got["Part.FCStd"]["branch"] + "@", box.Document.FileName)
+        self.assertEqual(tip.L2.LinkedObject.Name, "Cyl")
+        self.assertEqual(
+            os.path.realpath(tip.L2.LinkedObject.Document.FileName),
+            os.path.realpath(os.path.join(theirs, "Bolt.FCStd")),
+        )
+
+    def testAnExportedSetIsBroughtBack(self):
+        # Sec 35.5 step 4's round trip: our set exported (L7), edited where
+        # there is no log -- their Part changed, their Asm given an object --
+        # and brought back: the Part a branch from the save it left with, the
+        # top a branch whose live link reaches it and whose pin, the file
+        # the pinned version became, is our Part at that version again.
+        top = os.path.join(self.dir, "ours")
+        os.makedirs(top)
+        part = self.track(FreeCAD.newDocument("TripPart"))
+        part.UndoMode = 1
+        part.openTransaction("create")
+        obj = part.addObject("App::FeatureTest", "Obj")
+        obj.Integer = 1
+        part.commitTransaction()
+        part.saveAs(os.path.join(top, "Part.FCStd"))
+        asm = self.track(FreeCAD.newDocument("TripAsm"))
+        asm.UndoMode = 1
+        asm.openTransaction("links")
+        asm.addObject("App::Link", "Live").LinkedObject = obj
+        pin = asm.addObject("App::Link", "Pin")
+        pin.LinkedObject = obj
+        asm.commitTransaction()
+        pin.pinLink("LinkedObject")
+        asm.saveAs(os.path.join(top, "Asm.FCStd"))
+        part.openTransaction("two")
+        obj.Integer = 2
+        part.commitTransaction()
+        part.save()
+        asm.save()
+        out = os.path.join(self.dir, "out")
+        asm.exportLinkedSet(out)
+
+        self.param.SetInt("TransactionLog", 0)
+        copy = FreeCAD.openDocument(os.path.join(out, "Asm.FCStd"))
+        their = FreeCAD.getDocument(copy.Live.LinkedObject.Document.Name)
+        their.Obj.Integer = 5
+        their.save()
+        copy.addObject("App::FeatureTest", "Extra")
+        copy.save()
+        for name in list(FreeCAD.listDocuments()):
+            d = FreeCAD.getDocument(name)
+            if d.FileName.startswith(out):
+                FreeCAD.closeDocument(name)
+        self.param.SetInt("TransactionLog", 2)
+
+        res = asm.importLinkedSet(os.path.join(out, "Asm.FCStd"))
+        got = {f["theirs"]: f for f in res["files"]}
+        for f in res["files"]:
+            self.assertEqual(f["error"], "", f)
+            self.assertEqual(f["stopped_at"], 0, f)
+            self.assertNotEqual(f["our_file"], "", f)
+        theirAsm = got[os.path.realpath(os.path.join(out, "Asm.FCStd"))]
+        theirPart = got[os.path.realpath(os.path.join(out, "Part.FCStd"))]
+        self.assertNotEqual(theirPart["branch"], "")
+        self.assertNotEqual(theirAsm["branch"], "")
+        self.assertEqual((obj.Integer, asm.Pin.LinkedObject.Integer), (2, 1))
+
+        tip = self.track(
+            FreeCAD.openDocument(os.path.join(top, "Asm.FCStd") + "@" + theirAsm["branch"] + "@")
+        )
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+        self.assertIsNotNone(tip.getObject("Extra"))
+        self.assertEqual(tip.Live.LinkedObject.Integer, 5)
+        self.assertEqual(tip.Pin.LinkedObject.Integer, 1)
+        self.assertIn("@" + theirPart["branch"] + "@", tip.Live.LinkedObject.Document.FileName)
+
     def testAnExportedSetComesBackPaired(self):
         # Sec 35 L3 items 2 and 3: our set exported without history (L7) and
         # edited where there is no log comes back paired by the save each

@@ -5578,12 +5578,48 @@ void PropertyXLink::Save (Base::Writer &writer) const {
 
 namespace {
 thread_local PropertyXLink::ImportPaths* _ImportPaths = nullptr;
+thread_local PropertyXLink::ImportSetLinks* _ImportSetLinks = nullptr;
 
 std::string folderOf(const std::string& file)
 {
     return QFileInfo(QString::fromUtf8(file.c_str())).absolutePath().toUtf8().constData();
 }
+
+/// A full path, cleaned, the one key of a file.
+std::string fileKey(const QString& path)
+{
+    const QFileInfo info(path);
+    const QString canonical = info.canonicalFilePath();
+    return (canonical.isEmpty() ? QDir::cleanPath(info.absoluteFilePath()) : canonical)
+        .toUtf8().constData();
+}
 } // namespace
+
+PropertyXLink::ImportSetLinks::ImportSetLinks()
+    : _outer(_ImportSetLinks)
+{
+    _ImportSetLinks = this;
+}
+
+PropertyXLink::ImportSetLinks::~ImportSetLinks()
+{
+    _ImportSetLinks = _outer;
+}
+
+void PropertyXLink::ImportSetLinks::add(const std::string& theirs, const Target& target)
+{
+    if (_ImportSetLinks)
+        _ImportSetLinks->_targets[fileKey(QString::fromUtf8(theirs.c_str()))] = target;
+}
+
+const PropertyXLink::ImportSetLinks::Target*
+PropertyXLink::ImportSetLinks::find(const std::string& theirs)
+{
+    if (!_ImportSetLinks)
+        return nullptr;
+    auto it = _ImportSetLinks->_targets.find(fileKey(QString::fromUtf8(theirs.c_str())));
+    return it == _ImportSetLinks->_targets.end() ? nullptr : &it->second;
+}
 
 PropertyXLink::ImportPaths::ImportPaths(const std::string& theirFile, const std::string& ourFile)
     : _theirDir(folderOf(theirFile))
@@ -5612,14 +5648,29 @@ const PropertyXLink::ImportPaths* PropertyXLink::ImportPaths::covering(const Pro
     return owner && owner->getDocument() == _ImportPaths->_into ? _ImportPaths : nullptr;
 }
 
-std::string PropertyXLink::ImportPaths::map(const std::string& file) const
+std::string PropertyXLink::ImportPaths::map(const std::string& file, Mapped* mapped) const
 {
     QString path = QString::fromUtf8(file.c_str());
-    if (path.startsWith(QStringLiteral("https://")) || QFileInfo(path).isAbsolute())
+    if (path.startsWith(QStringLiteral("https://")))
         return file;
+    const bool absolute = QFileInfo(path).isAbsolute();
     path = QDir::cleanPath(path);
+    const QString theirs = absolute
+        ? path : QDir(QString::fromUtf8(_theirDir.c_str())).absoluteFilePath(path);
+    // A file of their set paired with ours (sec 35 L4): ours, relative as a
+    // link is written.
+    if (auto target = ImportSetLinks::find(theirs.toUtf8().constData())) {
+        if (mapped) {
+            mapped->set = true;
+            mapped->branch = target->branch;
+            mapped->version = target->version;
+        }
+        return QDir(QString::fromUtf8(_ourDir.c_str()))
+            .relativeFilePath(QString::fromUtf8(target->file.c_str())).toUtf8().constData();
+    }
+    if (absolute)
+        return file;
     const QString ours = QDir(QString::fromUtf8(_ourDir.c_str())).absoluteFilePath(path);
-    const QString theirs = QDir(QString::fromUtf8(_theirDir.c_str())).absoluteFilePath(path);
     if (QFileInfo::exists(ours) || !QFileInfo::exists(theirs))
         return file;
     return QDir::cleanPath(theirs).toUtf8().constData();
@@ -5635,9 +5686,10 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
     if(reader.hasAttribute("file"))
         file = reader.getAttribute("file");
     // Their link, brought into this file by an import (TransactionLog sec 35 L1).
+    ImportPaths::Mapped setTarget;
     if (!file.empty()) {
         if (auto paths = ImportPaths::covering(*this))
-            file = paths->map(file);
+            file = paths->map(file, &setTarget);
     }
 
     this->resolveMode = PathResolveMode::Dynamic;
@@ -5658,6 +5710,13 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
         ? std::atoll(reader.getAttribute("version")) : 0;
     _pinUuid = reader.hasAttribute("vuuid") ? reader.getAttribute("vuuid") : "";
     _liveBranch = reader.hasAttribute("branch") ? reader.getAttribute("branch") : "";
+    // To a file of a set, paired with ours (sec 35 L4): what their file is
+    // here, whatever pin or branch their link had of theirs.
+    if (setTarget.set) {
+        _liveBranch = setTarget.branch;
+        _pinVersion = setTarget.branch.empty() ? setTarget.version : 0;
+        _pinUuid.clear();
+    }
     // No file with a pin or a branch: the owner's own file (sec 27.20). Not
     // saved (a copy being pasted into a new document): a local link.
     const bool self = file.empty() && (_pinVersion > 0 || !_liveBranch.empty());
@@ -5668,7 +5727,8 @@ void PropertyXLink::Restore(Base::XMLReader &reader)
     // folder for the name, then the system's, then the old path.
     clearLibraryForm();
     std::string libReport;
-    if (!self && !file.empty() && reader.hasAttribute("lib") && reader.hasAttribute("libfile")) {
+    if (!self && !setTarget.set && !file.empty() && reader.hasAttribute("lib")
+            && reader.hasAttribute("libfile")) {
         std::string libName = reader.getAttribute("lib");
         std::string libFile = reader.getAttribute("libfile");
         auto ownerObj = Base::freecad_dynamic_cast<DocumentObject>(getContainer());

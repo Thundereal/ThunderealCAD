@@ -912,6 +912,21 @@ manifest says the file was one of ours'; 'shared', the files it links that
 are ours already; and 'missing', those that are not there.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="importLinkedSet" Keyword="true">
+      <Documentation>
+        <UserDocu>importLinkedSet(path, pairs=None) -> dict
+Bring another set of linked files in, its top at `path` (docs/TransactionLog.md
+sec 35 L4): its files paired with this document's set as
+planLinkedSetImport() pairs them -- `pairs`, a dict of their file to the name
+of one of our documents or None, changes that by hand -- each paired file
+imported as a branch of ours, the files it links first, and in the rows
+brought a link to a paired file made a link to ours, live to the branch it
+came to. A file of theirs alone is not brought. Nothing is merged. Returns
+'files', a list of dict in the plan's order: 'theirs', 'our_file' (empty
+for a file alone), 'branch' (empty when it brought nothing new), 'rows',
+'independent', 'stopped_at', 'reason' and 'error'.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="importTransactionFork">
       <Documentation>
         <UserDocu>importTransactionFork(path, branch='', sender='') -> dict

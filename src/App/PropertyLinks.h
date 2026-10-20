@@ -1438,13 +1438,48 @@ public:
         static void into(const App::Document* doc);
         /// The open scope, when `link` is restored into its document.
         static const ImportPaths* covering(const PropertyXLink& link);
-        std::string map(const std::string& file) const;
+        /// What map() made of a link to a file of a set (sec 35 L4).
+        struct Mapped
+        {
+            bool set = false;
+            std::string branch;
+            int64_t version = 0;
+        };
+        std::string map(const std::string& file, Mapped* mapped = nullptr) const;
 
     private:
         std::string _theirDir;
         std::string _ourDir;
         const App::Document* _into = nullptr;
         ImportPaths* _outer;
+    };
+
+    /** A set imported (docs/TransactionLog.md sec 35 L4). While it is open,
+     * a link an import brings to a file of their set that is paired with
+     * one of ours is a link to ours: live to the branch their file came to,
+     * or pinned to the version it was when it brought nothing new.
+     */
+    class AppExport ImportSetLinks
+    {
+    public:
+        struct Target
+        {
+            std::string file;     ///< ours, its full path
+            std::string branch;   ///< live to this branch, when not empty
+            int64_t version = 0;  ///< else pinned to this version, when not 0
+        };
+        ImportSetLinks();
+        ~ImportSetLinks();
+        ImportSetLinks(const ImportSetLinks&) = delete;
+        ImportSetLinks& operator=(const ImportSetLinks&) = delete;
+        /// Their file, by its full path, is ours as `target`.
+        static void add(const std::string& theirs, const Target& target);
+        /// The open scope's target for their file; null when none.
+        static const Target* find(const std::string& theirs);
+
+    private:
+        std::map<std::string, Target> _targets;
+        ImportSetLinks* _outer;
     };
 
     void updateElementReference(

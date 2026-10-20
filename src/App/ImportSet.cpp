@@ -27,6 +27,7 @@
 # include <functional>
 # include <map>
 # include <set>
+# include <tuple>
 #endif
 
 #include <QDir>
@@ -41,6 +42,7 @@
 
 #include "Application.h"
 #include "Document.h"
+#include "DocumentObject.h"
 #include "ExportSet.h"
 #include "FileBlobManager.h"
 #include "FileHistory.h"
@@ -187,6 +189,28 @@ struct Theirs
 /// file itself, not a version's or a branch's, which an import goes to.
 std::map<std::string, Document*> oursOf(Document& top)
 {
+    // One read in part -- a plain file opened for links -- read again whole
+    // first: it is what an import goes to, and a reload gives another
+    // document.
+    for (int pass = 0; pass < 4; ++pass) {
+        std::vector<std::string> partial;
+        std::vector<Document*> queue {&top};
+        std::set<Document*> seen {&top};
+        for (std::size_t i = 0; i < queue.size(); ++i) {
+            Document* doc = queue[i];
+            if (doc->testStatus(Document::PartialDoc) && !doc->testStatus(Document::VersionDoc))
+                partial.push_back(doc->FileName.getStrValue());
+            auto outList = PropertyXLink::getDocumentOutList(doc);
+            for (auto linked : outList[doc]) {
+                if (linked && seen.insert(linked).second)
+                    queue.push_back(linked);
+            }
+        }
+        if (partial.empty())
+            break;
+        for (const auto& file : partial)
+            GetApplication().openDocument(file.c_str(), false);
+    }
     std::map<std::string, Document*> ours;
     std::vector<Document*> queue {&top};
     std::set<Document*> seen {&top};
@@ -244,6 +268,8 @@ const char* App::setPairingName(SetPairing pairing)
             return "uid";
         case SetPairing::Path:
             return "path";
+        case SetPairing::User:
+            return "user";
         case SetPairing::None:
             break;
     }
@@ -394,4 +420,203 @@ SetImportPlan App::planSetImport(Document& ourTop, const std::string& theirTop)
         plan.files.push_back(std::move(f));
     }
     return plan;
+}
+
+void App::pairByHand(SetImportPlan& plan, const std::string& theirs, Document* ours)
+{
+    const std::string key = keyOf(theirs);
+    for (auto& f : plan.files) {
+        if (f.theirs != key)
+            continue;
+        f.ambiguous = false;
+        if (ours) {
+            f.ours = ours;
+            f.ourFile = keyOf(ours->FileName.getStrValue());
+            f.pairing = SetPairing::User;
+        }
+        else {
+            f.ours = nullptr;
+            f.ourFile.clear();
+            f.pairing = SetPairing::None;
+        }
+        return;
+    }
+    THROWM(Base::ValueError, "'" + theirs + "' is no file of their set");
+}
+
+namespace
+{
+
+/// Where a link of ours points: a file, and the version or the branch of
+/// it, from the name of the document it links into (FileHistory::parseName).
+using LinkKey = std::tuple<std::string, int64_t, std::string>;
+using Target = PropertyXLink::ImportSetLinks::Target;
+
+LinkKey keyOfDocument(const Document* doc)
+{
+    const std::string name = doc->FileName.getStrValue();
+    FileHistory::NameParts parts;
+    if (doc->testStatus(Document::VersionDoc) && FileHistory::parseName(name, parts))
+        return {keyOf(parts.file), parts.branch.empty() ? parts.version : 0, parts.branch};
+    return {keyOf(name), 0, std::string()};
+}
+
+std::string nameOf(const Target& t)
+{
+    if (!t.branch.empty())
+        return t.file + "@" + t.branch + "@";
+    if (t.version > 0)
+        return t.file + "@v" + std::to_string(t.version);
+    return t.file;
+}
+
+/** The links of branch `branch` of `ourFile` that still point at a file of
+ * the set as it is here -- set before the copies parted, they are in no
+ * row brought -- pointed at what that file came as: one row on the branch.
+ * Returns how many. Only links held by a property of their own; one inside
+ * a list is left as it is.
+ */
+int relinkBranch(const std::string& ourFile, const std::string& branch,
+                 const std::map<LinkKey, Target>& targets)
+{
+    auto& app = GetApplication();
+    Document* doc = app.openDocument((ourFile + "@" + branch + "@").c_str(), false);
+    if (!doc)
+        return 0;
+    std::vector<std::pair<PropertyXLink*, App::DocumentObject*>> changes;
+    for (auto obj : doc->getObjects()) {
+        std::vector<App::Property*> props;
+        obj->getPropertyList(props);
+        for (auto prop : props) {
+            auto link = Base::freecad_dynamic_cast<PropertyXLink>(prop);
+            if (!link || prop->getContainer() != obj || !link->getValue())
+                continue;
+            const Document* linked = link->getValue()->getDocument();
+            if (linked == doc)
+                continue;
+            auto it = targets.find(keyOfDocument(linked));
+            if (it == targets.end() || nameOf(it->second) == linked->FileName.getStrValue())
+                continue;
+            Document* to = app.openDocument(nameOf(it->second).c_str(), false);
+            auto target = to ? to->getObject(link->getValue()->getNameInDocument()) : nullptr;
+            if (!target) {
+                FC_WARN("set import: " << link->getFullName() << " has no "
+                        << link->getValue()->getNameInDocument() << " in " << nameOf(it->second));
+                continue;
+            }
+            changes.emplace_back(link, target);
+        }
+    }
+    if (changes.empty())
+        return 0;
+    const int mode = doc->getUndoMode();
+    if (!mode)
+        doc->setUndoMode(1);
+    doc->openTransaction("Link their set");
+    try {
+        for (auto& [link, target] : changes)
+            link->setValue(target, std::vector<std::string>(link->getSubValues()));
+        doc->commitTransaction();
+    }
+    catch (...) {
+        doc->abortTransaction();
+        if (!mode)
+            doc->setUndoMode(0);
+        throw;
+    }
+    if (!mode)
+        doc->setUndoMode(0);
+    return static_cast<int>(changes.size());
+}
+
+/// Close what was opened since `before`, unless a document staying open
+/// links to it.
+void closeOpened(const std::set<Document*>& before)
+{
+    auto& app = GetApplication();
+    for (bool closed = true; closed;) {
+        closed = false;
+        auto inList = PropertyXLink::getDocumentInList();
+        for (auto doc : app.getDocuments()) {
+            if (before.count(doc))
+                continue;
+            bool linked = false;
+            for (auto from : inList[doc]) {
+                if (from != doc) {
+                    linked = true;
+                    break;
+                }
+            }
+            if (!linked) {
+                app.closeDocument(doc->getName());
+                closed = true;
+                break;
+            }
+        }
+    }
+}
+
+}  // namespace
+
+SetImportResult App::importSet(const SetImportPlan& plan)
+{
+    // docs/TransactionLog.md sec 35 L4.
+    SetImportResult result;
+    std::set<Document*> before;
+    for (auto doc : GetApplication().getDocuments())
+        before.insert(doc);
+    std::map<LinkKey, Target> targets;
+    PropertyXLink::ImportSetLinks links;
+    for (const auto& f : plan.files) {
+        SetImportedFile r;
+        r.theirs = f.theirs;
+        if (!f.ours) {
+            result.files.push_back(std::move(r));
+            continue;
+        }
+        r.ourFile = f.ourFile;
+        try {
+            const auto res = f.ours->importFork(f.theirs);
+            if (res.seq)
+                r.branch = res.branch;
+            r.rows = res.rows;
+            r.independent = res.independent;
+            r.stoppedAt = res.stoppedAt;
+            r.reason = res.reason;
+        }
+        catch (Base::Exception& e) {
+            r.error = e.what();
+        }
+        catch (std::exception& e) {
+            r.error = e.what();
+        }
+        // What their file is here, for the files linking it, imported after.
+        PropertyXLink::ImportSetLinks::Target target;
+        target.file = f.ourFile;
+        if (!r.branch.empty())
+            target.branch = r.branch;
+        else if (!f.branch.empty())
+            target.branch = f.branch;
+        else
+            target.version = f.version;
+        PropertyXLink::ImportSetLinks::add(f.theirs, target);
+        // And a link of ours to what their file was of, to what it came as.
+        targets[LinkKey {f.ourFile, f.branch.empty() ? f.version : 0, f.branch}] = target;
+        FC_LOG("set import " << f.theirs << " -> " << f.ourFile
+               << (r.branch.empty() ? std::string() : " branch " + r.branch)
+               << (r.error.empty() ? std::string() : " error " + r.error));
+        result.files.push_back(std::move(r));
+    }
+    for (auto& r : result.files) {
+        if (r.branch.empty() || !r.error.empty())
+            continue;
+        try {
+            r.relinked = relinkBranch(r.ourFile, r.branch, targets);
+        }
+        catch (Base::Exception& e) {
+            r.error = std::string("links not made the set's: ") + e.what();
+        }
+    }
+    closeOpened(before);
+    return result;
 }

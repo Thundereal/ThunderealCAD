@@ -2111,6 +2111,56 @@ PyObject* DocumentPy::planLinkedSetImport(PyObject* args)
     } PY_CATCH;
 }
 
+PyObject* DocumentPy::importLinkedSet(PyObject* args, PyObject* kwds)
+{
+    char* path = nullptr;
+    PyObject* pairs = Py_None;
+    static const std::array<const char*, 3> kwlist {"path", "pairs", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "et|O", kwlist, "utf-8", &path, &pairs))
+        return nullptr;
+    const std::string file(path);
+    PyMem_Free(path);
+    if (pairs != Py_None && !PyDict_Check(pairs)) {
+        PyErr_SetString(PyExc_TypeError, "pairs must be a dict or None");
+        return nullptr;
+    }
+    PY_TRY {
+        auto plan = App::planSetImport(*getDocumentPtr(), file);
+        if (pairs != Py_None) {
+            for (const auto& item : Py::Dict(pairs)) {
+                const std::string theirs = Py::String(item.first).as_std_string("utf-8");
+                App::Document* ours = nullptr;
+                const Py::Object value(item.second);
+                if (!value.isNone()) {
+                    const std::string name = Py::String(value).as_std_string("utf-8");
+                    ours = App::GetApplication().getDocument(name.c_str());
+                    if (!ours)
+                        throw Py::ValueError("no document '" + name + "'");
+                }
+                App::pairByHand(plan, theirs, ours);
+            }
+        }
+        const auto result = App::importSet(plan);
+        Py::List files;
+        for (const auto& f : result.files) {
+            Py::Dict d;
+            d.setItem("theirs", Py::String(f.theirs));
+            d.setItem("our_file", Py::String(f.ourFile));
+            d.setItem("branch", Py::String(f.branch));
+            d.setItem("rows", Py::Long(static_cast<unsigned long long>(f.rows)));
+            d.setItem("independent", Py::Boolean(f.independent));
+            d.setItem("stopped_at", Py::Long(static_cast<long long>(f.stoppedAt)));
+            d.setItem("reason", Py::String(f.reason));
+            d.setItem("relinked", Py::Long(f.relinked));
+            d.setItem("error", Py::String(f.error));
+            files.append(d);
+        }
+        Py::Dict d;
+        d.setItem("files", files);
+        return Py::new_reference_to(d);
+    } PY_CATCH;
+}
+
 namespace {
 
 /// What an import did, as the Python methods answer it.

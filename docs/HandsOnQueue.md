@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-20 09:15: entry 192 -- TechDraw, frames hidden: a deselected Active View
+keeps its frame; and why the frame on selection at all (answered from
+155: something to drag a frameless view by -- needed for part views,
+not for a picture).** Under the entry.
+
 **2026-10-20 08:54, the build session (relayed): 189 sec 9.2 #6, the handle hints in
 the browser, COMMITTED locally `4c6455244c` (log `8c9977d06f`), NOT
 pushed, NOT staged.** Resting on a handle shows the desktop's tool tip
@@ -3930,6 +3935,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 189 | 2026-10-19 | a question and a change request: is ALL the corresponding ON-VIEW EDIT in the BROWSER? if not, SYNC it -- the browser to carry what the desktop's on-view edit has now | OPEN; said to the note-taker 2026-10-19 18:04; answered from the queue: NO -- 172 (all PD on-view edit in the browser) was SIZED (docs/OnViewValueEditing.md sec 9, `8cd250125b`), NOTHING BUILT; the desktop's on-view work since is not in the browser either. 2026-10-19 19:31 the reporter (relayed, to the build session; the note-taker did not hear it): "After that do 189 with real browser"; FIRST STEPS COMMITTED locally `913db7b153`, NOT pushed, NOT staged: in a REAL Chrome the fillet's arrows drag live; the fine-snap key is the client's; Tab and Escape from the page move/clear the active value; found: the top-middle label UNDER the web toolbars, a radius draggable to 0 (the desktop clamps the same), no on-view entries for typing; next: the handle's menu (sec 9.2 #4, #5, #7, #10), the label clear of the toolbars, then typing and touch. 2026-10-19 22:02 more steps COMMITTED locally, each checked in Chrome, NOT pushed, NOT staged: the handle's menu `b2ad908242`, the label below the page's toolbars `7238ddd227`, TYPING (Enter or a digit opens the label) `3c3c7f5e9e`, the click-clear (159) `3fc186d196`, 173's menu button drawn by the page `26adceee52` (logs `e6cea1186f`, `3476f0c714`); left: handle tooltips, touch, and 180/182/185/188 checked in the browser. 2026-10-20 06:56 the steps PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged; 182/188 checked in a real Chrome: the preview pick from a browser FIXED locally `ed758230a1`, NOT pushed (log `a12cef773c`). 2026-10-20 08:20 the steps so far (keys, menu, label, typing, button, click-clear, preview pick) PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session; next: sec 9.2 #6, the handle hints in the browser. 2026-10-20 08:54 sec 9.2 #6 the HANDLE HINTS COMMITTED locally `4c6455244c` (log `8c9977d06f`), NOT pushed, NOT staged: resting on a handle in the browser shows the desktop's tool tip text at the page's pointer after Qt's wait, moving off hides it; seen in a real Chrome; serve-handle-hint.py 9/9, fillet-handle-click-in-view.py green (r154); LEFT: touch (9.3) |
 | 190 | 2026-10-19 | a change request: ALL the TOOLBARS hosted in ONE DRAGGABLE CARD, with a TOGGLE that COLLAPSES it into a BUTTON, the button DRAGGABLE too (read as the BROWSER viewer's toolbars) | OPEN; said to the note-taker 2026-10-19 21:38. 2026-10-19 21:42 the reporter: the PHONE form too -- collapsible into the button, and EXPANDING into a card whose contents SCROLL (all the toolbars cannot fit a phone screen otherwise); g answered. 2026-10-19 22:02 BUILT and COMMITTED locally `224ec0828a` (log `3476f0c714`), NOT pushed, NOT staged; the note-taker's a-i and the 21:42 phone answer as written: one card by a grip, a toggle collapses it to a button dragged the same way, a click opens the card at its place, both kept inside the view, place and state per browser; the PHONE starts collapsed, opened a bounded card, bars wrapping, scrolling up/down only; covered.ts reports the card; real Chrome 13/13. 2026-10-20 06:56 PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged, with the reporter's changes to the build session (the note-taker did not hear them): the grip on the card's SHORT side, NO FILL under the bars (`00966b5d71`), the grip ending in the COLLAPSE BUTTON and a BAR PICKER (`5072ffe4c7`); the DULL tool buttons: every tool REFUSED for an INVITED EDITOR (opacity 0.38), not a layer -- the reporter: no lighter look, LATER a traditional DISABLED look. 2026-10-20 08:20 PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session |
 | 191 | 2026-10-19 | a change request (said to the build session, relayed): a handle DRAG whose RECOMPUTE FAILS (e.g. a radius dragged to 0) AUTO-REVERTS to the LAST WORKING VALUE, NOT through the normal undo stack -- the whole drag stays ONE transaction; the earlier "refuse at zero" DROPPED | OPEN; relayed to the note-taker 2026-10-19 22:02; BUILT and COMMITTED locally `3fc186d196` (log `e6cea1186f`), NOT pushed, NOT staged. 2026-10-20 06:56 PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged. 2026-10-20 08:20 PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session |
+| 192 | 2026-10-20 | a defect and a question: TechDraw, page frames HIDDEN -- SELECTING an ACTIVE VIEW shows its frame (as 155 asked), but after DESELECTING it the frame STAYS; and WHY show the frame at all, since the Active View can be dragged by its PICTURE | OPEN; said to the note-taker 2026-10-20 09:15; the why ANSWERED from entry 155 (2026-10-16 11:20 to 11:24) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26414,6 +26420,61 @@ c. Typed values (not a drag): not covered by the words; read as today's
    behaviour (the failure shown, the value kept).
 d. The browser and the desktop alike: read as yes (the same code path).
 
+## 192. TechDraw, frames hidden: a deselected Active View keeps its frame; and why the frame on selection at all (a defect and a question) -- OPEN
+
+**2026-10-20 09:15, the reporter (to the note-taker):** "new defect, techdraw, when view frame is disabled, selecting an activeview will show its frame, which is what I requested before, but deselect it the frame is still there. remind me why we want that frame in the first place. I recalled something about the frame being not movable if no frame, but we can clearly move the view by dragging the snapshot picture in the view, which makes me puzzled why we want to show that frame in the first place"
+The note-taker's reading:
+- The DEFECT: with the page's frames toggled OFF, selecting an Active
+  View shows its frame and label (155's 11:22 rule, as wanted); after
+  it is DESELECTED the frame is STILL SHOWN -- it should go.
+- The QUESTION: why the frame-on-selection exists, when an Active View
+  can be dragged by its picture.
+ANSWERED by the note-taker from the queue (entry 155, 2026-10-16):
+- 09:51 / 09:53 the reporter's click rule: "if any area is rendered
+  transparency, then it should click through"; "anything non
+  transparent, should register click. hidden frame shouldn't register".
+- 11:02 the build session's CONSEQUENCE: a view whose frame is hidden is
+  grabbed only where something is drawn; a view with a hidden frame and
+  no label "cannot be grabbed to drag".
+- 11:20 the reporter: "if not then non-draggable is only natural"
+  (accepted); 11:22 CHANGED: "it still shows the frame if anything in the
+  view is selected. so once it's shown, it can be dragged"; 11:24 "label
+  shows with frame. no hover. group frame".
+- So the frame-on-selection was the reporter's way to give a frameless
+  view SOMETHING TO DRAG BY. The note-taker's reading of the reporter's
+  puzzle: that need is real for PART VIEWS (and projection groups) --
+  their inside is transparent (clicks pass), and their lines pick EDGES,
+  not the view; it is NOT needed for views picked by their CONTENT: the
+  Active View is a QGIViewImage, picksByContent() true (QGIViewImage.h
+  58), so its PICTURE takes the click and drags the view. The rule was
+  made for all views at once (QGIView::getFrameState, QGIView.cpp 836 to
+  860, every kind), so the image views got it too, though they did not
+  need it. Whether a part view can be dragged by its LINES: NOT checked
+  by the note-taker (the 11:02 consequence says no).
+READ in the source, nothing run:
+- src/Mod/TechDraw/Gui/QGIView.cpp 836 to 860, getFrameState(): frames
+  hidden -> shown while selectionInside(dv) (880 on: Gui::Selection()
+  holds the view or anything of it -- a dimension's or balloon's view, a
+  group's view -> the group).
+- the same file 203 to 214, itemChange(ItemSelectedHasChanged):
+  drawBorder() on the Qt item's own select change. The note-taker's
+  CANDIDATE for the defect, NOT checked: at the Qt deselect the
+  application selection (Gui::Selection) may still hold the view, so
+  selectionInside() is still true and the border is drawn; nothing
+  redraws it when Gui::Selection clears afterwards.
+- QGIView.cpp 639 to 663, shape(): the frame band pickable only while
+  the frame is shown, plus label and caption.
+NOT said, with the note-taker's readings:
+a. What the reporter wants after the answer: read as OPEN -- (1) keep the
+   frame-on-selection but only for views NOT picked by content (part
+   views, groups), dropping it for image/symbol/annotation views; or
+   (2) drop it altogether if part views prove draggable by their lines;
+   or (3) keep it everywhere and fix only the deselect. For the reporter.
+b. The deselect defect: read as to be FIXED in any case (for any view
+   kind that keeps the rule).
+c. Other content-picked kinds (picture, symbol, annotation, rich text,
+   spreadsheet): read as the same answer as the Active View.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -26425,5 +26486,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 191
+the build session, 131 and 132 found by it; entries 134 to 192
 are of 2026-10-15, 134 said to the build session)

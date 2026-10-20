@@ -3976,7 +3976,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 194 | 2026-10-20 | a defect (two): in the FILLET edit panel, (1) selecting a MISSING edge's ROW does NOT select its PREVIEW FACE in the 3D view; (2) after selecting a row in the panel, then a PREVIEW FACE in the 3D view, the panel's earlier selection is NOT CLEARED -- TWO rows end up selected | OPEN; said to the note-taker 2026-10-20 09:29. 2026-10-20 09:38 CAUSE FOUND (one for both, the note-taker's candidate): a missing row put NOTHING in Gui::Selection, so its face was not lit, and the 3D click's clearSelection had nothing to clear and sent no ClrSelection (Selection.cpp 2022) -- the panel kept its row; before-run r155: both claims FAIL (rows ['?Edge11','Edge8']); FIXED in the working tree (the row selects its preview face, ';AddSub;FaceN' by getItemElement), r156 building; fillet-preview-pick-syncs-list.py 3 new claims; NOT committed. 2026-10-20 09:43 r157 building with 194 ALONE (a large rebuild, Command.h touched and restored); then fillet-preview-pick-syncs-list, dressup-replace-missing-edge, serve-dressup-preview-pick one at a time. READ: git status -- TaskDressUpParameters.cpp and the test modified, uncommitted |
 | 195 | 2026-10-20 | a change request: 'Measure (pre)selected geometry' (the Part preselection macro, Std_Macro_Presel_PartMeasure) ON BY DEFAULT | OPEN; said to the note-taker 2026-10-20 09:34. 2026-10-20 09:38 DONE in the working tree, r156 building, NOT committed: MacroCommand gets a per-command default (defaultOption), TRUE for Std_Macro_Presel_PartMeasure only; a stored value wins, the default not written; test part-presel-measure-default.py. c CHECKED by the note-taker (READ only): the reporter's %APPDATA%/Thundereal/user.cfg and %APPDATA%/FreeCAD/user.cfg hold NO stored bool for it (only an FCText toolbar entry of that name, 'PartDesignWorkbench') -- the reporter WILL see the new default. 2026-10-20 09:40 ON HOLD by the reporter: a PERFORMANCE TEST first (in the future), then the decision whether to make it default on. 2026-10-20 09:43 HELD and PARKED by the build session, NOT in the tree (the default stays off): the change saved as D:/works/sw/dl/handson/2026-10-12/195-presel-measure-default.patch (5068 bytes) with its test part-presel-measure-default.py beside it; to revive: git apply the patch, move the test back; r156 stopped (it carried 195). READ by the note-taker: both files there; git status shows no 195 file |
 | 196 | 2026-10-20 | defects (four), PRIORITY FIRST: fillet on-view edit -- (1) a NORMAL (working) preview face is selectable but NOT PRESELECTABLE, and a 3D selection of it does NOT SYNC the edit panel; (2) the on-view LABEL has NO PRESELECTION highlight; (3) the label LOSES to base geometry behind it on a click; (4) the handles' SILHOUETTE (pre)selection outline asked (144, 159) never came -- is it possible? and the handles are drawn FLAT, no shading | OPEN; said to the note-taker 2026-10-20 09:56; the reporter: the build session to do this FIRST, then WAIT for the reporter's hands-on test on the TEST BUILD directly |
-| 197 | 2026-10-20 | a defect: scanner.FCStd, the MIGRATION RECOMPUTE -> Binder008 'No context' (expected); a DOUBLE CLICK to UPDATE it -> Pocket022's FIT (the cut's tolerance, 0.1) CHANGES SIDE (the grow becomes a shrink); must not happen -- backward compatibility kept, or, where it cannot be, the feature marked in ERROR | OPEN; said to the note-taker 2026-10-20 10:02 |
+| 197 | 2026-10-20 | a defect: scanner.FCStd, the MIGRATION RECOMPUTE -> Binder008 'No context' (expected); a DOUBLE CLICK to UPDATE it -> Pocket022's FIT (the cut's tolerance, 0.1) CHANGES SIDE (the grow becomes a shrink); must not happen -- backward compatibility kept, or, where it cannot be, the feature marked in ERROR | OPEN; said to the note-taker 2026-10-20 10:02. 2026-10-20 10:07 the reporter: Binder008's update binds the SAME SHAPE, NO VISUAL CHANGE -- c answered; the flip is not a moved or different shape |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26823,6 +26823,16 @@ c. Whether Binder008's update itself is right (the same face, the same
 d. Other features with a Fit on a binder's face in scanner.FCStd: read
    as the same check for each.
 e. Order against 196 (asked FIRST): not said; read as after 196.
+
+**2026-10-20 10:07, the reporter (to the note-taker):** "Binder binds to the same shape, no visual change"
+The note-taker's reading: c ANSWERED -- after the double-click update,
+Binder008 holds the SAME shape, nothing moved on screen. So Pocket022's
+flip does not come from a moved or a different binder shape; by the
+note-taker's reading it narrows the candidate to the profile face's
+REPRESENTATION -- the same geometry handed on with another orientation
+or surface normal (or another face named Face1 of the same-looking
+shape), which the flag-only rule (forwardFaces + the file's _FitFlip)
+cannot tell. NOT checked.
 
 ## Inbox
 

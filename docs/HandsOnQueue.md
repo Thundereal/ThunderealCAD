@@ -3940,7 +3940,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 190 | 2026-10-19 | a change request: ALL the TOOLBARS hosted in ONE DRAGGABLE CARD, with a TOGGLE that COLLAPSES it into a BUTTON, the button DRAGGABLE too (read as the BROWSER viewer's toolbars) | OPEN; said to the note-taker 2026-10-19 21:38. 2026-10-19 21:42 the reporter: the PHONE form too -- collapsible into the button, and EXPANDING into a card whose contents SCROLL (all the toolbars cannot fit a phone screen otherwise); g answered. 2026-10-19 22:02 BUILT and COMMITTED locally `224ec0828a` (log `3476f0c714`), NOT pushed, NOT staged; the note-taker's a-i and the 21:42 phone answer as written: one card by a grip, a toggle collapses it to a button dragged the same way, a click opens the card at its place, both kept inside the view, place and state per browser; the PHONE starts collapsed, opened a bounded card, bars wrapping, scrolling up/down only; covered.ts reports the card; real Chrome 13/13. 2026-10-20 06:56 PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged, with the reporter's changes to the build session (the note-taker did not hear them): the grip on the card's SHORT side, NO FILL under the bars (`00966b5d71`), the grip ending in the COLLAPSE BUTTON and a BAR PICKER (`5072ffe4c7`); the DULL tool buttons: every tool REFUSED for an INVITED EDITOR (opacity 0.38), not a layer -- the reporter: no lighter look, LATER a traditional DISABLED look. 2026-10-20 08:20 PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session |
 | 191 | 2026-10-19 | a change request (said to the build session, relayed): a handle DRAG whose RECOMPUTE FAILS (e.g. a radius dragged to 0) AUTO-REVERTS to the LAST WORKING VALUE, NOT through the normal undo stack -- the whole drag stays ONE transaction; the earlier "refuse at zero" DROPPED | OPEN; relayed to the note-taker 2026-10-19 22:02; BUILT and COMMITTED locally `3fc186d196` (log `e6cea1186f`), NOT pushed, NOT staged. 2026-10-20 06:56 PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged. 2026-10-20 08:20 PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session |
 | 192 | 2026-10-20 | a defect and a question: TechDraw, page frames HIDDEN -- SELECTING an ACTIVE VIEW shows its frame (as 155 asked), but after DESELECTING it the frame STAYS; and WHY show the frame at all, since the Active View can be dragged by its PICTURE | OPEN; said to the note-taker 2026-10-20 09:15; the why ANSWERED from entry 155 (2026-10-16 11:20 to 11:24). 2026-10-20 09:17 the build session: CAUSE FOUND by reading, nothing built -- the note-taker's candidate right: a deselect made IN THE PAGE draws the border while Gui::Selection still holds the view, then setTreeToSceneSelect clears Gui::Selection under blockSelection(true), so onSelectionChanged and its refreshSelectedFrames() never run (a deselect from the TREE is fine); proposed: refreshSelectedFrames() at the end of setTreeToSceneSelect, every view kind; on a: a frameless part view still has nothing to drag by (lines select edges/vertices, the inside passes) -- the rule's reason holds for part views and groups; a drag from a line NOT run; waiting for the reporter's word on a and on building |
-| 193 | 2026-10-20 | a change request: ALL LIST VIEWS in OVERLAY PANELS get ALTERNATING row backgrounds WITH TRANSPARENCY, as the PROPERTY VIEW has; 184's transparent background is in, the alternating rows are not | OPEN; said to the note-taker 2026-10-20 09:18 |
+| 193 | 2026-10-20 | a change request: ALL LIST VIEWS in OVERLAY PANELS get ALTERNATING row backgrounds WITH TRANSPARENCY, as the PROPERTY VIEW has; 184's transparent background is in, the alternating rows are not | OPEN; said to the note-taker 2026-10-20 09:18. 2026-10-20 09:20 SIZED by the build session, nothing built: the property view and the SELECTION VIEW already alternate overlaid, each by its own code; a sheet rule cannot (the sheet's opacity), a delegate cannot be swapped (task panels and the tree have their own); PROPOSED: OverlayManager watches item views in overlaid panels (also on child-added) and fills each visible row's band on the viewport's paint before the items, the same two colours at the overlay alpha, rows counted as the property view; d open for the reporter's look; waiting for the reporter's word |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -26543,6 +26543,30 @@ d. The model tree: it has its own item backgrounds (selection, the
    session to check it reads well.
 e. Every overlay sheet (Dark, Light, the Outline, _overlay and Split
    kinds): read as yes, as 184.
+
+**2026-10-20 09:20, the build session (relayed): READ and SIZED, NOTHING BUILT.** Two
+views already alternate when overlaid, each by its own code: the
+PROPERTY VIEW (PropertyEditor::overlayRowBackground, painted by its
+delegate) and the SELECTION VIEW (OverlayGroundDelegate,
+src/Gui/SelectionView.cpp 81 to 110, the same colours). Both: even rows
+OverlayManager::overlayItemBackground, odd rows the palette's
+AlternateBase, both at OverlayManager::overlayAlpha(). A SHEET RULE
+cannot do it (alternation needs alternatingRowColors on, and then has
+the sheet's opacity, not the overlay alpha -- the note-taker's reading,
+and PropertyEditor.cpp 210 to 212). A DELEGATE cannot be swapped in
+either: task panels and the tree have delegates of their own.
+PROPOSED -- one way for every list in an overlay: OverlayManager watches
+the item views inside overlaid panels (task panel lists are made later,
+so on child-added as well) and fills each visible row's band on the
+viewport's paint BEFORE the view paints its items, both colours as
+above, rows counted as the property view counts them. The property view
+and the selection view keep their own code, or move to it. Open for the
+reporter's look: d (the tree's in-edit and similar colours over the
+bands). Waiting for the reporter's word.
+The note-taker's reading of what is for the reporter: the go-ahead; and
+whether the property and selection views MOVE to the one way (one look
+for sure) or keep their own code (no risk to what works) -- the build
+session leaves it open.
 
 ## Inbox
 

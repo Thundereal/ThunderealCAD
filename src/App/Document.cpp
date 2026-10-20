@@ -5260,10 +5260,12 @@ void Document::restore (const char *filename,
     d->restoreDocXml.clear();
     d->restoreTapped = false;
     d->fileEntries.clear();
-    auto tap = [this, &objNames](Base::Reader& reader) {
-        // A partial document is never snapshotted (sec 16.1), and a
-        // checkout is a version already.
-        if (!objNames.empty() || d->checkingOut || !getTransactionLog() || d->joinedHistory)
+    auto tap = [this](Base::Reader& reader) {
+        // A checkout is a version already. A file read for some of its
+        // objects is tapped too: whether that leaves the document partial
+        // is known only once its objects are read, and one that read them
+        // all is the file, editable, its history to continue (sec 35 L3).
+        if (d->checkingOut || !getTransactionLog() || d->joinedHistory)
             return;
         reader.beginTap([this](const char* p, std::size_t n) { d->restoreDocXml.append(p, n); });
         d->restoreTapped = true;
@@ -5634,7 +5636,15 @@ void Document::restore(Base::XMLReader &reader,
     // 16.6): version 1 is Document.xml as tapped plus every blob the file
     // carried, now that readFiles() has them in the store. Not for a
     // Document.xml the loader could not read -- that is no version to go
-    // back to -- and never for a partial document, which was not tapped.
+    // back to -- and never for a partial document (sec 16.1), which is
+    // read-only and read again whole, its history with it, before it can
+    // change.
+    if (d->restoreTapped && testStatus(Document::PartialDoc)) {
+        d->restoreTapped = false;
+        reader.setEntrySink(nullptr);
+        d->restoreDocXml.clear();
+        d->fileEntries.clear();
+    }
     if (d->restoreTapped) {
         d->restoreTapped = false;
         reader.setEntrySink(nullptr);

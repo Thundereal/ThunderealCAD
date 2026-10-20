@@ -10264,6 +10264,45 @@ class TransactionBranchCases(unittest.TestCase):
         # for in our folder.
         self.importedAssembly(2)
 
+    def testAFileOpenedForALinkKeepsItsHistory(self):
+        # A file read for the objects a link asks for (sec 16.1), which turned
+        # out to be all of them, is no partial document: editable, saved as
+        # the file. Its history was not read, and a save wrote a fresh one
+        # over the file's -- every row before it lost. Found by sec 35 L3,
+        # which pairs by the history.
+        part = self.track(FreeCAD.newDocument("ForLinkPart"))
+        part.UndoMode = 1
+        for i in range(3):
+            part.openTransaction("t%d" % i)
+            if i == 0:
+                part.addObject("App::FeatureTest", "Obj")
+            part.Obj.Integer = i
+            part.commitTransaction()
+        path = os.path.join(self.dir, "Part.FCStd")
+        part.saveAs(path)
+        names = ["t0", "t1", "t2"]
+        asm = self.track(FreeCAD.newDocument("ForLinkAsm"))
+        asm.addObject("App::Link", "L").LinkedObject = part.Obj
+        asm.saveAs(os.path.join(self.dir, "Asm.FCStd"))
+        FreeCAD.closeDocument(asm.Name)
+        FreeCAD.closeDocument(part.Name)
+
+        asm = self.track(FreeCAD.openDocument(os.path.join(self.dir, "Asm.FCStd")))
+        part = self.track(asm.L.LinkedObject.Document)
+        self.assertFalse(part.Partial)
+        self.assertEqual([r["name"] for r in part.getTransactionLog()][:3], names)
+        part.UndoMode = 1
+        part.openTransaction("edit")
+        part.Obj.Integer = 9
+        part.commitTransaction()
+        part.save()
+        FreeCAD.closeDocument(asm.Name)
+        FreeCAD.closeDocument(part.Name)
+        part = self.track(FreeCAD.openDocument(path))
+        got = [r["name"] for r in part.getTransactionLog()]
+        self.assertEqual(got[: len(names)], names)
+        self.assertIn("edit", got[len(names) :])
+
     def testAnImportedBranchIsARequestUntilItIsMerged(self):
         # Sec 30.20 H1, H7 (S.h): a request is a branch an import made that
         # the branch the document is on has not taken -- worked out, not

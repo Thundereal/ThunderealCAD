@@ -36,6 +36,10 @@
 # include <TopoDS.hxx>
 #endif
 
+#include <BRep_Tool.hxx>
+#include <TopExp.hxx>
+#include <TopoDS_Vertex.hxx>
+
 #include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
@@ -59,6 +63,23 @@ const App::PropertyAngle::Constraints Revolved::floatAngle = { -360.0, 360.0, 1.
 namespace {
 
 constexpr double fullTurn = 2.0 * M_PI;
+
+/// How many ends of \a shape's open wires lie on \a line
+int endsOnAxis(const TopoShape &shape, const gp_Lin &line)
+{
+    int count = 0;
+    for (auto &wire : shape.getSubTopoShapes(TopAbs_WIRE)) {
+        if (wire.isClosed())
+            continue;
+        TopoDS_Vertex first, last;
+        TopExp::Vertices(TopoDS::Wire(wire.getShape()), first, last);
+        for (const auto &v : {first, last}) {
+            if (!v.IsNull() && line.Distance(BRep_Tool::Pnt(v)) < 1e-5)
+                ++count;
+        }
+    }
+    return count;
+}
 
 bool isValue(const App::PropertyEnumeration &prop, const char *value)
 {
@@ -261,6 +282,21 @@ App::DocumentObjectExecReturn *Revolved::executeRevolved()
         if (Reversed.getValue())
             dir.Reverse();
         const gp_Ax1 axis(pnt, dir);
+
+        // An open profile's fitted wires move their ends along with them; an
+        // end that met the axis and leaves it opens the surface the
+        // revolution closed (entry 198)
+        if (!groove && _FitRule.getValue() >= 3
+            && std::fabs(Fit.getValue()) > Precision::Confusion()) {
+            TopoShape drawn = getVerifiedFace(/*silent*/true, /*doFit*/false, /*allowOpen*/true);
+            drawn.move(invObjLoc);
+            const gp_Lin line(axis);
+            if (endsOnAxis(sketchshape, line) < endsOnAxis(drawn, line))
+                return new App::DocumentObjectExecReturn(QT_TRANSLATE_NOOP("Exception",
+                    "Fit moves the ends of the open profile off the revolve axis, which "
+                    "would leave the revolved surface open. Set Fit to 0, or draw the "
+                    "profile's ends square to the axis."));
+        }
 
         // Turn the profile to its start once, before any branch, so that
         // the angles, the up-to faces and the sides all build from there

@@ -52,6 +52,12 @@
 # include <TopTools_IndexedMapOfShape.hxx>
 #endif
 
+#include <BRepTools_WireExplorer.hxx>
+#include <ElSLib.hxx>
+#include <ShapeExtend_WireData.hxx>
+#include <TopoDS_Edge.hxx>
+#include <TopoDS.hxx>
+
 #include <App/Document.h>
 #include <App/MappedElement.h>
 #include <App/OriginFeature.h>
@@ -122,7 +128,7 @@ void ProfileBased::setupObject()
     AllowMultiFace.setValue(true);
     Linearize.setValue(Part::PartParams::getLinearizeExtrusionDraft());
     _ProfileBasedVersion.setValue(2);
-    _FitRule.setValue(2);
+    _FitRule.setValue(3);
 }
 
 /// \a shape with each of its faces forward, which is what rule 1 offset
@@ -247,6 +253,86 @@ static TopoShape fitProfile(const TopoShape &shape, int rule, bool flip,
         return shape.makEOffsetFace(firstOuter * sign * fit, firstInner * sign * innerFit,
                                     join, innerJoin);
     return TopoShape(shape.Tag, shape.Hasher).makECompound(fitted, nullptr, false);
+}
+
+/// The area an open wire closes with the line between its ends, in \a pln,
+/// signed by the way its edges run. The wire's own orientation flag is not
+/// read: it does not survive to the revolution (fitOpenWires())
+static double chordArea(const TopoShape &wire, const gp_Pln &pln)
+{
+    const TopoDS_Wire w = TopoDS::Wire(wire.getShape().Oriented(TopAbs_FORWARD));
+    std::vector<gp_Pnt> points;
+    for (BRepTools_WireExplorer xp(w); xp.More(); xp.Next()) {
+        const TopoDS_Edge &edge = xp.Current();
+        BRepAdaptor_Curve curve(edge);
+        double first = curve.FirstParameter(), last = curve.LastParameter();
+        if (edge.Orientation() == TopAbs_REVERSED)
+            std::swap(first, last);
+        const int count = 64;
+        for (int i = 0; i < count; ++i)
+            points.push_back(curve.Value(first + (last - first) * i / count));
+        points.push_back(curve.Value(last));
+    }
+    if (points.size() < 3)
+        return 0.0;
+    double area = 0.0, u0 = 0.0, v0 = 0.0, u1 = 0.0, v1 = 0.0;
+    ElSLib::Parameters(pln, points.back(), u0, v0);
+    for (const auto &p : points) {
+        ElSLib::Parameters(pln, p, u1, v1);
+        area += u0 * v1 - u1 * v0;
+        u0 = u1;
+        v0 = v1;
+    }
+    return area / 2.0;
+}
+
+/// \a open's open wires offset to one side by \a fit, the side told by the
+/// geometry: a positive Fit grows the region each wire closes with the line
+/// between its ends, as it grows a face (entry 198). Open wires were never
+/// fitted before rule 3: the offset's result was dropped.
+static TopoShape fitOpenWires(const TopoShape &open, double fit, TopoShape::JoinType join)
+{
+    gp_Pln pln;
+    if (!open.findPlane(pln))
+        THROWM(Base::RuntimeError,
+               QT_TRANSLATE_NOOP("Exception", "Fit cannot run on an open profile that is not planar"))
+    std::vector<TopoShape> fitted;
+    for (auto &wire : open.getSubTopoShapes(TopAbs_WIRE)) {
+        const double signedArea = chordArea(wire, pln);
+        const double area = std::abs(signedArea);
+        if (area <= Precision::Confusion())
+            THROWM(Base::RuntimeError,
+                   QT_TRANSLATE_NOOP("Exception",
+                                     "Which way Fit runs on an open profile is told by the area "
+                                     "it closes with the line between its ends, and this "
+                                     "profile closes none. Set Fit to 0."))
+        auto offsetArea = [&](const TopoShape &shape) {
+            if (shape.shapeType(true) == TopAbs_WIRE)
+                return chordArea(shape, pln);
+            double sum = 0.0;
+            for (auto &w : shape.getSubTopoShapes(TopAbs_WIRE))
+                sum += chordArea(w, pln);
+            return sum;
+        };
+        TopoShape res = wire.makEOffset2D(fit, join, /*fill*/false, /*allowOpenResult*/true);
+        if ((std::abs(offsetArea(res)) - area) * fit < 0.0)
+            res = wire.makEOffset2D(-fit, join, /*fill*/false, /*allowOpenResult*/true);
+        // Running the way the drawn wire ran, which is what a revolution's
+        // surface faces by: the offset hands it back either way, and only
+        // its edges' own way survives (a reversed wire's flag is dropped on
+        // the way to the revolution). The edges flipped, in turn reversed,
+        // the names carried over.
+        if (res.shapeType(true) == TopAbs_WIRE && offsetArea(res) * signedArea < 0.0) {
+            Handle(ShapeExtend_WireData) data = new ShapeExtend_WireData(
+                TopoDS::Wire(res.getShape().Oriented(TopAbs_FORWARD)));
+            data->Reverse();
+            TopoShape reversed(res.Tag, res.Hasher, data->Wire());
+            reversed.mapSubElement(res);
+            res = reversed;
+        }
+        fitted.push_back(res);
+    }
+    return TopoShape(open.Tag, open.Hasher).makECompound(fitted, nullptr, false);
 }
 
 void ProfileBased::onDocumentRestored()
@@ -521,8 +607,22 @@ TopoShape ProfileBased::getVerifiedFace(bool silent,
                                    Fit.getValue(), InnerFit.getValue(),
                                    static_cast<Part::TopoShape::JoinType>(FitJoin.getValue()),
                                    static_cast<Part::TopoShape::JoinType>(InnerFitJoin.getValue()));
-            if (!openshape.isNull())
-                openshape.makEOffset2D(Fit.getValue());
+            // the open wires (a revolution's profile) from rule 3 on; an
+            // older feature never had them fitted, its file showing them
+            // as drawn (entry 198)
+            if (!openshape.isNull() && _FitRule.getValue() >= 3
+                && std::abs(Fit.getValue()) > Precision::Confusion()) {
+                try {
+                    openshape = fitOpenWires(
+                        openshape, Fit.getValue(),
+                        static_cast<Part::TopoShape::JoinType>(FitJoin.getValue()));
+                }
+                catch (const Base::Exception &) {
+                    if (silent)
+                        return TopoShape();
+                    throw;
+                }
+            }
         }
 
         if (!openshape.isNull()) {

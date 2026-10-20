@@ -79,7 +79,9 @@ public:
     /// How Fit reads a profile face: 0, as the solid it came from had the
     /// face; 1, the face forward (docs/HandsOnQueue.md entry 160); 2, by
     /// the geometry, a positive Fit growing the profile and a positive
-    /// InnerFit its holes, as a sketch's (getVerifiedFace(), entry 197); -1,
+    /// InnerFit its holes, as a sketch's (getVerifiedFace(), entry 197); 3,
+    /// as 2, and an open profile's wires fitted too, a positive Fit growing
+    /// what each closes with the line between its ends (entry 198); -1,
     /// an older feature whose side its file could not tell, which fails
     /// until Fit is set again. 0 and 1 are read at the open into 2.
     App::PropertyInteger _FitRule;

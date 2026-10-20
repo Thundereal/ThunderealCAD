@@ -424,7 +424,8 @@ class TestPocket(unittest.TestCase):
         # entry 160 (scanner.FCStd, Pocket040): a positive Fit grows a
         # profile face, as a sketch's, whatever its orientation.
         pocket = self._fitBoxPocket(lambda body, box, face: (box, [face]), -0.5)
-        self.assertEqual(pocket._FitRule, 2)
+        # a new feature: rule 3, rule 2 with open wires fitted (entry 198)
+        self.assertEqual(pocket._FitRule, 3)
         self.assertFalse(pocket._FitFlip)
         self.assertAlmostEqual(pocket.AddSubShape.Volume, self._shrunk, places=3)
 

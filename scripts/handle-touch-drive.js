@@ -404,6 +404,43 @@ async function hudCamera(page) {
     await shot(page, '8-typed');
     phase('typed');
 
+    // a phone's keyboard: no key codes. Gboard's way -- a keydown that names
+    // no key ("Unidentified", 229), the text as an input event, the keyup --
+    // then its Enter, which does carry its key. The box is still open, its
+    // value selected, after the Enter above.
+    const keyless = async (type) => cdp.send('Input.dispatchKeyEvent', {
+      type, key: 'Unidentified', code: '', windowsVirtualKeyCode: 229,
+      nativeVirtualKeyCode: 229});
+    out.phoneBoxBefore = await page.evaluate(() => {
+      const e = document.querySelector('.fc-onview-box');
+      return e ? [e.value, document.activeElement === e] : null;
+    });
+    await keyless('rawKeyDown');
+    await cdp.send('Input.insertText', {text: '3'});
+    await keyless('keyUp');
+    await sleep(500);
+    await page.keyboard.press('Enter');
+    await sleep(2000);
+    out.phoneBoxAfter = await page.evaluate(() => {
+      const e = document.querySelector('.fc-onview-box');
+      return e ? e.value : null;
+    });
+    phase('phonetyped');
+
+    // an IME's: a composition, committed
+    await cdp.send('Input.imeSetComposition', {text: '6', selectionStart: 1, selectionEnd: 1});
+    await sleep(300);
+    await cdp.send('Input.insertText', {text: '6'});
+    await sleep(500);
+    await page.keyboard.press('Enter');
+    await sleep(2000);
+    out.imeBoxAfter = await page.evaluate(() => {
+      const e = document.querySelector('.fc-onview-box');
+      return e ? e.value : null;
+    });
+    await shot(page, '8b-imetyped');
+    phase('imetyped');
+
     // orbit: a finger off the handles, at the bottom left quarter
     out.cameraBeforeOrbit = await hudCamera(page);
     const off = [r.x + r.w * 0.25, r.y + r.h * 0.75];

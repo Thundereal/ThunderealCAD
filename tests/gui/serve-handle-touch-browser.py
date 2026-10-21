@@ -26,7 +26,9 @@ serving process, on the driver's phase marks:
     goes on, and the key never goes up (entry 201);
   - the same drag again: the radius changes off the coarse step;
   - a tap on the value's label: its box in the page, and a value typed
-    into it is the radius;
+    into it is the radius -- by keys, then as a phone keyboard types (a
+    keydown naming no key, 229, and the text by CDP's Input.insertText),
+    then through an IME composition;
   - a finger off the handles, moved: the camera turns, and nothing goes up;
   - then a sketch's edit: a finger on its line, moved, drags the line as a
     mouse press would, and the camera stays; a finger on empty space
@@ -288,7 +290,7 @@ def verify():
                      run.error or said.get("error")):
             note(run.tail())
         for name in ("entered", "tapped", "cleared", "dragged", "held", "fine", "menuescaped",
-                     "finedragged", "typed",
+                     "finedragged", "typed", "phonetyped", "imetyped",
                      "orbited", "sketchentered", "linedragged", "sketchorbited"):
             if name not in s:
                 check("the run reached '%s'" % name, False, run.phases())
@@ -376,6 +378,15 @@ def verify():
         check("a value typed into it is the radius", s["typed"]["radius"] == 4.0,
               s["typed"]["radius"])
 
+        # a phone's keyboard, which names no key: the text by input events
+        note("INFO the box before the phone's typing: %s; after: %r; after the IME: %r"
+             % (said.get("phoneBoxBefore"), said.get("phoneBoxAfter"),
+                said.get("imeBoxAfter")))
+        check("a value typed with no key codes (keydown 229, insertText) is the radius",
+              s["phonetyped"]["radius"] == 3.0, s["phonetyped"]["radius"])
+        check("a value typed through an IME composition is the radius",
+              s["imetyped"]["radius"] == 6.0, s["imetyped"]["radius"])
+
         # orbit
         check("the off point is off the handles", said.get("offOnHandle") is False,
               said.get("offOnHandle"))
@@ -384,9 +395,9 @@ def verify():
               and said.get("cameraAfterOrbit") != said.get("cameraBeforeOrbit"),
               (said.get("cameraBeforeOrbit"), said.get("cameraAfterOrbit")))
         check("... sends nothing up, and changes no value",
-              s["orbited"]["inputs"] == s["typed"]["inputs"]
-              and s["orbited"]["radius"] == s["typed"]["radius"],
-              (s["typed"], s["orbited"]))
+              s["orbited"]["inputs"] == s["imetyped"]["inputs"]
+              and s["orbited"]["radius"] == s["imetyped"]["radius"],
+              (s["imetyped"], s["orbited"]))
         note("INFO radius values seen: %s" % fine_steps)
 
         # the sketch: a finger on its line is the sketcher's, as a mouse

@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-21 11:16: entry 203 -- Esc closing a menu can also end the edit; ending an
+edit to be a command, default Shift+Esc (via fcad-dc); for x16win after
+132.** Under the entry.
+
 **2026-10-21 11:10: entry 202 -- six fillet-edit requests (relayed by fcad-dc): a
 vertex not pickable for a corner, the face's menu, the Group column,
 group colours, mode tool tips; after stage25.** Under the entry.
@@ -4128,6 +4132,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 200 | 2026-10-20 | a test failure found by x16win (on 193), made an entry on the reporter's choice: 3 DARK-theme claims of tests/gui/overlay-see-through.py FAIL on x16win's box with or without 193 (the tree's ground below the items; two property-row claims) -- a real defect or the test? | OPEN; 2026-10-20 17:12; ASSIGNED to x16win. 2026-10-20 17:27 CAUSE FOUND by x16win: all three FAULTS IN THE TEST (samples outside short panels), not defects; FIXED and COMMITTED on ITS LinkVibe after `5f507995a3` ("Gui: overlay-see-through reads only what its panels show room for", the test only; the hash given at 17:28: `88d325ab03`), NOT pushed, NOT staged; 62/62 twice. 2026-10-20 20:23 PUSHED by x16win on the reporter's word to it: `88d325ab03` merged with the remote docs commits (up to `b245d01c73`) as merge `c860115ea7`, no conflicts; LinkVibe level with thundereal; NOT staged (a test file only) |
 | 201 | 2026-10-21 | a defect found by x16win (on 189's touch test), made an entry by the note-taker coordinating: in the BROWSER, Escape pressed on a desktop keyboard while the page's context menu is open closes the DOM menu on keydown, but the viewer still forwards keydown AND keyup as 'E' key frames, and the release ENDS the fillet edit ("left edit mode") | OPEN; 2026-10-21 06:23; seen with keydown + keyup dispatched together after the handle menu was used, a keydown alone did not end it in an earlier run; ASSIGNED to x16win after 189's sketch change (the browser code is its). 2026-10-21 08:42 FIXED by x16win `f229fc9ea7` (web/src/contextmenu.tsx: while the menu is open, Escape caught on the window in the capture phase, press and release both stopped), local, NOT pushed, NOT staged; checked in serve-handle-touch-browser.py (the edit stays, no input goes up) |
 | 202 | 2026-10-21 | change requests and a defect, the fillet edit (relayed by fcad-dc, its wording; the note-taker did not hear them): (a) a VERTEX cannot be picked in the 3D view, so a setback corner cannot be made (the preview covers the base vertex and swallows the pick, by fcad-dc's reading); (b) a right click on a preview face, or while hovering its edge or face, the same menu as its handle, for every dress-up (181 point 2's menu); (c) the Group column second; (d) the multi-group COLOURED handles back, auto colours distinct from the (pre)selection and the dragging colour, a group's colour pickable by the user and kept in the fillet's property; (e) concise tool tips explaining each mode, for the whole list or per item; (f) a double click on the Group column edits the group | OPEN; 2026-10-21 11:10; fcad-dc's (its area), to start after r179 is built, restaged (stage25) and tested. 2026-10-21 11:11 fcad-dc's plan: (a) a GUI test reproducing it before any fix; (c) Group is today the LAST (6th) column, moved second by a header section move; (d) desktop only, absent property = auto colours, a group's colour picked from the handle's menu and the list row's context menu ("Group colour...", "Automatic") -- fcad-dc's default, to be told to the reporter; nothing started, r179 building (540/2086 at 11:10), then stage25 |
+| 203 | 2026-10-21 | a defect and a change request (said to fcad-dc, passed to the note-taker on the reporter's word to hand to another session): Esc that dismisses a menu can also END the edit unintentionally; is there a setting for Esc ending an edit? Make ending the edit a COMMAND, enabled only while the current view is in edit, so the user can assign its own shortcut, default Shift+Esc; check conflicts (selection clear remembered on it -- both may coexist) | OPEN; 2026-10-21 11:16; READ by fcad-dc (nothing run): no general setting (the Sketcher has its own, LeaveSketchWithEscape); two hard-coded paths end an edit on Esc (ViewProvider::eventCallback on the RELEASE, no modifier check; TaskView's escape button); no command holds Shift+Esc in src; to be ASSIGNED to x16win after 132, plain Esc's fate put to the reporter |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -28028,6 +28033,57 @@ and change it if they want another place." Order: r179 building (about
 540/2086 at 11:10), then stage25, then the fillet GUI tests on r179,
 then 202.
 
+## 203. Esc that closes a menu can also end the edit; ending an edit to be a command with its own shortcut, default Shift+Esc (a defect and a change request, via fcad-dc) -- OPEN
+
+**2026-10-21 11:16, the reporter (to fcad-dc, passed to the note-taker by fcad-dc on the
+reporter's word, "to pass it to you so you hand it to another session";
+relayed, the note-taker did not hear it):** "is there any setting assign
+'ESC' to end edit? this currently not working well, as normal ESC dismiss
+a menu can also end the dialog unintentionally. Let's make the edit
+dismiss a command which only enables when the current view is in edit, so
+that user can assign its own shortcut, default to 'Shift + ESC'. check if
+it conflicts with anything. I remember selection clear is using this
+shortcut, which does not really matter, as dismiss edit while clearing
+selection can coexist."
+fcad-dc's reading (by reading only, nothing changed, nothing tested):
+1. No setting turns Esc-ends-edit off. Two hard-coded paths end an edit
+   on Esc: src/Gui/ViewProvider.cpp 274-304, ViewProvider::eventCallback
+   -- an Esc RELEASE in the 3D view that keyPressed() does not take calls
+   doc->resetEdit() on a timer, with no modifier check (so Shift+Esc
+   ends an edit there today too); "The release is the likely culprit for
+   the menu case: Esc's press closes the menu, its release reaches the
+   view." And src/Gui/TaskView/TaskView.cpp 626: Esc, when the dialog's
+   isEscapeButtonEnabled(), clicks the roleOnEscape button, or calls
+   resetEdit() when it has none (TaskDialogPython exposes it,
+   TaskDialogPython.cpp 486).
+2. Std_ToggleNavigation has sAccel "Esc" (src/Gui/CommandView.cpp 3061);
+   View3DInventorViewer.cpp 325-339 claims the ShortcutOverride for Esc
+   only for the light manipulator.
+3. Shift+Esc: no command in src has it as its sAccel (grep); the
+   selection-clear binding the reporter remembers not found -- "it may be
+   in a user cfg or bound some other way. Needs checking."
+4. Overlap with its area: OnViewValue.cpp takes Esc itself (a drag
+   cancel, leaving no value active, the open label; ~438, 457, 1461,
+   1588, 1633, with takenKeys so the view does not end the edit on the
+   release), and Gizmo.cpp cancels a drag on Esc -- "ask me before
+   touching those two files; I expect they need no change". "I am not
+   taking this one."
+The note-taker's READ (nothing run): the Sketcher HAS its own setting,
+LeaveSketchWithEscape ("Esc can leave sketch edit mode",
+SketcherSettings.ui 135; TaskDlgEditSketch.cpp 60 sets the escape button
+from it, ViewProviderSketch.cpp 9475) -- so "any setting": the Sketcher
+only, none general. Std_Edit (CommandDoc.cpp 1851-1886, "Toggle Edit
+mode", no shortcut) already resets an edit when the active 3D view is
+editing, but it is active on any selection and toggles, so it is not the
+command asked for. The note-taker's reading: a NEW command (e.g.
+"Std_ResetEdit", "End edit"), active only while the CURRENT view is in
+edit, default Shift+Esc, user-assignable as any command; the conflict
+check covers the shortcut table (Shortcuts.cfg packs, user cfgs) and
+Qt's Esc handling in dialogs and the 3D view. NOT said: whether a PLAIN
+Esc keeps ending an edit after this (both hard-coded paths), or stops --
+put to the reporter. The browser's Esc (entry 201, x16win) is the same
+family. To be ASSIGNED to x16win after 132.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -28039,5 +28095,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 202
+the build session, 131 and 132 found by it; entries 134 to 203
 are of 2026-10-15, 134 said to the build session)

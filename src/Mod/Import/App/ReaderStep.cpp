@@ -160,7 +160,7 @@ int ReaderStep::openStream()
     reader.SetSHUOMode(true);
     if (reader.ReadFile(name8bit.c_str()) != IFSelect_RetDone) {
         stream.reset();
-        throw Base::FileException("Cannot read STEP file", file);
+        THROWM(Base::FileException, "Cannot read STEP file", file);
     }
     stream->roots = reader.NbRootsForTransfer();
     stream->progress = new Part::ProgressIndicator(100);
@@ -304,7 +304,7 @@ void ReaderStep::read(Handle(TDocStd_Document) hDoc)  // NOLINT
     aReader.SetLayerMode(true);
     aReader.SetSHUOMode(true);
     if (aReader.ReadFile(name8bit.c_str()) != IFSelect_RetDone) {
-        throw Base::FileException("Cannot read STEP file", file);
+        THROWM(Base::FileException, "Cannot read STEP file", file);
     }
 
 #if OCC_VERSION_HEX >= 0x070500

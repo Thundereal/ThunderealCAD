@@ -1070,10 +1070,10 @@ View* View::buildForm(Fw::Widget* model, QWidget* parent)
     const QString path = form->uiFile();
     QFile file(path);
     if (path.isEmpty() || !file.open(QIODevice::ReadOnly))
-        throw Base::RuntimeError("FwQt: cannot open .ui file '" + path.toStdString() + "'");
+        THROWM(Base::RuntimeError, "FwQt: cannot open .ui file '" + path.toStdString() + "'");
     QWidget* w = loader().load(&file, parent);
     if (!w)
-        throw Base::RuntimeError("FwQt: cannot load .ui file '" + path.toStdString() + "'");
+        THROWM(Base::RuntimeError, "FwQt: cannot load .ui file '" + path.toStdString() + "'");
     auto view = new View(model, w, true);
     view->readBack();
     try {
@@ -2953,7 +2953,7 @@ int Gui::FwQt::execDialog(Fw::Widget* root)
     QWidget* w = realizeTopLevel(root);
     auto dlg = qobject_cast<QDialog*>(w);
     if (!dlg)
-        throw Base::TypeError("exec: the root is not a QDialog");
+        THROWM(Base::TypeError, "exec: the root is not a QDialog");
     return dlg->exec();
 }
 

@@ -26,7 +26,10 @@
 
 #include <fastsignals/signal.h>
 
+#include <optional>
+
 #include <QBrush>
+#include <QColor>
 
 #include <Base/Color.h>
 #include <Gui/TaskView/TaskView.h>
@@ -40,6 +43,14 @@ class QIcon;
 class QMenu;
 class QTreeWidget;
 class QTreeWidgetItem;
+
+namespace App {
+    class PropertyMap;
+}
+
+namespace Gui {
+    class Gizmo;
+}
 
 namespace Part {
     class Feature;
@@ -115,11 +126,50 @@ protected:
     /** The colour of an edge group's handles (docs/OnViewValueEditing.md 3.3,
      * the reporter 2026-10-14 13:54: "each group show its own color. choose
      * color from a set of distinct ones (auto generated)"), a fillet's and a
-     * chamfer's alike
+     * chamfer's alike: the one the user picked (the feature's GroupColors),
+     * else an automatic one (entry 202)
      */
-    static Base::Color groupColor(int group);
+    Base::Color groupColor(int group) const;
+    /** A group's automatic colour: a hue from its id, kept clear of the hues
+     * a handle wears plain, dragged, selected and under the pointer
+     */
+    static Base::Color autoGroupColor(int group);
+    /// The colour the user picked for \a group, if any
+    std::optional<QColor> pickedGroupColor(int group) const;
     /// A swatch of a group's colour, for its menu item and its panel row
-    static QIcon groupIcon(int group);
+    QIcon groupIcon(int group) const;
+    /// The feature's GroupColors, null for a dress-up without groups
+    App::PropertyMap* getGroupColors() const;
+    /// Pick \a group's colour (none: automatic again), in the open transaction
+    void setGroupColor(int group, const std::optional<QColor>& color);
+    /// The colour dialog for \a group's colour
+    void pickGroupColor(int group);
+    /// "Group colour..." and "Automatic group colour" in a handle's menu
+    void addGroupColorActions(QMenu& menu, int group);
+    /// The same two in \a parentList's own menu, for its current row
+    void createGroupColorActions(QTreeWidget* parentList);
+    /** The handle of the row whose preview face, edge or face the pointer is
+     * over in the view (entry 169's hover), null for none: a right click
+     * there opens its menu (OnViewValueSet::setHoverHandleProvider, entry 202)
+     */
+    Gui::Gizmo* getHoverHandle() const;
+    /// The handle that stands for a row, null for none
+    virtual Gui::Gizmo* itemHandle(QTreeWidgetItem*) const
+    {
+        return nullptr;
+    }
+    /// The group of a row, 0 for none
+    virtual int itemGroup(QTreeWidgetItem*) const
+    {
+        return 0;
+    }
+    /// A group's colour changed: the rows' swatches and the handles follow
+    virtual void groupColorsChanged() {}
+
+Q_SIGNALS:
+    void groupColorsUpdated();
+
+protected:
 
     void addAllEdges();
 

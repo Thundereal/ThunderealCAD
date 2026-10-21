@@ -88,6 +88,7 @@ is safe to leave on. `FreeCADCmd -t 0` needs a pty; see the doc.
 - **pre-commit** (`.pre-commit-config.yaml`) runs clang-format/black/whitespace fixes but only over an **allowlisted subset** of `src/` — much of the tree is exempt. Run `pre-commit run --files <changed>` before committing; still follow `.clang-format`/black for files outside the allowlist.
 - `.git-blame-ignore-revs` lists bulk-reformat commits — use `git blame --ignore-revs-file .git-blame-ignore-revs`.
 - **Commit messages**: `Area: summary`, where Area is the module abbreviated — `Gui:`, `App:`, `Part:`, `PD:` (PartDesign), `Sketcher:`, `TD:`/`Techdraw:`, `Sheet:` (Spreadsheet). Keep one problem per PR.
+- **Throw Base exceptions with `THROWM(Base::Xxx, args...)`** (`THROW(Base::Xxx)` without arguments, `FC_THROWM` to stream a message), never a bare `throw Base::Xxx(...)`: the macros record the throw site, which the crash log and Python's `sfile`/`iline` show when one leaks. Exceptions: `Base::PyException` and a copy of a caught exception keep the site they carry, so they stay bare -- as does anything allocating with the memory gone (`freecadNewHandler`). Converted tree-wide 2026-10-19 (`~/.cache/lv-merge/throwm/convert.py` reports any bare ones added since).
 
 ### ASCII only (hard rule)
 

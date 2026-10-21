@@ -1838,17 +1838,17 @@ bool isSimpleExpression(const Expression *expr, bool no_arithmetics)
                     case OP_NEG:
                         return;
                     default:
-                        throw Base::RuntimeError();
+                        THROW(Base::RuntimeError);
                     }
                 }
                 else if (!e.isDerivedFrom(UnitExpression::getClassTypeId()))
-                    throw Base::RuntimeError();
+                    THROW(Base::RuntimeError);
             }
             else if (!e.isDerivedFrom(UnitExpression::getClassTypeId())
                         && !e.isDerivedFrom(OperatorExpression::getClassTypeId())
                         && !e.isDerivedFrom(ConditionalExpression::getClassTypeId())
                         && !e.isDerivedFrom(SimpleStatement::getClassTypeId()))
-                throw Base::RuntimeError();
+                THROW(Base::RuntimeError);
         });
 
     try {
@@ -2902,7 +2902,7 @@ public:
 
     Quantity getQuantity() const override {
         if (n < 2)
-            throw ExpressionError("Invalid number of entries: at least two required.");
+            THROWM(ExpressionError, "Invalid number of entries: at least two required.")
         else
             return Quantity((M2 / (n - 1.0)).pow(Quantity(0.5)).getValue(), mean.getUnit());
     }
@@ -7538,24 +7538,24 @@ ExpressionPtr parse(const App::DocumentObject *owner,
         result = parser.parse ();
     }catch (parser::syntax_error &e) {
         if(!verbose)
-            throw ParserError(e.what());
-        throw ParserError(ctx.getErrorContext(e.what()));
+            THROWM(ParserError, e.what());
+        THROWM(ParserError, ctx.getErrorContext(e.what()));
     }catch (ParserError &e) {
         if(!verbose)
             throw;
-        throw ParserError(ctx.getErrorContext(e.what()));
+        THROWM(ParserError, ctx.getErrorContext(e.what()));
     }
 
     if (result != 0)
-        throw ParserError("Failed to parse expression.");
+        THROWM(ParserError, "Failed to parse expression.");
 
     if (!ctx.ScanResult)
-        throw ParserError("Unknown error in expression");
+        THROWM(ParserError, "Unknown error in expression");
 
     if (ctx.valueExpression)
         return std::move(ctx.ScanResult);
     else {
-        throw Expression::Exception("Expression can not evaluate to a value.");
+        THROWM(Expression::Exception, "Expression can not evaluate to a value.");
     }
 }
 

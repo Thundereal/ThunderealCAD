@@ -59,7 +59,9 @@ translate = FreeCAD.Qt.translate
 QT_TRANSLATE_NOOP = FreeCAD.Qt.QT_TRANSLATE_NOOP
 
 # texts and icons
-WIKI_URL = "https://wiki.freecad.org"
+# Where a page is found by its wiki name: the program's own help site where it
+# has one (Main/Identity.h, HelpWikiUrl), else FreeCAD's wiki
+WIKI_URL = FreeCAD.ConfigGet("HelpWikiUrl") or "https://wiki.freecad.org"
 MD_RAW_URL = "https://raw.githubusercontent.com/FreeCAD/FreeCAD-documentation/main/wiki"
 MD_RENDERED_URL = "https://github.com/FreeCAD/FreeCAD-documentation/blob/main/wiki"
 MD_TRANSLATIONS_FOLDER = "translations"

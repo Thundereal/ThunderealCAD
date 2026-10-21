@@ -140,7 +140,7 @@ void ExternalManager::connect()
         instantiate();
 
         if (!_instantiated) {
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
 }
@@ -176,7 +176,7 @@ std::shared_ptr<Library>
 ExternalManager::libraryFromObject(const Py::Object& entry)
 {
     if (!checkMaterialLibraryType(entry)) {
-        throw InvalidLibrary();
+        THROW(InvalidLibrary);
     }
 
     Py::String pyName(entry.getAttr("name"));
@@ -248,13 +248,13 @@ ExternalManager::libraries()
         }
         else {
             Base::Console().log("\tlibraries() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
         Base::Console().log("Library error %s", e1.what());
-        throw LibraryNotFound(e1.what());
+        THROWM(LibraryNotFound, e1.what());
     }
 
     return libList;
@@ -278,12 +278,12 @@ std::shared_ptr<std::vector<std::shared_ptr<Library>>> ExternalManager::modelLib
         }
         else {
             Base::Console().log("\tmodelLibraries() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw LibraryNotFound(e1.what());
+        THROWM(LibraryNotFound, e1.what());
     }
 
     return libList;
@@ -307,12 +307,12 @@ std::shared_ptr<std::vector<std::shared_ptr<Library>>> ExternalManager::material
         }
         else {
             Base::Console().log("\tmaterialLibraries() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw LibraryNotFound(e1.what());
+        THROWM(LibraryNotFound, e1.what());
     }
 
     return libList;
@@ -336,15 +336,15 @@ std::shared_ptr<Library> ExternalManager::getLibrary(const QString& name)
         }
         else {
             Base::Console().log("\tgetLibrary() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (const InvalidLibrary&) {
-        throw LibraryNotFound();
+        THROW(LibraryNotFound);
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw LibraryNotFound(e1.what());
+        THROWM(LibraryNotFound, e1.what());
     }
 }
 
@@ -364,12 +364,12 @@ void ExternalManager::createLibrary(const QString& libraryName, const QByteArray
         }
         else {
             Base::Console().log("\tcreateLibrary() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw CreationError(e1.what());
+        THROWM(CreationError, e1.what());
     }
 }
 
@@ -388,12 +388,12 @@ void ExternalManager::renameLibrary(const QString& libraryName, const QString& n
         }
         else {
             Base::Console().log("\trenameLibrary() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw RenameError(e1.what());
+        THROWM(RenameError, e1.what());
     }
 }
 
@@ -412,12 +412,12 @@ void ExternalManager::changeIcon(const QString& libraryName, const QByteArray& i
         }
         else {
             Base::Console().log("\tchangeIcon() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw ReplacementError(e1.what());
+        THROWM(ReplacementError, e1.what());
     }
 }
 
@@ -435,12 +435,12 @@ void ExternalManager::removeLibrary(const QString& libraryName)
         }
         else {
             Base::Console().log("\tremoveLibrary() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw DeleteError(e1.what());
+        THROWM(DeleteError, e1.what());
     }
 }
 
@@ -461,7 +461,7 @@ ExternalManager::libraryModels(const QString& libraryName)
             for (auto library : list) {
                 auto entry = Py::Object(library);
                 if (!checkMaterialLibraryObjectType(entry)) {
-                    throw InvalidModel();
+                    THROW(InvalidModel);
                 }
 
                 modelList->push_back(materialLibraryObjectTypeFromObject(entry));
@@ -469,12 +469,12 @@ ExternalManager::libraryModels(const QString& libraryName)
         }
         else {
             Base::Console().log("\tlibraryModels() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw LibraryNotFound(e1.what());
+        THROWM(LibraryNotFound, e1.what());
     }
 
     return modelList;
@@ -497,7 +497,7 @@ ExternalManager::libraryMaterials(const QString& libraryName)
             for (auto library : list) {
                 auto entry = Py::Object(library);
                 if (!checkMaterialLibraryObjectType(entry)) {
-                    throw InvalidMaterial();
+                    THROW(InvalidMaterial);
                 }
 
                 materialList->push_back(materialLibraryObjectTypeFromObject(entry));
@@ -505,12 +505,12 @@ ExternalManager::libraryMaterials(const QString& libraryName)
         }
         else {
             Base::Console().log("\tlibraryMaterials() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw LibraryNotFound(e1.what());
+        THROWM(LibraryNotFound, e1.what());
     }
 
     return materialList;
@@ -539,7 +539,7 @@ ExternalManager::libraryMaterials(const QString& libraryName,
             for (auto library : list) {
                 auto entry = Py::Object(library);
                 if (!checkMaterialLibraryObjectType(entry)) {
-                    throw InvalidMaterial();
+                    THROW(InvalidMaterial);
                 }
 
                 materialList->push_back(materialLibraryObjectTypeFromObject(entry));
@@ -547,12 +547,12 @@ ExternalManager::libraryMaterials(const QString& libraryName,
         }
         else {
             Base::Console().log("\tlibraryMaterials() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw LibraryNotFound(e1.what());
+        THROWM(LibraryNotFound, e1.what());
     }
 
     return materialList;
@@ -585,12 +585,12 @@ std::shared_ptr<std::vector<QString>> ExternalManager::libraryFolders(const QStr
         }
         else {
             Base::Console().log("\tlibraryFolders() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw LibraryNotFound(e1.what());
+        THROWM(LibraryNotFound, e1.what());
     }
 
     return folderList;
@@ -617,12 +617,12 @@ void ExternalManager::createFolder(const QString& libraryName, const QString& pa
         }
         else {
             Base::Console().log("\tcreateFolder() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw CreationError(e1.what());
+        THROWM(CreationError, e1.what());
     }
 }
 
@@ -644,12 +644,12 @@ void ExternalManager::renameFolder(const QString& libraryName,
         }
         else {
             Base::Console().log("\trenameFolder() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw RenameError(e1.what());
+        THROWM(RenameError, e1.what());
     }
 }
 
@@ -668,12 +668,12 @@ void ExternalManager::deleteRecursive(const QString& libraryName, const QString&
         }
         else {
             Base::Console().log("\tdeleteRecursive() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw DeleteError(e1.what());
+        THROWM(DeleteError, e1.what());
     }
 }
 
@@ -692,7 +692,7 @@ std::shared_ptr<Model> ExternalManager::modelFromObject(const Py::Object& entry,
                                                         const QString& uuid)
 {
     if (!checkModelObjectType(entry)) {
-        throw InvalidModel();
+        THROW(InvalidModel);
     }
 
     Py::String pyName(entry.getAttr("libraryName"));
@@ -732,12 +732,12 @@ std::shared_ptr<Model> ExternalManager::getModel(const QString& uuid)
         }
         else {
             Base::Console().log("\tgetModel() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw ModelNotFound(e1.what());
+        THROWM(ModelNotFound, e1.what());
     }
 }
 
@@ -759,12 +759,12 @@ void ExternalManager::addModel(const QString& libraryName,
         }
         else {
             Base::Console().log("\taddModel() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw CreationError(e1.what());
+        THROWM(CreationError, e1.what());
     }
 }
 
@@ -786,12 +786,12 @@ void ExternalManager::migrateModel(const QString& libraryName,
         }
         else {
             Base::Console().log("\tmigrateModel() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw CreationError(e1.what());
+        THROWM(CreationError, e1.what());
     }
 }
 
@@ -813,12 +813,12 @@ void ExternalManager::updateModel(const QString& libraryName,
         }
         else {
             Base::Console().log("\tupdateModel() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw UpdateError(e1.what());
+        THROWM(UpdateError, e1.what());
     }
 }
 
@@ -840,12 +840,12 @@ void ExternalManager::setModelPath(const QString& libraryName,
         }
         else {
             Base::Console().log("\tsetModelPath() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw UpdateError(e1.what());
+        THROWM(UpdateError, e1.what());
     }
 }
 
@@ -867,12 +867,12 @@ void ExternalManager::renameModel(const QString& libraryName,
         }
         else {
             Base::Console().log("\trenameModel() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw RenameError(e1.what());
+        THROWM(RenameError, e1.what());
     }
 }
 
@@ -894,12 +894,12 @@ void ExternalManager::moveModel(const QString& libraryName,
         }
         else {
             Base::Console().log("\tmoveModel() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw MoveError(e1.what());
+        THROWM(MoveError, e1.what());
     }
 }
 
@@ -917,12 +917,12 @@ void ExternalManager::removeModel(const QString& uuid)
         }
         else {
             Base::Console().log("\tremoveModel() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw DeleteError(e1.what());
+        THROWM(DeleteError, e1.what());
     }
 }
 
@@ -941,7 +941,7 @@ std::shared_ptr<Material> ExternalManager::materialFromObject(const Py::Object& 
                                                               const QString& uuid)
 {
     if (!checkMaterialObjectType(entry)) {
-        throw InvalidMaterial();
+        THROW(InvalidMaterial);
     }
 
     Py::String pyName(entry.getAttr("libraryName"));
@@ -981,12 +981,12 @@ std::shared_ptr<Material> ExternalManager::getMaterial(const QString& uuid)
         }
         else {
             Base::Console().log("\tgetMaterial() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw MaterialNotFound(e1.what());
+        THROWM(MaterialNotFound, e1.what());
     }
 }
 
@@ -1008,12 +1008,12 @@ void ExternalManager::addMaterial(const QString& libraryName,
         }
         else {
             Base::Console().log("\taddMaterial() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw CreationError(e1.what());
+        THROWM(CreationError, e1.what());
     }
 }
 
@@ -1036,12 +1036,12 @@ void ExternalManager::migrateMaterial(const QString& libraryName,
         }
         else {
             Base::Console().log("\tmigrateMaterial() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw CreationError(e1.what());
+        THROWM(CreationError, e1.what());
     }
 }
 
@@ -1063,12 +1063,12 @@ void ExternalManager::updateMaterial(const QString& libraryName,
         }
         else {
             Base::Console().log("\tupdateMaterial() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw UpdateError(e1.what());
+        THROWM(UpdateError, e1.what());
     }
 }
 
@@ -1090,12 +1090,12 @@ void ExternalManager::setMaterialPath(const QString& libraryName,
         }
         else {
             Base::Console().log("\tsetMaterialPath() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw UpdateError(e1.what());
+        THROWM(UpdateError, e1.what());
     }
 }
 
@@ -1117,12 +1117,12 @@ void ExternalManager::renameMaterial(const QString& libraryName,
         }
         else {
             Base::Console().log("\trenameMaterial() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw RenameError(e1.what());
+        THROWM(RenameError, e1.what());
     }
 }
 
@@ -1144,12 +1144,12 @@ void ExternalManager::moveMaterial(const QString& libraryName,
         }
         else {
             Base::Console().log("\tmoveMaterial() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw MoveError(e1.what());
+        THROWM(MoveError, e1.what());
     }
 }
 
@@ -1167,11 +1167,11 @@ void ExternalManager::removeMaterial(const QString& uuid)
         }
         else {
             Base::Console().log("\tremoveMaterial() not found\n");
-            throw ConnectionError();
+            THROW(ConnectionError);
         }
     }
     catch (Py::Exception& e) {
         Base::PyException e1;  // extract the Python error text
-        throw DeleteError(e1.what());
+        THROWM(DeleteError, e1.what());
     }
 }

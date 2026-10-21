@@ -65,6 +65,8 @@ protected:
     void changeEvent(QEvent *e) override;
     void refresh() override;
     void finishedRecomputeFeature() override;
+    /// Every face taken off: the thickness's handle
+    Gui::Gizmo* itemHandle(QTreeWidgetItem* item) const override;
 
 private:
     std::unique_ptr<Ui_TaskThicknessParameters> ui;

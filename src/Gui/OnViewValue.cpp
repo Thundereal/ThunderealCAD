@@ -1654,11 +1654,22 @@ bool OnViewValueSet::eventFilter(QObject* watched, QEvent* event)
     if (watched == keyWidget && !dragHandle && event->type() == QEvent::MouseButtonPress
         && static_cast<QMouseEvent*>(event)->button() == Qt::RightButton) {
         rightPressHandle = nullptr;
+        rightPressFromHover = false;
         for (const auto& entry : entries) {
             for (Gizmo* handle : entry->handles) {
                 if (handle->isHovered()) {
                     rightPressHandle = handle;
                 }
+            }
+        }
+        // on no handle: on what one stands for -- a preview face, the edge
+        // or face under it (entry 202 (b)) -- that handle's menu
+        if (!rightPressHandle && hoverHandleProvider) {
+            Gizmo* handle = hoverHandleProvider();
+            if (handle && valueOf(handle) >= 0) {
+                rightPressHandle = handle;
+                rightPressFromHover = true;
+                rightPressPos = static_cast<QMouseEvent*>(event)->position().toPoint();
             }
         }
         if (rightPressHandle) {
@@ -1668,8 +1679,18 @@ bool OnViewValueSet::eventFilter(QObject* watched, QEvent* event)
     if (watched == keyWidget && rightPressHandle && event->type() == QEvent::MouseButtonRelease
         && static_cast<QMouseEvent*>(event)->button() == Qt::RightButton) {
         Gizmo* handle = rightPressHandle;
+        const bool fromHover = rightPressFromHover;
         rightPressHandle = nullptr;
-        if (valueOf(handle) >= 0 && handle->isHovered()) {
+        rightPressFromHover = false;
+        // still over what was pressed on: the handle, or for what a handle
+        // stands for, where the press was (the press itself may take the
+        // pre-selection away)
+        const bool still = fromHover
+            ? (static_cast<QMouseEvent*>(event)->position().toPoint() - rightPressPos)
+                      .manhattanLength()
+                  <= 4
+            : handle->isHovered();
+        if (valueOf(handle) >= 0 && still) {
             // after the event: the menu runs a loop of its own
             QTimer::singleShot(0, this, [this, handle]() {
                 if (valueOf(handle) >= 0) {

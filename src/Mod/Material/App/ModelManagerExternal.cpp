@@ -99,10 +99,10 @@ std::shared_ptr<ModelLibrary> ModelManagerExternal::getLibrary(const QString& na
         throw LibraryNotFound(e);
     }
     catch (const ConnectionError& e) {
-        throw LibraryNotFound(e.what());
+        THROWM(LibraryNotFound, e.what());
     }
     catch (...) {
-        throw LibraryNotFound("Unknown exception");
+        THROWM(LibraryNotFound, "Unknown exception");
     }
 }
 

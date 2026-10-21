@@ -56,9 +56,9 @@ using PyObject = struct _object;
         myexcp.setDebugInformation(__FILE__, __LINE__, __FUNCSIG__);                               \
         throw myexcp;                                                                              \
     }
-#define THROWM(exception, message)                                                                 \
+#define THROWM(exception, ...)                                                                     \
     {                                                                                              \
-        exception myexcp(message);                                                                 \
+        exception myexcp(__VA_ARGS__);                                                             \
         myexcp.setDebugInformation(__FILE__, __LINE__, __FUNCSIG__);                               \
         throw myexcp;                                                                              \
     }
@@ -76,9 +76,9 @@ using PyObject = struct _object;
         myexcp.setTranslatable(true);                                                              \
         throw myexcp;                                                                              \
     }
-#define THROWMT(exception, message)                                                                \
+#define THROWMT(exception, ...)                                                                    \
     {                                                                                              \
-        exception myexcp(message);                                                                 \
+        exception myexcp(__VA_ARGS__);                                                             \
         myexcp.setDebugInformation(__FILE__, __LINE__, __FUNCSIG__);                               \
         myexcp.setTranslatable(true);                                                              \
         throw myexcp;                                                                              \
@@ -99,9 +99,9 @@ using PyObject = struct _object;
         myexcp.setDebugInformation(__FILE__, __LINE__, __PRETTY_FUNCTION__);                       \
         throw myexcp;                                                                              \
     }
-#define THROWM(exception, message)                                                                 \
+#define THROWM(exception, ...)                                                                     \
     {                                                                                              \
-        exception myexcp(message);                                                                 \
+        exception myexcp(__VA_ARGS__);                                                             \
         myexcp.setDebugInformation(__FILE__, __LINE__, __PRETTY_FUNCTION__);                       \
         throw myexcp;                                                                              \
     }
@@ -119,9 +119,9 @@ using PyObject = struct _object;
         myexcp.setTranslatable(true);                                                              \
         throw myexcp;                                                                              \
     }
-#define THROWMT(exception, message)                                                                \
+#define THROWMT(exception, ...)                                                                    \
     {                                                                                              \
-        exception myexcp(message);                                                                 \
+        exception myexcp(__VA_ARGS__);                                                             \
         myexcp.setDebugInformation(__FILE__, __LINE__, __PRETTY_FUNCTION__);                       \
         myexcp.setTranslatable(true);                                                              \
         throw myexcp;                                                                              \
@@ -142,9 +142,9 @@ using PyObject = struct _object;
         myexcp.setDebugInformation(__FILE__, __LINE__, __func__);                                  \
         throw myexcp;                                                                              \
     }
-#define THROWM(exception, message)                                                                 \
+#define THROWM(exception, ...)                                                                     \
     {                                                                                              \
-        exception myexcp(message);                                                                 \
+        exception myexcp(__VA_ARGS__);                                                             \
         myexcp.setDebugInformation(__FILE__, __LINE__, __func__);                                  \
         throw myexcp;                                                                              \
     }
@@ -162,9 +162,9 @@ using PyObject = struct _object;
         myexcp.setTranslatable(true);                                                              \
         throw myexcp;                                                                              \
     }
-#define THROWMT(exception, message)                                                                \
+#define THROWMT(exception, ...)                                                                    \
     {                                                                                              \
-        exception myexcp(message);                                                                 \
+        exception myexcp(__VA_ARGS__);                                                             \
         myexcp.setDebugInformation(__FILE__, __LINE__, __func__);                                  \
         myexcp.setTranslatable(true);                                                              \
         throw myexcp;                                                                              \

@@ -74,7 +74,7 @@ const QString ModelLoader::getUUIDFromPath(const QString& path)
 {
     QFile file(path);
     if (!file.exists()) {
-        throw ModelNotFound();
+        THROW(ModelNotFound);
     }
 
     try {
@@ -90,7 +90,7 @@ const QString ModelLoader::getUUIDFromPath(const QString& path)
         return uuid;
     }
     catch (YAML::Exception&) {
-        throw ModelNotFound();
+        THROW(ModelNotFound);
     }
 }
 
@@ -99,7 +99,7 @@ std::shared_ptr<ModelEntry> ModelLoader::getModelFromPath(std::shared_ptr<ModelL
 {
     QFile file(path);
     if (!file.exists()) {
-        throw ModelNotFound();
+        THROW(ModelNotFound);
     }
 
     YAML::Node yamlroot;
@@ -118,7 +118,7 @@ std::shared_ptr<ModelEntry> ModelLoader::getModelFromPath(std::shared_ptr<ModelL
         name = yamlroot[base]["Name"].as<std::string>();
     }
     catch (YAML::Exception const&) {
-        throw InvalidModel();
+        THROW(InvalidModel);
     }
 
     auto localLibrary = std::static_pointer_cast<ModelLibraryLocal>(library);
@@ -230,7 +230,7 @@ void ModelLoader::addToTree(std::shared_ptr<ModelEntry> model,
 
     auto yamlModel = model->getModel();
     if (!model->getLibrary()->isLocal()) {
-        throw InvalidLibrary();
+        THROW(InvalidLibrary);
     }
     auto library = model->getLibrary();
     auto base = model->getBase().toStdString();

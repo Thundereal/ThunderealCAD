@@ -710,7 +710,7 @@ bool FileInfo::deleteDirectoryRecursive() const
             fi.deleteFile();
         }
         else {
-            throw Base::FileException(
+            THROWM(Base::FileException,
                 "FileInfo::deleteDirectoryRecursive(): Unknown object Type in directory!");
         }
     }

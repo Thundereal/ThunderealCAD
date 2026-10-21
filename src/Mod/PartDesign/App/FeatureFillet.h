@@ -43,6 +43,9 @@ public:
     Part::PropertyFilletSegments Segments;
     Part::PropertyFilletCorners Corners;
     App::PropertyBool UseAllEdges;
+    /// A colour the user picked for an edge group's handles: the group id
+    /// to "#rrggbb"; a group not here takes an automatic one (entry 202)
+    App::PropertyMap GroupColors;
 
     /** @name methods override feature */
     //@{

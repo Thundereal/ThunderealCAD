@@ -289,7 +289,7 @@ std::string InterpreterSingleton::runString(const char* sCmd)
     presult = PyRun_String(sCmd, Py_file_input, dict, dict); /* eval direct */
     if (!presult) {
         if (PyErr_ExceptionMatches(PyExc_SystemExit)) {
-            throw SystemExitException();
+            THROW(SystemExitException);
         }
 
         PyException::ThrowException();
@@ -335,7 +335,7 @@ std::string InterpreterSingleton::runStringWithKey(const char* psCmd,
         PyObject* presult = PyRun_String(psCmd, Py_file_input, globalDictionary.ptr(), localDictionary.ptr());
         if (!presult) {
             if (PyErr_ExceptionMatches(PyExc_SystemExit)) {
-                throw SystemExitException();
+                THROW(SystemExitException);
             }
             else {
                 PyException::ThrowException();
@@ -376,7 +376,7 @@ Py::Object InterpreterSingleton::runStringObject(const char* sCmd)
     presult = PyRun_String(sCmd, Py_eval_input, dict, dict); /* eval direct */
     if (!presult) {
         if (PyErr_ExceptionMatches(PyExc_SystemExit)) {
-            throw SystemExitException();
+            THROW(SystemExitException);
         }
 
         throw PyException();
@@ -450,7 +450,7 @@ void InterpreterSingleton::runInteractiveString(const char* sCmd)
     presult = PyRun_String(sCmd, Py_single_input, dict, dict); /* eval direct */
     if (!presult) {
         if (PyErr_ExceptionMatches(PyExc_SystemExit)) {
-            throw SystemExitException();
+            THROW(SystemExitException);
         }
         /* get latest python exception information */
         /* and print the error to the error output */
@@ -533,7 +533,7 @@ void InterpreterSingleton::runFile(const char* pxFileName, bool local)
 
         if (!result) {
             if (PyErr_ExceptionMatches(PyExc_SystemExit)) {
-                throw SystemExitException();
+                THROW(SystemExitException);
             }
 
             throw PyException();
@@ -541,7 +541,7 @@ void InterpreterSingleton::runFile(const char* pxFileName, bool local)
         Py_DECREF(result);
     }
     else {
-        throw FileException("Unknown file", pxFileName);
+        THROWM(FileException, "Unknown file", pxFileName);
     }
 }
 
@@ -556,7 +556,7 @@ bool InterpreterSingleton::loadModule(const char* psModName)
 
     if (!module) {
         if (PyErr_ExceptionMatches(PyExc_SystemExit)) {
-            throw SystemExitException();
+            THROW(SystemExitException);
         }
 
         throw PyException();
@@ -823,7 +823,7 @@ void InterpreterSingleton::runMethod(PyObject* pobject,
     pmeth = PyObject_GetAttrString(pobject, method);
     if (!pmeth) { /* get callable object */
         va_end(argslist);
-        throw AttributeError(
+        THROWM(AttributeError,
             "Error running InterpreterSingleton::RunMethod() method not defined"); /* bound method?
                                                                                       has self */
     }
@@ -833,7 +833,7 @@ void InterpreterSingleton::runMethod(PyObject* pobject,
 
     if (!pargs) {
         Py_DECREF(pmeth);
-        throw TypeError("InterpreterSingleton::RunMethod() wrong arguments");
+        THROWM(TypeError, "InterpreterSingleton::RunMethod() wrong arguments");
     }
 
 #if PY_VERSION_HEX < 0x03090000
@@ -848,7 +848,7 @@ void InterpreterSingleton::runMethod(PyObject* pobject,
         if (PyErr_Occurred()) {
             PyErr_Print();
         }
-        throw RuntimeError(
+        THROWM(RuntimeError,
             "Error running InterpreterSingleton::RunMethod() exception in called method");
     }
 }

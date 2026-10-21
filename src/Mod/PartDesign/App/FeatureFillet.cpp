@@ -72,6 +72,13 @@ Fillet::Fillet()
     ADD_PROPERTY_TYPE(UseAllEdges, (false), "Fillet", App::Prop_None,
       "Fillet all edges if true, else use only those edges in Base property.\n"
       "If true, then this overrides any edge changes made to the Base property or in the dialog.\n");
+
+    // Output: a colour changes no shape. A file without it gives every
+    // group an automatic colour, as before (docs/HandsOnQueue.md entry 202)
+    ADD_PROPERTY_TYPE(GroupColors, (), "Fillet",
+      static_cast<App::PropertyType>(App::Prop_Hidden | App::Prop_Output),
+      "The colour of an edge group's handles in the view, by group id ('#rrggbb').\n"
+      "A group not listed takes an automatic colour.");
 }
 
 short Fillet::mustExecute() const

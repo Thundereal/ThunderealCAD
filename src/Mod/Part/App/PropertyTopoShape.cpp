@@ -2262,7 +2262,7 @@ FilletElement PropertyFilletEdges::getPyValue(PyObject *item) const
 {
     FilletElement fe;
     if(!PyObject_TypeCheck(item, &PyTuple_Type))
-        throw Base::TypeError();
+        THROW(Base::TypeError);
 
     try {
         Py::Tuple ent(item);

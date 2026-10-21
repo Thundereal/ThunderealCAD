@@ -70,10 +70,12 @@ a `user.cfg` with `ImmutableShapeValues` off -- is one home for all of
 them: a test that crashed or was killed leaves its recovery data there,
 and the next ones start under a `DocumentRecovery` dialog (18 failures of
 45 that day were that and nothing else). And the profile under
-`Testing/gui/<name>/.iso` is **kept between runs**, as
-`scripts/gui-test-profile.py` says: what such a run left in it -- a theme
-chosen, a language stored -- fails the next clean run too (7 more), until
-`rm -rf Testing/gui/*/.iso`. So a run with the freeze off is the gtest
+`Testing/gui/<name>/.iso` was **kept between runs**: what such a run left in it -- a theme
+chosen, a language stored -- failed the next clean run too (7 more), until
+`rm -rf Testing/gui/*/.iso`. Any second run did the same, home or not (the
+same 7 on 2026-10-20). Since then `scripts/gui-test.sh` removes the
+profile (`user.cfg` and the private config dir) at the start of each run
+and keeps only the cache. So a run with the freeze off is the gtest
 binaries' alone (`ctest -E '^(Gui|Render)'` with the home), and the
 driven tests run once, with no home, the freeze as it defaults.
 

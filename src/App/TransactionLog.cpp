@@ -2578,8 +2578,8 @@ std::string TransactionLogCore::putComposite(const std::string& entry,
         if (s.claimed) {
             auto it = _hashById.find(s.key);
             if (it == _hashById.end())
-                throw Base::RuntimeError("transaction log: " + entry + ": " + container + "."
-                                         + s.name + " claimed but not held");
+                THROWM(Base::RuntimeError, "transaction log: " + entry + ": " + container + "."
+                                           + s.name + " claimed but not held");
             hash = it->second;
             if (!s.text.empty()) {
                 const std::string fresh = hashBytes(s.text);

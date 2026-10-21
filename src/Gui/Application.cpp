@@ -2728,8 +2728,8 @@ void Application::initOpenInventor()
             "loaded library (%s) reports ABI %d. Rebuild/reinstall the Coin "
             "fork and anything linking it (pivy), then rebuild FreeCAD.\n",
             COIN_FORK_ABI_VERSION, libpath, coin_fork_abi());
-        throw Base::RuntimeError("Coin library ABI mismatch, refusing to start "
-                                 "(see the log for the loaded library path)");
+        THROWM(Base::RuntimeError, "Coin library ABI mismatch, refusing to start "
+                                   "(see the log for the loaded library path)");
     }
 
     // init the Inventor subsystem

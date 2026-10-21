@@ -26,7 +26,10 @@ the gap between them is empty. Claims:
     reporter, 2026-10-16, "Dimension line will select dimension" -- a click
     on an extension line lying over an edge selects the dimension, on a
     part view and on a projection group's view; so does one on the
-    dimension line away from the label, and one on the label.
+    dimension line away from the label, and one on the label;
+  - entry 204 (the user, 2026-10-21): frames hidden, an edge of a
+    projection group's Front view selected: the Front's frame shows, the
+    group's Right view's does not (a group has no frame of its own).
 """
 import os
 import traceback
@@ -305,6 +308,15 @@ def group():
     group.ScaleType = "Custom"
     group.Scale = 1.0
     group.addProjection("Front")
+    # a second view, 50 mm right of the Front: its frame stays hidden while
+    # the Front's edge is selected (entry 204). Placed by hand: laid out by
+    # the group before either view had a size, both stood at its middle,
+    # one on the other, and the second took the Front's clicks
+    group.addProjection("Right")
+    right = [v for v in group.Views if v.Type == "Right"][0]
+    group.AutoDistribute = False
+    right.X = 50.0
+    right.Y = 0.0
     group.X = GROUP_X
     group.Y = GROUP_Y
     doc.recompute()
@@ -313,7 +325,8 @@ def group():
 @step(3000)
 def group_dimensions():
     # the view's lines come from a thread: none right after the recompute
-    front = FreeCAD.getDocument(DOC).getObject("Group").Views[0]
+    front = [v for v in FreeCAD.getDocument(DOC).getObject("Group").Views
+             if v.Type == "Front"][0]
     EXT["group"] = (front.Name, front.X.Value, front.Y.Value) + extensions(front, "Group")
 
 
@@ -371,6 +384,29 @@ def drag_group():
     QtWidgets.QApplication.processEvents()
     check("a projection group's view dragged 10 mm moves the group about that",
           abs(group.X.Value - x0 - 10.0) < 1.0, (x0, group.X.Value))
+
+
+@step(800)
+def side_frame_line():
+    """Where the group's Right view's frame line is, the frames still shown: a
+    click there selects the Right view itself (entry 204)"""
+    group = FreeCAD.getDocument(DOC).getObject("Group")
+    tops = [v for v in group.Views if v.Type == "Right"]
+    if not tops:
+        check("the group has its Right view", False, [v.Type for v in group.Views])
+        return
+    top = tops[0]
+    tx, ty = group.X.Value + top.X.Value, group.Y.Value + top.Y.Value
+    v = page_view()
+    v.centerOn(QtCore.QPointF(tx * 10.0, -ty * 10.0))
+    QtWidgets.QApplication.processEvents()
+    for dy in [4.0 + 0.25 * k for k in range(60)]:
+        got = click_mm(tx, ty + dy)
+        if got and got[0][0] == top.Name and got[0][1] in ([], [""]):
+            FRAMES["top"] = (top.Name, top.X.Value, top.Y.Value, dy)
+            break
+    note("INFO the Right's frame line %s" % (FRAMES.get("top"),))
+    check("the group's Right view has a frame line", "top" in FRAMES, FRAMES.get("top"))
 
 
 @step(500)
@@ -489,6 +525,32 @@ def group_frame():
     check("entry 155: frames hidden, something of a projection group's view selected:"
           " its frame shows, which a click takes",
           bool(got) and got[0][0] == name and got[0][1] in ([], [""]), got)
+
+
+@step(300)
+def select_in_the_group_again():
+    FreeCADGui.Selection.clearSelection()
+    FreeCADGui.Selection.addSelection(DOC, EXT["group"][0], "Edge1")
+
+
+@step(800)
+def other_group_view_frame():
+    # entry 204 (the user, 2026-10-21): "when I select any geometry all views
+    # under a projection group show their frames. I want only the the owner
+    # view show its frame" -- a group has no frame of its own
+    if "top" not in FRAMES:
+        return
+    name, tx, ty, dy = FRAMES["top"]
+    group = FreeCAD.getDocument(DOC).getObject("Group")
+    gx, gy = group.X.Value, group.Y.Value
+    v = page_view()
+    v.centerOn(QtCore.QPointF((gx + tx) * 10.0, -(gy + ty) * 10.0))
+    QtWidgets.QApplication.processEvents()
+    v.grab().save(os.path.join(OUT, "group-other-view-frame.png"))
+    got = raw_click_mm(gx + tx, gy + ty + dy)
+    check("entry 204: frames hidden, the Front's edge selected: the group's Right view shows"
+          " no frame (a click where its line was goes through)",
+          not any(n == name for n, _ in got), got)
 
 
 # entry 192 (the reporter, 2026-10-20): "keep it everywhere, i.e. when frame

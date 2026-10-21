@@ -89,7 +89,7 @@ bool getSketchAxis(App::DocumentObject* obj, const std::string& sub, App::Patter
     else if (name.compare(0, 4, "Axis") == 0) {
         int index = std::atoi(name.c_str() + 4);
         if (index < 0 || index >= sketch->getAxisCount()) {
-            throw Base::ValueError("Sketch axis not found: " + name);
+            THROWM(Base::ValueError, "Sketch axis not found: " + name);
         }
         axis = sketch->getAxis(index);
     }
@@ -173,7 +173,7 @@ std::vector<TopoDS_Edge> chainEdges(std::list<TopoDS_Edge> edges)
             break;
         }
         if (!connected) {
-            throw Base::ValueError("Path edges must form one connected path");
+            THROWM(Base::ValueError, "Path edges must form one connected path");
         }
     }
     return result;
@@ -226,7 +226,7 @@ public:
                                        reversed ? -localDistance : localDistance,
                                        startParameter);
             if (!point.IsDone()) {
-                throw Base::CADKernelError("Failed to evaluate point on path");
+                THROWM(Base::CADKernelError, "Failed to evaluate point on path");
             }
             parameter = point.Parameter();
         }
@@ -265,19 +265,19 @@ bool PatternResolver::getDirection(App::DocumentObject* obj,
     }
     TopoDS_Shape element = getElement(shape, true);
     if (element.IsNull()) {
-        throw Base::TypeError("Direction reference must be edge or face");
+        THROWM(Base::TypeError, "Direction reference must be edge or face");
     }
     if (element.ShapeType() == TopAbs_FACE) {
         BRepAdaptor_Surface adapt(TopoDS::Face(element));
         if (adapt.GetType() != GeomAbs_Plane) {
-            throw Base::TypeError("Direction face must be planar");
+            THROWM(Base::TypeError, "Direction face must be planar");
         }
         dir = toVector(adapt.Plane().Axis().Direction().XYZ());
         return true;
     }
     BRepAdaptor_Curve adapt(TopoDS::Edge(element));
     if (adapt.GetType() != GeomAbs_Line) {
-        throw Base::TypeError("Direction edge must be a straight line");
+        THROWM(Base::TypeError, "Direction edge must be a straight line");
     }
     dir = toVector(adapt.Line().Direction().XYZ());
     return true;
@@ -297,7 +297,7 @@ bool PatternResolver::getAxis(App::DocumentObject* obj,
     }
     TopoDS_Shape element = getElement(shape, false);
     if (element.IsNull()) {
-        throw Base::TypeError("Axis reference must be an edge");
+        THROWM(Base::TypeError, "Axis reference must be an edge");
     }
     BRepAdaptor_Curve adapt(TopoDS::Edge(element));
     if (adapt.GetType() == GeomAbs_Line) {
@@ -309,7 +309,7 @@ bool PatternResolver::getAxis(App::DocumentObject* obj,
         axis.direction = toVector(adapt.Circle().Axis().Direction().XYZ());
     }
     else {
-        throw Base::TypeError("Rotation edge must be a straight line, circle or arc of circle");
+        THROWM(Base::TypeError, "Rotation edge must be a straight line, circle or arc of circle");
     }
     return true;
 }
@@ -329,7 +329,7 @@ PatternResolver::getPath(App::DocumentObject* obj, const std::vector<std::string
             return {};
         }
         if (shape.getShape().ShapeType() != TopAbs_EDGE) {
-            throw Base::TypeError("Path subelements must be edges");
+            THROWM(Base::TypeError, "Path subelements must be edges");
         }
         edges.push_back(TopoDS::Edge(shape.getShape()));
     }
@@ -354,7 +354,7 @@ PatternResolver::getPath(App::DocumentObject* obj, const std::vector<std::string
     }
 
     if (edges.empty()) {
-        throw Base::ValueError("Path does not contain edges");
+        THROWM(Base::ValueError, "Path does not contain edges");
     }
     return std::make_unique<ShapePath>(chainEdges(std::move(edges)));
 }

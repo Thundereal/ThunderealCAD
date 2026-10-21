@@ -86,21 +86,21 @@ void elementOf(const PropertyElementAppearance &prop, PyObject *key, Kind &kind,
         const long number = PyLong_AsLong(key);
         if (number < 0 || PyErr_Occurred()) {
             PyErr_Clear();
-            throw Base::IndexError("a face is numbered from 0");
+            THROWM(Base::IndexError, "a face is numbered from 0");
         }
         kind = PropertyElementAppearance::Face;
         index = static_cast<int>(number);
         return;
     }
     if (!PyUnicode_Check(key)) {
-        throw Base::TypeError("an element is named by a string, or a face by its number");
+        THROWM(Base::TypeError, "an element is named by a string, or a face by its number");
     }
     const char *name = PyUnicode_AsUTF8(key);
     if (!name || !prop.resolveElement(name, kind, index)) {
         PyErr_Clear();
         std::ostringstream str;
         str << "'" << (name ? name : "") << "' names no element";
-        throw Base::ValueError(str.str());
+        THROWM(Base::ValueError, str.str());
     }
 }
 
@@ -133,7 +133,7 @@ void writeItem(PropertyElementAppearance &prop, PyObject *key, PyObject *value)
             prop.setColor(path, color);
             return;
         }
-        throw Base::TypeError(
+        THROWM(Base::TypeError,
             "a look is a Material, or a colour: (r, g, b[, a]) or a packed integer");
     }
     Kind kind = PropertyElementAppearance::KindCount;
@@ -148,7 +148,7 @@ void writeItem(PropertyElementAppearance &prop, PyObject *key, PyObject *value)
         prop.setColor(kind, index, color);
         return;
     }
-    throw Base::TypeError("a look is a Material, or a colour: (r, g, b[, a]) or a packed integer");
+    THROWM(Base::TypeError, "a look is a Material, or a colour: (r, g, b[, a]) or a packed integer");
 }
 
 PyObject *materialPy(const MaterialAppearance &look)
@@ -203,7 +203,7 @@ std::string ElementAppearancePy::representation() const
 void ElementAppearancePy::update(PropertyElementAppearance &prop, PyObject *dict)
 {
     if (!PyDict_Check(dict)) {
-        throw Base::TypeError("expected a dict of element to look");
+        THROWM(Base::TypeError, "expected a dict of element to look");
     }
     PropertyElementAppearance::Edit edit(prop);
     PyObject *key = nullptr;
@@ -336,7 +336,7 @@ PyObject *ElementAppearancePy::setColor(PyObject *args)
     {
         Color color;
         if (!colorOf(value, color)) {
-            throw Base::TypeError("expected a colour: (r, g, b[, a]) or a packed integer");
+            THROWM(Base::TypeError, "expected a colour: (r, g, b[, a]) or a packed integer");
         }
         if (const char *path = pathOf(*prop, key)) {
             prop->setColor(path, color);

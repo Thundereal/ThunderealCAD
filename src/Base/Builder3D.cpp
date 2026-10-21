@@ -1038,7 +1038,7 @@ void Builder3D::saveToFile(const char* FileName)
     Base::FileInfo fi(FileName);
     Base::ofstream file(fi);
     if (!file) {
-        throw FileException("Cannot open file");
+        THROWM(FileException, "Cannot open file");
     }
 
     file << result.str();

@@ -522,7 +522,7 @@ void Runtime::check(Permission perm, const std::string &target)
     }
     if (pendingChanged)
         signalPendingChanged();
-    throw PermissionNeededException(principal, perm, target, promptable);
+    THROWM(PermissionNeededException, principal, perm, target, promptable);
 }
 
 void Runtime::auditAllowed(Permission perm, const std::string &target,
@@ -592,11 +592,11 @@ void Runtime::grant(const std::string &principal, Permission perm,
     std::string t = target.empty() ? std::string("*") : target;
     if (auto pclass = principalClass(principal)) {
         if (!isGrantable(*pclass, perm))
-            throw Base::ValueError(std::string(permissionName(perm))
+            THROWM(Base::ValueError, std::string(permissionName(perm))
                     + " cannot be granted to a remote client (docs/Sandbox.md 7.20)");
     }
     if (scope == "always" && principalClass(principal) && !isPersistablePrincipal(principal))
-        throw Base::ValueError("a grant for " + principal
+        THROWM(Base::ValueError, "a grant for " + principal
                 + " lasts this run only: scope must be once or session");
     {
         std::lock_guard<std::recursive_mutex> guard(mutex);
@@ -621,7 +621,7 @@ void Runtime::grant(const std::string &principal, Permission perm,
                 Base::Console().Warning(
                         "ExpressionSecurity: failed to save grants: %s\n", err.c_str());
         } else
-            throw Base::ValueError("grant scope must be once/session/always");
+            THROWM(Base::ValueError, "grant scope must be once/session/always");
         audit(principal, perm, t, decision, "grant:" + scope);
     }
     if (allow)

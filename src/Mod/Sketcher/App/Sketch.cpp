@@ -831,7 +831,7 @@ int Sketch::addGeometry(const Part::Geometry* geo, bool fixed)
         return addBSpline(*bsp, fixed);
     }
     else {
-        throw Base::TypeError("Sketch::addGeometry(): Unknown or unsupported type added to a sketch");
+        THROWM(Base::TypeError, "Sketch::addGeometry(): Unknown or unsupported type added to a sketch");
     }
 }
 
@@ -2045,7 +2045,7 @@ const GCS::Curve* Sketch::getGCSCurveByGeoId(int geoId) const
 int Sketch::addConstraint(const Constraint* constraint)
 {
     if (Geoms.empty()) {
-        throw Base::ValueError(
+        THROWM(Base::ValueError,
             "Sketch::addConstraint. Can't add constraint to a sketch with no geometry!"
         );
     }

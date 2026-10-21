@@ -11,8 +11,9 @@ they all move.
     depth to read back: getRenderStats() answers geometryPixels -1 for it.
     A test about multisampling sets the value itself, which is after this.
 
-Only what is not stored yet is set: a test profile kept from an earlier run
-keeps what that run left in it, as before.
+Only what is not stored yet is set. scripts/gui-test.sh starts every run
+from a fresh profile, so that is what a test sees unless a --user-cfg is
+handed over by some other means.
 """
 import FreeCAD
 

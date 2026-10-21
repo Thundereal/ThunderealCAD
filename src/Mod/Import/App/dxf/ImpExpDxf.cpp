@@ -1760,8 +1760,8 @@ ImpExpDxfWrite::ImpExpDxfWrite(std::string filepath)
     // here, past the base's construction, so its destructor still frees
     // what it made.
     if (Failed()) {
-        throw Base::FileException("Cannot open DXF file for writing",
-                                  Base::FileInfo(filepath.c_str()));
+        THROWM(Base::FileException, "Cannot open DXF file for writing",
+                                    Base::FileInfo(filepath.c_str()));
     }
     setOptionSource("User parameter:BaseApp/Preferences/Mod/Draft");
     setOptions();

@@ -265,7 +265,7 @@ Base::Vector3d Extrusion::calculateShapeNormal(const App::PropertyLink& shapeLin
     }
 
     if (sh.IsNull())
-        throw NullShapeException("calculateShapeNormal: link points to a valid object, but its shape is null.");
+        THROWM(NullShapeException, "calculateShapeNormal: link points to a valid object, but its shape is null.");
 
     //find plane
     BRepLib_FindSurface planeFinder(sh, -1, /*OnlyPlane=*/true);
@@ -349,7 +349,7 @@ void Extrusion::extrudeShape(TopoShape &result,
     }
 
     if (result.isNull())
-        throw NullShapeException("Result of extrusion is null shape.");
+        THROWM(NullShapeException, "Result of extrusion is null shape.");
 }
 
 App::DocumentObjectExecReturn* Extrusion::execute()

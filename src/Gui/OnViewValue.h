@@ -135,6 +135,17 @@ public:
     void placeAnchors(const Base::Matrix4D& toWorld);
     /// What the menu of the value at \a index offers
     void setMenu(int index, MenuProvider provider);
+    /// The handle that stands for what the pointer is over in the scene, or null
+    using HoverHandleProvider = std::function<Gizmo*()>;
+    /** A right click on something a handle stands for -- a dress-up's preview
+     * face, or the edge or face of the base under it -- opens that handle's
+     * menu, as a right click on the handle does (docs/HandsOnQueue.md entry
+     * 202 (b)); \a provider says which handle, if any
+     */
+    void setHoverHandleProvider(HoverHandleProvider provider)
+    {
+        hoverHandleProvider = std::move(provider);
+    }
     /** The value at \a index is not used by the feature now -- a pad's second
      * length while it has one side: no label, passed over by Tab, and not
      * the active one. Its handles are the feature's to hide.
@@ -350,6 +361,11 @@ private:
     /// at the view widget, ahead of the navigation, which opens the view's
     /// own menu on a right click in some styles before the scene sees it.
     Gizmo* rightPressHandle = nullptr;
+    /// rightPressHandle came from hoverHandleProvider, not the pointer on it;
+    /// then its release opens the menu if it comes where the press was
+    bool rightPressFromHover = false;
+    QPoint rightPressPos;
+    HoverHandleProvider hoverHandleProvider;
     /// A left press on nothing: its release, unmoved, leaves no value
     /// active (entry 159); setActive() counts, so a value made active in
     /// between keeps it

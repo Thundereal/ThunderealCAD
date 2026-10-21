@@ -104,13 +104,13 @@ void ViewProviderFemConstraint::loadSymbol(const char* fileName)
     if (!in.openFile(ivFile)) {
         std::stringstream str;
         str << "Error opening symbol file " << fileName;
-        throw Base::ImportError(str.str());
+        THROWM(Base::ImportError, str.str());
     }
     SoSeparator* nodes = SoDB::readAll(&in);
     if (!nodes) {
         std::stringstream str;
         str << "Error reading symbol file " << fileName;
-        throw Base::ImportError(str.str());
+        THROWM(Base::ImportError, str.str());
     }
 
     nodes->ref();

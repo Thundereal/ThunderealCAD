@@ -179,6 +179,39 @@ class DocumentBasicCases(unittest.TestCase):
         self.assertNotIn("sclassname", status)
         self.assertIn("syntax error", status)
 
+    def testErrorKeptOverUnrelatedRecompute(self):
+        """An object in error keeps its message over a recompute that does
+        not rerun it. A recompute cleared the whole log of messages at its
+        start, and such an object read a bare "Error" while it stayed in
+        error -- a TechDraw section view whose cut left nothing
+        (docs/HandsOnQueue.md entry 205)."""
+        failing = self.Doc.addObject("App::FeatureTest", "Failing")
+        failing.ExceptionType = 2
+        other = self.Doc.addObject("App::FeatureTest", "Other")
+        self.Doc.recompute()
+        self.assertFalse(failing.isValid())
+        message = failing.getStatusString()
+        self.assertIn("Testexception", message)
+        # another object recomputed alone: the first not rerun
+        other.Integer = 7
+        self.Doc.recompute([other])
+        self.assertFalse(failing.isValid())
+        self.assertEqual(failing.getStatusString(), message)
+        # saved and opened again: the message read from the file, kept over
+        # another unrelated recompute
+        self.saveAndRestore()
+        failing = self.Doc.getObject("Failing")
+        other = self.Doc.getObject("Other")
+        self.assertEqual(failing.getStatusString(), message)
+        other.Integer = 8
+        self.Doc.recompute([other])
+        self.assertEqual(failing.getStatusString(), message)
+        # fixed and rerun: valid, its message gone
+        failing.ExceptionType = 0
+        self.Doc.recompute()
+        self.assertTrue(failing.isValid())
+        self.assertEqual(failing.getStatusString(), "Valid")
+
     def testAbortTransaction(self):
         self.Doc.openTransaction("Add")
         obj = self.Doc.addObject("App::FeatureTest", "Label")

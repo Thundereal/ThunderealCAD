@@ -332,7 +332,7 @@ std::vector<TopoShape> DressUp::getFaces(const TopoShape &shape) {
 
         if(subshape.isNull()) {
             FC_ERR(getFullName() << ": invalid face reference '" << ref << "'");
-            throw Part::NullShapeException("Invalid Invalid face link");
+            THROWM(Part::NullShapeException, "Invalid Invalid face link");
         }
 
         if(subshape.shapeType() != TopAbs_FACE) {
@@ -455,14 +455,14 @@ void DressUp::getAddSubShape(std::vector<std::pair<Part::TopoShape, Type> > &add
     }
 
     if(res.isNull())
-        throw Part::NullShapeException("Null AddSub shape");
+        THROWM(Part::NullShapeException, "Null AddSub shape");
 
     if(res.getShape().ShapeType() != TopAbs_COMPOUND) {
         addsubshapes.emplace_back(res, Additive);
     } else {
         int count = res.countSubShapes(TopAbs_SHAPE);
         if(!count)
-            throw Part::NullShapeException("Null AddSub shape");
+            THROWM(Part::NullShapeException, "Null AddSub shape");
         if(count) {
             Part::TopoShape s = res.getSubTopoShape(TopAbs_SHAPE, 1);
             if(!s.isNull() && s.hasSubShape(TopAbs_SOLID))

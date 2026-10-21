@@ -81,7 +81,7 @@ FemPostFilter::FilterPipeline& FemPostFilter::getFilterPipeline(std::string name
 void FemPostFilter::setActiveFilterPipeline(std::string name)
 {
     if (m_pipelines.count(name) == 0) {
-        throw Base::ValueError("Not a filter pipeline name");
+        THROWM(Base::ValueError, "Not a filter pipeline name");
     }
 
     if (m_activePipeline != name && isValid()) {

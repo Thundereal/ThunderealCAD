@@ -607,7 +607,7 @@ void TopoShape::read(const char *FileName)
 
     // checking on the file
     if (!File.isReadable())
-        throw Base::FileException("File to load not existing or not readable", FileName);
+        THROWM(Base::FileException, "File to load not existing or not readable", FileName);
 
     if (File.hasExtension({"igs", "iges"})) {
         // read iges file
@@ -1638,7 +1638,7 @@ TopoDS_Shape TopoShape::fuse(const std::vector<TopoDS_Shape>& shapes, Standard_R
     shapeArguments.Append(this->_Shape);
     for (const auto & shape : shapes) {
         if (shape.IsNull())
-            throw NullShapeException("Tool shape is null");
+            THROWM(NullShapeException, "Tool shape is null");
         if (tolerance > 0.0)
             // workaround for http://dev.opencascade.org/index.php?q=node/1056#comment-520
             shapeTools.Append(BRepBuilderAPI_Copy(shape).Shape());
@@ -1759,7 +1759,7 @@ TopoDS_Shape TopoShape::generalFuse(const std::vector<TopoDS_Shape> &sOthers, St
     GFAArguments.Append(this->_Shape);
     for (const TopoDS_Shape &it: sOthers) {
         if (it.IsNull())
-            throw NullShapeException("Tool shape is null");
+            THROWM(NullShapeException, "Tool shape is null");
         if (tolerance > 0.0)
             // workaround for http://dev.opencascade.org/index.php?q=node/1056#comment-520
             GFAArguments.Append(BRepBuilderAPI_Copy(it).Shape());
@@ -1772,7 +1772,7 @@ TopoDS_Shape TopoShape::generalFuse(const std::vector<TopoDS_Shape> &sOthers, St
     mkGFA.SetNonDestructive(Standard_True);
     mkGFA.Build();
     if (!mkGFA.IsDone())
-        throw BooleanException("MultiFusion failed");
+        THROWM(BooleanException, "MultiFusion failed");
     TopoDS_Shape resShape = mkGFA.Shape();
     if (mapInOut){
         for(TopTools_ListIteratorOfListOfShape it(GFAArguments); it.More(); it.Next()){
@@ -2721,10 +2721,10 @@ TopoDS_Shape TopoShape::makeOffset2D(double offset, short joinType, bool fill, b
                 TopoDS_Vertex v4 = xp.CurrentVertex();
 
                 //check
-                if (v1.IsNull())  throw NullShapeException("v1 is null");
-                if (v2.IsNull())  throw NullShapeException("v2 is null");
-                if (v3.IsNull())  throw NullShapeException("v3 is null");
-                if (v4.IsNull())  throw NullShapeException("v4 is null");
+                if (v1.IsNull())  THROWM(NullShapeException, "v1 is null");
+                if (v2.IsNull())  THROWM(NullShapeException, "v2 is null");
+                if (v3.IsNull())  THROWM(NullShapeException, "v3 is null");
+                if (v4.IsNull())  THROWM(NullShapeException, "v4 is null");
 
                 //assemble new wire
 

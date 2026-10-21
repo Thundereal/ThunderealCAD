@@ -53,7 +53,7 @@ void PointsAlgos::Load(PointKernel& points, const char* FileName)
 
     // checking on the file
     if (!File.isReadable()) {
-        throw Base::FileException("File to load not existing or not readable", FileName);
+        THROWM(Base::FileException, "File to load not existing or not readable", FileName);
     }
 
     if (File.hasExtension("asc")) {
@@ -733,7 +733,7 @@ std::size_t PlyReader::readHeader(std::istream& in,
     in.read(ply, 3);
     in.ignore(1);
     if (!in || (ply[0] != 'p') || (ply[1] != 'l') || (ply[2] != 'y')) {
-        throw Base::BadFormatError("Not a ply file");  // wrong header
+        THROWM(Base::BadFormatError, "Not a ply file");  // wrong header
     }
 
     while (std::getline(in, line)) {

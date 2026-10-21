@@ -515,7 +515,7 @@ void exportFemMeshVertices(
             fillVtkArray<vtkVertex>(elemArray, types, aVertex);
         }
         else {
-            throw Base::TypeError("Vertex not yet supported by FreeCAD's VTK mesh builder\n");
+            THROWM(Base::TypeError, "Vertex not yet supported by FreeCAD's VTK mesh builder\n");
         }
     }
 
@@ -541,7 +541,7 @@ void exportFemMeshEdges(
             fillVtkArray<vtkQuadraticEdge>(elemArray, types, aEdge);
         }
         else {
-            throw Base::TypeError("Edge not yet supported by FreeCAD's VTK mesh builder\n");
+            THROWM(Base::TypeError, "Edge not yet supported by FreeCAD's VTK mesh builder\n");
         }
     }
 
@@ -575,7 +575,7 @@ void exportFemMeshFaces(
             fillVtkArray<vtkQuadraticQuad>(elemArray, types, aFace);
         }
         else {
-            throw Base::TypeError("Face not yet supported by FreeCAD's VTK mesh builder\n");
+            THROWM(Base::TypeError, "Face not yet supported by FreeCAD's VTK mesh builder\n");
         }
     }
 
@@ -618,7 +618,7 @@ void exportFemMeshCells(
             fillVtkArray<vtkQuadraticHexahedron>(elemArray, types, aVol);
         }
         else {
-            throw Base::TypeError("Volume not yet supported by FreeCAD's VTK mesh builder\n");
+            THROWM(Base::TypeError, "Volume not yet supported by FreeCAD's VTK mesh builder\n");
         }
     }
 
@@ -1977,13 +1977,13 @@ void readResults(
         if ((vecValues.size() + scaValues.size()) == numComps) {
             if (!vecValues.empty()) {
                 if (node == -1) {
-                    throw Base::FileException("File to load not readable");
+                    THROWM(Base::FileException, "File to load not readable");
                 }
                 vecArray->SetTuple(mapNodes.at(node), vecValues.data());
             }
             if (!scaValues.empty()) {
                 if (node == -1) {
-                    throw Base::FileException("File to load not readable");
+                    THROWM(Base::FileException, "File to load not readable");
                 }
                 std::vector<vtkSmartPointer<vtkDoubleArray>>::iterator it1;
                 std::vector<double>::iterator it2;
@@ -2133,7 +2133,7 @@ void FemVTKTools::frdToVTK(const char* filename, bool binary)
     Base::FileInfo fi(filename);
 
     if (!fi.isReadable()) {
-        throw Base::FileException("File to load not existing or not readable", filename);
+        THROWM(Base::FileException, "File to load not existing or not readable", filename);
     }
 
     std::ifstream ifstr(filename, std::ios::in | std::ios::binary);

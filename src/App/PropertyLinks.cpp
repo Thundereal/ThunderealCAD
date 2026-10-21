@@ -6230,7 +6230,7 @@ void PropertyXLink::setPyObject(PyObject *value) {
     } else if (Py_None == value) {
         setValue(nullptr);
     } else {
-        throw Base::TypeError("type must be 'DocumentObject', 'None', or '(DocumentObject, SubName)' or "
+        THROWM(Base::TypeError, "type must be 'DocumentObject', 'None', or '(DocumentObject, SubName)' or "
                 "'DocumentObject, [SubName..])");
     }
 }

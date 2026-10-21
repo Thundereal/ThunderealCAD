@@ -442,7 +442,7 @@ void DlgExtrusion::apply()
 {
     try{
         if (!validate())
-            throw Base::AbortException();
+            THROW(Base::AbortException);
 
         if (filter) //if still selecting edge - stop. This is important for visibility automation.
             this->onSelectEdgeClicked();

@@ -769,16 +769,16 @@ Py::Object SheetViewPy::select(const Py::Tuple& _args)
     }
     else {
         if (args.size() == 2) {
-            throw Base::TypeError("Expects the arguments to be a cell name (e.g. 'A1') and "
-                                  "QItemSelectionModel.SelectionFlags");
+            THROWM(Base::TypeError, "Expects the arguments to be a cell name (e.g. 'A1') and "
+                                    "QItemSelectionModel.SelectionFlags");
         }
         else if (args.size() == 3) {
-            throw Base::TypeError("Expects the arguments to be a cell name (e.g. 'A1'), a second "
-                                  "cell name (e.g. 'B5'), and QItemSelectionModel.SelectionFlags");
+            THROWM(Base::TypeError, "Expects the arguments to be a cell name (e.g. 'A1'), a second "
+                                    "cell name (e.g. 'B5'), and QItemSelectionModel.SelectionFlags");
         }
         else {
-            throw Base::TypeError("Wrong arguments to select: specify either a cell, or two cells "
-                                  "(for a range), and QItemSelectionModel.SelectionFlags");
+            THROWM(Base::TypeError, "Wrong arguments to select: specify either a cell, or two cells "
+                                    "(for a range), and QItemSelectionModel.SelectionFlags");
         }
     }
     return Py::None();

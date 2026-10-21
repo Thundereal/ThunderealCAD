@@ -19,7 +19,7 @@ question is the one that holds.
   (27.1-27.71); grep `### 27.` for a number cited elsewhere.
 - **What is built** is said in the "as built" blocks at the end of each
   design section and in the audit, sec 37; **what is open** is 37.2
-  (left as found, with reasons), 37.5 P5 (not built, measured), the
+  (left as found, with reasons; elaborated in 37.7), 37.6's P9 and P10 (the WAL), the
   "Not built" lines of 35.11 and 36.6, and 34 (held).
 - A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
   found with `grep -n '^### 27.22\|^## 36' docs/TransactionLog.md`.
@@ -58,7 +58,7 @@ question is the one that holds.
 | 34 | Held: what Scion's design suggests | held |
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; 35.11 gaps open |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the dialog marks open |
-| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5) | 2026-10-21; P5 and 37.2 open |
+| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7) | P5 ruled 2026-10-22; 37.7's items and 37.6's P9/P10 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -22539,7 +22539,8 @@ What was fixed, by area, then what was left and why.
 ### 37.2 Left as found
 
 Judged real but not fixed now, with the reason; each is a candidate for a
-later pass.
+later pass. Elaborated item by item, re-checked, in 37.7 (some are
+narrower or wider than said here).
 
 - **Core: a dynamic property removed and another of the same name and
   type added in one transaction** can land on the same address (the
@@ -22810,7 +22811,10 @@ In the order built:
   index entry, about 85 bytes. Only the other variant -- a value under
   ~48 bytes inline in the op, no entity -- saves, and it changes what
   `vbefore`/`vafter` mean at some 70 places (Document, the log, the Gui's
-  log view and scene log). Left for a ruling.
+  log view and scene log). Left for a ruling. **Ruled (user, 2026-10-22):
+  no delta for a small value.** P5 is closed as it stands: a value under
+  128 bytes stays a raw entity (`supersede()` returns on `old.size <=
+  128`), and neither variant is built.
 - **P4 -- built.** A commit that writes by hand the one property the
   step before it wrote, by the same author under the same name, within
   `TransactionLogCoalesceSeconds` (new, default 3, 0 off) of the last
@@ -22857,4 +22861,343 @@ table by P2; P3 saved little here, since a one-object record is under
 five rows. Seen, not chased: with folding on the WAL beside the live store
 stood at 3.4-3.7 MB after each save where it was 1.5 MB folding off -- a
 rewrite per commit keeps it from checkpointing back under the 1 MB limit
-as often.
+as often. (Wrong: measured in 37.6, folding makes no difference; the two
+runs read a sawtooth at different points.)
+
+### 37.6 The WAL (measured 2026-10-22)
+
+The user asked to look into the WAL after 37.5's note. Two scripts,
+`~/.cache/lv-merge/wal/walgrowth.py` (the WAL's size after every edit of
+37.4's run, folding off and on) and `walpages.py` / `walbound.py` (the
+WAL's frames parsed after a few edits, each frame's page mapped to its
+table or index through `dbstat`).
+
+**The size is a sawtooth, folding or not.** Both runs climb from 1 MB to
+4 MB and drop back about every 15 edits (33 and 34 drops in 500 edits;
+peak 4.13 and 4.12 MB). The drop is SQLite's automatic checkpoint at
+1000 pages (`wal_autocheckpoint`, the default, 4 MB at 4 KB pages),
+after which the next writer starts the WAL over and `journal_size_limit`
+(37.4) cuts the file to 1 MB. What a save finds depends on where in the
+tooth it lands: folding off read 1.0, 3.6, 2.7, 1.7 and 1.3 MB at its five
+saves, folding on 2.6, 2.6, 2.6, 3.2 and 3.6. 37.5's 1.5 against 3.5 MB
+was two such readings. `journal_size_limit` does what 37.4 meant it to,
+so the file is never above 1 MB at rest after a checkpoint. It cannot
+keep the WAL under 1 MB between checkpoints, since checkpoints come only
+every 1000 pages.
+
+**What fills it: about 55 pages an edit, in 12 SQL transactions.** One
+edit (a commit and its recompute) wrote 52-57 frames, folding off and on
+alike (4 KB each, so about 220 KB written for some 3 KB the store grows
+by), in 12.2-13.2 commits. Each commit writes again the pages it touches,
+and every commit touches the same few hot pages: the last leaf of
+`entity` and of its primary key's index, of `ref` and `ref_target`, of
+`op` and `txn` and their indexes, the `branch` row of the head, and page
+1 (the header SQLite rewrites when the file grows). In the order one
+edit commits them, with the frames each wrote:
+
+| commit (what it is: my reading of the tables) | tables touched | frames |
+|---|---|---|
+| a value (the user's) | entity, its index, page 1 | 4 |
+| three values superseded | entity, index, ref, ref_target | 4, 5, 5 |
+| a value | entity, index | 2 |
+| the user's row | txn, txn_ord, op, its index, op_container, branch | 7 |
+| a recompute value, and its supersession | entity, index (ref, ref_target) | 2, 7 |
+| the string refs | strref | 1 |
+| two shapes and their deltas | entity, index, ref, ref_target, page 1 | 13, 8 |
+| the recompute's row | txn, txn_ord, op, op_container, branch | 6 |
+| the record row | txn, txn_ord, branch | 3 |
+
+The same pages, written once per edit, are 19-25; written once per run of
+five edits, 33 in all, 6.6 an edit. So the WAL is written 2.3 times over
+by committing each job alone, and 8 times over against committing what
+the worker has queued at once.
+
+**Why it does not matter much, and where it would.** With `synchronous
+NORMAL` a WAL commit does not wait on the disk, so the cost is bytes
+written, not latency: about 220 KB an edit, 2 MB a second for a spinbox
+at ten edits a second (P4 folds those rows, not their writes), and the
+checkpoint copying each tooth back into the database. On a desktop SSD
+that is noise. On a phone's flash, or the browser's OPFS (sec 22, the
+WASM tier), it is wear and battery, and the 4 MB beside each open
+document is space.
+
+**Proposed, for a ruling** (none built):
+- *P9 -- one SQL transaction per worker drain.* `TransactionLogCore::run`
+  opens one transaction before it takes the first queued job and commits
+  when the queue is empty, and the store's own `BEGIN`/`COMMIT` (and
+  the single statements that commit on their own) become savepoints
+  inside it. Measured bound: 55 frames an edit to 7-25, depending on how
+  many edits a drain holds. Atomic is stronger than 25.4's order (a value
+  durable before the row naming it): both land in the same commit. The
+  care is the error path. A job's failed savepoint rolls back only its
+  own work, as now; but after a full disk or an I/O error SQLite rolls
+  the WHOLE transaction back, earlier jobs of the drain with it, and those
+  rows are numbered in `_recent` but never appended -- the shape 37.1 fixed
+  for one job. On such an error the drain would have to run its jobs
+  again one by one, or mark the log failed. Some 80 lines in the store
+  and `run()`, and a test that makes a drain fail half way.
+- *P10 -- `wal_autocheckpoint` 256 pages*, to match `journal_size_limit`:
+  the WAL stays near 1 MB instead of climbing to 4 MB. One line. The
+  price is four checkpoints where there was one, and each writes into the
+  database every page the WAL holds once. The hot pages are the same few,
+  so this is likely to write more in total, not less. Worth it only if
+  the 4 MB on disk matters more than the writes, which is the case on the
+  browser tier. Not measured.
+Neither changes a format.
+
+### 37.7 The items left as found, elaborated (2026-10-22)
+
+The user asked for 37.2's sixteen items in enough detail to rule on.
+Three read-only passes re-read each against the code at 6f5904be1a; what
+each claimed that decides a ruling was checked again by hand. Per item:
+whether it is still real, how it is reached, what the user sees, the fix
+and its size. None changes a format. "Inferred" marks what was reasoned
+and not run.
+
+**1. Core: a dynamic property removed and re-added in one transaction.**
+Real, and likelier than 37.2 says: the change map is keyed by
+`Property::_id`, so the two get two entries, and the removed one is freed
+by the next `PropertyCleaner` (any property write); a same-type
+allocation then often gets the freed address back (glibc's per-size
+cache is last-in first-out; inferred). `onCommit`'s "original is gone"
+test (`TransactionLog.cpp` ~3716) compares name and type through the
+stale pointer, so the removed entry emits a `set` where it should emit a
+`delprop`. Reached from Python: `removeProperty("Foo")`, any write,
+`addProperty(<same type>, "Foo")`, commit. The user sees a row with two
+`set Foo` and an `addprop`, no `delprop`; undo is not affected (it works
+by name), a replay, a cold undo or a merge of that row is (inferred).
+Fix: `|| prop->getID() != kv.first` in that test and in the
+removed-object branch above it -- safe, since it reads the pointer only
+after `getPropertyName` found it live in the container. 3 lines; no
+change to the undo record, which 37.2 thought it needed. A gtest can
+compare the addresses and skip when the allocator did not reuse.
+
+**2. Core: a transaction whose every write is `same`.** Real.
+`number()` runs before the ops are built, and on a detached version
+document it calls `ensureBranch()`: a branch is made or taken, a
+"branch" row written and the version named for it; the empty path then
+restores only `_nextSeq` and the head. Reached by opening a version and
+committing a write of the value it already has (a task panel's OK with
+nothing changed writes every field back; inferred). The user sees a new
+branch `main@vN` in the list, or the version taking an existing branch,
+and the version named and kept from eviction -- against 27.6's "opening
+a version only to look leaves nothing behind". The ordinal gap shows only
+in a row's uid and is harmless. Fix: number after the ops are built (and
+patch the pending ops' `txn`), about 20 lines, medium risk since
+`ensureBranch` flushes and posts mid-commit. A 3-line partial fix undoes
+only the ordinal.
+
+**3. Undo: a task cancel after another writer committed.** Real.
+`closeActiveTransaction(true, id)` with the id already closed holds a
+`TransactionGuard` across every document's `undo(id)`
+(`AutoTransaction.cpp` ~235); a step not at state goes through
+`_revertStep`, which refuses under any guard. Reached with
+`Std_TransformManip`: drag (a step is committed), a served client
+commits, the user presses Cancel (`TaskCSysDragger.cpp` ~313). The user
+sees Cancel do nothing, with no message; Ctrl+Z still takes the step
+back. Fix: as `Gui::Document::takeSteps` does, drop the guard for a
+document whose step needs the log. About 8 lines, low risk. A Python test
+needs no Gui (an application transaction, an actor's commit, the abort).
+
+**4. Undo: an undo inside a command breaks its next write.** Real,
+narrow. `undo`/`undoLogged` commit the open transaction while the
+application still names its id (`_activeTransactionGuard > 0`); when
+the undo did not take that step itself -- `undoLogged`'s first row is
+refused, or the undo is under another actor -- the id stays in
+`mUndoMap`, and the next write's `_checkTransaction` reopens it and
+throws "invalid transaction id". Reached by a command whose Activated
+writes, calls `undoLogged` on a refused row and writes again, or by a
+command running a modal dialog while a served client's undo is
+dispatched (inferred). The user sees the command fail on a property
+write. Fix: in `_checkTransaction`, do not reopen an id `mUndoMap`
+still holds; open an implicit step instead. About 5 lines; a write of
+that command loses its grouping with other documents. A gtest with an
+`App::AutoTransaction`. Seen beside it (inferred): when `undoLogged`
+succeeds, the command's later writes leave its step silently and go into
+an implicit one.
+
+**5. Undo: `undoLogged` clears the redos after making its step.** Real
+as written, no failure found. Deleting a redo step deletes the detached
+objects it owns; anything their teardown writes (a proxy's `__del__`, an
+observer) would be recorded into the "Undo ..." step and undone with it.
+Nothing found that does. Fix: hold the step aside while clearing, about
+4 lines. A test is contrived (`__del__` timing).
+
+**6. Store: crash recovery when the WAL cannot be moved.** Real, and
+worse than 37.2 says. When moving the `-wal` fails, `recover()` opens the
+moved database without it, returns false, and the old `-shm` is already
+deleted. `Application::recoverDocument` then throws "nothing to recover
+in <dir>" and closes the new document, and closing it deletes its history
+directory -- the moved `log.db` with it. The old directory keeps the
+orphaned WAL; a retry finds "no transaction log". The user sees a wrong
+message and loses the crashed session's history. Reached by one rename
+or copy failing (on Windows, a file held by a scanner; on Linux, rare).
+If instead the database fails and the WAL moves, the new store opens
+beside a foreign WAL. Fix: move both or neither -- put the database back
+when the WAL fails, and leave the old directory whole. About 15 lines,
+low risk. A gtest makes `<new>-wal` a directory so the rename and the
+copy fail.
+
+**7. Store: `environment()`/`user()` and a second connection.** Real,
+latent: nothing reaches it while one connection holds a file (29.1).
+Both tables have their UNIQUE constraints already. Fix:
+`INSERT OR IGNORE` then the SELECT, and `sqlite3_busy_timeout` at open
+(harmless now); writers would also want `BEGIN IMMEDIATE` (inferred).
+About 10 lines. Belongs with 29.1 when it is built.
+
+**8. Versions: the scratch document as the active one.** Mostly not
+real. `newDocument` with `tempDoc` hands the previous active document
+back before it returns (`Application.cpp` ~590), so while
+`_applyVersion` writes, `FreeCAD.ActiveDocument` is the caller's. The
+comment at `_readVersion` ("A new document becomes the active one; the
+active one is handed back -- here, or ... by the caller") predates the
+scratch being a temporary document and gives no reason. What is left:
+with NO document active at the call (FreeCADCmd, the active one closed),
+the scratch stays active through the apply and the active document is
+None after. Fix: in that case make the live document active for the
+apply and put None back; correct the comment. 3-5 lines.
+
+**9. Versions: `_rollBackUndoneMerge` not wrapped.** Real, bookkeeping
+only. It forwards the branch in the store and moves the head, then
+`_followHead` may throw (only if the walk refuses AND the whole read
+fails: a version missing or unreadable). The walk's refusal does nothing
+to the document, so the document is at the new head, as 37.2 said. What
+is skipped: the merge rows removed, the undo stacks rebuilt, the panel
+refreshed. The user sees "Merge not rolled back -- the report view says
+why" with the head moved, empty undo and redo until the next branch
+operation, and a retry saying there is no merge undone. Two ways, for a
+ruling: (a) catch, warn, and finish the rollback, the document being
+there already; (b) catch, put the branch and head back, rethrow. 8-12
+lines. A test needs a fault hook (the 37.1 branch-switch fix has none
+either).
+
+**10. Import: Assign of a Body whose Origin is not assigned.** Real. Step
+2 of `_settleImportClashes` writes the copy's values into the live Body
+through the assigned pairs only, so the live Body's `Origin` names the
+brought Origin; the old live Origin and its planes are left with no
+owner. Reached most simply in the dialog: each object is a row of its
+own, so Assign for the Body and Duplicate for its Origin; Python's
+`assign=True` assigns every row and reaches it only if the Origin's UID
+does not match. The user sees a stray Origin, probably at the tree root,
+and live features attached to its planes now out of the Body's scope
+(inferred). A question of what Assign does with an owned child, for the
+user:
+- (A) owned children follow their owner: assigning the Body assigns its
+  Origin and planes, paired by slot and Role even without a UID; the
+  dialog locks those rows;
+- (B) Assign keeps the live Origin: the brought one is removed and links
+  to its planes moved by Role (`OriginGroupExtension::relinkToOrigin`
+  does that already);
+- (C) Assign takes the brought Origin and removes the old one, relinking
+  by Role -- the Origin's identity changes in the history;
+- (D) leave it, with a warning.
+(A) and (B) give the same document; (A) also takes rows off the dialog.
+40-60 lines for A or B. A gtest with an ask callback that assigns the
+Body alone.
+
+**11. Import: the file's `uid` overridden by the history's.** Partly
+real, narrower than 37.2 says. On a plain open the objects are read
+before the embedded history is adopted, and the first pairing is kept,
+so the file's attribute wins. The override happens only when the history
+is joined BEFORE the objects are read: a second document of the file, a
+version or branch read, and -- the case that matters -- a file whose
+history this process already holds (a `file.FCStd@vN` or a pinned link
+open) while another copy was saved over the file. That open joins the
+held history, skips the 16.4 guard, and `_giveObjectUid` replaces each
+object's UID by the history's for its id, with no check of type and no
+word. The two disagree only when file and history diverged: two copies
+of one history each made the next id for a different object. The user
+sees nothing at open; later a merge or import pairs the object with
+another one of the history (inferred). Fix: a warning at the override,
+one line per document with a count, 6-10 lines (to check: a 36.7 renote
+must not trip it). The larger gap behind it: a joined open never runs
+the 16.4 guard.
+
+**12. Import: `nameCopySources` names nothing on a size mismatch.**
+Real in the code, rare in practice, and one consequence 37.2 missed.
+`copyObject` returns its copies in input order only when every object
+was made; a source whose creation fails in the target document is
+dropped ("Cannot create object") and the list comes back in read order.
+`nameCopySources` then names nothing and the sync builds no
+replacements, so references into the old copies break when they go --
+and `syncCopyOnChange` (`Link.cpp` ~674) and `makeCopyOnChange` take
+`back()` as the linked object's copy, which in read order may be a
+dependency's: the link can end up pointing at the wrong copy. Fix
+options: (a) abort the sync on a mismatch, remove what was imported,
+keep the old copies, about 10 lines; (b) make `copyObject` return one
+entry per input (null for a failed one), 20-30 lines, which also fixes
+Python `copyObject` returning another order silently. A test needs a
+type whose creation throws.
+
+**13. Gui: the clash dialog with "Paste" open.** Real, and the effect
+differs from 37.2's. All four callers (paste twice in `MainWindow.cpp`,
+File > Merge project, the tree's copy-drag) open the transaction and
+import inside it; the dialog's `exec()` runs a nested event loop in
+which served requests are dispatched. A client's undo or the browser
+panel's "undo row" commits the open step (`_takeRun`, `undoLogged`): the
+Paste row is closed with the copies in it, and the settling goes into a
+step of its own. If the user then presses Cancel, the abort takes back
+only that later step, so the cancelled paste STAYS in the document
+(inferred from the code, not run). A client's ordinary write meanwhile
+is not closed off but absorbed: it lands in the desktop's Paste step, the
+desktop as its author, and an undo of the paste undoes it. Fixes: (B)
+hold served dispatch while the dialog is up -- a hold counter and a
+queue flushed on release, 40-60 lines in SceneControl and
+SceneServeSource; a held write can time out at the browser (10 s) and
+land later; it covers every modal dialog inside a command. (A) ask
+before the transaction, reading the clashing UIDs off the stream first:
+150-250 lines, and the pre-scan must agree with every clash rule of 36.4
+forever. (C) a stopgap: refuse a client's undo while another author's
+step is open, 10 lines, not the absorb case. B is the recommendation. A
+Gui check would combine `tests/gui/import-clash.py` and the WS client of
+`transaction-log-author-check.py`.
+
+**14. Gui: the log panel reloads in the signal.** Real.
+`signalBranchesChanged` calls `reload()` directly, visible or not, and so
+does `attach()` -- every switch to another document's window. The reload
+reads every transaction, then calls `ops(seq)` per row only to learn if
+it is empty (each decodes every op of the row), inserts the items one by
+one at index 0, and resizes the columns; the refresh after it walks the
+head's chain. Fired by every branch create/switch/rename/trim/delete, a
+squash, a merge (twice when another document holds the branch), a
+rollback, an import, and naming a version, for every document of the
+file. Not measured; a guess is 0.5-2 s at 10^4 rows. Fix: a reload flag
+on the panel's existing 0 ms refresh timer (which already skips a hidden
+panel), the items inserted in one call, and one query
+`SELECT DISTINCT txn FROM op WHERE txn >= ?` in place of the per-row
+ops (a new store method). 40-60 lines, low risk.
+
+**15. Gui: another document made active rejects the merge preview.**
+Real, but it is what 32.15 rules ("another made the active one:
+`detach()` rejects the dialog"), against the same section's aim that the
+document stays in reach. A question for the user, not a defect. It is
+reached by clicking another tab, selecting another document's object in
+the tree, the panel's own "Open version N", or -- the natural case --
+opening the branch in a document of its own to look at it while merging.
+The preview vanishes with no word and the sides picked are lost. If the
+preview should stay: bind it to its document (rejected only when that
+document is deleted), and `askBeside`, the stale-preview checks and the
+merge after the wait use the captured document instead of the active one.
+25-40 lines; `transaction-log-merge-check.py` gets the case.
+
+**16. Gui: the log panel and a pinned document.** Real, and wider than
+37.2 says. The panel never tests `FrozenVersion`. The entry points 37.1
+guarded refuse (switch, branch, merge, apply rows, undo rows, roll back,
+restore, keep and let go, bring in, open branch), but the user sees at
+best "-- the report view says why", and several only an error in the
+report view. Seven entry points have NO frozen check, and they write
+the file's shared history from the pinned view: delete branch, rename
+branch, trim, squash, name or unname a version, reject a request, and
+the access dialog. A trim or squash might remove the very version the pin
+shows (not checked). For the user: should those refuse on a pinned
+document? They change the file's history, not the document's data. The
+fix either way: grey the buttons, the branch box and the writing menu
+entries with a status line ("a pinned version: shown, not changed"),
+40-60 lines; the refusals, if ruled, about 8.
+`transaction-log-frozen-check.py` already makes the pinned document
+active, the place to assert it.
+
+**Ruling questions in short:** 10 (A/B/C/D), 15 (stay or close), 16
+(refuse the seven), 9 (finish or undo the rollback), 13 (fix B). The
+others are fixes with one obvious shape: 1, 3, 4, 6 have effects a user
+meets; 2 and 12 are rarer; 5, 7, 8, 11 are small or latent.

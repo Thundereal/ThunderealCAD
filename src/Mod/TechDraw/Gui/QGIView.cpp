@@ -851,16 +851,18 @@ bool QGIView::getFrameState()
         return true;
     }
     // Frames hidden: a view shows its frame, and its label, while anything
-    // of it is selected, and can be dragged by it then; a projection group's
-    // views all show theirs (docs/HandsOnQueue.md entry 155, the reporter
-    // 2026-10-16: "it still shows the frame if anything in the view is
-    // selected. so once it's shown, it can be dragged"; "label shows with
-    // frame. no hover. group frame")
+    // of it is selected, and can be dragged by it then (docs/HandsOnQueue.md
+    // entry 155, the reporter 2026-10-16: "it still shows the frame if
+    // anything in the view is selected. so once it's shown, it can be
+    // dragged"; "label shows with frame. no hover"). Only that view: a
+    // projection group's other views keep theirs hidden (entry 204, the user
+    // 2026-10-21: "I want only the the owner view show its frame"; "there is
+    // no group frame")
     return selectionInside(dv);
 }
 
 /// The view a selected object belongs to for its frame: a dimension's or a
-/// balloon's view, and for a projection group's view the group
+/// balloon's view, else the object itself
 static App::DocumentObject* frameOwner(App::DocumentObject* obj)
 {
     if (auto dim = dynamic_cast<TechDraw::DrawViewDimension*>(obj)) {
@@ -868,11 +870,6 @@ static App::DocumentObject* frameOwner(App::DocumentObject* obj)
     }
     else if (auto balloon = dynamic_cast<TechDraw::DrawViewBalloon*>(obj)) {
         obj = balloon->SourceView.getValue();
-    }
-    if (auto item = dynamic_cast<TechDraw::DrawProjGroupItem*>(obj)) {
-        if (auto group = item->getPGroup()) {
-            obj = group;
-        }
     }
     return obj;
 }

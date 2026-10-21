@@ -10806,6 +10806,69 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertNotEqual(doc.getObject("Other").Uid, given)
         self.assertNotIn("Uid", doc.getObject("Part").PropertiesList)
 
+    def testATrackingCopyReplacesItsOldOne(self):
+        # Sec 36.7: a tracking copy-on-change link copies its source again
+        # when the source changes, and a reference through the link into the
+        # old copy is moved onto the new one -- found by the source's UID,
+        # which each copy names in _SourceUUID. Without it, as when only an
+        # export made with logging on gave one, the reference stayed on the
+        # old copy, which is removed.
+        doc = self.track(FreeCAD.newDocument("UidTracking"))
+        group = doc.addObject("App::DocumentObjectGroup", "G")
+        group.addProperty("App::PropertyInteger", "A")
+        group.setPropertyStatus("A", "CopyOnChange")
+        child = doc.addObject("App::FeaturePython", "C")
+        child.addProperty("App::PropertyInteger", "B")
+        group.addObject(child)
+        link = doc.addObject("App::Link", "L")
+        link.LinkedObject = group
+        link.LinkCopyOnChange = "Tracking"
+        doc.recompute()
+        link.A = 2
+        doc.recompute()
+        copy = link.getLinkedObject(False)
+        self.assertNotEqual(copy, group)
+        self.assertEqual(copy._SourceUUID, group.ObjectUid)
+        self.assertEqual(copy.Group[0]._SourceUUID, child.ObjectUid)
+        old = copy.Group[0].Name
+        user = doc.addObject("App::FeaturePython", "User")
+        user.addProperty("App::PropertyLinkSub", "S")
+        user.S = (link, [old + "."])
+        doc.recompute()
+        child.B = 5
+        doc.recompute()
+        new = link.getLinkedObject(False)
+        self.assertNotIn(new, (group, copy))
+        self.assertIsNone(doc.getObject(old))
+        self.assertEqual((new.A, new.Group[0].B), (2, 5))
+        self.assertEqual(user.S, (link, [new.Group[0].Name + "."]))
+
+    def testACopyOfAShapeContentHasItsShape(self):
+        # Sec 36.7: a content of an expanded shape holds no shape of its
+        # own in the file; a copy of one beside it takes the shape of the
+        # content it was brought from, named by its UID, and again when it
+        # is reopened.
+        import Part
+
+        doc = self.track(FreeCAD.newDocument("UidContent"))
+        feat = doc.addObject("Part::Feature", "F")
+        feat.Shape = Part.makeCompound(
+            [Part.makeBox(1, 1, 1), Part.makeBox(2, 2, 2, FreeCAD.Vector(5, 0, 0))]
+        )
+        feat.addProperty("App::PropertyLinkList", "ShapeContents", "ShapeContent")
+        path = os.path.join(self.dir, "content.FCStd")
+        doc.saveAs(path)
+        content = feat.ShapeContents[1]
+        self.assertAlmostEqual(content.Shape.Volume, 8)
+        copy = doc.copyObject(content)
+        self.assertNotEqual(copy, content)
+        self.assertAlmostEqual(copy.Shape.Volume, 8)
+        name = copy.Name
+        doc.save()
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertAlmostEqual(doc.getObject(name).Shape.Volume, 8)
+
     def testAnObjectBroughtBackIsItself(self):
         # Sec 36.3, 36.4: a UID is a history link. An object copied out and
         # removed here comes back, copied in again, as itself -- its id, its

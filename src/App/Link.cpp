@@ -577,6 +577,29 @@ void LinkBaseExtension::setOnChangeCopyObject(
         prop->setValue(key, exclude ? "-" : nullptr);
 }
 
+// Each copy names its source by the source's UID (docs/TransactionLog.md
+// sec 36.7) in _SourceUUID: the next copy finds the old one it replaces by
+// it. copyObject() returns the copies in the order of the input.
+static void nameCopySources(const std::vector<App::DocumentObject*>& srcObjs,
+                            const std::vector<App::DocumentObject*>& copiedObjs)
+{
+    if (copiedObjs.size() != srcObjs.size())
+        return;
+    for (std::size_t i = 0; i < copiedObjs.size(); ++i) {
+        auto copy = copiedObjs[i];
+        if (!copy || srcObjs[i]->getObjectUid().empty())
+            continue;
+        auto prop = Base::freecad_dynamic_cast<PropertyUUID>(
+                copy->getDynamicPropertyByName("_SourceUUID"));
+        if (!prop && !copy->getDynamicPropertyByName("_SourceUUID"))
+            prop = static_cast<PropertyUUID*>(copy->addDynamicProperty(
+                    "App::PropertyUUID", "_SourceUUID", nullptr, nullptr,
+                    Prop_Output | Prop_Hidden));
+        if (prop)
+            prop->setValue(srcObjs[i]->getObjectUid());
+    }
+}
+
 // The purpose of this function is to synchronize the mutated copy to the
 // original linked CopyOnChange object. It will make a new copy if any of the
 // non-CopyOnChange property of the original object has changed.
@@ -639,12 +662,12 @@ void LinkBaseExtension::syncCopyOnChange()
     // Refresh signal connection to monitor changes
     monitorOnChangeCopyObjects(srcObjs);
 
-    // Copy the objects. Document::export/importObjects() (called by
-    // copyObject()) will generate a _ObjectUUID for each source object and
-    // match it with a _SourceUUID in the copy.
+    // Copy the objects, each naming its source in _SourceUUID
+    // (nameCopySources()): what matches the old copies to the new.
     auto copiedObjs = parent->getDocument()->copyObject(srcObjs);
     if(copiedObjs.empty())
         return;
+    nameCopySources(srcObjs, copiedObjs);
 
     // copyObject() will return copy in order of the same order of the input,
     // so the last object will be the copy of the original linked object
@@ -961,6 +984,7 @@ App::DocumentObject *LinkBaseExtension::makeCopyOnChange() {
     auto objs = parent->getDocument()->copyObject(srcobjs);
     if(objs.empty())
         return nullptr;
+    nameCopySources(srcobjs, objs);
 
     monitorOnChangeCopyObjects(srcobjs);
 

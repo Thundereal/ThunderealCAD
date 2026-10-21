@@ -528,6 +528,13 @@ The same shape in both places, and `blobs/` keeps its name:
 
 There are no per-property-type subdirectories.
 
+Outside the store, one other writer keeps files under the transient
+directory: a VRML object's resources -- the textures its VRML file names --
+are restored to `<transient>/<Obj>/<path>.blob` (entry 212; a scene file an
+Inline names keeps its own name), and the view provider points the scene's
+URLs at those files by their full paths. Their archive names are unchanged,
+`<Obj>.<Obj>/<path>`, which is what an old file holds.
+
 Transient names are uuids because at `insertFile()` time there may be no
 referrer at all -- a blob held only by an undo transaction or the clipboard --
 and because stored files are read-only and held by absolute path, so renaming

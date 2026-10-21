@@ -26,6 +26,7 @@
 #include "VRMLObject.h"
 #include "Document.h"
 #include "DocumentObjectPy.h"
+#include "FileBlobManager.h"
 #include <Base/FileInfo.h>
 #include <Base/Reader.h>
 #include <Base/Stream.h>
@@ -63,8 +64,12 @@ void VRMLObject::onChanged(const App::Property* prop)
             this->vrmlPath = fi.dirPath();
         }
     }
-    else if (prop == &Urls) {
-        // save the relative paths to the resource files in the project file
+    else if (prop == &Urls && !restoringUrls) {
+        // save the relative paths to the resource files in the project file.
+        // Not while a restore fills Urls with the transient copies: the
+        // saved Resources stand, and deriving them again from those paths
+        // dropped every one to `<Obj>/` (Urls.setSize() makes empty ones)
+        // or flattened its subdirectories.
         Resources.setSize(Urls.getSize());
         const std::vector<std::string>& urls = Urls.getValues();
         int index=0;
@@ -131,17 +136,39 @@ void VRMLObject::makeDirectories(const std::string& path, const std::string& sub
     }
 }
 
+bool VRMLObject::keepsItsName(const std::string& resource)
+{
+    // What a VRML Inline names, which Coin opens by its name
+    static const char* const scenes[] = {"wrl", "wrz", "vrml", "iv", "x3d", "x3dv", "x3dz", "gz"};
+    Base::FileInfo fi(resource);
+    for (const char* ext : scenes) {
+        if (fi.hasExtension(ext)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+std::string VRMLObject::archiveName(const std::string& resource) const
+{
+    // Save always wrote `<this object's name>.<resource>`, the resource
+    // starting with that name too (getRelativePath(), fixRelativePath()).
+    // Read the name off the resource, so that an object restored under
+    // another name still finds the entries saved under its old one.
+    std::string::size_type pos = resource.find('/');
+    std::string owner = pos != std::string::npos ? resource.substr(0, pos)
+                                                 : std::string(getNameInDocument());
+    return owner + "." + resource;
+}
+
 void VRMLObject::Save (Base::Writer &writer) const
 {
     App::GeoFeature::Save(writer);
 
-    std::string name(getNameInDocument());
-    name += ".";
-
     // save also the inline files if there
     const std::vector<std::string>& urls = Resources.getValues();
     for (const auto & url : urls) {
-        writer.addFile(name + url.c_str(), this);
+        writer.addFile(archiveName(url).c_str(), this);
     }
 
     this->index = 0;
@@ -150,12 +177,18 @@ void VRMLObject::Save (Base::Writer &writer) const
 void VRMLObject::Restore(Base::XMLReader &reader)
 {
     App::GeoFeature::Restore(reader);
+    // Empty slots for RestoreDocFile() to fill, the saved Resources kept
+    restoringUrls = true;
     Urls.setSize(Resources.getSize());
+    restoringUrls = false;
 
-    // restore also the inline files if there
+    // restore also the inline files if there. Under the name Save wrote
+    // them: they were registered by the bare resource before
+    // (docs/HandsOnQueue.md entry 212), which matched no entry, so no
+    // resource was ever restored.
     const std::vector<std::string>& urls = Resources.getValues();
     for(const auto & url : urls) {
-        reader.addFile(url.c_str(), this);
+        reader.addFile(archiveName(url).c_str(), this);
     }
 
     this->index = 0;
@@ -170,12 +203,15 @@ void VRMLObject::SaveDocFile (Base::Writer &writer) const
         Base::FileInfo fi(url);
         // it can happen that the transient directory has changed after
         // saving the 'URLs' in RestoreDocFile() and then we have to
-        // try again with the new transient directory.
+        // try again with the new transient directory -- under the neutral
+        // name RestoreDocFile() gives a texture, or the resource's own.
         if (!fi.exists()) {
             std::string path = getDocument()->TransientDir.getValue();
-            url = Resources[this->index];
-            url = path + "/" + url;
-            fi.setFile(url);
+            url = path + "/" + Resources[this->index];
+            fi.setFile(FileBlobManager::neutralName(url));
+            if (!fi.exists()) {
+                fi.setFile(url);
+            }
         }
 
         this->index++;
@@ -188,30 +224,53 @@ void VRMLObject::SaveDocFile (Base::Writer &writer) const
 
 void VRMLObject::RestoreDocFile(Base::Reader &reader)
 {
-    if (this->index < Resources.getSize()) {
-        std::string path = getDocument()->TransientDir.getValue();
-        std::string url = Resources[this->index];
-        std::string intname = this->getNameInDocument();
-        url = fixRelativePath(intname, url);
-        Resources.set1Value(this->index, url);
-        makeDirectories(path, url);
-
-        url = path + "/" + url;
-        Base::FileInfo fi(url);
-        Urls.set1Value(this->index, url);
-        this->index++;
-
-        Base::ofstream file(fi, std::ios::out | std::ios::binary);
-        if (file) {
-            reader >> file.rdbuf();
-            file.close();
+    // Which resource this entry is: by its name, the order Save wrote them
+    // in being the fallback
+    const std::string entry = reader.getFileName();
+    int which = -1;
+    for (int i = 0; i < Resources.getSize(); ++i) {
+        const std::string name = archiveName(Resources[i]);
+        if (entry.size() >= name.size()
+                && entry.compare(entry.size() - name.size(), name.size(), name) == 0) {
+            which = i;
+            break;
         }
+    }
+    if (which < 0) {
+        which = this->index;
+    }
+    if (which >= Resources.getSize()) {
+        return;
+    }
 
-        // after restoring all inline files reload the VRML file
-        if (this->index == Urls.getSize()) {
-            VrmlFile.touch();
-            Base::FileInfo fi(VrmlFile.getValue());
-            this->vrmlPath = fi.dirPath();
-        }
+    std::string path = getDocument()->TransientDir.getValue();
+    std::string url = Resources[which];
+    std::string intname = this->getNameInDocument();
+    url = fixRelativePath(intname, url);
+    makeDirectories(path, url);
+
+    // A texture goes under a neutral name (docs/HandsOnQueue.md entries
+    // 206, 212): the close deletes it with the directory. The view provider
+    // points the scene at it.
+    std::string file = path + "/" + url;
+    if (!keepsItsName(url)) {
+        file = FileBlobManager::neutralName(file);
+    }
+    Base::FileInfo fi(file);
+    restoringUrls = true;
+    Resources.set1Value(which, url);
+    Urls.set1Value(which, file);
+    restoringUrls = false;
+    this->index++;
+
+    Base::ofstream out(fi, std::ios::out | std::ios::binary);
+    if (out) {
+        reader >> out.rdbuf();
+        out.close();
+    }
+
+    // after restoring all inline files reload the VRML file
+    if (this->index == Urls.getSize()) {
+        VrmlFile.touch();
     }
 }

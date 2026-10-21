@@ -2742,6 +2742,12 @@ void Document::Save (Base::Writer &writer) const
         saveClock = now;
         return secs;
     };
+    // Upstream's format keeps each object's UID as `_ObjectUUID` (sec
+    // 36.7), there before the objects settle what they write.
+    if (writer.getSchemaVersion() < 5) {
+        for (auto o : d->objectArray)
+            const_cast<Document*>(this)->carryObjectUid(o, o->getObjectUid());
+    }
     for (auto o : d->objectArray) {
         if (d->saveSeq) {
             d->saveSeq->next();
@@ -3228,17 +3234,12 @@ void Document::exportObjects(const std::vector<App::DocumentObject*>& obj, std::
     DocumentExporting exporting(obj);
     d->hashers.clear();
 
-    if(FC_LOG_INSTANCE.isEnabled(FC_LOGLEVEL_LOG)) {
-        for(auto o : obj) {
-            if(o && o->isAttachedToDocument()) {
-                FC_LOG("exporting " << o->getFullName());
-                if (!o->getPropertyByName("_ObjectUUID")) {
-                    auto prop = static_cast<PropertyUUID*>(o->addDynamicProperty(
-                            "App::PropertyUUID", "_ObjectUUID", nullptr, nullptr,
-                            Prop_Output | Prop_Hidden));
-                    prop->setValue(Base::Uuid::createUuid());
-                }
-            }
+    // A fragment is upstream's format, which keeps each object's UID as
+    // `_ObjectUUID` besides the attribute this fork reads (sec 36.7).
+    for(auto o : obj) {
+        if(o && o->isAttachedToDocument()) {
+            FC_LOG("exporting " << o->getFullName());
+            o->getDocument()->carryObjectUid(o, o->getObjectUid());
         }
     }
 
@@ -4085,6 +4086,7 @@ Document::readObjects(Base::XMLReader& reader)
 {
     d->touchedObjs.clear();
     d->savedTouched.clear();
+    d->unsourcedUids.clear();
     bool keepDigits = testStatus(Document::KeepTrailingDigits);
     setStatus(Document::KeepTrailingDigits, !reader.doNameMapping());
     std::vector<App::DocumentObject*> objs;
@@ -4303,6 +4305,7 @@ Document::readObjects(Base::XMLReader& reader)
     reader.readEndElement("ObjectData");
     FC_DURATION_PLUS(d->restoreTiming.data, t);
     d->restoreTiming.props = PropertyContainer::restoreStats - propStats;
+    _adoptCarriedUids(objs);
 
     return objs;
 }
@@ -4320,7 +4323,9 @@ Document::importObjects(Base::XMLReader& reader)
 {
     // The clashes (sec 36.4) are settled once the import is over: they are
     // changes like any, read through a name map of their own.
-    return _settleImportClashes(_importObjects(reader));
+    auto objs = _settleImportClashes(_importObjects(reader));
+    d->broughtUids.clear();
+    return objs;
 }
 
 std::vector<App::DocumentObject*>
@@ -4355,6 +4360,7 @@ Document::_importObjects(Base::XMLReader& reader)
     d->importFromHere = reader.hasAttribute("From")
         && TransientDir.getStrValue() == reader.getAttribute("From");
     d->importClashes.clear();
+    d->broughtUids.clear();
 
     // The imported objects' included files come in the same archive; they
     // become this document's content, counted against this document's store.
@@ -4366,19 +4372,6 @@ Document::_importObjects(Base::XMLReader& reader)
         if(o && o->isAttachedToDocument()) {
             o->setStatus(App::ObjImporting,true);
             FC_LOG("importing " << o->getFullName());
-            if (auto propUUID = Base::freecad_dynamic_cast<PropertyUUID>(
-                        o->getPropertyByName("_ObjectUUID")))
-            {
-                auto propSource = Base::freecad_dynamic_cast<PropertyUUID>(
-                        o->getPropertyByName("_SourceUUID"));
-                if (!propSource)
-                    propSource = static_cast<PropertyUUID*>(o->addDynamicProperty(
-                                "App::PropertyUUID", "_SourceUUID", nullptr, nullptr,
-                                Prop_Output | Prop_Hidden));
-                if (propSource)
-                    propSource->setValue(propUUID->getValue());
-                propUUID->setValue(Base::Uuid::createUuid());
-            }
         }
     }
 
@@ -6333,7 +6326,9 @@ void Document::_applyVersion(Document& version, bool views,
         for (auto& kv : have) {
             if (values || ownerOnly)
                 break;
-            if (want.count(kv.first) || live.getDynamicPropertyData(kv.second).name.empty())
+            // A compatibility name is in no version (sec 36.7)
+            if (want.count(kv.first) || live.getDynamicPropertyData(kv.second).name.empty()
+                    || kv.second->testStatus(Property::Legacy))
                 continue;
             guarded(kv.first, [&]() { live.removeDynamicProperty(kv.first.c_str()); });
         }
@@ -16800,8 +16795,15 @@ void Document::_giveObjectUid(DocumentObject* pcObject, bool freshId, const std:
     d->restoringUid.clear();
     if (!pcObject->_uid.empty())
         uid = pcObject->_uid;
+    // What a copy beside its source names the source by (sec 36.7).
+    if (testStatus(Status::Importing) && !uid.empty())
+        d->broughtUids[pcObject->_Id] = uid;
     const std::string* known =
         d->history && !freshId ? d->history->objectUidOfId(pcObject->_Id) : nullptr;
+    // From nothing, read: the one it carries as `_ObjectUUID`, read with its
+    // properties, may still be its own (sec 36.7).
+    if (!known && uid.empty() && testStatus(Status::Restoring))
+        d->unsourcedUids.insert(pcObject->_Id);
     bool derived = false;
     if (known)
         uid = *known;
@@ -16838,6 +16840,87 @@ std::string Document::_derivedObjectUid(long id, const std::string& name) const
     if (space.empty())
         space = Uid.getValueStr();
     return Base::Uuid::createUuid(space, "object " + std::to_string(id) + " " + name);
+}
+
+void Document::carryObjectUid(DocumentObject* obj, const std::string& uid)
+{
+    if (!obj || uid.empty())
+        return;
+    if (obj->getDocument() && obj->getDocument() != this) {
+        obj->getDocument()->carryObjectUid(obj, uid);
+        return;
+    }
+    // The document's bookkeeping: no undo step, no row of the log, and a
+    // pinned version takes it. A compatibility name (Property::Legacy) is
+    // in no file of this fork's format and in no row of the log; it marks
+    // nothing modified (NoModify) and touches nothing (Output).
+    Base::FlagToggler<> quiet(d->bookkeeping, false);
+    Property* found = obj->getDynamicPropertyByName("_ObjectUUID");
+    auto prop = Base::freecad_dynamic_cast<PropertyUUID>(found);
+    if (!prop) {
+        if (found)
+            return;
+        prop = static_cast<PropertyUUID*>(obj->addDynamicProperty(
+                "App::PropertyUUID", "_ObjectUUID", nullptr, nullptr,
+                Prop_Output | Prop_Hidden));
+        if (!prop)
+            return;
+    }
+    prop->setStatus(Property::Legacy, true);
+    prop->setStatus(Property::NoModify, true);
+    if (prop->getValueStr() != uid)
+        prop->setValue(uid);
+}
+
+std::string Document::getBroughtObjectUid(const DocumentObject* obj) const
+{
+    if (!obj || !testStatus(Status::Importing))
+        return {};
+    auto it = d->broughtUids.find(obj->getID());
+    return it == d->broughtUids.end() ? std::string() : it->second;
+}
+
+void Document::_adoptCarriedUids(const std::vector<DocumentObject*>& objs)
+{
+    // Sec 36.7: a file of upstream's format written here holds each UID
+    // twice, as the attribute and as `_ObjectUUID`; one upstream wrote
+    // again holds the property alone, and before sec 36 a part or a FEM
+    // analysis held a `Uid` of its own (restoreUidProperty()). Taken where
+    // the object's UID came from nothing, by the rules the attribute is
+    // taken by: not a live object's -- an import's clash -- and not
+    // another id's in the history.
+    const bool importing = testStatus(Status::Importing);
+    for (auto obj : objs) {
+        if (!obj || !obj->isAttachedToDocument())
+            continue;
+        auto prop = Base::freecad_dynamic_cast<PropertyUUID>(
+                obj->getDynamicPropertyByName("_ObjectUUID"));
+        if (!prop)
+            continue;
+        const std::string uid = prop->getValueStr();
+        if (!uid.empty() && uid != obj->_uid && d->unsourcedUids.count(obj->_Id)) {
+            if (importing)
+                d->broughtUids[obj->_Id] = uid;
+            auto live = d->objectUidMap.find(uid);
+            const long known = d->history ? d->history->objectIdOfUid(uid) : 0;
+            if (live != d->objectUidMap.end()) {
+                if (importing && !d->importFromHere
+                        && live->second->getTypeId() == obj->getTypeId())
+                    d->importClashes.push_back({obj, live->second, false});
+            }
+            else if (!known || known == obj->_Id) {
+                d->forgetObjectUid(obj);
+                d->derivedUids.erase(obj->_Id);
+                obj->_uid = uid;
+                d->objectUidMap[uid] = obj;
+                if (d->history)
+                    d->history->renoteObjectUid(obj->_Id, uid);
+            }
+        }
+        // It says the object's UID from here on, as a compatibility name
+        carryObjectUid(obj, obj->_uid);
+    }
+    d->unsourcedUids.clear();
 }
 
 void Document::_addObject(DocumentObject* pcObject, const char* pObjectName)

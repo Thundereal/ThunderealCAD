@@ -10672,6 +10672,140 @@ class TransactionBranchCases(unittest.TestCase):
         FreeCAD.closeDocument(first.Name)
         self.assertEqual(uids(self.track(FreeCAD.openDocument(copies[1]))), got)
 
+    def testUpstreamsFormatKeepsTheUids(self):
+        # Sec 36.7: a file of upstream's format holds each UID twice, as the
+        # attribute and as `_ObjectUUID`, a compatibility name the save puts
+        # on the object quietly -- no undo step, in no file of this fork's
+        # format. Written again by upstream, which drops the attribute, the
+        # property gives each object its UID back.
+        import re
+        import zipfile
+
+        doc = self.track(FreeCAD.newDocument("UidUpstream"))
+        doc.UndoMode = 1
+        doc.openTransaction("make")
+        doc.addObject("App::FeatureTest", "A")
+        doc.addObject("App::FeatureTest", "B")
+        doc.commitTransaction()
+        want = {o.Name: o.ObjectUid for o in doc.Objects}
+        doc.SaveSchemaVersion = 4
+        undo = doc.UndoCount
+        path = os.path.join(self.dir, "upstream.FCStd")
+        doc.saveAs(path)
+        self.assertEqual(doc.UndoCount, undo)
+        for obj in doc.Objects:
+            self.assertEqual(obj._ObjectUUID, want[obj.Name])
+            self.assertIn("Legacy", obj.getPropertyStatus("_ObjectUUID"))
+        with zipfile.ZipFile(path) as src:
+            xml = src.read("Document.xml")
+        for uid in want.values():
+            self.assertEqual(xml.count(uid.encode()), 2)
+
+        def rewritten(name, edit):
+            out = os.path.join(self.dir, name)
+            with zipfile.ZipFile(path) as src, zipfile.ZipFile(out, "w") as dst:
+                for item in src.infolist():
+                    data = src.read(item.filename)
+                    if item.filename == "Document.xml":
+                        data = edit(re.sub(rb' uid="[^"]*"', b"", data))
+                    dst.writestr(item, data)
+            return out
+
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(rewritten("again.FCStd", lambda d: d)))
+        self.assertEqual({o.Name: o.ObjectUid for o in doc.Objects}, want)
+        doc.SaveSchemaVersion = 5
+        doc.save()
+        with zipfile.ZipFile(doc.FileName) as src:
+            self.assertNotIn(b"_ObjectUUID", src.read("Document.xml"))
+        FreeCAD.closeDocument(doc.Name)
+
+        # Two objects carrying one UID: the first has it, the second the one
+        # derived from the file.
+        same = rewritten("same.FCStd", lambda d: d.replace(want["B"].encode(), want["A"].encode()))
+        doc = self.track(FreeCAD.openDocument(same))
+        self.assertEqual(doc.getObject("A").ObjectUid, want["A"])
+        self.assertNotIn(doc.getObject("B").ObjectUid, want.values())
+        self.assertEqual(doc.getObject("B")._ObjectUUID, doc.getObject("B").ObjectUid)
+
+    def testAPartsUidIsItsObjectUid(self):
+        # Sec 36.7: a part and a FEM analysis had a Uid property of their
+        # own, which nothing read; it is the object's UID now, read-only, and
+        # an older file's Uid is taken for it.
+        import re
+        import zipfile
+
+        doc = self.track(FreeCAD.newDocument("UidPart"))
+        part = doc.addObject("App::Part", "Part")
+        self.assertNotIn("Uid", part.PropertiesList)
+        self.assertEqual(part.Uid, part.ObjectUid)
+        with self.assertRaises(AttributeError):
+            part.Uid = part.ObjectUid
+        analysis = doc.addObject("Fem::FemAnalysis", "Analysis")
+        self.assertNotIn("Uid", analysis.PropertiesList)
+        self.assertEqual(analysis.Uid, analysis.ObjectUid)
+        plain = doc.addObject("App::FeatureTest", "Plain")
+        self.assertFalse(hasattr(plain, "Uid"))
+        doc.addObject("App::Part", "Other")
+        doc.SaveSchemaVersion = 4
+        path = os.path.join(self.dir, "part.FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+
+        # As an older build wrote it: no attribute, no _ObjectUUID, and a Uid
+        # property on each part -- the same one on both, as an upstream
+        # paste left it.
+        older = os.path.join(self.dir, "partolder.FCStd")
+        given = "0b6c5c9e-7a43-4f1e-9a51-3d1c7c2e1f00"
+
+        def addUid(m):
+            # Last: a block's transient entries come first
+            return (
+                m.group(1)
+                + b"%d" % (int(m.group(2)) + 1)
+                + m.group(3)
+                + b'<Property name="Uid" type="App::PropertyUUID"><Uuid value="'
+                + given.encode()
+                + b'"/></Property>\n'
+                + m.group(4)
+            )
+
+        with zipfile.ZipFile(path) as src, zipfile.ZipFile(older, "w") as dst:
+            for item in src.infolist():
+                data = src.read(item.filename)
+                if item.filename == "Document.xml":
+                    data = re.sub(rb' uid="[^"]*"', b"", data)
+
+                    def dropCarried(m):
+                        body, n = re.subn(
+                            rb'<Property name="_ObjectUUID".*?</Property>\s*',
+                            b"",
+                            m.group(3),
+                            flags=re.S,
+                        )
+                        return m.group(1) + b"%d" % (int(m.group(2)) - n) + body
+
+                    data = re.sub(
+                        rb'(<Properties Count=")(\d+)(".*?</Properties>)',
+                        dropCarried,
+                        data,
+                        flags=re.S,
+                    )
+                    self.assertNotIn(b"_ObjectUUID", data)
+                    data = re.sub(
+                        rb'(<Object name="(?:Part|Other)"[^>]*>.*?<Properties Count=")(\d+)(".*?)'
+                        rb"(</Properties>)",
+                        addUid,
+                        data,
+                        flags=re.S,
+                    )
+                    self.assertEqual(data.count(given.encode()), 2)
+                dst.writestr(item, data)
+        doc = self.track(FreeCAD.openDocument(older))
+        self.assertEqual(doc.getObject("Part").Uid, given)
+        self.assertNotEqual(doc.getObject("Other").Uid, given)
+        self.assertNotIn("Uid", doc.getObject("Part").PropertiesList)
+
     def testAnObjectBroughtBackIsItself(self):
         # Sec 36.3, 36.4: a UID is a history link. An object copied out and
         # removed here comes back, copied in again, as itself -- its id, its

@@ -1090,11 +1090,23 @@ PyObject *DocumentObjectPy::getCustomAttributes(const char* attr) const
         if (obj->ViewObject.getValue().isNone())
             requestViewObject(*obj);
     }
+    // What was a property of a part and a FEM analysis is the object's UID
+    // (docs/TransactionLog.md sec 36.7); a property of the name answers
+    if (boost::equals(attr, "Uid")) {
+        auto obj = getDocumentObjectPtr();
+        if (obj->hasUidAttribute() && !obj->getPropertyByName(attr))
+            return Py::new_reference_to(Py::String(obj->getObjectUid()));
+    }
     return nullptr;
 }
 //remove
-int DocumentObjectPy::setCustomAttributes(const char* , PyObject *)
+int DocumentObjectPy::setCustomAttributes(const char* attr, PyObject *)
 {
+    if (boost::equals(attr, "Uid")) {
+        auto obj = getDocumentObjectPtr();
+        if (obj->hasUidAttribute() && !obj->getPropertyByName(attr))
+            throw Py::AttributeError("Object attribute 'Uid' is read-only");
+    }
     return 0;
 }
 

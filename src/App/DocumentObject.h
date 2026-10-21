@@ -170,6 +170,11 @@ public:
      * a live object has it already.
      */
     const std::string& getObjectUid() const {return _uid;}
+    /** Whether Python's read-only `Uid` answers getObjectUid(): the classes
+     * that had a `Uid` property of their own before there was one for
+     * every object (docs/TransactionLog.md sec 36.7).
+     */
+    virtual bool hasUidAttribute() const {return false;}
     /// returns the name that is safe to be exported to other document
     std::string getExportName(bool forced=false) const;
     /// Return the object full name of the form DocName#ObjName
@@ -984,6 +989,12 @@ protected:
 
     /// get called when a property status has changed
     void onPropertyStatusChanged(const Property &prop, unsigned long oldStatus) override;
+
+    /** For handleChangedPropertyName(): a `Uid` property of an older file,
+     * which the classes that had one of their own wrote, is read for the
+     * object's UID (docs/TransactionLog.md sec 36.7). True if it was one.
+     */
+    bool restoreUidProperty(Base::XMLReader &reader, const char *TypeName, const char *PropName);
 
 private:
     void printInvalidLinks() const;

@@ -99,6 +99,13 @@ struct DocumentP
     /// written by a build that keeps none -- an older one, or upstream's --
     /// and an import knows them by their id and name as before.
     std::unordered_set<long> derivedUids;
+    /// The objects of the read under way whose UID came from nothing -- no
+    /// attribute, no history -- by id: one they carry as `_ObjectUUID`, read
+    /// with their properties, may still be theirs (sec 36.7).
+    std::unordered_set<long> unsourcedUids;
+    /// The UID each object of the import under way was brought with, by id,
+    /// whatever it was given here (sec 36.7).
+    std::unordered_map<long, std::string> broughtUids;
     /// The clashes of the import under way (sec 36.4), and whether what it
     /// brings was copied from this very document, which is never asked.
     std::vector<Document::ImportClash> importClashes;

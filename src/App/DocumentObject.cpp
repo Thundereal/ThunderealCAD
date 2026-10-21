@@ -1541,6 +1541,21 @@ void DocumentObject::onDocumentRestored()
         Visibility.setStatus(Property::NoModify,true);
 }
 
+bool DocumentObject::restoreUidProperty(Base::XMLReader &reader, const char *TypeName,
+                                        const char *PropName)
+{
+    if (strcmp(PropName, "Uid") != 0
+            || strcmp(TypeName, PropertyUUID::getClassTypeId().getName()) != 0)
+        return false;
+    // Taken for the UID as `_ObjectUUID` is, which a file written later
+    // holds it as, and which -- read after it -- has the last word
+    PropertyUUID uid;
+    uid.Restore(reader);
+    if (_pDoc)
+        _pDoc->carryObjectUid(this, uid.getValueStr());
+    return true;
+}
+
 std::vector<std::string> DocumentObject::getMergeUnit(const char* prop) const
 {
     // The looks of an object's elements are one value, merged by what they

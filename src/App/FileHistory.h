@@ -166,6 +166,18 @@ public:
         _idOfUid.emplace(uid, id);
         _uidOfId.emplace(id, uid);
     }
+    /// `id` has `uid` in place of what it was noted with: an object read
+    /// before its own UID was (docs/TransactionLog.md sec 36.7).
+    void renoteObjectUid(long id, const std::string& uid)
+    {
+        if (uid.empty() || id <= 0 || _idOfUid.count(uid))
+            return;
+        if (auto it = _uidOfId.find(id); it != _uidOfId.end()) {
+            _idOfUid.erase(it->second);
+            _uidOfId.erase(it);
+        }
+        noteObjectUid(id, uid);
+    }
     /// Every (id, UID) pair, in no order.
     const std::unordered_map<long, std::string>& objectUids() const { return _uidOfId; }
     /** The file's own `Uid` as its documents were read with it: what the

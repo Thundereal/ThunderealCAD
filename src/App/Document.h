@@ -485,6 +485,16 @@ public:
      * 30.4 P4): the name an object has here, to the one its file gave it.
      */
     std::map<std::string, std::string> importedNames(const std::string& branch) const;
+    /** Note `uid` on `obj` under the name upstream's format keeps an
+     * object's UID by: `_ObjectUUID`, a compatibility name
+     * (Property::Legacy), made if missing -- quietly, no undo step, no row
+     * of the log, no modification (docs/TransactionLog.md sec 36.7). What a
+     * restore of the object takes for its UID where the file gives none.
+     */
+    void carryObjectUid(DocumentObject* obj, const std::string& uid);
+    /// During an import, the UID `obj` was brought with, whatever it was
+    /// given here; empty otherwise (sec 36.7).
+    std::string getBroughtObjectUid(const DocumentObject* obj) const;
     /** Open version `num` of this document's file as a document of its own
      * (docs/TransactionLog.md sec 27.5, 27.7): on the file's one log, at
      * that version, named `<file>@v<num>`, with status VersionDoc. A
@@ -1888,6 +1898,9 @@ protected:
     std::vector<DocumentObject*> _importObjects(Base::XMLReader& reader);
     /// What the UID of an object of a file from before UIDs is (sec 36 U3).
     std::string _derivedObjectUid(long id, const std::string& name) const;
+    /// The objects just read take the UID they carry as `_ObjectUUID`
+    /// where theirs came from nothing (sec 36.7).
+    void _adoptCarriedUids(const std::vector<DocumentObject*>& objs);
     /// checks if a valid transaction is open
     void _checkTransaction(DocumentObject* pcDelObj, const Property *What, int line);
     void breakDependency(DocumentObject* pcObject, bool clear);

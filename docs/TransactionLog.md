@@ -22203,3 +22203,70 @@ view provider's state under Assign (the live object keeps its look).
 `testAnObjectBroughtBackIsItself`, `testAStrangersObjectOfOurUidIsOurs`,
 `testAStrangersSetIsTakenWhole` (now `L`); gtest
 `aStoreOfLayoutOneGetsObjectUids`; driven `import-clash.py`.
+
+### 36.7 A UID through upstream's format: `_ObjectUUID` (ruled and built 2026-10-21)
+
+36.6 found that a file upstream writes again has lost its `uid`
+attributes, and its objects' UIDs are derived. The ruling: carry the UID in
+a property upstream keeps, the `_ObjectUUID` an export already made (with
+logging on only); and the `Uid` properties of `App::Part` and
+`Fem::FemAnalysis`, which nothing reads, go -- a read-only Python `Uid`
+answers the object's UID for them.
+
+- **Written.** A save below schema 5 (upstream's format, `SaveSchemaVersion`
+  4) and every export (always 4) put `_ObjectUUID` on each object written,
+  made if missing, set to its UID -- besides the `uid` attribute.
+  `Document::carryObjectUid` does it as the document's bookkeeping: no
+  undo step, no row of the log, a pinned version takes it. The property is
+  a compatibility name (`Property::Legacy`): in no file of schema 5, in no
+  row of the log, and a version's restore leaves it (a version never holds
+  it); `NoModify`, so the save that makes it marks nothing modified;
+  `Output | Hidden`.
+- **Read.** After the object data are in (`readObjects`), an object whose
+  UID came from nothing -- no attribute, no history: the derived one, or
+  for an import a new one -- takes the `_ObjectUUID` it carries
+  (`_adoptCarriedUids`), by the attribute's rules: not where a live object
+  has it (an import from another document records the clash, 36.4), not
+  where the history gives it another id. The attribute wins where both
+  are. The object's `_ObjectUUID` is set to its UID either way. An object
+  given its UID so is no longer a derived one, so it pairs by UID.
+- **The old `Uid`.** A part's or an analysis's `Uid` of an older file,
+  unknown to the class now, is read by `handleChangedPropertyName`
+  (`DocumentObject::restoreUidProperty`) into `_ObjectUUID`, and taken as
+  above; a later `_ObjectUUID` of the same object has the last word. Two
+  parts with one `Uid` -- an upstream paste copies it -- the first takes it,
+  the second keeps its derived UID.
+- **Python.** `part.Uid` and `analysis.Uid` read the UID; setting it raises
+  `AttributeError` (`DocumentObject::hasUidAttribute`, answered in
+  `DocumentObjectPy::getCustomAttributes`); a property named `Uid`, a
+  Python feature's own, still answers first.
+
+**`_SourceUUID`.** The import made each object brought with an
+`_ObjectUUID` carry the value as `_SourceUUID` and get a new random
+`_ObjectUUID`. Both users of it matched a copy to its source by it: a
+tracking copy-on-change link, whose new copy replaces the old one in what
+refers to it (`LinkBaseExtension::syncCopyOnChange`), and a copy of a shape
+content, which takes the shape of the content it is a copy of
+(`Part::Feature::restoreShapeContents`). Since the export made the
+`_ObjectUUID` with logging on only, neither matched anything otherwise. A
+reference through the link into the old copy (`(L, ["C002."])`) stayed on
+it, removed as the new copy came; with the copies' `_SourceUUID` taken
+away before the source changes -- that state -- it still does, and with
+them it moves to `C003.`. (A direct link from elsewhere to a copy is not
+moved either way: `tryReplaceLink` moves one only for its owner being the
+link.) Now every export carries `_ObjectUUID`, and the
+import no longer writes `_SourceUUID` on every object brought. Its users
+set it themselves, to the source's UID: the link on each copy as
+`copyObject` returns it (in the order given), and a content's copy from the
+UID it was brought with (`Document::getBroughtObjectUid`, kept for the
+import's length), so that its reopen finds the content again.
+
+**Not covered.** A file of split XML (the directory layout) has its object
+data read after `readObjects`, past the adoption: one upstream wrote again
+keeps derived UIDs -- upstream writes no such layout. A paste of an
+upstream clipboard whose objects carry `_ObjectUUID` alone does not bring
+an object removed here back under its id and name (36.3): the id is given
+before the property is read.
+
+**Tests**: `testUpstreamsFormatKeepsTheUids`, `testAPartsUidIsItsObjectUid`,
+`testATrackingCopyReplacesItsOldOne`, `testACopyOfAShapeContentHasItsShape`.

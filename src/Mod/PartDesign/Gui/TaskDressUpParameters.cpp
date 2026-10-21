@@ -52,6 +52,7 @@
 #include <App/ElementNamingUtils.h>
 #include <App/MappedElement.h>
 #include <App/PropertyStandard.h>
+#include <Base/AutoColor.h>
 #include <Base/ServiceProvider.h>
 #include <Base/Tools.h>
 #include <Gui/Application.h>
@@ -1030,7 +1031,7 @@ void TaskDressUpParameters::createAddAllEdgesAction(QTreeWidget* parentList)
     parentList->setContextMenuPolicy(Qt::ActionsContextMenu);
 }
 
-Base::Color TaskDressUpParameters::autoGroupColor(int group)
+Base::Color TaskDressUpParameters::autoGroupColor(int group) const
 {
     // The hues a handle already wears: plain, dragged, selected and under the
     // pointer. A group's own colour keeps clear of them all, or a handle of
@@ -1057,17 +1058,31 @@ Base::Color TaskDressUpParameters::autoGroupColor(int group)
     take(fromPacked(Gui::ViewParams::getSelectionColor()));
     take(fromPacked(Gui::ViewParams::getHighlightColor()));
 
-    // A hue stepped by the golden ratio from the id -- the same id keeps its
-    // colour from session to session -- moved on past the taken ones
-    double hue = std::fmod(0.08 + group * 0.618033988749895, 1.0);
-    auto near = [&hue](float other) {
-        double d = std::fabs(hue - other);
-        return std::min(d, 1.0 - d) < 0.09;
-    };
-    for (int i = 0; i < 20 && std::any_of(taken.begin(), taken.end(), near); ++i) {
-        hue = std::fmod(hue + 0.05, 1.0);
+    // A colour the user picked for another group is taken too
+    std::vector<int> automatic;
+    for (int id : groupIds()) {
+        if (id == group) {
+            continue;
+        }
+        if (auto picked = pickedGroupColor(id)) {
+            take(*picked);
+        }
+        else {
+            automatic.push_back(id);
+        }
     }
-    QColor color = QColor::fromHsvF(float(hue), 0.75F, 0.95F);
+    automatic.push_back(group);
+    std::sort(automatic.begin(), automatic.end());
+
+    // The groups in turn by id, each the hue farthest from every hue taken
+    // so far -- the handle's, the picked ones, and the groups' before it
+    // (Base::spreadHues). Fixed for a given set of groups; a hue stepped from
+    // the id alone kept clear of the handle's but not of the other groups',
+    // and two groups pushed out of one taken band landed side by side (the
+    // user, entry 209: "group 2 and 3 has very similar color")
+    const auto at = std::find(automatic.begin(), automatic.end(), group);
+    const auto hues = Base::spreadHues(taken, int(at - automatic.begin()) + 1);
+    QColor color = QColor::fromHsvF(hues.back(), 0.75F, 0.95F);
     return Base::Color(float(color.redF()), float(color.greenF()), float(color.blueF()));
 }
 

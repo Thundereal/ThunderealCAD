@@ -170,6 +170,13 @@ fc_add_gui_test(GuiFilletGroupsAndPreviewMenu_tests_run fillet-groups-and-previe
 fc_add_gui_test(GuiFilletCornerVertexPick_tests_run fillet-corner-vertex-pick.py
                 --timeout 200)
 
+# Entries 209 and 210, the hands-on of 2026-10-21: automatic colours stand
+# apart -- a fillet's edge groups, PartDesign's tag colours, the shapes'.
+fc_add_gui_test(GuiFilletGroupColorsApart_tests_run fillet-group-colors-apart.py
+                --timeout 200)
+fc_add_gui_test(GuiAutoColorsSpread_tests_run auto-colors-spread.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

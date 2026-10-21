@@ -1004,6 +1004,13 @@ void TaskFilletParameters::setEdgeGroup(const std::string& edge, int group)
     recompute();
 }
 
+std::vector<int> TaskFilletParameters::groupIds() const
+{
+    auto vp = getDressUpView();
+    auto fillet = vp ? dynamic_cast<PartDesign::Fillet*>(vp->getObject()) : nullptr;
+    return fillet ? fillet->Segments.getGroups() : std::vector<int>();
+}
+
 Gui::Gizmo* TaskFilletParameters::itemHandle(QTreeWidgetItem* item) const
 {
     // an edge's first arrow (its radius, not a point's place along it)

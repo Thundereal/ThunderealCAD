@@ -170,6 +170,7 @@ private:
     /// The dragged value's edges among the chamfer's failed ones
     bool isDragFailing() const override;
     int itemGroup(QTreeWidgetItem* item) const override;
+    std::vector<int> groupIds() const override;
     Gui::Gizmo* itemHandle(QTreeWidgetItem* item) const override;
     void groupColorsChanged() override;
     void fillEdgeMenu(QMenu& menu, Gui::Gizmo* gizmo);

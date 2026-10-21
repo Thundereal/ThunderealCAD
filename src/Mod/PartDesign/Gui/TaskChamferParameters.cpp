@@ -1030,6 +1030,13 @@ QString TaskChamferParameters::edgeModeTip(Mode mode, int group)
     return tip;
 }
 
+std::vector<int> TaskChamferParameters::groupIds() const
+{
+    auto vp = getDressUpView();
+    auto chamfer = vp ? dynamic_cast<PartDesign::Chamfer*>(vp->getObject()) : nullptr;
+    return chamfer ? chamfer->ChamferInfo.getGroups() : std::vector<int>();
+}
+
 Gui::Gizmo* TaskChamferParameters::itemHandle(QTreeWidgetItem* item) const
 {
     // an edge's size handle, else its first

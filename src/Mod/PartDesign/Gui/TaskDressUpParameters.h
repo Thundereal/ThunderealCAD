@@ -130,10 +130,17 @@ protected:
      * else an automatic one (entry 202)
      */
     Base::Color groupColor(int group) const;
-    /** A group's automatic colour: a hue from its id, kept clear of the hues
-     * a handle wears plain, dragged, selected and under the pointer
+    /** A group's automatic colour: the groups taken in turn by id, each the
+     * hue farthest from the hues a handle wears plain, dragged, selected and
+     * under the pointer, from the colours picked for the other groups, and
+     * from the groups' before it (entry 209)
      */
-    static Base::Color autoGroupColor(int group);
+    Base::Color autoGroupColor(int group) const;
+    /// The groups in use, in order (the feature's)
+    virtual std::vector<int> groupIds() const
+    {
+        return {};
+    }
     /// The colour the user picked for \a group, if any
     std::optional<QColor> pickedGroupColor(int group) const;
     /// A swatch of a group's colour, for its menu item and its panel row

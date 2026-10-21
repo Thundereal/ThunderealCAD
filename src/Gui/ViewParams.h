@@ -34,7 +34,7 @@ import ViewParams
 ViewParams.declare_begin()
 ]]]*/
 
-// Auto generated code (Gui/ViewParams.py:1082)
+// Auto generated code (Gui/ViewParams.py:1087)
 #include <QString>
 
 // Auto generated code (Tools/params_utils.py:82)
@@ -2337,6 +2337,21 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter EscapeEndsEdit
+    ///
+    /// Let a plain Escape end the edit in progress, the way it did before
+    /// the Std_ResetEdit command (End edit, Shift+Esc). Off: Escape only
+    /// cancels what is going on inside the edit, and a task dialog that is
+    /// not an edit still takes its Cancel on it.
+    static const bool & getEscapeEndsEdit();
+    static const bool & defaultEscapeEndsEdit();
+    static void removeEscapeEndsEdit();
+    static void setEscapeEndsEdit(const bool &v);
+    static const char *docEscapeEndsEdit();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter EnableMenuBarCheckBox
     ///
     /// Show the entries of the toolbar and dock window menus of the menu
@@ -3467,7 +3482,7 @@ public:
     static const char *docHeadlightRotationW();
     //@}
 
-    // Auto generated code (Gui/ViewParams.py:1088)
+    // Auto generated code (Gui/ViewParams.py:1093)
     static const std::vector<QString> AnimationCurveTypes;
 
     static void onViewParamChanged(const char *sReason);
@@ -3498,7 +3513,7 @@ ViewParams.declare_end()
 }; // class ViewParams
 } // namespace Gui
 
-// Auto generated code (Gui/ViewParams.py:1101)
+// Auto generated code (Gui/ViewParams.py:1106)
 namespace Gui {
 /// Obtain all display style names, terminated by nullptr entry.
 GuiExport const char **drawStyleNames();

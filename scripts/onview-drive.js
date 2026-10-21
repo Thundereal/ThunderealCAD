@@ -211,17 +211,18 @@ const HELPERS = () => {
     // whenever a form control has the keyboard (fcviewer_dom_has_keyboard),
     // so a synthetic Escape aimed at the document reaches nothing at all
     // -- which looked exactly like a session that would not end.
-    const escape = () => page.evaluate(() => {
+    const escape = (shift) => page.evaluate((shift) => {
       const target = document.activeElement || document;
       for (const type of ['keydown', 'keyup']) {
         target.dispatchEvent(new KeyboardEvent(type,
-            {key: 'Escape', bubbles: true, cancelable: true}));
+            {key: 'Escape', shiftKey: shift, bubbles: true, cancelable: true}));
       }
-    });
+    }, !!shift);
     await escape();
     await sleep(1500);
-    // Twice: the first ends the tool, the second the edit session.
-    await escape();
+    // Then End edit's shortcut, Shift+Escape, for the edit session: a
+    // second plain Escape ends no edit (docs/HandsOnQueue.md entry 203).
+    await escape(true);
     await sleep(1500);
     out.boxesAtEnd = await page.evaluate(() => window.__fcBoxes());
     out.editingAtEnd = await page.evaluate(() => window.fcviewerEditing);

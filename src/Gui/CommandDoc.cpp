@@ -692,6 +692,12 @@ void StdCmdMergeProjects::activated(int iMsg)
             doc->abortTransaction();
             return;
         }
+        catch (const Base::Exception& e) {
+            // What was brought goes with the transaction
+            doc->abortTransaction();
+            e.ReportException();
+            return;
+        }
         str.close();
         doc->commitTransaction();
     }

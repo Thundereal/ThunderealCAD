@@ -5965,17 +5965,18 @@ int Document::takeSteps(bool undo, int iSteps, int skipped)
 
     const auto kind = undo ? App::TransactionGuard::Undo : App::TransactionGuard::Redo;
     int taken = 0;
+    // Past a step that was refused (sec 33.11) there is no run of grouped
+    // transactions to ask about: the step taken is one of this document's,
+    // picked by the user. Asked before the run's guard is up: the other
+    // documents' steps are taken in there, with their own guards, and a
+    // step of theirs that goes through the log recomputes.
+    if (!skipped && !checkTransactionID(undo, iSteps))
+        return -1;
     {
         // One guard for the run, let go of around a step that goes through
         // the log (docs/TransactionLog.md sec 30.10): that one recomputes,
         // and the guard defers the touches a recompute works from.
         std::optional<App::TransactionGuard> guard(std::in_place, kind);
-
-        // Past a step that was refused (sec 33.11) there is no run of
-        // grouped transactions to ask about: the step taken is one of this
-        // document's, picked by the user.
-        if (!skipped && !checkTransactionID(undo, iSteps))
-            return -1;
 
         for (; taken < iSteps; ++taken) {
             if (getDocument()->stepNeedsLog(undo, skipped))

@@ -3222,6 +3222,29 @@ bool ClipboardFormats::insertable()
         formats.contains(_MimeDocObjFile) || formats.contains(_MimeDocObjXFile);
 }
 
+namespace {
+/// The objects a paste brought go under the selected group, when one is:
+/// not an object that was there before, which an Assign (sec 36.4) put in
+/// the list in a copy's place.
+void groupPasted(App::Document* doc, const std::vector<App::DocumentObject*>& newObj,
+                 const std::set<long>& before)
+{
+    auto grp = Gui::Selection().getSelection(doc->getName(), ResolveMode::OldStyleElement,
+                                             /*single*/ true);
+    if (grp.size() != 1)
+        return;
+    Gui::Document* gui = Application::Instance->getDocument(doc);
+    if (!gui)
+        return;
+    std::vector<App::DocumentObject*> brought;
+    for (auto o : newObj) {
+        if (o && !before.count(o->getID()))
+            brought.push_back(o);
+    }
+    gui->addRootObjectsToGroup(brought, grp.front().pObject);
+}
+}  // namespace
+
 void MainWindow::insertFromMimeData (const QMimeData * mimeData)
 {
     if (!mimeData)
@@ -3253,6 +3276,9 @@ void MainWindow::insertFromMimeData (const QMimeData * mimeData)
         QByteArray res = mimeData->data(format);
 
         doc->openTransaction("Paste");
+        std::set<long> before;
+        for (auto o : doc->getObjects())
+            before.insert(o->getID());
         Base::ByteArrayIStreambuf buf(res);
         std::istream in(nullptr);
         in.rdbuf(&buf);
@@ -3266,18 +3292,22 @@ void MainWindow::insertFromMimeData (const QMimeData * mimeData)
             doc->abortTransaction();
             return;
         }
-        auto grp = Gui::Selection().getSelection(doc->getName(), ResolveMode::OldStyleElement, /*single*/true);
-        if (grp.size() == 1) {
-            Gui::Document* gui = Application::Instance->getDocument(doc);
-            if (gui)
-                gui->addRootObjectsToGroup(newObj, grp.front().pObject);
+        catch (const Base::Exception& e) {
+            // What was brought goes with the transaction
+            doc->abortTransaction();
+            e.ReportException();
+            return;
         }
+        groupPasted(doc, newObj, before);
         doc->commitTransaction();
     }
     else {
         QByteArray res = mimeData->data(format);
 
         doc->openTransaction("Paste");
+        std::set<long> before;
+        for (auto o : doc->getObjects())
+            before.insert(o->getID());
         Base::FileInfo fi((const char*)res);
         Base::ifstream str(fi, std::ios::in | std::ios::binary);
         MergeDocuments mimeView(doc);
@@ -3290,13 +3320,13 @@ void MainWindow::insertFromMimeData (const QMimeData * mimeData)
             doc->abortTransaction();
             return;
         }
-        str.close();
-        auto grp = Gui::Selection().getSelection(doc->getName(), ResolveMode::OldStyleElement, /*single*/true);
-        if (grp.size() == 1) {
-            Gui::Document* gui = Application::Instance->getDocument(doc);
-            if (gui)
-                gui->addRootObjectsToGroup(newObj, grp.front().pObject);
+        catch (const Base::Exception& e) {
+            doc->abortTransaction();
+            e.ReportException();
+            return;
         }
+        str.close();
+        groupPasted(doc, newObj, before);
         doc->commitTransaction();
     }
 }

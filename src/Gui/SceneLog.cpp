@@ -1101,7 +1101,7 @@ QJsonObject snapshotOp(const QJsonObject& req, const std::string& boundDoc, uint
             return sceneControlError(id, "Refused",
                                      QStringLiteral("the document cannot be snapshotted now"));
         if (!name.empty())
-            log->store().nameVersion(num, name);
+            doc->nameLogVersion(num, name);
         QJsonObject reply = placeReply(id, doc, log);
         reply[QLatin1String("version")] = double(num);
         // A version is no row, and nothing else says the list of them moved
@@ -1134,7 +1134,7 @@ QJsonObject nameVersionOp(const QJsonObject& req, const std::string& boundDoc, u
         // branch it is of, since the point
         if (!reach.names(version))
             return notReached(id, reach.writes(version.branch) ? kBeforePoint : kNeedsWrite);
-        if (!log->store().nameVersion(num, name))
+        if (!doc->nameLogVersion(num, name))
             return sceneControlError(id, "Refused", QStringLiteral("not named"));
         QJsonObject reply = placeReply(id, doc, log);
         reply[QLatin1String("version")] = double(num);

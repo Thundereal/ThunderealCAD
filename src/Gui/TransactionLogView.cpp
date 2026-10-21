@@ -4475,6 +4475,13 @@ void TransactionLogView::transactionMenu(QTreeWidgetItem* item, const QPoint& gl
                                 "%1 is no longer merged, and merging it asks everything again "
                                 "(sec 31.21)").arg(QString::fromStdString(undone.branch)));
     }
+    // Read before the menu runs: a refresh inside its event loop (a commit
+    // from a client, the snapshot cadence) rebuilds the list and `item`.
+    const QString script = item->data(TxnName, Qt::UserRole).toString();
+    QStringList cells;
+    for (int c = 0; c < TxnColumns; ++c)
+        cells << item->text(c);
+    item = nullptr;
     auto chosen = menu.exec(global);
     if (chosen == branchHere) {
         createBranch(0, seq);
@@ -4493,12 +4500,9 @@ void TransactionLogView::transactionMenu(QTreeWidgetItem* item, const QPoint& gl
         return;
     }
     if (chosen == copyScript) {
-        QApplication::clipboard()->setText(item->data(TxnName, Qt::UserRole).toString());
+        QApplication::clipboard()->setText(script);
     }
     else if (chosen == copyRow) {
-        QStringList cells;
-        for (int c = 0; c < TxnColumns; ++c)
-            cells << item->text(c);
         QApplication::clipboard()->setText(cells.join(QLatin1Char('\t')));
     }
 }
@@ -4719,11 +4723,16 @@ void TransactionLogView::onVersionContextMenu(const QPoint& pos)
                             "(sec 32.11)"));
     auto letGoHere = menu.addAction(tr("Let go of the selected objects as they are at "
                                        "version %1").arg(num));
+    // Read before the menu runs: a refresh inside its event loop (a commit
+    // from a client, the snapshot cadence) rebuilds the list and `item`.
+    const qlonglong verSeq = item->text(VerSeq).toLongLong();
+    const QString verName = item->text(VerName);
+    item = nullptr;
     auto chosen = menu.exec(_versions->viewport()->mapToGlobal(pos));
     if (!chosen)
         return;
     if (chosen == keepHere || chosen == letGoHere) {
-        keepSelectedAt(item->text(VerSeq).toLongLong(), chosen == keepHere);
+        keepSelectedAt(verSeq, chosen == keepHere);
         return;
     }
     if (chosen == squash) {
@@ -4761,20 +4770,16 @@ void TransactionLogView::onVersionContextMenu(const QPoint& pos)
                 Application::Instance->setActiveDocument(gdoc);
             return;
         }
-        auto l = log();
-        if (!l)
-            return;
         if (chosen == name) {
             bool ok = false;
             QString text = QInputDialog::getText(this, tr("Name version %1").arg(num),
-                                                 tr("Name:"), QLineEdit::Normal,
-                                                 item->text(VerName), &ok);
+                                                 tr("Name:"), QLineEdit::Normal, verName, &ok);
             if (!ok || text.trimmed().isEmpty())
                 return;
-            l->store().nameVersion(num, text.trimmed().toStdString());
+            doc->nameLogVersion(num, text.trimmed().toStdString());
         }
         else if (chosen == unname) {
-            l->store().nameVersion(num, std::string());
+            doc->nameLogVersion(num, std::string());
         }
         _lastVersion = -1;   // rows rebuilt
         refresh();

@@ -100,15 +100,19 @@ std::vector<App::DocumentObject*>
 MergeDocuments::importObjects(std::istream& input)
 {
     this->nameMap.clear();
-    this->stream = new zipios::ZipInputStream(input);
+    // Owned here: an import that throws (a clash settlement that cannot
+    // read a value, sec 36.4) leaves neither the stream nor a dangling
+    // pointer to it behind
+    std::unique_ptr<zipios::ZipInputStream> owned(new zipios::ZipInputStream(input));
+    this->stream = owned.get();
+    struct Reset
+    {
+        zipios::ZipInputStream*& stream;
+        ~Reset() { stream = nullptr; }
+    } reset {this->stream};
     Base::ZipReader zreader(*this->stream,std::string("<memory>"));
     XMLMergeReader reader(this->nameMap, zreader);
-    std::vector<App::DocumentObject*> objs = appdoc->importObjects(reader);
-
-    delete this->stream;
-    this->stream = nullptr;
-
-    return objs;
+    return appdoc->importObjects(reader);
 }
 
 void MergeDocuments::importObject(const std::vector<App::DocumentObject*>& o, Base::XMLReader & r)

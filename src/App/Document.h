@@ -2091,6 +2091,12 @@ protected:
     /// destroys an object a queued copy may link to.
     void _deleteTransaction(Transaction* t);
     void _trimHotWindow(std::list<Transaction*>& stack, std::map<int, Transaction*>& map);
+    /// Fold the transaction just committed into the step before it when
+    /// both wrote the one same property by hand, within the coalescing
+    /// window (docs/TransactionLog.md sec 37.4 P4): its rows and its undo
+    /// step become the earlier one's. True when folded; the caller then
+    /// drops `later`.
+    bool _coalesceStep(Transaction* later);
 
     /// refresh the internal dependency graph
     void _rebuildDependencyList(

@@ -284,9 +284,9 @@ public:
         _core.releaseBlobs();
     }
     void replaceTransactions(const LogTransaction& txn, std::vector<LogOp>& ops,
-                             const std::vector<int64_t>& seqs) override
+                             const std::vector<int64_t>& seqs, bool collect) override
     {
-        inner().replaceTransactions(txn, ops, seqs);
+        inner().replaceTransactions(txn, ops, seqs, collect);
         ++_core._rewrites;
         _core.releaseBlobs();
     }
@@ -332,7 +332,14 @@ public:
         _core.releaseBlobs();
     }
     bool nameVersion(int64_t num, const std::string& name) override
-    { return inner().nameVersion(num, name); }
+    {
+        if (!inner().nameVersion(num, name))
+            return false;
+        // A named version is a full anchor (sec 23.2, 37.4 P7).
+        if (!name.empty())
+            _core.anchorVersion(num);
+        return true;
+    }
     std::vector<LogBranch> branches() override { return inner().branches(); }
     bool getBranch(int64_t id, LogBranch& branch) override
     { return inner().getBranch(id, branch); }
@@ -608,6 +615,8 @@ void TransactionLogCore::openStore()
     Base::FileInfo(dir).createDirectories();
     _path = dir + "/log.db";
     _store = TransactionStore::openSQLite(_path);
+    _anchors.clear();
+    _anchorsLoaded = false;
     _nextSeq = _store->lastSeq();
     _nextVersion = _store->lastVersion();
     // An adopted embedded copy may have had every version dropped by its
@@ -1314,20 +1323,61 @@ TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, 
     _store->copyTo(out.path);
     auto copy = TransactionStore::openSQLite(out.path);
     const double tCopy = split();
-    // Retention (16.4, 13.3): the named versions travel, the unnamed ones
-    // and the cache tier do not; the ops do. Each branch's newest travels
-    // too (sec 26.2 item 5), so a switch in the file opened elsewhere
-    // checks out its own tip.
-    std::map<int64_t, int64_t> newest;
+    // Retention (16.4, 13.3, 37.4 P1): the versions that travel, and the
+    // cache tier does not. Each branch's newest travels (sec 26.2 item 5),
+    // so a switch in the file opened elsewhere checks out its own tip, with
+    // the newest `snapshots` unnamed ones of each branch and the newest
+    // `named` named ones (0 every one); a version a branch forked from and
+    // a pinned one always. The rows older than the oldest version that
+    // travels on a branch are left out as a trim leaves them (sec 16.7,
+    // 27.71). A file that says `named` below 0 carries every named version
+    // and every row, as before the bound.
+    long keepNamed = 0, keepSnapshots = 0;
+    TransactionLog::historyRetention(*copy, keepNamed, keepSnapshots);
     const auto versions = copy->versions();
-    for (const auto& v : versions)
-        newest[v.branch] = v.num;
+    std::set<int64_t> travel;
+    {
+        std::map<int64_t, int64_t> newest;
+        for (const auto& v : versions)
+            newest[v.branch] = v.num;
+        for (const auto& kv : newest)
+            travel.insert(kv.second);
+        long named = 0;
+        std::map<int64_t, long> unnamed;
+        for (auto it = versions.rbegin(); it != versions.rend(); ++it) {
+            const auto& v = *it;
+            if (v.kind == "named") {
+                if (keepNamed <= 0 || named++ < keepNamed)
+                    travel.insert(v.num);
+            }
+            else if (keepNamed >= 0 && unnamed[v.branch]++ < keepSnapshots) {
+                travel.insert(v.num);
+            }
+        }
+        for (const auto& b : copy->branches()) {
+            if (b.fromVersion)
+                travel.insert(b.fromVersion);
+        }
+        // A pin names its version by number from another file (sec 27):
+        // `pins` is a line per pin, the version first.
+        std::istringstream pins(copy->getMeta("pins"));
+        for (std::string line; std::getline(pins, line);) {
+            const long long num = std::atoll(line.c_str());
+            if (num > 0)
+                travel.insert(num);
+        }
+    }
     std::vector<int64_t> evicted;
+    std::set<int64_t> evictedAt;
     for (const auto& v : versions) {
-        if (v.kind != "named" && newest[v.branch] != v.num)
+        if (!travel.count(v.num)) {
             evicted.push_back(v.num);
+            evictedAt.insert(v.seq);
+        }
     }
     copy->dropTier("cache", evicted);
+    if (keepNamed >= 0)
+        out.rowsLeftOut = trimCopy(*copy, travel, evictedAt, keepSnapshots);
     copy->clearStrings();
     // The indexes are made again when the copy is adopted (setUp); in the
     // file they were a tenth of the copy (sec 27.69, 37.4).
@@ -1366,6 +1416,93 @@ TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, 
     FC_LOG("embed: state and flush " << tState << "s, copy " << tCopy << "s, retention "
            << tRetain << "s, vacuum " << split() << "s");
     return out;
+}
+
+size_t TransactionLogCore::trimCopy(TransactionStore& copy, const std::set<int64_t>& travel,
+                                   const std::set<int64_t>& evictedAt, long snapshots)
+{
+    // Each branch cut at the oldest version that travels on its chain, as
+    // trimBranch() cuts it with the bridge (sec 16.7, 27.71); in turn, so a
+    // branch trimmed sees what the ones before it left. The version a cut
+    // keeps is named for it, as a trim names it: it is what the rows after
+    // it start from, and the file opened elsewhere must not evict it.
+    size_t left = 0;
+    for (const auto& b : copy.branches()) {
+        std::set<int64_t> points {0, b.head};
+        for (const auto& t : copy.chain(b.head)) {
+            points.insert(t.seq);
+            points.insert(t.parent);
+        }
+        LogVersion keep;
+        bool have = false;
+        long unnamed = 0;
+        for (const auto& v : copy.versions()) {
+            if (!travel.count(v.num) || !points.count(v.seq))
+                continue;
+            if (v.kind != "named")
+                ++unnamed;
+            if (!have || v.seq < keep.seq) {
+                keep = v;
+                have = true;
+            }
+        }
+        if (!have || keep.seq <= 0)
+            continue;
+        // Only where the bound binds: the copy left a version of the chain
+        // out, or the chain carries as many unnamed ones as it may -- the
+        // live store evicts past the same count (P6) before the copy sees
+        // them. A chain under the bound keeps its rows back to the start
+        // the oldest of its versions is reached from.
+        if (unnamed < snapshots
+                && std::none_of(evictedAt.begin(), evictedAt.end(), [&](int64_t seq) {
+                       return seq < keep.seq && points.count(seq);
+                   }))
+            continue;
+        TrimPlan plan = planTrim(copy, b, keep, true);
+        // What travels stays, whatever row it is at.
+        plan.versions.erase(std::remove_if(plan.versions.begin(), plan.versions.end(),
+                                           [&travel](int64_t num) { return travel.count(num) != 0; }),
+                            plan.versions.end());
+        // The kept version's own row stays too, where a trim takes it (a
+        // bridge keeps it anyway): a copy opened elsewhere starts at the
+        // version its open recorded, at the last row the two files share,
+        // and an import of its fork (sec 30.13) meets ours there.
+        if (plan.span.empty())
+            plan.rows.erase(std::remove(plan.rows.begin(), plan.rows.end(), keep.seq),
+                            plan.rows.end());
+        if (plan.rows.empty())
+            continue;
+        if (keep.kind != "named")
+            copy.nameVersion(keep.num, "trim " + b.name);
+        applyTrim(copy, plan, b.name);
+        left += plan.removed + plan.squashed;
+    }
+    return left;
+}
+
+void TransactionLog::historyRetention(TransactionStore& store, long& named, long& snapshots)
+{
+    // Sec 37.4 P1: the file's own, else the preferences.
+    auto number = [&store](const char* key, long dflt) {
+        const std::string value = store.getMeta(key);
+        if (value.empty())
+            return dflt;
+        try {
+            return std::stol(value);
+        }
+        catch (...) {
+            return dflt;
+        }
+    };
+    named = number("keep_named", DocumentParams::getTransactionLogKeepNamed());
+    snapshots = std::max(1L, number("keep_snapshots",
+                                    DocumentParams::getTransactionLogKeepVersions()));
+}
+
+void TransactionLog::setHistoryRetention(TransactionStore& store, long named, long snapshots)
+{
+    store.setMeta("keep_named", std::to_string(named));
+    store.setMeta("keep_snapshots", std::to_string(std::max(1L, snapshots)));
 }
 
 bool TransactionLog::readRecoveryMeta(const std::string& oldDir, RecoverInfo& info)
@@ -1760,7 +1897,7 @@ void TransactionLog::ensureBranch()
     branch.created = now();
     store.addBranch(branch);
     if (haveVersion && version.kind != "named")
-        store.nameVersion(version.num, "branch " + name);
+        _c.store().nameVersion(version.num, "branch " + name);   // anchors it (37.4 P7)
     _c._holders[branch.id] = this;
     _branch = branch.id;
     _at = 0;
@@ -2862,7 +2999,8 @@ void TransactionLogCore::supersede(const std::string& older, const std::string& 
                 supersede(oldBlobs.front(), newBlobs.front());
         }
     }
-    if (old.enc == "delta" || old.size <= 128)
+    // A named version's entities stay full (sec 23.2, 37.4 P7).
+    if (old.enc == "delta" || old.size <= 128 || anchored(older))
         return;
     if (old.kind != "prop" && old.kind != "xml" && old.kind != "skeleton"
             && old.kind != "composite" && old.kind != "manifest" && old.kind != "attach"
@@ -2899,6 +3037,90 @@ void TransactionLogCore::supersede(const std::string& older, const std::string& 
     // else holds it (the live property, an undo copy).
     if (old.enc == "file")
         _blobs.erase(older);
+}
+
+void TransactionLogCore::anchorClosure(const std::string& hash, const std::string& ext,
+                                       std::vector<std::pair<std::string, std::string>>& out,
+                                       std::unordered_set<std::string>& seen, int depth)
+{
+    // `seen` is the caller's walk, not _anchors: a hash anchored by another
+    // version is walked again, as it may predate anchoring, a delta still.
+    if (hash.empty() || depth > 1024 || !seen.insert(hash).second)
+        return;
+    LogEntity e;
+    if (!_store->getEntity(hash, e))
+        return;
+    _anchors.insert(hash);
+    out.emplace_back(hash, e.kind == "blob" && e.enc == "file" ? e.data : ext);
+    if (e.kind == "composite") {
+        std::string data;
+        TransactionLog::Composite c;
+        if (readBytes(hash, data) && c.decode(data)) {
+            anchorClosure(c.skeleton, std::string(), out, seen, depth + 1);
+            for (const auto& p : c.parts)
+                anchorClosure(p.hash, std::string(), out, seen, depth + 1);
+        }
+    }
+    for (const auto& r : e.refs) {
+        if (r.role == "attach" || r.role == "skeleton")
+            anchorClosure(r.target, std::string(), out, seen, depth + 1);
+        else if (r.role == "blob")
+            anchorClosure(r.target, r.name, out, seen, depth + 1);
+    }
+}
+
+bool TransactionLogCore::anchored(const std::string& hash)
+{
+    if (!_anchorsLoaded) {
+        // Every named version the store holds, once a store: a version
+        // named before anchoring existed is kept from supersede() too,
+        // though its older entities may stay deltas.
+        _anchorsLoaded = true;
+        for (const auto& v : _store->versions()) {
+            if (v.kind != "named")
+                continue;
+            std::vector<std::pair<std::string, std::string>> reached;
+            std::unordered_set<std::string> seen;
+            anchorClosure(v.manifest, std::string(), reached, seen);
+            for (const auto& e : _store->manifest(v.num))
+                anchorClosure(e.hash, Base::FileInfo(e.entry).extension(), reached, seen);
+        }
+    }
+    return _anchors.count(hash) > 0;
+}
+
+void TransactionLogCore::anchorVersion(int64_t num)
+{
+    LogVersion v;
+    if (!_store->getVersion(num, v) || v.kind != "named")
+        return;
+    anchored(std::string());   // the set made before this adds to it
+    std::vector<std::pair<std::string, std::string>> reached;
+    std::unordered_set<std::string> seen;
+    anchorClosure(v.manifest, std::string(), reached, seen);
+    for (const auto& e : _store->manifest(num))
+        anchorClosure(e.hash, Base::FileInfo(e.entry).extension(), reached, seen);
+    // Any order: each is decoded through its chain as it stands, and a
+    // base made full first decodes to the same bytes.
+    for (const auto& r : reached) {
+        LogEntity e;
+        if (!_store->getEntity(r.first, e) || e.enc != "delta")
+            continue;
+        if (e.kind == "blob") {
+            // A file of the blob store again, held (sec 23.16).
+            restoreBlob(r.first, r.second);
+            continue;
+        }
+        std::string bytes;
+        if (!readBytes(r.first, bytes)) {
+            FC_WARN("transaction log: " << r.first << " of version " << num
+                    << " cannot be read to anchor it");
+            continue;
+        }
+        LogEntity full;
+        compressInto(full, bytes);
+        _store->reencodeEntity(r.first, full.enc, std::string(), full.data);
+    }
 }
 
 /// The full bytes of an entity, decoding a delta chain base first (sec
@@ -3144,6 +3366,81 @@ void TransactionLog::remember(const LogTransaction& t, const std::vector<LogOp>*
     }
     while (_recent.size() > 4096)
         _recent.erase(_recent.begin());
+}
+
+bool TransactionLog::coalesceRows(int64_t prevSeq, int64_t laterSeq,
+                                  const std::set<int64_t>& implicit)
+{
+    if (_recentAt != _c._rewrites) {
+        _recent.clear();
+        _recentAt = _c._rewrites;
+    }
+    auto later = _recent.find(laterSeq);
+    auto prev = _recent.find(prevSeq);
+    if (later == _recent.end() || prev == _recent.end() || later->second.kind != "user"
+            || prev->second.kind != "user")
+        return false;
+    // Between them only the earlier one's recompute, its records and its
+    // steps: a version, a save, a switch or anything else is a row of its
+    // own kind there. Newest first.
+    std::vector<int64_t> drop;
+    size_t steps = 0;
+    for (int64_t cur = later->second.parent; cur != prevSeq;) {
+        auto it = _recent.find(cur);
+        if (cur < prevSeq || it == _recent.end())
+            return false;
+        if (it->second.kind == "implicit" && implicit.count(cur))
+            ++steps;
+        else if (it->second.kind != "recompute")
+            return false;
+        drop.push_back(cur);
+        cur = it->second.parent;
+    }
+    if (steps != implicit.size())
+        return false;
+    drop.push_back(prevSeq);
+    // What the earlier row's ops still wait for, in hand before it goes:
+    // the later row took over the refs of what it changed again.
+    const std::set<int64_t> dropped(drop.begin(), drop.end());
+    resolvePending(&dropped);
+    const int64_t parent = prev->second.parent;
+    using Key = std::tuple<std::string, long, std::string>;
+    // Later's ops in their places -- what is pending on them stays right --
+    // with the earlier befores, then what only the earlier one changed.
+    auto merge = [](std::vector<LogOp>& into, const std::vector<LogOp>& earlier) {
+        std::map<Key, size_t> at;
+        for (size_t i = 0; i < into.size(); ++i)
+            at.emplace(Key {into[i].ckind, into[i].cid, into[i].prop}, i);
+        for (const auto& o : earlier) {
+            auto it = at.find(Key {o.ckind, o.cid, o.prop});
+            if (it == at.end()) {
+                into.push_back(o);
+                continue;
+            }
+            into[it->second].vbefore = o.vbefore;
+            into[it->second].touched = o.touched;
+        }
+    };
+    post([this, laterSeq, parent, drop, merge]() {
+        auto& store = *_c._store;
+        const auto rows = store.chain(laterSeq, laterSeq);
+        if (rows.empty() || rows.front().seq != laterSeq)
+            return;
+        LogTransaction t = rows.front();
+        t.parent = parent;
+        // Newest to oldest, so the oldest before is the one left.
+        std::vector<LogOp> ops = store.ops(laterSeq);
+        for (int64_t seq : drop)
+            merge(ops, store.ops(seq));
+        store.replaceTransactions(t, ops, drop, false);
+    });
+    // The rows as the store will have them.
+    for (int64_t seq : drop)
+        merge(later->second.ops, _recent[seq].ops);
+    later->second.parent = parent;
+    for (int64_t seq : drop)
+        _recent.erase(seq);
+    return true;
 }
 
 bool TransactionLog::rowsBackTo(int64_t seq, std::vector<TouchedRow>& rows)
@@ -3530,7 +3827,7 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
     return 0;
 }
 
-void TransactionLog::resolvePending()
+void TransactionLog::resolvePending(const std::set<int64_t>* rows)
 {
     // Copy the live values behind the pending refs -- the copy the undo
     // system would take, here for the log -- and let the worker write
@@ -3540,6 +3837,8 @@ void TransactionLog::resolvePending()
     std::vector<ValueTask> tasks;
     std::vector<std::pair<int64_t, Pending>> todo(_pending.begin(), _pending.end());
     for (auto& kv : todo) {
+        if (rows && !rows->count(kv.second.txn))
+            continue;
         const PropertyContainer* container = nullptr;
         if (kv.second.cid < 0) {
             _pending.erase(kv.first);

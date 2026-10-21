@@ -2042,11 +2042,12 @@ void Document::_commitTransaction(bool notify)
         if (!d->activeUndoTransaction->isEmpty())
             d->stateToken = ++d->stateCounter;
         d->activeUndoTransaction->StateAfter = d->stateToken;
-        if (d->iUndoMode) {
+        if (d->iUndoMode && !_coalesceStep(d->activeUndoTransaction)) {
             mUndoTransactions.push_back(d->activeUndoTransaction);
         }
         else {
-            // Recorded for the log only: no undo step is kept.
+            // Recorded for the log only: no undo step is kept. Or folded
+            // into the step before it (sec 37.4 P4).
             mUndoMap.erase(id);
             _deleteTransaction(d->activeUndoTransaction);
         }
@@ -2060,6 +2061,96 @@ void Document::_commitTransaction(bool notify)
         if (snapshotDue)
             snapshotToLog();
     }
+}
+
+bool Document::_coalesceStep(Transaction* later)
+{
+    // docs/TransactionLog.md sec 37.4 P4: a spinbox, a Python loop -- one
+    // property written commit after commit makes two rows, a value, a blob
+    // and a delta each time. Folded, the run is one row and one undo step:
+    // the undo granularity is the trade, as ruled.
+    const double now = std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const double lastTime = d->lastCommitTime;
+    const int64_t lastSeq = d->lastCommitSeq;
+    d->lastCommitTime = now;
+    d->lastCommitSeq = later->LogSeq;
+    const long window = DocumentParams::getTransactionLogCoalesceSeconds();
+    TransactionLog* log = getTransactionLog();
+    if (window <= 0 || !log || d->closing || mUndoTransactions.empty() || later->LogSeq <= 0
+            || now - lastTime > static_cast<double>(window))
+        return false;
+    // The last commit is the newest step, and under it, past the implicit
+    // steps a recompute after it made (sec 33.4), the step to fold into.
+    if (mUndoTransactions.back()->LogSeq != lastSeq)
+        return false;
+    std::vector<Transaction*> between;
+    Transaction* prev = nullptr;
+    for (auto it = mUndoTransactions.rbegin(); it != mUndoTransactions.rend(); ++it) {
+        if (!(*it)->Implicit) {
+            prev = *it;
+            break;
+        }
+        between.push_back(*it);
+    }
+    if (!prev || prev->LogSeq <= 0 || prev->Cold)
+        return false;
+    // What is between wrote nothing by hand: a recompute's.
+    std::set<int64_t> implicitRows;
+    for (Transaction* step : between) {
+        const TransactionalObject* o = nullptr;
+        int64_t p = 0;
+        if (step->Cold || step->LogSeq <= 0 || step->handWrite(o, p) || o
+                || step->Author.get() != later->Author.get() || !step->absorbable())
+            return false;
+        implicitRows.insert(step->LogSeq);
+    }
+    // Plain user steps both, by one author, under one name.
+    auto plain = [](const Transaction* t) {
+        return !t->Implicit && t->LogKind.empty() && !t->Inverts && !t->MergeFrom
+            && t->LogScript.empty();
+    };
+    if (!plain(prev) || !plain(later) || prev->Origin != later->Origin
+            || prev->Author.get() != later->Author.get() || prev->Name != later->Name)
+        return false;
+    // The one same property, written by hand in each, and there still.
+    const TransactionalObject *prevObj = nullptr, *laterObj = nullptr;
+    int64_t prevProp = 0, laterProp = 0;
+    if (!prev->handWrite(prevObj, prevProp) || !later->handWrite(laterObj, laterProp)
+            || prevObj != laterObj || prevProp != laterProp)
+        return false;
+    auto obj = Base::freecad_dynamic_cast<const DocumentObject>(laterObj);
+    if (!obj || !obj->isAttachedToDocument() || obj->getDocument() != this)
+        return false;
+    std::vector<Property*> props;
+    obj->getPropertyList(props);
+    if (std::none_of(props.begin(), props.end(),
+                     [laterProp](const Property* p) { return p->getID() == laterProp; }))
+        return false;
+    // A step of the application's that spans other documents too is theirs
+    // as much as this one's.
+    for (auto doc : GetApplication().getDocuments()) {
+        if (doc != this && (doc->mUndoMap.count(prev->getID())
+                            || doc->mUndoMap.count(later->getID())))
+            return false;
+    }
+    if (!log->coalesceRows(prev->LogSeq, later->LogSeq, implicitRows))
+        return false;
+    // Oldest first into the earlier step, so its befores are the oldest:
+    // absorb() keeps the receiver's where both changed a property. Every
+    // one was checked absorbable above.
+    for (auto it = between.rbegin(); it != between.rend(); ++it) {
+        Transaction* step = *it;
+        prev->absorb(*step);
+        mUndoTransactions.remove(step);
+        mUndoMap.erase(step->getID());
+        _deleteTransaction(step);
+    }
+    prev->absorb(*later);
+    prev->LogSeq = later->LogSeq;
+    prev->StateAfter = later->StateAfter;
+    d->lastCommitSeq = prev->LogSeq;
+    return true;
 }
 
 void Document::abortTransaction() {
@@ -9010,6 +9101,83 @@ Shared sharedWith(TransactionStore& store, int64_t except)
 
 } // namespace
 
+TrimPlan App::planTrim(TransactionStore& store, const LogBranch& branch, const LogVersion& keep,
+                       bool bridge)
+{
+    TrimPlan plan;
+    plan.keep = keep;
+    const Shared shared = sharedWith(store, branch.id);
+    const auto chain = store.chain(branch.head);
+    std::set<int64_t> gone;
+    for (const auto& t : chain) {
+        if (t.seq <= keep.seq && !shared.rows.count(t.seq)) {
+            plan.rows.push_back(t.seq);
+            gone.insert(t.seq);
+        }
+    }
+    for (const auto& v : store.versions()) {
+        if (v.num != keep.num && v.kind != "named" && !shared.forks.count(v.num)
+                && gone.count(v.seq))
+            plan.versions.push_back(v.num);
+    }
+    // The bridge (sec 27.71, user): where another branch shares this one's
+    // history, the rows from the newest shared one -- or from the start, for
+    // a branch made from nothing -- up to the kept version are squashed into
+    // the kept version's own row rather than removed, so the two histories
+    // still meet in rows and a switch between them walks them instead of
+    // reading a version whole. Below that row nothing is removed: it is the
+    // other branch's history too.
+    if (bridge && !plan.rows.empty() && store.branches().size() > 1) {
+        for (const auto& t : chain) {
+            if (t.seq <= keep.seq && shared.rows.count(t.seq))
+                plan.from = std::max(plan.from, t.seq);
+        }
+        plan.span = store.chain(keep.seq, plan.from + 1);
+        if (plan.span.empty() || plan.span.back().seq != keep.seq
+                || plan.span.front().parent != plan.from)
+            plan.span.clear();
+    }
+    return plan;
+}
+
+void App::applyTrim(TransactionStore& store, TrimPlan& plan, const std::string& name)
+{
+    std::vector<int64_t> rows = plan.rows;
+    plan.squashed = 0;
+    if (!plan.span.empty()) {
+        std::vector<LogOp> ops = netOps(store, plan.span);
+        LogTransaction t = plan.span.back();
+        t.parent = plan.from;
+        t.id = 0;
+        t.kind = "squash";
+        t.origin.clear();
+        t.inverts = 0;
+        t.mergeFrom = newestMergeFrom(plan.span);
+        t.name = "Trim " + name + " to version " + std::to_string(plan.keep.num);
+        std::ostringstream bridgeScript;
+        bridgeScript << "{\"trim\":" << jsonString(name) << ",\"from\":" << plan.from
+                     << ",\"rows\":" << plan.span.size() << ",\"ops\":" << ops.size() << "}";
+        t.script = bridgeScript.str();
+        std::set<int64_t> inSpan;
+        std::vector<int64_t> drop;
+        for (const auto& r : plan.span) {
+            inSpan.insert(r.seq);
+            if (r.seq != plan.keep.seq)
+                drop.push_back(r.seq);
+        }
+        store.replaceTransactions(t, ops, drop);
+        plan.squashed = drop.size();
+        rows.erase(std::remove_if(rows.begin(), rows.end(),
+                                  [&inSpan](int64_t seq) { return inSpan.count(seq) != 0; }),
+                   rows.end());
+    }
+    if (!rows.empty())
+        store.removeTransactions(rows);
+    if (!plan.versions.empty())
+        store.evictVersions(plan.versions);
+    plan.removed = rows.size();
+}
+
 namespace {
 
 /// What is said of a file's branches is every document's of the file to
@@ -9258,74 +9426,12 @@ size_t Document::trimBranch(const std::string& name, int64_t version, bool bridg
         store.nameVersion(keep.num, "trim " + name);
 
     log->resolvePending();
-    const Shared shared = sharedWith(store, branch.id);
-    const auto chain = store.chain(branch.head);
-    std::vector<int64_t> rows;
-    std::set<int64_t> gone;
-    for (const auto& t : chain) {
-        if (t.seq <= keep.seq && !shared.rows.count(t.seq)) {
-            rows.push_back(t.seq);
-            gone.insert(t.seq);
-        }
-    }
-    std::vector<int64_t> versions;
-    for (const auto& v : store.versions()) {
-        if (v.num != keep.num && v.kind != "named" && !shared.forks.count(v.num)
-                && gone.count(v.seq))
-            versions.push_back(v.num);
-    }
-    const std::set<long> named = _objectIdsOfRows(rows);
-
-    // The bridge (sec 27.71, user): where another branch shares this one's
-    // history, the rows from the newest shared one -- or from the start, for
-    // a branch made from nothing -- up to the kept version are squashed into
-    // the kept version's own row rather than removed, so the two histories
-    // still meet in rows and a switch between them walks them instead of
-    // reading a version whole. Below that row nothing is removed: it is the
-    // other branch's history too.
-    std::vector<LogTransaction> span;
-    int64_t from = 0;
-    if (bridge && !rows.empty() && store.branches().size() > 1) {
-        for (const auto& t : chain) {
-            if (t.seq <= keep.seq && shared.rows.count(t.seq))
-                from = std::max(from, t.seq);
-        }
-        span = store.chain(keep.seq, from + 1);
-        if (span.empty() || span.back().seq != keep.seq || span.front().parent != from)
-            span.clear();
-    }
-    size_t squashed = 0;
-    if (!span.empty()) {
-        std::vector<LogOp> ops = netOps(store, span);
-        LogTransaction t = span.back();
-        t.parent = from;
-        t.id = 0;
-        t.kind = "squash";
-        t.origin.clear();
-        t.inverts = 0;
-        t.mergeFrom = newestMergeFrom(span);
-        t.name = "Trim " + name + " to version " + std::to_string(keep.num);
-        std::ostringstream bridgeScript;
-        bridgeScript << "{\"trim\":" << jsonString(name) << ",\"from\":" << from
-                     << ",\"rows\":" << span.size() << ",\"ops\":" << ops.size() << "}";
-        t.script = bridgeScript.str();
-        std::set<int64_t> inSpan;
-        std::vector<int64_t> drop;
-        for (const auto& r : span) {
-            inSpan.insert(r.seq);
-            if (r.seq != keep.seq)
-                drop.push_back(r.seq);
-        }
-        store.replaceTransactions(t, ops, drop);
-        squashed = drop.size();
-        rows.erase(std::remove_if(rows.begin(), rows.end(),
-                                  [&inSpan](int64_t seq) { return inSpan.count(seq) != 0; }),
-                   rows.end());
-    }
-    if (!rows.empty())
-        store.removeTransactions(rows);
-    if (!versions.empty())
-        store.evictVersions(versions);
+    TrimPlan plan = planTrim(store, branch, keep, bridge);
+    const std::set<long> named = _objectIdsOfRows(plan.rows);
+    applyTrim(store, plan, name);
+    const auto& span = plan.span;
+    const size_t squashed = plan.squashed;
+    const auto& versions = plan.versions;
     // The pages freed are given back: a trim is what shrinks the store,
     // and nothing else reclaims them (sec 37.4).
     store.vacuum();
@@ -9339,7 +9445,7 @@ size_t Document::trimBranch(const std::string& name, int64_t version, bool bridg
         _rebuildUndoFromLog(d->undoFloor);
     }
     const CompactEstimate estimate = _noteDroppedRows(named);
-    const size_t removed = rows.size() + squashed;
+    const size_t removed = plan.removed + squashed;
 
     std::ostringstream script;
     script << "{\"branch\":" << jsonString(name) << ",\"version\":" << keep.num

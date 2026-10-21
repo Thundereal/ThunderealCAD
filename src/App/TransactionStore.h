@@ -461,9 +461,11 @@ public:
     virtual void removeTransactions(const std::vector<int64_t>& seqs) = 0;
     /// Rewrite row `txn.seq` -- its fields and its ops -- and drop the rows
     /// `seqs`, then the entities nothing reaches, atomically (sec 16.7,
-    /// squash). The ops' `txn` and `idx` are filled in.
+    /// squash). The ops' `txn` and `idx` are filled in. Without `collect`
+    /// what nothing reaches waits for the next collection (sec 37.4 P4: a
+    /// coalesced commit, too frequent to walk the store for).
     virtual void replaceTransactions(const LogTransaction& txn, std::vector<LogOp>& ops,
-                                     const std::vector<int64_t>& seqs) = 0;
+                                     const std::vector<int64_t>& seqs, bool collect = true) = 0;
 
     /// Id of the environment row holding `json`, made if absent (sec 11).
     virtual int64_t environment(const std::string& json) = 0;

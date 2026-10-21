@@ -1535,6 +1535,48 @@ PyObject* DocumentPy::closeTransactionMergeRequest(PyObject *args)
     } PY_CATCH;
 }
 
+PyObject* DocumentPy::getHistoryRetention(PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        auto log = getDocumentPtr()->getTransactionLog();
+        if (!log)
+            throw Py::RuntimeError("the document keeps no transaction log");
+        long named = 0, snapshots = 0;
+        App::TransactionLog::historyRetention(log->store(), named, snapshots);
+        return Py::new_reference_to(Py::TupleN(Py::Long(named), Py::Long(snapshots)));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::setHistoryRetention(PyObject *args, PyObject *kwds)
+{
+    PyObject* named = Py_None;
+    PyObject* snapshots = Py_None;
+    static const std::array<const char*, 3> kwlist {"named", "snapshots", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwds, "|OO", kwlist, &named, &snapshots))
+        return nullptr;
+    PY_TRY {
+        auto log = getDocumentPtr()->getTransactionLog();
+        if (!log)
+            throw Py::RuntimeError("the document keeps no transaction log");
+        long n = 0, k = 0;
+        App::TransactionLog::historyRetention(log->store(), n, k);
+        if (named != Py_None) {
+            n = PyLong_AsLong(named);
+            if (n == -1 && PyErr_Occurred())
+                return nullptr;
+        }
+        if (snapshots != Py_None) {
+            k = PyLong_AsLong(snapshots);
+            if (k == -1 && PyErr_Occurred())
+                return nullptr;
+        }
+        App::TransactionLog::setHistoryRetention(log->store(), n, k);
+        Py_Return;
+    } PY_CATCH;
+}
+
 PyObject* DocumentPy::trimTransactionBranch(PyObject *args, PyObject *kwds)
 {
     const char* name;

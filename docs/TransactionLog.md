@@ -19,7 +19,7 @@ question is the one that holds.
   (27.1-27.71); grep `### 27.` for a number cited elsewhere.
 - **What is built** is said in the "as built" blocks at the end of each
   design section and in the audit, sec 37; **what is open** is 37.2
-  (left as found, with reasons), 37.4 P1-P8 (storage proposals), the
+  (left as found, with reasons), 37.5 P5 (not built, measured), the
   "Not built" lines of 35.11 and 36.6, and 34 (held).
 - A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
   found with `grep -n '^### 27.22\|^## 36' docs/TransactionLog.md`.
@@ -34,10 +34,10 @@ question is the one that holds.
 | 10 | The filter: derived values (Shape) and the cache tier | built; the budget of 16.3 not (37.4) |
 | 11 | Pseudo transactions: recompute, save, snapshot rows | built |
 | 12 | Undo over the log: the inverse as a row | built |
-| 13 | The store: SQLite, WAL, one file per history, the embedded copy (13.3) | built; the copy's op budget not (37.4 P1) |
+| 13 | The store: SQLite, WAL, one file per history, the embedded copy (13.3) | built; the copy's bound 37.5 P1 |
 | 14 | Performance and migration; the store is versioned (27.55) | built |
 | 15 | Phases 0-8, the order of building | done through 8 |
-| 16 | Versions: snapshots, named versions, retention, trim, squash | ruled; count-only retention (37.4) |
+| 16 | Versions: snapshots, named versions, retention, trim, squash | ruled; count-only retention, 5 kept (37.5 P6) |
 | 17 | Branches: in place, one document per branch | ruled, built |
 | 18 | Audit rulings of 2026-09-22 | closed |
 | 19 | Survey sources | reference |
@@ -58,7 +58,7 @@ question is the one that holds.
 | 34 | Held: what Scion's design suggests | held |
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; 35.11 gaps open |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the dialog marks open |
-| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4) | 2026-10-21; rulings awaited |
+| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5) | 2026-10-21; P5 and 37.2 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -22728,3 +22728,133 @@ store's tables unchanged, as they should be.
 Rejected before and not re-proposed: a live vacuum at save (27.54 F6),
 content-defined chunking (20.2), another store engine (13.1), filtering
 Shape by name (sec 10).
+
+### 37.5 The storage proposals as built (user: all of P1-P8 yes, 2026-10-21)
+
+Ruled with them: P1 configurable in the file, the defaults mine; P6
+configurable, five unnamed snapshots; P4's undo granularity accepted.
+In the order built:
+
+- **P6 -- built.** `TransactionLogKeepVersions` defaults to 5 (was 0, keep
+  all): when a version is added, the unnamed ones over five go, never a
+  named one and never the newest of a branch.
+- **P7 -- built.** A named version is a full anchor (23.2). The store's
+  `nameVersion` through `store()` re-encodes full every delta the version
+  reaches -- its entry list, each entry, a composite's skeleton and parts,
+  a value's attachments, and a blob, which becomes a file of the blob
+  store again (`restoreBlob`) -- and adds them to an anchor set that
+  `supersede()` leaves alone after, the op path's supersession included.
+  The set is made from the store's named versions on first use; a version
+  unnamed or evicted leaves its entities in it, which costs a missed
+  delta, never a byte read. `createBranch` named its fork on the raw store
+  and now goes through `store()`. Test `aNamedVersionIsAFullAnchor`.
+- **P2 -- built, layout 3.** The op table's `vbefore`/`vafter` are the
+  hash's 20 bytes (`bindHash`), `ctype`, `prop` and `ptype` ids of a new
+  table `name(id, text UNIQUE)`, 0 for none. A column's type cannot change
+  in place, so the migrate step makes the table again
+  (`SQLiteStore::packOps`, with an `fc_packhash` SQL function: `unhex()`
+  is 3.41, the floor 3.38). A row that is still text reads as text. The
+  store keeps the name table in memory both ways and forgets what a
+  rolled-back transaction made. Test `aStoreOfLayoutTwoGetsItsOpsPacked`.
+- **P3 -- built, in the store.** A row's script is written by
+  `bindScript`: a record's per-object `p` and `q` arrays (a recompute's,
+  an undo's, a redo's, a restore's, 27.58, 27.63) as ids of the P2 name
+  table, and any script past 128 bytes zstd-compressed; either way a blob
+  led by a tag (`J` ids, `Z` ids compressed, `z` compressed as it is). A
+  script neither changes stays text. `columnScript` gives back the same
+  JSON, keys in their order, so no reader changed -- `TouchedFold::record`
+  and the Gui read what they read before. Messages were on error only
+  already. Test `aRecordKeepsItsNamesAsIds`.
+- **P1 -- built.** The embedded copy carries each branch's newest
+  version, the newest `snapshots` unnamed versions of each branch and the
+  newest `named` named ones (0 every one), and always a version a branch
+  forked from and a pinned one (the store's `pins` meta). A branch where
+  the bound binds -- its chain lost a version to the copy, or carries the
+  full `snapshots` unnamed ones (the live store evicts past the same count,
+  P6, so the copy itself seldom does) -- is then cut at the oldest version
+  that travels on it, as a trim cuts it with the bridge (16.7, 27.71); one
+  under the bound keeps its rows back to the start. The first
+  build cut every chain, and a file saved once and saved again lost every
+  row before the version its open recorded
+  (`testAFileOpenedForALinkKeepsItsHistory`), with nothing over the bound: `Document::trimBranch`'s core is
+  `App::planTrim`/`applyTrim` now, shared by both. The version a cut keeps
+  is named `trim <branch>` in the copy, as a trim names it, so the file
+  opened elsewhere does not evict what its rows start from. Unlike a trim,
+  the copy keeps that version's own row (a bridge keeps it anyway): a file
+  opened elsewhere records the file as found as a version at the last row
+  the two files share, and when that is the oldest version its copy
+  carries, an import of its fork (30.13) still finds the row it meets ours
+  at -- `aForkIsImportedAsABranch` and
+  `anObjectTheCopyBringsBackIsNotASecondOne` failed on the trim's cut. A
+  fork worked on for more saves than the copy carries has no row in common
+  with ours any more: the bound's price. The numbers
+  are the file's: store meta `keep_named` and `keep_snapshots`, which the
+  copy carries, else the preferences `TransactionLogKeepNamed` (new,
+  default 10) and `TransactionLogKeepVersions` (P6's, at least 1 here).
+  `named` below 0 carries the whole history as before. Python:
+  `Document.getHistoryRetention()`, `setHistoryRetention(named=, snapshots=)`.
+  The live store keeps every row; only the file is bounded. Note the
+  consequence with no named version: once a branch has more than five
+  unnamed versions, the file's history reaches back to the fifth-newest,
+  and an open records one, so about five sessions. Test
+  `TransactionBranchCases.testAFileCarriesItsHistoryFromTheOldestVersionKept`;
+  `testABranchIsMergedAcrossOpensOlderThanTheVersionsKept` needs an
+  open's version gone from the file, and sets the file's `snapshots` to 1,
+  what every file carried before.
+- **P5 -- not built: the cheap variant is a loss.** Measured in the
+  store's own layout (`~/.cache/lv-merge/p5/p5cost.py`, 5000 values of
+  60 bytes, dbstat after a vacuum): a raw value costs 144 bytes; as a
+  delta on the next one it costs 228 with a 12-byte patch and 247 with a
+  30-byte one. The patch saves at most the value's few dozen bytes, and
+  the delta adds the `base` column and a `ref` row with its `ref_target`
+  index entry, about 85 bytes. Only the other variant -- a value under
+  ~48 bytes inline in the op, no entity -- saves, and it changes what
+  `vbefore`/`vafter` mean at some 70 places (Document, the log, the Gui's
+  log view and scene log). Left for a ruling.
+- **P4 -- built.** A commit that writes by hand the one property the
+  step before it wrote, by the same author under the same name, within
+  `TransactionLogCoalesceSeconds` (new, default 3, 0 off) of the last
+  commit, is folded into that step (`Document::_coalesceStep`): one row,
+  one undo step. Between the two may lie only the earlier step's
+  recompute -- its record rows and its implicit steps of derived writes
+  (33.4); anything else (a version, a save, a switch, an undo, another
+  author's step, a step that made or removed an object or changed a
+  freeze, a step of the application's spanning other documents) keeps
+  them apart. The rows: `TransactionLog::coalesceRows` resolves only the
+  pending afters of the rows that go (resolvePending with a row set),
+  then posts a job that rewrites the later row with the earlier befores
+  and whatever only the earlier rows changed, its own ops kept in place so
+  what is still pending on them stays right, and drops the rest through
+  `replaceTransactions` with no collection (a walk of the store per
+  spinbox tick is too much; the next collection takes the values nothing
+  names). The document's row cache is updated to match, not cleared. The
+  undo: `Transaction::absorb` moves into the earlier step what it did not
+  change, the earlier befores kept; the folded steps are deleted.
+  Test `aRunOnOnePropertyFoldsIntoOneStep`; the other cases of the gtest
+  fixture count a row and a step per commit, and run with the window 0.
+  The Gui check `transaction-log-view-check.py` made three `length`
+  commits to undo one by one; they are named apart now.
+- **P8 -- built** (docs/FileBlobsManager.md sec 15.12): a batch adds to
+  the pack store's append segment only while it is under `BlobAppendSize`
+  (new, 1 MB), and `maintain()` merges the small segments size-tiered.
+
+**Measured** with 37.4's script (`storage_measure2.py`: a fusion, 500
+recomputed edits of the box's Length, committed and then recomputed, a
+save every 100), against 37.4's result after its fixes:
+
+| | the file after 500 edits | live `op` table | live `txn` | rows |
+|---|---|---|---|---|
+| 37.4, fixed | 145.6 KB | 288 KB | 152 KB | 1510 |
+| P1-P3, P6-P8, folding off | 75.3 KB | 152 KB | 140 KB | 1510 |
+| the same, folding on (default) | 37.1 KB | 12 KB | -- | 28 |
+
+The plain file is 9.2 KB. Folding off, the file grows until its branch
+has five unnamed versions (52, 77, 96 KB after the first three saves) and
+then holds there, halved by P1 (the five and the rows since the oldest of
+them travel); the op
+table by P2; P3 saved little here, since a one-object record is under
+128 bytes and its names were short already. Folding on, the 500 edits are
+five rows. Seen, not chased: with folding on the WAL beside the live store
+stood at 3.4-3.7 MB after each save where it was 1.5 MB folding off -- a
+rewrite per commit keeps it from checkpointing back under the 1 MB limit
+as often.

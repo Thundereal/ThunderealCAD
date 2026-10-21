@@ -34,6 +34,7 @@
 #endif
 
 #include <sqlite3.h>
+#include <nlohmann/json.hpp>
 
 #ifdef FC_HAVE_ZSTD
 # include <zstd.h>
@@ -59,6 +60,11 @@ namespace {
 #define FC_REF_COLUMNS                                                                 \
     "(entity BLOB, target BLOB, role TEXT, name TEXT, seq INTEGER,"                 \
     " PRIMARY KEY(entity, role, name, target)) WITHOUT ROWID"
+
+#define FC_OP_COLUMNS                                                                  \
+    "(txn INTEGER, idx INTEGER, op TEXT, ckind TEXT,"                                   \
+    " cid INTEGER, cname TEXT, ctype INTEGER, prop INTEGER, ptype INTEGER, meta TEXT,"  \
+    " vbefore BLOB, vafter BLOB, derived INTEGER, touched INTEGER, PRIMARY KEY(txn, idx))"
 
 /// What the `derived` column of an op holds (sec 31.25): who made the
 /// write. One column for the two flags, which are never both set; a row
@@ -103,10 +109,13 @@ bool packHash(const char* hex, size_t n, unsigned char* out)
 /** The store's layout version, PRAGMA user_version (docs/TransactionLog.md
  * sec 27.55: none from 2026-09-28, one again from 2026-10-19 for the release
  * at the end of 2026). 0 is a store from before it; 1 is the layout of
- * 2026-10-19; 2 adds the object UIDs (sec 36, 2026-10-21). A change of the layout raises it and adds a step to
- * SQLiteStore::migrate(); a store of a higher number than this is refused.
+ * 2026-10-19; 2 adds the object UIDs (sec 36, 2026-10-21); 3 packs the op
+ * table (sec 37.4 P2): its value hashes as 20 bytes, its type and property
+ * names as ids of the table `name`. A change of the layout raises it and
+ * adds a step to SQLiteStore::migrate(); a store of a higher number than
+ * this is refused.
  */
-constexpr int StoreVersion = 2;
+constexpr int StoreVersion = 3;
 
 /// A table of the layout: its name and its columns, as CREATE TABLE has them.
 struct TableDef
@@ -132,10 +141,10 @@ const TableDef Tables[] = {
      "(id INTEGER PRIMARY KEY, env INTEGER,"
      " user INTEGER, host TEXT, access TEXT, opened REAL, closed REAL,"
      " uuid TEXT)"},
-    {"op",
-     "(txn INTEGER, idx INTEGER, op TEXT, ckind TEXT,"
-     " cid INTEGER, cname TEXT, ctype TEXT, prop TEXT, ptype TEXT, meta TEXT,"
-     " vbefore TEXT, vafter TEXT, derived INTEGER, touched INTEGER, PRIMARY KEY(txn, idx))"},
+    // Sec 37.4 P2: `ctype`, `prop` and `ptype` are ids of `name` (0 for
+    // none), `vbefore` and `vafter` a hash's 20 bytes (bindHash).
+    {"op", FC_OP_COLUMNS},
+    {"name", "(id INTEGER PRIMARY KEY, text TEXT UNIQUE)"},
     // `manifest` names the version's entry list, an entity of kind
     // `manifest` (sec 27.54).
     {"version",
@@ -343,6 +352,8 @@ public:
                 // 2 (2026-10-21, sec 36): the table `objuid`, made above;
                 // the objects before it have none -- the documents derive
                 // theirs from the file (U3).
+                if (from < 3)
+                    packOps();
                 exec(("PRAGMA user_version=" + std::to_string(StoreVersion)).c_str());
                 exec("COMMIT");
             }
@@ -356,6 +367,45 @@ public:
             throw;
         }
         exec("DETACH DATABASE layout");
+    }
+
+    /** Layout 3 (sec 37.4 P2): the op table made again, its names as ids of
+     * `name` and its hashes packed -- a column's type cannot be changed in
+     * place. The indexes on it go with it and are made after the steps.
+     */
+    void packOps()
+    {
+        // A name as its id; an id (an empty table made in this layout) kept.
+#define FC_NAME_ID(c)                                                                  \
+    "CASE WHEN typeof(op." c ")='text' THEN COALESCE((SELECT id FROM name WHERE"       \
+    " text=op." c "),0) ELSE COALESCE(op." c ",0) END"
+        // SQLite has unhex() from 3.41 only; the floor is 3.38.
+        auto pack = [](sqlite3_context* ctx, int, sqlite3_value** argv) {
+            const auto* t = reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
+            const int n = sqlite3_value_bytes(argv[0]);
+            unsigned char packed[20];
+            if (sqlite3_value_type(argv[0]) == SQLITE_TEXT && t
+                    && packHash(t, static_cast<size_t>(n), packed))
+                sqlite3_result_blob(ctx, packed, 20, SQLITE_TRANSIENT);
+            else
+                sqlite3_result_value(ctx, argv[0]);
+        };
+        if (sqlite3_create_function(db, "fc_packhash", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC,
+                                    nullptr, pack, nullptr, nullptr) != SQLITE_OK)
+            THROWM(Base::RuntimeError, std::string("Transaction log: ") + sqlite3_errmsg(db));
+        exec("INSERT OR IGNORE INTO name(text)"
+             " SELECT ctype FROM op WHERE typeof(ctype)='text' AND ctype<>''"
+             " UNION SELECT prop FROM op WHERE typeof(prop)='text' AND prop<>''"
+             " UNION SELECT ptype FROM op WHERE typeof(ptype)='text' AND ptype<>''");
+        exec("CREATE TABLE main.op_packed" FC_OP_COLUMNS);
+        exec("INSERT INTO op_packed SELECT txn,idx,op,ckind,cid,cname,"
+             " " FC_NAME_ID("ctype") "," FC_NAME_ID("prop") "," FC_NAME_ID("ptype") ","
+             " meta,fc_packhash(vbefore),fc_packhash(vafter),derived,touched FROM op");
+        exec("DROP TABLE op");
+        exec("ALTER TABLE op_packed RENAME TO op");
+        sqlite3_create_function(db, "fc_packhash", 1, SQLITE_UTF8, nullptr, nullptr, nullptr,
+                                nullptr);
+#undef FC_NAME_ID
     }
 
     /// The columns of `table` the current layout has and the store not.
@@ -562,7 +612,7 @@ public:
             bindText(ins, 5, txn.origin);
             bindText(ins, 6, txn.name);
             sqlite3_bind_double(ins, 7, txn.time);
-            bindText(ins, 8, txn.script);
+            bindScript(ins, 8, txn.script);
             sqlite3_bind_int64(ins, 9, txn.session);
             sqlite3_bind_int64(ins, 10, txn.inverts);
             sqlite3_bind_int64(ins, 11, txn.branch);
@@ -588,12 +638,12 @@ public:
                 bindText(op, 4, o.ckind);
                 sqlite3_bind_int64(op, 5, o.cid);
                 bindText(op, 6, o.cname);
-                bindText(op, 7, o.ctype);
-                bindText(op, 8, o.prop);
-                bindText(op, 9, o.ptype);
+                bindName(op, 7, o.ctype);
+                bindName(op, 8, o.prop);
+                bindName(op, 9, o.ptype);
                 bindText(op, 10, o.meta);
-                bindText(op, 11, o.vbefore);
-                bindText(op, 12, o.vafter);
+                bindHash(op, 11, o.vbefore);
+                bindHash(op, 12, o.vafter);
                 sqlite3_bind_int(op, 13, opWriter(o));
                 if (o.touched < 0)
                     sqlite3_bind_null(op, 14);
@@ -613,7 +663,7 @@ public:
     void resolveAfter(int64_t txn, int idx, const std::string& hash) override
     {
         auto s = prepare("UPDATE op SET vafter=? WHERE txn=? AND idx=?");
-        bindText(s, 1, hash);
+        bindHash(s, 1, hash);
         sqlite3_bind_int64(s, 2, txn);
         sqlite3_bind_int(s, 3, idx);
         step(s);
@@ -767,7 +817,7 @@ public:
         return out;
     }
 
-    static LogTransaction readTransaction(sqlite3_stmt* s)
+    LogTransaction readTransaction(sqlite3_stmt* s)
     {
         LogTransaction t;
         t.seq = sqlite3_column_int64(s, 0);
@@ -777,7 +827,7 @@ public:
         t.origin = text(s, 4);
         t.name = text(s, 5);
         t.time = sqlite3_column_double(s, 6);
-        t.script = text(s, 7);
+        t.script = columnScript(s, 7);
         t.session = sqlite3_column_int64(s, 8);
         t.inverts = sqlite3_column_int64(s, 9);
         t.branch = sqlite3_column_int64(s, 10);
@@ -855,12 +905,12 @@ public:
             o.ckind = text(s, 2);
             o.cid = static_cast<long>(sqlite3_column_int64(s, 3));
             o.cname = text(s, 4);
-            o.ctype = text(s, 5);
-            o.prop = text(s, 6);
-            o.ptype = text(s, 7);
+            o.ctype = columnName(s, 5);
+            o.prop = columnName(s, 6);
+            o.ptype = columnName(s, 7);
             o.meta = text(s, 8);
-            o.vbefore = text(s, 9);
-            o.vafter = text(s, 10);
+            o.vbefore = columnHash(s, 9);
+            o.vafter = columnHash(s, 10);
             o.derived = sqlite3_column_int(s, 11) == OpDerived;
             o.followed = sqlite3_column_int(s, 11) == OpFollowed;
             o.touched = sqlite3_column_type(s, 12) == SQLITE_NULL ? -1 : sqlite3_column_int(s, 12);
@@ -873,6 +923,9 @@ public:
     bool lastOpOn(const std::string& ckind, long cid, const std::string& prop, int64_t after,
                   int64_t head, LogOp& o) override
     {
+        int64_t propId = 0;
+        if (!findName(prop, propId))
+            return false;   // no op names it
         sqlite3_stmt* s = nullptr;
         if (head > 0) {
             s = prepare(FC_TXN_CHAIN
@@ -887,7 +940,7 @@ public:
             sqlite3_bind_int64(s, 2, after + 1);
         }
         sqlite3_bind_int64(s, 3, cid);
-        bindText(s, 4, prop);
+        sqlite3_bind_int64(s, 4, propId);
         bindText(s, 5, ckind);
         if (sqlite3_step(s) != SQLITE_ROW) {
             sqlite3_reset(s);
@@ -915,12 +968,12 @@ public:
         o.ckind = text(s, 1);
         o.cid = static_cast<long>(sqlite3_column_int64(s, 2));
         o.cname = text(s, 3);
-        o.ctype = text(s, 4);
-        o.prop = text(s, 5);
-        o.ptype = text(s, 6);
+        o.ctype = columnName(s, 4);
+        o.prop = columnName(s, 5);
+        o.ptype = columnName(s, 6);
         o.meta = text(s, 7);
-        o.vbefore = text(s, 8);
-        o.vafter = text(s, 9);
+        o.vbefore = columnHash(s, 8);
+        o.vafter = columnHash(s, 9);
         o.derived = sqlite3_column_int(s, 10) == OpDerived;
         o.followed = sqlite3_column_int(s, 10) == OpFollowed;
         o.touched = sqlite3_column_type(s, 11) == SQLITE_NULL ? -1 : sqlite3_column_int(s, 11);
@@ -1199,17 +1252,20 @@ public:
     std::vector<std::pair<int64_t, std::string>> valuesOf(long cid,
                                                           const std::string& prop) override
     {
+        std::vector<std::pair<int64_t, std::string>> out;
+        int64_t propId = 0;
+        if (!findName(prop, propId))
+            return out;
         auto s = prepare("SELECT txn,vafter FROM op WHERE cid=? AND prop=? AND ckind='obj'"
                          " AND op='set' ORDER BY txn, idx");
         sqlite3_bind_int64(s, 1, cid);
-        bindText(s, 2, prop);
-        std::vector<std::pair<int64_t, std::string>> out;
+        sqlite3_bind_int64(s, 2, propId);
         while (sqlite3_step(s) == SQLITE_ROW) {
             const int64_t txn = sqlite3_column_int64(s, 0);
             if (!out.empty() && out.back().first == txn)
-                out.back().second = text(s, 1);
+                out.back().second = columnHash(s, 1);
             else
-                out.emplace_back(txn, text(s, 1));
+                out.emplace_back(txn, columnHash(s, 1));
         }
         sqlite3_reset(s);
         return out;
@@ -1218,13 +1274,15 @@ public:
     std::vector<std::string> derivedPropsOf(long cid) override
     {
         auto s = prepare("SELECT DISTINCT prop FROM op WHERE cid=? AND ckind='obj' AND op='set'"
-                         " AND derived=? ORDER BY prop");
+                         " AND derived=?");
         sqlite3_bind_int64(s, 1, cid);
         sqlite3_bind_int(s, 2, OpDerived);
         std::vector<std::string> out;
         while (sqlite3_step(s) == SQLITE_ROW)
-            out.push_back(text(s, 0));
+            out.push_back(columnName(s, 0));
         sqlite3_reset(s);
+        // By name, as before the names were ids.
+        std::sort(out.begin(), out.end());
         return out;
     }
 
@@ -1452,7 +1510,7 @@ public:
     }
 
     void replaceTransactions(const LogTransaction& txn, std::vector<LogOp>& ops,
-                             const std::vector<int64_t>& seqs) override
+                             const std::vector<int64_t>& seqs, bool collect) override
     {
         exec("BEGIN");
         try {
@@ -1476,7 +1534,7 @@ public:
             bindText(s, 4, txn.origin);
             bindText(s, 5, txn.name);
             sqlite3_bind_double(s, 6, txn.time);
-            bindText(s, 7, txn.script);
+            bindScript(s, 7, txn.script);
             sqlite3_bind_int64(s, 8, txn.session);
             sqlite3_bind_int64(s, 9, txn.inverts);
             sqlite3_bind_int64(s, 10, txn.branch);
@@ -1497,12 +1555,12 @@ public:
                 bindText(op, 4, o.ckind);
                 sqlite3_bind_int64(op, 5, o.cid);
                 bindText(op, 6, o.cname);
-                bindText(op, 7, o.ctype);
-                bindText(op, 8, o.prop);
-                bindText(op, 9, o.ptype);
+                bindName(op, 7, o.ctype);
+                bindName(op, 8, o.prop);
+                bindName(op, 9, o.ptype);
                 bindText(op, 10, o.meta);
-                bindText(op, 11, o.vbefore);
-                bindText(op, 12, o.vafter);
+                bindHash(op, 11, o.vbefore);
+                bindHash(op, 12, o.vafter);
                 sqlite3_bind_int(op, 13, opWriter(o));
                 if (o.touched < 0)
                     sqlite3_bind_null(op, 14);
@@ -1510,7 +1568,8 @@ public:
                     sqlite3_bind_int(op, 14, o.touched);
                 step(op);
             }
-            collectEntities();
+            if (collect)
+                collectEntities();
             exec("COMMIT");
         }
         catch (...) {
@@ -2602,6 +2661,9 @@ private:
     /// throws there would replace the error that matters.
     void rollback()
     {
+        // A name made in the transaction is gone with it.
+        nameIds.clear();
+        nameTexts.clear();
         if (sqlite3_get_autocommit(db) == 0)
             sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);
     }
@@ -2674,6 +2736,208 @@ private:
             bindText(s, i, v);
     }
 
+    /** The id of `name` in the table `name` (sec 37.4 P2), made on first use;
+     * 0 for the empty name. Inside the caller's SQL transaction: a rollback
+     * forgets what it made (rollback()).
+     */
+    int64_t nameId(const std::string& name)
+    {
+        if (name.empty())
+            return 0;
+        auto it = nameIds.find(name);
+        if (it != nameIds.end())
+            return it->second;
+        auto s = prepare("INSERT OR IGNORE INTO name(text) VALUES(?)");
+        bindText(s, 1, name);
+        step(s);
+        int64_t id = 0;
+        if (!findName(name, id))
+            THROWM(Base::RuntimeError, "Transaction log: cannot name " + name);
+        return id;
+    }
+
+    /// The id of `name` if the table has it, for a query: false if not.
+    bool findName(const std::string& name, int64_t& id)
+    {
+        if (name.empty()) {
+            id = 0;
+            return true;
+        }
+        auto it = nameIds.find(name);
+        if (it != nameIds.end()) {
+            id = it->second;
+            return true;
+        }
+        auto s = prepare("SELECT id FROM name WHERE text=?");
+        bindText(s, 1, name);
+        const bool found = sqlite3_step(s) == SQLITE_ROW;
+        if (found) {
+            id = sqlite3_column_int64(s, 0);
+            nameIds.emplace(name, id);
+            nameTexts.emplace(id, name);
+        }
+        sqlite3_reset(s);
+        return found;
+    }
+
+    /// A name column as text: an id of `name`, or text as a row written
+    /// before the layout holds it.
+    std::string columnName(sqlite3_stmt* s, int col)
+    {
+        if (sqlite3_column_type(s, col) != SQLITE_INTEGER)
+            return text(s, col);
+        return nameOf(sqlite3_column_int64(s, col));
+    }
+
+    /// The name of id `id` of the table `name`, empty for 0 or none.
+    std::string nameOf(int64_t id)
+    {
+        if (id == 0)
+            return {};
+        auto it = nameTexts.find(id);
+        if (it != nameTexts.end())
+            return it->second;
+        auto q = prepare("SELECT text FROM name WHERE id=?");
+        sqlite3_bind_int64(q, 1, id);
+        std::string out;
+        if (sqlite3_step(q) == SQLITE_ROW) {
+            out = text(q, 0);
+            nameIds.emplace(out, id);
+            nameTexts.emplace(id, out);
+        }
+        sqlite3_reset(q);
+        return out;
+    }
+
+    /** A row's script as the store keeps it (sec 37.4 P3). A record's
+     * per-object property names -- `p` and `q` of a recompute's, an undo's,
+     * a redo's, a restore's (27.58, 27.63) -- go as ids of `name`, and a
+     * script past 128 bytes is compressed. Either way it is a blob led by a
+     * tag: `J` the record with ids, `Z` the same compressed, `z` a script
+     * compressed as it is. A script neither changes is text, as every row
+     * before the layout. columnScript() gives back the same JSON, its keys
+     * in their order.
+     */
+    void bindScript(sqlite3_stmt* s, int i, const std::string& script)
+    {
+        std::string payload;
+        char tag = 0;
+        if (script.size() > 2 && script[0] == '{'
+                && script.find("\"objects\"") != std::string::npos) {
+            auto j = nlohmann::ordered_json::parse(script, nullptr, false);
+            bool named = false;
+            if (j.is_object() && j.contains("objects") && j["objects"].is_array()) {
+                for (auto& e : j["objects"]) {
+                    if (!e.is_object())
+                        continue;
+                    for (const char* key : {"p", "q"}) {
+                        if (!e.contains(key) || !e[key].is_array())
+                            continue;
+                        bool all = true;
+                        for (const auto& n : e[key])
+                            all = all && n.is_string();
+                        if (!all)
+                            continue;
+                        nlohmann::ordered_json ids = nlohmann::ordered_json::array();
+                        for (const auto& n : e[key])
+                            ids.push_back(nameId(n.get<std::string>()));
+                        e[key] = std::move(ids);
+                        named = true;
+                    }
+                }
+            }
+            if (named) {
+                payload = j.dump();
+                tag = 'J';
+            }
+        }
+        if (!tag) {
+            if (script.size() <= 128) {
+                bindText(s, i, script);
+                return;
+            }
+            payload = script;
+        }
+#ifdef FC_HAVE_ZSTD
+        if (payload.size() > 128) {
+            std::string out(ZSTD_compressBound(payload.size()), '\0');
+            const size_t n = ZSTD_compress(out.data(), out.size(), payload.data(), payload.size(), 3);
+            if (!ZSTD_isError(n) && n < payload.size()) {
+                out.resize(n);
+                payload = std::move(out);
+                tag = tag ? 'Z' : 'z';
+            }
+        }
+#endif
+        if (!tag) {
+            bindText(s, i, script);
+            return;
+        }
+        std::string blob(1, tag);
+        blob += payload;
+        sqlite3_bind_blob(s, i, blob.data(), static_cast<int>(blob.size()), SQLITE_TRANSIENT);
+    }
+
+    /// A script column as the row's JSON (bindScript).
+    std::string columnScript(sqlite3_stmt* s, int col)
+    {
+        if (sqlite3_column_type(s, col) != SQLITE_BLOB)
+            return text(s, col);
+        const auto* b = static_cast<const char*>(sqlite3_column_blob(s, col));
+        const int n = sqlite3_column_bytes(s, col);
+        if (!b || n < 1)
+            return {};
+        const char tag = b[0];
+        std::string payload(b + 1, static_cast<size_t>(n - 1));
+        if (tag == 'Z' || tag == 'z') {
+#ifdef FC_HAVE_ZSTD
+            const unsigned long long size =
+                ZSTD_getFrameContentSize(payload.data(), payload.size());
+            if (size == ZSTD_CONTENTSIZE_ERROR || size == ZSTD_CONTENTSIZE_UNKNOWN)
+                THROWM(Base::RuntimeError, "Transaction log: a row's script cannot be read");
+            std::string out(static_cast<size_t>(size), '\0');
+            const size_t got = ZSTD_decompress(out.data(), out.size(), payload.data(),
+                                               payload.size());
+            if (ZSTD_isError(got))
+                THROWM(Base::RuntimeError, "Transaction log: a row's script cannot be read");
+            out.resize(got);
+            payload = std::move(out);
+#else
+            THROWM(Base::RuntimeError,
+                   "Transaction log: a row's script is compressed and this build has no zstd");
+#endif
+        }
+        if (tag == 'z')
+            return payload;
+        if (tag != 'J' && tag != 'Z')
+            THROWM(Base::RuntimeError, "Transaction log: a row's script of an unknown form");
+        auto j = nlohmann::ordered_json::parse(payload, nullptr, false);
+        if (j.is_discarded())
+            THROWM(Base::RuntimeError, "Transaction log: a row's script cannot be read");
+        if (j.is_object() && j.contains("objects") && j["objects"].is_array()) {
+            for (auto& e : j["objects"]) {
+                if (!e.is_object())
+                    continue;
+                for (const char* key : {"p", "q"}) {
+                    if (!e.contains(key) || !e[key].is_array())
+                        continue;
+                    nlohmann::ordered_json names = nlohmann::ordered_json::array();
+                    for (const auto& id : e[key])
+                        names.push_back(id.is_number_integer() ? nameOf(id.get<int64_t>())
+                                                               : std::string());
+                    e[key] = std::move(names);
+                }
+            }
+        }
+        return j.dump();
+    }
+
+    /// Bind a name column: the id of `name`, made if new.
+    void bindName(sqlite3_stmt* s, int i, const std::string& name)
+    {
+        sqlite3_bind_int64(s, i, nameId(name));
+    }
+
     static std::string columnHash(sqlite3_stmt* s, int col)
     {
         if (sqlite3_column_type(s, col) != SQLITE_BLOB || sqlite3_column_bytes(s, col) != 20)
@@ -2690,6 +2954,9 @@ private:
 
     sqlite3* db {nullptr};
     std::map<std::string, sqlite3_stmt*> stmts;
+    /// The table `name` as read and written (nameId, columnName).
+    std::unordered_map<std::string, int64_t> nameIds;
+    std::unordered_map<int64_t, std::string> nameTexts;
 };
 
 } // namespace

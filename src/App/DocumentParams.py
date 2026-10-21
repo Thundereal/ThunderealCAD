@@ -120,6 +120,12 @@ Params = [
             'whole when content is added to it or dropped from it, so this\n'
             'bounds the cost of every such rewrite. Content over a quarter of\n'
             'it is kept as a file of its own.'),
+    ParamInt('BlobAppendSize', 1024,
+        doc='How full, in KB, the pack store segment new content is added to\n'
+            'may be before the next batch starts another (docs/TransactionLog.md\n'
+            'sec 37.4 P8): adding rewrites that segment whole, so this bounds\n'
+            'what a commit writes besides its own content. The small segments\n'
+            'left behind are merged in the background. At most BlobSegmentSize.'),
     # The long form, kept here; the documentation shown is the short one below.
     # Park shape archive entries during restore and read each one on
     # first real use instead of before the document opens, so the
@@ -324,10 +330,24 @@ Params = [
             'none. A snapshot serialises the document like a save, without\n'
             'writing an archive. With the time rule of AutoSaveTimeout, it\n'
             'bounds how much a crash recovery replays (sec 25.3).'),
-    ParamInt('TransactionLogKeepVersions', 0,
-        doc='How many unnamed versions the transaction log keeps (sec 16.3):\n'
-            'when a version is added, the oldest unnamed ones over this count\n'
-            'are evicted -- never a named one, never the newest. 0 keeps all.'),
+    ParamInt('TransactionLogKeepVersions', 5,
+        doc='How many unnamed versions the transaction log keeps (sec 16.3,\n'
+            '37.4 P6): when a version is added, the oldest unnamed ones over\n'
+            'this count are evicted -- never a named one, never the newest of\n'
+            'a branch. 0 keeps all.'),
+    ParamInt('TransactionLogCoalesceSeconds', 3,
+        doc='A commit that writes by hand the one property the commit before\n'
+            'it wrote, by the same author under the same name and within this\n'
+            'many seconds of it, is folded into it: one row of the transaction\n'
+            'log and one undo step for the run, as a spinbox or a Python loop\n'
+            'makes it (docs/TransactionLog.md sec 37.4 P4). 0 never folds.'),
+    ParamInt('TransactionLogKeepNamed', 10,
+        doc='How many named versions a saved file carries in its history\n'
+            '(docs/TransactionLog.md sec 37.4 P1), the newest first, for a file\n'
+            'that does not say (Document.setHistoryRetention): rows older than\n'
+            'the oldest version the file carries are left out of it. A version\n'
+            'a branch forked from and a pinned one always travel. 0 carries\n'
+            'every named version; below 0 carries the whole history.'),
     ParamInt('TransactionLogCompactSize', 256,
         doc='When the file-scope state of the transaction log is compacted on\n'
             'its own (docs/TransactionLog.md sec 27.48, 27.49), in KB: after a\n'

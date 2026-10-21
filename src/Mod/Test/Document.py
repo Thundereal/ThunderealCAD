@@ -4336,6 +4336,82 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertTrue(opened.switchTransactionBranch("main"))
         self.assertEqual(opened.getObject("Obj").Integer, 1)
 
+    def testAFileCarriesItsHistoryFromTheOldestVersionKept(self):
+        # Sec 37.4 P1: a save carries the newest `named` named versions and
+        # the newest `snapshots` unnamed ones of each branch, and leaves out
+        # the rows older than the oldest of them; the numbers are the file's.
+        import shutil
+        import zipfile
+
+        param = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        doc = self.track(FreeCAD.newDocument("Retention"))
+        doc.UndoMode = 1
+        doc.openTransaction("create")
+        obj = doc.addObject("App::FeatureTest", "Obj")
+        doc.commitTransaction()
+        self.assertEqual(
+            doc.getHistoryRetention(),
+            (
+                param.GetInt("TransactionLogKeepNamed", 10),
+                max(1, param.GetInt("TransactionLogKeepVersions", 5)),
+            ),
+        )
+        doc.setHistoryRetention(named=1, snapshots=2)
+        self.assertEqual(doc.getHistoryRetention(), (1, 2))
+        doc.setHistoryRetention(snapshots=2)
+        self.assertEqual(doc.getHistoryRetention(), (1, 2))
+        nums = []
+        for i in range(8):
+            doc.openTransaction("edit %d" % i)
+            obj.Integer = i
+            doc.commitTransaction()
+            nums.append(doc.snapshotTransactionLog())
+            # Named as taken: the live log keeps five unnamed (P6).
+            if i == 1:
+                doc.nameTransactionVersion(nums[1], "early")
+            elif i == 3:
+                doc.nameTransactionVersion(nums[3], "middle")
+        live = len(doc.getTransactionLog())
+        path = os.path.join(self.dir, "retention.FCStd")
+        doc.saveAs(path)
+        # The live log keeps everything.
+        self.assertEqual(len(doc.getTransactionLog()), live + 1)
+        self.assertIn(nums[1], [v["num"] for v in doc.getTransactionVersions()])
+        FreeCAD.closeDocument(doc.Name)
+
+        # Opened from a copy of the file: the history it carried.
+        moved = os.path.join(self.dir, "retention-moved.FCStd")
+        shutil.copyfile(path, moved)
+        opened = self.track(FreeCAD.openDocument(moved))
+        self.assertEqual(opened.getHistoryRetention(), (1, 2))
+        carried = {v["num"]: v for v in opened.getTransactionVersions()}
+        for num in (nums[3], nums[6], nums[7]):
+            self.assertIn(num, carried)
+        for num in (nums[0], nums[1], nums[2], nums[4], nums[5]):
+            self.assertNotIn(num, carried)
+        self.assertEqual(carried[nums[3]]["name"], "middle")
+        rows = opened.getTransactionLog()
+        self.assertLess(len(rows), live)
+        self.assertNotIn("edit 0", [r["name"] for r in rows])
+        self.assertIn("edit 5", [r["name"] for r in rows])
+        # What it carried restores.
+        obj = opened.getObject("Obj")
+        opened.restoreTransactionVersion(nums[3])
+        self.assertEqual(obj.Integer, 3)
+        opened.restoreTransactionVersion(nums[6])
+        self.assertEqual(obj.Integer, 6)
+
+        # Below 0: the whole history, as before the bound.
+        opened.setHistoryRetention(named=-1)
+        again = os.path.join(self.dir, "retention-all.FCStd")
+        opened.saveAs(again)
+        FreeCAD.closeDocument(opened.Name)
+        copy = os.path.join(self.dir, "retention-all-moved.FCStd")
+        shutil.copyfile(again, copy)
+        whole = self.track(FreeCAD.openDocument(copy))
+        self.assertEqual(whole.getHistoryRetention()[0], -1)
+        self.assertIn(nums[3], [v["num"] for v in whole.getTransactionVersions()])
+
     def testEditedElsewhereKeepsClosedBranches(self):
         doc, path = self.saved()
         before = max(v["num"] for v in doc.getTransactionVersions())
@@ -9510,6 +9586,9 @@ class TransactionBranchCases(unittest.TestCase):
         # history's, and a branch made before it could not be merged.
         doc = self.track(FreeCAD.newDocument("OldOpens"))
         doc.UndoMode = 1
+        # The file carries one unnamed version a branch, as every file did
+        # before sec 37.4 P1: the case is an open's version gone.
+        doc.setHistoryRetention(snapshots=1)
         doc.openTransaction("base")
         doc.addObject("Part::Box", "Box")
         doc.addObject("Part::Cylinder", "Cyl")

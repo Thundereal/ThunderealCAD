@@ -96,6 +96,10 @@ protected:
     {
         _mode = App::DocumentParams::getTransactionLog();
         App::DocumentParams::setTransactionLog(1);
+        // A row and an undo step per commit, which these cases count: the
+        // folding of rapid commits (sec 37.4 P4) is its own case's.
+        _coalesce = App::DocumentParams::getTransactionLogCoalesceSeconds();
+        App::DocumentParams::setTransactionLogCoalesceSeconds(0);
         _docName = App::GetApplication().getUniqueDocumentName("txnlog");
         _doc = App::GetApplication().newDocument(_docName.c_str(), "testUser");
         _doc->setUndoMode(1);
@@ -105,6 +109,7 @@ protected:
     {
         App::GetApplication().closeDocument(_docName.c_str());
         App::DocumentParams::setTransactionLog(_mode);
+        App::DocumentParams::setTransactionLogCoalesceSeconds(_coalesce);
     }
 
     App::Document* doc() { return _doc; }
@@ -171,6 +176,7 @@ protected:
 
 private:
     long _mode {0};
+    long _coalesce {0};
     std::string _docName;
     App::Document* _doc {};
 };
@@ -1017,6 +1023,189 @@ TEST_F(TransactionLogTest, evictsUnnamedVersions)
     EXPECT_GE(store.transactions().size(), 9u);
 }
 
+// Sec 23.2, 37.4 P7: a named version is a full anchor. Naming one makes
+// what it reaches full again -- its entries, their skeletons and parts --
+// and the versions and edits after it leave those full.
+TEST_F(TransactionLogTest, aNamedVersionIsAFullAnchor)
+{
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    doc()->commitTransaction();
+    std::vector<long> values(5000);
+    for (size_t i = 0; i < values.size(); ++i)
+        values[i] = static_cast<long>(i * 7919);
+    auto edit = [&](int i) {
+        values[100 * i] = -1 - i;
+        doc()->openTransaction("edit");
+        obj->IntegerList.setValues(values);
+        obj->Integer.setValue(i);
+        doc()->commitTransaction();
+    };
+    auto& l = log();
+    auto& store = l.store();
+    // The deltas among what version `num` reaches.
+    auto deltasOf = [&](int64_t num) {
+        std::set<std::string> reached;
+        App::LogVersion v;
+        EXPECT_TRUE(store.getVersion(num, v));
+        reached.insert(v.manifest);
+        for (const auto& e : store.manifest(num)) {
+            reached.insert(e.hash);
+            App::LogEntity ent;
+            std::string data;
+            App::TransactionLog::Composite c;
+            if (store.getEntity(e.hash, ent) && ent.kind == "composite"
+                    && l.readBytes(e.hash, data) && c.decode(data)) {
+                reached.insert(c.skeleton);
+                for (const auto& p : c.parts)
+                    reached.insert(p.hash);
+            }
+        }
+        int deltas = 0;
+        for (const auto& h : reached) {
+            App::LogEntity ent;
+            if (store.getEntity(h, ent) && ent.enc == "delta")
+                ++deltas;
+        }
+        return deltas;
+    };
+
+    edit(0);
+    const int64_t v1 = doc()->snapshotToLog();
+    edit(1);
+    const int64_t v2 = doc()->snapshotToLog();
+    EXPECT_GT(deltasOf(v1), 0);
+    ASSERT_TRUE(store.nameVersion(v1, "release"));
+    EXPECT_EQ(deltasOf(v1), 0);
+
+    edit(2);
+    doc()->snapshotToLog();
+    edit(3);
+    doc()->snapshotToLog();
+    EXPECT_EQ(deltasOf(v1), 0);
+    EXPECT_GT(deltasOf(v2), 0);   // an unnamed one is superseded as ever
+
+    ASSERT_TRUE(store.nameVersion(v2, "beta"));
+    EXPECT_EQ(deltasOf(v2), 0);
+
+    // Named while its values are the live ones: the edits and the version
+    // that supersede them leave them full.
+    edit(4);
+    const int64_t v5 = doc()->snapshotToLog();
+    ASSERT_TRUE(store.nameVersion(v5, "gamma"));
+    edit(5);
+    edit(6);
+    doc()->snapshotToLog();
+    EXPECT_EQ(deltasOf(v5), 0);
+
+    doc()->restoreVersion(v1);
+    obj = static_cast<App::FeatureTest*>(doc()->getObject("Obj"));
+    ASSERT_TRUE(obj);
+    EXPECT_EQ(obj->Integer.getValue(), 0);
+    EXPECT_EQ(obj->IntegerList.getValues()[0], -1);
+    EXPECT_EQ(obj->IntegerList.getValues()[100], 100 * 7919);
+}
+
+// Sec 37.4 P4: commits that write the one same property by hand, close
+// together, by one author under one name, fold into one row and one undo
+// step; a recompute's records between them go with the earlier commits.
+TEST_F(TransactionLogTest, aRunOnOnePropertyFoldsIntoOneStep)
+{
+    const long window = App::DocumentParams::getTransactionLogCoalesceSeconds();
+    App::DocumentParams::setTransactionLogCoalesceSeconds(60);
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    doc()->commitTransaction();
+    auto& store = log().store();
+    const size_t rows = store.transactions().size();
+    const int undos = doc()->getAvailableUndos();
+
+    for (int i = 1; i <= 5; ++i) {
+        doc()->openTransaction("Edit");
+        obj->Integer.setValue(i);
+        doc()->recompute();
+        doc()->commitTransaction();
+    }
+    EXPECT_EQ(doc()->getAvailableUndos(), undos + 1);
+    doc()->snapshotToLog();   // the last after in hand
+    std::vector<App::LogTransaction> edits;
+    size_t records = 0;
+    for (const auto& t : store.transactions()) {
+        if (t.name == "Edit")
+            edits.push_back(t);
+        else if (t.kind == "recompute")
+            ++records;
+    }
+    ASSERT_EQ(edits.size(), 1U);
+    EXPECT_GE(records, 1U);   // the last commit's recompute record stays
+    EXPECT_LE(store.transactions().size(), rows + 3);   // the row, its record, the snapshot's
+    App::LogOp set;
+    for (const auto& o : store.ops(edits.front().seq)) {
+        if (o.op == "set" && o.prop == "Integer")
+            set = o;
+    }
+    ASSERT_EQ(set.prop, "Integer");
+    App::CapturedValue before, after;
+    ASSERT_TRUE(log().readValue(set.vbefore, before));
+    ASSERT_TRUE(log().readValue(set.vafter, after));
+    EXPECT_NE(before.fragment.find("value=\"4711\""), std::string::npos) << before.fragment;
+    EXPECT_NE(after.fragment.find("value=\"5\""), std::string::npos) << after.fragment;
+
+    // One undo takes the run back, one redo does it again.
+    EXPECT_TRUE(doc()->undo());
+    EXPECT_EQ(obj->Integer.getValue(), 4711);   // FeatureTest's default
+    EXPECT_TRUE(doc()->redo());
+    EXPECT_EQ(obj->Integer.getValue(), 5);
+
+    // Another property, another name, a recompute's write by hand: a step
+    // of its own each.
+    const int folded = doc()->getAvailableUndos();
+    doc()->openTransaction("Edit");
+    obj->Float.setValue(1.5);
+    doc()->commitTransaction();
+    doc()->openTransaction("Other");
+    obj->Float.setValue(2.5);
+    doc()->commitTransaction();
+    doc()->openTransaction("Other");
+    obj->Float.setValue(3.5);
+    obj->Integer.setValue(9);
+    doc()->commitTransaction();
+    EXPECT_EQ(doc()->getAvailableUndos(), folded + 3);
+    EXPECT_TRUE(doc()->undo());
+    EXPECT_EQ(obj->Integer.getValue(), 5);
+    EXPECT_DOUBLE_EQ(obj->Float.getValue(), 2.5);
+    EXPECT_TRUE(doc()->undo());
+    EXPECT_DOUBLE_EQ(obj->Float.getValue(), 1.5);
+
+    // Committed, then recomputed: the recompute's own steps between the
+    // commits fold in too.
+    const int resized = doc()->getAvailableUndos();
+    for (int i = 1; i <= 4; ++i) {
+        doc()->openTransaction("Resize");
+        obj->Integer.setValue(100 + i);
+        doc()->commitTransaction();
+        obj->touch();
+        doc()->recompute();
+    }
+    EXPECT_EQ(doc()->getAvailableUndos(), resized + 1);
+    EXPECT_EQ(obj->Integer.getValue(), 104);
+    EXPECT_TRUE(doc()->undo());
+    EXPECT_EQ(obj->Integer.getValue(), 5);
+    EXPECT_TRUE(doc()->redo());
+    EXPECT_EQ(obj->Integer.getValue(), 104);
+
+    // No window, no folding.
+    App::DocumentParams::setTransactionLogCoalesceSeconds(0);
+    const int plain = doc()->getAvailableUndos();
+    for (int i = 0; i < 3; ++i) {
+        doc()->openTransaction("Edit");
+        obj->Integer.setValue(20 + i);
+        doc()->commitTransaction();
+    }
+    EXPECT_EQ(doc()->getAvailableUndos(), plain + 3);
+    App::DocumentParams::setTransactionLogCoalesceSeconds(window);
+}
+
 TEST_F(TransactionLogTest, restoresAVersion)
 {
     doc()->openTransaction("create");
@@ -1129,7 +1318,14 @@ TEST_F(TransactionLogTest, embeddedHistoryRoundTrips)
     ASSERT_TRUE(olog);
     auto& store = olog->store();
     auto txns = store.transactions();
-    ASSERT_GE(txns.size(), static_cast<size_t>(seqBefore + 1));
+    // The rows before v1, the oldest version the file carries, stay
+    // behind (sec 37.4 P1); v1's own row, `create`, starts the copy.
+    ASSERT_FALSE(txns.empty());
+    EXPECT_EQ(txns.front().name, "create");
+    std::set<std::string> names;
+    for (const auto& t : txns)
+        names.insert(t.name);
+    EXPECT_TRUE(names.count("edit"));
     EXPECT_EQ(txns.back().kind, "restore");
     // The copy is taken before the save's own record; the restore follows.
     // The save's stamps are bookkeeping, no transaction (sec 27.5).
@@ -2799,7 +2995,7 @@ TEST_F(TransactionLogTest, aStoreOfTheSettledLayoutIsMigrated)
         kept.seq = 1;
         EXPECT_TRUE(store->keepValue(kept));
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 2);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
     // Opened again: nothing left to do.
     EXPECT_NO_THROW(App::TransactionStore::openSQLite(path));
     Base::FileInfo(path).deleteFile();
@@ -2874,7 +3070,7 @@ TEST_F(TransactionLogTest, aStoreOfScannersLayoutIsMigrated)
         ASSERT_EQ(sessions.size(), 1U);
         EXPECT_EQ(sessions.front().user, 1);
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 2);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
     Base::FileInfo(path).deleteFile();
 }
 
@@ -2923,7 +3119,141 @@ TEST_F(TransactionLogTest, aStoreOfLayoutOneGetsObjectUids)
             uids.emplace(u.first, u.second);
         EXPECT_EQ(uids.count(5), 0U);
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 2);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST_F(TransactionLogTest, aStoreOfLayoutTwoGetsItsOpsPacked)
+{
+    // docs/TransactionLog.md sec 37.4 P2: layout 3 keeps an op's hashes as
+    // 20 bytes and its type and property names as ids of `name`; the rows of
+    // a layout-2 store are packed when it is opened and read back the same.
+    const std::string path = Base::FileInfo::getTempFileName("txnlog-two") + ".db";
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+    }
+    const std::string h1(40, 'a'), h2 = "0123456789abcdef0123456789abcdef01234567";
+    const std::string layoutTwo =
+           "DROP TABLE op; DROP TABLE name;"
+           "CREATE TABLE op(txn INTEGER, idx INTEGER, op TEXT, ckind TEXT,"
+           " cid INTEGER, cname TEXT, ctype TEXT, prop TEXT, ptype TEXT, meta TEXT,"
+           " vbefore TEXT, vafter TEXT, derived INTEGER, touched INTEGER, PRIMARY KEY(txn, idx));"
+           "INSERT INTO txn(seq,parent,id,kind,origin,name,time,script,session)"
+           " VALUES(1,0,1,'user','gui','Edit',1.5,'',1);"
+           "INSERT INTO op VALUES(1,0,'set','obj',3,'Box','Part::Box','Length',"
+           " 'App::PropertyLength','','" + h1 + "','" + h2 + "',0,NULL);"
+           "INSERT INTO op VALUES(1,1,'set','obj',3,'Box','Part::Box','Shape',"
+           " 'Part::PropertyPartShape','','','pending',1,2);"
+           "PRAGMA user_version=2;";
+    rawSql(path, layoutTwo.c_str());
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        const auto ops = store->ops(1);
+        ASSERT_EQ(ops.size(), 2U);
+        EXPECT_EQ(ops[0].ctype, "Part::Box");
+        EXPECT_EQ(ops[0].prop, "Length");
+        EXPECT_EQ(ops[0].ptype, "App::PropertyLength");
+        EXPECT_EQ(ops[0].vbefore, h1);
+        EXPECT_EQ(ops[0].vafter, h2);
+        EXPECT_EQ(ops[1].prop, "Shape");
+        EXPECT_EQ(ops[1].vbefore, "");
+        EXPECT_EQ(ops[1].vafter, "pending");   // not a hash: kept as it is
+        EXPECT_TRUE(ops[1].derived);
+        EXPECT_EQ(ops[1].touched, 2);
+        App::LogOp last;
+        ASSERT_TRUE(store->lastOpOn("obj", 3, "Length", 0, 0, last));
+        EXPECT_EQ(last.vafter, h2);
+        EXPECT_FALSE(store->lastOpOn("obj", 3, "Height", 0, 0, last));
+        EXPECT_EQ(store->derivedPropsOf(3), std::vector<std::string> {"Shape"});
+        const auto values = store->valuesOf(3, "Length");
+        ASSERT_EQ(values.size(), 1U);
+        EXPECT_EQ(values.front().second, h2);
+
+        // Written on: the names it has are reused, a new one is made.
+        App::LogTransaction t;
+        t.parent = 1;
+        t.branch = 1;
+        t.kind = "user";
+        t.name = "More";
+        std::vector<App::LogOp> more(1);
+        more[0].op = "set";
+        more[0].ckind = "obj";
+        more[0].cid = 3;
+        more[0].ctype = "Part::Box";
+        more[0].prop = "Height";
+        more[0].ptype = "App::PropertyLength";
+        more[0].vbefore = h2;
+        const int64_t seq = store->append(t, more);
+        store->resolveAfter(seq, 0, h1);
+        const auto back = store->ops(seq);
+        ASSERT_EQ(back.size(), 1U);
+        EXPECT_EQ(back[0].prop, "Height");
+        EXPECT_EQ(back[0].vbefore, h2);
+        EXPECT_EQ(back[0].vafter, h1);
+    }
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM op WHERE typeof(prop)<>'integer'"), 0);
+    EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM op WHERE typeof(vbefore)='blob'"), 2);
+    EXPECT_EQ(rawInt(path, "SELECT length(vafter) FROM op WHERE txn=1 AND idx=0"), 20);
+    EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM name"), 6);
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST_F(TransactionLogTest, aRecordKeepsItsNamesAsIds)
+{
+    // docs/TransactionLog.md sec 37.4 P3: a record's property names go as
+    // ids of `name`, a script past 128 bytes compressed; both read back as
+    // the JSON written, and a short script that is not a record stays text.
+    const std::string path = Base::FileInfo::getTempFileName("txnlog-record") + ".db";
+    std::string big = "{\"seconds\":0.5,\"objects\":[";
+    for (int i = 0; i < 40; ++i) {
+        if (i)
+            big += ',';
+        big += "{\"id\":" + std::to_string(i + 1)
+             + ",\"s\":0.25,\"b\":1,\"p\":[\"Length\",\"Placement\"],\"a\":0,"
+               "\"q\":[\"Shape\"]}";
+    }
+    big += "]}";
+    const std::vector<std::string> scripts = {
+        "{\"seconds\":0.5,\"objects\":[{\"id\":3,\"s\":0.25,\"b\":1,\"p\":[\"Length\"]}]}",
+        big,
+        "{\"seconds\":0.5,\"objects\":[{\"id\":3,\"error\":\"no \\\"shape\\\"\"}]}",
+        "{\"version\":3,\"path\":\"" + std::string(200, 'x') + "\"}",
+        "{\"version\":4}",
+    };
+    std::vector<int64_t> seqs;
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        int64_t parent = 0;
+        for (const auto& script : scripts) {
+            App::LogTransaction t;
+            t.parent = parent;
+            t.branch = 1;
+            t.kind = "recompute";
+            t.name = "recompute";
+            t.script = script;
+            std::vector<App::LogOp> none;
+            parent = store->append(t, none);
+            seqs.push_back(parent);
+        }
+        for (size_t i = 0; i < scripts.size(); ++i) {
+            const auto rows = store->transactions(seqs[i], 1);
+            ASSERT_EQ(rows.size(), 1U);
+            EXPECT_EQ(rows.front().script, scripts[i]) << i;
+        }
+    }
+    auto typeOf = [&](int64_t seq) {
+        const std::string sql = "SELECT typeof(script)='blob' FROM txn WHERE seq="
+                              + std::to_string(seq);
+        return rawInt(path, sql.c_str());
+    };
+    EXPECT_EQ(typeOf(seqs[0]), 1);   // names as ids
+    EXPECT_EQ(typeOf(seqs[1]), 1);   // and compressed
+    EXPECT_EQ(typeOf(seqs[2]), 0);   // no names: short text
+    EXPECT_EQ(typeOf(seqs[3]), 1);   // compressed as it is
+    EXPECT_EQ(typeOf(seqs[4]), 0);
+    const std::string sql = "SELECT length(script) FROM txn WHERE seq=" + std::to_string(seqs[1]);
+    EXPECT_LT(rawInt(path, sql.c_str()), static_cast<int>(big.size() / 4));
     Base::FileInfo(path).deleteFile();
 }
 
@@ -2967,7 +3297,7 @@ TEST_F(TransactionLogTest, aStoreNotOfThisBuildIsRefused)
     {
         auto store = App::TransactionStore::openSQLite(fresh);
     }
-    EXPECT_EQ(rawInt(fresh, "PRAGMA user_version"), 2);
+    EXPECT_EQ(rawInt(fresh, "PRAGMA user_version"), 3);
     Base::FileInfo(fresh).deleteFile();
 }
 

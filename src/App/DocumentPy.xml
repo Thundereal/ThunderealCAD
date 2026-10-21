@@ -384,6 +384,26 @@ each a dict with num, uuid, branch, kind, name, seq, env, docxml, schema,
 created, and manifest: a list of (entry, hash).</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="getHistoryRetention">
+      <Documentation>
+        <UserDocu>getHistoryRetention() -> (named, snapshots)
+
+What a save of this file carries of its history (docs/TransactionLog.md
+sec 37.4 P1): the newest `named` named versions (0 every one, below 0 the
+whole history) and the newest `snapshots` unnamed versions of each branch;
+the rows older than the oldest version carried are left out. The file's
+own numbers, else the preferences TransactionLogKeepNamed and
+TransactionLogKeepVersions.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setHistoryRetention" Keyword="true">
+      <Documentation>
+        <UserDocu>setHistoryRetention(named=None, snapshots=None)
+
+Set the file's own numbers of getHistoryRetention(); one left None keeps
+what it is. They are the file's: a save carries them with the history.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="snapshotTransactionLog">
       <Documentation>
         <UserDocu>snapshotTransactionLog() -> int

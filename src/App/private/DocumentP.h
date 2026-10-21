@@ -172,6 +172,11 @@ struct DocumentP
     /// version, and when it was taken (steady clock seconds).
     long commitsSinceVersion {0};
     double lastVersionTime {0};
+    /// The last commit's row and when it was made (steady clock seconds):
+    /// what a commit right after it on the same property folds into (sec
+    /// 37.4 P4).
+    int64_t lastCommitSeq {0};
+    double lastCommitTime {0};
     bool snapshotting {false};
     /// The save in progress writes the string table as a member of its own
     /// (docs/TransactionLog.md sec 27.50 item 1) -- or, snapshotting, names

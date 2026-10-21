@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-21 15:52: entry 205 -- Section003's tool tip shows a bare "Error": the
+document's recompute clears every object's message; the cut misses the
+part (origin y=24 outside +-17.5); to x16win after 167.** Under the entry.
+
 **2026-10-21 15:45, fcad-dc (relayed): STAGE26 DONE (r184, with 202) on the reporter's
 word to it, "restage first, then continue 199 and then merge and push"
 (the note-taker did not hear it).** INSTALL-USER: OK, 15:2x. Then 199
@@ -4160,6 +4164,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 202 | 2026-10-21 | change requests and a defect, the fillet edit (relayed by fcad-dc, its wording; the note-taker did not hear them): (a) a VERTEX cannot be picked in the 3D view, so a setback corner cannot be made (the preview covers the base vertex and swallows the pick, by fcad-dc's reading); (b) a right click on a preview face, or while hovering its edge or face, the same menu as its handle, for every dress-up (181 point 2's menu); (c) the Group column second; (d) the multi-group COLOURED handles back, auto colours distinct from the (pre)selection and the dragging colour, a group's colour pickable by the user and kept in the fillet's property; (e) concise tool tips explaining each mode, for the whole list or per item; (f) a double click on the Group column edits the group | OPEN; 2026-10-21 11:10; fcad-dc's (its area), to start after r179 is built, restaged (stage25) and tested. 2026-10-21 11:11 fcad-dc's plan: (a) a GUI test reproducing it before any fix; (c) Group is today the LAST (6th) column, moved second by a header section move; (d) desktop only, absent property = auto colours, a group's colour picked from the handle's menu and the list row's context menu ("Group colour...", "Automatic") -- fcad-dc's default, to be told to the reporter; nothing started, r179 building (540/2086 at 11:10), then stage25. 2026-10-21 15:28 DONE by fcad-dc, COMMITTED locally `8b4b49a405` (+ test fix `c858d58e0b`), NOT pushed, NOT merged with x16win's `5fb4053dfa`, NOT staged; r184 (dev build): (a) the plain vertex click already worked; found instead a vertex stuck selected in the add mode (the corner could not be taken away) -- fixed; the reporter's case, if different, needs its model; (b)-(e) built, GroupColors a new hidden output property (fillet, chamfer), old files as before; (f) as reported "a double click on a value cell edits it" -- the Group column asked; fillet-groups-and-preview-menu 19/19, fillet-corner-vertex-pick 8/8, the fillet set green. 2026-10-21 15:29 (f) CONFIRMED by fcad-dc: a double click on the GROUP cell edits the group (the 202 test does it: A's Group cell, C's group typed + Enter, A in C's group); every column but the element name takes a double click; to merge x16win's `5fb4053dfa` and rerun the fillet set before any push. 2026-10-21 15:45 STAGED by fcad-dc (stage26 15:2x, INSTALL-USER OK, r184) on the reporter's "restage first, then continue 199 and then merge and push" (relayed); merged with x16win's push as `a5ab353409`, r185 building, the push on green |
 | 203 | 2026-10-21 | a defect and a change request (said to fcad-dc, passed to the note-taker on the reporter's word to hand to another session): Esc that dismisses a menu can also END the edit unintentionally; is there a setting for Esc ending an edit? Make ending the edit a COMMAND, enabled only while the current view is in edit, so the user can assign its own shortcut, default Shift+Esc; check conflicts (selection clear remembered on it -- both may coexist) | OPEN; 2026-10-21 11:16; READ by fcad-dc (nothing run): no general setting (the Sketcher has its own, LeaveSketchWithEscape); two hard-coded paths end an edit on Esc (ViewProvider::eventCallback on the RELEASE, no modifier check; TaskView's escape button); no command holds Shift+Esc in src; to be ASSIGNED to x16win after 132, plain Esc's fate put to the reporter. 2026-10-21 11:36 the reporter: a PLAIN Esc NO LONGER ENDS an edit ("No longer ends (Recommended)") -- only the new command ends it; a general preference, like the Sketcher's, can bring the old behaviour back; ASSIGNED to x16win after 132's real-screen runs. 2026-10-21 12:51 x16win found the reporter's own link.user.cfg holds Sketcher LeaveSketchWithEscape=1 (the old default, saved); the note-taker (coordinating) took x16win's proposal: a new general preference (e.g. View/EscapeEndsEdit, OFF by default) governs, the Sketcher key only narrows it (Esc ends a sketch edit only if both on), the Sketcher page's box maps to the general one -- so the reporter's decision holds for the reporter's own cfg. 2026-10-21 12:52 the CONFLICT found by x16win: the selection clear is a key handler, View3DInventorViewer::processSoEvent (~7530) -- Shift+Esc clears the selection, plain Esc the preselection; options put: (a) keep Shift+Esc, (b) another key, (c) clear first, end on a second press (x16win's pick); the note-taker ANSWERED from the reporter's own words ("dismiss edit while clearing selection can coexist"): Shift+Esc in an edit ENDS the edit and the selection clear may happen with it -- (a), not (c); no question put. 2026-10-21 13:26 BUILDING by x16win (uncommitted): View/EscapeEndsEdit OFF; Std_ResetEdit "End edit", Shift+Esc, clears the selection too; the ViewProvider and TaskView Esc paths gated; the Sketcher box maps to the general pref, Assembly's LeaveEditWithEscape narrows the same; the browser matches Std_ResetEdit's current shortcut; tests updated and tests/gui/end-edit-command.py new; OnViewValue.cpp and Gizmo.cpp not touched; a risk: Chrome binds Shift+Esc to its Task Manager -- the note-taker: check with a REAL key press, no new button (the mirrored task panel already ends the edit). 2026-10-21 15:01 COMMITTED by x16win `5fb4053dfa`, local, NOT pushed, NOT staged: end-edit-command.py 12/12 on screen, sketch-cancel-edit 12/12, sketch-focus-cursor 8/8, task-panel-in-view 89/89, serve-edit-browser 24/24 (Escape alone keeps the edit, Shift+Escape ends it), serve-onview-browser 16/16, serve-handle-touch-browser 40/40; a REAL OS Shift+Esc reaches a real Chrome page (no Task Manager) -- no button; outside an edit an OS Shift+Esc still clears the selection. 2026-10-21 15:08 PUSHED by x16win on the reporter's word to it ("push when you're done with the current issue", relayed): thundereal/LinkVibe c860115ea7..5fb4053dfa, ten commits; NOT restaged |
 | 204 | 2026-10-21 | a defect: TechDraw, page frames hidden -- selecting ANY geometry of a view in a PROJECTION GROUP shows the frames of ALL the group's views; wanted: ONLY the OWNER view shows its frame | OPEN; 2026-10-21 15:43; said to the note-taker; the cause READ by the note-taker (nothing run): QGIView.cpp frameOwner() (864-878) maps a group's view to its GROUP, so every view of the group matches a selection in any of them (entry 155's "group frame" rule, `6af132eb0b`); ASSIGNED to fcad-dc after 199 (it wrote 155/192's frame code). 2026-10-21 15:45 fcad-dc ACCEPTED, after its push; its reading matches the note-taker's (the group's own frame only when the group itself is selected), built that way unless the reporter says otherwise. 2026-10-21 15:46 the reporter: "there is no group frame, i.e. projection group has no frame" -- the NOT-said point moot: only the owner view's frame shows |
+| 205 | 2026-10-21 | a defect, on entry 178's described errors: TechDraw Section003 (scanner, the reporter's live session) -- the tree TOOL TIP shows only "Error" in red, and the actual message as if a description, on a separate line in the normal colour; and what the error/warning is about | OPEN; 2026-10-21 15:52; READ by the note-taker in the live session (MCP, read only) and the source: the red line is the object's error text from the document's recompute log, EMPTY -- Document::recompute clears the WHOLE log at its start, so any later recompute that does not rerun Section003 drops its message while it stays in error (bare "Error"); the normal line is its late WARNING ("Warning: The section origin is outside the part..."); the error itself: "The section cut failed: the cutting tool does not meet the shape, so nothing is left" -- SectionOrigin y=24 while the part (Fillet007 BaseBottom) spans y -17.5..17.5; ASSIGNED to x16win after 167 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -28502,6 +28507,61 @@ The note-taker's reading: the question of a group frame falls away -- a
 projection group draws no frame of its own; a selection in one of its
 views shows that view's frame and no other. Passed on to fcad-dc.
 
+## 205. TechDraw Section003: the tree tool tip shows a bare "Error" in red, the message on a plain line below (a defect, on 178) -- OPEN
+
+**2026-10-21 15:52, the reporter (to the note-taker):** "check how the error report of
+techdraw section object works. it's a request from one of the entry.
+check my live session, the error message in section 003. its tooltip
+only shows 'Error' in red, while put the actual message as if they are
+description in a separate line with normal color. also check into what
+it this error/warning is about"
+The entry it comes from: 178 (TechDraw described errors: a view with
+nothing to show an error; a partial view a tool-tip warning,
+reportLateWarning).
+READ by the note-taker, the reporter's live session through its MCP
+console (port 8790, object state only, no Qt calls) and the source,
+nothing changed:
+- The object: scanner#SectionView003, label "Section003  - ",
+  TechDraw::DrawViewSection, State ['Invalid'], getStatusString() =
+  'Error'; BaseView ProjItem011 (Top003, Direction (0,0,1)), Source
+  Fillet007 (label BaseBottom), SectionDirection Aligned, SectionNormal
+  (0,-1,0), SectionOrigin (0, 24, -19); Label2 empty.
+- The console, twice (15:38:55-56 and 15:39:33): "Warning Section003  - :
+  The section origin is outside the part, so the section may cut nothing
+  or not where it is meant to"; "Error DVP::scanner#SectionView003 -
+  section cut failed - the cutting tool does not meet the shape, so
+  nothing is left"; "Error Section003  - : The section cut failed: the
+  cutting tool does not meet the shape, so nothing is left".
+- WHAT IT IS ABOUT: the section plane is outside the part. Fillet007
+  (BaseBottom) spans x and y -17.5..17.5, z -32.078..-6 (placement
+  identity); the plane through y = 24 with normal -Y misses it, so the
+  cut leaves nothing -- an error by 178's rule (nothing to show), with
+  the warning that says why ahead of it. Whether the origin moved (a
+  base or a sketch changed, or the view's origin set by hand) is not
+  read.
+- WHY THE TOOL TIP READS SO: the tree (src/Gui/Tree.cpp 3037-3063) puts,
+  for an object in error, a RED line = getStatusString(), which is the
+  document's recompute log text for it (App/DocumentObject.cpp 519-531:
+  "Error" when none), then the view provider's tool tip as a plain line
+  -- for a TechDraw view its late warnings, "Warning: ..."
+  (ViewProviderDrawingView.cpp 532-545). The red line is bare because the
+  log has lost the message: Document::recompute clears the WHOLE log at
+  its start (Document.cpp 15318, d->clearRecomputeLog()), so any later
+  recompute that does not rerun Section003 drops its text while the
+  object stays in error. The late error (DrawView::reportLateError,
+  DrawView.cpp 161-179) lands in the same log. So what shows on the
+  plain line is the WARNING; the ERROR's own text is gone.
+The note-taker's reading of what is wanted: the red line carries the
+error's own message (kept for as long as the object stays in error), and
+the warning stays below it as a warning. NOT said: the warning's colour
+(read as: marked as a warning, not as a description); whether the same
+holds for every object (read as yes -- the log loss is App's, any
+feature). ASSIGNED to x16win after 167 (App Document and the tree;
+167's save work is in the same file). The fix by this reading: clear
+the log only for the objects a recompute reruns (or keep an entry while
+its object stays in error), and a test that a second recompute of an
+unrelated object leaves the first one's message in its tool tip.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -28513,5 +28573,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 204
+the build session, 131 and 132 found by it; entries 134 to 205
 are of 2026-10-15, 134 said to the build session)

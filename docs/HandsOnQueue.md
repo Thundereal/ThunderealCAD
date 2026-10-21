@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-21 17:07: entry 207 -- Binder008 revealed under Lens003 or LinkGroup001 by
+pointer order (a std::set of items); its "No context" error (an empty
+Context never tries the binder at the root); to fcad-dc.** Under the
+entry.
+
 **2026-10-21 16:53, fcad-dc (relayed): STAGE27 DONE and PUSHED on the reporter's
 "restage and push" (said to fcad-dc; the note-taker did not hear it).**
 INSTALL-USER: OK; the copy fcad `f1bf17a7e8` (dirty False) = r186b: the
@@ -4212,6 +4217,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 204 | 2026-10-21 | a defect: TechDraw, page frames hidden -- selecting ANY geometry of a view in a PROJECTION GROUP shows the frames of ALL the group's views; wanted: ONLY the OWNER view shows its frame | OPEN; 2026-10-21 15:43; said to the note-taker; the cause READ by the note-taker (nothing run): QGIView.cpp frameOwner() (864-878) maps a group's view to its GROUP, so every view of the group matches a selection in any of them (entry 155's "group frame" rule, `6af132eb0b`); ASSIGNED to fcad-dc after 199 (it wrote 155/192's frame code). 2026-10-21 15:45 fcad-dc ACCEPTED, after its push; its reading matches the note-taker's (the group's own frame only when the group itself is selected), built that way unless the reporter says otherwise. 2026-10-21 15:46 the reporter: "there is no group frame, i.e. projection group has no frame" -- the NOT-said point moot: only the owner view's frame shows. 2026-10-21 16:15 WRITTEN by fcad-dc (uncommitted), r186 building: frameOwner() no longer maps a group's view to the group (the only place; the drag needs nothing of it); techdraw-view-click-through.py gains a Top view in the group -- the Front's edge selected leaves the Top's frame hidden. 2026-10-21 16:26 DONE by fcad-dc `c509ee889b`, local, NOT pushed, NOT staged (r186b): techdraw-view-click-through.py 27/27 (Front's edge selected, the group's Right view shows no frame; 192's claims green; the test's Right placed by hand, AutoDistribute off). 2026-10-21 16:53 PUSHED by fcad-dc (thundereal/LinkVibe b38bf76b9f..f1bf17a7e8) and STAGED (stage27, r186b) on the reporter's "restage and push" (relayed) |
 | 205 | 2026-10-21 | a defect, on entry 178's described errors: TechDraw Section003 (scanner, the reporter's live session) -- the tree TOOL TIP shows only "Error" in red, and the actual message as if a description, on a separate line in the normal colour; and what the error/warning is about | OPEN; 2026-10-21 15:52; READ by the note-taker in the live session (MCP, read only) and the source: the red line is the object's error text from the document's recompute log, EMPTY -- Document::recompute clears the WHOLE log at its start, so any later recompute that does not rerun Section003 drops its message while it stays in error (bare "Error"); the normal line is its late WARNING ("Warning: The section origin is outside the part..."); the error itself: "The section cut failed: the cutting tool does not meet the shape, so nothing is left" -- SectionOrigin y=24 while the part (Fillet007 BaseBottom) spans y -17.5..17.5; ASSIGNED to x16win after 167. 2026-10-21 15:55 REASSIGNED to fcad-dc on the reporter's word ("x16win is doing a long code audit task. assign it to the other session"), after its push and 204. 2026-10-21 16:15 WRITTEN by fcad-dc (uncommitted), r186 building: the recompute KEEPS the log entries of objects still in error and in the document (pruned, not cleared); "Recompute failed!" counts what this recompute added; a Python test Document.DocumentBasicCases.testErrorKeptOverUnrelatedRecompute; src/App/Document.cpp (the two recompute spots) and App/private/DocumentP.h only. 2026-10-21 16:26 DONE by fcad-dc `bb5545b5bc`, local, NOT pushed, NOT staged (r186b): the log pruned, not cleared (an entry stays while its object is in the document and in error); "Recompute failed!" counts this recompute's own; Python Document cases 35/35 (the new test with save + reopen + unrelated recompute); an undone removal reads "Error" until its next recompute, as before; the reporter's Section003 to be checked on a COPY of scanner.FCStd on the dev build (the note-taker's call). 2026-10-21 16:30 CHECKED by fcad-dc on a COPY of scanner.FCStd (dev build r186b, offscreen): SectionView003's status string keeps "The section cut failed: the cutting tool does not meet the shape, so nothing is left" after Part005 is recomputed alone (was "Error"); the tree tip itself not read offscreen -- a look on the reporter's screen after a restage closes it. 2026-10-21 16:53 PUSHED by fcad-dc (thundereal/LinkVibe b38bf76b9f..f1bf17a7e8) and STAGED (stage27, r186b) on the reporter's "restage and push" (relayed); the reporter can look at Section003's tool tip now |
 | 206 | 2026-10-21 | a defect and a question: the company's malware detector (Apex, Behavior Monitoring) flagged the STAGED copy AGAIN (entry 161) -- "Unauthorized F[ile ...]", Event File System, Risk High, Operation DELETE, Action TERMINATED, the target a blob in the transient directory (...AppData/Local/cache/Thundereal/Cache/Thundereal_Doc_<uuid>_2b0e23_126872/blobs/<uuid>.png); it fired when the reporter CLOSED a document WITHOUT SAVING (the transient directory removed); what can be done; is a transient directory in TEMP safe? | OPEN; 2026-10-21 16:43; READ by the note-taker (source, nothing run): Document's destructor removes the whole transient directory recursively (Document.cpp 2592-2595), under getUserCachePath (2652-2667, {ExeName}_Doc_{UUID}_{HASH}_{PID}); the blob store keeps image content under its own extension (.png) in blobs/; ANSWERED to the reporter with options, a decision asked. 2026-10-21 16:51 the reporter: NEUTRAL BLOB NAMES ("Neutral blob names (Recommended)") -- blobs in the transient directory without image/document extensions, the cache folder kept; and IT asked to exclude Thundereal.exe (the reporter's own step); ASSIGNED to x16win |
+| 207 | 2026-10-21 | a defect, two questions: (1) an object shown in several places of the tree (lazily populated items) -- on a recompute error the tree reveals Binder008 sometimes under Lens003, sometimes under LinkGroup001: why; (2) why Binder008 recomputes with an error -- "by right, empty context shall choose the shorted path from root. and Binder008 is directly under root"; "object path is not the same as tree path" | OPEN; 2026-10-21 17:07; READ by the note-taker (the live session through MCP, read only, and the source): (1) Tree.cpp 4967-4972 reveals an object without a root item by `*data->items.begin()` -- a std::set of item POINTERS (Tree.cpp 900), so the pick follows heap addresses, not the tree; (2) Binder008 (PartDesign::SubShapeBinder, Relative, Context EMPTY, a shape held) errs "No context, please double click the binder in the desired context to refresh": with no context SubShapeBinder::update (Part/App/SubShapeBinder.cpp 304-331) tries only getParents() paths (here LinkGroup001 alone) for one that leaves the shape unmoved, never the binder at the root itself; ASSIGNED to fcad-dc |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -28752,6 +28758,74 @@ image shown, a PDF) still gets its extension where the opener needs it
 -- said and kept to the few; old transient directories and saved files
 unchanged (the names inside the .FCStd archive are not the cache's).
 
+## 207. Binder008: the tree reveals it under Lens003 or LinkGroup001 by chance on a recompute error; and its "No context" error (a defect, two questions) -- OPEN
+
+**2026-10-21 17:07, the reporter (to the note-taker):** "new request, an object can
+appear under multiple place in a tree hierarchy which is implemented as
+different tree item but representing the same object. the tree hierarchy
+is implemented as lazy population only on expansion. Now we have a
+tricky problem here. The Biner008 appeared under Lens003 and
+LinkGroup001. Tree view will auto expand to reveal any object in error
+during recomputation. For some reason, Binder008 because it has an
+error, sometimes expand under Lens003, somthings LinkGroup001. Try find
+out why. Also go find out why Binder008 recomputes with error. by right,
+empty context shall choose the shorted path from root. and Binder008 is
+directly under root"
+**Then, mid-way:** "btw, object path is not the same as tree path."
+READ by the note-taker, nothing changed -- the reporter's live session
+(pid 119776, stage27) through its MCP console, object state only:
+- scanner#Binder008, label "Binder008(Prism001)",
+  PartDesign::SubShapeBinder; State ['Touched', 'Invalid'];
+  getStatusString() = "No context, please double click the binder in the
+  desired context to refresh"; Support Body004 (Prism001), whole;
+  Context EMPTY; BindMode Synchronized; Relative True; Placement pos
+  (0, ~0, 4.7), pitch 3.5 deg.
+- InList: Binder013, Binder014, Binder017, Binder018 (binders of it),
+  Lens003 (Part::FeaturePython), Link032, Link044, LinkGroup001
+  (App::LinkGroup). getParents() (the OBJECT paths): ONE --
+  LinkGroup001 "Binder008.".
+- The console: 16:59:25 "Recomputation required for scanner#Binder008:
+  its element names crossed a document boundary as text" (the migration
+  recompute); 16:59:43 "SubShapeBinder.cpp(330): scanner#Binder008: No
+  context, please double click the binder in the desired context to
+  refresh".
+(1) WHY THE REVEAL WANDERS (source): TreeWidget::_updateStatus, Tree.cpp
+4950-4978 -- for an object in error it takes the object's ROOT item if
+it has one; otherwise `*data->items.begin()` and showItem(..., force)
+expands down to it. data->items is a std::set<DocumentObjectItem*>
+(Tree.cpp 900): ordered by POINTER, i.e. by where each item happened to
+be allocated -- so between Lens003's and LinkGroup001's item the pick is
+heap order, which changes with what was expanded (populated) first and
+in what order. Nothing about the tree's shape decides it; and an item
+not yet populated is not among them at all.
+(2) WHY BINDER008 ERRS (source): SubShapeBinder::update, Part/App/
+SubShapeBinder.cpp 283-338 -- Relative with NO Context recorded: a binder
+with no shape takes the first getParents() path; one WITH a shape takes
+the shortest path under which its shape stays put (findUnmovedContext,
+entry 105), else it errs with this text (entry 105's rule). Its only
+object path is LinkGroup001's, which would move it, so: the error. The
+binder's own root context (Context = itself, entry 113: "the binder as
+it stands at the root of its document") is taken ONLY when recorded; an
+empty context never tries it. Why the Context is empty (the file had
+one, or the migration or an earlier edit cleared it) NOT read.
+The note-taker's reading of what is wanted: "empty context shall choose
+the shortest path from root" -- with no context the binder takes the
+SHORTEST path, and a binder that is (also) at the root takes the
+zero-length one, itself (entry 113's context), before any container's;
+and the tree reveals an object in error at its SHORTEST TREE path (its
+root item if it has one, else the shallowest of its items, populating
+along that path if none is populated) -- deterministic, not by pointer.
+"object path is not the same as tree path": read as -- the binder's
+choice goes by OBJECT paths (getParents(), App), the reveal by TREE
+paths (claimed children, Gui); Lens003 claims Binder008 in the tree but
+is not an object parent of it. NOT said, and to be checked: what "directly
+under root" means here -- by getParents() Binder008 has a parent
+(LinkGroup001), so it is not a root OBJECT; if it shows at the tree's
+root too, it would have a root item and the reveal would take it -- the
+reporter's tree to be read on a copy. ASSIGNED to fcad-dc (x16win on
+206): reproduce on a COPY of scanner.FCStd, then (1) the reveal by the
+shortest tree path, deterministic; (2) the binder's empty context.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -28763,5 +28837,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 206
+the build session, 131 and 132 found by it; entries 134 to 207
 are of 2026-10-15, 134 said to the build session)

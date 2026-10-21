@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-21 16:43: entry 206 -- Apex TERMINATED the staged copy when a closed
+document's transient directory was removed (a .png blob deleted); options
+put to the reporter.** Under the entry.
+
 **2026-10-21 16:26, fcad-dc: 204 (`c509ee889b`) and 205 (`bb5545b5bc`) DONE,
 COMMITTED locally; NOT pushed, NOT staged** (r186b, the dev tree).
 204: frameOwner() no longer maps a group's view to the group;
@@ -4195,6 +4199,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 203 | 2026-10-21 | a defect and a change request (said to fcad-dc, passed to the note-taker on the reporter's word to hand to another session): Esc that dismisses a menu can also END the edit unintentionally; is there a setting for Esc ending an edit? Make ending the edit a COMMAND, enabled only while the current view is in edit, so the user can assign its own shortcut, default Shift+Esc; check conflicts (selection clear remembered on it -- both may coexist) | OPEN; 2026-10-21 11:16; READ by fcad-dc (nothing run): no general setting (the Sketcher has its own, LeaveSketchWithEscape); two hard-coded paths end an edit on Esc (ViewProvider::eventCallback on the RELEASE, no modifier check; TaskView's escape button); no command holds Shift+Esc in src; to be ASSIGNED to x16win after 132, plain Esc's fate put to the reporter. 2026-10-21 11:36 the reporter: a PLAIN Esc NO LONGER ENDS an edit ("No longer ends (Recommended)") -- only the new command ends it; a general preference, like the Sketcher's, can bring the old behaviour back; ASSIGNED to x16win after 132's real-screen runs. 2026-10-21 12:51 x16win found the reporter's own link.user.cfg holds Sketcher LeaveSketchWithEscape=1 (the old default, saved); the note-taker (coordinating) took x16win's proposal: a new general preference (e.g. View/EscapeEndsEdit, OFF by default) governs, the Sketcher key only narrows it (Esc ends a sketch edit only if both on), the Sketcher page's box maps to the general one -- so the reporter's decision holds for the reporter's own cfg. 2026-10-21 12:52 the CONFLICT found by x16win: the selection clear is a key handler, View3DInventorViewer::processSoEvent (~7530) -- Shift+Esc clears the selection, plain Esc the preselection; options put: (a) keep Shift+Esc, (b) another key, (c) clear first, end on a second press (x16win's pick); the note-taker ANSWERED from the reporter's own words ("dismiss edit while clearing selection can coexist"): Shift+Esc in an edit ENDS the edit and the selection clear may happen with it -- (a), not (c); no question put. 2026-10-21 13:26 BUILDING by x16win (uncommitted): View/EscapeEndsEdit OFF; Std_ResetEdit "End edit", Shift+Esc, clears the selection too; the ViewProvider and TaskView Esc paths gated; the Sketcher box maps to the general pref, Assembly's LeaveEditWithEscape narrows the same; the browser matches Std_ResetEdit's current shortcut; tests updated and tests/gui/end-edit-command.py new; OnViewValue.cpp and Gizmo.cpp not touched; a risk: Chrome binds Shift+Esc to its Task Manager -- the note-taker: check with a REAL key press, no new button (the mirrored task panel already ends the edit). 2026-10-21 15:01 COMMITTED by x16win `5fb4053dfa`, local, NOT pushed, NOT staged: end-edit-command.py 12/12 on screen, sketch-cancel-edit 12/12, sketch-focus-cursor 8/8, task-panel-in-view 89/89, serve-edit-browser 24/24 (Escape alone keeps the edit, Shift+Escape ends it), serve-onview-browser 16/16, serve-handle-touch-browser 40/40; a REAL OS Shift+Esc reaches a real Chrome page (no Task Manager) -- no button; outside an edit an OS Shift+Esc still clears the selection. 2026-10-21 15:08 PUSHED by x16win on the reporter's word to it ("push when you're done with the current issue", relayed): thundereal/LinkVibe c860115ea7..5fb4053dfa, ten commits; NOT restaged |
 | 204 | 2026-10-21 | a defect: TechDraw, page frames hidden -- selecting ANY geometry of a view in a PROJECTION GROUP shows the frames of ALL the group's views; wanted: ONLY the OWNER view shows its frame | OPEN; 2026-10-21 15:43; said to the note-taker; the cause READ by the note-taker (nothing run): QGIView.cpp frameOwner() (864-878) maps a group's view to its GROUP, so every view of the group matches a selection in any of them (entry 155's "group frame" rule, `6af132eb0b`); ASSIGNED to fcad-dc after 199 (it wrote 155/192's frame code). 2026-10-21 15:45 fcad-dc ACCEPTED, after its push; its reading matches the note-taker's (the group's own frame only when the group itself is selected), built that way unless the reporter says otherwise. 2026-10-21 15:46 the reporter: "there is no group frame, i.e. projection group has no frame" -- the NOT-said point moot: only the owner view's frame shows. 2026-10-21 16:15 WRITTEN by fcad-dc (uncommitted), r186 building: frameOwner() no longer maps a group's view to the group (the only place; the drag needs nothing of it); techdraw-view-click-through.py gains a Top view in the group -- the Front's edge selected leaves the Top's frame hidden. 2026-10-21 16:26 DONE by fcad-dc `c509ee889b`, local, NOT pushed, NOT staged (r186b): techdraw-view-click-through.py 27/27 (Front's edge selected, the group's Right view shows no frame; 192's claims green; the test's Right placed by hand, AutoDistribute off) |
 | 205 | 2026-10-21 | a defect, on entry 178's described errors: TechDraw Section003 (scanner, the reporter's live session) -- the tree TOOL TIP shows only "Error" in red, and the actual message as if a description, on a separate line in the normal colour; and what the error/warning is about | OPEN; 2026-10-21 15:52; READ by the note-taker in the live session (MCP, read only) and the source: the red line is the object's error text from the document's recompute log, EMPTY -- Document::recompute clears the WHOLE log at its start, so any later recompute that does not rerun Section003 drops its message while it stays in error (bare "Error"); the normal line is its late WARNING ("Warning: The section origin is outside the part..."); the error itself: "The section cut failed: the cutting tool does not meet the shape, so nothing is left" -- SectionOrigin y=24 while the part (Fillet007 BaseBottom) spans y -17.5..17.5; ASSIGNED to x16win after 167. 2026-10-21 15:55 REASSIGNED to fcad-dc on the reporter's word ("x16win is doing a long code audit task. assign it to the other session"), after its push and 204. 2026-10-21 16:15 WRITTEN by fcad-dc (uncommitted), r186 building: the recompute KEEPS the log entries of objects still in error and in the document (pruned, not cleared); "Recompute failed!" counts what this recompute added; a Python test Document.DocumentBasicCases.testErrorKeptOverUnrelatedRecompute; src/App/Document.cpp (the two recompute spots) and App/private/DocumentP.h only. 2026-10-21 16:26 DONE by fcad-dc `bb5545b5bc`, local, NOT pushed, NOT staged (r186b): the log pruned, not cleared (an entry stays while its object is in the document and in error); "Recompute failed!" counts this recompute's own; Python Document cases 35/35 (the new test with save + reopen + unrelated recompute); an undone removal reads "Error" until its next recompute, as before; the reporter's Section003 to be checked on a COPY of scanner.FCStd on the dev build (the note-taker's call). 2026-10-21 16:30 CHECKED by fcad-dc on a COPY of scanner.FCStd (dev build r186b, offscreen): SectionView003's status string keeps "The section cut failed: the cutting tool does not meet the shape, so nothing is left" after Part005 is recomputed alone (was "Error"); the tree tip itself not read offscreen -- a look on the reporter's screen after a restage closes it |
+| 206 | 2026-10-21 | a defect and a question: the company's malware detector (Apex, Behavior Monitoring) flagged the STAGED copy AGAIN (entry 161) -- "Unauthorized F[ile ...]", Event File System, Risk High, Operation DELETE, Action TERMINATED, the target a blob in the transient directory (...AppData/Local/cache/Thundereal/Cache/Thundereal_Doc_<uuid>_2b0e23_126872/blobs/<uuid>.png); it fired when the reporter CLOSED a document WITHOUT SAVING (the transient directory removed); what can be done; is a transient directory in TEMP safe? | OPEN; 2026-10-21 16:43; READ by the note-taker (source, nothing run): Document's destructor removes the whole transient directory recursively (Document.cpp 2592-2595), under getUserCachePath (2652-2667, {ExeName}_Doc_{UUID}_{HASH}_{PID}); the blob store keeps image content under its own extension (.png) in blobs/; ANSWERED to the reporter with options, a decision asked |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -28634,6 +28639,53 @@ unchanged. "A look on the user's screen after a restage would close it."
 Nothing pushed or staged since b38bf76b9f; 204 `c509ee889b`, 205
 `bb5545b5bc` local.
 
+## 206. Apex terminates the staged copy when a closed document's transient directory is removed (a defect and a question) -- OPEN
+
+**2026-10-21 16:43, the reporter (to the note-taker), with a screenshot:** "my staged
+copy got flagged by company malware detector again. see the file access
+involved that triggered the alarm in the screenshot. see anything we can
+do to not trigger that again. I simply close the document without
+saving, which removed the transient directory and this happened. maybe
+opening transient in temp directory will be fine. but will that be safe?"
+The screenshot, as shown: a window "Logs", Range Custom 10/21/2026 to
+10/21/2026, Type "Behavior Monitoring"; one row: Date/Time 10/21/2026
+(W...), Violation "Unauthorized F..." (cut), Program
+"D:/works/sw/fc..." (cut), Event "File System", Risk "High", Target
+"C:/Users/lei.zh..." (cut), Infection Chan[nel] "Local or networ[k]...",
+Operation "Delete", Action "Terminated"; the target's tool tip:
+C:/Users/lei.zheng/AppData/Local/cache/Thundereal/Cache/Thundereal_Doc_229dd05e-e965-4842-aa6b-a8a9e922e329_2b0e23_126872/blobs/3f8b888b-726b-414b-b5f1-56cd0d32c160.png
+(126872 = the PID of the reporter's session this afternoon).
+"again": entry 161 (2026-10-16, "unauthorized file encryption",
+FreeCAD.exe of the stage quarantined).
+READ by the note-taker, nothing run: the transient directory is
+getUserCachePath() + {ExeName}_Doc_{UUID}_{HASH}_{PID}
+(App/Document.cpp 2652-2667) -- upstream's place too; the document's
+destructor removes it recursively when it is not shared with a history
+(2582-2595); the blob store (App/FileBlobManager) keeps each blob under
+blobs/ named by its uuid WITH the content's extension (.png here). So a
+close without saving deletes, in a burst, many files of types a
+ransomware heuristic guards (images, documents) -- the pattern Apex's
+"Unauthorized File Encryption" watches for (mass delete/rewrite of user
+files by one process). "Terminated": by the screenshot Apex ENDED the
+program, so unsaved work in other documents of that session is at risk
+when it fires.
+The note-taker's answer (to the reporter, recorded here):
+- TEMP alone is NOT a sure cure and has a cost: whether Apex guards
+  %TEMP% is the company's configuration (unknown here); and temp is
+  swept by Disk Cleanup / Storage Sense (files untouched for days), so a
+  document open for a long time could lose blobs it reads lazily -- a
+  data-loss risk the cache folder does not have.
+- What the program can do: (a) blobs in the transient directory under a
+  NEUTRAL name (no .png/.pdf/... extension -- the type kept in the store's
+  own record), so a removal deletes no file of a guarded type; (b) not
+  one burst at close: keep the store in few large files (the
+  monitored-box note: one big file over many small), or leave the
+  directory for a sweep at the next start; (c) the sure fix outside the
+  code: an exclusion from IT for Thundereal.exe (and/or the cache folder).
+- Recommended: ask IT for (c), and build (a) -- small, keeps the
+  folder, works for any heuristic keyed on file types.
+DECISION ASKED of the reporter; nothing assigned yet.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -28645,5 +28697,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 205
+the build session, 131 and 132 found by it; entries 134 to 206
 are of 2026-10-15, 134 said to the build session)

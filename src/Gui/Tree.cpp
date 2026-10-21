@@ -87,6 +87,7 @@
 #include "OmniSearchBox.h"
 #include "OverlayParams.h"
 #include "TreeParams.h"
+#include "DlgImportClash.h"
 
 FC_LOG_LEVEL_INIT("Tree",false,true,true)
 
@@ -4466,9 +4467,17 @@ void TreeWidget::dropEvent(QDropEvent *event)
                         << Command::getObjectCmd(obj) << ", True)";
                     App::DocumentObject *res = nullptr;
                     if(da == Qt::CopyAction) {
+                        // Sec 36.4: asked where an object dropped is one
+                        // here already; the macro says so when all were.
+                        ImportClashAsk ask;
                         auto copied = thisDoc->copyObject({obj},true);
                         if(copied.size())
                             res = copied.back();
+                        if (ask.allAssigned()) {
+                            ss.str("");
+                            ss << "App.getDocument('" << thisDoc->getName() << "').copyObject("
+                               << Command::getObjectCmd(obj) << ", True, assign=True)";
+                        }
                     } else
                         res = thisDoc->moveObject(obj,true);
                     if(res) {

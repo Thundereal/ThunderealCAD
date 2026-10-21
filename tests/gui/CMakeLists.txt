@@ -2199,3 +2199,6 @@ fc_add_gui_test(GuiExportLinkedSet_tests_run
 fc_add_gui_test(GuiImportLinkedSet_tests_run
                 import-linked-set.py
                 --timeout 180)
+fc_add_gui_test(GuiImportClash_tests_run
+                import-clash.py
+                --timeout 120)

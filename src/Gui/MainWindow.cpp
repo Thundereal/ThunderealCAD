@@ -127,6 +127,7 @@
 #include "WorkbenchManager.h"
 #include "Workbench.h"
 
+#include "DlgImportClash.h"
 #include "MergeDocuments.h"
 #include "ViewProviderExtern.h"
 #include "ViewParams.h"
@@ -3256,7 +3257,15 @@ void MainWindow::insertFromMimeData (const QMimeData * mimeData)
         std::istream in(nullptr);
         in.rdbuf(&buf);
         MergeDocuments mimeView(doc);
-        std::vector<App::DocumentObject*> newObj = mimeView.importObjects(in);
+        std::vector<App::DocumentObject*> newObj;
+        try {
+            ImportClashAsk ask;   // sec 36.4
+            newObj = mimeView.importObjects(in);
+        }
+        catch (const Base::AbortException&) {
+            doc->abortTransaction();
+            return;
+        }
         auto grp = Gui::Selection().getSelection(doc->getName(), ResolveMode::OldStyleElement, /*single*/true);
         if (grp.size() == 1) {
             Gui::Document* gui = Application::Instance->getDocument(doc);
@@ -3272,7 +3281,15 @@ void MainWindow::insertFromMimeData (const QMimeData * mimeData)
         Base::FileInfo fi((const char*)res);
         Base::ifstream str(fi, std::ios::in | std::ios::binary);
         MergeDocuments mimeView(doc);
-        std::vector<App::DocumentObject*> newObj = mimeView.importObjects(str);
+        std::vector<App::DocumentObject*> newObj;
+        try {
+            ImportClashAsk ask;   // sec 36.4
+            newObj = mimeView.importObjects(str);
+        }
+        catch (const Base::AbortException&) {
+            doc->abortTransaction();
+            return;
+        }
         str.close();
         auto grp = Gui::Selection().getSelection(doc->getName(), ResolveMode::OldStyleElement, /*single*/true);
         if (grp.size() == 1) {

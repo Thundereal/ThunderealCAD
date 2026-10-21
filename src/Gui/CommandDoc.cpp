@@ -65,6 +65,7 @@
 #include "ExpressionEditorView.h"
 #include "DlgObjectSelection.h"
 #include "DlgExportLinkedSet.h"
+#include "DlgImportClash.h"
 #include "DlgImportLinkedSet.h"
 #include "DlgProjectInformationImp.h"
 #include "DlgProjectUtility.h"
@@ -683,7 +684,14 @@ void StdCmdMergeProjects::activated(int iMsg)
         Base::FileInfo fi((const char*)project.toUtf8());
         Base::ifstream str(fi, std::ios::in | std::ios::binary);
         MergeDocuments md(doc);
-        md.importObjects(str);
+        try {
+            ImportClashAsk ask;   // sec 36.4
+            md.importObjects(str);
+        }
+        catch (const Base::AbortException&) {
+            doc->abortTransaction();
+            return;
+        }
         str.close();
         doc->commitTransaction();
     }

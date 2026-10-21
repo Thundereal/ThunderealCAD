@@ -173,6 +173,13 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-21 17:16: entry 207 -- getParents() explained (never the object's own root
+path, by construction); fcad-dc's fix written (the binder takes itself in
+a link group; the reveal by the shallowest row, ties by tree order); the
+tie-break put to the reporter. Entry 208 new: the fillet list opaque in
+the in-view task panel (193 regression), to fcad-dc after 207.** Under
+the entries.
+
 **2026-10-21 17:07: entry 207 -- Binder008 revealed under Lens003 or LinkGroup001 by
 pointer order (a std::set of items); its "No context" error (an empty
 Context never tries the binder at the root); to fcad-dc.** Under the
@@ -4217,7 +4224,8 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 204 | 2026-10-21 | a defect: TechDraw, page frames hidden -- selecting ANY geometry of a view in a PROJECTION GROUP shows the frames of ALL the group's views; wanted: ONLY the OWNER view shows its frame | OPEN; 2026-10-21 15:43; said to the note-taker; the cause READ by the note-taker (nothing run): QGIView.cpp frameOwner() (864-878) maps a group's view to its GROUP, so every view of the group matches a selection in any of them (entry 155's "group frame" rule, `6af132eb0b`); ASSIGNED to fcad-dc after 199 (it wrote 155/192's frame code). 2026-10-21 15:45 fcad-dc ACCEPTED, after its push; its reading matches the note-taker's (the group's own frame only when the group itself is selected), built that way unless the reporter says otherwise. 2026-10-21 15:46 the reporter: "there is no group frame, i.e. projection group has no frame" -- the NOT-said point moot: only the owner view's frame shows. 2026-10-21 16:15 WRITTEN by fcad-dc (uncommitted), r186 building: frameOwner() no longer maps a group's view to the group (the only place; the drag needs nothing of it); techdraw-view-click-through.py gains a Top view in the group -- the Front's edge selected leaves the Top's frame hidden. 2026-10-21 16:26 DONE by fcad-dc `c509ee889b`, local, NOT pushed, NOT staged (r186b): techdraw-view-click-through.py 27/27 (Front's edge selected, the group's Right view shows no frame; 192's claims green; the test's Right placed by hand, AutoDistribute off). 2026-10-21 16:53 PUSHED by fcad-dc (thundereal/LinkVibe b38bf76b9f..f1bf17a7e8) and STAGED (stage27, r186b) on the reporter's "restage and push" (relayed) |
 | 205 | 2026-10-21 | a defect, on entry 178's described errors: TechDraw Section003 (scanner, the reporter's live session) -- the tree TOOL TIP shows only "Error" in red, and the actual message as if a description, on a separate line in the normal colour; and what the error/warning is about | OPEN; 2026-10-21 15:52; READ by the note-taker in the live session (MCP, read only) and the source: the red line is the object's error text from the document's recompute log, EMPTY -- Document::recompute clears the WHOLE log at its start, so any later recompute that does not rerun Section003 drops its message while it stays in error (bare "Error"); the normal line is its late WARNING ("Warning: The section origin is outside the part..."); the error itself: "The section cut failed: the cutting tool does not meet the shape, so nothing is left" -- SectionOrigin y=24 while the part (Fillet007 BaseBottom) spans y -17.5..17.5; ASSIGNED to x16win after 167. 2026-10-21 15:55 REASSIGNED to fcad-dc on the reporter's word ("x16win is doing a long code audit task. assign it to the other session"), after its push and 204. 2026-10-21 16:15 WRITTEN by fcad-dc (uncommitted), r186 building: the recompute KEEPS the log entries of objects still in error and in the document (pruned, not cleared); "Recompute failed!" counts what this recompute added; a Python test Document.DocumentBasicCases.testErrorKeptOverUnrelatedRecompute; src/App/Document.cpp (the two recompute spots) and App/private/DocumentP.h only. 2026-10-21 16:26 DONE by fcad-dc `bb5545b5bc`, local, NOT pushed, NOT staged (r186b): the log pruned, not cleared (an entry stays while its object is in the document and in error); "Recompute failed!" counts this recompute's own; Python Document cases 35/35 (the new test with save + reopen + unrelated recompute); an undone removal reads "Error" until its next recompute, as before; the reporter's Section003 to be checked on a COPY of scanner.FCStd on the dev build (the note-taker's call). 2026-10-21 16:30 CHECKED by fcad-dc on a COPY of scanner.FCStd (dev build r186b, offscreen): SectionView003's status string keeps "The section cut failed: the cutting tool does not meet the shape, so nothing is left" after Part005 is recomputed alone (was "Error"); the tree tip itself not read offscreen -- a look on the reporter's screen after a restage closes it. 2026-10-21 16:53 PUSHED by fcad-dc (thundereal/LinkVibe b38bf76b9f..f1bf17a7e8) and STAGED (stage27, r186b) on the reporter's "restage and push" (relayed); the reporter can look at Section003's tool tip now |
 | 206 | 2026-10-21 | a defect and a question: the company's malware detector (Apex, Behavior Monitoring) flagged the STAGED copy AGAIN (entry 161) -- "Unauthorized F[ile ...]", Event File System, Risk High, Operation DELETE, Action TERMINATED, the target a blob in the transient directory (...AppData/Local/cache/Thundereal/Cache/Thundereal_Doc_<uuid>_2b0e23_126872/blobs/<uuid>.png); it fired when the reporter CLOSED a document WITHOUT SAVING (the transient directory removed); what can be done; is a transient directory in TEMP safe? | OPEN; 2026-10-21 16:43; READ by the note-taker (source, nothing run): Document's destructor removes the whole transient directory recursively (Document.cpp 2592-2595), under getUserCachePath (2652-2667, {ExeName}_Doc_{UUID}_{HASH}_{PID}); the blob store keeps image content under its own extension (.png) in blobs/; ANSWERED to the reporter with options, a decision asked. 2026-10-21 16:51 the reporter: NEUTRAL BLOB NAMES ("Neutral blob names (Recommended)") -- blobs in the transient directory without image/document extensions, the cache folder kept; and IT asked to exclude Thundereal.exe (the reporter's own step); ASSIGNED to x16win |
-| 207 | 2026-10-21 | a defect, two questions: (1) an object shown in several places of the tree (lazily populated items) -- on a recompute error the tree reveals Binder008 sometimes under Lens003, sometimes under LinkGroup001: why; (2) why Binder008 recomputes with an error -- "by right, empty context shall choose the shorted path from root. and Binder008 is directly under root"; "object path is not the same as tree path" | OPEN; 2026-10-21 17:07; READ by the note-taker (the live session through MCP, read only, and the source): (1) Tree.cpp 4967-4972 reveals an object without a root item by `*data->items.begin()` -- a std::set of item POINTERS (Tree.cpp 900), so the pick follows heap addresses, not the tree; (2) Binder008 (PartDesign::SubShapeBinder, Relative, Context EMPTY, a shape held) errs "No context, please double click the binder in the desired context to refresh": with no context SubShapeBinder::update (Part/App/SubShapeBinder.cpp 304-331) tries only getParents() paths (here LinkGroup001 alone) for one that leaves the shape unmoved, never the binder at the root itself; ASSIGNED to fcad-dc. 2026-10-21 17:11 the reporter CLARIFIES: the object path counts by the 3D SCENE hierarchy -- an App::Part moves its child's node into its group, a LINK GROUP does NOT, so Binder008's node is still under the scene ROOT; so with an empty context Binder008 should take its own root path (the shortest), which getParents() (LinkGroup001 only) does not offer -- passed on to fcad-dc |
+| 207 | 2026-10-21 | a defect, two questions: (1) an object shown in several places of the tree (lazily populated items) -- on a recompute error the tree reveals Binder008 sometimes under Lens003, sometimes under LinkGroup001: why; (2) why Binder008 recomputes with an error -- "by right, empty context shall choose the shorted path from root. and Binder008 is directly under root"; "object path is not the same as tree path" | OPEN; 2026-10-21 17:07; READ by the note-taker (the live session through MCP, read only, and the source): (1) Tree.cpp 4967-4972 reveals an object without a root item by `*data->items.begin()` -- a std::set of item POINTERS (Tree.cpp 900), so the pick follows heap addresses, not the tree; (2) Binder008 (PartDesign::SubShapeBinder, Relative, Context EMPTY, a shape held) errs "No context, please double click the binder in the desired context to refresh": with no context SubShapeBinder::update (Part/App/SubShapeBinder.cpp 304-331) tries only getParents() paths (here LinkGroup001 alone) for one that leaves the shape unmoved, never the binder at the root itself; ASSIGNED to fcad-dc. 2026-10-21 17:11 the reporter CLARIFIES: the object path counts by the 3D SCENE hierarchy -- an App::Part moves its child's node into its group, a LINK GROUP does NOT, so Binder008's node is still under the scene ROOT; so with an empty context Binder008 should take its own root path (the shortest), which getParents() (LinkGroup001 only) does not offer -- passed on to fcad-dc. 2026-10-21 17:16 the reporter asked what getParents() is for -- ANSWERED by the note-taker (read): every path from a top object down to this one through its InList, by the parents' selection sub-objects and links to them; never the object's own root path, by construction (an empty answer is what callers read as "at the root", e.g. ActiveObjectList 98) -- not scene aware, so adding the root case there would change its ~14 callers. fcad-dc WRITTEN, r187 building: (2) binder side, no change to getParents(): no context + container paths + no geo-feature group holding it -> itself (entry 113); (1) Tree.cpp: the shallowest row, ties by tree order (Binder008 -> Lens003's row, both depth 2, no top-level row); verified on a copy; the tie-break (tree order vs the object path's row) PUT to the reporter |
+| 208 | 2026-10-21 | a REGRESSION of entry 193 (overlay list rows): the fillet's list view shows the overlay's row bands correctly in the TASK PANEL under overlay, but a UNIFORM OPAQUE ground when the panel is MOVED TO THE EDITING VIEW | OPEN; 2026-10-21 17:16; said to the note-taker; ASSIGNED to fcad-dc after 207 (the in-view task panel and the fillet list are its; 193's painter was x16win's, which is on 206) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -28844,6 +28852,76 @@ other callers). This also settles the NOT-said point of the first block:
 "directly under root" is the scene's root, not a root OBJECT by InList.
 Passed on to fcad-dc.
 
+**2026-10-21 17:16, the reporter (to the note-taker):** "check what getParents() is
+for. I implemented it, but forgot the exact purpose. Maybe it omits this
+root case on purpose"
+ANSWERED by the note-taker (READ, nothing run): DocumentObject::getParents
+(App/DocumentObject.cpp 1412-1455; header 501-508 "Obtain top parents and
+subnames of this object using its InList"; API set 2019-02 `28dcc10a46`,
+the link-array case 2020 `f8815ca95f`, upstream's endless-loop guard 2022
+`1f83094b44`). For each object in the InList it finds the subname under
+which that parent's selection sub-objects (getSubObjects(GS_SELECT)) reach
+this object, then recurses up through the parent and every link to it
+(getLinksTo, recursive and array elements), so the answer is every
+(top object, subname) path that can name this object -- the paths a
+relative link or a context can be written in. The object's OWN root path
+is never in it, by construction: an object with no parents answers
+EMPTY, and the callers read empty as "it is at the root" (ActiveObjectList
+98: a parent path present -> the active object is not the bare object;
+SubShapeBinder 304-305, ViewProviderSubShapeBinder 385, PartDesign
+Utils 182/234, DlgPropertyLink 332, CommandDoc 371, CommandLink 962,
+Tree 4743, DocumentObject 135 and 1850, Python obj.Parents). It goes by
+InList and selection sub-objects, NOT by the scene: it does not know an
+App::Part moves its child's node while a link group does not. So the
+root case is not left out as a decision visible in the code, but adding
+(this, "") there would change what "empty" means to every caller -- the
+gap belongs at the caller that needs the scene's root (the binder).
+**2026-10-21 17:16, fcad-dc: 207 READ on a scanner COPY and WRITTEN; r187 building.**
+Read: the file stores Binder008's Context EMPTY (XLink file="" name="").
+The tree lists Binder008 only under Lens003 and LinkGroup001, both top
+rows -- both its rows at depth 2, a tie; the pick was the set's first by
+address. No top-level row. getParents(): LinkGroup001 "Binder008." only
+(Lens003 claims it in the tree only).
+Fix (2), binder side, NO change to getParents(): with no context, a
+binder that has container paths but no geo-feature group (no App::Part
+or Body holds it -- a link group does not move its node, the reporter's
+rule) takes ITSELF (entry 113's zero-length root path) before any
+container's; a binder with no paths at all keeps its old no-context
+behaviour. Existing binder tests (all App::Part) untouched; new
+testNoContextInALinkGroupIsAtTheRoot (a binder in a moved App::LinkGroup:
+valid, Context itself, not moved -- was the No context error).
+Fix (1), Tree.cpp only: an object in error with no root row is revealed
+at its SHALLOWEST row, ties by tree order (row index path), not by
+address; with no row made yet, along its shortest getParents() path
+(findItemByObject, populating). For Binder008: Lens003's row (first in
+tree order) -- deterministic, though not the object path's. "Say if the
+user wants the object path's row (LinkGroup001) preferred among equals;
+it is a one-line change." Verified on the copy (t187): Binder008
+recomputes valid, Context itself, shape unmoved; an error made on
+purpose revealed in the same single row 3 times.
+The note-taker: the tie-break PUT to the reporter.
+
+## 208. Overlay: the fillet list's rows banded in the task panel, a uniform opaque ground when the panel is moved to the editing view (a regression of 193) -- OPEN
+
+**2026-10-21 17:16, the reporter (to the note-taker):** "regression, there is one entry
+to fix the list view item background in overlay mode. I tested fillet
+edit. and its fillet list view does show correctly when in the task
+panel under overlay. but sill shows uniform opaque background when moved
+to editing view"
+The entry: 193 (one painter in OverlayManager's application filter bands
+the rows of every list, tree and table in OVERLAID panels; x16win
+`5f507995a3`, staged since stage24). The note-taker's reading: the
+painter keys on a list being inside an overlaid dock panel; a task panel
+moved into the editing view (the in-view task panel, 170/173/task-panel-
+in-view) is no longer in such a dock, so its lists fall back to the
+plain opaque ground -- the rows to be banded and see-through there too,
+like the panel's other parts in the view. NOT said: whether other lists
+of in-view panels (tree, tables) show the same -- read as yes, the same
+rule. ASSIGNED to fcad-dc after 207 (the in-view panel and the fillet
+list are its; x16win on 206). Test: tests/gui/overlay-see-through.py or
+task-panel-in-view gains the fillet list in the view -- its rows of two
+kinds, not one opaque ground.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -28855,5 +28933,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 207
+the build session, 131 and 132 found by it; entries 134 to 208
 are of 2026-10-15, 134 said to the build session)

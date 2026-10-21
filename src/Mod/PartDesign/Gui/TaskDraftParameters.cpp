@@ -112,6 +112,10 @@ TaskDraftParameters::TaskDraftParameters(ViewProviderDressUp *DressUpView,QWidge
     onViewValues->setMenu(0, [this](QMenu& menu, Gui::Gizmo*) {
         fillAngleMenu(menu);
     });
+    // a right click on a drafted face: the angle's menu (entry 202)
+    onViewValues->setHoverHandleProvider([this]() {
+        return getHoverHandle();
+    });
     setupGizmos(DressUpView);
     attachOnViewValues();
     // The view is told of the edit after the panel is made
@@ -236,6 +240,11 @@ void TaskDraftParameters::finishedRecomputeFeature()
     if (onViewValues) {
         onViewValues->refresh();
     }
+}
+
+Gui::Gizmo* TaskDraftParameters::itemHandle(QTreeWidgetItem* item) const
+{
+    return item ? angleGizmo : nullptr;
 }
 
 void TaskDraftParameters::refresh() {

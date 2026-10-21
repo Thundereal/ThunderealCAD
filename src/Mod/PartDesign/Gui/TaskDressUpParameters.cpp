@@ -29,10 +29,12 @@
 # include <QAction>
 # include <QKeyEvent>
 # include <QMenu>
+# include <QMouseEvent>
 # include <QPushButton>
 # include <QTimer>
 # include <QCheckBox>
 # include <QColor>
+# include <QColorDialog>
 # include <QIcon>
 # include <QPixmap>
 # include <cmath>
@@ -49,11 +51,14 @@
 #include <App/DocumentObject.h>
 #include <App/ElementNamingUtils.h>
 #include <App/MappedElement.h>
+#include <App/PropertyStandard.h>
+#include <Base/ServiceProvider.h>
 #include <Base/Tools.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Document.h>
 #include <Gui/Command.h>
+#include <Gui/Inventor/Draggers/GizmoStyleParameters.h>
 #include <Gui/MainWindow.h>
 #include <Gui/ViewParams.h>
 #include <Gui/View3DInventor.h>
@@ -150,6 +155,8 @@ void TaskDressUpParameters::setup(QLabel *label, QTreeWidget *widget, QCheckBox 
     treeWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
     treeWidget->setMouseTracking(true);
     treeWidget->installEventFilter(this);
+    // its double clicks (eventFilter())
+    treeWidget->viewport()->installEventFilter(this);
 
     connect(treeWidget, SIGNAL(itemSelectionChanged()),
         this, SLOT(onItemSelectionChanged()));
@@ -469,10 +476,23 @@ void TaskDressUpParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
     }
 
     if(addSel) {
+        // In the add mode every click toggles: the pick is let go of, as a
+        // pick of the preview is, or the next click on it deselects it, which
+        // toggles nothing -- a corner's vertex, picked on the base, could be
+        // added and never taken away (docs/HandsOnQueue.md entry 202 (a))
+        const Gui::SelectionChanges &orig = msg.pOriginalMsg ? *msg.pOriginalMsg : msg;
+        const std::string docName(orig.pDocName ? orig.pDocName : "");
+        const std::string objName(orig.pObjectName ? orig.pObjectName : "");
+        const std::string subName(orig.pSubName ? orig.pSubName : "");
         if(check)
             syncItems(Gui::Selection().getSelectionT());
         else
             syncItems();
+        if (selectionMode == refToggle) {
+            bool blocked = blockSelection(true);
+            Gui::Selection().rmvSelection(docName.c_str(), objName.c_str(), subName.c_str());
+            blockSelection(blocked);
+        }
     }
 }
 
@@ -705,6 +725,20 @@ void TaskDressUpParameters::onPreselectChanged(const Gui::SelectionChanges& msg)
         lightPreviewFace(subname);
     else
         lightPreviewFace(std::string());
+}
+
+Gui::Gizmo* TaskDressUpParameters::getHoverHandle() const
+{
+    if (!treeWidget || !hoverItem || hoverFromList) {
+        return nullptr;
+    }
+    // still a row of the list
+    for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i) {
+        if (treeWidget->topLevelItem(i) == hoverItem) {
+            return itemHandle(hoverItem);
+        }
+    }
+    return nullptr;
 }
 
 void TaskDressUpParameters::setHoverItem(QTreeWidgetItem *item)
@@ -996,29 +1030,190 @@ void TaskDressUpParameters::createAddAllEdgesAction(QTreeWidget* parentList)
     parentList->setContextMenuPolicy(Qt::ActionsContextMenu);
 }
 
-Base::Color TaskDressUpParameters::groupColor(int group)
+Base::Color TaskDressUpParameters::autoGroupColor(int group)
 {
-    // A hue stepped by the golden ratio from the id -- the same id keeps its
-    // colour from session to session -- passing over the hues of the default
-    // handles (the theme's red) and of the highlight (yellow)
-    double hue = std::fmod(0.08 + group * 0.618033988749895, 1.0);
-    auto near = [&hue](double other) {
-        double d = std::fabs(hue - other);
-        return std::min(d, 1.0 - d) < 0.07;
+    // The hues a handle already wears: plain, dragged, selected and under the
+    // pointer. A group's own colour keeps clear of them all, or a handle of
+    // it reads as lit (docs/HandsOnQueue.md entries 196 and 202).
+    std::vector<float> taken;
+    auto take = [&taken](const QColor& color) {
+        // a grey has no hue to keep clear of
+        if (color.hsvSaturationF() > 0.25F) {
+            taken.push_back(color.hsvHueF());
+        }
     };
-    for (int i = 0; i < 4 && (near(0.0) || near(0.15)); ++i) {
-        hue = std::fmod(hue + 0.11, 1.0);
+    auto fromBase = [](const Base::Color& c) {
+        return QColor::fromRgbF(c.r, c.g, c.b);
+    };
+    // packed 0xRRGGBBAA, as the view's colours are kept
+    auto fromPacked = [](unsigned long packed) {
+        return QColor(int((packed >> 24) & 0xff), int((packed >> 16) & 0xff),
+                      int((packed >> 8) & 0xff));
+    };
+    if (auto* styles = Base::provideService<Gui::StyleParameters::ParameterManager>()) {
+        take(fromBase(styles->resolve(Gui::StyleParameters::LinearGizmoBaseColor)));
+        take(fromBase(styles->resolve(Gui::StyleParameters::LinearGizmoActiveColor)));
+    }
+    take(fromPacked(Gui::ViewParams::getSelectionColor()));
+    take(fromPacked(Gui::ViewParams::getHighlightColor()));
+
+    // A hue stepped by the golden ratio from the id -- the same id keeps its
+    // colour from session to session -- moved on past the taken ones
+    double hue = std::fmod(0.08 + group * 0.618033988749895, 1.0);
+    auto near = [&hue](float other) {
+        double d = std::fabs(hue - other);
+        return std::min(d, 1.0 - d) < 0.09;
+    };
+    for (int i = 0; i < 20 && std::any_of(taken.begin(), taken.end(), near); ++i) {
+        hue = std::fmod(hue + 0.05, 1.0);
     }
     QColor color = QColor::fromHsvF(float(hue), 0.75F, 0.95F);
     return Base::Color(float(color.redF()), float(color.greenF()), float(color.blueF()));
 }
 
-QIcon TaskDressUpParameters::groupIcon(int group)
+App::PropertyMap* TaskDressUpParameters::getGroupColors() const
+{
+    auto vp = getDressUpView();
+    auto obj = vp ? vp->getObject() : nullptr;
+    return obj ? dynamic_cast<App::PropertyMap*>(obj->getPropertyByName("GroupColors"))
+               : nullptr;
+}
+
+std::optional<QColor> TaskDressUpParameters::pickedGroupColor(int group) const
+{
+    if (auto colors = getGroupColors()) {
+        const auto& values = colors->getValues();
+        auto it = values.find(std::to_string(group));
+        if (it != values.end()) {
+            QColor color(QString::fromStdString(it->second));
+            if (color.isValid()) {
+                return color;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+Base::Color TaskDressUpParameters::groupColor(int group) const
+{
+    if (auto color = pickedGroupColor(group)) {
+        return Base::Color(float(color->redF()), float(color->greenF()), float(color->blueF()));
+    }
+    return autoGroupColor(group);
+}
+
+QIcon TaskDressUpParameters::groupIcon(int group) const
 {
     const Base::Color color = groupColor(group);
     QPixmap pixmap(12, 12);
     pixmap.fill(QColor::fromRgbF(color.r, color.g, color.b));
     return QIcon(pixmap);
+}
+
+void TaskDressUpParameters::setGroupColor(int group, const std::optional<QColor>& color)
+{
+    auto colors = getGroupColors();
+    if (!colors || group <= 0) {
+        return;
+    }
+    const std::string key = std::to_string(group);
+    if (color) {
+        colors->setValue(key, color->name().toStdString());
+    }
+    else if (colors->getValues().count(key)) {
+        auto values = colors->getValues();
+        values.erase(key);
+        colors->setValues(values);
+    }
+    else {
+        return;
+    }
+    // the rows may be made again: the current one stays current, not
+    // selected anew (a selection reaches the view)
+    const QString current = treeWidget && treeWidget->currentItem()
+        ? treeWidget->currentItem()->text(0) : QString();
+    groupColorsChanged();
+    if (treeWidget && !current.isEmpty()) {
+        const auto found = treeWidget->findItems(current, Qt::MatchExactly);
+        if (!found.isEmpty() && treeWidget->currentItem() != found.front()) {
+            Base::StateLocker guard(busy);
+            treeWidget->setCurrentItem(found.front(), 0, QItemSelectionModel::NoUpdate);
+        }
+    }
+    Q_EMIT groupColorsUpdated();
+}
+
+void TaskDressUpParameters::addGroupColorActions(QMenu& menu, int group)
+{
+    if (group <= 0 || !getGroupColors()) {
+        return;
+    }
+    QAction* pick = menu.addAction(groupIcon(group), tr("Group colour..."));
+    connect(pick, &QAction::triggered, this, [this, group]() {
+        // after the menu: the dialog runs a loop of its own
+        QTimer::singleShot(0, this, [this, group]() {
+            pickGroupColor(group);
+        });
+    });
+    QAction* automatic = menu.addAction(tr("Automatic group colour"));
+    automatic->setEnabled(pickedGroupColor(group).has_value());
+    connect(automatic, &QAction::triggered, this, [this, group]() {
+        QTimer::singleShot(0, this, [this, group]() {
+            setupTransaction();
+            setGroupColor(group, std::nullopt);
+        });
+    });
+}
+
+void TaskDressUpParameters::pickGroupColor(int group)
+{
+    const Base::Color current = groupColor(group);
+    QColor color = QColorDialog::getColor(QColor::fromRgbF(current.r, current.g, current.b),
+                                          Gui::getMainWindow(),
+                                          tr("The colour of group %1").arg(group));
+    if (color.isValid()) {
+        setupTransaction();
+        setGroupColor(group, color);
+    }
+}
+
+void TaskDressUpParameters::createGroupColorActions(QTreeWidget* parentList)
+{
+    // the list's own menu: the current row's group, its colour picked or
+    // made automatic again
+    auto pick = new QAction(tr("Group colour..."), this);
+    auto automatic = new QAction(tr("Automatic group colour"), this);
+    parentList->addAction(pick);
+    parentList->addAction(automatic);
+    auto update = [this, parentList, pick, automatic]() {
+        QTreeWidgetItem* item = parentList->currentItem();
+        const int group = item ? itemGroup(item) : 0;
+        pick->setEnabled(group > 0);
+        pick->setIcon(group > 0 ? groupIcon(group) : QIcon());
+        automatic->setEnabled(group > 0 && pickedGroupColor(group).has_value());
+    };
+    update();
+    connect(parentList, &QTreeWidget::currentItemChanged, this, update);
+    connect(this, &TaskDressUpParameters::groupColorsUpdated, this, update);
+    connect(pick, &QAction::triggered, this, [this, parentList]() {
+        if (QTreeWidgetItem* item = parentList->currentItem()) {
+            const int group = itemGroup(item);
+            if (group > 0) {
+                QTimer::singleShot(0, this, [this, group]() {
+                    pickGroupColor(group);
+                });
+            }
+        }
+    });
+    connect(automatic, &QAction::triggered, this, [this, parentList]() {
+        if (QTreeWidgetItem* item = parentList->currentItem()) {
+            const int group = itemGroup(item);
+            if (group > 0) {
+                setupTransaction();
+                setGroupColor(group, std::nullopt);
+            }
+        }
+    });
 }
 
 void TaskDressUpParameters::showMessage(const char *msg) {
@@ -1494,6 +1689,20 @@ bool TaskDressUpParameters::event(QEvent *e)
 
 bool TaskDressUpParameters::eventFilter(QObject *o, QEvent *e)
 {
+    // A double click on a value's cell edits it (entry 202 (f): "Double click
+    // the group column shall allow editting the group"). Asked for here: in
+    // fillet-groups-and-preview-menu.py the view's own trigger opened no
+    // editor on the cell (editable, the trigger on, nothing being edited),
+    // while the same cell asked for directly did -- why, not found.
+    if (treeWidget && o == treeWidget->viewport() && e->type() == QEvent::MouseButtonDblClick) {
+        auto me = static_cast<QMouseEvent*>(e);
+        const QModelIndex index = treeWidget->indexAt(me->position().toPoint());
+        if (me->button() == Qt::LeftButton && index.isValid() && index.column() != 0
+                && (index.flags() & Qt::ItemIsEditable)) {
+            treeWidget->edit(index);
+            return true;
+        }
+    }
     if(treeWidget && o == treeWidget) {
         switch(e->type()) {
         case QEvent::Leave:

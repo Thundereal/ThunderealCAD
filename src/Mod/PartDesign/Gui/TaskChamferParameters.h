@@ -169,10 +169,15 @@ private:
     EdgeHandle* findEdgeHandle(const Gui::Gizmo* gizmo);
     /// The dragged value's edges among the chamfer's failed ones
     bool isDragFailing() const override;
+    int itemGroup(QTreeWidgetItem* item) const override;
+    Gui::Gizmo* itemHandle(QTreeWidgetItem* item) const override;
+    void groupColorsChanged() override;
     void fillEdgeMenu(QMenu& menu, Gui::Gizmo* gizmo);
     /// The values an edge is chamfered with: its own, or the defaults
     Part::TopoShape::ChamferInfo edgeInfo(const std::string& edge) const;
     static Mode edgeMode(const Part::TopoShape::ChamferInfo& info);
+    /// A row's tool tip: what its mode is, and its group (entry 202)
+    static QString edgeModeTip(Mode mode, int group);
     void setEdgeMode(const std::string& edge, Mode mode);
     void setEdgeValue(const std::string& edge, Field field, double value);
     /// An own edge's flip; a default edge's is the chamfer's

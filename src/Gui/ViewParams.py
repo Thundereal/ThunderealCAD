@@ -751,6 +751,11 @@ Params = [
     ParamBool('EnableTaskPanelKeyTranslate',  False, on_change=True,
         doc = "Let the Up and Down arrow keys move the keyboard focus through the\n"
               "task panel, the way Shift+Tab and Tab do."),
+    ParamBool('EscapeEndsEdit',  False,
+        doc = "Let a plain Escape end the edit in progress, the way it did before\n"
+              "the Std_ResetEdit command (End edit, Shift+Esc). Off: Escape only\n"
+              "cancels what is going on inside the edit, and a task dialog that is\n"
+              "not an edit still takes its Cancel on it."),
     ParamBool('EnableMenuBarCheckBox',  'FC_ENABLE_MENUBAR_CHECKBOX',
         doc = "Show the entries of the toolbar and dock window menus of the menu\n"
               "bar as checkboxes, the way the right-click menu of the main window\n"

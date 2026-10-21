@@ -986,6 +986,7 @@ translateMaterial(const CoinMaterial & m, int selId, bool highlight,
     // the outermost alone); a priority adds 1000 + priority on top, so
     // any more than 1 is a priority's order, and they sort as GL's do.
     res.ontoplayer = m.annotation > 1 ? m.annotation : 0;
+    res.unpickable = m.selectstyle == CoinMaterial::Unpickable;
 
     // GL polygon offset only affects filled polygons (the LINES/POINTS
     // styles matter only with glPolygonMode, which the renderer never uses).

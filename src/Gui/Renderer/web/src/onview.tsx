@@ -93,6 +93,71 @@ function mods(e: KeyboardEvent): number {
   return (e.shiftKey ? 1 : 0) | (e.ctrlKey ? 2 : 0) | (e.altKey ? 4 : 0);
 }
 
+/// Whether a key event names no key: a phone's virtual keyboard (Android
+/// reports "Unidentified", key code 229, for most of what it types) or a
+/// key inside an IME composition. Such a key is left to the browser, and
+/// what it typed arrives as an input event (typedText) instead.
+function keyless(e: KeyboardEvent): boolean {
+  return e.isComposing || e.key === 'Unidentified' || e.key === 'Process'
+      || e.keyCode === 229;
+}
+
+/// One key, pressed and released, as a keyboard would send it.
+function sendStroke(key: string, text: string, m: number): boolean {
+  const sent = !!window.fcviewerSendKey?.(true, key, text, m);
+  window.fcviewerSendKey?.(false, key, text, m);
+  if (!sent) console.warn('fcviewer-ui: key not forwarded', key);
+  return sent;
+}
+
+/// Text typed without key codes, sent up as the keystrokes that would have
+/// typed it: a character at a time, Shift with a capital, so that the
+/// server's box takes it exactly as it takes a desktop keyboard's.
+function sendText(text: string) {
+  for (const ch of text)
+    sendStroke(ch, ch, ch >= 'A' && ch <= 'Z' ? 1 : 0);
+}
+
+/// The input events of a box that a keyless keyboard types into. A
+/// beforeinput says what the edit would be, and is answered by sending the
+/// keys for it and cancelling it: the box shows the server's text, never
+/// its own (OnViewBox's rule). A composition cannot be cancelled while it
+/// runs, so it shows locally and its result goes up when it ends, after
+/// which `restore` puts the server's text back. A desktop keyboard's keys
+/// are cancelled at keydown, so none of this ever sees them.
+function typedText(restore: () => void) {
+  return {
+    onBeforeInput: (e: InputEvent) => {
+      switch (e.inputType) {
+      case 'insertCompositionText':
+      case 'insertFromComposition':
+        return;   // the composition's, sent at compositionend
+      case 'insertText':
+      case 'insertReplacementText':
+        sendText(e.data ?? e.dataTransfer?.getData('text/plain') ?? '');
+        break;
+      case 'deleteContentBackward':
+        sendStroke('Backspace', '', 0);
+        break;
+      case 'deleteContentForward':
+        sendStroke('Delete', '', 0);
+        break;
+      case 'insertLineBreak':
+      case 'insertParagraph':
+        sendStroke('Enter', '', 0);
+        break;
+      default:
+        break;
+      }
+      e.preventDefault();
+    },
+    onCompositionEnd: (e: CompositionEvent) => {
+      if (e.data) sendText(e.data);
+      restore();
+    },
+  };
+}
+
 export function OnViewParams(props: {
   params: () => OnViewParam[];
   places: () => OnViewPlace[];
@@ -151,7 +216,20 @@ function OnViewBox(props: {
     }
   });
 
+  const restore = () => {
+    const input = el();
+    const param = props.param();
+    if (!input) return;
+    input.value = param.text;
+    if (param.focus && Array.isArray(param.sel)) {
+      try { input.setSelectionRange(param.sel[0], param.sel[0] + param.sel[1]); }
+      catch (e) { /* shorter than the range */ }
+    }
+  };
+
   const onKey = (e: KeyboardEvent, down: boolean) => {
+    // A phone keyboard's: its text comes as an input event (typedText)
+    if (keyless(e)) return;
     // Every key goes up, none is acted on here. Which of them the entry
     // box keeps and which fall through to the sketch is the server's
     // decision (DrawSketchKeyboardManager), so a client that filtered
@@ -185,6 +263,7 @@ function OnViewBox(props: {
       }}
       onKeyDown={(e) => onKey(e, true)}
       onKeyUp={(e) => onKey(e, false)}
+      {...typedText(restore)}
       onPointerDown={(e) => {
         // A tap moves the keys to this box -- the one thing about them
         // the client decides, and it still goes through the server so
@@ -327,7 +406,32 @@ function OnViewDatumEditor(props: {
     });
   });
 
+  // After a composition: each field's text and selection, the server's
+  const restore = () => {
+    const param = props.param();
+    const value = line();
+    const name = nameEl();
+    if (value) value.value = param.text;
+    if (name) name.value = param.name ?? '';
+    const target = param.field === 'name' ? name : value;
+    const sel = param.field === 'name' ? param.nameSel : param.sel;
+    if (target && Array.isArray(sel)) {
+      try { target.setSelectionRange(sel[0], sel[0] + sel[1]); }
+      catch (e) { /* shorter than the range */ }
+    }
+  };
+  const typedEvents = typedText(restore);
+  const typed = {
+    onBeforeInput: (e: InputEvent) => { setDismissed(null); typedEvents.onBeforeInput(e); },
+    onCompositionEnd: (e: CompositionEvent) => {
+      setDismissed(null);
+      typedEvents.onCompositionEnd(e);
+    },
+  };
+
   const onKey = (e: KeyboardEvent, down: boolean) => {
+    // A phone keyboard's: its text comes as an input event (typedText)
+    if (keyless(e)) return;
     // The completion list is this side's, and so are its keys
     const c = completion();
     if (c && (e.key === 'ArrowDown' || e.key === 'ArrowUp' || e.key === 'Enter'
@@ -401,7 +505,8 @@ function OnViewDatumEditor(props: {
                spellcheck={false}
                onPointerDown={field('value')}
                onKeyDown={(e) => onKey(e, true)}
-               onKeyUp={(e) => onKey(e, false)} />
+               onKeyUp={(e) => onKey(e, false)}
+               {...typed} />
       </div>
       <Show when={completion()}>
         {(c) => (
@@ -436,7 +541,8 @@ function OnViewDatumEditor(props: {
                spellcheck={false}
                onPointerDown={field('name')}
                onKeyDown={(e) => onKey(e, true)}
-               onKeyUp={(e) => onKey(e, false)} />
+               onKeyUp={(e) => onKey(e, false)}
+               {...typed} />
       </Show>
     </div>
   );

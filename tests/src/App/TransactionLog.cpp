@@ -27,7 +27,9 @@
 #include "App/Expression.h"
 #include "App/FeatureTest.h"
 #include "App/FileBlobManager.h"
+#include "App/Extension.h"
 #include "App/FileHistory.h"
+#include "App/GroupExtension.h"
 #include "App/PropertyFile.h"
 #include "App/PropertyHistory.h"
 #include "App/TransactionLog.h"
@@ -6740,4 +6742,93 @@ TEST_F(TransactionLogTest, aFileWithNoHistoryIsImportedAsOneRow)
 
     for (const auto& file : {path, fork, strange})
         Base::FileInfo(file).deleteFile();
+}
+
+// --- Audit of 2026-10-21 ---------------------------------------------------
+
+TEST_F(TransactionLogTest, aRemovalWithNothingOpenIsLogged)
+{
+    // A removal in no transaction opened none before (upstream's rule:
+    // only an object some undo step names gets a "Delete" step), so the
+    // log had no `remove` op for it. With the log on it is an implicit
+    // step like a write is.
+    edit(doc(), "create", [&]() {
+        make("Gone");
+        make("Also");
+    });
+    for (int mode : {1, 0}) {
+        doc()->setUndoMode(mode);
+        const char* name = mode ? "Gone" : "Also";
+        const size_t rows = log().store().transactions().size();
+        doc()->removeObject(name);
+        doc()->commitImplicitTransaction();
+        const auto all = log().store().transactions();
+        ASSERT_GT(all.size(), rows) << "undo mode " << mode;
+        bool removed = false;
+        for (const auto& o : log().store().ops(all.back().seq))
+            removed = removed || (o.op == "remove" && o.cname == name);
+        EXPECT_TRUE(removed) << "undo mode " << mode;
+        EXPECT_FALSE(doc()->getObject(name));
+    }
+}
+
+TEST_F(TransactionLogTest, undoDownToAnothersStepIsRefused)
+{
+    // Sec 30.10: another author's step is in no run of this one's. Undoing
+    // down to it by id used to take every step of the actor's and return
+    // false; it is refused before anything moves.
+    edit(doc(), "create", [&]() { make("A"); });
+    const App::Actor bob = actor(App::Actor::Invited, "bob", 42);
+    int his = 0;
+    {
+        App::ActorScope scope(bob);
+        doc()->openTransaction("his");
+        featureOf(doc(), "A")->Integer.setValue(3);
+        doc()->commitTransaction();
+        his = doc()->getTransactionID(true);
+    }
+    edit(doc(), "mine", [&]() { featureOf(doc(), "A")->Float.setValue(2.5); });
+    ASSERT_GT(his, 0);
+    EXPECT_FALSE(doc()->undo(his));
+    EXPECT_EQ(undosOf(doc(), nullptr), (Names {"mine", "create"}));
+    EXPECT_EQ(undosOf(doc(), &bob), (Names {"his"}));
+    EXPECT_EQ(featureOf(doc(), "A")->Integer.getValue(), 3);
+    EXPECT_DOUBLE_EQ(featureOf(doc(), "A")->Float.getValue(), 2.5);
+}
+
+TEST_F(TransactionLogTest, aRecreatedObjectKeepsItsPythonExtensions)
+{
+    // Sec 9.2: an object made again by type -- a cold undo, a restore, a
+    // branch switch -- gets the Python extensions it had, which the create
+    // and remove ops carry; a group extension's Group among them.
+    edit(doc(), "create", [&]() {
+        auto obj = doc()->addObject("App::FeaturePython", "Grp");
+        Base::Type type = Base::Type::fromName("App::GroupExtensionPython");
+        ASSERT_FALSE(type.isBad());
+        auto ext = static_cast<App::Extension*>(type.createInstance());
+        ASSERT_TRUE(ext);
+        ext->initExtension(obj);
+        ASSERT_TRUE(obj->hasExtension(App::GroupExtension::getExtensionClassTypeId()));
+    });
+    const int64_t version = doc()->snapshotToLog();
+    ASSERT_GT(version, 0);
+    edit(doc(), "remove", [&]() { doc()->removeObject("Grp"); });
+    ASSERT_FALSE(doc()->getObject("Grp"));
+
+    ASSERT_TRUE(doc()->restoreVersion(version));
+    auto back = doc()->getObject("Grp");
+    ASSERT_TRUE(back);
+    EXPECT_TRUE(back->hasExtension(App::GroupExtension::getExtensionClassTypeId()));
+    EXPECT_TRUE(back->getPropertyByName("Group"));
+
+    // And through a cold undo of the removal row itself.
+    ASSERT_TRUE(doc()->undo());   // the restore
+    ASSERT_FALSE(doc()->getObject("Grp"));
+    const int64_t removal = rowNamed(log(), "remove");
+    ASSERT_GT(removal, 0);
+    edit(doc(), "since", [&]() { make("Other"); });
+    ASSERT_TRUE(doc()->undoLogged(removal)) << doc()->undoRefusal();
+    back = doc()->getObject("Grp");
+    ASSERT_TRUE(back);
+    EXPECT_TRUE(back->hasExtension(App::GroupExtension::getExtensionClassTypeId()));
 }

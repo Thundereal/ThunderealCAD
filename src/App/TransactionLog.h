@@ -622,6 +622,11 @@ private:
     /// every copy posted with a key, every part a snapshot stored; taken
     /// out by a change whose value is not recorded. Main thread only.
     std::unordered_set<int64_t> _recorded;
+    /// Keys whose value the worker could not write, to leave _recorded:
+    /// filled on the worker, taken on the main thread (dropUnrecorded).
+    std::mutex _unrecordedMutex;
+    std::vector<int64_t> _unrecorded;
+    void dropUnrecorded();
     /// What the sink of the snapshot in progress did not claim, to join
     /// _recorded once the snapshot is posted. Main thread only.
     std::unordered_set<int64_t> _misses;
@@ -673,6 +678,14 @@ public:
     void postVersion(LogVersion v, LogTransaction t, const TransactionLog::Captures& entries,
                      const TransactionLog::Blobs& blobs, int schema, const std::string& path,
                      std::vector<std::pair<long, long>> strings = {}, bool marked = true);
+    /// The body of postVersion's job, on the worker: the composites, the
+    /// blobs, the version and its record. Throws on a store failure.
+    void writeVersion(LogVersion& v, LogTransaction& t, const TransactionLog::Captures& entries,
+                      TransactionLog::Blobs& blobs, int schema, const std::string& escaped,
+                      size_t nblobs, long keep, std::vector<std::pair<long, long>> strings,
+                      bool marked);
+    /// `text` as the body of a JSON string.
+    static std::string escapeJson(const std::string& text);
     /// The ids a version recorded with no marks keeps: every one the file's
     /// hasher holds (sec 27.50 item 4).
     std::vector<std::pair<long, long>> allStrings() const;

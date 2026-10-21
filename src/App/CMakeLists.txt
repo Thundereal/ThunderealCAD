@@ -87,7 +87,10 @@ list(APPEND FreeCADApp_LIBS
 )
 
 # The transaction log's store (docs/TransactionLog.md sec 13).
-find_package(SQLite3 REQUIRED)
+# 3.38: json_extract/json_valid built in (TransactionStoreSQLite.cpp reads
+# object UIDs out of op metadata with them); upsert (3.24) and VACUUM INTO
+# (3.27) come with it.
+find_package(SQLite3 3.38 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
 list(APPEND FreeCADApp_LIBS ${SQLite3_LIBRARIES})
 

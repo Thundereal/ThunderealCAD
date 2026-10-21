@@ -18095,10 +18095,13 @@ pin".
 save writes into the file (`dropTier`, 13.3) leaves out a cache-tier
 value that no kept version's manifest reaches **and that no kept delta
 is based on** -- and a value is stored as a delta on the one after it.
-So a save does not take a run of shapes at once: of a cut made taller
-four times, saved, closed and opened, the first is gone and the other
-three are there; the box's four are all there. Each save and reopen
-takes the oldest again. A trim takes them all.
+(As first built, "kept delta" was read as every delta an op reached,
+which in a chain of reverse deltas is every entity but the oldest: of a
+cut made taller four times, saved, closed and opened, the first was gone
+and the other three were there, and each save took the oldest again.
+Corrected 2026-10-21, sec 37.4: the bases are followed from what is kept,
+so a save takes the whole run but what a kept version lists.) A trim
+takes them all.
 
 **Kept** is the log's word for it; a link is *pinned* to a version
 (27.16), which is another thing. Two tables of the store:
@@ -22270,3 +22273,406 @@ before the property is read.
 
 **Tests**: `testUpstreamsFormatKeepsTheUids`, `testAPartsUidIsItsObjectUid`,
 `testATrackingCopyReplacesItsOldOne`, `testACopyOfAShapeContentHasItsShape`.
+
+## 37. Audit of the implementation (2026-10-21)
+
+The user asked for an audit of the whole implementation before the open
+items of sec 35 and 36 go on. Six read-only passes, one per area (the
+record model and values, the store and recovery, undo over the log,
+versions/branches/merge, import/sets/UIDs, the Gui), each reading the
+code against the sections that rule it; every finding was then verified
+against the code, and where it could be, by a probe, before it was fixed.
+What was fixed, by area, then what was left and why.
+
+### 37.1 Fixed
+
+**Store** (`TransactionStoreSQLite.cpp`).
+- The batch writers `addObjectUids`, `addObjectNames`, `addLastGeoIds`,
+  `removeObjectState`, `addStrings`, `removeStrings`, `addStringRefs`
+  stepped their statements raw, discarding the result, with no rollback:
+  a full disk mid-batch left a partial table and "cannot commit - no
+  transaction is active". All go through `step()` (which throws) inside
+  `batch()`, one SQL transaction with the rollback.
+- Every `catch { exec("ROLLBACK"); throw; }` could replace the real error
+  ("database or disk is full") with "cannot rollback - no transaction is
+  active", since SQLite rolls back by itself after SQLITE_FULL/IOERR/NOMEM.
+  `rollback()` rolls back only when a transaction is still open, and never
+  throws.
+- `text()` read TEXT columns as C strings where `bindText` wrote the whole
+  length: a value with an embedded NUL came back cut. Read by length.
+- `dropTier`: the second walk can number nodes the first never reached,
+  and `listed[n]` then read past the vector. Bounds-checked.
+- `anchorVersions` and `removeBranch` ran their several statements with no
+  transaction around them; a crash between left access or open merge
+  requests of a branch that no longer exists. Each is one `batch()`.
+- `find_package(SQLite3 3.38 REQUIRED)`: `json_extract`/`json_valid` (the
+  UID read out of op metadata, sec 36.3) are built in from 3.38 only, and
+  with an older library every log failed to open at `objectUids()`.
+- The guard reads of an embedded copy (`FileHistory.cpp`, `Document.cpp`
+  at `Document::Restore`) opened the blob read-write and relied on the OS
+  refusing writes: as root, or on a filesystem that ignores the mode bit,
+  the open set the journal mode and migrated an older copy in place, and
+  even read-only an open of a WAL-header file made a `-shm` beside the blob
+  which the blob store's recovery then took for a loose blob.
+  `openSQLite(path, readOnly=true)` opens `file:...?immutable=1`
+  read-only: no lock, no `-shm`, nothing written.
+- Crash recovery (`Document::recoverFromLog`): when the replay stopped
+  before an incomplete row (sec 25.2 item 3), the undo stacks were still
+  rebuilt to the crashed head and the `recover` row parented there, so the
+  log said the document was at a state it never reached. The head is moved
+  to `last`, the rows past it (never applied, their values never written)
+  are removed, and the recover row's script lists them as `skipped`.
+
+**Core** (`TransactionLog.cpp`).
+- A capture that failed on the worker (a Save that throws) left the key in
+  `_recorded` while `_hashById` had nothing: the next composing snapshot
+  claimed the value and `putComposite` either threw "claimed but not held"
+  or, with an older value and verify off, silently took the STALE hash --
+  the version recorded the property's previous value as current. The
+  worker now reports such keys (`_unrecorded`, drained on the main thread
+  by `dropUnrecorded()` at every post, flush and before a snapshot's sink
+  is made, which now flushes first), and they leave `_recorded`.
+- A posted job that threw left a row numbered, the head moved, and the row
+  never appended: the next row's parent named a seq that did not exist,
+  and `chain()`, `rowsBackTo`'s store path and undo over the log failed
+  ("a row on the way is gone") while the in-memory `_recent` believed the
+  row was there. The commit job, the version job (`writeVersion`, the body
+  of `postVersion`'s job) and `keepFile` append the row whatever the
+  values or the version did -- short of a value it is the incomplete row
+  recovery stops before; a failed version's row says `{"error":...}` -- and
+  the commit job retires its remaining copies on the way out, so no copy's
+  destructor runs on the worker (sec 25.4).
+- `logged()` admitted a static property marked transient by STATUS
+  (`Property::Transient`, which `PropertyContainer::Save` skips for a
+  non-dynamic property): `Part::Compound2::Shape`, `FeatureWrap::AddSubShape`
+  were logged with their full value at every recompute and written back by
+  a cold undo into a property the file never carries. Excluded, as the
+  ruling at sec 10 says; a dynamic one stays (its name and type are saved).
+- `number()` remembered every row before its kind and script were set, so
+  `rowsBackTo`'s memory path returned record, branch, login, request and
+  snapshot rows with empty kind and script where the store path returned
+  the real ones. Each maker remembers its row once it is filled.
+
+**Document: transactions and undo** (`Document.cpp`).
+- With the log on, a removal with no transaction open (`doc.removeObject`
+  from Python, or any removal outside a command) opened none unless an
+  undo step already named the object (upstream's "Delete" rule), so the
+  object was gone and the log had no `remove` op: a recovery, a branch
+  switch or a selective undo brought it back. Measured with a probe in
+  both undo modes. A removal is an implicit step like a write is when the
+  document has a log. Test `aRemovalWithNothingOpenIsLogged`.
+- `undo(id)` down to another author's step (reachable through
+  `closeActiveTransaction(true, id)` when a task is cancelled under another
+  actor than it was opened under) looped until the actor's run was empty,
+  undoing every step of theirs, then returned false. Refused before
+  anything moves (`undoRefusal` "the step is another's"). Test
+  `undoDownToAnothersStepIsRefused`.
+- `_takeStep` had no unwind protection between making the inverse the
+  active transaction and putting it on the other stack: a throw out of
+  `touched.leave` or `logInverse` left the inverse active, so the next
+  write was recorded into it. Those two are caught and logged; the stacks
+  are kept whatever the log makes of the step.
+
+**Document: versions and branches.**
+- An object recreated by type -- `_applyVersion` step 2, `_moveAlongLog`,
+  `_replayLog`, the cold undo -- lost every Python extension it had, and
+  the version's extension properties (a group's `Group`) were then skipped
+  as static properties the live object did not have. Any Draft/Arch group
+  or FeaturePython that called `addExtension` and was deleted after a
+  version came back bare on a restore or a branch switch. The `create` and
+  `remove` ops carry the Python extension type names in their metadata
+  (`{"uid":..., "ext":[...]}`, sec 9.2's promise), the version path reads
+  them off the version's object, and every recreate site adds them back
+  right after `addObject`. Test `aRecreatedObjectKeepsItsPythonExtensions`
+  (restore and cold undo).
+- `switchBranch` and `createBranch` were not exception safe: a throw out
+  of `_checkoutHead`'s whole-read fallback (a version missing or
+  unreadable) left the cursor on the new branch with the document on the
+  old one, and the next commit wrote a row on the new head with the old
+  branch's values as befores. `switchBranch` also refused a branch open in
+  another document only after the tip snapshot and `clearUndos()`. The
+  holder is checked first; a failed checkout puts the cursor back on the
+  branch left (`createBranch` also removes the branch it made), with the
+  live values forgotten.
+- `restoreVersion` left its "Restore version N" step open when the
+  whole-read path threw; every later edit joined it and branch operations
+  refused "inside a transaction". A scope guard aborts the step on unwind.
+- `restoreContainer`'s removal pass did not consult `keptOnRestore`, so the
+  document's `History`, `Version` and `Branch` were removed by a restore to
+  a version whose Document.xml lacks them (version 1 of an adopted plain
+  file, sec 16.6). Kept, as the intent comment above it says.
+- A dynamic property present in both with another type (a pattern's
+  Offset, a length or an angle) kept the live type and received the
+  version's fragment -- a wrong value under the right name. The version
+  restore and `_moveAlongLog` step 2 now replace it, as the cold undo did.
+- `restoreVersion` and `_checkBranchable` refuse under `Recomputing`: a
+  removal there is deferred (`pendingRemove`) and the object would outlive
+  the checkout.
+- Frozen (pinned) documents, sec 27.22: the refusal covered an object's
+  properties and add/remove of objects but not the document's own
+  properties, add/remove of a dynamic property, freeze/unfreeze, the
+  panel's undo of a row, a snapshot, or keeping and letting go of values.
+  `checkNotFrozen` in `Document::onBeforeChange` (outside bookkeeping),
+  `_addOrRemoveProperty`, `onBeforeChangeFreeze`, `undoLogged`,
+  `snapshotToLog`, `keepLogValue`, `keepLogValuesOf`, `releaseLogValue`.
+
+**Document: import and UIDs.**
+- Assign (sec 36.4) removed each copy after step 1 had pointed its links at
+  the live objects, and a removal's unsetup takes what the object owns:
+  with a Part or a Body pasted again and assigned, removing the copy
+  deleted the LIVE origin and its features (`OriginGroupExtension`), and a
+  Link's live copy-on-change group likewise. Each copy lets go of every
+  link (`breakLink(copy, true)`) before it is removed. Test
+  `testAnAssignedPartKeepsTheLiveOrigin`.
+- Assign copied the copy's `_ObjectUUID` onto the live object as an
+  ordinary dynamic property (the status bits Legacy/NoModify are not
+  carried by `addDynamicProperty`), persisted and logged, and removed the
+  live object's own. The carrier is skipped both ways.
+- `checkUserEdit` refused the carrier's write on a document still being
+  filled (`LiveImport`): Std_Copy and a schema-4 save threw "Stopped at
+  Obj._ObjectUUID" where both were allowed before 36.7. Bookkeeping, and a
+  Legacy or NoModify property, are not edits.
+- `onBeforeChangeProperty` recorded a bookkeeping write into a transaction
+  that happened to be open (`doc.openTransaction(); doc.copyObject()` put
+  the first `_ObjectUUID` into the undo step, against 36.7's "no undo
+  step"). Bookkeeping is skipped as `Document::onBeforeChange` already did.
+- `derivedUids` was never pruned: a TempDoc emptied and refilled kept the
+  earlier content's ids flagged derived, and `_applyForeignState` then
+  paired by id+name+type where it should by UID. Erased with the object,
+  cleared with the map.
+- The Cancel path of a paste removed the brought objects through pointers
+  of a list a removal's unsetup could have freed. By name, checked live.
+- `Part::Feature::restoreShapeContents` cleared the source UID when it
+  equalled the object's own -- exactly the first cross-document paste,
+  where the UID is kept (U2) -- so a shape content pasted alone never found
+  its original. The `obj != this` test already keeps it from matching
+  itself.
+- `openFileVersion` with no view (a branch served, a version read for a
+  link) left the new windowless document as the application's active
+  document: the next paste landed in it, and a later `_openReadVersion`
+  hand-back attached the panel to it. The previous active document is put
+  back.
+- A version is named through `Document::nameLogVersion` (the panel, the
+  Python method, the `log.nameVersion` op): the panels of the file's
+  documents refresh (`signalBranchesChanged`), and with the log embedded
+  the document is marked modified (`signalLogKeptChanged`), where before
+  a name given and the window closed without a save prompt was not in the
+  file.
+
+**Gui.**
+- Both context menus of the log panel read the `QTreeWidgetItem` after
+  `menu.exec()`, and the panel's refresh timer rebuilds the lists inside
+  the menu's event loop on any commit (a client's, the snapshot cadence):
+  a use after free. Everything is read into locals before the menu runs.
+- `Gui::Document::takeSteps` built the run's `TransactionGuard` before
+  `checkTransactionID`, so the grouped-transaction prompt and the other
+  documents' steps ran under it, and a grouped step that goes through the
+  log recomputed with its touches deferred. The check comes first, as
+  upstream orders it.
+- The three paste/merge callers caught `Base::AbortException` alone;
+  `_settleImportClashes` throws `Base::RuntimeError` too, which left the
+  "Paste" transaction open with the copies in it, and
+  `Gui::MergeDocuments::importObjects` leaked its `ZipInputStream` with a
+  dangling pointer. `Base::Exception` is caught (the transaction aborted,
+  the error reported) and the stream is owned.
+- After an Assign the pasted list holds LIVE objects in the copies' place,
+  and the paste moved them into the selected group. Only what was not
+  there before is grouped.
+- The recovery dialog listed a crashed session's `history/log.db` only
+  when the log preference was on at THIS start; otherwise the directory was
+  deleted unlisted, the unsaved tail with it. It is offered whatever the
+  preference says; the recovery itself says the log must be on.
+- A row recovered from the log kept its check box, so Cleanup counted it.
+
+### 37.2 Left as found
+
+Judged real but not fixed now, with the reason; each is a candidate for a
+later pass.
+
+- **Core: a dynamic property removed and another of the same name and
+  type added in one transaction** can land on the same address (the
+  removed one is deleted at the next property call, PropertyCleaner), and
+  `onCommit`'s "original is gone" test is a pointer lookup: the row then
+  has two `set`s on one name and no `delprop`. Rare (needs the allocator
+  to reuse the address); the right fix is an explicit removal flag in
+  `TransactionObject::addOrRemoveProperty`, a change to the undo record.
+- **Core: a transaction whose every write turns out `same`** is
+  unnumbered again, but its session ordinal stays incremented (a gap, no
+  collision) and `number()` has already made a detached version document
+  take or create a branch (against 27.5). Needs numbering after the ops
+  are built; low value.
+- **Undo: `closeActiveTransaction(true, id)` holds a `TransactionGuard`
+  across every document's `undo(id)`**, and `_revertStep` refuses under
+  it: a step not at state cannot be taken back by a task cancel. Niche (a
+  client wrote past the user's step before the cancel); the fix is in
+  `AutoTransaction.cpp`, mirroring `takeSteps`.
+- **Undo: an open transaction committed by `undo`/`undoLogged` while the
+  application still owns its id** (`_activeTransactionGuard > 0`) makes
+  the next `_openTransaction(name, tid)` throw "invalid transaction id".
+  Pre-existing shape; `undoLogged` widens the window.
+- **Undo: `undoLogged` clears the actor's redos after making its step**,
+  the order `_openTransaction` avoids. No failure traced.
+- **Store: `recover()` opens the moved database when the `-wal` could not
+  be moved** (the committed, uncheckpointed tail missing) and reports
+  failure with the old directory half emptied. One rename of two in the
+  same directory failing is not a case seen.
+- **Store: `environment()`/`user()` do SELECT-then-INSERT outside a
+  transaction and no busy handler is set**: safe under sec 29's one
+  connection per file; the first second connection (29.1) must add
+  `INSERT OR IGNORE` and `sqlite3_busy_timeout`.
+- **Versions: `_readVersion`'s scratch document is the application's
+  active document while `_applyVersion` writes the live one**; a Python
+  proxy touching `FreeCAD.ActiveDocument` in `onChanged` sees a document
+  deleted a moment later. The comment says it is intentional; left for
+  the reason to be recorded or the order changed.
+- **Versions: `_rollBackUndoneMerge`** has the same shape as the branch
+  switch (forward, moveHead, then a `_followHead` that may throw); not
+  wrapped, since a failed follow leaves rows no head reaches rather than
+  a wrong head.
+- **Import: Assign of a Body whose Origin does not clash** leaves the
+  live Body pointing at the brought Origin and the old live Origin
+  orphaned: a question of what Assign should do with an owned child that
+  was not paired, for the user (36.4).
+- **Import: the file's `uid` attribute is silently overridden by the
+  history's UID for the id** (36.3) -- a copy's save synced over the file
+  with the sidecar history left in place takes the history's. Policy; a
+  warning when they disagree would help.
+- **Import: `nameCopySources` names nothing on a size mismatch**; the
+  copy-on-change sync then builds no replacements. Pre-existing shape.
+- **Gui: the sec 36.4 clash dialog is modal and opens with the "Paste"
+  transaction open**; a served client's commit meanwhile closes it with
+  the half-settled paste in it. Needs the ask before the transaction (the
+  clashing UIDs read off the stream first) or the dispatch held.
+- **Gui: `signalBranchesChanged` reloads the whole list synchronously**
+  (one `ops()` query per row, items inserted at index 0 one by one) inside
+  the App signal: a stall on every switch/branch/merge of a long log.
+  Performance; schedule through the timer and insert in one go.
+- **Gui: activating another document's window rejects an open merge
+  preview silently** (`attach` -> `detach` -> `_mergeDialog->reject()`),
+  against 32.15's intent that the document stays in reach. Bind the
+  preview to its document, not to the active one.
+- **Gui: the log panel acts on a pinned document** with no word; the App
+  entry points now refuse (above), the panel should disable its writing
+  actions and say why.
+
+### 37.3 Found sound
+
+Each pass ended with what it checked and found right; the list is long
+and lives in the session, not here. The parts worth naming: every SQL
+parameter bound and every ordered read with ORDER BY; the migration
+writes `user_version` inside the step's transaction; WAL + synchronous
+NORMAL with values durable before the row that names them (25.4); the
+pending map, the copy cache and share ownership; `_moveAlongLog`'s
+meeting point and tails; object ids file-wide across branches; the
+clash rules of 36.4 and the carrier's Legacy status through undo (probed:
+the undo of a delete re-inserts the same object, the carrier keeps it);
+the panel's connection scoping and re-entrancy guards; the recovery
+dialog preferring the log entry over a recovery file beside it.
+
+### 37.4 Storage growth (measured and audited 2026-10-21)
+
+The user asked, with the audit, how the log's storage grows and what
+could be done about it. One auditor read the store, the encodings, the
+retention and the embed path against secs 10, 13, 14, 16, 23, 27.48-27.71
+and 32.11; two scripted measurements (`~/.cache/lv-merge/storage_measure.py`,
+`storage_measure2.py`) sized the live store per table (`dbstat`), the
+blob store and the file after each phase.
+
+**Measured.** A Part fusion (box + sphere, 13 KB BRep), 500 recomputed
+edits each making a distinct shape, a save every 100:
+- live store: 160 KB -> 2.0 MB, no free pages; `entity` 956 KB (the 1000
+  shape fragments and their attachments as a reverse-delta chain: 357 KB,
+  ~360 bytes a shape), `op` 288 KB, `txn` 152 KB, `ref` + its index
+  368 KB; the pack store 2.0 MB (the current geometry of each object, the
+  superseded ones released);
+- WAL beside it: 4 MB, its high-water mark, from the first hundred edits
+  on;
+- the file with the log embedded: 20 KB -> 343 KB (9 KB with the log
+  off), ~650 bytes an edit, of which the history blob was 338 KB zipped,
+  1.7 MB raw -- 700 KB `entity`, 295 KB `op`, 156 KB `txn`, 303 KB `ref`
+  and its index, 70 KB the other indexes.
+- 300 placement edits with no recompute cost ~400 bytes each; 300
+  recomputes that cycled ten lengths stored ten shapes (hash dedup); a
+  paste of a fusion with its inputs wrote 97 ops (one per persisted
+  property per object, each a durable value).
+
+**Fixed.**
+- *The cache tier travelled.* Inside that file were 1,769 cache-tier
+  entities, 397 KB raw -- 40% of the history -- where 13.3 says the cache
+  tier never travels. `dropTier` kept every entity that any entity an op
+  reaches is delta-based on; a value is stored as a delta on the one after
+  it (23.2), so in a chain of n recomputes that kept n-1 of them, and the
+  measurement at 32.11 ("each save and reopen takes the oldest again")
+  had recorded the symptom as the rule. The bases are now followed from
+  what is kept -- entities of other tiers, and of the dropped tier what a
+  manifest or a kept value lists -- to a fixpoint, so a run of recomputes
+  leaves the file but for what a kept version lists. The unit test's
+  expectations (`dropTierWithEvictionIsTheTwoCalls`) hold under both
+  readings; the measurement is the difference.
+- *The WAL's high-water mark*: `journal_size_limit` 1 MB, truncated past
+  a checkpoint, where 4 MB sat beside every open document.
+- *The embedded copy's indexes* (`txn_ord`, `op_container`,
+  `version_hash`, `ref_target`) are dropped before the copy is vacuumed
+  (27.69 measured them at a tenth of the copy); an adopted copy's open
+  makes them again (`setUp`, `CREATE INDEX IF NOT EXISTS`).
+- *A trim, a squash and a branch deletion vacuum the live store*: they are
+  what shrinks it, and nothing else returned the pages (27.54 F6 measured
+  only the steady state's 6% and rightly left a vacuum at save alone).
+
+The same script after these: the file after the 500 edits 145.6 KB
+(from 343.3; 9.2 plain), the WAL 1.5 MB (from 4.0), the blob store
+0.8 MB (from 2.0 -- the embedded copy is a member of it); the live
+store's tables unchanged, as they should be.
+
+**Where the code and the doc differ** (the auditor's list, verified):
+1. sec 10 / 16.3's eviction budget "count and bytes, weighted by cost":
+   only `TransactionLogKeepVersions` exists, count alone, default 0 = keep
+   every cadence version; the cache tier is never dropped in the live
+   store.
+2. 13.3's op budget for the embedded copy: not built (27.69, ruled "later"
+   in 27.70); every op row ever written travels in every save.
+3. 13.2 / 20.2's 64 KB inline threshold: not built (23.1's note agrees).
+4. 23.2 "named versions are full anchors, always": `writeVersion` ignores
+   `kind`, so a named version's entries are re-encoded as deltas on the
+   next unnamed one, which then travels for it.
+5. 10.1 "shapes made in a source-bearing transaction go to the cache
+   tier": a `create` op's sets are durable whatever the value, so a pasted
+   or imported body's geometry is held by the op forever and in the file.
+6. 27.52 F2 / 27.69 (d) recompute-record compaction: still the verbose
+   JSON, one row per recompute beside the user's row.
+
+**Proposed, for a ruling** (ranked by effect over cost; none built):
+- *P1 -- bound what the embedded copy carries* (13.3's budget): rows older
+  than the oldest named version, or past N rows / M bytes, removed from
+  the copy after `dropTier` (`truncate` collects after it); the trim's
+  bridge semantics (27.71) keep a reopened chain whole. The file's growth
+  is linear in ops otherwise.
+- *P2 -- compact the `op` table*: `vbefore`/`vafter` as 20-byte blobs
+  through `bindHash` (the entity and ref tables already pack them; the
+  collector reads either form), and `ptype`/`prop` interned. 27.69
+  measured 5.2 MB of hex hashes and 3.8 MB of type and property names in
+  13.8 MB of ops; about 60% of the op table and its indexes. A
+  StoreVersion step.
+- *P3 -- compact the recompute record*: no `p`/`q` name arrays (ids or a
+  bitmask), messages on error only, the script compressed past 128 B.
+  2.8 MB of a 3.6 MB `txn` table on the T4 run.
+- *P4 -- coalesce consecutive commits on one property* (a spinbox, a
+  Python loop: two rows, a value, a blob and a delta per step), same
+  session and property within a few seconds and no version between, by
+  `replaceTransactions`. Undo granularity is the trade: the user's call;
+  nothing in the doc rules on it.
+- *P5 -- a scalar as a row*: 1000 Length edits are 1000 raw 60-byte
+  entities under their own 20-byte keys; either delta them under 128 B
+  when the patch is smaller, or inline values under ~48 bytes in the op.
+- *P6 -- `TransactionLogKeepVersions` default* from 0 to a count (20?)
+  so cadence versions do not accumulate forever, and the 16.3 byte budget.
+- *P7 -- named versions as anchors*: skip `supersede` of a named
+  version's entries, or re-encode on `nameVersion`.
+- *P8 -- pack-store write amplification* (I/O, not size): a commit that
+  makes a blob rewrites the append segment whole, up to 64 MB
+  (`FileBlobManager::flushLocked`); a smaller append segment or appending
+  members would cut per-commit writes by orders of magnitude. Belongs to
+  docs/FileBlobsManager.md.
+Rejected before and not re-proposed: a live vacuum at save (27.54 F6),
+content-defined chunking (20.2), another store engine (13.1), filtering
+Shape by name (sec 10).

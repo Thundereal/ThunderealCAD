@@ -2576,6 +2576,11 @@ class DocumentObserverCases(unittest.TestCase):
         self.assertTrue(not self.Obs.signal and not self.Obs.parameter and not self.Obs.parameter2)
 
         FreeCAD.ActiveDocument.removeObject(obj.Name)
+        if transactionLogIsOn():
+            # a removal with nothing open is an implicit step too (sec 37.1)
+            self.assertEqual(self.Obs.signal.pop(0), "DocOpenTransaction")
+            self.assertTrue(self.Obs.parameter.pop(0) is self.Doc1)
+            self.assertEqual(self.Obs.parameter2.pop(0), "<implicit>")
         self.assertTrue(self.Obs.signal.pop(0) == "ObjDeleted")
         self.assertTrue(self.Obs.parameter.pop(0) is obj)
         self.assertTrue(not self.Obs.signal and not self.Obs.parameter and not self.Obs.parameter2)
@@ -2756,6 +2761,11 @@ class DocumentObserverCases(unittest.TestCase):
 
         vo = obj.ViewObject
         FreeCAD.ActiveDocument.removeObject(obj.Name)
+        if transactionLogIsOn():
+            # a removal with nothing open is an implicit step too (sec 37.1)
+            self.assertEqual(self.Obs.signal.pop(0), "DocOpenTransaction")
+            self.assertTrue(self.Obs.parameter.pop(0) is self.Doc1)
+            self.assertEqual(self.Obs.parameter2.pop(0), "<implicit>")
         self.assertTrue(self.Obs.signal.pop(0) == "ObjDeleted")
         self.assertTrue(self.Obs.parameter.pop(0) is obj)
         self.assertTrue(not self.Obs.signal and not self.Obs.parameter and not self.Obs.parameter2)
@@ -10915,6 +10925,42 @@ class TransactionBranchCases(unittest.TestCase):
         beside = doc.copyObject(back, assign=True)
         self.assertNotEqual(beside.ObjectUid, uid)
         self.assertEqual(len(doc.Objects), count + 1)
+
+    def testAnAssignedPartKeepsTheLiveOrigin(self):
+        # Sec 36.4, Assign: the copy brought is removed once the live object
+        # has taken its state. Its links had been pointed at the live objects
+        # by then, and a removal takes what the object owns with it -- a
+        # Part's origin, through OriginGroupExtension -- so removing the copy
+        # deleted the LIVE origin. The copy lets go of its links first.
+        src = self.track(FreeCAD.newDocument("UidPartSrc"))
+        src.UndoMode = 1
+        src.openTransaction("make")
+        part = src.addObject("App::Part", "Part")
+        # The origin's features are made when first asked for
+        self.assertTrue(part.Origin.OriginFeatures)
+        src.commitTransaction()
+        dst = self.track(FreeCAD.newDocument("UidPartDst"))
+        dst.UndoMode = 1
+        dst.copyObject(part, True)
+        live = dst.getObject("Part")
+        self.assertIsNotNone(live)
+        self.assertEqual(live.ObjectUid, part.ObjectUid)
+        origin = live.Origin
+        self.assertIsNotNone(origin)
+        features = [o.Name for o in origin.OriginFeatures]
+        self.assertTrue(features)
+        count = len(dst.Objects)
+
+        dst.openTransaction("again")
+        got = dst.copyObject(part, True, True, assign=True)
+        dst.commitTransaction()
+        self.assertIn(live, got)
+        self.assertEqual(len(dst.Objects), count, [o.Name for o in dst.Objects])
+        self.assertEqual(live.Origin, origin)
+        self.assertIsNotNone(dst.getObject(origin.Name))
+        self.assertEqual([o.Name for o in origin.OriginFeatures], features)
+        for name in features:
+            self.assertIsNotNone(dst.getObject(name))
 
     def testAStrangersObjectOfOurUidIsOurs(self):
         # Sec 36 U6: a file that shares no history, one of whose objects was

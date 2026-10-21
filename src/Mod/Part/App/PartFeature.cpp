@@ -2584,9 +2584,9 @@ void Feature::restoreShapeContents() {
             // the one it was brought with, kept in _SourceUUID for its reopen
             auto propSource = Base::freecad_dynamic_cast<App::PropertyUUID>(
                     this->getDynamicPropertyByName("_SourceUUID"));
+            // kept or not: a content brought with its UID kept finds the
+            // one it was copied from by it as well (`obj != this` below)
             std::string source = getDocument()->getBroughtObjectUid(this);
-            if (source == getObjectUid())
-                source.clear();
             if (!source.empty() && !propSource
                     && !this->getDynamicPropertyByName("_SourceUUID"))
                 propSource = static_cast<App::PropertyUUID*>(addDynamicProperty(

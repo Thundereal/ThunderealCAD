@@ -455,6 +455,10 @@ public:
      * there is no log or the document is not in a state to snapshot.
      */
     int64_t snapshotToLog();
+    /// Name version `num` of the log (an empty name makes it unnamed), and
+    /// say so: the panels refresh, and with the log embedded the document
+    /// is modified. False without a log or such a version.
+    bool nameLogVersion(int64_t num, const std::string& name);
     /** Save to the log only (docs/TransactionLog.md sec 27.22, 27.28): the
      * log records a version of the document, named `name` so that it is
      * kept, and the file is written again with the new history in it -- its

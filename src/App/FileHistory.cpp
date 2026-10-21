@@ -313,7 +313,7 @@ std::shared_ptr<FileHistory> FileHistory::openFile(const std::string& path, std:
             int64_t num = 0;
             in >> num >> saveId;
         }
-        auto copy = TransactionStore::openSQLite(db->path());
+        auto copy = TransactionStore::openSQLite(db->path(), true);
         const std::string id = copy->getMeta("save_id");
         matches = !id.empty() && id == saveId && copy->getMeta("save_date") == facts.lastModified;
     }

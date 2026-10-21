@@ -46,6 +46,7 @@
 #include "Application.h"
 #include "Document.h"
 #include "DocumentObject.h"
+#include "Extension.h"
 #include "DocumentParams.h"
 #include "FileBlobManager.h"
 #include "FileHistory.h"
@@ -99,11 +100,24 @@ std::string dynamicMeta(const DynamicProperty::PropData& d, const Property* prop
     return m;
 }
 
-/// A `create` op's metadata: the object's UID (sec 36.3), as JSON so the
-/// store can read it; empty for none.
-std::string createMeta(const std::string& uid)
+/// A `create` or `remove` op's metadata, as JSON so the store can read
+/// it: the object's UID (sec 36.3) and the Python extensions it carries
+/// (sec 9.2), which a recreate by type alone would not give it. Empty
+/// with neither.
+std::string createMeta(const DocumentObject& obj)
 {
-    return uid.empty() ? std::string() : "{\"uid\":\"" + uid + "\"}";
+    std::string out;
+    const std::string& uid = obj.getObjectUid();
+    if (!uid.empty())
+        out = "\"uid\":\"" + uid + "\"";
+    std::string ext;
+    for (auto e : obj.getExtensionsDerivedFrom(Extension::getExtensionClassTypeId())) {
+        if (e && e->isPythonExtension())
+            ext += std::string(ext.empty() ? "" : ",") + "\"" + e->getExtensionTypeId().getName() + "\"";
+    }
+    if (!ext.empty())
+        out += std::string(out.empty() ? "" : ",") + "\"ext\":[" + ext + "]";
+    return out.empty() ? std::string() : "{" + out + "}";
 }
 
 /// Whether a copy and the live property hold the same value, as the log
@@ -130,7 +144,11 @@ bool sameForLog(const CaptureConfig& config, const Property& copy, const Propert
 bool logged(const PropertyContainer& container, const Property& prop)
 {
     const short type = container.getPropertyType(&prop);
-    return !(type & Prop_Transient) && !(type & Prop_NoPersist)
+    // A static property marked transient by status is not saved either
+    // (PropertyContainer::Save); a dynamic one is, name and type.
+    const bool statusTransient =
+        !prop.testStatus(Property::PropDynamic) && prop.testStatus(Property::Transient);
+    return !(type & Prop_Transient) && !(type & Prop_NoPersist) && !statusTransient
         && !prop.testStatus(Property::Legacy);
 }
 
@@ -248,6 +266,7 @@ public:
     std::vector<long> stringIds() override { return inner().stringIds(); }
     void removeStrings(const std::vector<long>& ids) override { inner().removeStrings(ids); }
     void clearStrings() override { inner().clearStrings(); }
+    void dropIndexes() override { inner().dropIndexes(); }
     void addStringRefs(const std::string& owner,
                        const std::vector<std::pair<long, long>>& ranges) override
     { inner().addStringRefs(owner, ranges); }
@@ -401,9 +420,24 @@ private:
     bool _compose;
 };
 
+void TransactionLog::dropUnrecorded()
+{
+    std::vector<int64_t> keys;
+    {
+        std::lock_guard<std::mutex> lock(_unrecordedMutex);
+        keys.swap(_unrecorded);
+    }
+    for (int64_t key : keys)
+        _recorded.erase(key);
+}
+
 Base::PropertySink* TransactionLog::beginSnapshot(bool compose)
 {
     resolvePending();
+    // What the worker could not write is not recorded: the queue drained,
+    // so every copy posted so far has said.
+    flush();
+    dropUnrecorded();
     _misses.clear();
     _verify = DocumentParams::getTransactionLogVerify();
 #ifdef FC_DEBUG
@@ -970,6 +1004,48 @@ void TransactionLogCore::postVersion(LogVersion v, LogTransaction t,
         const long keep = DocumentParams::getTransactionLogKeepVersions();
         post([this, v, t, entries, blobs = TransactionLog::Blobs(blobs), schema, escaped, nblobs,
               keep, strings = std::move(strings), marked]() mutable {
+            // The row is numbered and the head moved: appended whatever
+            // the version's writing did, so the chain holds; without the
+            // version it is a row that says a snapshot failed.
+            try {
+                writeVersion(v, t, entries, blobs, schema, escaped, nblobs, keep, strings, marked);
+            }
+            catch (const Base::Exception& e) {
+                t.script = "{\"error\":\"" + TransactionLogCore::escapeJson(e.what()) + "\"}";
+                std::vector<LogOp> none;
+                _store->append(t, none);
+                throw;
+            }
+            catch (const std::exception& e) {
+                t.script = "{\"error\":\"" + TransactionLogCore::escapeJson(e.what()) + "\"}";
+                std::vector<LogOp> none;
+                _store->append(t, none);
+                throw;
+            }
+        });
+}
+
+std::string TransactionLogCore::escapeJson(const std::string& text)
+{
+    std::string out;
+    for (char c : text) {
+        if (c == '"' || c == '\\')
+            out += '\\';
+        if (static_cast<unsigned char>(c) < 0x20)
+            out += ' ';
+        else
+            out += c;
+    }
+    return out;
+}
+
+void TransactionLogCore::writeVersion(LogVersion& v, LogTransaction& t,
+                                      const TransactionLog::Captures& entries,
+                                      TransactionLog::Blobs& blobs, int schema,
+                                      const std::string& escaped, size_t nblobs, long keep,
+                                      std::vector<std::pair<long, long>> strings, bool marked)
+{
+        {
             // Each XML entry is a composite (sec 23.3): its skeleton plus
             // the parts, or the bytes themselves when it was read rather
             // than written; each blob an entity the log holds (23.16). The
@@ -1038,7 +1114,7 @@ void TransactionLogCore::postVersion(LogVersion v, LogTransaction t,
                      + std::to_string(schema) + ",\"path\":\"" + escaped + "\"}";
             std::vector<LogOp> none;
             _store->append(t, none);
-        });
+        }
 }
 
 std::vector<std::pair<long, long>> TransactionLogCore::allStrings() const
@@ -1156,12 +1232,14 @@ void TransactionLog::openStore()
 
 void TransactionLog::post(std::function<void()> job)
 {
+    dropUnrecorded();
     _c.post(std::move(job));
 }
 
 void TransactionLog::flush()
 {
     _c.flush();
+    dropUnrecorded();
 }
 
 int64_t TransactionLog::session() const
@@ -1251,6 +1329,9 @@ TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, 
     }
     copy->dropTier("cache", evicted);
     copy->clearStrings();
+    // The indexes are made again when the copy is adopted (setUp); in the
+    // file they were a tenth of the copy (sec 27.69, 37.4).
+    copy->dropIndexes();
     // Every blob the copy still holds as a file (23.16): a kept version's,
     // and an op value's. The ones kept as deltas travel inside the copy.
     for (const auto& hash : copy->entitiesStoredAs("file")) {
@@ -1408,6 +1489,7 @@ int64_t TransactionLog::record(const char* kind, const std::string& name,
     t.name = name;
     t.time = now();
     t.script = script;
+    remember(t, nullptr);
     post([this, t]() mutable {
         std::vector<LogOp> none;
         _c._store->append(t, none);
@@ -1427,9 +1509,17 @@ int64_t TransactionLog::keepFile(const FileBlobHandle& file, const std::string& 
     t.name = name;
     t.time = now();
     t.script = script;
+    remember(t, nullptr);
     post([this, t, file]() mutable {
-        const std::string hash = _c.putBlob(file);
         std::vector<LogOp> none;
+        std::string hash;
+        try {
+            hash = _c.putBlob(file);
+        }
+        catch (...) {
+            _c._store->append(t, none);   // the row whatever the blob did
+            throw;
+        }
         _c._store->append(t, none);
         _c._store->holdFile(t.seq, hash);
     });
@@ -1483,6 +1573,7 @@ int64_t TransactionLog::login(const Actor& actor)
     t.name = "Login " + actor.name;
     t.time = now();
     t.script = script;
+    remember(t, nullptr);
     post([this, t]() mutable {
         std::vector<LogOp> none;
         _c._store->append(t, none);
@@ -1532,6 +1623,7 @@ int64_t TransactionLog::reappend(LogTransaction t)
     number(t);
     t.mergeFrom = 0;
     t.inverts = 0;
+    remember(t, nullptr);
     post([this, t]() mutable {
         std::vector<LogOp> none;
         _c._store->append(t, none);
@@ -1683,6 +1775,7 @@ void TransactionLog::ensureBranch()
     t.name = "Branch " + name;
     t.time = now();
     t.script = script.str();
+    remember(t, nullptr);
     post([this, t]() mutable {
         std::vector<LogOp> none;
         _c._store->append(t, none);
@@ -2182,6 +2275,7 @@ int64_t TransactionLog::snapshot(const char* kind, const std::string& path,
             marked ? TransactionLogCore::idRanges(_versionStrings) : _c.allStrings();
         _versionStrings.clear();
         _haveVersionStrings = false;
+        remember(t, nullptr);
         _c.postVersion(v, t, entries, blobs, schema, path, std::move(strings), marked);
         return v.num;
     }
@@ -2963,8 +3057,17 @@ void TransactionLog::writeValues(std::vector<ValueTask>& tasks, std::vector<LogO
         }
         if (task.hashOut)
             *task.hashOut = hash;
-        if (task.key && !hash.empty())
+        if (task.key && !hash.empty()) {
             _c._hashById[task.key] = hash;
+        }
+        else if (task.key && (task.copy || task.isCaptured)) {
+            // The value never reached the log: not held by hash, and the
+            // next snapshot stores it as a part (unrecorded on the main
+            // thread, where _recorded lives).
+            _c._hashById.erase(task.key);
+            std::lock_guard<std::mutex> lock(_unrecordedMutex);
+            _unrecorded.push_back(task.key);
+        }
         if (task.opIndex >= 0)
             ops[task.opIndex].vbefore = hash;
         if (task.afterIndex >= 0) {
@@ -3007,8 +3110,9 @@ void TransactionLog::number(LogTransaction& t)
     // again keeps the one it has, since it is the same row.
     if (!t.ordinal)
         t.ordinal = ++_c._ordinals[t.session];
-    // Every row, so a walk back from the head finds its parent in memory.
-    remember(t, nullptr);
+    // Every row is remembered by its maker once its kind and script are
+    // set, so a walk back from the head finds its parent in memory as the
+    // store would give it.
 }
 
 void TransactionLog::remember(const LogTransaction& t, const std::vector<LogOp>* ops)
@@ -3194,7 +3298,7 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
                 o->ctype = c.ctype;
                 // Its UID (sec 36.3): the history knows it from here on.
                 if (auto obj = Base::freecad_dynamic_cast<const DocumentObject>(tobj))
-                    o->meta = createMeta(obj->getObjectUid());
+                    o->meta = createMeta(*obj);
                 std::map<std::string, Property*> props;
                 c.container->getPropertyMap(props);
                 for (auto& kv : props) {
@@ -3287,7 +3391,7 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
                 o->cname = c.cname;
                 o->ctype = c.ctype;
                 if (auto obj = Base::freecad_dynamic_cast<const DocumentObject>(tobj))
-                    o->meta = createMeta(obj->getObjectUid());
+                    o->meta = createMeta(*obj);
                 continue;
             }
 
@@ -3396,7 +3500,21 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
         }
         remember(t, &ops);
         post([this, t, ops, tasks]() mutable {
-            writeValues(tasks, ops);
+            // The row is numbered and the head moved: it is appended
+            // whatever its values did, else the next row's parent names a
+            // row that is not there. Written short of a value it is the
+            // incomplete row recovery stops before (sec 25.2 item 3).
+            try {
+                writeValues(tasks, ops);
+            }
+            catch (...) {
+                for (auto& task : tasks) {
+                    if (task.copy)
+                        _c.retire(std::move(task.copy));
+                }
+                _c._store->append(t, ops);
+                throw;
+            }
             _c._store->append(t, ops);
         });
         if (_stamp)

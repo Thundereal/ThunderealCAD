@@ -1304,11 +1304,8 @@ PyObject* DocumentPy::nameTransactionVersion(PyObject *args)
     const char* name;
     if (!PyArg_ParseTuple(args, "ls", &num, &name))
         return nullptr;
-    auto log = getDocumentPtr()->getTransactionLog();
-    if (!log)
-        return Py::new_reference_to(Py::False());
     PY_TRY {
-        return Py::new_reference_to(Py::Boolean(log->store().nameVersion(num, name)));
+        return Py::new_reference_to(Py::Boolean(getDocumentPtr()->nameLogVersion(num, name)));
     } PY_CATCH;
 }
 

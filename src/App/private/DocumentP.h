@@ -344,6 +344,7 @@ struct DocumentP
         auto it = objectUidMap.find(obj->getObjectUid());
         if (it != objectUidMap.end() && it->second == obj)
             objectUidMap.erase(it);
+        derivedUids.erase(obj->getID());
     }
 
     long nextObjectId() {

@@ -441,6 +441,9 @@ public:
     /// Drop the whole string table: an embedded copy, whose file carries
     /// the table as a member of its own.
     virtual void clearStrings() = 0;
+    /// Drop the secondary indexes: the embedded copy travels without them
+    /// (a tenth of it), and the open of an adopted copy makes them again.
+    virtual void dropIndexes() = 0;
     /** The string ids entity `owner` uses (sec 27.50 item 4, 27.51 Q4), as
      * inclusive ranges: a version's manifest (the ids its save marked), a
      * value (the ids its capture listed). Dropped with the entity.
@@ -615,8 +618,12 @@ public:
     virtual void dropTier(const std::string& tier, const std::vector<int64_t>& evict) = 0;
 
     /// Open or create the SQLite log at `path` (WAL, synchronous=NORMAL).
+    /// `readOnly` reads a file as it is -- the embedded copy a guard reads
+    /// (sec 16.4), a content-addressed blob no open may rewrite: no journal
+    /// mode set, no migration in place, no -shm made beside it.
     /// Throws Base::RuntimeError on failure.
-    static std::unique_ptr<TransactionStore> openSQLite(const std::string& path);
+    static std::unique_ptr<TransactionStore> openSQLite(const std::string& path,
+                                                        bool readOnly = false);
 };
 
 } // namespace App

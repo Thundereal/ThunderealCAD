@@ -173,6 +173,10 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-21 15:43: entry 204 -- a selection in one view of a projection group shows
+every view's frame; only the owner view's wanted; to fcad-dc after 199.**
+Under the entry.
+
 **2026-10-21 15:38: entry 199 RELEASED to fcad-dc by the reporter.** Under the entry.
 
 **2026-10-21 15:08, x16win (relayed): PUSHED, on the reporter's word to it** ("push
@@ -4145,6 +4149,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 201 | 2026-10-21 | a defect found by x16win (on 189's touch test), made an entry by the note-taker coordinating: in the BROWSER, Escape pressed on a desktop keyboard while the page's context menu is open closes the DOM menu on keydown, but the viewer still forwards keydown AND keyup as 'E' key frames, and the release ENDS the fillet edit ("left edit mode") | OPEN; 2026-10-21 06:23; seen with keydown + keyup dispatched together after the handle menu was used, a keydown alone did not end it in an earlier run; ASSIGNED to x16win after 189's sketch change (the browser code is its). 2026-10-21 08:42 FIXED by x16win `f229fc9ea7` (web/src/contextmenu.tsx: while the menu is open, Escape caught on the window in the capture phase, press and release both stopped), local, NOT pushed, NOT staged; checked in serve-handle-touch-browser.py (the edit stays, no input goes up). 2026-10-21 15:08 PUSHED by x16win on the reporter's word to it ("push when you're done with the current issue", relayed): thundereal/LinkVibe c860115ea7..5fb4053dfa, ten commits; NOT restaged |
 | 202 | 2026-10-21 | change requests and a defect, the fillet edit (relayed by fcad-dc, its wording; the note-taker did not hear them): (a) a VERTEX cannot be picked in the 3D view, so a setback corner cannot be made (the preview covers the base vertex and swallows the pick, by fcad-dc's reading); (b) a right click on a preview face, or while hovering its edge or face, the same menu as its handle, for every dress-up (181 point 2's menu); (c) the Group column second; (d) the multi-group COLOURED handles back, auto colours distinct from the (pre)selection and the dragging colour, a group's colour pickable by the user and kept in the fillet's property; (e) concise tool tips explaining each mode, for the whole list or per item; (f) a double click on the Group column edits the group | OPEN; 2026-10-21 11:10; fcad-dc's (its area), to start after r179 is built, restaged (stage25) and tested. 2026-10-21 11:11 fcad-dc's plan: (a) a GUI test reproducing it before any fix; (c) Group is today the LAST (6th) column, moved second by a header section move; (d) desktop only, absent property = auto colours, a group's colour picked from the handle's menu and the list row's context menu ("Group colour...", "Automatic") -- fcad-dc's default, to be told to the reporter; nothing started, r179 building (540/2086 at 11:10), then stage25. 2026-10-21 15:28 DONE by fcad-dc, COMMITTED locally `8b4b49a405` (+ test fix `c858d58e0b`), NOT pushed, NOT merged with x16win's `5fb4053dfa`, NOT staged; r184 (dev build): (a) the plain vertex click already worked; found instead a vertex stuck selected in the add mode (the corner could not be taken away) -- fixed; the reporter's case, if different, needs its model; (b)-(e) built, GroupColors a new hidden output property (fillet, chamfer), old files as before; (f) as reported "a double click on a value cell edits it" -- the Group column asked; fillet-groups-and-preview-menu 19/19, fillet-corner-vertex-pick 8/8, the fillet set green. 2026-10-21 15:29 (f) CONFIRMED by fcad-dc: a double click on the GROUP cell edits the group (the 202 test does it: A's Group cell, C's group typed + Enter, A in C's group); every column but the element name takes a double click; to merge x16win's `5fb4053dfa` and rerun the fillet set before any push |
 | 203 | 2026-10-21 | a defect and a change request (said to fcad-dc, passed to the note-taker on the reporter's word to hand to another session): Esc that dismisses a menu can also END the edit unintentionally; is there a setting for Esc ending an edit? Make ending the edit a COMMAND, enabled only while the current view is in edit, so the user can assign its own shortcut, default Shift+Esc; check conflicts (selection clear remembered on it -- both may coexist) | OPEN; 2026-10-21 11:16; READ by fcad-dc (nothing run): no general setting (the Sketcher has its own, LeaveSketchWithEscape); two hard-coded paths end an edit on Esc (ViewProvider::eventCallback on the RELEASE, no modifier check; TaskView's escape button); no command holds Shift+Esc in src; to be ASSIGNED to x16win after 132, plain Esc's fate put to the reporter. 2026-10-21 11:36 the reporter: a PLAIN Esc NO LONGER ENDS an edit ("No longer ends (Recommended)") -- only the new command ends it; a general preference, like the Sketcher's, can bring the old behaviour back; ASSIGNED to x16win after 132's real-screen runs. 2026-10-21 12:51 x16win found the reporter's own link.user.cfg holds Sketcher LeaveSketchWithEscape=1 (the old default, saved); the note-taker (coordinating) took x16win's proposal: a new general preference (e.g. View/EscapeEndsEdit, OFF by default) governs, the Sketcher key only narrows it (Esc ends a sketch edit only if both on), the Sketcher page's box maps to the general one -- so the reporter's decision holds for the reporter's own cfg. 2026-10-21 12:52 the CONFLICT found by x16win: the selection clear is a key handler, View3DInventorViewer::processSoEvent (~7530) -- Shift+Esc clears the selection, plain Esc the preselection; options put: (a) keep Shift+Esc, (b) another key, (c) clear first, end on a second press (x16win's pick); the note-taker ANSWERED from the reporter's own words ("dismiss edit while clearing selection can coexist"): Shift+Esc in an edit ENDS the edit and the selection clear may happen with it -- (a), not (c); no question put. 2026-10-21 13:26 BUILDING by x16win (uncommitted): View/EscapeEndsEdit OFF; Std_ResetEdit "End edit", Shift+Esc, clears the selection too; the ViewProvider and TaskView Esc paths gated; the Sketcher box maps to the general pref, Assembly's LeaveEditWithEscape narrows the same; the browser matches Std_ResetEdit's current shortcut; tests updated and tests/gui/end-edit-command.py new; OnViewValue.cpp and Gizmo.cpp not touched; a risk: Chrome binds Shift+Esc to its Task Manager -- the note-taker: check with a REAL key press, no new button (the mirrored task panel already ends the edit). 2026-10-21 15:01 COMMITTED by x16win `5fb4053dfa`, local, NOT pushed, NOT staged: end-edit-command.py 12/12 on screen, sketch-cancel-edit 12/12, sketch-focus-cursor 8/8, task-panel-in-view 89/89, serve-edit-browser 24/24 (Escape alone keeps the edit, Shift+Escape ends it), serve-onview-browser 16/16, serve-handle-touch-browser 40/40; a REAL OS Shift+Esc reaches a real Chrome page (no Task Manager) -- no button; outside an edit an OS Shift+Esc still clears the selection. 2026-10-21 15:08 PUSHED by x16win on the reporter's word to it ("push when you're done with the current issue", relayed): thundereal/LinkVibe c860115ea7..5fb4053dfa, ten commits; NOT restaged |
+| 204 | 2026-10-21 | a defect: TechDraw, page frames hidden -- selecting ANY geometry of a view in a PROJECTION GROUP shows the frames of ALL the group's views; wanted: ONLY the OWNER view shows its frame | OPEN; 2026-10-21 15:43; said to the note-taker; the cause READ by the note-taker (nothing run): QGIView.cpp frameOwner() (864-878) maps a group's view to its GROUP, so every view of the group matches a selection in any of them (entry 155's "group frame" rule, `6af132eb0b`); ASSIGNED to fcad-dc after 199 (it wrote 155/192's frame code) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -28451,6 +28456,36 @@ included." Logged in HandsOnLog `9a27cab328` (local). It merges
 `5fb4053dfa` before any push and reruns the fillet set on the merged
 build.
 
+## 204. TechDraw: a selection in one view of a projection group shows every view's frame; only the owner view's wanted (a defect) -- OPEN
+
+**2026-10-21 15:43, the reporter (to the note-taker):** "new defect, I asked toggle
+frame in techdraw to show the frame when any of its child is selected.
+but now when I select any geometry all views under a projection group
+show their frames. I want only the the owner view show its frame"
+The note-taker's reading: with the page's frames toggled off, a
+selection (an edge, a vertex, a dimension...) inside a view shows a
+frame; for a view in a projection group today ALL the group's views show
+theirs; wanted: only the view the selected geometry belongs to.
+READ by the note-taker, nothing run: src/Mod/TechDraw/Gui/QGIView.cpp
+frameOwner() (864-878) maps a dimension to its view, a balloon to its
+source view, and then a DrawProjGroupItem to its GROUP; selectionInside()
+(880-893) shows a view's frame when any selected object has the same
+owner -- so every view of the group (each owned by the group) matches a
+selection in any one of them. It came from entry 155 (2026-10-16, the
+reporter: "label shows with frame. no hover. group frame"), commit
+`6af132eb0b`; 192's `01d32da5c6` kept the rule. The fix by this reading:
+a group's view owns its own frame (a dimension or balloon still counts
+for its view); the group frame itself by its own rule.
+NOT said: whether the GROUP's own frame still shows (155's "group
+frame") when a geometry of one of its views is selected -- read as: the
+owner view's frame shows; the group frame only when the group itself is
+selected. A dimension spanning two views -- read as its own view's.
+ASSIGNED to fcad-dc after 199 (it wrote 155's and 192's frame code;
+QGIView is in TechDraw, x16win's area, but x16win is on 167 -- x16win
+told QGIView is fcad-dc's for this). The test:
+techdraw-view-click-through.py to gain a group claim (one view's edge
+selected -> that view's frame only).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -28462,5 +28497,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 203
+the build session, 131 and 132 found by it; entries 134 to 204
 are of 2026-10-15, 134 said to the build session)

@@ -677,18 +677,18 @@ bool FileBlob::inPack() const
 
 bool FileBlob::hasExtension(const char* ext) const
 {
-    if (inArchive()) {
-        return Base::FileInfo("blob." + _ext).hasExtension(ext);
-    }
-    return Base::FileInfo(_path).hasExtension(ext);
+    return Base::FileInfo("blob." + extension()).hasExtension(ext);
 }
 
 std::string FileBlob::extension() const
 {
-    if (inArchive()) {
+    // The record, set when the blob was made; a blob repathed to a file of
+    // another name keeps the type it was made with. The path's own answer
+    // for one made before the record was kept (entry 206).
+    if (!_ext.empty() || inArchive()) {
         return _ext;
     }
-    return Base::FileInfo(_path).extension();
+    return FileBlobManager::storedExtension(_path);
 }
 
 namespace
@@ -2098,9 +2098,23 @@ void FileBlobManager::restoreFromDirectory(const std::string& dir)
         }
         try {
             // insertFile() copies: the files belong to the project directory
-            // and must stay in it.
-            FileBlobHandle blob = insertFile(info.absoluteFilePath().toUtf8().constData());
-            nameRestored(blob, info.fileName().toUtf8().constData());
+            // and must stay in it. A checkout under the transient directory
+            // names its files neutrally (entry 206): the name the index and
+            // the referrers know is the one before the suffix, and the type
+            // is read from it, not from the suffix.
+            const std::string path = info.absoluteFilePath().toUtf8().constData();
+            std::string name = info.fileName().toUtf8().constData();
+            const std::string suffix = neutralSuffix();
+            const char* ext = nullptr;
+            std::string stored;
+            if (name.size() > suffix.size()
+                    && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                name.erase(name.size() - suffix.size());
+                stored = storedExtension(path);
+                ext = stored.c_str();
+            }
+            FileBlobHandle blob = insertFile(path.c_str(), ext);
+            nameRestored(blob, name);
             hold(std::move(blob));
         }
         catch (const Base::Exception& e) {
@@ -2296,9 +2310,12 @@ std::string FileBlobManager::newBlobPath(const char* extension) const
     // referrer to name the file after, the store is a cache nothing outside
     // may address by path, and a stored file is read-only and held by
     // absolute path -- so renaming one mid-session would be churn for
-    // nothing. The extension is kept because the path is handed to whatever
-    // consumes the content, and a file with no extension is a file some
-    // viewers will not open.
+    // nothing. The extension is kept in the name because the path is handed
+    // to whatever consumes the content -- but not as the name's last one:
+    // every file here ends in ".blob" (neutralSuffix, docs/HandsOnQueue.md
+    // entry 206), so that the close that deletes the directory deletes no
+    // ".png" for a ransomware heuristic to guard. The consumers read the
+    // type through storedExtension() or the blob, not off the path.
     const std::string dir = blobDir();
     // Whatever the caller passed, it becomes part of a path here, and the
     // callers upstream of this take it from a name that came from Python.
@@ -2310,9 +2327,25 @@ std::string FileBlobManager::newBlobPath(const char* extension) const
     Base::FileInfo fi;
     do {
         Base::Uuid uuid;
-        fi.setFile(dir + "/" + uuid.getValue() + ext);
+        fi.setFile(dir + "/" + uuid.getValue() + ext + neutralSuffix());
     } while (fi.exists());
     return fi.filePath();
+}
+
+std::string FileBlobManager::neutralName(const std::string& name)
+{
+    return name + neutralSuffix();
+}
+
+std::string FileBlobManager::storedExtension(const std::string& path)
+{
+    const std::string suffix = neutralSuffix();
+    std::string stem = path;
+    if (stem.size() > suffix.size()
+            && stem.compare(stem.size() - suffix.size(), suffix.size(), suffix) == 0) {
+        stem.erase(stem.size() - suffix.size());
+    }
+    return Base::FileInfo(stem).extension();
 }
 
 std::string FileBlobManager::uniquePath(const std::string& name) const
@@ -2336,6 +2369,12 @@ FileBlobHandle FileBlobManager::make(const std::string& hash, const std::string&
     blob->_hash = hash;
     blob->_path = path;
     blob->_size = size;
+    // The type is the blob's own record from here on: the path's last
+    // extension is the neutral suffix (entry 206), and an old-style path
+    // without it still answers with its extension
+    if (!path.empty()) {
+        blob->_ext = storedExtension(path);
+    }
     _blobs[hash] = blob;
     return blob;
 }
@@ -2387,7 +2426,7 @@ FileBlobHandle FileBlobManager::insertFile(const char* srcPath, const char* exte
     // The name the referrer will store this under decides the extension when
     // there is one: the source is often a scratch file whose name says less
     // about the content than the name the property gives it.
-    std::string ext = extension ? extension : src.extension();
+    std::string ext = extension ? extension : storedExtension(src.filePath());
     if (!ext.empty() && ext[0] != '.') {
         ext.insert(ext.begin(), '.');
     }
@@ -2448,7 +2487,7 @@ FileBlobHandle FileBlobManager::adoptFile(const char* path, const char* extensio
     // the right one to keep; a staging path is not, and its caller passes
     // what it knows instead -- which may be nothing, and an empty extension
     // says exactly that.
-    std::string ext = extension ? extension : fi.extension();
+    std::string ext = extension ? extension : storedExtension(fi.filePath());
     if (!ext.empty() && ext[0] != '.') {
         ext.insert(ext.begin(), '.');
     }

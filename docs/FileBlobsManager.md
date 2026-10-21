@@ -43,7 +43,11 @@ Three types in `src/App/FileBlobManager.{h,cpp}`:
 | `FileBlobManager` | Per-`App::Document` store, owns the mapping hash → blob |
 
 **A blob is pure content.** Its identity is the SHA-1 of its bytes and nothing
-else; it lives at `<transient>/blobs/<uuid>.<ext>`, under a name nothing outside
+else; it lives at `<transient>/blobs/<uuid>.<ext>.blob` (the `.blob` since
+docs/HandsOnQueue.md entry 206: a close deletes the directory, and a file
+deleted with an image extension is what a ransomware heuristic guards --
+the type stays before the suffix, read by `FileBlobManager::storedExtension`
+and the blob's `extension()`, never off the path's last extension), under a name nothing outside
 the store may depend on -- the extension is kept only because the path is handed
 to whatever consumes the content, and a file with no extension is a file some
 viewers refuse. Blobs are immutable -- changing a property's file always produces
@@ -517,7 +521,7 @@ The same shape in both places, and `blobs/` keeps its name:
 
 ```
 <transient>/blobs/Content.xml        <- the index, inside blobs/
-<transient>/blobs/<uuid>.<ext>       <- transient names are uuids
+<transient>/blobs/<uuid>.<ext>.blob  <- transient names are uuids, and end neutrally (entry 206)
 <project>/blobs/Content.xml
 <project>/blobs/Box.Shape.brp        <- saved names are derived from the referrer
 ```

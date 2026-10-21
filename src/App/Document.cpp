@@ -6032,8 +6032,13 @@ std::string Document::materialiseVersion(TransactionLogCore& log, int64_t num, c
             continue;
         }
         ++written;
+        // A blob written under the transient directory ends in ".blob"
+        // (docs/HandsOnQueue.md entry 206): the directory restore reads the
+        // name and type back from before the suffix. Not the index, which
+        // that restore knows by its exact name.
+        const bool neutral = isBlob && e.entry != FileBlobManager::indexName();
         Base::FileInfo target(dir + "/" + (isBlob ? FileBlobManager::archivePrefix() : "")
-                              + e.entry);
+                              + (neutral ? FileBlobManager::neutralName(e.entry) : e.entry));
         CapturedValue v;
         if (!log.readValue(e.hash, v))
             THROWM(Base::RuntimeError, "version entry " + e.entry + " cannot be read");

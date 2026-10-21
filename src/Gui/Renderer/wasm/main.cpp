@@ -5259,6 +5259,8 @@ static void canvasPos(const EmscriptenMouseEvent *e, float &x, float &y)
 /// Resolve a click/tap at canvas pixel (px,py): the NaviCube claims it
 /// first (local orient, then rotate button), otherwise it is a scene pick
 /// sent to the desktop. Shared by the mouse-up and touch-tap paths.
+static bool editClickAt(float px, float py);
+
 static void doTapPick(float px, float py, bool ctrl, bool shift = false)
 {
     static const bool debugPick = EM_ASM_INT({
@@ -5289,6 +5291,11 @@ static void doTapPick(float px, float py, bool ctrl, bool shift = false)
                         px, py, dir.x, dir.y, dir.z);
         orientToDir(dir);
         interact();
+    }
+    else if (editClickAt(px, py)) {
+        // While a session takes the pointer, a tap is its click, as the
+        // mouse's left button is (onMouseDown): off the handles it clears
+        // the active value (entry 159, OnViewValueSet::viewerLeftButton).
     }
     else {
         // Draws instantly here and states the same click to the backend,
@@ -5929,6 +5936,18 @@ static void releaseHandleTouch(float px, float py)
     s_touchHandleDown = false;
 }
 
+/// A finger's click at canvas pixel (px, py) while a session takes the
+/// pointer: a move there, a press and a release, as the mouse's left button
+/// sends them. False, and nothing sent, outside one.
+static bool editClickAt(float px, float py)
+{
+    if (!s_editing || !s_editPointer)
+        return false;
+    sendHandlePress(px, py);
+    releaseHandleTouch(px, py);
+    return true;
+}
+
 // Touch: one finger orbits, two fingers pan (centroid) and pinch-zoom
 // (distance ratio). State resets whenever the touch count changes.
 static int s_numTouch = 0;
@@ -6358,7 +6377,8 @@ static EM_BOOL onTouch(int type, const EmscriptenTouchEvent *e, void *)
             if (type == EMSCRIPTEN_EVENT_TOUCHEND) {
                 float px, py;
                 clientToCanvas(s_loupeX, s_loupeY, px, py);
-                selectAt(px, py, /*ctrl*/ false);
+                if (!editClickAt(px, py))
+                    selectAt(px, py, /*ctrl*/ false);
             }
             cancelLoupe();
         }

@@ -14,6 +14,8 @@ serving process, on the driver's phase marks:
 
   - a tap on the arrow: press and release go up, and the value is active
     (its arrow green, red before);
+  - a tap on empty space: a click there, which clears the active value as
+    a mouse click does (entry 159), with the camera still;
   - a finger on the radius arrow, moved: the radius changes, by the coarse
     step, and the camera stays (as the page's HUD reads it);
   - a finger held on the arrow, under the loupe: the handle's menu ("One
@@ -285,7 +287,7 @@ def verify():
         if not check("the browser run had no error", run.error is None and not said.get("error"),
                      run.error or said.get("error")):
             note(run.tail())
-        for name in ("entered", "tapped", "dragged", "held", "fine", "menuescaped",
+        for name in ("entered", "tapped", "cleared", "dragged", "held", "fine", "menuescaped",
                      "finedragged", "typed",
                      "orbited", "sketchentered", "linedragged", "sketchorbited"):
             if name not in s:
@@ -307,6 +309,22 @@ def verify():
         check("... and makes the value active (its arrow green, after none was)",
               said.get("greenBeforeTap") == 0 and (said.get("greenAfterTap") or 0) > 20,
               (said.get("greenBeforeTap"), said.get("greenAfterTap")))
+
+        # a tap on empty space clears the active value (entry 159)
+        check("a tap on empty space is off the handles", said.get("clearOnHandle") is False,
+              said.get("clearOnHandle"))
+        check("... goes up as a click (a move, a press and a release)",
+              (s["cleared"]["inputs"] or 0) - (s["tapped"]["inputs"] or 0) >= 3,
+              (s["tapped"]["inputs"], s["cleared"]["inputs"]))
+        check("... clears the active value (its arrow no longer green)",
+              (said.get("greenAfterTap") or 0) > 20 and said.get("greenAfterClear") == 0,
+              (said.get("greenAfterTap"), said.get("greenAfterClear")))
+        check("... changes no value and leaves the camera still",
+              s["cleared"]["radius"] == r0
+              and said.get("cameraBeforeClear") is not None
+              and said.get("cameraAfterClear") == said.get("cameraBeforeClear"),
+              (s["cleared"]["radius"], said.get("cameraBeforeClear"),
+               said.get("cameraAfterClear")))
 
         # drag
         r1 = s["dragged"]["radius"]

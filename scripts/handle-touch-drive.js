@@ -298,6 +298,18 @@ async function hudCamera(page) {
     await shot(page, '2-tapped');
     phase('tapped');
 
+    // a tap on empty space is a click there: the active value is cleared
+    // (entry 159), and the camera stays
+    const empty0 = [r.x + r.w * 0.25, r.y + r.h * 0.75];
+    out.clearOnHandle = await page.evaluate((p) => window.fcviewerEditHandleAt(p[0], p[1]), empty0);
+    out.cameraBeforeClear = await hudCamera(page);
+    await tap(empty0[0], empty0[1]);
+    await sleep(1200);
+    out.greenAfterClear = await greenNear(page, h);
+    out.cameraAfterClear = await hudCamera(page);
+    await shot(page, '2b-cleared');
+    phase('cleared');
+
     // drag
     out.cameraBeforeDrag = await hudCamera(page);
     await drag(h[0], h[1], 4 * ox, 4 * oy, 10);

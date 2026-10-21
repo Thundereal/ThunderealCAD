@@ -28571,6 +28571,20 @@ it, stays with x16win). x16win told 205 is no longer its; App Document
 and the tree are fcad-dc's for 205 -- x16win to say if its 167 work is
 in Document.cpp at the same time (both in the recompute/save code).
 
+**2026-10-21 15:57, x16win: the 205/167 OVERLAP CHECKED.** Its 167 work in
+src/App/Document.cpp (uncommitted, building): the App::SaveTrigger
+implementation after FC_LOG_LEVEL_INIT (~155) and one include after
+<Base/Console.h>; embedHistory's two record calls (~5760 noteSave, ~5772
+log->embed); one Console Log line in saveToFile (~5040). Nothing near
+the recompute log (15361, 15850-15985) or the Error attribute's save and
+restore (3824, 4205-4242) -- free for fcad-dc's 205; Tree.cpp not
+touched. 167 also touches App TransactionLog.h/.cpp, DocumentPyImp.cpp,
+DocumentPy.xml, ApplicationPy.cpp, Application.h, a new SaveTrigger.h;
+Gui Application.cpp, CommandDoc.cpp, MainWindow.cpp, Document.cpp,
+DocumentPyImp.cpp; Ext/freecad/mcp_console/server.py;
+docs/TransactionLog.md; tests/gui/save-trigger.py. It read for 205 only
+while its build ran, wrote nothing for it. Passed on to fcad-dc.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;

@@ -247,7 +247,7 @@ void MDIView::deleteSelf()
     // its document closing: no longer the active window, and none of that
     // document's other views takes over (entry 132)
     if (auto mw = getMainWindow())
-        mw->dropActiveWindow(this, leaving);
+        mw->dropActiveWindow(this, nullptr, leaving);
 }
 
 PyObject* MDIView::getPyObject()
@@ -404,6 +404,8 @@ void MDIView::closeEvent(QCloseEvent *e)
             Application::Instance->viewClosed(this);
         // the document, when this was its last view and it goes as well
         Document* leaving = nullptr;
+        // and the one it was a view of, before the detach below
+        Document* own = bIsPassive ? nullptr : this->getGuiDocument();
         if (!bIsPassive) {
             // must be detached so that the last view can get asked
             Document* doc = this->getGuiDocument();
@@ -428,7 +430,7 @@ void MDIView::closeEvent(QCloseEvent *e)
         // window's pointer to it lasts until the deferred delete: the
         // window before it takes over (docs/HandsOnQueue.md entry 132)
         if (auto mw = getMainWindow())
-            mw->dropActiveWindow(this, leaving);
+            mw->dropActiveWindow(this, own, leaving);
 
         // Note: When using QMdiArea we must not use removeWindow()
         // because otherwise the QMdiSubWindow will lose its parent

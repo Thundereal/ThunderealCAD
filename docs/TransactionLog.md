@@ -1,12 +1,64 @@
 # An append-only transaction log, and undo as a forward operation
 
-Status (2026-09-22): **design complete; implementation starts with
-phase 0.** Development is on branch `Transaction`. Sections 1 to 7 are the idea as recorded on 2026-09-18 and
-are kept as written; the design that answers them starts at section 8,
-and section 8.1 is the summary; sections 16 and 17 (versions, branches)
-were decided on 2026-09-22 and section 18 lists what the audit of the
-same day left open. Phase 0 (section 15) is a measurement and comes
-before any store is written.
+Status (2026-10-21): **built and in use on branch `Transaction`**,
+audited whole (sec 37). This document is the design, the rulings and the
+build log in one, written forward: a later section can change what an
+earlier one says, and says so where it does. The newest ruling on a
+question is the one that holds.
+
+## How to read this document
+
+- **The idea and the design** are sections 1-14: 1-7 the idea as the
+  user recorded it (kept as written), 8.1 the design summary, 9 the
+  record model, 10 what is and is not logged, 11-12 pseudo transactions
+  and undo over the log, 13 the store, 14 performance.
+- **The rulings** on each part are the `(user, ...)` and `(rulings ...)`
+  sections: 16 versions, 17 branches, 23 entities, 24 undo, 30 the shared
+  head, 35 linked sets, 36 object UIDs. Section 27, "pinned links", grew
+  into the running ledger of rulings and measurements from 2026-09-25 on
+  (27.1-27.71); grep `### 27.` for a number cited elsewhere.
+- **What is built** is said in the "as built" blocks at the end of each
+  design section and in the audit, sec 37; **what is open** is 37.2
+  (left as found, with reasons), 37.4 P1-P8 (storage proposals), the
+  "Not built" lines of 35.11 and 36.6, and 34 (held).
+- A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
+  found with `grep -n '^### 27.22\|^## 36' docs/TransactionLog.md`.
+
+## Contents
+
+| Sec | What | State |
+|----:|------|-------|
+| 1-7 | The idea: an append-only log, undo as a forward step, the multi-client substrate; open questions; what it is not | as recorded 2026-09-18 |
+| 8 | Design summary (8.1) and the shape of the answer | ruled 2026-09-21 |
+| 9 | The record model: transactions, ops, values by hash | built |
+| 10 | The filter: derived values (Shape) and the cache tier | built; the budget of 16.3 not (37.4) |
+| 11 | Pseudo transactions: recompute, save, snapshot rows | built |
+| 12 | Undo over the log: the inverse as a row | built |
+| 13 | The store: SQLite, WAL, one file per history, the embedded copy (13.3) | built; the copy's op budget not (37.4 P1) |
+| 14 | Performance and migration; the store is versioned (27.55) | built |
+| 15 | Phases 0-8, the order of building | done through 8 |
+| 16 | Versions: snapshots, named versions, retention, trim, squash | ruled; count-only retention (37.4) |
+| 17 | Branches: in place, one document per branch | ruled, built |
+| 18 | Audit rulings of 2026-09-22 | closed |
+| 19 | Survey sources | reference |
+| 20 | Phase 0 results: the measurements the design rests on | measured |
+| 21 | Phase 1 as built: logging, the worker, the Gui panel | built |
+| 22 | The end state, the browser as a development tool | vision |
+| 23 | Entities: composites, parts, deltas, blobs, supersede (23.2) | built |
+| 24 | Phase 3: undo over the log, selective undo, the hot window | built |
+| 25 | Phase 7: crash recovery from the log | built |
+| 26 | Phase 4: branches as built, switching, the tip rule | built |
+| 27 | Phase 5: pinned links -- and the ledger of every later ruling and measurement (27.1-27.71): frozen versions, schema 4/5, trim, squash, the store version, the embed's cost | built; read by number |
+| 28 | Phase 6: merge | built |
+| 29 | Concurrent writers: one connection per file, sessions | ruled; 29.1 deferred |
+| 30 | A shared head, explicit branches, forks, actors and access | ruled, built |
+| 31 | Phase 8: a value that is many things (survey and questions) | partly built |
+| 32 | A shape diff: what a merge or a pick would take; kept values (32.11) | built |
+| 33 | What the merge into LinkVibe exposed | fixed |
+| 34 | Held: what Scion's design suggests | held |
+| 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; 35.11 gaps open |
+| 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the dialog marks open |
+| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4) | 2026-10-21; rulings awaited |
 
 ## 1. The idea (user, 2026-09-18)
 

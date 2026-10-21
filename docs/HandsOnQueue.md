@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-21 17:40: entry 209 -- regressions of 202 on stage27: the preview face's
+hover (selection highlight instead of the base edge) and right click; the
+group colours 2 and 3 alike (a fixed golden-ratio hue, pushed into the
+same gap); to fcad-dc before 208.** Under the entry.
+
 **2026-10-21 17:16: entry 207 -- getParents() explained (never the object's own root
 path, by construction); fcad-dc's fix written (the binder takes itself in
 a link group; the reveal by the shallowest row, ties by tree order); the
@@ -4226,6 +4231,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 206 | 2026-10-21 | a defect and a question: the company's malware detector (Apex, Behavior Monitoring) flagged the STAGED copy AGAIN (entry 161) -- "Unauthorized F[ile ...]", Event File System, Risk High, Operation DELETE, Action TERMINATED, the target a blob in the transient directory (...AppData/Local/cache/Thundereal/Cache/Thundereal_Doc_<uuid>_2b0e23_126872/blobs/<uuid>.png); it fired when the reporter CLOSED a document WITHOUT SAVING (the transient directory removed); what can be done; is a transient directory in TEMP safe? | OPEN; 2026-10-21 16:43; READ by the note-taker (source, nothing run): Document's destructor removes the whole transient directory recursively (Document.cpp 2592-2595), under getUserCachePath (2652-2667, {ExeName}_Doc_{UUID}_{HASH}_{PID}); the blob store keeps image content under its own extension (.png) in blobs/; ANSWERED to the reporter with options, a decision asked. 2026-10-21 16:51 the reporter: NEUTRAL BLOB NAMES ("Neutral blob names (Recommended)") -- blobs in the transient directory without image/document extensions, the cache folder kept; and IT asked to exclude Thundereal.exe (the reporter's own step); ASSIGNED to x16win |
 | 207 | 2026-10-21 | a defect, two questions: (1) an object shown in several places of the tree (lazily populated items) -- on a recompute error the tree reveals Binder008 sometimes under Lens003, sometimes under LinkGroup001: why; (2) why Binder008 recomputes with an error -- "by right, empty context shall choose the shorted path from root. and Binder008 is directly under root"; "object path is not the same as tree path" | OPEN; 2026-10-21 17:07; READ by the note-taker (the live session through MCP, read only, and the source): (1) Tree.cpp 4967-4972 reveals an object without a root item by `*data->items.begin()` -- a std::set of item POINTERS (Tree.cpp 900), so the pick follows heap addresses, not the tree; (2) Binder008 (PartDesign::SubShapeBinder, Relative, Context EMPTY, a shape held) errs "No context, please double click the binder in the desired context to refresh": with no context SubShapeBinder::update (Part/App/SubShapeBinder.cpp 304-331) tries only getParents() paths (here LinkGroup001 alone) for one that leaves the shape unmoved, never the binder at the root itself; ASSIGNED to fcad-dc. 2026-10-21 17:11 the reporter CLARIFIES: the object path counts by the 3D SCENE hierarchy -- an App::Part moves its child's node into its group, a LINK GROUP does NOT, so Binder008's node is still under the scene ROOT; so with an empty context Binder008 should take its own root path (the shortest), which getParents() (LinkGroup001 only) does not offer -- passed on to fcad-dc. 2026-10-21 17:16 the reporter asked what getParents() is for -- ANSWERED by the note-taker (read): every path from a top object down to this one through its InList, by the parents' selection sub-objects and links to them; never the object's own root path, by construction (an empty answer is what callers read as "at the root", e.g. ActiveObjectList 98) -- not scene aware, so adding the root case there would change its ~14 callers. fcad-dc WRITTEN, r187 building: (2) binder side, no change to getParents(): no context + container paths + no geo-feature group holding it -> itself (entry 113); (1) Tree.cpp: the shallowest row, ties by tree order (Binder008 -> Lens003's row, both depth 2, no top-level row); verified on a copy; the tie-break (tree order vs the object path's row) PUT to the reporter. 2026-10-21 17:20 the reporter: a context makes sense only in the 3D scene; Lens003 groups the binder in the TREE only, so it is NOT a parent -- the reveal to prefer the OBJECT PATH's row (LinkGroup001), not tree order; checked by the note-taker: getParents() IS the object-path API (the parents' getSubObjects(GS_SELECT), never tree claims; in the live session it answered LinkGroup001 only, Lens003 left out) -- no other parents API in App or Gui; passed on to fcad-dc |
 | 208 | 2026-10-21 | a REGRESSION of entry 193 (overlay list rows): the fillet's list view shows the overlay's row bands correctly in the TASK PANEL under overlay, but a UNIFORM OPAQUE ground when the panel is MOVED TO THE EDITING VIEW | OPEN; 2026-10-21 17:16; said to the note-taker; ASSIGNED to fcad-dc after 207 (the in-view task panel and the fillet list are its; 193's painter was x16win's, which is on 206) |
+| 209 | 2026-10-21 | REGRESSIONS of 202 (stage27): (a) hovering a working fillet's PREVIEW FACE no longer works -- it takes the selection highlight; before, selecting a working fillet face selected and highlighted the corresponding BASE EDGE; the reporter's guess: 202's preview-face right click broke it; (b) the preview face's RIGHT CLICK does not work either; (c) the AUTO GROUP COLOURS are not distinct (groups 2 and 3 nearly the same) -- random or a fixed list? make them distinct | OPEN; 2026-10-21 17:40; said to the note-taker; (c) READ by the note-taker: fixed, not random -- TaskDressUpParameters::autoGroupColor (1033-1072): a hue stepped by the golden ratio from the group id, then pushed +0.05 at a time past the hues taken by the handle colours, the selection and the highlight -- two groups pushed out of the same taken band can land in the same gap; ASSIGNED to fcad-dc, BEFORE 208 (its 202 work, a regression in the reporter's copy) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -28947,6 +28953,48 @@ list are its; x16win on 206). Test: tests/gui/overlay-see-through.py or
 task-panel-in-view gains the fillet list in the view -- its rows of two
 kinds, not one opaque ground.
 
+## 209. Fillet edit on stage27: the preview face's hover and right click broken; group colours 2 and 3 alike (regressions of 202) -- OPEN
+
+**2026-10-21 17:40, the reporter (to the note-taker):** "regression, preview fillet
+face hover highlight is not working. It gets the selection highlight, but
+in previous working state, when a working fillet face is selected, it is
+the corresponding base feature edge that should be selected and
+highlighted. I guess the preview face right click entry broke it? but
+preview face right click is not working either. Also, the group color
+auto selection shall pick distintct colors. right now the group 2 and 3
+has very similar color. is it picking random color or a fixed list of
+color? Make it fix if possible"
+The note-taker's reading: on the reporter's stage27 (202 in it): (a) a
+working fillet's preview face under the pointer, or clicked, shows the
+SELECTION highlight on the face itself; the rule before (entries 160,
+169, 194, 196): a pick of a working preview face stands for its BASE
+EDGE -- the base edge is what gets selected and highlighted; (b) a right
+click on a preview face opens no menu (202 (b) was meant to open the
+handle's); (c) group colours to be distinct from each other, not only
+from the handle, selection and highlight hues. The reporter's guess on
+(a): 202 (b)'s right-click path -- to be checked, not assumed (202 (a)'s
+"the pick let go after each toggle" in the add mode is another
+candidate). NOT said: which build of fcad-dc's tests passed 202 (b)
+(fillet-groups-and-preview-menu 19/19 on r184) -- the GUI test passed
+while the reporter's hand fails: the test to be read against what a
+real mouse does (preselection by hover, a pick through the preview).
+(c) ANSWERED by the note-taker from the source (READ): FIXED, not random.
+TaskDressUpParameters::autoGroupColor (PartDesign/Gui/
+TaskDressUpParameters.cpp 1033-1072): hue = frac(0.08 + group x 0.618...)
+(the golden ratio, so a group keeps its colour across sessions), then
+stepped +0.05 at a time, up to 20 times, while within 0.09 of a TAKEN hue
+-- the handle's base and active colours, the selection colour, the
+highlight colour; S 0.75, V 0.95. It does not keep clear of the OTHER
+GROUPS' colours: two groups whose golden-ratio hues fall in or near a
+taken band are both pushed forward into the same free gap and come out
+alike -- by this reading groups 2 and 3. Fix by this reading: choose each
+group's hue among the free ranges keeping clear of the taken hues AND of
+the colours already given to the feature's other groups (automatic and
+user-picked), spreading them; the same group keeps the same colour while
+the set of groups is unchanged.
+ASSIGNED to fcad-dc, BEFORE 208 -- its own 202 work, broken in the
+reporter's copy; 207 finishing first.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -28958,5 +29006,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 208
+the build session, 131 and 132 found by it; entries 134 to 209
 are of 2026-10-15, 134 said to the build session)

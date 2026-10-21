@@ -10550,8 +10550,8 @@ class TransactionBranchCases(unittest.TestCase):
         # Sec 35 L6, Q8: their set made apart from ours, laid out alike --
         # paired by the path, a guess, and taken whole by default: our Part
         # made theirs, one row, and our Asm linking it as theirs did. Their
-        # objects keep the names the import gave them: their `L`, a name our
-        # Asm had, is `L001` (35.13, not built: their names).
+        # objects come under their own names (sec 36 U7): their `L`, which
+        # the import named `L001` beside ours, is `L` again once ours goes.
         ours = os.path.join(self.dir, "ours")
         theirs = os.path.join(self.dir, "theirs")
         for folder, kind, name in ((ours, "Part::Box", "Box"), (theirs, "Part::Cylinder", "Cyl")):
@@ -10584,11 +10584,191 @@ class TransactionBranchCases(unittest.TestCase):
             self.assertEqual(f["undo_id"], m["transaction"], f)
         links = [o for o in doc.Objects if o.isDerivedFrom("App::Link")]
         self.assertEqual(len(links), 1, [o.Name for o in doc.Objects])
+        self.assertEqual(links[0].Name, "L")
         cyl = links[0].LinkedObject
         self.assertEqual(cyl.Name, "Cyl")
         part = cyl.Document
         self.assertEqual(os.path.realpath(part.FileName), os.path.realpath(os.path.join(ours, "Part.FCStd")))
         self.assertIsNone(part.getObject("Box"))
+
+    def testAnObjectKeepsItsUid(self):
+        # Sec 36 U1, U2: an object's UID, its own from its creation, kept by
+        # an undo of its removal, a save and a reopen, a version, and a copy
+        # into another document; a copy beside it, or a second copy where
+        # the first is, gets its own.
+        doc = self.track(FreeCAD.newDocument("UidKept"))
+        doc.UndoMode = 1
+        doc.openTransaction("create")
+        a = doc.addObject("App::FeatureTest", "A")
+        b = doc.addObject("App::FeatureTest", "B")
+        doc.commitTransaction()
+        uid, other = a.ObjectUid, b.ObjectUid
+        self.assertEqual(len(uid), 36)
+        self.assertNotEqual(uid, other)
+        doc.openTransaction("remove")
+        doc.removeObject("A")
+        doc.commitTransaction()
+        doc.undo()
+        self.assertEqual(doc.getObject("A").ObjectUid, uid)
+        path = os.path.join(self.dir, "uid.FCStd")
+        doc.saveAs(path)
+        saved = max(v["num"] for v in doc.getTransactionVersions())
+        doc.openTransaction("remove again")
+        doc.removeObject("A")
+        doc.commitTransaction()
+        doc.save()
+        FreeCAD.closeDocument(doc.Name)
+
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertIsNone(doc.getObject("A"))
+        self.assertEqual(doc.getObject("B").ObjectUid, other)
+        version = self.track(doc.openTransactionVersion(saved, False))
+        self.assertEqual(version.getObject("A").ObjectUid, uid)
+
+        there = self.track(FreeCAD.newDocument("UidThere"))
+        copied = there.copyObject(doc.getObject("B"))
+        self.assertEqual(copied.ObjectUid, other)
+        again = there.copyObject(doc.getObject("B"))
+        self.assertNotEqual(again.ObjectUid, other)
+        beside = doc.copyObject(doc.getObject("B"))
+        self.assertNotEqual(beside.ObjectUid, other)
+        self.assertEqual(doc.getObject("B").ObjectUid, other)
+
+    def testAnOlderFilesObjectsGetUidsOfTheFile(self):
+        # Sec 36 U3: a file saved before UIDs -- its entries without `uid`,
+        # and no history -- gives each object one derived from the file, so
+        # two copies of it agree, opened together or apart.
+        import re
+        import zipfile
+
+        self.param.SetInt("TransactionLog", 0)
+        doc = self.track(FreeCAD.newDocument("UidOlder"))
+        doc.addObject("App::FeatureTest", "A")
+        doc.addObject("App::FeatureTest", "B")
+        path = os.path.join(self.dir, "older.FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        copies = []
+        for i in range(2):
+            copy = os.path.join(self.dir, "older%d.FCStd" % i)
+            with zipfile.ZipFile(path) as src, zipfile.ZipFile(copy, "w") as dst:
+                for item in src.infolist():
+                    data = src.read(item.filename)
+                    if item.filename == "Document.xml":
+                        data = re.sub(rb' uid="[^"]*"', b"", data)
+                        self.assertNotIn(b' uid="', data)
+                    dst.writestr(item, data)
+            copies.append(copy)
+
+        def uids(doc):
+            return {o.Name: o.ObjectUid for o in doc.Objects}
+
+        first = self.track(FreeCAD.openDocument(copies[0]))
+        got = uids(first)
+        self.assertEqual(len(set(got.values())), 2)
+        second = self.track(FreeCAD.openDocument(copies[1]))
+        self.assertEqual(uids(second), got)
+        FreeCAD.closeDocument(second.Name)
+        FreeCAD.closeDocument(first.Name)
+        self.assertEqual(uids(self.track(FreeCAD.openDocument(copies[1]))), got)
+
+    def testAnObjectBroughtBackIsItself(self):
+        # Sec 36.3, 36.4: a UID is a history link. An object copied out and
+        # removed here comes back, copied in again, as itself -- its id, its
+        # name, its UID. Onto a live object of its UID, from another
+        # document: a duplicate, or with assign=True the live one takes the
+        # state brought, and what links to the copy links to it. Copied
+        # within its own document it is always a duplicate.
+        doc = self.track(FreeCAD.newDocument("UidHere"))
+        doc.UndoMode = 1
+        doc.openTransaction("make")
+        obj = doc.addObject("App::FeatureTest", "Obj")
+        doc.commitTransaction()
+        uid, ident = obj.ObjectUid, obj.ID
+        there = self.track(FreeCAD.newDocument("UidThere"))
+        away = there.copyObject(obj)
+        self.assertEqual(away.ObjectUid, uid)
+        doc.openTransaction("remove")
+        doc.removeObject("Obj")
+        doc.commitTransaction()
+        back = doc.copyObject(away)
+        self.assertEqual((back.Name, back.ID, back.ObjectUid), ("Obj", ident, uid))
+
+        away.Integer = 5
+        link = there.addObject("App::Link", "L")
+        link.LinkedObject = away
+        dup = doc.copyObject(away)
+        self.assertNotEqual(dup.Name, "Obj")
+        self.assertNotEqual(dup.ObjectUid, uid)
+        doc.removeObject(dup.Name)
+        count = len(doc.Objects)
+        before = back.Integer
+        doc.openTransaction("assign")
+        got = doc.copyObject([link, away], False, True, assign=True)
+        doc.commitTransaction()
+        self.assertEqual(len(doc.Objects), count + 1, [o.Name for o in doc.Objects])
+        self.assertIn(back, got)
+        self.assertEqual(back.Integer, 5)
+        newLink = [o for o in got if o.isDerivedFrom("App::Link")][0]
+        self.assertEqual(newLink.LinkedObject, back)
+        doc.undo()
+        self.assertEqual(back.Integer, before)
+        self.assertEqual(len(doc.Objects), count)
+
+        beside = doc.copyObject(back, assign=True)
+        self.assertNotEqual(beside.ObjectUid, uid)
+        self.assertEqual(len(doc.Objects), count + 1)
+
+    def testAStrangersObjectOfOurUidIsOurs(self):
+        # Sec 36 U6: a file that shares no history, one of whose objects was
+        # copied from ours -- under another id and another name, beside an
+        # object of its own under our object's name -- is paired by the UID
+        # and the type: the copy is our object, the other is theirs alone.
+        self.param.SetInt("TransactionLog", 0)
+        ours = FreeCAD.newDocument("UidOurs")
+        ours.addObject("App::FeatureTest", "Obj").Integer = 1
+        path = os.path.join(self.dir, "uid-ours.FCStd")
+        ours.saveAs(path)
+        theirs = FreeCAD.newDocument("UidTheirs")
+        own = theirs.addObject("App::FeatureTest", "Obj")
+        own.Integer = 3
+        copied = theirs.copyObject(ours.Obj)
+        copied.Integer = 7
+        self.assertEqual(copied.ObjectUid, ours.Obj.ObjectUid)
+        self.assertNotEqual(copied.Name, "Obj")
+        ownUid = own.ObjectUid
+        copy = os.path.join(self.dir, "uid-theirs.FCStd")
+        theirs.saveAs(copy)
+        FreeCAD.closeDocument(theirs.Name)
+        FreeCAD.closeDocument(ours.Name)
+
+        self.param.SetInt("TransactionLog", 2)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        objId = doc.Obj.ID
+        res = doc.importTransactionFork(copy)
+        self.assertTrue(res["independent"], res)
+        came = [
+            t
+            for t in doc.getTransactionLog()
+            if t["branch"] == res["branch"] and doc.getTransactionOps(t["seq"])
+        ]
+        # On a branch from nothing every object is made; the copy of ours
+        # is made as ours -- our id, our name -- and their own beside it.
+        ops = doc.getTransactionOps(came[0]["seq"])
+        made = {o["cid"]: o["cname"] for o in ops if o["op"] == "create"}
+        self.assertEqual(len(made), 2, made)
+        self.assertEqual(made.get(objId), "Obj", made)
+        # Paired, so what differs is a side to pick: the value, and the
+        # appearance list FeatureTest writes as it is made.
+        merged = doc.mergeTransactionBranch(
+            res["branch"], {"Obj.Integer": "theirs", "Obj.MaterialList": "ours"}
+        )
+        self.assertGreater(merged["seq"], 0, merged)
+        self.assertEqual(doc.Obj.Integer, 7)
+        alone = [o for o in doc.Objects if o.ObjectUid == ownUid]
+        self.assertEqual(len(alone), 1)
+        self.assertEqual(alone[0].Integer, 3)
 
     def testAnExportedSetIsBroughtBack(self):
         # Sec 35.5 step 4's round trip: our set exported (L7), edited where

@@ -2797,7 +2797,7 @@ TEST_F(TransactionLogTest, aStoreOfTheSettledLayoutIsMigrated)
         kept.seq = 1;
         EXPECT_TRUE(store->keepValue(kept));
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 1);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 2);
     // Opened again: nothing left to do.
     EXPECT_NO_THROW(App::TransactionStore::openSQLite(path));
     Base::FileInfo(path).deleteFile();
@@ -2872,7 +2872,56 @@ TEST_F(TransactionLogTest, aStoreOfScannersLayoutIsMigrated)
         ASSERT_EQ(sessions.size(), 1U);
         EXPECT_EQ(sessions.front().user, 1);
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 1);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 2);
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST_F(TransactionLogTest, aStoreOfLayoutOneGetsObjectUids)
+{
+    // docs/TransactionLog.md sec 36 U4: layout 2 adds `objuid`; a store of
+    // layout 1 is brought to it, and the UIDs are read from the table and
+    // from what the `create` and `remove` ops say.
+    const std::string path = Base::FileInfo::getTempFileName("txnlog-one") + ".db";
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+    }
+    rawSql(path, "DROP TABLE objuid; PRAGMA user_version=1;");
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        EXPECT_TRUE(store->objectUids().empty());
+        App::LogTransaction t;
+        t.parent = 0;
+        t.branch = 1;
+        t.kind = "user";
+        t.name = "Make";
+        std::vector<App::LogOp> ops(3);
+        ops[0].op = "create";
+        ops[0].ckind = "obj";
+        ops[0].cid = 7;
+        ops[0].cname = "Box";
+        ops[0].meta = "{\"uid\":\"u-7\"}";
+        ops[1].op = "remove";
+        ops[1].ckind = "obj";
+        ops[1].cid = 8;
+        ops[1].cname = "Cyl";
+        ops[1].meta = "{\"uid\":\"u-8\"}";
+        ops[2].op = "create";
+        ops[2].ckind = "obj";
+        ops[2].cid = 9;
+        ops[2].cname = "Old";
+        EXPECT_GT(store->append(t, ops), 0);
+        store->addObjectUids({{5, "u-5"}});
+        std::map<long, std::string> uids;
+        for (const auto& u : store->objectUids())
+            uids.emplace(u.first, u.second);
+        EXPECT_EQ(uids, (std::map<long, std::string> {{5, "u-5"}, {7, "u-7"}, {8, "u-8"}}));
+        store->removeObjectState({5});
+        uids.clear();
+        for (const auto& u : store->objectUids())
+            uids.emplace(u.first, u.second);
+        EXPECT_EQ(uids.count(5), 0U);
+    }
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 2);
     Base::FileInfo(path).deleteFile();
 }
 
@@ -2916,7 +2965,7 @@ TEST_F(TransactionLogTest, aStoreNotOfThisBuildIsRefused)
     {
         auto store = App::TransactionStore::openSQLite(fresh);
     }
-    EXPECT_EQ(rawInt(fresh, "PRAGMA user_version"), 1);
+    EXPECT_EQ(rawInt(fresh, "PRAGMA user_version"), 2);
     Base::FileInfo(fresh).deleteFile();
 }
 

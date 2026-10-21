@@ -411,6 +411,14 @@ public:
     /// Add `names` to the `objname` table; a pair whose id or name it has
     /// is left out.
     virtual void addObjectNames(const std::vector<std::pair<long, std::string>>& names) = 0;
+    /** The file's object UIDs (sec 36.3): the `objuid` table's pairs, then
+     * every `create` op's (id, UID), newest first -- as the names, the
+     * table is written into an embedded copy and the ops cover the rest.
+     */
+    virtual std::vector<std::pair<long, std::string>> objectUids() = 0;
+    /// Add `uids` to the `objuid` table; a pair whose id or UID it has is
+    /// left out.
+    virtual void addObjectUids(const std::vector<std::pair<long, std::string>>& uids) = 0;
     /// The last geometry id of each object (sec 27.40 item 4), table
     /// `lastgeoid`: (object id, id).
     virtual std::vector<std::pair<long, long>> lastGeoIds() = 0;

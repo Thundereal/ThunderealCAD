@@ -83,12 +83,28 @@ struct DocumentP
     bool openVersionPending = false;
     std::unordered_map<std::string, DocumentObject*> objectMap;
     std::unordered_map<long, DocumentObject*> objectIdMap;
+    /// The live objects by their UID (docs/TransactionLog.md sec 36).
+    std::unordered_map<std::string, DocumentObject*> objectUidMap;
     std::unordered_map<std::string, bool> partialLoadObjects;
     std::vector<DocumentObjectT> pendingRemove;
     std::vector<App::DocumentObject*> skippedObjs;
     long lastObjectId;
     /// The id readObjects restores the next object under, 0 for a new one.
     long restoringId = 0;
+    /// The UID the object being restored was saved with (sec 36), and the
+    /// file's `Uid` as read, which an older file's UIDs are derived from.
+    std::string restoringUid;
+    std::string fileUid;
+    /// The objects whose UID was derived (sec 36 U3), by id: their file was
+    /// written by a build that keeps none -- an older one, or upstream's --
+    /// and an import knows them by their id and name as before.
+    std::unordered_set<long> derivedUids;
+    /// The clashes of the import under way (sec 36.4), and whether what it
+    /// brings was copied from this very document, which is never asked.
+    std::vector<Document::ImportClash> importClashes;
+    bool importFromHere = false;
+    /// Whether the last addObject() gave a new id.
+    bool freshId = false;
     /// The last geometry id of each object while the document has no file
     /// history; the history takes them when it comes (sec 27.40 item 4).
     std::unordered_map<long, long> lastGeoIds;
@@ -294,9 +310,12 @@ struct DocumentP
         long id = pcObject->getID();
         if (!id)
             id = restoringId;
+        freshId = false;
         for (;;) {
-            if (!id)
+            if (!id) {
                 id = nextObjectId();
+                freshId = true;
+            }
             auto &entry = this->objectIdMap[id];
             if (entry) {
                 id = 0;
@@ -313,6 +332,13 @@ struct DocumentP
 
     /// A new object's id: from the file's counter when the document has a
     /// history (docs/TransactionLog.md sec 27.40 item 1), else its own.
+    /// `obj` is not live here any more: its UID is free again (sec 36).
+    void forgetObjectUid(const DocumentObject* obj) {
+        auto it = objectUidMap.find(obj->getObjectUid());
+        if (it != objectUidMap.end() && it->second == obj)
+            objectUidMap.erase(it);
+    }
+
     long nextObjectId() {
         if (history) {
             history->noteObjectId(lastObjectId);
@@ -367,6 +393,7 @@ struct DocumentP
         decltype(objectMap) map = std::move(objectMap);
         objectMap.clear();
         objectIdMap.clear();
+        objectUidMap.clear();
         for (auto &v : map) {
             v.second->setStatus(ObjectStatus::Destroy, true);
             delete(v.second);

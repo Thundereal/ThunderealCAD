@@ -497,6 +497,14 @@ return A List holding all parents (or requested parent if given) and correspondi
             </Documentation>
             <Parameter Name="ID" Type="Int"/>
         </Attribute>
+        <Attribute Name="ObjectUid" ReadOnly="true">
+            <Documentation>
+                <UserDocu>What the object is known by across copies of its file and across documents:
+given when it is created, kept when it is saved, restored or brought elsewhere,
+new only where a live object has it already (docs/TransactionLog.md sec 36)</UserDocu>
+            </Documentation>
+            <Parameter Name="ObjectUid" Type="String"/>
+        </Attribute>
         <Attribute Name="Removing" ReadOnly="true">
             <Documentation>
                 <UserDocu>Indicate if the object is being removed</UserDocu>

@@ -161,16 +161,19 @@ viewType (String): override the view provider type directly, only effective when
         <UserDocu>Remove a number of objects from the document</UserDocu>
       </Documentation>
     </Methode>
-    <Methode Name="copyObject">
+    <Methode Name="copyObject" Keyword="true">
       <Documentation>
           <UserDocu>
-copyObject(object, with_dependencies=False, return_all=False)
+copyObject(object, with_dependencies=False, return_all=False, assign=False)
 Copy an object or objects from another document to this document.
 
 object: can either a single object or sequence of objects
 with_dependencies: if True, all internal dependent objects are copied too.
 return_all: if True, return all copied objects, or else return only the copied
             object corresponding to the input objects.
+assign: where a live object here has the UID of one copied, and its type,
+        the live one takes the copy's state instead of a duplicate being made
+        (docs/TransactionLog.md sec 36.4).
           </UserDocu>
       </Documentation>
       <Sandbox tier="call"/>

@@ -443,10 +443,13 @@ PyObject*  DocumentPy::removeObjects(PyObject *args)
     Py_Return;
 }
 
-PyObject*  DocumentPy::copyObject(PyObject *args)
+PyObject*  DocumentPy::copyObject(PyObject *args, PyObject *kwd)
 {
-    PyObject *obj, *rec=Py_False, *retAll=Py_False;
-    if (!PyArg_ParseTuple(args, "O|O!O!",&obj,&PyBool_Type,&rec,&PyBool_Type,&retAll))
+    PyObject *obj, *rec=Py_False, *retAll=Py_False, *assign=Py_False;
+    static const std::array<const char*, 5> kwlist {"object", "with_dependencies", "return_all",
+                                                    "assign", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args, kwd, "O|O!O!O!", kwlist, &obj, &PyBool_Type,
+                                             &rec, &PyBool_Type, &retAll, &PyBool_Type, &assign))
         return nullptr;
 
     std::vector<App::DocumentObject*> objs;
@@ -472,6 +475,9 @@ PyObject*  DocumentPy::copyObject(PyObject *args)
     }
 
     PY_TRY {
+        App::Document::ImportClashScope clashes(Base::asBoolean(assign)
+                                                    ? App::Document::ImportClashScope::Assign
+                                                    : App::Document::ImportClashScope::Duplicate);
         auto ret = getDocumentPtr()->copyObject(objs, Base::asBoolean(rec), Base::asBoolean(retAll));
         if (ret.size()==1 && single)
             return ret[0]->getPyObject();

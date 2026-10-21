@@ -141,6 +141,43 @@ public:
         _idOfName.emplace(name, id);
         _nameOfId.emplace(id, name);
     }
+    /** The file's object UIDs (docs/TransactionLog.md sec 36.3): one to
+     * one, object id <-> UID, over every version and branch. An object made
+     * under an id the file knows has its UID; one brought with a UID the
+     * file knows comes back under its id.
+     */
+    /// The UID the table gives `id`, null if none.
+    const std::string* objectUidOfId(long id) const
+    {
+        auto it = _uidOfId.find(id);
+        return it == _uidOfId.end() ? nullptr : &it->second;
+    }
+    /// The id `uid` was given to, 0 if none.
+    long objectIdOfUid(const std::string& uid) const
+    {
+        auto it = _idOfUid.find(uid);
+        return it == _idOfUid.end() ? 0 : it->second;
+    }
+    /// `id` has `uid`; the first pairing of either stays.
+    void noteObjectUid(long id, const std::string& uid)
+    {
+        if (uid.empty() || id <= 0 || _idOfUid.count(uid) || _uidOfId.count(id))
+            return;
+        _idOfUid.emplace(uid, id);
+        _uidOfId.emplace(id, uid);
+    }
+    /// Every (id, UID) pair, in no order.
+    const std::unordered_map<long, std::string>& objectUids() const { return _uidOfId; }
+    /** The file's own `Uid` as its documents were read with it: what the
+     * UID of an object of a file from before UIDs is derived from (sec 36
+     * U3). Empty until a document of the file says it.
+     */
+    const std::string& fileUid() const { return _fileUid; }
+    void noteFileUid(const std::string& uid)
+    {
+        if (_fileUid.empty())
+            _fileUid = uid;
+    }
     /** The last geometry id of each object, file wide (docs/TransactionLog.md
      * sec 27.40 item 4, 27.41 Q5): a sketch edited in two branches, or
      * reopened after a deletion, mints no id twice. `floor` is the largest
@@ -171,6 +208,8 @@ public:
         _lastObjectId = 0;
         _idOfName.clear();
         _nameOfId.clear();
+        _idOfUid.clear();
+        _uidOfId.clear();
         _lastGeoIds.clear();
     }
 
@@ -200,6 +239,15 @@ public:
             gone.insert(it->first);
             ++names;
             it = _nameOfId.erase(it);
+        }
+        for (auto it = _uidOfId.begin(); it != _uidOfId.end();) {
+            if (used.count(it->first)) {
+                ++it;
+                continue;
+            }
+            _idOfUid.erase(it->second);
+            gone.insert(it->first);
+            it = _uidOfId.erase(it);
         }
         for (auto it = _lastGeoIds.begin(); it != _lastGeoIds.end();) {
             if (used.count(it->first)) {
@@ -311,6 +359,9 @@ private:
     long _lastObjectId {0};
     std::unordered_map<std::string, long> _idOfName;
     std::unordered_map<long, std::string> _nameOfId;
+    std::unordered_map<std::string, long> _idOfUid;
+    std::unordered_map<long, std::string> _uidOfId;
+    std::string _fileUid;
     StringHasherRef _hasher;
     std::unordered_set<std::string> _tables;
     std::unordered_map<long, long> _lastGeoIds;

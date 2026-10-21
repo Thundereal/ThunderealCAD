@@ -99,6 +99,13 @@ std::string dynamicMeta(const DynamicProperty::PropData& d, const Property* prop
     return m;
 }
 
+/// A `create` op's metadata: the object's UID (sec 36.3), as JSON so the
+/// store can read it; empty for none.
+std::string createMeta(const std::string& uid)
+{
+    return uid.empty() ? std::string() : "{\"uid\":\"" + uid + "\"}";
+}
+
 /// Whether a copy and the live property hold the same value, as the log
 /// sees it. isSame() compares links through getLinks(), which leaves out a
 /// target that has left the document -- "links to the removed B" and "links
@@ -214,6 +221,10 @@ public:
     { return inner().objectNames(); }
     void addObjectNames(const std::vector<std::pair<long, std::string>>& names) override
     { inner().addObjectNames(names); }
+    std::vector<std::pair<long, std::string>> objectUids() override
+    { return inner().objectUids(); }
+    void addObjectUids(const std::vector<std::pair<long, std::string>>& uids) override
+    { inner().addObjectUids(uids); }
     std::vector<std::pair<long, long>> lastGeoIds() override { return inner().lastGeoIds(); }
     void addLastGeoIds(const std::vector<std::pair<long, long>>& ids) override
     { inner().addLastGeoIds(ids); }
@@ -582,6 +593,9 @@ void TransactionLogCore::openStore()
     // And its names (item 3).
     for (const auto& n : _store->objectNames())
         _history.noteObjectName(n.second, n.first);
+    // And their UIDs (sec 36.3).
+    for (const auto& u : _store->objectUids())
+        _history.noteObjectUid(u.first, u.second);
     // And the last geometry id of each object (item 4).
     for (const auto& g : _store->lastGeoIds())
         _history.noteGeoId(g.first, g.second);
@@ -1216,6 +1230,7 @@ TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, 
     for (const auto& n : _history.objectNames())
         names.emplace_back(n.second, n.first);
     _store->addObjectNames(names);
+    _store->addObjectUids({_history.objectUids().begin(), _history.objectUids().end()});
     _store->addLastGeoIds({_history.lastGeoIds().begin(), _history.lastGeoIds().end()});
     const double tState = split();
     _store->copyTo(out.path);
@@ -3177,6 +3192,9 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
                 auto o = emit("create", "", "");
                 o->cname = c.cname;
                 o->ctype = c.ctype;
+                // Its UID (sec 36.3): the history knows it from here on.
+                if (auto obj = Base::freecad_dynamic_cast<const DocumentObject>(tobj))
+                    o->meta = createMeta(obj->getObjectUid());
                 std::map<std::string, Property*> props;
                 c.container->getPropertyMap(props);
                 for (auto& kv : props) {
@@ -3268,6 +3286,8 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
                 auto o = emit("remove", "", "");
                 o->cname = c.cname;
                 o->ctype = c.ctype;
+                if (auto obj = Base::freecad_dynamic_cast<const DocumentObject>(tobj))
+                    o->meta = createMeta(obj->getObjectUid());
                 continue;
             }
 

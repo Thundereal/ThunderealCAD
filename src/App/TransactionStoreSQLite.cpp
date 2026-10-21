@@ -103,10 +103,10 @@ bool packHash(const char* hex, size_t n, unsigned char* out)
 /** The store's layout version, PRAGMA user_version (docs/TransactionLog.md
  * sec 27.55: none from 2026-09-28, one again from 2026-10-19 for the release
  * at the end of 2026). 0 is a store from before it; 1 is the layout of
- * 2026-10-19. A change of the layout raises it and adds a step to
+ * 2026-10-19; 2 adds the object UIDs (sec 36, 2026-10-21). A change of the layout raises it and adds a step to
  * SQLiteStore::migrate(); a store of a higher number than this is refused.
  */
-constexpr int StoreVersion = 1;
+constexpr int StoreVersion = 2;
 
 /// A table of the layout: its name and its columns, as CREATE TABLE has them.
 struct TableDef
@@ -144,6 +144,8 @@ const TableDef Tables[] = {
      " created REAL, manifest BLOB)"},
     // Sec 27.40 item 3: the file's object names, one to one.
     {"objname", "(cid INTEGER PRIMARY KEY, name TEXT UNIQUE)"},
+    // Sec 36.3: the file's object UIDs, one to one.
+    {"objuid", "(cid INTEGER PRIMARY KEY, uid TEXT UNIQUE)"},
     // Item 4: the last geometry id of each object.
     {"lastgeoid", "(cid INTEGER PRIMARY KEY, id INTEGER)"},
     // Sec 27.50 item 2: the file's string table, kept once for every
@@ -302,6 +304,9 @@ public:
                          " name=CASE WHEN session.user='' THEN 'host' ELSE session.user END)"
                          " WHERE typeof(user)='text'");
                 }
+                // 2 (2026-10-21, sec 36): the table `objuid`, made above;
+                // the objects before it have none -- the documents derive
+                // theirs from the file (U3).
                 exec(("PRAGMA user_version=" + std::to_string(StoreVersion)).c_str());
                 exec("COMMIT");
             }
@@ -921,6 +926,34 @@ public:
         return out;
     }
 
+    std::vector<std::pair<long, std::string>> objectUids() override
+    {
+        std::vector<std::pair<long, std::string>> out;
+        auto read = [&](sqlite3_stmt* s) {
+            while (sqlite3_step(s) == SQLITE_ROW)
+                out.emplace_back(static_cast<long>(sqlite3_column_int64(s, 0)), text(s, 1));
+            sqlite3_reset(s);
+        };
+        read(prepare("SELECT cid, uid FROM objuid"));
+        read(prepare("SELECT cid, json_extract(meta, '$.uid') FROM op WHERE op IN ('create','remove')"
+                     " AND ckind='obj' AND json_valid(meta) AND json_extract(meta, '$.uid')<>''"
+                     " ORDER BY txn DESC, idx DESC"));
+        return out;
+    }
+
+    void addObjectUids(const std::vector<std::pair<long, std::string>>& uids) override
+    {
+        exec("BEGIN");
+        auto s = prepare("INSERT OR IGNORE INTO objuid(cid, uid) VALUES(?, ?)");
+        for (const auto& u : uids) {
+            sqlite3_bind_int64(s, 1, u.first);
+            bindText(s, 2, u.second);
+            sqlite3_step(s);
+            sqlite3_reset(s);
+        }
+        exec("COMMIT");
+    }
+
     void addObjectNames(const std::vector<std::pair<long, std::string>>& names) override
     {
         exec("BEGIN");
@@ -1167,8 +1200,9 @@ public:
         exec("BEGIN");
         auto names = prepare("DELETE FROM objname WHERE cid=?");
         auto geo = prepare("DELETE FROM lastgeoid WHERE cid=?");
+        auto uids = prepare("DELETE FROM objuid WHERE cid=?");
         for (long id : ids) {
-            for (auto s : {names, geo}) {
+            for (auto s : {names, geo, uids}) {
                 sqlite3_bind_int64(s, 1, id);
                 sqlite3_step(s);
                 sqlite3_reset(s);

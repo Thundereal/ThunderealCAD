@@ -362,6 +362,44 @@ public:
     ExportStatus isExporting(const App::DocumentObject *obj) const;
     void exportObjects(const std::vector<App::DocumentObject*>&, std::ostream&);
     void exportGraphviz(std::ostream&) const;
+    /** An object brought into this document -- a paste, a merge, a copy --
+     * whose UID a live object of its type here has (docs/TransactionLog.md
+     * sec 36.4): the copy made, and the object it may be instead.
+     */
+    struct ImportClash
+    {
+        DocumentObject* brought = nullptr;
+        DocumentObject* live = nullptr;
+        bool assign = false;
+    };
+    /** How the clashes of an import on this thread are taken: duplicated
+     * (the default, and always for a copy into its own document), assigned,
+     * or as `ask` says -- setting `assign` on each; false cancels the
+     * import, and nothing it brought stays.
+     */
+    class AppExport ImportClashScope
+    {
+    public:
+        enum Mode
+        {
+            Duplicate,
+            Assign,
+            Ask,
+        };
+        explicit ImportClashScope(Mode mode,
+                                  std::function<bool(std::vector<ImportClash>&)> ask = {});
+        ~ImportClashScope();
+        ImportClashScope(const ImportClashScope&) = delete;
+        ImportClashScope& operator=(const ImportClashScope&) = delete;
+        /// The innermost scope of this thread, null if none.
+        static ImportClashScope* current();
+
+        Mode mode;
+        std::function<bool(std::vector<ImportClash>&)> ask;
+
+    private:
+        ImportClashScope* _previous;
+    };
     std::vector<App::DocumentObject*> importObjects(Base::XMLReader& reader);
     /** Import any externally linked objects
      *
@@ -436,6 +474,17 @@ public:
      * when there is no log.
      */
     bool restoreVersion(int64_t num);
+    /** As restoreVersion(), and an object the version names as a key of
+     * `names` is made under the name it maps to, what refers to it read
+     * through the same map -- where the name is free once the restore has
+     * removed what goes (docs/TransactionLog.md sec 36 U7): Take theirs
+     * gives their objects the names the import could not.
+     */
+    bool restoreVersion(int64_t num, const std::map<std::string, std::string>& names);
+    /** The names the import of a file onto `branch` could not keep (sec
+     * 30.4 P4): the name an object has here, to the one its file gave it.
+     */
+    std::map<std::string, std::string> importedNames(const std::string& branch) const;
     /** Open version `num` of this document's file as a document of its own
      * (docs/TransactionLog.md sec 27.5, 27.7): on the file's one log, at
      * that version, named `<file>@v<num>`, with status VersionDoc. A
@@ -1831,6 +1880,14 @@ protected:
 
     void _removeObject(DocumentObject* pcObject);
     void _addObject(DocumentObject* pcObject, const char* pObjectName);
+    /// The UID of an object just given its id (docs/TransactionLog.md sec 36.3).
+    void _giveObjectUid(DocumentObject* pcObject, bool freshId, const std::string& name);
+    /// The clashes of an import taken as its scope says (sec 36.4); the
+    /// objects brought, an assigned one's copy replaced by the live one.
+    std::vector<DocumentObject*> _settleImportClashes(std::vector<DocumentObject*> objs);
+    std::vector<DocumentObject*> _importObjects(Base::XMLReader& reader);
+    /// What the UID of an object of a file from before UIDs is (sec 36 U3).
+    std::string _derivedObjectUid(long id, const std::string& name) const;
     /// checks if a valid transaction is open
     void _checkTransaction(DocumentObject* pcDelObj, const Property *What, int line);
     void breakDependency(DocumentObject* pcObject, bool clear);
@@ -1902,7 +1959,8 @@ protected:
     /// Make this document what `version` (a scratch document holding a
     /// version) is, recorded into the open transaction (sec 24.5); the view
     /// providers too when `views`, or under ViewObjectTransaction.
-    void _applyVersion(Document& version, bool views = false);
+    void _applyVersion(Document& version, bool views = false,
+                       const std::map<std::string, std::string>* names = nullptr);
     /// Version `num` read into a document of its own as openFileVersion()
     /// reads one -- joined to this file's history, blobs by hash, no view,
     /// no log (sec 27.60) -- handed to `fn`, and closed.

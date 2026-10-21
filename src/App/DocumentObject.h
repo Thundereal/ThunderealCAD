@@ -164,6 +164,12 @@ public:
     const char *getNameInDocument() const;
     /// Return the object ID that is unique within its owner document
     long getID() const {return _Id;}
+    /** What the object is known by across copies of its file and across
+     * documents (docs/TransactionLog.md sec 36): given when it is created,
+     * kept when it is saved, restored or brought elsewhere, new only where
+     * a live object has it already.
+     */
+    const std::string& getObjectUid() const {return _uid;}
     /// returns the name that is safe to be exported to other document
     std::string getExportName(bool forced=false) const;
     /// Return the object full name of the form DocName#ObjName
@@ -1000,6 +1006,8 @@ private:
 
     // unique identifier (among a document) of this object.
     long _Id{0};
+    // sec 36, set by App::Document
+    std::string _uid;
 
 private:
     // Back pointer to all the fathers in a DAG of the document

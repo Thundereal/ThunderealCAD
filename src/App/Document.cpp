@@ -2083,6 +2083,7 @@ void Document::clearDocument()
     d->objectArray.clear();
     d->objectMap.clear();
     d->objectIdMap.clear();
+    d->objectUidMap.clear();
     d->lastObjectId = 0;
     // The ids of a file are never handed out again (sec 27.40), which is
     // for its versions and branches. A temporary document has neither, and
@@ -2802,6 +2803,13 @@ void Document::Restore(Base::XMLReader &reader)
 
     if (reader.hasAttribute("Uid"))
         Uid.setValue(reader.getAttribute("Uid"));
+    // The file's Uid as read, before a clash with an open copy changes it:
+    // what an older file's object UIDs are derived from (sec 36 U3).
+    if (reader.hasAttribute("Uid")) {
+        d->fileUid = reader.getAttribute("Uid");
+        if (d->history)
+            d->history->noteFileUid(d->fileUid);
+    }
 
     // Both flags belong to the document element, and reading an element of
     // its own below replaces the attributes -- so take them while they are
@@ -3266,9 +3274,21 @@ void Document::exportObjects(const std::vector<App::DocumentObject*>& obj, std::
 
     writer.putNextEntry("Document.xml");
     writer.Stream() << "<?xml version='1.0' encoding='utf-8'?>\n";
+    // The document the objects are copied from, so that a paste into it is
+    // known for a copy beside them (sec 36.4): its transient directory,
+    // which no other open document has.
+    std::set<Document*> from;
+    for (auto o : obj) {
+        if (o && o->getDocument())
+            from.insert(o->getDocument());
+    }
     writer.Stream() << R"(<Document SchemaVersion=")" << writer.getSchemaVersion()
-                        << R"(" ProgramVersion=")" << programVersionAttribute()
-                        << R"(" FileVersion="1">\n)";
+                        << R"(" ProgramVersion=")" << programVersionAttribute() << '"';
+    if (from.size() == 1)
+        writer.Stream() << R"( From=")"
+                        << Property::encodeAttribute((*from.begin())->TransientDir.getStrValue())
+                        << '"';
+    writer.Stream() << R"( FileVersion="1">)" << '\n';
     // Add this block to have the same layout as for normal documents
     writer.Stream() << "<Properties Count=\"0\">\n";
     writer.Stream() << "</Properties>\n";
@@ -3810,6 +3830,9 @@ void Document::writeObjects(const std::vector<App::DocumentObject*>& obj,
         << "name=\"" << (*it)->getExportName()       << "\" "
         << "id=\"" << (*it)->getID()       << "\" "
         << "revision=\"" << (*it)->getRevision() << "\" ";
+        // Sec 36: what the object is known by across copies and documents.
+        if (!(*it)->getObjectUid().empty())
+            writer.Stream() << "uid=\"" << (*it)->getObjectUid() << "\" ";
 
         // Only write out custom view provider types
         std::string viewType = (*it)->getViewProviderNameStored();
@@ -4152,6 +4175,10 @@ Document::readObjects(Base::XMLReader& reader)
         d->restoringId = 0;
         if(!testStatus(Status::Importing) && reader.hasAttribute("id"))
             d->restoringId = reader.getAttributeAsInteger("id");
+        // Its UID (sec 36), which an import keeps unless a live object here
+        // has it; an object saved before UIDs, restored, gets one derived
+        // from the file (U3).
+        d->restoringUid = reader.getAttribute("uid", "");
 
         // To prevent duplicate name when export/import of objects from
         // external documents, we append those external object name with
@@ -4169,6 +4196,22 @@ Document::readObjects(Base::XMLReader& reader)
         }else
             obj_name = name.c_str();
 
+        // Sec 36.3: brought with a UID the file gave an id no live object
+        // has -- pasted back after it was removed -- it is that object
+        // again, under its id and the name the file gave it.
+        if (testStatus(Status::Importing) && d->history && !d->restoringUid.empty()
+                && !d->objectUidMap.count(d->restoringUid)) {
+            const long cid = d->history->objectIdOfUid(d->restoringUid);
+            if (cid && !d->objectIdMap.count(cid)) {
+                d->restoringId = cid;
+                const std::string* known = d->history->objectNameOfId(cid);
+                if (known && !getObject(known->c_str())) {
+                    _obj_name = *known;
+                    obj_name = _obj_name.c_str();
+                }
+            }
+        }
+
         try {
             // Use name from XML as is and do NOT remove trailing digits because
             // otherwise we may cause a dependency to itself
@@ -4179,8 +4222,9 @@ Document::readObjects(Base::XMLReader& reader)
             {
                 struct Reset {
                     long& id;
-                    ~Reset() { id = 0; }
-                } reset {d->restoringId};
+                    std::string& uid;
+                    ~Reset() { id = 0; uid.clear(); }
+                } reset {d->restoringId, d->restoringUid};
                 obj = addObject(type.c_str(), obj_name, /*isNew=*/ false, viewType.c_str(), partial);
             }
             FC_DURATION_PLUS(d->restoreTiming.createAdd, tAdd);
@@ -4274,6 +4318,14 @@ void Document::addRecomputeObject(DocumentObject *obj) {
 std::vector<App::DocumentObject*>
 Document::importObjects(Base::XMLReader& reader)
 {
+    // The clashes (sec 36.4) are settled once the import is over: they are
+    // changes like any, read through a name map of their own.
+    return _settleImportClashes(_importObjects(reader));
+}
+
+std::vector<App::DocumentObject*>
+Document::_importObjects(Base::XMLReader& reader)
+{
     d->hashers.clear();
     Base::FlagToggler<> flag(globalIsRestoring, false);
     Base::ObjectStatusLocker<Status, Document> restoreBit(Status::Restoring, this);
@@ -4298,6 +4350,11 @@ Document::importObjects(Base::XMLReader& reader)
     } else {
         reader.FileVersion = 0;
     }
+
+    // Copied from this very document (sec 36.4): a clash is a copy beside.
+    d->importFromHere = reader.hasAttribute("From")
+        && TransientDir.getStrValue() == reader.getAttribute("From");
+    d->importClashes.clear();
 
     // The imported objects' included files come in the same archive; they
     // become this document's content, counted against this document's store.
@@ -4350,6 +4407,140 @@ Document::importObjects(Base::XMLReader& reader)
     }
 
     d->hashers.clear();
+    return objs;
+}
+
+namespace {
+thread_local Document::ImportClashScope* importClashScope = nullptr;
+}
+
+Document::ImportClashScope::ImportClashScope(Mode mode,
+                                             std::function<bool(std::vector<ImportClash>&)> ask)
+    : mode(mode)
+    , ask(std::move(ask))
+    , _previous(importClashScope)
+{
+    importClashScope = this;
+}
+
+Document::ImportClashScope::~ImportClashScope()
+{
+    importClashScope = _previous;
+}
+
+Document::ImportClashScope* Document::ImportClashScope::current()
+{
+    return importClashScope;
+}
+
+std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<DocumentObject*> objs)
+{
+    // docs/TransactionLog.md sec 36.4. Each clash came in as a copy, under
+    // a UID of its own: duplicated, it stays so. Assigned, what refers to
+    // the copy among the objects brought refers to the live one, the live
+    // one takes the copy's state, and the copy goes.
+    std::vector<ImportClash> clashes = std::move(d->importClashes);
+    d->importClashes.clear();
+    d->importFromHere = false;
+    if (clashes.empty())
+        return objs;
+    auto scope = ImportClashScope::current();
+    const auto mode = scope ? scope->mode : ImportClashScope::Duplicate;
+    if (mode == ImportClashScope::Assign) {
+        for (auto& c : clashes)
+            c.assign = true;
+    }
+    else if (mode == ImportClashScope::Ask && scope->ask && !scope->ask(clashes)) {
+        // Cancelled: nothing brought stays.
+        for (auto it = objs.rbegin(); it != objs.rend(); ++it) {
+            if (*it && (*it)->isAttachedToDocument())
+                removeObject((*it)->getNameInDocument());
+        }
+        THROWM(Base::AbortException, "the paste was cancelled");
+    }
+    std::map<DocumentObject*, DocumentObject*> assigned;
+    for (const auto& c : clashes) {
+        if (c.assign && c.brought && c.live && c.brought->isAttachedToDocument()
+                && c.live->isAttachedToDocument())
+            assigned.emplace(c.brought, c.live);
+    }
+    if (assigned.empty())
+        return objs;
+
+    // 1. What the objects brought refer to.
+    for (auto o : objs) {
+        if (!o || !o->isAttachedToDocument())
+            continue;
+        std::vector<Property*> props;
+        o->getPropertyList(props);
+        for (auto prop : props) {
+            auto link = Base::freecad_dynamic_cast<PropertyLinkBase>(prop);
+            if (!link)
+                continue;
+            for (const auto& kv : assigned) {
+                std::unique_ptr<Property> copy(link->CopyOnLinkReplace(o, kv.first, kv.second));
+                if (copy)
+                    prop->Paste(*copy);
+            }
+        }
+    }
+    // 2. The live one takes the copy's state: its dynamic properties, then
+    // every value as a save writes it, read back through the names of the
+    // copies -- the label left, which the copy got made unique beside the
+    // live one.
+    std::map<std::string, std::string> names;
+    for (const auto& [copy, live] : assigned)
+        names[copy->getNameInDocument()] = live->getNameInDocument();
+    CaptureConfig config(*this);
+    std::vector<std::pair<std::pair<DocumentObject*, std::string>, CapturedValue>> values;
+    for (const auto& [copy, live] : assigned) {
+        std::map<std::string, Property*> want, have;
+        copy->getPropertyMap(want);
+        live->getPropertyMap(have);
+        for (auto& kv : have) {
+            if (!want.count(kv.first) && !live->getDynamicPropertyData(kv.second).name.empty())
+                live->removeDynamicProperty(kv.first.c_str());
+        }
+        for (auto& kv : want) {
+            const short type = copy->getPropertyType(kv.second);
+            if ((type & Prop_Transient) || (type & Prop_NoPersist) || kv.first == "Label")
+                continue;
+            Property* prop = live->getPropertyByName(kv.first.c_str());
+            if (!prop) {
+                auto dyn = copy->getDynamicPropertyData(kv.second);
+                if (dyn.name.empty())
+                    continue;
+                prop = live->addDynamicProperty(kv.second->getTypeId().getName(),
+                                                kv.first.c_str(), dyn.group.c_str(),
+                                                dyn.getDoc(), dyn.attr, dyn.readonly, dyn.hidden);
+            }
+            if (!prop || prop->getTypeId() != kv.second->getTypeId())
+                continue;
+            CapturedValue v = captureValue(config, *kv.second);
+            if (!v.ok)
+                THROWM(Base::RuntimeError, "cannot read the value of " + kv.first);
+            values.push_back({{live, kv.first}, std::move(v)});
+        }
+    }
+    {
+        RestoreNames through(names);
+        RestoreBatch batch;
+        for (const auto& [key, v] : values) {
+            if (auto prop = key.first->getPropertyByName(key.second.c_str()))
+                restoreValue(*prop, v);
+        }
+        batch.finish();
+    }
+    for (const auto& kv : assigned)
+        kv.second->touch();
+    // 3. The copies go; the objects brought are the live ones in their place.
+    for (const auto& kv : assigned)
+        removeObject(kv.first->getNameInDocument());
+    for (auto& o : objs) {
+        auto it = assigned.find(o);
+        if (it != assigned.end())
+            o = it->second;
+    }
     return objs;
 }
 
@@ -5560,6 +5751,7 @@ void Document::restore(Base::XMLReader &reader,
     d->objectArray.clear();
     d->objectMap.clear();
     d->objectIdMap.clear();
+    d->objectUidMap.clear();
     d->lastObjectId = 0;
 
     if(signal) {
@@ -6062,7 +6254,8 @@ void copyBlob(FileBlobManager& manager, const FileBlobManager& from, const FileB
 
 } // namespace
 
-void Document::_applyVersion(Document& version, bool views)
+void Document::_applyVersion(Document& version, bool views,
+                             const std::map<std::string, std::string>* names)
 {
     // docs/TransactionLog.md sec 24.5, in the passes of 24.3: what the
     // version lacks goes, what it has comes (under its id and name), the
@@ -6084,10 +6277,19 @@ void Document::_applyVersion(Document& version, bool views)
 
     // 1. Objects the version does not have, or has as another type.
     std::vector<std::string> gone;
+    auto nameOf = [names](const DocumentObject* obj) {
+        const char* name = obj->getNameInDocument();
+        if (names) {
+            auto it = names->find(name);
+            if (it != names->end())
+                return it->second.c_str();
+        }
+        return name;
+    };
     for (auto obj : getObjects()) {
         auto it = target.find(obj->getID());
         if (it == target.end() || it->second->getTypeId() != obj->getTypeId()
-                || strcmp(it->second->getNameInDocument(), obj->getNameInDocument()) != 0)
+                || strcmp(nameOf(it->second), obj->getNameInDocument()) != 0)
             gone.emplace_back(obj->getNameInDocument());
     }
     for (const auto& name : gone)
@@ -6096,11 +6298,13 @@ void Document::_applyVersion(Document& version, bool views)
                 removeObject(name.c_str());
         });
 
-    // 2. Objects the version has, under its id and name.
+    // 2. Objects the version has, under its id and name -- or the name
+    // `names` gives it back (sec 36 U7), the one removed above having held
+    // it.
     for (auto& kv : target) {
         if (getObjectByID(kv.first))
             continue;
-        const char* name = kv.second->getNameInDocument();
+        const char* name = nameOf(kv.second);
         guarded(name, [&]() {
             if (getObject(name))
                 THROWM(Base::RuntimeError, "name taken by another object");
@@ -6727,7 +6931,17 @@ const ImportSetRecord* ImportSetRecord::current()
     return _ImportSetRecord;
 }
 
+namespace {
+/// The names a restore gives back (sec 36 U7), while it runs.
+thread_local const std::map<std::string, std::string>* givenNames = nullptr;
+}  // namespace
+
 bool Document::restoreVersion(int64_t num)
+{
+    return restoreVersion(num, {});
+}
+
+bool Document::restoreVersion(int64_t num, const std::map<std::string, std::string>& names)
 {
     OperationScope scope;   // sec 27.38
     // docs/TransactionLog.md sec 24.5: a restore to version N is one
@@ -6767,9 +6981,27 @@ bool Document::restoreVersion(int64_t num)
     for (auto obj : getObjects())
         before.emplace(obj->getID(), touchedStateOf(*obj));
     const int64_t head = log->head();
+    // Names given back (sec 36 U7), to the walk along the log or, failing
+    // it, to the version read whole.
+    struct Given
+    {
+        const std::map<std::string, std::string>* before;
+        ~Given() { givenNames = before; }
+    } given {givenNames};
+    givenNames = names.empty() ? nullptr : &names;
     if (!_moveAlongLog(head, version.seq, DocumentParams::getViewObjectTransaction())) {
         FC_LOG(getName() << ": version " << num << " restored by reading it whole");
-        _readVersion(num, [&](Document& read) { _applyVersion(read); });
+        _readVersion(num, [&](Document& read) {
+            std::map<std::string, std::string> kept;
+            for (const auto& kv : names) {
+                if (read.getObject(kv.first.c_str()) && !read.getObject(kv.second.c_str()))
+                    kept.insert(kv);
+            }
+            std::optional<RestoreNames> through;
+            if (!kept.empty())
+                through.emplace(kept);
+            _applyVersion(read, false, kept.empty() ? nullptr : &kept);
+        });
     }
     std::map<long, TouchedState> after;
     for (auto obj : getObjects()) {
@@ -7972,12 +8204,41 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
         o.cid = std::get<1>(key);
         return opContainer(*this, o);
     };
+    // 0. Names given back (sec 36 U7): an object the end has under a name
+    // `givenNames` maps to one no object has at the end comes under that
+    // one, what holds it here now -- gone at the end -- removed first, and
+    // every value read through the names.
+    std::map<std::string, std::string> given;
+    if (givenNames) {
+        std::set<std::string> atEnd;
+        for (const auto& kv : fold.objects) {
+            if (kv.second.exists)
+                atEnd.insert(kv.second.name);
+        }
+        for (const auto& kv : *givenNames) {
+            if (atEnd.count(kv.first) && !atEnd.count(kv.second))
+                given.insert(kv);
+        }
+        for (const auto& kv : given) {
+            auto holder = getObject(kv.second.c_str());
+            if (!holder)
+                continue;
+            auto it = fold.objects.find(holder->getID());
+            if (it != fold.objects.end() && !it->second.exists)
+                guarded("remove", kv.second, [&]() { removeObject(kv.second.c_str()); });
+        }
+    }
+    std::optional<RestoreNames> renaming;
+    if (!given.empty())
+        renaming.emplace(given);
     // 1. The objects there at the end that are not, under id and name.
     for (const auto& kv : fold.objects) {
         if (!kv.second.exists || getObjectByID(kv.first))
             continue;
-        guarded("create", kv.second.name, [&]() {
-            if (getObject(kv.second.name.c_str()))
+        auto named = given.find(kv.second.name);
+        const std::string name = named == given.end() ? kv.second.name : named->second;
+        guarded("create", name, [&]() {
+            if (getObject(name.c_str()))
                 THROWM(Base::RuntimeError, "name taken by another object");
             Base::Type type = Base::Type::getTypeIfDerivedFrom(
                 kv.second.type.c_str(), DocumentObject::getClassTypeId(), true);
@@ -7985,7 +8246,7 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
             if (!obj)
                 THROWM(Base::RuntimeError, "cannot create " + kv.second.type);
             obj->_Id = kv.first;
-            addObject(obj, kv.second.name.c_str(), false);
+            addObject(obj, name.c_str(), false);
         });
     }
     // 2. Dynamic properties as they end.
@@ -8273,6 +8534,7 @@ struct NetChange
         bool alive {true};
         std::string cname;
         std::string ctype;
+        std::string meta;   ///< its UID (sec 36.3), as its ops say it
     };
     struct Val
     {
@@ -8331,6 +8593,8 @@ struct NetChange
                 obj.alive = o.op == "create";
                 obj.cname = o.cname;
                 obj.ctype = o.ctype;
+                if (!o.meta.empty())
+                    obj.meta = o.meta;
                 continue;
             }
             if (o.ckind == "obj")
@@ -8406,6 +8670,7 @@ struct NetChange
             c.cid = cid;
             c.cname = obj.cname;
             c.ctype = obj.ctype;
+            c.meta = obj.meta;
             ops.push_back(c);
             for (const Key* k : ofObject[cid]) {
                 const Key& key = *k;
@@ -8472,6 +8737,7 @@ struct NetChange
             r.cid = cid;
             r.cname = obj.cname;
             r.ctype = obj.ctype;
+            r.meta = obj.meta;
             ops.push_back(r);
         }
         return ops;
@@ -9034,6 +9300,22 @@ size_t Document::squashVersions(int64_t from, int64_t to)
 }
 
 namespace {
+
+/// The UID a `create` or `remove` op says its object has (sec 36.3),
+/// empty for none: one written before UIDs.
+std::string uidOfOp(const LogOp& o)
+{
+    if (o.meta.empty() || o.meta.front() != '{')
+        return {};
+    try {
+        auto j = nlohmann::json::parse(o.meta);
+        if (j.is_object() && j.contains("uid") && j["uid"].is_string())
+            return j["uid"].get<std::string>();
+    }
+    catch (...) {
+    }
+    return {};
+}
 
 /// A row's ops taken back -- newest first, each reversed -- so that a run
 /// of rows crossed backward folds into a NetChange like one crossed forward.
@@ -12410,6 +12692,7 @@ struct MadeObject
     std::string name;
     std::string source;
     std::string type;
+    std::string uid;   ///< sec 36.3, empty for a row written before UIDs
 };
 
 std::vector<MadeObject> madeBy(TransactionStore& store, const LogTransaction& t)
@@ -12432,6 +12715,7 @@ std::vector<MadeObject> madeBy(TransactionStore& store, const LogTransaction& t)
         m.id = o.cid;
         m.name = o.cname;
         m.type = o.ctype;
+        m.uid = uidOfOp(o);
         auto it = was.find(o.cname);
         m.source = it == was.end() ? o.cname : it->second;
         out.push_back(std::move(m));
@@ -12479,9 +12763,20 @@ void sameObjects(TransactionStore& scan, const std::vector<LogTransaction>& rows
         const auto theirs = madeBy(other, there);
         std::vector<int> match(mine.size(), -1);
         std::vector<bool> used(theirs.size(), false);
+        // By the UID first (sec 36 U6), where both rows say one.
         for (size_t i = 0; i < mine.size(); ++i) {
-            for (size_t j = 0; j < theirs.size(); ++j) {
+            for (size_t j = 0; j < theirs.size() && !mine[i].uid.empty(); ++j) {
+                if (!used[j] && mine[i].type == theirs[j].type && mine[i].uid == theirs[j].uid) {
+                    match[i] = static_cast<int>(j);
+                    used[j] = true;
+                    break;
+                }
+            }
+        }
+        for (size_t i = 0; i < mine.size(); ++i) {
+            for (size_t j = 0; j < theirs.size() && match[i] < 0; ++j) {
                 if (!used[j] && mine[i].type == theirs[j].type
+                        && (mine[i].uid.empty() || theirs[j].uid.empty())
                         && mine[i].source == theirs[j].source) {
                     match[i] = static_cast<int>(j);
                     used[j] = true;
@@ -12655,6 +12950,26 @@ bool closedPart(TransactionStore& theirs, int64_t current, LogBranch& closed, Lo
 }
 
 } // namespace
+
+std::map<std::string, std::string> Document::importedNames(const std::string& branch) const
+{
+    // Sec 36 U7: the rows an import made on the branch say the names they
+    // could not keep -- the branch's own rows, not those it started from.
+    std::map<std::string, std::string> out;
+    TransactionLog* log = const_cast<Document*>(this)->getTransactionLog();
+    LogBranch b;
+    if (!log || !log->store().findBranch(branch, b))
+        return out;
+    for (const auto& t : log->store().history(b.head)) {
+        if (t.branch != b.id || !isReplayed(t))
+            continue;
+        for (const auto& m : madeBy(log->store(), t)) {
+            if (m.source != m.name)
+                out[m.name] = m.source;
+        }
+    }
+    return out;
+}
 
 std::vector<Document::ForkBranch> Document::forkBranches(const std::string& path)
 {
@@ -12881,11 +13196,23 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
     std::set<long> kept;
     for (auto theirs : from.getObjects()) {
         const std::string name = theirs->getNameInDocument();
-        DocumentObject* mine = getObjectByID(here(theirs->getID()));
-        const std::string expect = names.count(name) ? names[name] : name;
-        if (mine && (mine->getTypeId() != theirs->getTypeId() || kept.count(mine->getID())
-                     || expect != mine->getNameInDocument()))
-            mine = nullptr;
+        // Sec 36 U6: theirs is the one here of its UID and its type, the
+        // name not asked. A UID derived for a file written by a build that
+        // keeps none says nothing of ours, and the id and the name do, as
+        // before (30.19 G7).
+        const std::string& uid = theirs->getObjectUid();
+        DocumentObject* mine = nullptr;
+        if (auto it = d->objectUidMap.find(uid); !uid.empty() && it != d->objectUidMap.end()
+                && it->second->getTypeId() == theirs->getTypeId()
+                && !kept.count(it->second->getID()))
+            mine = it->second;
+        if (!mine && from.d->derivedUids.count(theirs->getID())) {
+            mine = getObjectByID(here(theirs->getID()));
+            const std::string expect = names.count(name) ? names[name] : name;
+            if (mine && (mine->getTypeId() != theirs->getTypeId() || kept.count(mine->getID())
+                         || expect != mine->getNameInDocument()))
+                mine = nullptr;
+        }
         if (!mine) {
             auto obj = static_cast<DocumentObject*>(theirs->getTypeId().createInstance());
             if (!obj)
@@ -12897,7 +13224,22 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
             // -- unless `kin`, the document asked, has it as another type
             // -- and comes under both, as an object does on any branch of
             // its file. That is what lets a merge see the two as one.
-            if (kin && !ids.count(theirs->getID()) && !names.count(name)) {
+            // Sec 36.3: it comes with its UID; one the file gave an id
+            // (an object of ours removed here) is that object again, under
+            // its id and its name.
+            const bool derived = from.d->derivedUids.count(theirs->getID()) != 0;
+            std::string wanted = name;
+            obj->_uid = uid;
+            if (!derived && !uid.empty()) {
+                const long cid = d->history->objectIdOfUid(uid);
+                if (cid && !getObjectByID(cid)) {
+                    obj->_Id = cid;
+                    const std::string* known = d->history->objectNameOfId(cid);
+                    if (known && !getObject(known->c_str()))
+                        wanted = *known;
+                }
+            }
+            if (derived && kin && !ids.count(theirs->getID()) && !names.count(name)) {
                 const std::string* known = d->history->objectNameOfId(theirs->getID());
                 const DocumentObject* same = kin->getObjectByID(theirs->getID());
                 if (known && *known == name && !getObjectByID(theirs->getID())
@@ -12907,10 +13249,9 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
             }
             // Sec 30.33: one of this file's own that the copy took and this
             // branch has not got comes under the id and the name it has.
-            std::string wanted = name;
             auto both = paired ? paired->find(theirs->getID())
                                : std::map<long, long>::const_iterator();
-            if (paired && both != paired->end() && !getObjectByID(both->second)) {
+            if (!obj->_Id && paired && both != paired->end() && !getObjectByID(both->second)) {
                 const std::string* known = d->history->objectNameOfId(both->second);
                 if (known && !getObject(known->c_str())) {
                     obj->_Id = both->second;
@@ -12929,6 +13270,17 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
                 names.erase(name);
             }
             mine = obj;
+        }
+        else {
+            // Found by its UID, under an id or a name of its own here.
+            if (mine->getID() != theirs->getID())
+                ids[theirs->getID()] = mine->getID();
+            else
+                ids.erase(theirs->getID());
+            if (name != mine->getNameInDocument())
+                names[name] = mine->getNameInDocument();
+            else
+                names.erase(name);
         }
         kept.insert(mine->getID());
         pairs.emplace_back(theirs, mine);
@@ -13872,7 +14224,13 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                         long asId = 0;
                         std::string wanted = o.cname;
                         long held = 0;
-                        if (auto both = same.find(o.cid); both != same.end())
+                        // Sec 36.3: first by its UID -- the one the file
+                        // gave an id is that object.
+                        const std::string uid = uidOfOp(o);
+                        const long byUid = uid.empty() ? 0 : d->history->objectIdOfUid(uid);
+                        if (byUid)
+                            held = byUid;
+                        else if (auto both = same.find(o.cid); both != same.end())
                             held = both->second;
                         else if (auto brought = ids.find(o.cid); brought != ids.end())
                             held = brought->second;
@@ -13894,6 +14252,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                             THROWM(Base::RuntimeError, "cannot create " + o.ctype);
                         if (asId)
                             obj->_Id = asId;
+                        obj->_uid = uid;
                         replay->addObject(obj, wanted.c_str(), false);
                         ids[o.cid] = obj->getID();
                         const std::string name = obj->getNameInDocument();
@@ -14965,8 +15324,12 @@ void Document::_noteObjectsInHistory() const
     // the file's (item 2) unless it hashed already.
     d->history->noteObjectId(d->lastObjectId);
     d->Hasher = d->history->shareHasher(d->Hasher);
-    for (auto obj : d->objectArray)
+    for (auto obj : d->objectArray) {
         d->history->noteObjectName(obj->getNameInDocument(), obj->getID());
+        d->history->noteObjectUid(obj->getID(), obj->getObjectUid());
+    }
+    if (!d->fileUid.empty())
+        d->history->noteFileUid(d->fileUid);
     for (const auto& g : d->lastGeoIds)
         d->history->noteGeoId(g.first, g.second);
     d->lastGeoIds.clear();
@@ -16212,6 +16575,7 @@ DocumentObject * Document::addObject(const char* sType, const char* pObjectName,
     d->objectMap[ObjectName] = pcObject;
     // generate object id and add to id map;
     pcObject->_Id = d->addObject(pcObject);
+    _giveObjectUid(pcObject, d->freshId, ObjectName);
     d->noteObjectName(ObjectName, pcObject->_Id);
     // cache the pointer to the name string in the Object (for performance of DocumentObject::getNameInDocument())
     pcObject->pcNameInDocument = &(d->objectMap.find(ObjectName)->first);
@@ -16329,6 +16693,7 @@ std::vector<DocumentObject *> Document::addObjects(const char* sType, const std:
         d->objectMap[ObjectName] = pcObject;
         // generate object id and add to id map;
         pcObject->_Id = d->addObject(pcObject);
+        _giveObjectUid(pcObject, d->freshId, ObjectName);
         d->noteObjectName(ObjectName, pcObject->_Id);
         // cache the pointer to the name string in the Object (for performance of DocumentObject::getNameInDocument())
         pcObject->pcNameInDocument = &(d->objectMap.find(ObjectName)->first);
@@ -16399,6 +16764,7 @@ void Document::addObject(DocumentObject* pcObject, const char* pObjectName, bool
     d->objectMap[ObjectName] = pcObject;
     // generate object id and add to id map;
     pcObject->_Id = d->addObject(pcObject);
+    _giveObjectUid(pcObject, d->freshId, ObjectName);
     d->noteObjectName(ObjectName, pcObject->_Id);
     // cache the pointer to the name string in the Object (for performance of DocumentObject::getNameInDocument())
     pcObject->pcNameInDocument = &(d->objectMap.find(ObjectName)->first);
@@ -16423,12 +16789,64 @@ void Document::addObject(DocumentObject* pcObject, const char* pObjectName, bool
     signalActivatedObject(*pcObject);
 }
 
+void Document::_giveObjectUid(DocumentObject* pcObject, bool freshId, const std::string& name)
+{
+    // docs/TransactionLog.md sec 36.3: one UID, one id. An object made
+    // under an id the file knows has that id's UID; under one it does not
+    // know, the UID it carries or was saved with, else -- an object of a
+    // file from before UIDs -- one derived from the file (U3). A new id
+    // takes the UID it was brought with, or its own.
+    std::string uid = std::move(d->restoringUid);
+    d->restoringUid.clear();
+    if (!pcObject->_uid.empty())
+        uid = pcObject->_uid;
+    const std::string* known =
+        d->history && !freshId ? d->history->objectUidOfId(pcObject->_Id) : nullptr;
+    bool derived = false;
+    if (known)
+        uid = *known;
+    else if (uid.empty() && !freshId) {
+        uid = _derivedObjectUid(pcObject->_Id, name);
+        derived = true;
+    }
+    // A UID a live object here has, or -- for a new id -- one the file gave
+    // another id: this one is a copy (U2), and is given its own.
+    auto live = uid.empty() ? d->objectUidMap.end() : d->objectUidMap.find(uid);
+    // Brought from another document onto a live object of its type: a
+    // clash, which the import's scope settles once it is all in (36.4).
+    if (live != d->objectUidMap.end() && live->second != pcObject
+            && testStatus(Status::Importing) && !d->importFromHere
+            && live->second->getTypeId() == pcObject->getTypeId())
+        d->importClashes.push_back({pcObject, live->second, false});
+    if (uid.empty() || (live != d->objectUidMap.end() && live->second != pcObject)
+            || (freshId && d->history && d->history->objectIdOfUid(uid)
+                && d->history->objectIdOfUid(uid) != pcObject->_Id))
+        uid = Base::Uuid::createUuid();
+    else if (derived)
+        d->derivedUids.insert(pcObject->_Id);
+    pcObject->_uid = uid;
+    d->objectUidMap[uid] = pcObject;
+    if (d->history)
+        d->history->noteObjectUid(pcObject->_Id, uid);
+}
+
+std::string Document::_derivedObjectUid(long id, const std::string& name) const
+{
+    std::string space = d->fileUid;
+    if (space.empty() && d->history)
+        space = d->history->fileUid();
+    if (space.empty())
+        space = Uid.getValueStr();
+    return Base::Uuid::createUuid(space, "object " + std::to_string(id) + " " + name);
+}
+
 void Document::_addObject(DocumentObject* pcObject, const char* pObjectName)
 {
     std::string ObjectName = getUniqueObjectName(pObjectName, pcObject->getID());
     d->objectMap[ObjectName] = pcObject;
     // generate object id and add to id map;
     pcObject->_Id = d->addObject(pcObject);
+    _giveObjectUid(pcObject, d->freshId, ObjectName);
     d->noteObjectName(ObjectName, pcObject->_Id);
     // cache the pointer to the name string in the Object (for performance of DocumentObject::getNameInDocument())
     pcObject->pcNameInDocument = &(d->objectMap.find(ObjectName)->first);
@@ -16532,6 +16950,7 @@ void Document::removeObject(const char* sName)
 
     // remove the ID before possibly deleting the object
     d->objectIdMap.erase(pos->second->_Id);
+    d->forgetObjectUid(pos->second);
     // Unset the bit to be on the safe side
     pos->second->setStatus(ObjectStatus::Remove, false);
 
@@ -16625,6 +17044,7 @@ void Document::_removeObject(DocumentObject* pcObject)
     // remove from map
     pcObject->setStatus(ObjectStatus::Remove, false); // Unset the bit to be on the safe side
     d->objectIdMap.erase(pcObject->_Id);
+    d->forgetObjectUid(pcObject);
     ++d->revision;
     for (std::vector<DocumentObject*>::iterator it = d->objectArray.begin(); it != d->objectArray.end(); ++it) {
         if (*it == pcObject) {

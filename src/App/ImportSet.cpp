@@ -961,7 +961,9 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
                             r.error = "no version of the branch's head";
                             break;
                         }
-                        ours->restoreVersion(num);
+                        // Sec 36 U7: theirs under their own names, where
+                        // ours that held them goes in this row.
+                        ours->restoreVersion(num, ours->importedNames(f.branch));
                         r.seq = ours->getTransactionLog() ? ours->getTransactionLog()->lastSeq() : 0;
                         recordTaken(*ours, f.branch, "Take theirs");
                         break;

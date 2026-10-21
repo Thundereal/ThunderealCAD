@@ -21974,6 +21974,7 @@ restore and the merge go into the one open.
   `L001` after the take. Giving the names back means renaming in the
   restore -- the object and every reference to it -- which is not built;
   a link from outside the set to `Asm#L` breaks where it would have held.
+  **Built since, by sec 36 U7 (2026-10-21).**
 - the Q4 preview (references that will not resolve, on the top's line);
 - the set's record (Q9) -- built since, 35.14;
 - the Import and the Merge are not recorded as a macro: they call App,
@@ -22057,3 +22058,148 @@ does -- and finds nothing pending after. Driven: the dialog closed after
 Import, the command run again offers the set and opens at its merge; the
 merge takes the set in, nothing more is asked, nothing is pending, and
 one Std_Undo takes it back.
+
+## 36. Object UIDs: an object known by what it is, not its name (2026-10-21)
+
+**Asked (user, 2026-10-21)**, from the Q8 question of 35.13 -- their `L`
+came back as `L001` under Take theirs: "from now on we give each object a
+uid". Then, in three rulings the same day:
+
+- a new UID only when an object is created, or brought into a document
+  where a live object has its UID already;
+- objects are paired in a merge by their UID and their type, the name
+  ignored;
+- a UID is a history link: an object pasted back after it was deleted is
+  the same object, jumped to a new state with the rows between missing;
+  only live objects are checked for a clash, and a clash brought from
+  another document is asked -- a list, each row Assign or Duplicate, with
+  Assign all and Duplicate all;
+- names: **(a)**, the reservation of 27.40 item 3 stays; Take theirs
+  hands a name to their object where ours, which held it, goes in the
+  same row.
+
+### 36.1 Why
+
+An object of another copy of a file was taken for ours by its id and its
+name, the type agreeing (30.19 G7, 30.22, the replay of a branch). That
+is why a name was given to one id for ever (27.40 item 3): it was half of
+an object's identity. A stranger's object of a name ours had could only
+come in under another (P4), and Take theirs, which removes ours, still
+left theirs renamed. With the identity carried by a UID the name is only
+what references use.
+
+### 36.2 The design, as ruled
+
+| | Point | Ruled |
+| --- | --- | --- |
+| U1 | What it is | A random UUID held by the object, not a property: no undo of its own, never edited. Saved as `uid` on the object's entry in `Document.xml`'s `Objects`. Python: `obj.ObjectUid`, read only (`App::Part` and `Fem::FemAnalysis` have a property `Uid` already). |
+| U2 | When an object gets a new one | When it is created. When it is brought into a document -- paste, drag and drop, merge project, `copyObject` -- and a live object there has its UID: always for a copy into its own document (paste, Duplicate selection, Link's copy-on-change), always where the live one is of another type, and otherwise as asked (36.4). Kept through a save, Save As, the set export, a branch, a version, an undo. |
+| U3 | An object of a file from before | Its UID derived from the file's `Uid` as read, its id and its name -- a name-based UUID -- so two copies of one file agree on it. |
+| U4 | The store | A table `objuid` (cid, uid), and the `create` op's `meta` says the UID, so the history knows the UID of every id it has, deleted ones too. `StoreVersion` 2. |
+| U5 | Who reads it | The kinship of an import: the file without a history in common (30.22), the state brought as one row (30.19 G7), the replay of a branch. Pairing a set's files may count UIDs shared (a pasted copy shares one, so one is no proof). |
+| U6 | Pairing | By UID and type; the name ignored. Their `Box001` and our `Box002` of one UID are one object, and references to their name map to ours as an import maps them now. |
+| U7 | Names | 27.40 item 3 kept. Take theirs (Q8): an object of theirs renamed on import (P4) takes its own name back where the object that held it here is removed by the same row. |
+
+### 36.3 One UID, one id
+
+The history gives a UID one object id. An object made under an id the
+file knows -- an undo, a version, a branch, a replay -- has that id's
+UID. An object brought in with a UID the history knows, of the same
+type, comes back under that id and the name the table gives it: the log
+records a create of that id, as an undo of its removal would, with the
+state brought. Only an object made under an id new to the file gets a
+UID of its own (or the one it was brought with).
+
+### 36.4 A clash, brought from another document
+
+Asked once per paste: a list of the objects whose UID a live object has
+-- the one brought, the one here, Assign or Duplicate -- and Assign all,
+Duplicate all, Cancel (nothing is pasted).
+
+- **Assign**: the live object keeps its id and name and takes the state
+  brought; what links to it still does.
+- **Duplicate**: a new object, a new UID, as a paste is today.
+- References among the objects brought follow each choice: a Body
+  assigned whose Pad is duplicated holds the new Pad, and the row says so.
+- One undo step for the paste, as now. Without the Gui, and by default in
+  Python: Duplicate; a keyword asks for Assign.
+
+### 36.5 Order
+
+1. U1 to U4: the UID held, saved, read, derived for an older file, in
+   the store and the history, `obj.ObjectUid`.
+2. U5, U6 and 36.4: kinship by UID, the paste rules, the dialog.
+3. U7: the name handed over at Take theirs; the stranger's test of 35.13
+   finds `L`.
+
+### 36.6 As built (2026-10-21)
+
+**Step 1 (U1 to U4).** `DocumentObject::getObjectUid()`, held by the
+object and given by `Document::_giveObjectUid` as it takes its id: the
+id's UID where the history knows one; else the UID it carries or was saved
+with; else, under an id the file knew, one derived from the file's `Uid`
+as read, its id and its name (`Base::Uuid::createUuid(space, name)`, a
+version 5 UUID); else its own. A UID a live object here has, or one the
+history gives another id, is not taken: the object gets its own. The live
+objects are indexed by UID (`objectUidMap`). Saved as `uid` on the
+object's entry; the history keeps `objuid` (cid, uid) and `FileHistory`
+the pairs, one to one, filled from the table and from the `meta` of the
+`create` and `remove` ops (`{"uid": ...}`, kept by the log's fold), as the
+names are. `StoreVersion` 2. Python `obj.ObjectUid`.
+
+**Step 2 (U5, U6, 36.4).**
+
+- *Kinship.* `_applyForeignState` (30.19, 30.22) takes theirs for the
+  live object of its UID and type, and an object of theirs not here comes
+  with its UID -- under the id and the name the history gives that UID,
+  when it is one of ours removed. The replay of a branch's rows looks up
+  the `create` op's UID first. Two copies' rows are paired by UID before
+  the source name (`sameObjects`, 30.33).
+- *Found while building:* a file written by a build that keeps no UID --
+  an older one, or upstream FreeCAD, which writes its own `Document.xml`
+  -- has its UIDs derived, and a derived UID says nothing of an object
+  this file made since with a UID of its own. Such an object of theirs
+  (`derivedUids`) is still known by its id and name, as before.
+- *The paste.* An export says where it is from (`From`, the source
+  document's transient directory). An object brought onto a live one of
+  its UID and type, from another document, is a clash: made as a copy,
+  then settled by the thread's `Document::ImportClashScope` once the
+  import is in -- Duplicate (the default), Assign, or Ask. Assigned: what
+  the objects brought refer to of the copy is repointed to the live one
+  (`CopyOnLinkReplace`), the live one takes the copy's dynamic properties
+  and values (captured and restored through the copy's name, the label
+  left), and the copy goes. Cancelled: what was brought is removed and the
+  import throws `Base::AbortException`. A UID the history gives an id no
+  live object has comes back under that id and name.
+- *Python:* `doc.copyObject(objs, with_dependencies, return_all,
+  assign=False)`.
+- *Gui:* `Gui::askImportClashes` (`DlgImportClash`), asked by
+  `Gui::ImportClashAsk` around the paste, File > Merge project and a tree
+  drag that copies; the drag's macro line says `assign=True` when all were
+  assigned. The dialog explains how references follow the choices; it
+  does not mark the rows where they do.
+
+**Step 3 (U7).** `Document::importedNames(branch)`: the names an import's
+rows on that branch could not keep. `restoreVersion(num, names)`: where
+the end state has an object of a name in `names` and none of the name it
+maps to, that object is made under the name mapped to, whatever holds the
+name now -- gone at the end -- is removed first (the walk along the log
+otherwise removes last), and every value is read through the same names;
+the version read whole, when the walk cannot be taken, does the same.
+Take theirs restores with the branch's names: their `L` comes back as
+`L`, and our `L` stays in the history under its id.
+
+*Found while building:* the version read whole is not a path for this. A
+link to another file of the set, read in the version's scratch document,
+resolves against the scratch's place and is broken in the value taken
+from it ("File '.../temp/Part.FCStd' does not exist"); the walk takes the
+log's values, which are this file's.
+
+**Not built:** the set's pairing counting UIDs shared (U5); the dialog
+marking the rows where an assigned object will refer to a duplicate; a
+view provider's state under Assign (the live object keeps its look).
+
+**Tests**: `testAnObjectKeepsItsUid`, `testAnOlderFilesObjectsGetUidsOfTheFile`,
+`testAnObjectBroughtBackIsItself`, `testAStrangersObjectOfOurUidIsOurs`,
+`testAStrangersSetIsTakenWhole` (now `L`); gtest
+`aStoreOfLayoutOneGetsObjectUids`; driven `import-clash.py`.

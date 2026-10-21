@@ -1102,6 +1102,10 @@ Py::Int DocumentObjectPy::getID() const {
     return Py::Int(getDocumentObjectPtr()->getID());
 }
 
+Py::String DocumentObjectPy::getObjectUid() const {
+    return Py::String(getDocumentObjectPtr()->getObjectUid());
+}
+
 Py::Boolean DocumentObjectPy::getRemoving() const {
     return {getDocumentObjectPtr()->testStatus(ObjectStatus::Remove)};
 }

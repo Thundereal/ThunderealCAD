@@ -1820,6 +1820,55 @@ void MainWindow::setActiveWindow(MDIView* view)
     updateActions();
 }
 
+void MainWindow::dropActiveWindow(MDIView* view, Document* leaving)
+{
+    // The active window is a QPointer and lets go of a view only when the
+    // view is deleted -- a deferred delete, 110-180 ms after its close on
+    // the box where it was measured. A closed view whose document has
+    // another view is detached at its close (MDIView::closeEvent), and in
+    // between the menus' update asked it for Undo and Redo with no
+    // document (docs/HandsOnQueue.md entry 132: a page view's onHasMsg,
+    // during page exports to PDF). Nothing moves the active window then
+    // unless Qt activates another sub window, which it need not.
+    if (!view || d->activeView != view)
+        return;
+    // The window Qt would activate next: the latest activated of the rest,
+    // and not one that has left its document as well (a passive view has
+    // none to leave). Its own sub window answers with another view only
+    // when it is a split view whose active cell is another.
+    MDIView* next = nullptr;
+    QMdiSubWindow* nextSub = nullptr;
+    const auto subs = d->mdiArea->subWindowList(QMdiArea::ActivationHistoryOrder);
+    for (auto it = subs.crbegin(); it != subs.crend() && !next; ++it) {
+        if (!(*it)->isVisible())
+            continue;
+        auto candidate = dynamic_cast<MDIView*>((*it)->widget());
+        if (candidate)
+            candidate = candidate->activeSubView();
+        if (candidate && candidate != view
+                && (candidate->isPassive() || candidate->getGuiDocument())
+                && (!leaving || candidate->getGuiDocument() != leaving)) {
+            next = candidate;
+            nextSub = *it;
+        }
+    }
+    if (next) {
+        // The usual path, which activates the sub window and through it the
+        // view (onWindowActivated): one activation, heard by the commands,
+        // the tree and whatever else follows the active view. Directly only
+        // where Qt activates nothing -- the main window not active itself.
+        onSetActiveSubWindow(nextSub);
+        if (d->activeView != next) {
+            d->activeView = next;
+            Application::Instance->viewActivated(next);
+        }
+    }
+    else {
+        d->activeView = nullptr;
+    }
+    updateActions();
+}
+
 void MainWindow::onWindowActivated(QMdiSubWindow* w)
 {
     if (!w)

@@ -196,6 +196,12 @@ public:
      */
     void setActiveWindow(MDIView* view);
     /**
+     * \a view is going (closed, or its document closing): if it is the
+     * active window, the window active before it takes over, or none. Not
+     * a view of \a leaving, a document that is going with it.
+     */
+    void dropActiveWindow(MDIView* view, Document* leaving = nullptr);
+    /**
      * MRU: Appends \a file to the list of recent files.
      */
     void appendRecentFile(const QString& filename);

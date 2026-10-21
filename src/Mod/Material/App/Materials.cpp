@@ -218,7 +218,7 @@ void MaterialProperty::setType(const QString& type)
 {
     auto mappedType = MaterialValue::mapType(type);
     if (mappedType == MaterialValue::None) {
-        throw UnknownValueType();
+        THROW(UnknownValueType);
     }
     if (mappedType == MaterialValue::Array2D) {
         auto arrayPtr = std::make_shared<Array2D>();
@@ -242,7 +242,7 @@ MaterialProperty& MaterialProperty::getColumn(int column)
         return _columns.at(column);
     }
     catch (std::out_of_range const&) {
-        throw InvalidIndex();
+        THROW(InvalidIndex);
     }
 }
 
@@ -252,7 +252,7 @@ const MaterialProperty& MaterialProperty::getColumn(int column) const
         return _columns.at(column);
     }
     catch (std::out_of_range const&) {
-        throw InvalidIndex();
+        THROW(InvalidIndex);
     }
 }
 
@@ -262,7 +262,7 @@ MaterialValue::ValueType MaterialProperty::getColumnType(int column) const
         return _columns.at(column).getType();
     }
     catch (std::out_of_range const&) {
-        throw InvalidIndex();
+        THROW(InvalidIndex);
     }
 }
 
@@ -272,7 +272,7 @@ QString MaterialProperty::getColumnUnits(int column) const
         return _columns.at(column).getUnits();
     }
     catch (std::out_of_range const&) {
-        throw InvalidIndex();
+        THROW(InvalidIndex);
     }
 }
 
@@ -426,7 +426,7 @@ void MaterialProperty::setQuantity(const Base::Quantity& value)
         auto propertyUnit = Base::Quantity::parse(getUnits().toStdString()).getUnit();
         auto units = quantity.getUnit();
         if (propertyUnit != units) {
-            throw Base::ValueError("Incompatible material units");
+            THROWM(Base::ValueError, "Incompatible material units");
         }
     }
     quantity.setFormat(MaterialValue::getQuantityFormat());
@@ -495,7 +495,7 @@ void MaterialProperty::validate(const MaterialProperty& other) const {
     _valuePtr->validate(*other._valuePtr);
 
     if (_columns.size() != other._columns.size()) {
-        throw InvalidProperty("Model property column counts don't match");
+        THROWM(InvalidProperty, "Model property column counts don't match");
     }
     for (size_t i = 0; i < _columns.size(); i++) {
         _columns[i].validate(other._columns[i]);
@@ -1024,7 +1024,7 @@ void Material::setValue(const QString& name, const QString& value)
         setAppearanceValue(name, value);
     }
     else {
-        throw PropertyNotFound();
+        THROW(PropertyNotFound);
     }
 }
 
@@ -1037,7 +1037,7 @@ void Material::setValue(const QString& name, const QVariant& value)
         setAppearanceValue(name, value);
     }
     else {
-        throw PropertyNotFound();
+        THROW(PropertyNotFound);
     }
 }
 
@@ -1050,7 +1050,7 @@ void Material::setValue(const QString& name, const std::shared_ptr<MaterialValue
         setAppearanceValue(name, value);
     }
     else {
-        throw PropertyNotFound();
+        THROW(PropertyNotFound);
     }
 }
 
@@ -1067,7 +1067,7 @@ std::shared_ptr<MaterialProperty> Material::getPhysicalProperty(const QString& n
         return _physical.at(name);
     }
     catch (std::out_of_range const&) {
-        throw PropertyNotFound();
+        THROW(PropertyNotFound);
     }
 }
 
@@ -1077,7 +1077,7 @@ std::shared_ptr<MaterialProperty> Material::getPhysicalProperty(const QString& n
         return _physical.at(name);
     }
     catch (std::out_of_range const&) {
-        throw PropertyNotFound();
+        THROW(PropertyNotFound);
     }
 }
 
@@ -1087,7 +1087,7 @@ std::shared_ptr<MaterialProperty> Material::getAppearanceProperty(const QString&
         return _appearance.at(name);
     }
     catch (std::out_of_range const&) {
-        throw PropertyNotFound();
+        THROW(PropertyNotFound);
     }
 }
 
@@ -1097,7 +1097,7 @@ std::shared_ptr<MaterialProperty> Material::getAppearanceProperty(const QString&
         return _appearance.at(name);
     }
     catch (std::out_of_range const&) {
-        throw PropertyNotFound();
+        THROW(PropertyNotFound);
     }
 }
 
@@ -1109,7 +1109,7 @@ std::shared_ptr<MaterialProperty> Material::getProperty(const QString& name)
     if (hasAppearanceProperty(name)) {
         return getAppearanceProperty(name);
     }
-    throw PropertyNotFound();
+    THROW(PropertyNotFound);
 }
 
 std::shared_ptr<MaterialProperty> Material::getProperty(const QString& name) const
@@ -1120,7 +1120,7 @@ std::shared_ptr<MaterialProperty> Material::getProperty(const QString& name) con
     if (hasAppearanceProperty(name)) {
         return getAppearanceProperty(name);
     }
-    throw PropertyNotFound();
+    THROW(PropertyNotFound);
 }
 
 QVariant
@@ -1131,7 +1131,7 @@ Material::getValue(const std::map<QString, std::shared_ptr<MaterialProperty>>& p
         return propertyList.at(name)->getValue();
     }
     catch (std::out_of_range const&) {
-        throw PropertyNotFound();
+        THROW(PropertyNotFound);
     }
 }
 
@@ -1162,7 +1162,7 @@ Material::getValueString(const std::map<QString, std::shared_ptr<MaterialPropert
         return property->getValue().toString();
     }
     catch (std::out_of_range const&) {
-        throw PropertyNotFound();
+        THROW(PropertyNotFound);
     }
 }
 
@@ -2242,79 +2242,79 @@ void Material::validate(Material& other) const
         _library->validate(*other._library);
     }
     catch (const InvalidLibrary& e) {
-        throw InvalidMaterial(e.what());
+        THROWM(InvalidMaterial, e.what());
     }
 
     if (_directory != other._directory) {
-        throw InvalidMaterial("Model directories don't match");
+        THROWM(InvalidMaterial, "Model directories don't match");
     }
     if (!other._filename.isEmpty()) {
-        throw InvalidMaterial("Remote filename is not empty");
+        THROWM(InvalidMaterial, "Remote filename is not empty");
     }
     if (_uuid != other._uuid) {
-        throw InvalidMaterial("Model UUIDs don't match");
+        THROWM(InvalidMaterial, "Model UUIDs don't match");
     }
     if (_name != other._name) {
-        throw InvalidMaterial("Model names don't match");
+        THROWM(InvalidMaterial, "Model names don't match");
     }
     if (_author != other._author) {
-        throw InvalidMaterial("Model authors don't match");
+        THROWM(InvalidMaterial, "Model authors don't match");
     }
     if (_license != other._license) {
-        throw InvalidMaterial("Model licenses don't match");
+        THROWM(InvalidMaterial, "Model licenses don't match");
     }
     if (_parentUuid != other._parentUuid) {
-        throw InvalidMaterial("Model parents don't match");
+        THROWM(InvalidMaterial, "Model parents don't match");
     }
     if (_description != other._description) {
-        throw InvalidMaterial("Model descriptions don't match");
+        THROWM(InvalidMaterial, "Model descriptions don't match");
     }
     if (_url != other._url) {
-        throw InvalidMaterial("Model URLs don't match");
+        THROWM(InvalidMaterial, "Model URLs don't match");
     }
     if (_reference != other._reference) {
-        throw InvalidMaterial("Model references don't match");
+        THROWM(InvalidMaterial, "Model references don't match");
     }
 
     if (_tags.size() != other._tags.size()) {
         Base::Console().log("Local tags count %d\n", _tags.size());
         Base::Console().log("Remote tags count %d\n", other._tags.size());
-        throw InvalidMaterial("Material tags counts don't match");
+        THROWM(InvalidMaterial, "Material tags counts don't match");
     }
     if (!other._tags.contains(_tags)) {
-        throw InvalidMaterial("Material tags don't match");
+        THROWM(InvalidMaterial, "Material tags don't match");
     }
 
     if (_physicalUuids.size() != other._physicalUuids.size()) {
         Base::Console().log("Local physical model count %d\n", _physicalUuids.size());
         Base::Console().log("Remote physical model count %d\n", other._physicalUuids.size());
-        throw InvalidMaterial("Material physical model counts don't match");
+        THROWM(InvalidMaterial, "Material physical model counts don't match");
     }
     if (!other._physicalUuids.contains(_physicalUuids)) {
-        throw InvalidMaterial("Material physical models don't match");
+        THROWM(InvalidMaterial, "Material physical models don't match");
     }
 
     if (_physicalUuids.size() != other._physicalUuids.size()) {
         Base::Console().log("Local appearance model count %d\n", _physicalUuids.size());
         Base::Console().log("Remote appearance model count %d\n", other._physicalUuids.size());
-        throw InvalidMaterial("Material appearance model counts don't match");
+        THROWM(InvalidMaterial, "Material appearance model counts don't match");
     }
     if (!other._physicalUuids.contains(_physicalUuids)) {
-        throw InvalidMaterial("Material appearance models don't match");
+        THROWM(InvalidMaterial, "Material appearance models don't match");
     }
 
     if (_allUuids.size() != other._allUuids.size()) {
         Base::Console().log("Local model count %d\n", _allUuids.size());
         Base::Console().log("Remote model count %d\n", other._allUuids.size());
-        throw InvalidMaterial("Material model counts don't match");
+        THROWM(InvalidMaterial, "Material model counts don't match");
     }
     if (!other._allUuids.contains(_allUuids)) {
-        throw InvalidMaterial("Material models don't match");
+        THROWM(InvalidMaterial, "Material models don't match");
     }
 
     // Need to compare properties
     if (_physical.size() != other._physical.size()) {
-        throw InvalidMaterial("Material physical property counts don't match");
+        THROWM(InvalidMaterial, "Material physical property counts don't match");
     }
     for (auto& property : _physical) {
         auto& remote = other._physical[property.first];
@@ -2322,7 +2322,7 @@ void Material::validate(Material& other) const
     }
 
     if (_appearance.size() != other._appearance.size()) {
-        throw InvalidMaterial("Material appearance property counts don't match");
+        THROWM(InvalidMaterial, "Material appearance property counts don't match");
     }
     for (auto& property : _appearance) {
         auto& remote = other._appearance[property.first];

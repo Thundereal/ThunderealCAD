@@ -402,7 +402,7 @@ bool SequencerLauncher::next(bool canAbort)
         if (canAbort && bCanceled.load(std::memory_order_relaxed)) {
             if (bNoException)
                 return false;
-            throw Base::AbortException();
+            THROW(Base::AbortException);
         }
         return true;
     }
@@ -422,7 +422,7 @@ bool SequencerLauncher::next(bool canAbort)
                 }
             }
             if (bCanceled)
-                throw Base::AbortException();
+                THROW(Base::AbortException);
             SequencerBase::Instance().checkAbort();
         }
         return true; // ignore
@@ -435,7 +435,7 @@ void SequencerLauncher::setProgress(size_t pos)
     if (bCanceled.load(std::memory_order_relaxed)) {
         if (bNoException)
             return;
-        throw Base::AbortException();
+        THROW(Base::AbortException);
     }
     this->nProgress.store(pos, std::memory_order_relaxed);
 

@@ -79,12 +79,12 @@ struct ReentryGuard
 {
     std::string msg = message.empty() ? excType : message;
     if (excType == "ParserError")
-        throw Base::ParserError(msg);
+        THROWM(Base::ParserError, msg);
     if (excType == "TypeError")
-        throw Base::TypeError(msg);
+        THROWM(Base::TypeError, msg);
     if (excType == "ValueError")
-        throw Base::ValueError(msg);
-    throw Base::RuntimeError(msg);
+        THROWM(Base::ValueError, msg);
+    THROWM(Base::RuntimeError, msg);
 }
 
 /// Returns a NEW reference, or throws.
@@ -127,8 +127,8 @@ PyObject* evaluateInImage(const Expression* expr, int options)
         raiseImageError(result.excType, result.message);
     }
     if (!value)
-        throw Base::RuntimeError("sandboxed evaluation returned a value the "
-                                 "host cannot decode");
+        THROWM(Base::RuntimeError, "sandboxed evaluation returned a value the "
+                                   "host cannot decode");
     return value;
 }
 

@@ -235,7 +235,7 @@ void MaterialLibraryLocal::deleteDir(MaterialManager& manager, const QString& pa
     // Finally, remove ourself
     QDir dir;
     if (!dir.rmdir(path)) {
-        throw DeleteError(path);
+        THROWM(DeleteError, path);
     }
 }
 
@@ -256,7 +256,7 @@ void MaterialLibraryLocal::deleteFile(MaterialManager& manager, const QString& p
     }
     else {
         QString error = QStringLiteral("DeleteError: Unable to delete ") + path;
-        throw DeleteError(error);
+        THROWM(DeleteError, error);
     }
 }
 
@@ -303,7 +303,7 @@ MaterialLibraryLocal::saveMaterial(const std::shared_ptr<Material>& material,
     if (info.exists()) {
         if (!overwrite) {
             Base::Console().error("File already exists '%s'\n", info.path().toStdString().c_str());
-            throw MaterialExists();
+            THROW(MaterialExists);
         }
     }
 
@@ -365,7 +365,7 @@ std::shared_ptr<Material> MaterialLibraryLocal::getMaterialByPath(const QString&
         return search->second;
     }
 
-    throw MaterialNotFound();
+    THROW(MaterialNotFound);
 }
 
 QString MaterialLibraryLocal::getUUIDFromPath(const QString& path) const
@@ -377,5 +377,5 @@ QString MaterialLibraryLocal::getUUIDFromPath(const QString& path) const
         return search->second->getUUID();
     }
 
-    throw MaterialNotFound();
+    THROW(MaterialNotFound);
 }

@@ -518,7 +518,7 @@ void SubShapeBinder::update(SubShapeBinder::UpdateOption options) {
             try {
                 auto shape = Part::Feature::getTopoShape(obj,sub.c_str(),true);
                 if(shape.isNull())
-                    throw Part::NullShapeException("Null shape");
+                    THROWM(Part::NullShapeException, "Null shape");
                 shapes.push_back(shape);
                 shapeOwners.emplace_back(sidx, subidx);
                 shapeDocs.push_back((copied && l.getValue() ? l.getValue() : obj)->getDocument());

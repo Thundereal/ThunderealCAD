@@ -40,7 +40,7 @@ void validateIdentifier(const std::string& value, const char* kind)
     std::ostringstream error;
     error << "Document settings " << kind
           << " must be non-empty and contain only ASCII letters, digits, and underscores";
-    throw Base::ValueError(error.str());
+    THROWM(Base::ValueError, error.str());
 }
 
 bool isValidNamespace(const std::string& value)
@@ -73,7 +73,7 @@ void validateNamespace(const std::string& value)
         return;
     }
 
-    throw Base::ValueError("Document settings namespace must be dot-separated ASCII identifiers");
+    THROWM(Base::ValueError, "Document settings namespace must be dot-separated ASCII identifiers");
 }
 
 }  // namespace
@@ -83,7 +83,7 @@ DocumentSettings::DocumentSettings(Document* document, std::string namespaceName
     , namespaceName(std::move(namespaceName))
 {
     if (!document) {
-        throw Base::ValueError("Document settings require a document");
+        THROWM(Base::ValueError, "Document settings require a document");
     }
     validateNamespace(this->namespaceName);
 }
@@ -174,7 +174,7 @@ std::vector<std::string> DocumentSettings::keys() const
 Document& DocumentSettings::document() const
 {
     if (documentPtr->expired()) {
-        throw Base::ReferenceError("Document settings reference a closed document");
+        THROWM(Base::ReferenceError, "Document settings reference a closed document");
     }
     auto* doc = documentPtr->operator*();
     return *doc;

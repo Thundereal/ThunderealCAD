@@ -1883,7 +1883,7 @@ void Application::addTranslatableExportType(const std::string& description,
                                             const std::string& moduleName)
 {
     if (extensions.empty()) {
-        throw Base::ValueError("addTranslatableExportType: no extension given");
+        THROWM(Base::ValueError, "addTranslatableExportType: no extension given");
     }
 
     std::string filter =
@@ -2198,14 +2198,16 @@ void Application::destructObserver()
 #ifdef _MSC_VER // New handler for Microsoft Visual C++ compiler
 int __cdecl freecadNewHandler(size_t size )
 {
-    // throw an exception
+    // A bare throw: THROW would allocate the throw site's strings, with
+    // the memory already gone.
     throw Base::MemoryException();
     return 0;
 }
 #else // Ansi C/C++ new handler
 static void freecadNewHandler ()
 {
-    // throw an exception
+    // A bare throw: THROW would allocate the throw site's strings, with
+    // the memory already gone.
     throw Base::MemoryException();
 }
 #endif
@@ -2462,7 +2464,7 @@ void my_se_translator_filter(unsigned int code, EXCEPTION_POINTERS* pExp)
             CrashStackWalker sw(entry, 0);
             sw.ShowCallstack(GetCurrentThread(), pExp->ContextRecord);
         }
-        throw Base::AccessViolation();
+        THROW(Base::AccessViolation);
     case EXCEPTION_FLT_DIVIDE_BY_ZERO:
     case EXCEPTION_INT_DIVIDE_BY_ZERO:
         //throw Base::ZeroDivisionError("Division by zero!");

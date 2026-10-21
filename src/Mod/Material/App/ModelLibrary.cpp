@@ -131,7 +131,7 @@ std::shared_ptr<Model> ModelLibraryLocal::getModelByPath(const QString& path) co
         return model;
     }
     catch (std::out_of_range&) {
-        throw ModelNotFound();
+        THROW(ModelNotFound);
     }
 }
 

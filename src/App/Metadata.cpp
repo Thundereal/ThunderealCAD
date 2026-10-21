@@ -116,7 +116,7 @@ Metadata::Metadata(const DOMNode* domNode, int format)
                 parseVersion1(element);
                 break;
             default:
-                throw Base::XMLBaseException(
+                THROWM(Base::XMLBaseException,
                     "package.xml format version is not supported by this version of FreeCAD");
         }
     }
@@ -151,7 +151,7 @@ void Metadata::loadFromInputSource(const InputSource& source)
 
     auto rootTagName = StrXUTF8(_dom->getTagName()).str;
     if (rootTagName != "package") {
-        throw Base::XMLBaseException(
+        THROWM(Base::XMLBaseException,
             "Malformed package.xml document: Root <package> group not found");
     }
     auto formatVersion = XMLString::parseInt(_dom->getAttribute(XUTF8Str("format").unicodeForm()));
@@ -160,7 +160,7 @@ void Metadata::loadFromInputSource(const InputSource& source)
             parseVersion1(_dom);
             break;
         default:
-            throw Base::XMLBaseException(
+            THROWM(Base::XMLBaseException,
                 "package.xml format version is not supported by this version of FreeCAD");
     }
 }

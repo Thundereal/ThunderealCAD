@@ -108,7 +108,7 @@ void ModelManagerLocal::createLibrary(const QString& libraryName,
     QDir dir;
     if (!dir.exists(directory)) {
         if (!dir.mkpath(directory)) {
-            throw CreationError("Unable to create library path");
+            THROWM(CreationError, "Unable to create library path");
         }
     }
 
@@ -125,7 +125,7 @@ void ModelManagerLocal::renameLibrary(const QString& libraryName, const QString&
         }
     }
 
-    throw LibraryNotFound();
+    THROW(LibraryNotFound);
 }
 
 void ModelManagerLocal::changeIcon(const QString& libraryName, const QString& icon)
@@ -137,7 +137,7 @@ void ModelManagerLocal::changeIcon(const QString& libraryName, const QString& ic
         }
     }
 
-    throw LibraryNotFound();
+    THROW(LibraryNotFound);
 }
 
 void ModelManagerLocal::removeLibrary(const QString& libraryName)
@@ -151,7 +151,7 @@ void ModelManagerLocal::removeLibrary(const QString& libraryName)
         }
     }
 
-    throw LibraryNotFound();
+    THROW(LibraryNotFound);
 }
 
 std::shared_ptr<std::vector<LibraryObject>>
@@ -174,13 +174,13 @@ std::shared_ptr<Model> ModelManagerLocal::getModel(const QString& uuid) const
 {
     try {
         if (_modelMap == nullptr) {
-            throw Uninitialized();
+            THROW(Uninitialized);
         }
 
         return _modelMap->at(uuid);
     }
     catch (std::out_of_range const&) {
-        throw ModelNotFound();
+        THROW(ModelNotFound);
     }
 }
 
@@ -201,7 +201,7 @@ std::shared_ptr<Model> ModelManagerLocal::getModelByPath(const QString& path) co
         }
     }
 
-    throw ModelNotFound();
+    THROW(ModelNotFound);
 }
 
 std::shared_ptr<Model> ModelManagerLocal::getModelByPath(const QString& path,
@@ -213,7 +213,7 @@ std::shared_ptr<Model> ModelManagerLocal::getModelByPath(const QString& path,
         return localLibrary->getModelByPath(path);  // May throw ModelNotFound
     }
 
-    throw ModelNotFound();
+    THROW(ModelNotFound);
 }
 
 std::shared_ptr<ModelLibrary> ModelManagerLocal::getLibrary(const QString& name) const
@@ -224,5 +224,5 @@ std::shared_ptr<ModelLibrary> ModelManagerLocal::getLibrary(const QString& name)
         }
     }
 
-    throw LibraryNotFound();
+    THROW(LibraryNotFound);
 }

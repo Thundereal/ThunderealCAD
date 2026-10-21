@@ -449,7 +449,7 @@ BlobArchive::BlobArchive(const std::string& path, bool owned)
     , _owned(owned)
 {
     if (!open()) {
-        throw Base::FileException("Cannot open archive copy", path.c_str());
+        THROWM(Base::FileException, "Cannot open archive copy", path.c_str());
     }
     index();
 }
@@ -479,11 +479,11 @@ void BlobArchive::index()
     const uint64_t fileSize = static_cast<uint64_t>(_file.tellg());
     const uint64_t tail = std::min<uint64_t>(fileSize, 22u + 65535u);
     if (tail < 22) {
-        throw Base::FileException("Not a zip archive", _path.c_str());
+        THROWM(Base::FileException, "Not a zip archive", _path.c_str());
     }
     std::vector<unsigned char> buf(static_cast<std::size_t>(tail));
     if (!readAt(fileSize - tail, reinterpret_cast<char*>(buf.data()), buf.size())) {
-        throw Base::FileException("Cannot read the end of archive", _path.c_str());
+        THROWM(Base::FileException, "Cannot read the end of archive", _path.c_str());
     }
     // The last end-of-directory signature: the comment behind it may hold
     // anything, including something that looks like one.
@@ -495,7 +495,7 @@ void BlobArchive::index()
         }
     }
     if (eocd == std::string::npos) {
-        throw Base::FileException("No zip central directory", _path.c_str());
+        THROWM(Base::FileException, "No zip central directory", _path.c_str());
     }
     uint64_t count = le16(&buf[eocd + 10]);
     uint64_t cdSize = le32(&buf[eocd + 12]);
@@ -511,19 +511,19 @@ void BlobArchive::index()
             || le32(locator) != 0x07064b50u
             || !readAt(le64(locator + 8), reinterpret_cast<char*>(record), sizeof(record))
             || le32(record) != 0x06064b50u) {
-            throw Base::FileException("Unreadable zip64 directory", _path.c_str());
+            THROWM(Base::FileException, "Unreadable zip64 directory", _path.c_str());
         }
         count = le64(record + 32);
         cdSize = le64(record + 40);
         cdOffset = le64(record + 48);
     }
     if (cdOffset > fileSize || cdSize > fileSize - cdOffset) {
-        throw Base::FileException("Zip central directory out of range", _path.c_str());
+        THROWM(Base::FileException, "Zip central directory out of range", _path.c_str());
     }
 
     std::vector<unsigned char> cd(static_cast<std::size_t>(cdSize));
     if (!cd.empty() && !readAt(cdOffset, reinterpret_cast<char*>(cd.data()), cd.size())) {
-        throw Base::FileException("Cannot read zip central directory", _path.c_str());
+        THROWM(Base::FileException, "Cannot read zip central directory", _path.c_str());
     }
     _entries.reserve(static_cast<std::size_t>(std::min<uint64_t>(count, cd.size() / 46)));
     std::size_t pos = 0;
@@ -1959,7 +1959,7 @@ void FileBlobManager::rewriteArchive(
     {
         Base::ofstream file(out, std::ios::out | std::ios::binary);
         if (!file.is_open())
-            throw Base::FileException("Failed to open file", out);
+            THROWM(Base::FileException, "Failed to open file", out);
         Base::ZipWriter writer(file);
         writer.setComment("FreeCAD Document");
         writer.setLevel(Base::clamp<int>(DocumentParams::getCompressionLevel(),

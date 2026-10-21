@@ -29,6 +29,7 @@
 # include <QRegularExpression>
 # include <QRegularExpressionMatch>
 # include <QWhatsThis>
+# include <sstream>
 #endif
 
 #include <App/Document.h>
@@ -604,6 +605,18 @@ static std::string helpSiteUrl(const char* key, const std::string& upstream,
     std::string url = hURLGrp->GetASCII(key, def.c_str());
     if (url == upstream) {
         url = def;
+    }
+    // A default the program has since moved on from is no choice of the
+    // user's either (Main/Identity.h, UrlRetired: one URL a line)
+    auto retired = cfg.find("UrlRetired");
+    if (retired != cfg.end()) {
+        std::istringstream lines(retired->second);
+        for (std::string old; std::getline(lines, old);) {
+            if (!old.empty() && url == old) {
+                url = def;
+                break;
+            }
+        }
     }
     hURLGrp->SetASCII(key, url.c_str());
     return url;

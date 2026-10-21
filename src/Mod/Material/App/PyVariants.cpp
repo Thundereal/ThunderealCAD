@@ -59,7 +59,7 @@ PyObject* Materials::_pyObjectFromVariant(const QVariant& value)
         return Py::new_reference_to(getList(value));
     }
 
-    throw UnknownValueType();
+    THROW(UnknownValueType);
 }
 
 Py::List Materials::getList(const QVariant& value)

@@ -111,7 +111,7 @@ void PropertyFemMesh::setPyObject(PyObject* value)
     else {
         std::string error = std::string("type must be 'FemMesh', not ");
         error += value->ob_type->tp_name;
-        throw Base::TypeError(error);
+        THROWM(Base::TypeError, error);
     }
 }
 

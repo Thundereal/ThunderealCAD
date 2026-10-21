@@ -290,7 +290,7 @@ GCS::Algorithm getDefaultSolver()
         "User parameter:BaseApp/Preferences/Mod/Sketcher/SolverAdvanced");
     int solver = static_cast<int>(SketcherParams::getDefaultSolver());
     if (solver < GCS::BFGS || solver > GCS::DogLeg) {
-        throw Base::ValueError("Invalid Sketcher DefaultSolver preference: expected a value from 0 to 2");
+        THROWM(Base::ValueError, "Invalid Sketcher DefaultSolver preference: expected a value from 0 to 2");
     }
     return static_cast<GCS::Algorithm>(solver);
 }
@@ -1194,7 +1194,7 @@ void SketchObject::onChanged(const App::Property* prop)
         if(detached.size()) {
             auto objs = ExternalGeometry.getValues();
             if (externalGeoRef.size() != objs.size()) {
-                throw Base::RuntimeError("Inconsistency with external geometries");
+                THROWM(Base::RuntimeError, "Inconsistency with external geometries");
             }
             auto itObj = objs.begin();
             auto subs = ExternalGeometry.getSubValues();

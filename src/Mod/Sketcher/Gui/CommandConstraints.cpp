@@ -11808,7 +11808,7 @@ void CmdSketcherChangeDimensionConstraint::activated(int iMsg)
     auto getDimConstraint = []() {
         std::vector<Gui::SelectionObject> selection{getSelection().getSelectionEx()};
         if (selection.size() != 1 || selection[0].getSubNames().size() != 1) {
-            throw Base::RuntimeError();
+            THROW(Base::RuntimeError);
         }
 
         if (auto sketch = dynamic_cast<Sketcher::SketchObject*>(selection[0].getObject())) {
@@ -11819,7 +11819,7 @@ void CmdSketcherChangeDimensionConstraint::activated(int iMsg)
             }
         }
 
-        throw Base::RuntimeError();
+        THROW(Base::RuntimeError);
     };
 
     try {

@@ -628,6 +628,7 @@ bool BGFXRenderer::requestFrameDump(const FrameDumpRequest &req)
     pimpl->pendingDump = req;
     pimpl->dumpPending = true;
     pimpl->dumpHeld = false;
+    pimpl->dumpRequestTicks = bx::getHPCounter();
     // The capture needs a real frame, and needsRedraw() below reports
     // the pending dump for exactly that reason.
     //

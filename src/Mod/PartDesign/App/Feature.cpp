@@ -90,7 +90,7 @@ bool Feature::allowMultiSolid() const
 TopoShape Feature::getSolid(const TopoShape& shape, bool force)
 {
     if (shape.isNull())
-        throw Part::NullShapeException("Null shape");
+        THROWM(Part::NullShapeException, "Null shape");
     int count = shape.countSubShapes(TopAbs_SOLID);
     if(count>1) {
         if(allowMultiSolid()) {
@@ -98,7 +98,7 @@ TopoShape Feature::getSolid(const TopoShape& shape, bool force)
             res.fixSolidOrientation();
             return res;
         }
-        throw Base::RuntimeError("Result has multiple solids.\n"
+        THROWM(Base::RuntimeError, "Result has multiple solids.\n"
                 "To allow multiple solids, please set 'SingleSolid' property of the body to false");
     }
     if(count) {
@@ -300,7 +300,7 @@ TopoShape Feature::getBaseShape(bool silent, bool force, bool checkSolid) const 
 
     if (result.isNull()) {
         if (!silent)
-            throw Part::NullShapeException("Base feature's TopoShape is invalid");
+            THROWM(Part::NullShapeException, "Base feature's TopoShape is invalid");
     }
 
     if (checkSolid && !result.hasSubShape(TopAbs_SOLID)) {
@@ -325,7 +325,7 @@ const TopoDS_Shape& Feature::getBaseShapeOld() const {
 
     const TopoDS_Shape& result = BaseObject->Shape.getValue();
     if (result.IsNull())
-        throw Part::NullShapeException("Base feature's shape is invalid");
+        THROWM(Part::NullShapeException, "Base feature's shape is invalid");
     TopExp_Explorer xp (result, TopAbs_SOLID);
     if (!xp.More())
         THROWM(Base::ValueError, "Base feature's shape is not a solid")

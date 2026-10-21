@@ -1783,7 +1783,7 @@ void SketchObject::rebuildExternalGeometry(bool defining)
     auto Objects     = ExternalGeometry.getValues();
     auto SubElements = ExternalGeometry.getSubValues();
     if (externalGeoRef.size() != Objects.size()) {
-        throw Base::RuntimeError("Inconsistency with external geometries");
+        THROWM(Base::RuntimeError, "Inconsistency with external geometries");
     }
     auto keys = externalGeoRef;
 

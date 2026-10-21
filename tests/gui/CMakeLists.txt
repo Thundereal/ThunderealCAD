@@ -2211,3 +2211,14 @@ fc_add_gui_test(GuiLibraryPaths_tests_run
 fc_add_gui_test(GuiXLinkSnapshotSave_tests_run
                 xlink-snapshot-save.py
                 --timeout 180)
+
+# A capture of a shape that just appeared has its edges. A coarse-first
+# shape's edges wait for its exact faces, and the refine that brings them
+# is asked by the level plan ~300 ms after the camera settles; the plan's
+# "owes" was cleared by the next frame, so View.saveImage() right after a
+# shape appeared captured faces without edges (the mac's OCCT fillet
+# pictures, 2026-10-19). A frame with a waiting capture now asks the plan's
+# question itself. A box, a filleted box and a cylinder, new and edited.
+fc_add_gui_test(GuiCaptureWaitsForExactEdges_tests_run
+                capture-waits-for-exact-edges.py
+                --timeout 180)

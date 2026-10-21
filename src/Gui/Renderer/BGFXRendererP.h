@@ -10613,6 +10613,15 @@ public:
     /// the level plan just asked for. Per frame, like the lib's
     /// stand-in record; the tail folds both into the verdict.
     bool frameOwes = false;
+    /// When the pending dump was asked for (bx::getHPCounter), and the
+    /// tolerance the last level plan refined to (-1: none ran yet).
+    /// The frame tail holds a waiting capture while its scene still
+    /// has a coarse rung the plan would refine, for at most
+    /// captureRefineWaitMs from the request -- after that the capture
+    /// takes the picture as it stands rather than fail.
+    int64_t dumpRequestTicks = 0;
+    float lastRefineTolerance = -1.0f;
+    static constexpr double captureRefineWaitMs = 10000.0;
     /// The last frame's verdict and the counters behind
     /// Renderer::frameComplete / renderedFrames / completeFrames.
     bool lastFrameComplete = false;

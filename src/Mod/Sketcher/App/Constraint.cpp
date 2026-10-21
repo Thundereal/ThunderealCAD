@@ -284,7 +284,7 @@ void Constraint::Restore(XMLReader& reader)
         const auto positions = splitAndClean(elementPositions);
 
         if (ids.size() != positions.size()) {
-            throw Base::ParserError(
+            THROWM(Base::ParserError,
                 fmt::format(
                     "ElementIds and ElementPositions do not match in "
                     "size. Got {} ids and {} positions.",
@@ -423,7 +423,7 @@ bool Constraint::involvesGeoIdAndPosId(int geoId, PointPos posId) const
 GeoElementId Constraint::getElement(size_t index) const
 {
     if (index >= elements.size()) {
-        throw Base::IndexError("Constraint::getElement index out of range");
+        THROWM(Base::IndexError, "Constraint::getElement index out of range");
     }
 
 #if SKETCHER_CONSTRAINT_USE_LEGACY_ELEMENTS

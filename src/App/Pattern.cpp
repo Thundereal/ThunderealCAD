@@ -207,7 +207,7 @@ T* getProp(const PropertyContainer& obj, const char* name)
 {
     auto prop = dynamic_cast<T*>(Pattern::getProperty(obj, name));
     if (!prop) {
-        throw Base::RuntimeError(std::string("Pattern property missing: ") + name);
+        THROWM(Base::RuntimeError, std::string("Pattern property missing: ") + name);
     }
     return prop;
 }
@@ -238,7 +238,7 @@ DocumentObject* getLink(const PropertyContainer& obj, const char* name, std::vec
         subs.clear();
         return link->getValue();
     }
-    throw Base::RuntimeError(std::string("Pattern property missing: ") + name);
+    THROWM(Base::RuntimeError, std::string("Pattern property missing: ") + name);
 }
 
 // ----------------------------------------------------------------------------
@@ -265,7 +265,7 @@ Base::Vector3d transformDirection(const Base::Matrix4D& mat, const Base::Vector3
 {
     Base::Vector3d res = mat * dir - mat * Base::Vector3d();
     if (res.Length() < Confusion) {
-        throw Base::ValueError("Direction reference has no direction");
+        THROWM(Base::ValueError, "Direction reference has no direction");
     }
     return res.Normalize();
 }
@@ -281,7 +281,7 @@ public:
             return false;
         }
         if (datum->isDerivedFrom<App::Point>()) {
-            throw Base::TypeError("A datum point gives no direction");
+            THROWM(Base::TypeError, "A datum point gives no direction");
         }
         if (auto element = freecad_cast<DatumElement*>(datum)) {
             // A line along it, a plane along its normal
@@ -302,7 +302,7 @@ public:
             return false;
         }
         if (datum->isDerivedFrom<App::Point>() || datum->isDerivedFrom<App::Plane>()) {
-            throw Base::TypeError("Axis reference must be a line");
+            THROWM(Base::TypeError, "Axis reference must be a line");
         }
         auto element = freecad_cast<DatumElement*>(datum);
         axis.base = mat * Base::Vector3d();
@@ -384,7 +384,7 @@ std::vector<Base::Vector3d> linearSteps(const PropertyContainer& obj,
         return {Base::Vector3d()};
     }
     if (!occurrencesProp) {
-        throw Base::RuntimeError("Pattern property missing: Occurrences");
+        THROWM(Base::RuntimeError, "Pattern property missing: Occurrences");
     }
     long occurrences = occurrencesProp->getValue();
     std::vector<Base::Vector3d> steps {Base::Vector3d()};
@@ -396,7 +396,7 @@ std::vector<Base::Vector3d> linearSteps(const PropertyContainer& obj,
         == static_cast<long>(Mode::Extent);
     double length = getProp<PropertyFloat>(obj, withSuffix("Length", suffix).c_str())->getValue();
     if (extent && length < Confusion) {
-        throw Base::ValueError("Pattern length too small");
+        THROWM(Base::ValueError, "Pattern length too small");
     }
 
     const Base::Vector3d unit = Pattern::getDirection(obj, context, second);
@@ -428,7 +428,7 @@ std::vector<Base::Placement> linearPlacements(const PropertyContainer& obj,
     auto occurrences2Prop = findProp<PropertyInteger>(obj, "Occurrences2");
     long occurrences2 = occurrences2Prop ? occurrences2Prop->getValue() : 1;
     if (occurrences < 1 || occurrences2 < 1) {
-        throw Base::ValueError("At least one occurrence required");
+        THROWM(Base::ValueError, "At least one occurrence required");
     }
 
     auto steps1 = linearSteps(obj, context, false);
@@ -452,7 +452,7 @@ Pattern::Axis localAxis(const PropertyContainer& obj, const Pattern::Context& co
     auto linked = getLink(obj, "Axis", subs);
     if (!linked) {
         if (!context.defaultReferences) {
-            throw Base::ValueError("No axis reference specified");
+            THROWM(Base::ValueError, "No axis reference specified");
         }
         return {Base::Vector3d(), Base::Vector3d(0, 0, 1)};
     }
@@ -467,7 +467,7 @@ std::vector<Base::Placement> polarPlacements(const PropertyContainer& obj,
 {
     long occurrences = getProp<PropertyInteger>(obj, "Occurrences")->getValue();
     if (occurrences < 1) {
-        throw Base::ValueError("At least one occurrence required");
+        THROWM(Base::ValueError, "At least one occurrence required");
     }
     if (occurrences == 1) {
         return {Base::Placement()};
@@ -489,7 +489,7 @@ std::vector<Base::Placement> polarPlacements(const PropertyContainer& obj,
         }
         step = Base::toRadians(angle);
         if (std::fabs(step) < Angular) {
-            throw Base::ValueError("Pattern angle too small");
+            THROWM(Base::ValueError, "Pattern angle too small");
         }
     }
 
@@ -522,17 +522,17 @@ std::vector<Base::Placement> circularPlacements(const PropertyContainer& obj,
     const long symmetry = std::max(1L, getProp<PropertyInteger>(obj, "Symmetry")->getValue());
 
     if (!std::isfinite(radialDistance) || radialDistance <= Confusion) {
-        throw Base::ValueError("Radial distance must be greater than zero");
+        THROWM(Base::ValueError, "Radial distance must be greater than zero");
     }
     if (!std::isfinite(tangentialDistance) || tangentialDistance <= Confusion) {
-        throw Base::ValueError("Tangential distance must be greater than zero");
+        THROWM(Base::ValueError, "Tangential distance must be greater than zero");
     }
     if (circleCount < 2) {
-        throw Base::ValueError("At least two concentric circles are required");
+        THROWM(Base::ValueError, "At least two concentric circles are required");
     }
     if (circleCount > Pattern::MaxGeneratedOccurrences) {
-        throw Base::ValueError("Circular pattern would create more than "
-                               + std::to_string(Pattern::MaxGeneratedOccurrences) + " circles");
+        THROWM(Base::ValueError, "Circular pattern would create more than "
+                                 + std::to_string(Pattern::MaxGeneratedOccurrences) + " circles");
     }
 
     const auto axis = localAxis(obj, context);
@@ -555,9 +555,9 @@ std::vector<Base::Placement> circularPlacements(const PropertyContainer& obj,
         if (!std::isfinite(requested) || requested > Pattern::MaxGeneratedOccurrences
             || res.size() + static_cast<std::size_t>(requested)
                 > static_cast<std::size_t>(Pattern::MaxGeneratedOccurrences)) {
-            throw Base::ValueError("Circular pattern would create more than "
-                                   + std::to_string(Pattern::MaxGeneratedOccurrences)
-                                   + " occurrences");
+            THROWM(Base::ValueError, "Circular pattern would create more than "
+                                     + std::to_string(Pattern::MaxGeneratedOccurrences)
+                                     + " occurrences");
         }
         long count = static_cast<long>(requested);
         count = count / symmetry * symmetry;
@@ -582,10 +582,10 @@ std::vector<double> pathDistances(double pathLength,
                                   double endOffset)
 {
     if (startOffset < 0.0 || endOffset < 0.0) {
-        throw Base::ValueError("Path offsets cannot be negative");
+        THROWM(Base::ValueError, "Path offsets cannot be negative");
     }
     if (startOffset + endOffset > pathLength + Confusion) {
-        throw Base::ValueError("Path offsets exceed the path length");
+        THROWM(Base::ValueError, "Path offsets exceed the path length");
     }
 
     const double available = std::max(0.0, pathLength - startOffset - endOffset);
@@ -593,9 +593,9 @@ std::vector<double> pathDistances(double pathLength,
 
     if (mode == SpacingMode::FixedCount) {
         if (count > Pattern::MaxGeneratedOccurrences) {
-            throw Base::ValueError("Path pattern would create more than "
-                                   + std::to_string(Pattern::MaxGeneratedOccurrences)
-                                   + " occurrences");
+            THROWM(Base::ValueError, "Path pattern would create more than "
+                                     + std::to_string(Pattern::MaxGeneratedOccurrences)
+                                     + " occurrences");
         }
         // A closed path without offsets would put the last one on the first
         const long segments =
@@ -609,7 +609,7 @@ std::vector<double> pathDistances(double pathLength,
     }
 
     if (spacing <= Confusion) {
-        throw Base::ValueError("Path spacing must be greater than zero");
+        THROWM(Base::ValueError, "Path spacing must be greater than zero");
     }
 
     const long maximum = mode == SpacingMode::FixedCountAndSpacing ? count : LONG_MAX;
@@ -619,9 +619,9 @@ std::vector<double> pathDistances(double pathLength,
             break;
         }
         if (distances.size() >= static_cast<std::size_t>(Pattern::MaxGeneratedOccurrences)) {
-            throw Base::ValueError("Path pattern would create more than "
-                                   + std::to_string(Pattern::MaxGeneratedOccurrences)
-                                   + " occurrences");
+            THROWM(Base::ValueError, "Path pattern would create more than "
+                                     + std::to_string(Pattern::MaxGeneratedOccurrences)
+                                     + " occurrences");
         }
         distances.push_back(distance);
     }
@@ -641,7 +641,7 @@ Base::Placement pathFrame(const Base::Vector3d& position,
         return {position, Base::Rotation()};
     }
     if (tangent.Length() <= Confusion) {
-        throw Base::ValueError("Path tangent is null");
+        THROWM(Base::ValueError, "Path tangent is null");
     }
     Base::Vector3d x = tangent;
     x.Normalize();
@@ -685,7 +685,7 @@ std::vector<Base::Placement> pathPlacements(const PropertyContainer& obj,
     auto path = Pattern::resolvePath(linked, subs);
     const double length = path->length();
     if (length <= Confusion) {
-        throw Base::ValueError("Path length must be greater than zero");
+        THROWM(Base::ValueError, "Path length must be greater than zero");
     }
 
     const auto distances = pathDistances(
@@ -697,7 +697,7 @@ std::vector<Base::Placement> pathPlacements(const PropertyContainer& obj,
         getProp<PropertyFloat>(obj, "StartOffset")->getValue(),
         getProp<PropertyFloat>(obj, "EndOffset")->getValue());
     if (distances.empty()) {
-        throw Base::ValueError("Path pattern produced no occurrences");
+        THROWM(Base::ValueError, "Path pattern produced no occurrences");
     }
 
     bool reverse = getProp<PropertyBool>(obj, "ReversePath")->getValue();
@@ -741,7 +741,7 @@ std::vector<Base::Placement> pointPlacements(const PropertyContainer& obj,
         }
     }
     if (points.empty()) {
-        throw Base::ValueError("Point object does not contain vertices");
+        THROWM(Base::ValueError, "Point object does not contain vertices");
     }
 
     Base::Vector3d origin = context.relativeToFirst ? points.front() : Base::Vector3d();
@@ -963,37 +963,37 @@ void Pattern::removeResolver(const Resolver* resolver)
 Base::Vector3d Pattern::resolveDirection(DocumentObject* obj, const std::vector<std::string>& subs)
 {
     if (!obj) {
-        throw Base::ValueError("No direction reference specified");
+        THROWM(Base::ValueError, "No direction reference specified");
     }
     Base::Vector3d dir;
     for (const auto& resolver : resolverList()) {
         if (resolver->getDirection(obj, firstSub(subs), dir)) {
             if (dir.Length() < Confusion) {
-                throw Base::ValueError("Direction reference has no direction");
+                THROWM(Base::ValueError, "Direction reference has no direction");
             }
             return dir.Normalize();
         }
     }
-    throw Base::TypeError(
+    THROWM(Base::TypeError,
         "Direction reference must be a straight edge, a planar face, or a datum line or plane");
 }
 
 Pattern::Axis Pattern::resolveAxis(DocumentObject* obj, const std::vector<std::string>& subs)
 {
     if (!obj) {
-        throw Base::ValueError("No axis reference specified");
+        THROWM(Base::ValueError, "No axis reference specified");
     }
     Axis axis;
     for (const auto& resolver : resolverList()) {
         if (resolver->getAxis(obj, firstSub(subs), axis)) {
             if (axis.direction.Length() < Confusion) {
-                throw Base::ValueError("Axis reference has no direction");
+                THROWM(Base::ValueError, "Axis reference has no direction");
             }
             axis.direction.Normalize();
             return axis;
         }
     }
-    throw Base::TypeError(
+    THROWM(Base::TypeError,
         "Axis reference must be a straight or circular edge, a sketch axis, or a datum line");
 }
 
@@ -1001,21 +1001,21 @@ std::unique_ptr<Pattern::Path> Pattern::resolvePath(DocumentObject* obj,
                                                     const std::vector<std::string>& subs)
 {
     if (!obj) {
-        throw Base::ValueError("No path specified");
+        THROWM(Base::ValueError, "No path specified");
     }
     for (const auto& resolver : resolverList()) {
         if (auto path = resolver->getPath(obj, subs)) {
             return path;
         }
     }
-    throw Base::TypeError("Path must reference an object with a shape");
+    THROWM(Base::TypeError, "Path must reference an object with a shape");
 }
 
 std::vector<Base::Vector3d> Pattern::resolvePoints(DocumentObject* obj,
                                                    const std::vector<std::string>& subs)
 {
     if (!obj) {
-        throw Base::ValueError("No point object specified");
+        THROWM(Base::ValueError, "No point object specified");
     }
     std::vector<Base::Vector3d> points;
     for (const auto& resolver : resolverList()) {
@@ -1023,7 +1023,7 @@ std::vector<Base::Vector3d> Pattern::resolvePoints(DocumentObject* obj,
             return points;
         }
     }
-    throw Base::TypeError("Point object must reference an object with a shape or a datum point");
+    THROWM(Base::TypeError, "Point object must reference an object with a shape or a datum point");
 }
 
 std::vector<long> Pattern::suppressedIndices(const std::vector<std::pair<long, long>>& positions,
@@ -1096,7 +1096,7 @@ std::vector<Base::Placement> Pattern::getPlacements(Type type,
         case Type::Point:
             return pointPlacements(obj, context);
     }
-    throw Base::ValueError("Unknown pattern type");
+    THROWM(Base::ValueError, "Unknown pattern type");
 }
 
 Base::Vector3d Pattern::getDirection(const PropertyContainer& obj,
@@ -1114,8 +1114,8 @@ Base::Vector3d Pattern::getDirection(const PropertyContainer& obj,
         unit = second ? Base::Vector3d(0, 1, 0) : Base::Vector3d(1, 0, 0);
     }
     else {
-        throw Base::ValueError(second ? "No reference for the second direction"
-                                      : "No direction reference specified");
+        THROWM(Base::ValueError, second ? "No reference for the second direction"
+                                        : "No direction reference specified");
     }
     if (getProp<PropertyBool>(obj, withSuffix("Reversed", suffix).c_str())->getValue()) {
         unit = -unit;

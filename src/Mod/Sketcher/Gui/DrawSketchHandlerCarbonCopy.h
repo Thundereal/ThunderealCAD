@@ -177,7 +177,7 @@ public:
                 msg.pObjectName
             );
             if (!obj) {
-                throw Base::ValueError("Sketcher: Carbon Copy: Invalid object in selection");
+                THROWM(Base::ValueError, "Sketcher: Carbon Copy: Invalid object in selection");
             }
 
             std::string sketchArchType("Sketcher::SketchObjectPython");

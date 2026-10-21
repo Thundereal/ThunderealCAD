@@ -1556,7 +1556,7 @@ void Hole::findClosestDesignation()
     // from the new type's table at the old size's index)
     int threadType = ThreadType.getValue();
     if (threadType < 0 || threadType >= static_cast<int>(std::size(threadDescription))) {
-        throw Base::IndexError(QT_TRANSLATE_NOOP("Exception", "Thread type is invalid"));
+        THROWM(Base::IndexError, QT_TRANSLATE_NOOP("Exception", "Thread type is invalid"));
     }
     double diameter = ThreadDiameter.getValue();
     if (diameter == 0.0)

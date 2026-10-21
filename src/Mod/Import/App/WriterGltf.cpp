@@ -60,7 +60,7 @@ void WriterGltf::write(Handle(TDocStd_Document) hDoc) const  // NOLINT
 #endif
     Standard_Boolean ret = aWriter.Perform(hDoc, aMetadata, Message_ProgressRange());
     if (!ret) {
-        throw Base::FileException("Cannot save to file: ", file);
+        THROWM(Base::FileException, "Cannot save to file: ", file);
     }
 #else
     boost::ignore_unused(hDoc);

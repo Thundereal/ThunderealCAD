@@ -214,7 +214,7 @@ public:
             if (db)
                 sqlite3_close(db);
             db = nullptr;
-            throw Base::RuntimeError("Cannot open transaction log " + path + ": " + msg);
+            THROWM(Base::RuntimeError, "Cannot open transaction log " + path + ": " + msg);
         }
         try {
             setUp();
@@ -238,17 +238,17 @@ public:
         const bool readOnly = sqlite3_db_readonly(db, "main") == 1;
         const int version = pragmaInt("PRAGMA user_version");
         if (version > StoreVersion)
-            throw Base::RuntimeError("Transaction log: written by a newer build (layout "
-                                     + std::to_string(version) + "; this one reads up to "
-                                     + std::to_string(StoreVersion) + ")");
+            THROWM(Base::RuntimeError, "Transaction log: written by a newer build (layout "
+                                       + std::to_string(version) + "; this one reads up to "
+                                       + std::to_string(StoreVersion) + ")");
         // Before the version: the meta key `schema` numbered the layouts till
         // 2026-09-28 (sec 27.55); a store from before the last of them, 7, is
         // of a layout no step here knows.
         if (version == 0 && hasTable("meta")) {
             const std::string schema = metaValue("schema");
             if (!schema.empty() && std::atoi(schema.c_str()) < 7)
-                throw Base::RuntimeError("Transaction log: of layout " + schema
-                                         + " (before 2026-09-28), which this build does not read");
+                THROWM(Base::RuntimeError, "Transaction log: of layout " + schema
+                                           + " (before 2026-09-28), which this build does not read");
         }
         if (readOnly) {
             // The embedded copy as the guard reads it (sec 16.4), a blob
@@ -339,8 +339,8 @@ public:
                 continue;
             const auto& [type, dflt, key] = c.second;
             if (key)
-                throw Base::RuntimeError(std::string("Transaction log: table ") + table
-                                         + " lacks its key column " + c.first);
+                THROWM(Base::RuntimeError, std::string("Transaction log: table ") + table
+                                           + " lacks its key column " + c.first);
             std::string sql = std::string("ALTER TABLE main.") + table + " ADD COLUMN "
                 + c.first + " " + type;
             if (!dflt.empty())
@@ -355,7 +355,7 @@ public:
         sqlite3* mem = nullptr;
         if (sqlite3_open(":memory:", &mem) != SQLITE_OK) {
             sqlite3_close(mem);
-            throw Base::RuntimeError("Transaction log: cannot read an older store in memory");
+            THROWM(Base::RuntimeError, "Transaction log: cannot read an older store in memory");
         }
         sqlite3_backup* b = sqlite3_backup_init(mem, "main", db, "main");
         const int rc = b ? sqlite3_backup_step(b, -1) : SQLITE_ERROR;
@@ -364,7 +364,7 @@ public:
         if (rc != SQLITE_DONE) {
             std::string msg = sqlite3_errmsg(mem);
             sqlite3_close(mem);
-            throw Base::RuntimeError("Transaction log: cannot copy an older store: " + msg);
+            THROWM(Base::RuntimeError, "Transaction log: cannot copy an older store: " + msg);
         }
         sqlite3_close(db);
         db = mem;
@@ -402,7 +402,7 @@ public:
             if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
                 std::string msg = sqlite3_errmsg(db);
                 sqlite3_finalize(stmt);
-                throw Base::RuntimeError("Transaction log: " + msg + " preparing " + sql);
+                THROWM(Base::RuntimeError, "Transaction log: " + msg + " preparing " + sql);
             }
         }
         ~Statement()
@@ -2491,7 +2491,7 @@ private:
         if (sqlite3_exec(db, sql, nullptr, nullptr, &err) != SQLITE_OK) {
             std::string msg = err ? err : "unknown";
             sqlite3_free(err);
-            throw Base::RuntimeError(std::string("Transaction log: ") + msg + " in " + sql);
+            THROWM(Base::RuntimeError, std::string("Transaction log: ") + msg + " in " + sql);
         }
     }
 
@@ -2505,8 +2505,8 @@ private:
         }
         sqlite3_stmt* s = nullptr;
         if (sqlite3_prepare_v2(db, sql, -1, &s, nullptr) != SQLITE_OK)
-            throw Base::RuntimeError(std::string("Transaction log: ") + sqlite3_errmsg(db)
-                                     + " preparing " + sql);
+            THROWM(Base::RuntimeError, std::string("Transaction log: ") + sqlite3_errmsg(db)
+                                       + " preparing " + sql);
         stmts[sql] = s;
         return s;
     }
@@ -2517,7 +2517,7 @@ private:
         if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
             std::string msg = sqlite3_errmsg(db);
             sqlite3_reset(s);
-            throw Base::RuntimeError("Transaction log: " + msg);
+            THROWM(Base::RuntimeError, "Transaction log: " + msg);
         }
         sqlite3_reset(s);
     }

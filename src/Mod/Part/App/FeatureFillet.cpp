@@ -34,44 +34,27 @@
 #include <Base/Exception.h>
 
 #include <App/Document.h>
+#include "OCCTFork.h"
 #include "TopoShapeOpCode.h"
 #include "FeatureFillet.h"
 
 
 using namespace Part;
 
-namespace Part
-{
-PartExport void *lookUpTKFillet(const char *name);
-}
-
-namespace
-{
-typedef int (*FuncSetFlatEndAtVertex)(int);
-
-FuncSetFlatEndAtVertex funcSetFlatEndAtVertex()
-{
-    static const auto func =
-        (FuncSetFlatEndAtVertex)Part::lookUpTKFillet("ChFi3d_SetFlatEndAtVertex");
-    return func;
-}
-} // namespace
-
+// -1 without the fork (OCCTFork.h): nothing set, nothing to put back
 FilletFlatEnd::FilletFlatEnd(bool enable)
-{
-    if (auto func = funcSetFlatEndAtVertex())
-        previous = func(enable ? 1 : 0);
-}
+    : previous(setOCCTFlatEndAtVertex(enable ? 1 : 0))
+{}
 
 FilletFlatEnd::~FilletFlatEnd()
 {
     if (previous >= 0)
-        funcSetFlatEndAtVertex()(previous);
+        setOCCTFlatEndAtVertex(previous);
 }
 
 bool FilletFlatEnd::isAvailable()
 {
-    return funcSetFlatEndAtVertex() != nullptr;
+    return lookUpTKFillet("ChFi3d_SetFlatEndAtVertex") != nullptr;
 }
 
 PROPERTY_SOURCE(Part::Fillet, Part::FilletBase)

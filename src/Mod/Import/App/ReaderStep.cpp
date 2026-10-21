@@ -42,7 +42,7 @@
 #include <Mod/Part/App/TopoShape.h>
 #include <Mod/Part/App/encodeFilename.h>
 #include <Mod/Part/App/ProgressIndicator.h>
-#include <Mod/Part/App/PartPyCXX.h>
+#include <Mod/Part/App/OCCTFork.h>
 
 using namespace Import;
 

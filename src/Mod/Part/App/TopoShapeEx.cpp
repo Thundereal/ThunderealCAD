@@ -5144,18 +5144,6 @@ TopoShape &TopoShape::removEShape(const TopoShape &shape, const std::vector<Topo
 }
 
 namespace {
-// BRepFilletAPI_SetSetback of the OCCT fork's TKFillet
-typedef void (*FuncSetFilletSetback)(BRepFilletAPI_MakeFillet &,
-                                     const TopoDS_Vertex &,
-                                     const TopoDS_Edge *,
-                                     double);
-
-// BRepFilletAPI_SetFaceDepth of the OCCT fork's TKFillet
-typedef void (*FuncSetFilletFaceDepth)(BRepFilletAPI_MakeFillet &,
-                                       const TopoDS_Vertex &,
-                                       const TopoDS_Face &,
-                                       double);
-
 // Whether a fillet contour of mkFillet ends at the vertex, the one holding
 // edge if given
 bool filletEndsAt(const BRepFilletAPI_MakeFillet &mkFillet,
@@ -5172,18 +5160,16 @@ bool filletEndsAt(const BRepFilletAPI_MakeFillet &mkFillet,
 }
 
 // Hands the setback corners to mkFillet, after its edges are added. The
-// setbacks are the OCCT fork's (docs/CornerBlending.md), looked up at run
-// time like its fallback settings; asking for one without the fork throws
-// rather than build a different shape.
+// setbacks are the OCCT fork's (docs/CornerBlending.md), reached through
+// OCCTFork.h's run-time lookups like its fallback settings; asking for one
+// without the fork throws rather than build a different shape.
 void setFilletCorners(BRepFilletAPI_MakeFillet &mkFillet,
                       const TopoShape &shape,
                       const TopoShape::FilletCorners &corners)
 {
     if (corners.empty())
         return;
-    static const auto setSetback =
-        (FuncSetFilletSetback)lookUpTKFillet("BRepFilletAPI_SetSetback");
-    if (!setSetback)
+    if (!lookUpTKFillet("BRepFilletAPI_SetSetback"))
         FC_THROWM(Base::CADKernelError, "fillet corner setback needs the OCCT fork");
 
     for (const auto &corner : corners) {
@@ -5203,7 +5189,7 @@ void setFilletCorners(BRepFilletAPI_MakeFillet &mkFillet,
             FC_THROWM(Base::CADKernelError, "no fillet ends at corner Vertex" << vindex);
         }
         if (corner.setback >= 0.0)
-            setSetback(mkFillet, TopoDS::Vertex(vertex), nullptr, corner.setback);
+            setOCCTFilletSetback(mkFillet, TopoDS::Vertex(vertex), nullptr, corner.setback);
         for (const auto &v : corner.edges) {
             const auto &shapeEdge = v.first;
             if (shapeEdge.IsNull())
@@ -5226,7 +5212,7 @@ void setFilletCorners(BRepFilletAPI_MakeFillet &mkFillet,
                 FC_WARN("fillet corner Vertex" << vindex << ": " << error.str() << ", skipped");
                 continue;
             }
-            setSetback(mkFillet, TopoDS::Vertex(vertex), &edge, v.second);
+            setOCCTFilletSetback(mkFillet, TopoDS::Vertex(vertex), &edge, v.second);
         }
         if (corner.faces.empty())
             continue;
@@ -5237,9 +5223,7 @@ void setFilletCorners(BRepFilletAPI_MakeFillet &mkFillet,
             FC_WARN("fillet corner Vertex" << vindex << ": not set back, face depths skipped");
             continue;
         }
-        static const auto setFaceDepth =
-            (FuncSetFilletFaceDepth)lookUpTKFillet("BRepFilletAPI_SetFaceDepth");
-        if (!setFaceDepth)
+        if (!lookUpTKFillet("BRepFilletAPI_SetFaceDepth"))
             FC_THROWM(Base::CADKernelError, "fillet corner face depth needs a newer OCCT fork");
         for (const auto &v : corner.faces) {
             const auto &shapeFace = v.first;
@@ -5261,7 +5245,8 @@ void setFilletCorners(BRepFilletAPI_MakeFillet &mkFillet,
                         << " does not touch it, skipped");
                 continue;
             }
-            setFaceDepth(mkFillet, TopoDS::Vertex(vertex), TopoDS::Face(shapeFace), v.second);
+            setOCCTFilletFaceDepth(mkFillet, TopoDS::Vertex(vertex), TopoDS::Face(shapeFace),
+                                   v.second);
         }
     }
 }

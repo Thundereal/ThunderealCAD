@@ -782,6 +782,9 @@ private:
     /// Segment cap, and the member size above which content stays a file.
     uint64_t segmentCap() const;
     uint64_t memberCap() const;
+    /// How full the segment new content is added to may be before a batch
+    /// starts another (BlobAppendSize, sec 37.4 P8 of docs/TransactionLog.md).
+    uint64_t appendCap() const;
     /// Take a compressed member in memory for the next batch, and the blob.
     /// Called with the lock held.
     FileBlobHandle makePacked(const std::string& hash, uint64_t size, const std::string& ext,

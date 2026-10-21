@@ -170,6 +170,11 @@ fc_add_gui_test(GuiFilletGroupsAndPreviewMenu_tests_run fillet-groups-and-previe
 fc_add_gui_test(GuiFilletCornerVertexPick_tests_run fillet-corner-vertex-pick.py
                 --timeout 200)
 
+# Entry 207, the hands-on of 2026-10-21: an object in error is revealed in
+# the tree along its object path, not under a row that only groups it.
+fc_add_gui_test(GuiTreeRevealObjectPath_tests_run tree-reveal-object-path.py
+                --timeout 200)
+
 # Entries 209 and 210, the hands-on of 2026-10-21: automatic colours stand
 # apart -- a fillet's edge groups, PartDesign's tag colours, the shapes'.
 fc_add_gui_test(GuiFilletGroupColorsApart_tests_run fillet-group-colors-apart.py

@@ -24,6 +24,7 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <algorithm>
 # include <set>
 # include <QAction>
 # include <QActionGroup>
@@ -4705,6 +4706,55 @@ struct UpdateDisabler {
     }
 };
 
+/** The item that reveals an object in error that has no top-level item of
+ * its own: the one along its shortest OBJECT path (getParents(), the path
+ * in the 3D scene), made along it if it is not there yet; else, an object
+ * only the tree groups, the shallowest of its items, the first of those in
+ * the tree's order. The first by address, which the set of its items is
+ * ordered by, revealed one or another of its places from run to run --
+ * Binder008 under Lens003 or under LinkGroup001 (docs/HandsOnQueue.md entry
+ * 207; the user: "Lens only group the binder in tree hierarchy, not 3D
+ * scene. so it should not be treated as a parent").
+ */
+DocumentObjectItem *TreeWidget::pickRevealItem(const DocumentObjectDataPtr &data)
+{
+    if (data->docItem && data->viewObject) {
+        if (auto obj = data->viewObject->getObject()) {
+            auto parents = obj->getParents();
+            std::stable_sort(parents.begin(), parents.end(), [](const auto &a, const auto &b) {
+                return std::count(a.second.begin(), a.second.end(), '.')
+                     < std::count(b.second.begin(), b.second.end(), '.');
+            });
+            for (auto &parent : parents) {
+                if (auto item = data->docItem->findItemByObject(true, parent.first,
+                                                                 parent.second.c_str(), false))
+                    return item;
+            }
+        }
+    }
+    // the rows from the top down to an item, by their indexes
+    auto rowPath = [](QTreeWidgetItem *item) {
+        std::vector<int> path;
+        for (; item && item->parent(); item = item->parent())
+            path.push_back(item->parent()->indexOfChild(item));
+        if (item && item->treeWidget())
+            path.push_back(item->treeWidget()->indexOfTopLevelItem(item));
+        std::reverse(path.begin(), path.end());
+        return path;
+    };
+    DocumentObjectItem *best = nullptr;
+    std::vector<int> bestPath;
+    for (auto item : data->items) {
+        auto path = rowPath(item);
+        if (!best || path.size() < bestPath.size()
+                || (path.size() == bestPath.size() && path < bestPath)) {
+            best = item;
+            bestPath = std::move(path);
+        }
+    }
+    return best;
+}
+
 void TreeWidget::onUpdateStatus()
 {
     if(updateBlocked || _DraggingActive
@@ -4966,9 +5016,10 @@ void TreeWidget::onUpdateStatus()
         }
         if(data) {
             auto item = data->rootItem;
-            if(!item && !data->items.empty()) {
-                item = *data->items.begin();
-                data->docItem->showItem(item,false,true);
+            if(!item) {
+                item = pickRevealItem(data);
+                if(item)
+                    data->docItem->showItem(item,false,true);
             }
             if(!errItem)
                 errItem = item;

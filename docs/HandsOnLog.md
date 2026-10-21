@@ -7960,3 +7960,42 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   on the fillet work. Its first run started Tests_run.exe bare and put the
   "DLL was not found" boxes on the user's screen (163); t199.cmd now runs
   it through ctest only.
+
+### 2026-10-21: merged and restaged (stage25); entry 202 built
+
+- MERGED and STAGED on the user's "merge with main, stay on LinkVibe. build
+  and restage": thundereal/LinkVibe c860115ea7 (x16win's entry 200) and
+  thundereal/main 9660244ceb (THROWM, the wiki help, fresh test profiles, a
+  capture waiting for its refines, the overlay task page look), both
+  without conflicts; r179 built. The first restage refused (the user's
+  FreeCAD open, pid 20744); on their "closed, try again" stage25 INSTALL-
+  USER: OK (FreeCADGui 11:21). The fillet handle set on r179: green but
+  fillet-handle-click's three tool tip claims, which follow the real mouse
+  -- 3 of 3 failed twice, then the tip showed on a third run: not r179's.
+- The user asked how to set a setback corner (they could not pick a vertex
+  in the view): the Python route, Fillet.Corners = {'VertexN': setback},
+  then the panel's rows and arrows. My first explanation, read from the
+  code (the preview covers the base vertex), was WRONG: on a box corner a
+  click on the vertex made it a corner on r179.
+- Entry 203 (Esc ends an edit; make it a command on Shift+Esc): passed to
+  the note-taker on the user's word, given to x16win; what I found by
+  reading went with it.
+- 202 BUILT (8b4b49a405, r184), NOT pushed: (a) in the add mode a vertex
+  picked on the base stayed selected, so the next click deselected it and
+  toggled nothing -- a corner could be added, never taken away; fixed. (b) a
+  right click on a fillet's or chamfer's edge or its preview face opens
+  its handle's menu (draft, thickness: the value's). (c) the Group column
+  second. (d) group colours back; automatic ones clear of the plain,
+  dragged, selected and pointer hues; picked from the handle's Group menu
+  or the list's menu, kept in the new hidden output property GroupColors.
+  (e) a header tip with the modes, a row's with its mode and group. (f) a
+  double click edits a value's cell; a default-radius edge can join a
+  group (setValue(edge, param, radius) does nothing for an edge with no
+  points -- the whole list now). fillet-groups-and-preview-menu.py 19 of
+  19, fillet-corner-vertex-pick.py 8 of 8, the fillet set green.
+- Found on the way: QTest.mouseDClick on the list opened no editor while
+  editItem() did -- the panel now asks for the edit itself; why the view's
+  own trigger lost it is not known. pd-values-in-view failed 5 Space-menu
+  claims once on r183 and passed 37 of 37 on the rerun.
+- x16win pushed 5fb4053dfa (201, 189, 132, 203) this afternoon, by the
+  note-taker's relay; not merged here yet.

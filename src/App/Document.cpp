@@ -15314,8 +15314,10 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
         return 0;
     }
 
-    // delete recompute log
-    d->clearRecomputeLog();
+    // the recompute log keeps the messages of the objects still in error
+    // (entry 205); what this recompute adds says whether it failed
+    d->pruneRecomputeLog();
+    const auto logAddedBefore = d->recomputeLogAdded;
 
     d->skippedObjs.clear();
 
@@ -15610,7 +15612,7 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
 
     FC_TIME_LOG(t,"Recompute total");
 
-    if (!d->_RecomputeLog.empty()) {
+    if (d->recomputeLogAdded != logAddedBefore) {
         if (!testStatus(Status::IgnoreErrorOnRecompute))
             Base::Console().Error("Recompute failed!\n");
     }

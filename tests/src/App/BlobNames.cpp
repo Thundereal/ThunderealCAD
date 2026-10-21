@@ -183,4 +183,28 @@ TEST_F(BlobNamesTest, aBlobKnowsItsTypeWhateverItsPathEndsIn)
     EXPECT_TRUE(endsWith(adopted->path(), ".jpg.blob")) << adopted->path();
 }
 
+TEST_F(BlobNamesTest, aSourceInTheStoresNamingKeepsItsType)
+{
+    // Another property's blob: <uuid>.png.blob, handed on as a path
+    const std::string src = writeScratch("first bytes", ".png");
+    _obj->File.setValue(src.c_str());
+    auto other = static_cast<TestNeutralNameFeature*>(
+        _doc->addObject("App::TestNeutralNameFeature", "other"));
+    other->File.setValue(_obj->File.getValue());
+    EXPECT_EQ(other->File.blobExtension(), "png");
+    ASSERT_TRUE(other->File.getBlob());
+    EXPECT_EQ(other->File.getBlob()->extension(), "png");
+
+    // A capture written outside the store as <name>.png.blob, the way
+    // TechDraw's shaded underlay does
+    const std::string capture = writeScratch("captured bytes", ".png.blob");
+    auto third = static_cast<TestNeutralNameFeature*>(
+        _doc->addObject("App::TestNeutralNameFeature", "third"));
+    third->File.setValue(capture.c_str());
+    EXPECT_EQ(third->File.blobExtension(), "png");
+    ASSERT_TRUE(third->File.getBlob());
+    EXPECT_EQ(third->File.getBlob()->extension(), "png");
+    EXPECT_TRUE(endsWith(third->File.getValue(), ".png.blob")) << third->File.getValue();
+}
+
 }  // namespace

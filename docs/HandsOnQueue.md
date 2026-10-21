@@ -173,6 +173,11 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-21 17:44: entry 210 -- the distinct-colour pick made reusable: dress-up
+groups, PartDesign's tag colours, the shape auto colour if it fits; to
+fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
+to the reporter.** Under the entries.
+
 **2026-10-21 17:40: entry 209 -- regressions of 202 on stage27: the preview face's
 hover (selection highlight instead of the base edge) and right click; the
 group colours 2 and 3 alike (a fixed golden-ratio hue, pushed into the
@@ -4231,7 +4236,8 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 206 | 2026-10-21 | a defect and a question: the company's malware detector (Apex, Behavior Monitoring) flagged the STAGED copy AGAIN (entry 161) -- "Unauthorized F[ile ...]", Event File System, Risk High, Operation DELETE, Action TERMINATED, the target a blob in the transient directory (...AppData/Local/cache/Thundereal/Cache/Thundereal_Doc_<uuid>_2b0e23_126872/blobs/<uuid>.png); it fired when the reporter CLOSED a document WITHOUT SAVING (the transient directory removed); what can be done; is a transient directory in TEMP safe? | OPEN; 2026-10-21 16:43; READ by the note-taker (source, nothing run): Document's destructor removes the whole transient directory recursively (Document.cpp 2592-2595), under getUserCachePath (2652-2667, {ExeName}_Doc_{UUID}_{HASH}_{PID}); the blob store keeps image content under its own extension (.png) in blobs/; ANSWERED to the reporter with options, a decision asked. 2026-10-21 16:51 the reporter: NEUTRAL BLOB NAMES ("Neutral blob names (Recommended)") -- blobs in the transient directory without image/document extensions, the cache folder kept; and IT asked to exclude Thundereal.exe (the reporter's own step); ASSIGNED to x16win |
 | 207 | 2026-10-21 | a defect, two questions: (1) an object shown in several places of the tree (lazily populated items) -- on a recompute error the tree reveals Binder008 sometimes under Lens003, sometimes under LinkGroup001: why; (2) why Binder008 recomputes with an error -- "by right, empty context shall choose the shorted path from root. and Binder008 is directly under root"; "object path is not the same as tree path" | OPEN; 2026-10-21 17:07; READ by the note-taker (the live session through MCP, read only, and the source): (1) Tree.cpp 4967-4972 reveals an object without a root item by `*data->items.begin()` -- a std::set of item POINTERS (Tree.cpp 900), so the pick follows heap addresses, not the tree; (2) Binder008 (PartDesign::SubShapeBinder, Relative, Context EMPTY, a shape held) errs "No context, please double click the binder in the desired context to refresh": with no context SubShapeBinder::update (Part/App/SubShapeBinder.cpp 304-331) tries only getParents() paths (here LinkGroup001 alone) for one that leaves the shape unmoved, never the binder at the root itself; ASSIGNED to fcad-dc. 2026-10-21 17:11 the reporter CLARIFIES: the object path counts by the 3D SCENE hierarchy -- an App::Part moves its child's node into its group, a LINK GROUP does NOT, so Binder008's node is still under the scene ROOT; so with an empty context Binder008 should take its own root path (the shortest), which getParents() (LinkGroup001 only) does not offer -- passed on to fcad-dc. 2026-10-21 17:16 the reporter asked what getParents() is for -- ANSWERED by the note-taker (read): every path from a top object down to this one through its InList, by the parents' selection sub-objects and links to them; never the object's own root path, by construction (an empty answer is what callers read as "at the root", e.g. ActiveObjectList 98) -- not scene aware, so adding the root case there would change its ~14 callers. fcad-dc WRITTEN, r187 building: (2) binder side, no change to getParents(): no context + container paths + no geo-feature group holding it -> itself (entry 113); (1) Tree.cpp: the shallowest row, ties by tree order (Binder008 -> Lens003's row, both depth 2, no top-level row); verified on a copy; the tie-break (tree order vs the object path's row) PUT to the reporter. 2026-10-21 17:20 the reporter: a context makes sense only in the 3D scene; Lens003 groups the binder in the TREE only, so it is NOT a parent -- the reveal to prefer the OBJECT PATH's row (LinkGroup001), not tree order; checked by the note-taker: getParents() IS the object-path API (the parents' getSubObjects(GS_SELECT), never tree claims; in the live session it answered LinkGroup001 only, Lens003 left out) -- no other parents API in App or Gui; passed on to fcad-dc |
 | 208 | 2026-10-21 | a REGRESSION of entry 193 (overlay list rows): the fillet's list view shows the overlay's row bands correctly in the TASK PANEL under overlay, but a UNIFORM OPAQUE ground when the panel is MOVED TO THE EDITING VIEW | OPEN; 2026-10-21 17:16; said to the note-taker; ASSIGNED to fcad-dc after 207 (the in-view task panel and the fillet list are its; 193's painter was x16win's, which is on 206) |
-| 209 | 2026-10-21 | REGRESSIONS of 202 (stage27): (a) hovering a working fillet's PREVIEW FACE no longer works -- it takes the selection highlight; before, selecting a working fillet face selected and highlighted the corresponding BASE EDGE; the reporter's guess: 202's preview-face right click broke it; (b) the preview face's RIGHT CLICK does not work either; (c) the AUTO GROUP COLOURS are not distinct (groups 2 and 3 nearly the same) -- random or a fixed list? make them distinct | OPEN; 2026-10-21 17:40; said to the note-taker; (c) READ by the note-taker: fixed, not random -- TaskDressUpParameters::autoGroupColor (1033-1072): a hue stepped by the golden ratio from the group id, then pushed +0.05 at a time past the hues taken by the handle colours, the selection and the highlight -- two groups pushed out of the same taken band can land in the same gap; ASSIGNED to fcad-dc, BEFORE 208 (its 202 work, a regression in the reporter's copy) |
+| 209 | 2026-10-21 | REGRESSIONS of 202 (stage27): (a) hovering a working fillet's PREVIEW FACE no longer works -- it takes the selection highlight; before, selecting a working fillet face selected and highlighted the corresponding BASE EDGE; the reporter's guess: 202's preview-face right click broke it; (b) the preview face's RIGHT CLICK does not work either; (c) the AUTO GROUP COLOURS are not distinct (groups 2 and 3 nearly the same) -- random or a fixed list? make them distinct | OPEN; 2026-10-21 17:40; said to the note-taker; (c) READ by the note-taker: fixed, not random -- TaskDressUpParameters::autoGroupColor (1033-1072): a hue stepped by the golden ratio from the group id, then pushed +0.05 at a time past the hues taken by the handle colours, the selection and the highlight -- two groups pushed out of the same taken band can land in the same gap; ASSIGNED to fcad-dc, BEFORE 208 (its 202 work, a regression in the reporter's copy). 2026-10-21 17:44 (c) WRITTEN by fcad-dc (r187 building): groups placed in turn by id, each at the hue farthest from every hue taken so far (handle plain/active, selection, highlight, user-picked colours, the groups before it); fillet-group-colors-apart.py (8 groups, every pair and each vs the handle colours >= 0.04 in hue, the same on reopening); (a)/(b) NOT FOUND by reading -- 202's parts do not touch the left-click/hover path, and 202's test on r185 hovered a preview face and got the BASE edge preselected and the right click opened its menu; three questions to the reporter (failed or missing edges? Show preview and the add button? hovered or clicked?); the reporter then asked the colour pick made REUSABLE (entry 210) |
+| 210 | 2026-10-21 | a change request: make 209 (c)'s automatic DISTINCT-colour pick REUSABLE and use it also for PartDesign's TAG colouring (the feature tag icons of a body's solids) -- "And shape auto color funciton if it fits" | OPEN; 2026-10-21 17:44; READ by the note-taker: the tag colours come from ViewProviderBody::generateIconColor (PartDesign/Gui/ViewProviderBody.cpp 370-...: an HSV spread from the colours the body's solids already wear, plus green, black and white); the shape auto colour is ViewProviderGeometryObject's constructor (Gui/ViewProviderGeometryObject.cpp 92-101): with the RandomColor preference a RANDOM hue, saturation 0.2-0.5, value 0.55-0.9, no look at other shapes; ASSIGNED to fcad-dc with 209 (c) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -28995,6 +29001,59 @@ the set of groups is unchanged.
 ASSIGNED to fcad-dc, BEFORE 208 -- its own 202 work, broken in the
 reporter's copy; 207 finishing first.
 
+**2026-10-21 17:44, fcad-dc: 209 (c) WRITTEN; (a)/(b) not found by reading.** (c):
+autoGroupColor places the groups in turn by id, each at the hue farthest
+from every hue taken so far -- the handle's plain and active, the
+selection, the highlight, the colours the user picked for other groups,
+and the groups before it; fixed for a given set of groups. Test
+fillet-group-colors-apart.py: 8 groups, every pair and each vs the handle
+colours >= 0.04 in hue, the same colours on reopening. r187 building.
+(a)/(b): "not found by reading. Since stage24 the only change to
+TaskDressUpParameters/ViewProviderDressUp/OnViewValue is my 202, and none
+of its parts touch the left-click/hover path of the preview: the toggle
+let-go acts only in the add mode on a BASE pick, the right-click provider
+only on a right press, the double click only on the list's viewport.
+x16win's ViewProvider.cpp change is the Esc gate only. And 202's test on
+r185 (merged, same code as stage27 for this) hovered B's preview face and
+got the BASE edge preselected (Body Box.Edge6), and the right click
+opened its menu. So the user's case differs from the test." Its
+questions: (1) the model and the fillet -- failed or missing edges (a
+partial preview, 180/196)? (2) "Show preview" on or off in the edit's
+menu, and the add button (the panel's select toggle) on? (3) the face --
+a fillet face of an edge that took the fillet, in the preview; clicked or
+only hovered when it showed the selection colour? PUT to the reporter.
+
+## 210. One reusable distinct-colour pick: the dress-up groups, PartDesign's tag colours, the shape auto colour (a change request) -- OPEN
+
+**2026-10-21 17:44, the reporter (to the note-taker):** "Make that auto color selection
+reusable. Use it also in PartDesign tag coloring"
+**Then:** "And shape auto color funciton if it fits"
+The note-taker's reading: 209 (c)'s pick (each new colour at the hue
+farthest from the hues already taken) becomes ONE shared function, used
+by (1) the dress-up groups (209 c), (2) PartDesign's TAG colours -- the
+tag icon colour each solid of a body gets (several solids, a fork), and
+(3) the shape auto colour -- "if it fits".
+READ by the note-taker (source, nothing run):
+- (2) ViewProviderBody::generateIconColor (PartDesign/Gui/
+  ViewProviderBody.cpp 370-...): takes the colours the body's solid
+  features already wear, plus 0x00ff00 (green), 0x000000 and 0xffffff,
+  and spreads a new one in HSV from them; called from
+  PartDesign/Gui/ViewProvider.cpp 401, 420, 435, 470.
+- (3) ViewProviderGeometryObject's constructor (Gui/
+  ViewProviderGeometryObject.cpp 92-101): with the RandomColor
+  preference, hue rand(), saturation 0.2-0.5, value 0.55-0.9 -- random,
+  nothing about the shapes beside it; PartDesign/Gui/ViewProvider.cpp 85
+  and 736 do the same for features.
+The note-taker's reading of the shape case: "fits" if the taken hues are
+the shapes the new one will be seen with (the document's visible shapes,
+or its siblings in the same container), kept to a muted saturation and
+value as now; a user who turned RandomColor off keeps the default
+colour. NOT said: what "taken" is for shapes -- read as above, the
+builder to say what it chose. Where the shared function lives: Gui (it
+needs the theme's handle, selection and highlight colours), a plain
+function taking the hues to avoid. ASSIGNED to fcad-dc with 209 (c),
+which it is writing now.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -29006,5 +29065,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 209
+the build session, 131 and 132 found by it; entries 134 to 210
 are of 2026-10-15, 134 said to the build session)

@@ -34,6 +34,20 @@ segments.</UserDocu>
       </Documentation>
       <Sandbox tier="call"/>
     </Methode>
+    <Methode Name="getTransactionSave">
+      <Documentation>
+        <UserDocu>getTransactionSave(saveId='') -> dict or None
+
+The save the document's history recorded under saveId -- by default the
+one the document's Version names, its last save -- as a dict: id, version
+(the number the save became), seq (the row its state is at) and trigger,
+who asked for it (docs/HandsOnQueue.md entry 167): the command and the
+view its Save message went to ('Std_Save/Save@Gui::View3DInventor'),
+'python:file:line', 'mcp:client', a close-confirm box, or
+'unknown' for a save recorded before triggers were. None when the log is
+off or the history holds no such save.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="saveCopy">
       <Documentation>
         <UserDocu>saveCopy(path, withHistory=True)

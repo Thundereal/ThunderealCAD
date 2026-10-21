@@ -658,6 +658,8 @@ private:
     static PyObject* sRecoverDocument   (PyObject *self,PyObject *args);
     static PyObject* sOpenFileVersion   (PyObject *self,PyObject *args);
     static PyObject* sSaveDocument      (PyObject *self,PyObject *args);
+    static PyObject* sPushSaveTrigger   (PyObject *self,PyObject *args);
+    static PyObject* sPopSaveTrigger    (PyObject *self,PyObject *args);
     static PyObject* sSaveDocumentAs    (PyObject *self,PyObject *args);
     static PyObject* sNewDocument       (PyObject *self,PyObject *args, PyObject *kwd);
     static PyObject* sCloseDocument     (PyObject *self,PyObject *args);

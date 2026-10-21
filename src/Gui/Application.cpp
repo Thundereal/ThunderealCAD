@@ -70,6 +70,8 @@
 #include <QLoggingCategory>
 
 #include <App/Document.h>
+#include <App/SaveTrigger.h>
+#include <optional>
 #include <App/ViewObjectRequest.h>
 #include <App/DocumentObjectPy.h>
 #include <App/DocumentParams.h>
@@ -1390,6 +1392,13 @@ void Application::onLastWindowClosed(Gui::Document* pcDoc)
 bool Application::sendMsgToActiveView(const char* pMsg, const char** ppReturn)
 {
     MDIView* pView = getMainWindow()->activeWindow();
+    // A save's message names the view it went to, under whatever sent it
+    // (docs/HandsOnQueue.md entry 167): Ctrl+S with a drawing page active
+    // reads "Std_Save/Save@TechDrawGui::MDIViewPage"
+    std::optional<App::SaveTrigger> trigger;
+    if (pView && (strcmp(pMsg, "Save") == 0 || strcmp(pMsg, "SaveAs") == 0
+                  || strcmp(pMsg, "SaveCopy") == 0))
+        trigger.emplace(std::string(pMsg) + "@" + pView->getTypeId().getName());
     bool res = pView ? pView->onMsg(pMsg,ppReturn) : false;
     updateActions(true);
     return res;

@@ -136,6 +136,7 @@
 #include "View3DInventor.h"
 #include "View3DInventorViewer.h"
 #include "ViewArea.h"
+#include <App/SaveTrigger.h>
 #include "DlgObjectSelection.h"
 #include "Tools.h"
 #include <App/Color.h>
@@ -1375,8 +1376,11 @@ bool MainWindow::closeAllDocuments (bool close)
             }
         }
 
-        if (save && !gdoc->save())
-            failedSaves++;
+        if (save) {
+            App::SaveTrigger trigger("close-all-confirm");
+            if (!gdoc->save())
+                failedSaves++;
+        }
     }
 
     if (failedSaves > 0) {

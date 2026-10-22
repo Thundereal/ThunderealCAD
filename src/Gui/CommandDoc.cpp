@@ -39,6 +39,7 @@
 
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
+#include <App/SaveTrigger.h>
 #include <App/DocumentObject.h>
 #include <App/DocumentParams.h>
 #include <App/Expression.h>
@@ -727,6 +728,7 @@ StdCmdSave::StdCmdSave()
 void StdCmdSave::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    App::SaveTrigger trigger(getName());
     doCommand(Command::Gui,"Gui.SendMsgToActiveView(\"Save\")");
 }
 
@@ -756,6 +758,7 @@ StdCmdSaveAs::StdCmdSaveAs()
 void StdCmdSaveAs::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    App::SaveTrigger trigger(getName());
     doCommand(Command::Gui,"Gui.SendMsgToActiveView(\"SaveAs\")");
 }
 
@@ -852,6 +855,7 @@ StdCmdSaveCopy::StdCmdSaveCopy()
 void StdCmdSaveCopy::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    App::SaveTrigger trigger(getName());
     doCommand(Command::Gui,"Gui.SendMsgToActiveView(\"SaveCopy\")");
 }
 
@@ -927,6 +931,7 @@ StdCmdSaveAll::StdCmdSaveAll()
 void StdCmdSaveAll::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    App::SaveTrigger trigger(getName());
     Gui::Document::saveAll();
 }
 

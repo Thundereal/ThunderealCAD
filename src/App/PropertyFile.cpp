@@ -127,8 +127,18 @@ void PropertyFileIncluded::setValue(const char* sFile, const char* sName)
         // wins, otherwise a property that already holds a file keeps the name
         // it is stored under, and only a fresh one takes the source's name.
         std::string name = (sName && sName[0] != '\0') ? sName : std::string();
-        if (name.empty())
+        if (name.empty()) {
             name = _BaseFileName.empty() ? file.fileName() : _BaseFileName;
+            // A source in the store's own naming -- another property's blob,
+            // or a capture written as <name>.png.blob -- names its content
+            // without the neutral suffix (docs/HandsOnQueue.md entry 206):
+            // the type, and the archive name, come from what is before it.
+            const std::string suffix = FileBlobManager::neutralSuffix();
+            if (name.size() > suffix.size()
+                    && name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0) {
+                name.erase(name.size() - suffix.size());
+            }
+        }
 
         // A writable file already sitting in the transient directory is a
         // scratch file handed over by getExchangeTempFile(): claim it instead

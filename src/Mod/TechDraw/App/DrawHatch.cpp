@@ -22,6 +22,8 @@
 
 #include "PreCompiled.h"
 
+#include <App/FileBlobManager.h>
+
 #include "TechDrawParams.h"
 
 #ifndef _PreComp_
@@ -240,15 +242,18 @@ void DrawHatch::unsetupObject(void)
     App::DocumentObject::unsetupObject();
 }
 
+// The pattern file is a blob of the document's store, named
+// `<uuid>.<ext>.blob` there (docs/HandsOnQueue.md entry 206): its type is
+// the extension before the neutral suffix, not the path's last one
 bool DrawHatch::isSvgHatch(void) const
 {
-    Base::FileInfo fi(HatchPattern.getValue());
+    Base::FileInfo fi("hatch." + App::FileBlobManager::storedExtension(HatchPattern.getValue()));
     return fi.hasExtension("svg");
 }
 
 bool DrawHatch::isBitmapHatch(void) const
 {
-    Base::FileInfo fi(HatchPattern.getValue());
+    Base::FileInfo fi("hatch." + App::FileBlobManager::storedExtension(HatchPattern.getValue()));
     return fi.hasExtension({"bmp", "png", "jpg", "jpeg"});
 }
 

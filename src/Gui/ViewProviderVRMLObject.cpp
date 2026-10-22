@@ -44,6 +44,7 @@
 #include <Inventor/VRMLnodes/SoVRMLScript.h>
 
 #include <App/Document.h>
+#include <App/FileBlobManager.h>
 #include <App/VRMLObject.h>
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
@@ -159,6 +160,108 @@ void ViewProviderVRMLObject::getResourceFile<SoVRMLBackground>(SoNode* node, std
 
 }
 
+namespace {
+
+/// The URL fields of a node that name a resource file, other than an
+/// Inline's: those are scene files, kept under their own names.
+std::vector<SoMFString*> resourceFields(SoNode* node)
+{
+    std::vector<SoMFString*> fields;
+    if (node->isOfType(SoVRMLImageTexture::getClassTypeId())) {
+        fields.push_back(&static_cast<SoVRMLImageTexture*>(node)->url);
+    }
+    else if (node->isOfType(SoVRMLMovieTexture::getClassTypeId())) {
+        fields.push_back(&static_cast<SoVRMLMovieTexture*>(node)->url);
+    }
+    else if (node->isOfType(SoVRMLAudioClip::getClassTypeId())) {
+        fields.push_back(&static_cast<SoVRMLAudioClip*>(node)->url);
+    }
+    else if (node->isOfType(SoVRMLBackground::getClassTypeId())) {
+        auto bg = static_cast<SoVRMLBackground*>(node);
+        for (SoMFString* f : {&bg->backUrl, &bg->bottomUrl, &bg->frontUrl, &bg->leftUrl,
+                              &bg->rightUrl, &bg->topUrl}) {
+            fields.push_back(f);
+        }
+    }
+    return fields;
+}
+
+/// \a url as Coin's image loader would find it in the search directories,
+/// texture subdirectories included (SbImage::searchForFile()); empty if not.
+SbString findResource(const SbString& url)
+{
+    SbStringList subdirs;
+    SbString sub[] = {"texture", "textures", "images", "pics", "pictures"};
+    for (auto& s : sub) {
+        subdirs.append(&s);
+    }
+    return SoInput::searchForFile(url, SoInput::getDirectories(), subdirs);
+}
+
+void collectResourceNodes(SoNode* root, std::vector<SoNode*>& nodes)
+{
+    for (SoType type : {SoVRMLImageTexture::getClassTypeId(), SoVRMLMovieTexture::getClassTypeId(),
+                        SoVRMLAudioClip::getClassTypeId(), SoVRMLBackground::getClassTypeId()}) {
+        SoSearchAction sa;
+        sa.setType(type);
+        sa.setInterest(SoSearchAction::ALL);
+        sa.setSearchingAll(true);
+        sa.apply(root);
+        const SoPathList& paths = sa.getPaths();
+        for (int i = 0; i < paths.getLength(); i++) {
+            nodes.push_back(static_cast<SoFullPath*>(paths[i])->getTail());
+        }
+    }
+    // The scenes Inlines read in, which the search does not enter
+    SoSearchAction sa;
+    sa.setType(SoVRMLInline::getClassTypeId());
+    sa.setInterest(SoSearchAction::ALL);
+    sa.setSearchingAll(true);
+    sa.apply(root);
+    const SoPathList& paths = sa.getPaths();
+    for (int i = 0; i < paths.getLength(); i++) {
+        auto inl = static_cast<SoVRMLInline*>(static_cast<SoFullPath*>(paths[i])->getTail());
+        if (inl->getChildData()) {
+            collectResourceNodes(inl->getChildData(), nodes);
+        }
+    }
+}
+
+}  // namespace
+
+int ViewProviderVRMLObject::pointAtStoredResources(SoNode* root)
+{
+    // A restore writes a texture as `<resource>.blob` (App::VRMLObject::
+    // RestoreDocFile()), which Coin's search by name does not find. Point
+    // the URL at that file by its full path: the node keeps it, and Coin
+    // finds it again when it reloads the image after dropping it from
+    // memory, which a callback on the failed search would not survive.
+    // The image loader reads the content, not the name.
+    std::vector<SoNode*> nodes;
+    collectResourceNodes(root, nodes);
+    int pointed = 0;
+    for (SoNode* node : nodes) {
+        for (SoMFString* field : resourceFields(node)) {
+            for (int j = 0; j < field->getNum(); j++) {
+                // The document's copy first, even with the file it was
+                // taken from still beside the user's VRML file: that copy is
+                // what the document saves, and it outlives the user's
+                const SbString url = (*field)[j];
+                if (url.getLength() == 0) {
+                    continue;
+                }
+                SbString stored = findResource(
+                    url + App::FileBlobManager::neutralSuffix());
+                if (stored.getLength() > 0) {
+                    field->set1Value(j, stored);
+                    ++pointed;
+                }
+            }
+        }
+    }
+    return pointed;
+}
+
 void ViewProviderVRMLObject::addResource(const SbString& url, std::list<std::string>& resources)
 {
     SbString found = SoInput::searchForFile(url, SoInput::getDirectories(), SbStringList());
@@ -230,24 +333,49 @@ void ViewProviderVRMLObject::updateData(const App::Property* prop)
             QFileInfo fi(fn);
             QByteArray filepath = fi.absolutePath().toUtf8();
             QByteArray subpath = filepath + "/" + ivObj->getNameInDocument();
+            // The file is a blob of the document's store now, away from
+            // both the directory it came from and the one a restore writes
+            // its resources to (docs/HandsOnQueue.md entry 212): search
+            // those too. The copies the restore wrote come first, the
+            // original directory last.
+            const std::string transient = ivObj->getDocument()->TransientDir.getValue();
+            QByteArray transpath = QByteArray::fromStdString(transient);
+            QByteArray transsub = transpath + "/" + ivObj->getNameInDocument();
+            QByteArray origpath = QByteArray::fromStdString(ivObj->getVrmlPath());
+            std::vector<QByteArray> dirs;
+            if (!origpath.isEmpty()) {
+                dirs.push_back(origpath);
+            }
+            dirs.push_back(filepath);
+            dirs.push_back(subpath);
+            dirs.push_back(transpath);
+            dirs.push_back(transsub);
 
             // Add this to the search path in order to read inline files
-            SoInput::addDirectoryFirst(filepath.constData());
-            SoInput::addDirectoryFirst(subpath.constData());
+            for (const auto& dir : dirs) {
+                SoInput::addDirectoryFirst(dir.constData());
+            }
 
             // Read in the file
             QByteArray buffer = file.readAll();
             in.setBuffer((void *)buffer.constData(), buffer.length());
             SoSeparator * node = SoDB::readAll(&in);
 
+            if (node && !checkRecursion(node)) {
+                // Not a return: the search directories are taken out below
+                Base::Console().Error("The VRML file causes an infinite recursion!\n");
+                node->ref();
+                node->unref();
+                node = nullptr;
+            }
             if (node) {
-                if (!checkRecursion(node)) {
-                    Base::Console().Error("The VRML file causes an infinite recursion!\n");
-                    return;
-                }
                 node->renderCaching = SoSeparator::ON;
                 node->boundingBoxCaching = SoSeparator::ON;
                 pcVRML->addChild(node);
+                // After addChild(), which holds the scene: a search action's
+                // paths ref the root, and freeing them would free a scene
+                // nothing else holds yet
+                pointAtStoredResources(node);
 
                 std::list<std::string> urls;
                 getLocalResources(node, urls);
@@ -257,8 +385,9 @@ void ViewProviderVRMLObject::updateData(const App::Property* prop)
                     ivObj->Urls.setValues(res);
                 }
             }
-            SoInput::removeDirectory(filepath.constData());
-            SoInput::removeDirectory(subpath.constData());
+            for (const auto& dir : dirs) {
+                SoInput::removeDirectory(dir.constData());
+            }
         }
     }
     else if (prop->isDerivedFrom(App::PropertyPlacement::getClassTypeId()) &&

@@ -22,6 +22,9 @@
 
 #include "PreCompiled.h"
 
+#include <optional>
+#include <App/SaveTrigger.h>
+
 #ifndef _PreComp_
 # include <sstream>
 #endif
@@ -356,12 +359,27 @@ PyObject* DocumentPy::mdiViewsOfType(PyObject *args) const
     PY_CATCH;
 }
 
+// A save asked for from Python names its caller, unless something outside
+// Python already did (docs/HandsOnQueue.md entry 167)
+namespace {
+struct PythonSaveTrigger
+{
+    std::optional<App::SaveTrigger> scope;
+    PythonSaveTrigger()
+    {
+        if (!App::SaveTrigger::active())
+            scope.emplace(App::SaveTrigger::pythonCaller());
+    }
+};
+}
+
 PyObject* DocumentPy::save(PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
 
     PY_TRY {
+        PythonSaveTrigger trigger;
         bool ok = getDocumentPtr()->save();
         return Py::new_reference_to(Py::Boolean(ok));
     }
@@ -374,6 +392,7 @@ PyObject* DocumentPy::saveAs(PyObject *args)
         return nullptr;
 
     PY_TRY {
+        PythonSaveTrigger trigger;
         bool ok = getDocumentPtr()->saveAs();
         return Py::new_reference_to(Py::Boolean(ok));
     }

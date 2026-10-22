@@ -228,6 +228,7 @@ public:
     bool moveOnlyPreselected;
     bool moveInCommand;
     bool ctrlPressed;
+    bool forceSolveOnMoveForRigid;
 
     long lastClickTime;  // Store last click time as milliseconds
 

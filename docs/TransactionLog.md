@@ -19,7 +19,7 @@ question is the one that holds.
   (27.1-27.71); grep `### 27.` for a number cited elsewhere.
 - **What is built** is said in the "as built" blocks at the end of each
   design section and in the audit, sec 37; **what is open** is 37.2
-  (left as found; elaborated in 37.7; built in 37.8 but 10 and 13, whose questions 37.8 states), the
+  (left as found; elaborated in 37.7; built in 37.8-37.12, nothing left), the
   "Not built" lines of 35.11 and 36.6, and 34 (held).
 - A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
   found with `grep -n '^### 27.22\|^## 36' docs/TransactionLog.md`.

@@ -38,7 +38,6 @@
 #include <Base/Interpreter.h>
 
 #include <App/LinkArray.h>
-#include <App/SuppressibleExtension.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/TopoShape.h>
 #include <Mod/PartDesign/App/Body.h>
@@ -57,13 +56,18 @@ using namespace Assembly;
 
 namespace
 {
+// A suppressed element is a hidden one here (isSuppressedLinkElement), so
+// the target's group hides or shows it to match.
 void syncSuppressedState(App::DocumentObject* source, App::DocumentObject* target)
 {
-    auto* sourceExt = source ? source->getExtension<App::SuppressibleExtension>() : nullptr;
-    auto* targetExt = target ? target->getExtension<App::SuppressibleExtension>() : nullptr;
-    if (sourceExt && targetExt
-        && sourceExt->Suppressed.getValue() != targetExt->Suppressed.getValue()) {
-        targetExt->Suppressed.setValue(sourceExt->Suppressed.getValue());
+    App::Link* targetGroup = nullptr;
+    int index = linkElementIndex(target, &targetGroup);
+    if (index < 0 || linkElementIndex(source) < 0) {
+        return;
+    }
+    bool suppressed = isSuppressedLinkElement(source);
+    if (suppressed != isSuppressedLinkElement(target)) {
+        targetGroup->setElementVisible(std::to_string(index).c_str(), !suppressed);
     }
 }
 }  // namespace

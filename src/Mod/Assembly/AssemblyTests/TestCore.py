@@ -89,12 +89,6 @@ class AssemblyTestBase(unittest.TestCase):
 
 
 class TestCore(AssemblyTestBase):
-    def _skipUnlessSuppressible(self, element):
-        # Upstream suppresses link elements (5321fd261d), which this fork's
-        # App::LinkElement does not do yet: docs/AssemblyAudit.md sec 8.2.
-        if not hasattr(element, "Suppressed"):
-            self.skipTest("link elements are not suppressible in this build")
-
     def test_component_count_for_link_array(self):
         source = self.doc.addObject("Part::Box", "ArraySource")
         array = self.assembly.newObject("App::Link", "Array")
@@ -108,11 +102,10 @@ class TestCore(AssemblyTestBase):
         array.ShowElement = True
         self.doc.recompute()
         self.assertEqual(UtilsAssembly.number_of_components_in(self.assembly), 3)
-        self._skipUnlessSuppressible(array.ElementList[1])
-        array.ElementList[1].Suppressed = True
+        array.setElementVisible("1", False)
         self.doc.recompute()
         self.assertEqual(UtilsAssembly.number_of_components_in(self.assembly), 2)
-        array.ElementList[1].Suppressed = False
+        array.setElementVisible("1", True)
         self.doc.recompute()
         self.assertEqual(UtilsAssembly.number_of_components_in(self.assembly), 3)
 
@@ -133,11 +126,10 @@ class TestCore(AssemblyTestBase):
         array.ElementCount = 3
         self.doc.recompute()
         element = array.ElementList[1]
-        self._skipUnlessSuppressible(element)
-        element.Suppressed = True
+        array.setElementVisible("1", False)
         self.doc.recompute()
         self.assertNotIn(element, UtilsAssembly.getMovablePartsWithin(array))
-        element.Suppressed = False
+        array.setElementVisible("1", True)
         self.doc.recompute()
         self.assertIn(element, UtilsAssembly.getMovablePartsWithin(array))
 
@@ -146,18 +138,17 @@ class TestCore(AssemblyTestBase):
         array = self.assembly.newObject("App::Link", "Array")
         array.LinkedObject = source
         array.ElementCount = 3
-        self._skipUnlessSuppressible(array.ElementList[1])
-        array.ElementList[1].Suppressed = True
+        array.setElementVisible("1", False)
         parent = self.doc.addObject("Assembly::AssemblyObject", "ParentAssembly")
         instance = parent.newObject("Assembly::AssemblyLink", "Instance")
         instance.LinkedObject = self.assembly
         self.doc.recompute()
         local_array = next(obj for obj in instance.Group if obj.TypeId == "App::Link")
-        self.assertTrue(local_array.ElementList[1].Suppressed)
-        array.ElementList[1].Suppressed = False
+        self.assertEqual(local_array.isElementVisible("1"), 0)
+        array.setElementVisible("1", True)
         instance.touch()
         self.doc.recompute()
-        self.assertFalse(local_array.ElementList[1].Suppressed)
+        self.assertEqual(local_array.isElementVisible("1"), 1)
 
     def test_assembly_link_maps_generated_array_joint(self):
         self._check_generated_array_joint("Face1")

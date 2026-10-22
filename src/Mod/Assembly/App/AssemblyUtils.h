@@ -35,6 +35,7 @@
 namespace App
 {
 class DocumentObject;
+class Link;
 }  // namespace App
 
 namespace Base
@@ -47,6 +48,9 @@ namespace Assembly
 
 /// Whether a generated link element is excluded from assembly operations.
 bool isSuppressedLinkElement(const App::DocumentObject* obj);
+
+/// The index of a link element in its link group, or -1; and the group.
+int linkElementIndex(const App::DocumentObject* obj, App::Link** group = nullptr);
 
 /// Whether obj is a link group whose elements are each a component. This
 /// fork's generated arrays (App::LinkArray) are link groups too, but one

@@ -21,6 +21,8 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <algorithm>
+
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <TopoDS.hxx>
@@ -43,7 +45,6 @@
 
 #include <Mod/Part/App/DatumFeature.h>
 #include <App/LinkArray.h>
-#include <App/SuppressibleExtension.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/PartDesign/App/Body.h>
 
@@ -65,13 +66,29 @@ bool isElementLinkGroup(const App::DocumentObject* obj)
     return obj && obj->isLinkGroup() && !obj->isDerivedFrom<App::LinkArray>();
 }
 
+int linkElementIndex(const App::DocumentObject* obj, App::Link** group)
+{
+    auto* elt = freecad_cast<const App::LinkElement*>(obj);
+    auto* link = elt ? elt->getLinkGroup() : nullptr;
+    if (group) {
+        *group = link;
+    }
+    if (!link) {
+        return -1;
+    }
+    const auto& elements = link->ElementList.getValues();
+    auto it = std::find(elements.begin(), elements.end(), obj);
+    return it == elements.end() ? -1 : static_cast<int>(it - elements.begin());
+}
+
+// Upstream reads a Suppressed property on the element. Here an element is
+// suppressed by hiding it in its link group's VisibilityList
+// (App::LinkArray::isElementSuppressed), which also leaves it out of the shape.
 bool isSuppressedLinkElement(const App::DocumentObject* obj)
 {
-    if (!obj || !obj->isDerivedFrom<App::LinkElement>()) {
-        return false;
-    }
-    auto* ext = obj->getExtension<App::SuppressibleExtension>();
-    return ext && ext->Suppressed.getValue();
+    App::Link* group = nullptr;
+    int index = linkElementIndex(obj, &group);
+    return index >= 0 && group->isElementVisible(std::to_string(index).c_str()) == 0;
 }
 
 void swapJCS(const App::DocumentObject* joint)

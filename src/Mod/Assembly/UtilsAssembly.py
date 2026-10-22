@@ -146,9 +146,15 @@ def isLinkGroup(obj):
 
 
 def isSuppressedLinkElement(obj):
-    return (
-        obj is not None and obj.TypeId == "App::LinkElement" and getattr(obj, "Suppressed", False)
-    )
+    # A suppressed element is one its link group hides (VisibilityList); upstream
+    # gives the element a Suppressed property instead.
+    if obj is None or obj.TypeId != "App::LinkElement":
+        return False
+    for group in obj.InList:
+        elements = getattr(group, "ElementList", None)
+        if elements and obj in elements:
+            return group.isElementVisible(str(elements.index(obj))) == 0
+    return False
 
 
 def getObject(ref):

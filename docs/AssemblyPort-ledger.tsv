@@ -447,17 +447,17 @@ a94d5aa0c2	2026-07-14	Louis Gombert	feature	simulation	0	0	have(port)	55	have	As
 0feb404d87	2026-07-24	paddle	refactor	solver-pin	0	0	have(port)	2	have	Update Ondsel Solver	3rdParty/OndselSolver
 3a9ab5483f	2026-08-11	SlendiDev	feature	rigidgroup	0	0	open	729	open	Assembly: Add RigidGroup (#29605)	App/AssemblyObject.cpp App/AssemblyObject.h CommandCreateJoint.py Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_CreateJointRigidGroup.svg Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h InitGui.py JointObject.py
 3ac55b1252	2026-08-12	PaddleStroke	feature	explode	0	0	open	876	open	Assembly: Exploded view: add moves controls (#30955)	AssemblyTests/TestCommandCreateView.py CMakeLists.txt CommandCreateView.py TestAssemblyWorkbench.py UtilsAssembly.py
-1facbf8342	2026-03-20	Jacob Oursland	refactor	robustness	1	0	open	4	open	Assembly: Remove duplicate nullptr check.	App/AssemblyObject.cpp
-8e04c56f27	2026-06-29	Jacob Oursland	fix	robustness	0	0	open	21	open	Assembly: Clear joint isolation and temporary explosion before save	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+1facbf8342	2026-03-20	Jacob Oursland	refactor	robustness	1	0	open	4	taken edabca0bc6	Assembly: Remove duplicate nullptr check.	App/AssemblyObject.cpp
+8e04c56f27	2026-06-29	Jacob Oursland	fix	robustness	0	0	open	21	adapted 63cbb20e4b	Assembly: Clear joint isolation and temporary explosion before save	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
 2baf36ceec	2026-06-29	Jacob Oursland	fix	robustness	0	0	open	26	open	Assembly: Reject non-finite solver placements	App/AssemblyObject.cpp
-3b75dafedb	2026-06-29	Jacob Oursland	fix	robustness	1	0	open	10	open	Assembly: Prevent solve/updateSolveStatus infinite recursion	App/AssemblyObject.cpp App/AssemblyObject.h
-b54c6dbe62	2026-06-29	Jacob Oursland	fix	robustness	1	0	open	10	open	Assembly: Fix free-drag direction for transformed assemblies	Gui/ViewProviderAssembly.cpp
-44c3ea8b00	2026-07-06	Jacob Oursland	fix	robustness	0	0	open	26	open	Assembly: Fix isolate use-after-free from dangling deleted-object pointers	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
-fd4dd90e1c	2026-07-07	Jacob Oursland	fix	robustness	0	0	open	35	open	Assembly: Contain Python exception in redrawJointPlacement()	App/AssemblyObject.cpp
-3f03812ac9	2026-07-07	Jacob Oursland	fix	robustness	1	0	open	10	open	Assembly: Guard joint view provider redraw against pre-attach calls	JointObject.py
+3b75dafedb	2026-06-29	Jacob Oursland	fix	robustness	1	0	open	10	taken 2253269d53	Assembly: Prevent solve/updateSolveStatus infinite recursion	App/AssemblyObject.cpp App/AssemblyObject.h
+b54c6dbe62	2026-06-29	Jacob Oursland	fix	robustness	1	0	open	10	taken e5a6595b71	Assembly: Fix free-drag direction for transformed assemblies	Gui/ViewProviderAssembly.cpp
+44c3ea8b00	2026-07-06	Jacob Oursland	fix	robustness	0	0	open	26	adapted ca37f57987	Assembly: Fix isolate use-after-free from dangling deleted-object pointers	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+fd4dd90e1c	2026-07-07	Jacob Oursland	fix	robustness	0	0	open	35	taken 0d9be9b62f	Assembly: Contain Python exception in redrawJointPlacement()	App/AssemblyObject.cpp
+3f03812ac9	2026-07-07	Jacob Oursland	fix	robustness	1	0	open	10	taken a6738f58db	Assembly: Guard joint view provider redraw against pre-attach calls	JointObject.py
 83eb84157d	2026-06-12	Pieter Hijma	refactor	build	1	0	open	2	open	Build: Disable deprecation warnings OCCT 8	CMakeLists.txt
-c1df66bce9	2026-08-27	PaddleStroke	feature	joints	1	0	open	173	open	Assembly: Coaxial gear joint. (#31155)	App/AssemblyObject.cpp App/AssemblyObject.h
-b13dc13b35	2026-06-23	PaddleStroke	fix	solve	1	0	open	18	open	Assembly: Fix DoF calculation with bundled fixed joints.	App/AssemblyObject.cpp
+c1df66bce9	2026-08-27	PaddleStroke	feature	joints	1	0	open	173	adapted 9c50dd3838	Assembly: Coaxial gear joint. (#31155)	App/AssemblyObject.cpp App/AssemblyObject.h
+b13dc13b35	2026-06-23	PaddleStroke	fix	solve	1	0	open	18	taken e762ed84a6	Assembly: Fix DoF calculation with bundled fixed joints.	App/AssemblyObject.cpp
 37d1c8253c	2026-08-28	tsiwt	fix	rigidgroup	0	0	open	2	open	Assembly: Fix shortcut conflict between CreateBom and CreateJointRigidGroup	CommandCreateJoint.py
 66aff6a7c2	2026-08-31	pre-commit-ci[bot]	noise	format	1	0	open	16	open	[pre-commit.ci] auto fixes from pre-commit.com hooks	App/AppAssembly.cpp
 db2a26feae	2026-07-14	Louis Gombert	refactor	build	1	0	open	8	open	move FREECAD_WARN_ERROR up, activate for Windows	App/CMakeLists.txt Gui/CMakeLists.txt
@@ -466,11 +466,11 @@ ceeeba26b2	2026-05-27	andershol	refactor	build	0	0	open	4	open	Build: Simplify u
 67103b19c9	2026-09-09	paddle	feature	arrays	0	0	open	259	open	Assembly: support generated arrays and suppressed link elements	App/AssemblyLink.cpp App/AssemblyLink.h App/AssemblyUtils.cpp App/AssemblyUtils.h AssemblyTests/TestCore.py InitGui.py JointObject.py UtilsAssembly.py
 4ace6df1e1	2026-09-19	Jacob Oursland	refactor	solver-pin	0	0	open	2	have (fork pin ccb521b is tree-identical to upstream's 4be80eef02)	OndselSolver: bump submodule to fix macOS 27 builds.	3rdParty/OndselSolver
 8a1bdba1dd	2026-09-19	Slendi	refactor	logging	0	0	open	29	open	Base: Refactor logging printf-style to std::format	App/AssemblyLink.cpp App/AssemblyObject.cpp App/BomObject.cpp Gui/ViewProviderAssembly.cpp
-6e90683e59	2026-08-15	Ryne Everett	fix	joints	1	0	open	13	open	Assembly: fix errors using Fixed Joint on a Part	JointObject.py
-a5908bb06e	2026-09-28	PaddleStroke	fix	groups	1	0	open	16	open	Assembly: Enable joint group deletion if orphaned (#32924)	Gui/ViewProviderGroups.cpp Gui/ViewProviderGroups.h
+6e90683e59	2026-08-15	Ryne Everett	fix	joints	1	0	open	13	taken 0f89180380	Assembly: fix errors using Fixed Joint on a Part	JointObject.py
+a5908bb06e	2026-09-28	PaddleStroke	fix	groups	1	0	open	16	taken 0f06799ae0	Assembly: Enable joint group deletion if orphaned (#32924)	Gui/ViewProviderGroups.cpp Gui/ViewProviderGroups.h
 370eebc099	2026-09-29	Max Wilfinger	noise	icons	1	0	open	424	open	Assembly: Remove unused image assets	Gui/Resources/icons/AssemblyWorkbench_alternate.svg
-2372eb1c4f	2026-09-30	PaddleStroke	fix	joints	0	0	open	102	open	Assembly: Fix rack and pinion bug (#32922)	App/AssemblyObject.cpp AssemblyTests/TestCore.py
-21ed7f01ce	2026-09-30	Chris Hennes	fix	joints	0	0	open	6	open	Assembly: Fix test that only worked on MSVC	AssemblyTests/TestCore.py
+2372eb1c4f	2026-09-30	PaddleStroke	fix	joints	0	0	open	102	adapted 69e6d02816	Assembly: Fix rack and pinion bug (#32922)	App/AssemblyObject.cpp AssemblyTests/TestCore.py
+21ed7f01ce	2026-09-30	Chris Hennes	fix	joints	0	0	open	6	taken 21bb30df97	Assembly: Fix test that only worked on MSVC	AssemblyTests/TestCore.py
 62544c4c6e	2026-10-10	3x380V	refactor	logging	0	0	open	2	open	Convert leftover printf-style specifiers to std::format (#33242)	App/AssemblyObject.cpp
-15bd466ccb	2026-10-06	GeeBee2	fix	solve	1	0	open	2	open	fix: #30887 change rotation order	App/AssemblyObject.cpp
+15bd466ccb	2026-10-06	GeeBee2	fix	solve	1	0	open	2	taken 9d1d3453b9	fix: #30887 change rotation order	App/AssemblyObject.cpp
 3843147760	2026-10-14	Frank Martinez	fix	i18n	1	0	open	4	open	[translations] Fix commands translation context	CommandCreateSnapshot.py

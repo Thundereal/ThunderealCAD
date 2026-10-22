@@ -138,6 +138,20 @@ Each was checked against the code.
    `App/AssemblyUtils.cpp:747`): parts that did not move are rewritten
    (sec 4.2, F6).
 8. **ASMT import is a stub** (`AssemblyImport.py:25-32`) though registered.
+9. **Most GUI commands failed since the port** (found 2026-10-22, Phase 0).
+   The ported Python calls core Gui functions upstream has and the fork
+   never had: `Gui.Document.openCommand` / `commitCommand` /
+   `abortCommand`, `Gui.Document.TreeRootObjects`, `Gui.doCommandEval`,
+   `Gui.doCommandSkip`. Create Assembly, every joint command, BOM,
+   Simulation, Snapshot, Exploded View, Insert Link, Insert New Part and
+   Solve raised `AttributeError`. Added in `6cac2592a1`. Still missing:
+   `Gui.TaskPlacement` (the joint panel's offset buttons; needs the
+   placement dialog's `setIgnoreTransactions`), `Gui.IconPosition` (joint
+   overlay icons, which the fork's Gui never asks for) and
+   `Gui.QtTools.deleteKeySequence` (callers fall back to the Delete key).
+   A probe of every module, document and view member the workbench names
+   found these; members of other objects need the GUI smoke test of
+   phase 0.
 
 
 ## 4. Performance at scale
@@ -391,6 +405,14 @@ land in the very functions the interface work moves
 3. Defects 1-5 of sec 3 that upstream does not fix; Python bindings for
    `preDrag` / `doDragStep` / `postDrag`; tests for every joint type,
    limits, DoF and drag.
+4. The rest of defect 9: `Gui.TaskPlacement` with the placement dialog's
+   `setIgnoreTransactions`, and overlay icons from Python
+   (`Gui.IconPosition`, `getOverlayIcons`). Then a GUI smoke test that runs
+   every Assembly command on a real document, so a call into an API the
+   fork lacks fails a test instead of a user.
+
+Done so far: step 1 (`aa0b4a9691`), and the first part of step 4
+(`6cac2592a1`).
 
 **Phase 1 -- the solver interface, results identical.** Steps 1-6 of
 `docs/AssemblySolverInterface.md` sec 6.3: a solver-neutral model and

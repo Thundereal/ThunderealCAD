@@ -23561,3 +23561,55 @@ Tests: Python `testAScriptedOwnersHelperFollowsIt` (a Proxy owns a helper;
 the owner assigned, a helper brought under another UID is the live
 helper, kept; `getOwnedObjects()` from Python on the proxy object and on a
 Part).
+
+### 37.11 An origin's planes the same in every copy; owned pairing in an import (user: "both", 2026-10-22)
+
+Both of 37.10's fixes, and two faults their tests found on the way.
+
+**(a) A datum's UID from its system and its Role.**
+`LocalCoordinateSystem::createDatum` gives the feature it makes the UID
+`Uuid::createUuid(<the system's UID>, "datum <Role>")`, through
+`Document::giveNextObjectUid` (the next object added takes it, as 36.3's
+rules let it: not a live object's, not another id's in the history). Two
+copies of a file that each made an origin's features now hold the same
+seven objects by UID. A file whose features diverged before this stays
+diverged; (b) is for it. Test `testAnOriginsPlanesAreTheSameInEveryCopy`.
+
+**(b) Pairing through the owner, in both import paths.**
+- *The file as found* (`_applyForeignState`): their objects are taken
+  owners first, and one not paired by its UID (nor, for a file from before
+  UIDs, by its id and name) is the object here that its owner's
+  `getOwnedCounterpart` names, the owner being paired.
+- *Their rows* (`importFork`'s replay): who owns what is known only once
+  a row is applied, so after the row's last step an object it made that
+  is no live object's by UID is asked of its owner; one the owner here
+  names is held, and the row is applied once more with it made under that
+  object's id, name and UID -- as an object paired by UID is. Once only.
+  The replay shares the file's history, which by then has the UID the
+  first application noted: the owner's answer comes before the UID's, and
+  "one of ours" is a live object's UID, not one the history knows.
+Test `testAForkWhoseHelperWasMadeApartPairsByItsOwner` (a Proxy's helper,
+made in each copy apart: one helper after the merge).
+
+**Found: a merge conflict on a value that only reads differently.** Each
+side made the XZ plane; the merge set ours' Placement against theirs' as a
+conflict: `Q0="0.7071067811865475"` against `"...476"`. Theirs came
+through the replay, where a Placement is restored and written again, and
+its quaternion is rebuilt from the axis and angle the text also holds. The
+merge's "same" test now also reads both values back into properties of
+their type and compares those (`sameReadValue`; not a link, not one with
+files), beside `sameLinkValue`.
+
+**Found: a third set of planes, owned by nothing.** The import's replay
+writes a value of `OriginFeatures`; the write reads for the property first,
+and `Origin::getPropertyByName` makes the lazy features right then -- seven
+objects the row then leaves to nothing, as the probe of 37.10 showed. Two
+guards in `LocalCoordinateSystem::initObjects`: no lazy features in a
+version read to be compared or applied (a document both `TempDoc` and
+`VersionDoc`), and none while another copy's rows or state are written in
+(`Document::isWritingForeign()`, a flag the replay and
+`_applyForeignState` set; unlike `isReplaying()` the rows are still
+recorded). Test `testAForkWhoseOriginWasMadeApartMergesOnePlane`: each
+copy made the planes, theirs linked one, imported and merged -- seven
+datum objects, ours, the part's origin still lists them, and the link
+brought links our XY plane.

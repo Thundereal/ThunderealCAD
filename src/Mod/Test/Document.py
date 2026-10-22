@@ -8156,6 +8156,106 @@ class TransactionBranchCases(unittest.TestCase):
         # Imported again with nothing new, nothing comes.
         self.assertEqual(doc.importTransactionFork(copy)["rows"], 0)
 
+    def testAnOriginsPlanesAreTheSameInEveryCopy(self):
+        # Sec 37.10 (a): an origin makes its axes and planes when first
+        # asked; each takes a UID of its origin's and its Role, so two
+        # copies of a file that each made them hold the same objects.
+        import shutil
+
+        doc = self.track(FreeCAD.newDocument("LazyOrigin"))
+        doc.addObject("App::Part", "Part")
+        path = os.path.join(self.dir, "lazy-a.FCStd")
+        copy = os.path.join(self.dir, "lazy-b.FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        shutil.copyfile(path, copy)
+        seen = []
+        for f in (path, copy):
+            d = FreeCAD.openDocument(f)
+            seen.append({o.Role: o.ObjectUid for o in d.getObject("Part").Origin.OriginFeatures})
+            FreeCAD.closeDocument(d.Name)
+        self.assertEqual(len(seen[0]), 7)
+        self.assertEqual(seen[0], seen[1])
+
+    def testAForkWhoseOriginWasMadeApartMergesOnePlane(self):
+        # Sec 37.10: each copy made the origin's planes; theirs linked one.
+        # Imported and merged, the planes are ours, once, and the link
+        # brought links ours (before: three sets of planes, the part's
+        # origin switched to theirs, ours owned by nothing).
+        import shutil
+
+        doc = self.track(FreeCAD.newDocument("ForkOrigin"))
+        doc.UndoMode = 1
+        doc.openTransaction("part")
+        doc.addObject("App::Part", "Part")
+        doc.commitTransaction()
+        path = os.path.join(self.dir, "fork-origin.FCStd")
+        copy = os.path.join(self.dir, "fork-origin-theirs.FCStd")
+        doc.saveAs(path)
+        shutil.copyfile(path, copy)
+        fork = self.track(FreeCAD.openDocument(copy))
+        fork.UndoMode = 1
+        fork.openTransaction("theirs: a link to the XY plane")
+        plane = [o for o in fork.getObject("Part").Origin.OriginFeatures
+                 if o.Role == "XY_Plane"][0]
+        fork.addObject("App::Link", "OnXY").LinkedObject = plane
+        fork.commitTransaction()
+        fork.save()
+        FreeCAD.closeDocument(fork.Name)
+        FreeCAD.setActiveDocument(doc.Name)
+        doc.openTransaction("ours: the planes made here too")
+        ours = {o.Role: o for o in doc.getObject("Part").Origin.OriginFeatures}
+        doc.commitTransaction()
+        res = doc.importTransactionFork(copy)
+        self.assertEqual(res["stopped_at"], 0, res)
+        merged = doc.mergeTransactionBranch(res["branch"])
+        self.assertEqual(merged["unresolved"], [])
+        planes = [o for o in doc.Objects if o.isDerivedFrom("App::DatumElement")]
+        self.assertEqual(len(planes), 7, [o.Name for o in planes])
+        self.assertEqual(
+            {o.Role: o for o in doc.getObject("Part").Origin.OriginFeatures}, ours)
+        self.assertEqual(doc.getObject("OnXY").LinkedObject, ours["XY_Plane"])
+
+    def testAForkWhoseHelperWasMadeApartPairsByItsOwner(self):
+        # Sec 37.10 (b): each copy made the owner's helper, under a UID of
+        # its own; the owner says theirs stands for ours, so the import
+        # brings theirs as ours and the merge has one helper.
+        import shutil
+
+        doc = self.track(FreeCAD.newDocument("ForkOwner"))
+        doc.UndoMode = 1
+        doc.openTransaction("owner")
+        owner = doc.addObject("App::FeaturePython", "Owner")
+        OwnerProxy(owner)
+        owner.addProperty("App::PropertyLink", "Helper")
+        owner.addProperty("App::PropertyInteger", "Size")
+        doc.commitTransaction()
+        path = os.path.join(self.dir, "fork-owner.FCStd")
+        copy = os.path.join(self.dir, "fork-owner-theirs.FCStd")
+        doc.saveAs(path)
+        shutil.copyfile(path, copy)
+        fork = self.track(FreeCAD.openDocument(copy))
+        fork.UndoMode = 1
+        fork.openTransaction("theirs: a helper")
+        fork.Owner.Helper = fork.addObject("App::FeatureTest", "Help")
+        fork.Owner.Size = 3
+        fork.commitTransaction()
+        fork.save()
+        FreeCAD.closeDocument(fork.Name)
+        FreeCAD.setActiveDocument(doc.Name)
+        doc.openTransaction("ours: a helper")
+        mine = doc.addObject("App::FeatureTest", "Help")
+        owner.Helper = mine
+        doc.commitTransaction()
+        res = doc.importTransactionFork(copy)
+        self.assertEqual(res["stopped_at"], 0, res)
+        merged = doc.mergeTransactionBranch(res["branch"], {}, "theirs")
+        self.assertEqual(merged["unresolved"], [])
+        helpers = [o for o in doc.Objects if o.isDerivedFrom("App::FeatureTest")]
+        self.assertEqual([o.Name for o in helpers], [mine.Name])
+        self.assertEqual(owner.Helper, mine)
+        self.assertEqual(owner.Size, 3)
+
     def testLibraryLinksThroughTwoFoldersMergeAsTheSame(self):
         # docs/LibraryPaths.md 3.8: two branches of one file each link the
         # same file of a library, through another folder each -- two copies

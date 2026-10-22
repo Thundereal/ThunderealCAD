@@ -515,6 +515,13 @@ public:
     void carryObjectUid(DocumentObject* obj, const std::string& uid);
     /// The live object with this UID, null if none (sec 36)
     DocumentObject* getObjectByUid(const std::string& uid) const;
+    /** The next object added here takes this UID (docs/TransactionLog.md
+     * sec 37.10 (a)), as the rules of 36.3 let it: not one a live object
+     * has, nor one the history gave another id. For an object every copy of
+     * a file makes on its own and must agree on -- an origin's planes, made
+     * when first asked for -- a UID derived from what makes it.
+     */
+    void giveNextObjectUid(const std::string& uid);
     /// During an import, the UID `obj` was brought with, whatever it was
     /// given here; empty otherwise (sec 36.7).
     std::string getBroughtObjectUid(const DocumentObject* obj) const;
@@ -1731,6 +1738,13 @@ public:
      * Origin its axes and planes -- must wait for the log to supply them.
      */
     bool isReplaying() const;
+    /** Another copy's rows or state are being written into this document
+     * (a fork's import, a linked set: docs/TransactionLog.md sec 30.13,
+     * 37.10): what they make, they say, and nothing is to be made on the
+     * side -- an origin's lazy features, made when a value of theirs is
+     * read for. Unlike isReplaying(), the rows are recorded.
+     */
+    bool isWritingForeign() const;
     /// \internal add or remove property from a transactional object
     void addOrRemovePropertyOfObject(TransactionalObject*, Property *prop, bool add);
     //@}

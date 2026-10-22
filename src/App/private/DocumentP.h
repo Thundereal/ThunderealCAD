@@ -190,6 +190,8 @@ struct DocumentP
     std::string tableEntry;
     /// A restoreVersion() in progress: the restore takes no version 1.
     bool checkingOut {false};
+    /// Another copy's rows or state being written in (isWritingForeign)
+    bool writingForeign {false};
     /// The scratch document a restore to a version reads the version into
     /// (docs/TransactionLog.md sec 24.5): it keeps no log of its own.
     bool noLog {false};

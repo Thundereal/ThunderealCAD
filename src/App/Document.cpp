@@ -1683,6 +1683,11 @@ bool Document::isReplaying() const
     return d->replaying || d->checkingOut;
 }
 
+bool Document::isWritingForeign() const
+{
+    return d->writingForeign;
+}
+
 namespace
 {
 
@@ -10112,6 +10117,44 @@ bool sameLinkValue(TransactionLog& log, const std::string& ptype, const std::str
     return comparable(va.fragment) == comparable(vb.fragment);
 }
 
+/// Two logged values the same once read back (docs/TransactionLog.md sec
+/// 37.10): each read into a property of its type, as a restore reads it, and
+/// the two compared. A value replayed from another copy's log is written by
+/// a property that read it, and need not be the same text: a placement's
+/// quaternion is rebuilt from its axis and angle, an ulp off the one that
+/// was written. Not a link (sameLinkValue) and not one with files.
+bool sameReadValue(TransactionLog& log, const std::string& ptype, const std::string& a,
+                   const std::string& b)
+{
+    if (a.empty() || b.empty())
+        return false;
+    Base::Type type = Base::Type::fromName(ptype.c_str());
+    if (type.isBad() || !type.isDerivedFrom(Property::getClassTypeId())
+            || type.isDerivedFrom(PropertyLinkBase::getClassTypeId()))
+        return false;
+    CapturedValue va, vb;
+    if (!log.readValue(a, va) || !log.readValue(b, vb) || !va.attachments.empty()
+            || !vb.attachments.empty() || !va.blobs.empty() || !vb.blobs.empty())
+        return false;
+    try {
+        std::unique_ptr<Property> pa(static_cast<Property*>(type.createInstance()));
+        std::unique_ptr<Property> pb(static_cast<Property*>(type.createInstance()));
+        if (!pa || !pb)
+            return false;
+        restoreValue(*pa, va);
+        restoreValue(*pb, vb);
+        if (pa->isSame(*pb))
+            return true;
+        Base::StringWriter wa, wb;
+        pa->Save(wa);
+        pb->Save(wb);
+        return wa.getString() == wb.getString();
+    }
+    catch (...) {
+        return false;
+    }
+}
+
 /// A merge worked out (sec 28.2): what each side did since the base, and
 /// theirs' changes classified against ours.
 struct MergePlan
@@ -11534,7 +11577,8 @@ void planWeigh(Document& doc, TransactionLog& logRef, MergePlan& plan)
             c.ours = o->second.atEnd ? o->second.after : std::string();
             if (o->second.atEnd == v.atEnd
                     && (o->second.after == v.after
-                        || sameLinkValue(*log, v.ptype, o->second.after, v.after)))
+                        || sameLinkValue(*log, v.ptype, o->second.after, v.after)
+                        || sameReadValue(*log, v.ptype, o->second.after, v.after)))
                 c.kind = "same";
             else
                 c.kind = ckind == "view" ? "view" : "conflict";
@@ -13674,9 +13718,31 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
         auto it = ids.find(id);
         return it == ids.end() ? id : it->second;
     };
+    Base::FlagToggler<> foreign(d->writingForeign);   // sec 37.10
     std::vector<std::pair<DocumentObject*, DocumentObject*>> pairs;   // theirs, the one here
     std::set<long> kept;
-    for (auto theirs : from.getObjects()) {
+    // Owners before what they own (sec 37.10 (b)): an object not paired by
+    // its UID is the one here its owner's counterpart names -- an origin's
+    // plane both copies made, each under a UID of its own.
+    std::map<DocumentObject*, DocumentObject*> ownerOf;
+    for (auto owner : from.getObjects()) {
+        for (auto owned : owner->getOwnedObjects())
+            ownerOf.emplace(owned, owner);
+    }
+    std::vector<DocumentObject*> order;
+    std::set<DocumentObject*> placed;
+    std::function<void(DocumentObject*)> place = [&](DocumentObject* obj) {
+        if (!placed.insert(obj).second)
+            return;
+        auto owner = ownerOf.find(obj);
+        if (owner != ownerOf.end())
+            place(owner->second);
+        order.push_back(obj);
+    };
+    for (auto obj : from.getObjects())
+        place(obj);
+    std::map<DocumentObject*, DocumentObject*> pairedHere;   // theirs -> the one here
+    for (auto theirs : order) {
         const std::string name = theirs->getNameInDocument();
         // Sec 36 U6: theirs is the one here of its UID and its type, the
         // name not asked. A UID derived for a file written by a build that
@@ -13694,6 +13760,18 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
             if (mine && (mine->getTypeId() != theirs->getTypeId() || kept.count(mine->getID())
                          || expect != mine->getNameInDocument()))
                 mine = nullptr;
+        }
+        if (!mine) {
+            auto owner = ownerOf.find(theirs);
+            auto liveOwner = owner == ownerOf.end() ? pairedHere.end()
+                                                    : pairedHere.find(owner->second);
+            if (liveOwner != pairedHere.end()) {
+                OwnedPaste how = OwnedPaste::FollowOwner;
+                auto there = owner->second->getOwnedCounterpart(theirs, liveOwner->second, how);
+                if (there && there->getDocument() == this
+                        && there->getTypeId() == theirs->getTypeId() && !kept.count(there->getID()))
+                    mine = there;
+            }
         }
         if (!mine) {
             auto obj = static_cast<DocumentObject*>(theirs->getTypeId().createInstance());
@@ -13766,6 +13844,7 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
         }
         kept.insert(mine->getID());
         pairs.emplace_back(theirs, mine);
+        pairedHere[theirs] = mine;
     }
 
     CaptureConfig config(*this);
@@ -14641,6 +14720,15 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                 // A merge of rows this file has not got is a row like any
                 // (sec 30.15); one of rows it has stays a merge (sec 30.34).
                 const int64_t second = t.kind == "merge" ? mergedHere(t) : 0;
+                // Sec 37.10 (b): an object the row makes that pairs with
+                // none here by its UID, but whose owner here owns one of its
+                // kind (an origin's plane both copies made, each under a UID
+                // of its own), is that one. Its owner is known once the row
+                // is applied, so the row is applied again, once, holding it.
+                std::map<long, long> ownedHeld, ownedFound;
+                bool ownedAgain = false;
+            applyRow:
+                ownedFound.clear();
                 const auto idsBefore = ids;
                 const auto namesBefore = names;
                 const auto mintedBefore = minted;
@@ -14671,6 +14759,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                         txn->Inverts = store.findRow(id);
                 }
                 replay->mUndoMap[txn->getID()] = txn;
+                Base::FlagToggler<> foreign(replay->d->writingForeign);
                 try {
                     auto here = [&](long cid) {
                         auto it = ids.find(cid);
@@ -14710,7 +14799,13 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                         // gave an id is that object.
                         const std::string uid = uidOfOp(o);
                         const long byUid = uid.empty() ? 0 : d->history->objectIdOfUid(uid);
-                        if (byUid)
+                        // Held as its owner's first (37.10 (b)): the first
+                        // application noted its own UID in the history the
+                        // replay shares, which says nothing of ours.
+                        auto owned = ownedHeld.find(o.cid);
+                        if (owned != ownedHeld.end())
+                            held = owned->second;
+                        else if (byUid)
                             held = byUid;
                         else if (auto both = same.find(o.cid); both != same.end())
                             held = both->second;
@@ -14735,6 +14830,12 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                         if (asId)
                             obj->_Id = asId;
                         obj->_uid = uid;
+                        // Held as its owner's (37.10 (b)): the one here, UID
+                        // and all
+                        if (owned != ownedHeld.end()) {
+                            if (auto mine = getObjectByID(owned->second))
+                                obj->_uid = mine->getObjectUid();
+                        }
                         replay->addObject(obj, wanted.c_str(), false);
                         ids[o.cid] = obj->getID();
                         const std::string name = obj->getNameInDocument();
@@ -14873,6 +14974,44 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                         if (auto obj = replay->getObjectByID(here(o.cid)))
                             replay->removeObject(obj->getNameInDocument());
                     }
+                    // 6. What it made that its owner says is one of ours
+                    // (37.10 (b)), found now the row has said who owns what.
+                    if (!ownedAgain) {
+                        std::map<DocumentObject*, DocumentObject*> ownerOf;
+                        for (const auto& o : ops) {
+                            if (o.op != "create" || o.ckind != "obj")
+                                continue;
+                            // One of ours by its UID already: paired (the
+                            // history is shared with the replay, and has the
+                            // ids it made too, so it is no test of ours)
+                            auto made = replay->getObjectByID(here(o.cid));
+                            if (!made || getObjectByUid(made->getObjectUid()))
+                                continue;
+                            if (ownerOf.empty()) {
+                                for (auto owner : replay->getObjects()) {
+                                    for (auto obj : owner->getOwnedObjects())
+                                        ownerOf.emplace(obj, owner);
+                                }
+                            }
+                            auto owner = ownerOf.find(made);
+                            if (owner == ownerOf.end())
+                                continue;
+                            auto liveOwner = getObjectByID(owner->second->getID());
+                            if (!liveOwner || liveOwner->getTypeId() != owner->second->getTypeId())
+                                continue;
+                            OwnedPaste how = OwnedPaste::FollowOwner;
+                            auto there = owner->second->getOwnedCounterpart(made, liveOwner, how);
+                            // Ours, unless it is that already; its id free in the
+                            // replay but for the object made, which the second
+                            // pass makes under it
+                            auto taken = there ? replay->getObjectByID(there->getID()) : nullptr;
+                            if (there && there->getDocument() == this
+                                    && there->getTypeId() == made->getTypeId()
+                                    && there->getObjectUid() != made->getObjectUid()
+                                    && (!taken || taken == made))
+                                ownedFound[o.cid] = there->getID();
+                        }
+                    }
                 }
                 catch (...) {
                     replay->_abortTransaction();
@@ -14882,6 +15021,20 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                     seeded = seededBefore;
                     unpaired = unpairedBefore;
                     throw;
+                }
+                if (!ownedFound.empty()) {
+                    // Applied again, the objects found held (37.10 (b))
+                    replay->_abortTransaction();
+                    names = namesBefore;
+                    ids = idsBefore;
+                    minted = mintedBefore;
+                    seeded = seededBefore;
+                    unpaired = unpairedBefore;
+                    renamed.clear();
+                    home.clear();
+                    ownedHeld = ownedFound;
+                    ownedAgain = true;
+                    goto applyRow;
                 }
 
                 nlohmann::json j;
@@ -17336,6 +17489,11 @@ std::string Document::_derivedObjectUid(long id, const std::string& name) const
     if (space.empty())
         space = Uid.getValueStr();
     return Base::Uuid::createUuid(space, "object " + std::to_string(id) + " " + name);
+}
+
+void Document::giveNextObjectUid(const std::string& uid)
+{
+    d->restoringUid = uid;
 }
 
 DocumentObject* Document::getObjectByUid(const std::string& uid) const

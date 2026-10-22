@@ -25,6 +25,7 @@
 # include <cmath>
 #endif // #ifndef _PreComp_
 
+#include <App/Application.h>
 #include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Vector3D.h>

@@ -31,6 +31,7 @@
 #include <Inventor/SbColor.h>
 
 #include <App/DocumentObserver.h>
+#include <Base/Parameter.h>
 #include <Base/Tools2D.h>
 #include <Base/Placement.h>
 #include <Gui/GLPainter.h>

@@ -23525,6 +23525,38 @@ Not built, and why:
   owned counterpart: those pair by UID and name today and have shown no
   case where an origin does not pair; left until one does.
 
+**Answered and looked into (2026-10-22).**
+- *Removal by the owned list:* ruled "no need". Each class keeps its own.
+- *The drag:* by a link group I meant any `App::LinkGroup` in Auto Delete
+  mode -- one a user sets so, and the copy-on-change group, which is one
+  and holds a link's copy-on-change objects. The tree lets an element be
+  dragged out of any link group (`ViewProviderLink::canDragObject` is true
+  for a group), and the drag is `setLink(i, nullptr)`, which in Auto
+  Delete mode removes the element from the document: probed,
+  `g.setLink({0: None})` on such a group left `['G']` of `['G', 'E']`.
+  The probe ran the drag's App call, not the Gui drag itself. A link's
+  array elements are not draggable already. The question: refuse the
+  drag of an owned element, or make a drag out of an Auto Delete group a
+  move (let go without removing).
+- *Pairing a fork's or a linked set's objects:* not "no case" -- probed
+  (`~/.cache/lv-merge/wal/forkorigin.py`). An origin's axes and planes are
+  made lazily, on first ask, under fresh ids and UIDs, so two copies of a
+  file that each made them hold the same plane under two UIDs
+  (`lazyorigin.py`: every role differs). Ours made them; theirs made them
+  and linked `OnXY` to its XY plane; theirs imported as a branch and
+  merged: three sets of planes after (`XY_Plane`, `XY_Plane001`,
+  `XY_Plane002`, and the same for the rest), the Part's origin now lists
+  theirs (`XY_Plane001`...), ours are left owned by nothing, and the link
+  brought links theirs. Two fixes, either or both, for a ruling:
+  (a) the lazily made features take a UID derived from their origin's
+  UID and their Role, so every copy makes the same one and UID pairing
+  needs nothing more -- the root of it, for origins, and a paste gains
+  the same; files that have diverged already stay diverged;
+  (b) `_applyForeignState` (a fork, a linked set) pairs an object left
+  unpaired by UID through its owner, when the owner is paired, by
+  `getOwnedCounterpart` -- the paste's rule, for every owner; it also
+  mends files that diverged before (a).
+
 Tests: Python `testAScriptedOwnersHelperFollowsIt` (a Proxy owns a helper;
 the owner assigned, a helper brought under another UID is the live
 helper, kept; `getOwnedObjects()` from Python on the proxy object and on a

@@ -133,6 +133,48 @@ PyObject* sVisualBuildStats(PyObject * /*self*/, PyObject *args)
         "count", static_cast<unsigned long long>(ViewProvider::VisualBuildCount),
         "seconds", ViewProvider::VisualBuildTime.count());
 }
+
+// FreeCADGui.doCommandEval() and doCommandSkip(): upstream's (a715a4d161),
+// which the Assembly workbench calls to open its task panels and record its
+// macros. Here rather than as Application members, to leave Application.h be.
+
+// Evaluate an expression in __main__ and return its value, unrecorded.
+PyObject* sDoCommandEval(PyObject * /*self*/, PyObject *args)
+{
+    App::ExpressionBlocker::check();
+
+    char *sCmd = nullptr;
+    if (!PyArg_ParseTuple(args, "s", &sCmd))
+        return nullptr;
+
+    Gui::Command::LogDisabler d1;
+    Gui::SelectionLogDisabler d2;
+
+    Base::PyGILStateLocker locker;
+    PyObject *module = PyImport_AddModule("__main__");
+    if (!module)
+        return nullptr;
+    PyObject *dict = PyModule_GetDict(module);
+    if (!dict)
+        return nullptr;
+    return PyRun_String(sCmd, Py_eval_input, dict, dict);
+}
+
+// Record a command in the macro and the console without running it: the
+// caller has already done what it says.
+PyObject* sDoCommandSkip(PyObject * /*self*/, PyObject *args)
+{
+    char *sCmd = nullptr;
+    if (!PyArg_ParseTuple(args, "s", &sCmd))
+        return nullptr;
+
+    Gui::Command::LogDisabler d1;
+    Gui::SelectionLogDisabler d2;
+
+    Gui::Command::printPyCaller();
+    Gui::Application::Instance->macroManager()->addLine(MacroManager::App, sCmd);
+    Py_Return;
+}
 }
 
 // Application methods structure
@@ -593,6 +635,20 @@ PyMethodDef Application::Methods[] = {
    "\n"
    "Prints the given string in the python console and runs it\n"
    "but doesn't record it in macros.\n"
+   "\n"
+   "cmd : str"},
+  {"doCommandEval",           (PyCFunction) sDoCommandEval, METH_VARARGS,
+   "doCommandEval(cmd) -> object\n"
+   "\n"
+   "Evaluates the given expression in __main__ and returns its value,\n"
+   "without printing or recording it.\n"
+   "\n"
+   "cmd : str"},
+  {"doCommandSkip",           (PyCFunction) sDoCommandSkip, METH_VARARGS,
+   "doCommandSkip(cmd) -> None\n"
+   "\n"
+   "Prints the given string in the python console and records it in macros,\n"
+   "but does not run it.\n"
    "\n"
    "cmd : str"},
   {"addModule",               (PyCFunction) Application::sAddModule, METH_VARARGS,

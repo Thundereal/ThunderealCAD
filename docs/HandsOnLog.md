@@ -8065,3 +8065,29 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
     finds nothing left.
 - 208: the user's answer came through the note-taker ("See-through like
   dock"); diagnostic run, fix not started.
+- Built as m200 (the merge over 211), green; PUSHED on the user's word
+  ("Onece finish your current task, push"): thundereal/LinkVibe
+  27e32d75f1..44ab0fc6dd. Not restaged. m200's first ctest had 69
+  failures, all the launcher's: 68 sandbox cases with no FCX_PYODIDE
+  ("expression sandbox image is not available") and DeferredLoad's %TEMP%
+  timeout; again with both set, 92 of 92.
+
+### 2026-10-22 afternoon: entry 208 -- COMMITTED `5fce831256`, not pushed
+
+- The in-view panel's lists stood on an opaque ground because every
+  overlay sheet clears a task panel's lists by a rule scoped to
+  `Gui--TaskView--TaskView` (entry 184), and the host over the picture
+  holds no TaskView. The rules OverlayManager makes from the settings now
+  give the same to `Gui--TaskView--TaskPanelHost`; the overlay sheet is on
+  the host only while it is over the picture. With the earlier
+  hasOverlayRowBands() change (the host counts as the overlay) the rows
+  band too.
+- overlay-list-row-bands-in-view.py 7 of 7 on r203: rows (59,59,59) and
+  (49,49,49) at alpha 181, the docked list's own values; the task box's
+  ground 180 at its margin and 233 under the list (box and band); beside
+  the view no row at the overlay alpha. overlay-list-row-bands.py (docked)
+  13 of 13.
+- My diagnostic's "own ground" column misled: render() with
+  DrawWindowBackground fills a widget's palette ground even when it never
+  paints one. The comparison of the r189 rows (alpha 255) with the
+  docked ones (181) is what pointed at the list's own ground.

@@ -1190,10 +1190,23 @@ DocumentObject* LinkBaseExtension::extensionGetOwnedCounterpart(const DocumentOb
         }
         return nullptr;
     }
-    const std::size_t index = it - mine.begin();
-    if (index < theirs.size() && theirs[index]
-            && theirs[index]->getTypeId() == owned->getTypeId())
-        return theirs[index];
+    // An array's element is a slot, the one of its index
+    if (getLinkedObjectProperty()) {
+        const std::size_t index = it - mine.begin();
+        if (index < theirs.size() && theirs[index]
+                && theirs[index]->getTypeId() == owned->getTypeId())
+            return theirs[index];
+        return nullptr;
+    }
+    // A group's is content: the live one of its UID or none. By its place
+    // it stood for a neighbour -- one added here apart, or the next one up
+    // after a removal (sec 37.12)
+    const std::string& uid = owned->getObjectUid();
+    for (auto obj : theirs) {
+        if (obj && !uid.empty() && obj->getObjectUid() == uid
+                && obj->getTypeId() == owned->getTypeId())
+            return obj;
+    }
     return nullptr;
 }
 
@@ -2643,6 +2656,23 @@ void LinkBaseExtension::detachElement(DocumentObject *obj) {
         return;
     }
     obj->getDocument()->removeObject(obj->getNameInDocument());
+}
+
+bool LinkBaseExtension::releaseElement(DocumentObject *obj) {
+    auto prop = getElementListProperty();
+    if(!obj || !prop || getLinkedObjectProperty())
+        return false;
+    auto objs = prop->getValues();
+    auto it = std::find(objs.begin(), objs.end(), obj);
+    if(it == objs.end())
+        return false;
+    objs.erase(it);
+    prop->setValues(objs);
+    auto owner = getContainer();
+    auto ext = obj->getExtensionByType<LinkBaseExtension>(true);
+    if(owner && ext && ext->_LinkOwner.getValue() == owner->getID())
+        ext->_LinkOwner.setValue(0);
+    return true;
 }
 
 std::vector<App::DocumentObject*> LinkBaseExtension::getLinkedChildren(bool filter) const{

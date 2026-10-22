@@ -765,6 +765,14 @@ void DlgObjectSelection::setPaste(App::Document* target,
             o.owner = owner;
             if (live) {
                 o.live = owner->getOwnedCounterpart(owned, live, o.how);
+                // Content found here by its own UID follows the owner onto it
+                if (!o.live) {
+                    auto it = pastePairs.find(owned);
+                    if (it != pastePairs.end()) {
+                        o.live = it->second;
+                        o.how = App::OwnedPaste::FollowOwner;
+                    }
+                }
                 if (o.live && o.live->getDocument() != target)
                     o.live = nullptr;
             }

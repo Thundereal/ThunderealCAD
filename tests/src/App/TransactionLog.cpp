@@ -383,6 +383,54 @@ TEST_F(TransactionLogTest, aPasteAnsweredAheadKeepsWhatIsLeftOutAndTheOrigin)
     App::GetApplication().closeDocument(otherName.c_str());
 }
 
+TEST_F(TransactionLogTest, aGroupsElementPastedFollowsItsUidNotItsPlace)
+{
+    // Sec 37.12: their group [A, B] assigned onto ours, where A was removed
+    // since; their A is no stand-in for our B, which took A's place
+    doc()->openTransaction("make");
+    auto a = make("A");
+    auto b = make("B");
+    auto group = static_cast<App::LinkGroup*>(doc()->addObject("App::LinkGroup", "G"));
+    group->LinkMode.setValue(App::LinkBaseExtension::LinkModeAutoDelete);
+    group->ElementList.setValues({a, b});
+    doc()->commitTransaction();
+    const int before = b->Integer.getValue();
+
+    auto other = App::GetApplication().newDocument("PasteGroup", "PasteGroup");
+    const std::string otherName = other->getName();
+    auto away = other->copyObject({a, b, group});
+    ASSERT_EQ(away.size(), 3u);
+    auto awayA = away[0], awayB = away[1], awayGroup = away[2];
+    ASSERT_EQ(static_cast<App::LinkGroup*>(awayGroup)->ElementList.getValues(),
+              (std::vector<App::DocumentObject*>{awayA, awayB}));
+    static_cast<App::FeatureTest*>(awayA)->Integer.setValue(42);
+    static_cast<App::FeatureTest*>(awayB)->Integer.setValue(before + 5);
+
+    doc()->openTransaction("remove A");
+    doc()->removeObject(a->getNameInDocument());
+    doc()->commitTransaction();
+    ASSERT_EQ(group->ElementList.getValues(), std::vector<App::DocumentObject*>{b});
+
+    {
+        App::Document::ImportClashScope scope(App::Document::ImportClashScope::Answered);
+        scope.answers[awayGroup->getNameInDocument()] = App::Document::ImportTake::Assign;
+        doc()->openTransaction("paste");
+        doc()->copyObject({awayGroup, awayA, awayB}, true);
+        doc()->commitTransaction();
+    }
+    // Ours took their B's state, by its UID, and not their A's
+    EXPECT_EQ(b->Integer.getValue(), before + 5);
+    // Their A came as an object of its own, in the group beside our B
+    const auto& elements = group->ElementList.getValues();
+    ASSERT_EQ(elements.size(), 2u);
+    EXPECT_NE(std::find(elements.begin(), elements.end(), b), elements.end());
+    int tests = 0;
+    for (auto o : doc()->getObjects())
+        tests += o->isDerivedFrom<App::FeatureTest>() ? 1 : 0;
+    EXPECT_EQ(tests, 2);
+    App::GetApplication().closeDocument(otherName.c_str());
+}
+
 TEST_F(TransactionLogTest, replaysToIdenticalDocument)
 {
     doc()->openTransaction("create");

@@ -2202,3 +2202,9 @@ fc_add_gui_test(GuiImportLinkedSet_tests_run
 fc_add_gui_test(GuiImportClash_tests_run
                 import-clash.py
                 --timeout 120)
+
+# A drag out of an Auto Delete link group (docs/TransactionLog.md sec
+# 37.12): a move, not the removal the mode makes of an element taken out.
+fc_add_gui_test(GuiLinkGroupDragOut_tests_run
+                link-group-drag-out.py
+                --timeout 120)

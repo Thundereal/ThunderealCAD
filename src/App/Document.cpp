@@ -4713,6 +4713,11 @@ std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<Document
     // its origin duplicated left the live origin with no owner (37.7 item
     // 10).
     const std::set<DocumentObject*> brought(objs.begin(), objs.end());
+    std::map<DocumentObject*, DocumentObject*> clashLive;
+    for (const auto& c : clashes) {
+        if (c.brought && c.live)
+            clashLive.emplace(c.brought, c.live);
+    }
     std::vector<std::pair<DocumentObject*, DocumentObject*>> owners(assigned.begin(),
                                                                     assigned.end());
     owners.insert(owners.end(), kept.begin(), kept.end());
@@ -4723,6 +4728,16 @@ std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<Document
                 continue;
             OwnedPaste how = OwnedPaste::FollowOwner;
             auto there = owner->getOwnedCounterpart(owned, live, how);
+            // Content the owner pairs by UID (a group's element, a joint)
+            // came in under a UID of its own: its clash names its live one,
+            // and it follows the owner onto it (sec 37.12)
+            if (!there) {
+                auto c = clashLive.find(owned);
+                if (c != clashLive.end()) {
+                    there = c->second;
+                    how = OwnedPaste::FollowOwner;
+                }
+            }
             if (!there || there == owned || there->getDocument() != this
                     || brought.count(there))
                 continue;

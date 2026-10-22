@@ -8256,6 +8256,45 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(owner.Helper, mine)
         self.assertEqual(owner.Size, 3)
 
+    def testAForkWhoseGroupGotAnElementApartKeepsBoth(self):
+        # Sec 37.12: each copy put an object of its own in the same Auto
+        # Delete group, first in its list; theirs is not ours for being in
+        # the same place, so the merge keeps both.
+        import shutil
+
+        doc = self.track(FreeCAD.newDocument("ForkGroup"))
+        doc.UndoMode = 1
+        doc.openTransaction("group")
+        group = doc.addObject("App::LinkGroup", "G")
+        group.LinkMode = "Auto Delete"
+        doc.commitTransaction()
+        path = os.path.join(self.dir, "fork-group.FCStd")
+        copy = os.path.join(self.dir, "fork-group-theirs.FCStd")
+        doc.saveAs(path)
+        shutil.copyfile(path, copy)
+        fork = self.track(FreeCAD.openDocument(copy))
+        fork.UndoMode = 1
+        fork.openTransaction("theirs: an element")
+        theirs = fork.addObject("App::FeatureTest", "Theirs")
+        theirs.Integer = 7
+        fork.G.ElementList = [theirs]
+        fork.commitTransaction()
+        fork.save()
+        FreeCAD.closeDocument(fork.Name)
+        FreeCAD.setActiveDocument(doc.Name)
+        doc.openTransaction("ours: an element")
+        mine = doc.addObject("App::FeatureTest", "Ours")
+        mine.Integer = 1
+        group.ElementList = [mine]
+        doc.commitTransaction()
+        res = doc.importTransactionFork(copy)
+        self.assertEqual(res["stopped_at"], 0, res)
+        doc.mergeTransactionBranch(res["branch"], {}, "theirs")
+        made = [o for o in doc.Objects if o.isDerivedFrom("App::FeatureTest")]
+        self.assertEqual(len(made), 2, [o.Name for o in made])
+        self.assertEqual(mine.Integer, 1)
+        self.assertEqual(sorted(o.Integer for o in made), [1, 7])
+
     def testLibraryLinksThroughTwoFoldersMergeAsTheSame(self):
         # docs/LibraryPaths.md 3.8: two branches of one file each link the
         # same file of a library, through another folder each -- two copies

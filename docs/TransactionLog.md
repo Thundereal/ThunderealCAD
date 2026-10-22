@@ -58,7 +58,7 @@ question is the one that holds.
 | 34 | Held: what Scion's design suggests | held |
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; 35.11 gaps open |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the dialog marks open |
-| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8) | P10 and 37.7 built but 10 and 13; 10's rule and 13's way open (37.8) |
+| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12) | none left from 37.12 |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -23613,3 +23613,69 @@ recorded). Test `testAForkWhoseOriginWasMadeApartMergesOnePlane`: each
 copy made the planes, theirs linked one, imported and merged -- seven
 datum objects, ours, the part's origin still lists them, and the link
 brought links our XY plane.
+
+### 37.12 A drag out of an Auto Delete group is a move (user: "turn into a real move", 2026-10-22)
+
+**The drag.** `ViewProviderLink::dragObject` took an element out of a link
+group by `setLink(i, nullptr)`, which in Auto Delete mode removes it from
+the document (`detachElement`). In that mode the group makes no link for
+what is put in it: the element is the user's object itself, so a drag
+out of the group, meant as a move, removed the object, and the tree's drop
+then found nothing to drop ("Dropping object deleted"). The same held for
+a copy dragged out of a link's copy-on-change group, which is a group in
+that mode, and for a link an Auto Unlink group made.
+
+Built: `LinkBaseExtension::releaseElement(obj)` takes the element out of
+the list and nothing more, whatever the mode; a link the group made
+(`_LinkOwner`) is no longer the group's own. The drag calls it. A removal
+by the API (`setLink(i, None)`, `setLink({i: None})`) keeps removing:
+that is what the mode is for. A copy moved out of the copy-on-change group
+is the user's from then on: the link still links it until its next copy,
+which, not finding it among the old copies, makes a new one and leaves it.
+
+Test `GuiLinkGroupDragOut` (`tests/gui/link-group-drag-out.py`), by the
+calls the tree's drop makes, the old parent's `dragObject()` and the new
+one's `dropObject()` in one transaction: an Auto Delete element moved to a
+plain group, back by one undo; an Auto Unlink group's link moved, its
+`_LinkOwner` cleared; a copy moved out of the copy-on-change group, the
+link still linking it; `setLink({0: None})` still removes. On the old
+`dragObject` the first fails: the object is gone. A drop synthesized onto
+the tree widget itself was refused by the tree's checks before any of
+this code ran, and was not chased.
+
+**A link element paired by its index (user: "yes", 2026-10-22).** Raised
+by the user: pairing through the owner does not suit what an Auto Delete
+group or an assembly holds. Of the pairings 37.10 and 37.11 built, one
+went by position: a link's element with no `_SourceUUID` stood for the
+live link's element at its index if of its type. Joints, assembly views
+and TechDraw views already paired by UID only.
+
+The rule now: an owner pairs a *slot* -- an object whose identity is its
+place in the owner: an origin and its axes and planes (by role), an
+assembly's three groups, a link's copy-on-change group, a copy by its
+source, and an array's element by its index (an `App::Link` with
+`ElementCount` makes its elements per index, so element i of one copy is
+element i of another). What an owner holds as *content* -- a group's
+elements, a joint, a view -- pairs by UID or not at all; the owner only
+decides that it follows (no row of its own in the paste dialog, assigned
+or left out with the owner). Built: a link group's element pairs with the
+live group's element of its UID (`Link.cpp`,
+`extensionGetOwnedCounterpart`).
+
+**Found building it: content never paired by UID in a paste.** A brought
+object that clashes comes in under a UID of its own (36.4), so a UID
+match against what it was brought with finds nothing at
+`_settleImportClashes`: in a paste, the assembly's joints and a page's
+views (37.10) did not follow their owner either, but came in as
+duplicates. The clash list knows the pair: an owned object the owner
+gives no counterpart now follows its owner onto its own clash's live one.
+The paste dialog, which reads the originals (their UIDs intact), takes the
+same fallback from its pairs. In a fork's import the UIDs are kept, and
+the UID match is what pairs.
+
+Tests: `aGroupsElementPastedFollowsItsUidNotItsPlace` (gtest; their group
+[A, B] assigned onto ours, A removed here: our B takes their B's state,
+their A comes in as an object of its own); and
+`testAForkWhoseGroupGotAnElementApartKeepsBoth` (each copy put an object
+of its own first in the same group: two objects after the merge). On the
+index pairing both fail (the merge makes the two one: `['Ours']`).

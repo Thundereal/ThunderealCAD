@@ -539,6 +539,12 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
             newPos = Base::Vector3d(vec[0], vec[1], vec[2]);
         }
 
+        // Cursor deltas are world-space but the placements written below are in the
+        // assembly's local frame, so rotate them into it. Identity for an unrotated
+        // assembly. Mirrors the asmPlc correction in draggerMotionCallback.
+        Base::Rotation asmInvRot
+            = App::GeoFeature::getGlobalPlacement(getObject<AssemblyObject>()).getRotation().inverse();
+
         for (auto& objToMove : docsToMove) {
             App::DocumentObject* obj = objToMove.obj;
             auto* propPlacement = obj->getPlacementProperty();
@@ -613,8 +619,8 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
                     Base::Vector3d pos = plc.getPosition() + (newPos - initialPosition);
                     plc.setPosition(pos);
                 }
-                else {  // DragMode::Translation
-                    Base::Vector3d delta = newPos - prevPosition;
+                else {  // DragMode::Translation / TranslationNoSolve
+                    Base::Vector3d delta = asmInvRot.multVec(newPos - prevPosition);
 
                     Base::Vector3d pos = propPlacement->getValue().getPosition() + delta;
                     plc.setPosition(pos);

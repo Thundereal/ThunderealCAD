@@ -27,6 +27,7 @@
 #include <sstream>
 #endif
 
+#include <cassert>
 #include <unordered_map>
 
 #include "Unit.h"

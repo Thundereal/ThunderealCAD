@@ -445,11 +445,11 @@ c517cd56b4	2026-07-06	PaddleStroke	?	snapshot	0	0	partial(port)	1631	adapted f82
 a94d5aa0c2	2026-07-14	Louis Gombert	feature	simulation	0	0	have(port)	55	have	Assembly simulation export: improve video generation function	CommandCreateSimulation.py
 9027bef632	2026-07-14	Louis Gombert	feature	tests	0	0	have(port)	217	have	Assembly simulation export: add video export test	AssemblyTests/TestCommandInsertLink.py AssemblyTests/TestCore.py AssemblyTests/TestSimulationExport.py AssemblyTests/TestTEMPLATE.py CMakeLists.txt CommandCreateSimulation.py TestAssemblyWorkbench.py
 0feb404d87	2026-07-24	paddle	refactor	solver-pin	0	0	have(port)	2	have	Update Ondsel Solver	3rdParty/OndselSolver
-3a9ab5483f	2026-08-11	SlendiDev	feature	rigidgroup	0	0	open	729	open	Assembly: Add RigidGroup (#29605)	App/AssemblyObject.cpp App/AssemblyObject.h CommandCreateJoint.py Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_CreateJointRigidGroup.svg Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h InitGui.py JointObject.py
+3a9ab5483f	2026-08-11	SlendiDev	feature	rigidgroup	0	0	open	729	adapted 4b813ae5b0	Assembly: Add RigidGroup (#29605)	App/AssemblyObject.cpp App/AssemblyObject.h CommandCreateJoint.py Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_CreateJointRigidGroup.svg Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h InitGui.py JointObject.py
 3ac55b1252	2026-08-12	PaddleStroke	feature	explode	0	0	open	876	open	Assembly: Exploded view: add moves controls (#30955)	AssemblyTests/TestCommandCreateView.py CMakeLists.txt CommandCreateView.py TestAssemblyWorkbench.py UtilsAssembly.py
 1facbf8342	2026-03-20	Jacob Oursland	refactor	robustness	1	0	open	4	taken edabca0bc6	Assembly: Remove duplicate nullptr check.	App/AssemblyObject.cpp
 8e04c56f27	2026-06-29	Jacob Oursland	fix	robustness	0	0	open	21	adapted 63cbb20e4b	Assembly: Clear joint isolation and temporary explosion before save	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
-2baf36ceec	2026-06-29	Jacob Oursland	fix	robustness	0	0	open	26	open	Assembly: Reject non-finite solver placements	App/AssemblyObject.cpp
+2baf36ceec	2026-06-29	Jacob Oursland	fix	robustness	0	0	open	26	taken 57dd6f238d	Assembly: Reject non-finite solver placements	App/AssemblyObject.cpp
 3b75dafedb	2026-06-29	Jacob Oursland	fix	robustness	1	0	open	10	taken 2253269d53	Assembly: Prevent solve/updateSolveStatus infinite recursion	App/AssemblyObject.cpp App/AssemblyObject.h
 b54c6dbe62	2026-06-29	Jacob Oursland	fix	robustness	1	0	open	10	taken e5a6595b71	Assembly: Fix free-drag direction for transformed assemblies	Gui/ViewProviderAssembly.cpp
 44c3ea8b00	2026-07-06	Jacob Oursland	fix	robustness	0	0	open	26	adapted ca37f57987	Assembly: Fix isolate use-after-free from dangling deleted-object pointers	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
@@ -458,7 +458,7 @@ fd4dd90e1c	2026-07-07	Jacob Oursland	fix	robustness	0	0	open	35	taken 0d9be9b62f
 83eb84157d	2026-06-12	Pieter Hijma	refactor	build	1	0	open	2	open	Build: Disable deprecation warnings OCCT 8	CMakeLists.txt
 c1df66bce9	2026-08-27	PaddleStroke	feature	joints	1	0	open	173	adapted 9c50dd3838	Assembly: Coaxial gear joint. (#31155)	App/AssemblyObject.cpp App/AssemblyObject.h
 b13dc13b35	2026-06-23	PaddleStroke	fix	solve	1	0	open	18	taken e762ed84a6	Assembly: Fix DoF calculation with bundled fixed joints.	App/AssemblyObject.cpp
-37d1c8253c	2026-08-28	tsiwt	fix	rigidgroup	0	0	open	2	open	Assembly: Fix shortcut conflict between CreateBom and CreateJointRigidGroup	CommandCreateJoint.py
+37d1c8253c	2026-08-28	tsiwt	fix	rigidgroup	0	0	open	2	taken dafa752098	Assembly: Fix shortcut conflict between CreateBom and CreateJointRigidGroup	CommandCreateJoint.py
 66aff6a7c2	2026-08-31	pre-commit-ci[bot]	noise	format	1	0	open	16	open	[pre-commit.ci] auto fixes from pre-commit.com hooks	App/AppAssembly.cpp
 db2a26feae	2026-07-14	Louis Gombert	refactor	build	1	0	open	8	open	move FREECAD_WARN_ERROR up, activate for Windows	App/CMakeLists.txt Gui/CMakeLists.txt
 ceeeba26b2	2026-05-27	andershol	refactor	build	0	0	open	4	open	Build: Simplify use of SET_BIN_DIR	App/CMakeLists.txt Gui/CMakeLists.txt

@@ -411,6 +411,18 @@ land in the very functions the interface work moves
    every Assembly command on a real document, so a call into an API the
    fork lacks fails a test instead of a user.
 
+5. After the upstream merge (step 2): **an audit of header inclusion**
+   (user, 2026-10-22), so that a change rebuilds only what depends on it.
+   The port kept running into headers too costly to touch: a member on
+   `Gui/Application.h`, `Gui/Document.h` or `Base/Vector3D.h`, or a `using`
+   in `App/GeoFeatureGroupExtension.h`, each rebuilds hundreds of files, so
+   each was worked around instead (`6cac2592a1`, the UnitZ spelling in
+   `9c50dd3838`, the GroupExtension call in `f829545409`). The audit
+   measures, per header, how many translation units include it directly
+   and transitively and what a one-line change costs, finds where a
+   forward declaration, a pimpl, or splitting a header would cut that, and
+   proposes the changes ranked by rebuild time saved.
+
 Done so far: step 1 (`aa0b4a9691`), and the first part of step 4
 (`6cac2592a1`).
 

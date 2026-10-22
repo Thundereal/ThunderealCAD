@@ -422,6 +422,12 @@ land in the very functions the interface work moves
    and transitively and what a one-line change costs, finds where a
    forward declaration, a pimpl, or splitting a header would cut that, and
    proposes the changes ranked by rebuild time saved.
+   **Audited 2026-10-22: `docs/HeaderInclusionAudit.md`**, scripts in
+   `scripts/header-audit/`. A full build is 424 CPU-min (71 min at -j 6),
+   PCH is off, and compile time is header parsing (~1 s per MB pulled in).
+   Ten ranked proposals save ~390 CPU-h a year; the fork-owned splits
+   (FileBlobManager.h, the Material headers, PropertyAppearance, Renderer.h's
+   config structs) carry no merge cost and come first. Not applied yet.
 
 Done so far: step 1 (`aa0b4a9691`), and the first part of step 4
 (`6cac2592a1`).

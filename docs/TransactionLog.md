@@ -19,7 +19,7 @@ question is the one that holds.
   (27.1-27.71); grep `### 27.` for a number cited elsewhere.
 - **What is built** is said in the "as built" blocks at the end of each
   design section and in the audit, sec 37; **what is open** is 37.2
-  (left as found, with reasons; elaborated in 37.7), 37.6's P9 and P10 (the WAL), the
+  (left as found; elaborated in 37.7; built in 37.8 but 10 and 13, whose questions 37.8 states), the
   "Not built" lines of 35.11 and 36.6, and 34 (held).
 - A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
   found with `grep -n '^### 27.22\|^## 36' docs/TransactionLog.md`.
@@ -58,7 +58,7 @@ question is the one that holds.
 | 34 | Held: what Scion's design suggests | held |
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; 35.11 gaps open |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the dialog marks open |
-| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7) | P5 ruled 2026-10-22; 37.7's items and 37.6's P9/P10 open |
+| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8) | P10 and 37.7 built but 10 and 13; 10's rule and 13's way open (37.8) |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -22942,7 +22942,7 @@ document is space.
   database every page the WAL holds once. The hot pages are the same few,
   so this is likely to write more in total, not less. Worth it only if
   the 4 MB on disk matters more than the writes, which is the case on the
-  browser tier. Not measured.
+  browser tier. Not measured. (Built and measured, 37.8.)
 Neither changes a format.
 
 ### 37.7 The items left as found, elaborated (2026-10-22)
@@ -23201,3 +23201,331 @@ active, the place to assert it.
 (refuse the seven), 9 (finish or undo the rollback), 13 (fix B). The
 others are fixes with one obvious shape: 1, 3, 4, 6 have effects a user
 meets; 2 and 12 are rarer; 5, 7, 8, 11 are small or latent.
+
+### 37.8 Rulings of 2026-10-22, and what was built
+
+The user ruled on 37.6 and 37.7: "Try P10 first. If not working, try P9
+but group on undo steps. 13, elaborate asking before the steps open. 16
+grey out. 10, if an object is assigned, then its deps in the paste list
+can only be assign or exclude. Does that make sense? 15 stay open. 9
+finished." -- and of the rest, "ok": built as 37.7 proposed.
+
+**P10 -- built; P9 not needed.** `wal_autocheckpoint=256` beside
+`journal_size_limit` (`TransactionStoreSQLite.cpp`). Measured with
+`~/.cache/lv-merge/wal/p10.py` (300 recomputed edits of 37.4's fusion,
+each committed under its own name so none folds) and an `LD_PRELOAD` shim
+counting the bytes the process writes to `log.db` and its WAL
+(`wal/shim/wcount.c`; this kernel has no `/proc/self/io`), two runs each:
+
+| checkpoint at | WAL peak | WAL mean | written to the WAL | written to the database |
+|---|---|---|---|---|
+| 1000 pages (SQLite's) | 3.94 MB | 2.07 MB | 74.1 MB | 5.1 MB |
+| 256 pages (P10) | 1.01 MB | 1.00 MB | 74.0 MB | 13.4 MB |
+
+The WAL stays at its 1 MB; the price is the checkpoints writing 8 MB more
+into the database over the 300 edits, 11% more written in all. P10 works
+for what it is for, so P9 (one SQL transaction per undo step) was not
+tried. It is what would cut the 74 MB -- 250 KB an edit written to the
+WAL whatever the checkpoint -- if that is ever wanted.
+
+**Built, one line each** (tests named; all in the gates):
+- *1.* `onCommit` tells a property added in a removed one's freed address
+  by its id: `delprop`, `addprop`, `set` (gtest
+  `aPropertyAddedInARemovedOnesPlaceIsNotItsSet`, which skips where the
+  allocator does not reuse the address; here it does).
+- *2.* A row is numbered once its ops say there is one: a commit of
+  `same` writes takes no ordinal and puts no version document on a branch
+  (`testAVersionLookedAtWithANoChangeCommitStaysDetached`).
+- *3.* A cancel by id holds no guard around a document with a log; its
+  `undo(id)` holds its own (`testATaskCancelledAfterAnotherWroteTakesItsStepBack`,
+  which fails without the change: 4716 where 4711 was put back).
+- *4.* `_checkTransaction` does not reopen an id a step on the undo stack
+  has; the write is a step of its own (gtest
+  `aWriteAfterAnUndoInsideACommandIsAStepOfItsOwn`).
+- *5.* `undoLogged` clears the redos with its step set aside; what a
+  deleted object's teardown writes is a step of its own.
+- *6.* Recovery moves the database and its WAL both or neither; a failure
+  puts back what moved and leaves the crashed session's directory whole
+  (a rename that will not go back is copied back first). The message is
+  "nothing recovered from <dir>; the report view says why" (gtest
+  `aRecoveryThatCannotTakeTheWalLeavesTheLogWhole`).
+- *7.* `environment()`/`user()` insert OR IGNORE and read back;
+  `sqlite3_busy_timeout` 5 s at open.
+- *8.* `_readVersion` with no document active makes the live one active
+  while it writes it, and puts none back after; the comment corrected.
+- *9.* (ruled: finished) A rollback whose follow fails warns and finishes:
+  rows removed, stacks rebuilt, panel refreshed.
+- *11.* A file read with the history's UID for an id that the file saved
+  with another says so (one warning per object, which takes the history's).
+- *12.* A copy on change that could not copy every object takes none of
+  the copy back: the sync keeps the old copies, a first copy throws.
+- *14.* The panel rebuilds its lists on its refresh timer, not inside
+  `signalBranchesChanged`, reads which rows have ops in one query
+  (`TransactionStore::rowsWithOps`) and puts the rows in in one call.
+  `attach()` and a restore still reload at once.
+- *15.* (ruled: stays open) The preview is of its own document: another
+  made active leaves it open, its answer merges into the document it is of,
+  and it is rejected only when that document is closed
+  (`transaction-log-merge-check.py`, "stays").
+- *16.* (ruled: grey out) On a pinned version the panel greys its writing
+  buttons, the branch box and every writing menu entry, with the reason in
+  the tip, and its status says "a pinned version: shown, not changed"
+  (`transaction-log-frozen-check.py`). The seven App entry points 37.7
+  found unguarded are left as they are: the panel does not reach them, and
+  the ruling was the panel's.
+
+**13 -- asking before the step opens, elaborated.** Today all four callers
+(paste from the clipboard, paste of a file, File > Merge project, the
+tree's copy-drag) open the transaction, import, and only then
+`_settleImportClashes` asks, from a nested event loop, with the copies
+already in the step. To ask first, the clashes have to be known before
+anything is imported. What decides a clash (`_giveObjectUid`): the UID an
+object is brought with -- the `uid` attribute of its `<Object>` entry (37.7
+item 11), else the `_ObjectUUID` carrier read with its properties (36.7),
+else one derived from the source file's UID and the id (U3, a file from
+before UIDs) -- matching a live object's, of the same type, unless the
+stream is from this document (`From`, `importFromHere`). Every piece of
+that is in the stream's `Document.xml`. Three ways:
+
+- *(a) Read the stream twice.* A scan of the stream's `Document.xml`
+  (object entries and their `uid`, the header's `From`, a carrier
+  property where an entry has no `uid`, the file's UID for a derived
+  one) lists the clashes; the dialog asks; then the transaction opens and
+  the import runs with the answers handed in through `ImportClashScope`
+  (a map UID -> assign), asking nothing. Cancel imports nothing at all,
+  where today it imports and removes. To keep the scan and the import
+  agreeing forever, the rule "the UID it is brought with" becomes one
+  function both call. A clash the import finds that the scan did not is
+  duplicated, with a warning. The bytes are read twice, but the scan reads
+  only `Document.xml`, not a shape. What it cannot give is each object's
+  dependencies, which 10's rule needs in the dialog: those are in link
+  properties of every type, and reading them off the XML is a second
+  parser of every link property.
+- *(b) Import into a scratch document first.* The stream is imported into
+  a temporary document with no undo and no log, the clashes found there
+  against the target's UIDs (the same `_giveObjectUid` rule, against
+  another map), the dialog asks with the real objects (labels, types and
+  dependencies all known), and then the transaction opens and the stream
+  is imported again into the target with the answers. Exact by
+  construction, and 10's rule has its dependencies. The cost: everything
+  is read twice, shapes included, and a Python feature's restore runs
+  twice.
+- *(c) (a) as a gate in front of (b).* The scan of (a), cut to the cheap
+  part -- does any `uid` (or carrier, or derivable one) of the stream name
+  a live object here? -- runs first. Nothing: the import runs as now with
+  nothing to ask, the usual paste. Something: (b), and the dialog. Only a
+  paste that clashes pays the second read, and it is exact.
+
+All three change the four callers the same way: the ask moves out of the
+import and in front of `openTransaction("Paste")`. A served client's undo
+then has no step to close, and a client's write made while the dialog is
+up is its own step, not the desktop's Paste. Recommended: (c). Size:
+(a)'s scan about 120 lines in App plus the shared UID rule, (b)'s scratch
+pass about 80 lines in App, the callers about 15 lines each, and the
+dialog takes a list made before import (labels and types, not live
+objects).
+
+**10 -- the rule asked about.** "If an object is assigned, its
+dependencies in the paste list can only be Assign or Exclude." It makes
+sense, and it is what stops 37.7's case: the Body assigned and its Origin
+duplicated is not offered, so the live Body never points at a new Origin
+and the old one is never orphaned. Three things, my reading:
+- *Exclude does not exist yet.* The dialog offers Duplicate and Assign.
+  Exclude would be: the object here is kept as it is, the brought one
+  goes, and what was brought refers to the one here -- 36.4's step 1
+  without step 2. For an owned child that is option B of 37.7 item 10
+  (the live Origin kept).
+- *The other direction needs the same rule.* A Body duplicated with its
+  Origin assigned gives a new Body owning the live Origin, which then has
+  two owners; excluded, the same. So: an object duplicated, its owned
+  children can only be duplicated.
+- *Owned children or every dependency?* For an owned child (linked with
+  child scope: a Body's `Origin` and `Group`, a part's origin features, a
+  link's copy-on-change group) the rule is needed both ways. For a plain
+  dependency (a Pad's sketch outside the Body, a Fusion's inputs)
+  "assigned refers to a duplicated one by its copy" is what the dialog
+  says it does today, and it harms nothing: the live sketch stays and is
+  only no longer used. Restricting those too is simpler to explain but
+  takes away a choice that works.
+Proposed, for a word: the rule both ways for owned children, transitively;
+plain dependencies unrestricted; Exclude added as the third choice. In the
+dialog a locked row shows the choices it still has and why ("owned by
+Body, which is assigned"). With 13's (b) or (c) the dialog knows the
+dependencies before the step opens; with (a) it would not.
+
+### 37.9 A paste asked before its step, in the dependency dialog; owned objects (2026-10-22)
+
+The user ruled on 37.8's two questions: "13 c. 10, extend what [the]
+current paste dialog [does], which offers [a] checkbox for exclusion and
+has special logic for link. Add [an] option for assign when applicable.
+Add special logic for origins. Propose a general way of handling special
+child objects, maybe add an API."
+
+**13 (c) -- built.** `Gui::pasteAsked` (`DlgImportClash.cpp`) is what
+the clipboard paste (both forms), File > Merge project and their like
+call. It reads the stream's `Document.xml` up to the end of its object
+list (`MergeDocuments::scanUids`: the `uid` of each `<Object>` entry, the
+header's `From`). Where none names an object of the document, or the
+stream is from the document itself, nothing is asked and the import runs
+as before. Where one does, the stream is imported into a scratch
+document (no undo, no log, closed after), the dialog asks of what that
+holds, and only then is the transaction opened and the stream imported
+again with the answers, through `ImportClashScope` mode `Answered`
+(answers by each object's name in the stream, which the import now
+records, `broughtNames`; an object another document exports is
+`Name@Document` in the stream, as `copyObject` writes it, and is answered
+by either). Cancel imports nothing and opens no step. The
+tree's copy-drag asks of the dragged objects themselves (they are live),
+before its `AutoTransaction`. An object without a UID (a stream from
+before UIDs) clashes with nothing, since an import gives it its own, so
+the scan skips it. A clash the import finds that nothing answered is
+duplicated, as before.
+
+**10 -- built, in the dependency dialog.** The dialog that asks is the one
+Std_Copy asks with, `DlgObjectSelection`, in a paste mode
+(`setPaste(target, pairs)`), over the objects brought. Its check is the
+exclusion it always was; on a row whose object is in the document already
+(the same UID and type) a second column reads "Assign to <the one here>".
+What each row takes (`getTakes`, `App::Document::ImportTake`):
+- checked, not assigned: *Duplicate*, a new object beside the one here;
+- checked and assigned: *Assign*, the one here takes the state brought,
+  and what was brought refers to it;
+- unchecked: *Exclude*, left out: what was brought refers to the one
+  here, kept as it is -- or, where there is none, to nothing.
+The rules the dialog keeps, to a fixpoint, as the user changes anything:
+- *your rule:* an object an assigned object depends on, that is here
+  too and included, is assigned (Duplicate is not offered; it may still be
+  left out). Assigning `LA`, a link to `Obj`, assigns `Obj`;
+- *an owned object follows its owner* (below): owner duplicated, it is
+  duplicated; owner left out, it is left out; owner assigned or left out
+  with the one here kept, it is the live owner's own -- kept for an
+  origin, assigned with it otherwise. Such a row is not checked by hand,
+  and says why ("X_Axis there, kept (owned by Part)").
+The App side does the same without the dialog: `_settleImportClashes`
+takes Assign, Exclude and Duplicate, pairs what an assigned or kept owner
+owns with the live owner's own, and removes the brought copies of
+everything assigned, kept or left out (links let go first, removed by
+name). So Python's `copyObject(..., assign=True)` keeps a part's live
+origin too.
+
+The "special logic for link" the dialog has (the copy-on-change link's
+call, `ViewProviderLink`, with its excludes) is untouched: paste mode is
+a mode beside it.
+
+**Origins -- built as the first owned objects.** An `App::Part` or a
+body (`OriginGroupExtension`) owns its `Origin`; a coordinate system
+(`LocalCoordinateSystem`, an origin among them) owns its axes, planes and
+point. Pasted onto a live owner, the brought origin stands for the live
+owner's origin (by its slot), each brought axis or plane for the live
+one of its Role (made if the lazy origin had not made it yet), and all of
+them KEEP the live one: an origin's state is fixed, so there is nothing
+to assign, and what was brought (a sketch on the brought XY plane) refers
+to the live one. 37.7 item 10 -- the body assigned, its origin
+duplicated, the live origin orphaned -- cannot be chosen any more.
+
+**The general way: an owned object, as an API (proposed; the C++ half
+built for origins).** Several kinds of child are not children like a
+group's: they are made with their parent, removed with it, never another
+object's, and their state is the parent's business. Each kind is handled
+today by code of its own, wherever it matters -- an origin's unsetup, the
+copy-on-change group a link removes, a sketch's or a page's own -- and
+every generic operation (paste, delete, copy, drag, merge) has to know
+them all or get them wrong. The proposal: one notion, asked of the
+object.
+- `DocumentObject::getOwnedObjects()` -- what this object owns; asks
+  each `DocumentObjectExtension::extensionGetOwnedObjects`, none by
+  default. *Built.*
+- `DocumentObject::getOwnedCounterpart(owned, liveOwner, how)` -- of what
+  this object owns, the object of `liveOwner` (one this object is pasted
+  onto) that `owned` stands for, and `how` (`App::OwnedPaste`):
+  `FollowOwner` (assigned with it) or `KeepLive` (the live one kept, its
+  state being fixed). Asks the extensions likewise. *Built.*
+- Implemented by `OriginGroupExtension` (the Origin, by slot, KeepLive)
+  and `LocalCoordinateSystem` (its features, by Role, KeepLive). *Built.*
+- *Proposed next, by who owns what:* `LinkBaseExtension` -- the
+  copy-on-change group and its copies (FollowOwner, by `_SourceUUID`,
+  36.7); `App::Link`'s element list where `ElementCount` makes them
+  (owned, by index); TechDraw's page and its views (owned, by name);
+  Assembly's joint group (owned). Each a few lines in the class that
+  already knows it owns them.
+- *Python:* a proxy may answer the same two questions
+  (`getOwnedObjects(self, obj)` -> list, `getOwnedCounterpart(self, obj,
+  owned, live)` -> `(object, "keep" | "follow")`), through
+  `FeaturePythonImp` like its other hooks, so a workbench's feature that
+  makes helper objects (Draft's, Arch's, a FEM analysis's) joins in
+  without C++. *Proposed.*
+- *Where else it would serve, once there:* removal (one generic "remove
+  what it owns" in place of each unsetup's), Std_Copy's dependency dialog
+  (an owned object always goes with its owner, not offered apart), the
+  tree's drag (an owned object is not dragged out of its owner), and the
+  pairing of a linked set's or a fork's objects (35, 30.13), where two
+  origins of one body that grew apart are the same origin. *Proposed;
+  only the paste uses it now.*
+
+**And 37.8's item 14, gated.** The deferred reload let the panel's own
+act's message go: a squash said "Squashed ..." and the rebuild after it
+put the plain status back (`transaction-log-squash-check.py` failed).
+A message set after the signal, before the rebuild, now outlives it.
+And `transaction-log-request-check.py` read the panel's list straight
+after a sent file (which signals the branches) with no event let run: it
+settles first now, the panel being up to date once its timer has run.
+
+Tests: gtest `aPasteAnsweredAheadKeepsWhatIsLeftOutAndTheOrigin` (the
+App half: an object left out keeps the live one and is linked to, a part
+assigned keeps its live origin and leaves no second one);
+`tests/gui/import-clash.py`, rewritten for the dialog (assigning a link
+assigns its dependency; left out keeps ours; duplicated; cancelled; beside
+its source nothing asked; a part assigned, its origin's rows kept and not
+checkable, and no second origin).
+
+### 37.10 Owned objects, the follow-up (user: "continue the general approach", 2026-10-22)
+
+Built of 37.9's proposal:
+- *Link* (`LinkBaseExtension`): owns its copy-on-change group, and the
+  elements it removes with itself (`detachElement`'s rule) -- every
+  element in AutoDelete mode (the copy-on-change group is a `LinkGroup` in
+  that mode, so it owns its copies), the elements it made (`_LinkOwner`,
+  an array's) in AutoUnlink. Pasted onto a live link: the group stands for
+  the live link's group, a copy for the live copy of the same source
+  (`_SourceUUID`, 36.7), any other element for the live one at its index
+  if of its type. All follow the link: assigned with it, left out with it.
+- *TechDraw* (`DrawPage`): owns its views and its template (it removes them
+  in `unsetupObject`). The template stands for the live page's, a view for
+  the live page's view of its UID; both follow the page.
+- *Assembly* (user: "it should delete its joints"; my first reading,
+  that the App removal leaves them, missed `ViewProviderAssembly::
+  onDelete`, which deletes the joint, view and BOM groups with their
+  content): `AssemblyObject` owns those three groups (and its origin, as a
+  part), each group owns what it holds. Pasted onto a live assembly, a
+  group stands for the live one's of its type, a joint (a view, a BOM
+  entry) for the live group's member of its UID; all follow the assembly.
+  The simulation and snapshot groups are not deleted with it, and are
+  not owned.
+- *Python*: two Proxy hooks (`FeaturePythonHooks.py`, so a `ProxyExp`
+  element may answer them too): `getOwnedObjects(self, obj)` -> a list,
+  added to what the object's class says; `getOwnedCounterpart(self, obj,
+  owned, liveOwner)` -> an object, or `(object, "keep" | "follow")`, or
+  None for the class to answer. And `DocumentObject.getOwnedObjects()` for
+  any script to ask.
+- *Std_Copy's dependency dialog*, in its ordinary copy mode: an owned
+  object listed goes with its owner -- checked with it, unchecked with it,
+  not checked by hand (its tip says by whom). A body is copied with its
+  origin or not at all.
+
+Not built, and why:
+- *Removal by the owned list* (one generic "remove what it owns" for every
+  unsetup's own): each class's unsetup already does it its own way, with
+  its own order (a page removes views by name because one takes others
+  with it); replacing them changes delete for every one of them. Proposed
+  still, with a test per class, as its own piece of work.
+- *The tree's drag* refusing an owned object out of its owner: today a
+  link group's element may be dragged out, and the user may want that to
+  stay. A question, not built.
+- *The pairing of a linked set's or a fork's objects* (35, 30.13) by the
+  owned counterpart: those pair by UID and name today and have shown no
+  case where an origin does not pair; left until one does.
+
+Tests: Python `testAScriptedOwnersHelperFollowsIt` (a Proxy owns a helper;
+the owner assigned, a helper brought under another UID is the live
+helper, kept; `getOwnedObjects()` from Python on the proxy object and on a
+Part).

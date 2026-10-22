@@ -45,6 +45,15 @@ class Placement;
 namespace Assembly
 {
 
+/// Whether a generated link element is excluded from assembly operations.
+bool isSuppressedLinkElement(const App::DocumentObject* obj);
+
+/// Whether obj is a link group whose elements are each a component. This
+/// fork's generated arrays (App::LinkArray) are link groups too, but one
+/// component each, as upstream's PartApp::LinkArray -- which is not a link
+/// group -- is there.
+bool isElementLinkGroup(const App::DocumentObject* obj);
+
 // This enum has to be the same as the one in JointObject.py
 enum class JointType
 {

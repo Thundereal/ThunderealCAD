@@ -2758,7 +2758,8 @@ void AssemblyObject::ensureIdentityPlacements()
     std::vector<App::DocumentObject*> group = Group.getValues();
     for (auto* obj : group) {
         // When used in assembly, link groups must have identity placements.
-        if (obj->isLinkGroup()) {
+        // A generated array is one component and keeps its own.
+        if (isElementLinkGroup(obj)) {
             auto* link = dynamic_cast<App::Link*>(obj);
             auto* pPlc = obj->getPlacementProperty();
             if (!pPlc || !link) {

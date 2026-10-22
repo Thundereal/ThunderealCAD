@@ -37,6 +37,8 @@
 #include <Base/Tools.h>
 #include <Base/Interpreter.h>
 
+#include <App/LinkArray.h>
+#include <App/SuppressibleExtension.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/TopoShape.h>
 #include <Mod/PartDesign/App/Body.h>
@@ -52,6 +54,19 @@
 namespace PartApp = Part;
 
 using namespace Assembly;
+
+namespace
+{
+void syncSuppressedState(App::DocumentObject* source, App::DocumentObject* target)
+{
+    auto* sourceExt = source ? source->getExtension<App::SuppressibleExtension>() : nullptr;
+    auto* targetExt = target ? target->getExtension<App::SuppressibleExtension>() : nullptr;
+    if (sourceExt && targetExt
+        && sourceExt->Suppressed.getValue() != targetExt->Suppressed.getValue()) {
+        targetExt->Suppressed.setValue(sourceExt->Suppressed.getValue());
+    }
+}
+}  // namespace
 
 // ================================ Assembly Object ============================
 
@@ -191,7 +206,7 @@ void AssemblyLink::onChanged(const App::Property* prop)
                         continue;
                     }
 
-                    if (obj->isLinkGroup()) {
+                    if (isElementLinkGroup(obj)) {
                         auto* srcLink = static_cast<App::Link*>(obj);
                         const std::vector<App::DocumentObject*> srcElements
                             = srcLink->ElementList.getValues();
@@ -336,6 +351,7 @@ void AssemblyLink::synchronizeComponents()
     }
 
     objLinkMap.clear();
+    objSubPrefixMap.clear();
 
     std::vector<App::DocumentObject*> assemblyGroup = assembly->Group.getValues();
     std::vector<App::DocumentObject*> assemblyLinkGroup = Group.getValues();
@@ -375,6 +391,9 @@ void AssemblyLink::synchronizeComponents()
 
     // We check if a component needs to be added to the AssemblyLink
     for (auto* obj : topLevelComponents) {
+        if (isSuppressedLinkElement(obj)) {
+            continue;
+        }
         if (!obj->isDerivedFrom<App::Part>() && !obj->isDerivedFrom<PartApp::Feature>()
             && !obj->isDerivedFrom<App::Link>()) {
             continue;
@@ -396,7 +415,7 @@ void AssemblyLink::synchronizeComponents()
                 linkedObj = subAsmLink->getLinkedObject2(false);  // not recursive
             }
             else if (link2) {
-                if (obj->isLinkGroup() && link2->isLinkGroup()) {
+                if (isElementLinkGroup(obj) && isElementLinkGroup(link2)) {
                     auto* srcLink = static_cast<App::Link*>(obj);
                     if ((srcLink->getTrueLinkedObject(false) == link2->getTrueLinkedObject(false))
                         && link2->ElementCount.getValue() == srcLink->ElementCount.getValue()
@@ -412,12 +431,19 @@ void AssemblyLink::synchronizeComponents()
                         const std::vector<App::DocumentObject*> newElements
                             = link2->ElementList.getValues();
                         for (size_t i = 0; i < srcElements.size(); ++i) {
+                            if (i >= newElements.size() || !srcElements[i] || !newElements[i]) {
+                                continue;
+                            }
+                            syncSuppressedState(srcElements[i], newElements[i]);
+                            if (isSuppressedLinkElement(srcElements[i])) {
+                                continue;
+                            }
                             objLinkMap[srcElements[i]] = newElements[i];
                         }
                         break;
                     }
                 }
-                else if (obj->isLinkGroup() && !link2->isLinkGroup()) {
+                else if (isElementLinkGroup(obj) && !isElementLinkGroup(link2)) {
                     continue;  // make sure we migrate sub assemblies that had link to linkgroups
                 }
                 linkedObj = link2->getLinkedObject(false);  // not recursive
@@ -447,7 +473,7 @@ void AssemblyLink::synchronizeComponents()
                 addObject(subAsmLink);
                 link = subAsmLink;
             }
-            else if (obj->isDerivedFrom<App::Link>() && obj->isLinkGroup()) {
+            else if (obj->isDerivedFrom<App::Link>() && isElementLinkGroup(obj)) {
                 auto* srcLink = static_cast<App::Link*>(obj);
 
                 auto* newLink = static_cast<App::Link*>(
@@ -462,10 +488,21 @@ void AssemblyLink::synchronizeComponents()
                 const std::vector<App::DocumentObject*> srcElements = srcLink->ElementList.getValues();
                 const std::vector<App::DocumentObject*> newElements = newLink->ElementList.getValues();
                 for (size_t i = 0; i < srcElements.size(); ++i) {
+                    if (i >= newElements.size()) {
+                        continue;
+                    }
                     auto* newObj = newElements[i];
                     auto* srcObj = srcElements[i];
-                    if (newObj && srcObj) {
-                        syncPlacements(srcObj, newObj);
+
+                    if (!newObj || !srcObj) {
+                        continue;
+                    }
+
+                    syncSuppressedState(srcObj, newObj);
+                    syncPlacements(srcObj, newObj);
+
+                    if (isSuppressedLinkElement(srcObj)) {
+                        continue;
                     }
                     objLinkMap[srcObj] = newObj;
                 }
@@ -483,6 +520,18 @@ void AssemblyLink::synchronizeComponents()
         }
 
         objLinkMap[obj] = link;
+
+        if (auto* srcLinkArray = freecad_cast<App::LinkArray*>(obj)) {
+            if (srcLinkArray->ShowElement.getValue()) {
+                const auto srcElements = srcLinkArray->ElementList.getValues();
+                for (size_t i = 0; i < srcElements.size(); ++i) {
+                    if (!srcElements[i] || isSuppressedLinkElement(srcElements[i])) {
+                        continue;
+                    }
+                    objSubPrefixMap[srcElements[i]] = std::to_string(i) + ".";
+                }
+            }
+        }
     }
 
     // If the assemblyLink is rigid, then we keep all placements synchronized.
@@ -642,9 +691,20 @@ void AssemblyLink::handleJointReference(
     if (!externalComponent) {
         return;
     }
+    if (isSuppressedLinkElement(externalComponent)) {
+        return;
+    }
 
     // 2. Map to local link
     auto it = objLinkMap.find(externalComponent);
+    auto prefixIt = objSubPrefixMap.find(externalComponent);
+    if (it == objLinkMap.end() && prefixIt != objSubPrefixMap.end()) {
+        auto* linkElement = freecad_cast<App::LinkElement*>(externalComponent);
+        auto* linkGroup = linkElement ? linkElement->getLinkGroup() : nullptr;
+        if (linkGroup) {
+            it = objLinkMap.find(linkGroup);
+        }
+    }
     if (it == objLinkMap.end()) {
         Base::Console().warning(
             "AssemblyLink: Could not map external component %s to a local link for joint %s\n",
@@ -654,6 +714,10 @@ void AssemblyLink::handleJointReference(
         return;
     }
     App::DocumentObject* localLink = it->second;
+    std::string subPrefix;
+    if (prefixIt != objSubPrefixMap.end()) {
+        subPrefix = prefixIt->second;
+    }
 
     // 3. Set the new reference
     // The local joint now points to the local link [LocalLink, "Sub"]
@@ -665,6 +729,16 @@ void AssemblyLink::handleJointReference(
     // The sub-elements (e.g. "Body.Face1") are relative to the component.
     // Since the LocalLink points to the ExternalPart, the relative path is identical.
     std::vector<std::string> subs1 = prop1->getSubValues();
+    if (!subPrefix.empty()) {
+        if (subs1.empty()) {
+            subs1.push_back(subPrefix);
+        }
+        else {
+            for (auto& sub : subs1) {
+                sub = subPrefix + sub;
+            }
+        }
+    }
     std::vector<std::string> subs2 = prop2->getSubValues();
 
     bool changed = false;

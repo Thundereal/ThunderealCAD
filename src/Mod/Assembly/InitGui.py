@@ -85,6 +85,7 @@ class AssemblyWorkbench(Workbench):
         cmdList = [
             "Assembly_CreateAssembly",
             "Assembly_Insert",
+            "Std_LinkArrayActions",
             "Assembly_SolveAssembly",
             "Assembly_CreateView",
             "Assembly_CreateSnapshot",

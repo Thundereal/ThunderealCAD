@@ -29,7 +29,7 @@
 #include <string>
 #include <fastsignals/signal.h>
 #include <QTimer>
-#include "Tree.h"
+#include "TreeItemMode.h"
 #include <FCGlobal.h>
 
 

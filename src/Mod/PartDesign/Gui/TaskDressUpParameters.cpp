@@ -32,6 +32,7 @@
 # include <QMouseEvent>
 # include <QPushButton>
 # include <QTimer>
+# include <QTreeWidget>
 # include <QCheckBox>
 # include <QColor>
 # include <QColorDialog>

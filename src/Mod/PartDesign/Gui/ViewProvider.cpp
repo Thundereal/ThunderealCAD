@@ -29,6 +29,7 @@
 # include <QApplication>
 # include <QMenu>
 # include <QMouseEvent>
+# include <QPainter>
 # include <Inventor/details/SoFaceDetail.h>
 # include <BRepAdaptor_Surface.hxx>
 # include <gp_Lin.hxx>

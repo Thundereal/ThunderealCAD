@@ -51,6 +51,7 @@
 #include "SoMouseWheelEvent.h"
 #include "ViewProvider.h"
 #include "ActionFunction.h"
+#include "Tree.h"
 #include "Application.h"
 #include "BitmapFactory.h"
 #include "Document.h"

@@ -72,6 +72,7 @@
 
 #include "Action.h"
 #include "GeneralParams.h"
+#include "Tree.h"
 #include "BitmapFactory.h"
 #include "Command.h"
 #include "CommandCompleter.h"

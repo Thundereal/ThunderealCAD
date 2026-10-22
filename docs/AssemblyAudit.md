@@ -1,10 +1,14 @@
 # Assembly: an audit against other CAD systems, and at scale
 
-Status (2026-10-22): audit only, no product change. Branch `AssemblyPort`,
-cut from `LinkVibe` `27e32d75f1`. This document records where the Assembly
-workbench stands against the commercial and open-source assembly tools,
-the defects found while reading it, and what it costs on large assemblies,
-measured. Sec 8 proposes an order of work; nothing in it is decided yet.
+Status (2026-10-22): audit done, plan decided (sec 8), no product change
+yet. Branch `AssemblyPort`, cut from `LinkVibe` `27e32d75f1`. This document
+records where the Assembly workbench stands against the commercial and
+open-source assembly tools, the defects found while reading it, and what it
+costs on large assemblies, measured. Sec 8 is the plan the user set; its
+companions are the upstream ledger (`docs/AssemblyPort-ledger.tsv`, with
+`docs/AssemblyPort-ledger-notes.txt`), the solver interface design
+(`docs/AssemblySolverInterface.md`) and the Assembly3 study with its
+importer (`docs/AssemblyFromAsm3.md`).
 
 Sources: three audits run 2026-10-22 -- a web survey of eight commercial
 systems and the FreeCAD-family workbenches, an inventory of this tree with
@@ -30,9 +34,12 @@ object paths (`0a7ea71821`), `Type` set to "Assembly" in the constructor
 (`fe785a7bc8`), the ported `SoTransformDragger` (`b223d1b31a`), settings
 behind generated classes.
 
-**The upstream baseline of the port was not recorded**, and there is no
-ledger like PartDesign's. From upstream's history the cut lies between
-2026-07-20 and 2026-08-10, most likely the end of July (sec 6).
+The port did not record its upstream baseline; the ledger pins it to
+upstream `17f203e118` (2026-08-03). The port's `src/Mod/Assembly` equals
+upstream's there except for 17 files (+132/-74), all adaptations its
+message lists, and its translations match that commit byte for byte.
+OndselSolver is at parity: the fork's pin `ccb521b` and upstream's
+`4be80eef02` have identical trees.
 
 | area | what is here | pointer |
 |---|---|---|
@@ -284,7 +291,14 @@ Defeated or bypassed:
 
 ## 6. Upstream since the port
 
-None of these are here (checked by grep):
+The full account is the ledger, `docs/AssemblyPort-ledger.tsv`: every
+upstream commit since the merge base `a662fbb2ff` touching
+`src/Mod/Assembly`, `tests/src/Mod/Assembly` or the solver, 468 rows after
+dropping translation-only commits. 425 arrived with the port, 7 arrived
+without their C++ test half, and 36 are open: the 29 after the baseline and
+7 that touched only the C++ tests the port never brought. Of the 29, 14
+apply as they are and 16 merge cleanly three-way; the reason for each
+failure is in the notes file. The notable ones (none of them here):
 
 | upstream | date | what | kind |
 |---|---|---|---|
@@ -316,75 +330,133 @@ reporting, dragging, AssemblyLink, BOM, exploded views, snapshots, a
 kinematic run, ASMT export, link arrays in assemblies.
 
 
-## 8. Proposed order of work
+## 8. The plan
 
-A proposal for the user to decide; nothing here is started.
+### 8.1 Decisions (user, 2026-10-22)
 
-**Phase 0 -- footing.** Port upstream's C++ Assembly tests and add Python
-tests per joint type, limits, DoF and drag (bind `preDrag` / `doDragStep` /
-`postDrag` to Python). Take upstream's robustness set (#32008) and the
-small fixes of sec 6, and fix defects 1-5 of sec 3. Record the upstream
-baseline and start a ledger, as PartDesign did.
+1. **Take all of upstream's Assembly work**, tracked commit by commit in
+   `docs/AssemblyPort-ledger.tsv`, as the Sketcher and PartDesign ports
+   were. Picks carry `(upstream <hash>)` in the subject.
+2. **Rework OndselSolver in depth ourselves**, in our fork
+   (`realthunder/OndselSolver`, branch LinkVibe).
+3. **Make the assembly-to-solver interface abstract**, so the backend can
+   be switched: `docs/AssemblySolverInterface.md`.
+4. **Borrow from Assembly3** -- its overall design, not only its solver
+   layer -- and **import Assembly3 documents**: `docs/AssemblyFromAsm3.md`.
+5. **Interference and collision detection come last.**
 
-**Phase 1 -- scale, where the measured time goes.**
-1. OndselSolver: a sparse LU with a fill-reducing ordering (Eigen
-   SparseLU with COLAMD, or KLU), the symbolic factorisation kept across
-   Newton iterations and drag steps; redundancy found once per topology
-   without exceptions; an early-out when the residual is already within
-   tolerance; the convergence-test fix. Expected: chain solves from minutes
-   to well under a second, drag steps interactive.
-2. Structure before solving: always bundle Fixed groups into one body,
-   split into connected components, and place loop-free parts directly --
-   the solver is needed only for closed loops. Most real assemblies are
-   mostly trees.
-3. A connectivity index on `AssemblyObject` (part -> joints, built once,
-   invalidated on Group and joint changes), pointer compares, no
-   `Suppressed` writes for queries (F3, F4). Joint creation from O(N^3) to
-   about O(N).
-4. Write-back with tolerance and in one batch; during a drag, move view
-   transforms only and commit placements once at the end (F6, F7).
+Standing rule: nothing is pushed to, or written in, any repo of the
+FreeCAD GitHub org. The `upstream` remote is fetch-only; the solver's
+changes stay in our fork.
 
-**Phase 2 -- keep the solver warm and the joints light.** Keep the MbD
-system between solves keyed by topology; solve only the components a
-change reaches; one solve per joint-task accept; no re-solve after a drag
-(F2). Joint frames computed in C++, one shared marker geometry, visuals
-created only for shown joints (F5, F8). Flexible sub-assembly instances
-addressed through sub-object paths instead of mirrored objects (F9).
+### 8.2 Phases
 
-**Phase 3 -- the largest feature gap: interference and clearance.**
-A static check first: a broad phase over the part bounding boxes the render
-cache already has, then an exact narrow phase per candidate pair from
-`Shape.common` or the fork's `Shape.diffMaterial` (which returns the common
-volume), and minimum distance from `distToShape`; report pairs, volumes,
-touching versus penetrating, with exclusions (hidden, a fasteners group, a
-sub-assembly as a unit). Then a faceted mode on the shared tessellations,
-fast enough to run per drag step: stop at collision and highlight the
-faces. Then clearance thresholds per part and per pair. Each check runs on
-shapes alone, so it is a natural first tenant for running OCCT work out of
-process (`docs/ComputeBoundaries.md`).
+**Phase 0 -- re-converge, then catch up with upstream.** Upstream's picks
+land in the very functions the interface work moves
+(`docs/AssemblySolverInterface.md` sec 6.1), so they go first.
 
-**Phase 4 -- the rest of the gap, each its own decision.**
-- Large-assembly modes that surface what the stack already does: a
-  lightweight open (graphics only, shapes deferred) switched on above a
-  component count, rigid sub-assemblies solved as one body, envelope
-  substitutes built on far-field proxies.
-- Exploded views: upstream's step editing, a TechDraw link through
-  `getExplodedShape`, explode / collapse animation sharing the simulation's
-  playback and export.
-- Motion: real mass properties (defect 2), position / velocity plots and
-  numeric export of a run, then dynamics as `docs/Simulator.md` plans,
-  watching upstream's Chrono PR.
-- Structure: component patterns as Link arrays the workbench creates,
-  mirror, replace keeping joints, configurations; the missing joints
-  (tangent, slot, cam, path, universal, width).
-- Solver diagnostics: per-component DoF state, conflicts reported, and a
-  minimal over-defining group (the MateXpert idea).
+1. One fork-only commit that puts the port's adaptations back into
+   upstream's spelling. Since the port, the fork has itself taken what the
+   port worked around: `App/Datums.h` (`App::Origin` now derives from
+   `App::LocalCoordinateSystem`), `SoTransformDragger`, FastSignals,
+   `Base::Color`, `Gui/Selection/`, lowercase Console names. The old
+   spellings are now only conflict sources. It also closes a gap: checks
+   for `App::Origin` alone miss `Part::LocalCoordinateSystem`.
+2. The ledger's open rows in this order (`docs/AssemblyPort-ledger-notes.txt`
+   has the reasons and prerequisites): the robustness set of #32008; the
+   standalone fixes (DoF with bundles, rotation order, Fixed joint on a
+   Part, orphaned joint group, rack and pinion); upstream's C++ tests whole;
+   the coaxial gear joint, then RigidGroup; island drag; exploded-view move
+   editing; the generated-arrays commit, adapted to the fork's
+   `App::LinkArray` (it is written for upstream's `PartApp::LinkArray` and
+   suppressible link elements, which the fork lacks); housekeeping.
+   Deferred: three build commits that call CMake macros the fork does not
+   define, and two that move Console to `std::format`, which waits on a Base
+   decision.
+3. Defects 1-5 of sec 3 that upstream does not fix; Python bindings for
+   `preDrag` / `doDragStep` / `postDrag`; tests for every joint type,
+   limits, DoF and drag.
 
-Open decisions for the user:
+**Phase 1 -- the solver interface, results identical.** Steps 1-6 of
+`docs/AssemblySolverInterface.md` sec 6.3: a solver-neutral model and
+backend interface in `App/Solver/` (namespace `Assembly::Solver`, backend
+chosen by an assembly property, then the preference
+`Mod/Assembly/SolverBackend`, then Ondsel); OndselSolver behind it as an
+adapter; drag and status through the session; the solver's headers out of
+`AssemblyObject.h`; the trajectory kept in the neutral layer. Each step is
+gated on identical ASMT output and identical placements, compared in one
+process. Upstream's draft interface (#28156) is not adopted -- it mirrors
+ASMT one to one and rebuilds on every solve -- but its names are reused so
+a later merge lands beside ours.
 
-1. Does `AssemblyPort` also take upstream's Assembly commits with a ledger,
-   as `PartDesignPort` did, or only the picks named above?
-2. Is OndselSolver ours to rework in depth (phase 1.1), or should the
-   sparse factorisation go upstream to Ondsel as well?
-3. Phase 3 before or after phase 2? Interference does not depend on the
-   solver work, and it is the gap users meet first.
+**Phase 2 -- scale.** Where sec 4 measured the time going:
+
+1. OndselSolver: a sparse LU with a fill-reducing ordering, the symbolic
+   factorisation kept across Newton iterations and drag steps, redundancy
+   found once per topology without exceptions, an early-out when already
+   solved, the convergence-test fix (F1, defect 4). A reference backend on
+   Eigen first, as the oracle the rework is tested against.
+2. In the neutral layer, once for every backend: bundle Fixed joints,
+   RigidGroups, rigid sub-assemblies and grounded parts; split into
+   connected components; place loop-free and Attachment chains directly;
+   solve only what a change reaches; a residual check per joint that
+   reports conflicts for any backend (defect 1); write back with a
+   tolerance and in one batch (F6); warm sessions keyed by topology
+   (interface steps 7-9).
+3. In the workbench: a connectivity index instead of O(P*J) scans and
+   `Suppressed` writes (F3, F4); one solve per joint-task accept and none
+   after a drag (F2, F7); joint frames in C++ and one shared marker geometry
+   (F5, F8); flexible sub-assembly instances addressed, not mirrored (F9).
+4. From Assembly3's solving strategy: skip assemblies nothing touched, roll
+   placements back when a solve fails, solve children first with Rigid as
+   the fast path, and solve once per transaction so the solver's writes
+   land in the user's undo step.
+
+**Phase 3 -- from Assembly3, and its importer** (`docs/AssemblyFromAsm3.md`).
+Its behaviours, not its objects -- Element objects would put a second
+object model beside upstream's, at a merge cost on every pick:
+
+- automatic repair of a joint whose reference broke (Assembly3's `fix()`);
+- replace a part keeping its joints;
+- freeze a sub-assembly to its shape, with partial load, so its parts and
+  joints never load -- the start of a lightweight open;
+- QuickMove, point tracing while dragging, a dragger for joint offsets,
+  joint-selection messages, and a pattern command (a link array plus a
+  joint per element) in place of Assembly3's Multiply;
+- **`Assembly_ImportAssembly3`**: converts an open Assembly3 document in
+  place, in one transaction, without Assembly3 installed; joints are given
+  offsets so re-solving moves nothing, which is also its acceptance test.
+  Mapping, unsupported constraints and the eleven planned tests are in
+  sec B of that document.
+
+**Phase 4 -- the remaining feature gap**, each its own decision when
+reached: large-assembly modes on the fork's load and render stack (a
+lightweight open above a component count, envelopes from far-field
+proxies); exploded views linked to TechDraw and animated; motion plots and
+numeric export, real mass properties (defect 2), then dynamics as
+`docs/Simulator.md` plans (a Chrono backend, possibly out of process,
+through the phase 1 interface); component patterns, mirror,
+configurations, the missing joints (tangent, slot, cam, path, universal,
+width); per-component DoF and conflict diagnostics.
+
+**Phase 5, last -- interference and clearance.** A static check first: a
+broad phase over the part bounding boxes the render cache already has, an
+exact narrow phase from `Shape.common` or the fork's `Shape.diffMaterial`
+(which returns the common volume), minimum distance from `distToShape`;
+report pairs, volumes, touching versus penetrating, with exclusions
+(hidden, a fasteners group, a sub-assembly as a unit). Then a faceted mode
+on the shared tessellations, fast enough to run per drag step: stop at
+collision, highlight the faces. Then clearance thresholds per part and
+pair. Each check works on shapes alone, a natural first tenant for OCCT
+work out of process (`docs/ComputeBoundaries.md`).
+
+### 8.3 Open questions
+
+From `docs/AssemblySolverInterface.md` sec 7:
+
+1. The backend choice: an assembly property and the preference (proposed),
+   or the preference only?
+2. Does the neutral layer own the motion-formula evaluator, or keep
+   OndselSolver's parser as a library for every backend?
+3. The 17 Distance sub-types that fall to a planar distance: keep, map
+   them properly, or report them unsupported?

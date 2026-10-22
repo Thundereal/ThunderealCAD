@@ -1,0 +1,476 @@
+# Upstream commits since a662fbb2ff touching src/Mod/Assembly tests/src/Mod/Assembly src/3rdParty/OndselSolver, tip d3f4da791d (upstream/main, 2026-10-21); created 2026-10-22 on AssemblyPort at fe871ff48c.
+# Walk: git log --reverse --no-merges --full-history a662fbb2ff..upstream/main -- <scope>; commits whose in-scope files are all translations (*.ts/*.qm, Gui/Resources/translations) are dropped. lines = added+deleted in scope, translations excluded. files = in-scope paths, relative to src/Mod/Assembly/ (tests/... and 3rdParty/... otherwise).
+# Port baseline: upstream 17f203e118 (2026-08-03). 759cd15c9c's src/Mod/Assembly equals upstream's at 17f203e118 (and at every upstream/main commit up to, not including, 5c05a89431 of 2026-08-10) except the port's deliberate adaptations; see docs/AssemblyAudit.md sec 6.
+# kind: subject-regex guess (fix/feature/refactor/noise/?), hand-set on the rows after the baseline. family: subject/file-regex tag, hand-set on the rows after the baseline.
+# fwd/rev: git apply --check --cached of the in-scope patch (translations excluded) against the AssemblyPort index (= fe871ff48c) at creation; 1 = applies. The notes file AssemblyPort-ledger-notes.txt gives each failing open row's reason.
+# status: have(port) = an ancestor of 17f203e118, so its content arrived with 759cd15c9c; partial(port) = the same, but it also touched tests/src/Mod/Assembly, which the port did not bring; have(rev) = the patch reverse-applies; open = to be triaged (includes pre-baseline commits that touch only tests/src/Mod/Assembly).
+# decision: taken <fork hash> | adapted <fork hash> | have | n/a | superseded | declined <why> | deferred | open <plan>
+hash	date	author	kind	family	fwd	rev	status	lines	decision	subject	files
+13d4cb128a	2023-12-08	Paddle	refactor	solver-pin	0	0	have(port)	2	have	Update Ondsel Solver	3rdParty/OndselSolver
+d77cd7acf5	2023-09-20	Paddle	feature	misc	0	0	have(port)	4616	have	Assembly: Introduce core functionality of assembly workbench.	App/AppAssembly.cpp App/AppAssemblyPy.cpp App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyObjectPy.xml App/AssemblyObjectPyImp.cpp App/CMakeLists.txt App/JointGroup.cpp App/JointGroup.h App/JointGroupPy.xml App/JointGroupPyImp.cpp App/PreCompiled.cpp App/PreCompiled.h Assembly/__init__.py CMakeLists.txt CommandCreateAssembly.py CommandCreateJoint.py CommandExportASMT.py CommandInsertLink.py CommandSolveAssembly.py Gui/AppAssemblyGui.cpp Gui/AppAssemblyGuiPy.cpp Gui/CMakeLists.txt Gui/PreCompiled.cpp Gui/PreCompiled.h Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_CreateJointFixed.svg Gui/Resources/icons/Assembly_ExportASMT.svg Gui/Resources/icons/Assembly_ToggleGrounded.svg Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h Gui/ViewProviderAssemblyPy.xml Gui/ViewProviderAssemblyPyImp.cpp Gui/ViewProviderJointGroup.cpp Gui/ViewProviderJointGroup.h InitGui.py JointObject.py UtilsAssembly.py
+323deff46a	2023-11-14	Paddle	refactor	joints	0	0	have(port)	3075	have	Assembly: Replace Tangent+Parallel+Planar by 'Distance'.	App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyObjectPy.xml App/AssemblyObjectPyImp.cpp App/PreCompiled.h CMakeLists.txt CommandCreateAssembly.py CommandCreateJoint.py CommandExportASMT.py CommandInsertLink.py CommandSolveAssembly.py Gui/PreCompiled.h Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_CreateJointDistance.svg Gui/Resources/icons/Assembly_SolveAssembly.svg Gui/Resources/panels/TaskAssemblyCreateJoint.ui Gui/Resources/panels/TaskAssemblyInsertLink.ui Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h Gui/ViewProviderJointGroup.cpp Gui/ViewProviderJointGroup.h InitGui.py JointObject.py UtilsAssembly.py
+4a119c43f1	2023-12-19	Paddle	fix	misc	0	0	have(port)	280	have	Assembly: Add support to external objects. (And various fixes)	App/AssemblyObject.cpp App/AssemblyObject.h Gui/ViewProviderAssembly.cpp JointObject.py UtilsAssembly.py
+22e4d7f2dd	2023-12-20	Paddle	feature	joints	0	0	have(port)	225	have	Assembly: Change the joint placements to be relative to the object rather than to the doc origin. This enable 'detaching' them, so that they are not recomputed	App/AssemblyObject.cpp App/AssemblyObject.h Gui/ViewProviderAssembly.cpp JointObject.py
+43019a8f34	2023-12-21	Paddle	fix	misc	0	0	have(port)	60	have	Assembly: Add support for body subobjects (coordinate systems, datums...) and various fixes	App/AssemblyObject.cpp Gui/ViewProviderAssembly.cpp JointObject.py UtilsAssembly.py
+48173f2b9d	2023-12-23	Paddle	feature	drag	0	0	have(port)	1157	have	Assembly: Implement special drag mode for revolute.	App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyUtils.cpp App/AssemblyUtils.h App/CMakeLists.txt Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h JointObject.py
+672b04c0c4	2024-01-08	howie-j	fix	ui	0	0	have(port)	41	have	Assembly: Fixes FreeCAD#10748 (Card 4: Elements should highlight)	JointObject.py
+d13df26333	2024-01-08	Paddle	fix	solve	0	0	have(port)	490	have	Assembly: Adds a pre-solve when creating joint, preventing wrong orthogonal solutions from solver.	App/AssemblyObject.cpp App/AssemblyObject.h AssemblyImport.py CommandCreateAssembly.py CommandCreateJoint.py CommandExportASMT.py CommandInsertLink.py CommandSolveAssembly.py Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h Gui/ViewProviderAssemblyPyImp.cpp Init.py InitGui.py JointObject.py Preferences.py TestAssemblyWorkbench.py UtilsAssembly.py
+a0749888c4	2024-01-11	Paddle	fix	joints	0	0	have(port)	148	have	Assembly: Enable part manipulation in active App::Part with the fixed joint.	CommandCreateJoint.py JointObject.py UtilsAssembly.py
+46b1a1ebfc	2024-01-11	Paddle	?	drag	0	0	have(port)	38	have	Assembly: set the rotating joint visible when dragging.	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+cdb1af6543	2024-01-11	Paddle	fix	drag	0	0	have(port)	1551	have	Assembly : Add support for perspective camera. Remove exportASMT from toolbar. Fix Fixedjoint name and tooltip Fix various bugs Introduce solver drag functions.	App/AssemblyObject.cpp App/AssemblyObject.h CommandCreateJoint.py Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h InitGui.py JointObject.py UtilsAssembly.py
+1062ea4eb0	2024-01-24	PaddleStroke	feature	tests	0	0	partial(port)	251	have (src/Mod/Assembly part; its tests/src/Mod/Assembly part goes with the tests file-take)	AssemblyTest: Introduce assembly test module	AssemblyTests/TestCore.py TestAssemblyWorkbench.py tests/src/Mod/Assembly/App/AssemblyObject.cpp tests/src/Mod/Assembly/App/CMakeLists.txt tests/src/Mod/Assembly/CMakeLists.txt
+2a5b22f0c8	2024-01-26	PaddleStroke	fix	misc	0	0	have(port)	46	have	Assembly : Fixes for sketches in bodies	App/AssemblyObject.cpp JointObject.py UtilsAssembly.py
+56dc773b5c	2024-01-29	PaddleStroke	fix	misc	0	0	have(port)	59	have	Assembly : fix bugs	JointObject.py UtilsAssembly.py
+098fdda661	2024-01-29	PaddleStroke	fix	misc	0	0	have(port)	72	have	Assembly: fixes	CommandCreateJoint.py CommandInsertLink.py JointObject.py
+ea5a11b44e	2024-01-29	PaddleStroke	fix	ui	0	0	have(port)	4	have	Assembly: fix vertex preselection JCS bug	JointObject.py
+11fd6eb4da	2024-01-30	PaddleStroke	fix	ui	0	0	have(port)	14	have	Assembly: Fix annoying incomplete initial selections	JointObject.py
+51b81c1426	2024-01-30	PaddleStroke	?	misc	0	0	have(port)	107	have	Assembly: Esc pref	Gui/PreCompiled.h Gui/Resources/preferences/Assembly.ui Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h Preferences.py UtilsAssembly.py
+926490adce	2024-01-31	PaddleStroke	fix	misc	0	0	have(port)	90	have	Assembly fixes	CommandCreateJoint.py CommandInsertLink.py JointObject.py Preferences.py UtilsAssembly.py
+ead9f41541	2024-02-12	PaddleStroke	?	misc	0	0	have(port)	5	have	Assembly: Small language tweaks by @chennes	CommandCreateAssembly.py InitGui.py
+66e29cbd79	2024-02-14	Chris Hennes	refactor	build	0	0	have(port)	1	have	Assembly: Add ${COIN3D_INCLUDE_DIRS} to CMakeLists.txt (#12407)	Gui/CMakeLists.txt
+a489b095f0	2024-02-15	Ladislav Michl	refactor	build	0	0	have(port)	1	have	Assembly: Add ${PYTHON_INCLUDE_DIRS} to CMakeLists.txt	Gui/CMakeLists.txt
+51a01b9e2b	2024-02-19	wmayer	fix	build	0	0	have(port)	4	have	Fix compiler warnings: fix [-Winconsistent-missing-override] fix [-Wunused-lambda-capture] fix [-Wunused-variable] fix [-Wswitch]	App/AssemblyObject.cpp
+6db79f02c4	2024-03-01	David Carter	refactor	solver-pin	0	0	have(port)	2	have	Ondsel solver update	3rdParty/OndselSolver
+de168aae27	2024-03-04	David Carter	feature	solver-pin	0	0	have(port)	2	have	Add property models for FEM	3rdParty/OndselSolver
+a6bb16ae78	2024-03-16	Max Wilfinger	?	ui	0	0	have(port)	1291	have	update assembly icons	Gui/Resources/icons/Assembly_CreateJointCylindrical.svg Gui/Resources/icons/Assembly_CreateJointRevolute.svg Gui/Resources/icons/Assembly_CreateJointSlider.svg Gui/Resources/icons/Assembly_SolveAssembly.svg
+5839134e95	2024-03-18	luzpaz	noise	format	0	0	have(port)	4	have	Fix various typos throughout the codebase (#13029)	App/AssemblyObject.cpp
+c014ab7a4e	2024-03-30	ppphp	fix	build	0	0	have(port)	5	have	fix: some unuse argument warning	Gui/ViewProviderAssembly.cpp Gui/ViewProviderJointGroup.cpp
+4b5d079e6b	2024-03-31	Jiri Macha	fix	joints	0	0	have(port)	6	have	Assembly: fix segfault when Part property of Joint Connector is missing	App/AssemblyObject.cpp
+ef189f8bcf	2024-03-06	Chris Hennes	feature	icons	0	0	have(port)	1	have	Start: Recreate start as a QtWidgets-based app	Gui/Resources/Assembly.qrc
+016ff91de2	2024-04-21	Max	?	ui	0	0	have(port)	117	have	update icon for assembly recompute	Gui/Resources/icons/Assembly_SolveAssembly.svg
+e96c154c03	2024-02-14	PaddleStroke	fix	joints	0	0	have(port)	8	have	Assembly : Fix Fixed joint shortcut. Improve distance joint tooltip.	CommandCreateJoint.py
+b537d0724a	2024-02-14	PaddleStroke	feature	joints	0	0	have(port)	651	have	Assembly: Add DistanceType enum and getDistanceType function.	App/AssemblyObject.cpp App/AssemblyObject.h
+dc5f3bfe15	2024-02-14	PaddleStroke	feature	drag	0	0	have(port)	118	have	Assembly: Add drag mode for planar distances.	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+2d06d7d7d4	2024-02-16	PaddleStroke	?	solve	0	0	have(port)	23	have	Assembly: Disable pre-solve for distance joints.	JointObject.py
+bf0146ca86	2024-02-21	PaddleStroke	fix	joints	0	0	have(port)	82	have	Assembly: Fix : Reversing Distance Joint Moves Grounded Part #12457	App/AssemblyObjectPy.xml App/AssemblyObjectPyImp.cpp JointObject.py
+f63abc1cf2	2024-02-22	PaddleStroke	fix	joints	0	0	have(port)	20	have	Assembly: Fixed joint should not be active if no part is grounded. Fixes #12544	CommandCreateJoint.py UtilsAssembly.py
+f66e23acc7	2024-02-22	PaddleStroke	refactor	insertlink	0	0	have(port)	35	have	Assembly : Replace 'Insert as part' by 'Show only parts'	CommandInsertLink.py Gui/Resources/panels/TaskAssemblyInsertLink.ui
+42e17ecf08	2024-02-26	PaddleStroke	fix	insertlink	0	0	have(port)	15	have	Assembly: Deactivate other tools when insert part is active. Fixes #12551	CommandCreateAssembly.py CommandCreateJoint.py
+0270c25d69	2024-02-26	PaddleStroke	noise	format	0	0	have(port)	12	have	Assembly : Typos	JointObject.py
+534cb58d50	2024-02-26	PaddleStroke	fix	joints	0	0	have(port)	29	have	Assembly : Fix : In Joint taskbox, deleting an element in the list should unselect it #10750	JointObject.py
+9aae3504ad	2024-02-26	PaddleStroke	fix	ui	0	0	have(port)	6	have	Assembly: Fix JCS not drawing correctly when removing selection.	JointObject.py
+a6752bf0cc	2024-02-26	PaddleStroke	fix	insertlink	0	0	have(port)	1	have	Assembly: Insert: fix non-ascii names issue #12164	CommandInsertLink.py
+8ae8573282	2024-02-26	PaddleStroke	feature	insertlink	0	1	have(port)	2	have	Assembly: InsertLink : Open File does partial opening. So no tab opens.	CommandInsertLink.py
+f9593d237d	2024-02-26	PaddleStroke	fix	insertlink	0	0	have(port)	12	have	Assembly: Change 'Insert Link' name to 'Insert Component' Fixes #12165	CommandInsertLink.py Gui/Resources/panels/TaskAssemblyInsertLink.ui
+8f1e3e1dec	2024-03-05	PaddleStroke	feature	insertlink	0	0	have(port)	1	have	Assembly: Insert link, clear selection on deactivation.	CommandInsertLink.py
+833913a342	2024-03-05	PaddleStroke	feature	joints	0	0	have(port)	361	have	Assembly : Add icon for joint group.	Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_JointGroup.svg Gui/ViewProviderJointGroup.cpp
+d76e33cdd1	2024-03-08	PaddleStroke	refactor	joints	0	0	have(port)	460	have	Assembly: Move static functions from JointObject to UtilsAssembly so they can be reused. And adds few functions	JointObject.py UtilsAssembly.py
+6a834422e7	2024-03-08	PaddleStroke	feature	drag	0	0	have(port)	183	have	Assembly: Adds a dragger object to the assembly, so that assembly tools can access a dragger.	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h Gui/ViewProviderAssemblyPy.xml Gui/ViewProviderAssemblyPyImp.cpp
+687843ff41	2024-03-08	PaddleStroke	feature	explode	0	0	have(port)	2403	have	Assembly: Introduce 'Exploded Views'	App/AppAssembly.cpp App/CMakeLists.txt App/ViewGroup.cpp App/ViewGroup.h App/ViewGroupPy.xml App/ViewGroupPyImp.cpp CMakeLists.txt CommandCreateView.py Gui/AppAssemblyGui.cpp Gui/CMakeLists.txt Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_ExplodedView.svg Gui/Resources/icons/Assembly_ExplodedViewGroup.svg Gui/Resources/panels/TaskAssemblyCreateView.ui Gui/ViewProviderViewGroup.cpp Gui/ViewProviderViewGroup.h InitGui.py UtilsAssembly.py
+ef010e6f7c	2024-03-11	PaddleStroke	fix	misc	0	0	have(port)	54	have	Assembly: define nested assemblies. Fixes 12440	App/AssemblyObject.cpp App/AssemblyObject.h Gui/ViewProviderAssembly.cpp
+5349d08abe	2024-03-12	PaddleStroke	fix	joints	0	0	have(port)	17	have	Assembly: Fix #12889 : deleting a part does not delete joint and later crashes freecad.	App/AssemblyObject.cpp App/AssemblyObject.h
+7aafb8d85c	2024-03-12	PaddleStroke	fix	joints	0	0	have(port)	6	have	Assembly: Joint edition : Fix bug when changing offset while only one part is selected	JointObject.py UtilsAssembly.py
+51feeb89f1	2024-03-12	PaddleStroke	fix	misc	0	0	have(port)	7	have	Assembly: Fix #12887: changing offset can move grounded parts in some cases.	App/AssemblyObject.cpp
+2c4f244359	2024-03-13	PaddleStroke	fix	insertlink	0	0	have(port)	186	have	Assembly: Insert Part tool : Change from list to tree. Fixes #12890	CommandInsertLink.py Gui/Resources/panels/TaskAssemblyInsertLink.ui
+56051b83bc	2024-03-13	PaddleStroke	fix	joints	0	0	have(port)	5	have	Assembly: Remove bad joints : joints between a part and itself. Fixes #12752	App/AssemblyObject.cpp
+c8128f19ee	2024-03-14	PaddleStroke	fix	drag	0	0	have(port)	142	have	Assembly: Enable dragger when solid is selected. Fixes #12656	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+1941fda891	2024-03-14	PaddleStroke	feature	insertlink	0	0	have(port)	94	have	Assembly: InsertLink : Kill behavior of parts following mouse.	CommandInsertLink.py
+0fa18820d8	2024-03-14	PaddleStroke	?	ui	0	0	have(port)	10	have	Assembly: attach selection observer only if in edit mode.	Gui/ViewProviderAssembly.cpp
+8885591ea6	2024-03-14	PaddleStroke	feature	insertlink	0	0	have(port)	30	have	Assembly: Insert link: insert at the center of the screen rather than origin of document.	CommandInsertLink.py
+1213967c76	2024-03-14	PaddleStroke	fix	joints	0	0	have(port)	6	have	Assembly: Fix distance 0 between 2 vertex. Issue mentioned in #12490	App/AssemblyObject.cpp
+b78f8695a8	2024-03-14	PaddleStroke	fix	joints	0	0	have(port)	10	have	Assembly: Prevent failure when double clicking a joint if another taskbox is present. Fixes #12770	JointObject.py
+b59a743f6f	2024-03-15	PaddleStroke	refactor	misc	0	0	have(port)	238	have	Assembly: Remove Lock from labels and add lock to 3dView	CommandCreateJoint.py Gui/ViewProviderAssembly.cpp JointObject.py
+971355e1dc	2024-03-16	PaddleStroke	fix	joints	0	0	have(port)	4	have	Assembly: Fix doubleclicked of joint and view #12958	CommandCreateView.py JointObject.py
+8fd15eaf28	2024-03-20	PaddleStroke	refactor	explode	0	0	have(port)	354	have	Assembly: Exploded view refactoring	App/AssemblyObject.cpp App/AssemblyObject.h CommandCreateView.py UtilsAssembly.py
+e37d15f081	2024-03-21	PaddleStroke	fix	drag	0	0	have(port)	14	have	Assembly: Improve dragging behavior. Fixes #13058	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+622821906f	2024-03-21	PaddleStroke	fix	misc	0	0	have(port)	23	have	Assembly: Add support to origin components Fixes #12446	UtilsAssembly.py
+85bfb99715	2024-03-22	PaddleStroke	fix	solve	0	0	have(port)	15	have	Assembly: Solve on recompute. Fixes #12983	App/AssemblyObject.cpp App/AssemblyObject.h
+ff4684fcd7	2024-03-28	PaddleStroke	feature	joints	0	0	have(port)	1913	have	Assembly: Add Screw/Pulley/Gears/RackPinion icons. Credits to @maxwxyz	App/AssemblyObject.cpp Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_CreateJointGears.svg Gui/Resources/icons/Assembly_CreateJointPulley.svg Gui/Resources/icons/Assembly_CreateJointRackPinion.svg Gui/Resources/icons/Assembly_CreateJointScrew.svg
+9115f31c84	2024-03-28	PaddleStroke	fix	misc	0	0	have(port)	38	have	Assembly: ViewProviderAssembly: Fix issues raised by @wwmayer	Gui/ViewProviderAssembly.cpp
+2108a994e7	2024-04-03	PaddleStroke	refactor	solver-pin	0	0	have(port)	2	have	Update OndselSolver submodule.	3rdParty/OndselSolver
+748ed561db	2024-04-04	PaddleStroke	feature	joints	0	0	have(port)	875	have	Assembly: Adds limit and RackPinion/Screw/Gears	App/AssemblyObject.cpp App/AssemblyObject.h CommandCreateJoint.py Gui/Resources/panels/TaskAssemblyCreateJoint.ui Gui/ViewProviderAssembly.cpp InitGui.py JointObject.py
+b5a6a26166	2024-04-09	PaddleStroke	?	drag	0	0	have(port)	34	have	Assembly: Drag: switch from solver Solve to dragStep.	App/AssemblyObject.cpp App/AssemblyObject.h Gui/ViewProviderAssembly.cpp
+d5beaf900e	2024-04-09	PaddleStroke	feature	joints	0	0	have(port)	130	have	Assembly: Introduce Belt joint.	App/AssemblyObject.cpp App/AssemblyObject.h CommandCreateJoint.py Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_CreateJointPulleys.svg Gui/Resources/panels/TaskAssemblyCreateJoint.ui InitGui.py JointObject.py
+b44505db39	2024-04-17	PaddleStroke	fix	joints	0	0	have(port)	25	have	Assembly: Fix small bugs in AssemblyObject.cpp, JointObject.py and UtilsAssembly.py	App/AssemblyObject.cpp AssemblyTests/TestCore.py JointObject.py UtilsAssembly.py
+98c518835c	2024-04-17	PaddleStroke	?	joints	0	0	have(port)	204	have	Assembly: Make RackPinion and Screw easier to setup.	App/AssemblyObject.cpp App/AssemblyObject.h CommandCreateJoint.py UtilsAssembly.py
+15176db32c	2024-04-17	PaddleStroke	feature	misc	0	0	have(port)	39	have	Assembly: Mark new features as experimental. To enable them you need to create a parameter called ExperimentalFeatures and set it to true.	InitGui.py JointObject.py
+53721aaf25	2024-04-25	PaddleStroke	feature	joints	0	0	have(port)	4	have	Assembly: Improve tooltip of CommandCreateJointDistance	CommandCreateJoint.py
+3e049b6420	2024-04-25	PaddleStroke	feature	drag	0	0	have(port)	58	have	Assembly: add try/catch blocks in drag step.	App/AssemblyObject.cpp
+ca8ab83e09	2024-04-25	PaddleStroke	fix	explode	0	0	have(port)	45	have	Assembly: Improve Exploded View's radial explosion, and various small fixes.	CommandCreateView.py JointObject.py
+de683708ba	2024-04-30	PaddleStroke	fix	joints	0	0	have(port)	1	have	Assembly: Fix Gear Radius2 spinbox issue	JointObject.py
+40b9c972c5	2024-05-07	wmayer	fix	build	0	0	have(port)	11	have	Assembly: Fix warning: -Wunused-variable	App/AssemblyObject.cpp App/PreCompiled.h Gui/PreCompiled.h Gui/ViewProviderAssembly.cpp
+344b125a07	2024-05-10	PaddleStroke	fix	insertlink	0	0	have(port)	8	have	Core: Add getRootObjectsIgnoreLinks and fix bugs in tree.cpp and AssemblyObject.cpp, CommandInsertLink.py, UtilsAssembly.py	App/AssemblyObject.cpp CommandInsertLink.py UtilsAssembly.py
+387a6da814	2024-05-15	Pieter Hijma	refactor	solver-pin	0	0	have(port)	2	have	OndselSolver: Update OndselSolver for GCC 14	3rdParty/OndselSolver
+e9c95b131b	2024-05-14	wmayer	fix	build	0	0	have(port)	3	have	Assembly: Fix possible build failure with PCH	App/PreCompiled.h
+748306dcaf	2024-05-07	Max Wilfinger	feature	ui	0	0	have(port)	2680	have	Update assembly icons to be consistent with main updates. Add commands to menu/toolbar.	Gui/Resources/icons/Assembly_ExplodedView.svg Gui/Resources/icons/Assembly_ExplodedViewGroup.svg Gui/Resources/icons/Assembly_ExportASMT.svg Gui/Resources/icons/Assembly_JointGroup.svg Gui/Resources/icons/Assembly_SolveAssembly.svg InitGui.py JointObject.py
+7c2a95bb0d	2024-05-14	PaddleStroke	fix	ui	0	1	have(port)	4	have	Assembly: JCS selection: cones surfaces offers the cone's apex. Fixes #13958	UtilsAssembly.py
+9d2f72a34f	2024-05-27	Jiri Macha	fix	joints	0	0	have(port)	13	have	Missing property Object1 or Object2 of fixed joint causing crash (#13912)	App/AssemblyObject.cpp
+cecb965f50	2024-05-14	PaddleStroke	feature	joints	0	0	have(port)	963	have	Assembly: Add 'Angle', 'Perpendicular' and 'Parallel' joints.	App/AssemblyObject.cpp App/AssemblyObject.h CommandCreateJoint.py Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_CreateJointAngle.svg Gui/Resources/icons/Assembly_CreateJointParallel.svg Gui/Resources/icons/Assembly_CreateJointPerpendicular.svg InitGui.py JointObject.py UtilsAssembly.py
+4185605d5e	2024-05-29	wmayer	refactor	build	0	0	have(port)	6	have	clang/gcc: Add build option FREECAD_WARN_ERROR to force to make warnings into errors	App/CMakeLists.txt Gui/CMakeLists.txt
+47031f2d4e	2024-05-30	PaddleStroke	?	i18n	0	0	have(port)	6	have	Assembly: Translate error	JointObject.py
+d5eacd7945	2024-05-30	PaddleStroke	fix	joints	0	0	have(port)	76	have	Assembly: Fix bad limits automatically. Fixes https://github.com/Ondsel-Development/FreeCAD/issues/61	App/AssemblyObject.cpp
+11fa271eb5	2024-06-03	Chris Hennes	refactor	tests	0	0	open	2	open (C++ tests were not ported: file-take tests/src/Mod/Assembly at tip)	Test: Support system GTest, and give warning if no submodule (#13662)	tests/src/Mod/Assembly/App/AssemblyObject.cpp
+48cfc90049	2024-06-04	PaddleStroke	fix	drag	0	0	have(port)	32	have	Assembly: Add preference to enable debug files of dragging	App/AssemblyObject.cpp Gui/Resources/preferences/Assembly.ui Preferences.py
+b463846bea	2024-06-07	PaddleStroke	refactor	drag	0	0	have(port)	75	have	Assembly: Add validation step during dragging to ignore steps where grounded objects moved.	App/AssemblyObject.cpp App/AssemblyObject.h
+27f03e8edf	2024-06-11	PaddleStroke	?	explode	0	0	have(port)	17	have	Assembly: Makes sure deleting assembly deletes the joints, the exploded views and the view group.	Gui/ViewProviderAssembly.cpp
+d0264d6bb0	2024-06-11	PaddleStroke	refactor	explode	0	1	have(port)	5	have	Assembly: Deletes exploded view deletes the moves objects.	CommandCreateView.py
+9fad901fa8	2024-06-11	PaddleStroke	fix	misc	0	0	have(port)	18	have	Assembly: Fix bug by replacing const char* by std::string for variables that need to be swapped.	App/AssemblyObject.cpp App/AssemblyObject.h
+26a9a67edd	2024-06-11	PaddleStroke	fix	misc	0	0	have(port)	18	have	Assembly: Fix bug by replacing const char* by std::string for variables that need to be swapped.	App/AssemblyObject.cpp App/AssemblyObject.h
+974f57cf94	2024-05-30	PaddleStroke	feature	ui	0	0	have(port)	5	have	Core: Add Gui::Document::getTreeRootObjects()	CommandInsertLink.py UtilsAssembly.py
+a0683cce88	2024-06-13	PaddleStroke	refactor	solver-pin	0	0	have(port)	2	have	OndselSolver: Update solver	3rdParty/OndselSolver
+55dd8076cc	2024-06-11	PaddleStroke	?	joints	0	0	have(port)	33	have	Assembly: deleting a component deletes its joints.	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h JointObject.py
+3fa0b68878	2024-06-17	PaddleStroke	feature	bom	0	0	have(port)	2266	have	Assembly: Implement Bill Of Materials (#14198)	App/AppAssembly.cpp App/BomGroup.cpp App/BomGroup.h App/BomGroupPy.xml App/BomGroupPyImp.cpp App/BomObject.cpp App/BomObject.h App/BomObjectPy.xml App/BomObjectPyImp.cpp App/CMakeLists.txt CMakeLists.txt CommandCreateBom.py Gui/AppAssemblyGui.cpp Gui/CMakeLists.txt Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_BillOfMaterials.svg Gui/Resources/icons/Assembly_BillOfMaterialsGroup.svg Gui/Resources/panels/TaskAssemblyCreateBom.ui Gui/ViewProviderBom.cpp Gui/ViewProviderBom.h Gui/ViewProviderBomGroup.cpp Gui/ViewProviderBomGroup.h InitGui.py UtilsAssembly.py
+4a11652263	2024-06-17	PaddleStroke	fix	insertlink	0	0	have(port)	2	have	Assembly: InsertLink: Use doc.Label instead of doc.Name because of bug of doc.Name not updating when file is saved.	CommandInsertLink.py
+2f8382ae59	2024-06-20	wmayer	fix	build	0	0	have(port)	12	have	MSVC: Fix compiler warnings	Gui/CMakeLists.txt Gui/PreCompiled.h
+3942d13cab	2024-06-21	PaddleStroke	refactor	asmt	0	1	have(port)	2	have	Assembly: Remove unecessary import that was breaking ubuntu CI.	CommandCreateBom.py
+fc069db355	2024-06-19	PaddleStroke	?	misc	0	1	have(port)	34	have	Assembly: ViewProviderBom: Use runCommand instead of C API	Gui/ViewProviderBom.cpp
+5c3eb4d310	2024-06-19	PaddleStroke	feature	bom	0	0	have(port)	224	have	Assembly: BOM: Add help button. Make auto-generated columns bold.	CommandCreateBom.py Gui/Resources/panels/TaskAssemblyCreateBom.ui
+53d20dc7f0	2024-06-24	PaddleStroke	fix	assemblylink	0	0	have(port)	5	have	Assembly: Fix problem with external link to sub-assemblies.	UtilsAssembly.py
+5dfb708d7d	2024-06-24	PaddleStroke	fix	joints	0	0	have(port)	58	have	Assembly: jointObject : handle case where gui_doc.ActiveView is None.	JointObject.py
+b31f5fce2d	2024-06-25	PaddleStroke	fix	insertlink	0	0	have(port)	2	have	Assembly: Insert Component: Fix comparing names instead of comparing objects	CommandInsertLink.py
+5e14435e02	2024-06-20	PaddleStroke	fix	solve	0	0	have(port)	14	have	Assembly: Fix a bug with presolve. Presolve should not happen when there's a loop of joints.	JointObject.py
+8913e3ffdc	2024-06-20	PaddleStroke	?	drag	0	0	have(port)	86	have	Assembly: Do not attempt to drag grounded objects.	App/AssemblyObject.cpp Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+fd64f38998	2024-06-25	PaddleStroke	fix	insertlink	0	1	have(port)	4	have	Assembly: Insert Component: Fix 'Joint Group' being listed even though it's empty. It's because we were using OutList instead of claimChildren.	CommandInsertLink.py
+2114da3bbb	2024-06-17	PaddleStroke	?	joints	0	0	have(port)	389	have	Assembly: Limits: Set one checkbox for each limit.	App/AssemblyObject.cpp Gui/Resources/panels/TaskAssemblyCreateJoint.ui JointObject.py
+0a056923cb	2024-06-27	PaddleStroke	?	joints	0	1	have(port)	12	have	Assembly: Limits: Set one checkbox for each limit.	Gui/Resources/panels/TaskAssemblyCreateJoint.ui
+bba868912b	2024-06-26	PaddleStroke	fix	i18n	0	0	have(port)	8	have	Assembly: Create Joint : fix untranslated strings.	JointObject.py
+40feca037c	2024-06-26	PaddleStroke	feature	joints	0	0	have(port)	19	have	Assembly: Create joint : Reduce heigth of list widget.	Gui/Resources/panels/TaskAssemblyCreateJoint.ui
+a0c4a273ba	2024-06-26	PaddleStroke	feature	joints	0	0	have(port)	157	have	Assembly: Enable moving objects while making joints.	App/AssemblyObject.cpp App/AssemblyObject.h Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h Gui/ViewProviderAssemblyPy.xml Gui/ViewProviderAssemblyPyImp.cpp JointObject.py
+632780ce35	2024-06-26	PaddleStroke	feature	joints	0	0	have(port)	60	have	Assembly: Create Joint limit: Moving objects updates the spinboxes values if they are disabled.	JointObject.py UtilsAssembly.py
+e7699b531e	2024-06-27	PaddleStroke	fix	joints	0	0	have(port)	7	have	Assembly: Gears: Fix crash if user selected first elements before triggering tool.	JointObject.py
+cf5314919a	2024-06-10	PaddleStroke	refactor	build	0	0	have(port)	436	have	Assembly: Change Object1/2 from strings to PropertyXLinkSub and Remove Element1/2 and Vertex1/2	App/AssemblyObject.cpp App/AssemblyObject.h AssemblyTests/TestCore.py Gui/ViewProviderAssembly.cpp JointObject.py UtilsAssembly.py
+c7bcb706ed	2024-07-01	aiksiongkoh	?	solver-pin	0	0	have(port)	2	have	Update solver (#15021)	3rdParty/OndselSolver
+6640815c4d	2024-06-25	PaddleStroke	feature	insertlink	0	0	have(port)	34	have	Assembly: Enable Insert Component taskbox to grow when more items are added.	CommandInsertLink.py Gui/Resources/panels/TaskAssemblyInsertLink.ui
+7d21d9edb8	2024-07-09	Max Wilfinger	noise	i18n	0	0	have(port)	2	have	Fix source string typos mentioned on Crowdin (#15261)	JointObject.py
+9a1f487cdb	2024-07-07	luzpaz	noise	format	0	0	have(port)	8	have	Fix various typos throughout the codebase	App/AssemblyObject.cpp App/BomObject.cpp CommandCreateView.py Gui/ViewProviderAssembly.cpp
+a9ad3e7461	2024-07-06	FEA-eng	?	ui	0	0	have(port)	2	have	Assembly: Update Assembly.ui	Gui/Resources/preferences/Assembly.ui
+a3436c2d5f	2024-07-02	PaddleStroke	fix	joints	0	0	have(port)	8	have	Assembly: Create joint: prevent errors on undo/ctrl-Z	CommandCreateJoint.py JointObject.py
+88d970f35e	2024-07-05	PaddleStroke	fix	solver-pin	0	0	have(port)	2	have	OndselSolver: update to fix warnings from @pieterhijma	3rdParty/OndselSolver
+1ee4042c49	2024-07-04	PaddleStroke	feature	insertlink	0	1	have(port)	14	have	Assembly: Insert link : Insert to origin if it is within view.	CommandInsertLink.py
+3a17209733	2024-07-08	PaddleStroke	fix	misc	0	0	have(port)	4	have	Assembly: Prevent insertion of parent objects that cause dependency loop and crash.	CommandInsertLink.py
+6088fdaa96	2024-06-28	PaddleStroke	?	drag	0	0	have(port)	18	have	Assembly: Use canDragObjectToTarget in viewProviderAssembly	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+284c42dc0a	2024-07-13	Kacper Donat	?	drag	0	0	have(port)	2	have	Gui: Reduce Transform Dragger size	Gui/ViewProviderAssembly.cpp
+e56f4a8c1a	2024-07-15	PaddleStroke	fix	misc	0	0	have(port)	92	have	Assembly: Fix edit mode to allow users to transform the assembly.	Gui/ViewProviderAssembly.cpp
+6ce744a9a1	2024-07-18	PaddleStroke	fix	explode	0	0	have(port)	3	have	Assembly: Fix conflicting shortcut for Exploded view	CommandCreateView.py CommandExportASMT.py
+4b0c72ccad	2024-07-19	PaddleStroke	fix	bom	0	0	have(port)	17	have	Assembly: BOM: Fix same name different doc issue.	App/BomObject.cpp App/BomObject.h
+0273391211	2024-07-22	PaddleStroke	?	bom	0	0	have(port)	27	have	Assembly: BOM tool: Do not list Groups.	App/BomObject.cpp
+5084e6ce39	2024-07-23	wmayer	fix	build	0	0	have(port)	1	have	Assembly: Fix compiler warning	App/BomObject.cpp
+2dc886d748	2024-07-25	PaddleStroke	?	joints	0	0	have(port)	52	have	Assembly: define joint double click on 3dview (#15572)	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+4f79c675b7	2024-07-12	PaddleStroke	?	misc	0	0	have(port)	2258	have	Assembly: Property change from Object/Part to Reference	App/AssemblyObject.cpp App/AssemblyObject.h AssemblyTests/TestCore.py CommandCreateJoint.py CommandCreateView.py Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h JointObject.py UtilsAssembly.py
+a5505a1b1c	2024-07-24	PaddleStroke	refactor	misc	0	0	have(port)	82	have	Assembly: Replace ObjRefPairs std::pair by structure.	App/AssemblyObject.cpp App/AssemblyObject.h Gui/ViewProviderAssembly.cpp
+58241e027e	2024-08-01	hasecilu	noise	format	0	0	have(port)	2	have	Fix typos on Assembly & Sketcher WBs	CommandCreateBom.py
+e2e613acaa	2024-08-05	PaddleStroke	fix	migration	0	1	have(port)	2	have	Assembly: Fix migrationScript2	UtilsAssembly.py
+00ca22e2c5	2024-08-06	PaddleStroke	fix	joints	0	0	have(port)	69	have	Assembly: Fix bug where double-clicking on a joint would unselect the underlying edge.	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+ece64bea29	2024-08-06	PaddleStroke	?	joints	0	0	have(port)	41	have	Assembly: Make sure that when a components is deleted its joints are as well.	App/AssemblyObject.cpp Gui/ViewProviderAssembly.cpp
+39c4e2e600	2024-08-07	PaddleStroke	fix	joints	0	0	have(port)	24	have	Assembly: Fix distance joints	App/AssemblyObject.cpp App/AssemblyObject.h
+49fa67266f	2024-08-08	PaddleStroke	fix	drag	0	0	have(port)	7	have	Assembly: Fix objects in group would not have the dragger appear when selected.	App/AssemblyObject.cpp UtilsAssembly.py
+4b3358a35b	2024-08-31	PaddleStroke	fix	misc	0	0	have(port)	36	have	Assembly: Make sure the subnames index are valid before trying to access the Edges/Faces/Vertexes vectors of the shapes. Else it would crash if the index is out of bound. (#16154)	UtilsAssembly.py
+79b9d45726	2024-08-05	PaddleStroke	refactor	misc	0	0	have(port)	195	have	Assembly: Enable ungrounded connected parts to move as one item.	App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyObjectPyImp.cpp Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+7c6dde17fb	2024-08-08	PaddleStroke	fix	build	0	0	have(port)	322	have	Assembly: Fix case of link groups	App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyObjectPy.xml App/AssemblyObjectPyImp.cpp Gui/ViewProviderAssembly.cpp JointObject.py UtilsAssembly.py
+c11a6f1013	2024-09-02	wmayer	fix	build	0	0	have(port)	4	have	Assembly: Fix compiler warning	App/AssemblyObject.cpp
+5ed26f56f1	2024-08-28	Bas Ruigrok	refactor	misc	0	0	have(port)	32	have	Move splitSubName from AssemblyObject to Base::Tools	App/AssemblyObject.cpp App/AssemblyObject.h Gui/ViewProviderAssembly.cpp
+e9fc6fb89a	2024-08-28	Bas Ruigrok	refactor	misc	0	0	have(port)	77	have	Move getGlobalPlacement from AssemblyObject to GeoFeature	App/AssemblyObject.cpp App/AssemblyObject.h Gui/ViewProviderAssembly.cpp
+cb98abcc42	2024-09-08	Bas Ruigrok	refactor	build	0	0	have(port)	45	have	Move isLink and isLinkGroup from AssemblyObject to DocumentObject	App/AssemblyObject.cpp
+305fb075a5	2024-09-09	PaddleStroke	refactor	solver-pin	0	0	have(port)	2	have	Update Ondsel Solver	3rdParty/OndselSolver
+7f83336ba8	2024-08-31	PaddleStroke	refactor	misc	0	0	have(port)	100	have	Assembly: Replace Offset and Rotation properties by Offset1 and Offset2, giving full control over JCS positions.	JointObject.py
+a715a4d161	2024-09-19	bgbsww	feature	logging	0	0	have(port)	169	have	Support macros and console logs in Assembly	CommandCreateAssembly.py CommandCreateBom.py CommandCreateJoint.py CommandCreateView.py CommandExportASMT.py CommandInsertLink.py CommandSolveAssembly.py JointObject.py UtilsAssembly.py
+f0053e5388	2024-09-22	bgbsww	fix	ui	0	0	have(port)	33	have	Correctly build reference from selection subname	JointObject.py
+7bed7ef370	2024-09-25	bgbsww	refactor	migration	0	0	have(port)	39	have	Return to python; simplify to work with only classic names, provide migration	JointObject.py
+d535c5a6e7	2024-09-26	bgbsww	?	misc	0	0	have(port)	10	have	Refine further	JointObject.py
+bdfcb6bfb2	2024-09-24	PaddleStroke	fix	drag	0	0	have(port)	205	have	Assembly: Fix lag during dragging of large assemblies. Bundle fix joints together. Show only the movingJoint during dragging. Do not recompute joints during dragging.	App/AssemblyObject.cpp App/AssemblyObject.h Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+69fd894017	2024-09-30	PaddleStroke	feature	py-api	0	0	have(port)	27	have	Assembly: Use cpp getGlobalPlacement python binding rather than reimplementing it.	UtilsAssembly.py
+32e09d9554	2024-10-03	Furgo	?	bom	0	0	have(port)	2	have	Prepend a single quote to BOM index to be interpreted as a string in generated spreadsheets	App/BomObject.cpp
+be5255e9bf	2024-10-02	Furgo	feature	misc	0	1	have(port)	1	have	Create the assembly object inside the list of commands	CommandCreateBom.py
+13eeb7b8c2	2024-10-08	PaddleStroke	fix	migration	0	0	have(port)	56	have	Assembly: Fix migrationScript2 error with bad joints (#17010)	JointObject.py
+736f03caf2	2024-10-09	PaddleStroke	fix	joints	0	0	have(port)	4	have	Assembly: Fix gear/belt switch on checkbox toggle	JointObject.py
+a445b01869	2024-10-08	PaddleStroke	fix	joints	0	0	have(port)	15	have	Assembly: Fix joint labels bad auto-rename issue.	JointObject.py
+82a98d6e31	2024-10-08	PaddleStroke	feature	joints	0	0	have(port)	3	have	Assembly: Joint: add support to non ascii characters.	JointObject.py
+eab65cc42c	2024-10-04	PaddleStroke	fix	joints	0	0	have(port)	188	have	Assembly: Remove JointObject camera callbacks. And fix lock highlight.	JointObject.py
+ad6d148935	2024-10-14	PaddleStroke	fix	ui	0	0	have(port)	46	have	Assembly: Fix context menu 'Activate object' not working and causing crash (#17092)	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h Gui/ViewProviderAssemblyPy.xml Gui/ViewProviderAssemblyPyImp.cpp UtilsAssembly.py
+876389af23	2024-10-12	PaddleStroke	fix	joints	0	0	have(port)	44	have	JointObject: fix flip one part	JointObject.py
+8b1baaef8f	2024-10-12	PaddleStroke	?	py-api	0	1	have(port)	6	have	AssemblyObjectPyImp.cpp : make sure PyObjects are valid	App/AssemblyObjectPyImp.cpp
+28b1112451	2024-10-12	PaddleStroke	fix	misc	0	0	have(port)	204	have	AssemblyObject.cpp : add failsafe checks	App/AssemblyObject.cpp
+df639075b1	2024-10-14	Furgo	fix	solve	0	0	have(port)	8	have	Assembly: make "Solve failed" error more verbose (#17117)	App/AssemblyObject.cpp
+fe5c883e4c	2024-09-02	PaddleStroke	feature	joints	0	0	have(port)	222	have	Assembly: Joint creation UI : add advanced offset handling.	Gui/Resources/panels/TaskAssemblyCreateJoint.ui JointObject.py UtilsAssembly.py
+62575f2d63	2024-09-10	PaddleStroke	feature	joints	0	0	have(port)	391	have	Assembly: Create SoSwitchMarker.py to externalize the coin stuff that draw the joint's markers(JCS)	CMakeLists.txt JointObject.py SoSwitchMarker.py UtilsAssembly.py
+761e5a43e8	2024-08-05	PaddleStroke	?	assemblylink	0	0	have(port)	1807	have	Assembly: AssemblyLinks.	App/AppAssembly.cpp App/AssemblyLink.cpp App/AssemblyLink.h App/AssemblyLinkPy.xml App/AssemblyLinkPyImp.cpp App/AssemblyObject.cpp App/AssemblyObject.h App/CMakeLists.txt App/JointGroup.cpp App/JointGroup.h CommandInsertLink.py Gui/AppAssemblyGui.cpp Gui/CMakeLists.txt Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_AssemblyLink.svg Gui/Resources/icons/Assembly_AssemblyLinkRigid.svg Gui/Resources/panels/TaskAssemblyInsertLink.ui Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssemblyLink.cpp Gui/ViewProviderAssemblyLink.h Gui/ViewProviderJointGroup.cpp Gui/ViewProviderJointGroup.h UtilsAssembly.py
+9b407eed07	2024-10-15	PaddleStroke	fix	misc	0	0	have(port)	79	have	Fix regressions of #16726	JointObject.py UtilsAssembly.py
+f111d46002	2024-10-18	PaddleStroke	fix	joints	0	0	have(port)	16	have	Assembly: Fix limits disappearing on edit (#17289)	JointObject.py
+5823046e6b	2024-10-24	PaddleStroke	feature	insertlink	0	0	have(port)	21	have	Assembly: CommandInsertLink: Hide hidden objects	CommandInsertLink.py
+02847d25dc	2024-11-03	Furgo	fix	assemblylink	0	0	have(port)	8	have	Reword rigid/flexible sub-assembiles tooltip. Fixes: #17636	Gui/Resources/panels/TaskAssemblyInsertLink.ui
+28a977b5fc	2024-10-22	PaddleStroke	feature	joints	0	0	have(port)	63	have	Assembly: Joint creation: add expression support to spinboxes	JointObject.py
+1b35d8b0f1	2024-11-04	PaddleStroke	?	joints	0	1	have(port)	2	have	Update JointObject.py	JointObject.py
+1b1e355b9b	2024-11-04	PaddleStroke	fix	joints	0	0	have(port)	1	have	Assembly: Fix reverse button in joint task (#17663)	JointObject.py
+6fa1b1c3b2	2024-11-04	PaddleStroke	?	solve	0	1	have(port)	2	have	Update CommandSolveAssembly.py	CommandSolveAssembly.py
+ca0549d489	2024-11-04	PaddleStroke	?	asmt	0	1	have(port)	2	have	Update CommandExportASMT.py	CommandExportASMT.py
+bf64ab9f51	2024-11-05	PaddleStroke	feature	joints	0	0	have(port)	254	have	Assembly: Improve joint taskbox offset ui.	Gui/Resources/panels/TaskAssemblyCreateJoint.ui JointObject.py
+b3d9c471ee	2024-11-07	PaddleStroke	refactor	joints	0	0	have(port)	106	have	Assembly: JointObject refactor adaptUi	JointObject.py
+22d278c7c0	2024-11-07	PaddleStroke	fix	misc	0	0	have(port)	20	have	Assembly: Fix regressions of https://github.com/FreeCAD/FreeCAD/pull/16671	CommandCreateView.py JointObject.py UtilsAssembly.py
+03af502347	2024-11-07	PaddleStroke	fix	build	0	1	have(port)	10	have	Assembly: Fix problem with App::Link to AssemblyObject : they would not go back to position.	UtilsAssembly.py
+ae32212245	2024-11-11	wmayer	fix	misc	0	0	have(port)	27	have	Assembly: Handle thrown Base::Exception in ViewProviderAssembly	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+ee1af2748a	2024-11-13	wmayer	?	misc	0	0	have(port)	4	have	Coverity scan: Uninitialized scalar variable	Gui/ViewProviderAssembly.h
+a597015d05	2024-11-04	Furgo	?	misc	0	0	have(port)	2	have	Reword error log to be more verbose	UtilsAssembly.py
+477ea046d0	2024-11-16	Furgo	feature	misc	0	0	have(port)	3	have	Re-add the note about right click, with more context	Gui/Resources/panels/TaskAssemblyInsertLink.ui
+a049641771	2024-11-18	PaddleStroke	fix	drag	0	0	have(port)	43	have	Assembly: Store DocumentObject instead of mbdPart for the dragged parts. Fixing the bug where doDragStep was 50% of time failing to find the correct DocumentObject due to bundling.	App/AssemblyObject.cpp App/AssemblyObject.h
+71f0104bb2	2024-11-14	Jiri Macha	fix	migration	0	0	have(port)	13	have	Assembly: fixed defect in the migrationScript4 function	JointObject.py
+2c1348fdc2	2024-10-08	haruka tsubota	feature	bom	0	0	have(port)	12	have	Add help message about customizing BOM export file format in Assembly workbench	CommandCreateBom.py
+bc94cbb97e	2024-11-06	huguesdpdn-aerospace	fix	solver-pin	0	0	have(port)	2	have	Bump OndelSolver version - Include compilation fix for Ubuntu with old GCC versions	3rdParty/OndselSolver
+979075ce0d	2024-11-14	PaddleStroke	?	misc	0	0	have(port)	4	have	Assembly: Pressing Esc while a task is active will not escape edit mode	Gui/ViewProviderAssembly.cpp
+99b2f23214	2024-11-18	PaddleStroke	fix	assemblylink	0	0	have(port)	64	have	Assembly: Fix joints not being deleted when subassembly is deleted.	Gui/ViewProviderAssembly.cpp
+710542d121	2024-10-25	Kacper Donat	refactor	drag	0	0	have(port)	23	have	Assembly: Refactor get/setDraggerPlacement	Gui/ViewProviderAssembly.cpp
+fb7ce6405b	2024-11-24	Jacob Oursland	fix	build	0	0	partial(port)	2	have (src/Mod/Assembly part; its tests/src/Mod/Assembly part goes with the tests file-take)	CMake: Add missing target_link_directories() for OCCT.	Gui/CMakeLists.txt tests/src/Mod/Assembly/CMakeLists.txt
+ef3445e9e1	2024-11-20	PaddleStroke	fix	misc	0	0	have(port)	3	have	Core / Assembly: Add a way for vp edit modes to be restored.	Gui/ViewProviderAssembly.cpp
+e5c2c81685	2024-12-02	Benjamin Nauck	refactor	misc	0	0	have(port)	1829	have	Move back the assembly util functions to AssemblyUtil (#18020)	App/AssemblyLink.cpp App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyUtils.cpp App/AssemblyUtils.h App/CMakeLists.txt Gui/ViewProviderAssembly.cpp
+18f63edadb	2024-11-20	Fabio Rossi	refactor	solver-pin	0	0	have(port)	6	have	add local OndselSolver includes only when not external	App/CMakeLists.txt
+b29f2cdfe2	2024-11-21	PaddleStroke	fix	explode	0	0	have(port)	41	have	Assembly: Make ExplodedView: a group extension. So that we don't mimick group. Fixing the delete exploded view group issue	CommandCreateView.py
+f6268ffd28	2024-12-02	PaddleStroke	feature	insertlink	0	0	have(port)	554	have	Assembly: Insert new part (#17922)	CMakeLists.txt CommandInsertLink.py CommandInsertNewPart.py InitGui.py JointObject.py UtilsAssembly.py
+7fdc3b807a	2024-12-03	wmayer	fix	build	0	0	have(port)	2	have	Fix compiler warnings	App/AssemblyUtils.cpp
+3326c33d83	2024-08-28	Aik-Siong Koh	feature	simulation	0	0	have(port)	4930	have	Assembly: Simulation implementation	App/AppAssembly.cpp App/AssemblyLinkPy.xml App/AssemblyLinkPyImp.cpp App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyObjectPy.xml App/AssemblyObjectPyImp.cpp App/CMakeLists.txt App/SimulationGroup.cpp App/SimulationGroup.h App/SimulationGroupPy.xml App/SimulationGroupPyImp.cpp CMakeLists.txt CommandCreateSimulation.py Gui/AppAssemblyGui.cpp Gui/CMakeLists.txt Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_CreateSimulation.svg Gui/Resources/icons/Assembly_SimulationGroup.svg Gui/Resources/panels/TaskAssemblyCreateSimulation.ui Gui/ViewProviderSimulationGroup.cpp Gui/ViewProviderSimulationGroup.h InitGui.py UtilsAssembly.py
+96c838f3b9	2024-12-03	luzpaz	noise	format	0	0	have(port)	6	have	Fix various typos Found with codespell	CommandInsertNewPart.py Gui/Resources/panels/TaskAssemblyCreateJoint.ui
+878d9525dc	2024-11-23	Jiri Macha	refactor	migration	0	0	have(port)	143	have	Assembly: migrationScript2 and migrationScript4 improved and refactored	JointObject.py
+651cefde4d	2024-10-27	Kacper Donat	?	ui	0	0	have(port)	18	have	Gui: Use getObject<T>() helpers in classes	Gui/ViewProviderAssembly.cpp
+ebf528a653	2024-12-09	Vincent	fix	joints	0	0	have(port)	15	have	Assembly: fix gears created with null radius and de-sync (#18275)	JointObject.py
+396963006b	2024-12-09	PaddleStroke	fix	misc	0	1	have(port)	4	have	Core: SoShapeScale fix weird scaling on viewport resize. See https://github.com/FreeCAD/FreeCAD/issues/18382#issuecomment-2527623758	JointObject.py SoSwitchMarker.py
+fe57e3176d	2024-12-13	efferre79	fix	solver-pin	0	0	partial(port)	23	have (src/Mod/Assembly part; its tests/src/Mod/Assembly part goes with the tests file-take)	cmake fixes for external OndselSolver building (#18379)	App/AssemblyObject.h App/CMakeLists.txt CMakeLists.txt tests/src/Mod/Assembly/CMakeLists.txt
+024fee7f97	2024-10-15	PaddleStroke	feature	misc	0	0	have(port)	241	have	Assembly: Enable the use of App::Datums	App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyUtils.cpp CommandCreateJoint.py Gui/ViewProviderAssembly.cpp JointObject.py UtilsAssembly.py
+1ce8f2c859	2024-12-11	PaddleStroke	refactor	misc	0	0	have(port)	39	have	AssemblyObject: Use std::unordered_set instead of vector.	App/AssemblyObject.cpp App/AssemblyObject.h
+29d685b452	2024-12-10	mosfet80	?	misc	0	0	have(port)	21	have	Clean ViewProviderAssembly.cpp	Gui/ViewProviderAssembly.cpp
+f5a4ec01f8	2024-12-01	Andrea	?	misc	0	0	have(port)	28	have	[Mod]  Clean AssemblyObject.cpp	App/AssemblyObject.cpp
+cac8eb0859	2024-12-16	PaddleStroke	refactor	solve	0	0	have(port)	36	have	Assembly: Joint creation presolve: move part2 rather than part1 when both are unconnected.	JointObject.py
+7a5a3d1ffc	2025-01-13	Tobias Frost	noise	format	0	0	have(port)	2	have	spelling fixes (#18688)	Gui/Resources/preferences/Assembly.ui
+e22b226866	2025-01-18	anselm-baur	fix	misc	0	0	have(port)	2	have	Assembly: fix missing space	CommandCreateJoint.py
+ae15d98fd3	2025-01-15	Benjamin Nauck	?	misc	0	0	have(port)	10	have	Use is<T>() when possible	Gui/ViewProviderAssembly.cpp
+64a4f6e366	2025-01-30	Benjamin Nauck	refactor	solver-pin	0	0	have(port)	2	have	Update ondselsolver	3rdParty/OndselSolver
+65466d580b	2025-01-27	tritao	?	ui	1	0	have(port)	2	have	Gui: Reorganize the selection files into a top `Selection` folder.	Gui/ViewProviderAssembly.h
+a1c5767643	2025-01-19	Benjamin Nauck	refactor	tests	0	0	open	3	open (C++ tests were not ported: file-take tests/src/Mod/Assembly at tip)	Mod: Use new addObject<T>(...) using regex	tests/src/Mod/Assembly/App/AssemblyObject.cpp
+b4bb86948f	2025-01-22	Benjamin Nauck	refactor	tests	0	0	open	3	open (C++ tests were not ported: file-take tests/src/Mod/Assembly at tip)	Mod: Use new GroupExtension::addObject<T>(...)	tests/src/Mod/Assembly/App/AssemblyObject.cpp
+27ebc68a11	2025-02-15	Joao Matos	refactor	build	0	0	have(port)	4	have	CMake: Modernize build files using outdated Python variables.	App/CMakeLists.txt Gui/CMakeLists.txt
+62415907ee	2025-01-17	bofdahof	?	tests	0	0	open	6	open (C++ tests were not ported: file-take tests/src/Mod/Assembly at tip)	current src path no longer required	tests/src/Mod/Assembly/App/CMakeLists.txt
+2aaf67029b	2025-02-23	Roy-043	?	ui	0	0	have(port)	4	have	Assembly: Make 2 menu texts more consistent	CommandCreateJoint.py CommandInsertNewPart.py
+cc6ffb44de	2025-02-16	Joao Matos	refactor	build	0	0	partial(port)	3	have (src/Mod/Assembly part; its tests/src/Mod/Assembly part goes with the tests file-take)	Core: Move `PyCXX` library to `src/3rdParty`.	App/CMakeLists.txt Gui/CMakeLists.txt tests/src/Mod/Assembly/CMakeLists.txt
+14f15c4a50	2025-02-19	Roy-043	fix	asmt	0	1	have(port)	2	have	Assembly: fix doCommand code in CommandExportASMT.py	CommandExportASMT.py
+755229df23	2025-02-24	Benjamin Braestrup Sayoc	refactor	build	0	0	partial(port)	10	have (src/Mod/Assembly part; its tests/src/Mod/Assembly part goes with the tests file-take)	Build: suppress warnings from 3rd party libraries	App/CMakeLists.txt Gui/CMakeLists.txt tests/src/Mod/Assembly/CMakeLists.txt
+a67080a777	2025-03-06	PaddleStroke	fix	joints	0	1	have(port)	7	have	Assembly: Fix use of datum axis in joints	UtilsAssembly.py
+d2721aaadd	2025-03-06	PaddleStroke	?	misc	0	1	have(port)	43	have	Assembly: Select LCS elements when LCS is in body	UtilsAssembly.py
+cd5c46ba18	2025-03-10	Andrea	refactor	misc	0	0	have(port)	4	have	Remove unnecessary check (duplicated)	Gui/PreCompiled.h
+fa61131590	2025-03-13	Karliss	fix	misc	0	0	have(port)	3	have	Add missing parent for messagebox and other popups	Gui/ViewProviderAssembly.cpp
+c4eeaa2d11	2025-03-12	bofdahof	refactor	misc	0	0	have(port)	8	have	Assembly: apply std::ranges	App/AssemblyObject.cpp Gui/ViewProviderAssembly.cpp
+6c2c6847eb	2025-03-17	tritao	refactor	build	0	0	partial(port)	25	have (src/Mod/Assembly part; its tests/src/Mod/Assembly part goes with the tests file-take)	CMake: Cleanup targets with transitive dependencies	App/CMakeLists.txt Gui/CMakeLists.txt tests/src/Mod/Assembly/CMakeLists.txt
+4ab281bd7d	2025-03-17	PaddleStroke	fix	drag	0	0	have(port)	5	have	Assembly: Fix: Select datum should not show dragger. (#20051)	Gui/ViewProviderAssembly.cpp
+3b6cb37dd9	2025-03-22	PaddleStroke	?	joints	0	0	have(port)	24	have	Assembly: ignore joints in error (#20253)	App/AssemblyObject.cpp JointObject.py
+984c0d43fd	2025-03-27	Benjamin Nauck	refactor	joints	0	0	have(port)	2	have	Assembly: Use std::numeric_limits and std::numbers instead of defines	App/AssemblyObject.cpp
+0f4f47e313	2025-03-24	Andrea	?	misc	0	0	have(port)	138	have	[Mod] assembly clean	App/AssemblyLink.cpp App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyUtils.cpp App/AssemblyUtils.h
+8963a0d8bc	2025-04-07	drwho495	fix	build	0	1	have(port)	42	have	Assembly: Fix hasher missing ref warning and speed bug. (#20405)	UtilsAssembly.py
+7f5b1c9f2c	2025-04-11	captain0xff	refactor	drag	0	0	have(port)	16	have	Gui: moved dragger classes to separate folder and files	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h Gui/ViewProviderAssemblyPy.xml Gui/ViewProviderAssemblyPyImp.cpp
+71317baa52	2025-04-14	mosfet80	?	misc	0	0	have(port)	61	have	MOD: assembly clean (#20557)	App/AssemblyLink.cpp AssemblyTests/TestTEMPLATE.py CommandCreateSimulation.py CommandCreateView.py CommandExportASMT.py CommandInsertLink.py CommandSolveAssembly.py UtilsAssembly.py
+5436ff85e7	2025-04-16	Jacob Oursland	?	py-api	0	0	have(port)	44	have	Assembly: declare python methods const.	App/AssemblyObjectPy.xml App/AssemblyObjectPyImp.cpp
+c432b28ec2	2025-04-16	Jacob Oursland	refactor	misc	0	0	have(port)	441	have	Assembly: convert if-else to switch.	App/AssemblyObject.cpp
+ea7845f0fa	2025-04-16	Jacob Oursland	refactor	misc	0	0	have(port)	4	have	Assembly: Remove unused headers.	App/AssemblyObject.cpp
+926757a258	2025-04-16	Jacob Oursland	?	misc	0	0	have(port)	3	have	Assembly: align parameter names between decl and impl.	App/AssemblyObject.h
+b41b294292	2025-03-16	Florian Foinant-Willig	fix	misc	0	0	have(port)	39	have	Assembly: prevent user to remove core properties	CommandCreateSimulation.py CommandCreateView.py JointObject.py
+57c5b1f987	2025-04-10	Furgo	?	bom	0	0	have(port)	55	have	Assembly: BOM custom columns can now return property values	App/BomObject.cpp App/BomObject.h
+47b7ae9813	2025-04-10	Furgo	?	bom	0	0	have(port)	2	have	Assembly: BOM properties, update help message	CommandCreateBom.py
+3b295f9d43	2025-04-10	Furgo	?	bom	0	0	have(port)	5	have	Assembly: BOM, internationalize strings	App/BomObject.cpp
+d4925e7a04	2025-04-22	Furgo	?	bom	0	0	have(port)	4	have	Assembly: BOM, apply suggestion: do not copy baseName	App/BomObject.cpp App/BomObject.h
+04af6c5b37	2025-04-22	Furgo	feature	bom	0	0	have(port)	10	have	Assembly: BOM, support superset property type only	App/BomObject.cpp
+59ea0d6e84	2025-04-22	Furgo	?	bom	0	0	have(port)	10	have	Assembly: BOM, use freecad_cast	App/BomObject.cpp
+cfe797e8f8	2025-04-22	Furgo	refactor	bom	0	0	have(port)	4	have	Assembly: BOM, use getUserString to simplify code	App/BomObject.cpp
+c567ed60cf	2025-04-25	Furgo	fix	bom	0	0	have(port)	3	have	Assembly: BOM, handle enumerations as well	App/BomObject.cpp
+6d99872b0f	2025-04-25	Kacper Donat	?	misc	0	0	have(port)	28	have	Assembly: Use freecad_cast whenever possible	App/AssemblyLink.cpp App/AssemblyObject.cpp App/AssemblyUtils.cpp Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssemblyLink.cpp
+998f4e4d45	2025-03-30	bofdahof	refactor	logging	0	0	have(port)	30	have	Console: rename PascalCase named methods to camelCase	App/AppAssembly.cpp App/AssemblyObject.cpp App/BomObject.cpp Gui/AppAssemblyGui.cpp Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssemblyLink.cpp
+5388c32f10	2025-06-15	Chris Hennes	refactor	tests	0	0	open	5	open (C++ tests were not ported: file-take tests/src/Mod/Assembly at tip)	Tests: Refactor tests with better names, etc.	tests/src/Mod/Assembly/App/CMakeLists.txt tests/src/Mod/Assembly/CMakeLists.txt
+f66c2a27f2	2025-06-19	Max Wilfinger	fix	ui	0	0	have(port)	6	have	Assembly: Fix conflicting shortcuts	CommandCreateJoint.py CommandCreateSimulation.py
+8acbb224fc	2025-07-17	Tayler Miller	fix	assemblylink	0	0	have(port)	12	have	Assembly: Fixes bug for origins in Sub-`AssemblyLink` (#22415)	App/AssemblyLink.cpp App/AssemblyLink.h
+facfbeb47e	2025-07-18	PaddleStroke	fix	misc	0	0	have(port)	26	have	Assembly: Fix crash 20614 (#22538)	App/AssemblyObject.cpp App/AssemblyObject.h
+f468e4c4ac	2025-07-18	PaddleStroke	fix	assemblylink	0	1	have(port)	4	have	Assembly: Fix error message flexible assembly #22561	JointObject.py
+80935791fd	2025-07-21	PaddleStroke	fix	joints	0	0	have(port)	1	have	Assembly: Fix unconnected Joints always touched	App/AssemblyObject.cpp
+1aa2aada37	2025-07-23	PaddleStroke	fix	assemblylink	0	0	have(port)	70	have	Assembly: Fix flexible subassemblies have no transform gizmo when selected (#22670)	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+d165324d31	2025-07-23	PaddleStroke	refactor	assemblylink	0	0	have(port)	2	have	Assembly: VPAssemblyLink: remove warning leftover	Gui/ViewProviderAssemblyLink.cpp
+83b82b2dcc	2025-07-24	PaddleStroke	fix	insertlink	0	0	have(port)	2	have	Assembly: Insert tool : fix error when removing object	CommandInsertLink.py
+cdd69cca7d	2025-07-24	PaddleStroke	?	simulation	0	1	have(port)	11	have	Assembly: Simulation active only if proper joint available (#22711)	CommandCreateSimulation.py
+836d543797	2025-07-21	PaddleStroke	fix	assemblylink	0	1	have(port)	4	have	Assembly: Fix flexible sub-assemblies cannot be deleted (#19100)	Gui/ViewProviderAssembly.cpp
+45adb828a6	2025-07-24	PaddleStroke	fix	insertlink	0	1	have(port)	8	have	Assembly: Fix insert sub-assemblies positioning issues (#22677)	CommandInsertLink.py
+e141cb7a49	2025-07-25	PaddleStroke	fix	assemblylink	0	0	have(port)	68	have	Assembly: Fix infinite loop with subassembly. Fix #19319 (#22685)	App/AssemblyObject.cpp App/AssemblyObject.h Gui/ViewProviderAssembly.cpp
+4f4fe019b8	2025-07-26	PaddleStroke	fix	misc	0	0	have(port)	4	have	Assembly: utils: tiny fix	UtilsAssembly.py
+a8b655d602	2025-07-26	PaddleStroke	refactor	joints	0	0	have(port)	97	have	Assembly: Use icon overlay for unconnected joints instead of annoying warning. (#22662)	App/AssemblyObject.cpp Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h JointObject.py
+2843bbefc7	2025-07-24	paddle	feature	misc	0	0	have(port)	468	have	Assembly: Add 'Activate assembly' command.	CommandCreateAssembly.py Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_ActivateAssembly.svg
+3aeb6e9e92	2025-07-24	paddle	?	misc	0	0	have(port)	153	have	Assembly: Task Watcher.	InitGui.py
+ae5564d50c	2025-07-28	PaddleStroke	refactor	misc	0	0	have(port)	57	have	Assembly: Replace "Activated" property by the core "Suppressed" mecha... (#22409)	App/AssemblyLink.cpp App/AssemblyObject.cpp App/AssemblyUtils.cpp App/JointGroup.cpp JointObject.py
+83a7d3c456	2025-07-26	PaddleStroke	noise	ui	0	0	have(port)	2	have	AssemblyGui: CmakeLists typo	Gui/CMakeLists.txt
+bc207c0a07	2025-07-29	PaddleStroke	fix	misc	1	0	have(port)	2	have	Assembly: Fix https://github.com/FreeCAD/FreeCAD/issues/22815	App/AssemblyObjectPyImp.cpp
+0e4dbbe8d2	2025-08-04	Ian Abreu	?	py-api	0	0	have(port)	419	have	Core: Generation of python bindings for Assembly (#22574)	App/AssemblyLinkPy.pyi App/AssemblyObjectPy.pyi App/AssemblyObjectPy.xml App/BomGroupPy.pyi App/BomObjectPy.pyi App/CMakeLists.txt App/JointGroupPy.pyi App/SimulationGroupPy.pyi App/ViewGroupPy.pyi
+2c7ee9b8ed	2025-06-26	Ryan Kembrey	?	ui	0	0	have(port)	205	have	Assembly: Update UI strings for consistency	CommandCreateAssembly.py CommandCreateBom.py CommandCreateJoint.py CommandCreateSimulation.py CommandCreateView.py CommandInsertLink.py CommandInsertNewPart.py CommandSolveAssembly.py Gui/Resources/panels/TaskAssemblyCreateBom.ui Gui/Resources/panels/TaskAssemblyCreateJoint.ui Gui/Resources/panels/TaskAssemblyCreateSimulation.ui Gui/Resources/panels/TaskAssemblyCreateView.ui Gui/Resources/panels/TaskAssemblyInsertLink.ui Gui/Resources/preferences/Assembly.ui
+9fc40b33de	2025-08-25	Max Wilfinger	noise	i18n	0	0	have(port)	40	have	Fix source string mistakes reported on Crowdin (#23157)	CommandCreateSimulation.py CommandInsertNewPart.py JointObject.py
+a6e0b91758	2025-08-20	tetektoza	fix	ui	0	0	have(port)	33	have	Assembly: Auto close on deleted doc  for dialogs to avoid segfaults	CommandCreateBom.py CommandCreateJoint.py CommandCreateSimulation.py CommandCreateView.py CommandInsertNewPart.py JointObject.py
+8533b4fbb8	2025-08-24	Ian Abreu	fix	py-api	0	0	have(port)	51	have	Core: Fixing missing python bindings. (#23054)	Gui/CMakeLists.txt Gui/ViewProviderAssemblyPy.pyi
+e3cfca6e9d	2025-08-20	PaddleStroke	fix	joints	0	0	have(port)	13	have	Assembly: toggle grounded: handle case of grounded joint selection.	CommandCreateJoint.py
+568e63f8d5	2025-08-20	tetektoza	feature	joints	0	0	have(port)	101	have	Assembly: Allow editing joint references	JointObject.py
+409d0e408d	2025-08-25	PaddleStroke	fix	i18n	0	1	have(port)	5	have	Assembly: Fix untranslatable string in CommandInsertNewPart.py (#23355)	CommandInsertNewPart.py
+b527c1ae6a	2025-08-21	PaddleStroke	refactor	misc	0	1	have(port)	19	have	Assembly: Move label change logic to onChange	JointObject.py
+d85613b498	2025-08-25	paddle	refactor	solver-pin	0	0	have(port)	2	have	Update ondsel solver	3rdParty/OndselSolver
+a52a130a03	2025-08-25	PaddleStroke	fix	joints	0	0	have(port)	2	have	Assembly: Screw Joint, fix distance name to Thread Pitch	JointObject.py
+4cf96385f3	2025-08-27	Pieter Hijma	refactor	solver-pin	0	0	have(port)	2	have	Assembly: Update Ondsel Solver to the latest	3rdParty/OndselSolver
+d3b00bdb18	2025-08-30	Jacob Oursland	refactor	solver-pin	0	0	have(port)	2	have	Assembly: Update OndselSolver to the latest version.	3rdParty/OndselSolver
+c63ac5ffbc	2025-08-31	Ian 'z0r0' Abreu	?	py-api	0	0	have(port)	561	have	Finalizing Python interface bindings for assembly	App/AssemblyLink.pyi App/AssemblyLinkPy.xml App/AssemblyObject.pyi App/AssemblyObjectPy.xml App/BomGroup.pyi App/BomGroupPy.pyi App/BomGroupPy.xml App/BomObject.pyi App/BomObjectPy.xml App/CMakeLists.txt App/JointGroup.pyi App/JointGroupPy.pyi App/JointGroupPy.xml App/SimulationGroup.pyi App/SimulationGroupPy.pyi App/SimulationGroupPy.xml App/ViewGroup.pyi App/ViewGroupPy.pyi App/ViewGroupPy.xml Gui/CMakeLists.txt Gui/ViewProviderAssembly.pyi Gui/ViewProviderAssemblyPy.xml
+692101bd1b	2025-08-28	Mathieu GRENET	fix	joints	0	0	have(port)	2	have	Assembly: Fix inconsistent positioning in distance joint validation	JointObject.py
+3ce9452771	2025-09-01	PaddleStroke	feature	solve	0	0	have(port)	410	have	Assembly: Solver message taskbox. UI setup, App not implemented yet. (#23420)	App/AssemblyLink.cpp App/AssemblyLink.h App/AssemblyObject.cpp App/AssemblyObject.h Gui/CMakeLists.txt Gui/TaskAssemblyMessages.cpp Gui/TaskAssemblyMessages.h Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+b24040ee52	2025-09-01	Ian 'z0r0' Abreu	noise	format	0	0	have(port)	16	have	Adding license documentation to interface class docblocks.	App/AssemblyLink.pyi App/AssemblyObject.pyi App/BomGroup.pyi App/BomObject.pyi App/JointGroup.pyi App/SimulationGroup.pyi App/ViewGroup.pyi Gui/ViewProviderAssembly.pyi
+8d56e3e529	2025-09-02	Ian 'z0r0' Abreu	fix	misc	0	0	have(port)	16	have	reverting author metadata	App/AssemblyLink.pyi App/AssemblyObject.pyi App/BomGroup.pyi App/BomObject.pyi App/JointGroup.pyi App/SimulationGroup.pyi App/ViewGroup.pyi Gui/ViewProviderAssembly.pyi
+0217c1ef97	2025-09-02	Ian 'z0r0' Abreu	?	misc	0	0	have(port)	24	have	updating docblock locations.	App/AssemblyLink.pyi App/AssemblyObject.pyi App/BomGroup.pyi App/BomObject.pyi App/JointGroup.pyi App/SimulationGroup.pyi App/ViewGroup.pyi Gui/ViewProviderAssembly.pyi
+93db4c7d8a	2025-07-31	wmayer	refactor	build	0	0	have(port)	30	have	CMake: Replace include_directories with target_include_directories	App/CMakeLists.txt Gui/CMakeLists.txt
+d8640019e5	2025-09-09	PaddleStroke	fix	simulation	0	0	have(port)	188	have	Assembly: Fix simulation crash with limits	App/AssemblyObject.cpp
+749ac36615	2025-08-26	Markus Reitbock	refactor	build	0	0	have(port)	4	have	do not use precompiled header for setting global compiler definitions and to disable compiler warnings	App/PreCompiled.h
+d5db01d3d4	2025-09-23	PaddleStroke	fix	simulation	0	0	have(port)	29	have	Assembly: Simulation: Fix motion double click (#23778)	CommandCreateSimulation.py
+e72834b94c	2025-09-23	PaddleStroke	fix	drag	0	0	have(port)	3	have	Assembly: Fix LinkElement dragger	Gui/ViewProviderAssembly.cpp
+ff1bde69fc	2025-09-23	PaddleStroke	fix	assemblylink	0	0	have(port)	8	have	Assembly: Prevent crash when link to linkgroup in subassembly (#24125)	App/AssemblyObject.cpp Gui/ViewProviderAssembly.cpp
+59724846e3	2025-09-21	Markus Reitbock	refactor	build	0	0	have(port)	159	have	Assembly: use CMake to generate precompiled headers on all platforms	App/AppAssembly.cpp App/AppAssemblyPy.cpp App/AssemblyLink.cpp App/AssemblyLinkPyImp.cpp App/AssemblyObject.cpp App/AssemblyObjectPyImp.cpp App/AssemblyUtils.cpp App/BomGroup.cpp App/BomGroupPyImp.cpp App/BomObject.cpp App/BomObjectPyImp.cpp App/CMakeLists.txt App/JointGroup.cpp App/JointGroupPyImp.cpp App/PreCompiled.cpp App/PreCompiled.h App/SimulationGroup.cpp App/SimulationGroupPyImp.cpp App/ViewGroup.cpp App/ViewGroupPyImp.cpp Gui/AppAssemblyGui.cpp Gui/AppAssemblyGuiPy.cpp Gui/CMakeLists.txt Gui/PreCompiled.cpp Gui/PreCompiled.h Gui/TaskAssemblyMessages.cpp Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssemblyLink.cpp Gui/ViewProviderAssemblyPyImp.cpp Gui/ViewProviderBom.cpp Gui/ViewProviderBomGroup.cpp Gui/ViewProviderJointGroup.cpp Gui/ViewProviderSimulationGroup.cpp Gui/ViewProviderViewGroup.cpp
+27806651b4	2025-09-23	PaddleStroke	fix	assemblylink	0	0	have(port)	13	have	Assembly: Fix subassembly linkgroups not moving with dragger	Gui/ViewProviderAssembly.cpp
+5194dfc18a	2025-09-24	PaddleStroke	fix	misc	0	0	have(port)	38	have	Assembly: fix onChanged crash	App/AssemblyLink.cpp
+5a6af2e41f	2025-09-09	Furgo	fix	ui	0	1	have(port)	2	have	Assembly: fix delete shortcut parameter mismatch	JointObject.py
+0b14e8e24b	2025-09-29	Chris Hennes	fix	i18n	0	0	have(port)	220	have	Assembly: Fix translatable strings (#24243)	CommandCreateBom.py CommandCreateJoint.py CommandCreateSimulation.py CommandCreateView.py CommandInsertLink.py CommandInsertNewPart.py CommandSolveAssembly.py
+f67b854aad	2025-09-29	PaddleStroke	fix	solve	0	0	have(port)	4	have	Assembly: Fix errors on solve when limits	App/AssemblyObject.cpp
+db00a9b8e2	2025-09-30	PaddleStroke	?	build	0	0	have(port)	138	have	Merge pull request #24162 from PaddleStroke/asm_linkgroup_asmlink	App/AssemblyLink.cpp App/AssemblyUtils.cpp App/AssemblyUtils.h
+9c1454385e	2025-10-03	PaddleStroke	?	joints	0	0	have(port)	355	have	Assembly: Isolate joint components during selection and edit. (#23680)	Gui/Resources/panels/TaskAssemblyCreateJoint.ui Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h Gui/ViewProviderAssembly.pyi Gui/ViewProviderAssemblyPyImp.cpp JointObject.py
+cb38761213	2025-10-06	PaddleStroke	refactor	joints	0	0	have(port)	334	have	Assembly: replace properties float by propertylength & propertyangle (#24403)	App/AssemblyObject.cpp App/AssemblyUtils.cpp App/AssemblyUtils.h Gui/Resources/panels/TaskAssemblyCreateJoint.ui JointObject.py
+96ca8a43a6	2025-10-06	PaddleStroke	refactor	misc	0	0	have(port)	2	have	Assembly: Add tolerance to detect ground part movement	App/AssemblyObject.cpp
+6282dd48bb	2025-10-07	PaddleStroke	refactor	solve	0	0	have(port)	166	have	Assembly: Make pre-solve and reverse move all the downstream parts (#24193)	App/AssemblyObject.pyi App/AssemblyObjectPyImp.cpp JointObject.py
+94fb19d9be	2025-10-06	PaddleStroke	fix	drag	0	0	have(port)	7	have	Assembly: Fix dragger when assembly is transformed	Gui/ViewProviderAssembly.cpp
+084003e361	2025-10-09		noise	tests	0	0	open	4	open (C++ tests were not ported: file-take tests/src/Mod/Assembly at tip)	Tests: Add/update SPDX header (#24547)	tests/src/Mod/Assembly/App/CMakeLists.txt tests/src/Mod/Assembly/CMakeLists.txt
+4b2131f501	2025-10-12	schmidtw	fix	misc	0	1	have(port)	11	have	Fix: Prevent attempting to access non-existent nodes	CommandInsertLink.py
+33aeb38f0c	2025-10-12	schmidtw	fix	tests	0	0	have(port)	458	have	Add unit tests for CommandInsertLink fix	AssemblyTests/TestCommandInsertLink.py AssemblyTests/mocks/MockGui.py AssemblyTests/mocks/__init__.py CMakeLists.txt TestAssemblyWorkbench.py
+6e090a2dad	2025-10-14	PaddleStroke	fix	misc	0	0	have(port)	5	have	Assembly: Fix lengths cannot be negative (#24625)	JointObject.py
+529aae0238	2025-10-21	PaddleStroke	fix	misc	0	0	have(port)	31	have	Assembly: Prevent crash when toggling rigid of grounded sub assembly (#24761)	App/AssemblyLink.cpp App/AssemblyObject.cpp Gui/ViewProviderAssembly.cpp
+fce385dd73	2025-10-23	PaddleStroke	fix	ui	0	0	have(port)	16	have	Assembly: Fix Iisolate issue when obj and link both in assembly (#24781)	Gui/ViewProviderAssembly.cpp
+f8de1c60b4	2025-10-28	mosfet80	refactor	solver-pin	0	0	have(port)	2	have	Updated submodule src/3rdParty/OndselSolver	3rdParty/OndselSolver
+0d75ff1542	2025-11-01	PaddleStroke	fix	explode	0	0	have(port)	95	have	Assembly: ExplodedViews: fix their use in techdraw (#24769)	CommandCreateView.py
+45ca23d074	2025-10-30	PaddleStroke	?	joints	0	1	have(port)	4	have	Update JointObject.py	JointObject.py
+ca1a25d6d6	2025-11-02		noise	format	0	0	have(port)	22	have	SPDX [ 21 ][ Src / Mod / Assembly ] (#24974)	App/BomGroupPyImp.cpp App/BomObjectPyImp.cpp App/CMakeLists.txt App/JointGroupPyImp.cpp App/ViewGroupPyImp.cpp Assembly/__init__.py AssemblyTests/__init__.py CMakeLists.txt Gui/CMakeLists.txt Gui/TaskAssemblyMessages.cpp Gui/TaskAssemblyMessages.h
+25c3ba7338	2025-11-11	pre-commit-ci[bot]	noise	format	0	0	have(port)	1032	have	All: Reformat according to new standard	App/AssemblyLink.cpp App/AssemblyLink.h App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyObjectPyImp.cpp App/AssemblyUtils.cpp App/AssemblyUtils.h App/BomObject.cpp App/BomObject.h AssemblyGlobal.h Gui/TaskAssemblyMessages.cpp Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h Gui/ViewProviderAssemblyLink.cpp
+748004b4e4	2025-09-25	Frank Martinez	fix	py-api	0	0	have(port)	32	have	[bindings] fix signatures in pyi files	App/AssemblyLink.pyi App/AssemblyObject.pyi App/BomGroup.pyi App/BomObject.pyi App/JointGroup.pyi App/SimulationGroup.pyi App/ViewGroup.pyi Gui/ViewProviderAssembly.pyi
+0eae00b9a1	2025-09-25	Frank Martinez	?	format	0	0	have(port)	8	have	[bindings] Code formatting	App/AssemblyLink.pyi App/AssemblyObject.pyi App/BomGroup.pyi App/BomObject.pyi App/JointGroup.pyi App/SimulationGroup.pyi App/ViewGroup.pyi Gui/ViewProviderAssembly.pyi
+39d15c011e	2025-09-26	Frank Martinez	noise	format	0	0	have(port)	10	have	black formatting	App/AssemblyLink.pyi App/AssemblyObject.pyi App/BomGroup.pyi App/BomObject.pyi App/JointGroup.pyi App/SimulationGroup.pyi App/ViewGroup.pyi Gui/ViewProviderAssembly.pyi
+2eedbce181	2025-10-05	Frank Martinez	fix	py-api	0	0	have(port)	7	have	Rebase on main and fix ViewProviderAssembly.pyi	Gui/ViewProviderAssembly.pyi
+1cf57d6e11	2025-10-07	Frank Martinez	noise	format	0	0	have(port)	14	have	[bindings] Format with yapf (precommit will reformat)	App/AssemblyLink.pyi App/AssemblyObject.pyi App/BomGroup.pyi App/BomObject.pyi App/JointGroup.pyi App/SimulationGroup.pyi App/ViewGroup.pyi Gui/ViewProviderAssembly.pyi
+7fe379e5ea	2025-10-10	Frank Martinez	refactor	py-api	0	0	have(port)	141	have	[bindings] remove redundant signatures. batch1	App/AssemblyObject.pyi Gui/ViewProviderAssembly.pyi
+3561d25c2d	2025-10-18	Frank Martinez	noise	format	0	0	have(port)	16	have	[License] Fix pyi license headers.	App/AssemblyLink.pyi App/AssemblyObject.pyi App/BomGroup.pyi App/BomObject.pyi App/JointGroup.pyi App/SimulationGroup.pyi App/ViewGroup.pyi Gui/ViewProviderAssembly.pyi
+5e0dd60ee5	2025-11-11	pre-commit-ci[bot]	noise	format	0	0	have(port)	15	have	[pre-commit.ci] auto fixes from pre-commit.com hooks	App/AssemblyLink.pyi App/AssemblyObject.pyi App/BomGroup.pyi App/BomObject.pyi App/JointGroup.pyi App/SimulationGroup.pyi App/ViewGroup.pyi Gui/ViewProviderAssembly.pyi
+d3cb7baa3a	2025-10-31	paddle	?	joints	0	0	have(port)	124	have	Assembly: Highlight joint elements on joint selection	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+e2bab72bb5	2025-11-13	PaddleStroke	fix	bom	0	0	have(port)	16	have	Assembly: BOM: fix settings not applied (#25269)	CommandCreateBom.py
+da4ebb56cb	2025-11-13	PaddleStroke	?	drag	0	0	have(port)	4	have	Assembly: no dragger for connected parts (#25270)	Gui/ViewProviderAssembly.cpp
+10cc4dea16	2025-11-17	PaddleStroke	fix	insertlink	0	1	have(port)	59	have	Assembly: Insert link: Handle partially loaded documents (#25275)	CommandInsertLink.py
+551ab85076	2025-11-17	PaddleStroke	fix	assemblylink	0	1	have(port)	35	have	Assembly: Sub-assembly: fix support for Part-wb objects (#25279)	App/AssemblyLink.cpp
+2a8d648ad3	2025-11-18	PaddleStroke	fix	misc	1	1	have(port)	5	have	Assembly: Fix crash on moving unconnected parts	App/AssemblyObject.cpp
+be7d41dea7	2025-11-18	PaddleStroke	fix	explode	0	1	have(port)	26	have	Assembly/TechDraw: Fix exploded view views (#25426)	CommandCreateView.py
+1cf6f5f3a6	2025-11-17	PaddleStroke	fix	joints	0	0	have(port)	14	have	Assembly: Fix joint on Body-LCS not working	App/AssemblyUtils.cpp
+2266a42009	2025-11-17	PaddleStroke	?	ui	0	1	have(port)	2	have	Assembly: Make the 'ground first part' dialog closable	CommandInsertLink.py
+40e4eb8770	2025-11-18	PaddleStroke	fix	bom	0	0	have(port)	12	have	Assembly: BOM: fix subassembly	App/BomObject.cpp
+2763bb962f	2025-11-22	Furgo	fix	explode	0	1	have(port)	18	have	Assembly: Prevent zero-length line creation in ExplodedView	CommandCreateView.py
+629eff4a26	2025-11-24	PaddleStroke	fix	joints	0	0	have(port)	8	have	Assembly: Joint task: fix spinbox not being populated	JointObject.py
+8b1dce3437	2025-11-18	PaddleStroke	fix	joints	0	0	have(port)	8	have	Assembly: Joint task: Fix sel gate not being cleared if doc closed	JointObject.py
+59f672eb94	2025-11-24	PaddleStroke	refactor	bom	0	1	have(port)	4	have	Assembly: Bom: replace QtWidget by QtGui for Qt6	CommandCreateBom.py
+cf40007bd0	2025-11-26	PaddleStroke	fix	insertlink	0	0	have(port)	63	have	Assembly: CommandInsertLink: handle manual deletions (#25651)	CommandInsertLink.py
+da717d4ca0	2025-11-26	PaddleStroke	feature	joints	0	1	have(port)	2	have	Assembly: Enable negative distance for rackpinion and screw	JointObject.py
+b603630d1f	2025-12-01	PaddleStroke	fix	joints	0	0	have(port)	47	have	Assembly: Fix selection during joint edition (#25687)	JointObject.py UtilsAssembly.py
+ac0685b841	2025-12-02	PaddleStroke	feature	insertlink	0	0	have(port)	27	have	Assembly CommandInsertNewPart : Make sure assembly file is saved (#25730)	CommandInsertNewPart.py
+7a8135d863	2025-12-10	PaddleStroke	feature	misc	0	0	have(port)	2	have	Core: Add getPlacementOf replacing previous getGlobalPlacement logic. (#26059)	UtilsAssembly.py
+9625a71d8d	2025-12-10	PaddleStroke	fix	joints	0	1	have(port)	2	have	Assembly: joint task: fix delete impossible of non-valid refs	UtilsAssembly.py
+8fd81d4109	2025-12-16	PaddleStroke	?	drag	0	1	have(port)	24	have	Assembly: Ball drag mode. (#26222)	Gui/ViewProviderAssembly.cpp
+04a9c1e7b0	2025-12-16	Chris Hennes	refactor	build	0	0	have(port)	9	have	Assembly: Compiler warning cleanup	App/AssemblyLink.cpp Gui/TaskAssemblyMessages.cpp Gui/TaskAssemblyMessages.h Gui/ViewProviderAssembly.h
+d15347d2ad	2025-12-10	PaddleStroke	fix	joints	0	0	have(port)	19	have	Assembly: Fix deletion of joint references to bodies	JointObject.py
+4892154faf	2025-12-26	horseDeveloper	fix	migration	0	1	have(port)	6	have	Fixing Leftover references from migration from freecadweb.org (#26163)	Gui/Resources/icons/AssemblyWorkbench_alternate.svg Gui/Resources/icons/Assembly_InsertLink.svg Gui/Resources/icons/Assembly_SolveAssembly.svg
+ae075c1a73	2026-01-05	PaddleStroke	fix	joints	0	0	have(port)	4	have	Assembly: RackPinion tooltip fix	CommandCreateJoint.py
+dfbdb2005c	2026-01-05	PaddleStroke	feature	joints	0	1	have(port)	6	have	Update CommandCreateJoint.py	CommandCreateJoint.py
+69058376e6	2026-01-07	tritao	refactor	misc	0	0	have(port)	16	have	Base: Remove Boost-based signals and switch to `FastSignals`.	App/AssemblyObject.h Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+73a021ca1a	2026-01-08	PaddleStroke	?	joints	0	1	have(port)	2	have	Assembly: Ground joint tooltip update (#25852)	CommandCreateJoint.py
+5339f415be	2026-01-07	PaddleStroke	fix	explode	0	0	have(port)	10	have	Assembly: Explode radially: prevent click on item	CommandCreateView.py
+70d8187964	2025-03-10	wmayer	refactor	drag	0	0	have(port)	31	have	Assembly: Minor refactor in ViewProviderAssembly::findDragMode	Gui/ViewProviderAssembly.cpp
+b180728b9d	2025-04-27	wmayer	fix	misc	0	0	have(port)	30	have	Assembly: Improve const correctness	App/BomObject.cpp App/BomObject.h
+4cc0a1b718	2026-01-13	PaddleStroke	fix	insertlink	0	0	have(port)	1	have	Assembly: Fix error on open doc in insert tool	CommandInsertLink.py
+c5e9e602d1	2026-01-15	PaddleStroke	fix	misc	0	0	have(port)	1	have	Assembly: fix crash when measure active	Gui/ViewProviderAssembly.cpp
+bb6832897a	2026-01-22	PaddleStroke	?	solve	0	0	have(port)	653	have	Assembly: Solver messages (#24623)	App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyObject.pyi App/AssemblyObjectPyImp.cpp App/AssemblyUtils.cpp App/AssemblyUtils.h Gui/AppAssemblyGui.cpp Gui/CMakeLists.txt Gui/Commands.cpp Gui/Commands.h Gui/TaskAssemblyMessages.cpp Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+abc5f90466	2026-01-23	PaddleStroke	fix	misc	0	0	have(port)	2	have	Assembly: prevent assembly collapse when editing sketch. (#26956)	Gui/ViewProviderAssembly.cpp
+62cbaf7336	2026-01-22	paddle	fix	misc	0	0	have(port)	47	have	Assembly: Fix "deactivated by activating a App::Part, assembly stay in edit" Fix "Activating a body in a part in an assembly deactivates the assembly and activate the part" Fix "A manually deactivated assembly is still restoring later"	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+b87899f4ca	2026-01-23	pre-commit-ci[bot]	noise	format	0	0	have(port)	14	have	[pre-commit.ci] auto fixes from pre-commit.com hooks	Gui/ViewProviderAssembly.cpp
+9c6ea80757	2026-01-23	PaddleStroke	?	misc	0	1	have(port)	3	have	Update ViewProviderAssembly.cpp	Gui/ViewProviderAssembly.cpp
+b4025abab6	2026-01-26	PaddleStroke	refactor	joints	0	0	have(port)	675	have	Assembly: Change Joint References to remove cyclic dependency. (#25513)	App/AssemblyLink.cpp App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyUtils.cpp App/AssemblyUtils.h AssemblyTests/TestCore.py CommandCreateJoint.py CommandCreateView.py CommandSolveAssembly.py Gui/ViewProviderAssembly.cpp JointObject.py UtilsAssembly.py
+9b6de80231	2026-01-26	PaddleStroke	?	misc	0	1	have(port)	4	have	Update UtilsAssembly.py	UtilsAssembly.py
+caff52b1ed	2026-01-26	PaddleStroke	fix	joints	0	0	have(port)	74	have	Assembly: fix sub assembly joint bug (#27172)	App/AssemblyLink.cpp App/AssemblyLink.h
+fb4721bcb2	2026-01-31	PaddleStroke	refactor	solve	0	0	have(port)	18	have	Assembly: Remove solver msg when file is closed (#27210)	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+964e7387e3	2026-01-31	PaddleStroke	?	explode	0	0	have(port)	96	have	Assembly: Explode temporarily (#25456)	CommandCreateView.py Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h UtilsAssembly.py
+212e4f07af	2026-01-26	PaddleStroke	fix	ui	0	1	have(port)	2	have	Assembly: Fix isolate not working on sub assembly components	Gui/ViewProviderAssembly.cpp
+a3486b4dd2	2026-02-02	PaddleStroke	fix	insertlink	0	0	have(port)	78	have	Assembly: Insert flexible assembly grounds the correct part (#27206)	CommandInsertLink.py Gui/ViewProviderAssembly.cpp JointObject.py
+b441a3b6c1	2026-02-06	TomPcz	fix	misc	0	1	have(port)	13	have	Assembly: Fix help text height in CreateBom	CommandCreateBom.py
+3d0df45cd4	2026-02-10	PaddleStroke	?	bom	0	0	have(port)	57	have	Assembly: BOM: take mirrored state of links in account. (#26113)	App/BomObject.cpp App/BomObject.h
+6abb2b447f	2026-02-12	PaddleStroke	?	ui	0	0	have(port)	16	have	Assembly: Isolate grounded objects on selection (#24952)	Gui/ViewProviderAssembly.cpp
+47855a018b	2026-02-13	PaddleStroke	fix	ui	0	1	have(port)	10	have	Assembly: Fix nested assembly stuck isolate bug	Gui/ViewProviderAssembly.cpp
+94a4017432	2026-02-12	PaddleStroke	fix	bom	0	1	have(port)	1	have	Assembly: Bom: fix non-grouping regression	App/BomObject.cpp
+ca9e1ecdf3	2026-02-22		fix	misc	0	0	have(port)	128	have	All: Header Guards  Pragma Once (#27154)	App/AssemblyLink.h App/AssemblyObject.h App/AssemblyUtils.h App/BomGroup.h App/BomObject.h App/JointGroup.h App/PreCompiled.h App/SimulationGroup.h App/ViewGroup.h AssemblyGlobal.h Gui/PreCompiled.h Gui/TaskAssemblyMessages.h Gui/ViewProviderAssembly.h Gui/ViewProviderAssemblyLink.h Gui/ViewProviderBom.h Gui/ViewProviderBomGroup.h Gui/ViewProviderJointGroup.h Gui/ViewProviderSimulationGroup.h Gui/ViewProviderViewGroup.h
+4deb889057	2026-02-23	PaddleStroke	fix	build	0	1	have(port)	34	have	Assembly: Fix mirrored links not working. (#26090)	App/AssemblyObject.cpp Gui/ViewProviderAssembly.cpp
+0df693e204	2026-02-26	Louis Gombert	refactor	misc	0	1	have(port)	5	have	Remove extra header define checks (#27851)	Gui/Commands.h
+88787b11d1	2026-02-27	Adam Spontarelli	feature	insertlink	0	1	have(port)	9	have	Changed Insert Component parts list to be collapsed by default (#27658)	CommandInsertLink.py
+821596140d	2026-02-28	PaddleStroke	?	solve	0	0	have(port)	58	have	Assembly: Show Solver Task only when in Assembly workbench (#27502)	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+f65dda922f	2026-03-06	PaddleStroke	fix	misc	0	1	have(port)	14	have	Assembly: Fix JCS position if assembly is transformed (#28089)	JointObject.py
+912fd47b5f	2026-03-06	PaddleStroke	?	build	0	0	have(port)	79	have	Merge pull request #27531 from PaddleStroke/asm_gotolink	Gui/Commands.cpp Gui/ViewProviderAssemblyLink.cpp InitGui.py
+e20b42e484	2026-03-09	PaddleStroke	fix	joints	0	0	have(port)	46	have	Assembly: fix joint creation not working on draft links (#26085)	App/AssemblyObject.cpp Gui/ViewProviderAssembly.cpp JointObject.py UtilsAssembly.py
+f4665aa7b5	2026-02-01	theo-vt	feature	misc	0	0	have(port)	106	have	Core: support multiple active transactions	CommandCreateAssembly.py CommandCreateBom.py CommandCreateJoint.py CommandCreateSimulation.py CommandCreateView.py CommandInsertLink.py CommandInsertNewPart.py CommandSolveAssembly.py Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h Gui/ViewProviderAssemblyLink.cpp JointObject.py UtilsAssembly.py
+3620b68b21	2026-03-16	PaddleStroke	?	joints	0	0	have(port)	531	have	Assembly: Command: Select joints of component (#27530)	Gui/Commands.cpp Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_SelectJointsOfComponent.svg InitGui.py
+af4e54a6b7	2026-03-18	PaddleStroke	noise	format	0	0	have(port)	4	have	Assembly: Fix datum typo in isBodySubObject (#28415)	UtilsAssembly.py
+18e1a067b7	2026-03-10	PaddleStroke	fix	assemblylink	0	0	have(port)	15	have	Assembly: Fix double click on assembly link	Gui/ViewProviderAssemblyLink.cpp
+58f75c1a02	2026-03-26	Chris	fix	ui	0	0	have(port)	41	have	Assembly: Add missing import in Initialize() before building menu lists (#28464)	AssemblyTests/TestCore.py CommandCreateJoint.py InitGui.py
+e4b2aa2d9c	2026-03-30	pre-commit-ci[bot]	noise	format	0	0	have(port)	13	have	[pre-commit.ci] auto fixes from pre-commit.com hooks	App/AssemblyUtils.cpp CommandCreateView.py CommandInsertLink.py CommandSolveAssembly.py SoSwitchMarker.py TestAssemblyWorkbench.py
+5b718d82ec	2026-03-31	PaddleStroke	fix	assemblylink	0	1	have(port)	31	have	Assembly: Fix AssemblyLink double click not working if no view (#28848)	Gui/ViewProviderAssemblyLink.cpp
+e5abf5f789	2026-04-03	PaddleStroke	?	misc	0	0	have(port)	194	have	Merge pull request #25307 from PaddleStroke/patch-536735	CommandCreateSimulation.py Gui/Resources/panels/TaskAssemblyCreateSimulation.ui
+ae4b1d94b3	2026-04-07	PaddleStroke	fix	migration	0	1	have(port)	8	have	Assembly: Fix recompute joint issue by migrationScript4 failure	JointObject.py
+20bf91c2ab	2026-04-10	PaddleStroke	fix	drag	0	0	have(port)	3	have	Assembly: Fix dragging wrong when assembly transformed (#28093)	Gui/ViewProviderAssembly.cpp
+eb414d0e29	2026-04-10	theo-vt	fix	misc	0	0	have(port)	30	have	Assembly: restore activation/deactivation pattern	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+ab3c5f25dd	2026-04-03	mosfet80	refactor	misc	0	0	have(port)	45	have	Assembly: Remove unused arguments	App/AssemblyLink.cpp App/AssemblyObject.cpp App/AssemblyObject.h App/AssemblyObjectPyImp.cpp Gui/ViewProviderAssembly.cpp
+ba42a8ab1d	2026-03-17	Chris Hennes	refactor	build	0	1	have(port)	8	have	Assembly: Compiler warning cleanup	App/AssemblyLink.cpp Gui/Commands.cpp Gui/ViewProviderAssembly.cpp
+1462b5c038	2026-04-22	Tobias Frost	refactor	build	0	1	have(port)	10	have	FTBFS on arm64 - race condition in CMakeLists.txt for Mod/Assembly	CMakeLists.txt
+316628b6cc	2026-04-23	PaddleStroke	fix	simulation	0	1	have(port)	1	have	Assembly: Fix issues in Simulation tool (#29428)	CommandCreateSimulation.py
+fc49048a0a	2026-04-24	PaddleStroke	?	simulation	0	1	have(port)	54	have	Assembly: Simulation: solve the initial value of formulas mess. (#29433)	App/AssemblyObject.cpp App/AssemblyUtils.cpp App/AssemblyUtils.h CommandCreateSimulation.py
+7f87bfa793	2026-04-24	PaddleStroke	?	joints	0	1	have(port)	47	have	Assembly: On joint creation, put unconnected part second. (#29461)	JointObject.py
+1d87b3618c	2026-04-27	andershol	fix	misc	0	0	have(port)	13	have	Assembly: Avoid invalidating iterators on unset edit document, and clean up to avoid crashes (#29426)	Gui/ViewProviderAssembly.cpp
+42080faa33	2026-05-04	Thovthe	fix	joints	0	1	have(port)	2	have	Clarify wording of Assembly Fixed Joint tooltip.	CommandCreateJoint.py
+beaa53bc7d	2026-05-11	PaddleStroke	?	misc	0	0	have(port)	126	have	Assembly: Make grounded objects unmovable (#28087)	App/AssemblyObject.cpp App/AssemblyObject.h JointObject.py
+71b654110b	2026-05-10	danieltrazins	fix	insertlink	0	1	have(port)	2	have	Fix assembly insert component label	CommandInsertLink.py
+30912c1d4e	2026-05-05	Louis Gombert	refactor	tests	0	0	open	4	open (C++ tests were not ported: file-take tests/src/Mod/Assembly at tip)	Remove gtest as submodule, always find it externally	tests/src/Mod/Assembly/CMakeLists.txt
+029571d5a4	2026-05-07	Louis Gombert	refactor	solver-pin	0	0	have(port)	2	have	Update OndselSolver submodule to last version	3rdParty/OndselSolver
+9be651e718	2026-05-06	PaddleStroke	fix	assemblylink	0	1	have(port)	2	have	Assembly: Fix crash on right click assembly link	Gui/ViewProviderAssemblyLink.cpp
+b0479c4b17	2026-05-18	Adam Spontarelli	feature	joints	0	1	have(port)	59	have	Assembly: Add Joint Rotate Button (#29717)	Gui/Resources/panels/TaskAssemblyCreateJoint.ui JointObject.py
+5a5d8d0425	2026-05-19	Louis Gombert	?	simulation	0	1	have(port)	111	have	Assembly simulation playback: make buttons bigger and more distinguishable	Gui/Resources/panels/TaskAssemblyCreateSimulation.ui
+ef7738cd9c	2026-05-25	PaddleStroke	fix	joints	0	1	have(port)	4	have	Assembly: Fix duplicate ground joint issue (#30314)	App/AssemblyObject.cpp
+dee977f98f	2026-05-27	Max Wilfinger	refactor	misc	0	1	have(port)	32	have	Clean up missed strings acc. to FEP007	Gui/Commands.cpp Gui/Resources/panels/TaskAssemblyInsertLink.ui Gui/TaskAssemblyMessages.cpp
+2bcb738f1b	2026-06-04	PaddleStroke	fix	insertlink	0	1	have(port)	6	have	Assembly: Fix insert new part joint creation (#30600)	UtilsAssembly.py
+09e21f5705	2026-06-04	PaddleStroke	fix	joints	0	1	have(port)	8	have	Assembly: Fix joint becoming visible again after user selects and hides it	Gui/ViewProviderAssembly.cpp
+51e328b5c3	2026-06-09	PaddleStroke	fix	assemblylink	0	1	have(port)	1	have	Assembly: Fix subassembly rigid change joint bug	App/AssemblyLink.cpp
+6e5ed685a4	2026-05-29	Turan Furkan Topak	fix	solver-pin	0	0	have(port)	2	have	Correction for negative angles.	3rdParty/OndselSolver
+21fe30af6a	2026-06-25	PaddleStroke	feature	joints	0	1	have(port)	8	have	Assembly: Add "Edit joint" context menu entry for joints	JointObject.py
+4d4489877b	2026-05-18	Celeste Wouters	?	py-api	0	0	have(port)	8	have	Reduce Python rc file size	CommandCreateJoint.py CommandSolveAssembly.py Gui/CMakeLists.txt InitGui.py
+23d8dc4125	2026-05-19	Celeste Wouters	feature	build	0	1	have(port)	6	have	Add global Qt resource compression control options	Gui/CMakeLists.txt
+a0cb27e00e	2026-06-29	Louis Gombert	refactor	simulation	0	0	have(port)	94	have	Assembly simulation export: replace OpenCV by PyAV (#30333)	CommandCreateSimulation.py
+3f643bfa69	2026-06-29	PaddleStroke	fix	joints	0	1	have(port)	21	have	Assembly: Fix joint creation preselection not working properly (#30669)	JointObject.py UtilsAssembly.py
+580374a1e4	2026-06-30	LubuSeb	?	misc	0	1	have(port)	2	have	Assembly: recompute on activation (#30744)	Gui/ViewProviderAssembly.cpp
+c517cd56b4	2026-07-06	PaddleStroke	?	snapshot	0	0	partial(port)	1631	have (src/Mod/Assembly part; its tests/src/Mod/Assembly part goes with the tests file-take)	Assembly: snapshots (#25384)	App/AppAssembly.cpp App/AssemblyLink.cpp App/AssemblyObject.cpp App/AssemblyUtils.cpp App/BomGroup.cpp App/BomGroup.h App/BomGroup.pyi App/CMakeLists.txt App/Groups.cpp App/Groups.h App/JointGroup.h App/JointGroup.pyi App/SimulationGroup.cpp App/SimulationGroup.pyi App/SnapshotGroup.pyi App/SnapshotGroupPyImp.cpp App/ViewGroup.cpp App/ViewGroup.h App/ViewGroup.pyi CMakeLists.txt CommandCreateSnapshot.py Gui/AppAssemblyGui.cpp Gui/CMakeLists.txt Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_SnapshotGroup.svg Gui/ViewProviderAssembly.cpp Gui/ViewProviderBomGroup.cpp Gui/ViewProviderBomGroup.h Gui/ViewProviderGroups.cpp Gui/ViewProviderGroups.h Gui/ViewProviderJointGroup.cpp Gui/ViewProviderSimulationGroup.h Gui/ViewProviderViewGroup.h InitGui.py UtilsAssembly.py tests/src/Mod/Assembly/App/AssemblyObject.cpp
+195dee47b5	2026-07-06	Eldar158	?	assemblylink	0	1	have(port)	20	have	Assembly: refresh parent assemblies when subassemblies change	App/AssemblyLink.cpp App/AssemblyLink.h App/AssemblyObject.cpp
+a94d5aa0c2	2026-07-14	Louis Gombert	feature	simulation	0	0	have(port)	55	have	Assembly simulation export: improve video generation function	CommandCreateSimulation.py
+9027bef632	2026-07-14	Louis Gombert	feature	tests	0	0	have(port)	217	have	Assembly simulation export: add video export test	AssemblyTests/TestCommandInsertLink.py AssemblyTests/TestCore.py AssemblyTests/TestSimulationExport.py AssemblyTests/TestTEMPLATE.py CMakeLists.txt CommandCreateSimulation.py TestAssemblyWorkbench.py
+0feb404d87	2026-07-24	paddle	refactor	solver-pin	0	0	have(port)	2	have	Update Ondsel Solver	3rdParty/OndselSolver
+3a9ab5483f	2026-08-11	SlendiDev	feature	rigidgroup	0	0	open	729	open	Assembly: Add RigidGroup (#29605)	App/AssemblyObject.cpp App/AssemblyObject.h CommandCreateJoint.py Gui/Resources/Assembly.qrc Gui/Resources/icons/Assembly_CreateJointRigidGroup.svg Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h InitGui.py JointObject.py
+3ac55b1252	2026-08-12	PaddleStroke	feature	explode	0	0	open	876	open	Assembly: Exploded view: add moves controls (#30955)	AssemblyTests/TestCommandCreateView.py CMakeLists.txt CommandCreateView.py TestAssemblyWorkbench.py UtilsAssembly.py
+1facbf8342	2026-03-20	Jacob Oursland	refactor	robustness	1	0	open	4	open	Assembly: Remove duplicate nullptr check.	App/AssemblyObject.cpp
+8e04c56f27	2026-06-29	Jacob Oursland	fix	robustness	0	0	open	21	open	Assembly: Clear joint isolation and temporary explosion before save	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+2baf36ceec	2026-06-29	Jacob Oursland	fix	robustness	0	0	open	26	open	Assembly: Reject non-finite solver placements	App/AssemblyObject.cpp
+3b75dafedb	2026-06-29	Jacob Oursland	fix	robustness	1	0	open	10	open	Assembly: Prevent solve/updateSolveStatus infinite recursion	App/AssemblyObject.cpp App/AssemblyObject.h
+b54c6dbe62	2026-06-29	Jacob Oursland	fix	robustness	1	0	open	10	open	Assembly: Fix free-drag direction for transformed assemblies	Gui/ViewProviderAssembly.cpp
+44c3ea8b00	2026-07-06	Jacob Oursland	fix	robustness	0	0	open	26	open	Assembly: Fix isolate use-after-free from dangling deleted-object pointers	Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+fd4dd90e1c	2026-07-07	Jacob Oursland	fix	robustness	0	0	open	35	open	Assembly: Contain Python exception in redrawJointPlacement()	App/AssemblyObject.cpp
+3f03812ac9	2026-07-07	Jacob Oursland	fix	robustness	1	0	open	10	open	Assembly: Guard joint view provider redraw against pre-attach calls	JointObject.py
+83eb84157d	2026-06-12	Pieter Hijma	refactor	build	1	0	open	2	open	Build: Disable deprecation warnings OCCT 8	CMakeLists.txt
+c1df66bce9	2026-08-27	PaddleStroke	feature	joints	1	0	open	173	open	Assembly: Coaxial gear joint. (#31155)	App/AssemblyObject.cpp App/AssemblyObject.h
+b13dc13b35	2026-06-23	PaddleStroke	fix	solve	1	0	open	18	open	Assembly: Fix DoF calculation with bundled fixed joints.	App/AssemblyObject.cpp
+37d1c8253c	2026-08-28	tsiwt	fix	rigidgroup	0	0	open	2	open	Assembly: Fix shortcut conflict between CreateBom and CreateJointRigidGroup	CommandCreateJoint.py
+66aff6a7c2	2026-08-31	pre-commit-ci[bot]	noise	format	1	0	open	16	open	[pre-commit.ci] auto fixes from pre-commit.com hooks	App/AppAssembly.cpp
+db2a26feae	2026-07-14	Louis Gombert	refactor	build	1	0	open	8	open	move FREECAD_WARN_ERROR up, activate for Windows	App/CMakeLists.txt Gui/CMakeLists.txt
+ceeeba26b2	2026-05-27	andershol	refactor	build	0	0	open	4	open	Build: Simplify use of SET_BIN_DIR	App/CMakeLists.txt Gui/CMakeLists.txt
+16dd3cc01f	2026-09-10	PaddleStroke	feature	drag	0	0	open	199	open	Merge pull request #30998 from PaddleStroke/asm_island_drag	App/AssemblyObject.cpp App/AssemblyObject.h CommandInsertLink.py Gui/ViewProviderAssembly.cpp Gui/ViewProviderAssembly.h
+67103b19c9	2026-09-09	paddle	feature	arrays	0	0	open	259	open	Assembly: support generated arrays and suppressed link elements	App/AssemblyLink.cpp App/AssemblyLink.h App/AssemblyUtils.cpp App/AssemblyUtils.h AssemblyTests/TestCore.py InitGui.py JointObject.py UtilsAssembly.py
+4ace6df1e1	2026-09-19	Jacob Oursland	refactor	solver-pin	0	0	open	2	have (fork pin ccb521b is tree-identical to upstream's 4be80eef02)	OndselSolver: bump submodule to fix macOS 27 builds.	3rdParty/OndselSolver
+8a1bdba1dd	2026-09-19	Slendi	refactor	logging	0	0	open	29	open	Base: Refactor logging printf-style to std::format	App/AssemblyLink.cpp App/AssemblyObject.cpp App/BomObject.cpp Gui/ViewProviderAssembly.cpp
+6e90683e59	2026-08-15	Ryne Everett	fix	joints	1	0	open	13	open	Assembly: fix errors using Fixed Joint on a Part	JointObject.py
+a5908bb06e	2026-09-28	PaddleStroke	fix	groups	1	0	open	16	open	Assembly: Enable joint group deletion if orphaned (#32924)	Gui/ViewProviderGroups.cpp Gui/ViewProviderGroups.h
+370eebc099	2026-09-29	Max Wilfinger	noise	icons	1	0	open	424	open	Assembly: Remove unused image assets	Gui/Resources/icons/AssemblyWorkbench_alternate.svg
+2372eb1c4f	2026-09-30	PaddleStroke	fix	joints	0	0	open	102	open	Assembly: Fix rack and pinion bug (#32922)	App/AssemblyObject.cpp AssemblyTests/TestCore.py
+21ed7f01ce	2026-09-30	Chris Hennes	fix	joints	0	0	open	6	open	Assembly: Fix test that only worked on MSVC	AssemblyTests/TestCore.py
+62544c4c6e	2026-10-10	3x380V	refactor	logging	0	0	open	2	open	Convert leftover printf-style specifiers to std::format (#33242)	App/AssemblyObject.cpp
+15bd466ccb	2026-10-06	GeeBee2	fix	solve	1	0	open	2	open	fix: #30887 change rotation order	App/AssemblyObject.cpp
+3843147760	2026-10-14	Frank Martinez	fix	i18n	1	0	open	4	open	[translations] Fix commands translation context	CommandCreateSnapshot.py

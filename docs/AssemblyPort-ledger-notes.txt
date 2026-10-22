@@ -1,0 +1,56 @@
+AssemblyPort ledger notes -- why open rows do not apply, and what they need from outside src/Mod/Assembly
+Companion to docs/AssemblyPort-ledger.tsv. Created 2026-10-22 on AssemblyPort at fe871ff48c, upstream/main d3f4da791d.
+
+How these were derived
+- fwd (ledger column): git apply --check --cached of the in-scope patch (translations excluded) against the
+  index, which equals HEAD. --cached because the working tree is CRLF and the index LF.
+- To tell a real dependency from fork-side context, each failing patch was also checked against two other
+  trees, through a throwaway GIT_INDEX_FILE: upstream's baseline 17f203e118 ("base") and the port
+  759cd15c9c ("port"). It fails at base -> it needs an earlier upstream commit. It applies at base but not at
+  the port -> the port's adaptations are in the way. It applies at the port but not at HEAD -> fork commits
+  since the port are in the way.
+- Trial three-way picks: git merge-tree --write-tree --merge-base=<c>^ HEAD <c> ("solo"), and the same in
+  ledger order with each clean pick advancing a simulated tip ("chain"). No ref, index or worktree was
+  touched. "N hunks" below is the conflict-marker count it left in scope.
+
+Open rows whose fwd fails
+3a9ab5483f RigidGroup -- context only: AssemblyObject.cpp/.h include blocks (fork's <numbers>, Precision.hxx, fastsignals include) and two SolveOnMove lines in ViewProviderAssembly.cpp (fork reads the default through AssemblyParams); 4 hunks solo, none semantic. Uses PropertyPlacementList and <ranges>, both here.
+3ac55b1252 explode moves -- context only: CMakeLists.txt test list and TestAssemblyWorkbench.py imports carry the fork's TestSettings/AssemblyPyParams entries (a75b43f1d5); three-way clean.
+8e04c56f27 clear isolation before save -- ViewProviderAssembly.cpp destructor, where fbeac04f4c added the edit-connection disconnects; 1 hunk. The .h applies now that the fork's signals are fastsignals (f0731ef531); signalStartSaveDocument is here.
+2baf36ceec non-finite placements -- fails at base: its hunk sits after RigidGroup's rebuildRigidClusters()/updateRigidPlacementCache(), so take it after 3a9ab5483f. Its Console().warning is fine (the fork has the lowercase forwarders).
+44c3ea8b00 isolate use-after-free -- fails at base: needs 8e04c56f27 (m_startSaveConn is its context), then the same destructor hunk as 8e04c56f27. signalDeletedObject is here.
+fd4dd90e1c contain Python exception -- fails at base: needs 1facbf8342 (the de-duplicated nullptr check is its context); clean in the chain once 1facbf8342 is in.
+37d1c8253c shortcut conflict -- fails at base: edits RigidGroup's command (Accel), so needs 3a9ab5483f.
+ceeeba26b2 SET_BIN_DIR -- fails everywhere: needs db2a26feae's context, and changes SET_BIN_DIR's signature, which the fork's macro (cMake/FreeCadMacros.cmake:369) does not have. Likely n/a.
+16dd3cc01f island drag -- fails at base: built on RigidGroup (isRigidClustered, forceSolveOnMoveForRigid, the rigid declarations in AssemblyObject.h) and on c1df66bce9/b13dc13b35 for AssemblyObject.cpp context; 4 hunks solo. Take after those three.
+67103b19c9 generated arrays, suppressed link elements -- hunks hit the port's App::Origin/App::OriginFeature spellings (AssemblyUtils.cpp, UtilsAssembly.py) and its Console().Warning (AssemblyLink.cpp). Real dependencies, outside: PartApp::LinkArray (upstream's Mod/Part/App/LinkArray.h base) does not exist here -- the fork's Part::LinkArrayLinear/Polar/... derive from App::LinkArray (Mod/Part/App/LinkArrays.h); and App::SuppressibleExtension on App::LinkElement -- the fork has the extension class but its LinkElement does not carry it. Its InitGui.py and tests name "Part_LinkArrays" / "Part::LinkArrayLinear". Needs adapting, not a pick.
+4ace6df1e1 OndselSolver bump -- a gitlink; the fork pins its own ccb521b, whose tree is identical to upstream's 4be80eef02. Marked have.
+8a1bdba1dd logging to std::format -- tree-wide (383 files outside scope). The fork's Base::Console formats printf-style through fmt::sprintf (src/Base/Console.h:42, :1335), so the Assembly hunks (%s -> {}) would print literal braces. Its in-scope hunks also need most earlier open rows as context. Deferred unless Base adopts std::format.
+2372eb1c4f rack and pinion -- the AssemblyObject.cpp part applies; TestCore.py conflicts at its end, where the fork appended TestSubNames (0a7ea71821): append/append, trivial.
+21ed7f01ce MSVC-only test -- needs 2372eb1c4f (fixes the test that one adds); same TestCore.py tail conflict.
+62544c4c6e leftover printf specifiers -- one Console().warning line converted to {}; fails at the port on the Console().Warning spelling. Belongs with 8a1bdba1dd; n/a while the fork keeps printf.
+11fa271eb5 a1c5767643 b4bb86948f 62415907ee 5388c32f10 084003e361 30912c1d4e (before the baseline, tests only) -- tests/src/Mod/Assembly was never ported, so there is nothing to apply to. Plan: one file-take of tests/src/Mod/Assembly at the tip with a fork-style CMakeLists (as tests/src/Mod/Sketcher/CMakeLists.txt does it) and an add_subdirectory in tests/src/Mod/CMakeLists.txt. The tip's AssemblyObject.cpp test needs nothing the fork lacks (App/Expression.h, ObjectIdentifier, Groups.h, tests/src/App/InitApplication.h). The partial(port) rows' test halves go with it.
+
+Open rows whose fwd applies, with a caveat
+83eb84157d -- the in-scope line calls disable_occt8_deprecation_warnings(), which the same commit defines in cMake/FreeCadMacros.cmake; the fork has no such macro, so taking the line alone breaks configure. n/a unless the macro is wanted tree-wide.
+db2a26feae -- makes target_compile_warn_error() unconditional; the fork defines no target_compile_warn_error at all (the call survives only behind if(FREECAD_WARN_ERROR), an option nothing in cMake/ defines). Taking it breaks configure. n/a.
+66aff6a7c2 -- pre-commit whitespace in AppAssembly.cpp ("Foo ::init()" -> "Foo::init()"); harmless, take or skip.
+3843147760 -- QT_TRANSLATE_NOOP context Assembly_Snapshot -> Assembly_CreateSnapshot; the .ts files would follow at the next lupdate.
+370eebc099 -- deletes AssemblyWorkbench_alternate.svg; nothing in the fork references it either.
+c1df66bce9 -- applies clean; ASMTGearJoint is in the fork's OndselSolver.
+1facbf8342 3b75dafedb b54c6dbe62 3f03812ac9 b13dc13b35 6e90683e59 a5908bb06e 15bd466ccb -- apply clean, no outside dependency.
+
+Cross-module dependencies, by API
+- App::LocalCoordinateSystem / App::DatumElement (App/Datums.h): here now (2507fde4bc; App::Origin derives from LocalCoordinateSystem, App::OriginFeature is an alias of DatumElement, Part::LocalCoordinateSystem exists). The port's Origin/OriginFeature spellings are obsolete. Worse, App::Origin-only checks miss Part::LocalCoordinateSystem, which upstream's LCS checks catch. Reverting them to upstream's spelling removes conflicts (67103b19c9) and fixes that gap.
+- Gui::SoTransformDragger subsystem: here (f8b6a242f7, used since b223d1b31a). No open row needs more of it.
+- fastsignals: here (f0731ef531). Upstream's scoped_connection members in 8e04c56f27/44c3ea8b00 compile as-is.
+- Base::Color: here; App::Color is an alias of it (src/App/Color.h:42). The port's App::Color spellings could go back to Base::Color.
+- Console naming: the fork has upstream's lowercase warning/error/log as well as the capitalised forwarders, so the port's Warning/Error/Log renames are now just conflict sources (62544c4c6e, 67103b19c9).
+- std::format logging: missing. The fork's Console is printf (fmt::sprintf). Blocks 8a1bdba1dd and 62544c4c6e.
+- Quantity::getUserString: returns std::string here now; the port's .toStdString() is already gone.
+- Gui/Selection/: here, with Gui/Selection.h kept as a forwarding shim; upstream's <Gui/Selection/Selection.h> works again. SoFCSelectionAction.h has not moved, so that include stays adapted.
+- Control().activeDialog(App::Document*): here, so upstream's activeDialog(nullptr) compiles again.
+- Measure: no open row uses it.
+- PartApp::LinkArray and SuppressibleExtension on LinkElement: missing (see 67103b19c9).
+- Build macros: disable_occt8_deprecation_warnings, target_compile_warn_error and the new SET_BIN_DIR signature are all missing; they arrive only with upstream's cMake/FreeCadMacros.cmake changes.
+- Adaptations that stay fork-only: Gui::ViewerContext in place of View3DInventorViewer in the edit API (fe9c9139fb), ViewParams as a static API, PropertyXLink::setValue(obj, subs) in place of the protected setSubValues, ViewParams::getDefaultShapeColor() in place of MaterialAppearance::getDefaultAppearance(), AssemblyParams defaults, and the fork's mapped-name, Part::Datum and connection-lifetime fixes.

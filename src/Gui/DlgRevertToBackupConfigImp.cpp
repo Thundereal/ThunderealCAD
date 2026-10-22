@@ -26,6 +26,7 @@
 # include <QPushButton>
 #endif
 
+#include <Base/Console.h>
 #include "DlgRevertToBackupConfigImp.h"
 #include "ui_DlgRevertToBackupConfig.h"
 #include "Application.h"

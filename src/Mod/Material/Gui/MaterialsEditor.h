@@ -33,6 +33,7 @@
 #include <QSvgWidget>
 #include <QTreeView>
 
+#include <Base/Console.h>
 #include <Base/Handle.h>
 #include <Base/Parameter.h>
 

@@ -30,6 +30,7 @@
 #include <Gui/Selection.h>
 #include <Gui/ViewProviderDocumentObject.h>
 
+#include <Base/Console.h>
 #include "ActiveObjectList.h"
 #include "TreeParams.h"
 

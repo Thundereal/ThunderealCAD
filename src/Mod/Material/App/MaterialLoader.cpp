@@ -30,6 +30,7 @@
 
 
 #include <App/Application.h>
+#include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Base/Stream.h>
 #include <Gui/MetaTypes.h>

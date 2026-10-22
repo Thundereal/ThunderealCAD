@@ -53,6 +53,7 @@
 #include <Gui/ViewProviderDocumentObject.h>
 #include <Gui/Widgets.h>
 
+#include <Base/Console.h>
 #include "TaskView.h"
 #include "TaskDialog.h"
 #include "TaskEditControl.h"

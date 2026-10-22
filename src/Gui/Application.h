@@ -31,6 +31,7 @@
 #define  putpix()
 
 #include <App/Application.h>
+#include <Base/Type.h>
 
 class QCloseEvent;
 class SoNode;

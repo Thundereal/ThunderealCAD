@@ -24,10 +24,43 @@
 #include "PreCompiled.h"
 
 #include "Observer.h"
+#include "Console.h"
+#include "Exception.h"
 
 
 namespace Base
 {
+
+void subjectWarning(const char* where, const char* message, void* observer)
+{
+    if (observer) {
+        Base::Console().DeveloperWarning(std::string(where), message, observer);
+    }
+    else {
+        Base::Console().DeveloperWarning(std::string(where), message);
+    }
+}
+
+void subjectNotifyFailed()
+{
+    try {
+        throw;
+    }
+    catch (Base::Exception& e) {
+        Base::Console().Error("Unhandled Base::Exception caught when notifying observer.\n"
+                              "The error message is: %s\n",
+                              e.what());
+    }
+    catch (std::exception& e) {
+        Base::Console().Error("Unhandled std::exception caught when notifying observer\n"
+                              "The error message is: %s\n",
+                              e.what());
+    }
+    catch (...) {
+        Base::Console().Error(
+            "Unhandled unknown exception caught in when notifying observer.\n");
+    }
+}
 
 #if !defined(__MINGW32__)
 template class BaseExport Observer<const char*>;

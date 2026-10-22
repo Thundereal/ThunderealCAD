@@ -25,6 +25,7 @@
 
 #include <App/Application.h>
 
+#include <Base/Console.h>
 #include "Exceptions.h"
 #include "Library.h"
 

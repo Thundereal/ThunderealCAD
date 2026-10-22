@@ -30,6 +30,8 @@
 #include <QStringList>
 #endif
 
+#include <Base/Console.h>
+#include <Base/FileInfo.h>
 #include "DisplayedFilesModel.h"
 #include <App/Application.h>
 #include <App/ProjectFile.h>

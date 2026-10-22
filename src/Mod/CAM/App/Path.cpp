@@ -26,6 +26,7 @@
 
 #include <App/Application.h>
 #include <Base/Console.h>
+#include <Base/Exception.h>
 #include <Base/Reader.h>
 #include <Base/Stream.h>
 #include <Base/Writer.h>

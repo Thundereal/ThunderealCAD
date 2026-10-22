@@ -1,6 +1,7 @@
 #ifndef TEST_APPLICATION_H
 #define TEST_APPLICATION_H
 
+#include <array>
 #include <App/Application.h>
 
 namespace tests

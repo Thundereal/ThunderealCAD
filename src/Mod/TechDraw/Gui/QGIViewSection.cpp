@@ -25,6 +25,7 @@
 # include <cmath>
 #endif
 
+#include <Base/Console.h>
 #include <Mod/TechDraw/App/DrawViewSection.h>
 
 #include "QGIViewSection.h"

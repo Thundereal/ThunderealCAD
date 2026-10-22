@@ -41,6 +41,7 @@
 #endif
 #include <Inventor/elements/SoCacheElement.h>
 
+#include <Base/Console.h>
 #include <Base/UnitsApi.h>
 
 #include "SoFCSelection.h"

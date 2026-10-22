@@ -29,6 +29,7 @@
 
 #include <App/Application.h>
 
+#include <Base/Console.h>
 #include "MaterialFilter.h"
 #include "MaterialLibrary.h"
 #include "MaterialLoader.h"

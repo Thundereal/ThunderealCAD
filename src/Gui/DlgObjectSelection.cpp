@@ -30,6 +30,7 @@
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 
+#include <Base/Console.h>
 #include "DlgObjectSelection.h"
 #include "ui_DlgObjectSelection.h"
 #include "Application.h"

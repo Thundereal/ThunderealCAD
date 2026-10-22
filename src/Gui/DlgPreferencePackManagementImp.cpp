@@ -25,6 +25,7 @@
 # include <QMessageBox>
 #endif
 
+#include <Base/Console.h>
 #include "DlgPreferencePackManagementImp.h"
 #include "ui_DlgPreferencePackManagement.h"
 #include "Application.h"

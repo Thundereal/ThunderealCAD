@@ -17,6 +17,8 @@ class _Move:
     def __init__(self, move_type, placement):
         self.MoveType = move_type
         self.MovementTransform = placement
+        # rebuildStepList() titles each row with the move's Label
+        self.Label = "Move"
 
 
 @unittest.skipIf(not App.GuiUp, "GUI tests require FreeCAD GUI mode")

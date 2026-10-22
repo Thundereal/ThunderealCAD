@@ -30,9 +30,10 @@
 #include <functional>
 #include <vector>
 #include <fastsignals/signal.h>
+#include <QString>
 
+#include <Base/Parameter.h>
 #include <Base/Type.h>
-#include <Gui/Application.h>
 
 class QAction;
 

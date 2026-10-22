@@ -38,6 +38,7 @@
 
 #include "ViewProviderGroupExtension.h"
 #include "ViewProviderDocumentObject.h"
+#include "Application.h"
 #include "Command.h"
 #include "Document.h"
 #include "MainWindow.h"

@@ -28,6 +28,7 @@
 #endif
 
 #include <Gui/Action.h>
+#include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
 #include <Gui/MainWindow.h>

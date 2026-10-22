@@ -91,6 +91,7 @@
 #include <customtitlebarkit/MenuIntegration.h>
 
 #include "MainWindow.h"
+#include "Application.h"
 #include "MainWindowParams.h"
 #include <App/UnitsParams.h>
 #include "NotificationAreaParams.h"

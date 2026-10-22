@@ -34,6 +34,7 @@
 #include <Base/Console.h>
 #include <Base/Tools.h>
 #include "ShortcutManager.h"
+#include "Application.h"
 #include "Command.h"
 #include "Window.h"
 #include "Action.h"

@@ -26,6 +26,7 @@
 
 #include "Command.h"
 #include "Action.h"
+#include "Application.h"
 #include "PythonWrapper.h"
 
 #include "CommandActionPy.h"

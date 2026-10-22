@@ -28,6 +28,7 @@
 
 #include <App/Document.h>
 #include <Base/Console.h>
+#include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
 #include <Gui/Document.h>

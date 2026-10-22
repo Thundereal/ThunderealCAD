@@ -71,6 +71,7 @@
 #include <Base/Tools.h>
 
 #include "Action.h"
+#include "Application.h"
 #include "GeneralParams.h"
 #include "Tree.h"
 #include "BitmapFactory.h"

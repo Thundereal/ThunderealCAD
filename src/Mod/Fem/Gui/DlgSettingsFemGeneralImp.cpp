@@ -26,6 +26,7 @@
 #include <QStandardPaths>
 
 #include <Gui/Action.h>
+#include <Gui/Application.h>
 #include <Gui/Command.h>
 
 #include "DlgSettingsFemGeneralImp.h"

@@ -1504,6 +1504,8 @@ void TaskFilletParameters::refresh()
         while (j > item->childCount())
             delete item->child(item->childCount()-1);
     }
+    // by the values just shown, if the list is sorted by one
+    sortRows();
     // The handles follow what the feature holds now -- after an undo or a
     // redo too, which put the boxes back without telling the handles
     // (entry 136): placed again, each arrow as long as its box says
@@ -1769,6 +1771,19 @@ void TaskFilletParameters::populateOtherItems()
         item->setText(0, QString::fromStdString(v.first));
         setGeometryItemText(item, v.first);
     }
+}
+
+QVariant TaskFilletParameters::sortValue(QTreeWidgetItem *item, int column) const
+{
+    QVariant value = TaskDressUpParameters::sortValue(item, column);
+    if (value.isValid() || column < 1 || column > 3 || getCornerItem(item))
+        return value;
+    if (item->childCount())
+        return TaskDressUpParameters::sortValue(item->child(0), column);
+    auto DressUpView = getDressUpView();
+    if (column != 1 || !DressUpView)
+        return value;
+    return static_cast<PartDesign::Fillet*>(DressUpView->getObject())->Radius.getValue();
 }
 
 void TaskFilletParameters::syncOtherItems()

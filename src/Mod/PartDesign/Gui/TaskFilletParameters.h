@@ -91,6 +91,9 @@ protected:
     bool isBaseItem(QTreeWidgetItem *item) const override;
     void syncOtherItems() override;
     void populateOtherItems() override;
+    /// An edge's radii are in the rows under it: the first one's, the
+    /// default radius for an edge without any
+    QVariant sortValue(QTreeWidgetItem *item, int column) const override;
     void onRefDeleted() override;
     void finishedRecomputeFeature() override;
     void heldStepRolledBack() override;

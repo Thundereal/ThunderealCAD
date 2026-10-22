@@ -30,6 +30,7 @@
 
 #include <QBrush>
 #include <QColor>
+#include <QVariant>
 
 #include <Base/Color.h>
 #include <Gui/TaskView/TaskView.h>
@@ -118,6 +119,21 @@ protected:
     virtual void syncOtherItems() {}
     /// Adds the rows that are not Base's, after the tree is built from Base
     virtual void populateOtherItems() {}
+    /** The top-level rows in the feature's order, whatever the list's sort:
+     * the order a change of the list writes back. A row added since the list
+     * was filled comes after the others.
+     */
+    std::vector<QTreeWidgetItem*> rowsInOrder() const;
+    /** What a top-level row is sorted by in \a column: its cell's number
+     * (Qt::UserRole) or text, the element's name with its number taken as
+     * one. Null for an empty cell, which sorts last either way.
+     */
+    virtual QVariant sortValue(QTreeWidgetItem *item, int column) const;
+    /** The rows in the order the list's header asks for: by the column whose
+     * title was clicked, either way, or the feature's. A sort moves the
+     * top-level rows only; the rows under one keep theirs.
+     */
+    void sortRows();
     void finishedRecomputeFeature() override; 
 
     QTreeWidgetItem *getCurrentItem() const;
@@ -240,6 +256,8 @@ protected:
     QAction* deleteAction = nullptr;
     QAction* addAllEdgesAction = nullptr;
     QTreeWidget *treeWidget = nullptr;
+    /// sortRows()'s hidden column of each row's place, -1 before a sort
+    int sortKeyColumn = -1;
     QCheckBox *btnAdd = nullptr;
     QLabel *messageLabel = nullptr;
 

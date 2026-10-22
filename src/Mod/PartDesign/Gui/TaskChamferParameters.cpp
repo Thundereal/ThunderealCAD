@@ -1234,6 +1234,8 @@ void TaskChamferParameters::refresh()
             item->setIcon(GroupColumn, QIcon());
         }
     }
+    // by the values just shown, if the list is sorted by one
+    sortRows();
     // The view's handles follow what the feature holds now -- after an undo
     // or a redo too, which put the boxes back without telling the handles
     if (gizmoContainer) {
@@ -1482,6 +1484,18 @@ double TaskChamferParameters::getAngle() const
 bool TaskChamferParameters::getFlipDirection() const
 {
     return ui->flipDirection->isChecked();
+}
+
+QVariant TaskChamferParameters::sortValue(QTreeWidgetItem *item, int column) const
+{
+    // an edge on the defaults (no size of its own) sorts by the default size
+    // and flip
+    const bool own = !item->text(1).isEmpty();
+    if (column == 4)
+        return own ? item->data(4, Qt::UserRole).toBool() : getFlipDirection();
+    if (column == 1 && !own)
+        return getSize();
+    return TaskDressUpParameters::sortValue(item, column);
 }
 
 TaskChamferParameters::~TaskChamferParameters()

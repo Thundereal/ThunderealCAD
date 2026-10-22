@@ -100,6 +100,8 @@ protected:
     double getSize2() const;
     double getAngle() const;
     bool getFlipDirection() const;
+    /// An edge on the defaults sorts by the default size and flip
+    QVariant sortValue(QTreeWidgetItem *item, int column) const override;
     void onNewItem(QTreeWidgetItem *item);
     void finishedRecomputeFeature() override;
     void heldStepRolledBack() override;

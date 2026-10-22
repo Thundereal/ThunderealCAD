@@ -193,6 +193,11 @@ fc_add_gui_test(GuiEditMigrationRecompute_tests_run edit-migration-recompute.py
 fc_add_gui_test(GuiOverlayListRowBandsInView_tests_run overlay-list-row-bands-in-view.py
                 --timeout 200)
 
+# The reporter, 2026-10-23: a dress-up's edge list sorts by the column whose
+# title is clicked; the feature's own order stays what it writes back.
+fc_add_gui_test(GuiDressUpListSort_tests_run dressup-list-sort.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

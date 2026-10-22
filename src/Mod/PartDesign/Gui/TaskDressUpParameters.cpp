@@ -35,8 +35,10 @@
 # include <QCheckBox>
 # include <QColor>
 # include <QColorDialog>
+# include <QHeaderView>
 # include <QIcon>
 # include <QPixmap>
+# include <QTreeWidget>
 # include <cmath>
 #endif
 
@@ -78,6 +80,75 @@ FC_LOG_LEVEL_INIT("PartDesign",true,true)
 
 using namespace PartDesignGui;
 using namespace Gui;
+
+namespace {
+// A row's place in the feature's order, in its element column
+constexpr int RowOrderRole = Qt::UserRole + 2;
+
+// "Edge2" before "Edge10": a run of digits compared as a number
+int naturalCompare(const QString &a, const QString &b)
+{
+    int i = 0;
+    int j = 0;
+    while (i < a.size() && j < b.size()) {
+        if (a[i].isDigit() && b[j].isDigit()) {
+            int si = i;
+            int sj = j;
+            while (si < a.size() && a[si] == QLatin1Char('0'))
+                ++si;
+            while (sj < b.size() && b[sj] == QLatin1Char('0'))
+                ++sj;
+            int ei = si;
+            int ej = sj;
+            while (ei < a.size() && a[ei].isDigit())
+                ++ei;
+            while (ej < b.size() && b[ej].isDigit())
+                ++ej;
+            if (ei - si != ej - sj)
+                return ei - si < ej - sj ? -1 : 1;
+            int c = QStringView(a).mid(si, ei - si).compare(QStringView(b).mid(sj, ej - sj));
+            if (c != 0)
+                return c < 0 ? -1 : 1;
+            i = ei;
+            j = ej;
+            continue;
+        }
+        int c = QString::compare(a.mid(i, 1), b.mid(j, 1), Qt::CaseInsensitive);
+        if (c != 0)
+            return c < 0 ? -1 : 1;
+        ++i;
+        ++j;
+    }
+    if (a.size() - i != b.size() - j)
+        return a.size() - i < b.size() - j ? -1 : 1;
+    return 0;
+}
+
+// Numbers as numbers, the rest as text
+int compareSortValues(const QVariant &a, const QVariant &b)
+{
+    auto isNumber = [](const QVariant &v) {
+        switch (v.typeId()) {
+        case QMetaType::Double:
+        case QMetaType::Float:
+        case QMetaType::Int:
+        case QMetaType::UInt:
+        case QMetaType::LongLong:
+        case QMetaType::ULongLong:
+        case QMetaType::Bool:
+            return true;
+        default:
+            return false;
+        }
+    };
+    if (isNumber(a) && isNumber(b)) {
+        double x = a.toDouble();
+        double y = b.toDouble();
+        return x < y ? -1 : (y < x ? 1 : 0);
+    }
+    return naturalCompare(a.toString(), b.toString());
+}
+}
 
 
 /* TRANSLATOR PartDesignGui::TaskDressUpParameters */
@@ -164,6 +235,15 @@ void TaskDressUpParameters::setup(QLabel *label, QTreeWidget *widget, QCheckBox 
     connect(treeWidget, SIGNAL(itemEntered(QTreeWidgetItem*,int)),
         this, SLOT(onItemEntered(QTreeWidgetItem*,int)));
 
+    // A click on a column's title sorts the rows by it, a second the other
+    // way, a third puts them back in the feature's order (sortRows())
+    auto header = treeWidget->header();
+    header->setSectionsClickable(true);
+    header->setSortIndicatorShown(true);
+    header->setSortIndicatorClearable(true);
+    header->setSortIndicator(-1, Qt::AscendingOrder);
+    connect(header, &QHeaderView::sortIndicatorChanged, this, [this]() { sortRows(); });
+
     if(!deleteAction) {
         // Create context menu
         deleteAction = new QAction(tr("Remove"), this);
@@ -202,7 +282,89 @@ bool TaskDressUpParameters::populate(bool refresh)
         setupTransaction();
     bool touched = PartDesignGui::populateGeometryReferences(treeWidget, pcDressUp->Base, refresh);
     populateOtherItems();
+    for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i)
+        treeWidget->topLevelItem(i)->setData(0, RowOrderRole, i);
+    sortRows();
     return touched;
+}
+
+std::vector<QTreeWidgetItem*> TaskDressUpParameters::rowsInOrder() const
+{
+    std::vector<QTreeWidgetItem*> rows;
+    if (!treeWidget)
+        return rows;
+    for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i)
+        rows.push_back(treeWidget->topLevelItem(i));
+    // a row added since the list was filled has no place yet: after the
+    // others, as it is listed
+    std::stable_sort(rows.begin(), rows.end(), [](QTreeWidgetItem *a, QTreeWidgetItem *b) {
+        QVariant x = a->data(0, RowOrderRole);
+        QVariant y = b->data(0, RowOrderRole);
+        if (!y.isValid())
+            return x.isValid();
+        return x.isValid() && x.toInt() < y.toInt();
+    });
+    return rows;
+}
+
+QVariant TaskDressUpParameters::sortValue(QTreeWidgetItem *item, int column) const
+{
+    QString text = item->text(column);
+    if (text.isEmpty())
+        return {};
+    if (column > 0) {
+        bool ok = false;
+        double value = item->data(column, Qt::UserRole).toDouble(&ok);
+        if (ok)
+            return value;
+    }
+    return text;
+}
+
+void TaskDressUpParameters::sortRows()
+{
+    if (!treeWidget)
+        return;
+    auto header = treeWidget->header();
+    const int column = header->sortIndicatorSection();
+    const Qt::SortOrder order = header->sortIndicatorOrder();
+    std::vector<QTreeWidgetItem*> rows = rowsInOrder();
+    if (column >= 0 && column != sortKeyColumn && column < treeWidget->columnCount()) {
+        std::vector<std::pair<QVariant, QTreeWidgetItem*>> keyed;
+        for (auto row : rows)
+            keyed.emplace_back(sortValue(row, column), row);
+        std::stable_sort(keyed.begin(), keyed.end(), [order](const auto &a, const auto &b) {
+            // an empty cell last, either way
+            if (!a.first.isValid() || !b.first.isValid())
+                return a.first.isValid() && !b.first.isValid();
+            int c = compareSortValues(a.first, b.first);
+            return order == Qt::AscendingOrder ? c < 0 : c > 0;
+        });
+        for (std::size_t i = 0; i < rows.size(); ++i)
+            rows[i] = keyed[i].second;
+    }
+    else {
+        // the feature's order, which the list may well be in already: no
+        // column added before a sort is asked for
+        bool same = true;
+        for (int i = 0, count = static_cast<int>(rows.size()); i < count && same; ++i)
+            same = treeWidget->topLevelItem(i) == rows[i];
+        if (same)
+            return;
+    }
+
+    // The rows put in that order by a hidden column of their places. A sort
+    // of the model's, it keeps the selection, the open editors and the rows
+    // under each (a fillet's points, whose order is the feature's).
+    QSignalBlocker blocker(treeWidget);
+    if (sortKeyColumn < 0) {
+        sortKeyColumn = treeWidget->columnCount();
+        treeWidget->setColumnCount(sortKeyColumn + 1);
+        header->hideSection(sortKeyColumn);
+    }
+    for (int i = 0, count = static_cast<int>(rows.size()); i < count; ++i)
+        rows[i]->setData(sortKeyColumn, Qt::DisplayRole, i);
+    treeWidget->invisibleRootItem()->sortChildren(sortKeyColumn, Qt::AscendingOrder);
 }
 
 bool TaskDressUpParameters::showOnTop(bool enable,
@@ -251,10 +413,7 @@ bool TaskDressUpParameters::showOnTop(bool enable,
 
 QTreeWidgetItem *TaskDressUpParameters::getFirstFaceItem() const
 {
-    if (!treeWidget)
-        return nullptr;
-    for (int i = 0; i < treeWidget->topLevelItemCount(); ++i) {
-        auto item = treeWidget->topLevelItem(i);
+    for (auto item : rowsInOrder()) {
         if (getGeometryItemText(item).startsWith("Face"))
             return item;
     }
@@ -635,8 +794,7 @@ bool TaskDressUpParameters::replaceMissing(const std::string &picked)
         setGeometryItemReference(item, std::string());
         item->setForeground(0, QBrush());
         std::set<std::string> subset;
-        for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i) {
-            auto row = treeWidget->topLevelItem(i);
+        for (auto row : rowsInOrder()) {
             std::string s = row->text(0).toStdString();
             if (subset.insert(s).second && isBaseItem(row))
                 subs.push_back(std::move(s));
@@ -956,8 +1114,8 @@ bool TaskDressUpParameters::syncItems(const std::vector<App::SubObjectT> &sels) 
 
     std::set<std::string> subset;
     std::vector<std::string> subs;
-    for(int i=0, count=treeWidget->topLevelItemCount();i<count;++i) {
-        auto item = treeWidget->topLevelItem(i);
+    // the feature's order, not the list's sort
+    for(auto item : rowsInOrder()) {
         std::string s = item->text(0).toStdString();
         if(subset.insert(s).second && isBaseItem(item))
             subs.push_back(std::move(s));

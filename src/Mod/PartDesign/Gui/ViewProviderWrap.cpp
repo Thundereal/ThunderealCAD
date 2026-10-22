@@ -37,6 +37,7 @@
 #include <Gui/Command.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
+#include <Gui/Selection.h>
 #include <Gui/SoFCUnifiedSelection.h>
 #include <Gui/Inventor/SoFCDisplayMode.h>
 #include <Base/Console.h>

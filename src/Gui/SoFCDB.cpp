@@ -49,6 +49,7 @@
 
 #include <cstring>
 #include <Inventor/CoinFork.h>
+#include <Inventor/actions/SoSearchAction.h>
 #include <Inventor/elements/SoLazyElementEx.h>
 
 #include "SoFCDB.h"

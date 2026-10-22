@@ -89,6 +89,7 @@
 #include <Base/UnitsApi.h>
 
 #include <Language/Translator.h>
+#include "View3DInventorViewer.h"
 #include "Renderer/CyclesRenderer.h"
 #include "Renderer/Renderer.h"
 #include "Renderer/DeviceAdopt.h"

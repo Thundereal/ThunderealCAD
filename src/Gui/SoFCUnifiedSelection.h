@@ -28,6 +28,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
+#include <Inventor/actions/SoSubAction.h>
 #include <Inventor/elements/SoLazyElement.h>
 #include <Inventor/fields/SoSFBool.h>
 #include <Inventor/fields/SoSFColor.h>
@@ -44,7 +45,6 @@
 #include "Inventor/SoFCSwitch.h"
 
 #include "SoFCSelectionContext.h"
-#include "View3DInventorViewer.h"
 
 class SoCache;
 class SoFullPath;
@@ -67,6 +67,7 @@ class Renderer;
 namespace App {
 class PropertyContainer;
 class DocumentObject;
+class SubObjectT;
 }
 
 namespace Gui {
@@ -75,6 +76,8 @@ class Document;
 class ViewProviderDocumentObject;
 class SoFCRayPickAction;
 class View3DInventor;
+class View3DInventorViewer;
+class ViewProvider;
 class ViewerContext;
 
 /**  Unified Selection node

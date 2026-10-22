@@ -36,6 +36,7 @@
 class SoBase;
 class SoDragger;
 class SoMaterialBinding;
+class SoShapeHints;
 class SoMatrixTransform;
 
 namespace Gui {

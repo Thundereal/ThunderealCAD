@@ -36,6 +36,8 @@
 # include <Inventor/nodes/SoTransform.h>
 #endif
 
+#include <qopengl.h>
+
 #include "SoFCUnifiedSelection.h"
 #include "SoFCSelectionAction.h"
 #include "SoFCBoundingBox.h"

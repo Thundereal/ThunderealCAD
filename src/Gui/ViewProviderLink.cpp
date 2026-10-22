@@ -51,6 +51,8 @@
 # include <QPointer>
 #endif
 
+#include <Inventor/SoRenderManager.h>
+
 #include <boost/range.hpp>
 
 #include <App/ElementNamingUtils.h>
@@ -67,6 +69,7 @@
 #include <Base/Tools.h>
 #include "Application.h"
 #include "ActionFunction.h"
+#include "ViewerContext.h"
 #include "BitmapFactory.h"
 #include "Command.h"
 #include "Control.h"

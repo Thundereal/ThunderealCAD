@@ -50,6 +50,8 @@
 #include <Inventor/nodes/SoTranslation.h>
 #endif
 
+#include <Base/Matrix.h>
+#include <Base/Placement.h>
 #include <Base/Quantity.h>
 #include "SoFCDB.h"
 #include "SoFCCSysDragger.h"

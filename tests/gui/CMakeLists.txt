@@ -188,6 +188,11 @@ fc_add_gui_test(GuiAutoColorsSpread_tests_run auto-colors-spread.py
 fc_add_gui_test(GuiEditMigrationRecompute_tests_run edit-migration-recompute.py
                 --timeout 200)
 
+# Entry 208, the hands-on of 2026-10-21: a task panel laid over its view
+# bands its lists as an overlaid dock does (193's painter).
+fc_add_gui_test(GuiOverlayListRowBandsInView_tests_run overlay-list-row-bands-in-view.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

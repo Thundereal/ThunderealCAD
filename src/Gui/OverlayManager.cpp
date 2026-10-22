@@ -73,6 +73,7 @@
 #include "OverlayParams.h"
 #include "StyleParameters/ParameterManager.h"
 #include "OverlayWidgets.h"
+#include "TaskView/TaskPanelHost.h"
 #include "TaskView/TaskView.h"
 #include "Tree.h"
 #include "TreeParams.h"
@@ -233,6 +234,17 @@ public:
             .arg(panel.green())
             .arg(panel.blue())
             .arg(alpha);
+
+        // The lists of a task panel laid over the picture in its view, see-
+        // through as an overlaid dock's (docs/HandsOnQueue.md entry 208, the
+        // reporter: "See-through like dock"). The sheets say so for a
+        // TaskView's lists (entry 184); the host holds no TaskView. This
+        // sheet is on the host only while it is over the picture.
+        rules += QStringLiteral(
+                   "Gui--TaskView--TaskPanelHost QTreeView,"
+                   " Gui--TaskView--TaskPanelHost QListView,"
+                   " Gui--TaskView--TaskPanelHost QTableView {"
+                   " background: rgba(0, 0, 0, 0.01); }\n");
 
         // A scroll bar of an overlaid panel (docs/HandsOnQueue.md entry 88):
         // nothing of it but the handle, in the theme's own colours for it at
@@ -2670,7 +2682,17 @@ bool OverlayManager::hasOverlayRowBands(const QWidget *view)
     // by its own settings (entries 69, 87, 98; the reporter, entry 193)
     if (qobject_cast<const TreeWidget*>(view))
         return false;
-    auto tab = overlayOf(view);
+    const QWidget *tab = overlayOf(view);
+    // A task panel laid over the picture in its view (TaskPanelHost, in
+    // overlay mode) looks as an overlaid dock does, the same look set on
+    // its page (OverlayTabWidget::applyOverlayLook()): its lists take the
+    // bands too, or they stood on one opaque ground there (the user,
+    // docs/HandsOnQueue.md entry 208)
+    if (!tab) {
+        auto host = TaskView::TaskPanelHost::hostAround(view);
+        if (host && !host->isBeside())
+            tab = host;
+    }
     // a combo box's list is a window of its own
     if (!tab || view->window() != tab->window())
         return false;

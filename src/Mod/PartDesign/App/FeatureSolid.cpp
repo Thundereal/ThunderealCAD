@@ -28,7 +28,6 @@
 #include "Body.h"
 #include "FeatureSolid.h"
 #include <App/Application.h>
-#include <App/Document.h>
 #include "FeatureSplit.h"
 
 using namespace PartDesign;

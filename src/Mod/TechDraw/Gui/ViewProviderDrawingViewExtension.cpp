@@ -22,7 +22,6 @@
 
 #include "PreCompiled.h"
 
-#include <App/Document.h>
 
 #include "ViewProviderDrawingViewExtension.h"
 #include "ViewProviderDrawingView.h"

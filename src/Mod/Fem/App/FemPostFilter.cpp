@@ -29,7 +29,6 @@
 #include <vtkInformation.h>
 
 #include <App/FeaturePythonPyImp.h>
-#include <App/Document.h>
 #include <Base/Console.h>
 
 #include "FemPostFilter.h"

@@ -108,7 +108,6 @@
 #include <sstream>
 
 #include <App/Application.h>
-#include <App/Document.h>
 #include <App/MaterialAppearance.h>
 #include <Base/BoundBox.h>
 #include <Base/Console.h>

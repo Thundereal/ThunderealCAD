@@ -39,7 +39,6 @@
 
 /// Here the FreeCAD includes sorted by Base,App,Gui......
 #include <Base/Console.h>
-#include <App/Document.h>
 #include <App/DocumentObserver.h>
 #include "PieMenu.h"
 #include "Application.h"

@@ -30,7 +30,6 @@
 #include <sstream>
 
 
-#include <App/Document.h>
 #include <Gui/Command.h>
 #include <Gui/QuantitySpinBox.h>
 #include <Gui/Selection/SelectionObject.h>

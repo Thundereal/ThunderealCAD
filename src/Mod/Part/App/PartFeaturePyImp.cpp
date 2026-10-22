@@ -22,7 +22,6 @@
 
 #include "PreCompiled.h"
 
-#include <App/Document.h>
 #include <App/MappedElement.h>
 #include "OCCError.h"
 #include "PartFeature.h"

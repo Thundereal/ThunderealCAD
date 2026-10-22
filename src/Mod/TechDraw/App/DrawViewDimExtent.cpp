@@ -30,7 +30,6 @@
 
 #include <QCoreApplication>
 
-#include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Mod/TechDraw/App/DrawViewDimExtentPy.h>  // generated from DrawViewDimExtentPy.xml

@@ -32,7 +32,6 @@
 #include <Base/ExceptionSafeCall.h>
 #include <Base/Tools.h>
 #include <App/Application.h>
-#include <App/Document.h>
 #include <App/Expression.h>
 #include <App/ObjectIdentifier.h>
 #include <Gui/Application.h>

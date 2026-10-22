@@ -34,7 +34,6 @@
 #include <Base/Writer.h>
 
 #include "ComplexGeoData.h"
-#include "Document.h"
 #include "DocumentObject.h"
 #include "ElementAppearancePy.h"
 #include "ElementNamingUtils.h"

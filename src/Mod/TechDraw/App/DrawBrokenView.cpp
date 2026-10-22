@@ -72,7 +72,6 @@
 
 #include <numbers>
 
-#include <App/Document.h>
 #include <Base/BoundBox.h>
 #include <Base/Console.h>
 #include <Base/Converter.h>

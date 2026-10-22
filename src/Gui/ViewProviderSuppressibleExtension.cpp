@@ -22,7 +22,6 @@
 
 #include "PreCompiled.h"
 
-#include <App/Document.h>
 #include <App/SuppressibleExtension.h>
 
 #include "ViewProviderSuppressibleExtension.h"

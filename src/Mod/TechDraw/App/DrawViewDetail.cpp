@@ -54,7 +54,6 @@
 #endif
 
 #include <App/Application.h>
-#include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/Parameter.h>

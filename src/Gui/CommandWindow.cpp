@@ -38,7 +38,6 @@
 #include "ToolBarManager.h"
 
 #include <Base/Exception.h>
-#include <App/Document.h>
 
 using namespace Gui;
 

@@ -79,7 +79,6 @@
 #include <boost/algorithm/string.hpp>
 
 #include <App/Application.h>
-#include <App/Document.h>
 #include <App/ElementNamingUtils.h>
 #include <App/Expression.h>
 #include <App/ExpressionParser.h>

@@ -27,7 +27,6 @@
 # include <QList>
 #endif
 
-#include <App/Document.h>
 #include <Base/Console.h>
 #include <Gui/Selection.h>
 #include <Mod/TechDraw/App/DrawProjGroup.h>

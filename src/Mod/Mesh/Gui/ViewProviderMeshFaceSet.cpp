@@ -38,7 +38,6 @@
 
 #include <boost/algorithm/string/predicate.hpp>
 
-#include <App/Document.h>
 #include <Gui/Selection.h>
 #include <Gui/Window.h>
 #include <Mod/Mesh/App/MeshFeature.h>

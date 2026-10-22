@@ -21,7 +21,6 @@
  ***************************************************************************/
 
 #include "FemPostGroupExtension.h"
-#include <App/Document.h>
 
 using namespace Fem;
 

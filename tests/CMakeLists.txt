@@ -83,6 +83,9 @@ set(TestExecutables
     Points_tests_run
     Sketcher_tests_run
 )
+if(BUILD_ASSEMBLY)
+    list(APPEND TestExecutables Assembly_tests_run)
+endif()
 
 # -------------------------
 

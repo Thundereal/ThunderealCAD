@@ -38,7 +38,7 @@
 #include "Property.h"
 #include "AppearanceList.h"
 #include "Enumeration.h"
-#include "FileBlobManager.h"
+#include "FileBlob.h"
 #include "MaterialAppearance.h"
 
 

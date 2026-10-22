@@ -59,6 +59,7 @@
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
+#include <App/FileBlobManager.h>
 #include <App/MaterialXDocument.h>
 #include <App/ShaderObject.h>
 #include <Base/Console.h>

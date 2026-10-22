@@ -50,6 +50,7 @@
 #include "Document.h"
 #include "DocumentObject.h"
 #include "DocumentParams.h"
+#include "FileBlobManager.h"
 #include "MaterialListPy.h"
 #include "MaterialPy.h"
 #include "ObjectIdentifier.h"

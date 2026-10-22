@@ -23,7 +23,7 @@
 
 #pragma once
 
-#include <App/FileBlobManager.h>
+#include <App/FileBlob.h>
 #include <App/Property.h>
 #include <Base/Reader.h>
 

@@ -26,7 +26,7 @@
 #include <string>
 #include <vector>
 
-#include "FileBlobManager.h"
+#include "FileBlob.h"
 #include "Property.h"
 
 namespace App

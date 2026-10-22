@@ -33,7 +33,7 @@ class BRepBuilderAPI_MakeShape;
 #include "TopoShape.h"
 #include <TopAbs_ShapeEnum.hxx>
 
-#include <App/FileBlobManager.h>
+#include <App/FileBlob.h>
 #include <App/PropertyGeo.h>
 #include <App/DocumentObject.h>
 

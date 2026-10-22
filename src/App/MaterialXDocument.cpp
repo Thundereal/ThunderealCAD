@@ -33,6 +33,7 @@
 #include <Base/Stream.h>
 
 #include "FileSet.h"
+#include "FileBlobManager.h"
 #include "MaterialXDocument.h"
 
 FC_LOG_LEVEL_INIT("App", true, 2, true)

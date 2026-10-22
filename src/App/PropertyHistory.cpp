@@ -34,6 +34,7 @@
 #include "PropertyHistory.h"
 #include "Document.h"
 #include "DocumentObject.h"
+#include "FileBlobManager.h"
 #include "PropertyContainer.h"
 
 FC_LOG_LEVEL_INIT("App", true, true)

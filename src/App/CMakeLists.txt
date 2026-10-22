@@ -529,6 +529,7 @@ SET(Document_HPP_SRCS
     DocumentParams.h
     UnitsParams.h
     SandboxParams.h
+    FileBlob.h
     FileBlobManager.h
     FileHistory.h
     LibraryPaths.h

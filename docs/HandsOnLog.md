@@ -8040,3 +8040,28 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
 - 208 (row bands in a panel laid over its view): built, not committed;
   the in-view task box is opaque by design, so the bands show on grey.
   The user's answer on see-through boxes is still needed.
+
+### 2026-10-22 morning: entry 211 built and committed; then the merge and the push
+
+- 211 (the user: "1, but make sure only do this for the migration
+  case"): restore marks each object it queues for the migration recompute
+  ObjectStatus::MigrationPending (runtime only, cleared with the touch;
+  Object.State shows it). An edit (default mode) recomputes the edited
+  object and what it needs only while one of those carries the mark; a
+  touch of the user's own waits for their recompute as before.
+  `35dc43b306`, built r198b.
+  - edit-migration-recompute.py 6 of 6 (r198b had 5 of 6: the claim read
+    Box2's own length, which a Part::Box rebuilds by itself on a size
+    change; it reads the mirror now).
+  - TestPartApp 390 of 390. Document 247 of 249 under my script runner;
+    the two (DocumentObserverCases) are that runner's: the transaction log
+    names an implicit transaction after its invocation, "<implicit
+    script>". Under -t, DocumentObserverCases 6 of 6.
+  - fillet-groups-and-preview-menu.py 19 of 19, fillet-corner-vertex-pick.py
+    8 of 8.
+  - The 209 hover probe on a scanner copy, first phase (no recompute run):
+    opening Fillet004's edit recomputes it, and 8 of 9 preview faces hover
+    and click their base edge and row; the probe's own recompute after it
+    finds nothing left.
+- 208: the user's answer came through the note-taker ("See-through like
+  dock"); diagnostic run, fix not started.

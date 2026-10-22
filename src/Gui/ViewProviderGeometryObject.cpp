@@ -75,7 +75,7 @@
 #include "SoFCUnifiedSelection.h"
 #include "Inventor/SoFCRenderMaterial.h"
 #include <Inventor/nodes/SoShaderProgram.h>
-#include "Renderer/Renderer.h"
+#include "Renderer/RenderConfig.h"
 #include "ViewProviderShaderObject.h"
 #include "View3DInventorViewer.h"
 

@@ -51,6 +51,7 @@
 #include <vg/vg.h>
 
 #include "Page2D.h"
+#include "Renderer.h"
 #include "Vg2D.h"
 
 // Page2D is compiled into this tool rather than linked from

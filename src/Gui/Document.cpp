@@ -23,7 +23,7 @@
 #include "PreCompiled.h"
 
 #include <App/SaveTrigger.h>
-#include "Renderer/Renderer.h"
+#include "Renderer/RenderConfig.h"
 
 #include <functional>
 

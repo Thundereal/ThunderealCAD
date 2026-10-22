@@ -56,7 +56,7 @@
 #include <vector>
 
 #include "ClientAccess.h"
-#include "Renderer.h"
+#include "RenderConfig.h"
 #include "SceneDump.h"
 
 namespace Render {

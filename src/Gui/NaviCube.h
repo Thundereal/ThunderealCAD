@@ -27,7 +27,7 @@
 
 #include <CXX/Extensions.hxx>
 
-#include "Renderer/Renderer.h"
+#include "Renderer/RenderConfig.h"
 
 class SoEvent;
 class SoSeparator;

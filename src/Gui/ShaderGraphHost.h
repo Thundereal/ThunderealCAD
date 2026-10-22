@@ -48,6 +48,7 @@
 
 #include <Gui/InventorBase.h>
 #include <Gui/Renderer/GraphEditor/EngineGraphHost.h>
+#include <Gui/Renderer/Renderer.h>
 
 class SoSeparator;
 class SoPerspectiveCamera;

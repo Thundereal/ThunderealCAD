@@ -43,7 +43,7 @@
 #include <App/ComplexGeoData.h>
 #include <Base/Bitmask.h>
 #include <Base/Exception.h>
-#include <Base/Tools.h>
+#include <Base/HashCombine.h>
 #include <Mod/Part/PartGlobal.h>
 
 #include <Standard_Version.hxx>

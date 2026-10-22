@@ -328,6 +328,7 @@ SET(FreeCADBase_HPP_SRCS
     FileTemplate.h
     FutureWatcherProgress.h
     GeometryPyCXX.h
+    HashCombine.h
     Handle.h
     InputSource.h
     Interpreter.h

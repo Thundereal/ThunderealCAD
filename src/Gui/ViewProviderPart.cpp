@@ -39,6 +39,7 @@
 #include "MDIView.h"
 #include "ViewParams.h"
 #include "TaskElementColors.h"
+#include "Document.h"
 #include "Control.h"
 #include "ViewProviderLink.h"
 

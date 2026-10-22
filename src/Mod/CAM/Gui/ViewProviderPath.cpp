@@ -54,6 +54,7 @@
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
+#include <Gui/Document.h>
 #include <Gui/SoAxisCrossKit.h>
 #include <Gui/SoFCBoundingBox.h>
 #include <Gui/SoFCUnifiedSelection.h>

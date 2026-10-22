@@ -43,7 +43,6 @@
 #include <App/DocumentObserver.h>
 #include "PieMenu.h"
 #include "Application.h"
-#include "Document.h"
 #include "BitmapFactory.h"
 #include "MetaTypes.h"
 #include "MainWindow.h"

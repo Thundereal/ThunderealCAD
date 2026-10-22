@@ -41,6 +41,7 @@
 #include "Command.h"
 #include "Document.h"
 #include "MainWindow.h"
+#include "Tree.h"
 
 
 using namespace Gui;

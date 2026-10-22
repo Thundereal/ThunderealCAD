@@ -43,6 +43,7 @@
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
+#include <Gui/Document.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Tools.h>
 #include <Gui/WaitCursor.h>

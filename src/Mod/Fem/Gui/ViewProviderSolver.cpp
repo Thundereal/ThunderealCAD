@@ -26,7 +26,6 @@
 #include <QTextStream>
 
 
-#include <Gui/Document.h>
 #include <Gui/MainWindow.h>
 
 #include "ViewProviderAnalysis.h"

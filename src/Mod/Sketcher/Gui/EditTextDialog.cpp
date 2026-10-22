@@ -29,6 +29,7 @@
 #endif
 
 #include <Gui/CommandT.h>
+#include <Gui/Document.h>
 #include <Mod/Sketcher/App/SketchObject.h>
 
 #include "CommandConstraints.h"

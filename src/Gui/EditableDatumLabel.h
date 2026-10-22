@@ -41,6 +41,10 @@ class SoPickStyle;
 class SoTransform;
 class QKeyEvent;
 
+namespace Base {
+class Placement;
+}
+
 namespace Gui {
 
 class ViewerContext;

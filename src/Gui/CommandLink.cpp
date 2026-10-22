@@ -64,6 +64,7 @@
 #include "Control.h"
 #include "Document.h"
 #include "MainWindow.h"
+#include "MDIView.h"
 #include "Selection.h"
 #include "Tree.h"
 #include "ViewProviderDocumentObject.h"

@@ -29,7 +29,6 @@
 #include <Base/Console.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
-#include <Gui/Document.h>
 #include <Gui/Selection.h>
 #include <Mod/TechDraw/App/DrawUtil.h>
 #include <Mod/TechDraw/App/DrawViewPart.h>

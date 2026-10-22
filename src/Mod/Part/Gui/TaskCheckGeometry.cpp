@@ -60,7 +60,6 @@
 #include <Base/Interpreter.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
-#include <Gui/Document.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Selection.h>
 #include <Gui/ViewProvider.h>

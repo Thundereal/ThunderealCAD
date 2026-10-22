@@ -29,7 +29,6 @@
 #include <App/FeaturePythonHook.h>
 
 #include "ViewProviderGeometryObject.h"
-#include "Document.h"
 
 
 class SoSensor;
@@ -132,6 +131,10 @@ public:
     bool getDropPrefix(std::string &prefix) const;
 
     bool editProperty(const char *propName);
+
+    /// Gui::Document::toggleInSceneGraph() for the view provider, out of line
+    /// so that this header does not need Gui/Document.h
+    void toggleInSceneGraph();
 
     /** Read the object's ViewProxyExp list into the hook chain
      *
@@ -521,7 +524,7 @@ protected:
         if(!this->testStatus(Gui::isRestoring) && 
             ViewProviderT::canAddToSceneGraph()!=this->canAddToSceneGraph())
         {
-            this->getDocument()->toggleInSceneGraph(this);
+            imp->toggleInSceneGraph();
         }
         ViewProviderT::updateView();
     }

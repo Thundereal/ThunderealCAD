@@ -64,6 +64,7 @@
 #include <Gui/BitmapFactory.h>
 #include <Gui/CommandT.h>
 #include <Gui/Control.h>
+#include <Gui/Document.h>
 #include <Gui/Inventor/Draggers/SoTransformDragger.h>
 #include <Gui/MDIView.h>
 #include <Gui/MainWindow.h>

@@ -41,6 +41,7 @@
 #include "Application.h"
 #include "Document.h"
 #include "MainWindow.h"
+#include "MDIView.h"
 #include "OmniSearchBox.h"
 #include "SelectionObject.h"
 #include "Tree.h"

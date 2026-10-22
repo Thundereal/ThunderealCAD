@@ -28,7 +28,6 @@
 #include <Base/Console.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
-#include <Gui/Document.h>
 #include <Gui/Selection/Selection.h>
 #include <Gui/Selection/SelectionObject.h>
 #include <Mod/CAM/App/FeatureArea.h>

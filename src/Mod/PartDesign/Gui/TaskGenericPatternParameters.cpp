@@ -36,7 +36,6 @@
 #include <App/Expression.h>
 #include <App/ObjectIdentifier.h>
 #include <Gui/Application.h>
-#include <Gui/Document.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/ViewProvider.h>
 #include <Gui/WaitCursor.h>

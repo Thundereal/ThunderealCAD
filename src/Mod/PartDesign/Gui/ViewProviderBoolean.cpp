@@ -37,7 +37,6 @@
 #include <Gui/Application.h>
 #include <Gui/Control.h>
 #include <Gui/Command.h>
-#include <Gui/Document.h>
 #include <Gui/SoFCUnifiedSelection.h>
 #include <Mod/Part/Gui/PartParams.h>
 

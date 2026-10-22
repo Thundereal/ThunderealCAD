@@ -40,6 +40,7 @@
 
 #include <Base/Console.h>
 #include <Base/Tools.h>
+#include <App/Document.h>
 #include <Gui/Application.h>
 #include <Gui/Control.h>
 #include <Gui/Document.h>
@@ -48,6 +49,8 @@
 #include <Gui/ActionFunction.h>
 #include <Gui/Command.h>
 #include <Gui/MenuManager.h>
+#include <Gui/Selection.h>
+#include <Gui/Tree.h>
 
 #include <Mod/Part/App/SubShapeBinder.h>
 #include <Mod/Part/App/BodyBase.h>

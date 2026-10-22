@@ -36,7 +36,6 @@
 #include "App/Application.h"
 #include "Gui/Command.h"
 #include "Gui/Control.h"
-#include "Gui/Document.h"
 #include "Gui/Selection/Selection.h"
 #include "Mod/Fem/App/FemConstraint.h"
 

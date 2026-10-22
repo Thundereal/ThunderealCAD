@@ -26,9 +26,11 @@
 #endif
 
 #include <Base/Tools.h>
+#include <App/Document.h>
 #include <Gui/Command.h>
 #include <Gui/Application.h>
 #include <Gui/Document.h>
+#include <Gui/Selection.h>
 #include <Mod/PartDesign/App/AuxGroup.h>
 #include <Mod/PartDesign/App/Body.h>
 

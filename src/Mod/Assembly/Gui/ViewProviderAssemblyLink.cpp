@@ -39,6 +39,7 @@
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/CommandT.h>
+#include <Gui/Document.h>
 #include <Gui/MainWindow.h>
 
 #include <Mod/Assembly/App/AssemblyObject.h>

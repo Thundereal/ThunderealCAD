@@ -305,6 +305,9 @@ Py::List DocumentObjectPy::getState() const
     if (object->isFreezed()) {
         list.append(Py::String("Frozen"));
     }
+    if (object->testStatus(App::MigrationPending)) {
+        list.append(Py::String("MigrationPending"));
+    }
     if (uptodate) {
         list.append(Py::String("Up-to-date"));
     }

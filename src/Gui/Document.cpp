@@ -745,6 +745,19 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         }
     }
 
+    // A feature of an old file opened without its migration recompute: it
+    // and what it needs, recomputed alone, so the edit's preview has the
+    // element names it is read by (docs/HandsOnQueue.md entry 211). Only
+    // then -- a touch of the user's own waits for their recompute.
+    if (ModNum == ViewProvider::Default) {
+        try {
+            App::Document::recomputeMigration(sobj);
+        }
+        catch (Base::Exception &e) {
+            e.ReportException();
+        }
+    }
+
     // The view this edit session belongs to. A replayed client event names
     // its own before it is handled, and there is no other way to know which
     // it was: reaching for the active window in a process serving several

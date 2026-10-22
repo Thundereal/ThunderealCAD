@@ -4268,7 +4268,35 @@ void Document::addRecomputeObject(DocumentObject *obj) {
         setStatus(Status::RecomputeOnRestore, true);
         d->touchedObjs.insert(obj);
         obj->enforceRecompute();
+        // remembered past the prompt, which forgets the document's mark: a
+        // touch alone does not tell a migration from the user's own change
+        obj->setStatus(ObjectStatus::MigrationPending, true);
     }
+}
+
+int Document::recomputeMigration(DocumentObject *obj)
+{
+    // "I remember I did the migration recompute ... in the future, we may
+    // need localized migration partial recompute to just get the updated
+    // preview shapes" -- "1, but make sure only do this for the migration
+    // case" (the user, docs/HandsOnQueue.md entries 209 and 211). An old
+    // file opened without its migration recompute keeps a feature's old
+    // element names, and an edit's preview cannot be told from them which
+    // reference it shows. The feature and what it needs, recomputed alone:
+    // 22 objects in 0.33 s against 29 s for the whole of scanner.FCStd.
+    if (!obj || !obj->isAttachedToDocument())
+        return 0;
+    bool pending = false;
+    for (auto dep : getDependencyList({obj})) {
+        if (dep->testStatus(ObjectStatus::MigrationPending)) {
+            pending = true;
+            break;
+        }
+    }
+    if (!pending)
+        return 0;
+    FC_LOG("migration recompute for " << obj->getFullName());
+    return obj->getDocument()->recompute({obj});
 }
 
 std::vector<App::DocumentObject*>

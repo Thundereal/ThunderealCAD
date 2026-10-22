@@ -57,6 +57,7 @@
 #include <App/Document.h>
 #include <App/GeoFeature.h>
 #include <App/GeoFeatureGroupExtension.h>
+#include <App/PropertyAppearance.h>
 #include <Base/BoundBoxPy.h>
 #include <Base/Console.h>
 #include <Base/Interpreter.h>

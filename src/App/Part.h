@@ -29,6 +29,7 @@
 #include "PropertyElementAppearance.h"
 #include "PropertyLinks.h"
 #include "PropertyStandard.h"
+#include "PropertyAppearance.h"
 
 
 namespace App

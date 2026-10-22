@@ -638,6 +638,7 @@ SET(Properties_HPP_SRCS
     PropertyLinks.h
     PropertyPythonObject.h
     PropertyStandard.h
+    PropertyAppearance.h
     PropertyUnits.h
     PropertyExpressionEngine.h
 )

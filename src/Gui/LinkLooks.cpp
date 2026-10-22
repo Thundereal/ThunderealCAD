@@ -25,6 +25,7 @@
 #include <App/AppearanceList.h>
 #include <App/DocumentObject.h>
 #include <App/PropertyStandard.h>
+#include <App/PropertyAppearance.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/Tools.h>

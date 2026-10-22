@@ -38,6 +38,7 @@
 #include <App/Document.h>
 #include <App/GeoFeature.h>
 #include <App/ShaderObject.h>
+#include <App/PropertyAppearance.h>
 #include <Gui/AppearanceNames.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>

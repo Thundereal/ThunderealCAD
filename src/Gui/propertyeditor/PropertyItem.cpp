@@ -49,6 +49,7 @@
 #include <App/PropertyFile.h>
 #include <App/PropertyUnits.h>
 #include <App/ExpressionParser.h>
+#include <App/PropertyAppearance.h>
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Base/Tools.h>

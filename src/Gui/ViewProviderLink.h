@@ -24,6 +24,7 @@
 #define GUI_VIEWPROVIDER_LINK_H
 
 #include <App/Link.h>
+#include <App/PropertyAppearance.h>
 
 #include "LinkLooks.h"
 #include "SoFCUnifiedSelection.h"

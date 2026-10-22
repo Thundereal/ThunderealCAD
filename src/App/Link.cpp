@@ -41,6 +41,7 @@
 #include "Link.h"
 #include "LinkAppearance.h"
 #include "LinkBaseExtensionPy.h"
+#include "PropertyAppearance.h"
 
 FC_LOG_LEVEL_INIT("App::Link", true,true)
 

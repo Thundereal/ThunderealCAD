@@ -24,6 +24,7 @@
 #define MESHGUI_VIEWPROVIDER_MESH_CURVATURE_H
 
 #include <App/DocumentObserver.h>
+#include <App/PropertyAppearance.h>
 #include <Base/Observer.h>
 
 #include "ViewProvider.h"

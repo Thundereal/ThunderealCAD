@@ -54,6 +54,7 @@
 #include "MaterialListPy.h"
 #include "MaterialPy.h"
 #include "ObjectIdentifier.h"
+#include "PropertyAppearance.h"
 
 using namespace App;
 using namespace Base;

@@ -113,6 +113,7 @@
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
 #include <App/MappedElement.h>
+#include <App/PropertyAppearance.h>
 #include <map>
 #include <set>
 #include <Base/Console.h>

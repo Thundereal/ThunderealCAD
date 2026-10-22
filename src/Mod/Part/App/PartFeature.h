@@ -32,6 +32,7 @@
 #include <App/FeaturePython.h>
 #include <App/GeoFeature.h>
 #include <App/PropertyElementAppearance.h>
+#include <App/PropertyAppearance.h>
 #include <Mod/Material/App/PropertyMaterial.h>
 #include <Mod/Part/PartGlobal.h>
 

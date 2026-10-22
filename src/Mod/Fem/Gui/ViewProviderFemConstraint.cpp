@@ -42,6 +42,7 @@
 
 #include "ViewProviderFemConstraint.h"
 #include "ViewProviderFemConstraintPy.h"
+#include <App/PropertyAppearance.h>
 
 
 using namespace FemGui;

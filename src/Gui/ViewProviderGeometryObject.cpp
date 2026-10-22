@@ -60,6 +60,7 @@
 #include <App/GeoFeature.h>
 #include <App/PropertyGeo.h>
 #include <App/PropertyUnits.h>
+#include <App/PropertyAppearance.h>
 
 #include "ViewProviderGeometryObject.h"
 #include "ActionFunction.h"

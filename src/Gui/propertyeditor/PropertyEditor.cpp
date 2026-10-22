@@ -46,6 +46,7 @@
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
 #include <App/InputStratum.h>
+#include <App/PropertyAppearance.h>
 #include <Base/Console.h>
 #include <Base/Tools.h>
 #include "Action.h"

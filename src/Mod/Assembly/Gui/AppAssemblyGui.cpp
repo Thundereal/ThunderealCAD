@@ -50,7 +50,7 @@ PyMOD_INIT_FUNC(AssemblyGui)
     }
 
     PyObject* mod = AssemblyGui::initModule();
-    Base::Console().Log("Loading AssemblyGui module... done\n");
+    Base::Console().log("Loading AssemblyGui module... done\n");
 
     AssemblyGui::CreateAssemblyCommands();
 

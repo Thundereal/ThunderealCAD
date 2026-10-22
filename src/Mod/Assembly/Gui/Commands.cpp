@@ -29,7 +29,7 @@
 #include <Gui/CommandT.h>
 #include <Gui/Document.h>
 #include <Gui/MainWindow.h>
-#include <Gui/Selection.h>
+#include <Gui/Selection/Selection.h>
 #include <Gui/Tree.h>
 
 #include <Mod/Assembly/App/AssemblyLink.h>

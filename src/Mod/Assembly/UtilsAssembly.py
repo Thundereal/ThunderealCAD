@@ -113,7 +113,7 @@ def number_of_components_in(assembly):
         if not obj.isDerivedFrom("App::GeoFeature"):
             continue
 
-        if obj.isDerivedFrom("App::Origin"):
+        if obj.isDerivedFrom("App::LocalCoordinateSystem"):
             continue
 
         i = i + 1
@@ -168,7 +168,7 @@ def getObject(ref):
         if obj.TypeId in {"App::Part", "Assembly::AssemblyObject"} or isLinkGroup(obj):
             continue
 
-        elif obj.isDerivedFrom("App::Origin"):
+        elif obj.isDerivedFrom("App::LocalCoordinateSystem"):
             # 2 cases possible, either we have the LCS itself: "part.LCS."
             # or we have a datum: "part.LCS.X_Axis"
             if i + 1 < len(names):
@@ -177,10 +177,10 @@ def getObject(ref):
                     if obji.Name == names[i + 1]:
                         obj2 = obji
                         break
-                if obj2 and obj2.isDerivedFrom("App::OriginFeature"):
+                if obj2 and obj2.isDerivedFrom("App::DatumElement"):
                     return obj2
 
-        elif obj.isDerivedFrom("App::OriginFeature"):
+        elif obj.isDerivedFrom("App::DatumElement"):
             return obj
 
         elif obj.TypeId == "PartDesign::Body":
@@ -230,8 +230,8 @@ def isBodySubObject(obj):
     return (
         obj.isDerivedFrom("Sketcher::SketchObject")
         or obj.isDerivedFrom("Part::Datum")
-        or obj.isDerivedFrom("App::OriginFeature")
-        or obj.isDerivedFrom("App::Origin")
+        or obj.isDerivedFrom("App::DatumElement")
+        or obj.isDerivedFrom("App::LocalCoordinateSystem")
     )
 
 

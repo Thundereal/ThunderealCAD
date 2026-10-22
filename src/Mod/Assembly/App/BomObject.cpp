@@ -126,7 +126,7 @@ void BomObject::saveCustomColumnData()
             std::string columnName = getText(0, i);
             if (columnName != "Index" && columnName != "Name" && columnName != "Quantity"
                 && columnName != "File Name") {
-                // Base::Console().Warning("row col %d %d\n", row, col);
+                // Base::Console().warning("row col %d %d\n", row, col);
                 //  save custom data if any.
                 std::string text = getText(row, col);
                 if (text != "") {
@@ -326,7 +326,7 @@ std::string BomObject::getBomPropertyValue(App::DocumentObject* obj, const std::
     App::Property* prop = obj->getPropertyByName(baseName.c_str());
 
     if (!prop) {
-        Base::Console().Warning("Property not found: %s\n", baseName.c_str());
+        Base::Console().warning("Property not found: %s\n", baseName.c_str());
         return QObject::tr("N/A").toStdString();
     }
 
@@ -350,7 +350,7 @@ std::string BomObject::getBomPropertyValue(App::DocumentObject* obj, const std::
         return propBool->getValue() ? "True" : "False";
     }
 
-    Base::Console().Warning("Property type not supported for: %s\n", prop->getName());
+    Base::Console().warning("Property type not supported for: %s\n", prop->getName());
     return QObject::tr("Not supported").toStdString();
 }
 

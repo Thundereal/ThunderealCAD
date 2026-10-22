@@ -33,8 +33,7 @@
 
 
 #include <App/Application.h>
-#include <App/Origin.h>
-#include <App/OriginFeature.h>
+#include <App/Datums.h>
 #include <App/Document.h>
 #include <App/DocumentObjectGroup.h>
 #include <App/FeaturePythonPyImp.h>
@@ -870,11 +869,11 @@ std::unordered_set<App::DocumentObject*> AssemblyObject::getGroundedParts()
     // We also need to add all the root-level datums objects that are not attached.
     std::vector<App::DocumentObject*> objs = Group.getValues();
     for (auto* obj : objs) {
-        if (obj->isDerivedFrom<App::Origin>()
-            || obj->isDerivedFrom<App::OriginFeature>()
+        if (obj->isDerivedFrom<App::LocalCoordinateSystem>()
+            || obj->isDerivedFrom<App::DatumElement>()
             || obj->isDerivedFrom<PartApp::Datum>()) {
-            // This fork's datums (Part::Datum) carry AttachExtension; App::Origin
-            // and its features do not, so the lookup must not throw.
+            // This fork's datums (Part::Datum) carry AttachExtension; App's own
+            // coordinate systems and datums do not, so the lookup must not throw.
             auto* pcAttach = obj->getExtensionByType<PartApp::AttachExtension>(true);
             if (pcAttach) {
                 // If it's a Part datums, we check if it's attached. If yes then we ignore it.

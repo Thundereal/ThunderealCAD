@@ -50,8 +50,7 @@
 // Reached transitively upstream, but not here.
 #include <Precision.hxx>
 
-// Upstream's Base::Color is App::Color in this fork.
-#include <App/Color.h>
+#include <Base/Color.h>
 #include <App/Link.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
@@ -461,9 +460,7 @@ bool ViewProviderAssembly::keyPressed(bool pressed, int key)
 {
     if (key == SoKeyboardEvent::ESCAPE) {
         if (isInEditMode()) {
-            // Upstream can filter by the document a dialog is attached to; passing
-            // nullptr there means "any", which is what this fork's overload does.
-            if (Gui::Control().activeDialog()) {
+            if (Gui::Control().activeDialog(nullptr)) {
                 return true;
             }
 
@@ -1518,12 +1515,12 @@ void ViewProviderAssembly::applyIsolationRecursively(
         float trans = mode == IsolateMode::Transparent ? 0.8 : 1.0;
         // Upstream reads this from App::MaterialAppearance::getDefaultAppearance(), which this
         // fork does not have; the same preference is reachable through ViewParams.
-        App::Color transparentColor;
+        Base::Color transparentColor;
         transparentColor.setPackedValue(Gui::ViewParams::getDefaultShapeColor());
         // setTransparency means what it says since the alpha convention flip
         // (Base/Color.h); before that this line quietly meant the opposite.
         transparentColor.setTransparency(trans);
-        std::map<std::string, App::Color> colorMap;
+        std::map<std::string, Base::Color> colorMap;
         colorMap["Face"] = transparentColor;  // The "Face" wildcard targets all faces
 
         Gui::SoSelectionElementAction action(Gui::SoSelectionElementAction::Color, true);
@@ -1635,7 +1632,7 @@ void ViewProviderAssembly::highlightJointElements(App::DocumentObject* joint)
         ParameterGrp::handle hGrp = Gui::WindowParameter::getDefaultParameter()->GetGroup("View");
         packedColor = hGrp->GetUnsigned("HighlightColor", defaultHighlightColor.getPackedValue());
     }
-    App::Color highlightColor(packedColor);
+    Base::Color highlightColor(packedColor);
 
     std::set<std::string> processedElements;
 
@@ -1664,7 +1661,7 @@ void ViewProviderAssembly::highlightJointElements(App::DocumentObject* joint)
 
             Gui::SoSelectionElementAction action(Gui::SoSelectionElementAction::Color, true);
 
-            std::map<std::string, App::Color> colorMap;
+            std::map<std::string, Base::Color> colorMap;
             colorMap[elementName] = highlightColor;
             action.swapColors(colorMap);
 

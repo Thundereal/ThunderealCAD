@@ -1539,13 +1539,13 @@ class MakeJointSelGate:
         if sel_obj.isDerivedFrom("Part::Feature") or sel_obj.isDerivedFrom("App::Part"):
             return True
 
-        if sel_obj.isDerivedFrom("App::Origin") or sel_obj.isDerivedFrom(
-            "App::OriginFeature"
+        if sel_obj.isDerivedFrom("App::LocalCoordinateSystem") or sel_obj.isDerivedFrom(
+            "App::DatumElement"
         ):
             datum = sel_obj
-            if datum.isDerivedFrom("App::OriginFeature"):
+            if datum.isDerivedFrom("App::DatumElement"):
                 parent = datum.getParent()
-                if parent.isDerivedFrom("App::Origin"):
+                if parent.isDerivedFrom("App::LocalCoordinateSystem"):
                     datum = parent
 
             if self.assembly.hasObject(datum) and hasattr(datum, "MapMode"):

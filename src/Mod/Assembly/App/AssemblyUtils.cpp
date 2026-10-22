@@ -31,12 +31,7 @@
 
 
 #include <App/Application.h>
-// Upstream replaced App::Origin/App::OriginFeature (App/Origin.h, App/OriginFeature.h)
-// with App::LocalCoordinateSystem/App::DatumElement (App/Datums.h). This fork still
-// has the older pair, and they play the same roles here, so ported code refers to
-// them instead.
-#include <App/Origin.h>
-#include <App/OriginFeature.h>
+#include <App/Datums.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/PropertyStandard.h>
@@ -545,8 +540,8 @@ App::DocumentObject* getObjFromRef(App::DocumentObject* comp, const std::string&
         const auto isDerivedFromVpSketch
             = strcmp(obj->getViewProviderName(), "SketcherGui::ViewProviderSketch") == 0;
         return isDerivedFromVpSketch || obj->isDerivedFrom<PartApp::Datum>()
-            || obj->isDerivedFrom<App::OriginFeature>()
-            || obj->isDerivedFrom<App::Origin>();
+            || obj->isDerivedFrom<App::DatumElement>()
+            || obj->isDerivedFrom<App::LocalCoordinateSystem>();
     };
 
     // Helper function to handle PartDesign::Body objects
@@ -558,12 +553,12 @@ App::DocumentObject* getObjFromRef(App::DocumentObject* comp, const std::string&
             for (auto* obji : obj->getOutList()) {
                 if (*nextIt == obji->getNameInDocument() && isBodySubObject(obji)) {
                     // if obji is a LCS then perhaps we need to resolve one more level
-                    if (auto* lcs = freecad_cast<App::Origin*>(obji)) {
+                    if (auto* lcs = freecad_cast<App::LocalCoordinateSystem*>(obji)) {
                         nextIt = std::next(nextIt);
                         if (nextIt != names.end()) {
                             for (auto* objj : lcs->baseObjects()) {
                                 if (*nextIt == objj->getNameInDocument()
-                                    && objj->isDerivedFrom<App::OriginFeature>()) {
+                                    && objj->isDerivedFrom<App::DatumElement>()) {
                                     return objj;
                                 }
                             }
@@ -788,13 +783,13 @@ void collectComponentsRecursively(
         else if (auto* link = freecad_cast<App::Link*>(obj)) {
             obj = link->getLinkedObject();
             if (obj->isDerivedFrom<App::GeoFeature>()
-                && !obj->isDerivedFrom<App::Origin>()) {
+                && !obj->isDerivedFrom<App::LocalCoordinateSystem>()) {
                 results.push_back(link);
             }
         }
 
         else if (
-            obj->isDerivedFrom<App::GeoFeature>() && !obj->isDerivedFrom<App::Origin>()
+            obj->isDerivedFrom<App::GeoFeature>() && !obj->isDerivedFrom<App::LocalCoordinateSystem>()
         ) {
             results.push_back(obj);
         }

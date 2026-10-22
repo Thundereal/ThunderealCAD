@@ -33,6 +33,7 @@
 #include <App/ElementNamingUtils.h>
 #include <App/MappedElement.h>
 #include <App/PropertyLinks.h>
+#include <Mod/Material/App/Materials.h>
 #include <Base/Console.h>
 #include <Base/Tools.h>
 

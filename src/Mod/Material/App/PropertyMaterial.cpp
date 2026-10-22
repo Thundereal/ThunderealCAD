@@ -34,12 +34,14 @@
 #include <App/MaterialXDocument.h>
 #include <Base/Console.h>
 #include <Base/FileInfo.h>
+#include <Base/Reader.h>
 #include <Base/Writer.h>
 #include <Gui/MetaTypes.h>
 
 #include "MaterialCards.h"
 #include "MaterialLibrary.h"
 #include "MaterialManager.h"
+#include "Materials.h"
 #include "MaterialPy.h"
 #include "PropertyMaterial.h"
 
@@ -730,4 +732,20 @@ void PropertyMaterial::Paste(const App::Property& from)
     _blob.reset();
     _materialXBlobs.clear();
     hasSetValue();
+}
+
+bool PropertyMaterial::isSame(const App::Property& other) const
+{
+    if (&other == this) {
+        return true;
+    }
+    if (getTypeId() != other.getTypeId()) {
+        return false;
+    }
+    auto& theirs = *static_cast<const PropertyMaterial*>(&other);
+    // The shared instance answers most of these outright.
+    if (_card && _card == theirs._card) {
+        return true;
+    }
+    return getValue() == theirs.getValue();
 }

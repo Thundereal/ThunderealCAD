@@ -42,6 +42,7 @@
 #include <App/ExpressionParser.h>
 #include <Mod/Spreadsheet/App/Sheet.h>
 #include <Gui/ExpressionCompleter.h>
+#include <Gui/MetaTypes.h>
 #include <Gui/QuantitySpinBox.h>
 #include <Gui/Widgets.h>
 #include "DlgBindSheet.h"

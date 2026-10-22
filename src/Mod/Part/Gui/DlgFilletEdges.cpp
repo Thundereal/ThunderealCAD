@@ -57,6 +57,7 @@
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
+#include <Gui/MetaTypes.h>
 #include <Gui/QuantitySpinBox.h>
 #include <Gui/Selection.h>
 #include <Gui/SelectionFilter.h>

@@ -29,6 +29,7 @@
 #include <App/Document.h>
 #include <App/Origin.h>
 #include <App/VarSet.h>
+#include <Mod/Material/App/Materials.h>
 
 
 #include "Body.h"

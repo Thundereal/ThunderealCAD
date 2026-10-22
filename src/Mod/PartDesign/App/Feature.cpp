@@ -36,6 +36,7 @@
 #include <App/DocumentObject.h>
 #include <App/FeaturePythonPyImp.h>
 #include <Mod/Part/App/PartParams.h>
+#include <Mod/Material/App/Materials.h>
 #include <App/ElementNamingUtils.h>
 #include "App/OriginFeature.h"
 #include <Base/Console.h>

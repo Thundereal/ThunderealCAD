@@ -39,6 +39,7 @@
 #include <Gui/Command.h>
 #include <Gui/DockWindowManager.h>
 #include <Gui/Document.h>
+#include <Gui/MetaTypes.h>
 #include <Gui/Selection.h>
 #include <Gui/ViewProvider.h>
 #include <Gui/Window.h>

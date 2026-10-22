@@ -33,6 +33,7 @@
 
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <App/DocumentObserver.h>
 #include <Mod/Part/App/Interface.h>
 #include <Mod/Part/App/IGES/ImportExportSettings.h>
 #include <Mod/Part/App/OCAF/ImportExportSettings.h>

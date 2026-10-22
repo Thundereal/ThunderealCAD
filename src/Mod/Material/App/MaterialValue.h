@@ -29,7 +29,8 @@
 #include <QMetaType>
 #include <QVariant>
 
-#include <Gui/MetaTypes.h>
+#include <Base/BaseClass.h>
+#include <Base/Quantity.h>
 
 #include <Mod/Material/MaterialGlobal.h>
 

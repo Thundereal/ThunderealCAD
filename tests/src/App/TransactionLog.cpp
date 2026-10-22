@@ -17,6 +17,8 @@
 #include "App/Actor.h"
 #include "App/Application.h"
 #include "Base/Interpreter.h"
+#include <filesystem>
+
 #include "App/PropertyPythonObject.h"
 #include "App/PropertyExpressionEngine.h"
 #include "App/ObjectIdentifier.h"
@@ -30,6 +32,10 @@
 #include "App/Extension.h"
 #include "App/FileHistory.h"
 #include "App/GroupExtension.h"
+#include "App/Link.h"
+#include "App/Origin.h"
+#include "App/OriginGroupExtension.h"
+#include "App/Part.h"
 #include "App/PropertyFile.h"
 #include "App/PropertyHistory.h"
 #include "App/TransactionLog.h"
@@ -257,6 +263,124 @@ TEST_F(TransactionLogTest, unchangedWriteIsNotLogged)
     obj->Integer.setValue(obj->Integer.getValue());
     doc()->commitTransaction();
     EXPECT_EQ(log().store().transactions().size(), 1u);
+}
+
+// sec 37.7 item 1: a dynamic property removed and one of the same name and
+// type added in one transaction may get the removed one's freed address; the
+// row says the removal all the same.
+TEST_F(TransactionLogTest, aPropertyAddedInARemovedOnesPlaceIsNotItsSet)
+{
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    auto old = obj->addDynamicProperty("App::PropertyString", "Note", "Extra");
+    static_cast<App::PropertyString*>(old)->setValue("first");
+    doc()->commitTransaction();
+    log().resolvePending();
+
+    doc()->openTransaction("again");
+    obj->removeDynamicProperty("Note");
+    obj->Integer.setValue(1);   // the cleaner frees the removed one
+    auto added = obj->addDynamicProperty("App::PropertyString", "Note", "Extra");
+    static_cast<App::PropertyString*>(added)->setValue("second");
+    doc()->commitTransaction();
+    if (added != old)
+        GTEST_SKIP() << "the allocator did not reuse the address";
+
+    auto txns = log().store().transactions();
+    ASSERT_EQ(txns.size(), 2u);
+    int delprops = 0, addprops = 0, sets = 0;
+    for (auto& o : log().store().ops(txns[1].seq)) {
+        if (o.prop != "Note")
+            continue;
+        delprops += o.op == "delprop";
+        addprops += o.op == "addprop";
+        sets += o.op == "set";
+    }
+    EXPECT_EQ(delprops, 1);
+    EXPECT_EQ(addprops, 1);
+    EXPECT_EQ(sets, 1);
+}
+
+// sec 37.7 item 4: an undo inside a command commits its transaction while the
+// application still names it; the command's next write must not throw.
+TEST_F(TransactionLogTest, aWriteAfterAnUndoInsideACommandIsAStepOfItsOwn)
+{
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    doc()->commitTransaction();
+    {
+        App::AutoTransaction command("Command");
+        obj->Integer.setValue(1);
+        EXPECT_FALSE(doc()->undoLogged(int64_t(999999)));   // no such row: refused
+        EXPECT_NO_THROW(obj->Integer.setValue(2));
+    }
+    App::GetApplication().closeActiveTransaction();
+    if (doc()->hasPendingTransaction())
+        doc()->commitTransaction();
+    EXPECT_EQ(obj->Integer.getValue(), 2);
+}
+
+// sec 37.9: a paste answered before it is imported. An object left out keeps
+// the live one of its UID, and what was brought refers to it; a part
+// assigned keeps its live origin, which its own origin and axes stand for.
+TEST_F(TransactionLogTest, aPasteAnsweredAheadKeepsWhatIsLeftOutAndTheOrigin)
+{
+    doc()->openTransaction("make");
+    auto obj = make("Obj");
+    auto part = doc()->addObject("App::Part", "Part");
+    doc()->commitTransaction();
+    auto origin = part->getExtensionByType<App::OriginGroupExtension>()->getOrigin();
+    ASSERT_TRUE(origin);
+    origin->getX();   // its axes and planes made (they are lazy)
+    const std::string originName = origin->getNameInDocument();
+    const auto objects = doc()->getObjects().size();
+    const int before = obj->Integer.getValue();
+
+    auto other = App::GetApplication().newDocument("PasteAway", "PasteAway");
+    const std::string otherName = other->getName();
+    auto away = other->copyObject({obj});
+    ASSERT_EQ(away.size(), 1u);
+    static_cast<App::FeatureTest*>(away[0])->Integer.setValue(before + 3);
+    auto link = static_cast<App::Link*>(other->addObject("App::Link", "L"));
+    link->setLink(-1, away[0]);
+    auto parts = other->copyObject({part}, true, true);
+    App::DocumentObject* awayPart = nullptr;
+    for (auto o : parts) {
+        if (o->isDerivedFrom<App::Part>())
+            awayPart = o;
+    }
+    ASSERT_TRUE(awayPart);
+    static_cast<App::Part*>(awayPart)->Placement.setValue(
+        Base::Placement(Base::Vector3d(7, 0, 0), Base::Rotation()));
+
+    {
+        App::Document::ImportClashScope scope(App::Document::ImportClashScope::Answered);
+        scope.answers[away[0]->getNameInDocument()] = App::Document::ImportTake::Exclude;
+        scope.answers[awayPart->getNameInDocument()] = App::Document::ImportTake::Assign;
+        doc()->openTransaction("paste");
+        doc()->copyObject({away[0], link, awayPart}, true);
+        doc()->commitTransaction();
+    }
+    // Left out: ours as it was, the link brought links it
+    EXPECT_EQ(obj->Integer.getValue(), before);
+    App::Link* pasted = nullptr;
+    for (auto o : doc()->getObjects()) {
+        if (o->isDerivedFrom<App::Link>())
+            pasted = static_cast<App::Link*>(o);
+    }
+    ASSERT_TRUE(pasted);
+    EXPECT_EQ(pasted->getLinkedObjectValue(), obj);
+    // Assigned: the part took the placement, and kept its origin
+    EXPECT_DOUBLE_EQ(static_cast<App::Part*>(part)->Placement.getValue().getPosition().x, 7);
+    EXPECT_EQ(std::string(part->getExtensionByType<App::OriginGroupExtension>()
+                              ->getOrigin()->getNameInDocument()),
+              originName);
+    int origins = 0;
+    for (auto o : doc()->getObjects())
+        origins += o->isDerivedFrom<App::Origin>() ? 1 : 0;
+    EXPECT_EQ(origins, 1);
+    EXPECT_EQ(doc()->getObjects().size(), objects + 1);   // the link alone
+    App::GetApplication().closeDocument(otherName.c_str());
 }
 
 TEST_F(TransactionLogTest, replaysToIdenticalDocument)
@@ -2875,6 +2999,64 @@ TEST_F(TransactionLogTest, recoversACrashedSessionFromItsLog)
     }
     EXPECT_TRUE(record);
     App::GetApplication().closeDocument(name.c_str());
+}
+
+// sec 37.7 item 6: a recovery that cannot take the WAL over with the database
+// takes neither, and leaves the crashed session's directory whole for another
+// try.
+TEST_F(TransactionLogTest, aRecoveryThatCannotTakeTheWalLeavesTheLogWhole)
+{
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    obj->Integer.setValue(7);
+    doc()->commitTransaction();
+    log().flush();
+    const std::string crashed = Base::FileInfo::getTempPath() + "txnlog-crashed-wal";
+    Base::FileInfo(crashed).deleteDirectoryRecursive();
+    const std::string from = doc()->TransientDir.getStrValue() + "/history";
+    Base::FileInfo(crashed + "/history").createDirectories();
+    Base::FileInfo(crashed + "/blobs").createDirectories();
+    for (const auto& file : Base::FileInfo(from).getDirectoryContent()) {
+        if (file.isFile())
+            file.copyTo((crashed + "/history/" + file.fileName()).c_str());
+    }
+    const std::string oldLog = crashed + "/history/log.db";
+    if (!Base::FileInfo(oldLog + "-wal").exists())
+        GTEST_SKIP() << "no WAL beside the copied log";
+
+    auto other = App::GetApplication().newDocument("RecoverInto", "RecoverInto");
+    const std::string otherName = other->getName();
+    other->setUndoMode(1);
+    ASSERT_TRUE(other->getTransactionLog());
+    // In the way of the WAL: a directory, which neither a rename nor a copy
+    // replaces.
+    const std::string newLog = other->getTransactionLog()->path();
+    // Its own WAL is open: unlinked, the connection keeps writing it.
+    std::filesystem::remove(newLog + "-wal");
+    std::filesystem::create_directories(newLog + "-wal/blocked");
+    ASSERT_TRUE(Base::FileInfo(newLog + "-wal").isDir());
+    // Refused, or -- the store opened again where the WAL cannot be --
+    // thrown; either way nothing of the crashed session's is gone.
+    bool recovered = true;
+    try {
+        recovered = other->recoverFromLog(crashed);
+    }
+    catch (const Base::Exception&) {
+        recovered = false;
+    }
+    EXPECT_FALSE(recovered);
+    EXPECT_TRUE(Base::FileInfo(oldLog).exists());
+    EXPECT_TRUE(Base::FileInfo(oldLog + "-wal").exists());
+    App::GetApplication().closeDocument(otherName.c_str());
+    std::filesystem::remove_all(newLog + "-wal");
+
+    // Another try, nothing in the way, takes it over whole.
+    auto again = App::GetApplication().recoverDocument(crashed.c_str(), false);
+    ASSERT_TRUE(again);
+    auto robj = dynamic_cast<App::FeatureTest*>(again->getObject("Obj"));
+    ASSERT_TRUE(robj);
+    EXPECT_EQ(robj->Integer.getValue(), 7);
+    App::GetApplication().closeDocument(again->getName());
 }
 
 namespace

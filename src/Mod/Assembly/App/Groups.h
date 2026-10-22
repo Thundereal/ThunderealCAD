@@ -48,6 +48,14 @@ public:
     {
         return "AssemblyGui::ViewProviderBomGroup";
     }
+
+    /// What it holds is the assembly's, removed with it (the assembly's
+    /// onDelete), and pairs by UID with the live group's (TransactionLog sec
+    /// 37.9)
+    std::vector<App::DocumentObject*> getOwnedObjects() const override;
+    App::DocumentObject* getOwnedCounterpart(const App::DocumentObject* owned,
+                                             const App::DocumentObject* liveOwner,
+                                             App::OwnedPaste& how) const override;
 };
 
 
@@ -66,6 +74,14 @@ public:
     {
         return "AssemblyGui::ViewProviderJointGroup";
     }
+
+    /// What it holds is the assembly's, removed with it (the assembly's
+    /// onDelete), and pairs by UID with the live group's (TransactionLog sec
+    /// 37.9)
+    std::vector<App::DocumentObject*> getOwnedObjects() const override;
+    App::DocumentObject* getOwnedCounterpart(const App::DocumentObject* owned,
+                                             const App::DocumentObject* liveOwner,
+                                             App::OwnedPaste& how) const override;
 
     std::vector<App::DocumentObject*> getJoints();
 };
@@ -122,6 +138,14 @@ public:
     {
         return "AssemblyGui::ViewProviderViewGroup";
     }
+
+    /// What it holds is the assembly's, removed with it (the assembly's
+    /// onDelete), and pairs by UID with the live group's (TransactionLog sec
+    /// 37.9)
+    std::vector<App::DocumentObject*> getOwnedObjects() const override;
+    App::DocumentObject* getOwnedCounterpart(const App::DocumentObject* owned,
+                                             const App::DocumentObject* liveOwner,
+                                             App::OwnedPaste& how) const override;
 };
 
 }  // namespace Assembly

@@ -106,6 +106,9 @@ struct DocumentP
     /// The UID each object of the import under way was brought with, by id,
     /// whatever it was given here (sec 36.7).
     std::unordered_map<long, std::string> broughtUids;
+    /// An import's objects by id: the name each had in the stream, which a
+    /// paste's answers name it by (sec 37.9)
+    std::unordered_map<long, std::string> broughtNames;
     /// The clashes of the import under way (sec 36.4), and whether what it
     /// brings was copied from this very document, which is never asked.
     std::vector<Document::ImportClash> importClashes;

@@ -680,13 +680,17 @@ void StdCmdMergeProjects::activated(int iMsg)
             return;
         }
 
-        doc->openTransaction("Merge document");
-        Base::FileInfo fi((const char*)project.toUtf8());
-        Base::ifstream str(fi, std::ios::in | std::ios::binary);
-        MergeDocuments md(doc);
+        const Base::FileInfo fi((const char*)project.toUtf8());
+        std::vector<App::DocumentObject*> merged;
         try {
-            ImportClashAsk ask;   // sec 36.4
-            md.importObjects(str);
+            // Asked before the step opens (sec 36.4, 37.9)
+            if (!pasteAsked(doc,
+                            [&fi]() -> std::unique_ptr<std::istream> {
+                                return std::make_unique<Base::ifstream>(
+                                    fi, std::ios::in | std::ios::binary);
+                            },
+                            "Merge document", merged))
+                return;
         }
         catch (const Base::AbortException&) {
             doc->abortTransaction();
@@ -698,7 +702,6 @@ void StdCmdMergeProjects::activated(int iMsg)
             e.ReportException();
             return;
         }
-        str.close();
         doc->commitTransaction();
     }
 }

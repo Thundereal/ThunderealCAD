@@ -22,9 +22,14 @@
 #ifndef GUI_DLGOBJECTSELECTION_H
 #define GUI_DLGOBJECTSELECTION_H
 
+#include <map>
+#include <set>
+
 #include <QDialog>
 #include <QTimer>
+#include <App/Document.h>
 #include <App/DocumentObserver.h>
+#include <App/DocumentObjectExtension.h>
 #include <Base/Parameter.h>
 #include <Base/Bitmask.h>
 
@@ -93,6 +98,22 @@ public:
     /// Override the prompt message
     void setMessage(const QString &);
 
+    /** Paste mode (docs/TransactionLog.md sec 37.9): the objects listed are
+     * to be brought into `target`, which has some of them already; `pairs`
+     * maps each such to the one there. Its row gets a second check,
+     * "Assign to" the one there (which then takes the state brought), and
+     * unchecking a row leaves the object out (what is brought then refers
+     * to the one there, or to nothing). An object another owns
+     * (App::DocumentObject::getOwnedObjects) follows its owner and is not
+     * chosen apart: an origin of an owner assigned or left out is the one
+     * there, kept. One an assigned object depends on, and that is there
+     * too, is assigned or left out, not duplicated.
+     */
+    void setPaste(App::Document* target,
+                  const std::map<App::DocumentObject*, App::DocumentObject*>& pairs);
+    /// Paste mode: what each object listed takes
+    std::map<App::DocumentObject*, App::Document::ImportTake> getTakes() const;
+
     void accept() override;
     void reject() override;
 
@@ -119,6 +140,12 @@ private:
     void setItemState(App::DocumentObject *obj, Qt::CheckState state, bool forced = false);
     void updateAllItemState();
 
+    /// Paste mode: the rules of setPaste() applied to the checks as they are
+    void applyPasteRules();
+    /// Either mode: an object another listed one owns goes with it (sec 37.9)
+    void applyOwnedRules();
+    bool included(App::DocumentObject* obj) const;
+
 private:
     Ui_DlgObjectSelection* ui;
     std::vector<App::DocumentObject*> initSels;
@@ -132,6 +159,21 @@ private:
 
     QPushButton* useOriginalsBtn;
     bool returnOriginals = false;
+
+    /// Paste mode (setPaste)
+    bool pasteMode = false;
+    std::map<App::DocumentObject*, App::DocumentObject*> pastePairs;
+    struct PasteOwned
+    {
+        App::DocumentObject* owner = nullptr;
+        App::DocumentObject* live = nullptr;   // the one there it stands for
+        App::OwnedPaste how = App::OwnedPaste::FollowOwner;
+    };
+    std::map<App::DocumentObject*, PasteOwned> pasteOwned;
+    std::set<App::DocumentObject*> pasteAssigned;
+    bool applyingRules = false;
+    /// Listed object -> the listed object that owns it (sec 37.9)
+    std::map<App::DocumentObject*, App::DocumentObject*> ownedBy;
 
     std::unique_ptr<PrefWidgetStates> widgetStates;
 

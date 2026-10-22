@@ -25,12 +25,23 @@
 #define APP_DOCUMENTOBJECTEXTENSION_H
 
 #include "Extension.h"
+#include <vector>
 
 namespace Base {
 class Matrix4D;
 }
 namespace App {
 class DocumentObject;
+
+/// How an owned object goes when its owner is pasted onto a live one
+/// (DocumentObject::getOwnedCounterpart, docs/TransactionLog.md sec 37.9)
+enum class OwnedPaste {
+    /// As its owner goes: assigned with it, left out with it
+    FollowOwner,
+    /// The live owner's own is kept as it is, whatever the owner takes, and
+    /// what is brought refers to it: an origin, whose state is fixed
+    KeepLive,
+};
 class DocumentObjectExecReturn;
 
 /**
@@ -105,6 +116,17 @@ public:
     }
 
     virtual bool extensionHasChildElement() const {return false;}
+
+    /// DocumentObject::getOwnedObjects(): add what this extension owns
+    virtual void extensionGetOwnedObjects(std::vector<DocumentObject*>&) const {}
+    /// DocumentObject::getOwnedCounterpart(): non-null when this extension
+    /// owns `owned`
+    virtual DocumentObject* extensionGetOwnedCounterpart(const DocumentObject* /*owned*/,
+                                                         const DocumentObject* /*liveOwner*/,
+                                                         OwnedPaste& /*how*/) const
+    {
+        return nullptr;
+    }
 };
 
 } //App

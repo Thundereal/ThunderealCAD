@@ -1752,6 +1752,26 @@ bool DocumentObject::hasChildElement() const {
     return queryExtension(&DocumentObjectExtension::extensionHasChildElement);
 }
 
+std::vector<DocumentObject*> DocumentObject::getOwnedObjects() const
+{
+    std::vector<DocumentObject*> owned;
+    for (auto ext : getExtensionsDerivedFromType<DocumentObjectExtension>())
+        ext->extensionGetOwnedObjects(owned);
+    return owned;
+}
+
+DocumentObject* DocumentObject::getOwnedCounterpart(const DocumentObject* owned,
+                                                    const DocumentObject* liveOwner,
+                                                    OwnedPaste& how) const
+{
+    how = OwnedPaste::FollowOwner;
+    for (auto ext : getExtensionsDerivedFromType<DocumentObjectExtension>()) {
+        if (auto there = ext->extensionGetOwnedCounterpart(owned, liveOwner, how))
+            return there;
+    }
+    return nullptr;
+}
+
 DocumentObject *DocumentObject::resolve(const char *subname, 
         App::DocumentObject **parent, std::string *childName, const char **subElement, 
         PyObject **pyObj, Base::Matrix4D *pmat, bool transform, int depth) const

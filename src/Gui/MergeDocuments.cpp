@@ -96,6 +96,50 @@ unsigned int MergeDocuments::getMemSize () const
     return 0;
 }
 
+namespace
+{
+/// The value of `attr="..."` in the tag text `tag`, empty if none
+std::string attribute(const std::string& tag, const char* attr)
+{
+    const std::string key = std::string(" ") + attr + "=\"";
+    auto pos = tag.find(key);
+    if (pos == std::string::npos)
+        return {};
+    pos += key.size();
+    auto end = tag.find('"', pos);
+    return end == std::string::npos ? std::string() : tag.substr(pos, end - pos);
+}
+}  // namespace
+
+std::vector<std::string> MergeDocuments::scanUids(std::istream& input, std::string& from)
+{
+    from.clear();
+    std::vector<std::string> uids;
+    zipios::ZipInputStream zip(input);
+    // Document.xml is the first entry; the object list is its first part,
+    // read up to its end and no further (the properties, the shapes' files)
+    std::string text;
+    char buf[65536];
+    while (zip) {
+        zip.read(buf, sizeof(buf));
+        text.append(buf, static_cast<std::size_t>(zip.gcount()));
+        if (text.find("</Objects>") != std::string::npos)
+            break;
+    }
+    auto doc = text.find("<Document ");
+    if (doc != std::string::npos)
+        from = attribute(text.substr(doc, text.find('>', doc) - doc), "From");
+    auto end = text.find("</Objects>");
+    for (auto pos = text.find("<Object "); pos != std::string::npos && pos < end;
+         pos = text.find("<Object ", pos + 1)) {
+        const std::string tag = text.substr(pos, text.find('>', pos) - pos);
+        std::string uid = attribute(tag, "uid");
+        if (!uid.empty())
+            uids.push_back(std::move(uid));
+    }
+    return uids;
+}
+
 std::vector<App::DocumentObject*>
 MergeDocuments::importObjects(std::istream& input)
 {

@@ -1329,7 +1329,8 @@ Document* Application::recoverDocument(const char* transientDir, bool createView
     doc->setUndoMode(1);
     try {
         if (!doc->recoverFromLog(dir))
-            THROWM(Base::RuntimeError, std::string("nothing to recover in ") + dir)
+            THROWM(Base::RuntimeError, std::string("nothing recovered from ") + dir
+                   + "; the report view says why")
     }
     catch (...) {
         closeDocument(doc->getName());

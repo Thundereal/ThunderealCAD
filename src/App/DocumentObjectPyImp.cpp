@@ -935,6 +935,20 @@ PyObject*  DocumentObjectPy::hasChildElement(PyObject *args)
     } PY_CATCH;
 }
 
+PyObject*  DocumentObjectPy::getOwnedObjects(PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        Py::List list;
+        for (auto obj : getDocumentObjectPtr()->getOwnedObjects()) {
+            if (obj)
+                list.append(Py::asObject(obj->getPyObject()));
+        }
+        return Py::new_reference_to(list);
+    } PY_CATCH;
+}
+
 PyObject*  DocumentObjectPy::getParentGroup(PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))

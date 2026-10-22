@@ -1175,8 +1175,15 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs)
     }
 
     // The redo steps end here, with every row taken back: a refusal above
-    // leaves them as they were.
+    // leaves them as they were. Cleared with the step set aside, as
+    // _openTransaction clears them before it makes its own: deleting a redo
+    // step deletes the objects it holds, and what their teardown writes is
+    // not this undo's (sec 37.7 item 5) -- a step of its own if anything.
+    step = std::exchange(d->activeUndoTransaction, nullptr);
     _clearMyRedos();
+    if (d->activeUndoTransaction)
+        _commitTransaction(false);
+    d->activeUndoTransaction = step;
     _commitTransaction(false);
     return true;
 }
@@ -1902,6 +1909,15 @@ void Document::_checkTransaction(DocumentObject* pcDelObj, const Property *What,
                                  && !AutoTransaction::recordViewObjectChange())
                             ignore = true;
                     }
+                }
+                // Not the application's id when a step on the undo stack
+                // already has it: an undo committed the transaction while the
+                // command that opened it still names it, and reopening it
+                // would throw "invalid transaction id". The write is a step
+                // of its own then (sec 37.7 item 4).
+                if(name && tid>0 && mUndoMap.count(tid)) {
+                    FC_LOG("transaction " << tid << " is closed, write is a step of its own");
+                    name = nullptr;
                 }
                 if(name && tid>0) {
                     if(FC_LOG_INSTANCE.isEnabled(FC_LOGLEVEL_LOG)) {
@@ -4419,6 +4435,8 @@ Document::readObjects(Base::XMLReader& reader)
                 obj = addObject(type.c_str(), obj_name, /*isNew=*/ false, viewType.c_str(), partial);
             }
             FC_DURATION_PLUS(d->restoreTiming.createAdd, tAdd);
+            if (obj && testStatus(Status::Importing))
+                d->broughtNames[obj->_Id] = name;
             if (obj) {
                 if(lastId < obj->_Id)
                     lastId = obj->_Id;
@@ -4514,6 +4532,7 @@ Document::importObjects(Base::XMLReader& reader)
     // changes like any, read through a name map of their own.
     auto objs = _settleImportClashes(_importObjects(reader));
     d->broughtUids.clear();
+    d->broughtNames.clear();
     return objs;
 }
 
@@ -4550,6 +4569,7 @@ Document::_importObjects(Base::XMLReader& reader)
         && TransientDir.getStrValue() == reader.getAttribute("From");
     d->importClashes.clear();
     d->broughtUids.clear();
+    d->broughtNames.clear();
 
     // The imported objects' included files come in the same archive; they
     // become this document's content, counted against this document's store.
@@ -4624,10 +4644,27 @@ std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<Document
     std::vector<ImportClash> clashes = std::move(d->importClashes);
     d->importClashes.clear();
     d->importFromHere = false;
-    if (clashes.empty())
-        return objs;
     auto scope = ImportClashScope::current();
     const auto mode = scope ? scope->mode : ImportClashScope::Duplicate;
+    // Answered before the import (sec 37.9): an object left out is settled
+    // here whether or not it clashes.
+    const bool answered = mode == ImportClashScope::Answered;
+    if (clashes.empty() && !answered)
+        return objs;
+    auto takeOf = [&](DocumentObject* o) {
+        if (!answered || !o)
+            return ImportTake::Duplicate;
+        auto name = d->broughtNames.find(o->getID());
+        if (name == d->broughtNames.end())
+            return ImportTake::Duplicate;
+        auto it = scope->answers.find(name->second);
+        // An object of another document is exported as `Name@Document`
+        // (copyObject, readObjects): answered by its name there too
+        const auto at = name->second.find('@');
+        if (it == scope->answers.end() && at != std::string::npos)
+            it = scope->answers.find(name->second.substr(0, at));
+        return it == scope->answers.end() ? ImportTake::Duplicate : it->second;
+    };
     if (mode == ImportClashScope::Assign) {
         for (auto& c : clashes)
             c.assign = true;
@@ -4647,14 +4684,75 @@ std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<Document
         }
         THROWM(Base::AbortException, "the paste was cancelled");
     }
+    // Each brought object paired with a live one is assigned onto it, or
+    // left out with the live one kept as it is; one left out with none
+    // goes.
     std::map<DocumentObject*, DocumentObject*> assigned;
+    std::map<DocumentObject*, DocumentObject*> kept;
+    std::set<DocumentObject*> dropped;
     for (const auto& c : clashes) {
-        if (c.assign && c.brought && c.live && c.brought->isAttachedToDocument()
-                && c.live->isAttachedToDocument())
+        if (!c.brought || !c.live || !c.brought->isAttachedToDocument()
+                || !c.live->isAttachedToDocument())
+            continue;
+        const ImportTake take = answered ? takeOf(c.brought)
+            : c.assign ? ImportTake::Assign : ImportTake::Duplicate;
+        if (take == ImportTake::Assign)
             assigned.emplace(c.brought, c.live);
+        else if (take == ImportTake::Exclude)
+            kept.emplace(c.brought, c.live);
     }
-    if (assigned.empty())
+    // What an owner owns follows it (sec 37.9): paired with a live one,
+    // its own pair with the live one's -- an origin by its slot, its axes
+    // and planes by Role -- assigned with it, or kept where the owner says
+    // the live one stays (an origin's state is fixed). A body assigned with
+    // its origin duplicated left the live origin with no owner (37.7 item
+    // 10).
+    const std::set<DocumentObject*> brought(objs.begin(), objs.end());
+    std::vector<std::pair<DocumentObject*, DocumentObject*>> owners(assigned.begin(),
+                                                                    assigned.end());
+    owners.insert(owners.end(), kept.begin(), kept.end());
+    for (std::size_t i = 0; i < owners.size(); ++i) {
+        auto [owner, live] = owners[i];
+        for (auto owned : owner->getOwnedObjects()) {
+            if (!owned || !brought.count(owned) || !owned->isAttachedToDocument())
+                continue;
+            OwnedPaste how = OwnedPaste::FollowOwner;
+            auto there = owner->getOwnedCounterpart(owned, live, how);
+            if (!there || there == owned || there->getDocument() != this
+                    || brought.count(there))
+                continue;
+            const bool keep = how == OwnedPaste::KeepLive || kept.count(owner);
+            if (keep && !kept.count(owned)) {
+                assigned.erase(owned);
+                kept.emplace(owned, there);
+            }
+            else if (!keep && !assigned.count(owned) && !kept.count(owned))
+                assigned.emplace(owned, there);
+            else
+                continue;
+            owners.emplace_back(owned, there);
+        }
+    }
+    if (answered) {
+        for (auto o : objs) {
+            if (o && o->isAttachedToDocument() && !assigned.count(o) && !kept.count(o)
+                    && takeOf(o) == ImportTake::Exclude)
+                dropped.insert(o);
+        }
+        // What a left-out owner owns goes with it
+        std::vector<DocumentObject*> owners(dropped.begin(), dropped.end());
+        for (std::size_t i = 0; i < owners.size(); ++i) {
+            for (auto owned : owners[i]->getOwnedObjects()) {
+                if (owned && brought.count(owned) && !assigned.count(owned)
+                        && !kept.count(owned) && dropped.insert(owned).second)
+                    owners.push_back(owned);
+            }
+        }
+    }
+    if (assigned.empty() && kept.empty() && dropped.empty())
         return objs;
+    std::map<DocumentObject*, DocumentObject*> paired = assigned;
+    paired.insert(kept.begin(), kept.end());
 
     // 1. What the objects brought refer to.
     for (auto o : objs) {
@@ -4666,10 +4764,16 @@ std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<Document
             auto link = Base::freecad_dynamic_cast<PropertyLinkBase>(prop);
             if (!link)
                 continue;
-            for (const auto& kv : assigned) {
+            for (const auto& kv : paired) {
                 std::unique_ptr<Property> copy(link->CopyOnLinkReplace(o, kv.first, kv.second));
                 if (copy)
                     prop->Paste(*copy);
+            }
+            // One left out with nothing here to stand for it: referred to
+            // by nothing
+            for (auto gone : dropped) {
+                if (gone != o)
+                    link->breakLink(gone, false);
             }
         }
     }
@@ -4725,30 +4829,47 @@ std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<Document
     }
     for (const auto& kv : assigned)
         kv.second->touch();
-    // 3. The copies go; the objects brought are the live ones in their
-    // place. A copy lets go of every link first: step 1 pointed its links
-    // at live objects, and a removal's unsetup takes what the object owns
-    // with it -- a body's origin, a link's copy-on-change group.
-    for (const auto& kv : assigned) {
-        if (!kv.first->isAttachedToDocument())
+    // 3. The copies go -- assigned, kept, left out; the objects brought are
+    // the live ones in their place. A copy lets go of every link first:
+    // step 1 pointed its links at live objects, and a removal's unsetup
+    // takes what the object owns with it -- a body's origin, a link's
+    // copy-on-change group.
+    // The list handed back, made before anything goes
+    std::vector<DocumentObject*> out;
+    std::set<DocumentObject*> listed;
+    for (auto o : objs) {
+        if (dropped.count(o))
+            continue;
+        auto it = paired.find(o);
+        DocumentObject* now = it != paired.end() ? it->second : o;
+        if (listed.insert(now).second)
+            out.push_back(now);
+    }
+    std::vector<DocumentObject*> gone;
+    for (const auto& kv : paired)
+        gone.push_back(kv.first);
+    gone.insert(gone.end(), dropped.begin(), dropped.end());
+    for (auto copy : gone) {
+        if (!copy->isAttachedToDocument())
             continue;
         std::vector<Property*> props;
-        kv.first->getPropertyList(props);
+        copy->getPropertyList(props);
         for (auto prop : props) {
             if (auto link = Base::freecad_dynamic_cast<PropertyLinkBase>(prop))
-                link->breakLink(kv.first, true);
+                link->breakLink(copy, true);
         }
     }
-    for (const auto& kv : assigned) {
-        if (kv.first->isAttachedToDocument())
-            removeObject(kv.first->getNameInDocument());
+    // By name, looked up again: a removal may take another with it
+    std::vector<std::string> goneNames;
+    for (auto copy : gone) {
+        if (copy->isAttachedToDocument())
+            goneNames.emplace_back(copy->getNameInDocument());
     }
-    for (auto& o : objs) {
-        auto it = assigned.find(o);
-        if (it != assigned.end())
-            o = it->second;
+    for (const auto& name : goneNames) {
+        if (getObject(name.c_str()))
+            removeObject(name.c_str());
     }
-    return objs;
+    return out;
 }
 
 unsigned int Document::getMemSize () const
@@ -7341,8 +7462,10 @@ Document* Document::_openReadVersion(int64_t num, const std::string& stem, bool 
         ~Cleanup() { Base::FileInfo(dir).deleteDirectoryRecursive(); }
     } cleanup {dir};
 
-    // A new document becomes the active one; the active one is handed back
-    // -- here, or with `active` by the caller once it has done with this one.
+    // A temporary document hands the active one back as it is made
+    // (Application::newDocument); with none active it stays the active one,
+    // and is handed back here, or with `active` by the caller once it has
+    // done with it (_readVersion, sec 37.7 item 8).
     auto& app = GetApplication();
     Document* was = app.getActiveDocument();
     const std::string name = app.getUniqueDocumentName(
@@ -7432,9 +7555,14 @@ void Document::_readVersion(int64_t num, const std::function<void(Document&)>& f
     std::unique_ptr<void, std::function<void(void*)>> closer(
         version, [&app, name, active](void*) {
             app.closeDocument(name.c_str());
-            if (active && app.getActiveDocument() != active)
+            if (app.getActiveDocument() != active)
                 app.setActiveDocument(active);
         });
+    // With none active, the scratch would be the active document while `fn`
+    // writes this one, and an object's code asking for the active document
+    // would get one deleted a moment later: this one is, until it is done.
+    if (!active)
+        app.setActiveDocument(this);
     fn(*version);
 }
 
@@ -11998,7 +12126,21 @@ bool Document::_rollBackUndoneMerge()
     _clearRedos();
     store.forwardBranch(log->branch(), before, {});
     log->moveHead(before);
-    _followHead(head);
+    // The document is in that state already: a follow that fails (the rows
+    // will not fold and the version will not read) leaves it there, and the
+    // rollback is finished all the same rather than left with the head
+    // moved and the rest undone (sec 37.7 item 9, ruled).
+    try {
+        _followHead(head);
+    }
+    catch (Base::Exception& e) {
+        FC_WARN(getName() << ": the merge rolled back without following the rows: " << e.what());
+        log->forgetLiveValues();
+    }
+    catch (std::exception& e) {
+        FC_WARN(getName() << ": the merge rolled back without following the rows: " << e.what());
+        log->forgetLiveValues();
+    }
     if (!evict.empty())
         store.evictVersions(evict);
     store.removeTransactions(seqs);
@@ -17150,6 +17292,15 @@ void Document::_giveObjectUid(DocumentObject* pcObject, bool freshId, const std:
     if (!known && uid.empty() && testStatus(Status::Restoring))
         d->unsourcedUids.insert(pcObject->_Id);
     bool derived = false;
+    // The history wins (36.3); a file saved with another UID for the id is
+    // one that grew apart from the history it is read with (a copy saved
+    // over the file while this process held its history), and is said
+    // (sec 37.7 item 11).
+    if (known && !uid.empty() && uid != *known && testStatus(Status::Restoring)
+            && !testStatus(Status::Importing))
+        FC_WARN(getName() << ": " << name << " (id " << pcObject->_Id << ") was saved with UID "
+                          << uid << "; the file's history gives the id " << *known
+                          << ", which it takes");
     if (known)
         uid = *known;
     else if (uid.empty() && !freshId) {
@@ -17185,6 +17336,12 @@ std::string Document::_derivedObjectUid(long id, const std::string& name) const
     if (space.empty())
         space = Uid.getValueStr();
     return Base::Uuid::createUuid(space, "object " + std::to_string(id) + " " + name);
+}
+
+DocumentObject* Document::getObjectByUid(const std::string& uid) const
+{
+    auto it = d->objectUidMap.find(uid);
+    return it == d->objectUidMap.end() ? nullptr : it->second;
 }
 
 void Document::carryObjectUid(DocumentObject* obj, const std::string& uid)

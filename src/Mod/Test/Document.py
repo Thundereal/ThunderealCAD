@@ -41,6 +41,30 @@ class Proxy:
     def loads(self, data):
         self.Dictionary = data
 
+class OwnerProxy:
+    """A scripted object that owns a helper object (docs/TransactionLog.md
+    sec 37.9): it says so, and which of a live owner's objects a helper
+    brought stands for."""
+
+    def __init__(self, obj):
+        obj.Proxy = self
+
+    def dumps(self):
+        return None
+
+    def loads(self, data):
+        return None
+
+    def getOwnedObjects(self, obj):
+        helper = getattr(obj, "Helper", None)
+        return [helper] if helper else []
+
+    def getOwnedCounterpart(self, obj, owned, live):
+        if owned == getattr(obj, "Helper", None):
+            return (getattr(live, "Helper", None), "keep")
+        return None
+
+
 def optimizeRecompute():
     # Once OptimizeRecompute is enabled, execute will only be called if there is
     # actually any property changes, or enforceRecompute() has been called.
@@ -3234,6 +3258,20 @@ class TransactionBranchCases(unittest.TestCase):
         names = {b["id"]: b["name"] for b in doc.getTransactionBranches()}
         self.assertEqual(names[cursor["branch"]], "main")
         self.assertEqual(doc.getObject("Obj").Integer, 2)
+
+    def testAVersionLookedAtWithANoChangeCommitStaysDetached(self):
+        # Sec 37.7 item 2: a commit whose every write changes nothing is no
+        # row, so it does not put the version's document on a branch.
+        doc, path = self.saved()
+        first = doc.getTransactionVersions()[0]["num"]
+        branches = len(doc.getTransactionBranches())
+        opened = self.track(doc.openTransactionVersion(first, False))
+        opened.openTransaction("nothing")
+        obj = opened.getObject("Obj")
+        obj.Integer = obj.Integer
+        opened.commitTransaction()
+        self.assertTrue(opened.getTransactionCursor()["detached"])
+        self.assertEqual(len(doc.getTransactionBranches()), branches)
 
     def testOpenAClosedFilesVersion(self):
         # Sec 27.13: a version of a file no document has open, read out of
@@ -7896,6 +7934,32 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(len(hers), 2)
         self.assertEqual({s["user"] for s in hers}, {alice})
 
+    def testATaskCancelledAfterAnotherWroteTakesItsStepBack(self):
+        # Sec 37.7 item 3: a cancel by id of a closed step (a transform
+        # task's) when another actor has written since goes through the log,
+        # which no guard around it may refuse.
+        doc = self.track(FreeCAD.newDocument("Cancel"))
+        doc.UndoMode = 1
+        doc.openTransaction("create")
+        mine = doc.addObject("App::FeatureTest", "Mine")
+        hers = doc.addObject("App::FeatureTest", "Hers")
+        doc.commitTransaction()
+        before = mine.Integer
+        tid = FreeCAD.setActiveTransaction("drag")
+        mine.Integer = before + 5
+        FreeCAD.closeActiveTransaction(False, tid)
+        self.assertGreater(doc.transactionLogin("verified", "alice", login=7), 0)
+        doc.pushTransactionActor("verified", "alice", login=7)
+        try:
+            doc.openTransaction("hers")
+            hers.Integer = 3
+            doc.commitTransaction()
+        finally:
+            doc.popTransactionActor()
+        FreeCAD.closeActiveTransaction(True, tid)
+        self.assertEqual(mine.Integer, before)
+        self.assertEqual(hers.Integer, 3)
+
     def testEachAuthorUndoesItsOwnSteps(self):
         # Sec 30.3 S.c, 30.10: an author's undo takes its own newest step
         # though another has written since. It then goes through the log,
@@ -11040,6 +11104,57 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual([o.Name for o in origin.OriginFeatures], features)
         for name in features:
             self.assertIsNotNone(dst.getObject(name))
+
+    def testAScriptedOwnersHelperFollowsIt(self):
+        # Sec 37.9: a Proxy says what its object owns and what a live
+        # owner's object an owned one stands for. The owner assigned, a
+        # helper brought under a UID of its own is the live owner's helper,
+        # kept: no second helper, and the owner keeps its own.
+        src = self.track(FreeCAD.newDocument("OwnSrc"))
+        owner = src.addObject("App::FeaturePython", "Owner")
+        OwnerProxy(owner)
+        owner.addProperty("App::PropertyLink", "Helper")
+        owner.addProperty("App::PropertyInteger", "Size")
+        helper = src.addObject("App::FeatureTest", "Help")
+        owner.Helper = helper
+        self.assertEqual(owner.getOwnedObjects(), [helper])
+        part = src.addObject("App::Part", "Part")
+        self.assertEqual(part.getOwnedObjects(), [part.Origin])
+        away = self.track(FreeCAD.newDocument("OwnAway"))
+        copied = away.copyObject(owner, True, True)
+        aowner = [o for o in copied if o.Name == "Owner"][0]
+        # A helper of its own there, under another UID
+        fresh = away.addObject("App::FeatureTest", "Fresh")
+        old = aowner.Helper
+        aowner.Helper = fresh
+        away.removeObject(old.Name)
+        aowner.Size = 5
+        count = len(src.Objects)
+        src.openTransaction("back")
+        src.copyObject(aowner, True, True, assign=True)
+        src.commitTransaction()
+        self.assertEqual(owner.Size, 5)
+        self.assertEqual(owner.Helper, helper)
+        self.assertEqual(len(src.Objects), count, [o.Name for o in src.Objects])
+
+    def testAnAssemblyOwnsItsJoints(self):
+        # Sec 37.10: deleting an assembly deletes its joint, view and BOM
+        # groups with what they hold; they are what it owns, and the
+        # simulation group, which stays, is not.
+        try:
+            import AssemblyApp  # noqa: F401
+        except ImportError:
+            self.skipTest("no Assembly module")
+        doc = self.track(FreeCAD.newDocument("OwnAsm"))
+        asm = doc.addObject("Assembly::AssemblyObject", "Assembly")
+        joints = asm.newObject("Assembly::JointGroup", "Joints")
+        sim = asm.newObject("Assembly::SimulationGroup", "Simulations")
+        joint = joints.newObject("App::FeaturePython", "Joint")
+        owned = asm.getOwnedObjects()
+        self.assertIn(joints, owned)
+        self.assertIn(asm.Origin, owned)
+        self.assertNotIn(sim, owned)
+        self.assertEqual(joints.getOwnedObjects(), [joint])
 
     def testAStrangersObjectOfOurUidIsOurs(self):
         # Sec 36 U6: a file that shares no history, one of whose objects was

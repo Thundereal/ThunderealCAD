@@ -3275,18 +3275,26 @@ void MainWindow::insertFromMimeData (const QMimeData * mimeData)
     if(!fromDoc) {
         QByteArray res = mimeData->data(format);
 
-        doc->openTransaction("Paste");
         std::set<long> before;
         for (auto o : doc->getObjects())
             before.insert(o->getID());
-        Base::ByteArrayIStreambuf buf(res);
-        std::istream in(nullptr);
-        in.rdbuf(&buf);
-        MergeDocuments mimeView(doc);
+        // The bytes read as often as asking needs them (sec 37.9)
+        struct Bytes: std::istream
+        {
+            explicit Bytes(const QByteArray& data)
+                : std::istream(nullptr)
+                , buf(data)
+            {
+                rdbuf(&buf);
+            }
+            Base::ByteArrayIStreambuf buf;
+        };
         std::vector<App::DocumentObject*> newObj;
         try {
-            ImportClashAsk ask;   // sec 36.4
-            newObj = mimeView.importObjects(in);
+            // Asked before the "Paste" step opens (sec 36.4, 37.9)
+            if (!pasteAsked(doc, [&res]() { return std::make_unique<Bytes>(res); }, "Paste",
+                            newObj))
+                return;
         }
         catch (const Base::AbortException&) {
             doc->abortTransaction();
@@ -3304,17 +3312,20 @@ void MainWindow::insertFromMimeData (const QMimeData * mimeData)
     else {
         QByteArray res = mimeData->data(format);
 
-        doc->openTransaction("Paste");
         std::set<long> before;
         for (auto o : doc->getObjects())
             before.insert(o->getID());
-        Base::FileInfo fi((const char*)res);
-        Base::ifstream str(fi, std::ios::in | std::ios::binary);
-        MergeDocuments mimeView(doc);
+        const Base::FileInfo fi((const char*)res);
         std::vector<App::DocumentObject*> newObj;
         try {
-            ImportClashAsk ask;   // sec 36.4
-            newObj = mimeView.importObjects(str);
+            // Asked before the "Paste" step opens (sec 36.4, 37.9)
+            if (!pasteAsked(doc,
+                            [&fi]() -> std::unique_ptr<std::istream> {
+                                return std::make_unique<Base::ifstream>(
+                                    fi, std::ios::in | std::ios::binary);
+                            },
+                            "Paste", newObj))
+                return;
         }
         catch (const Base::AbortException&) {
             doc->abortTransaction();
@@ -3325,7 +3336,6 @@ void MainWindow::insertFromMimeData (const QMimeData * mimeData)
             e.ReportException();
             return;
         }
-        str.close();
         groupPasted(doc, newObj, before);
         doc->commitTransaction();
     }

@@ -632,6 +632,18 @@ public:
     int extensionIsElementVisibleEx(const char *,int) const override;
     bool extensionHasChildElement() const override;
 
+    /** What a link owns (docs/TransactionLog.md sec 37.9): its
+     * copy-on-change group, and the elements it removes with itself -- every
+     * one in AutoDelete mode, those it made (an array's) in AutoUnlink.
+     * Pasted onto a live link, the group stands for the live one's, a copy
+     * in it for the live copy of the same source (_SourceUUID, 36.7), any
+     * other element for the live one at its index; all follow the link.
+     */
+    void extensionGetOwnedObjects(std::vector<DocumentObject*>& owned) const override;
+    DocumentObject* extensionGetOwnedCounterpart(const DocumentObject* owned,
+                                                 const DocumentObject* liveOwner,
+                                                 OwnedPaste& how) const override;
+
     PyObject* getExtensionPyObject() override;
 
     Property *extensionGetPropertyByName(const char* name) const override;

@@ -385,6 +385,9 @@ public:
     /// Transactions with seq >= from, in order, at most `limit` (0: all).
     virtual std::vector<LogTransaction> transactions(int64_t from = 0, int limit = 0) = 0;
     virtual std::vector<LogOp> ops(int64_t txn) = 0;
+    /// The transactions with seq >= from that have an op: the rest are
+    /// records (sec 11). One query where ops() per row reads every op.
+    virtual std::vector<int64_t> rowsWithOps(int64_t from) = 0;
     virtual bool getOp(int64_t txn, int idx, LogOp& op) = 0;
     /// The transactions on the parent chain ending at `head`, oldest
     /// first, those with seq >= from (sec 26): one branch's history. A

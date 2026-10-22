@@ -258,6 +258,9 @@ public:
             db = nullptr;
             THROWM(Base::RuntimeError, "Cannot open transaction log " + path + ": " + msg);
         }
+        // A second connection to the file (sec 29.1) waits for a lock
+        // instead of failing at once with SQLITE_BUSY (37.7 item 7).
+        sqlite3_busy_timeout(db, 5000);
         try {
             setUp();
         }
@@ -309,6 +312,10 @@ public:
             // open document, measured sec 37.4). Truncated to this past a
             // checkpoint.
             exec("PRAGMA journal_size_limit=1048576");
+            // And checkpointed at the same 1 MB (256 pages), not SQLite's
+            // 1000: the WAL climbed to 4 MB between checkpoints. Costs
+            // more checkpoint writes into the database (sec 37.8, P10).
+            exec("PRAGMA wal_autocheckpoint=256");
         }
         for (const auto& t : Tables)
             exec(std::string("CREATE TABLE IF NOT EXISTS main.") + t.name + t.columns);
@@ -887,6 +894,17 @@ public:
         std::vector<LogTransaction> out;
         while (sqlite3_step(s) == SQLITE_ROW)
             out.push_back(readTransaction(s));
+        sqlite3_reset(s);
+        return out;
+    }
+
+    std::vector<int64_t> rowsWithOps(int64_t from) override
+    {
+        auto s = prepare("SELECT DISTINCT txn FROM op WHERE txn>=? ORDER BY txn");
+        sqlite3_bind_int64(s, 1, from);
+        std::vector<int64_t> out;
+        while (sqlite3_step(s) == SQLITE_ROW)
+            out.push_back(sqlite3_column_int64(s, 0));
         sqlite3_reset(s);
         return out;
     }
@@ -2115,10 +2133,18 @@ public:
             return id;
         }
         sqlite3_reset(s);
-        s = prepare("INSERT INTO environment(json) VALUES(?)");
+        // OR IGNORE and read back: another connection may have added it
+        // between (sec 29.1, 37.7 item 7).
+        s = prepare("INSERT OR IGNORE INTO environment(json) VALUES(?)");
         bindText(s, 1, json);
         step(s);
-        return sqlite3_last_insert_rowid(db);
+        s = prepare("SELECT id FROM environment WHERE json=?");
+        bindText(s, 1, json);
+        int64_t id = 0;
+        if (sqlite3_step(s) == SQLITE_ROW)
+            id = sqlite3_column_int64(s, 0);
+        sqlite3_reset(s);
+        return id;
     }
 
     std::string environmentJson(int64_t id) override
@@ -2143,11 +2169,17 @@ public:
         sqlite3_reset(find);
         if (id)
             return id;
-        auto s = prepare("INSERT INTO user(kind,name) VALUES(?,?)");
+        auto s = prepare("INSERT OR IGNORE INTO user(kind,name) VALUES(?,?)");
         bindText(s, 1, kind);
         bindText(s, 2, name);
         step(s);
-        return sqlite3_last_insert_rowid(db);
+        find = prepare("SELECT id FROM user WHERE kind=? AND name=?");
+        bindText(find, 1, kind);
+        bindText(find, 2, name);
+        if (sqlite3_step(find) == SQLITE_ROW)
+            id = sqlite3_column_int64(find, 0);
+        sqlite3_reset(find);
+        return id;
     }
 
     std::vector<LogUser> users() override

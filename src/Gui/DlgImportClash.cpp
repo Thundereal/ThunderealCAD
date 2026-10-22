@@ -33,10 +33,15 @@
 # include <QVBoxLayout>
 #endif
 
+#include <set>
+
+#include <App/Application.h>
 #include <App/DocumentObject.h>
 
 #include "DlgImportClash.h"
+#include "DlgObjectSelection.h"
 #include "MainWindow.h"
+#include "MergeDocuments.h"
 
 using namespace Gui;
 
@@ -106,6 +111,110 @@ bool Gui::askImportClashes(std::vector<App::Document::ImportClash>& clashes)
         return false;
     for (std::size_t i = 0; i < clashes.size(); ++i)
         clashes[i].assign = takes[i]->currentIndex() == 1;
+    return true;
+}
+
+bool Gui::askPaste(App::Document* doc, const std::vector<App::DocumentObject*>& brought,
+                   std::map<std::string, App::Document::ImportTake>& takes)
+{
+    takes.clear();
+    // Paired by UID and type (sec 36.4); a copy beside its source in its
+    // own document is no clash
+    std::map<App::DocumentObject*, App::DocumentObject*> pairs;
+    for (auto obj : brought) {
+        if (!obj || !obj->isAttachedToDocument() || obj->getDocument() == doc
+                || obj->getObjectUid().empty())
+            continue;
+        auto live = doc->getObjectByUid(obj->getObjectUid());
+        if (live && live->getTypeId() == obj->getTypeId())
+            pairs.emplace(obj, live);
+    }
+    if (pairs.empty())
+        return true;
+    // Listed from what nothing brought depends on, as a copy lists them
+    const std::set<App::DocumentObject*> all(brought.begin(), brought.end());
+    std::vector<App::DocumentObject*> roots;
+    for (auto obj : brought) {
+        if (!obj || !obj->isAttachedToDocument())
+            continue;
+        bool root = true;
+        for (auto in : obj->getInList())
+            root = root && !all.count(in);
+        if (root)
+            roots.push_back(obj);
+    }
+    DlgObjectSelection dlg(roots, getMainWindow());
+    dlg.setObjectName(QStringLiteral("DlgPasteSelection"));
+    dlg.setWindowTitle(QObject::tr("Paste: objects already here"));
+    dlg.setPaste(doc, pairs);
+    if (dlg.exec() != QDialog::Accepted)
+        return false;
+    for (const auto& [obj, take] : dlg.getTakes()) {
+        if (obj->isAttachedToDocument())
+            takes[obj->getNameInDocument()] = take;
+    }
+    return true;
+}
+
+bool Gui::pasteAsked(App::Document* doc,
+                     const std::function<std::unique_ptr<std::istream>()>& open,
+                     const char* transaction,
+                     std::vector<App::DocumentObject*>& imported)
+{
+    // Answered before the step opens (37.7 item 13): a served client's
+    // undo meanwhile has no step to close, and a client's write is a step
+    // of its own, not the paste's. One a scan missed is duplicated, as
+    // nothing answered it.
+    App::Document::ImportClashScope scope(App::Document::ImportClashScope::Answered);
+    std::string from;
+    std::vector<std::string> uids;
+    if (auto in = open())
+        uids = MergeDocuments::scanUids(*in, from);
+    bool clash = false;
+    if (from != doc->TransientDir.getStrValue()) {
+        for (const auto& uid : uids)
+            clash = clash || doc->getObjectByUid(uid) != nullptr;
+    }
+    if (clash) {
+        // The stream read once more, into a scratch document, for the
+        // dialog to show what it brings and what depends on what
+        auto& app = App::GetApplication();
+        const std::string name = app.getUniqueDocumentName("PasteLook");
+        App::Document* scratch = app.newDocument(name.c_str(), name.c_str(), false, true, false);
+        struct Closer
+        {
+            std::string name;
+            ~Closer()
+            {
+                App::GetApplication().closeDocument(name.c_str());
+            }
+        } closer {scratch->getName()};
+        std::vector<App::DocumentObject*> objs;
+        std::map<std::string, std::string> streamName;   // scratch name -> the stream's
+        {
+            App::Document::ImportClashScope duplicate(App::Document::ImportClashScope::Duplicate);
+            MergeDocuments look(scratch);
+            auto in = open();
+            if (!in)
+                return false;
+            objs = look.importObjects(*in);
+            for (const auto& kv : look.names())
+                streamName[kv.second] = kv.first;
+        }
+        std::map<std::string, App::Document::ImportTake> takes;
+        if (!askPaste(doc, objs, takes))
+            return false;
+        for (const auto& [name, take] : takes) {
+            auto it = streamName.find(name);
+            scope.answers[it != streamName.end() ? it->second : name] = take;
+        }
+    }
+    auto in = open();
+    if (!in)
+        return false;
+    doc->openTransaction(transaction);
+    MergeDocuments merge(doc);
+    imported = merge.importObjects(*in);
     return true;
 }
 

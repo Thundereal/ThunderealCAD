@@ -52,6 +52,8 @@ class DocumentObjectGroup;
 class DocumentObjectPy;
 class Expression;
 class PropertyPlacement;
+/// Defined in DocumentObjectExtension.h (sec 37.9)
+enum class OwnedPaste;
 
 enum ObjectStatus {
     Touch = 0,
@@ -283,6 +285,26 @@ public:
 
     /// return true to activate tree view group object handling and element visibility
     virtual bool hasChildElement() const;
+    //@}
+
+    /** @name What an object owns (docs/TransactionLog.md sec 37.9)
+     *
+     * An owned object is made with its owner and removed with it, and is
+     * never another's: a body's or a part's Origin, a coordinate system's
+     * axes and planes. A paste follows the owner for it: what it owns is
+     * not chosen apart from it.
+     */
+    //@{
+    /// What this object owns; the extensions are asked, none by default.
+    virtual std::vector<DocumentObject*> getOwnedObjects() const;
+    /** Of what this object owns, the object of `liveOwner` -- an object
+     * this one is pasted onto -- that `owned` stands for, null if none,
+     * and in `how` whether it follows the owner or the live one is kept.
+     * An origin pairs by its slot, the axes and planes by Role.
+     */
+    virtual DocumentObject* getOwnedCounterpart(const DocumentObject* owned,
+                                                const DocumentObject* liveOwner,
+                                                OwnedPaste& how) const;
     //@}
 
 

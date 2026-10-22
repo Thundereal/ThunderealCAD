@@ -327,6 +327,16 @@ found, 0 if invisible, or else 1
                 <UserDocu>Return true to indicate the object having child elements</UserDocu>
             </Documentation>
         </Methode>
+        <Methode Name="getOwnedObjects">
+            <Documentation>
+                <UserDocu>getOwnedObjects() -> list
+
+What this object owns (docs/TransactionLog.md sec 37.9): made with it,
+removed with it, never another's -- a body's or a part's Origin, an
+origin's axes and planes, a link's copy-on-change group. A paste follows
+the owner for them. A Proxy adds to it with getOwnedObjects(obj).</UserDocu>
+            </Documentation>
+        </Methode>
         <Methode Name="getParentGroup">
             <Documentation>
                 <UserDocu>Returns the group the object is in or None if it is not part of a group. 

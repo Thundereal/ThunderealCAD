@@ -32,6 +32,7 @@
 #include <Base/Tools.h>
 
 #include "Datums.h"
+#include "DocumentObjectExtension.h"
 
 using namespace App;
 
@@ -145,6 +146,34 @@ LocalCoordinateSystem::LocalCoordinateSystem()
 
 
 LocalCoordinateSystem::~LocalCoordinateSystem() = default;
+
+std::vector<DocumentObject*> LocalCoordinateSystem::getOwnedObjects() const
+{
+    // As they stand: an origin nothing asked about has none yet, and asking
+    // here would make them
+    auto owned = DocumentObject::getOwnedObjects();
+    for (auto obj : OriginFeatures.getValues())
+        owned.push_back(obj);
+    return owned;
+}
+
+DocumentObject* LocalCoordinateSystem::getOwnedCounterpart(const DocumentObject* owned,
+                                                           const DocumentObject* liveOwner,
+                                                           OwnedPaste& how) const
+{
+    auto element = Base::freecad_dynamic_cast<const DatumElement>(owned);
+    auto live = Base::freecad_dynamic_cast<const LocalCoordinateSystem>(liveOwner);
+    if (!element || !live || element->getLCS() != this)
+        return DocumentObject::getOwnedCounterpart(owned, liveOwner, how);
+    how = OwnedPaste::KeepLive;
+    // The live one's of that Role, made if it was not yet (Origin is lazy)
+    try {
+        return live->getDatumElement(element->Role.getValue());
+    }
+    catch (Base::Exception&) {
+        return nullptr;   // a role the live one has not: brought as it is
+    }
+}
 
 App::DatumElement* LocalCoordinateSystem::getDatumElement(const char* role) const
 {

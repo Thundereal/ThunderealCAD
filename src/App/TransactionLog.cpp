@@ -226,6 +226,7 @@ public:
     std::vector<LogTransaction> transactions(int64_t from, int limit) override
     { return inner().transactions(from, limit); }
     std::vector<LogOp> ops(int64_t txn) override { return inner().ops(txn); }
+    std::vector<int64_t> rowsWithOps(int64_t from) override { return inner().rowsWithOps(from); }
     bool getOp(int64_t txn, int idx, LogOp& op) override { return inner().getOp(txn, idx, op); }
     std::vector<LogTransaction> chain(int64_t head, int64_t from) override
     { return inner().chain(head, from); }
@@ -1551,21 +1552,50 @@ bool TransactionLog::recover(const std::string& oldDir, RecoverInfo& info)
     // The WAL moves with the database: the rows the crashed process
     // committed and SQLite had not yet written back are in it. The shared
     // memory index is rebuilt from it on open.
+    // Both or neither (sec 37.7 item 6): a database without its WAL is the
+    // history short of its last rows, and opening it would let a later
+    // close delete the only copy. On a failure what moved goes back, and
+    // the crashed session's directory is left whole for another try.
     bool moved = true;
+    std::vector<std::pair<std::string, bool>> done;   // suffix, renamed (not copied)
     for (const char* suffix : {"", "-wal"}) {
         Base::FileInfo from(oldLog + suffix);
         if (!from.exists())
             continue;
-        if (!from.renameFile((_c._path + suffix).c_str()) && !from.copyTo((_c._path + suffix).c_str()))
+        if (from.renameFile((_c._path + suffix).c_str()))
+            done.emplace_back(suffix, true);
+        else if (Base::FileInfo(oldLog + suffix).copyTo((_c._path + suffix).c_str()))
+            done.emplace_back(suffix, false);
+        else {
             moved = false;
+            break;
+        }
     }
-    Base::FileInfo(oldLog + "-shm").deleteFile();
     if (!moved) {
-        FC_ERR("cannot take over the log of " << oldDir);
+        // A copy leaves the original where it was; a rename is undone, and
+        // one that will not go back is copied back before it goes.
+        bool back = true;
+        for (auto& d : done) {
+            Base::FileInfo to(_c._path + d.first);
+            if (!d.second || to.renameFile((oldLog + d.first).c_str()))
+                continue;
+            if (Base::FileInfo(_c._path + d.first).copyTo((oldLog + d.first).c_str()))
+                continue;
+            back = false;
+        }
+        if (back) {
+            for (const char* suffix : {"", "-wal", "-shm"})
+                Base::FileInfo(_c._path + suffix).deleteFile();
+            FC_ERR("cannot take over the log of " << oldDir << "; it is left as it was");
+        }
+        else
+            FC_ERR("cannot take over the log of " << oldDir << ", nor put it back: it is in "
+                   << _c._path);
         openStore();
         _c.openProcessSession();
         return false;
     }
+    Base::FileInfo(oldLog + "-shm").deleteFile();
 
     // The blobs: every file of the old store into this one's, then swept.
     auto& manager = _doc.getFileBlobManager();
@@ -3508,7 +3538,9 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
         else {
             t.session = _c.sessionOf(txn.Author.get());
         }
-        number(t);
+        // Numbered once the ops say there is a row (below): a transaction
+        // whose every write is `same` takes no ordinal, and puts no version
+        // document on a branch (sec 27.5, 37.7 item 2).
         t.id = txn.getID();
         t.kind = kind;
         t.origin = origin;
@@ -3521,7 +3553,8 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
         std::vector<LogOp> ops;
         std::vector<ValueTask> tasks;
         // Ops whose after ref is pending, by property id, keyed to
-        // (t.seq, idx); moved into _pending once the job is queued.
+        // (t.seq, idx), the seq filled in when numbered; moved into
+        // _pending once the job is queued.
         std::vector<std::pair<int64_t, Pending>> newPending;
         // The live properties behind them, and whether the copy is kept for
         // the next write (sec 25.4): only for a set, not for the sets a
@@ -3530,7 +3563,7 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
         auto pendOp = [&](const Property& prop, const ContainerInfo& c, const char* tier,
                           bool keep) {
             Pending p;
-            p.txn = t.seq;
+            p.txn = 0;   // the row's seq, once it is numbered
             p.idx = static_cast<int>(ops.size()) - 1;   // the op just emitted
             p.cid = c.cid;
             p.view = c.ckind == "view";
@@ -3674,7 +3707,10 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
                         continue;
                     auto prop = data.propertyOrig;
                     const char* name = c.container->getPropertyName(prop);
-                    if (name && data.name == name && data.propertyType == prop->getTypeId())
+                    // The same id, not only the same address: a property
+                    // added in the removed one's freed place is another.
+                    if (name && data.name == name && data.propertyType == prop->getTypeId()
+                            && prop->getID() == kv.first)
                         continue;   // still there: set above
                     if ((data.attr & Prop_Transient) || (data.attr & Prop_NoPersist))
                         continue;
@@ -3714,8 +3750,12 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
                     continue;
                 }
                 const char* name = c.container->getPropertyName(prop);
+                // `prop` is read only once found live in the container; the
+                // id tells a property added in a removed one's freed address
+                // (the same name and type, in one transaction) from it.
                 if (!name || (!data.name.empty() && data.name != name)
-                        || data.propertyType != prop->getTypeId()) {
+                        || data.propertyType != prop->getTypeId()
+                        || prop->getID() != kv.first) {
                     // The original is gone: a dynamic property removed.
                     if (data.name.empty())
                         continue;
@@ -3755,9 +3795,6 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
         if (ops.empty()) {
             // Nothing to record; copies that only resolve earlier ops are
             // still written.
-            --_c._nextSeq;
-            _head = t.parent;
-            _recent.erase(t.seq);
             if (!tasks.empty()) {
                 post([this, tasks]() mutable {
                     std::vector<LogOp> none;
@@ -3766,6 +3803,9 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
             }
             return 0;
         }
+        number(t);
+        for (auto& p : newPending)
+            p.second.txn = t.seq;
         // Every after value this commit leaves pending is copied now and
         // written with it (sec 25.4): nothing the commit set lives only in
         // memory once the worker has run the job. FC_TXNLOG_NO_STREAM leaves

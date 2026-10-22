@@ -372,6 +372,17 @@ public:
         DocumentObject* live = nullptr;
         bool assign = false;
     };
+    /// What a paste does with one object it brings (sec 37.9)
+    enum class ImportTake
+    {
+        /// Brought as a new object, beside the live one if there is one
+        Duplicate,
+        /// The live one takes its state, and what was brought refers to it
+        Assign,
+        /// Left out: what was brought refers to the live one, kept as it
+        /// is, or -- where there is none -- to nothing
+        Exclude,
+    };
     /** How the clashes of an import on this thread are taken: duplicated
      * (the default, and always for a copy into its own document), assigned,
      * or as `ask` says -- setting `assign` on each; false cancels the
@@ -385,9 +396,15 @@ public:
             Duplicate,
             Assign,
             Ask,
+            /// Answered before the import, by the name each object has in
+            /// the stream (`answers`, sec 37.9): nothing is asked
+            Answered,
         };
         explicit ImportClashScope(Mode mode,
                                   std::function<bool(std::vector<ImportClash>&)> ask = {});
+        /// Mode Answered: the stream's object name -> what it takes; one
+        /// not named is duplicated
+        std::map<std::string, ImportTake> answers;
         ~ImportClashScope();
         ImportClashScope(const ImportClashScope&) = delete;
         ImportClashScope& operator=(const ImportClashScope&) = delete;
@@ -496,6 +513,8 @@ public:
      * restore of the object takes for its UID where the file gives none.
      */
     void carryObjectUid(DocumentObject* obj, const std::string& uid);
+    /// The live object with this UID, null if none (sec 36)
+    DocumentObject* getObjectByUid(const std::string& uid) const;
     /// During an import, the UID `obj` was brought with, whatever it was
     /// given here; empty otherwise (sec 36.7).
     std::string getBroughtObjectUid(const DocumentObject* obj) const;

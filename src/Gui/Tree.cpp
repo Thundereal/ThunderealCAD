@@ -4364,6 +4364,24 @@ void TreeWidget::dropEvent(QDropEvent *event)
                 }
             }
         }
+        // A copy into a document that has some of what it brings asks
+        // before the step opens (docs/TransactionLog.md sec 37.9, 37.7 item
+        // 13): of the dragged objects and what they bring with them, by
+        // their names in their documents, which the copy keeps.
+        std::map<std::string, App::Document::ImportTake> pasteTakes;
+        if (da == Qt::CopyAction) {
+            std::vector<App::DocumentObject*> sources;
+            for (auto& info : infos) {
+                auto doc = App::GetApplication().getDocument(info.doc.c_str());
+                auto obj = doc ? doc->getObject(info.obj.c_str()) : nullptr;
+                if (obj && info.parent.empty())
+                    sources.push_back(obj);
+            }
+            if (!sources.empty()
+                    && !askPaste(thisDoc, App::Document::getDependencyList(sources), pasteTakes))
+                return;
+        }
+
         // Because the existence of subname, we must de-select the drag the
         // object manually. Just do a complete clear here for simplicity
         Selection().selStackPush();
@@ -4467,13 +4485,22 @@ void TreeWidget::dropEvent(QDropEvent *event)
                         << Command::getObjectCmd(obj) << ", True)";
                     App::DocumentObject *res = nullptr;
                     if(da == Qt::CopyAction) {
-                        // Sec 36.4: asked where an object dropped is one
-                        // here already; the macro says so when all were.
-                        ImportClashAsk ask;
+                        // Sec 36.4, 37.9: asked above, before the step;
+                        // the macro says assign where nothing was
+                        // duplicated or left out of what was there.
+                        App::Document::ImportClashScope ask(
+                            App::Document::ImportClashScope::Answered);
+                        ask.answers = pasteTakes;
                         auto copied = thisDoc->copyObject({obj},true);
                         if(copied.size())
                             res = copied.back();
-                        if (ask.allAssigned()) {
+                        bool assigned = false, other = false;
+                        for (const auto& kv : pasteTakes) {
+                            assigned = assigned
+                                || kv.second == App::Document::ImportTake::Assign;
+                            other = other || kv.second == App::Document::ImportTake::Exclude;
+                        }
+                        if (assigned && !other) {
                             ss.str("");
                             ss << "App.getDocument('" << thisDoc->getName() << "').copyObject("
                                << Command::getObjectCmd(obj) << ", True, assign=True)";

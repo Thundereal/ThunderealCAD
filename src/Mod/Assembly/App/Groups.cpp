@@ -29,6 +29,10 @@
 #include <Base/Console.h>
 #include <Base/Tools.h>
 
+#include <algorithm>
+
+#include <App/DocumentObjectExtension.h>
+
 #include "Groups.h"
 #include "BomGroupPy.h"
 #include "JointGroupPy.h"
@@ -44,6 +48,83 @@ PROPERTY_SOURCE(Assembly::JointGroup, App::DocumentObjectGroup)
 PROPERTY_SOURCE(Assembly::SimulationGroup, App::DocumentObjectGroup)
 PROPERTY_SOURCE(Assembly::SnapshotGroup, App::DocumentObjectGroup)
 PROPERTY_SOURCE(Assembly::ViewGroup, App::DocumentObjectGroup)
+
+namespace
+{
+/// An assembly's group owns what it holds (docs/TransactionLog.md sec 37.9)
+std::vector<App::DocumentObject*> heldObjects(const App::DocumentObjectGroup& group)
+{
+    auto owned = group.App::DocumentObject::getOwnedObjects();
+    for (auto obj : group.Group.getValues()) {
+        if (obj)
+            owned.push_back(obj);
+    }
+    return owned;
+}
+
+/// Pasted onto a live group of its type: the member of the UID it was
+/// brought with, which follows the group
+App::DocumentObject* heldCounterpart(const App::DocumentObjectGroup& group,
+                                     const App::DocumentObject* owned,
+                                     const App::DocumentObject* liveOwner,
+                                     App::OwnedPaste& how)
+{
+    auto live = Base::freecad_dynamic_cast<const App::DocumentObjectGroup>(liveOwner);
+    const auto& held = group.Group.getValues();
+    if (!owned || !live || live->getTypeId() != group.getTypeId()
+            || std::find(held.begin(), held.end(), owned) == held.end())
+        return nullptr;
+    how = App::OwnedPaste::FollowOwner;
+    for (auto obj : live->Group.getValues()) {
+        if (obj && obj->getObjectUid() == owned->getObjectUid())
+            return obj;
+    }
+    return nullptr;
+}
+}  // namespace
+
+std::vector<App::DocumentObject*> BomGroup::getOwnedObjects() const
+{
+    return heldObjects(*this);
+}
+
+App::DocumentObject* BomGroup::getOwnedCounterpart(const App::DocumentObject* owned,
+                                                const App::DocumentObject* liveOwner,
+                                                App::OwnedPaste& how) const
+{
+    if (auto there = heldCounterpart(*this, owned, liveOwner, how))
+        return there;
+    return App::DocumentObjectGroup::getOwnedCounterpart(owned, liveOwner, how);
+}
+
+std::vector<App::DocumentObject*> JointGroup::getOwnedObjects() const
+{
+    return heldObjects(*this);
+}
+
+App::DocumentObject* JointGroup::getOwnedCounterpart(const App::DocumentObject* owned,
+                                                const App::DocumentObject* liveOwner,
+                                                App::OwnedPaste& how) const
+{
+    if (auto there = heldCounterpart(*this, owned, liveOwner, how))
+        return there;
+    return App::DocumentObjectGroup::getOwnedCounterpart(owned, liveOwner, how);
+}
+
+std::vector<App::DocumentObject*> ViewGroup::getOwnedObjects() const
+{
+    return heldObjects(*this);
+}
+
+App::DocumentObject* ViewGroup::getOwnedCounterpart(const App::DocumentObject* owned,
+                                                const App::DocumentObject* liveOwner,
+                                                App::OwnedPaste& how) const
+{
+    if (auto there = heldCounterpart(*this, owned, liveOwner, how))
+        return there;
+    return App::DocumentObjectGroup::getOwnedCounterpart(owned, liveOwner, how);
+}
+
 
 
 PyObject* BomGroup::getPyObject()

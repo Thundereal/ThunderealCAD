@@ -124,6 +124,14 @@ public:
         return "Gui::ViewProviderCoordinateSystem";
     }
 
+    /// The axes, planes and point are owned (docs/TransactionLog.md sec
+    /// 37.9): pasted onto a live system, each is the live one of its Role,
+    /// kept as it is -- their state is fixed by the system's.
+    std::vector<DocumentObject*> getOwnedObjects() const override;
+    DocumentObject* getOwnedCounterpart(const DocumentObject* owned,
+                                        const DocumentObject* liveOwner,
+                                        OwnedPaste& how) const override;
+
     /** @name Axis and plane access
      * This functions returns casted axis and planes objects and asserts they are set correctly
      * otherwise Base::Exception is thrown.

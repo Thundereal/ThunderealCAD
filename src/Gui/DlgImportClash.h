@@ -23,6 +23,11 @@
 #ifndef GUI_DLG_IMPORT_CLASH_H
 #define GUI_DLG_IMPORT_CLASH_H
 
+#include <functional>
+#include <istream>
+#include <map>
+#include <memory>
+#include <string>
 #include <vector>
 
 #include <App/Document.h>
@@ -38,6 +43,31 @@ namespace Gui
  * clash's `assign`; false when cancelled.
  */
 GuiExport bool askImportClashes(std::vector<App::Document::ImportClash>& clashes);
+
+/** What a paste into `doc` takes of the objects `brought` -- objects of
+ * another document: a scratch import of what is pasted, or the source of a
+ * copy -- asked before anything is imported (docs/TransactionLog.md sec
+ * 37.9, 37.7 item 13). Each is paired with `doc`'s object of its UID and
+ * type; with none paired nothing is asked and `takes` stays empty. Asked in
+ * the dependency dialog (DlgObjectSelection::setPaste): a check leaves an
+ * object out, a second assigns it. `takes` names each object by its name in
+ * its own document. False when cancelled.
+ */
+GuiExport bool askPaste(App::Document* doc, const std::vector<App::DocumentObject*>& brought,
+                        std::map<std::string, App::Document::ImportTake>& takes);
+
+/** A paste into `doc` of the stream `open()` gives, asked first (sec 37.9,
+ * 37.7 item 13 (c)): the stream's UIDs are read off it; where one names an
+ * object of `doc`, the stream is imported into a scratch document and
+ * askPaste() asks of that. Then `transaction` is opened in `doc` and the
+ * stream imported with the answers, into `imported`. False when cancelled,
+ * with nothing imported and no transaction opened; an import that throws
+ * leaves the transaction open for the caller to abort.
+ */
+GuiExport bool pasteAsked(App::Document* doc,
+                          const std::function<std::unique_ptr<std::istream>()>& open,
+                          const char* transaction,
+                          std::vector<App::DocumentObject*>& imported);
 
 /// What the user command brings is asked about (sec 36.4), for its scope.
 class GuiExport ImportClashAsk: public App::Document::ImportClashScope

@@ -27,11 +27,9 @@
 
 #include <App/TransactionalObject.h>
 #include <App/PropertyExpressionEngine.h>
-#include <App/PropertyGeo.h>
 #include <App/PropertyPythonObject.h>
 #include <App/PropertyStandard.h>
 #include <Base/Bitmask.h>
-#include <Base/Placement.h>
 #include <Base/SmartPtrPy.h>
 
 #include <bitset>
@@ -43,6 +41,7 @@
 namespace Base
 {
 class Matrix4D;
+class Placement;
 }
 
 namespace App
@@ -695,9 +694,7 @@ public:
      * never claim one of those -- and the matching Restore is written for a
      * property whose owner is in a document, which a stand-in is not.
      */
-    bool mustSave(const Property &prop) const override {
-        return prop.isDerivedFrom(PropertyComplexGeoData::getClassTypeId());
-    }
+    bool mustSave(const Property &prop) const override;
 
     /* Expression support */
 

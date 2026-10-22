@@ -56,6 +56,7 @@
 #include "ObjectIdentifier.h"
 #include "PropertyElementAppearance.h"
 #include "PropertyExpressionEngine.h"
+#include "PropertyGeo.h"
 #include "PropertyLinks.h"
 
 typedef boost::iterator_range<const char*> CharRange;
@@ -1600,6 +1601,11 @@ bool DocumentObject::isMergedByElement(const Property* prop) const
         return group && prop == &group->Group;
     }
     return true;
+}
+
+bool DocumentObject::mustSave(const Property &prop) const
+{
+    return prop.isDerivedFrom(PropertyComplexGeoData::getClassTypeId());
 }
 
 void DocumentObject::onUndoRedoFinished()

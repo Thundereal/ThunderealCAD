@@ -160,6 +160,16 @@ fc_add_gui_test(GuiOnViewLabelOverGeometry_tests_run onview-label-over-geometry.
 fc_add_gui_test(GuiFilletDragBesideMissingEdge_tests_run fillet-drag-beside-missing-edge.py
                 --timeout 200)
 
+# Entry 202, the hands-on of 2026-10-21: the Group column second, the modes'
+# tool tips, group colours (automatic, picked, kept in GroupColors), a double
+# click editing a group, a right click on an edge or its preview face opening
+# its handle's menu; and a click on a filleted corner's vertex making it a
+# setback corner (202 (a), not reproduced on a box corner).
+fc_add_gui_test(GuiFilletGroupsAndPreviewMenu_tests_run fillet-groups-and-preview-menu.py
+                --timeout 200)
+fc_add_gui_test(GuiFilletCornerVertexPick_tests_run fillet-corner-vertex-pick.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

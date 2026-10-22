@@ -121,20 +121,35 @@ def run():
         doc.redo()
         settle(0.5)
 
-        # Escape presses Ok: the edit is kept.
+        # Escape ends no edit by default (docs/HandsOnQueue.md entry 203);
+        # with View/EscapeEndsEdit on, it presses Ok: the edit is kept.
         enter(sk)
         edit_steps(sk, 2)
         from PySide import QtWidgets
-        tv = None
-        for w in FreeCADGui.getMainWindow().findChildren(QtWidgets.QWidget):
-            if w.metaObject().className() == "Gui::TaskView::TaskView" and w.isVisible():
-                tv = w
-        if tv is not None:
-            QtWidgets.QApplication.sendEvent(
-                tv, QtGui.QKeyEvent(QtCore.QEvent.KeyPress, QtCore.Qt.Key_Escape,
-                                    QtCore.Qt.NoModifier))
-        settle(1.0)
-        check("Escape in the task panel leaves the edit", tv is not None and not in_edit())
+        view_params = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
+
+        def escape_task_view():
+            tv = None
+            for w in FreeCADGui.getMainWindow().findChildren(QtWidgets.QWidget):
+                if w.metaObject().className() == "Gui::TaskView::TaskView" and w.isVisible():
+                    tv = w
+            if tv is not None:
+                QtWidgets.QApplication.sendEvent(
+                    tv, QtGui.QKeyEvent(QtCore.QEvent.KeyPress, QtCore.Qt.Key_Escape,
+                                        QtCore.Qt.NoModifier))
+            settle(1.0)
+            return tv
+
+        tv = escape_task_view()
+        check("by default Escape in the task panel leaves no edit",
+              tv is not None and in_edit())
+        view_params.SetBool("EscapeEndsEdit", True)
+        try:
+            tv = escape_task_view()
+        finally:
+            view_params.RemBool("EscapeEndsEdit")
+        check("with EscapeEndsEdit, Escape in the task panel leaves the edit",
+              tv is not None and not in_edit())
         check("keeping it", len(sk.Geometry) == 3, "%d lines" % len(sk.Geometry))
     except Exception:
         note("ABORT:\n" + traceback.format_exc())

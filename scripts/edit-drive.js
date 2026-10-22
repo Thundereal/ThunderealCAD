@@ -65,9 +65,9 @@ const HELPERS = () => {
       bubbles: true, cancelable: true, view: window,
       clientX: x, clientY: y, buttons: buttons, button: button || 0}));
   };
-  window.__fcKey = (type, key) => {
+  window.__fcKey = (type, key, shift) => {
     document.dispatchEvent(new KeyboardEvent(type, {
-      bubbles: true, cancelable: true, key: key}));
+      bubbles: true, cancelable: true, key: key, shiftKey: !!shift}));
   };
   // Magenta pixels in a PNG of the canvas: strong red and blue, little
   // green. Decoded in the page, which has the image decoder.
@@ -257,12 +257,21 @@ async function magentaUntil(page, label, done, ms) {
     await sleep(800);
     phase('drawn');
 
-    // 5. Escape. The sketcher handles it and ends the session itself --
-    // the client never asks -- so this is the leaving edge the server
-    // has to push and the viewer has to believe.
+    // 5. Escape alone ends no edit (docs/HandsOnQueue.md entry 203)...
     await page.evaluate(() => {
       window.__fcKey('keydown', 'Escape');
       window.__fcKey('keyup', 'Escape');
+    });
+    await sleep(1500);
+    out.editingAfterPlainEscape = await page.evaluate(() => window.fcviewerEditing);
+    // ... End edit's shortcut, Shift+Escape, does. The server ends the
+    // session -- the client never asks -- so this is the leaving edge the
+    // server has to push and the viewer has to believe.
+    await page.evaluate(() => {
+      window.__fcKey('keydown', 'Shift', true);
+      window.__fcKey('keydown', 'Escape', true);
+      window.__fcKey('keyup', 'Escape', true);
+      window.__fcKey('keyup', 'Shift', false);
     });
     try {
       await page.waitForFunction(() => !window.fcviewerEditing,

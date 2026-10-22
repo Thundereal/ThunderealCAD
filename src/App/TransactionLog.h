@@ -218,26 +218,30 @@ public:
         std::string saveId;
         int64_t version {0};
     };
-    Embedded embed(const std::string& saveDate);
+    /// `trigger`: who asked for the save (SaveTrigger.h), recorded with it
+    Embedded embed(const std::string& saveDate, const std::string& trigger = std::string());
     /** The copy a save to the log only puts into the file (sec 27.28): the
      * file's document is not written, so the copy carries the file's own
      * save id and date -- the guard on open then still matches -- and
      * leaves the branch the file reopens on as the store has it.
      */
-    Embedded embedForFile(const std::string& saveDate, const std::string& saveId);
+    Embedded embedForFile(const std::string& saveDate, const std::string& saveId,
+                          const std::string& trigger = std::string());
     /** A save that writes the file without its history (sec 30.19 G2): an
      * id is made for it and recorded as an embedding save's is (G1), at the
      * row the document is at. Returns what the file's `Version` is to say:
      * the last version's number and the id.
      */
-    std::string noteSave();
+    std::string noteSave(const std::string& trigger = std::string());
     /** The save `saveId` names, as this store recorded it (sec 30.19 G1):
-     * the version number it became and the row its state is at. False when
-     * the store holds no such save -- the file is not of this history, or
-     * was saved before saves were recorded.
+     * the version number it became and the row its state is at, and in
+     * `trigger`, when asked, who asked for it (docs/HandsOnQueue.md entry
+     * 167) -- "unknown" for a save recorded before triggers were. False
+     * when the store holds no such save -- the file is not of this
+     * history, or was saved before saves were recorded.
      */
     static bool savedAt(TransactionStore& store, const std::string& saveId, int64_t& version,
-                        int64_t& seq);
+                        int64_t& seq, std::string* trigger = nullptr);
 
     /** Continue from an embedded copy (sec 16.4): the live store is
      * replaced by `path`'s content, the counters follow the copy's, and
@@ -690,7 +694,8 @@ public:
     /// `branch`: the saving document's, the one the file reopens on
     /// (sec 27.16); 0 leaves the store's.
     TransactionLog::Embedded embed(const std::string& saveDate, int64_t branch = 0,
-                                   const std::string& saveId = std::string());
+                                   const std::string& saveId = std::string(),
+                                   const std::string& trigger = std::string());
     /// The documents of the file and their branches (sec 27.7).
     Document* holderOf(int64_t id) const;
     std::vector<Document*> documents() const;

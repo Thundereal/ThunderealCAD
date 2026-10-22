@@ -208,18 +208,52 @@ def _seed_namespace():
         pass
 
 
-def _exec_code(code: str) -> RunResult:
+def _log_exec(code: str, client: Optional[str]):
+    """One line per block run, in the session log (docs/HandsOnQueue.md
+    entry 167): when, for whom, the block's first line and its length.
+    Not the code itself, which may be huge or carry secrets. A save made by
+    the block leaves no console line of its own but the one every save now
+    writes ("Saved ... by mcp:<client>"), which follows this line.
+    """
+    stripped = code.strip()
+    first = stripped.splitlines()[0] if stripped else ""
+    if len(first) > 120:
+        first = first[:117] + "..."
+    line = "%s %-8s client=%s len=%d first=%s" % (
+        time.strftime("%H:%M:%S"), "Exec", client or "unknown", len(code), first)
+    with _log_lock:
+        if _log_fh is None:
+            return
+        try:
+            _log_fh.write(line + "\n")
+            _log_fh.flush()
+        except Exception:
+            pass
+
+
+def _exec_code(code: str, client: Optional[str] = None) -> RunResult:
     """Run *code* in the persistent namespace, capturing output.
 
     Runs the statements for their side effects; if the LAST top-level node is an
     expression (REPL convention), its value's ``repr`` is returned and bound to
     ``_``. Exceptions are captured as a traceback string, never raised out.
+
+    *client* names who sent the block: logged with it (``_log_exec``), and
+    given to every save the block makes as ``mcp:<client>`` (entry 167).
     """
+    _log_exec(code, client)
     out, err = io.StringIO(), io.StringIO()
     old_out, old_err = sys.stdout, sys.stderr
     sys.stdout, sys.stderr = out, err
     result_repr = None
     exception = None
+    pushed = False
+    try:
+        import FreeCAD
+        FreeCAD.pushSaveTrigger("mcp:%s" % (client or "unknown"))
+        pushed = True
+    except Exception:
+        pass
 
     # FreeCAD.Console output (PrintError & co., and C++ Base::Console messages)
     # does not pass through sys.stdout/stderr — it fans out to Base::ILogger
@@ -254,6 +288,11 @@ def _exec_code(code: str) -> RunResult:
         exception = traceback.format_exc()
     finally:
         sys.stdout, sys.stderr = old_out, old_err
+        if pushed:
+            try:
+                FreeCAD.popSaveTrigger()
+            except Exception:
+                pass
 
     with _log_lock:
         added = _log_total - console_mark
@@ -610,6 +649,48 @@ def _python_executable() -> str:
     return "python"
 
 
+def _context_type():
+    """The request-context class a tool parameter is typed as to receive it,
+    for whichever major version of ``mcp`` is present; None when neither
+    is found."""
+    try:
+        from mcp.server.mcpserver import Context  # mcp 2.x
+        return Context
+    except ImportError:
+        pass
+    try:
+        from mcp.server.mcpserver.context import Context  # mcp 2.x, older layouts
+        return Context
+    except ImportError:
+        pass
+    try:
+        from mcp.server.fastmcp import Context  # mcp 1.x
+        return Context
+    except ImportError:
+        return None
+
+
+def _client_name(ctx) -> str:
+    """The name the client gave at initialize, read off a request context of
+    either major version; "unknown" when it gave none or the path differs."""
+    # 2.x models are snake_case (client_info), 1.x camelCase (clientInfo)
+    for path in (("request_context", "session", "client_params", "client_info", "name"),
+                 ("request_context", "session", "client_params", "clientInfo", "name"),
+                 ("session", "client_params", "clientInfo", "name"),
+                 ("session", "client_params", "client_info", "name")):
+        obj = ctx
+        try:
+            for attr in path:
+                obj = getattr(obj, attr, None)
+                if obj is None:
+                    break
+        except Exception:  # a property that raises with no request underway
+            obj = None
+        if obj:
+            return str(obj)
+    return "unknown"
+
+
 def _make_server(host: str, port: int):
     """Return ``(server, serve)`` for whichever major version of ``mcp`` is present.
 
@@ -962,10 +1043,21 @@ def start(host: str = _DEFAULT_HOST, port: int = _DEFAULT_PORT,
         _release_socket()
         raise
 
-    @_mcp.tool(name="run_python", description=_RUN_PYTHON_DESCRIPTION)
-    def run_python(code: str) -> RunResult:
-        # FastMCP runs sync tools in a worker thread, so blocking here is fine.
-        return _executor.run_on_main(lambda: _exec_code(code))
+    # The client's name travels with each block it runs (entry 167): the
+    # server hands a tool its request context when a parameter is typed as
+    # its Context class, which both major versions of ``mcp`` do, each with
+    # its own class. Without one, blocks run for "unknown".
+    _Context = _context_type()
+    if _Context is not None:
+        @_mcp.tool(name="run_python", description=_RUN_PYTHON_DESCRIPTION)
+        def run_python(code: str, ctx: _Context) -> RunResult:
+            # FastMCP runs sync tools in a worker thread, so blocking here is fine.
+            client = _client_name(ctx)
+            return _executor.run_on_main(lambda: _exec_code(code, client))
+    else:
+        @_mcp.tool(name="run_python", description=_RUN_PYTHON_DESCRIPTION)
+        def run_python(code: str) -> RunResult:
+            return _executor.run_on_main(lambda: _exec_code(code))
 
     @_mcp.tool(name="search_api", description=_SEARCH_API_DESCRIPTION)
     def search_api(query: str,

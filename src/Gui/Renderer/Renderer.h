@@ -2348,6 +2348,12 @@ struct Material {
     /// keeps a pattern's instance toggles over the dimension crossing
     /// them. Meaningful only with ontop.
     int16_t ontoplayer = 0;
+    /// The draw is under an SoFCSelectionRoot whose style is Unpickable
+    /// (SoFCRenderCache::Material::Unpickable): a click on it does not
+    /// pick it on the desktop. No backend draws it differently; a remote
+    /// viewer that picks for itself reads it -- a finger on a dress-up's
+    /// see-through preview orbits, as a mouse press there goes past it.
+    bool unpickable = false;
     bool polygonoffset = false;  ///< glPolygonOffset on filled triangles
     /// SoDrawStyleElement::Style as the render cache captured it. The GL
     /// renderer hands LINES/POINTS to glPolygonMode; no modern API has

@@ -239,6 +239,7 @@ public:
     bool ForceSolidSingleSideLighting;
     long DefaultFontSize;
     bool EnableTaskPanelKeyTranslate;
+    bool EscapeEndsEdit;
     bool EnableMenuBarCheckBox;
     bool EnableBacklight;
     unsigned long BacklightColor;
@@ -681,6 +682,8 @@ public:
         funcs["DefaultFontSize"] = &ViewParamsP::updateDefaultFontSize;
         EnableTaskPanelKeyTranslate = this->handle->GetBool("EnableTaskPanelKeyTranslate", false);
         funcs["EnableTaskPanelKeyTranslate"] = &ViewParamsP::updateEnableTaskPanelKeyTranslate;
+        EscapeEndsEdit = this->handle->GetBool("EscapeEndsEdit", false);
+        funcs["EscapeEndsEdit"] = &ViewParamsP::updateEscapeEndsEdit;
         EnableMenuBarCheckBox = this->handle->GetBool("EnableMenuBarCheckBox", FC_ENABLE_MENUBAR_CHECKBOX);
         funcs["EnableMenuBarCheckBox"] = &ViewParamsP::updateEnableMenuBarCheckBox;
         EnableBacklight = this->handle->GetBool("EnableBacklight", false);
@@ -1609,6 +1612,10 @@ public:
             self->EnableTaskPanelKeyTranslate = v;
             ViewParams::onEnableTaskPanelKeyTranslateChanged();
         }
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateEscapeEndsEdit(ViewParamsP *self) {
+        self->EscapeEndsEdit = self->handle->GetBool("EscapeEndsEdit", false);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateEnableMenuBarCheckBox(ViewParamsP *self) {
@@ -2730,6 +2737,12 @@ static const App::ParamRegistry::Registrar _ViewParamsRegistrar({
         .setDoc("Let the Up and Down arrow keys move the keyboard focus through the\n"
 "task panel, the way Shift+Tab and Tab do.")
         .setOnChange(),
+    App::ParamInfo("Gui", "ViewParams", "User parameter:BaseApp/Preferences/View", "EscapeEndsEdit", "EscapeEndsEdit", App::ParamInfo::Bool, false)
+        .setTitle("Escape Ends Edit")
+        .setDoc("Let a plain Escape end the edit in progress, the way it did before\n"
+"the Std_ResetEdit command (End edit, Shift+Esc). Off: Escape only\n"
+"cancels what is going on inside the edit, and a task dialog that is\n"
+"not an edit still takes its Cancel on it."),
     App::ParamInfo("Gui", "ViewParams", "User parameter:BaseApp/Preferences/View", "EnableMenuBarCheckBox", "EnableMenuBarCheckBox", App::ParamInfo::Bool, FC_ENABLE_MENUBAR_CHECKBOX)
         .setTitle("Enable Menu Bar Check Box")
         .setDoc("Show the entries of the toolbar and dock window menus of the menu\n"
@@ -8174,6 +8187,37 @@ void ViewParams::removeEnableTaskPanelKeyTranslate() {
 }
 
 // Auto generated code (Tools/params_utils.py:397)
+const char *ViewParams::docEscapeEndsEdit() {
+    return QT_TRANSLATE_NOOP("ViewParams",
+"Let a plain Escape end the edit in progress, the way it did before\n"
+"the Std_ResetEdit command (End edit, Shift+Esc). Off: Escape only\n"
+"cancels what is going on inside the edit, and a task dialog that is\n"
+"not an edit still takes its Cancel on it.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const bool & ViewParams::getEscapeEndsEdit() {
+    return instance()->EscapeEndsEdit;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const bool & ViewParams::defaultEscapeEndsEdit() {
+    const static bool def = false;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void ViewParams::setEscapeEndsEdit(const bool &v) {
+    instance()->handle->SetBool("EscapeEndsEdit",v);
+    instance()->EscapeEndsEdit = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void ViewParams::removeEscapeEndsEdit() {
+    instance()->handle->RemoveBool("EscapeEndsEdit");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
 const char *ViewParams::docEnableMenuBarCheckBox() {
     return QT_TRANSLATE_NOOP("ViewParams",
 "Show the entries of the toolbar and dock window menus of the menu\n"
@@ -10681,7 +10725,7 @@ void ViewParams::removeHeadlightRotationW() {
     instance()->handle->RemoveFloat("HeadlightRotationW");
 }
 
-// Auto generated code (Gui/ViewParams.py:1117)
+// Auto generated code (Gui/ViewParams.py:1122)
 const std::vector<QString> ViewParams::AnimationCurveTypes = {
     QStringLiteral("Linear"),
     QStringLiteral("InQuad"),
@@ -10726,7 +10770,7 @@ const std::vector<QString> ViewParams::AnimationCurveTypes = {
     QStringLiteral("OutInBounce"),
 };
 
-// Auto generated code (Gui/ViewParams.py:1125)
+// Auto generated code (Gui/ViewParams.py:1130)
 static const char *DrawStyleNames[] = {
     QT_TRANSLATE_NOOP("DrawStyle", "As Is"),
     QT_TRANSLATE_NOOP("DrawStyle", "Points"),
@@ -10739,7 +10783,7 @@ static const char *DrawStyleNames[] = {
     nullptr,
 };
 
-// Auto generated code (Gui/ViewParams.py:1135)
+// Auto generated code (Gui/ViewParams.py:1140)
 static const char *DrawStyleDocs[] = {
     QT_TRANSLATE_NOOP("DrawStyle", "Display style, normal display mode"),
     QT_TRANSLATE_NOOP("DrawStyle", "Display style, show points only"),
@@ -10752,13 +10796,13 @@ static const char *DrawStyleDocs[] = {
 };
 
 namespace Gui {
-// Auto generated code (Gui/ViewParams.py:1145)
+// Auto generated code (Gui/ViewParams.py:1150)
 const char **drawStyleNames()
 {
     return DrawStyleNames;
 }
 
-// Auto generated code (Gui/ViewParams.py:1152)
+// Auto generated code (Gui/ViewParams.py:1157)
 const char *drawStyleNameFromIndex(int i)
 {
     if (i < 0 || i>= 8)
@@ -10766,7 +10810,7 @@ const char *drawStyleNameFromIndex(int i)
     return DrawStyleNames[i];
 }
 
-// Auto generated code (Gui/ViewParams.py:1161)
+// Auto generated code (Gui/ViewParams.py:1166)
 int drawStyleIndexFromName(const char *name)
 {
     if (!name)
@@ -10778,7 +10822,7 @@ int drawStyleIndexFromName(const char *name)
     return -1;
 }
 
-// Auto generated code (Gui/ViewParams.py:1174)
+// Auto generated code (Gui/ViewParams.py:1179)
 const char *drawStyleDocumentation(int i)
 {
     if (i < 0 || i>= 8)

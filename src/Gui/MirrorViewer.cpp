@@ -28,6 +28,7 @@
 
 #include <QEvent>
 #include <QKeyEvent>
+#include <QKeySequence>
 #include <QString>
 
 #include <Inventor/SbLine.h>
@@ -58,6 +59,8 @@
 #include <Base/Matrix.h>
 #include <Base/Placement.h>
 
+#include "Application.h"
+#include "Command.h"
 #include "Control.h"
 #include "Document.h"
 #include "EditableDatumLabel.h"
@@ -239,6 +242,9 @@ public:
      */
     Input pendingKey;
     bool hasPendingKey = false;
+    /// The key whose press ended the edit (takeEndEditKey), so that its
+    /// release goes nowhere either; 0 for none.
+    int endEditKey = 0;
     /** This client's own selection (docs/ThinClient.md section 8.4).
      *
      * Current for the extent of anything replayed through this view, so
@@ -705,6 +711,12 @@ bool MirrorViewer::handleInput(const Input& input)
             // is running, and every key reaches it before the view. What
             // it does not claim it hands back through sendKeyEvent below
             // (docs/ThinClient.md section 8.7).
+            // Ahead of the box a command's shortcut, as Qt's shortcut map
+            // goes ahead of every widget there: the one a key from the wire
+            // may reach is the edit's end (docs/HandsOnQueue.md entry 203).
+            if (takeEndEditKey(input)) {
+                return true;
+            }
             if (pimpl->focusedParam) {
                 return routeKeyToParameter(input);
             }
@@ -838,6 +850,58 @@ bool MirrorViewer::takeValueSetKey(const Input& input)
     ViewerScope scope(this);
     return OnViewValueSet::takeViewerKey(this, qtKeyForCoinKey(input.code), mods,
                                          input.kind == Input::KeyDown, text);
+}
+
+bool MirrorViewer::takeEndEditKey(const Input& input)
+{
+    if (input.kind == Input::KeyUp) {
+        if (pimpl->endEditKey == 0 || pimpl->endEditKey != input.code) {
+            return false;
+        }
+        pimpl->endEditKey = 0;
+        return true;
+    }
+    if (!pimpl->doc || !isEditing()) {
+        return false;
+    }
+    // A session that is its initiating view's alone is ended by that view
+    // and by no other -- the resetEdit op's rule (SceneControl.cpp)
+    if (ViewerContext* owner = pimpl->doc->editingViewer()) {
+        if (owner != this && pimpl->doc->editingRoot()
+                && !pimpl->doc->editingRoot()->isShared()) {
+            return false;
+        }
+    }
+    // By the shortcut the user gave the command, not by a key fixed here:
+    // a rebinding on the desktop holds for the browser too
+    Command* cmd = Application::Instance->commandManager().getCommandByName("Std_ResetEdit");
+    if (!cmd) {
+        return false;
+    }
+    const QKeySequence shortcut(cmd->getShortcut(), QKeySequence::PortableText);
+    Qt::KeyboardModifiers mods = Qt::NoModifier;
+    if (input.shift) {
+        mods |= Qt::ShiftModifier;
+    }
+    if (input.ctrl) {
+        mods |= Qt::ControlModifier;
+    }
+    if (input.alt) {
+        mods |= Qt::AltModifier;
+    }
+    const int key = qtKeyForCoinKey(input.code);
+    if (shortcut.isEmpty() || key == Qt::Key_unknown
+            || shortcut != QKeySequence(QKeyCombination(mods, Qt::Key(key)))) {
+        return false;
+    }
+    pimpl->endEditKey = input.code;
+    // As the resetEdit op does, and with what Std_ResetEdit does after:
+    // the selection goes with the edit. Gui::Document::resetEdit opens the
+    // scope of the view the edit ran in itself.
+    pimpl->doc->resetEdit();
+    pimpl->selection.rmvPreselect();
+    pimpl->selection.clearSelection();
+    return true;
 }
 
 bool MirrorViewer::sendKeyEvent(QKeyEvent* event)

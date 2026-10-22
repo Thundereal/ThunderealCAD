@@ -113,9 +113,10 @@ QWidget *FilletSegmentDelegate::createEditor(QWidget *parent, const QStyleOption
             owner->setBinding(editor, index);
         return editor;
     }
-    // a customised edge's group: a number, joined by typing another's
+    // an edge's group: a number, joined by typing another's; an edge on the
+    // default radius joins one too, or starts it (entry 202)
     if (index.column() == GroupColumn) {
-        if (index.parent().isValid() || index.model()->data(index, Qt::UserRole).toInt() <= 0)
+        if (index.parent().isValid())
             return nullptr;
         auto editor = new QSpinBox(parent);
         editor->setRange(1, 9999);
@@ -208,6 +209,10 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
 "The group of an edge with radii of its own. A change to one edge\n"
 "of a group is made to every edge of it; type another group's\n"
 "number to join it."));
+    // shown second, after the element (entry 202); the column keeps its
+    // index, the code and the saved widths with it
+    ui->treeWidgetReferences->header()->moveSection(
+        ui->treeWidgetReferences->header()->visualIndex(GroupColumn), 1);
 
     Base::connect(ui->btnClear, &QPushButton::clicked, this, &TaskFilletParameters::clearSegments);
     Base::connect(ui->btnAdd, &QPushButton::clicked, this, &TaskFilletParameters::newSegment);
@@ -216,17 +221,19 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
     Base::connect(ui->treeWidgetReferences, &QTreeWidget::itemChanged,
         this, &TaskFilletParameters::updateSegment);
 
+    // what each mode of a row is, in short (entry 202); a row's own tool
+    // tip names its mode (refresh())
     ui->treeWidgetReferences->header()->setToolTip(tr(
-"Click '+' key to add new segment for various radius fillet.\n"
-"You can use 'Parameter' (0 ~ 1) as an ratio to the Edge\n"
-"length from to specify a point to morph from one radius\n"
-"value to another. Or, you can use 'Length' to specify the\n"
-"point with absolute distance along the edge.\n\n"
-"A vertex sets back the corner there: each fillet ending at\n"
-"the vertex stops 'Setback' away from it, and one smooth patch\n"
-"closes the opening. The rows under the vertex are its fillets;\n"
-"one given a setback of its own stops there instead. 'Clear'\n"
-"removes the setbacks of single fillets."));
+"An edge's mode, set from its handle's menu or here:\n"
+"  Default radius -- no rows under it; it takes the Radius above.\n"
+"  One radius -- a radius of its own.\n"
+"  Two radii -- one at its start, one at its end.\n"
+"  Varying -- radii at points along it, each a row: at a\n"
+"    'Parameter' (0 to 1 along the edge) or a 'Length' from its start.\n"
+"    '+' adds a point.\n"
+"A vertex: a setback corner. Its fillets stop 'Setback' away from it\n"
+"and one patch closes the opening; 'Clear' drops single setbacks.\n"
+"Group: edges of one number share their points; double-click to change."));
 
     static const char *_ParamPath = "User parameter:BaseApp/Preferences/General/Widgets/TaskFilletParameters";
     auto hParam = App::GetApplication().GetParameterGroupByPath(_ParamPath);
@@ -246,6 +253,7 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
       
     createAddAllEdgesAction(ui->treeWidgetReferences);
     Base::connect(addAllEdgesAction, &QAction::triggered, this, &TaskFilletParameters::onAddAllEdges);
+    createGroupColorActions(ui->treeWidgetReferences);
 
     Base::connect(ui->checkBoxUseAllEdges, &QCheckBox::toggled,
         this, &TaskFilletParameters::onCheckBoxUseAllEdgesToggled);
@@ -265,6 +273,10 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
                            Gui::OnViewValueSet::Place::TopMiddle);
     onViewValues->setMenu(DefaultValue, [this](QMenu& menu, Gui::Gizmo* handle) {
         fillEdgeMenu(menu, handle);
+    });
+    // a right click on an edge's preview face, or the edge: its arrow's menu
+    onViewValues->setHoverHandleProvider([this]() {
+        return getHoverHandle();
     });
     setupGizmos(DressUpView);
 
@@ -507,10 +519,11 @@ void TaskFilletParameters::updateEdgeHandles()
                 box->setValue(segments[point].radius);
                 handle.box = box;
                 const int group = fillet->Segments.getGroup(edge);
-                // every handle in the theme's one colour, whatever its
-                // group: lit in the selection colours, a handle of another
-                // colour read as lit (docs/HandsOnQueue.md entry 196)
+                // its group's colour, picked or automatic -- an automatic
+                // one kept clear of the lit and dragged colours, or it reads
+                // as lit (docs/HandsOnQueue.md entries 196 and 202)
                 handle.gizmo = new Gui::LinearGizmo(box);
+                handle.gizmo->setColor(groupColor(group));
                 // The group, then "R", or which of its points: "2  R1" ...
                 QString title = segments.size() == 1
                     ? tr("R") : tr("R%1").arg(point + 1);
@@ -548,6 +561,7 @@ void TaskFilletParameters::updateEdgeHandles()
                 along.box = alongBox;
                 along.gizmo = new Gui::LinearGizmo(alongBox);
                 along.gizmo->setDraggerStyle(Gui::LinearDraggerStyle::Sphere);
+                along.gizmo->setColor(groupColor(group));
                 const int place = onViewValues->addValue(
                     alongBox, QStringLiteral("%1  %2").arg(group).arg(tr("P%1").arg(point + 1)),
                     Gui::OnViewValueSet::Place::AtHandle, along.gizmo);
@@ -845,6 +859,9 @@ void TaskFilletParameters::fillEdgeMenu(QMenu& menu, Gui::Gizmo* gizmo)
                 setEdgeGroup(edge, 0);
             });
         });
+        // its colour, picked or automatic (entry 202)
+        groups->addSeparator();
+        addGroupColorActions(*groups, group);
         // Its start and end the other way round from its group's
         if (fillet->Segments.getGroupMembers(group).size() > 1 && mode != 1) {
             QAction* reversed = menu.addAction(tr("Reversed in group"));
@@ -866,6 +883,30 @@ void TaskFilletParameters::fillEdgeMenu(QMenu& menu, Gui::Gizmo* gizmo)
             removeEdge(edge);
         });
     });
+}
+
+QString TaskFilletParameters::edgeModeTip(int mode, int group)
+{
+    QString tip;
+    switch (mode) {
+        case 0:
+            tip = tr("Default radius: takes the Radius above.");
+            break;
+        case 1:
+            tip = tr("One radius: a radius of its own.");
+            break;
+        case 2:
+            tip = tr("Two radii: one at its start, one at its end.");
+            break;
+        default:
+            tip = tr("Varying: radii at points along it, each a row under it.");
+            break;
+    }
+    if (group > 0) {
+        tip += QLatin1Char('\n')
+            + tr("Group %1: its points are shared with every edge of the group.").arg(group);
+    }
+    return tip;
 }
 
 int TaskFilletParameters::edgeMode(const Part::PropertyFilletSegments::Segments& segments)
@@ -939,14 +980,71 @@ void TaskFilletParameters::setEdgeGroup(const std::string& edge, int group)
 {
     auto vp = getDressUpView();
     auto fillet = vp ? dynamic_cast<PartDesign::Fillet*>(vp->getObject()) : nullptr;
-    if (!fillet || fillet->Segments.getGroup(edge) == 0) {
+    if (!fillet) {
+        return;
+    }
+    const bool own = fillet->Segments.getGroup(edge) != 0;
+    if (!own && group <= 0) {
         return;
     }
     setupTransaction();
+    // An edge on the default radius takes it as a point of its own first,
+    // which changes nothing of the fillet; then it joins the group, its
+    // points taken from there, or starts the group if none has that id
+    if (!own) {
+        // the whole list: setValue(edge, param, radius) changes only an
+        // edge that has points already
+        Part::PropertyFilletSegments::Segments segments;
+        segments.emplace_back(0.0, fillet->Radius.getValue());
+        fillet->Segments.setValue(edge, std::move(segments));
+    }
     // 0: a group of its own, by the lowest free id
     fillet->Segments.setGroup(edge, group > 0 ? group : fillet->Segments.newGroup());
     refresh();
     recompute();
+}
+
+Gui::Gizmo* TaskFilletParameters::itemHandle(QTreeWidgetItem* item) const
+{
+    // an edge's first arrow (its radius, not a point's place along it)
+    if (!item || getCornerItem(item)) {
+        return nullptr;
+    }
+    const std::string edge = getGeometryItemText(item).constData();
+    for (const auto& handle : edgeHandles) {
+        if (handle.edge == edge && !handle.position && handle.gizmo) {
+            return handle.gizmo;
+        }
+    }
+    return nullptr;
+}
+
+int TaskFilletParameters::itemGroup(QTreeWidgetItem* item) const
+{
+    // a point's row: its edge's group; a corner has none
+    if (item && item->parent()) {
+        item = item->parent();
+    }
+    if (!item || getCornerItem(item)) {
+        return 0;
+    }
+    return item->data(GroupColumn, Qt::UserRole).toInt();
+}
+
+void TaskFilletParameters::groupColorsChanged()
+{
+    auto vp = getDressUpView();
+    if (auto fillet = vp ? dynamic_cast<PartDesign::Fillet*>(vp->getObject()) : nullptr) {
+        for (const auto& handle : edgeHandles) {
+            const int group = fillet->Segments.getGroup(handle.edge);
+            if (handle.gizmo && group > 0) {
+                handle.gizmo->setColor(groupColor(group));
+            }
+        }
+    }
+    // the rows' swatches
+    refresh();
+    TaskDressUpParameters::groupColorsChanged();
 }
 
 void TaskFilletParameters::setEdgeReversed(const std::string& edge, bool reversed)
@@ -1378,12 +1476,18 @@ void TaskFilletParameters::refresh()
         item->setFlags(item->flags() | Qt::ItemIsEditable);
         if (getCornerItem(item)) {
             refreshCorner(item, cornerEdges[getGeometryItemText(item).constData()]);
+            item->setToolTip(0, tr("Setback corner: its fillets stop 'Setback' away from it,\n"
+                                   "one patch closes the opening. Under it: its fillets,\n"
+                                   "then the depths of its faces."));
             continue;
         }
         const int group = pcFillet->Segments.getGroup(getGeometryItemText(item).constData());
         item->setData(GroupColumn, Qt::UserRole, group);
         item->setText(GroupColumn, group > 0 ? QString::number(group) : QString());
         item->setIcon(GroupColumn, group > 0 ? groupIcon(group) : QIcon());
+        item->setToolTip(0, edgeModeTip(
+            edgeMode(pcFillet->Segments.getValue(getGeometryItemText(item).constData())),
+            group));
         int j = 0;
         for (const auto &segment : pcFillet->Segments.getValue(getGeometryItemText(item).constData())) {
             setSegment(j<item->childCount() ? item->child(j) : new QTreeWidgetItem(item),

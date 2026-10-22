@@ -29,6 +29,7 @@
 #endif // #ifndef _PreComp_
 
 #include <App/Document.h>
+#include <App/FileBlobManager.h>
 #include <Base/Console.h>
 #include <Base/Tools.h>
 #include <Gui/Application.h>
@@ -167,10 +168,14 @@ TechDraw::DrawViewImage* TaskActiveView::createActiveView()
         fi.deleteFile();
     }
 
-    //better way of making temp file name
+    //better way of making temp file name. It stays in the transient
+    //directory, which a close deletes, so it ends in ".png.blob"
+    //(docs/HandsOnQueue.md entry 206): a ransomware guard watches the delete
+    //of an image file. The type before the suffix is what the store reads.
     std::string baseName = pageName + imageName;
     std::string tempName =
-        Base::FileInfo::getTempFileName(baseName.c_str(), doc->TransientDir.getValue()) + ".png";
+        Base::FileInfo::getTempFileName(baseName.c_str(), doc->TransientDir.getValue())
+        + ".png" + App::FileBlobManager::neutralSuffix();
 
     QColor bg = ui->ccBgColor->color();
     if (ui->cbUse3d->isChecked()) {
@@ -185,7 +190,8 @@ TechDraw::DrawViewImage* TaskActiveView::createActiveView()
                                            //MdiView size in pixels
     image.fill(QColor(Qt::transparent));
     Grabber3d::quickView(view3d, bg, image);
-    bool success = image.save(Base::Tools::fromStdString(tempName));
+    // The format by name: the neutral suffix tells Qt nothing
+    bool success = image.save(Base::Tools::fromStdString(tempName), "PNG");
 
     if (!success) {
         Base::Console().Error("ActiveView could not save file: %s\n", fileSpec.c_str());

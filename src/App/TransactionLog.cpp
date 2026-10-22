@@ -1178,7 +1178,8 @@ TransactionStore& TransactionLogCore::store()
 }
 
 TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, int64_t branch,
-                                                  const std::string& saveId)
+                                                  const std::string& saveId,
+                                                  const std::string& trigger)
 {
     auto clock = std::chrono::steady_clock::now();
     auto split = [&clock]() {
@@ -1207,8 +1208,11 @@ TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, 
     if (branch) {
         LogBranch saving;
         if (_store->getBranch(branch, saving))
+            // ... and who asked for it, after the two numbers (entry 167): a
+            // reader of the numbers alone stops there.
             _store->setMeta("save:" + out.saveId,
-                            std::to_string(out.version) + " " + std::to_string(saving.head));
+                            std::to_string(out.version) + " " + std::to_string(saving.head)
+                                + (trigger.empty() ? std::string() : " " + trigger));
     }
     _store->setMeta("last_object_id", std::to_string(_history.lastObjectId()));
     std::vector<std::pair<long, std::string>> names;
@@ -1255,6 +1259,8 @@ TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, 
     }
     copy->setMeta("save_id", out.saveId);
     copy->setMeta("save_date", saveDate);
+    if (!trigger.empty())
+        copy->setMeta("save_trigger", trigger);
     copy->setMeta("version_counter", std::to_string(out.version));
     // The branch the file reopens on is the saving document's (sec 27.16):
     // the store's names whichever document of the file last switched, and a
@@ -1759,28 +1765,31 @@ bool TransactionLog::readRevert(int64_t seq, Revert& out)
     return _c.readRevert(seq, out);
 }
 
-TransactionLog::Embedded TransactionLog::embed(const std::string& saveDate)
+TransactionLog::Embedded TransactionLog::embed(const std::string& saveDate,
+                                               const std::string& trigger)
 {
-    return _c.embed(saveDate, _branch);
+    return _c.embed(saveDate, _branch, std::string(), trigger);
 }
 
 TransactionLog::Embedded TransactionLog::embedForFile(const std::string& saveDate,
-                                                      const std::string& saveId)
+                                                      const std::string& saveId,
+                                                      const std::string& trigger)
 {
-    return _c.embed(saveDate, 0, saveId);
+    return _c.embed(saveDate, 0, saveId, trigger);
 }
 
-std::string TransactionLog::noteSave()
+std::string TransactionLog::noteSave(const std::string& trigger)
 {
     flush();
     const std::string id = Base::Uuid::createUuid();
     const std::string num = std::to_string(_c._store->lastVersion());
-    _c._store->setMeta("save:" + id, num + " " + std::to_string(_head));
+    _c._store->setMeta("save:" + id, num + " " + std::to_string(_head)
+                                         + (trigger.empty() ? std::string() : " " + trigger));
     return num + " " + id;
 }
 
 bool TransactionLog::savedAt(TransactionStore& store, const std::string& saveId,
-                             int64_t& version, int64_t& seq)
+                             int64_t& version, int64_t& seq, std::string* trigger)
 {
     version = 0;
     seq = 0;
@@ -1791,6 +1800,14 @@ bool TransactionLog::savedAt(TransactionStore& store, const std::string& saveId,
         return false;
     std::istringstream in(meta);
     in >> version >> seq;
+    if (trigger) {
+        // The rest of the line, which may hold spaces; none for a save
+        // recorded before triggers were (entry 167)
+        std::string rest;
+        std::getline(in, rest);
+        const auto start = rest.find_first_not_of(' ');
+        *trigger = start == std::string::npos ? std::string("unknown") : rest.substr(start);
+    }
     return seq > 0;
 }
 

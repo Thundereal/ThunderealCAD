@@ -79,6 +79,7 @@
 #endif
 
 #include <App/Document.h>
+#include <App/FileBlobManager.h>
 #include <Base/BoundBox.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
@@ -1628,7 +1629,9 @@ void DrawViewSection::makeLineSets(void)
         return;
     }
 
-    if (fi.hasExtension("pat")) {
+    // The included file is a blob named `<uuid>.pat.blob` (docs/HandsOnQueue.md
+    // entry 206): its type is the extension before the neutral suffix
+    if (App::FileBlobManager::storedExtension(fileSpec) == "pat") {
         if (!fileSpec.empty() && !NameGeomPattern.isEmpty()) {
             m_lineSets.clear();
             m_lineSets = DrawGeomHatch::makeLineSets(fileSpec, NameGeomPattern.getValue());

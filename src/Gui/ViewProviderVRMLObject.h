@@ -52,6 +52,10 @@ public:
     void getLocalResources(SoNode*, std::list<std::string>&);
     void addResource(const SbString&, std::list<std::string>&);
     template<typename T> void getResourceFile(SoNode*, std::list<std::string>&);
+    /// Points every texture URL of the scene that has a resource stored
+    /// under the transient directory as `<name>.blob` at that file
+    /// (docs/HandsOnQueue.md entry 212). Returns how many.
+    int pointAtStoredResources(SoNode*);
 
 protected:
     SoFCSelection    * pcVRML;

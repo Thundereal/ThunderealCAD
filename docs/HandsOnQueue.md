@@ -173,6 +173,122 @@ read by the build session; 53 is reproduced, the others not started. Its
 order after 51, "unless the reporter says otherwise": 53, 54, 55, 56 with
 57 after it, 52, 30, 48, 47.
 
+**2026-10-21 16:43: entry 206 -- Apex TERMINATED the staged copy when a closed
+document's transient directory was removed (a .png blob deleted); options
+put to the reporter.** Under the entry.
+
+**2026-10-21 16:26, fcad-dc: 204 (`c509ee889b`) and 205 (`bb5545b5bc`) DONE,
+COMMITTED locally; NOT pushed, NOT staged** (r186b, the dev tree).
+204: frameOwner() no longer maps a group's view to the group;
+techdraw-view-click-through.py 27/27 -- the new claim, Front's edge
+selected, the group's Right view shows no frame; 192's deselect claims
+green; the test's second view placed by hand (AutoDistribute off, Right
+at x+50: laid out by the group before the views had sizes, both sat on
+the group's middle). 205: the recompute log PRUNED, not cleared -- an
+entry stays while its object is in the document and in error; "Recompute
+failed!" counts what this recompute added; Python Document cases 35/35,
+the new test covering the note-taker's (1) and (2) by construction and
+(3) save + reopen + an unrelated recompute. Undo/redo not claimed: an
+undone removal brings the object back after its entry was pruned, so it
+reads "Error" again until its next recompute -- as before the fix, not
+worse. (4) the reporter's Section003 tool tip NOT checked: the live
+session runs stage26 (r184), which has neither fix. The note-taker
+(coordinating): check it on a COPY of scanner.FCStd on the dev build --
+the tree tool tip text of SectionView003 after a recompute of an
+unrelated object -- offscreen, the copy closed after.
+
+**2026-10-21 16:15, fcad-dc (relayed): PUSHED on the reporter's word to it**
+("restage first, then continue 199 and then merge and push"; the
+note-taker did not hear it): thundereal/LinkVibe 5fb4053dfa..b38bf76b9f
+-- 202 (`8b4b49a405`, test fix `c858d58e0b`), 199 (`55d393cea1`), its
+log `9a27cab328`, the merge of x16win's push (`a5ab353409`) and the
+note-taker's queue commits; r185 (the merged build, the Esc change in):
+the 12 fillet/202 GUI tests green. NOT restaged: the reporter's copy is
+still stage26 = r184 (202, before the merge) -- x16win's ten pushed
+commits and 199 not in it. 204 and 205 written, r186 building.
+
+**2026-10-21 15:52: entry 205 -- Section003's tool tip shows a bare "Error": the
+document's recompute clears every object's message; the cut misses the
+part (origin y=24 outside +-17.5); to x16win after 167.** Under the entry.
+
+**2026-10-21 15:45, fcad-dc (relayed): STAGE26 DONE (r184, with 202) on the reporter's
+word to it, "restage first, then continue 199 and then merge and push"
+(the note-taker did not hear it).** INSTALL-USER: OK, 15:2x. Then 199
+VERIFIED (ctest -R XLinkSnapshotTest 6/6) and COMMITTED `55d393cea1`;
+x16win's push (up to `5fb4053dfa`) merged clean as `a5ab353409`; r185
+building, then the fillet set and 202's tests; the PUSH on green. The
+reporter's test copy (stage26) has 202 but NOT 199 nor x16win's ten
+pushed commits (201, 189's touch/fonts/keyboard, 132, 203) -- r184 was
+before the merge. 204 after the push.
+
+**2026-10-21 15:43: entry 204 -- a selection in one view of a projection group shows
+every view's frame; only the owner view's wanted; to fcad-dc after 199.**
+Under the entry.
+
+**2026-10-21 15:38: entry 199 RELEASED to fcad-dc by the reporter.** Under the entry.
+
+**2026-10-21 15:08, x16win (relayed): PUSHED, on the reporter's word to it** ("push
+when you're done with the current issue", given while it was on 167; the
+note-taker did not hear it): thundereal/LinkVibe c860115ea7..5fb4053dfa,
+ten commits -- 201 (`f229fc9ea7`), 189 sketch touch (`658fa038f8`), (d)
+(`990a1a5216`), (b) fonts (`625487051a`), (c) phone keyboard
+(`22576df0b9`), the overlay test's room (`0e65f53385`), 132
+(`be9c935685`, `250eb76a82`), 203 (`5fb4053dfa`), and one more of its
+count; the branch in sync. NOT restaged: the reporter's test copy has
+none of them. 167's report recorded under 167; no code for it.
+
+**2026-10-21 11:16: entry 203 -- Esc closing a menu can also end the edit; ending an
+edit to be a command, default Shift+Esc (via fcad-dc); for x16win after
+132.** Under the entry.
+
+**2026-10-21 11:10: entry 202 -- six fillet-edit requests (relayed by fcad-dc): a
+vertex not pickable for a corner, the face's menu, the Group column,
+group colours, mode tool tips; after stage25.** Under the entry.
+
+**2026-10-21 09:24: entry 132 -- WHY FOUND by x16win: a closed view that detaches
+stays the main window's active view with no document for ~0.1 s; a fix in
+MDIView.cpp given the go-ahead.** Under the entry.
+
+**2026-10-21 09:03: 189 (b) a Windows headless server drew no label text, FIXED
+(x16win `625487051a`); (c) a phone keyboard types into the value boxes
+(`22576df0b9`); both local.** Under the entry.
+
+**2026-10-21 08:47: 189 (d) -- a tap off the handles clears the active value,
+COMMITTED (x16win `990a1a5216`, local); x16win next on (b) and (c).**
+Under the entry.
+
+**2026-10-21 08:42: 189 -- sketch touch COMMITTED (x16win `658fa038f8`, local); the
+reporter: a tap on empty space on a phone clears the active value. 201
+FIXED (x16win `f229fc9ea7`, local).** Under the entries.
+
+**2026-10-21 06:23: entry 189 -- touch BUILT (x16win `8036697b67`, local, 23/23); the
+reporter: a finger on sketch geometry "Go to the sketcher" (x16win had
+gated it out; passed on). Entry 201 new: Escape in a browser menu ends the
+fillet edit.** Under the entries.
+
+**2026-10-20 20:31, the reporter (to the note-taker): the note-taker COORDINATES from
+now on.** "You do the coordination from now on unless i say otherwise"
+The note-taker's reading: it assigns the build sessions' tasks itself,
+split by code area, without asking the reporter each time, until the
+reporter says otherwise. NOT said, and so kept: a push and a restage
+still need the reporter's own word; the reporter's own decisions (a
+design choice, an option put to it, 158's hold, 199's hold while fcad-dc
+is on the fillet work) stay the reporter's. First assignment, 20:31:
+x16win -> 189's touch (docs/OnViewValueEditing.md sec 9.3, sec 9.6 step
+5), under entry 189.
+
+**2026-10-20 20:23, x16win (relayed): entry 200 PUSHED (merge `c860115ea7`, with
+`88d325ab03`); not staged (a test only).** Under the entry.
+
+**2026-10-20 17:54, the build session (relayed): STAGE24 DONE** -- INSTALL-USER: OK,
+EXIT 0, installed 17:47:15; the copy is fcad `b245d01c73` (the pushed
+tip), build r178 (FreeCADGui 17:24:53), occt `1cbd8de319`, coin
+`d2da5cc93`. Reports dirty True: the one uncommitted file is
+tests/src/App/XLinkSnapshot.cpp (199, a C++ test only, not part of the
+staged app). In the reporter's copy now: 178 (all), 189's hint, 192, 193,
+194, 196 (with the hands-on fixes), 197, 198. Not in it: 199, 200
+(x16win's `88d325ab03`, not pushed).
+
 **2026-10-20 16:08, x16win (relayed): PUSHED, on the reporter's word to it (the
 note-taker did not hear it): "hold on for entry 158 for now. push and ask
 for new task".** thundereal/LinkVibe `fdf4dccef5..72396a7ff4`,
@@ -183,6 +299,24 @@ fast-forward, x16win's seven commits only: `c8e5aca952` (197),
 task. The note-taker's reading: this box's LinkVibe is now BEHIND
 thundereal by those seven; the build session's local commits must be
 merged or rebased onto `72396a7ff4` before its next push -- told to it.
+
+**2026-10-20 17:51, the reporter (to the note-taker):** "187 is most likely due to
+the company it software slowing down file operation. Any other entries
+open?" The note-taker's reading: 187's d (the 2 min 45 s silent wait
+before the caught crash's box) is the company's IT software slowing the
+file operations (the backtrace's symbol files read) -- NOT taken up as
+work. The question answered from the table (in the reply).
+READ in git, nothing run: thundereal/LinkVibe was PUSHED FROM THIS BOX at
+17:45 (`b245d01c73`, the note-taker's queue commits up to 17:28 with it;
+by the note-taker's reading the build session's push -- not reported to
+the note-taker, the reporter's word not heard here). It carries the build
+session's unreported commits `6f98a451b6` 16:24 "Gui: a hovered handle
+lit as hovered, selected or not; a click shows it selected", `de17c0aace`
+16:24 "PD: a drag beside a missing edge keeps its value", `6a8b259b6c`
+17:00 "Gui: a cancelled drag no longer dragged" -- by the note-taker's
+reading from the reporter's 196 hands-on; and everything local before
+(192, 194, 196, 189's hint). x16win's 200 (`88d325ab03`) is not in it.
+Asked of the build session.
 
 **2026-10-20 15:25: entry 163 -- the "DLL not found" box BACK during a build session's
 test (Tests_run.exe, FreeCADApp.dll then FreeCADBase.dll).** Under the
@@ -3991,7 +4125,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 129 | 2026-10-14 | a change request: TechDraw PRINTING to give VECTOR output, so that it scales without loss | OPEN; read by the note-taker: the print draws the page's scene onto the printer or a PDF writer, which keeps vectors -- what comes out as pixels is not known; two points under the entry. PROBED 17:35 by the build session on the copy staged 15:22: a page exported to PDF (the path "print to file" and Print All to a file share) is VECTOR already -- 0 images, about 12448 path operators, 172 text runs. Left: the NATIVE printer path (to a printer, "Microsoft Print to PDF" among them), where Qt prints through GDI and turns antialiased or part-transparent drawing into images. TWO POINTS for the reporter: which printer or output, and which part looked like pixels. THE REPORTER to the build session about 18:20 (relayed): "used techdraw tool button print all pages, used pdf printer. Every page is rasterized" -- points c and d answered. The build session 18:29: "Export PDF" of three of scanner.FCStd's pages is VECTOR but for each page's own image view; the native "Microsoft Print to PDF" path (Windows GDI turns anything drawn with alpha into images -- the faces' fully transparent fill by default) is the suspect, a native print running. THE CAUSE FOUND 19:21 by the build session, on the system's PDF printer: "Print All" makes each page ONE JPEG of the whole sheet (about 140 dpi on A4) -- the reporter is right. Qt prints to a Windows printer through GDI and turns into a picture anything drawn with a pen or brush it counts as transparent; two such things draw nothing (the template's lettering stroked with an empty pen, page items stroked with a fully transparent pen). THE FIX written, not built: the print to a native printer goes through a filter that drops just those; a script call to print pages without the dialog, and a test. FIXED, COMMITTED `e0378550ba`, LOCAL, not pushed, not staged: its test 3 of 3; scanner's 10 pages printed to the system's PDF printer come out as LINES AND TEXT -- the only pictures left are each page's own image view and what overlaps it (was one picture per whole sheet); that PDF sent to the reporter. PUSHED 2026-10-14 22:57 (origin `3e764d4566`) and STAGED 22:59 (`3e764d4566`, CLEAN), on the reporter's "Push and restage" |
 | 130 | 2026-10-14 | SURFACE FINISH: set to "Blast" on one object -- a warning in the report view ("dataChanged() called with an invalid index range"), the finish drawn, but the object then shows NO (PRE)SELECTION HIGHLIGHT; set back to "None" -- no warning, the highlight back, but the finish STILL DRAWN | OPEN; read by the note-taker, nothing run: the warning is an off-by-one in the property view's model, harmless by reading; the highlight and the finish that stays NOT found; one point under the entry. 17:51, the build session: the WARNING's off-by-one confirmed, fixed in the tree, not built; the missing highlight and the finish that stays NOT REPRODUCED by a script on the copy staged 15:22 (a Part box, its appearance's finish set to blasted and back from Python: the grain shows and goes, the highlight works). It hangs on HOW the reporter set it -- point a, made precise: which object, and the steps in the property view. the warning's fix in the tree, not committed. THE WARNING fixed, COMMITTED `de22312a07`, LOCAL, not pushed, not staged; the rest waits for the reporter's point a. ON HOLD: the reporter about 20:45, to the build session, relayed: "leave 130 for now, I'll test tomorrow.". the WARNING's fix PUSHED 2026-10-14 22:57 (origin `3e764d4566`) and STAGED 22:59 (`3e764d4566`, CLEAN), on the reporter's "Push and restage"; the rest on hold |
 | 131 | 2026-10-14 | A CRASH at the program's EXIT on the copy staged 15:22, found by the build session (after a test harness's time-out): `App::TransactionCopyCache` destroying a string list property in the static destruction -- a static cache outliving the owners of its properties | OPEN; found by the build session, not entered by it; its dump and log kept. THE CAUSE read and a FIX written by the build session (19:21), not built: the copy cache was a static map; at exit its destructor destroyed copies whose own destructor asked the same map, halfway destroyed, to drop them -- now a map that is never destroyed. FIXED, COMMITTED `84757008ee`, LOCAL, not pushed, not staged. PUSHED 2026-10-14 22:57 (origin `3e764d4566`) and STAGED 22:59 (`3e764d4566`, CLEAN), on the reporter's "Push and restage" |
-| 132 | 2026-10-14 | A CRASH while TechDraw pages are exported to PDF on the copy staged 15:22, found by the build session: a command's active test reaching a freed document (`App::Document::getAvailableRedos`, reading 0xcc8, under `MainWindow::_updateActions`) | OPEN; found by the build session, not entered by it; its dump and log kept. THE CAUSE found and FIXED by the build session (18:38), COMMITTED `d9c3193856`, LOCAL, not pushed, not staged: a TechDraw page view answered "Undo"/"Redo" from its document without checking it was there -- a page view with no document; guarded as the general view does. Reproduced a second time in its native print run. WHY the view had no document NOT found. the GUARD PUSHED 2026-10-14 22:57 (origin `3e764d4566`) and STAGED 22:59 (`3e764d4566`, CLEAN), on the reporter's "Push and restage"; why no document not found |
+| 132 | 2026-10-14 | A CRASH while TechDraw pages are exported to PDF on the copy staged 15:22, found by the build session: a command's active test reaching a freed document (`App::Document::getAvailableRedos`, reading 0xcc8, under `MainWindow::_updateActions`) | OPEN; found by the build session, not entered by it; its dump and log kept. THE CAUSE found and FIXED by the build session (18:38), COMMITTED `d9c3193856`, LOCAL, not pushed, not staged: a TechDraw page view answered "Undo"/"Redo" from its document without checking it was there -- a page view with no document; guarded as the general view does. Reproduced a second time in its native print run. WHY the view had no document NOT found. the GUARD PUSHED 2026-10-14 22:57 (origin `3e764d4566`) and STAGED 22:59 (`3e764d4566`, CLEAN), on the reporter's "Push and restage"; why no document not found. 2026-10-21 09:24 WHY FOUND and REPRODUCED by x16win (its copy of scanner.FCStd): a closed view that DETACHES (its document has another view; MDIView::closeEvent, `10af0c1f8f`) stays the main window's ACTIVE VIEW with no document for 113-181 ms, until its deferred delete clears the QPointer -- not TechDraw's own; a fix in MDIView.cpp (clear or move the main window's active view at the detach and in deleteSelf) GIVEN THE GO-AHEAD by the note-taker coordinating (no pending edits to MDIView/MainWindow on this box); nothing written yet. 2026-10-21 09:48 x16win CORRECTS its interim: the view left active after closeDocument was a document-less view open from startup (likely the Start page), rightly made active -- not a defect; the 132 fix BUILT and tested, its report to follow. 2026-10-21 11:36 FIXED by x16win `be9c935685` (MainWindow::dropActiveWindow from MDIView::closeEvent and deleteSelf: the closing active view hands over to the latest activated remaining visible sub window, never to a view without a document or of a document closing with it; the guard `d9c3193856` kept), local, NOT pushed, NOT staged; view-close-active-detached.py 11/11 three times (8/3 without the fix); the offscreen view tests unchanged claim for claim, most need GL -- the REAL-SCREEN runs on x16win's box allowed by the note-taker under the reporter's standing word. 2026-10-21 12:51 REAL SCREEN, interim (the fix only, baseline not run): edit-per-view 25/0, pd-edit-shown-per-view 13/0, selection-per-view 26/0, navicube-per-view 11/0 (their offscreen failures = no GL); view-close-active-detached 8/3 on screen -- all four no-document claims pass, the 3 failures "the 3D view is the active one after" (the Start page is) -- to be compared with the screen baseline; active-view-active-cell 5/3; six tests re-running (a stale FreeCAD held port 8791; it raised a Windows Firewall prompt on x16win's box, left for the reporter). 2026-10-21 13:26 the screen BASELINE compared: eleven view tests identical claim for claim; the ONE difference view-close-active-detached, baseline 11/0, the fix 8/3 -- on a real screen Qt itself activates the closed page's own 3D view and no stale view shows; the fix hands over to the Start page instead: `be9c935685` WRONG on a real screen (right offscreen); suspect: it skips sub windows !isVisible() (a background tab); the change to come: the same document first, then the history, skip only closed/being-deleted, after a probe. 2026-10-21 15:01 REWORK COMMITTED by x16win `250eb76a82` (on top of `be9c935685`): Qt's own pick wherever Qt makes one; a split-view cell hands over at once to a cell beside it, the same document first; a whole sub window closing leaves no active view and, if Qt activates nothing by the next loop turn, a single-shot picks the same document first, then the history; no !isVisible skip; view-close-active-detached 11/11 on screen and offscreen; the twelve view tests on screen equal to the baseline (active-view-active-cell 8/8, was 5/3); local, NOT pushed, NOT staged. 2026-10-21 15:08 PUSHED by x16win on the reporter's word to it ("push when you're done with the current issue", relayed): thundereal/LinkVibe c860115ea7..5fb4053dfa, ten commits; NOT restaged |
 | 133 | 2026-10-14 | TechDraw printing: open the print with LANDSCAPE as the default (a change request, said to the build session) | OPEN; DONE by the build session, written, NOT committed, building r32: "Print All Pages" and "Print Selected Pages" open their print box on landscape (were the printer's default, portrait); each page still laid out in its own template's orientation; the single page's Print already took the template's. Not testable by a script (the Windows print box) -- the REPORTER'S LOOK. COMMITTED `560022c91b`, LOCAL, not pushed, not staged, built in r32; the REPORTER'S LOOK still owed. PUSHED 2026-10-14 22:57 (origin `3e764d4566`) and STAGED 22:59 (`3e764d4566`, CLEAN), on the reporter's "Push and restage" |
 | 134 | 2026-10-15 | TechDraw PAGES: remember whether the page's view is open, as a spreadsheet does, and show NO EYE for a page in the tree (a change request; asked of the build session 2026-10-13, the reporter's question to the note-taker 2026-10-14 23:00, the word to do it 2026-10-15 to the build session) | OPEN; IN WORK by the build session since 2026-10-15 07:03, under its rule of 2026-10-13 (a page with its eye on and no saved record opens once at load; show()/hide() keep working); the reporter's word covers a PUSH AND RESTAGE when it is done. DONE `0d4125a132` (r41), PUSHED 2026-10-15 08:20 (origin `580e54f0b6`) and STAGED 08:21 (`580e54f0b6`, CLEAN), on the reporter's "Do 3. After done push and restage": a page has no eye and is not greyed when closed; whether its view reopens is the saved view layout's, not Visibility's; an older file opens a page that was visible once at load; show()/hide() still open and close it. Point c answered: TechDraw does not read a page's Visibility for updates. On the way: a page or sheet open as a plain tab (split views off) is now recorded and reopens; Show/Hide all and Space no longer touch objects with no eye ("Show all objects" opened every page). A KNOWN GAP: a file saved before this, split views off, a page open as a plain tab -- that page does not come back the first time. Its test 18/18; Python 3763 OK, ctest 957/957. The REPORTER'S LOOK owed |
 | 135 | 2026-10-15 | the fillet's ON-VIEW EDITING (entry 117, on the copy staged 08:21): (1) a fillet with a MISSING REFERENCE shows NO ARROW -- so before entry 117's work too; with every missing reference removed the arrows show; (2) a click on an arrow is taken on the press, but its RELEASE PASSES THROUGH and selects the face behind; (3) the root button's click shows NO MENU, the reporter's guess: the same pass-through; (4) a change asked: the root button at the MIDDLE OF ITS EDGE, with a HIGHLIGHT of its own that shows it can be pressed | OPEN; read by the note-taker, nothing run: the root button sits just behind the arrow's root, in the arrow's frame, not on the edge; points under the entry. THE BUILD SESSION's reading (09:49), nothing run: point 1 -- the fillet panel hides ALL its handles while the fillet is in error, and a missing reference puts it in error; 2 and 3 need a reproduction by mouse (its tests drove the handles by keyboard); 4 confirmed. Its order: after 117's step 4, as the chamfer shares the handles. CHANGED BY THE REPORTER 11:30: the ROOT BUTTON (the pressable item at the arrow's tail) is DROPPED -- point 4 (button at the edge's middle with its own highlight) falls away; instead a TOOLTIP on hovering an arrow hints that a RIGHT CLICK opens its context menu (the menu the button opened). ANSWERED 11:35: the tooltip ALSO names drag to change and click to type; NO right click on the value label. "THE REST AGREE" 11:35: the chamfer's handles change the same way, Space still opens the menu, and arrows show on the edges that still exist while a reference is missing (the note-taker's readings, now the reporter's). BUILT in r49, tests running, NOTHING COMMITTED yet (the build session, 11:42): root button gone; right click on any handle opens its menu; hover tooltip; arrows show on the edges still there; point 2 REPRODUCED by mouse and fixed (a button-1 press picked through an SoDragger keeps its release from the selection). DONE 14:22, COMMITTED `14201accd6` (point 2), `50bed5f8ab` (the change: right click, tooltip), `bd51427d8e` (point 1), LOCAL, not pushed, not staged; tested on r54. PUSHED 2026-10-15 14:45 (origin `1df007d0f2`) and STAGED 14:47 CLEAN (`1df007d0f2`) |
@@ -4026,7 +4160,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 164 | 2026-10-16 | a change request: the FULL OBJECT NAME (docname@objname) in the error message "<Exception> SubShapeBinder.cpp(330): No context, please double click the binder in the desired context to refresh"; and an AUDIT of the code base for this kind of message reported by an object's execute(), each to mention the object's name | OPEN; read by the note-taker, nothing run: a recompute's exception is printed by `e.ReportException()` in Document::_recomputeFeature (Document.cpp 15286-15290) WITHOUT the object; the name goes only to an FC_LOG line (log level, not shown by default), as getFullName = "doc#obj". 17:41 ADDED: "check why this error does not mark the binder as recompute error" -- read by the note-taker, nothing run: BOTH of the message's paths mark the object (setErrorDescription and the recompute's catch reach addRecomputeLog, which sets ObjectStatus::Error), so the mark is either SWALLOWED (slotRecomputedObject, SubShapeBinder.cpp 1124-1134, catches update()'s throw with ReportException only) or CLEARED by a later successful update/recompute; NOT found by reading. 17:46 the build session takes it after 160; it would use the existing "doc#obj" unless told '@'. 17:52 the 17:41 question WITHDRAWN by the reporter: the binder found, Binder008, and it IS marked as an error -- the note-taker's two candidates (swallowed, cleared) moot; the request (the name in the message, the audit) stands. 20:39 the build session, NOT committed: r93 names the object in the recompute error ("... SubShapeBinder.cpp(330): scanner#Binder008: No context ...", "doc#obj", '@' not used unless asked); the audit found ~45 sites plus helpers with no object in scope -> r94 (building) appends " [doc#obj]" to EVERY warning and error sent while an object recomputes, unless the text already names it; task panel and tree tooltip unchanged. 21:00 DONE LOCALLY `a8a0a01d88`, NOT pushed, NOT staged (r94: " [doc#obj]" on a recompute's warnings and errors; the binder error names scanner#Binder008); OPEN for the reporter: the separator, '@' as typed or doc#obj as built. 23:55 the separator ANSWERED: "164 keep doc#obj" -- as built; nothing open in 164. 2026-10-17 07:39 PUSHED 07:39:07 (origin `b76481281e`) on the reporter's "Push and restage" (said to the build session; the note-taker did not hear it); the restage from build r102 RUNNING. 2026-10-17 12:19 STAGED 07:41:20 CLEAN (INSTALLED.txt: fcad `9f65f5f929`, code = pushed `b76481281e`, dirty False, FreeCADGui 03:25:38 = build r102; FreeCAD.exe present, 469504 bytes) |
 | 165 | 2026-10-16 | a change request: OMNI SEARCH -- (1) a new type /error filtering on ALL objects marked as RECOMPUTE ERROR; (2) the OBJECT LIST in the completer: ONE item per object, not separate name and label items; the label, as <<label>>, in the item's DESCRIPTION (and TOOLTIP) when it differs, leading, then the object's usual description; TAB completes to <<label>> (not the internal name) when the typing starts with << or matches a label that differs from the name; this completion for BOTH the unfiltered and the /error list | OPEN; read by the note-taker, nothing run: the object list is ExpressionCompleter's (OmniSearchBox.cpp 1037/1041), which lists a name row and a label row per object (ExpressionCompleter.cpp 262-270) and is SHARED with the expression editors. 18:05 ANSWERED: the EXPRESSION EDITORS too; /error over ALL OPEN DOCUMENTS; the list built per showing, no live refresh; a clash -- typing NOT led by << favours the LABEL, led by << favours the INTERNAL NAME (as said; the note-taker asks whether the two are the other way round). 18:10 ANSWERED b: "usual description" = what the expression editor's previous build showed as the object's TOOLTIP (internal name, label, Description/Label2 -- ExpressionCompleter.cpp 610-626). 22:37 DONE LOCALLY `d89d378aa8` (log `4d4a3a9fc5`), NOT pushed, NOT staged (r95: one completer row per object, description and tooltip "<<Label>>" then the old tooltip text, Tab inserts <<Label>> on a leading "<<" or a label match, clash as said: no "<<" -> label, "<<" -> internal name; the expression editors too; /error over all open documents, rebuilt each showing); OPEN for the reporter: whether the clash rule is the right way round. 23:52 ANSWERED the clash direction: "165, with << label wins, without internal name wins" -- the REVERSE of what `d89d378aa8` built; to be changed. 23:58 the build session: in build r96, NOT committed -- clash reversed in the completer and the /error rows; a leading "<<" always inserts <<Label>>; without it the internal name when it matches, <<Label>> only on a label-only match; docs/OmniSearch.md updated, a clash test case added. 2026-10-17 00:18 the clash reversal DONE LOCALLY `6a22ba8b9f`, NOT pushed, NOT staged (r96: label test 14/14 with a clash case, typing 16, slash 10, expr 45, ctest 3/3). 2026-10-17 07:39 PUSHED 07:39:07 (origin `b76481281e`) on the reporter's "Push and restage" (said to the build session; the note-taker did not hear it); the restage from build r102 RUNNING. 2026-10-17 12:19 STAGED 07:41:20 CLEAN (INSTALLED.txt: fcad `9f65f5f929`, code = pushed `b76481281e`, dirty False, FreeCADGui 03:25:38 = build r102; FreeCAD.exe present, 469504 bytes) |
 | 166 | 2026-10-16 | a defect: after a REVERT of the opened `scanner.FCStd`, the FILE BLOB MANAGER warns that INCLUDED FILES are MISSING from the document -- "this shouldn't happen" | OPEN; READ by the note-taker in the reporter's LIVE console on their word (the MCP log, nothing run in the session): the first open 17:36 and its recompute -- NO such warning; the revert ~17:59:35, then in its recompute FOUR hashes "is missing from the document" (FileBlobManager.cpp 2203, dispatchPending), TWICE, 17:59:52 and 17:59:57 (one "named by 3 properties"); the console copy at dl\handson\2026-10-16\e166-live-console-600.txt. 18:04 the build session: the SAME four warnings, TWICE, in the FIRST recompute after a FRESH HEADLESS open of a scanner copy (r86, ~17:40, no revert) -- so NOT the revert's doing; the reporter's GUI first open at 17:36 printed NONE (the note-taker re-checked the live copy: all 8 lines are after the revert); why the GUI first open is silent not known. 18:10 ANSWERED: the recompute after the revert BY HAND; NOTHING looked wrong. 20:39 CAUSE found and FIXED by the build session (r93, verified, NOT committed): two binders (Binder, Binder012) copy objects into TEMPORARY documents during the recompute (copy-on-change); the copies name a library material card's MaterialX files the copy stream does not carry; fix: a file missing at the end of a copy is taken from another open document's store -> 0 warnings on the scanner copy (8 before); the recompute, not the revert. 21:00 DONE LOCALLY `294697011c`, NOT pushed, NOT staged (scanner copy: 0 missing-file warnings). 2026-10-17 00:00 QUESTIONED by the reporter: "Entry 166, elaborate your fix. It doesn't sound right. How can you look for files in another document, by content hash?" -- READ in the source: yes, by content hash across every open document's store; the cause (why the copy stream leaves the files out) is NOT fixed. 2026-10-17 00:07 the build session agrees: `294697011c` is a fallback that hides the symptom; NEW: the four hashes are NOT in the pre-save file at all -- made in the session from the material library on this machine (PropertyMaterial::holdMaterialXBlobs); which property of the copy names them, and what the fragment carries, not pinned; next after r96: a probe, then the export fix, the fallback removed unless the reporter wants it kept. 2026-10-17 00:14 the fallback RULED: "Keep as safe net, but print warning". 2026-10-17 00:18 the safety net warns (not committed, r97): "Included file <hash> was missing from the document; taken from open document '<doc>' for <property full name>", once per file per referrer; r97 runs the probe on the pre-save copy. 2026-10-17 00:39 CORRECTED by the build session (r97 probe): the four files are NOT MaterialX but SHAPE files of objects Binder012 copies (Sketch018.Shape, Sketch018.InternalShape, Pad012.AddSubShape, Pad012.SuppressedShape), made in the session; something writes them by hash into the copy without the file (schema 4 should write them inline); r98 traces which Save branch. 2026-10-17 02:01 CAUSE FOUND (r99 trace): the export reset only the DESTINATION document's file manager to schema 4, while the copied objects' properties answer to the SCANNER's manager, still in the shared-file format of its last save -> the shapes written as hash references, the fragment carrying no file; FIX in r100: exportObjects begins the save on every exported object's own document manager; the safety net stays and warns. 2026-10-17 02:04 the build session: GENERAL -- any copyObject from a document last saved at schema 5 wrote shapes and included files as hash references the copy did not carry; the note-taker's reading: in the reporter's STAGED copy (no fallback) every such copy lost them, with the "is missing" warning; whether a user file was hit NOT checked; new test FileBlobs.testCopyFromASavedDocumentCarriesItsContent. 2026-10-17 03:40 DONE LOCALLY `9b2db5555f` (r102), NOT pushed, NOT staged: exportObjects begins the save on every exported object's own document manager, a copy carries its shapes and included files; the fallback stays and warns (file, source document, property); FileBlobs 96 OK with testCopyFromASavedDocumentCarriesItsContent; the scanner copy's first recompute warns of no missing file. 2026-10-17 07:39 PUSHED 07:39:07 (origin `b76481281e`) on the reporter's "Push and restage" (said to the build session; the note-taker did not hear it); the restage from build r102 RUNNING. 2026-10-17 12:19 STAGED 07:41:20 CLEAN (INSTALLED.txt: fcad `9f65f5f929`, code = pushed `b76481281e`, dirty False, FreeCADGui 03:25:38 = build r102; FreeCAD.exe present, 469504 bytes) |
-| 167 | 2026-10-16 | a defect (CRITICAL by the reporter's word): `scanner.FCStd` was SAVED, "someone (not me)"; check whether there is a transaction log inside; find new code that may cause it | OPEN; READ by the note-taker (the file and the reporter's console logs, read only): saved 18:06:52 (LastModifiedDate 10:06:52Z), schema 4 -> 5, 9.2 MB; it HOLDS a history (blobs/History.db, zstd): ONE session, the reporter's own staged FreeCAD (build hash b076aae675) opened 17:36:03, ONE save at txn 21 (18:06:52); the file was still schema 4 at the revert's read 17:59:07, so ONE save, not several; nothing in the console at 18:06:52; NO code found that saves unasked. 18:18 the 18:06:05 step READ: ONE op, a VIEW property ShowFrames set (a TechDraw page's frames toggled), 47 s before the save; no TechDraw code that saves found. 18:19 the build session (read only): NO save call added in src since 10-13 except tests; its probes open COPIES headless (FreeCADCmd) and none ran at 18:06; the session's "closed" time is written when the log is copied into the saved file, not a close -> the trigger is a SAVE ACTION in the GUI between 18:06:05 and 18:06:52; the question to the reporter: what was done in those 47 s, which window was active, did a box appear. 18:27 the PRE-SAVE content is NOT LOST: byte-identical (md5 bb568db2683b3acc217d534249778cfd, 6119171 bytes) to scanner.20261006-091732.FCBak beside it and to the build session's probe copy of 17:39 -- checked by the note-taker; the build session's 160 probes use the pre-save copy from now on. 18:33 the reporter: does NOT remember hitting any save button or anything, and saw NO format warning box; the note-taker READ: by design (the reporter's own rule of 2026-09-28) the old format is told ONCE, at the open, in the report view; a plain save then writes schema 5 with NO box -- so no box does not rule out a plain save |
+| 167 | 2026-10-16 | a defect (CRITICAL by the reporter's word): `scanner.FCStd` was SAVED, "someone (not me)"; check whether there is a transaction log inside; find new code that may cause it | OPEN; READ by the note-taker (the file and the reporter's console logs, read only): saved 18:06:52 (LastModifiedDate 10:06:52Z), schema 4 -> 5, 9.2 MB; it HOLDS a history (blobs/History.db, zstd): ONE session, the reporter's own staged FreeCAD (build hash b076aae675) opened 17:36:03, ONE save at txn 21 (18:06:52); the file was still schema 4 at the revert's read 17:59:07, so ONE save, not several; nothing in the console at 18:06:52; NO code found that saves unasked. 18:18 the 18:06:05 step READ: ONE op, a VIEW property ShowFrames set (a TechDraw page's frames toggled), 47 s before the save; no TechDraw code that saves found. 18:19 the build session (read only): NO save call added in src since 10-13 except tests; its probes open COPIES headless (FreeCADCmd) and none ran at 18:06; the session's "closed" time is written when the log is copied into the saved file, not a close -> the trigger is a SAVE ACTION in the GUI between 18:06:05 and 18:06:52; the question to the reporter: what was done in those 47 s, which window was active, did a box appear. 18:27 the PRE-SAVE content is NOT LOST: byte-identical (md5 bb568db2683b3acc217d534249778cfd, 6119171 bytes) to scanner.20261006-091732.FCBak beside it and to the build session's probe copy of 17:39 -- checked by the note-taker; the build session's 160 probes use the pre-save copy from now on. 18:33 the reporter: does NOT remember hitting any save button or anything, and saw NO format warning box; the note-taker READ: by design (the reporter's own rule of 2026-09-28) the old format is told ONCE, at the open, in the report view; a plain save then writes schema 5 with NO box -- so no box does not rule out a plain save. 2026-10-21 15:07 CODE SEARCH by x16win (read only, nothing run): the file is written only through three callers of App::Document::saveToFile (save, saveCopy, saveVersionAsFile); none reached by autosave, recovery, migration, recompute, touch or teardown; nothing new on the save surface between 10-06 and b076aae675; a HOST SceneServer connection may run Std_Save; the one path with NO trace is the MCP console (arbitrary code, its log keeps only console lines; a save prints none); with a page active Ctrl+S saves silently; the History records no trigger; a proposal to record the save's caller put to the reporter; no code written. 2026-10-21 15:22 the reporter: build ALL THREE ("All three (Recommended)") -- a trigger in the save record, a Log line at every save, the MCP console logging each block it runs; ASSIGNED to x16win. 2026-10-21 16:51 BUILT and COMMITTED by x16win `96cf8eaf74`, local, NOT pushed, NOT staged: (a) App::SaveTrigger scopes (Std_Save/SaveAs/SaveCopy/SaveAll, the "Save" message names its view -- Ctrl+S on a page reads "Std_Save/Save@TechDrawGui::MDIViewPage" --, close-confirm, close-all-confirm, the schema-upgrade box, "python:<file>:<line>", "mcp:<client>") in the save meta, read back by doc.getTransactionSave(); (b) a Log line "Saved <file> (schema N) by <trigger>" at every saveToFile; (c) the MCP console logs "Exec client= len= first=" per block; old files and readers unchanged; save-trigger.py 14/14 on screen, TransactionLog C++ 83/83, Document Python 248 OK, serve-log suites green |
 | 168 | 2026-10-16 | a change request FOR DISCUSSION: how to let the user know the RISK of saving in the NEW format, and yet ENCOURAGE it for the transaction log; eventually a NEW EXTENSION for the new format -- "one of the branch already did that" | OPEN, a discussion; the branch is `origin/Branding` (5 commits beyond LinkVibe, 10-14, not merged): schema 5 = .TStd; a plain save of an opened .FCStd writes Part.TStd BESIDE it and leaves the .FCStd as it was, with one dialog -- by the note-taker's reading it would have spared entry 167's overwrite; the note-taker's proposal under the entry. 19:00 RULED: WAIT for the other box to merge Branding first; then, on a SAVE of a file with the OLD extension, a DIALOG that ASKS -- all the facts, ENCOURAGING the new format, ASSURING the old file stays and they can save back to the old format; a "don't ask again"; when it is clicked, a dialog telling them Save As saves the new format |
 | 169 | 2026-10-17 | a change request: ALL DRESS-UP PREVIEW shapes PICKABLE in the 3D view (the unpickable style lifted); a (pre)selection there RESOLVES to the BASE EDGE's name, a missing element to its ?Edge name, so the EDIT PANEL's LIST ITEM selection SYNCS | OPEN; said to the note-taker 12:18. 12:19 the build session reading the dress-up preview code; its readings of a-f to come before it builds. 2026-10-17 12:33 the build session's readings of a-f, in build r103, nothing committed: a face resolves to the row its dress-up made, edges/vertices through their faces when one row; outside add mode a click selects (present -> the base edge, missing -> its ?Edge row), in add mode it toggles; a 3D HOVER does NOT resolve or light a row (only a selection syncs) -- the reporter wrote "(pre)selected", to be confirmed. 2026-10-17 13:47 DONE LOCALLY `1f52f9070e`, `fd8a8d4422` (log `fbcfba4541`), NOT pushed, NOT staged; readings a-f as sent; two more causes fixed (the on-top preview picked by depth, the base won every click; rmvSelection of ";AddSub;Face1" removed nothing); r105 real screen: fillet-preview-pick-syncs-list 14/14, fillet-hover-outlines-face 16/16, sketcher/box/handle tests no failure; OPEN for the reporter: d (should a hover resolve the name). 2026-10-17 13:57 d RULED (REOPENED): "Hover face should resolve the edge name too, which should trigger edge preselection highlight and edit panel list item hover plus scroll to view. Same if preselect edge in 3d view or hover list item, the othe two shall react" -- a three-way HOVER sync: preview face, base edge, list item. 2026-10-17 14:05 the build session: the hover sync in build r106, nothing committed -- the pick itself redirects a present edge's preview face to the base edge (ViewProvider::redirectEditingPick); the panel listens to preselection (row hovered in a faint selection colour, scrolled only when out of view, no scroll back; the face lit); readings a-e taken as written. 2026-10-17 14:47 the hover sync DONE LOCALLY `ebc61737c3`, `28a48ad695` (log `c93a20af5a`), NOT pushed, NOT staged; r106 crashed at the first hover (fixed); r107 real screen: fillet-preview-pick-syncs-list 20/20, 160 hover 16/16; NOT measured: the face lit for a base edge pointed at in 3D, the scroll. 2026-10-18 00:07 the reporter (to the note-taker): "Push and restage" -- relayed to the build session; NOT yet pushed or staged. 2026-10-18 10:47 the build session: PUSHED `3b52423f11` over `b76481281e` (all of 169, up to the note-taker's queue commit) and STAGED (stage15 from r107, done 00:26, INSTALL-USER OK, fcad 3b52423f11, dirty False), on the reporter's own word to it after the relay; the two NOT MEASURED points still not measured. 2026-10-18 12:49 the build session: 169 had made the preview pickable to Coin's own pick, so the fillet's ARROWS (behind the preview) could NOT BE DRAGGED -- in the PUSHED and STAGED copy by the note-taker's reading; fixed locally in `64766eb4ac` (the preview unpickable again, only the selection's session pass picks it), NOT pushed, NOT staged; 169's 20/20 and 160's 16/16 still pass. 2026-10-18 12:51 the build session agrees: the regression came with `1f52f9070e`/`fd8a8d4422`, so it is in the staged `3b52423f11` -- a fillet's or chamfer's arrows over their preview take no drag; its reading of the cause, not seen on the staged copy. 2026-10-18 21:51 the drag fix PUSHED (origin/LinkVibe `15205e7387`, on the reporter's "push, no restage yet" to the build session about 18:00), NOT restaged -- the stage is still `3b52423f11`, with the defect. 2026-10-19 08:35 the drag fix RESTAGED (stage16 08:25, fcad `cf833f0c98`) |
 | 170 | 2026-10-18 | a change request: the fillet's and chamfer's ACTIVE HANDLE and ON-VIEW EDIT brought to the REST of the PartDesign features; NOT the 3D pick or mouse hover of their preview (entry 169's) | OPEN; said to the note-taker 2026-10-18 10:42. 2026-10-18 10:47 the build session sized it: set A (7 panels with handles, 14 values) started, Draft first, nothing built; set B (no handle today), c (the patterns' labels) and e (a design note first) put to the reporter. 2026-10-18 11:27 SET A DONE LOCALLY `313083cf4e`, `7ac52ec284` (log `45bd3382dc`), NOT pushed, NOT staged; r111 real screen: pd-values-in-view 37/37, chamfer/fillet tests no failure; a plain arrow click no longer flips Reversed (Pad, Revolution, Hole) -- done before the reporter answered; unused values hidden; 159's clearing click built nowhere yet (the note-taker's 10:42 reading wrong); set B, c, e still the reporter's. 2026-10-18 12:07 the reporter (to the note-taker): "Add handle only if it makes sense, yes design first. Yes pattern label the same." -- set B: handles only where they make sense, a DESIGN FIRST; the patterns' labels onto the same machinery; the click-to-flip question not answered. 2026-10-18 12:10 the reporter (to the note-taker): "Yes no longer flip, but support auto reverse on drag beyond." -- the click no longer flips (kept); NEW: dragging an arrow beyond zero REVERSES automatically. 2026-10-18 12:49 set B DESIGN written (docs/OnViewValueEditing.md sec 7, `6bad844c26`), its 7.6 a-e for the reporter; REVERSE BY DRAG DONE LOCALLY `64766eb4ac`, `b8fdb0da09` (log `80afba4680`), NOT pushed, NOT staged; only the first side reverses; r113 real screen: pad-drag-reverse 13/13, the others no failure; an Escape-cancelled drag now writes the property back. 2026-10-18 12:51 the build session: the design's 7.5 corrected to what was built (`66dd36afbd`): no per-drag undo step, a drag and its reversal go into the edit's one transaction; a cancelled drag turns the feature back and writes the value back. 2026-10-18 21:51 set A and reverse by drag PUSHED (origin/LinkVibe `15205e7387`, "push, no restage yet" about 18:00), NOT restaged (stage `3b52423f11`); set B's 7.6 a-e still the reporter's. 2026-10-19 08:35 set A and reverse by drag RESTAGED (stage16 08:25, fcad `cf833f0c98`), pushed to ThunderealCAD LinkVibe |
@@ -4037,29 +4171,35 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 175 | 2026-10-19 | a change request: the APP LOGO MENU ICON (the title bar's logo button the folded menu hides behind) THEME AWARE; the TASK BAR ICON too | OPEN; said to the note-taker 2026-10-19 10:21, the task bar at 10:22. 2026-10-19 10:27 the reporter: the task bar icon follows the WINDOWS theme (a answered); x16 to be asked about a light-theme icon and every other place the logo is used -- ASKED by the note-taker 10:27, over Remote Control, no answer yet. 2026-10-19 10:29 x16 ANSWERED: no light-theme drawing in the app; the reporter approved a light-ground RECOLOUR of the BARE MARK (website); x16 suggests thundereal-mark-light.svg from the generator, the bare mark themed in 4 places (title-bar button, Std_About icon, Material library icon, template); for the TASK BAR it recommends KEEPING THE TILE (the pinned .exe icon cannot follow the theme) -- a decision for the reporter. 2026-10-19 10:36 the reporter: ONE ICON, changed to look good on BOTH themes WITHOUT its own background (no tile, no themed variants); the task bar icon the same -- supersedes the themed-variant plan and the 10:27 "follow Windows theme". 2026-10-19 10:39 ON HOLD (the reporter): the reporter asks x16 to design the icon first; nothing to be done on 175 until then. 2026-10-19 11:11 DONE by x16 on Thundereal/ThunderealCAD MAIN `094770130e` (pushed, on the reporter's word to x16): the tile-less icon "E2" picked by the reporter; NOT in local LinkVibe yet (needs a merge of thundereal/main); the Windows task bar NOT checked. 2026-10-19 11:51 MERGED into LinkVibe (`ca6eddfbfa`) with a test (app-icon-on-both-grounds 4/4), PUSHED `ba41cdb497` and STAGED (stage18 11:35); the .exe's embedded icon still the old one -- r122. 2026-10-19 12:04 the .exe's embedded icon now the new one (stage19 12:03, `2b69e67e86` not pushed); the Windows task bar itself still to be seen by the reporter. 2026-10-19 14:30 the reporter asked if x16's icon is on the task bar yet; READ: thundereal/main is still `094770130e` (E2) by ls-remote, and the stage (installed 12:47:38, fcad `bd3296d221`) contains it -- answered yes, with no newer x16 icon pushed. 2026-10-19 14:36 the reporter: the task bar icon still not filled enough -- MEASURED by the note-taker: the staged E2 fills 75% of its square's box and 40% of its pixels at 32 px, other task bar apps 66 to 100% box and 61 to 80% pixels; x16's WIDE icon "C" (thundereal/main `f62e42e773`, pushed after 14:30, NOT in LinkVibe or the stage) 94% box, 49% pixels; the note-taker's 14:30 "yes" CORRECTED. 2026-10-19 14:37 the reporter asks about a ROUNDED-SQUARE BORDER for the task bar icon; the note-taker's mock: ink 49% -> 52 to 56% (the mark shrinks inside it), the frame fills the square's outline -- a question, NOT decided. 2026-10-19 14:40 the reporter (to the note-taker): "merge thundereal main and restage" -- relayed verbatim; READ: the build session's merge `ab593c5603` is already in LinkVibe; the restage not yet reported. 2026-10-19 14:41 the reporter asks about a WHITE BACKGROUND for the task bar icon instead; the note-taker's mock: ink 97%, pops on a dark task bar, the plate's edge nearly lost on a light one -- a question, NOT decided. 2026-10-19 15:03 x16's wide icon "C" (merge `ab593c5603`) PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130) -- the exe embeds "C", 49% ink at 32 px (the build session's measure); the frame / white plate questions still the reporter's after a look. 2026-10-19 16:13 x16: after the reporter tried a background with a frame ("doesn't look good with background"), the mark ENLARGED to fit the square's height, bolt uncut (`8a544882fb`, 51% ink at 32 px, 16 px unchanged), pushed to thundereal/main; NOT in LinkVibe until merged. 2026-10-19 16:32 the fitted icon MERGED into LinkVibe (`ff7f545b19`), local. 2026-10-19 18:06 the fitted icon PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session |
 | 176 | 2026-10-19 | a defect: the STAGED copy's window title still says FREECAD -- the launch script still starts FreeCAD.exe, though the executable was renamed (Thundereal.exe) | OPEN; said to the note-taker 2026-10-19 11:46; READ: tools\fcad-user.cmd starts a STALE FreeCAD.exe (2026-10-18 12:35) left in the build tree and mirrored into the stage. 2026-10-19 11:51 FIXED by the build session, outside the repo: fcad-user.cmd (and -cdb) start Thundereal.exe (FreeCAD.exe only as a fallback), install-user.ps1's guard on Thundereal.exe, test/serve scripts renamed, the stale FreeCAD(Cmd).exe/.pdb removed from the build tree; OPEN: Thundereal.exe in stage18 still has the OLD embedded icon (r122 with a CMake fix building); the restage to finish needs the reporter's FreeCAD CLOSED. 2026-10-19 12:04 DONE: RESTAGED stage19 12:03 (r122, fcad `2b69e67e86`): the stage's bin has ONLY Thundereal.exe and ThunderealCmd.exe, both embedding the tile-less icon; the .ico dependency fix `2b69e67e86` committed locally, NOT pushed |
 | 177 | 2026-10-19 | a defect: OMNI SEARCH "/error": typing an object name and pressing TAB to complete ERASES the "/error" prefix | OPEN; said to the note-taker 2026-10-19 12:09; READ: by design today (entry 165's build) a Tab on an /error row puts the object's path in the OBJECTS mode, "/ <path>". 2026-10-19 12:24 BUILT locally `88369fc96f`: Tab completes the name and KEEPS "/error ", the list narrows to it; Enter unchanged; r123 offscreen omni-search-label-one-row 20/20; NOT pushed, NOT staged |
-| 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL. 2026-10-19 12:24 (1) CONFIRMED in the live session by a read-only probe: Dimension120 an Angle on SectionView004 Edge5, Edge9, both along (1,1) -- PARALLEL; (2) BUILT `7eac8caf7e`: a described error; (3) AUDIT docs/TechDrawErrors.md (`959d5360ea`): threaded views' failures never reach the recompute error; questions a-c for the reporter; NOT pushed. 2026-10-19 13:12 the reporter: "agree all" -- a-c AGREED as proposed (3.1 the late error first, then 3.2, 3.3; a partial view a warning; the texts translatable). 2026-10-19 13:37 3.1 BUILT `9746b8aba9` (docs `9b32c0fe82`), local: a threaded view's failure is its recompute error; faces not found a warning; r126 TDTest dimension 3/3, detail 2/2, section 1/1, TestTechDrawApp 9 OK; next 3.2, 3.3. 2026-10-19 15:03 3.1 PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130); 3.2, 3.3 to come. 2026-10-20 11:40 3.2 and 3.3 ASSIGNED to x16win (the note-taker's split). 2026-10-20 12:39 3.2 BUILT and COMMITTED by x16win, `c24089f3a5` on ITS LinkVibe (another box), NOT pushed, NOT staged, not in this tree: TechDraw App only; a view with nothing to show an error, a partial one a tool-tip warning; 5 new TDTest cases; 3.3 next. 2026-10-20 12:49 3.3 BUILT and COMMITTED by x16win, `e74f1a5b29` + `dde6537cae` on ITS LinkVibe, NOT pushed, NOT staged: every dimension failure names the element and the reason; 3 new TDTest cases. 3.1 to 3.3 DONE, the six classes not covered held for the reporter. 2026-10-20 15:18 the reporter: the six classes left out COVERED too ("Yes, cover them"), to x16win, after 158. 2026-10-20 15:27 docs/TechDrawErrors.md brought up to date by x16win, `942fcc3b8e` on ITS LinkVibe, not pushed. 2026-10-20 15:43 the six classes BUILT and COMMITTED by x16win, `43a8fe8268` on ITS LinkVibe, NOT pushed, NOT staged (BrokenView, Spreadsheet, Arch, Symbol, ParametricTemplate; DrawViewMulti left alone -- no longer registered); 5 new TDTest cases. 178 DONE on x16win's box. 2026-10-20 16:08 PUSHED by x16win (thundereal/LinkVibe `fdf4dccef5..72396a7ff4`, fast-forward) on the reporter's word to it (relayed), NOT restaged |
+| 178 | 2026-10-19 | a change request: find WHY Dimension120 (TechDraw, in the reporter's live session) is in recompute error, from the session and its console log; TechDraw's execute() to GIVE THE ERROR DESCRIPTION; an AUDIT of TechDraw for execute() errors with no description | OPEN; said to the note-taker 2026-10-19 12:11; READ in the console log: "scanner#Dimension120: Invalid selection - Det = 0" (TechDraw Geometry.cpp 1087) after both its 2d references changed -- an angle dimension whose two edges came out PARALLEL. 2026-10-19 12:24 (1) CONFIRMED in the live session by a read-only probe: Dimension120 an Angle on SectionView004 Edge5, Edge9, both along (1,1) -- PARALLEL; (2) BUILT `7eac8caf7e`: a described error; (3) AUDIT docs/TechDrawErrors.md (`959d5360ea`): threaded views' failures never reach the recompute error; questions a-c for the reporter; NOT pushed. 2026-10-19 13:12 the reporter: "agree all" -- a-c AGREED as proposed (3.1 the late error first, then 3.2, 3.3; a partial view a warning; the texts translatable). 2026-10-19 13:37 3.1 BUILT `9746b8aba9` (docs `9b32c0fe82`), local: a threaded view's failure is its recompute error; faces not found a warning; r126 TDTest dimension 3/3, detail 2/2, section 1/1, TestTechDrawApp 9 OK; next 3.2, 3.3. 2026-10-19 15:03 3.1 PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130); 3.2, 3.3 to come. 2026-10-20 11:40 3.2 and 3.3 ASSIGNED to x16win (the note-taker's split). 2026-10-20 12:39 3.2 BUILT and COMMITTED by x16win, `c24089f3a5` on ITS LinkVibe (another box), NOT pushed, NOT staged, not in this tree: TechDraw App only; a view with nothing to show an error, a partial one a tool-tip warning; 5 new TDTest cases; 3.3 next. 2026-10-20 12:49 3.3 BUILT and COMMITTED by x16win, `e74f1a5b29` + `dde6537cae` on ITS LinkVibe, NOT pushed, NOT staged: every dimension failure names the element and the reason; 3 new TDTest cases. 3.1 to 3.3 DONE, the six classes not covered held for the reporter. 2026-10-20 15:18 the reporter: the six classes left out COVERED too ("Yes, cover them"), to x16win, after 158. 2026-10-20 15:27 docs/TechDrawErrors.md brought up to date by x16win, `942fcc3b8e` on ITS LinkVibe, not pushed. 2026-10-20 15:43 the six classes BUILT and COMMITTED by x16win, `43a8fe8268` on ITS LinkVibe, NOT pushed, NOT staged (BrokenView, Spreadsheet, Arch, Symbol, ParametricTemplate; DrawViewMulti left alone -- no longer registered); 5 new TDTest cases. 178 DONE on x16win's box. 2026-10-20 16:08 PUSHED by x16win (thundereal/LinkVibe `fdf4dccef5..72396a7ff4`, fast-forward) on the reporter's word to it (relayed), NOT restaged. 2026-10-20 17:54 STAGED (stage24 17:47:15, fcad `b245d01c73`, r178) |
 | 179 | 2026-10-19 | a defect found by the note-taker in the reporter's console log, made an entry on the reporter's "agree all" (read as yes): the document scanner's EMBEDDED TRANSACTION LOG is older than the build's schema -- "no such column: joined" -- on opening, in the transaction log view, and as an exception caught in notify | OPEN; 2026-10-19 13:12. 2026-10-19 13:37 per x16 it is oplab's (Transaction code): oplab has a fix BUILT (a layout version, migration on open, the panel showing a read error instead of throwing); x16 to merge it into thundereal/main. The build session READ scanner.FCStd: NO embedded history any more, saved 13:12:39 -- the failed history presumably DROPPED by a later save. 2026-10-19 13:40 the reporter: "I restored the scanner file. The one with history is renamed to scanner2.FCStd" -- the copy WITH the history is D:/Zheng.Lei/mech/scanner2.FCStd (READ: 9243622 bytes, modified 2026-10-16 18:06), so its log layout CAN be read for oplab. 2026-10-19 16:13 x16: oplab's fix (`b7671f8f9c` versioned log store, migration, the panel guarded; `7e7b17844b` a scanner-layout test) MERGED into thundereal/main (`4ae6efe318`) and PUSHED (main `05ea85f14f`); NOT in LinkVibe until merged. 2026-10-19 16:32 thundereal/main `05ea85f14f` MERGED into LinkVibe (`ff7f545b19`), local; r136 to check it end to end on a COPY of the reporter's scanner2.FCStd. 2026-10-19 18:06 the merge PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session; CHECKED end to end on a COPY of scanner2.FCStd: 28 log rows, no "no such column" (the test now answers the migration prompt and the recompute-error box itself) |
 | 180 | 2026-10-19 | a change request: a FAILED fillet edge (no handle today) shows a RED CROSS at the CENTRE of its face (unpickable; the face is pickable); on-view LABELS get a hover HIGHLIGHT (they are clickable) and a label's hover PRESELECTS as the face's does; the same for all dress-ups; the label highlight for ALL on-view edits; no preselection where it makes no sense | OPEN; said to the note-taker 2026-10-19 13:22. 2026-10-19 13:27 the reporter: the cross for EVERY failed edge, MISSING ones too; placed at the ROOT where the HANDLE would have been (not the face centre); fixed size like a handle, NO hover effect (not pickable); clicking as now. 2026-10-19 13:37 the build session: for a MISSING edge it will propose the point on the kept face nearest where the edge was, if known, else the face's centre. 2026-10-19 14:32 point 1 BUILT locally `aefebaa749`: the red cross for failed AND missing fillet/chamfer edges (present: the arrow's root; missing: the middle of the face last made for it); fillet-failed-edge-cross 8/8; point 2 (labels) to do; NOT pushed. 2026-10-19 15:03 point 1 (the cross) PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130); point 2 to come. 2026-10-19 15:08 the reporter (on the staged cross): "make the two bars in the cross as thick and the handle arrow lines" -- the cross's two bars as THICK AS the handle ARROW's lines. 2026-10-19 16:08 the cross's bars as thick as a handle's shaft (camera-facing, scaled like the handles) BUILT, green on r133, NOT committed (working tree), NOT pushed, NOT staged. 2026-10-19 16:32 the thick cross COMMITTED locally `36440fa751`, NOT pushed, NOT staged. 2026-10-19 18:06 the thick cross PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session |
-| 181 | 2026-10-19 | a change request: (1) the on-view edit MENU BUTTON's strips SQUARER, like the view cell menu's (they look too thin); (2) TOOLTIPS and a RIGHT-CLICK CONTEXT MENU on the fillet's (preview) FACE; the same for all dress-up features | OPEN; said to the note-taker 2026-10-19 13:39. 2026-10-19 14:32 point 1 BUILT locally `aefebaa749`: the strips a square block like the cell's (t, gaps t, square ends); point 2 (face tool tips and menu) to do; NOT pushed. 2026-10-19 15:03 point 1 (square strips) PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130); point 2 to come |
+| 181 | 2026-10-19 | a change request: (1) the on-view edit MENU BUTTON's strips SQUARER, like the view cell menu's (they look too thin); (2) TOOLTIPS and a RIGHT-CLICK CONTEXT MENU on the fillet's (preview) FACE; the same for all dress-up features | OPEN; said to the note-taker 2026-10-19 13:39. 2026-10-19 14:32 point 1 BUILT locally `aefebaa749`: the strips a square block like the cell's (t, gaps t, square ends); point 2 (face tool tips and menu) to do; NOT pushed. 2026-10-19 15:03 point 1 (square strips) PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130); point 2 to come. 2026-10-21 11:10 point 2's RIGHT-CLICK MENU on the preview face asked again by the reporter (relayed by fcad-dc), now entry 202 (b): the same menu as the face's handle, on a right click on the face or while hovering its edge or face, for every dress-up |
 | 182 | 2026-10-19 | a change request: a dress-up feature's PREVIEW SHAPE shows the SELECTION highlight, not only the PRESELECTION highlight as now | OPEN; said to the note-taker 2026-10-19 13:43. 2026-10-19 13:49 NARROWED by the reporter: a WORKING face's click selecting the base edge with no face highlight is FINE; only a selection that really NAMES the PREVIEW FACE (a failed/missing edge's face) shows the face's selection highlight -- the note-taker's 13:43 reading a corrected. 2026-10-19 14:32 to do (as narrowed), after 181 point 2. 2026-10-19 15:15 the reporter: "btw, the selection highlight for the failed/missing edge's face does not work" -- seen on the stage (stage21); by the build session's 14:32 report 182 is NOT BUILT yet ("still to do"), so not in stage21. 2026-10-19 15:16 the reporter's case: scanner, after a recompute, PrismLocker's failed fillet face -- hover highlight YES, selection highlight NO. 2026-10-19 16:08 the failed edge's preview face shows the selection colour (pixels 0 -> 272) BUILT, green on r133, NOT committed (working tree), NOT pushed, NOT staged. 2026-10-19 16:12 a test claim added: a WORKING edge selected leaves the preview face unlit; runs next round. 2026-10-19 16:32 the selected failed face lit (0 -> 272 px), a working one unlit (0 -> 0) COMMITTED locally `36440fa751`, NOT pushed, NOT staged. 2026-10-19 18:06 PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session |
 | 183 | 2026-10-19 | a change request: the 'Overlay' PRESET (data/settings/Overlay.FCParam): the BOTTOM panel TRANSPARENT and auto hide 'None'; the REPORT VIEW moved from the top panel to the bottom -- report view LEFT half, Python console RIGHT half, the selection view right-most, COLLAPSED | OPEN; said to the note-taker 2026-10-19 13:46. 2026-10-19 14:32 BUILT locally `e30b518e2d`: the bottom panel see-through, no auto hide, report view | console | selection view (collapsed), the top panel empty; overlay test 52/52; measured 925, 925, 0 at a 1910 px panel; NOT pushed. 2026-10-19 15:03 PUSHED (thundereal/LinkVibe `6fe036b723`) and STAGED (stage21 15:02, r130) |
 | 184 | 2026-10-19 | a change request: the LIST VIEWS in the TASK PANEL styled like the PROPERTY VIEW, with a TRANSLUCENT background | OPEN; said to the note-taker 2026-10-19 15:14; READ: in the overlay style sheets QListView/QTreeView get an opaque rgb(100,100,100), the property editor's items rgba(0,0,0,0.01). 2026-10-19 15:19 the reporter: "entry 184, yes to all" -- the note-taker's readings a-e AGREED (overlay mode only; every list in a task panel; the selection colour kept; every overlay sheet; the rest unchanged). 2026-10-19 16:08 the task lists see-through in overlay (alpha 2/255) BUILT, green on r133, NOT committed (working tree), NOT pushed, NOT staged. 2026-10-19 16:32 COMMITTED locally `5cb250119d`, NOT pushed, NOT staged. 2026-10-19 18:06 PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session |
 | 185 | 2026-10-19 | a defect: in a dress-up edit the HANDLES are drawn UNDER (before) the PREVIEW SHAPE; they should draw ABOVE it -- a higher show-on-top priority | OPEN; said to the note-taker 2026-10-19 15:49. 2026-10-19 16:08 the handles above the preview (So3DAnnotation priority -1 in Coin and the render cache) in build r134, NOT committed. 2026-10-19 16:32 handles over the preview (121 -> 155 arrow pixels) COMMITTED locally `36440fa751`, NOT pushed, NOT staged. 2026-10-19 18:06 PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session |
 | 186 | 2026-10-19 | a defect (FATAL): in the reporter's live session (stage21), using a handle's CONTEXT MENU to change a fillet to ONE RADIUS froze FreeCAD -- a PURE VIRTUAL CALL in Coin's event traversal (SoHandleEventAction) at 15:59:08, caught; the UI recovered but the 3D view's highlight no longer responds | OPEN; said to the note-taker 2026-10-19 16:04. 2026-10-19 16:08 CAUSE found by the build session from the stack (not reproduced): a right PRESS on a handle did grabEvents(), Blender navigation took the right RELEASE, the grab stayed; one radius rebuilt the handles and deleted the grabbing node; the next event traversed it. Fix: no grab on the right press -- uncommitted, building. 2026-10-19 16:10 the reporter asked why the cdb the session runs under did not catch it: READ, its arm file stops ONLY on a first-chance ACCESS VIOLATION (sxe av); a purecall -> abort -> SIGABRT is no SEH exception, so cdb saw only the handler's C++ throw (first chance, ignored); arming _purecall / abort proposed. 2026-10-19 16:12 the user copy's cdb arm file now also stops on _purecall and abort (outside the repo; from the next start through fcad-user-cdb.cmd); the 16:01 break-in was NOT the build session's -- who, unknown. 2026-10-19 16:12 the reporter: the 16:01 break-in was the REPORTER, typing in the cdb console window -- answered. 2026-10-19 16:29 CLOSING the unstable session crashed (16:27:32, an access violation, dumped by the user copy's cdb): resetEdit -> SoHandleEventAction::releaseGrabber -> grabEventsCleanup() on the SAME DELETED grabber as 186 -- a second effect of the one bug, confirming the build session's cause; a guard proposed (a node releases the grab before it is deleted). 2026-10-19 16:32 the fix (no grab on the right press) COMMITTED locally `36440fa751`, NOT pushed, NOT staged; the note-taker's guard (a) WRITTEN, uncommitted: GizmoContainer releases the viewer's grab if the grabber is one of its nodes, before removing a gizmo and in its destructor. 2026-10-19 17:53 the guard (a) COMMITTED locally `55f4145d9d` (READ in git: Gizmo.cpp/.h), NOT pushed, NOT staged. 2026-10-19 18:06 the fix and the guard PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session |
-| 187 | 2026-10-19 | a defect, found through 186: after a CRASH that FreeCAD catches and survives, NOTHING TELLS THE USER, though the application is no longer in a stable state | OPEN; said to the note-taker 2026-10-19 16:07; READ: GUIApplication::notify shows a box for an access violation only; the purecall/abort path (Base::AbnormalProgramTermination) is caught as an ordinary Base::Exception and only logged. 2026-10-19 16:12 WRITTEN, uncommitted: notify catches Base::AbnormalProgramTermination as Fatal; one critical box at a time for both kinds ("A crash was caught ... Save your work under a NEW file name, then restart" + the error + the crash log path); a hand check on the stage; d (the 2 min 45 s wait) not addressed. 2026-10-19 16:32 the crash box COMMITTED locally `a39d10e326`, NOT pushed, NOT staged. 2026-10-19 18:06 the crash box PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session; a HAND CHECK still to do |
+| 187 | 2026-10-19 | a defect, found through 186: after a CRASH that FreeCAD catches and survives, NOTHING TELLS THE USER, though the application is no longer in a stable state | OPEN; said to the note-taker 2026-10-19 16:07; READ: GUIApplication::notify shows a box for an access violation only; the purecall/abort path (Base::AbnormalProgramTermination) is caught as an ordinary Base::Exception and only logged. 2026-10-19 16:12 WRITTEN, uncommitted: notify catches Base::AbnormalProgramTermination as Fatal; one critical box at a time for both kinds ("A crash was caught ... Save your work under a NEW file name, then restart" + the error + the crash log path); a hand check on the stage; d (the 2 min 45 s wait) not addressed. 2026-10-19 16:32 the crash box COMMITTED locally `a39d10e326`, NOT pushed, NOT staged. 2026-10-19 18:06 the crash box PUSHED (thundereal/LinkVibe `55f4145d9d`) and STAGED (stage22 17:56, r136) on the reporter's "push and restage" to the build session; a HAND CHECK still to do. 2026-10-20 17:51 d ANSWERED by the reporter: the 2 min 45 s wait "most likely due to the company it software slowing down file operation" -- not taken up |
 | 188 | 2026-10-19 | a change request: with ONE MISSING (not failed) edge's PREVIEW SHAPE SELECTED, CLICKING ANOTHER EDGE of the BASE feature (one not already in the dress-up) CHANGES that missing reference to the clicked edge; the same for ALL other dress-up features | OPEN; said to the note-taker 2026-10-19 18:03. 2026-10-19 19:31 BUILT and COMMITTED locally `2121766927` (log `3d343d3d93`), NOT pushed, NOT staged: one missing row selected + a pick of an UNUSED base element of its kind -> REPLACED IN PLACE, every dress-up, the values follow, one undo step; the note-taker's a-g as read, h a face for draft/thickness by the same code. 2026-10-20 06:56 PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged; in a real Chrome a click on a missing edge's kept face selected NOTHING (the preview unpickable from a browser, its pick pass needing a desktop viewer) -- FIXED locally `ed758230a1`, NOT pushed: the click selects the '?Edge' row, the next unused edge replaces it, the kept face shows selected; serve-dressup-preview-pick.py 11/11. 2026-10-20 08:20 with the browser's preview pick `ed758230a1` PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session |
-| 189 | 2026-10-19 | a question and a change request: is ALL the corresponding ON-VIEW EDIT in the BROWSER? if not, SYNC it -- the browser to carry what the desktop's on-view edit has now | OPEN; said to the note-taker 2026-10-19 18:04; answered from the queue: NO -- 172 (all PD on-view edit in the browser) was SIZED (docs/OnViewValueEditing.md sec 9, `8cd250125b`), NOTHING BUILT; the desktop's on-view work since is not in the browser either. 2026-10-19 19:31 the reporter (relayed, to the build session; the note-taker did not hear it): "After that do 189 with real browser"; FIRST STEPS COMMITTED locally `913db7b153`, NOT pushed, NOT staged: in a REAL Chrome the fillet's arrows drag live; the fine-snap key is the client's; Tab and Escape from the page move/clear the active value; found: the top-middle label UNDER the web toolbars, a radius draggable to 0 (the desktop clamps the same), no on-view entries for typing; next: the handle's menu (sec 9.2 #4, #5, #7, #10), the label clear of the toolbars, then typing and touch. 2026-10-19 22:02 more steps COMMITTED locally, each checked in Chrome, NOT pushed, NOT staged: the handle's menu `b2ad908242`, the label below the page's toolbars `7238ddd227`, TYPING (Enter or a digit opens the label) `3c3c7f5e9e`, the click-clear (159) `3fc186d196`, 173's menu button drawn by the page `26adceee52` (logs `e6cea1186f`, `3476f0c714`); left: handle tooltips, touch, and 180/182/185/188 checked in the browser. 2026-10-20 06:56 the steps PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged; 182/188 checked in a real Chrome: the preview pick from a browser FIXED locally `ed758230a1`, NOT pushed (log `a12cef773c`). 2026-10-20 08:20 the steps so far (keys, menu, label, typing, button, click-clear, preview pick) PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session; next: sec 9.2 #6, the handle hints in the browser. 2026-10-20 08:54 sec 9.2 #6 the HANDLE HINTS COMMITTED locally `4c6455244c` (log `8c9977d06f`), NOT pushed, NOT staged: resting on a handle in the browser shows the desktop's tool tip text at the page's pointer after Qt's wait, moving off hides it; seen in a real Chrome; serve-handle-hint.py 9/9, fillet-handle-click-in-view.py green (r154); LEFT: touch (9.3) |
+| 189 | 2026-10-19 | a question and a change request: is ALL the corresponding ON-VIEW EDIT in the BROWSER? if not, SYNC it -- the browser to carry what the desktop's on-view edit has now | OPEN; said to the note-taker 2026-10-19 18:04; answered from the queue: NO -- 172 (all PD on-view edit in the browser) was SIZED (docs/OnViewValueEditing.md sec 9, `8cd250125b`), NOTHING BUILT; the desktop's on-view work since is not in the browser either. 2026-10-19 19:31 the reporter (relayed, to the build session; the note-taker did not hear it): "After that do 189 with real browser"; FIRST STEPS COMMITTED locally `913db7b153`, NOT pushed, NOT staged: in a REAL Chrome the fillet's arrows drag live; the fine-snap key is the client's; Tab and Escape from the page move/clear the active value; found: the top-middle label UNDER the web toolbars, a radius draggable to 0 (the desktop clamps the same), no on-view entries for typing; next: the handle's menu (sec 9.2 #4, #5, #7, #10), the label clear of the toolbars, then typing and touch. 2026-10-19 22:02 more steps COMMITTED locally, each checked in Chrome, NOT pushed, NOT staged: the handle's menu `b2ad908242`, the label below the page's toolbars `7238ddd227`, TYPING (Enter or a digit opens the label) `3c3c7f5e9e`, the click-clear (159) `3fc186d196`, 173's menu button drawn by the page `26adceee52` (logs `e6cea1186f`, `3476f0c714`); left: handle tooltips, touch, and 180/182/185/188 checked in the browser. 2026-10-20 06:56 the steps PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged; 182/188 checked in a real Chrome: the preview pick from a browser FIXED locally `ed758230a1`, NOT pushed (log `a12cef773c`). 2026-10-20 08:20 the steps so far (keys, menu, label, typing, button, click-clear, preview pick) PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session; next: sec 9.2 #6, the handle hints in the browser. 2026-10-20 08:54 sec 9.2 #6 the HANDLE HINTS COMMITTED locally `4c6455244c` (log `8c9977d06f`), NOT pushed, NOT staged: resting on a handle in the browser shows the desktop's tool tip text at the page's pointer after Qt's wait, moving off hides it; seen in a real Chrome; serve-handle-hint.py 9/9, fillet-handle-click-in-view.py green (r154); LEFT: touch (9.3). 2026-10-20 17:52 in the 17:46 push from this box (`b245d01c73`). 2026-10-20 17:54 STAGED (stage24 17:47:15, fcad `b245d01c73`, r178). 2026-10-20 20:31 TOUCH (sec 9.3) ASSIGNED to x16win by the note-taker (coordinating on the reporter's word of 20:31); the browser code is x16win's while it works on it; fcad-dc stays on the desktop fillet work. 2026-10-20 20:45 x16win: TOUCH WRITTEN, client only (wasm/main.cpp), BUILDING, NOT tested, NOT committed; a decision flagged: a finger on ANY of the edit's overlay (labels, a sketch edit's geometry too) goes to the edit, not the camera -- put to the reporter. 2026-10-21 06:23 TOUCH BUILT and COMMITTED by x16win `8036697b67` on its LinkVibe, NOT pushed, NOT staged; serve-handle-touch-browser.py 23/23 twice (real Chrome 155, CDP touch), serve-edit-browser.py 23/23; x16win GATED sketch geometry out (a finger on a sketch orbits), but the REPORTER answered "Go to the sketcher" -- passed on to x16win as the reporter's decision; found outside touch: an Escape key release ends the edit (entry 201), a label's glyph boxes, a phone keyboard's 229 keys, a tap off the handles does not clear the active value (put to the reporter). 2026-10-21 08:42 the reporter: on a phone a tap on empty space while editing CLEARS the active value ("Yes, clear it"), passed on to x16win; SKETCH TOUCH per the reporter's answer COMMITTED by x16win `658fa038f8` (the preview's Unpickable crosses the wire, SceneDump v88), local, NOT pushed, NOT staged; serve-handle-touch-browser.py 34/34 twice, serve-edit-browser.py 23/23, three ctest suites pass. 2026-10-21 08:47 (d) the TAP OFF THE HANDLES CLEARS THE ACTIVE VALUE, COMMITTED by x16win `990a1a5216` (wasm/main.cpp only; a loupe lifted off a handle while editing is a click there too, beyond the ask), local, NOT pushed, NOT staged; serve-handle-touch-browser.py 38/38 twice, serve-edit-browser.py 23/23; NEXT for x16win: (b) the label's glyph boxes, then (c) a phone keyboard's input events. 2026-10-21 09:03 (b) FIXED by x16win `625487051a` (ours, not its box: a Windows headless server under QT_QPA_PLATFORM=offscreen had NO fonts -- src/Gui/Application.cpp sets QT_QPA_FONTDIR and the registry's font substitutes when offscreen); (c) a phone keyboard's input events COMMITTED `22576df0b9` (web/src/onview.tsx only); both local, NOT pushed, NOT staged; serve-handle-touch-browser.py 40/40 twice, serve-edit-browser.py 23/23; the note-taker asks x16win to run the offscreen GUI tests the font change can move. 2026-10-21 09:48 (b)'s FONT CHECK by x16win: offscreen only (confirmed by the code); 10 offscreen GUI tests before/after: ONE claim moved -- overlay-see-through.py's Light "rows of two kinds" (Segoe UI rows taller, the view 75 px, 2 rows sampled, both right) -- a test-room matter, x16win to give the property view more room, not lower the claim; statusbar-progress-place.py one claim BETTER; two failures the same both ways (sketch-datum-text-mode3.py, sketch-hidpi-sizes.py) and statusbar-progress-place.py's other claim fails both ways. 2026-10-21 11:36 overlay-see-through.py given room by x16win `0e65f53385` (the window 1400x1000, the overlay split halved; the Light property view 238 px, the claim kept at 4 rows), 62/62 twice offscreen; local. 2026-10-21 15:08 PUSHED by x16win on the reporter's word to it ("push when you're done with the current issue", relayed): thundereal/LinkVibe c860115ea7..5fb4053dfa, ten commits; NOT restaged |
 | 190 | 2026-10-19 | a change request: ALL the TOOLBARS hosted in ONE DRAGGABLE CARD, with a TOGGLE that COLLAPSES it into a BUTTON, the button DRAGGABLE too (read as the BROWSER viewer's toolbars) | OPEN; said to the note-taker 2026-10-19 21:38. 2026-10-19 21:42 the reporter: the PHONE form too -- collapsible into the button, and EXPANDING into a card whose contents SCROLL (all the toolbars cannot fit a phone screen otherwise); g answered. 2026-10-19 22:02 BUILT and COMMITTED locally `224ec0828a` (log `3476f0c714`), NOT pushed, NOT staged; the note-taker's a-i and the 21:42 phone answer as written: one card by a grip, a toggle collapses it to a button dragged the same way, a click opens the card at its place, both kept inside the view, place and state per browser; the PHONE starts collapsed, opened a bounded card, bars wrapping, scrolling up/down only; covered.ts reports the card; real Chrome 13/13. 2026-10-20 06:56 PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged, with the reporter's changes to the build session (the note-taker did not hear them): the grip on the card's SHORT side, NO FILL under the bars (`00966b5d71`), the grip ending in the COLLAPSE BUTTON and a BAR PICKER (`5072ffe4c7`); the DULL tool buttons: every tool REFUSED for an INVITED EDITOR (opacity 0.38), not a layer -- the reporter: no lighter look, LATER a traditional DISABLED look. 2026-10-20 08:20 PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session |
 | 191 | 2026-10-19 | a change request (said to the build session, relayed): a handle DRAG whose RECOMPUTE FAILS (e.g. a radius dragged to 0) AUTO-REVERTS to the LAST WORKING VALUE, NOT through the normal undo stack -- the whole drag stays ONE transaction; the earlier "refuse at zero" DROPPED | OPEN; relayed to the note-taker 2026-10-19 22:02; BUILT and COMMITTED locally `3fc186d196` (log `e6cea1186f`), NOT pushed, NOT staged. 2026-10-20 06:56 PUSHED to thundereal/LinkVibe (`55f4145d9d..5072ffe4c7`, the reporter's "Push, chase the problem" to the build session), NOT restaged. 2026-10-20 08:20 PUSHED (thundereal/LinkVibe `fdf4dccef5`) and STAGED (stage23 08:20, r153) on the reporter's "Push and continue" / "Restage first" to the build session |
-| 192 | 2026-10-20 | a defect and a question: TechDraw, page frames HIDDEN -- SELECTING an ACTIVE VIEW shows its frame (as 155 asked), but after DESELECTING it the frame STAYS; and WHY show the frame at all, since the Active View can be dragged by its PICTURE | OPEN; said to the note-taker 2026-10-20 09:15; the why ANSWERED from entry 155 (2026-10-16 11:20 to 11:24). 2026-10-20 09:17 the build session: CAUSE FOUND by reading, nothing built -- the note-taker's candidate right: a deselect made IN THE PAGE draws the border while Gui::Selection still holds the view, then setTreeToSceneSelect clears Gui::Selection under blockSelection(true), so onSelectionChanged and its refreshSelectedFrames() never run (a deselect from the TREE is fine); proposed: refreshSelectedFrames() at the end of setTreeToSceneSelect, every view kind; on a: a frameless part view still has nothing to drag by (lines select edges/vertices, the inside passes) -- the rule's reason holds for part views and groups; a drag from a line NOT run; waiting for the reporter's word on a and on building. 2026-10-20 09:24 the reporter: option 3 -- KEEP the frame-on-selection for EVERY view kind (frames hidden -> the frame shown while any of its children is selected); FIX the deselect. 2026-10-20 09:38 FIXED, COMMITTED locally `01d32da5c6`, NOT pushed, NOT staged: refreshSelectedFrames() after the page's own selection change, the rule kept everywhere; techdraw-view-click-through.py 8 new claims -- the two page-deselect claims FAILED on r154 (part view, picture), every claim passes on r155 |
-| 193 | 2026-10-20 | a change request: ALL LIST VIEWS in OVERLAY PANELS get ALTERNATING row backgrounds WITH TRANSPARENCY, as the PROPERTY VIEW has; 184's transparent background is in, the alternating rows are not | OPEN; said to the note-taker 2026-10-20 09:18. 2026-10-20 09:20 SIZED by the build session, nothing built: the property view and the SELECTION VIEW already alternate overlaid, each by its own code; a sheet rule cannot (the sheet's opacity), a delegate cannot be swapped (task panels and the tree have their own); PROPOSED: OverlayManager watches item views in overlaid panels (also on child-added) and fills each visible row's band on the viewport's paint before the items, the same two colours at the overlay alpha, rows counted as the property view; d open for the reporter's look; waiting for the reporter's word. 2026-10-20 16:14 GO-AHEAD by the reporter: "193, one painter for all" -- the property and selection views MOVE to the one way too; ASSIGNED to x16win (its next task). 2026-10-20 16:36 BUILT by x16win, NOT committed: one painter in OverlayManager, the property and selection views' own band code retired; a QUESTION for the reporter before the commit -- the MODEL TREE: (A) keep its text-width grounds, recommended, or (B) band it too. 2026-10-20 16:44 the reporter: (A) KEEP the model tree's own look ("Keep tree's look (Recommended)"), passed to x16win. 2026-10-20 17:04 BUILT and COMMITTED by x16win on ITS LinkVibe after `72396a7ff4` ("Gui: every list in an overlay has the property view's alternating rows"; the hash given at 17:04: `5f507995a3`), NOT pushed, NOT staged; overlay-list-row-bands.py 13/13 (new), the grounds 10/10, the preset 54/54, overlay-see-through 56/59 (3 Dark failures the same on a baseline). 2026-10-20 17:12 PUSHED by x16win (thundereal/LinkVibe `72396a7ff4..5f507995a3`, fast-forward, 193 only) on the reporter's "push" to it (relayed), NOT restaged |
-| 194 | 2026-10-20 | a defect (two): in the FILLET edit panel, (1) selecting a MISSING edge's ROW does NOT select its PREVIEW FACE in the 3D view; (2) after selecting a row in the panel, then a PREVIEW FACE in the 3D view, the panel's earlier selection is NOT CLEARED -- TWO rows end up selected | OPEN; said to the note-taker 2026-10-20 09:29. 2026-10-20 09:38 CAUSE FOUND (one for both, the note-taker's candidate): a missing row put NOTHING in Gui::Selection, so its face was not lit, and the 3D click's clearSelection had nothing to clear and sent no ClrSelection (Selection.cpp 2022) -- the panel kept its row; before-run r155: both claims FAIL (rows ['?Edge11','Edge8']); FIXED in the working tree (the row selects its preview face, ';AddSub;FaceN' by getItemElement), r156 building; fillet-preview-pick-syncs-list.py 3 new claims; NOT committed. 2026-10-20 09:43 r157 building with 194 ALONE (a large rebuild, Command.h touched and restored); then fillet-preview-pick-syncs-list, dressup-replace-missing-edge, serve-dressup-preview-pick one at a time. READ: git status -- TaskDressUpParameters.cpp and the test modified, uncommitted |
+| 192 | 2026-10-20 | a defect and a question: TechDraw, page frames HIDDEN -- SELECTING an ACTIVE VIEW shows its frame (as 155 asked), but after DESELECTING it the frame STAYS; and WHY show the frame at all, since the Active View can be dragged by its PICTURE | OPEN; said to the note-taker 2026-10-20 09:15; the why ANSWERED from entry 155 (2026-10-16 11:20 to 11:24). 2026-10-20 09:17 the build session: CAUSE FOUND by reading, nothing built -- the note-taker's candidate right: a deselect made IN THE PAGE draws the border while Gui::Selection still holds the view, then setTreeToSceneSelect clears Gui::Selection under blockSelection(true), so onSelectionChanged and its refreshSelectedFrames() never run (a deselect from the TREE is fine); proposed: refreshSelectedFrames() at the end of setTreeToSceneSelect, every view kind; on a: a frameless part view still has nothing to drag by (lines select edges/vertices, the inside passes) -- the rule's reason holds for part views and groups; a drag from a line NOT run; waiting for the reporter's word on a and on building. 2026-10-20 09:24 the reporter: option 3 -- KEEP the frame-on-selection for EVERY view kind (frames hidden -> the frame shown while any of its children is selected); FIX the deselect. 2026-10-20 09:38 FIXED, COMMITTED locally `01d32da5c6`, NOT pushed, NOT staged: refreshSelectedFrames() after the page's own selection change, the rule kept everywhere; techdraw-view-click-through.py 8 new claims -- the two page-deselect claims FAILED on r154 (part view, picture), every claim passes on r155. 2026-10-20 17:52 in the 17:46 push from this box (`b245d01c73`). 2026-10-20 17:54 STAGED (stage24 17:47:15, fcad `b245d01c73`, r178) |
+| 193 | 2026-10-20 | a change request: ALL LIST VIEWS in OVERLAY PANELS get ALTERNATING row backgrounds WITH TRANSPARENCY, as the PROPERTY VIEW has; 184's transparent background is in, the alternating rows are not | OPEN; said to the note-taker 2026-10-20 09:18. 2026-10-20 09:20 SIZED by the build session, nothing built: the property view and the SELECTION VIEW already alternate overlaid, each by its own code; a sheet rule cannot (the sheet's opacity), a delegate cannot be swapped (task panels and the tree have their own); PROPOSED: OverlayManager watches item views in overlaid panels (also on child-added) and fills each visible row's band on the viewport's paint before the items, the same two colours at the overlay alpha, rows counted as the property view; d open for the reporter's look; waiting for the reporter's word. 2026-10-20 16:14 GO-AHEAD by the reporter: "193, one painter for all" -- the property and selection views MOVE to the one way too; ASSIGNED to x16win (its next task). 2026-10-20 16:36 BUILT by x16win, NOT committed: one painter in OverlayManager, the property and selection views' own band code retired; a QUESTION for the reporter before the commit -- the MODEL TREE: (A) keep its text-width grounds, recommended, or (B) band it too. 2026-10-20 16:44 the reporter: (A) KEEP the model tree's own look ("Keep tree's look (Recommended)"), passed to x16win. 2026-10-20 17:04 BUILT and COMMITTED by x16win on ITS LinkVibe after `72396a7ff4` ("Gui: every list in an overlay has the property view's alternating rows"; the hash given at 17:04: `5f507995a3`), NOT pushed, NOT staged; overlay-list-row-bands.py 13/13 (new), the grounds 10/10, the preset 54/54, overlay-see-through 56/59 (3 Dark failures the same on a baseline). 2026-10-20 17:12 PUSHED by x16win (thundereal/LinkVibe `72396a7ff4..5f507995a3`, fast-forward, 193 only) on the reporter's "push" to it (relayed), NOT restaged. 2026-10-20 17:54 STAGED (stage24 17:47:15, fcad `b245d01c73`, r178) |
+| 194 | 2026-10-20 | a defect (two): in the FILLET edit panel, (1) selecting a MISSING edge's ROW does NOT select its PREVIEW FACE in the 3D view; (2) after selecting a row in the panel, then a PREVIEW FACE in the 3D view, the panel's earlier selection is NOT CLEARED -- TWO rows end up selected | OPEN; said to the note-taker 2026-10-20 09:29. 2026-10-20 09:38 CAUSE FOUND (one for both, the note-taker's candidate): a missing row put NOTHING in Gui::Selection, so its face was not lit, and the 3D click's clearSelection had nothing to clear and sent no ClrSelection (Selection.cpp 2022) -- the panel kept its row; before-run r155: both claims FAIL (rows ['?Edge11','Edge8']); FIXED in the working tree (the row selects its preview face, ';AddSub;FaceN' by getItemElement), r156 building; fillet-preview-pick-syncs-list.py 3 new claims; NOT committed. 2026-10-20 09:43 r157 building with 194 ALONE (a large rebuild, Command.h touched and restored); then fillet-preview-pick-syncs-list, dressup-replace-missing-edge, serve-dressup-preview-pick one at a time. READ: git status -- TaskDressUpParameters.cpp and the test modified, uncommitted. 2026-10-20 17:52 in the 17:46 push from this box (`b245d01c73`). 2026-10-20 17:54 STAGED (stage24 17:47:15, fcad `b245d01c73`, r178) |
 | 195 | 2026-10-20 | a change request: 'Measure (pre)selected geometry' (the Part preselection macro, Std_Macro_Presel_PartMeasure) ON BY DEFAULT | OPEN; said to the note-taker 2026-10-20 09:34. 2026-10-20 09:38 DONE in the working tree, r156 building, NOT committed: MacroCommand gets a per-command default (defaultOption), TRUE for Std_Macro_Presel_PartMeasure only; a stored value wins, the default not written; test part-presel-measure-default.py. c CHECKED by the note-taker (READ only): the reporter's %APPDATA%/Thundereal/user.cfg and %APPDATA%/FreeCAD/user.cfg hold NO stored bool for it (only an FCText toolbar entry of that name, 'PartDesignWorkbench') -- the reporter WILL see the new default. 2026-10-20 09:40 ON HOLD by the reporter: a PERFORMANCE TEST first (in the future), then the decision whether to make it default on. 2026-10-20 09:43 HELD and PARKED by the build session, NOT in the tree (the default stays off): the change saved as D:/works/sw/dl/handson/2026-10-12/195-presel-measure-default.patch (5068 bytes) with its test part-presel-measure-default.py beside it; to revive: git apply the patch, move the test back; r156 stopped (it carried 195). READ by the note-taker: both files there; git status shows no 195 file |
-| 196 | 2026-10-20 | defects (four), PRIORITY FIRST: fillet on-view edit -- (1) a NORMAL (working) preview face is selectable but NOT PRESELECTABLE, and a 3D selection of it does NOT SYNC the edit panel; (2) the on-view LABEL has NO PRESELECTION highlight; (3) the label LOSES to base geometry behind it on a click; (4) the handles' SILHOUETTE (pre)selection outline asked (144, 159) never came -- is it possible? and the handles are drawn FLAT, no shading | OPEN; said to the note-taker 2026-10-20 09:56; the reporter: the build session to do this FIRST, then WAIT for the reporter's hands-on test on the TEST BUILD directly. 2026-10-20 10:10 the reporter to the build session (relayed): point 4's outline made GENERAL -- every gizmo, the "original axis arrow" and the LEGACY DRAGGERS too; the build session's plan: one mechanism (the selection node's isOverEditHandle reports any SoDragger's path; the view routes it to the capture holding it as an outlined highlight item, pre-/selection colour, following ShowPreSelectedFaceOutline/ShowSelectedFaceOutline; the gizmos keep 144's group colouring); ASKED the reporter: "original axis arrow" = the transform dragger's arrows (assumed) or the body origin's axes; order: 3, 2, 1 (repro with PerViewEdit OFF, the reporter's default), shading, the outline. 2026-10-20 10:10 the reporter to the build session (relayed): "both" -- the outline covers the TRANSFORM DRAGGER and the ORIGIN's AXES; the build session: the origin's axes are ordinary objects (preselected by the selection, not draggers), so through the normal scene highlight, with the same outline rule for their arrows. 2026-10-20 10:11 the reporter to the build session (relayed): "also make the shading works on the others too" -- LIT SHADING (not the flat BASE_COLOR) on EVERY handle: the gizmos' linear, rotation and planar parts, the transform dragger, the light handle, the origin's axis arrows if flat too; one shared setting, not file by file. 2026-10-20 10:12 the reporter to the build session (relayed): "just remove the base color override, make them following the view's draw style" -- the SoLightModel BASE_COLOR nodes TAKEN OUT of the handle parts (linear, rotation, planar, transform dragger), so they follow the view's draw style and lighting; NO shared setting of our own (the 10:11 reading replaced). 2026-10-20 11:46 points 2 and 3 WORK in the build tree (r168: label test 7/7, arrow test 15/15), the shading DONE, uncommitted; the outline still chased (the hovered handle's highlight reaches the backend but does not land on the arrow; r171 traces it). 2026-10-20 15:22 BUILT and COMMITTED locally `f3dc8f68d2` (points 2, 3, the draw style) and `6d8ff90769` (dress-up handles one colour), NOT pushed, NOT staged; the outline REVERTED and parked (dl/handson/2026-10-12/196-outline-attempt.patch) and point 1 LEFT AS IS, both the reporter's word to the build session (relayed); r174 8 tests green; Thundereal from the build tree launched 15:17 for the reporter's HANDS-ON |
-| 197 | 2026-10-20 | a defect: scanner.FCStd, the MIGRATION RECOMPUTE -> Binder008 'No context' (expected); a DOUBLE CLICK to UPDATE it -> Pocket022's FIT (the cut's tolerance, 0.1) CHANGES SIDE (the grow becomes a shrink); must not happen -- backward compatibility kept, or, where it cannot be, the feature marked in ERROR | OPEN; said to the note-taker 2026-10-20 10:02. 2026-10-20 10:07 the reporter: Binder008's update binds the SAME SHAPE, NO VISUAL CHANGE -- c answered; the flip is not a moved or different shape. 2026-10-20 11:50 ASSIGNED to x16win (the note-taker's split, 11:40), acknowledged: its full build running; to work on a scratch COPY of dl/handson/2026-10-06/scanner.FCStd (the same Pocket022, Binder018, Binder008). 2026-10-20 11:52 x16win STARTED 197: LinkVibe `fdf4dccef5` built clean on its box (build/win-relwithdebinfo-801, OCCT `1e2de2a74e`), baseline suites running; whether the flip reproduces on the scratch copy comes first. 2026-10-20 12:17 REPRODUCED headless, CAUSE found (the Fit's side follows the outer wire's turn, not the orientation flag), FIXED by x16win: `c8e5aca952` on ITS LinkVibe (another box), NOT pushed, NOT staged, not in this tree; _FitRule 2 judges the side by geometry; Pocket022 keeps +-7.6, Pocket040 r 13; TestPocket 14 OK, TestPartDesignApp 478 OK; the GUI double click not driven. 2026-10-20 16:08 PUSHED by x16win (thundereal/LinkVibe `fdf4dccef5..72396a7ff4`, fast-forward) on the reporter's word to it (relayed), NOT restaged |
-| 198 | 2026-10-20 | a defect found by x16win (on 197), made an entry on the reporter's "Yes, new entry": FIT does NOTHING on OPEN-WIRE profiles -- getVerifiedFace() makes openshape.makeOffset2D(Fit) and DROPS the result | OPEN; 2026-10-20 15:18; ASSIGNED to x16win (PartDesign App), after 158 and 178's six classes. 2026-10-20 15:35 CAUSE CONFIRMED by x16win (only Revolution reaches it; Fit +-0.5 give the identical shape); a DECISION put to the reporter: (1) make it work, one-sided, the side by geometry, old files unchanged, recommended; or (2) refuse with an error; nothing built. 2026-10-20 15:40 DECIDED by the reporter: (1) MAKE IT WORK ("Make it work (Recommended)"), passed to x16win. 2026-10-20 15:57 BUILT and COMMITTED by x16win, `72396a7ff4` on ITS LinkVibe, NOT pushed, NOT staged: _FitRule 3, open wires offset one-sided by geometry, older features unchanged, an end moved off the axis the Revolution's error; TestRevolve 29 OK (3 new), TestPocket 14 OK. 2026-10-20 15:59 TestPartDesignApp re-run whole: 481 OK. 2026-10-20 16:08 PUSHED by x16win (thundereal/LinkVibe `fdf4dccef5..72396a7ff4`, fast-forward) on the reporter's word to it (relayed), NOT restaged |
-| 199 | 2026-10-20 | a test defect found by x16win, made an entry on the reporter's "Yes, new entry": XLinkSnapshotTest.theClipboardsCopyWritesTheSnapshotAndPastesToTheDocument FAILS EVERY TIME on Windows -- getSnapshotPath() forward slashes vs TransientDir backslashes, the prefix check (tests/src/App/XLinkSnapshot.cpp:81) never matches | OPEN; 2026-10-20 15:18; ASSIGNED to fcad-dc (idle while the reporter's 196 hands-on is pending). 2026-10-20 15:29 FIX WRITTEN by fcad-dc in tests/src/App/XLinkSnapshot.cpp only (both paths compared in generic form), NOT verified: the build needs the dev app closed (every build relinks FreeCADBase.dll) -- waits for the reporter's 196 hands-on to end; no harm outside the test by its reading |
-| 200 | 2026-10-20 | a test failure found by x16win (on 193), made an entry on the reporter's choice: 3 DARK-theme claims of tests/gui/overlay-see-through.py FAIL on x16win's box with or without 193 (the tree's ground below the items; two property-row claims) -- a real defect or the test? | OPEN; 2026-10-20 17:12; ASSIGNED to x16win. 2026-10-20 17:27 CAUSE FOUND by x16win: all three FAULTS IN THE TEST (samples outside short panels), not defects; FIXED and COMMITTED on ITS LinkVibe after `5f507995a3` ("Gui: overlay-see-through reads only what its panels show room for", the test only; the hash given at 17:28: `88d325ab03`), NOT pushed, NOT staged; 62/62 twice |
+| 196 | 2026-10-20 | defects (four), PRIORITY FIRST: fillet on-view edit -- (1) a NORMAL (working) preview face is selectable but NOT PRESELECTABLE, and a 3D selection of it does NOT SYNC the edit panel; (2) the on-view LABEL has NO PRESELECTION highlight; (3) the label LOSES to base geometry behind it on a click; (4) the handles' SILHOUETTE (pre)selection outline asked (144, 159) never came -- is it possible? and the handles are drawn FLAT, no shading | OPEN; said to the note-taker 2026-10-20 09:56; the reporter: the build session to do this FIRST, then WAIT for the reporter's hands-on test on the TEST BUILD directly. 2026-10-20 10:10 the reporter to the build session (relayed): point 4's outline made GENERAL -- every gizmo, the "original axis arrow" and the LEGACY DRAGGERS too; the build session's plan: one mechanism (the selection node's isOverEditHandle reports any SoDragger's path; the view routes it to the capture holding it as an outlined highlight item, pre-/selection colour, following ShowPreSelectedFaceOutline/ShowSelectedFaceOutline; the gizmos keep 144's group colouring); ASKED the reporter: "original axis arrow" = the transform dragger's arrows (assumed) or the body origin's axes; order: 3, 2, 1 (repro with PerViewEdit OFF, the reporter's default), shading, the outline. 2026-10-20 10:10 the reporter to the build session (relayed): "both" -- the outline covers the TRANSFORM DRAGGER and the ORIGIN's AXES; the build session: the origin's axes are ordinary objects (preselected by the selection, not draggers), so through the normal scene highlight, with the same outline rule for their arrows. 2026-10-20 10:11 the reporter to the build session (relayed): "also make the shading works on the others too" -- LIT SHADING (not the flat BASE_COLOR) on EVERY handle: the gizmos' linear, rotation and planar parts, the transform dragger, the light handle, the origin's axis arrows if flat too; one shared setting, not file by file. 2026-10-20 10:12 the reporter to the build session (relayed): "just remove the base color override, make them following the view's draw style" -- the SoLightModel BASE_COLOR nodes TAKEN OUT of the handle parts (linear, rotation, planar, transform dragger), so they follow the view's draw style and lighting; NO shared setting of our own (the 10:11 reading replaced). 2026-10-20 11:46 points 2 and 3 WORK in the build tree (r168: label test 7/7, arrow test 15/15), the shading DONE, uncommitted; the outline still chased (the hovered handle's highlight reaches the backend but does not land on the arrow; r171 traces it). 2026-10-20 15:22 BUILT and COMMITTED locally `f3dc8f68d2` (points 2, 3, the draw style) and `6d8ff90769` (dress-up handles one colour), NOT pushed, NOT staged; the outline REVERTED and parked (dl/handson/2026-10-12/196-outline-attempt.patch) and point 1 LEFT AS IS, both the reporter's word to the build session (relayed); r174 8 tests green; Thundereal from the build tree launched 15:17 for the reporter's HANDS-ON. 2026-10-20 17:52 the reporter's hands-on (r174 to r177, said to the build session, relayed): three more fixes `6f98a451b6`, `de17c0aace`, `6a8b259b6c`; "looks good" on r177; PUSHED 17:46 (thundereal/LinkVibe `5f507995a3..b245d01c73`, after a merge of thundereal and build r178, 11 GUI tests green) and RESTAGE stage24 STARTED 17:46, NOT confirmed, on the reporter's "looks good, fetch and merge, build test and push" / "then restage". 2026-10-20 17:54 STAGED (stage24 17:47:15, fcad `b245d01c73`, r178) |
+| 197 | 2026-10-20 | a defect: scanner.FCStd, the MIGRATION RECOMPUTE -> Binder008 'No context' (expected); a DOUBLE CLICK to UPDATE it -> Pocket022's FIT (the cut's tolerance, 0.1) CHANGES SIDE (the grow becomes a shrink); must not happen -- backward compatibility kept, or, where it cannot be, the feature marked in ERROR | OPEN; said to the note-taker 2026-10-20 10:02. 2026-10-20 10:07 the reporter: Binder008's update binds the SAME SHAPE, NO VISUAL CHANGE -- c answered; the flip is not a moved or different shape. 2026-10-20 11:50 ASSIGNED to x16win (the note-taker's split, 11:40), acknowledged: its full build running; to work on a scratch COPY of dl/handson/2026-10-06/scanner.FCStd (the same Pocket022, Binder018, Binder008). 2026-10-20 11:52 x16win STARTED 197: LinkVibe `fdf4dccef5` built clean on its box (build/win-relwithdebinfo-801, OCCT `1e2de2a74e`), baseline suites running; whether the flip reproduces on the scratch copy comes first. 2026-10-20 12:17 REPRODUCED headless, CAUSE found (the Fit's side follows the outer wire's turn, not the orientation flag), FIXED by x16win: `c8e5aca952` on ITS LinkVibe (another box), NOT pushed, NOT staged, not in this tree; _FitRule 2 judges the side by geometry; Pocket022 keeps +-7.6, Pocket040 r 13; TestPocket 14 OK, TestPartDesignApp 478 OK; the GUI double click not driven. 2026-10-20 16:08 PUSHED by x16win (thundereal/LinkVibe `fdf4dccef5..72396a7ff4`, fast-forward) on the reporter's word to it (relayed), NOT restaged. 2026-10-20 17:54 STAGED (stage24 17:47:15, fcad `b245d01c73`, r178) |
+| 198 | 2026-10-20 | a defect found by x16win (on 197), made an entry on the reporter's "Yes, new entry": FIT does NOTHING on OPEN-WIRE profiles -- getVerifiedFace() makes openshape.makeOffset2D(Fit) and DROPS the result | OPEN; 2026-10-20 15:18; ASSIGNED to x16win (PartDesign App), after 158 and 178's six classes. 2026-10-20 15:35 CAUSE CONFIRMED by x16win (only Revolution reaches it; Fit +-0.5 give the identical shape); a DECISION put to the reporter: (1) make it work, one-sided, the side by geometry, old files unchanged, recommended; or (2) refuse with an error; nothing built. 2026-10-20 15:40 DECIDED by the reporter: (1) MAKE IT WORK ("Make it work (Recommended)"), passed to x16win. 2026-10-20 15:57 BUILT and COMMITTED by x16win, `72396a7ff4` on ITS LinkVibe, NOT pushed, NOT staged: _FitRule 3, open wires offset one-sided by geometry, older features unchanged, an end moved off the axis the Revolution's error; TestRevolve 29 OK (3 new), TestPocket 14 OK. 2026-10-20 15:59 TestPartDesignApp re-run whole: 481 OK. 2026-10-20 16:08 PUSHED by x16win (thundereal/LinkVibe `fdf4dccef5..72396a7ff4`, fast-forward) on the reporter's word to it (relayed), NOT restaged. 2026-10-20 17:54 STAGED (stage24 17:47:15, fcad `b245d01c73`, r178) |
+| 199 | 2026-10-20 | a test defect found by x16win, made an entry on the reporter's "Yes, new entry": XLinkSnapshotTest.theClipboardsCopyWritesTheSnapshotAndPastesToTheDocument FAILS EVERY TIME on Windows -- getSnapshotPath() forward slashes vs TransientDir backslashes, the prefix check (tests/src/App/XLinkSnapshot.cpp:81) never matches | OPEN; 2026-10-20 15:18; ASSIGNED to fcad-dc (idle while the reporter's 196 hands-on is pending). 2026-10-20 15:29 FIX WRITTEN by fcad-dc in tests/src/App/XLinkSnapshot.cpp only (both paths compared in generic form), NOT verified: the build needs the dev app closed (every build relinks FreeCADBase.dll) -- waits for the reporter's 196 hands-on to end; no harm outside the test by its reading. 2026-10-20 17:52 NOT built, NOT verified, uncommitted, not pushed: the reporter told the build session to stay on the fillet work until they say otherwise (relayed). 2026-10-21 15:38 RELEASED to fcad-dc by the reporter ("release 199 to fcad-dc"): build, verify through ctest, commit. 2026-10-21 15:45 VERIFIED and COMMITTED by fcad-dc `55d393cea1`: ctest -R XLinkSnapshotTest 6/6 (a first run hung in run.cmd's chcp, rerun); local, the push on r185 green (the reporter's word to fcad-dc, relayed); NOT staged. 2026-10-21 16:15 PUSHED by fcad-dc on the reporter's word to it (relayed): thundereal/LinkVibe 5fb4053dfa..b38bf76b9f, r185 (the merged build) 12 fillet/202 GUI tests green; NOT restaged (stage26 = r184, before the merge) |
+| 200 | 2026-10-20 | a test failure found by x16win (on 193), made an entry on the reporter's choice: 3 DARK-theme claims of tests/gui/overlay-see-through.py FAIL on x16win's box with or without 193 (the tree's ground below the items; two property-row claims) -- a real defect or the test? | OPEN; 2026-10-20 17:12; ASSIGNED to x16win. 2026-10-20 17:27 CAUSE FOUND by x16win: all three FAULTS IN THE TEST (samples outside short panels), not defects; FIXED and COMMITTED on ITS LinkVibe after `5f507995a3` ("Gui: overlay-see-through reads only what its panels show room for", the test only; the hash given at 17:28: `88d325ab03`), NOT pushed, NOT staged; 62/62 twice. 2026-10-20 20:23 PUSHED by x16win on the reporter's word to it: `88d325ab03` merged with the remote docs commits (up to `b245d01c73`) as merge `c860115ea7`, no conflicts; LinkVibe level with thundereal; NOT staged (a test file only) |
+| 201 | 2026-10-21 | a defect found by x16win (on 189's touch test), made an entry by the note-taker coordinating: in the BROWSER, Escape pressed on a desktop keyboard while the page's context menu is open closes the DOM menu on keydown, but the viewer still forwards keydown AND keyup as 'E' key frames, and the release ENDS the fillet edit ("left edit mode") | OPEN; 2026-10-21 06:23; seen with keydown + keyup dispatched together after the handle menu was used, a keydown alone did not end it in an earlier run; ASSIGNED to x16win after 189's sketch change (the browser code is its). 2026-10-21 08:42 FIXED by x16win `f229fc9ea7` (web/src/contextmenu.tsx: while the menu is open, Escape caught on the window in the capture phase, press and release both stopped), local, NOT pushed, NOT staged; checked in serve-handle-touch-browser.py (the edit stays, no input goes up). 2026-10-21 15:08 PUSHED by x16win on the reporter's word to it ("push when you're done with the current issue", relayed): thundereal/LinkVibe c860115ea7..5fb4053dfa, ten commits; NOT restaged |
+| 202 | 2026-10-21 | change requests and a defect, the fillet edit (relayed by fcad-dc, its wording; the note-taker did not hear them): (a) a VERTEX cannot be picked in the 3D view, so a setback corner cannot be made (the preview covers the base vertex and swallows the pick, by fcad-dc's reading); (b) a right click on a preview face, or while hovering its edge or face, the same menu as its handle, for every dress-up (181 point 2's menu); (c) the Group column second; (d) the multi-group COLOURED handles back, auto colours distinct from the (pre)selection and the dragging colour, a group's colour pickable by the user and kept in the fillet's property; (e) concise tool tips explaining each mode, for the whole list or per item; (f) a double click on the Group column edits the group | OPEN; 2026-10-21 11:10; fcad-dc's (its area), to start after r179 is built, restaged (stage25) and tested. 2026-10-21 11:11 fcad-dc's plan: (a) a GUI test reproducing it before any fix; (c) Group is today the LAST (6th) column, moved second by a header section move; (d) desktop only, absent property = auto colours, a group's colour picked from the handle's menu and the list row's context menu ("Group colour...", "Automatic") -- fcad-dc's default, to be told to the reporter; nothing started, r179 building (540/2086 at 11:10), then stage25. 2026-10-21 15:28 DONE by fcad-dc, COMMITTED locally `8b4b49a405` (+ test fix `c858d58e0b`), NOT pushed, NOT merged with x16win's `5fb4053dfa`, NOT staged; r184 (dev build): (a) the plain vertex click already worked; found instead a vertex stuck selected in the add mode (the corner could not be taken away) -- fixed; the reporter's case, if different, needs its model; (b)-(e) built, GroupColors a new hidden output property (fillet, chamfer), old files as before; (f) as reported "a double click on a value cell edits it" -- the Group column asked; fillet-groups-and-preview-menu 19/19, fillet-corner-vertex-pick 8/8, the fillet set green. 2026-10-21 15:29 (f) CONFIRMED by fcad-dc: a double click on the GROUP cell edits the group (the 202 test does it: A's Group cell, C's group typed + Enter, A in C's group); every column but the element name takes a double click; to merge x16win's `5fb4053dfa` and rerun the fillet set before any push. 2026-10-21 15:45 STAGED by fcad-dc (stage26 15:2x, INSTALL-USER OK, r184) on the reporter's "restage first, then continue 199 and then merge and push" (relayed); merged with x16win's push as `a5ab353409`, r185 building, the push on green. 2026-10-21 16:15 PUSHED by fcad-dc on the reporter's word to it (relayed): thundereal/LinkVibe 5fb4053dfa..b38bf76b9f, r185 (the merged build) 12 fillet/202 GUI tests green; NOT restaged (stage26 = r184, before the merge) |
+| 203 | 2026-10-21 | a defect and a change request (said to fcad-dc, passed to the note-taker on the reporter's word to hand to another session): Esc that dismisses a menu can also END the edit unintentionally; is there a setting for Esc ending an edit? Make ending the edit a COMMAND, enabled only while the current view is in edit, so the user can assign its own shortcut, default Shift+Esc; check conflicts (selection clear remembered on it -- both may coexist) | OPEN; 2026-10-21 11:16; READ by fcad-dc (nothing run): no general setting (the Sketcher has its own, LeaveSketchWithEscape); two hard-coded paths end an edit on Esc (ViewProvider::eventCallback on the RELEASE, no modifier check; TaskView's escape button); no command holds Shift+Esc in src; to be ASSIGNED to x16win after 132, plain Esc's fate put to the reporter. 2026-10-21 11:36 the reporter: a PLAIN Esc NO LONGER ENDS an edit ("No longer ends (Recommended)") -- only the new command ends it; a general preference, like the Sketcher's, can bring the old behaviour back; ASSIGNED to x16win after 132's real-screen runs. 2026-10-21 12:51 x16win found the reporter's own link.user.cfg holds Sketcher LeaveSketchWithEscape=1 (the old default, saved); the note-taker (coordinating) took x16win's proposal: a new general preference (e.g. View/EscapeEndsEdit, OFF by default) governs, the Sketcher key only narrows it (Esc ends a sketch edit only if both on), the Sketcher page's box maps to the general one -- so the reporter's decision holds for the reporter's own cfg. 2026-10-21 12:52 the CONFLICT found by x16win: the selection clear is a key handler, View3DInventorViewer::processSoEvent (~7530) -- Shift+Esc clears the selection, plain Esc the preselection; options put: (a) keep Shift+Esc, (b) another key, (c) clear first, end on a second press (x16win's pick); the note-taker ANSWERED from the reporter's own words ("dismiss edit while clearing selection can coexist"): Shift+Esc in an edit ENDS the edit and the selection clear may happen with it -- (a), not (c); no question put. 2026-10-21 13:26 BUILDING by x16win (uncommitted): View/EscapeEndsEdit OFF; Std_ResetEdit "End edit", Shift+Esc, clears the selection too; the ViewProvider and TaskView Esc paths gated; the Sketcher box maps to the general pref, Assembly's LeaveEditWithEscape narrows the same; the browser matches Std_ResetEdit's current shortcut; tests updated and tests/gui/end-edit-command.py new; OnViewValue.cpp and Gizmo.cpp not touched; a risk: Chrome binds Shift+Esc to its Task Manager -- the note-taker: check with a REAL key press, no new button (the mirrored task panel already ends the edit). 2026-10-21 15:01 COMMITTED by x16win `5fb4053dfa`, local, NOT pushed, NOT staged: end-edit-command.py 12/12 on screen, sketch-cancel-edit 12/12, sketch-focus-cursor 8/8, task-panel-in-view 89/89, serve-edit-browser 24/24 (Escape alone keeps the edit, Shift+Escape ends it), serve-onview-browser 16/16, serve-handle-touch-browser 40/40; a REAL OS Shift+Esc reaches a real Chrome page (no Task Manager) -- no button; outside an edit an OS Shift+Esc still clears the selection. 2026-10-21 15:08 PUSHED by x16win on the reporter's word to it ("push when you're done with the current issue", relayed): thundereal/LinkVibe c860115ea7..5fb4053dfa, ten commits; NOT restaged |
+| 204 | 2026-10-21 | a defect: TechDraw, page frames hidden -- selecting ANY geometry of a view in a PROJECTION GROUP shows the frames of ALL the group's views; wanted: ONLY the OWNER view shows its frame | OPEN; 2026-10-21 15:43; said to the note-taker; the cause READ by the note-taker (nothing run): QGIView.cpp frameOwner() (864-878) maps a group's view to its GROUP, so every view of the group matches a selection in any of them (entry 155's "group frame" rule, `6af132eb0b`); ASSIGNED to fcad-dc after 199 (it wrote 155/192's frame code). 2026-10-21 15:45 fcad-dc ACCEPTED, after its push; its reading matches the note-taker's (the group's own frame only when the group itself is selected), built that way unless the reporter says otherwise. 2026-10-21 15:46 the reporter: "there is no group frame, i.e. projection group has no frame" -- the NOT-said point moot: only the owner view's frame shows. 2026-10-21 16:15 WRITTEN by fcad-dc (uncommitted), r186 building: frameOwner() no longer maps a group's view to the group (the only place; the drag needs nothing of it); techdraw-view-click-through.py gains a Top view in the group -- the Front's edge selected leaves the Top's frame hidden. 2026-10-21 16:26 DONE by fcad-dc `c509ee889b`, local, NOT pushed, NOT staged (r186b): techdraw-view-click-through.py 27/27 (Front's edge selected, the group's Right view shows no frame; 192's claims green; the test's Right placed by hand, AutoDistribute off) |
+| 205 | 2026-10-21 | a defect, on entry 178's described errors: TechDraw Section003 (scanner, the reporter's live session) -- the tree TOOL TIP shows only "Error" in red, and the actual message as if a description, on a separate line in the normal colour; and what the error/warning is about | OPEN; 2026-10-21 15:52; READ by the note-taker in the live session (MCP, read only) and the source: the red line is the object's error text from the document's recompute log, EMPTY -- Document::recompute clears the WHOLE log at its start, so any later recompute that does not rerun Section003 drops its message while it stays in error (bare "Error"); the normal line is its late WARNING ("Warning: The section origin is outside the part..."); the error itself: "The section cut failed: the cutting tool does not meet the shape, so nothing is left" -- SectionOrigin y=24 while the part (Fillet007 BaseBottom) spans y -17.5..17.5; ASSIGNED to x16win after 167. 2026-10-21 15:55 REASSIGNED to fcad-dc on the reporter's word ("x16win is doing a long code audit task. assign it to the other session"), after its push and 204. 2026-10-21 16:15 WRITTEN by fcad-dc (uncommitted), r186 building: the recompute KEEPS the log entries of objects still in error and in the document (pruned, not cleared); "Recompute failed!" counts what this recompute added; a Python test Document.DocumentBasicCases.testErrorKeptOverUnrelatedRecompute; src/App/Document.cpp (the two recompute spots) and App/private/DocumentP.h only. 2026-10-21 16:26 DONE by fcad-dc `bb5545b5bc`, local, NOT pushed, NOT staged (r186b): the log pruned, not cleared (an entry stays while its object is in the document and in error); "Recompute failed!" counts this recompute's own; Python Document cases 35/35 (the new test with save + reopen + unrelated recompute); an undone removal reads "Error" until its next recompute, as before; the reporter's Section003 to be checked on a COPY of scanner.FCStd on the dev build (the note-taker's call). 2026-10-21 16:30 CHECKED by fcad-dc on a COPY of scanner.FCStd (dev build r186b, offscreen): SectionView003's status string keeps "The section cut failed: the cutting tool does not meet the shape, so nothing is left" after Part005 is recomputed alone (was "Error"); the tree tip itself not read offscreen -- a look on the reporter's screen after a restage closes it |
+| 206 | 2026-10-21 | a defect and a question: the company's malware detector (Apex, Behavior Monitoring) flagged the STAGED copy AGAIN (entry 161) -- "Unauthorized F[ile ...]", Event File System, Risk High, Operation DELETE, Action TERMINATED, the target a blob in the transient directory (...AppData/Local/cache/Thundereal/Cache/Thundereal_Doc_<uuid>_2b0e23_126872/blobs/<uuid>.png); it fired when the reporter CLOSED a document WITHOUT SAVING (the transient directory removed); what can be done; is a transient directory in TEMP safe? | OPEN; 2026-10-21 16:43; READ by the note-taker (source, nothing run): Document's destructor removes the whole transient directory recursively (Document.cpp 2592-2595), under getUserCachePath (2652-2667, {ExeName}_Doc_{UUID}_{HASH}_{PID}); the blob store keeps image content under its own extension (.png) in blobs/; ANSWERED to the reporter with options, a decision asked. 2026-10-21 16:51 the reporter: NEUTRAL BLOB NAMES ("Neutral blob names (Recommended)") -- blobs in the transient directory without image/document extensions, the cache folder kept; and IT asked to exclude Thundereal.exe (the reporter's own step); ASSIGNED to x16win |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -19876,6 +20016,165 @@ which commands are active asks a document for its redo steps -- a
 document, or its transactions, already freed. Whether the reporter can
 meet it outside the build session's script is not known.
 
+**2026-10-21 09:24, x16win: 132's WHY FOUND and REPRODUCED on its copy; a fix
+proposed in MDIView.cpp/MainWindow.cpp (not MDIViewPage or QGIView),
+asked for the go-ahead.** Probe (its scratchpad, not committed): a copy of
+D:/works/delta/code/scanner.FCStd (8 pages and the document's 3D view);
+the pages exported with TechDrawGui.exportPageAsPdf (which opens a page
+view for each), the page views then closed; also export-and-close one at
+a time, printPages, and closing the document with page views open; every
+2 ms the main window's active view (by id) compared with every view each
+Gui document lists. Result: after each page view's close the main
+window's active view IS that closed page view for 113-181 ms while no
+document lists it -- two runs, after every close in the close-all step
+and in each export-then-close step; the exports alone and printPages
+never.
+Why: MDIView::closeEvent DETACHES a view whose document has another view
+(the 3D view here): detachView(), then _pcDocument = nullptr
+(`10af0c1f8f`, 08-27). MainWindow::d->activeView is a QPointer, cleared
+only when the widget is deleted -- the deferred delete 110-180 ms later.
+Nothing moves activeView between: onWindowActivated(nullptr) returns
+early, and another subwindow need not be activated. So for that stretch
+sendHasMsgToActiveView("Undo"/"Redo"), from _updateActions ->
+testActive, reaches the detached view, and MDIViewPage::onHasMsg called
+getAppDocument()->getAvailableRedos() on null -- the build session's
+stack (Document.cpp 2150, reading 0xcc8), the read `d9c3193856` guards.
+NOT TechDraw-specific: any view closed so stays the active view with no
+document for that stretch; the other views' onHasMsg (MDIView's) already
+check for a null document, which is why only the page view crashed.
+Separately: after closeDocument the 3D view was still the active view
+with no document when the run ended.
+Proposed fix, in MDIView.cpp: in closeEvent where the view detaches, and
+in deleteSelf, if getMainWindow()->activeWindow() is this view, clear the
+main window's active view or set it to the subwindow Qt now activates --
+MainWindow then never names a view without a document. A test: the probe
+made tests/gui/view-close-active-detached.py, a page view and a 3D view.
+The font check of 189 (b) half done, its report to follow.
+**2026-10-21 09:24, the note-taker (coordinating): GO-AHEAD given.** Checked, read
+only: no uncommitted change to src/Gui/MDIView.* or MainWindow.* in
+either worktree on this box (fcad, fcad-wt); fcad-dc is on the desktop
+fillet work (PD Gui panels, OnViewValue.cpp, Gizmo.cpp); the files are
+x16win's for 132 until done, fcad-dc told. Asked of x16win: prefer the
+subwindow Qt activates next and clear only when there is none; the
+active-view change to go through the main window's usual path (so the
+active-view signal and the views that follow it see one change, not a
+half-detached view); the after-closeDocument case covered too; and the
+tests that switch and close views rerun (the second-view and per-view
+edit GUI tests, entry 157's visible-view rule kept).
+
+**2026-10-21 11:36, x16win: 132 FIXED `be9c935685` ("Gui: a closed view is no longer
+the active one while its delete is pending"), on its LinkVibe; NOT pushed,
+NOT staged.** A new MainWindow::dropActiveWindow(view, leaving), called
+from MDIView::closeEvent and MDIView::deleteSelf: if the closing view is
+the active one, it hands over to the latest activated of the remaining
+visible sub windows (ActivationHistoryOrder); the handover activates that
+sub window (onSetActiveSubWindow -> onWindowActivated), so viewActivated
+fires once; it sets the view directly only when Qt activates nothing (the
+main window not active itself); no active view if none is left. It never
+hands over to a view without a document (passive views allowed), nor to
+another view of a document closing with it (`leaving`: the closed view's
+document when it was the last view, or the document deleteSelf is
+closing for). A split-view sibling cell can take over (only the closing
+view itself is skipped). The guard `d9c3193856` stays.
+New test tests/gui/view-close-active-detached.py (a 2 ms poller for an
+active view some document held and none lists now; a page view closed
+with the 3D view open; a page exported to PDF and its view closed at
+once; a second document with its page view active closed; the last
+document closed): 11/11 with the fix, three times; the control (the
+MDIView.cpp calls reverted) 8 pass, 3 fail -- the closed page view stayed
+the active view instead of the 3D view, in the no-document state after
+the first close.
+View tests, offscreen, with the fix and on a baseline (MDIView.cpp,
+MainWindow.* reverted, rebuilt), identical claim for claim:
+active-view-active-cell 4/4 fail (offscreen clicks do not activate a
+cell); edit-view-closed 21/21; edit-after-reactivation 11/11;
+navicube-per-view 7 pass 4 fail; edit-per-view, pd-edit-shown-per-view,
+selection-per-view each ABORT "Frame capture timed out" (offscreen has no
+GL); techdraw-colour-after-page-view-closed,
+techdraw-never-shown-page-exports, antialiasing-change-keeps-the-cells,
+per-view-visibility no result in 420 s on both. No test found for entry
+157's tree rule; selection-per-view run as the nearest. ASKED: may it run
+the GL tests on the real screen, each with and without the fix.
+**2026-10-21 11:36, the note-taker (coordinating): the REAL-SCREEN runs ALLOWED, on
+x16win's own box only**, under the reporter's standing word (tests may
+run on the real screen until it says otherwise, 2026-10-16; "Yes, real
+screen OK" for x16win's 158 runs, 2026-10-20): each test with a fresh
+FREECAD_USER_HOME, the modal-box sweeper, throwaway documents closed, no
+bare test exe; the four that hung offscreen given a time limit and
+their last lines read before calling them hung.
+
+**2026-10-21 12:51, x16win: 132 on the REAL SCREEN, interim** (the fix `be9c935685`
+built; the baseline not run yet). With the fix: edit-per-view 25/0,
+pd-edit-shown-per-view 13/0, selection-per-view 26/0, navicube-per-view
+11/0 -- all four failed offscreen on both builds (frame capture, or 7/4),
+so those failures come from no GL, not from 132.
+view-close-active-detached 8/3 on screen: all four "never an active view
+with no document" claims pass; the 3 failures are "the 3D view (7) is
+the active one after" -- on screen it is the Start page (6); offscreen
+that claim passed; to be compared with the screen baseline before it is
+called. active-view-active-cell 5/3 on screen (offscreen 4/4 fail on both
+builds). The last six tests never started: the navicube run's FreeCAD
+outlived run_cdb -Stop and held port 8791 (StartServer failed 10048); the
+wrapper now uses -Kill between tests, the six re-running. That stale
+instance raised a Windows Firewall "allow public/private networks"
+prompt for Thundereal.exe on x16win's box -- left untouched, "the user's
+call".
+The note-taker's reading: the 3 on-screen failures may be the handover's
+choice, not the test's -- on a page view's close, the latest activated
+remaining sub window on screen is the Start page, not the document's own
+3D view; if the baseline does not show it, a document's own view may
+have to come first. Waiting for the baseline.
+
+**2026-10-21 13:26, x16win: 132 the fix and the BASELINE compared on the real screen**
+(baseline = MDIView.cpp reverted to be9c935685~1, the build otherwise the
+same). Identical claim for claim: active-view-active-cell 5/3,
+edit-per-view 25/0, pd-edit-shown-per-view 13/0, selection-per-view
+26/0, navicube-per-view 11/0, techdraw-colour-after-page-view-closed
+6/0, techdraw-never-shown-page-exports 10/0,
+antialiasing-change-keeps-the-cells 18/0, per-view-visibility 45/0,
+edit-view-closed 21/0, edit-after-reactivation 11/0. The one difference:
+view-close-active-detached, baseline 11/0, the fix 8/3. On screen Qt
+itself activates the closed page's own document 3D view (7), promptly,
+and the poller never saw a stale view without the fix; with it the
+hand-over activates the Start page (6). "So the fix is WRONG on a real
+screen: it overrides the window Qt picks. Offscreen (no active window, Qt
+activates nothing) it was needed and right." Suspect: dropActiveWindow
+skips sub windows that are !isVisible() -- in tabbed mode a background
+tab's sub window likely reports not visible, so 7 is skipped. Next: a
+probe printing the history with visible/hidden flags and each activation
+during the close, before any change; the likely change the note-taker's
+rule -- the same document first, then the history, no skip on isVisible
+(only closed or being deleted); numbers on screen and offscreen to
+follow. Also: the runner once reused a prefix and re-counted old
+offscreen results -- that run discarded; it now refuses a used prefix; no
+stale FreeCAD left between runs (-Kill).
+The note-taker's reading: the original crash (the reporter-side 10-14
+stack) came from a real-screen run on this box, so a no-document active
+view CAN happen on a screen too (when Qt activates nothing at once); the
+reworked fix must keep the poller clean on both, and should take Qt's
+own pick when Qt makes one.
+
+**2026-10-21 15:01, x16win: 132 REWORK COMMITTED `250eb76a82`** (a new commit on top of
+`be9c935685`, nothing amended); local, NOT pushed, NOT staged. The cause
+from the probe: on a screen Qt itself activates the closed page's own
+document 3D view at once; be9c935685's hand-over got there first and
+picked the Start page because it skipped sub windows not visible -- a
+tab behind the current one is. Offscreen Qt activates nothing until the
+deferred delete, so a hand-over IS needed there. The rework: Qt's own
+pick wherever Qt makes one; a split-view cell (its sub window stays
+open, Qt picks nothing) hands over at once to a cell beside it, the same
+document first; a whole sub window closing leaves no active view and, if
+Qt has activated nothing by the next loop turn, a single-shot picks the
+same document first, then the activation history; nothing skipped for
+!isVisible -- only the closing view, detached views, and views of the
+leaving document; onWindowActivated declines a view that has left its
+document. Numbers: view-close-active-detached 11/11 on the screen and
+offscreen (was 8/3 on screen); the twelve-test view set on the screen
+equal to the baseline claim for claim, except active-view-active-cell
+8/8 (baseline and be9c935685 5/3). Caught in its own review: two BEL
+bytes in a comment of the first draft (a \a through a patch script;
+byte-scanned, fixed); deleteSelf passes no "own" document.
+
 ## 133. TechDraw printing: landscape as the default (a change request, said to the build session) -- OPEN; DONE 2026-10-14, written, not committed; COMMITTED `560022c91b` 2026-10-14, local; PUSHED and STAGED 2026-10-14 22:59
 
 **2026-10-14 about 20:45, the reporter -- typed to the build session, mid-turn,
@@ -23863,6 +24162,136 @@ defect of its own -- a key or command routed to Save (an MDI view's
 script; a trace on the staged copy (a stack at Document::save) would
 catch the next one.
 
+**2026-10-21 15:07, x16win: 167 CODE SEARCH (read only, nothing run).** "Short form:
+the only ways the project file gets written are three callers of
+App::Document::saveToFile; none is reached by autosave, recovery,
+migration, recompute, touch or teardown; nothing new between 10-06 and
+the user's build; the one path that leaves NO trace at all is the MCP
+console; and the History records no trigger."
+1. Callers of App::Document::saveToFile: (a) App::Document::save() --
+   Std_Save (Ctrl+S, "Save" sent to the ACTIVE view: MDIView::onMsg 345,
+   and for a TechDraw page MDIViewPage::onMsg 216 -> Gui::Document::save
+   -> doCommand "App.getDocument(x).save()"), Std_SaveAll
+   (Gui::Document::saveAll 2813), the close-confirm box's Save
+   (Gui/Document.cpp 5519, MainWindow 1378), the save-failed box's
+   "different name" (Gui 1881 -> saveAs), dependents on a save (Gui 2346
+   -> saveAs), Python App.saveDocument (ApplicationPy 529), doc.save()
+   (DocumentPyImp), the Gui document's save(); (b) saveCopy() --
+   Std_SaveCopy and Python only; (c) saveVersionAsFile() (App 7070) --
+   offerSchemaUpgrade's own box (Save, 2244) and Python, inside a save.
+   Other archive writers: exportObjects (App 3237, to a caller's stream),
+   the log snapshot (App 5890, a NullWriter into the log store);
+   AutoSaver writes NOTHING with the log on (AutoSaver.cpp 144), else only
+   fc_recovery_files; DocumentRecovery.cpp has no save call; the teardown
+   of 3549b0a19f writes properties, not files.
+2. New between 10-06 and 10-16: git diff 8b3a25e956..b076aae675 (2156
+   commits) on the save surface (App/Gui Document.cpp, CommandDoc,
+   MainWindow, MDIView, AutoSaver, Application, MDIViewPage) adds NO call
+   to save/saveAs/saveCopy/saveToFile/saveToLog. The save-behaviour
+   commits 919883c008 (.TStd, "a plain save leaves a standard file
+   alone"), 67ce120c62, 8eaf537311 are NOT in b076aae675 -- they post-date
+   it, which fits a file written as .FCStd at schema 5.
+3. Remote clients: SceneControl ops (command, edit, getProperties,
+   onViewAction, onViewFocus, redo, resetEdit, setProperty, undo,
+   view.visibility); OmniControl command.run (plus catalog/param ops).
+   The browser allowlist (isBrowserSafeCommand: Sketcher tools and
+   constraints only) gates command and command.run for a connection that
+   is NOT a host; a HOST connection may run any command, Std_Save
+   included. Whether that session served a document: not known from the
+   code.
+4. MCP console (src/Ext/freecad/mcp_console/server.py): _exec_code runs
+   arbitrary code in the session; its log gets ONLY FreeCAD console lines
+   (an observer), never the code run; a save prints no console line. So
+   "App.getDocument('scanner').save()" sent to that session's MCP port
+   leaves nothing in mcp_console.log -- "the empty 18:00-18:11 window
+   excludes nothing. This is the one path with no trace at all, and
+   several Claude sessions had MCP access that day."
+5. Python from the GUI: fasteners and OpticsWorkbench have no
+   .save()/saveAs(); the reporter's macros (raytrace.py, rtest.py) only
+   saveImage; SavePythonHistory=0, so no console history to read.
+6. Shortcuts: Ctrl+S Std_Save, Ctrl+Shift+S Std_SaveAs; the cfg's
+   Shortcut/Priorities group empty (no remaps); RecentMacros give
+   Ctrl+Shift+1..3 (none saves). QGVPage::keyPressEvent passes keys to
+   QGraphicsView; with a PAGE active, Ctrl+S saves SILENTLY through
+   MDIViewPage::onMsg. A task panel does not block main-window shortcuts;
+   a modal box does.
+7. History: TransactionLog::noteSave writes meta "save:<uuid>" =
+   "<version> <head seq>"; the embedded copy gets save_id and save_date; a
+   session row has user, host and the environment (ExeName, build, OCC).
+   Nothing says WHO or WHAT called the save.
+PROPOSAL, so the next unasked save names its caller: (a)
+App::Document::save() records a TRIGGER in the save meta -- set at the
+call sites: Gui::Document::save passes the command name and the view
+class that took "Save" (or "close-confirm", "save-all"); the Python
+binding passes "python:<file>:<line>" from the calling frame; the MCP
+server sets "mcp:<client>" around its exec; (b) a Base::Console Log line
+at every saveToFile (file, schema, trigger), which mcp_console.log would
+then carry too; (c) server.py logs each executed block (timestamp and its
+first line) to mcp_console.log. No code written for 167.
+"The user has asked me to push when done with this issue; pushing the 10
+local commits now." (the reporter's word to x16win, relayed; the
+note-taker did not hear it.)
+The note-taker's reading: the likeliest unseen callers left are (i) a
+Ctrl+S with a page or view active (silent by design) and (ii) code sent
+through the MCP console -- by a Claude session driving the reporter's
+live FreeCAD that day (the build sessions did drive it through MCP).
+Neither can be shown now; the trigger record makes the next one show.
+The proposal touches the save meta (App, persisted) and the MCP server
+-- PUT to the reporter before any code.
+
+**2026-10-21 15:22, the reporter (to the note-taker, the tool's choice): "All three
+(Recommended)".** The question put: nothing found that saves on its own,
+and the file's history does not record what triggered a save; x16win
+proposes recording the save's caller so the next one names itself --
+build it? The option chosen: "(a) the save record in the file's history
+gets a trigger: the command and view, 'python:file:line', or
+'mcp:client'; (b) a Log line at every save (file, format version,
+trigger); (c) the MCP console logs each code block it runs." (Not
+chosen: "Only (b) and (c)"; "Not now".) ASSIGNED to x16win. The
+note-taker's reading: (a) adds to the persisted save meta -- old files
+and old readers must still load (an absent trigger reads as unknown);
+(c) must not log secrets wholesale -- the block's first line and a
+length, as x16win proposed, not the whole code.
+
+**2026-10-21 16:51, x16win: 167 BUILT and COMMITTED `96cf8eaf74`, local; NOT pushed
+("the user's push word covered the commits before it"), NOT staged.**
+(a) App::SaveTrigger (new App/SaveTrigger.h): a scope opened by whoever
+starts a save, nested outermost first, joined by '/'. Std_Save, SaveAs,
+SaveCopy, SaveAll open one with their name; the "Save" message names the
+view it goes to inside Gui::Application::sendMsgToActiveView, so Ctrl+S
+with a page active reads "Std_Save/Save@TechDrawGui::MDIViewPage"
+(MDIViewPage untouched); the close-confirm box ("close-confirm"), the
+close-all box ("close-all-confirm"), the schema-upgrade box, and the
+Python bindings ("python:<file>:<line>" from the calling frame, only when
+nothing outside Python named itself -- a command's doCommand runs that
+binding); App.pushSaveTrigger/popSaveTrigger for a host; the MCP console
+pushes "mcp:<client>" around each block. The record: meta save:<id> =
+"<version> <seq> <trigger>" (a reader of the two numbers stops before
+it); the embedded copy gets save_trigger; TransactionLog::savedAt reads
+it, "unknown" when absent; new doc.getTransactionSave(saveId='') ->
+{id, version, seq, trigger}. Old files and old readers unchanged (the
+C++ TransactionLog suite 83/83, the Document Python module 248 OK,
+serve-log 27/27, serve-log-kept 46/46, serve-log-acts 111/111).
+(b) every saveToFile writes one Log line "Saved <file> (schema N) by
+<trigger>", in the report view at Log level and in the MCP log.
+(c) the MCP console logs one line per block, "HH:MM:SS Exec client=<name>
+len=<n> first=<first line, cut at 120>", not the code; the client's name
+from the request context (mcp 2.0 client_info, 1.x clientInfo,
+"unknown" without one); verified over HTTP with scripts/mcp_run.py:
+"Exec client=mcp_run len=143 first=doc = App.getDocument(...)" then
+"Saved ... by mcp:mcp_run", the record mcp:mcp_run.
+A reading flagged: a console block records "mcp:<client>" alone, not
+"mcp:<client>/python:<mcp-console>:<line>" as its proposal text said
+(the binding defers to the scope outside it; the block's first line is
+in the console log beside the save line) -- the wording the reporter
+chose. Test tests/gui/save-trigger.py 14/14 on the screen (Python,
+Std_Save with the 3D view, Std_Save with a page view, a console block
+for a named client; each trigger in the history and the captured log; a
+record read back; an unknown id -> None); docs/TransactionLog.md sec
+30.19 a paragraph. x16win IDLE.
+The note-taker's reading: "mcp:<client>" alone answers the reporter's
+question (WHO saved); the first line beside it says what -- accepted.
+
 ## 168. Telling the user the new format's risk while encouraging it for the transaction log; a new extension (a change request, for discussion) -- OPEN
 
 **2026-10-16 18:43, the reporter:** "New request, and i need  discussion. How
@@ -26655,6 +27084,265 @@ d. The per-view / per-user parts (toggle handles per view; the settings
    multi-user policy (08:48) and 172 -> 174.
 e. Tested in a real browser, as 172 said: read as still required.
 
+**2026-10-20 20:31, the note-taker (coordinating, on the reporter's word of 20:31):
+189's TOUCH ASSIGNED to x16win.** The work: docs/OnViewValueEditing.md
+sec 9.3, sec 9.6 step 5 -- the client's ray pick extended to overlay 7
+so a first touch on a handle drags the handle (press, moves, release up
+as for the mouse, no camera), a tap makes it active, a hold opens the
+handle's menu, the fine step through "Default drag", typing in the
+label's box; 9.2 #8 (touch sends no input frames; the long press off
+while editing). Tried in a REAL Chrome with its touch emulation (the
+reporter's 2026-10-18 "test in real browser"). Why x16win: the browser
+code (src/Gui/Renderer/web, wasm/main.cpp, the serve source) is free
+while fcad-dc stays on the desktop fillet work; fcad-dc's 189 commits
+are in x16win's tree (the 17:46 push `b245d01c73`). Rules restated: no
+push, no restage without the reporter's own word; states to the
+note-taker; tell it before touching MDIViewPage or QGIView; no bare test
+exe. fcad-dc told the browser code is x16win's until this is done.
+
+**2026-10-20 20:45, x16win: 189 TOUCH WRITTEN, BUILDING; NOT tested, NOT committed.**
+Client side only, wasm/main.cpp; no desktop code, PartDesign/Gui,
+OnViewValue.cpp, Gizmo.cpp, MDIViewPage or QGIView touched.
+- pickScene is now pickDraws(draws, scene, x, y); a new pickEditHandle
+  picks the session's scene-camera overlay (the session the client's edit
+  session, while editing with the pointer taken).
+- One finger landing on the overlay is the edit's, not the camera's: past
+  the 8 px slop it sends move + press at the touch-down point, then the
+  moves, the release at the lift; a tap sends move + press + release (the
+  click makes the value active); a second finger releases it and goes
+  back to the camera; no double-tap zoom on a handle.
+- Hold: while editing, the loupe sends its point up as edit moves (the
+  server's hover), not as local preselection, as the mouse does while
+  editing; the 350 + 500 ms menu fires while editing only with the loupe
+  point on the overlay, the move flushed ahead of the contextMenu op on
+  the same socket, so buildViewerMenu sees the handle hovered.
+- A page hook window.fcviewerEditHandleAt(x, y) gives the same pick, for
+  the test.
+A DECISION FLAGGED by x16win: "on a handle" means ANY geometry of the
+session's overlay -- the labels too, and in a SKETCH edit the sketch
+geometry, so a finger on a sketch line goes to the sketcher as a mouse
+press would, instead of orbiting. The client has no per-draw handle tag
+(one would need a SceneDump field). Asked whether sketch touch should
+stay camera-only (then gated).
+Test: new tests/gui/serve-handle-touch-browser.py and
+scripts/handle-touch-drive.js, a headful Chrome 155 on its box, CDP touch
+emulation; puppeteer-core 25.15.0 installed at
+D:/works/sw/viewer-harness/ppenv (outside the repo, as sec 9.5c allows).
+Checks: a drag (coarse step, the NaviCube still), a tap, a hold -> the
+handle menu -> Settings > Default drag > Fine, a second drag (fine), an
+orbit off the handles (the camera turns, nothing goes up). The native
+rebuild after the merge running.
+The note-taker's reading: the sketch point changes how a sketch edit
+answers a finger in the browser, beyond 189's handles -- a design choice,
+so the REPORTER's, put to it; x16win to go on testing as written
+meanwhile.
+
+**2026-10-21 06:23, the reporter (to the note-taker, the tool's choice): a finger on
+sketch geometry "Go to the sketcher".** The question put: in the browser,
+while editing a sketch, what should a finger on a sketch line do? The
+options: "Go to the sketcher" (like a mouse press; a finger on a sketch
+line or label works the edit; orbit by touching empty space) or "Orbit
+(camera only)". The reporter chose the first.
+
+**2026-10-21 06:23, x16win: 189 TOUCH BUILT and COMMITTED `8036697b67` on its LinkVibe;
+NOT pushed, NOT staged.** Test: tests/gui/serve-handle-touch-browser.py
+with scripts/handle-touch-drive.js, a headful Chrome 155 on its box, CDP
+touch emulation: 23/23 PASS, twice (run_final1, run_final2).
+- A tap on the arrow: press + release up, the radius unchanged, the arrow
+  red -> green (active).
+- A drag on the arrow: radius 2 -> 5 in coarse steps (3, 3.5, 4, 4.5, 5);
+  the camera unchanged by the HUD's yaw and pitch.
+- A hold on the arrow (the loupe at lift 28): the handle's menu opens --
+  Default radius, One radius, Two radii, Remove, Show handles, Settings;
+  Settings > Default drag > Fine, each tapped in the page, set the
+  preference to 1.
+- The same drag again: fine steps 5.8, 6.1, ..., 7.7.
+- A tap on the top-middle label: its page box opens focused ("7.70 mm");
+  "4" + Enter -> radius 4.
+- A finger off the handles: the camera orbits, no frames go up, no value
+  changes.
+Regression: serve-edit-browser.py (mouse, sketch edit) 23/23. No desktop
+code touched.
+THE GATE, built before the reporter's answer reached it: overlay 7 also
+carries the fillet's see-through preview (alpha 0x32, opaque outline
+lines) and the labels (autozoom, pixel-sized), and a plain overlay pick
+covered the whole canvas through the label quad. So handles = the
+overlay's opaque triangle draws without autozoom; labels are picked where
+the backend draws them (the autozoom pixelscale rebuilt at the anchor's
+depth on the client). Sketch lines and points are NOT handles: a finger
+on a sketch still ORBITS, as before -- "a later, separate change".
+Behaviour changes it notes: (1) while editing, the hold's loupe sends its
+point up as edit moves (the server's hover, as the mouse does), not local
+preselection, and the hold's menu opens while editing only with the loupe
+on a handle or label; (2) a handle finger gets no double-tap zoom; (3) a
+slow start on a handle (inside 8 px at 350 ms) becomes the loupe, not a
+drag, as anywhere else.
+Found, not fixed (outside touch, a report only):
+a. Escape on a desktop keyboard with the page's context menu open ENDS the
+   fillet edit -- made entry 201.
+b. On its box's Chrome the top-middle label's text draws as missing-glyph
+   boxes (a font issue); the value box shows the text fine.
+c. On a phone, typing sends keydown e.key per key (the sketcher's path);
+   Android virtual keyboards often report "Unidentified"/229 and deliver
+   text through input events -- untested without a real phone, likely a
+   gap for both the sketcher and PD.
+d. A tap off the handles while editing is still a pick, not a click, so
+   on a phone it does not clear the active value (rule 159 has no touch
+   path) -- "Tell me if the user wants it to."
+puppeteer-core 25.15.0 at D:/works/sw/viewer-harness/ppenv; the test
+needs PUPPETEER_PATH, CHROME and NODE (or FCAD_REPO when execed by a
+wrapper).
+The note-taker's reading: the gate goes AGAINST the reporter's answer --
+the reporter's decision passed on to x16win: a finger on sketch geometry
+goes to the sketcher as a mouse press would, orbit on empty space; the
+test to show a sketch line dragged by finger. (b) and (c) noted, not
+assigned (c needs a real phone -- the reporter's, if at hand). (d) PUT to
+the reporter. Next for x16win after the sketch change: entry 201.
+
+**2026-10-21 08:42, the reporter (to the note-taker, the tool's choice): a tap on
+empty space on a phone "Yes, clear it".** The question put: on a phone,
+while editing in the browser, should a tap on empty space clear the
+active value? (A mouse click there does on the desktop, entry 159; touch
+has no such path yet.) The options: "Yes, clear it (Recommended)" -- "A
+tap off the handles works like a mouse click there: the active value is
+cleared. Same as the desktop." -- or "No, leave it". Passed on to x16win.
+
+**2026-10-21 08:42, x16win: SKETCH TOUCH COMMITTED `658fa038f8` ("Gui: a finger on a
+sketch line in the browser works the sketcher"), on its LinkVibe; NOT
+pushed, NOT staged.** Cause: the client could not tell the fillet
+preview's opaque outline lines from sketch lines. Fix: the desktop's own
+rule, the preview's Unpickable selection root, crosses the wire -- a new
+Render::Material::unpickable set from the render cache's selectstyle in
+SoFCRendererBridge (SceneDump v88, chunk version 24; Renderer.h,
+SceneDump.cpp, SoFCRendererBridge.cpp touched, outside the browser
+files). Client rule (isEditPickDraw): a finger takes any session-overlay
+draw that is not unpickable, not autozoom and opaque (triangles, lines,
+points) as a mouse press; labels as before; only empty space orbits. The
+preview still takes no finger. Tests, wasm and native rebuilt:
+serve-handle-touch-browser.py 34/34 twice (run_sk1, run_sk2), headful
+Chrome with touch emulated -- the sketch phase: a line found by pick and
+its magenta, dragged by finger, its start (0,-3) -> (1.686,-2.696), 13
+frames up, the camera still; empty space (250,570) orbits, sends nothing,
+moves no line. serve-edit-browser.py (mouse, sketch) 23/23. ctest
+SceneDump_tests_run (a new case theUnpickableFlagCrossesTheWire),
+SceneServerWire_tests_run, MirrorViewer_tests_run pass. Untouched:
+MDIViewPage, QGIView, PartDesign/Gui, OnViewValue.cpp, Gizmo.cpp.
+The note-taker's reading: the wire format moves (v88), so a browser page
+and a server must be of the same build -- as for every earlier version
+bump. Next for x16win: (d), the tap off the handles clearing the value.
+
+**2026-10-21 08:47, x16win: (d) DONE, COMMITTED `990a1a5216` ("Gui: a tap off an
+edit's handles in the browser is a click there"), on its LinkVibe; NOT
+pushed, NOT staged.** Cause: the server already clears the active value
+on a click off the handles (OnViewValueSet::viewerLeftButton, entry 159);
+the mouse in edit sends every left press there, but a finger's tap off
+the handles ran the viewer's own pick (doTapPick -> selectAt). No
+desktop code touched (OnViewValue.cpp, Gizmo.cpp not opened). Fix in
+wasm/main.cpp only: a new editClickAt(), used while a session takes the
+pointer, sends a move, a press and a release as the mouse's left button
+does; doTapPick uses it after the NaviCube's buttons and cube, which keep
+their taps. ONE ADDITION BEYOND THE ASK: a loupe lifted off a handle
+while editing is a click there too, not a local selection ("tell me if
+you want that undone"). A drag on empty space still orbits; a double tap
+on empty space still fits, its first tap now going up as a click.
+Tests (wasm rebuilt): serve-handle-touch-browser.py 38/38 twice (run_cl1,
+run_cl2) -- the point (0.25w, 0.75h) off the handles: a tap sends 4
+frames (inputs 4 -> 8), the arrow's green 266 -> 0 pixels, the radius
+stays 2.0, the camera unchanged; serve-edit-browser.py 23/23. Today's
+three commits (`f229fc9ea7`, `658fa038f8`, `990a1a5216`) all local.
+The note-taker's reading: the loupe addition follows the reporter's
+"Yes, clear it" (the same click, reached by a hold); kept, told to the
+reporter. NEXT for x16win, the note-taker coordinating: (b) the label
+text drawn as missing-glyph boxes in its Chrome (a defect the reporter
+may meet), then (c) typing through a phone keyboard's input events
+(tried with CDP's text input; a real phone the reporter's if at hand).
+
+**2026-10-21 09:03, x16win: (b) and (c) DONE, COMMITTED on its LinkVibe; NOT pushed,
+NOT staged.**
+(b) `625487051a` "Gui: a headless server on Windows draws its labels'
+text" -- the fault OURS, not its box's font set: a user running a Windows
+headless server would see the same. Cause: the browser draws the
+server's label as geometry, so the boxes came from the server; its test
+launches FreeCAD with QT_QPA_PLATFORM=offscreen (the platform
+docs/HeadlessServe.md gives for a headless server); on Windows Qt's
+offscreen plugin uses the FreeType font database, which reads only Qt's
+lib/fonts or QT_QPA_FONTDIR, and the conda build has neither -- no fonts,
+every label and the NaviCube's faces sent as boxes. Proof: the same run
+on the windows platform drew "Radius 2 mm" and "TOP". Fix in
+src/Gui/Application.cpp (startup): preAppSetup sets QT_QPA_FONTDIR to
+%WINDIR%/Fonts when the platform is offscreen and none is set (an
+explicit value wins); the folder alone still drew the wrong face (the
+cube and labels ask for "Helvetica", the FreeType database fell back to a
+condensed font), so postAppSetup loads the registry's FontSubstitutes as
+the windows plugin does (Helvetica -> Arial) and makes Segoe UI the
+default. The offscreen screenshots now match the windows platform's.
+Linux headless uses fontconfig, not affected (its reading, not tested).
+(c) `22576df0b9` "Gui: a phone keyboard types into the browser's on-view
+value boxes", web/src/onview.tsx only: the label's box, the sketcher's
+tool boxes, the datum editor's value and name. A keydown naming no key
+(Unidentified/Process, 229, isComposing) is left to the browser;
+beforeinput is answered with the matching keystrokes through the same
+fcviewerSendKey, a character at a time (Shift for a capital), then
+cancelled -- insertText -> characters, deleteContentBackward ->
+Backspace, deleteContentForward -> Delete, insertLineBreak /
+insertParagraph -> Enter; a composition shows locally, its text goes up
+at compositionend, the server's text and selection then restored. Desktop
+keys are still cancelled at keydown, so beforeinput never fires for them.
+Not tested: a real phone, the sketcher's tool boxes with a phone keyboard
+(the same handlers).
+Tests (native and wasm rebuilt): serve-handle-touch-browser.py 40/40
+twice (run_ty2, run_ty3), offscreen, no font variable set -- a keydown
+229 + Input.insertText "3" + Enter -> radius 3.0; Input.imeSetComposition
+"6" committed + Enter -> 6.0; the keyboard "4" still 4.0;
+serve-edit-browser.py 23/23.
+The note-taker's reading: (b) changes the font of EVERY offscreen
+FreeCAD on Windows -- the platform the build sessions' GUI tests run on
+(QT_QPA_PLATFORM=offscreen) -- so claims measured in pixels or text
+widths there may move; asked x16win to confirm the change is offscreen
+only and to run the offscreen GUI tests that read sizes or text (e.g.
+overlay-see-through.py) before it counts as done. Next for x16win after
+that: entry 132's "why the view had no document" (TechDraw, its area).
+
+**2026-10-21 09:48, x16win: the FONT CHECK of `625487051a`.** (1) Confirmed by the
+code, offscreen only: the QT_QPA_FONTDIR line runs only when the
+QT_QPA_PLATFORM variable starts with "offscreen" and QT_QPA_FONTDIR is
+unset; the FontSubstitutes and the Segoe UI default only when
+QGuiApplication::platformName() is "offscreen". (2) Ten offscreen GUI
+tests, before (the Application.cpp change reverted, FreeCADGui rebuilt)
+and after:
+- overlay-see-through.py: 62/62 -> 58 pass, 1 FAIL.
+- fillet-handle-click-in-view.py 15/15, serve-handle-hint.py 10/10,
+  omni-search-first-bring-up.py 8/8, sketch-auto-color.py 45/45,
+  sketch-datum-label-pick.py 12/12, sketch-display-settings.py 8/8 --
+  unchanged.
+- sketch-datum-text-mode3.py: 1 FAIL both ("Frame capture timed out");
+  sketch-hidpi-sizes.py: 1 FAIL both ("dpr=1.0", needs QT_SCALE_FACTOR=2).
+- statusbar-progress-place.py: 4 pass 2 FAIL -> 5 pass 1 FAIL ("the bar
+  does not start over the message" now passes -- the message was 312 px
+  of box glyphs; its other claim fails both ways, x 206/220 before,
+  270/270 after).
+What moved: overlay-see-through.py "Light: the property view shows rows
+of two kinds" needs >= 4 sampled rows; the Light property view was 91 px
+with 4 rows, now 75 px (Segoe UI rows taller) with 2 sampled -- both the
+right colours, (196,196,196,180) and (249,249,249,180), taking turns; its
+three follow-on claims skipped on the failure (58 + 1); Dark (138 px, 5
+rows) passes. Before, it passed on box glyphs with no font. x16win
+proposes a taller property view or 3 rows (its own test, `88d325ab03`).
+CORRECTION to its 132 interim: the "3D view still active with no
+document after closeDocument" was WRONG -- that view (id 6) was never any
+document's, a document-less view open from startup (probably the Start
+page), rightly made active after the last document closes; its new test
+separates the two. The 132 fix built and tested; its report follows the
+view tests.
+The note-taker's reading (coordinating): the font change is right (the
+offscreen runs now draw what the reporter's screen draws); the moved
+claim is the test's room, not a defect -- x16win to give the property
+view room for 4 rows rather than lower the claim, so the claim keeps its
+strength. sketch-datum-text-mode3.py, sketch-hidpi-sizes.py and
+statusbar-progress-place.py's other claim fail the same with and without
+the change: noted, not assigned (platform or test matters on its box,
+not this change's).
+
 ## 190. All the toolbars in one draggable card, collapsible into a draggable button (a change request) -- OPEN
 
 **2026-10-19 21:38, the reporter (to the note-taker):** "new request, host all the toolbars with one draggable card, add some toggle there to make it collapsible into a button, also draggable"
@@ -27165,6 +27853,41 @@ NOT pushed, NOT staged; the dev build is up for the reporter's HANDS-ON
 NOT said: the one-colour handles (`6d8ff90769`) -- read by the note-taker
 as asked of the build session by the reporter, not heard here.
 
+**2026-10-20 17:52, the build session (relayed): 196's hands-on, three more fixes,
+PUSHED, a RESTAGE started.** The reporter's words to the build session
+(the note-taker did not hear them):
+- `6f98a451b6` (r176): "there is no hover highlight when the handle is
+  selected. add hover highlight. be careful to set back the selected
+  color when not hovered." Then: "when click to select the handle, its
+  highlight should change from hover to selection to give user visual
+  feedback, even though the mouse is still hovering and hover highlight
+  has higher priority. the easier way I guess is to check if mouse is
+  down, and not count that as hovering." Also in it: "the setting menu,
+  is the Shift only activate fine drag? or does it toggle between fine
+  and coarse. Make it toggle depending on default fine or corase. amend
+  the menu text." -- it already toggled; the menu now says "Default drag"
+  plus "Hold for fine drag" / "Hold for coarse drag".
+- `de17c0aace` (r176): "when there is missing/failed edge, dragging any
+  working edge revert back immediately even though the fillet was made
+  correctly ... fix the error handling here. also, with preview mode,
+  why there is a delayed recompute ... revert after a slight delay ...
+  probably redundant. check that" -- the delayed second recompute was the
+  wrong revert's write-back, gone with the fix; fillet-partial-in-view.py
+  updated to 191's go-back (`3fc186d196`).
+- `6a8b259b6c` (r177): "when dragging cancelled by by either esc all
+  other click, the fillet rollback but the dragging is still active, no
+  aborting".
+The reporter then said "looks good" on r177, and: "looks good, fetch and
+merge, build test and push", then mid-turn "then restage". DONE: thundereal
+`5f507995a3` merged (`9c50071301`); build r178; 11 GUI tests green (the 10
+fillet/handle tests plus 193's overlay-list-row-bands.py 13/13); PUSHED
+`5f507995a3..b245d01c73` about 17:46 (the note-taker's queue commits to
+17:28 with it). RESTAGE stage24 STARTED 17:46, still copying bin when the
+build session's waiter was reaped for low memory -- NOT CONFIRMED (marker
+s1/stage24-done.txt). 199 NOT built, NOT verified, uncommitted: the
+reporter told the build session to stay on the fillet work until they say
+otherwise. 187 d noted.
+
 ## 197. scanner.FCStd: updating Binder008 after the migration flips Pocket022's Fit from grow to shrink (a defect) -- OPEN
 
 **2026-10-20 10:02, the reporter (to the note-taker):** "new defect, after open scanner.FCStd, perform migration recomputer. Binder008 shows no context error, which is expected. after double click to update it, Pocket022's cut with tolerance changed direction (i.e. expand become shrink). this shouldn't happen, either backward compatibility is broken. or if cannot maintain, should mark it as error."
@@ -27490,6 +28213,12 @@ fully forward-slash, not mixed; it is used for mkpath, saveCopy and
 openDocumentAsNew, and the paste matches the open document by Uid, never
 by path -- no harm outside the test by its reading (read, not run).
 
+**2026-10-21 15:38, the reporter (to the note-taker):** "release 199 to fcad-dc"
+The note-taker's reading: the hold of 2026-10-20 (fcad-dc kept on the
+fillet work) lifted for 199; fcad-dc to build its written fix, verify
+XLinkSnapshotTest through ctest only (entry 163: no bare test exe), and
+commit. NOT said: push or restage -- still the reporter's word.
+
 ## 200. Three Dark-theme claims of overlay-see-through.py fail on x16win's box (a test failure, found by x16win) -- OPEN
 
 **2026-10-20 17:12, the reporter (to the note-taker, the tool's choice):** asked what
@@ -27535,6 +28264,482 @@ px") and whether "folded up to measure" appears. The test is NOT
 registered in tests/gui/CMakeLists.txt -- it runs by hand only. x16win
 IDLE.
 
+**2026-10-20 20:23, x16win (relayed): 200 PUSHED** "at the user's word" (the
+reporter's word to x16win; the note-taker did not hear it): `88d325ab03`
+merged with the note-taker's remote docs commits (up to `b245d01c73`) as
+merge `c860115ea7`, no conflicts; LinkVibe now level with thundereal.
+NOT restaged. The note-taker's reading: the change is
+tests/gui/overlay-see-through.py only, so nothing in the reporter's test
+copy differs for it; no restage needed for 200. x16win IDLE, waiting for
+its next task.
+
+## 201. Browser: Escape with the page's context menu open ends the fillet edit (a defect, found by x16win) -- OPEN
+
+**2026-10-21 06:23, x16win (on 189's touch test, a report only):** "Escape from a
+desktop keyboard while the page's context menu is open: the DOM menu
+closes on keydown, and the viewer still forwards both keydown and keyup as
+'E' key frames. The release then ENDED the fillet edit ("left edit
+mode"). Seen with keydown+keyup dispatched together after the handle menu
+was used; a keydown alone in an earlier run did not end it. A phone
+closes the menu with a tap outside, which is fine."
+The note-taker's reading (made an entry while coordinating): an Escape
+that closes a menu in the page should be the menu's, not reach the edit
+-- neither its press nor its release. NOT said: whether the desktop does
+the same with its Qt menu (read as no: a QMenu takes its own Escape).
+ASSIGNED to x16win after 189's sketch change (the browser code is its).
+
+**2026-10-21 08:42, x16win: 201 FIXED `f229fc9ea7` ("Gui: Escape that closes the
+browser's context menu stays with the menu"), on its LinkVibe; NOT
+pushed, NOT staged.** Cause: the menu's keydown listener closed the menu
+but let Escape go on to the viewer's document listeners; the edit mode
+took the release as its own Escape. Fix: while the menu is open,
+web/src/contextmenu.tsx catches Escape on the window in the capture phase
+and stops both the press and the release. Checked in
+serve-handle-touch-browser.py (34/34 twice): Escape closes the hold menu,
+the edit stays Fillet on both sides, the input count unchanged (17 to
+17).
+
+## 202. Fillet edit: a vertex not pickable for a corner; the face's menu; the Group column; group colours; mode tool tips (change requests and a defect, relayed by fcad-dc) -- OPEN
+
+**2026-10-21 11:10, fcad-dc (relayed; the reporter's requests to it, in fcad-dc's
+wording -- the note-taker did not hear them):** "new fillet-edit requests
+from the user directly to me (all in my area: PD Gui panels,
+OnViewValue.cpp, Gizmo.cpp, TaskDressUpParameters), to start after r179
+(merge of thundereal c860115ea7 + main 9660244ceb) is built, restaged
+(stage25, user's word "build and restage") and tested."
+(a) "A vertex cannot be picked in the 3D view in fillet edit, so a setback
+    corner cannot be made: the preview covers the base vertex and
+    swallows the pick (from reading, not yet reproduced). Fix: a preview
+    pick at a base vertex becomes that vertex."
+(b) "Right-click on a preview fillet face, or while hovering its
+    edge/face, brings up the same context menu as its handle; same for
+    the other dress-ups."
+(c) "Move the Group column to second."
+(d) "Bring back the multi-group coloured handles; auto-assigned colours
+    kept distinct from the (pre)selection highlight and the dragging
+    colour; the user can pick a group's colour, persisted in the
+    fillet's property."
+(e) "Concise tooltips explaining each mode, for the whole list (or per
+    item if not possible)."
+(f) "Double-click on the Group column edits the group."
+"Also: the user asked how to set a corner today; I gave the Python route
+(Fillet.Corners = {'VertexN': setback})."
+The note-taker's reading: (a) a defect (a setback corner cannot be made
+from the view), its cause fcad-dc's reading only, to be reproduced; (b)
+is 181 point 2's menu half, asked again (181's tool tips on the face stay
+with 181); (b)-(f) change requests. NOT said: which column the Group
+column is now; where a group's colour is picked (the menu, the list, a
+cell); whether (d)'s colours reach the browser (189) -- read as to follow
+the desktop, as 189's sync asks. (d)'s "persisted in the fillet's
+property" adds a property to PartDesign App (the fillet feature):
+old files to load unchanged (CLAUDE.md's restore rule). Coordinating: all
+fcad-dc's area; x16win holds MDIView/MainWindow (132) and the browser
+code, so (d) in the browser, if wanted, goes to x16win after. STAGE25
+"build and restage" is the reporter's word to fcad-dc (relayed).
+
+**2026-10-21 11:11, fcad-dc: 202's plan; nothing started.** Agreed with the
+note-taker's readings: (a) gets a GUI test that reproduces it before any
+fix; (d) desktop only, the new fillet property loads old files unchanged
+("absent = auto colours"). Answers to the NOT-said points: the Group
+column is today the LAST (6th); it moves to second "by a header section
+move (logical index unchanged)". A group's colour is picked "from the
+handle's menu and from the list row's context menu (a "Group colour..."
+entry, plus "Automatic" to drop it) -- my default, I will tell the user
+and change it if they want another place." Order: r179 building (about
+540/2086 at 11:10), then stage25, then the fillet GUI tests on r179,
+then 202.
+
+## 203. Esc that closes a menu can also end the edit; ending an edit to be a command with its own shortcut, default Shift+Esc (a defect and a change request, via fcad-dc) -- OPEN
+
+**2026-10-21 11:16, the reporter (to fcad-dc, passed to the note-taker by fcad-dc on the
+reporter's word, "to pass it to you so you hand it to another session";
+relayed, the note-taker did not hear it):** "is there any setting assign
+'ESC' to end edit? this currently not working well, as normal ESC dismiss
+a menu can also end the dialog unintentionally. Let's make the edit
+dismiss a command which only enables when the current view is in edit, so
+that user can assign its own shortcut, default to 'Shift + ESC'. check if
+it conflicts with anything. I remember selection clear is using this
+shortcut, which does not really matter, as dismiss edit while clearing
+selection can coexist."
+fcad-dc's reading (by reading only, nothing changed, nothing tested):
+1. No setting turns Esc-ends-edit off. Two hard-coded paths end an edit
+   on Esc: src/Gui/ViewProvider.cpp 274-304, ViewProvider::eventCallback
+   -- an Esc RELEASE in the 3D view that keyPressed() does not take calls
+   doc->resetEdit() on a timer, with no modifier check (so Shift+Esc
+   ends an edit there today too); "The release is the likely culprit for
+   the menu case: Esc's press closes the menu, its release reaches the
+   view." And src/Gui/TaskView/TaskView.cpp 626: Esc, when the dialog's
+   isEscapeButtonEnabled(), clicks the roleOnEscape button, or calls
+   resetEdit() when it has none (TaskDialogPython exposes it,
+   TaskDialogPython.cpp 486).
+2. Std_ToggleNavigation has sAccel "Esc" (src/Gui/CommandView.cpp 3061);
+   View3DInventorViewer.cpp 325-339 claims the ShortcutOverride for Esc
+   only for the light manipulator.
+3. Shift+Esc: no command in src has it as its sAccel (grep); the
+   selection-clear binding the reporter remembers not found -- "it may be
+   in a user cfg or bound some other way. Needs checking."
+4. Overlap with its area: OnViewValue.cpp takes Esc itself (a drag
+   cancel, leaving no value active, the open label; ~438, 457, 1461,
+   1588, 1633, with takenKeys so the view does not end the edit on the
+   release), and Gizmo.cpp cancels a drag on Esc -- "ask me before
+   touching those two files; I expect they need no change". "I am not
+   taking this one."
+The note-taker's READ (nothing run): the Sketcher HAS its own setting,
+LeaveSketchWithEscape ("Esc can leave sketch edit mode",
+SketcherSettings.ui 135; TaskDlgEditSketch.cpp 60 sets the escape button
+from it, ViewProviderSketch.cpp 9475) -- so "any setting": the Sketcher
+only, none general. Std_Edit (CommandDoc.cpp 1851-1886, "Toggle Edit
+mode", no shortcut) already resets an edit when the active 3D view is
+editing, but it is active on any selection and toggles, so it is not the
+command asked for. The note-taker's reading: a NEW command (e.g.
+"Std_ResetEdit", "End edit"), active only while the CURRENT view is in
+edit, default Shift+Esc, user-assignable as any command; the conflict
+check covers the shortcut table (Shortcuts.cfg packs, user cfgs) and
+Qt's Esc handling in dialogs and the 3D view. NOT said: whether a PLAIN
+Esc keeps ending an edit after this (both hard-coded paths), or stops --
+put to the reporter. The browser's Esc (entry 201, x16win) is the same
+family. To be ASSIGNED to x16win after 132.
+
+**2026-10-21 11:36, the reporter (to the note-taker, the tool's choice): a PLAIN Esc
+"No longer ends (Recommended)".** The question put: once "End edit" is a
+command (default Shift+Esc), what should a plain Esc do in an edit? The
+option chosen: "Only the new command ends an edit; plain Esc still closes
+menus, cancels a drag, etc. A preference (like the Sketcher's 'Esc can
+leave sketch edit mode', made general) can bring the old behaviour back."
+(Not chosen: "Keeps ending, fixed" -- an Esc whose press closed a menu no
+longer ends it; "Both: fix + preference".)
+The note-taker's reading: both hard-coded paths (ViewProvider's Esc
+release, TaskView's escape button where it resets the edit) stop ending
+an edit by default; the preference, OFF by default, brings them back --
+and with it the Sketcher's LeaveSketchWithEscape to be reconciled (kept
+as the Sketcher's own, or folded into the general one; an old user.cfg
+that set it keeps its meaning). A task dialog's own Cancel on Esc (a
+dialog that is not an edit) NOT said -- read as unchanged. ASSIGNED to
+x16win after 132's real-screen runs; fcad-dc's OnViewValue.cpp and
+Gizmo.cpp Esc (drag cancel, the active value, the label) stay as they
+are, asked of fcad-dc before any change there.
+
+**2026-10-21 12:51, x16win: 203 question before writing the preference.** "the
+user's own link.user.cfg has Sketcher LeaveSketchWithEscape=1 written out
+(it is the old default, saved). If "an old user.cfg keeps its meaning" is
+taken literally, Esc keeps leaving the sketch for this user, against
+their "plain Esc no longer ends" decision. Proposal: a new general pref
+(e.g. View/EscapeEndsEdit, default off) governs, and the Sketcher key can
+only narrow it (Esc ends a sketch edit only if both are on). The Sketcher
+pref page checkbox maps to the new pref."
+**2026-10-21 12:51, the note-taker (coordinating): the PROPOSAL TAKEN.** "An old
+user.cfg keeps its meaning" was the note-taker's own reading, not the
+reporter's word; a saved DEFAULT is not a choice, and the reporter's
+decision ("No longer ends") is to hold for the reporter's own cfg.
+
+**2026-10-21 12:52, x16win: 203's CONFLICT FOUND.** The selection clear the reporter
+remembers is View3DInventorViewer::processSoEvent (View3DInventorViewer.cpp
+~7530): in a 3D view Shift+Esc clears the selection if there is one;
+plain Esc removes the preselection -- a key handler, not a command
+shortcut, so no "Shift+Esc" string in src. With Shift+Esc on
+Std_ResetEdit: Qt matches only enabled actions' shortcuts, the command
+enabled only while the current view is in edit, so outside an edit
+Shift+Esc still clears the selection; inside an edit it would end the
+edit instead of clearing it (e.g. a sketch's selected edges). Options:
+(a) keep the Shift+Esc default (selection clear in an edit by clicking
+empty space, or a rebind); (b) another default, e.g. Ctrl+Esc (opens the
+Start menu on Windows; Alt+Esc taken by Windows too); (c) Shift+Esc in
+an edit first clears the selection if any, ends the edit only when
+nothing is selected -- x16win's pick, "ask the user". Other checks:
+Std_ToggleNavigation's plain "Esc" untouched; the light-manipulator
+ShortcutOverride is plain Esc only; the overlay and tree Esc handlers are
+no-modifier or drag-only; no other Shift+Esc in .cpp/.py/.ui. x16win
+builds the rest of 203 meanwhile.
+**2026-10-21 12:52, the note-taker: ANSWERED from the reporter's own words, no
+question put.** The reporter's request already says it: "I remember
+selection clear is using this shortcut, which does not really matter, as
+dismiss edit while clearing selection can coexist." Read: Shift+Esc in
+an edit ENDS the edit, and clearing the selection with it is fine -- (a),
+the default kept; not (c), which would make the end take two presses.
+Passed on to x16win as the reporter's words, the reading the
+note-taker's.
+
+**2026-10-21 13:26, x16win: 203 BUILDING (uncommitted).** View/EscapeEndsEdit,
+default off; Std_ResetEdit "End edit", Shift+Esc, which also clears the
+selection; the ViewProvider and TaskView Esc paths gated; the Sketcher
+page box maps to View/EscapeEndsEdit; Assembly's LeaveEditWithEscape
+narrows the same way; the browser mirror matches keys against
+Std_ResetEdit's current shortcut, so a rebinding holds there. Tests
+updated: sketch-cancel-edit, sketch-focus-cursor, serve-edit-browser (+
+edit-drive.js, onview-drive.js); new tests/gui/end-edit-command.py.
+OnViewValue.cpp and Gizmo.cpp not touched. An open browser risk: Chrome
+binds Shift+Esc to its own Task Manager on Windows/Linux, and a page may
+not receive it; the puppeteer tests dispatch synthetic events and cannot
+show it -- "Want me to add one?" (a button sending the existing resetEdit
+op).
+**2026-10-21 13:26, the note-taker (coordinating): NO new button for now.** Check it
+with a REAL key press into a real Chrome window (an OS-level key, not a
+CDP event) on x16win's box. If Chrome takes Shift+Esc, the browser still
+ends an edit through its mirrored task panel's own buttons (OK / Cancel /
+Close), so nothing is lost; a rebind of Std_ResetEdit reaches the
+browser too. Reported to the reporter either way; a button only on the
+reporter's word.
+
+**2026-10-21 15:01, x16win: 203 COMMITTED `5fb4053dfa`; local, NOT pushed, NOT
+staged.** As built: View/EscapeEndsEdit OFF; Std_ResetEdit "End edit" on
+Shift+Esc, also clearing the selection; the ViewProvider and TaskView Esc
+paths gated; the Sketcher page's box maps to View/EscapeEndsEdit,
+LeaveSketchWithEscape stays readable and only narrows (Assembly's
+LeaveEditWithEscape the same); MirrorViewer ends the edit by the
+resetEdit op's ownership rule. Tests: end-edit-command.py 12/12 on the
+screen; sketch-cancel-edit 12/12, sketch-focus-cursor 8/8,
+task-panel-in-view 89/89; serve-edit-browser 24/24 (Escape alone leaves
+the session on, Shift+Escape ends it), serve-onview-browser 16/16,
+serve-handle-touch-browser 40/40. The probes: a REAL OS Shift+Esc
+(keybd_event) into a real Chrome window -- the page receives keydown and
+keyup Escape with shiftKey, no Chrome Task Manager -- so no button, none
+added; outside an edit an OS Shift+Esc still clears the selection (both
+focus targets). For testers: the view reads
+QApplication::queryKeyboardModifiers (the OS state), so a QTest key with
+ShiftModifier never looks shifted to it -- the test presses through
+keybd_event. pre-commit not installed in its env; the added lines
+scanned ASCII, the post-commit hook passed. OnViewValue.cpp, Gizmo.cpp,
+PartDesign/Gui untouched; no FreeCAD of its left running.
+x16win's LOCAL commits waiting for the reporter's push word (nine):
+`f229fc9ea7` (201), `658fa038f8` (189 sketch touch), `990a1a5216` (189
+d), `625487051a` (189 b, fonts), `22576df0b9` (189 c, phone keyboard),
+`0e65f53385` (the overlay test's room), `be9c935685` + `250eb76a82`
+(132), `5fb4053dfa` (203).
+
+**2026-10-21 15:28, fcad-dc: 202 DONE, COMMITTED locally `8b4b49a405` (plus a test fix
+`c858d58e0b`); NOT pushed, NOT merged with x16win's `5fb4053dfa`; built
+and tested on r184 (a dev build, NOT staged).**
+(a) "NOT the plain click: on a box corner a click on the vertex made it a
+    corner already. Found instead: in the add mode a base-picked vertex
+    stayed selected, so the second click was a deselection and the
+    corner could never be taken away -- fixed (the pick let go after each
+    toggle). If the user's case was something else, it still needs their
+    model."
+(b) a right click on a fillet/chamfer edge or its preview face opens that
+    handle's menu; draft/thickness: the value's menu.
+(c) the Group column second.
+(d) group colours back, the automatic ones clear of the hover, selection,
+    drag and plain hues; "Group colour..." / "Automatic group colour" in
+    the handle's Group menu and the list's menu; kept in a new HIDDEN
+    OUTPUT property GroupColors (fillet, chamfer); old files load as
+    before.
+(e) a header tip with the modes; a per-row tip with the mode and group.
+(f) "double click on a value cell edits it; a default-radius edge can now
+    join a group."
+Tests: new fillet-groups-and-preview-menu 19/19, fillet-corner-vertex-pick
+8/8; the fillet set green (pd-values 37, fillet-partial 12, each passed
+on a rerun after one disturbed run).
+The note-taker's reading: (f) as asked was "Double-click on the Group
+column edits the group"; the report names a VALUE cell -- whether a
+double click on the GROUP cell edits the group is asked of fcad-dc. (a):
+the reporter's own case not reproduced; the reporter to say whether the
+vertex they could not pick was on a box corner or elsewhere.
+
+**2026-10-21 15:29, fcad-dc: 202 (f) CONFIRMED.** "yes, a double click on the GROUP
+cell edits the group -- that is exactly what the 202 test does
+(fillet-groups-and-preview-menu.py: a double click on A's Group cell
+opens the number editor; C's group typed + Enter; A then in C's group).
+"Any value cell" is the generalisation: the panel handles the double
+click for every column but the element name, the Group column
+included." Logged in HandsOnLog `9a27cab328` (local). It merges
+`5fb4053dfa` before any push and reruns the fillet set on the merged
+build.
+
+## 204. TechDraw: a selection in one view of a projection group shows every view's frame; only the owner view's wanted (a defect) -- OPEN
+
+**2026-10-21 15:43, the reporter (to the note-taker):** "new defect, I asked toggle
+frame in techdraw to show the frame when any of its child is selected.
+but now when I select any geometry all views under a projection group
+show their frames. I want only the the owner view show its frame"
+The note-taker's reading: with the page's frames toggled off, a
+selection (an edge, a vertex, a dimension...) inside a view shows a
+frame; for a view in a projection group today ALL the group's views show
+theirs; wanted: only the view the selected geometry belongs to.
+READ by the note-taker, nothing run: src/Mod/TechDraw/Gui/QGIView.cpp
+frameOwner() (864-878) maps a dimension to its view, a balloon to its
+source view, and then a DrawProjGroupItem to its GROUP; selectionInside()
+(880-893) shows a view's frame when any selected object has the same
+owner -- so every view of the group (each owned by the group) matches a
+selection in any one of them. It came from entry 155 (2026-10-16, the
+reporter: "label shows with frame. no hover. group frame"), commit
+`6af132eb0b`; 192's `01d32da5c6` kept the rule. The fix by this reading:
+a group's view owns its own frame (a dimension or balloon still counts
+for its view); the group frame itself by its own rule.
+NOT said: whether the GROUP's own frame still shows (155's "group
+frame") when a geometry of one of its views is selected -- read as: the
+owner view's frame shows; the group frame only when the group itself is
+selected. A dimension spanning two views -- read as its own view's.
+ASSIGNED to fcad-dc after 199 (it wrote 155's and 192's frame code;
+QGIView is in TechDraw, x16win's area, but x16win is on 167 -- x16win
+told QGIView is fcad-dc's for this). The test:
+techdraw-view-click-through.py to gain a group claim (one view's edge
+selected -> that view's frame only).
+
+**2026-10-21 15:46, the reporter (to the note-taker), on the NOT-said point:** "but
+there is no group frame, i.e. projection group has no frame"
+The note-taker's reading: the question of a group frame falls away -- a
+projection group draws no frame of its own; a selection in one of its
+views shows that view's frame and no other. Passed on to fcad-dc.
+
+## 205. TechDraw Section003: the tree tool tip shows a bare "Error" in red, the message on a plain line below (a defect, on 178) -- OPEN
+
+**2026-10-21 15:52, the reporter (to the note-taker):** "check how the error report of
+techdraw section object works. it's a request from one of the entry.
+check my live session, the error message in section 003. its tooltip
+only shows 'Error' in red, while put the actual message as if they are
+description in a separate line with normal color. also check into what
+it this error/warning is about"
+The entry it comes from: 178 (TechDraw described errors: a view with
+nothing to show an error; a partial view a tool-tip warning,
+reportLateWarning).
+READ by the note-taker, the reporter's live session through its MCP
+console (port 8790, object state only, no Qt calls) and the source,
+nothing changed:
+- The object: scanner#SectionView003, label "Section003  - ",
+  TechDraw::DrawViewSection, State ['Invalid'], getStatusString() =
+  'Error'; BaseView ProjItem011 (Top003, Direction (0,0,1)), Source
+  Fillet007 (label BaseBottom), SectionDirection Aligned, SectionNormal
+  (0,-1,0), SectionOrigin (0, 24, -19); Label2 empty.
+- The console, twice (15:38:55-56 and 15:39:33): "Warning Section003  - :
+  The section origin is outside the part, so the section may cut nothing
+  or not where it is meant to"; "Error DVP::scanner#SectionView003 -
+  section cut failed - the cutting tool does not meet the shape, so
+  nothing is left"; "Error Section003  - : The section cut failed: the
+  cutting tool does not meet the shape, so nothing is left".
+- WHAT IT IS ABOUT: the section plane is outside the part. Fillet007
+  (BaseBottom) spans x and y -17.5..17.5, z -32.078..-6 (placement
+  identity); the plane through y = 24 with normal -Y misses it, so the
+  cut leaves nothing -- an error by 178's rule (nothing to show), with
+  the warning that says why ahead of it. Whether the origin moved (a
+  base or a sketch changed, or the view's origin set by hand) is not
+  read.
+- WHY THE TOOL TIP READS SO: the tree (src/Gui/Tree.cpp 3037-3063) puts,
+  for an object in error, a RED line = getStatusString(), which is the
+  document's recompute log text for it (App/DocumentObject.cpp 519-531:
+  "Error" when none), then the view provider's tool tip as a plain line
+  -- for a TechDraw view its late warnings, "Warning: ..."
+  (ViewProviderDrawingView.cpp 532-545). The red line is bare because the
+  log has lost the message: Document::recompute clears the WHOLE log at
+  its start (Document.cpp 15318, d->clearRecomputeLog()), so any later
+  recompute that does not rerun Section003 drops its text while the
+  object stays in error. The late error (DrawView::reportLateError,
+  DrawView.cpp 161-179) lands in the same log. So what shows on the
+  plain line is the WARNING; the ERROR's own text is gone.
+The note-taker's reading of what is wanted: the red line carries the
+error's own message (kept for as long as the object stays in error), and
+the warning stays below it as a warning. NOT said: the warning's colour
+(read as: marked as a warning, not as a description); whether the same
+holds for every object (read as yes -- the log loss is App's, any
+feature). ASSIGNED to x16win after 167 (App Document and the tree;
+167's save work is in the same file). The fix by this reading: clear
+the log only for the objects a recompute reruns (or keep an entry while
+its object stays in error), and a test that a second recompute of an
+unrelated object leaves the first one's message in its tool tip.
+
+**2026-10-21 15:55, the reporter (to the note-taker):** "x16win is doing a long code
+audit task. assign it to the other session"
+The note-taker's reading: 205 moves from x16win to fcad-dc, after
+fcad-dc's push and 204. NOT said: which audit (read as a task the
+reporter gave x16win directly; 167's save-trigger work, if not part of
+it, stays with x16win). x16win told 205 is no longer its; App Document
+and the tree are fcad-dc's for 205 -- x16win to say if its 167 work is
+in Document.cpp at the same time (both in the recompute/save code).
+
+**2026-10-21 15:57, x16win: the 205/167 OVERLAP CHECKED.** Its 167 work in
+src/App/Document.cpp (uncommitted, building): the App::SaveTrigger
+implementation after FC_LOG_LEVEL_INIT (~155) and one include after
+<Base/Console.h>; embedHistory's two record calls (~5760 noteSave, ~5772
+log->embed); one Console Log line in saveToFile (~5040). Nothing near
+the recompute log (15361, 15850-15985) or the Error attribute's save and
+restore (3824, 4205-4242) -- free for fcad-dc's 205; Tree.cpp not
+touched. 167 also touches App TransactionLog.h/.cpp, DocumentPyImp.cpp,
+DocumentPy.xml, ApplicationPy.cpp, Application.h, a new SaveTrigger.h;
+Gui Application.cpp, CommandDoc.cpp, MainWindow.cpp, Document.cpp,
+DocumentPyImp.cpp; Ext/freecad/mcp_console/server.py;
+docs/TransactionLog.md; tests/gui/save-trigger.py. It read for 205 only
+while its build ran, wrote nothing for it. Passed on to fcad-dc.
+
+**2026-10-21 16:30, fcad-dc: 205's (4) CHECKED on a COPY of
+D:/Zheng.Lei/mech/scanner.FCStd** (copied into the run's own dir, the
+reporter's file untouched), the dev build r186b, offscreen, a fresh
+FREECAD_USER_HOME, the two boxes answered by the sweeper (migration
+"Recompution required" -> Yes, "Recompute error" -> OK); script
+s1/scanner-section-tooltip.py, result s1/g-r186-sectip-dev/result.txt.
+SectionView003 recomputed: State Invalid, getStatusString() = "The
+section cut failed: the cutting tool does not meet the shape, so nothing
+is left". Part005 then recomputed alone (doc.recompute([Part005])):
+SectionView003 still Invalid, its status string the same message, not
+"Error" -- the reporter's loss, fixed. The tree tool tip itself NOT read:
+offscreen the tree's tip never showed (QToolTip text empty both times;
+the tree asks QCursor::pos() and pointerOverItems()). The red line is
+built from getStatusString() (Tree.cpp 3050), so it carries that
+message; the "Warning: ..." line from ViewProviderDrawingView::getToolTip,
+unchanged. "A look on the user's screen after a restage would close it."
+Nothing pushed or staged since b38bf76b9f; 204 `c509ee889b`, 205
+`bb5545b5bc` local.
+
+## 206. Apex terminates the staged copy when a closed document's transient directory is removed (a defect and a question) -- OPEN
+
+**2026-10-21 16:43, the reporter (to the note-taker), with a screenshot:** "my staged
+copy got flagged by company malware detector again. see the file access
+involved that triggered the alarm in the screenshot. see anything we can
+do to not trigger that again. I simply close the document without
+saving, which removed the transient directory and this happened. maybe
+opening transient in temp directory will be fine. but will that be safe?"
+The screenshot, as shown: a window "Logs", Range Custom 10/21/2026 to
+10/21/2026, Type "Behavior Monitoring"; one row: Date/Time 10/21/2026
+(W...), Violation "Unauthorized F..." (cut), Program
+"D:/works/sw/fc..." (cut), Event "File System", Risk "High", Target
+"C:/Users/lei.zh..." (cut), Infection Chan[nel] "Local or networ[k]...",
+Operation "Delete", Action "Terminated"; the target's tool tip:
+C:/Users/lei.zheng/AppData/Local/cache/Thundereal/Cache/Thundereal_Doc_229dd05e-e965-4842-aa6b-a8a9e922e329_2b0e23_126872/blobs/3f8b888b-726b-414b-b5f1-56cd0d32c160.png
+(126872 = the PID of the reporter's session this afternoon).
+"again": entry 161 (2026-10-16, "unauthorized file encryption",
+FreeCAD.exe of the stage quarantined).
+READ by the note-taker, nothing run: the transient directory is
+getUserCachePath() + {ExeName}_Doc_{UUID}_{HASH}_{PID}
+(App/Document.cpp 2652-2667) -- upstream's place too; the document's
+destructor removes it recursively when it is not shared with a history
+(2582-2595); the blob store (App/FileBlobManager) keeps each blob under
+blobs/ named by its uuid WITH the content's extension (.png here). So a
+close without saving deletes, in a burst, many files of types a
+ransomware heuristic guards (images, documents) -- the pattern Apex's
+"Unauthorized File Encryption" watches for (mass delete/rewrite of user
+files by one process). "Terminated": by the screenshot Apex ENDED the
+program, so unsaved work in other documents of that session is at risk
+when it fires.
+The note-taker's answer (to the reporter, recorded here):
+- TEMP alone is NOT a sure cure and has a cost: whether Apex guards
+  %TEMP% is the company's configuration (unknown here); and temp is
+  swept by Disk Cleanup / Storage Sense (files untouched for days), so a
+  document open for a long time could lose blobs it reads lazily -- a
+  data-loss risk the cache folder does not have.
+- What the program can do: (a) blobs in the transient directory under a
+  NEUTRAL name (no .png/.pdf/... extension -- the type kept in the store's
+  own record), so a removal deletes no file of a guarded type; (b) not
+  one burst at close: keep the store in few large files (the
+  monitored-box note: one big file over many small), or leave the
+  directory for a sweep at the next start; (c) the sure fix outside the
+  code: an exclusion from IT for Thundereal.exe (and/or the cache folder).
+- Recommended: ask IT for (c), and build (a) -- small, keeps the
+  folder, works for any heuristic keyed on file types.
+DECISION ASKED of the reporter; nothing assigned yet.
+
+**2026-10-21 16:51, the reporter (to the note-taker, the tool's choice): "Neutral blob
+names (Recommended)".** The option: "Keep the cache folder, but store
+blobs without image/document extensions (.png etc.), so a close deletes
+no file of a type ransomware heuristics guard. Small App change; plus ask
+IT to exclude Thundereal.exe." (Not chosen: "Move to TEMP", "Defer
+deletion", "IT exclusion only".) ASSIGNED to x16win (App's blob store,
+its area; idle after 167). The note-taker's reading of the work: every
+file the program writes into a transient directory (blobs/, and any
+other place it extracts content -- history checkouts, requests/,
+materialised files) named without a guarded extension; the type kept in
+the store's record; a file the user OPENS from there by its type (an
+image shown, a PDF) still gets its extension where the opener needs it
+-- said and kept to the few; old transient directories and saved files
+unchanged (the names inside the .FCStd archive are not the cache's).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -27546,5 +28751,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 200
+the build session, 131 and 132 found by it; entries 134 to 206
 are of 2026-10-15, 134 said to the build session)

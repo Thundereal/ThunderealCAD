@@ -196,6 +196,14 @@ public:
      */
     void setActiveWindow(MDIView* view);
     /**
+     * \a view is going (closed, or its document closing): if it is the
+     * active window, it is no longer: a cell beside it in its split view
+     * takes over, one of \a own (the document \a view was of) first, and
+     * otherwise none until Qt activates the next sub window. Not a view
+     * of \a leaving, a document that is going with it.
+     */
+    void dropActiveWindow(MDIView* view, Document* own, Document* leaving);
+    /**
      * MRU: Appends \a file to the list of recent files.
      */
     void appendRecentFile(const QString& filename);

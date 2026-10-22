@@ -76,6 +76,7 @@
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <App/FileBlobManager.h>
 #include <App/PropertyStandard.h>
 #include <Base/Console.h>
 #include <Gui/Application.h>
@@ -1370,9 +1371,12 @@ bool ShadedUnderlay::update(DrawViewPart* dvp)
 
     // PropertyFileIncluded keeps the base name of the file it is handed;
     // a stable name keeps the document's payload name stable across
-    // captures.
+    // captures. It ends in ".png.blob" (docs/HandsOnQueue.md entry 206): it
+    // is deleted right below, and a ransomware guard watches the delete of an
+    // image file. The store reads the type from before the suffix.
     QString tempPath = QDir::temp().filePath(
-        QStringLiteral("%1_ShadedUnderlay.png").arg(QString::fromUtf8(dvp->getNameInDocument())));
+        QStringLiteral("%1_ShadedUnderlay.png").arg(QString::fromUtf8(dvp->getNameInDocument()))
+        + QString::fromLatin1(App::FileBlobManager::neutralSuffix()));
     {
         QFile tempFile(tempPath);
         if (!tempFile.open(QIODevice::WriteOnly) || tempFile.write(png) != png.size())

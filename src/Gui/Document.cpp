@@ -21,6 +21,8 @@
  ***************************************************************************/
 
 #include "PreCompiled.h"
+
+#include <App/SaveTrigger.h>
 #include "Renderer/Renderer.h"
 
 #include <functional>
@@ -2241,6 +2243,7 @@ bool saveVersionDocument(Gui::Document* gdoc)
     int64_t saved = 0;
     try {
         Gui::WaitCursor wc;
+        App::SaveTrigger trigger("schema-upgrade-box");
         saved = doc->saveVersionAsFile();
     }
     catch (const Base::Exception& e) {
@@ -5516,7 +5519,10 @@ bool Document::canClose (bool checkModify, bool checkLink)
             break;
         case MainWindow::ConfirmSaveResult::SaveAll:
         case MainWindow::ConfirmSaveResult::Save:
-            ok = save();
+            {
+                App::SaveTrigger trigger("close-confirm");
+                ok = save();
+            }
             if (!ok) {
                 int ret = QMessageBox::question(
                     getActiveView(),

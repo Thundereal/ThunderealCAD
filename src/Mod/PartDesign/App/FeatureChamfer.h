@@ -47,6 +47,9 @@ public:
     App::PropertyBool UseAllEdges;
 
     Part::PropertyChamferEdges ChamferInfo;
+    /// A colour the user picked for an edge group's handles: the group id
+    /// to "#rrggbb"; a group not here takes an automatic one (entry 202)
+    App::PropertyMap GroupColors;
 
     /** @name methods override feature */
     //@{

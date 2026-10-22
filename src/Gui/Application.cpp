@@ -52,6 +52,9 @@
 # include <QPalette>
 #endif
 
+#include <QFont>
+#include <QFontDatabase>
+#include <QSettings>
 #include <Inventor/CoinFork.h>
 
 #ifndef _WIN32
@@ -67,6 +70,8 @@
 #include <QLoggingCategory>
 
 #include <App/Document.h>
+#include <App/SaveTrigger.h>
+#include <optional>
 #include <App/ViewObjectRequest.h>
 #include <App/DocumentObjectPy.h>
 #include <App/DocumentParams.h>
@@ -1387,6 +1392,13 @@ void Application::onLastWindowClosed(Gui::Document* pcDoc)
 bool Application::sendMsgToActiveView(const char* pMsg, const char** ppReturn)
 {
     MDIView* pView = getMainWindow()->activeWindow();
+    // A save's message names the view it went to, under whatever sent it
+    // (docs/HandsOnQueue.md entry 167): Ctrl+S with a drawing page active
+    // reads "Std_Save/Save@TechDrawGui::MDIViewPage"
+    std::optional<App::SaveTrigger> trigger;
+    if (pView && (strcmp(pMsg, "Save") == 0 || strcmp(pMsg, "SaveAs") == 0
+                  || strcmp(pMsg, "SaveCopy") == 0))
+        trigger.emplace(std::string(pMsg) + "@" + pView->getTypeId().getName());
     bool res = pView ? pView->onMsg(pMsg,ppReturn) : false;
     updateActions(true);
     return res;
@@ -2833,6 +2845,21 @@ void preAppSetup()
     }
 #endif
 
+#if defined(FC_OS_WIN32)
+    // A headless server on Windows runs on the offscreen platform plugin
+    // (docs/HeadlessServe.md), whose font database is FreeType's: it reads
+    // fonts only from Qt's own lib/fonts, or from QT_QPA_FONTDIR, and the
+    // conda build has neither. With no font at all, every text the server
+    // draws -- an edit's value labels, the NaviCube's faces -- reached its
+    // browsers as missing-glyph boxes. Point it at the system's fonts; an
+    // explicit QT_QPA_FONTDIR wins. postAppSetup() names the family.
+    if (qEnvironmentVariable("QT_QPA_PLATFORM").startsWith(QLatin1String("offscreen"))
+            && qEnvironmentVariableIsEmpty("QT_QPA_FONTDIR")) {
+        const QString windir = qEnvironmentVariable("WINDIR", QStringLiteral("C:\\Windows"));
+        qputenv("QT_QPA_FONTDIR", QDir(windir).filePath(QStringLiteral("Fonts")).toLocal8Bit());
+    }
+#endif
+
     // Automatic scaling for legacy apps (disable once all parts of GUI are aware of HiDpi)
     ParameterGrp::handle hDPI =
         App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/HighDPI");
@@ -2887,6 +2914,31 @@ void postAppSetup()
 {
     // http://forum.freecad.org/viewtopic.php?f=3&t=15540
     qApp->setAttribute(Qt::AA_DontShowIconsInMenus, false);
+
+#if defined(FC_OS_WIN32)
+    // The offscreen plugin's FreeType database (preAppSetup) knows neither
+    // the system's default family nor its substitutes, and a family it
+    // does not have falls back to whichever face it found first -- a
+    // condensed one on this box, for the NaviCube's and the labels'
+    // "Helvetica". Give it what the windows plugin reads: the registry's
+    // FontSubstitutes (Helvetica -> Arial, ...), and the default family.
+    if (QGuiApplication::platformName() == QLatin1String("offscreen")) {
+        QSettings subst(QStringLiteral("HKEY_LOCAL_MACHINE\\SOFTWARE\\Microsoft\\Windows NT\\"
+                                       "CurrentVersion\\FontSubstitutes"),
+                        QSettings::NativeFormat);
+        for (const QString &key : subst.childKeys()) {
+            // "Name,charset" on either side: the family is before the comma
+            const QString from = key.section(QLatin1Char(','), 0, 0);
+            const QString to = subst.value(key).toString().section(QLatin1Char(','), 0, 0);
+            if (!from.isEmpty() && !to.isEmpty() && !QFontDatabase::hasFamily(from)
+                    && QFontDatabase::hasFamily(to)) {
+                QFont::insertSubstitution(from, to);
+            }
+        }
+        if (QFontDatabase::hasFamily(QStringLiteral("Segoe UI")))
+            QApplication::setFont(QFont(QStringLiteral("Segoe UI"), 9));
+    }
+#endif
 
     // Make sure that we use '.' as decimal point. See also
     // http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=559846

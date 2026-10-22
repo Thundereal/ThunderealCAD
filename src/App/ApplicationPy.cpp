@@ -24,6 +24,10 @@
 
 #include "PreCompiled.h"
 
+#include <memory>
+#include <vector>
+#include "SaveTrigger.h"
+
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -146,6 +150,12 @@ PyMethodDef Application::Methods[] = {
 //  {"saveDocument",   (PyCFunction) Application::sSaveDocument, METH_VARARGS,
 //   "saveDocument(string) -- Save the document to a file."},
 //  {"saveDocumentAs", (PyCFunction) Application::sSaveDocumentAs, METH_VARARGS},
+    {"pushSaveTrigger", reinterpret_cast<PyCFunction>(reinterpret_cast<void (*) ()>( Application::sPushSaveTrigger )), METH_VARARGS,
+     "pushSaveTrigger(name) -- Name who asks for the saves run on this thread, until\n"
+     "popSaveTrigger(): a host running code for a client names the client, as the\n"
+     "MCP console does (docs/HandsOnQueue.md entry 167)."},
+    {"popSaveTrigger", reinterpret_cast<PyCFunction>(reinterpret_cast<void (*) ()>( Application::sPopSaveTrigger )), METH_VARARGS,
+     "popSaveTrigger() -- Close the scope pushSaveTrigger() opened."},
     {"newDocument",    reinterpret_cast<PyCFunction>(reinterpret_cast<void (*) ()>( Application::sNewDocument )), METH_VARARGS|METH_KEYWORDS,
      "newDocument(name, label=None, hidden=False, temp=False, clear=True) -> object\n"
      "Create a new document with a given name.\n\n"
@@ -515,6 +525,31 @@ PyObject* Application::sCloseDocument(PyObject * /*self*/, PyObject *args)
         }
         Py_Return;
     } PY_CATCH
+}
+
+// The scopes Python opened on this thread (pushSaveTrigger), closed in order
+// by popSaveTrigger -- a save trigger is a C++ scope object, and Python has
+// no such thing to hold across the code it runs.
+namespace {
+thread_local std::vector<std::unique_ptr<App::SaveTrigger>> _pythonSaveTriggers;
+}
+
+PyObject* Application::sPushSaveTrigger(PyObject * /*self*/, PyObject *args)
+{
+    const char* name = nullptr;
+    if (!PyArg_ParseTuple(args, "s", &name))
+        return nullptr;
+    _pythonSaveTriggers.emplace_back(new App::SaveTrigger(name));
+    Py_Return;
+}
+
+PyObject* Application::sPopSaveTrigger(PyObject * /*self*/, PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    if (!_pythonSaveTriggers.empty())
+        _pythonSaveTriggers.pop_back();
+    Py_Return;
 }
 
 PyObject* Application::sSaveDocument(PyObject * /*self*/, PyObject *args)

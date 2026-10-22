@@ -71,6 +71,8 @@ protected:
     void onButton(selectionModes mode, bool checked);
     void onClear(selectionModes mode);
     void finishedRecomputeFeature() override;
+    /// Every drafted face's: the angle's handle
+    Gui::Gizmo* itemHandle(QTreeWidgetItem* item) const override;
 
 private:
     std::unique_ptr<Ui_TaskDraftParameters> ui;

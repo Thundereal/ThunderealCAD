@@ -39,6 +39,7 @@
 
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
+#include <App/SaveTrigger.h>
 #include <App/DocumentObject.h>
 #include <App/DocumentParams.h>
 #include <App/Expression.h>
@@ -727,6 +728,7 @@ StdCmdSave::StdCmdSave()
 void StdCmdSave::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    App::SaveTrigger trigger(getName());
     doCommand(Command::Gui,"Gui.SendMsgToActiveView(\"Save\")");
 }
 
@@ -756,6 +758,7 @@ StdCmdSaveAs::StdCmdSaveAs()
 void StdCmdSaveAs::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    App::SaveTrigger trigger(getName());
     doCommand(Command::Gui,"Gui.SendMsgToActiveView(\"SaveAs\")");
 }
 
@@ -852,6 +855,7 @@ StdCmdSaveCopy::StdCmdSaveCopy()
 void StdCmdSaveCopy::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    App::SaveTrigger trigger(getName());
     doCommand(Command::Gui,"Gui.SendMsgToActiveView(\"SaveCopy\")");
 }
 
@@ -927,6 +931,7 @@ StdCmdSaveAll::StdCmdSaveAll()
 void StdCmdSaveAll::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    App::SaveTrigger trigger(getName());
     Gui::Document::saveAll();
 }
 
@@ -1885,6 +1890,56 @@ bool StdCmdEdit::isActive()
     return (!Selection().getCompleteSelection().empty()) || (Gui::Control().activeDialog() != nullptr);
 }
 
+//===========================================================================
+// Std_ResetEdit
+//===========================================================================
+DEF_STD_CMD_A(StdCmdResetEdit)
+
+StdCmdResetEdit::StdCmdResetEdit()
+  : Command("Std_ResetEdit")
+{
+    sGroup        = "Edit";
+    sMenuText     = QT_TR_NOOP("E&nd edit");
+    sToolTipText  = QT_TR_NOOP("Ends the edit in progress in the current view.\n"
+                               "Plain Escape no longer does (see the 3D view preference\n"
+                               "'Escape ends the edit').");
+    sWhatsThis    = "Std_ResetEdit";
+    sStatusTip    = sToolTipText;
+    // Shift+Esc is also the 3D view's own selection clear
+    // (View3DInventorViewer::processSoEvent). A disabled action's shortcut
+    // is not matched, so outside an edit the key still reaches the view;
+    // in one it ends the edit, and clears the selection along with it.
+    sAccel        = "Shift+Esc";
+    sPixmap       = "edit-edit";
+    eType         = ForEdit;
+}
+
+/// The current view's document, if that view is the one an edit runs in.
+static Gui::Document *editingDocumentOfCurrentView()
+{
+    auto view = Base::freecad_dynamic_cast<Gui::View3DInventor>(
+        Gui::getMainWindow()->activeWindow());
+    if (!view || !view->getViewer()->isEditingViewProvider())
+        return nullptr;
+    return view->getGuiDocument();
+}
+
+void StdCmdResetEdit::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    Gui::Document* doc = editingDocumentOfCurrentView();
+    if (!doc)
+        return;
+    doCommand(Command::Gui, "Gui.getDocument('%s').resetEdit()",
+              doc->getDocument()->getName());
+    Selection().clearSelection();
+}
+
+bool StdCmdResetEdit::isActive()
+{
+    return editingDocumentOfCurrentView() != nullptr;
+}
+
 //======================================================================
 // StdCmdExpression
 //===========================================================================
@@ -2048,6 +2103,7 @@ void CreateDocCommands()
     rcCmdMgr.addCommand(new StdCmdTransformManip());
     rcCmdMgr.addCommand(new StdCmdAlignment());
     rcCmdMgr.addCommand(new StdCmdEdit());
+    rcCmdMgr.addCommand(new StdCmdResetEdit());
     rcCmdMgr.addCommand(new StdCmdExpression());
     rcCmdMgr.addCommand(new StdCmdExpressionEdit("Std_ExpressionEditSelected",
         ExpressionEditorView::Scope::Selection,

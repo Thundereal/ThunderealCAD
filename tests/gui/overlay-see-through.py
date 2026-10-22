@@ -159,6 +159,34 @@ def property_view():
     return None
 
 
+def share_overlay(tree, editor):
+    """The tree and the property view halve the overlay they share, so that
+    the rows counted under a theme do not depend on how the theme before
+    left the split. With the fonts a user's screen draws (Segoe UI, also
+    offscreen since 625487051a) the light property view kept 75 px of it,
+    two rows (docs/HandsOnQueue.md entry 189 (b))."""
+    w = editor
+    while w is not None:
+        parent = w.parentWidget()
+        if isinstance(parent, QtWidgets.QSplitter) and parent.isAncestorOf(tree):
+            total = sum(parent.sizes())
+            sizes = [0] * parent.count()
+            for i in range(parent.count()):
+                child = parent.widget(i)
+                if child.isAncestorOf(tree) or child is tree \
+                        or child.isAncestorOf(editor) or child is editor:
+                    sizes[i] = total // 2
+            parent.setSizes(sizes)
+            settle(500)
+            note("INFO %s split %s, window %dx%d, property view %d px"
+                 % (parent.objectName() or "overlay", parent.sizes(), mw().width(),
+                    mw().height(), editor.viewport().height()))
+            return
+        w = parent
+    note("INFO no splitter holds the tree and the property view; property view %d px"
+         % editor.viewport().height())
+
+
 def rows(view):
     """The indexes of the rows a tree shows, top to bottom. By the model:
     an item of the tree taken hold of from a script is not always there
@@ -184,11 +212,28 @@ def item_ground(tag, tree, label="Box3"):
 
 
 def below_items(tag, tree):
-    shown = rows(tree)
-    bottom = tree.visualRect(shown[-1]).bottom() if shown else 0
+    """The ground below the tree's last item. A panel too short for its
+    items has no ground below them, and an empty part read as clear at 0%
+    (docs/HandsOnQueue.md entry 200: the overlays the first theme is
+    applied with are a third of the height they have later): the items
+    are folded up to the document's row then, which leaves room"""
+    def bottom():
+        shown = rows(tree)
+        return tree.visualRect(shown[-1]).bottom() if shown else 0
+    folded = tree.viewport().height() - bottom() < 20
+    if folded:
+        tree.collapseAll()
+        settle(500)
+        note("INFO the tree's items fill its %d px: folded up to measure below them"
+             % tree.viewport().height())
+    below = bottom()
     image = painted(tag, tree.viewport())
-    return ground(image, QtCore.QRect(0, bottom + 6, image.width(),
-                                      image.height() - bottom - 6))
+    found = ground(image, QtCore.QRect(0, below + 6, image.width(),
+                                       image.height() - below - 6))
+    if folded:
+        tree.expandAll()
+        settle(500)
+    return found
 
 
 def rows_ground(tag, editor):
@@ -199,7 +244,11 @@ def rows_ground(tag, editor):
     out = []
     for index in rows(editor):
         rect = editor.visualRect(index)
-        if rect.top() >= image.height():
+        # a row the view's bottom edge cuts so that its sample (2 px in from
+        # its edges) has fewer than 3 lines inside the picture: an empty
+        # sample read as a clear row, a third kind (docs/HandsOnQueue.md
+        # entry 200, a row 2 px into a 138 px view)
+        if rect.top() + 2 + 3 > image.height():
             break
         if model.rowCount(index) == 0 and index != editor.currentIndex():
             out.append(ground(image, QtCore.QRect(rect.left() + 2, rect.top() + 2,
@@ -289,6 +338,7 @@ def one_theme(theme):
                  tree is not None and editor is not None
                  and bool(all_widgets("Gui::OverlayTabWidget"))):
         return
+    share_overlay(tree, editor)
     check("%s: put in overlays together, the tree view has its see-through look" % theme,
           see_through(tree))
     check("%s: ... and so has the property view" % theme, see_through(editor))
@@ -311,7 +361,9 @@ def one_theme(theme):
     backed = [r for r in every if r is not None]
     kinds = sorted(set(backed))
     if check("%s: the property view shows rows of two kinds" % theme,
-             len(backed) >= 4 and len(kinds) == 2, "%d rows, %s" % (len(backed), kinds)):
+             len(backed) >= 4 and len(kinds) == 2,
+             "%d rows, %s; every %s, view %d px" % (len(backed), kinds, every,
+                                                   editor.viewport().height())):
         check("%s: one kind is backed as the tree's items are" % theme,
               any(near(k, item) for k in kinds), "%s, the tree's %s" % (kinds, item))
         check("%s: both kinds at %d" % (theme, ALPHA),
@@ -433,6 +485,10 @@ def one_theme(theme):
 def start():
     VIEW.SetBool("UseViewArea", True)
     VIEW.SetBool("TaskPanelInView", False)
+    # The window's size is the test's, not what a session left: the
+    # property view's rows are counted in what the overlay gives it
+    mw().showNormal()
+    mw().resize(1400, 1000)
     doc = FreeCAD.newDocument(DOC)
     for i in range(6):
         doc.addObject("Part::Box", "Box%d" % i)

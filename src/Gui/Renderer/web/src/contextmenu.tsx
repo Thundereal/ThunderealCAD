@@ -178,18 +178,35 @@ export function SceneContextMenu(props: { viewOnly: () => boolean }) {
   const onDown = (e: PointerEvent) => {
     if (menu() && !(root && root.contains(e.target as Node))) close();
   };
+  // An Escape that closes the menu is the menu's: neither its press nor its
+  // release goes on to the viewer, whose edit mode would take it as its
+  // own Escape and end the edit (entry 201). Caught on the window in the
+  // capture phase, ahead of the viewer's listeners on the document.
+  let escapeEaten = false;
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && menu()) close();
+    if (e.key !== 'Escape' || !menu()) return;
+    close();
+    escapeEaten = true;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  const onKeyUp = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || !escapeEaten) return;
+    escapeEaten = false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
   };
   window.addEventListener('fc:contextmenu', onOpen);
   window.addEventListener('fc:onviewmenu', onViewMenu);
   document.addEventListener('pointerdown', onDown, true);
-  window.addEventListener('keydown', onKey);
+  window.addEventListener('keydown', onKey, true);
+  window.addEventListener('keyup', onKeyUp, true);
   onCleanup(() => {
     window.removeEventListener('fc:contextmenu', onOpen);
     window.removeEventListener('fc:onviewmenu', onViewMenu);
     document.removeEventListener('pointerdown', onDown, true);
-    window.removeEventListener('keydown', onKey);
+    window.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('keyup', onKeyUp, true);
   });
 
   const level = () => {

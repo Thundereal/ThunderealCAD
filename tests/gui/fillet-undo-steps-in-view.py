@@ -78,7 +78,12 @@ def real_key(widget, k):
     QtTest.QTest.keyPress(widget, k, Qt.NoModifier)
     pump(5)
     target = QtWidgets.QApplication.focusWidget() or widget
-    QtTest.QTest.keyRelease(target, k, Qt.NoModifier)
+    # the press may have closed what it was typed into (Escape on an open
+    # label): the release then has nowhere to go
+    try:
+        QtTest.QTest.keyRelease(target, k, Qt.NoModifier)
+    except RuntimeError:
+        pass
     pump(10)
 
 

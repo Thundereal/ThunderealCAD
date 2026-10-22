@@ -117,6 +117,10 @@ TaskThicknessParameters::TaskThicknessParameters(ViewProviderDressUp *DressUpVie
     onViewValues->setMenu(0, [this](QMenu& menu, Gui::Gizmo*) {
         fillValueMenu(menu);
     });
+    // a right click on a face taken off: the thickness's menu (entry 202)
+    onViewValues->setHoverHandleProvider([this]() {
+        return getHoverHandle();
+    });
     setupGizmos(DressUpView);
     attachOnViewValues();
     // The view is told of the edit after the panel is made
@@ -237,6 +241,11 @@ void TaskThicknessParameters::finishedRecomputeFeature()
     if (onViewValues) {
         onViewValues->refresh();
     }
+}
+
+Gui::Gizmo* TaskThicknessParameters::itemHandle(QTreeWidgetItem* item) const
+{
+    return item ? linearGizmo : nullptr;
 }
 
 void TaskThicknessParameters::refresh()

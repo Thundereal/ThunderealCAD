@@ -50,8 +50,9 @@ What is asserted:
     this browser's. That the click selected at all is read from the
     `selection` push it was told, so an empty room is the route working
     and not a click that missed;
-  - and Escape, which the sketcher handles itself, ends the session AND
-    the viewer is told: the server pushes the leaving edge to the client
+  - Escape alone ends no edit (docs/HandsOnQueue.md entry 203); End
+    edit's shortcut, Shift+Escape, sent as keys from the browser, ends the
+    session AND the viewer is told: the server pushes the leaving edge to the client
     whose view it was, and window.fcviewerEditing goes back to null. A
     client that had to guess would go on sending its left button into a
     session that is not there.
@@ -478,9 +479,12 @@ def verify():
         except Exception:
             note("INFO report view unreadable: " + traceback.format_exc()[-200:])
 
-        # 7. Escape: handled by the sketcher, so the client never asked.
-        # Both halves -- the session ended, and the viewer was told.
-        check("Escape from the browser ended the session",
+        # 7. Escape: not the edit's end any more; Shift+Escape is, taken
+        # on the server, so the client never asked. Both halves -- the
+        # session ended, and the viewer was told.
+        check("Escape alone from the browser left the session on",
+              bool(said.get("editingAfterPlainEscape")), said.get("editingAfterPlainEscape"))
+        check("Shift+Escape from the browser ended the session",
               escaped["edit"] is False, escaped)
         check("and the server told the viewer the session was over",
               said.get("leftOnEscape") is True

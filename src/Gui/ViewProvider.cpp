@@ -292,7 +292,14 @@ void ViewProvider::eventCallback(void * ud, SoEventCallback * node)
                             return;
                         }
 
-                        Gui::Document* doc = viewer->getDocument();
+                        // Escape ends the edit only where the user asked
+                        // for it back (docs/HandsOnQueue.md entry 203):
+                        // the edit's end is Std_ResetEdit, Shift+Esc by
+                        // default, and a sketch can narrow this further
+                        // (ViewProviderSketch::keyPressed above, through
+                        // LeaveSketchWithEscape).
+                        Gui::Document* doc = ViewParams::getEscapeEndsEdit()
+                            ? viewer->getDocument() : nullptr;
                         if (doc) {
                             auto func = new Gui::TimerFunction();
                             func->setAutoDelete(true);

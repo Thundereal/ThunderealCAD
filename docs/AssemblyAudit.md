@@ -344,6 +344,21 @@ kinematic run, ASMT export, link arrays in assemblies.
 4. **Borrow from Assembly3** -- its overall design, not only its solver
    layer -- and **import Assembly3 documents**: `docs/AssemblyFromAsm3.md`.
 5. **Interference and collision detection come last.**
+6. **Project Chrono is the second solver backend**, built from the start
+   of the interface work: it proves the interface is not OndselSolver's
+   shape under another name, it is the yardstick for benchmarking the
+   OndselSolver rework, and it is the likely engine for collision and
+   dynamics later. Forked to `Thundereal/chrono`, a submodule at
+   `src/3rdParty/chrono` pinned to release 10.0.0 (`9faf13dd8f`; BSD-3).
+   Only Chrono's core module is meant to be built.
+7. **The Distance sub-types** (sec 8.3, question 3): of the 17 that fall
+   to a planar distance today, LineCylinder (axis distance d + r),
+   LineSphere (centre to line, d + r) and CurvePlane (the curve's plane at
+   d) get a proper mapping; the other 14 (PlaneCone, CylinderCone, ConeCone,
+   ConeTorus, ConeSphere, PointCone, PointTorus, LineCone, LineTorus,
+   CurveCylinder, CurveSphere, CurveCone, CurveTorus, Other) are refused
+   for new joints with a message, while joints of those kinds already in a
+   document keep today's planar behaviour with a warning.
 
 Standing rule: nothing is pushed to, or written in, any repo of the
 FreeCAD GitHub org. The `upstream` remote is fetch-only; the solver's
@@ -387,7 +402,14 @@ adapter; drag and status through the session; the solver's headers out of
 gated on identical ASMT output and identical placements, compared in one
 process. Upstream's draft interface (#28156) is not adopted -- it mirrors
 ASMT one to one and rebuilds on every solve -- but its names are reused so
-a later merge lands beside ours.
+a later merge lands beside ours. **A Chrono backend comes in this phase**
+(decision 6), built from the submodule's core module: once both backends
+solve the same assemblies through the interface, the interface is shown
+backend-neutral, and the two can be benchmarked against each other with
+`scripts/assembly-bench/`. Chrono cannot express every joint
+(`docs/AssemblySolverInterface.md` sec 5.3: no Angle, PointLineDistance,
+LineLineDistance or LineInPlane as primitives); the gaps are reported
+through the backend's capabilities, not hidden.
 
 **Phase 2 -- scale.** Where sec 4 measured the time going:
 
@@ -454,9 +476,8 @@ work out of process (`docs/ComputeBoundaries.md`).
 
 From `docs/AssemblySolverInterface.md` sec 7:
 
-1. The backend choice: an assembly property and the preference (proposed),
-   or the preference only?
-2. Does the neutral layer own the motion-formula evaluator, or keep
-   OndselSolver's parser as a library for every backend?
-3. The 17 Distance sub-types that fall to a planar distance: keep, map
-   them properly, or report them unsupported?
+1. Decided (user, 2026-10-22): both -- an assembly property, empty by
+   default, then the preference.
+2. Decided (user, 2026-10-22): the neutral layer owns the motion-formula
+   evaluator; OndselSolver's parser is not the shared one.
+3. Decided (user, 2026-10-22): see sec 8.1, decision 7.

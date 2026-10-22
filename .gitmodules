@@ -22,3 +22,7 @@
 	path = tests/render/refs
 	url = https://github.com/realthunder/fcad-render-refs.git
 	branch = LinkVibe
+[submodule "src/3rdParty/chrono"]
+	path = src/3rdParty/chrono
+	url = https://github.com/Thundereal/chrono.git
+	shallow = true

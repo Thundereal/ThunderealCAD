@@ -384,7 +384,7 @@ def run():
         note("INFO the double click at %s: the row %s" % (rect.center(), hit.text(0) if hit else None))
         QtTest.QTest.mouseDClick(tree.viewport(), Qt.LeftButton, Qt.NoModifier, rect.center())
         pump(30)
-        editor = QtWidgets.QApplication.focusWidget()
+        editor = open_editor(tree)
         item = rows(tree).get(A)
         note("INFO the double click's editor: %s; the cell's flags %s, the triggers %s, "
              "the state %s, current %s" % (
@@ -397,7 +397,7 @@ def run():
             # asked for directly: the delegate's part, apart from the trigger's
             tree.editItem(rows(tree)[A], GROUP_COLUMN)
             pump(20)
-            direct = QtWidgets.QApplication.focusWidget()
+            direct = open_editor(tree)
             note("INFO editItem's editor: %s" % (
                 direct.metaObject().className() if direct else None))
             if isinstance(direct, QtWidgets.QSpinBox):
@@ -427,6 +427,19 @@ def run():
         note("ABORT " + traceback.format_exc().replace("\n", " | "))
     finally:
         finish()
+
+
+def open_editor(tree):
+    """The editor open in the tree: the focus widget where the window has the
+    focus, else the visible spin box on its viewport -- an offscreen window on
+    Linux is never active, and nothing in it ever has the focus"""
+    focus = QtWidgets.QApplication.focusWidget()
+    if isinstance(focus, QtWidgets.QSpinBox):
+        return focus
+    for w in tree.viewport().findChildren(QtWidgets.QSpinBox):
+        if w.isVisible():
+            return w
+    return focus
 
 
 def finish():

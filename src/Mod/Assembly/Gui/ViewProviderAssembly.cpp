@@ -129,11 +129,15 @@ ViewProviderAssembly::ViewProviderAssembly()
     m_preTransactionConn = App::GetApplication().signalBeforeOpenTransaction.connect(
         std::bind(&ViewProviderAssembly::slotAboutToOpenTransaction, this, std::placeholders::_1)
     );
+    m_startSaveConn = App::GetApplication().signalStartSaveDocument.connect(
+        std::bind(&ViewProviderAssembly::slotStartSave, this, std::placeholders::_1, std::placeholders::_2)
+    );
 }
 
 ViewProviderAssembly::~ViewProviderAssembly()
 {
     m_preTransactionConn.disconnect();
+    m_startSaveConn.disconnect();
     // (the edit's three: unsetEdit() releases them, and may not have run)
     connectSolverUpdate.disconnect();
     connectActivatedVP.disconnect();
@@ -1688,6 +1692,21 @@ void ViewProviderAssembly::clearJointElementHighlight()
 void ViewProviderAssembly::slotAboutToOpenTransaction(const std::string& cmdName)
 {
     Q_UNUSED(cmdName);
+    this->clearIsolate();
+    this->clearTemporaryExplosion();
+}
+
+void ViewProviderAssembly::slotStartSave(const App::Document& doc, const std::string& filename)
+{
+    Q_UNUSED(filename);
+
+    // Isolation and temporary explosion mutate persisted state (Selectable,
+    // Visibility, Placements) and hold their restore data only in memory, so clear
+    // both before serialization rather than writing the transient state to file.
+    Gui::Document* guiDoc = getDocument();
+    if (!guiDoc || guiDoc->getDocument() != &doc) {
+        return;  // not our document
+    }
     this->clearIsolate();
     this->clearTemporaryExplosion();
 }

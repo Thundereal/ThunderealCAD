@@ -25,6 +25,7 @@
 #pragma once
 
 #include <fastsignals/signal.h>
+#include <memory>
 #include <unordered_map>
 #include <vector>
 
@@ -35,6 +36,8 @@
 #include <App/PropertyLinks.h>
 
 #include <OndselSolver/enum.h>
+
+#include "Solver/Model.h"
 
 namespace MbD
 {
@@ -59,6 +62,11 @@ class Rotation;
 
 namespace Assembly
 {
+
+namespace Solver
+{
+struct SimulationSpec;
+}
 
 class AssemblyLink;
 class JointGroup;
@@ -134,30 +142,34 @@ public:
     // Make sure grounded joints reflect Placement read-only states
     void syncGroundedJoints();
 
-    // Ondsel Solver interface
-    std::shared_ptr<MbD::ASMTAssembly> makeMbdAssembly();
+    // Ondsel Solver interface. The builder emits a solver-neutral model
+    // (Solver::Model, docs/AssemblySolverInterface.md), which the Ondsel adapter
+    // turns into the ASMT model the solver runs.
+    std::unique_ptr<Solver::Model> makeMbdAssembly();
     void create_mbdSimulationParameters(App::DocumentObject* sim);
-    std::shared_ptr<MbD::ASMTPart> makeMbdPart(
+    Solver::Id makeMbdPart(
         std::string& name,
         Base::Placement plc = Base::Placement(),
         double mass = 1.0
     );
-    std::shared_ptr<MbD::ASMTPart> getMbDPart(App::DocumentObject* obj);
+    Solver::Id getMbDPart(App::DocumentObject* obj);
     // To help the solver, during dragging, we are bundling parts connected by a fixed joint.
-    // So several assembly components are bundled in a single ASMTPart.
+    // So several assembly components are bundled in a single solver body.
     // So we need to store the plc of each bundled object relative to the bundle origin (first obj
     // of objectPartMap).
     struct MbDPartData
     {
-        std::shared_ptr<MbD::ASMTPart> part;
+        Solver::Id body = Solver::NoId;
         Base::Placement offsetPlc;  // This is the offset within the bundled parts
+        // The body's ASMT part, once the model is handed to the solver.
+        std::shared_ptr<MbD::ASMTPart> part;
     };
     MbDPartData getMbDData(App::DocumentObject* part);
-    std::shared_ptr<MbD::ASMTMarker> makeMbdMarker(std::string& name, Base::Placement& plc);
-    std::vector<std::shared_ptr<MbD::ASMTJoint>> makeMbdJoint(App::DocumentObject* joint);
-    std::shared_ptr<MbD::ASMTJoint> makeMbdJointOfType(App::DocumentObject* joint, JointType jointType);
-    std::shared_ptr<MbD::ASMTJoint> makeMbdJointDistance(App::DocumentObject* joint);
-    std::string handleOneSideOfJoint(
+    Solver::Frame makeMbdMarker(std::string& name, Base::Placement& plc);
+    std::vector<std::shared_ptr<Solver::Joint>> makeMbdJoint(App::DocumentObject* joint);
+    std::shared_ptr<Solver::Joint> makeMbdJointOfType(App::DocumentObject* joint, JointType jointType);
+    std::shared_ptr<Solver::Joint> makeMbdJointDistance(App::DocumentObject* joint);
+    Solver::Id handleOneSideOfJoint(
         App::DocumentObject* joint,
         const char* propRefName,
         const char* propPlcName,
@@ -165,8 +177,8 @@ public:
     );
     void getRackPinionMarkers(
         App::DocumentObject* joint,
-        std::string& markerNameI,
-        std::string& markerNameJ
+        Solver::Id& markerNameI,
+        Solver::Id& markerNameJ
     );
     int slidingPartIndex(App::DocumentObject* joint);
 
@@ -277,6 +289,41 @@ public:
     }
     fastsignals::signal<void()> signalSolverUpdate;
 
+    // TEMPORARY, for the identity gate (docs/AssemblySolverInterface.md sec 6.2):
+    // the pre-interface builder in Solver/LegacyBuilder.cpp, selected by the
+    // preference Mod/Assembly/SolverLegacyBuilder.
+    bool legacyBuilder {false};
+    std::shared_ptr<MbD::ASMTAssembly> legacy_makeMbdAssembly();
+    void legacy_create_mbdSimulationParameters(App::DocumentObject* sim);
+    std::shared_ptr<MbD::ASMTPart> legacy_makeMbdPart(
+        std::string& name,
+        Base::Placement plc = Base::Placement(),
+        double mass = 1.0
+    );
+    std::shared_ptr<MbD::ASMTPart> legacy_getMbDPart(App::DocumentObject* obj);
+    MbDPartData legacy_getMbDData(App::DocumentObject* part);
+    std::shared_ptr<MbD::ASMTMarker> legacy_makeMbdMarker(std::string& name, Base::Placement& plc);
+    std::vector<std::shared_ptr<MbD::ASMTJoint>> legacy_makeMbdJoint(App::DocumentObject* joint);
+    std::shared_ptr<MbD::ASMTJoint> legacy_makeMbdJointOfType(
+        App::DocumentObject* joint,
+        JointType jointType
+    );
+    std::shared_ptr<MbD::ASMTJoint> legacy_makeMbdJointDistance(App::DocumentObject* joint);
+    std::string legacy_handleOneSideOfJoint(
+        App::DocumentObject* joint,
+        const char* propRefName,
+        const char* propPlcName,
+        const std::string& markerName = std::string()
+    );
+    void legacy_getRackPinionMarkers(
+        App::DocumentObject* joint,
+        std::string& markerNameI,
+        std::string& markerNameJ
+    );
+    void legacy_jointParts(std::vector<App::DocumentObject*> joints);
+    void legacy_fixGroundedPart(App::DocumentObject* obj, Base::Placement& plc, std::string& jointName);
+    bool legacy_isMbDJointValid(App::DocumentObject* joint);
+
 private:
     void rebuildRigidClusters();
     App::DocumentObject* getRigidRepresentative(App::DocumentObject* part) const;
@@ -289,8 +336,15 @@ private:
     static bool isJointRefUsable(App::DocumentObject* joint, const char* propName);
     // Gives the dragged parts their drag masses (setObjMasses) for the drag steps only.
     void applyDragMasses();
+    // Hands the model built so far to the Ondsel adapter: the ASMT model the
+    // solve, drag and playback then run on, and each part's ASMT part.
+    void makeMbdModel();
 
+    // The model being built; its ASMT form below (until step 4 of sec 6.3).
+    std::unique_ptr<Solver::Model> solverModel;
+    std::unique_ptr<Solver::SimulationSpec> simulationSpec;
     std::shared_ptr<MbD::ASMTAssembly> mbdAssembly;
+
 
     std::unordered_map<App::DocumentObject*, MbDPartData> objectPartMap;
     std::unordered_map<App::DocumentObject*, App::DocumentObject*> rigidRepByPart;

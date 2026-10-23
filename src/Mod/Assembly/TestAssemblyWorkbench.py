@@ -36,6 +36,14 @@ from AssemblyTests.TestJoints import (
     TestLimits,
     TestCoupledJoints,
 )
+from AssemblyTests.TestSolverGate import (
+    TestSolverGateJoints,
+    TestSolverGateDistance,
+    TestSolverGateLimits,
+    TestSolverGateSimulation,
+    TestSolverGateBench,
+    TestSolverGateRigid,
+)
 from AssemblyTests.TestGuiCommands import TestGuiCommands
 
 # Use the modules so that code checkers don't complain (flake8)
@@ -51,4 +59,10 @@ True if TestSolveStatus else False
 True if TestDrag else False
 True if TestLimits else False
 True if TestCoupledJoints else False
+True if TestSolverGateJoints else False
+True if TestSolverGateDistance else False
+True if TestSolverGateLimits else False
+True if TestSolverGateSimulation else False
+True if TestSolverGateBench else False
+True if TestSolverGateRigid else False
 True if TestGuiCommands else False

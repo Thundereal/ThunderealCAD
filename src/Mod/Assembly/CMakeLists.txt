@@ -62,6 +62,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestSimulationExport.py
     AssemblyTests/TestSettings.py
     AssemblyTests/TestJoints.py
+    AssemblyTests/TestSolverGate.py
     AssemblyTests/TestGuiCommands.py
     AssemblyTests/mocks/__init__.py
     AssemblyTests/mocks/MockGui.py

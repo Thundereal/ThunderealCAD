@@ -97,6 +97,8 @@
 #include "AssemblyObjectPy.h"
 #include "AssemblyUtils.h"
 #include "Groups.h"
+#include "Solver/Backend.h"
+#include "Solver/OndselBackend.h"
 
 FC_LOG_LEVEL_INIT("Assembly", true, true, true)
 
@@ -224,11 +226,11 @@ bool findRotationCarrierForGearSide(
 void setGearJointCarrierMarkerIfAvailable(
     AssemblyObject* assembly,
     App::DocumentObject* joint,
-    const std::shared_ptr<ASMTJoint>& mbdJoint
+    const std::shared_ptr<Solver::Joint>& mbdJoint
 )
 {
-    auto gearJoint = std::dynamic_pointer_cast<ASMTGearJoint>(mbdJoint);
-    if (!gearJoint) {
+    auto gearJoint = mbdJoint;
+    if (!gearJoint || gearJoint->kind != Solver::JointKind::Gear) {
         return;
     }
 
@@ -250,15 +252,25 @@ void setGearJointCarrierMarkerIfAvailable(
     }
 
     const std::string carrierMarkerName = joint->getFullName() + "-Carrier";
-    std::string fullMarkerNameK = assembly->handleOneSideOfJoint(
+    Solver::Id fullMarkerNameK = assembly->handleOneSideOfJoint(
         side1.joint,
         side1.carrierRefName,
         side1.carrierPlcName,
         carrierMarkerName
     );
-    if (!fullMarkerNameK.empty()) {
-        gearJoint->setMarkerK(fullMarkerNameK);
+    if (fullMarkerNameK != Solver::NoId) {
+        gearJoint->kind = Solver::JointKind::CoaxialGear;
+        gearJoint->frameK = fullMarkerNameK;
     }
+}
+
+// A joint of the solver-neutral model, not yet in it: jointParts() adds the
+// ones makeMbdJoint() keeps (where CREATE<ASMT...Joint>::With() was).
+std::shared_ptr<Solver::Joint> makeJoint(Solver::JointKind kind)
+{
+    auto mbdJoint = std::make_shared<Solver::Joint>();
+    mbdJoint->kind = kind;
+    return mbdJoint;
 }
 
 // A redundant equation whose residual is still above this after the solve is a
@@ -374,7 +386,7 @@ int AssemblyObject::solve(bool enableRedo)
 
     collectMalformedJoints();
 
-    mbdAssembly = makeMbdAssembly();
+    solverModel = makeMbdAssembly();
     objectPartMap.clear();
     rebuildRigidClusters();
     syncActiveRigidGroupPlacements();
@@ -391,6 +403,8 @@ int AssemblyObject::solve(bool enableRedo)
     removeUnconnectedJoints(joints, groundedObjs);
 
     jointParts(joints);
+
+    makeMbdModel();
 
     if (enableRedo) {
         savePlacementsForUndo();
@@ -538,7 +552,7 @@ void AssemblyObject::updateSolveStatus()
 
 int AssemblyObject::generateSimulation(App::DocumentObject* sim)
 {
-    mbdAssembly = makeMbdAssembly();
+    solverModel = makeMbdAssembly();
     objectPartMap.clear();
 
     motions = getMotionsFromSimulation(sim);
@@ -556,6 +570,8 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
     jointParts(joints);
 
     create_mbdSimulationParameters(sim);
+
+    makeMbdModel();
 
     try {
         mbdAssembly->runKINEMATIC();
@@ -720,7 +736,7 @@ void AssemblyObject::prepareMbdForIslandDrag(std::vector<App::DocumentObject*> d
     ensureIdentityPlacements();
     syncGroundedJoints();
 
-    mbdAssembly = makeMbdAssembly();
+    solverModel = makeMbdAssembly();
     objectPartMap.clear();
     motions.clear();
 
@@ -740,6 +756,8 @@ void AssemblyObject::prepareMbdForIslandDrag(std::vector<App::DocumentObject*> d
     }
 
     jointParts(joints);
+
+    makeMbdModel();
 
     try {
         mbdAssembly->runPreDrag();
@@ -778,7 +796,7 @@ bool AssemblyObject::doDragStep()
                 continue;
             }
 
-            auto mbdPart = getMbDPart(part);
+            auto mbdPart = getMbDData(part).part;
             if (!mbdPart) {
                 continue;
             }
@@ -999,7 +1017,7 @@ void AssemblyObject::clearUndo()
 
 void AssemblyObject::exportAsASMT(std::string fileName)
 {
-    mbdAssembly = makeMbdAssembly();
+    solverModel = makeMbdAssembly();
     objectPartMap.clear();
     rebuildRigidClusters();
     fixGroundedParts();
@@ -1007,6 +1025,8 @@ void AssemblyObject::exportAsASMT(std::string fileName)
     std::vector<App::DocumentObject*> joints = getJoints();
 
     jointParts(joints);
+
+    makeMbdModel();
 
     mbdAssembly->outputFile(fileName);
 }
@@ -1315,18 +1335,56 @@ void AssemblyObject::redrawJointPlacement(App::DocumentObject* joint)
     }
 }
 
-std::shared_ptr<ASMTAssembly> AssemblyObject::makeMbdAssembly()
+std::unique_ptr<Solver::Model> AssemblyObject::makeMbdAssembly()
 {
-    auto assembly = CREATE<ASMTAssembly>::With();
-    assembly->externalSystem->freecadAssemblyObject = this;
-    assembly->setName("OndselAssembly");
+    auto assembly = std::make_unique<Solver::Model>();
+    simulationSpec.reset();
 
     ParameterGrp::handle hPgr = App::GetApplication().GetParameterGroupByPath(
         "User parameter:BaseApp/Preferences/Mod/Assembly"
     );
 
-    assembly->setDebug(hPgr->GetBool("LogSolverDebug", Assembly::AssemblyParams::defaultLogSolverDebug()));
+    // TEMPORARY, for the identity gate (docs/AssemblySolverInterface.md sec 6.2).
+    legacyBuilder = hPgr->GetBool("SolverLegacyBuilder", false);
+    if (legacyBuilder) {
+        mbdAssembly = legacy_makeMbdAssembly();
+        return assembly;
+    }
+
+    // Status, drag and playback still read the ASMT model (until step 4 of
+    // sec 6.3): a build starts it empty, as it always did, until
+    // makeMbdModel() hands it the model built.
+    mbdAssembly = Solver::Ondsel::toAsmt(*assembly).assembly;
+    mbdAssembly->externalSystem->freecadAssemblyObject = this;
     return assembly;
+}
+
+void AssemblyObject::makeMbdModel()
+{
+    ParameterGrp::handle hPgr = App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/Mod/Assembly"
+    );
+
+    if (!legacyBuilder) {
+        auto asmt = Solver::Ondsel::toAsmt(
+            *solverModel,
+            simulationSpec.get(),
+            hPgr->GetBool("LogSolverDebug", Assembly::AssemblyParams::defaultLogSolverDebug())
+        );
+        mbdAssembly = asmt.assembly;
+        mbdAssembly->externalSystem->freecadAssemblyObject = this;
+        for (auto& entry : objectPartMap) {
+            MbDPartData& data = entry.second;
+            data.part = data.body < asmt.parts.size() ? asmt.parts[data.body] : nullptr;
+        }
+    }
+
+    // Every model handed to the solver, as ASMT text: the identity gate's
+    // view of what a solve, a drag or a simulation runs on.
+    std::string dumpFile = hPgr->GetASCII("SolverDumpFile", "");
+    if (!dumpFile.empty()) {
+        mbdAssembly->outputFile(dumpFile);
+    }
 }
 
 App::DocumentObject* AssemblyObject::getJointOfPartConnectingToGround(
@@ -1762,30 +1820,35 @@ std::unordered_set<App::DocumentObject*> AssemblyObject::fixGroundedParts()
 
 void AssemblyObject::fixGroundedPart(App::DocumentObject* obj, Base::Placement& plc, std::string& name)
 {
+    if (legacyBuilder) {
+        legacy_fixGroundedPart(obj, plc, name);
+        return;
+    }
+
     if (!obj) {
         return;
     }
 
     std::string markerName1 = "marker-" + obj->getFullName();
     auto mbdMarker1 = makeMbdMarker(markerName1, plc);
-    mbdAssembly->addMarker(mbdMarker1);
+    Solver::Id markerId1 = solverModel->addFrame(mbdMarker1);  // on the ground
 
-    std::shared_ptr<ASMTPart> mbdPart = getMbDPart(obj);
+    Solver::Id mbdPart = getMbDPart(obj);
 
     std::string markerName2 = "FixingMarker";
     Base::Placement basePlc = Base::Placement();
     auto mbdMarker2 = makeMbdMarker(markerName2, basePlc);
-    mbdPart->addMarker(mbdMarker2);
+    mbdMarker2.body = mbdPart;
+    Solver::Id markerId2 = solverModel->addFrame(mbdMarker2);
 
-    markerName1 = "/OndselAssembly/" + mbdMarker1->name;
-    markerName2 = "/OndselAssembly/" + mbdPart->name + "/" + mbdMarker2->name;
+    solverModel->bodies[mbdPart].grounded = true;
 
-    auto mbdJoint = CREATE<ASMTFixedJoint>::With();
-    mbdJoint->setName(name);
-    mbdJoint->setMarkerI(markerName1);
-    mbdJoint->setMarkerJ(markerName2);
+    Solver::Ground mbdJoint;
+    mbdJoint.source = solverModel->addSource(name);
+    mbdJoint.frameI = markerId1;
+    mbdJoint.frameJ = markerId2;
 
-    mbdAssembly->addJoint(mbdJoint);
+    solverModel->addGround(mbdJoint);
 }
 
 bool AssemblyObject::isJointConnectingPartToGround(App::DocumentObject* joint, const char* propname)
@@ -2018,21 +2081,31 @@ bool AssemblyObject::isPartConnected(App::DocumentObject* obj)
 
 void AssemblyObject::jointParts(std::vector<App::DocumentObject*> joints)
 {
+    if (legacyBuilder) {
+        legacy_jointParts(joints);
+        return;
+    }
+
     for (auto* joint : joints) {
         if (!joint) {
             continue;
         }
 
-        std::vector<std::shared_ptr<MbD::ASMTJoint>> mbdJoints = makeMbdJoint(joint);
+        std::vector<std::shared_ptr<Solver::Joint>> mbdJoints = makeMbdJoint(joint);
         for (auto& mbdJoint : mbdJoints) {
-            mbdAssembly->addJoint(mbdJoint);
+            solverModel->addJoint(*mbdJoint);
         }
     }
 }
 
 void Assembly::AssemblyObject::create_mbdSimulationParameters(App::DocumentObject* sim)
 {
-    auto mbdSim = mbdAssembly->simulationParameters;
+    if (legacyBuilder) {
+        legacy_create_mbdSimulationParameters(sim);
+        return;
+    }
+
+    auto mbdSim = std::make_unique<Solver::SimulationSpec>();
     if (!sim) {
         return;
     }
@@ -2043,57 +2116,58 @@ void Assembly::AssemblyObject::create_mbdSimulationParameters(App::DocumentObjec
         }
         return prop->getValue();
     };
-    mbdSim->settstart(valueOf(sim, "aTimeStart"));
-    mbdSim->settend(valueOf(sim, "bTimeEnd"));
-    mbdSim->sethout(valueOf(sim, "cTimeStepOutput"));
-    mbdSim->sethmin(1.0e-9);
-    mbdSim->sethmax(1.0);
-    mbdSim->seterrorTol(valueOf(sim, "fGlobalErrorTolerance"));
+    mbdSim->tStart = valueOf(sim, "aTimeStart");
+    mbdSim->tEnd = valueOf(sim, "bTimeEnd");
+    mbdSim->tOutput = valueOf(sim, "cTimeStepOutput");
+    mbdSim->hMin = 1.0e-9;
+    mbdSim->hMax = 1.0;
+    mbdSim->errorTolerance = valueOf(sim, "fGlobalErrorTolerance");
+    simulationSpec = std::move(mbdSim);
 }
 
-std::shared_ptr<ASMTJoint> AssemblyObject::makeMbdJointOfType(App::DocumentObject* joint, JointType type)
+std::shared_ptr<Solver::Joint> AssemblyObject::makeMbdJointOfType(App::DocumentObject* joint, JointType type)
 {
     switch (type) {
         case JointType::Fixed:
             if (bundleFixed) {
                 return nullptr;
             }
-            return CREATE<ASMTFixedJoint>::With();
+            return makeJoint(Solver::JointKind::Fixed);
 
         case JointType::Revolute:
-            return CREATE<ASMTRevoluteJoint>::With();
+            return makeJoint(Solver::JointKind::Revolute);
 
         case JointType::Cylindrical:
-            return CREATE<ASMTCylindricalJoint>::With();
+            return makeJoint(Solver::JointKind::Cylindrical);
 
         case JointType::Slider:
-            return CREATE<ASMTTranslationalJoint>::With();
+            return makeJoint(Solver::JointKind::Prismatic);
 
         case JointType::Ball:
-            return CREATE<ASMTSphericalJoint>::With();
+            return makeJoint(Solver::JointKind::Spherical);
 
         case JointType::Distance:
             return makeMbdJointDistance(joint);
 
         case JointType::Parallel:
-            return CREATE<ASMTParallelAxesJoint>::With();
+            return makeJoint(Solver::JointKind::ParallelZ);
 
         case JointType::Perpendicular:
-            return CREATE<ASMTPerpendicularJoint>::With();
+            return makeJoint(Solver::JointKind::PerpendicularZ);
 
         case JointType::Angle: {
             double angle = fabs(Base::toRadians(getJointAngle(joint)));
             if (fmod(angle, 2 * std::numbers::pi) < Precision::Confusion()) {
-                return CREATE<ASMTParallelAxesJoint>::With();
+                return makeJoint(Solver::JointKind::ParallelZ);
             }
-            auto mbdJoint = CREATE<ASMTAngleJoint>::With();
-            mbdJoint->theIzJz = angle;
+            auto mbdJoint = makeJoint(Solver::JointKind::AngleZ);
+            mbdJoint->value = angle;
             return mbdJoint;
         }
 
         case JointType::RackPinion: {
-            auto mbdJoint = CREATE<ASMTRackPinionJoint>::With();
-            mbdJoint->pitchRadius = getJointDistance(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::RackPinion);
+            mbdJoint->value = getJointDistance(joint);
             return mbdJoint;
         }
 
@@ -2107,22 +2181,22 @@ std::shared_ptr<ASMTJoint> AssemblyObject::makeMbdJointOfType(App::DocumentObjec
                 swapJCS(joint);  // make sure that sliding is first.
             }
 
-            auto mbdJoint = CREATE<ASMTScrewJoint>::With();
-            mbdJoint->pitch = getJointDistance(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::Screw);
+            mbdJoint->value = getJointDistance(joint);
             return mbdJoint;
         }
 
         case JointType::Gears: {
-            auto mbdJoint = CREATE<ASMTGearJoint>::With();
-            mbdJoint->radiusI = getJointDistance(joint);
-            mbdJoint->radiusJ = getJointDistance2(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::Gear);
+            mbdJoint->value = getJointDistance(joint);
+            mbdJoint->value2 = getJointDistance2(joint);
             return mbdJoint;
         }
 
         case JointType::Belt: {
-            auto mbdJoint = CREATE<ASMTGearJoint>::With();
-            mbdJoint->radiusI = getJointDistance(joint);
-            mbdJoint->radiusJ = -getJointDistance2(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::Gear);
+            mbdJoint->value = getJointDistance(joint);
+            mbdJoint->value2 = -getJointDistance2(joint);
             return mbdJoint;
         }
 
@@ -2131,7 +2205,7 @@ std::shared_ptr<ASMTJoint> AssemblyObject::makeMbdJointOfType(App::DocumentObjec
     }
 }
 
-std::shared_ptr<ASMTJoint> AssemblyObject::makeMbdJointDistance(App::DocumentObject* joint)
+std::shared_ptr<Solver::Joint> AssemblyObject::makeMbdJointDistance(App::DocumentObject* joint)
 {
     DistanceType type = getDistanceType(joint);
 
@@ -2145,129 +2219,129 @@ std::shared_ptr<ASMTJoint> AssemblyObject::makeMbdJointDistance(App::DocumentObj
             // Point to point distance, or ball joint if distance=0.
             double distance = getJointDistance(joint);
             if (distance < Precision::Confusion()) {
-                return CREATE<ASMTSphericalJoint>::With();
+                return makeJoint(Solver::JointKind::Spherical);
             }
-            auto mbdJoint = CREATE<ASMTSphSphJoint>::With();
-            mbdJoint->distanceIJ = distance;
+            auto mbdJoint = makeJoint(Solver::JointKind::PointPointDistance);
+            mbdJoint->value = distance;
             return mbdJoint;
         }
 
         // Edge - edge cases
         case DistanceType::LineLine: {
-            auto mbdJoint = CREATE<ASMTRevCylJoint>::With();
-            mbdJoint->distanceIJ = getJointDistance(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::LineLineDistance);
+            mbdJoint->value = getJointDistance(joint);
             return mbdJoint;
         }
 
         case DistanceType::LineCircle: {
-            auto mbdJoint = CREATE<ASMTRevCylJoint>::With();
-            mbdJoint->distanceIJ = getJointDistance(joint) + getEdgeRadius(obj2, elt2);
+            auto mbdJoint = makeJoint(Solver::JointKind::LineLineDistance);
+            mbdJoint->value = getJointDistance(joint) + getEdgeRadius(obj2, elt2);
             return mbdJoint;
         }
 
         case DistanceType::CircleCircle: {
-            auto mbdJoint = CREATE<ASMTRevCylJoint>::With();
-            mbdJoint->distanceIJ = getJointDistance(joint) + getEdgeRadius(obj1, elt1)
+            auto mbdJoint = makeJoint(Solver::JointKind::LineLineDistance);
+            mbdJoint->value = getJointDistance(joint) + getEdgeRadius(obj1, elt1)
                 + getEdgeRadius(obj2, elt2);
             return mbdJoint;
         }
 
         // Face - Face cases
         case DistanceType::PlanePlane: {
-            auto mbdJoint = CREATE<ASMTPlanarJoint>::With();
-            mbdJoint->offset = getJointDistance(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::Planar);
+            mbdJoint->value = getJointDistance(joint);
             return mbdJoint;
         }
 
         case DistanceType::PlaneCylinder: {
-            auto mbdJoint = CREATE<ASMTLineInPlaneJoint>::With();
-            mbdJoint->offset = getJointDistance(joint) + getFaceRadius(obj2, elt2);
+            auto mbdJoint = makeJoint(Solver::JointKind::LineInPlane);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj2, elt2);
             return mbdJoint;
         }
 
         case DistanceType::PlaneSphere: {
-            auto mbdJoint = CREATE<ASMTPointInPlaneJoint>::With();
-            mbdJoint->offset = getJointDistance(joint) + getFaceRadius(obj2, elt2);
+            auto mbdJoint = makeJoint(Solver::JointKind::PointInPlane);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj2, elt2);
             return mbdJoint;
         }
 
         case DistanceType::PlaneTorus: {
-            auto mbdJoint = CREATE<ASMTPlanarJoint>::With();
-            mbdJoint->offset = getJointDistance(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::Planar);
+            mbdJoint->value = getJointDistance(joint);
             return mbdJoint;
         }
 
         case DistanceType::CylinderCylinder: {
-            auto mbdJoint = CREATE<ASMTRevCylJoint>::With();
-            mbdJoint->distanceIJ = getJointDistance(joint) + getFaceRadius(obj1, elt1)
+            auto mbdJoint = makeJoint(Solver::JointKind::LineLineDistance);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj1, elt1)
                 + getFaceRadius(obj2, elt2);
             return mbdJoint;
         }
 
         case DistanceType::CylinderSphere: {
-            auto mbdJoint = CREATE<ASMTCylSphJoint>::With();
-            mbdJoint->distanceIJ = getJointDistance(joint) + getFaceRadius(obj1, elt1)
+            auto mbdJoint = makeJoint(Solver::JointKind::PointLineDistance);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj1, elt1)
                 + getFaceRadius(obj2, elt2);
             return mbdJoint;
         }
 
         case DistanceType::CylinderTorus: {
-            auto mbdJoint = CREATE<ASMTRevCylJoint>::With();
-            mbdJoint->distanceIJ = getJointDistance(joint) + getFaceRadius(obj1, elt1)
+            auto mbdJoint = makeJoint(Solver::JointKind::LineLineDistance);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj1, elt1)
                 + getFaceRadius(obj2, elt2);
             return mbdJoint;
         }
 
         case DistanceType::TorusTorus: {
-            auto mbdJoint = CREATE<ASMTPlanarJoint>::With();
-            mbdJoint->offset = getJointDistance(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::Planar);
+            mbdJoint->value = getJointDistance(joint);
             return mbdJoint;
         }
 
         case DistanceType::TorusSphere: {
-            auto mbdJoint = CREATE<ASMTCylSphJoint>::With();
-            mbdJoint->distanceIJ = getJointDistance(joint) + getFaceRadius(obj1, elt1)
+            auto mbdJoint = makeJoint(Solver::JointKind::PointLineDistance);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj1, elt1)
                 + getFaceRadius(obj2, elt2);
             return mbdJoint;
         }
 
         case DistanceType::SphereSphere: {
-            auto mbdJoint = CREATE<ASMTSphSphJoint>::With();
-            mbdJoint->distanceIJ = getJointDistance(joint) + getFaceRadius(obj1, elt1)
+            auto mbdJoint = makeJoint(Solver::JointKind::PointPointDistance);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj1, elt1)
                 + getFaceRadius(obj2, elt2);
             return mbdJoint;
         }
 
         // Point - Face cases
         case DistanceType::PointPlane: {
-            auto mbdJoint = CREATE<ASMTPointInPlaneJoint>::With();
-            mbdJoint->offset = getJointDistance(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::PointInPlane);
+            mbdJoint->value = getJointDistance(joint);
             return mbdJoint;
         }
 
         case DistanceType::PointCylinder: {
-            auto mbdJoint = CREATE<ASMTCylSphJoint>::With();
-            mbdJoint->distanceIJ = getJointDistance(joint) + getFaceRadius(obj1, elt1);
+            auto mbdJoint = makeJoint(Solver::JointKind::PointLineDistance);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj1, elt1);
             return mbdJoint;
         }
 
         case DistanceType::PointSphere: {
-            auto mbdJoint = CREATE<ASMTSphSphJoint>::With();
-            mbdJoint->distanceIJ = getJointDistance(joint) + getFaceRadius(obj1, elt1);
+            auto mbdJoint = makeJoint(Solver::JointKind::PointPointDistance);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj1, elt1);
             return mbdJoint;
         }
 
         // Edge - Face cases
         case DistanceType::LinePlane: {
-            auto mbdJoint = CREATE<ASMTLineInPlaneJoint>::With();
-            mbdJoint->offset = getJointDistance(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::LineInPlane);
+            mbdJoint->value = getJointDistance(joint);
             return mbdJoint;
         }
 
         // Point - Edge cases
         case DistanceType::PointLine: {
-            auto mbdJoint = CREATE<ASMTCylSphJoint>::With();
-            mbdJoint->distanceIJ = getJointDistance(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::PointLineDistance);
+            mbdJoint->value = getJointDistance(joint);
             return mbdJoint;
         }
 
@@ -2276,21 +2350,21 @@ std::shared_ptr<ASMTJoint> AssemblyObject::makeMbdJointDistance(App::DocumentObj
             // Maybe it would be best tangent / distance to the conic?
             // For arcs and circles we could use ASMTRevSphJoint. But is it better than
             // pointInPlane?
-            auto mbdJoint = CREATE<ASMTPointInPlaneJoint>::With();
-            mbdJoint->offset = getJointDistance(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::PointInPlane);
+            mbdJoint->value = getJointDistance(joint);
             return mbdJoint;
         }
 
         default: {
             // by default we make a planar joint.
-            auto mbdJoint = CREATE<ASMTPlanarJoint>::With();
-            mbdJoint->offset = getJointDistance(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::Planar);
+            mbdJoint->value = getJointDistance(joint);
             return mbdJoint;
         }
     }
 }
 
-std::vector<std::shared_ptr<MbD::ASMTJoint>> AssemblyObject::makeMbdJoint(App::DocumentObject* joint)
+std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::DocumentObject* joint)
 {
     if (!joint) {
         return {};
@@ -2298,7 +2372,7 @@ std::vector<std::shared_ptr<MbD::ASMTJoint>> AssemblyObject::makeMbdJoint(App::D
 
     JointType jointType = getJointType(joint);
 
-    std::shared_ptr<ASMTJoint> mbdJoint = makeMbdJointOfType(joint, jointType);
+    std::shared_ptr<Solver::Joint> mbdJoint = makeMbdJointOfType(joint, jointType);
     if (!mbdJoint || !isMbDJointValid(joint)) {
         return {};
     }
@@ -2307,7 +2381,7 @@ std::vector<std::shared_ptr<MbD::ASMTJoint>> AssemblyObject::makeMbdJoint(App::D
         setGearJointCarrierMarkerIfAvailable(this, joint, mbdJoint);
     }
 
-    std::string fullMarkerNameI, fullMarkerNameJ;
+    Solver::Id fullMarkerNameI = Solver::NoId, fullMarkerNameJ = Solver::NoId;
     if (jointType == JointType::RackPinion) {
         getRackPinionMarkers(joint, fullMarkerNameI, fullMarkerNameJ);
     }
@@ -2315,13 +2389,13 @@ std::vector<std::shared_ptr<MbD::ASMTJoint>> AssemblyObject::makeMbdJoint(App::D
         fullMarkerNameI = handleOneSideOfJoint(joint, "Reference1", "Placement1");
         fullMarkerNameJ = handleOneSideOfJoint(joint, "Reference2", "Placement2");
     }
-    if (fullMarkerNameI == "" || fullMarkerNameJ == "") {
+    if (fullMarkerNameI == Solver::NoId || fullMarkerNameJ == Solver::NoId) {
         return {};
     }
 
-    mbdJoint->setName(joint->getFullName());
-    mbdJoint->setMarkerI(fullMarkerNameI);
-    mbdJoint->setMarkerJ(fullMarkerNameJ);
+    mbdJoint->source = solverModel->addSource(joint->getFullName());
+    mbdJoint->frameI = fullMarkerNameI;
+    mbdJoint->frameJ = fullMarkerNameJ;
 
     // Add limits if needed. We do not add if this is a simulation or their might clash.
     if (motions.empty()) {
@@ -2355,25 +2429,25 @@ std::vector<std::shared_ptr<MbD::ASMTJoint>> AssemblyObject::makeMbdJoint(App::D
                 }
 
                 if (minEnabled) {
-                    auto limit = ASMTTranslationLimit::With();
-                    limit->setName(joint->getFullName() + "-LimitLenMin");
-                    limit->setMarkerI(fullMarkerNameI);
-                    limit->setMarkerJ(fullMarkerNameJ);
-                    limit->settype("=>");
-                    limit->setlimit(std::to_string(minLength));
-                    limit->settol("1.0e-9");
-                    mbdAssembly->addLimit(limit);
+                    Solver::Limit limit;
+                    limit.source = solverModel->addSource(joint->getFullName());
+                    limit.frameI = fullMarkerNameI;
+                    limit.frameJ = fullMarkerNameJ;
+                    limit.kind = Solver::LimitKind::TranslationZ;
+                    limit.min = minLength;
+                    limit.tolerance = 1.0e-9;
+                    solverModel->addLimit(limit);
                 }
 
                 if (maxEnabled) {
-                    auto limit2 = ASMTTranslationLimit::With();
-                    limit2->setName(joint->getFullName() + "-LimitLenMax");
-                    limit2->setMarkerI(fullMarkerNameI);
-                    limit2->setMarkerJ(fullMarkerNameJ);
-                    limit2->settype("=<");
-                    limit2->setlimit(std::to_string(maxLength));
-                    limit2->settol("1.0e-9");
-                    mbdAssembly->addLimit(limit2);
+                    Solver::Limit limit2;
+                    limit2.source = solverModel->addSource(joint->getFullName());
+                    limit2.frameI = fullMarkerNameI;
+                    limit2.frameJ = fullMarkerNameJ;
+                    limit2.kind = Solver::LimitKind::TranslationZ;
+                    limit2.max = maxLength;
+                    limit2.tolerance = 1.0e-9;
+                    solverModel->addLimit(limit2);
                 }
             }
         }
@@ -2406,25 +2480,25 @@ std::vector<std::shared_ptr<MbD::ASMTJoint>> AssemblyObject::makeMbdJoint(App::D
                 }
 
                 if (minEnabled) {
-                    auto limit = ASMTRotationLimit::With();
-                    limit->setName(joint->getFullName() + "-LimitRotMin");
-                    limit->setMarkerI(fullMarkerNameI);
-                    limit->setMarkerJ(fullMarkerNameJ);
-                    limit->settype("=>");
-                    limit->setlimit(std::to_string(minAngle) + "*pi/180.0");
-                    limit->settol("1.0e-9");
-                    mbdAssembly->addLimit(limit);
+                    Solver::Limit limit;
+                    limit.source = solverModel->addSource(joint->getFullName());
+                    limit.frameI = fullMarkerNameI;
+                    limit.frameJ = fullMarkerNameJ;
+                    limit.kind = Solver::LimitKind::RotationZ;
+                    limit.min = Base::toRadians(minAngle);
+                    limit.tolerance = 1.0e-9;
+                    solverModel->addLimit(limit);
                 }
 
                 if (maxEnabled) {
-                    auto limit2 = ASMTRotationLimit::With();
-                    limit2->setName(joint->getFullName() + "-LimitRotMax");
-                    limit2->setMarkerI(fullMarkerNameI);
-                    limit2->setMarkerJ(fullMarkerNameJ);
-                    limit2->settype("=<");
-                    limit2->setlimit(std::to_string(maxAngle) + "*pi/180.0");
-                    limit2->settol("1.0e-9");
-                    mbdAssembly->addLimit(limit2);
+                    Solver::Limit limit2;
+                    limit2.source = solverModel->addSource(joint->getFullName());
+                    limit2.frameI = fullMarkerNameI;
+                    limit2.frameJ = fullMarkerNameJ;
+                    limit2.kind = Solver::LimitKind::RotationZ;
+                    limit2.max = Base::toRadians(maxAngle);
+                    limit2.tolerance = 1.0e-9;
+                    solverModel->addLimit(limit2);
                 }
             }
         }
@@ -2506,39 +2580,42 @@ std::vector<std::shared_ptr<MbD::ASMTJoint>> AssemblyObject::makeMbdJoint(App::D
 
             replaceInitialValue(formula2, joint, motionType2);
 
-            auto ASMTmotion = CREATE<ASMTGeneralMotion>::With();
-            ASMTmotion->setName(joint->getFullName() + "-ScrewMotion");
-            ASMTmotion->setMarkerI(fullMarkerNameI);
-            ASMTmotion->setMarkerJ(fullMarkerNameJ);
-            ASMTmotion->rIJI->atiput(2, motionType == "Angular" ? formula2 : formula);
-            ASMTmotion->angIJJ->atiput(2, motionType == "Angular" ? formula : formula2);
-            mbdAssembly->addMotion(ASMTmotion);
+            Solver::Driver ASMTmotion;
+            ASMTmotion.source = solverModel->addSource(joint->getFullName());
+            ASMTmotion.frameI = fullMarkerNameI;
+            ASMTmotion.frameJ = fullMarkerNameJ;
+            ASMTmotion.kind = Solver::DriverKind::Both;
+            ASMTmotion.translation.text = motionType == "Angular" ? formula2 : formula;
+            ASMTmotion.rotation.text = motionType == "Angular" ? formula : formula2;
+            solverModel->addDriver(ASMTmotion);
 
             done.push_back(motion2);
         }
 
         if (motionType == "Angular") {
-            auto ASMTmotion = CREATE<ASMTRotationalMotion>::With();
-            ASMTmotion->setName(joint->getFullName() + "-AngularMotion");
-            ASMTmotion->setMarkerI(fullMarkerNameI);
-            ASMTmotion->setMarkerJ(fullMarkerNameJ);
-            ASMTmotion->setRotationZ(formula);
-            mbdAssembly->addMotion(ASMTmotion);
+            Solver::Driver ASMTmotion;
+            ASMTmotion.source = solverModel->addSource(joint->getFullName());
+            ASMTmotion.frameI = fullMarkerNameI;
+            ASMTmotion.frameJ = fullMarkerNameJ;
+            ASMTmotion.kind = Solver::DriverKind::RotationZ;
+            ASMTmotion.rotation.text = formula;
+            solverModel->addDriver(ASMTmotion);
         }
         else if (motionType == "Linear") {
-            auto ASMTmotion = CREATE<ASMTTranslationalMotion>::With();
-            ASMTmotion->setName(joint->getFullName() + "-LinearMotion");
-            ASMTmotion->setMarkerI(fullMarkerNameI);
-            ASMTmotion->setMarkerJ(fullMarkerNameJ);
-            ASMTmotion->setTranslationZ(formula);
-            mbdAssembly->addMotion(ASMTmotion);
+            Solver::Driver ASMTmotion;
+            ASMTmotion.source = solverModel->addSource(joint->getFullName());
+            ASMTmotion.frameI = fullMarkerNameI;
+            ASMTmotion.frameJ = fullMarkerNameJ;
+            ASMTmotion.kind = Solver::DriverKind::TranslationZ;
+            ASMTmotion.translation.text = formula;
+            solverModel->addDriver(ASMTmotion);
         }
     }
 
     return {mbdJoint};
 }
 
-std::string AssemblyObject::handleOneSideOfJoint(
+Solver::Id AssemblyObject::handleOneSideOfJoint(
     App::DocumentObject* joint,
     const char* propRefName,
     const char* propPlcName,
@@ -2551,17 +2628,17 @@ std::string AssemblyObject::handleOneSideOfJoint(
     if (!part || !obj) {
         Base::Console()
             .Warning("The property %s of Joint %s is bad.\n", propRefName, joint->getFullName());
-        return "";
+        return Solver::NoId;
     }
 
     MbDPartData data = getMbDData(part);
-    std::shared_ptr<ASMTPart> mbdPart = data.part;
+    Solver::Id mbdPart = data.body;
     Base::Placement plc = getPlacementFromProp(joint, propPlcName);
     // Now we have plc which is the JCS placement, but its relative to the Object, not to the
     // containing Part.
     auto* ref = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName(propRefName));
     if (!ref) {
-        return "";
+        return Solver::NoId;
     }
 
     // This plc adjustment should be necessary only if obj != part. But for some objects like
@@ -2580,15 +2657,15 @@ std::string AssemblyObject::handleOneSideOfJoint(
 
     std::string markerNameCopy = markerName.empty() ? joint->getFullName() : markerName;
     auto mbdMarker = makeMbdMarker(markerNameCopy, plc);
-    mbdPart->addMarker(mbdMarker);
+    mbdMarker.body = mbdPart;
 
-    return "/OndselAssembly/" + mbdPart->name + "/" + markerNameCopy;
+    return solverModel->addFrame(mbdMarker);
 }
 
 void AssemblyObject::getRackPinionMarkers(
     App::DocumentObject* joint,
-    std::string& markerNameI,
-    std::string& markerNameJ
+    Solver::Id& markerNameI,
+    Solver::Id& markerNameJ
 )
 {
     // ASMT rack pinion joint must get the rack as I and pinion as J.
@@ -2659,7 +2736,7 @@ void AssemblyObject::getRackPinionMarkers(
 
     // Then end of processing similar to handleOneSideOfJoint :
     MbDPartData data1 = getMbDData(part1);
-    std::shared_ptr<ASMTPart> mbdPart = data1.part;
+    Solver::Id mbdPart = data1.body;
     if (obj1->getNameInDocument() != part1->getNameInDocument()) {
         plc1 = rack_global_plc * plc1;
 
@@ -2673,9 +2750,9 @@ void AssemblyObject::getRackPinionMarkers(
 
     std::string markerName = joint->getFullName();
     auto mbdMarker = makeMbdMarker(markerName, plc1);
-    mbdPart->addMarker(mbdMarker);
+    mbdMarker.body = mbdPart;
 
-    markerNameI = "/OndselAssembly/" + mbdPart->name + "/" + markerName;
+    markerNameI = solverModel->addFrame(mbdMarker);
 }
 
 int AssemblyObject::slidingPartIndex(App::DocumentObject* joint)
@@ -2747,6 +2824,10 @@ bool AssemblyObject::isMbDJointValid(App::DocumentObject* joint)
 
 AssemblyObject::MbDPartData AssemblyObject::getMbDData(App::DocumentObject* part)
 {
+    if (legacyBuilder) {
+        return legacy_getMbDData(part);
+    }
+
     auto it = objectPartMap.find(part);
     if (it != objectPartMap.end()) {
         // part has been associated with an ASMTPart before
@@ -2757,15 +2838,14 @@ AssemblyObject::MbDPartData AssemblyObject::getMbDData(App::DocumentObject* part
     if (auto* rep = getRigidRepresentative(part)) {
         Base::Placement repPlc = getPlacementFromProp(rep, "Placement");
 
-        std::shared_ptr<ASMTPart> mbdPart;
+        Solver::Id mbdPart = Solver::NoId;
         const auto repMapped = objectPartMap.find(rep);
         if (repMapped != objectPartMap.end()) {
-            mbdPart = repMapped->second.part;
+            mbdPart = repMapped->second.body;
         }
         else {
             std::string repName = rep->getFullName();
             mbdPart = makeMbdPart(repName, repPlc);
-            mbdAssembly->addPart(mbdPart);
             objectPartMap[rep] = {mbdPart, Base::Placement()};
         }
 
@@ -2789,8 +2869,7 @@ AssemblyObject::MbDPartData AssemblyObject::getMbDData(App::DocumentObject* part
     // part has not been associated with an ASMTPart before
     std::string str = part->getFullName();
     Base::Placement plc = getPlacementFromProp(part, "Placement");
-    std::shared_ptr<ASMTPart> mbdPart = makeMbdPart(str, plc);
-    mbdAssembly->addPart(mbdPart);
+    Solver::Id mbdPart = makeMbdPart(str, plc);
     MbDPartData data = {mbdPart, Base::Placement()};
     objectPartMap[part] = data;  // Store the association
 
@@ -2825,56 +2904,29 @@ AssemblyObject::MbDPartData AssemblyObject::getMbDData(App::DocumentObject* part
     return data;
 }
 
-std::shared_ptr<ASMTPart> AssemblyObject::getMbDPart(App::DocumentObject* part)
+Solver::Id AssemblyObject::getMbDPart(App::DocumentObject* part)
 {
     if (!part) {
-        return nullptr;
+        return Solver::NoId;
     }
-    return getMbDData(part).part;
+    return getMbDData(part).body;
 }
 
-std::shared_ptr<ASMTPart> AssemblyObject::makeMbdPart(std::string& name, Base::Placement plc, double mass)
+Solver::Id AssemblyObject::makeMbdPart(std::string& name, Base::Placement plc, double mass)
 {
-    auto mbdPart = CREATE<ASMTPart>::With();
-    mbdPart->setName(name);
+    Solver::Body mbdPart;
+    mbdPart.source = solverModel->addSource(name);
+    mbdPart.mass.mass = mass;
+    mbdPart.placement = plc;
 
-    auto massMarker = CREATE<ASMTPrincipalMassMarker>::With();
-    massMarker->setMass(mass);
-    massMarker->setDensity(1.0);
-    massMarker->setMomentOfInertias(1.0, 1.0, 1.0);
-    mbdPart->setPrincipalMassMarker(massMarker);
-
-    Base::Vector3d pos = plc.getPosition();
-    mbdPart->setPosition3D(pos.x, pos.y, pos.z);
-
-    // TODO : replace with quaternion to simplify
-    Base::Rotation rot = plc.getRotation();
-    Base::Matrix4D mat;
-    rot.getValue(mat);
-    Base::Vector3d r0 = mat.getRow(0);
-    Base::Vector3d r1 = mat.getRow(1);
-    Base::Vector3d r2 = mat.getRow(2);
-    mbdPart->setRotationMatrix(r0.x, r0.y, r0.z, r1.x, r1.y, r1.z, r2.x, r2.y, r2.z);
-
-    return mbdPart;
+    return solverModel->addBody(mbdPart);
 }
 
-std::shared_ptr<ASMTMarker> AssemblyObject::makeMbdMarker(std::string& name, Base::Placement& plc)
+Solver::Frame AssemblyObject::makeMbdMarker(std::string& name, Base::Placement& plc)
 {
-    auto mbdMarker = CREATE<ASMTMarker>::With();
-    mbdMarker->setName(name);
-
-    Base::Vector3d pos = plc.getPosition();
-    mbdMarker->setPosition3D(pos.x, pos.y, pos.z);
-
-    // TODO : replace with quaternion to simplify
-    Base::Rotation rot = plc.getRotation();
-    Base::Matrix4D mat;
-    rot.getValue(mat);
-    Base::Vector3d r0 = mat.getRow(0);
-    Base::Vector3d r1 = mat.getRow(1);
-    Base::Vector3d r2 = mat.getRow(2);
-    mbdMarker->setRotationMatrix(r0.x, r0.y, r0.z, r1.x, r1.y, r1.z, r2.x, r2.y, r2.z);
+    Solver::Frame mbdMarker;
+    mbdMarker.label = solverModel->addSource(name);
+    mbdMarker.local = plc;
 
     return mbdMarker;
 }

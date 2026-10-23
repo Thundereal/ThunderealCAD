@@ -30031,6 +30031,11 @@ The note-taker's note: 213's "only by a click on the handle" fits the
 reporter's "just select the corresponding edge" -- a label or key
 standing for several edges selects none.
 
+**2026-10-23 11:59, the reporter (to the note-taker):** "tell fcad-dc to go ahead and
+build" -- passed on to fcad-dc as the reporter's own word, at its asking:
+build r209 (panel widths, 213, 220) and test it, offscreen; a push or a
+restage still needs the reporter's own word to it.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;

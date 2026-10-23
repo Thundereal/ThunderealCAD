@@ -378,6 +378,8 @@ struct DocumentP
     Connection connectTransactionRemove;
     Connection connectPinsReleased;
     Connection connectLogKept;
+    Connection connectBranches;
+    Connection connectAssignLook;
     Connection connectTouchedObject;
     Connection connectPurgeTouchedObject;
     Connection connectChangePropertyEditor;
@@ -502,6 +504,51 @@ Document::Document(App::Document* pcDocument,Application * app)
     // so keeping or letting go is a change of the file like any other.
     d->connectLogKept = pcDocument->signalLogKeptChanged.connect(
         [this](const App::Document&) { setModified(true); });
+    // So is a branch made, moved, merged or let go (sec 35.18): a set's
+    // import gives a file of it a branch in that file's history, which only
+    // its save writes -- closed unsaved, the branch was gone with no word.
+    // Not a branch's or a version's own document, which is not saved.
+    // An assigned paste's look (sec 35.18): what the copy's view provider
+    // read of the paste, the live one's -- as changes of the step, so an
+    // undo takes them back. Not the copy's visibility: a paste hides it.
+    d->connectAssignLook = pcDocument->signalAssignLook.connect(
+        [this](const App::Document&,
+               const std::vector<std::pair<App::DocumentObject*, App::DocumentObject*>>& pairs) {
+            for (const auto& [copy, live] : pairs) {
+                auto from = getViewProvider(copy);
+                auto to = getViewProvider(live);
+                if (!from || !to)
+                    continue;
+                std::vector<App::Property*> props;
+                from->getPropertyList(props);
+                for (auto prop : props) {
+                    const char* name = prop->getName();
+                    if (!name || std::strcmp(name, "Visibility") == 0
+                            || prop->testStatus(App::Property::Transient)
+                            || (from->getPropertyType(prop) & (App::Prop_Transient
+                                                               | App::Prop_NoPersist
+                                                               | App::Prop_Output)))
+                        continue;
+                    auto mine = to->getPropertyByName(name);
+                    if (!mine || mine->getTypeId() != prop->getTypeId() || mine->isSame(*prop))
+                        continue;
+                    try {
+                        std::unique_ptr<App::Property> value(prop->Copy());
+                        mine->Paste(*value);
+                    }
+                    catch (Base::Exception& e) {
+                        FC_WARN(live->getFullName() << ": the look's " << name
+                                << " not taken: " << e.what());
+                    }
+                }
+            }
+        });
+    d->connectBranches = pcDocument->signalBranchesChanged.connect(
+        [this](const App::Document& doc) {
+            if (!doc.testStatus(App::Document::VersionDoc)
+                    && !doc.testStatus(App::Document::TempDoc))
+                setModified(true);
+        });
 
     // The on-top set is stored in each view's own OnTopObjects property
     // (docs/CoinRetirement.md 5.12), so every change to it has to reach
@@ -549,6 +596,8 @@ Document::~Document()
     d->connectTransactionAppend.disconnect();
     d->connectTransactionRemove.disconnect();
     d->connectLogKept.disconnect();
+    d->connectBranches.disconnect();
+    d->connectAssignLook.disconnect();
     d->connectTouchedObject.disconnect();
     d->connectPurgeTouchedObject.disconnect();
     d->connectChangePropertyEditor.disconnect();

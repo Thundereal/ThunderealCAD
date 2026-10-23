@@ -2215,3 +2215,15 @@ fc_add_gui_test(GuiLinkGroupDragOut_tests_run
 fc_add_gui_test(GuiImportLinkedSetReferences_tests_run
                 import-linked-set-references.py
                 --timeout 180)
+
+# A linked set's import leaves its files to be saved (docs/TransactionLog.md
+# sec 35.18): each file given a branch is marked modified.
+fc_add_gui_test(GuiSetImportMarksModified_tests_run
+                set-import-marks-modified.py
+                --timeout 180)
+
+# A paste assigned onto an object here takes the look brought too, unless
+# unchecked (docs/TransactionLog.md sec 35.18).
+fc_add_gui_test(GuiPasteAssignLook_tests_run
+                paste-assign-look.py
+                --timeout 120)

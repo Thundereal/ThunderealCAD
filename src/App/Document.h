@@ -284,6 +284,15 @@ public:
     fastsignals::signal<void (const std::vector<App::DocumentObject*>&, Base::Reader&,
                                   const std::map<std::string, std::string>&)> signalImportViewObjects;
     fastsignals::signal<void (const std::vector<App::DocumentObject*>&)> signalFinishImportObjects;
+    /** An import's copies assigned onto live objects that take the look
+     * brought (sec 35.18): (copy, live), before the copies go. The view
+     * provider's look is the Gui's to take; what the object keeps of it
+     * (its Appearances) was taken with its values.
+     */
+    fastsignals::signal<void (const App::Document&,
+                              const std::vector<std::pair<App::DocumentObject*,
+                                                          App::DocumentObject*>>&)>
+        signalAssignLook;
     //signal starting a save action to a file
     fastsignals::signal<void (const App::Document&, const std::string&)> signalStartSave;
     //signal finishing a save action to a file
@@ -413,6 +422,11 @@ public:
 
         Mode mode;
         std::function<bool(std::vector<ImportClash>&)> ask;
+        /** Assigned, the live object takes the look brought too (sec 35.18):
+         * the view data the import carries for the copy is read into the live
+         * object's, as one more change of the step. Off, it keeps its own.
+         */
+        bool copyLook = true;
 
     private:
         ImportClashScope* _previous;

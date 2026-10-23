@@ -4651,6 +4651,7 @@ std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<Document
     d->importFromHere = false;
     auto scope = ImportClashScope::current();
     const auto mode = scope ? scope->mode : ImportClashScope::Duplicate;
+    const bool copyLook = !scope || scope->copyLook;
     // Answered before the import (sec 37.9): an object left out is settled
     // here whether or not it clashes.
     const bool answered = mode == ImportClashScope::Answered;
@@ -4821,6 +4822,14 @@ std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<Document
             if ((type & Prop_Transient) || (type & Prop_NoPersist) || kv.first == "Label"
                     || kv.first == "_ObjectUUID")
                 continue;
+            // The look kept (sec 35.18): what the object keeps of it, its
+            // Appearances -- not the physical material, which is the design
+            if (!copyLook) {
+                const char* group = copy->getPropertyGroup(kv.second);
+                if (group && boost::starts_with(group, "Appearances")
+                        && !kv.second->isDerivedFrom(Base::Type::fromName("Materials::PropertyMaterial")))
+                    continue;
+            }
             Property* prop = live->getPropertyByName(kv.first.c_str());
             if (!prop) {
                 auto dyn = copy->getDynamicPropertyData(kv.second);
@@ -4849,6 +4858,14 @@ std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<Document
     }
     for (const auto& kv : assigned)
         kv.second->touch();
+    // Sec 35.18: the look brought, where the scope asks for it -- the view
+    // provider's, which the import read into the copy's, taken by whoever
+    // shows the document, before the copy goes
+    if (copyLook && !assigned.empty()) {
+        std::vector<std::pair<DocumentObject*, DocumentObject*>> pairs(assigned.begin(),
+                                                                       assigned.end());
+        signalAssignLook(*this, pairs);
+    }
     // 3. The copies go -- assigned, kept, left out; the objects brought are
     // the live ones in their place. A copy lets go of every link first:
     // step 1 pointed its links at live objects, and a removal's unsetup

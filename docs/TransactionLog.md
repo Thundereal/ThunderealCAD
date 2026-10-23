@@ -57,7 +57,7 @@ question is the one that holds.
 | 33 | What the merge into LinkVibe exposed | fixed |
 | 34 | Held: what Scion's design suggests | held |
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
-| 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the dialog marks open |
+| 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12) | none left from 37.12 |
 
 ## 1. The idea (user, 2026-09-18)
@@ -22308,6 +22308,67 @@ another session, merged), `testWhatWillNotResolveIsSaidBeforeTheMerge`
 ours; none when merged; the report after), driven
 `GuiImportLinkedSetReferences` (`tests/gui/import-linked-set-references.py`:
 the question, the line, "Merge Part.FCStd too" taken).
+
+### 35.18 A set's files left to be saved; U5; the look under Assign (user: "do 1 and 2", 2026-10-23)
+
+**The files an import gives a branch are modified.** A set's import puts
+each file's branch in that file's own history, which only that file's
+save writes: closed unsaved, the branch was gone, and nothing said so --
+the Gui did not count the import a change of the file (found in 35.16,
+where a test saved the top alone and found no branch of the part). The
+Gui document now marks itself modified when its file's branches change
+(`signalBranchesChanged`: a branch made, switched, renamed, trimmed,
+deleted, an import, a merge, a file kept or let go -- each a change the
+save writes, as `signalLogKeptChanged` already was), not a branch's or a
+version's own document, which is not saved. Driven
+`GuiSetImportMarksModified` (`tests/gui/set-import-marks-modified.py`):
+neither of ours modified before, both after, the branch's document not,
+neither once saved, the branches there when opened again. On the way: a
+save of a part marks the assembly linking it modified (the link's stamp),
+so the part is saved first. The same holds of a branch served to a
+client (sec 32.30): its changes are in the file's history, so the
+desktop's document is modified, and its close asks to save first -- the
+hidden-document check saves it before it closes the window.
+
+**U5, a set's file paired by the objects it shares** (sec 36.2 U5). A
+guess after the one by `Uid`, where that says nothing, and before the one
+by path: `SetPairing::Objects` ("objects"). (Put before the `Uid` first,
+it took over the pairing of `testTwoOfOursAlikePairNone`'s top, which the
+`Uid` answers; the older signal goes first.) Their file's object UIDs are read off
+its `Document.xml` (`uid` on each `<Object>`); it is paired with the one
+of ours whose objects have the most of them, where that is two at least
+-- one is no proof, a pasted copy shares it -- and half of theirs at
+least; two of ours as many is ambiguous, the user says. A guess, not
+certain (Q1), so Take theirs by default: a copy of the objects into a new
+file shares them too. Test `testASetsFileIsPairedByTheObjectsItShares`:
+their `Bracket.FCStd`, another name and `Uid`, no history, made of copies
+of our part's objects, paired with our `Part.FCStd`; a file sharing one
+object, not.
+
+**The look under Assign** (36.6: "the live object keeps its look"; user:
+add an option, on by default). An object assigned takes the look brought
+with its values: the paste dialog (`DlgObjectSelection` in paste mode)
+and the clash dialog (`askImportClashes`, a merge of a project, a drag
+that copies) have a check, "Assigned objects take the look brought too",
+checked, which sets `ImportClashScope::copyLook`. The look is in two
+places. What the object keeps -- a Part feature's or a link's
+`Appearances` group, the element looks and the colours over them -- is
+taken with the values, and left out when the check is off (not the
+physical material, `ShapeMaterial`, which is the design). What the view
+provider keeps -- line width, point size, display mode -- the import read
+into the copy's view provider before the clash was settled:
+`signalAssignLook(copy, live)` is fired then, before the copy goes, and
+the Gui takes each of its properties into the live one's (not
+`Visibility`: a paste hides the copy), as changes of the step, which one
+undo takes back. Driven `GuiPasteAssignLook`
+(`tests/gui/paste-assign-look.py`): a longer, red box with thicker lines
+assigned onto ours -- the check offered and checked; taken, length and
+look; one undo, both back; unchecked, the length and our look.
+
+**The dialog's marks of 36.6 are moot.** "The rows where an assigned
+object will refer to a duplicate": the rule of 37.9 lets an object here
+that an assigned one depends on be only assigned or left out, so none
+does. Closed.
 
 ## 36. Object UIDs: an object known by what it is, not its name (2026-10-21)
 

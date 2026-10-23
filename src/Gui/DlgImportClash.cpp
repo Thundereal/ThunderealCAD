@@ -23,6 +23,7 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <QCheckBox>
 # include <QComboBox>
 # include <QDialog>
 # include <QDialogButtonBox>
@@ -55,7 +56,7 @@ QString objectText(const App::DocumentObject* obj)
 }
 }  // namespace
 
-bool Gui::askImportClashes(std::vector<App::Document::ImportClash>& clashes)
+bool Gui::askImportClashes(std::vector<App::Document::ImportClash>& clashes, bool* copyLook)
 {
     if (clashes.empty())
         return true;
@@ -90,6 +91,11 @@ bool Gui::askImportClashes(std::vector<App::Document::ImportClash>& clashes)
     }
     list->header()->setSectionResizeMode(QHeaderView::ResizeToContents);
     layout->addWidget(list);
+    // Sec 35.18: what is assigned takes the look brought too, unless unchecked
+    auto look = new QCheckBox(QObject::tr("Assigned objects take the look brought too"), &dlg);
+    look->setObjectName(QStringLiteral("copyLook"));
+    look->setChecked(true);
+    layout->addWidget(look);
     auto buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
     auto assignAll = buttons->addButton(QObject::tr("Assign all"), QDialogButtonBox::ActionRole);
     assignAll->setObjectName(QStringLiteral("assignAll"));
@@ -111,11 +117,13 @@ bool Gui::askImportClashes(std::vector<App::Document::ImportClash>& clashes)
         return false;
     for (std::size_t i = 0; i < clashes.size(); ++i)
         clashes[i].assign = takes[i]->currentIndex() == 1;
+    if (copyLook)
+        *copyLook = look->isChecked();
     return true;
 }
 
 bool Gui::askPaste(App::Document* doc, const std::vector<App::DocumentObject*>& brought,
-                   std::map<std::string, App::Document::ImportTake>& takes)
+                   std::map<std::string, App::Document::ImportTake>& takes, bool* copyLook)
 {
     takes.clear();
     // Paired by UID and type (sec 36.4); a copy beside its source in its
@@ -147,8 +155,15 @@ bool Gui::askPaste(App::Document* doc, const std::vector<App::DocumentObject*>& 
     dlg.setObjectName(QStringLiteral("DlgPasteSelection"));
     dlg.setWindowTitle(QObject::tr("Paste: objects already here"));
     dlg.setPaste(doc, pairs);
+    // Sec 35.18: what is assigned takes the look brought too, unless unchecked
+    auto look = new QCheckBox(QObject::tr("Assigned objects take the look brought too"));
+    look->setObjectName(QStringLiteral("copyLook"));
+    look->setChecked(true);
+    dlg.addCheckBox(look);
     if (dlg.exec() != QDialog::Accepted)
         return false;
+    if (copyLook)
+        *copyLook = look->isChecked();
     for (const auto& [obj, take] : dlg.getTakes()) {
         if (obj->isAttachedToDocument())
             takes[obj->getNameInDocument()] = take;
@@ -202,8 +217,10 @@ bool Gui::pasteAsked(App::Document* doc,
                 streamName[kv.second] = kv.first;
         }
         std::map<std::string, App::Document::ImportTake> takes;
-        if (!askPaste(doc, objs, takes))
+        bool copyLook = true;
+        if (!askPaste(doc, objs, takes, &copyLook))
             return false;
+        scope.copyLook = copyLook;
         for (const auto& [name, take] : takes) {
             auto it = streamName.find(name);
             scope.answers[it != streamName.end() ? it->second : name] = take;
@@ -222,7 +239,9 @@ ImportClashAsk::ImportClashAsk()
     : App::Document::ImportClashScope(Ask)
 {
     ask = [this](std::vector<App::Document::ImportClash>& clashes) {
-        const bool ok = askImportClashes(clashes);
+        bool look = true;
+        const bool ok = askImportClashes(clashes, &look);
+        copyLook = look;
         _all = ok && !clashes.empty();
         for (const auto& c : clashes)
             _all = _all && c.assign;

@@ -44,6 +44,10 @@ enum class SetPairing
     SaveId,     ///< the save of ours a copy without history names
     Manifest,   ///< our export's manifest says so (L7)
     Uid,        ///< the Uid in their Document.xml: guessed
+    /// Most of their objects' UIDs ours has, and no other file as many
+    /// (sec 36 U5, 35.18), where the Uid says nothing: guessed -- a copy of
+    /// the objects into a new file shares them too
+    Objects,
     Path,       ///< the same path relative to the top: guessed
     None,       ///< a file of theirs alone
     User,       ///< the user said so (pairByHand)

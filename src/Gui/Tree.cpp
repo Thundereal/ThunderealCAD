@@ -4369,6 +4369,7 @@ void TreeWidget::dropEvent(QDropEvent *event)
         // 13): of the dragged objects and what they bring with them, by
         // their names in their documents, which the copy keeps.
         std::map<std::string, App::Document::ImportTake> pasteTakes;
+        bool pasteLook = true;
         if (da == Qt::CopyAction) {
             std::vector<App::DocumentObject*> sources;
             for (auto& info : infos) {
@@ -4378,7 +4379,8 @@ void TreeWidget::dropEvent(QDropEvent *event)
                     sources.push_back(obj);
             }
             if (!sources.empty()
-                    && !askPaste(thisDoc, App::Document::getDependencyList(sources), pasteTakes))
+                    && !askPaste(thisDoc, App::Document::getDependencyList(sources), pasteTakes,
+                                 &pasteLook))
                 return;
         }
 
@@ -4491,6 +4493,7 @@ void TreeWidget::dropEvent(QDropEvent *event)
                         App::Document::ImportClashScope ask(
                             App::Document::ImportClashScope::Answered);
                         ask.answers = pasteTakes;
+                        ask.copyLook = pasteLook;
                         auto copied = thisDoc->copyObject({obj},true);
                         if(copied.size())
                             res = copied.back();

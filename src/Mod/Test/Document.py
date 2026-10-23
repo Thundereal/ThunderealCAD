@@ -10618,6 +10618,55 @@ class TransactionBranchCases(unittest.TestCase):
             for f in plan["files"]
         }
 
+    def testASetsFileIsPairedByTheObjectsItShares(self):
+        # Sec 36 U5, 35.18: their part is a file of its own -- another
+        # name, another Uid, no history in common -- made of copies of our
+        # part's objects, which keep their UIDs: paired with ours by them,
+        # a guess (Take theirs by default). A file that shares one object
+        # only is not paired by it.
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        os.makedirs(ours)
+        os.makedirs(theirs)
+        part = FreeCAD.newDocument("UidPart")
+        box = part.addObject("Part::Box", "Box")
+        cyl = part.addObject("Part::Cylinder", "Cyl")
+        part.addObject("Part::Sphere", "Ball")
+        part.recompute()
+        part.saveAs(os.path.join(ours, "Part.FCStd"))
+        asm = FreeCAD.newDocument("UidAsm")
+        asm.addObject("App::Link", "L").LinkedObject = box
+        asm.recompute()
+        asm.saveAs(os.path.join(ours, "Asm.FCStd"))
+
+        other = FreeCAD.newDocument("UidOther")
+        copies = other.copyObject([box, cyl])
+        self.assertEqual(copies[0].ObjectUid, box.ObjectUid)
+        copies[0].Length = 25
+        other.recompute()
+        other.saveAs(os.path.join(theirs, "Bracket.FCStd"))
+        lone = FreeCAD.newDocument("UidLone")
+        lone.copyObject([part.Ball])
+        lone.addObject("Part::Box", "Own")
+        lone.recompute()
+        lone.saveAs(os.path.join(theirs, "Lone.FCStd"))
+        top = FreeCAD.newDocument("UidTop")
+        top.addObject("App::Link", "L").LinkedObject = copies[0]
+        top.addObject("App::Link", "M").LinkedObject = lone.Own
+        top.recompute()
+        top.saveAs(os.path.join(theirs, "Top.FCStd"))
+        for d in (top, lone, other, asm, part):
+            FreeCAD.closeDocument(d.Name)
+
+        doc = self.openedSet(os.path.join(ours, "Asm.FCStd"))
+        plan = doc.planLinkedSetImport(os.path.join(theirs, "Top.FCStd"))
+        pairs = self.pairs(plan)
+        self.assertEqual(pairs["Bracket.FCStd"], ("Part.FCStd", "objects"))
+        self.assertEqual(pairs["Lone.FCStd"], ("", "none"))
+        bracket = [f for f in plan["files"] if f["theirs"].endswith("Bracket.FCStd")][0]
+        # A guess: not certain, which makes Take theirs its default (Q8)
+        self.assertFalse(bracket["certain"])
+
     def testASetIsPairedByTheHistoryBothHold(self):
         # Sec 35 L2, L3: their set read from their files -- nothing of it
         # opened -- their top last, each file after what it links; a file

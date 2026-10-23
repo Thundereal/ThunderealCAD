@@ -42,7 +42,10 @@ namespace Gui
  * new object, as a paste was), with Assign all and Duplicate all. Sets each
  * clash's `assign`; false when cancelled.
  */
-GuiExport bool askImportClashes(std::vector<App::Document::ImportClash>& clashes);
+/// `copyLook`, when given: whether what is assigned takes the look brought
+/// too (sec 35.18), as the dialog's check says it
+GuiExport bool askImportClashes(std::vector<App::Document::ImportClash>& clashes,
+                                bool* copyLook = nullptr);
 
 /** What a paste into `doc` takes of the objects `brought` -- objects of
  * another document: a scratch import of what is pasted, or the source of a
@@ -51,10 +54,13 @@ GuiExport bool askImportClashes(std::vector<App::Document::ImportClash>& clashes
  * type; with none paired nothing is asked and `takes` stays empty. Asked in
  * the dependency dialog (DlgObjectSelection::setPaste): a check leaves an
  * object out, a second assigns it. `takes` names each object by its name in
- * its own document. False when cancelled.
+ * its own document; `copyLook`, when given, says whether what is assigned
+ * takes the look brought too (sec 35.18), checked by default. False when
+ * cancelled.
  */
 GuiExport bool askPaste(App::Document* doc, const std::vector<App::DocumentObject*>& brought,
-                        std::map<std::string, App::Document::ImportTake>& takes);
+                        std::map<std::string, App::Document::ImportTake>& takes,
+                        bool* copyLook = nullptr);
 
 /** A paste into `doc` of the stream `open()` gives, asked first (sec 37.9,
  * 37.7 item 13 (c)): the stream's UIDs are read off it; where one names an

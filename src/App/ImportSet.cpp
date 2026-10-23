@@ -188,7 +188,28 @@ struct Theirs
 {
     std::string uid;
     std::vector<std::string> links;
+    std::set<std::string> objects;   ///< its objects' UIDs (sec 36 U1)
 };
+
+/// The UIDs of a Document.xml's objects: `uid` on each `<Object>` entry of
+/// its `Objects` (sec 36 U1)
+std::set<std::string> objectUidsOf(const std::string& xml)
+{
+    std::set<std::string> uids;
+    const std::string tag = "<Object ";
+    const std::string key = " uid=\"";
+    for (auto at = xml.find(tag); at != std::string::npos; at = xml.find(tag, at + 1)) {
+        const auto end = xml.find('>', at);
+        const auto uid = xml.find(key, at);
+        if (end == std::string::npos || uid == std::string::npos || uid > end)
+            continue;
+        const auto from = uid + key.size();
+        const auto to = xml.find('"', from);
+        if (to != std::string::npos && to > from)
+            uids.insert(xml.substr(from, to - from));
+    }
+    return uids;
+}
 
 /// Our documents `top`'s links reach, by their file: the document of the
 /// file itself, not a version's or a branch's, which an import goes to.
@@ -269,6 +290,8 @@ const char* App::setPairingName(SetPairing pairing)
             return "save";
         case SetPairing::Manifest:
             return "manifest";
+        case SetPairing::Objects:
+            return "objects";
         case SetPairing::Uid:
             return "uid";
         case SetPairing::Path:
@@ -310,6 +333,7 @@ SetImportPlan App::planSetImport(Document& ourTop, const std::string& theirTop)
             THROWM(Base::FileException, "cannot read the document", file.c_str());
         Theirs t;
         t.uid = uidOf(xml);
+        t.objects = objectUidsOf(xml);
         std::set<std::string> linked;
         for (const auto& attrs : xlinksOf(xml)) {
             const std::string target = targetOf(attrs, file);
@@ -413,6 +437,45 @@ SetImportPlan App::planSetImport(Document& ourTop, const std::string& theirTop)
                 hits.push_back(ourFile);
         }
         if (pairWith(hits, SetPairing::Uid, ours)) {
+            plan.files.push_back(std::move(f));
+            continue;
+        }
+        // U5 (sec 36, 35.18), where the Uid says nothing: their objects'
+        // UIDs, most of them ours' -- two at least, one being no proof (a
+        // pasted copy shares it) -- and no other file of ours as many.
+        hits.clear();
+        {
+            const auto& mine = theirs[file].objects;
+            std::size_t best = 0;
+            std::size_t second = 0;
+            std::string bestFile;
+            for (const auto& [ourFile, doc] : ours) {
+                std::size_t shared = 0;
+                for (auto obj : doc->getObjects()) {
+                    if (mine.count(obj->getObjectUid()))
+                        ++shared;
+                }
+                if (shared > best) {
+                    second = best;
+                    best = shared;
+                    bestFile = ourFile;
+                }
+                else if (shared > second)
+                    second = shared;
+            }
+            if (best >= 2 && best * 2 >= mine.size()) {
+                hits.push_back(bestFile);
+                // As many in another: neither, the user says
+                if (second == best)
+                    hits.push_back(std::string());
+            }
+        }
+        if (hits.size() > 1) {
+            f.ambiguous = true;
+            plan.files.push_back(std::move(f));
+            continue;
+        }
+        if (pairWith(hits, SetPairing::Objects, ours)) {
             plan.files.push_back(std::move(f));
             continue;
         }
@@ -1422,7 +1485,8 @@ std::vector<PendingSet> App::pendingSets(Document& ourTop)
             f.relative = e.value("relative", std::string());
             const std::string pairing = e.value("pairing", std::string());
             for (auto how : {SetPairing::History, SetPairing::SaveId, SetPairing::Manifest,
-                             SetPairing::Uid, SetPairing::Path, SetPairing::User}) {
+                             SetPairing::Objects, SetPairing::Uid, SetPairing::Path,
+                             SetPairing::User}) {
                 if (pairing == setPairingName(how))
                     f.pairing = how;
             }

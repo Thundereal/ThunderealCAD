@@ -4400,7 +4400,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 224 | 2026-10-23 | a change request: the TechDraw PAGE view gets the SAME AUTO SCROLL BARS as the spreadsheet (222's Gui::OverlayScrollBars: out of the overlaid docks' way, thin, shown while scrolling or with the pointer near, faded after) -- "it looks nice" | OPEN; said to the note-taker 2026-10-23 17:30; ASSIGNED to fcad-dc (222 was its), after 223; the default of 221's HideScrollBars option asked of the reporter. 2026-10-23 17:33 the reporter (to the note-taker, the tool's choice): "Keep, default off (Recommended)" -- 221's HideScrollBars option KEPT, its default turned OFF: the page shows the new auto bars by default, the option ticked hides them; passed on to fcad-dc |
 | 225 | 2026-10-23 | a question and a possible change request: a GENERAL way to REPLACE the SCROLL BARS of ALL OTHER WIDGETS in OVERLAY TRANSPARENT mode (with 222's auto bars) | OPEN; asked of the note-taker 2026-10-23 17:34; ANSWERED by the note-taker from a read: possible -- OverlayTabWidget::_setOverlayMode (OverlayWidgets.cpp 1158) already visits every widget of a dock as it is overlaid and un-overlaid, and today only hides the property view's and the tree's vertical bar by two options; the hook there could give each QAbstractScrollArea in an overlaid dock a Gui::OverlayScrollBars (B: thin, laid over, faded) and take it away when the dock leaves overlay mode; the reporter's word awaited; NOT assigned. 2026-10-23 17:37 the reporter: "225, go ahead. two hide scroll bar options stay the same, but default false" -- BUILD it; the two options (TreeParams HideScrollBar, default TRUE now -> FALSE; OverlayParams DockOverlayHidePropertyViewScrollBar, already false -- read by the note-taker) keep what they do, both default false; ASSIGNED to fcad-dc, after 224 |
 | 226 | 2026-10-23 | a defect: a fillet edge's GROUP set to an EXISTING group's -- the reporter expects the changing group to TAKE the existing group's COLOUR, but it is the OTHER WAY ROUND (the existing group takes the old colour) | OPEN; said to the note-taker 2026-10-23 18:08; READ by the note-taker: TaskDressUpParameters::autoGroupColor (1193) colours the groups that exist, IN ID ORDER, each by Base::spreadHues -- so when a group empties (its last edge joins another), every later group's hue SHIFTS one place: an edge alone in group 1 joining group 3 leaves group 3 first in order, with group 1's old hue; a regression of 209 (c) (`f9682c8e9d`); ASSIGNED to fcad-dc (its code), after 223, before 224 |
-| 227 | 2026-10-23 | a question and a defect: does the current implementation have PER-VIEW UNDO/REDO? the problem: with a TechDraw PAGE as the active view, a double click on a FILLET for edit -> an undo step of the fillet edit shows in the TechDraw page view | OPEN; said to the note-taker 2026-10-23 18:17; ANSWERED by the note-taker from a read: NO per-view undo of document changes -- every view of a document shows and acts on the ONE document undo stack (MDIView::onMsg/onHasMsg/undoActions, MDIViewPage the same); per-view stacks are designed for VIEW state only (docs/MultiViewEdit.md sec 5, not built: no undo-view command found); per-AUTHOR stacks are built over the transaction log (docs/ThinClient.md 8.12 G, TransactionLog.md 30.9/30.10), but one desktop user is one author; the reporter's decision awaited on what a view's undo should offer; NOT assigned |
+| 227 | 2026-10-23 | a question and a defect: does the current implementation have PER-VIEW UNDO/REDO? the problem: with a TechDraw PAGE as the active view, a double click on a FILLET for edit -> an undo step of the fillet edit shows in the TechDraw page view | OPEN; said to the note-taker 2026-10-23 18:17; ANSWERED by the note-taker from a read: NO per-view undo of document changes -- every view of a document shows and acts on the ONE document undo stack (MDIView::onMsg/onHasMsg/undoActions, MDIViewPage the same); per-view stacks are designed for VIEW state only (docs/MultiViewEdit.md sec 5, not built: no undo-view command found); per-AUTHOR stacks are built over the transaction log (docs/ThinClient.md 8.12 G, TransactionLog.md 30.9/30.10), but one desktop user is one author; the reporter's decision awaited on what a view's undo should offer; NOT assigned. 2026-10-23 18:35 the reporter: "But in my test, techdraw page shows different undo list than the 3d view" -- CONTRADICTS the note-taker's read (one stack per document); a second read found no per-view filter: the list is App::Document::getAvailableUndoNames -> stepsOf(), which filters by AUTHOR (ActorScope; every desktop view is the one desktop user), and the drop-down (UndoDialog) asks the active MDI view's undoActions(), which MDIViewPage does not override; NOT explained yet -- the note-taker asks the reporter's word to read their live session (which document each view belongs to, and the two lists) |
 | 228 | 2026-10-23 | a change request: each UNDO STEP of a PartDesign editing task gets a CONCISE DESCRIPTION of what it did; today a fillet edit's steps show only the object name and the edge name | OPEN; said to the note-taker 2026-10-23 18:17; READ by the note-taker: TaskFeatureParameters::setupTransaction() names every fine-undo step "Edit <object name>" (TaskFeatureParameters.cpp 438-439); ASSIGNED to fcad-dc (PD task panels), after 226 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
@@ -30431,6 +30431,28 @@ any panel that gains it); translated text (read as: translatable, as
 other step names are); the length (read as: short, the object's label
 first).
 ASSIGNED to fcad-dc (PD task panels), after 226.
+
+**2026-10-23 18:35, the reporter (to the note-taker), on 227:** "But in my test,
+techdraw page shows different undo list than the 3d view"
+The note-taker's reading: the page view's Undo list and the 3D view's
+are not the same list, which the note-taker's first read (one undo
+stack per document, every view showing it) does not explain -- so that
+answer is NOT confirmed, and the question is open again.
+A second read (working tree): the list a view shows is
+MDIView::undoActions() -> Gui::Document::getUndoVector() ->
+App::Document::getAvailableUndoNames() (App/Document.cpp 1664), which
+keeps the steps of stepsOf() (1644): it filters by AUTHOR only
+(ActorScope::current(); every desktop view is the one desktop user,
+sameUser 1169) and leaves out implicit steps. The toolbar's drop-down
+(UndoDialog::onFetchInfo, DlgUndoRedo.cpp 59) asks the ACTIVE MDI
+view's undoActions(); MDIViewPage does not override it (only
+EditorView and ExpressionEditorView do). No per-view filter found.
+What could make two lists differ, unchecked: the page and the 3D view
+belonging to DIFFERENT documents (a drawing in a document of its own,
+linking the model), each with its own stack; or the list being read at
+different moments (an open edit transaction, an implicit step). The
+note-taker asks the reporter's word to READ their live session: each
+view's document and the two lists.
 
 ## Inbox
 

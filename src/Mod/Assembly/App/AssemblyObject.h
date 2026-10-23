@@ -81,6 +81,10 @@ public:
 
     PyObject* getPyObject() override;
 
+    // The solver backend this assembly asks for by name (Solver::Registry);
+    // empty: the preference Mod/Assembly/SolverBackend decides.
+    App::PropertyString SolverBackend;
+
     /// returns the type name of the ViewProvider
     const char* getViewProviderName() const override
     {
@@ -89,6 +93,11 @@ public:
 
     App::DocumentObjectExecReturn* execute() override;
     void onChanged(const App::Property* prop) override;
+    void handleChangedPropertyType(
+        Base::XMLReader& reader,
+        const char* TypeName,
+        App::Property* prop
+    ) override;
     /* Solve the assembly. It will update first the joints, solve, update placements of the parts
     and redraw the joints Args : enableRedo : This store initial positions to enable undo while
     being in an active transaction (joint creation).*/

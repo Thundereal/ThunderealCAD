@@ -46,6 +46,7 @@ public:
     bool LeaveEditWithEscape;
     bool SwitchToWB;
     unsigned long JointHighlightColor;
+    std::string SolverBackend;
     bool LogSolverDebug;
     std::string BomMirroredSuffix;
 
@@ -64,6 +65,8 @@ public:
         funcs["SwitchToWB"] = &AssemblyParamsP::updateSwitchToWB;
         JointHighlightColor = this->handle->GetUnsigned("JointHighlightColor", 0x00000000);
         funcs["JointHighlightColor"] = &AssemblyParamsP::updateJointHighlightColor;
+        SolverBackend = this->handle->GetASCII("SolverBackend", "Ondsel");
+        funcs["SolverBackend"] = &AssemblyParamsP::updateSolverBackend;
         LogSolverDebug = this->handle->GetBool("LogSolverDebug", false);
         funcs["LogSolverDebug"] = &AssemblyParamsP::updateLogSolverDebug;
         BomMirroredSuffix = this->handle->GetASCII("BomMirroredSuffix", " (mirrored)");
@@ -103,6 +106,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateJointHighlightColor(AssemblyParamsP *self) {
         self->JointHighlightColor = self->handle->GetUnsigned("JointHighlightColor", 0x00000000);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateSolverBackend(AssemblyParamsP *self) {
+        self->SolverBackend = self->handle->GetASCII("SolverBackend", "Ondsel");
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateLogSolverDebug(AssemblyParamsP *self) {
@@ -149,6 +156,11 @@ static const App::ParamRegistry::Registrar _AssemblyParamsRegistrar({
 "is stored, a red until then. Takes effect at the next highlight.")
         .setProxy("Color")
         .setTransparency(false),
+    App::ParamInfo("Assembly", "AssemblyParams", "User parameter:BaseApp/Preferences/Mod/Assembly", "SolverBackend", "SolverBackend", App::ParamInfo::String, "Ondsel")
+        .setTitle("Solver backend")
+        .setDoc("The solver backend assemblies are solved with, by name\n"
+"(AssemblyApp.getAvailableSolvers()). An assembly's own SolverBackend\n"
+"property, when set, takes precedence. Takes effect at the next solve."),
     App::ParamInfo("Assembly", "AssemblyParams", "User parameter:BaseApp/Preferences/Mod/Assembly", "LogSolverDebug", "LogSolverDebug", App::ParamInfo::Bool, false)
         .setTitle("Log dragging steps")
         .setDoc("Writes the dragging steps of the solver to the files\n"
@@ -312,6 +324,36 @@ void AssemblyParams::setJointHighlightColor(const unsigned long &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void AssemblyParams::removeJointHighlightColor() {
     instance()->handle->RemoveUnsigned("JointHighlightColor");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *AssemblyParams::docSolverBackend() {
+    return QT_TRANSLATE_NOOP("AssemblyParams",
+"The solver backend assemblies are solved with, by name\n"
+"(AssemblyApp.getAvailableSolvers()). An assembly's own SolverBackend\n"
+"property, when set, takes precedence. Takes effect at the next solve.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const std::string & AssemblyParams::getSolverBackend() {
+    return instance()->SolverBackend;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const std::string & AssemblyParams::defaultSolverBackend() {
+    const static std::string def = "Ondsel";
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void AssemblyParams::setSolverBackend(const std::string &v) {
+    instance()->handle->SetASCII("SolverBackend",v);
+    instance()->SolverBackend = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void AssemblyParams::removeSolverBackend() {
+    instance()->handle->RemoveASCII("SolverBackend");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

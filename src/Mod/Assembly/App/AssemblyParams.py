@@ -36,8 +36,7 @@ ParamPath = 'User parameter:BaseApp/Preferences/Mod/Assembly'
 ClassDoc = 'Convenient class to obtain the settings of the Assembly workbench'
 
 # Assembly's preference page is written in Python and reads and stores its
-# two switches itself, with the defaults given here. The other four have no
-# page.
+# two switches itself, with the defaults given here. The others have no page.
 Params = [
     ParamBool('SolveOnRecompute', True,
         title = "Solve on recompute",
@@ -62,6 +61,11 @@ Params = [
               "joint is selected or edited. 0, the value while it is not set,\n"
               "is as upstream: the preselection colour of the 3D view once that\n"
               "is stored, a red until then. Takes effect at the next highlight."),
+    ParamString('SolverBackend', 'Ondsel',
+        title = "Solver backend",
+        doc = "The solver backend assemblies are solved with, by name\n"
+              "(AssemblyApp.getAvailableSolvers()). An assembly's own SolverBackend\n"
+              "property, when set, takes precedence. Takes effect at the next solve."),
     ParamBool('LogSolverDebug', False,
         title = "Log dragging steps",
         doc = "Writes the dragging steps of the solver to the files\n"

@@ -189,12 +189,9 @@ TEST_F(SolverRegistryTest, selectByPreferenceAndProperty)  // NOLINT
     auto docName = App::GetApplication().getUniqueDocumentName("solverRegistry");
     auto* doc = App::GetApplication().newDocument(docName.c_str(), "testUser");
     auto* assembly = doc->addObject<Assembly::AssemblyObject>();
-    auto* prop = static_cast<App::PropertyString*>(
-        assembly->addDynamicProperty("App::PropertyString", "SolverBackend")
-    );
-    ASSERT_NE(prop, nullptr);
+    EXPECT_STREQ(assembly->SolverBackend.getValue(), "");  // empty by default
     EXPECT_EQ(Registry::requestedName(assembly), "TestB");  // empty property: preference
-    prop->setValue("TestA");
+    assembly->SolverBackend.setValue("TestA");
     EXPECT_EQ(Registry::requestedName(assembly), "TestA");
     EXPECT_EQ(registry.select(assembly)->name(), "TestA");
     App::GetApplication().closeDocument(docName.c_str());

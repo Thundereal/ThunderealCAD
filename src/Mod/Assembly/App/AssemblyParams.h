@@ -140,6 +140,20 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter SolverBackend
+    ///
+    /// The solver backend assemblies are solved with, by name
+    /// (AssemblyApp.getAvailableSolvers()). An assembly's own SolverBackend
+    /// property, when set, takes precedence. Takes effect at the next solve.
+    static const std::string & getSolverBackend();
+    static const std::string & defaultSolverBackend();
+    static void removeSolverBackend();
+    static void setSolverBackend(const std::string &v);
+    static const char *docSolverBackend();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter LogSolverDebug
     ///
     /// Writes the dragging steps of the solver to the files

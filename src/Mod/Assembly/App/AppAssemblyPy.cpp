@@ -25,6 +25,8 @@
 #include <Base/Interpreter.h>
 #include <Base/Tools.h>
 
+#include "Solver/Registry.h"
+
 
 namespace Assembly
 {
@@ -34,7 +36,27 @@ public:
     Module()
         : Py::ExtensionModule<Module>("AssemblyApp")
     {
+        add_varargs_method(
+            "getAvailableSolvers",
+            &Module::getAvailableSolvers,
+            "getAvailableSolvers() -> list of str\n\n"
+            "The names of the registered solver backends, in registration order: the\n"
+            "values the SolverBackend property and preference take."
+        );
         initialize("This module is the Assembly module.");  // register with Python
+    }
+
+private:
+    Py::Object getAvailableSolvers(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), "")) {
+            throw Py::Exception();
+        }
+        Py::List names;
+        for (const auto& name : Solver::Registry::instance().names()) {
+            names.append(Py::String(name));
+        }
+        return names;
     }
 };
 

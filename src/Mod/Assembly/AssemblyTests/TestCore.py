@@ -417,6 +417,59 @@ class TestCore(AssemblyTestBase):
         )
 
 
+class TestSolverBackend(AssemblyTestBase):
+    """Which solver backend an assembly is solved with (docs/AssemblySolverInterface.md sec 4.8)."""
+
+    def make_pair(self):
+        box = self.assembly.newObject("Part::Box", "Box")
+        box.Placement = App.Placement(App.Vector(10, 20, 30), App.Rotation(15, 25, 35))
+        box2 = self.assembly.newObject("Part::Box", "Box")
+        ground = self.jointgroup.newObject("App::FeaturePython", "GroundedJoint")
+        JointObject.GroundedJoint(ground, box2)
+        joint = self.jointgroup.newObject("App::FeaturePython", "testJoint")
+        JointObject.Joint(joint, 0)
+        joint.Proxy.setJointConnectors(joint, [[box2, ["Face6", "Vertex7"]], [box, ["Face6", "Vertex7"]]])
+        return box, box2
+
+    def test_available_solvers(self):
+        import AssemblyApp
+
+        names = AssemblyApp.getAvailableSolvers()
+        self.assertIsInstance(names, list)
+        self.assertIn("Ondsel", names)
+
+    def test_property_empty_by_default(self):
+        self.assertIn("SolverBackend", self.assembly.PropertiesList)
+        self.assertEqual(self.assembly.SolverBackend, "")
+
+    def test_unknown_backend_falls_back(self):
+        """A name nobody registered solves with the default backend, as an empty one does."""
+        box, box2 = self.make_pair()
+        start = App.Placement(App.Vector(1, 2, 3), App.Rotation())
+        results = []
+        for name in ("", "NoSuchSolver"):
+            self.assembly.SolverBackend = name
+            box.Placement = start
+            self.assertEqual(self.assembly.solve(), 0)
+            results.append((App.Placement(box.Placement), self.assembly.getSolveStatus()))
+        self.assertTrue(results[0][0].isSame(results[1][0], 1e-12))
+        self.assertEqual(results[0][1], results[1][1])
+        self.assertEqual(results[1][1]["SolverStatus"], 0)
+
+    def test_property_is_saved(self):
+        self.make_pair()
+        self.assembly.SolverBackend = "Ondsel"
+        path = os.path.join(tempfile.mkdtemp(prefix="fc_solver_backend_"), "backend.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        try:
+            self.assertEqual(self.doc.getObject("Assembly").SolverBackend, "Ondsel")
+        finally:
+            os.remove(path)
+            os.rmdir(os.path.dirname(path))
+
+
 class TestSubNames(AssemblyTestBase):
     """Subname parsing, which has to cope with this fork's mapped element names.
 

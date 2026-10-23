@@ -23,7 +23,7 @@
 
 import TestApp
 
-from AssemblyTests.TestCore import TestCore, TestSubNames
+from AssemblyTests.TestCore import TestCore, TestSolverBackend, TestSubNames
 from AssemblyTests.TestCommandInsertLink import TestCommandInsertLink
 from AssemblyTests.TestCommandCreateView import TestCommandCreateView
 from AssemblyTests.TestSimulationExport import TestSimulationExport
@@ -48,6 +48,7 @@ from AssemblyTests.TestGuiCommands import TestGuiCommands
 
 # Use the modules so that code checkers don't complain (flake8)
 True if TestCore else False
+True if TestSolverBackend else False
 True if TestSubNames else False
 True if TestCommandInsertLink else False
 True if TestCommandCreateView else False

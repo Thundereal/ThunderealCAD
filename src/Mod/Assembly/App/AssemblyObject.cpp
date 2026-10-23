@@ -25,6 +25,7 @@
 #include <boost/core/ignore_unused.hpp>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <numbers>
 #include <algorithm>
 #include <vector>
@@ -262,6 +263,15 @@ AssemblyObject::AssemblyObject()
     , lastHasMalformedConstraints(false)
     , lastSolverStatus(0)
 {
+    ADD_PROPERTY_TYPE(
+        SolverBackend,
+        (""),
+        "Solver",
+        App::Prop_None,
+        "The solver backend this assembly is solved with, by name\n"
+        "(AssemblyApp.getAvailableSolvers()). Empty: the one the preferences name."
+    );
+
     // The workbench's Python decides "is this container a real assembly?" by
     // testing Type == "Assembly" (six sites in JointObject.py). Upstream stamps
     // it from CommandCreateAssembly.py, so an assembly created any other way --
@@ -297,6 +307,24 @@ App::DocumentObjectExecReturn* AssemblyObject::execute()
         solve(false);
     }
     return ret;
+}
+
+void AssemblyObject::handleChangedPropertyType(
+    Base::XMLReader& reader,
+    const char* TypeName,
+    App::Property* prop
+)
+{
+    // A file that stored the backend as an enumeration of the registered names
+    // (sec 4.8 of docs/AssemblySolverInterface.md proposed one) keeps its choice.
+    if (prop == &SolverBackend
+        && std::strcmp(TypeName, App::PropertyEnumeration::getClassTypeId().getName()) == 0) {
+        App::PropertyEnumeration value;
+        value.Restore(reader);
+        SolverBackend.setValue(value.isValid() ? value.getValueAsString() : "");
+        return;
+    }
+    App::Part::handleChangedPropertyType(reader, TypeName, prop);
 }
 
 void AssemblyObject::onChanged(const App::Property* prop)

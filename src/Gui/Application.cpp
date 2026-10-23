@@ -743,6 +743,13 @@ Application::Application(bool GUIenabled)
 
         registerUserInputEnumInPython(module);
         Gui::Dialog::registerTaskPlacementInPython(module);
+        // Upstream's: the keys of a Python view provider's getOverlayIcons()
+        Base::PyRegisterEnum<Gui::BitmapFactoryInst::Position>(module, "IconPosition", {
+            {"TopLeft",     Gui::BitmapFactoryInst::TopLeft},
+            {"TopRight",    Gui::BitmapFactoryInst::TopRight},
+            {"BottomLeft",  Gui::BitmapFactoryInst::BottomLeft},
+            {"BottomRight", Gui::BitmapFactoryInst::BottomRight}
+        });
 
         CommandActionPy::init_type();
         Base::Interpreter().addType(CommandActionPy::type_object(),

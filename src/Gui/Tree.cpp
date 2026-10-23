@@ -46,6 +46,7 @@
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <Base/Console.h>
+#include <Base/Interpreter.h>
 #include <Base/Sequencer.h>
 #include <Base/Tools.h>
 #include <Base/Reader.h>
@@ -62,6 +63,7 @@
 #include <optional>
 #include <App/GeoFeatureGroupExtension.h>
 #include <App/Link.h>
+#include <App/PropertyPythonObject.h>
 
 #include "Tree.h"
 #include "CommandT.h"
@@ -8049,6 +8051,63 @@ void DocumentObjectItem::testItemStatus(bool resetStatus)
     this->setIcon(0, icon);
 }
 
+// The overlays a Python view provider asks for with getOverlayIcons(), upstream's
+// hook (ViewProviderFeaturePythonImp::getOverlayIcons): a dict of
+// Gui.IconPosition -> icon name. Upstream merges them into the tree icon only
+// (mergeColorfulOverlayIcons), and so does this. Done here rather than as a
+// ViewProviderFeaturePython member, which would rebuild every module.
+static void mergeProxyOverlayIcons(const ViewProviderDocumentObject *vp,
+                                   QPixmap &pxOn, QPixmap &pxOff, bool hasPxOff)
+{
+    auto prop = Base::freecad_dynamic_cast<App::PropertyPythonObject>(
+            vp->getPropertyByName("Proxy"));
+    if (!prop)
+        return;
+
+    std::vector<std::pair<BitmapFactoryInst::Position, std::string>> overlays;
+    {
+        Base::PyGILStateLocker lock;
+        try {
+            Py::Object proxy = prop->getValue();
+            if (proxy.isNone() || !proxy.hasAttr("getOverlayIcons"))
+                return;
+            Py::Callable method(proxy.getAttr("getOverlayIcons"));
+            Py::Object ret(method.apply(Py::Tuple()));
+            if (!PyDict_Check(ret.ptr()))
+                return;
+            PyObject *key, *value;
+            Py_ssize_t pos = 0;
+            while (PyDict_Next(ret.ptr(), &pos, &key, &value)) {
+                if (!PyLong_Check(key) || !PyUnicode_Check(value))
+                    continue;
+                long position = PyLong_AsLong(key);
+                if (position < BitmapFactoryInst::TopLeft
+                        || position > BitmapFactoryInst::BottomRight)
+                    continue;
+                std::string name = Py::String(value).as_std_string("utf-8");
+                if (!name.empty())
+                    overlays.emplace_back(
+                            static_cast<BitmapFactoryInst::Position>(position), name);
+            }
+        }
+        catch (Py::Exception &) {
+            Base::PyException e;
+            e.reportException();
+            return;
+        }
+    }
+
+    for (const auto &[position, name] : overlays) {
+        // The tree's own status overlays are 32 on a 64 icon
+        QPixmap px = BitmapFactory().pixmapFromSvg(name.c_str(), QSizeF(32, 32));
+        if (px.isNull())
+            continue;
+        if (hasPxOff)
+            pxOff = BitmapFactory().merge(pxOff, px, position);
+        pxOn = BitmapFactory().merge(pxOn, px, position);
+    }
+}
+
 static QPixmap mergePixmaps(const std::vector<std::pair<QByteArray, QPixmap> > &icons,
                             std::vector<std::pair<QByteArray, int> > *iconInfo)
 {
@@ -8141,6 +8200,8 @@ QIcon TreeWidget::Private::getItemIcon(int currentStatus,
             pxOff = BitmapFactory().merge(pxOff, pimpl->pxExternal, BitmapFactoryInst::BottomRight);
         pxOn = BitmapFactory().merge(pxOn, pimpl->pxExternal, BitmapFactoryInst::BottomRight);
     }
+
+    mergeProxyOverlayIcons(vp, pxOn, pxOff, hasPxOff);
 
     if (currentStatus & (ItemStatusInvisible | ItemStatusVisible)) {
         std::vector<std::pair<QByteArray, QPixmap> > icons;

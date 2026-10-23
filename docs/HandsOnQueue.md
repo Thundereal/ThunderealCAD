@@ -178,6 +178,11 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-23 18:17: entry 227 -- per-view undo: none for document changes (one undo
+stack per document, every view shows it); the reporter's decision
+awaited; entry 228 -- a concise description for each PD edit undo step;
+ASSIGNED to fcad-dc after 226.** Under the entries.
+
 **2026-10-23 18:08: 225 go ahead (the two hide options default false), ASSIGNED to
 fcad-dc after 224; entry 226 -- a fillet edge joining an existing group
 recolours that group (autoGroupColor's hues follow the place among the
@@ -4395,6 +4400,8 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 224 | 2026-10-23 | a change request: the TechDraw PAGE view gets the SAME AUTO SCROLL BARS as the spreadsheet (222's Gui::OverlayScrollBars: out of the overlaid docks' way, thin, shown while scrolling or with the pointer near, faded after) -- "it looks nice" | OPEN; said to the note-taker 2026-10-23 17:30; ASSIGNED to fcad-dc (222 was its), after 223; the default of 221's HideScrollBars option asked of the reporter. 2026-10-23 17:33 the reporter (to the note-taker, the tool's choice): "Keep, default off (Recommended)" -- 221's HideScrollBars option KEPT, its default turned OFF: the page shows the new auto bars by default, the option ticked hides them; passed on to fcad-dc |
 | 225 | 2026-10-23 | a question and a possible change request: a GENERAL way to REPLACE the SCROLL BARS of ALL OTHER WIDGETS in OVERLAY TRANSPARENT mode (with 222's auto bars) | OPEN; asked of the note-taker 2026-10-23 17:34; ANSWERED by the note-taker from a read: possible -- OverlayTabWidget::_setOverlayMode (OverlayWidgets.cpp 1158) already visits every widget of a dock as it is overlaid and un-overlaid, and today only hides the property view's and the tree's vertical bar by two options; the hook there could give each QAbstractScrollArea in an overlaid dock a Gui::OverlayScrollBars (B: thin, laid over, faded) and take it away when the dock leaves overlay mode; the reporter's word awaited; NOT assigned. 2026-10-23 17:37 the reporter: "225, go ahead. two hide scroll bar options stay the same, but default false" -- BUILD it; the two options (TreeParams HideScrollBar, default TRUE now -> FALSE; OverlayParams DockOverlayHidePropertyViewScrollBar, already false -- read by the note-taker) keep what they do, both default false; ASSIGNED to fcad-dc, after 224 |
 | 226 | 2026-10-23 | a defect: a fillet edge's GROUP set to an EXISTING group's -- the reporter expects the changing group to TAKE the existing group's COLOUR, but it is the OTHER WAY ROUND (the existing group takes the old colour) | OPEN; said to the note-taker 2026-10-23 18:08; READ by the note-taker: TaskDressUpParameters::autoGroupColor (1193) colours the groups that exist, IN ID ORDER, each by Base::spreadHues -- so when a group empties (its last edge joins another), every later group's hue SHIFTS one place: an edge alone in group 1 joining group 3 leaves group 3 first in order, with group 1's old hue; a regression of 209 (c) (`f9682c8e9d`); ASSIGNED to fcad-dc (its code), after 223, before 224 |
+| 227 | 2026-10-23 | a question and a defect: does the current implementation have PER-VIEW UNDO/REDO? the problem: with a TechDraw PAGE as the active view, a double click on a FILLET for edit -> an undo step of the fillet edit shows in the TechDraw page view | OPEN; said to the note-taker 2026-10-23 18:17; ANSWERED by the note-taker from a read: NO per-view undo of document changes -- every view of a document shows and acts on the ONE document undo stack (MDIView::onMsg/onHasMsg/undoActions, MDIViewPage the same); per-view stacks are designed for VIEW state only (docs/MultiViewEdit.md sec 5, not built: no undo-view command found); per-AUTHOR stacks are built over the transaction log (docs/ThinClient.md 8.12 G, TransactionLog.md 30.9/30.10), but one desktop user is one author; the reporter's decision awaited on what a view's undo should offer; NOT assigned |
+| 228 | 2026-10-23 | a change request: each UNDO STEP of a PartDesign editing task gets a CONCISE DESCRIPTION of what it did; today a fillet edit's steps show only the object name and the edge name | OPEN; said to the note-taker 2026-10-23 18:17; READ by the note-taker: TaskFeatureParameters::setupTransaction() names every fine-undo step "Edit <object name>" (TaskFeatureParameters.cpp 438-439); ASSIGNED to fcad-dc (PD task panels), after 226 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -30365,6 +30372,66 @@ ASSIGNED to fcad-dc (209 (c) was its), after 223 and before 224. A
 test: groups 1, 2, 3 with their colours read; the edge of group 1 joins
 3; groups 2 and 3 keep their colours, the edge shows group 3's.
 
+## 227. Per-view undo: a fillet's edit step shows in a TechDraw page view's undo (a question and a defect) -- OPEN
+
+**2026-10-23 18:17, the reporter (to the note-taker):** "new defect. check if current
+implementation has per view undo/redo. there is a problem, for example,
+when I am on a techdraw page as active view, and then double click a
+fillet for edit. I see an undo step of fillet edit in techdraw page
+view. also, add some concise descript for each edit steps in partdesign
+editing task. right now I only see the object name and edge name for any
+operation in fillet edit" (the second half is entry 228)
+The note-taker's reading: the reporter expects undo/redo per view -- a
+view's Undo to offer the steps made in it -- and sees a fillet's edit
+step (made in a 3D view's edit) offered in the TechDraw page view.
+The note-taker's ANSWER, from a read (working tree):
+- NO per-view undo of document changes. Every view of a document shows
+  and acts on the one document undo stack: MDIView::onMsg("Undo") calls
+  Gui::Document::undo, onHasMsg asks App::Document::getAvailableUndos,
+  undoActions lists Gui::Document::getUndoVector (src/Gui/MDIView.cpp
+  336-377, 562-575); MDIViewPage does the same (MDIViewPage.cpp
+  223-271). So a fillet edit's steps -- document transactions -- show in
+  every view of the document, the page included. As built, that is the
+  design, not a slip.
+- Per-view stacks are DESIGNED for view state only (docs/MultiViewEdit.md
+  sec 5: camera, draw style, visibility per view, "the document's undo
+  never touches view state, and a view's undo never touches the
+  document"); no undo-view command found in src/Gui, so not built.
+- Per-AUTHOR stacks ARE built over the transaction log
+  (docs/ThinClient.md 8.12 G; docs/TransactionLog.md 30.9 authors, 30.10
+  each author's own stack, selective undo 24.4) -- for clients; one
+  desktop user in several views is one author.
+- With per-view EDIT sessions (MultiViewEdit sec 6, entries 157/159) a
+  view could tag the transactions made while it owns an edit, as an
+  author tags its own, and its Undo offer only those -- the selective
+  undo that exists would carry it; steps made outside any view's edit
+  (the tree, the property view, a command) would stay document-wide.
+The reporter's decision awaited: what a view's undo should offer --
+(1) only the steps made in that view (and document-wide ones), (2) the
+document's whole stack as now, with the step's view named, or (3) only
+while an edit is open: the edit's steps in its own view, the rest as
+now. NOT assigned until then.
+
+## 228. Each undo step of a PartDesign editing task with a concise description (a change request) -- OPEN
+
+**2026-10-23 18:17, the reporter (to the note-taker):** "... also, add some concise
+descript for each edit steps in partdesign editing task. right now I
+only see the object name and edge name for any operation in fillet edit"
+The note-taker's reading: with fine undo (entry 136; the chamfer since
+215) each change in a PD panel is its own undo step, but the Undo/Redo
+lists name every one of them alike; each should say in a few words what
+it did -- e.g. "Fillet004: radius 2 mm", "Fillet004: Edge12 to group 1",
+"Fillet004: add Edge7", "Fillet004: Edge3 mode", "Chamfer: size 1 mm".
+READ by the note-taker: TaskFeatureParameters::setupTransaction()
+(TaskFeatureParameters.cpp 425-) names every fine-undo step
+"Edit <object name>" (438-439); where the edge name comes from in what
+the reporter sees is the assignee's to find. NOT said: which panels
+(read as: every PD editing task with fine undo -- fillet, chamfer, and
+any panel that gains it); translated text (read as: translatable, as
+other step names are); the length (read as: short, the object's label
+first).
+ASSIGNED to fcad-dc (PD task panels), after 226.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -30376,5 +30443,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 226
+the build session, 131 and 132 found by it; entries 134 to 228
 are of 2026-10-15, 134 said to the build session)

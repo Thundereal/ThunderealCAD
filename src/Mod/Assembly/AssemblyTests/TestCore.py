@@ -488,6 +488,75 @@ class TestSolverBackend(AssemblyTestBase):
         self.assertEqual(statuses["Ondsel"], statuses["Reference"])
         self.assertEqual(statuses["Reference"]["DoF"], 1)
 
+    def test_chrono_backend(self):
+        """The Chrono backend, when built, chosen by the property or the preference (sec 6.15).
+
+        A revolute solves as OndselSolver does (statuses equal, the joint
+        satisfied by the neutral checker); an Angle of 30 degrees, which
+        Chrono has no link for, is refused: the solve returns -1 and moves
+        nothing.
+        """
+        import AssemblyApp
+
+        if "Chrono" not in AssemblyApp.getAvailableSolvers():
+            self.skipTest("built without BUILD_ASSEMBLY_CHRONO")
+        box = self.assembly.newObject("Part::Box", "Box")
+        box2 = self.assembly.newObject("Part::Box", "Box")
+        self.doc.recompute()  # the shapes the references name
+        ground = self.jointgroup.newObject("App::FeaturePython", "GroundedJoint")
+        JointObject.GroundedJoint(ground, box2)
+        joint = self.jointgroup.newObject("App::FeaturePython", "testJoint")
+        JointObject.Joint(joint, 1)  # Revolute
+        joint.Proxy.setJointConnectors(joint, [[box2, ["Face6", "Vertex7"]], [box, ["Face6", "Vertex7"]]])
+        start = App.Placement(App.Vector(1, 2, 3), App.Rotation(10, 20, 30))
+        statuses = {}
+        for name in ("Ondsel", "Chrono"):
+            self.assembly.SolverBackend = name
+            box.Placement = start
+            self.assertEqual(self.assembly.solve(), 0, name)
+            residuals = self.assembly.getSolverResiduals()
+            self.assertEqual(sorted(residuals), [joint.Name], name)
+            self.assertLess(residuals[joint.Name], 1e-9, name)
+            self.assertFalse(box.Placement.isSame(start, 1e-3), name)
+            statuses[name] = self.assembly.getSolveStatus()
+        self.assertEqual(statuses["Ondsel"], statuses["Chrono"])
+        self.assertEqual(statuses["Chrono"]["DoF"], 1)
+
+        # The preference, when the property is empty: the export is then
+        # Chrono's own JSON archive of its system.
+        params = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Assembly")
+        saved = params.GetString("SolverBackend", "")
+        tmp = tempfile.mkdtemp(prefix="fc_solver_chrono_")
+        path = os.path.join(tmp, "chrono.json")
+        try:
+            params.SetString("SolverBackend", "Chrono")
+            self.assembly.SolverBackend = ""
+            box.Placement = start
+            self.assertEqual(self.assembly.solve(), 0)
+            self.assembly.exportAsASMT(path)
+            with open(path) as f:
+                text = f.read()
+            self.assertTrue(text.lstrip().startswith("{"), text[:80])
+            self.assertIn("ChLinkMateRevolute", text)
+        finally:
+            if saved:
+                params.SetString("SolverBackend", saved)
+            else:
+                params.RemString("SolverBackend")
+            if os.path.exists(path):
+                os.remove(path)
+            os.rmdir(tmp)
+
+        # A kind Chrono refuses.
+        self.assembly.SolverBackend = "Chrono"
+        joint.JointType = "Angle"
+        joint.Angle = 30.0
+        box.Placement = start
+        self.assertEqual(self.assembly.solve(), -1)
+        self.assertTrue(box.Placement.isSame(start, 0.0))
+        self.assembly.SolverBackend = "Ondsel"
+        self.assertEqual(self.assembly.solve(), 0)
+
     def test_property_is_saved(self):
         self.make_pair()
         self.assembly.SolverBackend = "Ondsel"

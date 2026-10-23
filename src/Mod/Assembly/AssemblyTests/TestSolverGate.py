@@ -58,8 +58,13 @@ Reference's metric, than OndselSolver's; drag steps that OndselSolver took,
 taken, each leaving every joint satisfied; simulation frames within 1e-7
 (BACKEND_SIMULATION has the cases where OndselSolver's recorded frames are
 wrong; there the frames are checked against OndselSolver run again with an
-output step ten times finer). The OndselSolver runs and their records are not
-touched by any of this. BACKEND_DEVIATION collects the numbers.
+output step ten times finer). A backend may refuse a case it cannot express
+(sec 6.15: Chrono has no link for some joint kinds); BACKEND_REFUSED lists
+each such case with the reason, and the gate asserts the refusal as recorded:
+the solve fails and moves nothing, a drag takes no step, a simulation fails,
+while OndselSolver's record solved it. The OndselSolver runs and their
+records are not touched by any of this. BACKEND_DEVIATION collects the
+numbers.
 
 To re-record after a change that is meant to alter the solver input or its
 results: run with ASM_SOLVER_GATE_RECORD=1; the file in the source tree is
@@ -107,6 +112,11 @@ BACKEND_DIFFERENCES = {}
 # with a tenth of the output step instead (check_simulation_finer).
 BACKEND_SIMULATION = {}
 
+# Cases a backend refuses because it cannot express a joint of them:
+# {(backend, key): diagnosis}. Asserted as recorded (gate_backend), so that a
+# backend that learns the joint fails here and the entry gets looked at.
+BACKEND_REFUSED = {}
+
 _FLIP = (
     "OndselSolver's angular motion holds only the sine of the angle (ZRotation: "
     "the direction cosine of I's y and J's x), which is zero half a turn away "
@@ -152,6 +162,103 @@ BACKEND_DIFFERENCES.update(
             "neutral checker), and reports it conflicting; the Reference satisfies the "
             "LineLineDistance and counts DoF 45, as both count for the other "
             "LineLineDistance role mappings (LineCone, ConeCone, ConeTorus)",
+        ),
+    }
+)
+
+
+BACKEND_DIFFERENCES.update(
+    {
+        ("Chrono", "TestSolverGateDistance.test_distance_subtypes[PointPoint d=0]"): (
+            {"ret": 0},
+            "the builder makes a Spherical joint of it; OndselSolver does not converge "
+            "from this start (the box 50 mm from the point) and leaves the box where it "
+            "was, Chrono's ChLinkMateSpherical puts the vertices together",
+        ),
+        ("Chrono", "TestSolverGateRigid.test_drag_bundles_fixed"): (
+            {"DoF": 1, "Conflicting": [], "Redundant": [], "PartiallyRedundant": []},
+            "as the Reference: C starts 50 mm from where the Fixed joint puts it; "
+            "OndselSolver sets equations of the Fixed and the Revolute aside on the way "
+            "and leaves both unsatisfied and conflicting; Chrono's Newton iteration "
+            "satisfies both (ChLinkMateFix, ChLinkMateRevolute) and its Jacobian's rank "
+            "gives DoF 1, nothing redundant",
+        ),
+    }
+)
+
+# The Chrono backend (sec 6.15) has no link for some joint kinds; a model with
+# one is refused as a whole (Chrono::refusal() gives each reason).
+_CHRONO_PLD = (
+    "the builder maps it to a PointLineDistance, and Chrono has no link for the "
+    "distance of a point from a line"
+)
+_CHRONO_LLD = (
+    "the builder maps it to a LineLineDistance, and Chrono has no link that holds "
+    "two lines parallel at a distance"
+)
+BACKEND_REFUSED.update(
+    {("Chrono", "TestSolverGateDistance.test_distance_subtypes[%s]" % k): why
+     for k, why in (
+         ("LineLine", _CHRONO_LLD),
+         ("LineCircle", _CHRONO_LLD),
+         ("CircleCircle", _CHRONO_LLD),
+         ("CylinderCylinder", _CHRONO_LLD),
+         ("CylinderTorus", _CHRONO_LLD),
+         ("CylinderSphere", _CHRONO_PLD),
+         ("TorusSphere", _CHRONO_PLD),
+         ("PointCylinder", _CHRONO_PLD),
+         ("PointLine", _CHRONO_PLD),
+     )}
+)  # fmt: skip
+BACKEND_REFUSED.update(
+    {("Chrono", "TestSolverGateDistanceMapped.test_distance_subtypes[%s]" % k): why
+     for k, why in (
+         ("LineCylinder", _CHRONO_LLD),
+         ("LineSphere", _CHRONO_PLD),
+         ("PointTorus", _CHRONO_PLD),
+     )}
+)  # fmt: skip
+BACKEND_REFUSED.update(
+    {("Chrono", "TestSolverGateRoleMappings.test_distance_subtypes[%s]" % k): why
+     for k, why in (
+         ("CylinderCone", _CHRONO_LLD),
+         ("ConeCone", _CHRONO_LLD),
+         ("ConeTorus", _CHRONO_LLD),
+         ("LineCone", _CHRONO_LLD),
+         ("LineTorus", _CHRONO_LLD),
+         ("CurveCylinder", _CHRONO_LLD),
+         ("CurveCone", _CHRONO_LLD),
+         ("CurveTorus", _CHRONO_LLD),
+         ("CylinderCylinder B-spline", _CHRONO_LLD),
+         ("LineCircle B-spline", _CHRONO_LLD),
+         ("ConeSphere", _CHRONO_PLD),
+         ("PointCone", _CHRONO_PLD),
+         ("PointTorus", _CHRONO_PLD),
+         ("CurveSphere", _CHRONO_PLD),
+     )}
+)  # fmt: skip
+BACKEND_REFUSED.update(
+    {
+        ("Chrono", "TestSolverGateJoints.test_lower_pairs_and_orientation[Angle{'Angle': 30.0}]"): (
+            "an AngleZ of 30 degrees: Chrono has no link for an angle between two axes "
+            "other than a right angle (ChLinkMateOrthogonal) or none (ChLinkMateParallel)"
+        ),
+        ("Chrono", "TestSolverGateJoints.test_gears_and_belt[Belt]"): (
+            "a belt: ChLinkLockPulley couples its pulleys at velocity level only (its "
+            "phase correction is unfinished in Chrono 10), and ChLinkLockGear's "
+            "epicyclic form divides by zero for equal radii"
+        ),
+        ("Chrono", "TestSolverGateJoints.test_coaxial_gear_with_carrier"): (
+            "a CoaxialGear: ChLinkLockGear measures each gear's turn from the line "
+            "between the two shafts and has no carrier frame"
+        ),
+        ("Chrono", "TestSolverGateJoints.test_rack_pinion"): (
+            "ChLinkMateRackPinion recomputes its contact frames at every update and "
+            "holds the rack against the pinion at velocity level only"
+        ),
+        ("Chrono", "TestSolverGateJoints.test_screw"): (
+            "ChLinkLockScrew is a whole screw pair (five equations, the axes held "
+            "together too); the neutral Screw is the coupling alone"
         ),
     }
 )
@@ -614,6 +721,12 @@ class SolverGateBase(JointTestBase):
         stats = BACKEND_DEVIATION.setdefault((self.BACKEND, key), {})
         stats["residual"] = self.backend_residual
 
+        refused = BACKEND_REFUSED.get((self.BACKEND, key))
+        if refused:
+            self.check_refused(where, refused, expected, actual)
+            stats["refused"] = refused
+            return
+
         # Statuses: equal, or the recorded disagreement.
         exp_solve, act_solve = expected["solve"], actual["solve"]
         got = dict(act_solve["status"], ret=act_solve["ret"])
@@ -684,6 +797,24 @@ class SolverGateBase(JointTestBase):
                 stats["finer"] = self.check_simulation_finer(where, sim, frame_order, act_frames)
             else:
                 self.assertLessEqual(dev, 1e-7, "%s: simulation frames" % where)
+
+    def check_refused(self, where, refused, expected, actual):
+        """A case the backend refuses (BACKEND_REFUSED): nothing solved, nothing moved.
+
+        OndselSolver's record solved it, so it is a disagreement; the
+        backend's solve returns -1 and leaves every object where it was, a
+        drag takes none of its steps, a simulation fails.
+        """
+        self.assertEqual(expected["solve"]["ret"], 0, "%s: OndselSolver's record" % where)
+        self.assertEqual(
+            actual["solve"]["ret"], -1, "%s: solved, though refused (%s)" % (where, refused)
+        )
+        self.assertEqual(actual["solve"]["placements"], self.backend_start, where)
+        if "drag" in actual:
+            steps = [s["ok"] for s in actual["drag"]["steps"]]
+            self.assertEqual(steps, [False] * (len(steps) - 1) + ["post"], where)
+        if "simulation" in actual:
+            self.assertNotEqual(actual["simulation"]["ret"], 0, where)
 
     def check_simulation_finer(self, where, sim, frame_order, frames):
         """The frames against OndselSolver's with an output step ten times finer.
@@ -1169,10 +1300,23 @@ class TestSolverGateOrder(SolverGateBase):
             else:
                 self.raw_distance_joint(r1, r2, d, offset1=offset)
             result, text = self.run_all()
+            if self.BACKEND != "Ondsel" and self.refused_subtype(name):
+                # Refused in both orders (BACKEND_REFUSED has the reason).
+                self.assertEqual(result["solve"]["ret"], -1, name)
+                continue
             self.assertEqual(result["solve"]["ret"], 0, name)
             results.append((json.loads(json.dumps(result)), text))
+        if not results:
+            return
         (first, _), (second, text) = results
         self.check(first, second, "%s, other order" % name, text)
+
+    def refused_subtype(self, name):
+        """Whether this class's backend refuses the Distance sub-type 'name' (BACKEND_REFUSED)."""
+        suffix = "[%s]" % name
+        return any(
+            backend == self.BACKEND and key.endswith(suffix) for backend, key in BACKEND_REFUSED
+        )
 
     # (sub-type, the side it wants first, the other); the builder swaps when
     # the other comes first.

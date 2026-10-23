@@ -237,7 +237,18 @@ void DrawProjGroup::reportReady()
     }
     //all the secondary views are ready so we can now figure out alignment
     if (AutoDistribute.getValue()) {
-        recomputeFeature();
+        // Enforced: the group's own properties are not touched -- its
+        // execute() ran while the items were still projecting and left
+        // them where they were -- and a recompute that is asked of an
+        // untouched object here runs nothing (DocumentParams'
+        // OptimizeRecompute, which upstream has not). The views stayed
+        // where they were, on a new group and after an X/Y spacing change
+        // alike, until Auto Distribution was toggled (docs/HandsOnQueue.md
+        // entry 216). The recompute of one object leaves the touch it ran
+        // on, which a document's recompute purges: done, so is the touch.
+        enforceRecompute();
+        if (recomputeFeature())
+            purgeTouched();
     }
 }
 

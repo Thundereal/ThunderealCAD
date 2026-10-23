@@ -220,6 +220,12 @@ fc_add_gui_test(GuiDressUpHandleSelectsEdge_tests_run dressup-handle-selects-edg
 fc_add_gui_test(GuiOverlayPanelGroupBoxSeeThrough_tests_run overlay-panel-groupbox-see-through.py
                 --timeout 200)
 
+# Entry 216: a projection group with Auto Distribution lays its views out,
+# and follows its X/Y spacing, without a toggle (its views project in
+# threads: the GUI's event loop).
+fc_add_gui_test(GuiTechDrawProjGroupAutoDistribute_tests_run techdraw-projgroup-auto-distribute.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

@@ -1453,7 +1453,9 @@ def createPart(partName, doc):
 
     # add a circle as a base shape for visualisation
     sketch.addGeometry(Part.Circle(App.Vector(0, 0), App.Vector(0, 0, 1), 5), False)
-    doc.recompute()
+    # The new part only: a whole-document recompute would also run the
+    # caller's half-made objects, such as Insert New Part's still empty Link
+    part.recompute(True)
 
     return part, body
 

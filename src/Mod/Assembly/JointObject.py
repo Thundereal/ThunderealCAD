@@ -770,6 +770,11 @@ class Joint:
         if App.isRestoring():
             return
 
+        # Removing the joint clears its links, and its view provider is gone
+        # by then: there is nothing to recompute or redraw
+        if joint.Removing or not joint.isAttachedToDocument():
+            return
+
         if prop == "JointType":
             newType = joint.JointType
             tr_new_type = TranslatedJointTypes[JointTypes.index(newType)]
@@ -1294,8 +1299,8 @@ class RigidGroupJoint:
             "RigidGroup",
             QT_TRANSLATE_NOOP("App::Property", "List of references to compnents to group together"),
         )
-        joint.ObjectsToRigidGroup = objects_to_rigid_group
 
+        # Before the members are set: onChanged() of ObjectsToRigidGroup writes it
         joint.addProperty(
             "App::PropertyPlacementList",
             "RigidPlacements",
@@ -1304,6 +1309,8 @@ class RigidGroupJoint:
         )
         joint.setPropertyStatus("RigidPlacements", "Hidden")
         joint.setPropertyStatus("RigidPlacements", "ReadOnly")
+
+        joint.ObjectsToRigidGroup = objects_to_rigid_group
 
         self._write_rigid_placements(joint, [])
         self.updateStoredPositions(joint, True)

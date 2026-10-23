@@ -28,6 +28,14 @@ from AssemblyTests.TestCommandInsertLink import TestCommandInsertLink
 from AssemblyTests.TestCommandCreateView import TestCommandCreateView
 from AssemblyTests.TestSimulationExport import TestSimulationExport
 from AssemblyTests.TestSettings import TestSettings
+from AssemblyTests.TestJoints import (
+    TestJointTypes,
+    TestDistanceJoint,
+    TestSolveStatus,
+    TestDrag,
+    TestLimits,
+    TestCoupledJoints,
+)
 
 # Use the modules so that code checkers don't complain (flake8)
 True if TestCore else False
@@ -36,3 +44,9 @@ True if TestCommandInsertLink else False
 True if TestCommandCreateView else False
 True if TestSimulationExport else False
 True if TestSettings else False
+True if TestJointTypes else False
+True if TestDistanceJoint else False
+True if TestSolveStatus else False
+True if TestDrag else False
+True if TestLimits else False
+True if TestCoupledJoints else False

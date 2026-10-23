@@ -197,6 +197,85 @@ PyObject* AssemblyObjectPy::exportAsASMT(PyObject* args) const
     Py_Return;
 }
 
+PyObject* AssemblyObjectPy::preDrag(PyObject* args) const
+{
+    PyObject* pyParts;
+    double mass = 10.0;
+    if (!PyArg_ParseTuple(args, "O|d", &pyParts, &mass)) {
+        return nullptr;
+    }
+
+    PY_TRY
+    {
+        std::vector<App::DocumentObject*> parts;
+        std::vector<std::pair<App::DocumentObject*, double>> masses;
+        Py::Sequence seq(pyParts);
+        for (Py::Sequence::iterator it = seq.begin(); it != seq.end(); ++it) {
+            PyObject* item = (*it).ptr();
+            if (!PyObject_TypeCheck(item, &App::DocumentObjectPy::Type)) {
+                throw Py::TypeError("preDrag: expected a sequence of document objects");
+            }
+            auto* obj = static_cast<App::DocumentObjectPy*>(item)->getDocumentObjectPtr();
+            parts.push_back(obj);
+            masses.emplace_back(obj, mass);
+        }
+
+        auto* assembly = getAssemblyObjectPtr();
+        assembly->setObjMasses(masses);
+        assembly->preDrag(parts);
+    }
+    PY_CATCH;
+
+    Py_Return;
+}
+
+PyObject* AssemblyObjectPy::doDragStep(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+
+    bool ok = false;
+    PY_TRY
+    {
+        ok = getAssemblyObjectPtr()->doDragStep();
+    }
+    PY_CATCH;
+
+    return Py::new_reference_to(Py::Boolean(ok));
+}
+
+PyObject* AssemblyObjectPy::postDrag(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+
+    PY_TRY
+    {
+        auto* assembly = getAssemblyObjectPtr();
+        assembly->postDrag();
+        assembly->setObjMasses({});
+    }
+    PY_CATCH;
+
+    Py_Return;
+}
+
+PyObject* AssemblyObjectPy::getDragStatus(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+
+    auto* assembly = getAssemblyObjectPtr();
+    Py::Dict ret;
+    ret.setItem("Steps", Py::Long(assembly->getDragStepCount()));
+    ret.setItem("Failures", Py::Long(assembly->getDragStepFailures()));
+    ret.setItem("LastStepFailed", Py::Boolean(assembly->getLastDragStepFailed()));
+    return Py::new_reference_to(ret);
+}
+
 PyObject* AssemblyObjectPy::getSolveStatus(PyObject* args) const
 {
     if (!PyArg_ParseTuple(args, "")) {

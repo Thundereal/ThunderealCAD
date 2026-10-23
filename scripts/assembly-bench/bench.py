@@ -65,76 +65,6 @@ def prefs():
     return App.ParamGet("User parameter:BaseApp/Preferences/Mod/Assembly")
 
 
-# ---------------------------------------------------------------- drag hack
-# preDrag/doDragStep/postDrag are exported C++ members of AssemblyObject but are
-# not bound to Python. Call them through ctypes on the twin pointer.
-_drag = None
-
-
-def drag_api():
-    global _drag
-    if _drag is not None:
-        return _drag
-    import ctypes
-
-    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    k32.GetModuleHandleW.restype = ctypes.c_void_p
-    k32.GetModuleHandleW.argtypes = [ctypes.c_wchar_p]
-    k32.GetProcAddress.restype = ctypes.c_void_p
-    k32.GetProcAddress.argtypes = [ctypes.c_void_p, ctypes.c_char_p]
-    h = k32.GetModuleHandleW("AssemblyApp.pyd")
-    if not h:
-        raise RuntimeError("AssemblyApp.pyd not loaded")
-
-    def sym(name):
-        a = k32.GetProcAddress(h, name)
-        if not a:
-            raise RuntimeError("missing export %s" % name)
-        return a
-
-    P1 = ctypes.PYFUNCTYPE(None, ctypes.c_void_p)
-    P2 = ctypes.PYFUNCTYPE(None, ctypes.c_void_p, ctypes.c_void_p)
-    PI = ctypes.PYFUNCTYPE(ctypes.c_int, ctypes.c_void_p)
-    api = dict(
-        h=h,
-        ctypes=ctypes,
-        doDragStep=P1(sym(b"?doDragStep@AssemblyObject@Assembly@@QEAAXXZ")),
-        postDrag=P1(sym(b"?postDrag@AssemblyObject@Assembly@@QEAAXXZ")),
-        preDrag=P2(
-            sym(
-                b"?preDrag@AssemblyObject@Assembly@@QEAAXV?$vector@PEAVDocumentObject@App@@"
-                b"V?$allocator@PEAVDocumentObject@App@@@std@@@std@@@Z"
-            )
-        ),
-        numberOfComponents=PI(sym(b"?numberOfComponents@AssemblyObject@Assembly@@QEBAHXZ")),
-        crt=ctypes.CDLL("ucrtbase"),
-    )
-    api["crt"].malloc.restype = ctypes.c_void_p
-    api["crt"].malloc.argtypes = [ctypes.c_size_t]
-    _drag = api
-    return api
-
-
-def twin(pyobj):
-    """C++ object behind a FreeCAD Python wrapper (PyObjectBase::_pcTwinPointer)."""
-    import ctypes
-
-    return ctypes.c_void_p.from_address(id(pyobj) + 24).value
-
-
-def call_preDrag(api, this, objs):
-    ctypes = api["ctypes"]
-    n = len(objs)
-    buf = api["crt"].malloc(8 * max(n, 1))
-    arr = (ctypes.c_void_p * max(n, 1)).from_address(buf)
-    for i, o in enumerate(objs):
-        arr[i] = twin(o)
-    vec = (ctypes.c_void_p * 3)(buf, buf + 8 * n, buf + 8 * max(n, 1))
-    # MSVC x64: a by-value std::vector goes as a pointer to a caller temporary,
-    # and the callee destroys it (frees buf with the CRT's free).
-    api["preDrag"](this, ctypes.addressof(vec))
-
-
 # ---------------------------------------------------------------- native sampler
 
 CONDA_PY = r"D:\works\sw\fcad\.conda\freecad\python.exe"
@@ -444,15 +374,8 @@ def run_size(topo, N):
 
 
 def run_drag(topo, N, doc, asm, links, joints, prof_here):
-    api = drag_api()
-    this = twin(asm)
-    ctypes = api["ctypes"]
-    vptr = ctypes.c_void_p.from_address(this).value
-    if not (api["h"] <= vptr < api["h"] + (256 << 20)):
-        raise RuntimeError("twin pointer check failed: vptr %x module %x" % (vptr, api["h"]))
-    nc = api["numberOfComponents"](this)
-    if nc != len(links):
-        raise RuntimeError("numberOfComponents %d != %d" % (nc, len(links)))
+    # preDrag / doDragStep / postDrag are bound to Python since 2026-10-23;
+    # before that this script called the exported C++ members through ctypes.
 
     # GUI drag init hides every joint but the moving one (tryInitMove).
     moving = joints[-1]
@@ -469,10 +392,11 @@ def run_drag(topo, N, doc, asm, links, joints, prof_here):
     measure(topo, N, "drag_hide_joints", hide_joints)
 
     doc.openTransaction("Move part")
-    measure(topo, N, "preDrag", lambda: call_preDrag(api, this, [part]), profile=prof_here)
+    measure(topo, N, "preDrag", lambda: asm.preDrag([part]), profile=prof_here)
     base = part.Placement
     steps = []
     redraws = []
+    failed = 0
     view = None
     try:
         view = Gui.ActiveDocument.ActiveView
@@ -489,7 +413,8 @@ def run_drag(topo, N, doc, asm, links, joints, prof_here):
         t = pc()
         if prof:
             prof.enable()
-        api["doDragStep"](this)
+        if not asm.doDragStep():
+            failed += 1
         if prof:
             prof.disable()
         steps.append(pc() - t)
@@ -515,9 +440,11 @@ def run_drag(topo, N, doc, asm, links, joints, prof_here):
         % ("doDragStep", med, min(steps), max(steps))
     )
     log("  %-28s %10.4f s  (median of 10)" % ("redraw+pump per step", statistics.median(redraws)))
+    if failed:
+        log("    %d of 10 drag steps failed or did nothing" % failed)
     rec(topo=topo, N=N, phase="doDragStep", sec=med, all=steps)
     rec(topo=topo, N=N, phase="drag_redraw_pump", sec=statistics.median(redraws), all=redraws)
-    measure(topo, N, "postDrag", lambda: api["postDrag"](this))
+    measure(topo, N, "postDrag", lambda: asm.postDrag())
     measure(topo, N, "commitTransaction", lambda: doc.commitTransaction())
 
     def show_joints():

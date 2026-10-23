@@ -175,6 +175,54 @@ class AssemblyObject(Part):
         ...
 
     @constmethod
+    def preDrag(self, parts: list[DocumentObject], mass: float = 10.0, /) -> None:
+        """
+        Start dragging parts, as the 3D view does when the mouse grabs one.
+
+        Solves the assembly with the parts joined by Fixed joints bundled
+        into one body, and keeps that solver system for the drag steps.
+
+        Args:
+            parts: the parts that will be dragged.
+            mass: the mass the dragged parts get in the drag steps (every
+                other part weighs 1), so that they lead and the rest give
+                way. The 3D view uses 10.
+        """
+        ...
+
+    @constmethod
+    def doDragStep(self) -> bool:
+        """
+        One drag step: solve for the Placement written on the dragged parts.
+
+        Set the dragged parts' Placement to where the mouse took them, then
+        call this; the other parts move to follow.
+
+        Returns: True when the step was solved and the placements written;
+        False when no drag is in progress or the step failed, in which case
+        the parts stay where the last good step put them and the drag can
+        go on (a warning says so once per drag).
+        """
+        ...
+
+    @constmethod
+    def postDrag(self) -> None:
+        """
+        End a drag: a last full solve from where the drag left the parts.
+        """
+        ...
+
+    @constmethod
+    def getDragStatus(self) -> dict:
+        """
+        The current or last drag, as preDrag() began it.
+
+        Returns: a dict with Steps (drag steps attempted), Failures (steps
+        that failed) and LastStepFailed (bool).
+        """
+        ...
+
+    @constmethod
     def getSolveStatus(self) -> dict:
         """
         The diagnosis of the last solve, as the messages panel shows it.

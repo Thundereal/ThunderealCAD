@@ -970,6 +970,7 @@ parentheses); SolveSpace per py-slvs / libslvs as used by Assembly3.
 | CoaxialGear | N (upstream) | - | L (Chrono's gear has no carrier frame) | N |
 | RackPinion | N | - | L (`ChLinkMateRackPinion` is velocity-level only) | N |
 | Screw | N | - | L (`ChLinkLockScrew` is a whole screw pair) | N |
+| PointOnCurve (sec 6.18) | N `PointOnCurveJoint`, the curve evaluated by the host | not examined | L (`ChLinkLockPointSpline` samples and differences, sec 6.18) | N |
 | limits | N (inequality, applied while dragging) | - | active set of Chrono links (PR: after-step clamp) | bounds / penalty (Reference: active set, sec 6.13) |
 | drivers | N symbolic | S | N motors with a `ChFunction` on the neutral evaluator (PR: not done) | S |
 | drag | N | initial guess only (`addWhereDragged` unreliable) | weighted target, as the Reference (PR: mouse body, unstable) | initial guess (Reference: weighted target, sec 6.13) |
@@ -2820,6 +2821,310 @@ time steppers (NSC, Euler implicit linearised) use exactly those, plus:
 
 **Not done:** switching native kinds; the neutral link's speed
 (allocations per update) was not tuned.
+
+### 6.18 As built: the Cam joint, a point on a curve (2026-10-24)
+
+The queued item (b) of `docs/AssemblyDynamics.md`: a kinematic cam, a new
+neutral `JointKind::PointOnCurve` -- a point of body J held on a curve of
+body I, two equations -- and a user-facing "Cam" joint on it, on all three
+backends. In five commits: the submodule (`11abf1281f`, OndselSolver `d7bde2c`), the
+neutral kind and its backends (`22729b3797`), the Cam joint (`ee8d033406`),
+the builder hazard (`e684880330`), the gate (`47cea11335`).
+
+**The neutral representation.** `JointKind::PointOnCurve` is appended to
+the enum (after Screw, before `Count_`). `Model::curves` holds `Curve`
+records (id, source, `std::shared_ptr<const CurveGeometry> geometry`), a
+record of their own so that the later lift-off cam (`CurveContact`) can
+reference the same curve; `Joint::curve` names the joint's, and
+`Joint::value` is the roller's signed offset (0 for a point follower). The
+curve is given in the coordinates of the joint's frame I.
+
+`CurveGeometry` (`App/Solver/Curve.h`, no OCCT) is the small neutral
+interface: `first()`, `last()`, `closed()`, `evaluate(u)` (the point and
+its first two derivatives), `planeNormal()` (zero when the curve lies in
+no single plane; a line: zero), `describe()` (one line of text), `same()`.
+The one implementation, `OcctCurve` (`App/CamJoint.cpp`), holds the edge's
+exact `Geom_Curve` -- moved into frame I's coordinates -- and evaluates it
+with its own `D2`: no sampling, no conversion. It is closed when its ends
+meet (`Precision::Confusion()`), planar when `BRepLib_FindSurface` finds a
+plane through it, and describes itself as the B-spline `GeomConvert` makes
+of it (degree, knots and multiplicities, poles and weights, 17 digits):
+that text is what the native dumps carry (the ASMT `curve`, the Reference's
+neutral text, Chrono's archive) and what `same()` compares, so a rebuilt
+model with the same cam compares equal (`sameExceptDragWeights`). Nothing
+reads the text back yet; a session in another process (sec 4.7) would
+rebuild a B-spline from it, which is exact for every curve OCCT converts
+(the conics are rational).
+
+*Parametrisation.* The curve's own over [first, last]. A closed curve
+repeats with the period last - first: its parameter is kept unwrapped --
+it counts the turns a follower makes round a cam -- and wrapped only to
+evaluate. An open curve is extended beyond its ends along its end tangents
+(a straight line, second derivative zero), so the closest point is defined
+everywhere and a follower driven past an end goes on along the tangent
+instead of jumping or stopping.
+
+*The projector* (`projectOnCurve`): the closest point by descent from a
+given parameter -- Newton on (x - C(u)).C'(u) = 0 where it is convex,
+the largest step downhill where it is not (past a centre of curvature),
+backtracked until |x - C|^2 decreases, no step longer than an eighth of the
+parameter range. It finds the closest point in the basin of the parameter
+it starts from and never jumps across the curve to a closer stretch
+(`neverJumpsAcrossTheCurve`: inside a long ellipse, a point nearer the top
+stays on the bottom when it starts there). `projectOnCurveGlobally` (128
+samples, then the descent) is used only where there is nothing to follow:
+at a joint's start, in the builder, and in the checker.
+
+**The equations.** At the closest point C(u) of the curve to x (frame J's
+origin in frame I's axes), with T the unit tangent, N1 the unit part of a
+reference direction a normal to T, N2 = T x N1, e = x - C(u):
+
+    r1 = e . N1,    r2 = e . N2 - offset.
+
+For a planar curve a is the plane normal, so N1 is the plane normal (r1 the
+height above the plane) and N2 the normal in the plane (r2 the distance
+from the curve, or from its offset). For a 3D curve a is the direction the
+curve's sampled tangents point along least (the eigenvector of the smallest
+eigenvalue of sum(t t')); a curve whose tangents come within 2.6 degrees
+of every direction (|cos| > 0.999) has no smooth frame and is refused. Both
+rows are displacements (OndselSolver's category), the natural error is the
+row itself.
+
+*The curve parameter: a projection, not an unknown.* u is a function of the
+poses, the stationary point of |x - C(u)|, and the gradient includes the
+implicit-function derivative du/dx = C' / D, D = C'.C' - e.C'':
+
+    grad r_k = N_k + ((e - offset N2) . N_k' / D) C'
+
+(N_k' the frame's derivative along the curve, from C' and C''), exact
+wherever the projection is. An internal unknown per joint was the
+alternative; it would have added a variable that is not a body to every
+backend (the Reference's and Chrono's variables are bodies, the NeutralLink
+holds rows over bodies only), a third equation (x = C(u)) and an unknown to
+the DoF count, and a new variable type to OndselSolver. The projection
+keeps every backend's variables as they were and the joint at two rows. The
+parameter is state like a coupler's turn count: `JointState::angles[0]`
+(`jointAngleSlots(PointOnCurve)` is 1), set at the start by the global
+search, followed from the last committed value at each evaluation, and
+committed where the Reference and the NeutralLink commit angles (accepted
+poses); a rejected step or a finite-difference probe leaves it where it
+was, a failed run restores it with the poses.
+
+The Hessian, which OndselSolver uses (its Lagrangian in the static solve,
+its accelerations), is the exact one where the equations hold:
+
+    H_k = (N_k' C'^T + C' N_k'^T - (O'.N_k') C' C'^T / D) / D,
+
+O' = C' + offset N2' the offset curve's derivative; off the curve it is
+off by terms of the residual.
+
+*Closed curves turning many times.* A follower round a closed cam crosses
+the seam once a turn; the unwrapped parameter goes on past `last`, so the
+projection never sees a seam. A curve that is only C1 at its seam (OCCT's
+periodic interpolation leaves a knot of multiplicity 2 there) has its
+curvature jump, and with it the gradient off the curve (e != 0): the
+equations stay continuous with a continuous gradient on the curve, which is
+all a Newton iteration needs; the gtests use a uniform periodic B-spline (C2
+at its seam) where they compare with differences.
+
+**The roller: an offset in the plane, by projection.** A roller of radius r
+has its centre held at distance r from the cam curve along the in-plane
+normal at the centre's closest point (r2 = e . N2 - offset, offset = +-r),
+i.e. on the curve's offset by r, in the curve's plane. The offset curve is
+not built (`Geom_OffsetCurve`, or `BRepOffsetAPI` on a planar wire): the
+closest point of a point to the offset curve is the one on the curve itself
+(the offset's normals are the curve's), so the same projector serves, no
+third derivative is needed (`Geom_OffsetCurve::D2` needs the basis curve's
+`D3`), and the lift-off cam's gap (`AssemblyDynamics` sec 7.4: g =
+distance - followerRadius) is the same quantity. This is the "circle
+tangent to the curve" formulation, and it is the offset curve's as long as
+the roller is smaller than the curve's radius of curvature on its side;
+where it is not (an undercut cam), the offset curve has cusps, the roller
+cannot follow either way, and the projection's D is kept positive (no
+message). The side is the one the centre starts on (the sign of e . N2 at
+the global closest point, in the builder), so the joint's offset is signed.
+A roller needs a planar curve; a 3D cam with a roller (a barrel cam) is
+refused. *Flat-faced followers are not done*: a face tangent to the curve is
+a different equation (the face's plane tangent to the curve, a contact on
+the envelope), not a point on an offset.
+
+**Backends.**
+
+- *Reference.* Through `JointEquations` (`curveRows`: x as three scalars
+  with their gradients, the rows of `pointOnCurveRows`, the gradient by the
+  chain rule through x). `System::curveOf()`, the start state from the
+  global search; a model whose PointOnCurve has no curve fails to load
+  ("a point-on-curve joint has no curve"). The checker (`jointResiduals`)
+  seeds every curve parameter by the global search at the poses it measures,
+  since it measures poses it did not follow the motion to. `exportNative`
+  writes `curve <id> "<source>" <description>` lines and the joint's curve.
+- *Chrono.* The NeutralLink, with the curve (`nativeLink()` false; the link
+  is refused at load when the curve is missing). Not `ChLinkLockPointSpline`:
+  it finds its nearest point by sampling the whole `ChLine` at every update
+  (`FindNearestLinePoint`: it can jump to a closer stretch of a cam), to
+  1e-6, takes the tangent and the curvature by finite differences (a step of
+  1e-4 of the parameter), and holds the point by moving its marker onto the
+  curve at each update, as `ChLinkLockGear` holds its phase (sec 6.15); it
+  would also need the curve converted to a `ChLineBspline`. The NeutralLink
+  evaluates the exact curve, follows the closest point and has the analytic
+  Jacobian (`neutralPointOnCurveInChronosCoordinates`: Chrono's Jacobian
+  against differences under Chrono's own increments, its rows the
+  Reference's).
+- *OndselSolver: done in our fork* (submodule `d7bde2c`). A
+  `PointOnCurveFunction` hook evaluated by the host -- the "ExternalFunction
+  for constraints" route, not an internal parameter -- in three classes:
+  `PointOnCurveConstraintIJ` (one equation G = f_row(x), x = rIeJeIe as
+  three `DispCompIeqcJeqcIe`, every first and second partial by the chain
+  rule through x, as `DistancexyConstraintIqcJqc` does it for x^2 + y^2),
+  `PointOnCurveJoint` (the two equations, one function), and
+  `ASMTPointOnCurveJoint` (`setCurve(text, function)`; the ASMT file records
+  the description under `curve`; a length unit other than 1 is scaled into
+  the host's units). The adapter (`OndselBackend.cpp`, `curveFunction`)
+  hands it the neutral rows; since OndselSolver has no accepted-pose event,
+  the function follows the closest point from one call to the next (its
+  Newton iterates and its kinematic run's steps follow each other) and
+  searches the whole curve at its first call. An ASMT file with a cam reads
+  back (`readJoints` knows the class) and refuses to run ("needs its curve
+  evaluated by the host"). OndselSolver's own test,
+  `pointOnCurveHostFunction` (a circle host function, the disk cam below at
+  10*time, steps of 0.05 and 0.2 s), holds the analytic lift to 1e-9.
+
+*DoF.* Two equations everywhere: a free body held on a curve keeps four
+freedoms in OndselSolver's count and the Reference's
+(`countsTwoEquations`, every curve of the gtests). A planar cam whose
+follower is already held in the cam's plane -- the usual mechanism, a
+follower on a slider -- has one equation dependent: all three backends
+report one joint partially redundant (OndselSolver, by its own order, the
+cam's revolute, and the Reference and Chrono, ordering as OndselSolver
+does, the same), DoF 1 (the cam's turn). That is the 3D form of a planar
+mechanism, as for two revolutes on one axis; a "curve in a plane" kind
+(one equation, the profile surface) would avoid it and is not done.
+
+**The document: footprint on upstream files.**
+
+- `App/AssemblyUtils.h`: `JointType::Cam` appended (one line).
+- `App/AssemblyObject.cpp`: `case JointType::Cam:` (PointOnCurve) in
+  `makeMbdJointOfType`, and one call after the frames are set in
+  `makeMbdJoint` (`addCamCurve`, `App/CamJoint.cpp`).
+- `JointObject.py`: "Cam" appended to `JointTypes` and
+  `TranslatedJointTypes`; `setJointType` extends a joint's own type list
+  first when it lacks the new type (a joint from an older file lists twelve);
+  `findPlacement` ignores the vertex for a Cam as for a Distance (a circle
+  edge is framed at its centre: the roller's); `ensureUnconnectedIsSecondRef`
+  does not swap a Cam's references (they have roles: Reference1 the cam,
+  Reference2 the follower); the fork-owned `refusedDistancePick` and
+  `showDistanceRefusal` hand a Cam pick to `JointCam.py`.
+- New files: `JointCam.py` (the pick check and its message),
+  `App/CamJoint.{h,cpp}` (the OCCT curve, `camJointRefusal`, `addCamCurve`),
+  `App/Solver/Curve.{h,cpp}`; `AssemblyApp.getCamRefusal(joint)` in the
+  fork-extended `AppAssemblyPy.cpp`.
+
+Old files load unchanged: the enumeration keeps every older value, and no
+property is added. The type is in the joint task's type list (no toolbar
+command, no icon of its own: the generic joint icon).
+
+*Picks.* Reference1, the cam: an edge, any curve. Reference2, the follower:
+a vertex, or a circular edge (a roller: its centre, its radius). A roller
+needs a planar cam curve. The task asks after each pick and refuses the
+pick with the reason ("A cam between these elements is not supported: the
+face Face1 of Cam is not an edge: the cam is a curve of the cam part (an
+edge). Select other elements."). A refused Cam joint already in a document
+is left out of the solve with a warning.
+
+*The builder* (`addCamCurve`): the cam edge through the reference's path
+from the moving part (`Part::Feature::getTopoShape`), into the part's frame
+(the part's global placement, as `handleOneSideOfJoint` takes a JCS there),
+the bundle's offset, then frame I's: the curve in frame I's coordinates.
+The follower point is frame J's origin (`Placement2`: the vertex, or the
+circle's centre); the roller's side from the start poses.
+
+**The builder hazard** (`AssemblyDynamics` sec 1). `getMotionsFromSimulation`
+read every child of a Simulation's Group as a motion when it had properties
+named Joint, MotionType and Formula. It now takes a child whose Python
+proxy's class is named `Motion` (CommandCreateSimulation's), skips one with
+a proxy of another class whatever its properties, and reads one without a
+proxy -- a script's (the gate's helpers make them so), or a Motion whose
+module did not load (its proxy is None) -- by its properties, as before.
+`TestSimulationMotions`: a Motion drives a revolute, a proxy-less motion a
+slider, and a `ForceElement`-proxied child carrying the three properties
+does not drive the third body. (Found on the way, not fixed:
+`CommandCreateSimulation.Motion()` creates its Joint as
+`App::PropertyXLinkSubHidden`, a type this fork does not have, so the
+simulation task's "add motion" fails in this fork; the test gives the
+proxy to a motion made with `App::PropertyXLinkSub`.)
+
+**Tests.**
+
+- gtest `PointOnCurve` (9): the curve factory (closed, planar, `same`,
+  moved into a frame); `followsAClosedCurveForManyTurns` (a circle, steps of
+  0.3 and 1.9 rad both ways for 12 turns: the parameter is the angle with
+  its turns to 1e-12; a periodic B-spline for 10 turns: the parameter grows
+  by a period a turn, the closest point the global one to 1e-10);
+  `neverJumpsAcrossTheCurve`; `openCurveExtendsAlongItsTangents`;
+  `residualAndJacobianByDifferences` (a line, a circle with and without a
+  roller and across its seam, planar and 3D B-splines, a periodic B-spline
+  across its seam and with a roller; cam and follower both free; on and
+  0.7 mm off the curve: the rows as constructed, the analytic Jacobian
+  against central differences to 1e-6 relative); `hessianByDifferences`
+  (where the equations hold, against differences of the gradient);
+  `countsTwoEquations` (Reference and OndselSolver: DoF 6 + 4, the follower
+  moved the 0.4 mm to the curve and no farther); `camSolvesOnEveryBackend`
+  and `camFollowsTheDriverForManyTurns` (the disk cam below, a point and a
+  roller, every registered backend: the static solve on the analytic
+  relation to 1e-9, DoF 6 + 1; 4 s at 10 rad/s with 0.2 s output steps, the
+  lift analytic to 1e-9 at every frame). Plus
+  `ChronoBackend.neutralPointOnCurveInChronosCoordinates`, and the existing
+  link-choice test's PointOnCurve lines.
+- Python `TestCamJoint` (6): the type appended (index 13; Belt still 12); an
+  older joint takes the Cam type; the picks and their refusals (a face, a
+  seam line, a helix with a roller) and `JointCam.pickRefusal` with one
+  pick; the static solve on every backend from 0.8 mm off (lift to 1e-9
+  against the cam's angle after the solve, every joint satisfied, DoF 1);
+  the disk cam simulation -- an eccentric circle (radius 20, centre 6 from
+  its axis) on a revolute driven by an Angular motion at 10*time for 4 s
+  (more than six turns) with 0.2 s output steps (2 rad, more than a quarter
+  turn), a point follower and a roller of radius 3 on a slider along y
+  through the axis, whose height is 6 sin(theta) + sqrt((20 + r)^2 -
+  36 cos(theta)^2) -- and a dwell-rise-dwell profile (a periodic B-spline
+  through 72 points of a cycloidal rise of 6 mm on a base radius of 18) whose
+  lift is checked against the B-spline's own evaluation (the point of the
+  curve on the follower's line, by Newton on the curve's value and
+  derivative). Largest lift error over every frame:
+
+  | case | OndselSolver | Reference | Chrono |
+  |---|---|---|---|
+  | disk cam, point | 8.5e-14 | 7.5e-11 | 9.4e-12 |
+  | disk cam, roller | 8.9e-14 | 7.2e-11 | 4.3e-12 |
+  | B-spline cam | 5.4e-13 | 1.2e-10 | 5.3e-12 |
+
+  `TestSimulationMotions` (1), above.
+- Gate (`TestSolverGateCam`, three new records, recorded with OndselSolver
+  under `ASM_SOLVER_GATE_RECORD=1` for these cases only; the 72 earlier
+  records are unchanged, compared on the parsed file and in the text diff,
+  which adds lines only): a point follower starting 0.8 mm off the disk cam,
+  with a simulation (10*time, 2 s, 0.2 s steps); a roller starting 0.6 mm
+  inside, with a drag of the cam through 30, 60 and 90 degrees; the
+  B-spline profile 0.5 mm off, with a simulation. The generated
+  `TestSolverGateCamReference` and `TestSolverGateCamChrono` agree with the
+  records on every status (DoF 1, the revolute partially redundant, in all
+  three), converge, are as close to the start (0.31795 against 0.31796,
+  0.18189 against 0.18189, 4.806e-4 against 4.810e-4), take the drag steps,
+  and play the simulation frames within 1.2e-10 (Reference) and 7.7e-12
+  (Chrono) of the records. `BACKEND_DIFFERENCES` and `BACKEND_REFUSED` gain
+  nothing.
+
+Assembly gtest 66/66 (56 + 9 `PointOnCurve` + 1 `ChronoBackend`; 49 with
+`BUILD_ASSEMBLY_CHRONO` off, this tree reconfigured off, the module and its
+tests built and run, then on again); OndselSolver's own test passes; ctest
+966 (956 + 10; the `TransactionMeasureTest` pair failed in the parallel run
+and passed alone); the Assembly suite 270 run, 1 skipped, no failures (254 +
+6 `TestCamJoint` + 1 `TestSimulationMotions` + 9 gate tests).
+
+**Not done:** flat-faced followers; a cam profile made of several edges (a
+wire: the joint takes one edge); a one-equation "point on the profile
+surface" kind for planar mechanisms; reading a curve back from its
+description (out of process); the lift-off cam of `AssemblyDynamics` sec 7.4,
+which needs the same projector and a force element.
 
 ### 6.4 Where Python must change
 

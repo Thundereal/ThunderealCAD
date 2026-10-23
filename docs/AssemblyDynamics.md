@@ -910,6 +910,17 @@ what SOLIDWORKS's intermittent curve contact and Creo's "Enable liftoff"
 offer. A follower that is itself a curve (curve on curve, Adams CVCV) is a
 later extension: two projectors and a closest-pair search.
 
+*As built (SI sec 6.18), the projector this section reuses:*
+`App/Solver/Curve.h`. It runs on the exact OCCT curve behind the neutral
+`CurveGeometry` (its own D2), not on a `GeomConvert` B-spline; the B-spline
+is only the curve's description in dumps. `projectOnCurve` is the
+warm-started Newton (from the last parameter, never jumping across the
+curve, a closed curve's turns counted); `pointOnCurveRows(curve, offset, x,
+from)` gives e . N2 - offset, which with offset 0 and the sign of the side
+is the signed distance, so g = distance - followerRadius is its second row
+with offset = followerRadius, with its exact gradient. The curve is a
+`Model::curves` record (not a `ContactGeometry` yet), shared by reference.
+
 
 ## 8. Solver settings, units, determinism, results
 

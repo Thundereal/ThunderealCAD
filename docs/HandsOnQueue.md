@@ -178,6 +178,12 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-23 11:14: entry 222 -- the spreadsheet's scroll bars beside overlay panels;
+the note-taker suggests (A) the bars step into the area the docks leave
+free (OverlayManager::occupied, as the navigation cube and the in-view
+task panel do), or (B) thin transient bars; the reporter's choice
+awaited.** Under the entries.
+
 **2026-10-23 11:12: entries 220 (the dimension panel's group boxes opaque in overlay
 transparent mode; fcad-dc after 213) and 221 (hide the TechDraw page
 view's scrollbars; x16win after 219); x16win's leads on 216-218.**
@@ -4323,6 +4329,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 219 | 2026-10-23 | a defect: while a TechDraw PROJECTION GROUP is IN EDIT, a DOUBLE CLICK on a DIMENSION does NOT start its edit; wanted: the projection group's edit DISMISSED and the DIMENSION'S EDIT started | OPEN; said to the note-taker 2026-10-23 11:11; READ by the note-taker: ViewProviderProjGroup::doubleClicked() calls its own setEdit(0), which shows TaskDlgProjGroup directly -- not through Gui::Document::setEdit, so the document holds no edit to end; the dimension's double click goes Document::setEdit -> ViewProviderDimension::setEdit, which returns false while any task dialog is open; ASSIGNED to x16win (TechDraw Gui), after 216, 217, 218 |
 | 220 | 2026-10-23 | a defect: the TechDraw DIMENSION EDIT PANEL's GROUP BOXES have an OPAQUE BACKGROUND in OVERLAY TRANSPARENT mode | OPEN; said to the note-taker 2026-10-23 11:12; TaskDimension.ui's four boxes are plain QGroupBox (no style sheet, no autoFillBackground of their own); no QGroupBox rule in src/Gui/Stylesheets/overlay/; ASSIGNED to fcad-dc (overlays, its area; 184, 208), after 213 |
 | 221 | 2026-10-23 | a change request: HIDE the TechDraw page view's VERTICAL and HORIZONTAL SCROLLBARS so they are not confused with OVERLAY PANELS | OPEN; said to the note-taker 2026-10-23 11:12; ASSIGNED to x16win (TechDraw Gui), after 219 |
+| 222 | 2026-10-23 | a change request: the SPREADSHEET view's scroll bars have the SAME PROBLEM as 221 (confused with OVERLAY PANELS), but it NEEDS its scroll bars for easy scrolling -- the reporter asks for a SUGGESTION of how they COEXIST with overlay panels | OPEN; said to the note-taker 2026-10-23 11:14; SUGGESTED by the note-taker: (A, recommended) the bars step inside the area the overlaid docks leave free, as the navigation cube (76) and the in-view task panel already do through OverlayManager::occupied()/covered() and layoutChanged()/coverChanged(); (B) thin transient bars that show only while scrolling or with the pointer near the edge; the reporter's choice awaited; NOT assigned (overlays: fcad-dc's area) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -29889,6 +29896,39 @@ page view looks the same either way; to be shown to the reporter); a
 setting to bring them back (read as: none asked).
 ASSIGNED to x16win (TechDraw Gui, its area), after 219.
 
+## 222. The spreadsheet's scroll bars beside overlay panels: kept, but not confused with them (a change request: a suggestion asked for) -- OPEN
+
+**2026-10-23 11:14, the reporter (to the note-taker):** "new request, spreadsheet has
+the same problem, but it does need scroll bar for easy scrolling.
+Suggest a way to coexist with overlay panels"
+The note-taker's reading: as with TechDraw (221), the spreadsheet view's
+vertical and horizontal scroll bars sit at the view's edges, where the
+overlaid docks stand, and look like panels or their handles; unlike
+TechDraw they must stay. The reporter asks the note-taker for a way.
+The note-taker's SUGGESTION (from a read of src/Gui/OverlayManager.h/
+.cpp, working tree):
+(A, recommended) The bars step out of the docks' way, into the area the
+overlaid docks leave free. The fork already does this for other things
+laid over a view: OverlayManager::occupied(widget) answers the parts of
+a widget the shown overlaid docks stand over, covered() adds other
+covers, and layoutChanged()/coverChanged() tell when that changes; the
+navigation cube (entry 76) and the in-view task panel
+(TaskPanelHost.cpp 105, 727) use them. The spreadsheet's vertical bar
+would sit just inside a right-hand dock's edge and the horizontal one
+just above a bottom dock, moving when a dock shows, hides or is resized;
+the cells keep the full view under the see-through docks. A bar inside
+the view's free area cannot be taken for a panel, and it stays where the
+pointer can reach it. Cost: the bars are placed by the view, not by Qt's
+scroll area (its own bars off, two bars of the view's own sharing their
+ranges and values) -- the assignee's to shape.
+(B) Overlay-style bars: thin, see-through, shown only while scrolling or
+while the pointer is near the edge, fading after; they no longer look
+like a panel's edge, but they still sit under a dock where one stands.
+(A) and (B) can go together. The same (A) could serve TechDraw (221) in
+place of hiding, should the reporter want its bars back.
+Waiting on the reporter's choice; NOT assigned (overlays are fcad-dc's
+area).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -29900,5 +29940,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 221
+the build session, 131 and 132 found by it; entries 134 to 222
 are of 2026-10-15, 134 said to the build session)

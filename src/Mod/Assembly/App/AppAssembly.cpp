@@ -30,6 +30,8 @@
 #include "AssemblyLink.h"
 #include "BomObject.h"
 #include "Groups.h"
+#include "Solver/OndselBackend.h"
+#include "Solver/Registry.h"
 
 
 namespace Assembly
@@ -67,6 +69,9 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::ViewGroup::init();
     Assembly::SimulationGroup::init();
     Assembly::SnapshotGroup::init();
+
+    // The solver backends (docs/AssemblySolverInterface.md sec 4.3).
+    Assembly::Solver::Registry::instance().add(std::make_unique<Assembly::Solver::OndselBackend>());
 
     PyMOD_Return(mod);
 }

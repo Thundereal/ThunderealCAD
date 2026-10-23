@@ -56,7 +56,7 @@ question is the one that holds.
 | 32 | A shape diff: what a merge or a pick would take; kept values (32.11) | built |
 | 33 | What the merge into LinkVibe exposed | fixed |
 | 34 | Held: what Scion's design suggests | held |
-| 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; 35.11 gaps open |
+| 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; the gaps left elaborated, G1-G6 (35.15) |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the dialog marks open |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12) | none left from 37.12 |
 
@@ -22113,6 +22113,89 @@ does -- and finds nothing pending after. Driven: the dialog closed after
 Import, the command run again offers the set and opens at its merge; the
 merge takes the set in, nothing more is asked, nothing is pending, and
 one Std_Undo takes it back.
+
+### 35.15 The gaps left, elaborated (user: "elaborate on 2", 2026-10-23)
+
+What 35.11 to 35.13 left not built, each with what the user sees, why,
+and what would close it. From reading the code (`src/App/ImportSet.cpp`);
+nothing here was run, but where it says so.
+
+**G1. A sub-assembly that brought nothing new, over a part that did.**
+Their `Asm` links their `Sub`, which links their `Part`; only `Part` was
+changed. `importFork` of `Sub` writes no row, so `Sub` gets no branch and
+its target is ours as the manifest says it was (a version or a branch).
+The top's branch then links our `Sub`, whose link is to our `Part`: the
+assembly under review shows our part, not theirs -- the wrong picture,
+with no sign of it. The files are imported linked-first, so when `Sub` is
+done it is known which files it links got branches. Closing it: a file
+that brought nothing new but links (directly) a file of the set that got
+a branch is given a branch at the version it was paired with, holding one
+row -- "Link their set" -- made by `relinkBranch` as for any branch; its
+target is then that branch, and the top links it. One level covers any
+depth, since each level is decided after the ones it links. At the merge
+(L6) its "Link our set" row turns the link back plain, so merging it
+changes nothing of ours; its default action can be Keep ours. Cost: small
+-- a branch from a version exists (`Document::createBranch(name,
+version)`), the relink is the existing function. Test: three files, the
+part changed only; the top's branch shows their box length.
+
+**G2. A link inside a list is not relinked.** `relinkBranch` changes
+properties that are a `PropertyXLink` (and so `PropertyXLinkSub`); a
+`PropertyXLinkSubList` is not one, and its entries are left pointing at
+our file. The rows brought are fine: a list's entries restore through
+`PropertyXLinkSub::Restore`, which maps them. So the gap is the links the
+copies had in common before they parted. The one user of such a list in
+the tree is `Part::SubShapeBinder::Support` -- a binder of geometry from
+another file, the usual way a PartDesign body refers to another part's
+faces. Seen as: their binder copies our part's face, not theirs. Closing
+it: `relinkBranch` also walks a list's entries, and sets the list whole
+(`setValues`, one undo row); `plainly` for the merge's "Link our set" the
+same way. Cost: small. A Python property of type `App::PropertyXLinkSubList`
+is covered by the same walk.
+
+Not looked at, and alike: an expression that reads another file of the
+set (`Part#Box.Length`) holds its link in the engine's own `_XLinks`, not
+as a property `relinkBranch` walks, and names the document in its text.
+Whether the top's branch reads our `Part` there needs a probe first.
+
+**G3. The branch tips open whole.** The import opens each branch's tip
+(`ourFile@branch@`) to relink it, and those documents' links open what
+they link: every file of the set is loaded in full, shapes and all, for
+a pass that reads and writes only links. On a set of a few files it does
+not show; on a large assembly it is the import's time and memory. Closing
+it: a partial restore that reads the objects' link properties only, and
+writes the relink row from them -- a restore mode the document does not
+have. Cost: large; worth it only once a set that size is a case.
+
+**G4. A file of theirs alone that links a file paired with ours.** Their
+`Bolt`, which we do not have, is held as their bytes untouched (L5), so
+its link to `Part` is to their `Part` by its path in their set -- which
+resolves to their file if their folder is reachable here, and to nothing
+otherwise -- until the merge (L6) writes it where the user says and makes
+its links ours. During review, then, `Bolt` shows their part, or nothing,
+beside a top that shows the branch of ours. Closing it: the staged copy
+(the one written under the transient directory, not the held bytes, whose
+hash the log keeps) has its links to paired files rewritten to their
+targets, as the rows brought are, when it is written. Cost: medium -- the
+staged copy must be opened, relinked and saved, and written again the same
+way when `writeHeldFile` restores it in another session.
+
+**G5. The Q4 preview.** Q4 asked the top's line in the dialog to say
+which references will not resolve after the merge -- a link to an object
+their side removed, a sub-element name that is gone. Not built: the dialog
+says per file what it came as, not what will break. Closing it: after the
+import, each branch's links resolved against the branches they point at
+(the relinked targets), and what fails listed on its file's line. Cost:
+medium, Gui and App.
+
+**G6. No macro.** The Import and the Merge are App calls with a plan and
+pairs, not one Python line, and are not recorded. Cost: small if the
+plan is written as a dict literal; low value.
+
+Recommended order: G1 (a wrong picture, small), G2 (common in PartDesign
+work, small), then G4; G5 when the dialog is next touched; G3 and G6 when
+a case asks for them. The expression case is probed before anything is
+said of it.
 
 ## 36. Object UIDs: an object known by what it is, not its name (2026-10-21)
 

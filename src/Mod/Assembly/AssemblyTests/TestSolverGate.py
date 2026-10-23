@@ -9,7 +9,7 @@ references recorded in SolverGateReference.json:
   of every solve, drag and simulation, which the preference SolverDumpFile
   writes out), by SHA-256;
 - the placement of every object after the solve, after each drag step and at
-  each simulation frame, within 1e-9;
+  each simulation frame, within 1e-9 (frames also played in reverse order);
 - the return codes, the solve status and the drag status, exactly.
 
 The references were recorded on 2026-10-23 from the builder that wrote the
@@ -275,18 +275,19 @@ class SolverGateBase(JointTestBase):
         steps.append(dict(ok="post", placements=self.values()))
         return dict(dump=dump, steps=steps, status=self.assembly.getDragStatus())
 
-    def simulate_once(self, sim):
+    def simulate_once(self, sim, frame_order=None):
         r = self.assembly.generateSimulation(sim)
         dump = asmt_digest(self.take_dump())
         frames = []
-        for i in range(self.assembly.numberOfFrames()):
+        n = self.assembly.numberOfFrames()
+        for i in frame_order(n) if frame_order else range(n):
             self.assembly.updateForFrame(i)
             frames.append(self.values())
         return dict(ret=r, dump=dump, frames=frames)
 
     # ------------------------------------------------------------ the gate
 
-    def gate(self, drag=None, sim=None, label=""):
+    def gate(self, drag=None, sim=None, label="", frame_order=None):
         """Hands this document to the solver every way it can be, and checks the record."""
         self.doc.recompute()
         start = self.snapshot()
@@ -299,7 +300,7 @@ class SolverGateBase(JointTestBase):
         if sim is not None:
             self.reset()
             self.restore(start)
-            result["simulation"] = self.simulate_once(sim)
+            result["simulation"] = self.simulate_once(sim, frame_order)
             self.assertEqual(result["simulation"]["ret"], 0)
             self.assertGreater(len(result["simulation"]["frames"]), 2)
 
@@ -563,7 +564,7 @@ class TestSolverGateSimulation(SolverGateBase):
         sim.Group = objs
         return sim
 
-    def test_simulation(self):
+    def simulation_doc(self):
         g = self.box("G", size=20.0)
         a = self.box("A", plc(0, 0, 20))
         b = self.box("B", plc(30, 0, 20))
@@ -583,7 +584,79 @@ class TestSolverGateSimulation(SolverGateBase):
             ]
         )
         self.doc.recompute()
+        return sim
+
+    def test_simulation(self):
+        self.gate(sim=self.simulation_doc())
+
+    # The frames below were recorded on 2026-10-23 from playback of the stored
+    # trajectory (sec 6.3 step 6), after the same process had played every
+    # frame of these cases through the ASMT model as well and found them equal
+    # bit for bit.
+
+    def test_simulation_reverse_playback(self):
+        """Frames played last to first: playback is random access."""
+        sim = self.simulation_doc()
+        self.gate(sim=sim, frame_order=lambda n: list(reversed(range(n))), label="reverse")
+
+    def test_simulation_gears(self):
+        """A driven gear turns the other: a body moved by a joint, not a driver."""
+        g = self.box("G")
+        a = self.cylinder("A", 10.0, 5.0, plc(0, 0, 10))
+        b = self.cylinder("B", 20.0, 5.0, plc(30, 0, 10))
+        self.ground(g)
+        rev = self.joint("Revolute", (g, ["Face6"]), plc(0, 0, 10), (a, ["Face3"]), plc())
+        self.joint("Revolute", (g, ["Face6"]), plc(30, 0, 10), (b, ["Face3"]), plc())
+        self.joint("Gears", (a, ["Face1"]), plc(), (b, ["Face1"]), plc(), Distance=10.0, Distance2=20.0)
+        self.doc.recompute()
+        sim = self.make_simulation([(rev, "Angular", "90*time")])
+        self.doc.recompute()
         self.gate(sim=sim)
+
+    def test_simulation_rigid_group(self):
+        """A driven part in a rigid group: playback places the other member by its offset."""
+        g, b = self.ground_and_mover()
+        c = self.box("C", plc(40, 5, 3))
+        rev = self.joint("Revolute", (g, ["Face6"]), self.JCS_G, (b, ["Face5"]), self.JCS_B)
+        rg = self.jointgroup.newObject("App::FeaturePython", "RigidGroupJoint")
+        JointObject.RigidGroupJoint(rg, [b, c])
+
+        def reset_rigid():
+            # A simulation uses the rigid groups the last solve or export found
+            # and does not look again; the suppressed solve that empties the
+            # placement cache also drops them, so an export finds them again
+            # (it touches neither the cache nor a placement).
+            TestSolverGateRigid.forget_rigid_cache(self, rg)
+            self.export()
+
+        self.reset_hooks.append(reset_rigid)
+        self.doc.recompute()
+        sim = self.make_simulation([(rev, "Angular", "45*time")])
+        self.doc.recompute()
+        self.gate(sim=sim)
+
+    def test_playback_survives_a_solve(self):
+        """The trajectory is kept: a solve between two playbacks changes nothing.
+
+        Not a recorded case -- the ASMT model played whatever the last solve
+        left in it, so there is no old result to compare with.
+        """
+        sim = self.simulation_doc()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        n = self.assembly.numberOfFrames()
+        self.assertGreater(n, 2)
+
+        def play():
+            frames = []
+            for i in range(n):
+                self.assembly.updateForFrame(i)
+                frames.append(self.values())
+            return frames
+
+        first = play()
+        self.assertEqual(self.assembly.solve(), 0)
+        self.assertEqual(self.assembly.numberOfFrames(), n)
+        self.assertEqual(play(), first)
 
 
 class TestSolverGateBench(SolverGateBase):

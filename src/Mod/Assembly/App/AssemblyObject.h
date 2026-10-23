@@ -57,6 +57,7 @@ namespace Solver
 class Session;
 struct BodyPose;
 struct SimulationSpec;
+struct Trajectory;
 }
 
 class AssemblyLink;
@@ -304,6 +305,10 @@ private:
     void makeMbdModel();
     bool validateNewPlacements(const std::vector<Solver::BodyPose>& poses);
     void setNewPlacements(const std::vector<Solver::BodyPose>& poses);
+    void setNewPlacements(
+        const std::unordered_map<App::DocumentObject*, MbDPartData>& parts,
+        const std::vector<Solver::BodyPose>& poses
+    );
     // The document name of the joint a model joint came from, if it is one
     // with references in this document; empty otherwise.
     std::string jointNameOf(Solver::Id joint) const;
@@ -316,6 +321,11 @@ private:
     std::unique_ptr<Solver::Session> session;
     // The bodies the session was loaded with (bodies added later have no pose).
     std::size_t loadedBodies {0};
+    // The last simulation's frames and the parts they move, kept until the next
+    // simulation: playback needs no live solver, and a solve in between does
+    // not disturb it.
+    std::unique_ptr<Solver::Trajectory> trajectory;
+    std::unordered_map<App::DocumentObject*, MbDPartData> trajectoryParts;
 
 
     std::unordered_map<App::DocumentObject*, MbDPartData> objectPartMap;

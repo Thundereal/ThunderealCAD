@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-# Only App includes the solver's headers (App/Solver/OndselBackend.cpp, and
-# AssemblyObject.cpp until playback leaves the ASMT model): App/CMakeLists.txt
-# gives that target the in-tree include path. Gui does without.
+# Only App/Solver/OndselBackend.cpp includes the solver's headers:
+# App/CMakeLists.txt gives the App target the in-tree include path. Gui does
+# without.
 if (FREECAD_USE_EXTERNAL_ONDSELSOLVER)
     check_include_file_cxx(OndselSolver/enum.h HAVE_ONDSELSOLVER_H)
     if (NOT HAVE_ONDSELSOLVER_H)

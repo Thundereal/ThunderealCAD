@@ -56,16 +56,12 @@
 #include <Mod/Part/App/DatumFeature.h>
 #include <Mod/Part/App/PartFeature.h>
 
-// Playback reads the session's ASMT model until sec 6.3 step 6.
-#include <OndselSolver/ASMTAssembly.h>
-
 #include "AssemblyLink.h"
 #include "AssemblyObject.h"
 #include "AssemblyObjectPy.h"
 #include "AssemblyUtils.h"
 #include "Groups.h"
 #include "Solver/Backend.h"
-#include "Solver/OndselBackend.h"
 #include "Solver/Registry.h"
 
 FC_LOG_LEVEL_INIT("Assembly", true, true, true)
@@ -493,6 +489,8 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
 {
     solverModel = makeMbdAssembly();
     objectPartMap.clear();
+    trajectory.reset();
+    trajectoryParts.clear();
 
     motions = getMotionsFromSimulation(sim);
 
@@ -512,12 +510,25 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
 
     makeMbdModel();
 
-    // Playback reads the session's ASMT model until the trajectory moves into
-    // the neutral layer (sec 6.3 step 6); the frames are not kept here yet.
-    struct DiscardFrames: Solver::TrajectorySink
+    // Every frame the backend produces is kept here, so playback needs no
+    // live solver.
+    struct Recorder: Solver::TrajectorySink
     {
-        bool frame(double, const std::vector<Solver::BodyPose>&) override
+        Solver::Trajectory frames;
+        bool frame(double time, const std::vector<Solver::BodyPose>& poses) override
         {
+            if (frames.times.empty()) {
+                for (const auto& pose : poses) {
+                    frames.bodies.push_back(pose.body);
+                }
+            }
+            else if (poses.size() != frames.bodies.size()) {
+                return false;
+            }
+            frames.times.push_back(time);
+            for (const auto& pose : poses) {
+                frames.poses.push_back(pose.placement);
+            }
             return true;
         }
     } sink;
@@ -528,6 +539,8 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
         return -1;
     }
 
+    trajectory = std::make_unique<Solver::Trajectory>(std::move(sink.frames));
+    trajectoryParts = objectPartMap;
     motions.clear();
 
     return 0;
@@ -549,24 +562,21 @@ std::vector<App::DocumentObject*> AssemblyObject::getMotionsFromSimulation(App::
 
 int Assembly::AssemblyObject::updateForFrame(size_t index)
 {
-    auto* ondsel = dynamic_cast<Solver::OndselSession*>(session.get());
-    if (!ondsel || !ondsel->asmt().assembly) {
-        return -1;
-    }
-    const auto& asmt = ondsel->asmt();
-
-    auto nfrms = asmt.assembly->numberOfFrames();
-    if (index >= nfrms) {
+    // Plays the last simulation's frame from the stored trajectory.
+    if (!trajectory || index >= trajectory->times.size()) {
         return -1;
     }
 
-    asmt.assembly->updateForFrame(index);
+    const std::size_t nBodies = trajectory->bodies.size();
     std::vector<Solver::BodyPose> poses;
-    poses.reserve(asmt.parts.size());
-    for (size_t i = 0; i < asmt.parts.size(); ++i) {
-        poses.push_back({static_cast<Solver::Id>(i), Solver::Ondsel::partPlacement(asmt.parts[i])});
+    for (std::size_t i = 0; i < nBodies; ++i) {
+        const Solver::Id body = trajectory->bodies[i];
+        if (body >= poses.size()) {
+            poses.resize(body + 1);
+        }
+        poses[body] = {body, trajectory->poses[index * nBodies + i]};
     }
-    setNewPlacements(poses);
+    setNewPlacements(trajectoryParts, poses);
     auto jointDocs = getJoints();
     redrawJointPlacements(jointDocs);
     return 0;
@@ -574,11 +584,7 @@ int Assembly::AssemblyObject::updateForFrame(size_t index)
 
 size_t Assembly::AssemblyObject::numberOfFrames()
 {
-    auto* ondsel = dynamic_cast<Solver::OndselSession*>(session.get());
-    if (!ondsel || !ondsel->asmt().assembly) {
-        return 0;
-    }
-    return ondsel->asmt().assembly->numberOfFrames();
+    return trajectory ? trajectory->times.size() : 0;
 }
 
 bool AssemblyObject::requiresRigidSolveForMove(const std::vector<App::DocumentObject*>& movedParts)
@@ -1198,11 +1204,20 @@ void AssemblyObject::setNewPlacements()
 
 void AssemblyObject::setNewPlacements(const std::vector<Solver::BodyPose>& poses)
 {
-    for (auto& pair : objectPartMap) {
+    setNewPlacements(objectPartMap, poses);
+}
+
+void AssemblyObject::setNewPlacements(
+    const std::unordered_map<App::DocumentObject*, MbDPartData>& parts,
+    const std::vector<Solver::BodyPose>& poses
+)
+{
+    for (auto& pair : parts) {
         App::DocumentObject* obj = pair.first;
         const Solver::Id body = pair.second.body;
 
-        if (!obj || body >= poses.size()) {
+        // poses[i] is body i's; a body without a pose is skipped.
+        if (!obj || body >= poses.size() || poses[body].body != body) {
             continue;
         }
 

@@ -100,13 +100,6 @@ public:
     Status simulate(const SimulationSpec& spec, TrajectorySink& sink) override;
     Status exportNative(const std::string& path) override;
 
-    // The ASMT model, for playback until the trajectory moves into the
-    // neutral layer (sec 6.3 step 6).
-    const Ondsel::AsmtModel& asmt() const
-    {
-        return current;
-    }
-
 private:
     // Reads every body's pose back from the solver; returns the bodies that moved.
     std::vector<BodyPose> refreshPoses();

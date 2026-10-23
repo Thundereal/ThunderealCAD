@@ -352,42 +352,51 @@ class TestGuiCommands(unittest.TestCase):
 
     # ------------------------------------------------------------ refused Distance
 
-    def cone(self):
-        cone = self.assembly.newObject("Part::Cone", "Cone")
-        cone.Placement.Base = App.Vector(-30, 0, 0)
+    def freeform(self):
+        """A part whose one face is freeform: a plane and it make no Distance (sec 6.11)."""
+        from AssemblyTests.TestJoints import freeform
+
+        where = App.Placement(App.Vector(-30, 0, 0), App.Rotation())
+        free = freeform(self.assembly, placement=where)["free"]
         self.doc.recompute()
         _process()
-        return cone
+        return free
 
-    def assertRefusal(self, task, subtype):
+    # What the panel says: the element, and what it is.
+    REFUSAL = (
+        "the face Face1 of Free is not planar, cylindrical, conical, spherical or "
+        "toroidal: it is a B-spline surface"
+    )
+
+    def assertRefusal(self, task, reason=REFUSAL):
         self.assertFalse(task.refusalLabel.isHidden(), "the refusal is not shown")
-        self.assertIn(subtype, task.refusalLabel.text())
+        self.assertIn(reason, task.refusalLabel.text())
 
     def test_joint_distance_refused_initial_selection(self):
-        """Audit sec 8.1 decision 7: a plane and a cone (PlaneCone) do not make a Distance joint."""
-        cone = self.cone()
+        """Decision 7 and sec 6.11: a plane and a freeform face make no Distance joint."""
+        free = self.freeform()
         self.select(self.box, "Face6")
-        self.select(cone, "Face1")
+        self.select(free, "Face1")
         self.run_command("Assembly_CreateJointDistance")
         task = JointObject.activeTask
         self.assertIsNotNone(task)
         self.assertEqual(task.refs, [], "the refused picks were taken")
-        self.assertRefusal(task, "PlaneCone")
+        self.assertRefusal(task)
         self.assertFalse(task.accept())
         self.assertClean()
 
     def test_joint_distance_refused_pick(self):
         """The refused second pick is dropped; a mapped one is then taken."""
-        cone = self.cone()
+        free = self.freeform()
         self.run_command("Assembly_CreateJointDistance")
         task = JointObject.activeTask
         self.select(self.box, "Face6")
         _process()
         self.assertEqual(len(task.refs), 1)
-        self.select(cone, "Face1")
+        self.select(free, "Face1")
         _process()
         self.assertEqual(len(task.refs), 1, "the refused pick was taken")
-        self.assertRefusal(task, "PlaneCone")
+        self.assertRefusal(task)
         self.assertEqual(task.joint.Reference2, None)
         self.select(self.cyl1, "Face1")  # PlaneCylinder
         _process()
@@ -399,26 +408,26 @@ class TestGuiCommands(unittest.TestCase):
 
     def test_joint_distance_refused_by_type_change(self):
         """Picks taken for another joint type are refused when it becomes a Distance joint."""
-        cone = self.cone()
+        free = self.freeform()
         self.select(self.box, "Face6")
-        self.select(cone, "Face1")
+        self.select(free, "Face1")
         self.run_command("Assembly_CreateJointRevolute")
         task = JointObject.activeTask
         self.assertEqual(len(task.refs), 2)
         task.jForm.jointType.setCurrentIndex(JointObject.JointTypes.index("Distance"))
         _process()
-        self.assertRefusal(task, "PlaneCone")
+        self.assertRefusal(task)
         self.assertFalse(task.accept())
         self.assertClean()
 
     def test_joint_distance_refused_kind_in_document_stays_editable(self):
         """A joint of a refused kind already in the document opens and accepts as it is."""
-        cone = self.cone()
+        free = self.freeform()
         j = self.jointgroup.newObject("App::FeaturePython", "Distance")
         JointObject.Joint(j, JointObject.JointTypes.index("Distance"))
         JointObject.ViewProviderJoint(j.ViewObject)
         j.Proxy.setJointConnectors(
-            j, [[self.box, ["Face6", "Face6"]], [cone, ["Face1", "Face1"]]]
+            j, [[self.box, ["Face6", "Face6"]], [free, ["Face1", "Face1"]]]
         )
         _process()
         self.assertTrue(j.ViewObject.Proxy.doubleClicked(j.ViewObject))
@@ -428,7 +437,7 @@ class TestGuiCommands(unittest.TestCase):
         self.assertTrue(task.refusalLabel.isHidden())
         self.accept_task()
         picked = {UtilsAssembly.getObject(j.Reference1), UtilsAssembly.getObject(j.Reference2)}
-        self.assertEqual(picked, {self.box, cone})
+        self.assertEqual(picked, {self.box, free})
         self.assertClean()
 
     def test_joint_overlay_icon(self):

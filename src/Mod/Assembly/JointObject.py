@@ -2015,11 +2015,13 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
             self.updateJoint()
 
     def refusedDistancePick(self):
-        """The Distance sub-type of the two picks if it is refused, else "".
+        """Why a Distance joint between the two picks is refused, else "".
 
-        Not upstream (audit sec 8.1 decision 7). The list is the C++ one
-        (AssemblyUtils refusedDistanceTypes). The picks are set on the joint to
-        classify them, as setJointConnectors sets them, without solving.
+        Not upstream (audit sec 8.1 decision 7, docs/AssemblySolverInterface.md
+        sec 6.11). The rule and the reason are the C++ ones
+        (AssemblyUtils distanceJointRefusal): it names the element and says
+        what it is. The picks are set on the joint to classify them, as
+        setJointConnectors sets them, without solving.
         """
         if self.jType != "Distance" or len(self.refs) != 2:
             return ""
@@ -2027,20 +2029,17 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
 
         self.joint.Reference1 = self.refs[0]
         self.joint.Reference2 = self.refs[1]
-        if AssemblyApp.isDistanceJointRefused(self.joint):
-            return AssemblyApp.getDistanceType(self.joint)
-        return ""
+        return AssemblyApp.getDistanceRefusal(self.joint)
 
-    def showDistanceRefusal(self, subtype):
+    def showDistanceRefusal(self, reason):
         """Says why a Distance pick was refused, or clears it ("")."""
-        if not subtype:
+        if not reason:
             self.refusalLabel.hide()
             return
         msg = translate(
             "Assembly",
-            "A distance between these elements ({}) is not supported: the solver "
-            "has no exact mapping for it. Select other elements.",
-        ).format(subtype)
+            "A distance between these elements is not supported: {}. Select other elements.",
+        ).format(reason)
         App.Console.PrintWarning(msg + "\n")
         self.refusalLabel.setText(msg)
         self.refusalLabel.show()

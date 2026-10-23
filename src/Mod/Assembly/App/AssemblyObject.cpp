@@ -2143,6 +2143,42 @@ std::shared_ptr<Solver::Joint> AssemblyObject::makeMbdJointDistance(App::Documen
     auto* obj1 = getLinkedObjFromRef(joint, jcsRef(1));
     auto* obj2 = getLinkedObjFromRef(joint, jcsRef(2));
 
+    // Sec 6.11: a joint the task would refuse (distanceJointRefusal) and that
+    // is already in a document solves as before, said once; one of a sub-type
+    // the role mappings added solves with its mapping, logged once.
+    const std::string refusal = distanceJointRefusal(joint, type);
+    if (!refusal.empty()) {
+        if (warnedRefusedDistance.insert(joint->getFullName() + "/" + distanceTypeName(type))
+                .second) {
+            Base::Console().warning(
+                "Assembly: the Distance joint %s is between elements (%s) the solver has "
+                "no mapping for: %s. It is solved as before; new joints of this kind are "
+                "refused.\n",
+                joint->getFullName().c_str(),
+                distanceTypeName(type),
+                refusal.c_str()
+            );
+        }
+    }
+    else if (const char* meaning = distanceMeaning(type)) {
+        const std::string key = "mapped:" + joint->getFullName() + "/" + distanceTypeName(type);
+        if (warnedRefusedDistance.insert(key).second) {
+            Base::Console().log(
+                "Assembly: the Distance joint %s (%s) is solved as %s; before the role "
+                "mappings (2026-10-23) it was a planar distance.\n",
+                joint->getFullName().c_str(),
+                distanceTypeName(type),
+                meaning
+            );
+        }
+    }
+    // What the default case has always given.
+    auto planarDefault = [&]() {
+        auto mbdJoint = makeJoint(Solver::JointKind::Planar);
+        mbdJoint->value = getJointDistance(joint);
+        return mbdJoint;
+    };
+
     switch (type) {
         case DistanceType::PointPoint: {
             // Point to point distance, or ball joint if distance=0.
@@ -2298,6 +2334,88 @@ std::shared_ptr<Solver::Joint> AssemblyObject::makeMbdJointDistance(App::Documen
             return mbdJoint;
         }
 
+        // Sec 6.11, the role mappings (not upstream): each reuses an existing
+        // mapping with one element read the way that mapping reads its
+        // kind. A cone stands for its axis, as a cylinder of radius 0 (its
+        // JCS is on the axis, at the apex, z along it); a torus for its axis,
+        // radius 0, as CylinderTorus and TorusSphere read it; a circle for its
+        // axis and radius, as LineCircle and CircleCircle read it.
+        case DistanceType::PlaneCone: {
+            // As PlaneCylinder: the cone's axis in a plane d off the plane.
+            auto mbdJoint = makeJoint(Solver::JointKind::LineInPlane);
+            mbdJoint->value = getJointDistance(joint);
+            return mbdJoint;
+        }
+
+        case DistanceType::CylinderCone: {
+            // As CylinderCylinder: the cone's axis parallel, d + r1 from the
+            // cylinder's axis.
+            auto mbdJoint = makeJoint(Solver::JointKind::LineLineDistance);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj1, elt1);
+            return mbdJoint;
+        }
+
+        case DistanceType::ConeCone:
+        case DistanceType::ConeTorus:
+        case DistanceType::LineCone:
+        case DistanceType::LineTorus: {
+            // Two axes (or an axis and the line) parallel, d apart.
+            auto mbdJoint = makeJoint(Solver::JointKind::LineLineDistance);
+            mbdJoint->value = getJointDistance(joint);
+            return mbdJoint;
+        }
+
+        case DistanceType::ConeSphere: {
+            // As CylinderSphere: the sphere's centre d + r2 from the cone's axis.
+            auto mbdJoint = makeJoint(Solver::JointKind::PointLineDistance);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj2, elt2);
+            return mbdJoint;
+        }
+
+        case DistanceType::PointCone:
+        case DistanceType::PointTorus: {
+            // As PointCylinder: the point d from the axis.
+            auto mbdJoint = makeJoint(Solver::JointKind::PointLineDistance);
+            mbdJoint->value = getJointDistance(joint);
+            return mbdJoint;
+        }
+
+        case DistanceType::CurveCylinder: {
+            if (!refusal.empty()) {
+                return planarDefault();
+            }
+            // As CylinderCylinder: I the cylinder, J the circle (its centre
+            // and normal).
+            auto mbdJoint = makeJoint(Solver::JointKind::LineLineDistance);
+            mbdJoint->value = getJointDistance(joint) + getFaceRadius(obj1, elt1)
+                + getEdgeRadius(obj2, elt2);
+            return mbdJoint;
+        }
+
+        case DistanceType::CurveSphere: {
+            if (!refusal.empty()) {
+                return planarDefault();
+            }
+            // As CylinderSphere, the circle's axis frame I: swapped, as
+            // LineSphere.
+            double radius = getFaceRadius(obj1, elt1) + getEdgeRadius(obj2, elt2);
+            swapJCS(joint);
+            auto mbdJoint = makeJoint(Solver::JointKind::PointLineDistance);
+            mbdJoint->value = getJointDistance(joint) + radius;
+            return mbdJoint;
+        }
+
+        case DistanceType::CurveCone:
+        case DistanceType::CurveTorus: {
+            if (!refusal.empty()) {
+                return planarDefault();
+            }
+            // As LineCircle: the axes parallel, d + r2 apart.
+            auto mbdJoint = makeJoint(Solver::JointKind::LineLineDistance);
+            mbdJoint->value = getJointDistance(joint) + getEdgeRadius(obj2, elt2);
+            return mbdJoint;
+        }
+
         // Point - Edge cases
         case DistanceType::PointLine: {
             auto mbdJoint = makeJoint(Solver::JointKind::PointLineDistance);
@@ -2317,23 +2435,10 @@ std::shared_ptr<Solver::Joint> AssemblyObject::makeMbdJointDistance(App::Documen
 
         default: {
             // by default we make a planar joint.
-            // Only the refused sub-types (audit sec 8.1 decision 7) still get
-            // here; a joint of one already in a document keeps it, said once.
-            if (isDistanceJointRefused(joint, type)
-                && warnedRefusedDistance
-                       .insert(joint->getFullName() + "/" + distanceTypeName(type))
-                       .second) {
-                Base::Console().warning(
-                    "Assembly: the Distance joint %s is between elements (%s) the solver has "
-                    "no mapping for; it is solved as a planar distance, as before. New joints "
-                    "of this kind are refused.\n",
-                    joint->getFullName().c_str(),
-                    distanceTypeName(type)
-                );
-            }
-            auto mbdJoint = makeJoint(Solver::JointKind::Planar);
-            mbdJoint->value = getJointDistance(joint);
-            return mbdJoint;
+            // Only Other gets here (audit sec 8.1 decision 7, sec 6.11): between
+            // two elements it is refused for a new joint and warned about above;
+            // with a whole object on a side it is the objects' planar distance.
+            return planarDefault();
         }
     }
 }

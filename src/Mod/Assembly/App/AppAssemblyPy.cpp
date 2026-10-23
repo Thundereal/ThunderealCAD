@@ -69,8 +69,16 @@ public:
             "isDistanceJointRefused",
             &Module::isDistanceJointRefused,
             "isDistanceJointRefused(joint) -> bool\n\n"
-            "True when the joint's sub-type is refused: one of getRefusedDistanceTypes(),\n"
-            "except 'Other' with a whole object (a datum, an LCS) on a side."
+            "True when a new Distance joint between the joint's elements is refused:\n"
+            "getDistanceRefusal(joint) is not empty."
+        );
+        add_varargs_method(
+            "getDistanceRefusal",
+            &Module::getDistanceRefusal,
+            "getDistanceRefusal(joint) -> str\n\n"
+            "Why a new Distance joint between the joint's elements is refused, naming\n"
+            "the element and what it is ('the face Face1 of Loft is not planar, ...');\n"
+            "'' when it is not."
         );
         add_varargs_method(
             "getElementGeometry",
@@ -147,6 +155,12 @@ private:
     {
         auto* joint = jointArg(args);
         return Py::Boolean(Assembly::isDistanceJointRefused(joint, Assembly::getDistanceType(joint)));
+    }
+
+    Py::Object getDistanceRefusal(const Py::Tuple& args)
+    {
+        auto* joint = jointArg(args);
+        return Py::String(Assembly::distanceJointRefusal(joint, Assembly::getDistanceType(joint)));
     }
 
     static TopoDS_Shape shapeArg(const Py::Tuple& args)

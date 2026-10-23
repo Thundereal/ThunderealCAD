@@ -47,6 +47,7 @@ import sys
 import tempfile
 
 import FreeCAD as App
+import Part
 import unittest
 
 import JointObject
@@ -559,13 +560,14 @@ class TestSolverGateDistanceMapped(SolverGateBase):
     """Audit sec 8.1 decision 7: the sub-types that used to fall to Planar(d).
 
     LineCylinder, LineSphere and CurvePlane have a mapping of their own
-    (docs/AssemblySolverInterface.md sec 6.8); PlaneCone and PointTorus stand
-    for the 14 refused ones, which a joint already in a document still
-    solves as Planar(d). The two refused cases and CurvePlane on a circle
-    were recorded before the mapping went in and are what the default case
-    gave; LineCylinder, LineSphere and CurvePlane on an ellipse were
-    recorded after it (TestJoints.TestDistanceMapped checks them on the
-    geometry).
+    (docs/AssemblySolverInterface.md sec 6.8). CurvePlane on a circle was
+    recorded before the mapping went in and is what the default case gave;
+    LineCylinder, LineSphere and CurvePlane on an ellipse were recorded
+    after it (TestJoints.TestDistanceMapped checks them on the geometry).
+    PlaneCone and PointTorus stood for the refused sub-types, solved as
+    Planar(d); since the role mappings (sec 6.11) they have one, and were
+    recorded again from it (TestJoints.TestDistanceRoleMappings checks them
+    on the geometry).
     """
 
     D = TestSolverGateDistance.D
@@ -596,8 +598,8 @@ class TestSolverGateDistanceMapped(SolverGateBase):
         ("LineSphere", ("sph_g", "Face1"), ("box_m", "Edge1"), 3.0),
         ("CurvePlane", ("g", "Face6"), ("cyl_m", "Edge2"), 3.0),
         ("CurvePlane ellipse", ("g", "Face6"), ("ell_m", "Edge1"), 3.0),
-        ("PlaneCone (refused, planar)", ("g", "Face6"), ("cone_m", "Face1"), 3.0),
-        ("PointTorus (refused, planar)", ("tor_g", "Face1"), ("box_m", "Vertex1"), 3.0),
+        ("PlaneCone", ("g", "Face6"), ("cone_m", "Face1"), 3.0),
+        ("PointTorus", ("tor_g", "Face1"), ("box_m", "Vertex1"), 3.0),
     ]
 
     def test_distance_subtypes(self):
@@ -606,6 +608,67 @@ class TestSolverGateDistanceMapped(SolverGateBase):
                 self.tearDown()
                 self.setUp()
                 f = self.mapped_fixtures()
+                self.distance_joint((f[ref1[0]], ref1[1]), (f[ref2[0]], ref2[1]), d)
+                self.gate(label=name)
+
+
+class TestSolverGateRoleMappings(SolverGateBase):
+    """Sec 6.11: the role mappings, the geometry recognition, and what stays refused.
+
+    Recorded from the build that made them (TestJoints.TestDistanceRoleMappings
+    and TestElementRecognition check them on the geometry). The refused cases
+    are joints already in a document: Planar(d), as the default case always
+    gave.
+    """
+
+    D = TestSolverGateDistance.D
+    R_CYL = TestSolverGateDistance.R_CYL
+    R_SPH = TestSolverGateDistance.R_SPH
+    distance_joint = TestSolverGateDistance.distance_joint
+
+    def fixtures(self):
+        from AssemblyTests.TestJoints import TestDistanceRoleMappings, freeform, nurbs_copy
+
+        f = TestDistanceRoleMappings.fixtures(self)
+        start = f["box_m"].Placement
+        ell_m = self.assembly.newObject("Part::Ellipse", "EllM")
+        ell_m.MajorRadius = 6.0
+        ell_m.MinorRadius = 3.0
+        ell_m.Placement = start
+        f["ell_m"] = ell_m
+        f.update(freeform(self.assembly, placement=start))
+        f["ncyl_m"] = nurbs_copy(
+            self.assembly, "NCylM", Part.makeCylinder(TestSolverGateDistance.R_CYL, 10.0), start
+        )
+        self.doc.recompute()
+        return f
+
+    CASES = [
+        ("PlaneCone", ("g", "Face6"), ("cone_m", "Face1"), 3.0),
+        ("CylinderCone", ("cyl_g", "Face1"), ("cone_m", "Face1"), 3.0),
+        ("ConeCone", ("cone_g", "Face1"), ("cone_m", "Face1"), 3.0),
+        ("ConeTorus", ("cone_g", "Face1"), ("tor_m", "Face1"), 3.0),
+        ("ConeSphere", ("cone_g", "Face1"), ("sph_m", "Face1"), 3.0),
+        ("PointCone", ("cone_g", "Face1"), ("box_m", "Vertex1"), 3.0),
+        ("PointTorus", ("tor_g", "Face1"), ("box_m", "Vertex1"), 3.0),
+        ("LineCone", ("cone_g", "Face1"), ("box_m", "Edge1"), 3.0),
+        ("LineTorus", ("tor_g", "Face1"), ("box_m", "Edge1"), 3.0),
+        ("CurveCylinder", ("cyl_g", "Face1"), ("cyl_m", "Edge2"), 3.0),
+        ("CurveSphere", ("sph_g", "Face1"), ("cyl_m", "Edge2"), 3.0),
+        ("CurveCone", ("cone_g", "Face1"), ("cyl_m", "Edge2"), 3.0),
+        ("CurveTorus", ("tor_g", "Face1"), ("cyl_m", "Edge2"), 3.0),
+        ("CylinderCylinder B-spline", ("cyl_g", "Face1"), ("ncyl_m", "Face1"), 3.0),
+        ("LineCircle B-spline", ("g", "Edge1"), ("ncyl_m", "Edge1"), 3.0),
+        ("CurveCylinder ellipse (refused, planar)", ("cyl_g", "Face1"), ("ell_m", "Edge1"), 3.0),
+        ("Other freeform (refused, planar)", ("g", "Face6"), ("free", "Face1"), 3.0),
+    ]
+
+    def test_distance_subtypes(self):
+        for name, ref1, ref2, d in self.CASES:
+            with self.subTest(subtype=name):
+                self.tearDown()
+                self.setUp()
+                f = self.fixtures()
                 self.distance_joint((f[ref1[0]], ref1[1]), (f[ref2[0]], ref2[1]), d)
                 self.gate(label=name)
 
@@ -746,7 +809,7 @@ class TestSolverGateOrder(SolverGateBase):
         j.recompute()
         return j
 
-    def both_orders(self, name, ref1, ref2, d=3.0, offset=None):
+    def both_orders(self, name, ref1, ref2, d=3.0, offset=None, fixtures=None):
         """The case with ref1 first, then with ref2 first; the second checked against the first.
 
         offset, when given, goes on ref1's side in both: Offset1 the first
@@ -756,7 +819,7 @@ class TestSolverGateOrder(SolverGateBase):
         for swapped in (False, True):
             self.tearDown()
             self.setUp()
-            f = self.fixtures()
+            f = (fixtures or type(self).fixtures)(self)
             r1 = (f[ref1[0]], ref1[1])
             r2 = (f[ref2[0]], ref2[1])
             if swapped:
@@ -795,6 +858,27 @@ class TestSolverGateOrder(SolverGateBase):
         for name, ref1, ref2 in self.SWAPPED_DISTANCE:
             with self.subTest(subtype=name):
                 self.both_orders(name, ref1, ref2)
+
+    # Sec 6.11's role mappings, the side each wants first (CurveSphere also
+    # swaps in the case), on TestSolverGateRoleMappings' fixtures.
+    SWAPPED_ROLES = [
+        ("PlaneCone", ("g", "Face6"), ("cone_m", "Face1")),
+        ("CylinderCone", ("cyl_g", "Face1"), ("cone_m", "Face1")),
+        ("ConeTorus", ("cone_g", "Face1"), ("tor_m", "Face1")),
+        ("ConeSphere", ("cone_g", "Face1"), ("sph_m", "Face1")),
+        ("PointCone", ("cone_g", "Face1"), ("box_m", "Vertex1")),
+        ("PointTorus", ("tor_g", "Face1"), ("box_m", "Vertex1")),
+        ("LineTorus", ("tor_g", "Face1"), ("box_m", "Edge1")),
+        ("CurveSphere", ("sph_g", "Face1"), ("cyl_m", "Edge2")),
+        ("CurveTorus", ("tor_g", "Face1"), ("cyl_m", "Edge2")),
+    ]
+
+    def test_role_mappings_both_orders(self):
+        for name, ref1, ref2 in self.SWAPPED_ROLES:
+            with self.subTest(subtype=name):
+                self.both_orders(
+                    name, ref1, ref2, fixtures=TestSolverGateRoleMappings.fixtures
+                )
 
     def test_offset_stays_with_its_reference(self):
         """An offset moves the JCS of the side it belongs to, whichever side is frame I.

@@ -167,15 +167,25 @@ AssemblyExport DistanceType getDistanceType(App::DocumentObject* joint, bool* sw
 // The enumerator's name ("PlaneCone"), for messages and Python.
 AssemblyExport const char* distanceTypeName(DistanceType type);
 // Audit sec 8.1 decision 7: the Distance sub-types with no proper solver
-// mapping. The joint task refuses a new joint of one of these; a joint
+// mapping whatever the elements are. Since sec 6.11 (role mappings) only
+// Other. The joint task refuses a new joint of one of these; a joint
 // already in a document is still solved as Planar(d), with a warning. The
 // one list; Python reads it through AssemblyApp.getRefusedDistanceTypes().
 AssemblyExport const std::vector<DistanceType>& refusedDistanceTypes();
 AssemblyExport bool isDistanceTypeRefused(DistanceType type);
-// The joint's sub-type is refused. Not for Other when a side is a whole
-// object (a datum plane, an LCS, a body: no vertex, edge or face): that is
-// a planar distance between the objects' frames, which is what it gives.
+// Why a Distance joint of this sub-type between the joint's elements is
+// refused, naming the element and what it is ("the face Face3 of Loft is
+// not planar, cylindrical, conical, spherical or toroidal: it is a B-spline
+// surface"); empty when it is not. Refused: Other between two elements (not
+// when a side is a whole object -- a datum plane, an LCS, a body -- which
+// is a planar distance between the objects' frames); Curve{Cylinder,
+// Sphere,Cone,Torus} on a curve that is not a circle; CurvePlane and
+// PointCurve on a curve that is not planar (sec 6.11).
+AssemblyExport std::string distanceJointRefusal(App::DocumentObject* joint, DistanceType type);
 AssemblyExport bool isDistanceJointRefused(App::DocumentObject* joint, DistanceType type);
+// What d means for the sub-types the role mappings of sec 6.11 added
+// ("the point d from the cone's axis"); null for the others.
+AssemblyExport const char* distanceMeaning(DistanceType type);
 AssemblyExport JointGroup* getJointGroup(const App::Part* part);
 
 AssemblyExport std::vector<App::DocumentObject*> getAssemblyComponents(const AssemblyObject* assembly);

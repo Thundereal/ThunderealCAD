@@ -34,6 +34,8 @@
 #include <gp_Circ.hxx>
 #include <gp_Cylinder.hxx>
 #include <gp_Sphere.hxx>
+#include <gp_Pln.hxx>
+#include <Standard_Failure.hxx>
 
 
 #include <App/Application.h>
@@ -407,12 +409,12 @@ const char* distanceTypeName(DistanceType type)
 
 const std::vector<DistanceType>& refusedDistanceTypes()
 {
+    // Since sec 6.11 only Other is refused whatever the elements are (and
+    // only between two elements, see distanceJointRefusal). The cone, torus
+    // and curve sub-types have a role mapping; distanceJointRefusal still
+    // refuses some of them on the elements' geometry.
     static const std::vector<DistanceType> refused = {
-        DistanceType::PlaneCone,     DistanceType::CylinderCone, DistanceType::ConeCone,
-        DistanceType::ConeTorus,     DistanceType::ConeSphere,   DistanceType::PointCone,
-        DistanceType::PointTorus,    DistanceType::LineCone,     DistanceType::LineTorus,
-        DistanceType::CurveCylinder, DistanceType::CurveSphere,  DistanceType::CurveCone,
-        DistanceType::CurveTorus,    DistanceType::Other,
+        DistanceType::Other,
     };
     return refused;
 }
@@ -423,19 +425,182 @@ bool isDistanceTypeRefused(DistanceType type)
     return std::find(refused.begin(), refused.end(), type) != refused.end();
 }
 
+namespace
+{
+
+bool isElementType(const std::string& t)
+{
+    return t == "Vertex" || t == "Edge" || t == "Face";
+}
+
+// "the face Face3 of Cone" (the label of the picked component).
+std::string elementPhrase(App::DocumentObject* joint, const char* prop, const char* kind)
+{
+    std::string name = getElementFromProp(joint, prop);
+    std::string res = std::string("the ") + kind + " " + name;
+    if (auto* obj = getObjFromJointRef(joint, prop)) {
+        res += " of ";
+        res += obj->Label.getValue();
+    }
+    return res;
+}
+
+std::string faceRefusal(App::DocumentObject* joint, const char* prop)
+{
+    auto* obj = getLinkedObjFromRef(joint, prop);
+    const auto face = analyzeFace(obj, getElementFromProp(joint, prop));
+    if (isAnalyticSurface(face.type)) {
+        return {};
+    }
+    return elementPhrase(joint, prop, "face")
+        + " is not planar, cylindrical, conical, spherical or toroidal: it is "
+        + describeSurfaceType(face.type);
+}
+
+std::string edgeNotLineOrCircle(App::DocumentObject* joint, const char* prop)
+{
+    auto* obj = getLinkedObjFromRef(joint, prop);
+    const auto edge = analyzeEdge(obj, getElementFromProp(joint, prop));
+    if (edge.type == GeomAbs_Line || edge.type == GeomAbs_Circle) {
+        return {};
+    }
+    return elementPhrase(joint, prop, "edge") + " is not a line or a circle: it is "
+        + describeCurveType(edge.type);
+}
+
+std::string edgeNotPlanar(App::DocumentObject* joint, const char* prop)
+{
+    auto* obj = getLinkedObjFromRef(joint, prop);
+    const std::string name = getElementFromProp(joint, prop);
+    const auto edge = analyzeEdge(obj, name);
+    if (edge.type == GeomAbs_Line || edge.type == GeomAbs_Circle || edge.type == GeomAbs_Ellipse) {
+        return {};
+    }
+    // The plane findPlacement frames such a curve with (edge.findPlane()).
+    auto* feature = dynamic_cast<PartApp::Feature*>(obj);
+    if (feature) {
+        try {
+            PartApp::TopoShape sub(feature->Shape.getShape().getSubShape(name.c_str(), true));
+            gp_Pln pln;
+            if (!sub.isNull() && sub.findPlane(pln)) {
+                return {};
+            }
+        }
+        catch (const Standard_Failure&) {
+        }
+        catch (const Base::Exception&) {
+        }
+    }
+    return elementPhrase(joint, prop, "edge") + " is not a line and not planar: it is "
+        + describeCurveType(edge.type);
+}
+
+// The side (Reference1 or Reference2) whose element is of this type, the
+// first when both are.
+const char* sideOf(App::DocumentObject* joint, const char* elementType)
+{
+    if (getElementTypeFromProp(joint, "Reference1") == elementType) {
+        return "Reference1";
+    }
+    if (getElementTypeFromProp(joint, "Reference2") == elementType) {
+        return "Reference2";
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+std::string distanceJointRefusal(App::DocumentObject* joint, DistanceType type)
+{
+    if (!joint) {
+        return {};
+    }
+    switch (type) {
+        case DistanceType::Other: {
+            const auto t1 = getElementTypeFromProp(joint, "Reference1");
+            const auto t2 = getElementTypeFromProp(joint, "Reference2");
+            if (!isElementType(t1) || !isElementType(t2)) {
+                // A whole object on a side (a datum plane, an LCS, a body):
+                // the planar distance between the objects' frames.
+                return {};
+            }
+            // Between two elements, Other means an element that is not one
+            // getDistanceType knows: a freeform face, or (between two edges)
+            // an edge that is neither a line nor a circle.
+            for (const char* prop : {"Reference1", "Reference2"}) {
+                if (getElementTypeFromProp(joint, prop) == "Face") {
+                    auto why = faceRefusal(joint, prop);
+                    if (!why.empty()) {
+                        return why;
+                    }
+                }
+            }
+            for (const char* prop : {"Reference1", "Reference2"}) {
+                if (getElementTypeFromProp(joint, prop) == "Edge") {
+                    auto why = edgeNotLineOrCircle(joint, prop);
+                    if (!why.empty()) {
+                        return why;
+                    }
+                }
+            }
+            return "no distance is defined between these elements";
+        }
+        case DistanceType::CurveCylinder:
+        case DistanceType::CurveSphere:
+        case DistanceType::CurveCone:
+        case DistanceType::CurveTorus: {
+            // The curve stands for its axis and radius: only a circle has them.
+            const char* prop = sideOf(joint, "Edge");
+            return prop ? edgeNotLineOrCircle(joint, prop) : std::string();
+        }
+        case DistanceType::CurvePlane:
+        case DistanceType::PointCurve: {
+            // The curve stands for its plane.
+            const char* prop = sideOf(joint, "Edge");
+            return prop ? edgeNotPlanar(joint, prop) : std::string();
+        }
+        default:
+            return {};
+    }
+}
+
 bool isDistanceJointRefused(App::DocumentObject* joint, DistanceType type)
 {
-    if (!isDistanceTypeRefused(type)) {
-        return false;
+    return !distanceJointRefusal(joint, type).empty();
+}
+
+const char* distanceMeaning(DistanceType type)
+{
+    switch (type) {
+        case DistanceType::PlaneCone:
+            return "the cone's axis parallel to the plane, d from it";
+        case DistanceType::CylinderCone:
+            return "the cone's axis parallel to the cylinder's, d from the cylinder";
+        case DistanceType::ConeCone:
+            return "the cones' axes parallel, d apart";
+        case DistanceType::ConeTorus:
+            return "the cone's and the torus's axes parallel, d apart";
+        case DistanceType::ConeSphere:
+            return "the sphere d from the cone's axis";
+        case DistanceType::PointCone:
+            return "the point d from the cone's axis";
+        case DistanceType::PointTorus:
+            return "the point d from the torus's axis";
+        case DistanceType::LineCone:
+            return "the line parallel to the cone's axis, d from it";
+        case DistanceType::LineTorus:
+            return "the line parallel to the torus's axis, d from it";
+        case DistanceType::CurveCylinder:
+            return "the circle's axis parallel to the cylinder's, the circle d from the cylinder";
+        case DistanceType::CurveSphere:
+            return "the sphere d from the circle's cylinder";
+        case DistanceType::CurveCone:
+            return "the circle's axis parallel to the cone's, the circle d from it";
+        case DistanceType::CurveTorus:
+            return "the circle's axis parallel to the torus's, the circle d from it";
+        default:
+            return nullptr;
     }
-    if (type == DistanceType::Other) {
-        auto isElement = [joint](const char* prop) {
-            const auto t = getElementTypeFromProp(joint, prop);
-            return t == "Vertex" || t == "Edge" || t == "Face";
-        };
-        return isElement("Reference1") && isElement("Reference2");
-    }
-    return true;
 }
 
 JointGroup* getJointGroup(const App::Part* part)

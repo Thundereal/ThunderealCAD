@@ -427,10 +427,9 @@ class TestDistanceMapped(JointTestBase):
 
     LineCylinder: the line parallel to the cylinder's axis, d + r from it (d
     from the surface). LineSphere: the line d + r from the sphere's centre.
-    CurvePlane: the curve's plane parallel to the plane, d from it. The 14
-    refused sub-types: a joint already in a document still solves as
-    Planar(d), with one warning per joint (docs/AssemblySolverInterface.md
-    sec 6.8).
+    CurvePlane: the curve's plane parallel to the plane, d from it. A refused
+    joint already in a document still solves as Planar(d), with one warning
+    per joint (docs/AssemblySolverInterface.md sec 6.8, 6.11).
     """
 
     D = TestDistanceJoint.D
@@ -472,23 +471,20 @@ class TestDistanceMapped(JointTestBase):
     def test_api(self):
         import AssemblyApp
 
-        refused = AssemblyApp.getRefusedDistanceTypes()
-        self.assertEqual(
-            sorted(refused),
-            sorted(
-                [
-                    "PlaneCone", "CylinderCone", "ConeCone", "ConeTorus", "ConeSphere",
-                    "PointCone", "PointTorus", "LineCone", "LineTorus", "CurveCylinder",
-                    "CurveSphere", "CurveCone", "CurveTorus", "Other",
-                ]
-            ),
-        )  # fmt: skip
+        # Since sec 6.11 only Other is refused whatever the elements are.
+        self.assertEqual(AssemblyApp.getRefusedDistanceTypes(), ["Other"])
         f = self.fixtures()
+        f.update(freeform(self.assembly))
+        self.doc.recompute()
         j = self.distance_joint((f["cyl_g"], "Face1"), (f["box_m"], "Edge1"), self.D)
         self.assertEqual(AssemblyApp.getDistanceType(j), "LineCylinder")
         self.assertFalse(AssemblyApp.isDistanceJointRefused(j))
+        self.assertEqual(AssemblyApp.getDistanceRefusal(j), "")
         j.Reference1 = [f["tor_g"], ["Face1", "Face1"]]  # a torus and a line
         self.assertEqual(AssemblyApp.getDistanceType(j), "LineTorus")
+        self.assertFalse(AssemblyApp.isDistanceJointRefused(j))
+        j.Reference1 = [f["free"], ["Face1", "Face1"]]  # a freeform face and a line
+        self.assertEqual(AssemblyApp.getDistanceType(j), "Other")
         self.assertTrue(AssemblyApp.isDistanceJointRefused(j))
 
     def test_line_cylinder(self):
@@ -522,16 +518,22 @@ class TestDistanceMapped(JointTestBase):
         self.check_curve_plane(f, f["ell_m"], "Edge1")
 
     def test_refused_in_document_solves_planar_and_warns_once(self):
-        warnings = _Warnings("PlaneCone")
+        """A plane and a freeform face (Other): refused for a new joint, Planar(d) in a document."""
+        warnings = _Warnings("no mapping for")
         App.Console.AttachObserver(warnings)
         try:
-            f, j = self.mapped(("g", "Face6"), ("cone_m", "Face1"), extra=self.cone)
+            f, j = self.mapped(
+                ("g", "Face6"), ("free", "Face1"), extra=lambda: freeform(self.assembly)
+            )
             self.solve()
             self.solve()
         finally:
             App.Console.DetachObserver(warnings)
         self.assertEqual(len(warnings.messages), 1, warnings.messages)
         self.assertIn(j.Name, warnings.messages[0])
+        # The warning says why: which element, and what it is.
+        self.assertIn("the face Face1 of Free is not planar", warnings.messages[0])
+        self.assertIn("B-spline surface", warnings.messages[0])
         # Planar(d): the two JCS z axes parallel, J's origin d along I's z.
         pi, pj = self.jcs(j, 1), self.jcs(j, 2)
         self.assertClose(abs(zaxis(pi).dot(zaxis(pj))), 1.0)
@@ -566,6 +568,171 @@ def surface_of(obj, face):
 
 def circle_of(obj, edge):
     return obj.Shape.getElement(edge).Curve
+
+
+class TestDistanceRoleMappings(JointTestBase):
+    """Sec 6.11: the 13 sub-types decision 7 refused, mapped by role, checked on the geometry.
+
+    A cone stands for its axis (as a cylinder of radius 0), a torus for its
+    axis (radius 0, as CylinderTorus and TorusSphere read it), a circle for
+    its axis and radius (as LineCircle and CircleCircle read it). Each case
+    checks the relation the mapping states on the solved shapes, not on the
+    JCS.
+    """
+
+    D = TestDistanceJoint.D
+    R_CYL = TestDistanceJoint.R_CYL
+    R_SPH = TestDistanceJoint.R_SPH
+    R_CIRCLE = TestDistanceJoint.R_CIRCLE
+    distance_joint = TestDistanceJoint.distance_joint
+
+    def fixtures(self):
+        f = TestDistanceJoint.fixtures(self)
+        cone_g = self.assembly.newObject("Part::Cone", "ConeG")
+        cone_g.Radius1, cone_g.Radius2, cone_g.Height = 6.0, 2.0, 10.0
+        cone_g.Placement = plc(0, -40, 0, App.Vector(1, 0, 0), 20)
+        self.ground(cone_g)
+        cone_m = self.assembly.newObject("Part::Cone", "ConeM")
+        cone_m.Radius1, cone_m.Radius2, cone_m.Height = 5.0, 2.0, 8.0
+        cone_m.Placement = plc(7, -23, 41, App.Vector(1, 2, 3), 25)
+        self.doc.recompute()
+        f.update(cone_g=cone_g, cone_m=cone_m)
+        return f
+
+    def solved(self, name, ref1, ref2):
+        import AssemblyApp
+
+        self.tearDown()
+        self.setUp()
+        f = self.fixtures()
+        moving = f[ref2[0]]
+        start = moving.Placement
+        j = self.distance_joint((f[ref1[0]], ref1[1]), (moving, ref2[1]), self.D)
+        self.assertEqual(AssemblyApp.getDistanceType(j), name)
+        self.assertEqual(AssemblyApp.getDistanceRefusal(j), "")
+        self.solve()
+        self.assertMoved(moving, start)
+        return f
+
+    def axis(self, f, key, face="Face1"):
+        """A point on the axis of a cone, a torus or a cylinder face, and its direction."""
+        s = surface_of(f[key], face)
+        origin = s.Apex if hasattr(s, "Apex") else s.Center
+        return origin, s.Axis
+
+    def assertParallelAxes(self, a, b, distance):
+        (pa, ua), (pb, ub) = a, b
+        self.assertClose(abs(ua.dot(ub)), 1.0)
+        self.assertClose(dist_to_line(pb, pa, ua), distance)
+
+    def test_plane_cone(self):
+        f = self.solved("PlaneCone", ("g", "Face6"), ("cone_m", "Face1"))
+        plane = surface_of(f["g"], "Face6")
+        apex, u = self.axis(f, "cone_m")
+        # As PlaneCylinder with r = 0: the axis parallel to the plane, d above it.
+        self.assertClose(u.dot(plane.Axis), 0.0)
+        self.assertClose((apex - plane.Position).dot(plane.Axis), self.D)
+
+    def test_cylinder_cone(self):
+        f = self.solved("CylinderCone", ("cyl_g", "Face1"), ("cone_m", "Face1"))
+        self.assertParallelAxes(
+            self.axis(f, "cyl_g"), self.axis(f, "cone_m"), self.D + self.R_CYL
+        )
+
+    def test_cone_cone(self):
+        f = self.solved("ConeCone", ("cone_g", "Face1"), ("cone_m", "Face1"))
+        self.assertParallelAxes(self.axis(f, "cone_g"), self.axis(f, "cone_m"), self.D)
+
+    def test_cone_torus(self):
+        f = self.solved("ConeTorus", ("cone_g", "Face1"), ("tor_m", "Face1"))
+        self.assertParallelAxes(self.axis(f, "cone_g"), self.axis(f, "tor_m"), self.D)
+
+    def test_cone_sphere(self):
+        f = self.solved("ConeSphere", ("cone_g", "Face1"), ("sph_m", "Face1"))
+        p, u = self.axis(f, "cone_g")
+        centre = surface_of(f["sph_m"], "Face1").Center
+        self.assertClose(dist_to_line(centre, p, u), self.D + self.R_SPH)
+
+    def test_point_cone(self):
+        f = self.solved("PointCone", ("cone_g", "Face1"), ("box_m", "Vertex1"))
+        p, u = self.axis(f, "cone_g")
+        point = f["box_m"].Shape.getElement("Vertex1").Point
+        self.assertClose(dist_to_line(point, p, u), self.D)
+
+    def test_point_torus(self):
+        f = self.solved("PointTorus", ("tor_g", "Face1"), ("box_m", "Vertex1"))
+        p, u = self.axis(f, "tor_g")
+        point = f["box_m"].Shape.getElement("Vertex1").Point
+        self.assertClose(dist_to_line(point, p, u), self.D)
+
+    def test_line_cone(self):
+        f = self.solved("LineCone", ("cone_g", "Face1"), ("box_m", "Edge1"))
+        self.assertParallelAxes(self.axis(f, "cone_g"), line_of(f["box_m"], "Edge1"), self.D)
+
+    def test_line_torus(self):
+        f = self.solved("LineTorus", ("tor_g", "Face1"), ("box_m", "Edge1"))
+        self.assertParallelAxes(self.axis(f, "tor_g"), line_of(f["box_m"], "Edge1"), self.D)
+
+    def circle_axis(self, f):
+        c = circle_of(f["cyl_m"], "Edge2")
+        return c.Center, c.Axis
+
+    def test_curve_cylinder(self):
+        f = self.solved("CurveCylinder", ("cyl_g", "Face1"), ("cyl_m", "Edge2"))
+        self.assertParallelAxes(
+            self.axis(f, "cyl_g"), self.circle_axis(f), self.D + self.R_CYL + self.R_CIRCLE
+        )
+
+    def test_curve_sphere(self):
+        f = self.solved("CurveSphere", ("sph_g", "Face1"), ("cyl_m", "Edge2"))
+        p, u = self.circle_axis(f)
+        centre = surface_of(f["sph_g"], "Face1").Center
+        self.assertClose(dist_to_line(centre, p, u), self.D + self.R_SPH + self.R_CIRCLE)
+
+    def test_curve_cone(self):
+        f = self.solved("CurveCone", ("cone_g", "Face1"), ("cyl_m", "Edge2"))
+        self.assertParallelAxes(
+            self.axis(f, "cone_g"), self.circle_axis(f), self.D + self.R_CIRCLE
+        )
+
+    def test_curve_torus(self):
+        f = self.solved("CurveTorus", ("tor_g", "Face1"), ("cyl_m", "Edge2"))
+        self.assertParallelAxes(
+            self.axis(f, "tor_g"), self.circle_axis(f), self.D + self.R_CIRCLE
+        )
+
+    def test_partial_torus_frame_on_axis(self):
+        """A quarter torus (a fillet) is framed on its axis, so PointTorus reads the axis."""
+        self.tearDown()
+        self.setUp()
+        f = TestDistanceJoint.fixtures(self)
+        quarter = self.assembly.newObject("Part::Torus", "Quarter")
+        quarter.Radius1, quarter.Radius2 = 8.0, 2.0
+        quarter.Angle3 = 90.0
+        quarter.Placement = plc(0, -40, 0)
+        self.ground(quarter)
+        self.doc.recompute()
+        j = self.distance_joint((quarter, "Face1"), (f["box_m"], "Vertex1"), self.D)
+        jcs = self.jcs(j, 1)
+        s = surface_of(quarter, "Face1")
+        self.assertClose(dist_to_line(jcs.Base, s.Center, s.Axis), 0.0)
+        self.solve()
+        point = f["box_m"].Shape.getElement("Vertex1").Point
+        self.assertClose(dist_to_line(point, s.Center, s.Axis), self.D)
+
+    def test_mapped_in_document_logs_once(self):
+        """A joint of a newly mapped kind solves with its mapping; one log line, no warning."""
+        logs = _Warnings("PointTorus")
+        App.Console.AttachObserver(logs)
+        try:
+            self.solved("PointTorus", ("tor_g", "Face1"), ("box_m", "Vertex1"))
+            self.solve()
+            self.solve()
+        finally:
+            App.Console.DetachObserver(logs)
+        self.assertLessEqual(len(logs.messages), 1, logs.messages)
+        for msg in logs.messages:
+            self.assertIn("the point d from the torus's axis", msg)
 
 
 class TestElementRecognition(JointTestBase):
@@ -691,6 +858,80 @@ def AssemblyApp_geometry(shape):
     import AssemblyApp
 
     return AssemblyApp.getElementGeometry(shape)
+
+
+class TestDistanceRefusal(JointTestBase):
+    """Sec 6.11: what is still refused, and the message that says why; whole objects accepted."""
+
+    R_CYL = TestDistanceJoint.R_CYL
+    R_SPH = TestDistanceJoint.R_SPH
+    distance_joint = TestDistanceJoint.distance_joint
+
+    def fixtures(self):
+        f = TestDistanceJoint.fixtures(self)
+        f.update(freeform(self.assembly))
+        ell = self.assembly.newObject("Part::Ellipse", "EllM")
+        ell.MajorRadius, ell.MinorRadius = 6.0, 3.0
+        helix = self.assembly.newObject("Part::Helix", "HelixM")
+        helix.Pitch, helix.Height, helix.Radius = 3.0, 9.0, 4.0
+        self.doc.recompute()
+        f.update(ell_m=ell, helix_m=helix)
+        return f
+
+    def refusal(self, f, ref1, ref2):
+        import AssemblyApp
+
+        j = self.distance_joint((f[ref1[0]], ref1[1]), (f[ref2[0]], ref2[1]), 3.0)
+        return AssemblyApp.getDistanceType(j), AssemblyApp.getDistanceRefusal(j)
+
+    def test_messages(self):
+        f = self.fixtures()
+        face = (
+            "is not planar, cylindrical, conical, spherical or toroidal: it is a B-spline surface"
+        )
+        cases = [
+            (("g", "Face6"), ("free", "Face1"), "Other", "the face Face1 of Free " + face),
+            (("free", "Face1"), ("box_m", "Vertex1"), "Other", "the face Face1 of Free " + face),
+            (("free", "Face1"), ("box_m", "Edge1"), "Other", "the face Face1 of Free " + face),
+            (("g", "Edge1"), ("ell_m", "Edge1"), "Other",
+             "the edge Edge1 of EllM is not a line or a circle: it is an ellipse"),
+            (("cyl_g", "Face1"), ("ell_m", "Edge1"), "CurveCylinder",
+             "the edge Edge1 of EllM is not a line or a circle: it is an ellipse"),
+            (("sph_g", "Face1"), ("ell_m", "Edge1"), "CurveSphere",
+             "the edge Edge1 of EllM is not a line or a circle: it is an ellipse"),
+            (("g", "Face6"), ("helix_m", "Edge1"), "CurvePlane",
+             "the edge Edge1 of HelixM is not a line and not planar: it is a B-spline curve"),
+            (("helix_m", "Edge1"), ("box_m", "Vertex1"), "PointCurve",
+             "the edge Edge1 of HelixM is not a line and not planar: it is a B-spline curve"),
+        ]  # fmt: skip
+        for ref1, ref2, kind, why in cases:
+            with self.subTest(refs=(ref1, ref2)):
+                self.assertEqual(self.refusal(f, ref1, ref2), (kind, why))
+        # Accepted: an ellipse's plane (CurvePlane), a circle on a sphere (CurveSphere).
+        self.assertEqual(self.refusal(f, ("g", "Face6"), ("ell_m", "Edge1")), ("CurvePlane", ""))
+        self.assertEqual(
+            self.refusal(f, ("sph_g", "Face1"), ("cyl_m", "Edge2")), ("CurveSphere", "")
+        )
+
+    def test_whole_objects_are_other_and_accepted(self):
+        """Two whole objects (no element): Other, accepted, the planar distance of their frames."""
+        import AssemblyApp
+
+        f = TestDistanceJoint.fixtures(self)
+        start = f["box_m"].Placement
+        j = self.jointgroup.newObject("App::FeaturePython", "Distance")
+        JointObject.Joint(j, JointObject.JointTypes.index("Distance"))
+        j.Distance = 3.0
+        j.Proxy.setJointConnectors(j, [[f["g"], ["", ""]], [f["box_m"], ["", ""]]])
+        self.assertEqual(AssemblyApp.getDistanceType(j), "Other")
+        self.assertEqual(AssemblyApp.getDistanceRefusal(j), "")
+        self.assertFalse(AssemblyApp.isDistanceJointRefused(j))
+        self.solve()
+        self.assertMoved(f["box_m"], start)
+        # Planar(3): the objects' frames parallel, the box's origin 3 above G's xy plane.
+        pg, pb = f["g"].Placement, f["box_m"].Placement
+        self.assertClose(abs(zaxis(pg).dot(zaxis(pb))), 1.0)
+        self.assertClose(pg.inverse().multVec(pb.Base).z, 3.0)
 
 
 class TestSolveStatus(JointTestBase):

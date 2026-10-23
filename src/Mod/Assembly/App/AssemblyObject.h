@@ -355,9 +355,11 @@ private:
     // Frames I and J of the joint being built come from Reference2 and
     // Reference1 (swapJCS); reset by makeMbdJoint for each joint.
     bool jcsSwapped {false};
-    // Distance joints of a refused sub-type (isDistanceTypeRefused) already
+    // Distance joints a new pick would refuse (distanceJointRefusal) already
     // warned about, by full name and sub-type: one warning per joint while
     // this object lives (from a document load), not one per solve or drag.
+    // Also, keyed "mapped:", the joints of a sub-type the role mappings
+    // added (sec 6.11) already logged.
     std::unordered_set<std::string> warnedRefusedDistance;
 
     // Drag step bookkeeping, reset by preDrag().

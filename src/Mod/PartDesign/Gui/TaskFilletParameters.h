@@ -104,6 +104,7 @@ protected:
     int itemGroup(QTreeWidgetItem* item) const override;
     std::vector<int> groupIds() const override;
     Gui::Gizmo* itemHandle(QTreeWidgetItem* item) const override;
+    std::string handleEdge(Gui::Gizmo* gizmo) const override;
     void groupColorsChanged() override;
 
     void removeSegments();

@@ -38,6 +38,7 @@
 # include <QHeaderView>
 # include <QIcon>
 # include <QPixmap>
+# include <QPointer>
 # include <QTreeWidget>
 # include <cmath>
 #endif
@@ -1449,6 +1450,47 @@ void TaskDressUpParameters::onItemSelectionChanged()
     blockSelection(blocked);
     // the panel heard none of it: the preview's faces in the selection colour
     syncPreviewSelection();
+}
+
+void TaskDressUpParameters::onActiveHandleChanged(Gui::Gizmo *handle)
+{
+    if (!treeWidget)
+        return;
+    // let go: the selection stays, the next handle made active selects again
+    if (!handle) {
+        activeHandleEdge.clear();
+        return;
+    }
+    // a missing edge's name as its row and its handle may give it
+    auto plain = [](std::string name) {
+        if (boost::starts_with(name, Data::missingPrefix()))
+            name.erase(0, Data::missingPrefix().size());
+        return name;
+    };
+    const std::string edge = plain(handleEdge(handle));
+    // the same edge's handle made anew by a recompute, and active again
+    if (edge.empty() || edge == activeHandleEdge)
+        return;
+    activeHandleEdge = edge;
+    // After the click: the view takes its release as a pick of nothing
+    // selectable and clears the selection, the row's with it
+    QPointer<TaskDressUpParameters> self(this);
+    QTimer::singleShot(0, this, [self, edge, plain]() {
+        if (!self || !self->treeWidget || self->activeHandleEdge != edge)
+            return;
+        for (auto row : self->rowsInOrder()) {
+            if (plain(getGeometryItemText(row).constData()) != edge)
+                continue;
+            {
+                QSignalBlocker blocker(self->treeWidget);
+                self->treeWidget->clearSelection();
+                row->setSelected(true);
+            }
+            self->treeWidget->scrollToItem(row);
+            self->onItemSelectionChanged();
+            return;
+        }
+    });
 }
 
 App::SubObjectT TaskDressUpParameters::getInEdit(App::DocumentObject *base, const char *sub) {

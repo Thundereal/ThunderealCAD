@@ -181,6 +181,18 @@ protected:
     {
         return nullptr;
     }
+    /// The edge a handle stands on (as Base names it), empty for none
+    virtual std::string handleEdge(Gui::Gizmo*) const
+    {
+        return {};
+    }
+    /** A handle made active selects its edge's row, and with it the edge --
+     * or a missing edge's preview face -- as a click on the row does
+     * (entry 213; the reporter: "just select the corresponding edge, as the
+     * right click context menu is meant to apply to that edge"). Only its
+     * own edge, a shared handle's too; a handle let go leaves the selection.
+     */
+    void onActiveHandleChanged(Gui::Gizmo* handle);
     /// The group of a row, 0 for none
     virtual int itemGroup(QTreeWidgetItem*) const
     {
@@ -277,6 +289,9 @@ protected:
     /// The missing row that was the selection when a click cleared it, for
     /// the pick the same click makes next (replaceMissing())
     std::string missingPick;
+    /// The edge whose handle was made active last (onActiveHandleChanged()):
+    /// its handle made anew and active again selects nothing
+    std::string activeHandleEdge;
     /// heldStepBegun()'s
     std::vector<std::string> failedAtStepStart;
     std::string errorAtStepStart;

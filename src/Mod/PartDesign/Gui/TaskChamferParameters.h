@@ -174,6 +174,7 @@ private:
     int itemGroup(QTreeWidgetItem* item) const override;
     std::vector<int> groupIds() const override;
     Gui::Gizmo* itemHandle(QTreeWidgetItem* item) const override;
+    std::string handleEdge(Gui::Gizmo* gizmo) const override;
     void groupColorsChanged() override;
     void fillEdgeMenu(QMenu& menu, Gui::Gizmo* gizmo);
     /// The values an edge is chamfered with: its own, or the defaults

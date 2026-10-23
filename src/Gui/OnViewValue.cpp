@@ -591,6 +591,9 @@ void OnViewValueSet::clearHandles(int index)
         if (handle == activeHandle) {
             activeHandle = nullptr;
         }
+        if (handle == namedHandle) {
+            namedHandle = nullptr;
+        }
         handle->setReleaseCallback(nullptr);
         handle->setMenu(nullptr);
         handle->setDragCallback(nullptr);
@@ -1031,12 +1034,15 @@ void OnViewValueSet::setActive(int index, Gizmo* handle)
         endTyping(false);
     }
     const bool changed = index != active;
+    Gizmo* const oldNamed = namedHandle;
     active = index;
     activeHandle = nullptr;
+    namedHandle = nullptr;
     if (active >= 0) {
         const auto& handles = entries[active]->handles;
         if (handle && std::find(handles.begin(), handles.end(), handle) != handles.end()) {
             activeHandle = handle;
+            namedHandle = handle;
         }
         else if (!handles.empty()) {
             activeHandle = handles.front();
@@ -1050,6 +1056,9 @@ void OnViewValueSet::setActive(int index, Gizmo* handle)
     }
     if (changed) {
         Q_EMIT activeChanged(active);
+    }
+    if (namedHandle != oldNamed) {
+        Q_EMIT activeHandleChanged(namedHandle);
     }
 }
 

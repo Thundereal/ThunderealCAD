@@ -210,6 +210,11 @@ fc_add_gui_test(GuiDressUpTypedGroupKeepsRow_tests_run dressup-typed-group-keeps
 fc_add_gui_test(GuiPdPanelWidthsStickyColumn_tests_run pd-panel-widths-sticky-column.py
                 --timeout 200)
 
+# Entry 213, the reporter 2026-10-23: a dress-up handle made active (a click
+# on it) selects its edge, as a click on the edge's row does.
+fc_add_gui_test(GuiDressUpHandleSelectsEdge_tests_run dressup-handle-selects-edge.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

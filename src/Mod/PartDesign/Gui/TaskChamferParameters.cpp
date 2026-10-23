@@ -286,6 +286,9 @@ TaskChamferParameters::TaskChamferParameters(ViewProviderDressUp *DressUpView,QW
     // takes the defaults drives them, a customised one its own values, whose
     // labels show beside the handle while it is active
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a handle made active selects its edge (entry 213)
+    connect(onViewValues.get(), &Gui::OnViewValueSet::activeHandleChanged, this,
+            [this](Gui::Gizmo* handle) { onActiveHandleChanged(handle); });
     // a right click on an edge's preview face, or the edge: its handle's menu
     onViewValues->setHoverHandleProvider([this]() {
         return getHoverHandle();
@@ -1056,6 +1059,17 @@ std::vector<int> TaskChamferParameters::groupIds() const
     auto vp = getDressUpView();
     auto chamfer = vp ? dynamic_cast<PartDesign::Chamfer*>(vp->getObject()) : nullptr;
     return chamfer ? chamfer->ChamferInfo.getGroups() : std::vector<int>();
+}
+
+std::string TaskChamferParameters::handleEdge(Gui::Gizmo* gizmo) const
+{
+    // an edge's size, second size or angle handle, a default's on it too
+    for (const auto& handle : edgeHandles) {
+        if (handle.gizmo && handle.gizmo == gizmo) {
+            return handle.edge;
+        }
+    }
+    return {};
 }
 
 Gui::Gizmo* TaskChamferParameters::itemHandle(QTreeWidgetItem* item) const

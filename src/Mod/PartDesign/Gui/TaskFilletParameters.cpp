@@ -274,6 +274,9 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
     // an edge that takes the default drives it, a customised one its own
     // radius, whose label shows beside the arrow while it is active
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a handle made active selects its edge (entry 213)
+    connect(onViewValues.get(), &Gui::OnViewValueSet::activeHandleChanged, this,
+            [this](Gui::Gizmo* handle) { onActiveHandleChanged(handle); });
     onViewValues->addValue(ui->filletRadius, tr("Radius"),
                            Gui::OnViewValueSet::Place::TopMiddle);
     onViewValues->setMenu(DefaultValue, [this](QMenu& menu, Gui::Gizmo* handle) {
@@ -1026,6 +1029,18 @@ std::vector<int> TaskFilletParameters::groupIds() const
     auto vp = getDressUpView();
     auto fillet = vp ? dynamic_cast<PartDesign::Fillet*>(vp->getObject()) : nullptr;
     return fillet ? fillet->Segments.getGroups() : std::vector<int>();
+}
+
+std::string TaskFilletParameters::handleEdge(Gui::Gizmo* gizmo) const
+{
+    // an edge's arrows and knobs, the default radius's on it too; a corner's
+    // handle stands on no single edge
+    for (const auto& handle : edgeHandles) {
+        if (handle.gizmo && handle.gizmo == gizmo) {
+            return handle.edge;
+        }
+    }
+    return {};
 }
 
 Gui::Gizmo* TaskFilletParameters::itemHandle(QTreeWidgetItem* item) const

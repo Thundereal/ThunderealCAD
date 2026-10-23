@@ -52,6 +52,7 @@ from AssemblyTests.TestSolverGate import (
     TestSolverGateRigid,
     BACKEND_GATE_CLASSES,
 )
+from AssemblyTests.TestCamJoint import TestCamJoint
 from AssemblyTests.TestGuiCommands import TestGuiCommands
 
 # Use the modules so that code checkers don't complain (flake8)
@@ -81,6 +82,7 @@ True if TestSolverGateOrder else False
 True if TestSolverGateSimulation else False
 True if TestSolverGateBench else False
 True if TestSolverGateRigid else False
+True if TestCamJoint else False
 True if TestGuiCommands else False
 
 # The gate once more per registered backend other than OndselSolver

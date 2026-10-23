@@ -60,6 +60,7 @@
 #include "AssemblyObject.h"
 #include "AssemblyObjectPy.h"
 #include "AssemblyUtils.h"
+#include "CamJoint.h"
 #include "Groups.h"
 #include "Solver/Backend.h"
 #include "Solver/ReferenceBackend.h"
@@ -2157,6 +2158,11 @@ std::shared_ptr<Solver::Joint> AssemblyObject::makeMbdJointOfType(App::DocumentO
             return mbdJoint;
         }
 
+        // Not upstream: the curve and the offset come with the frames
+        // (makeMbdJoint, addCamCurve).
+        case JointType::Cam:
+            return makeJoint(Solver::JointKind::PointOnCurve);
+
         default:
             return nullptr;
     }
@@ -2504,6 +2510,16 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
     mbdJoint->source = solverModel->addSource(joint->getFullName());
     mbdJoint->frameI = fullMarkerNameI;
     mbdJoint->frameJ = fullMarkerNameJ;
+    // Not upstream: a cam holds its follower on the cam's curve (CamJoint.cpp).
+    if (jointType == JointType::Cam
+        && !addCamCurve(
+            joint,
+            *solverModel,
+            *mbdJoint,
+            getMbDData(getMovingPartFromRef(joint, jcsRef(1))).offsetPlc
+        )) {
+        return {};
+    }
 
     // Add limits if needed. We do not add if this is a simulation or their might clash.
     if (motions.empty()) {

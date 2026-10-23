@@ -60,6 +60,7 @@ TranslatedJointTypes = [
     translate("Assembly", "Screw"),
     translate("Assembly", "Gears"),
     translate("Assembly", "Belt"),
+    translate("Assembly", "Cam"),  # not upstream: JointCam.py
 ]
 
 JointTypes = [
@@ -76,6 +77,7 @@ JointTypes = [
     "Screw",
     "Gears",
     "Belt",
+    "Cam",  # not upstream: JointCam.py
 ]
 
 JointUsingAngle = [
@@ -760,6 +762,10 @@ class Joint:
     def setJointType(self, joint, newType):
         oldType = joint.JointType
         if newType != oldType:
+            # Not upstream: a joint from an older file lists the types of its time.
+            if newType not in joint.getEnumerationsOfProperty("JointType"):
+                joint.JointType = JointTypes
+                joint.JointType = oldType
             joint.JointType = newType
 
     def onChanged(self, joint, prop):
@@ -901,7 +907,7 @@ class Joint:
     """
 
     def findPlacement(self, joint, ref, index=0):
-        ignoreVertex = joint.JointType == "Distance"
+        ignoreVertex = joint.JointType in ("Distance", "Cam")  # not upstream: Cam
         plc = UtilsAssembly.findPlacement(ref, ignoreVertex)
 
         # We apply the attachment offsets.
@@ -1047,6 +1053,9 @@ class Joint:
         # This function swap the references if possible to avoid those issues.
         assembly = self.getAssembly(joint)
         if not assembly or assembly.Type != "Assembly":
+            return
+        # Not upstream: a cam's references have roles (the cam, the follower).
+        if joint.JointType == "Cam":
             return
 
         part1 = UtilsAssembly.getMovingPart(joint.Reference1)
@@ -2023,6 +2032,10 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         what it is. The picks are set on the joint to classify them, as
         setJointConnectors sets them, without solving.
         """
+        if self.jType == "Cam":
+            import JointCam
+
+            return JointCam.pickRefusal(self.joint, self.refs)
         if self.jType != "Distance" or len(self.refs) != 2:
             return ""
         import AssemblyApp
@@ -2040,6 +2053,10 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
             "Assembly",
             "A distance between these elements is not supported: {}. Select other elements.",
         ).format(reason)
+        if self.jType == "Cam":
+            import JointCam
+
+            msg = JointCam.refusalMessage(reason)
         App.Console.PrintWarning(msg + "\n")
         self.refusalLabel.setText(msg)
         self.refusalLabel.show()

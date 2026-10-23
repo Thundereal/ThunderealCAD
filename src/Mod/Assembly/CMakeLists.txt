@@ -31,6 +31,7 @@ set(Assembly_Scripts
     CommandExportASMT.py
     TestAssemblyWorkbench.py
     JointObject.py
+    JointCam.py
     Preferences.py
     AssemblyImport.py
     SoSwitchMarker.py
@@ -62,6 +63,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestSettings.py
     AssemblyTests/TestJoints.py
     AssemblyTests/TestSolverGate.py
+    AssemblyTests/TestCamJoint.py
     AssemblyTests/SolverGateReference.json
     AssemblyTests/TestGuiCommands.py
     AssemblyTests/mocks/__init__.py

@@ -74,6 +74,7 @@ enum class JointType
     Screw,
     Gears,
     Belt,
+    Cam,  // not upstream (CamJoint.h); appended, so older files keep their values
 };
 
 enum class GeometryType

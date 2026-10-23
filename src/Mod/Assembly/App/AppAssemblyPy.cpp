@@ -32,6 +32,7 @@
 #include <TopoDS.hxx>
 
 #include "AssemblyUtils.h"
+#include "CamJoint.h"
 #include "ElementGeometry.h"
 #include "Solver/Registry.h"
 
@@ -79,6 +80,15 @@ public:
             "Why a new Distance joint between the joint's elements is refused, naming\n"
             "the element and what it is ('the face Face1 of Loft is not planar, ...');\n"
             "'' when it is not."
+        );
+        add_varargs_method(
+            "getCamRefusal",
+            &Module::getCamRefusal,
+            "getCamRefusal(joint) -> str\n\n"
+            "Why the joint's picks cannot make a Cam joint, naming the element and what\n"
+            "it should be ('the face Face1 of Cam is not an edge: ...'); '' when they can.\n"
+            "Reference1 is the cam (an edge), Reference2 the follower (a vertex, or a\n"
+            "circular edge: a roller); a pick not made yet is not checked."
         );
         add_varargs_method(
             "getElementGeometry",
@@ -161,6 +171,11 @@ private:
     {
         auto* joint = jointArg(args);
         return Py::String(Assembly::distanceJointRefusal(joint, Assembly::getDistanceType(joint)));
+    }
+
+    Py::Object getCamRefusal(const Py::Tuple& args)
+    {
+        return Py::String(Assembly::camJointRefusal(jointArg(args)));
     }
 
     static TopoDS_Shape shapeArg(const Py::Tuple& args)

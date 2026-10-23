@@ -344,6 +344,14 @@ def step(fn):
 
 @step
 def build():
+    platform = QtGui.QGuiApplication.platformName()
+    if platform == "offscreen":
+        # its 800 x 800 screen leaves a view of 400 x 366: split, two cells of
+        # 400 x 182, a panel in one is its title bar alone (entry 229)
+        note("NOT RUN: the platform is %r; this script lays panels over two views and runs "
+             "on the real screen" % platform)
+        del steps[:]
+        return
     FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document").SetInt("AutoSaveTimeout", 0)
     VIEW.SetInt("RenderCache", 3)
     VIEW.SetBool("ShowNaviCube", False)
@@ -353,6 +361,9 @@ def build():
     TASKS.SetBool("TaskPanelAllowConcurrent", True)
     LAST.RemString("Side")
     LAST.RemString("Mode")
+    # on a small screen a view is not split into two cells of the default
+    # least size, 300 x 300 (entry 229)
+    VIEW.GetGroup("OpenView").SetInt("MinimumCellSize", 100)
 
     for dock in mw().findChildren(QtWidgets.QDockWidget):
         if dock.objectName() in ("Python console", "Report view"):
@@ -600,6 +611,7 @@ def finish():
     TASKS.SetBool("TaskPanelAllowConcurrent", False)
     LAST.RemString("Side")
     LAST.RemString("Mode")
+    VIEW.GetGroup("OpenView").RemInt("MinimumCellSize")
     try:
         close_any()
     except Exception:

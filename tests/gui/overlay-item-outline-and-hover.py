@@ -231,10 +231,20 @@ def one_theme(theme):
     if not check("%s: the row is found" % theme, rect is not None):
         return
     first, last = painted_span(base, rect, area_right)
+    vp = tree.viewport()
+    note("INFO %s: the overlay %s, the tree's viewport %s in it; column 0 %d wide (its "
+         "contents %d, resize mode %s); Box03's row %s"
+         % (theme, tab.size().toTuple(),
+            QtCore.QRect(vp.mapTo(tab, QtCore.QPoint(0, 0)), vp.size()).getRect(),
+            tree.header().sectionSize(0), tree.sizeHintForColumn(0),
+            tree.header().sectionResizeMode(0), rect.getRect()))
+    # The row as the view draws it runs to the viewport's right edge; its
+    # first column is only as wide as the widest item (ResizeToContents), so
+    # an item ends a few pixels short of that column (entry 229)
     check("%s: the item's background is cut to the item, not the row" % theme,
-          first is not None and last < rect.left() + rect.width() - 20,
+          first is not None and last < area_right - 20,
           "painted from %s to %s, the row from %d to %d" % (first, last, rect.left(),
-                                                           rect.left() + rect.width()))
+                                                           area_right))
     backing = QtCore.QRect(first, rect.top(), last - first + 1, rect.height())
     ground = commonest(base, backing.adjusted(2, 2, -2, -2))
     check("%s: on the screen the background is the 3D view's first colour at %d" % (theme, ALPHA),
@@ -244,13 +254,20 @@ def one_theme(theme):
     check("%s: its first and last pixel on the row's middle line are that too, no rim" % theme,
           all(near(p, asked) for p in rim), rim)
 
-    # the pointer on the row below
-    target = row_rect(tree, tab, "Box04")
-    above = row_rect(tree, tab, "Box03")
-    below = row_rect(tree, tab, "Box05")
+    # the pointer on Box03, the rows beside it Box02 and Box04: three that lie whole
+    # inside the viewport -- offscreen the tree has some 121 pixels, and
+    # Box05's row ran under the next panel's title, which shows with the
+    # pointer in the overlay (entry 229)
+    target = row_rect(tree, tab, "Box03")
+    above = row_rect(tree, tab, "Box02")
+    below = row_rect(tree, tab, "Box04")
+    view_bottom = tree.viewport().mapTo(tab, QtCore.QPoint(0, tree.viewport().height())).y()
+    if not check("%s: the three rows lie inside the tree's viewport" % theme,
+                 below.bottom() < view_bottom, (below.getRect(), view_bottom)):
+        return
     local = tab.mapTo(mw(), QtCore.QPoint(first + (last - first) // 2, target.center().y()))
     pointer_to(mw(), local)
-    hovered = shot("%s-2-pointer-on-Box04" % theme, tab)
+    hovered = shot("%s-2-pointer-on-Box03" % theme, tab)
     h_first, h_last = painted_span(hovered, target, area_right)
     bar = commonest(hovered, QtCore.QRect(h_first, target.top(), h_last - h_first + 1,
                                           target.height()).adjusted(2, 2, -2, -2))

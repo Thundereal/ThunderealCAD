@@ -17,12 +17,13 @@ rendered with its children onto a clear image. Claims:
     the band at View/DockOverlayAlpha on the panel's ground at it -- not
     the panel's alone (entry 220's), not opaque (the theme's);
   - inside Hole's bare frame, which is in a group box, the box's ground --
-    not a second one on it; a bare frame in no box, if the panels have one,
-    a ground of its own;
+    not a second one on it; a bare frame in no box (TechDraw's rich
+    annotation panel has one) a ground of its own;
   - a spin box's field keeps its own ground.
 
 Runs offscreen as well.
 """
+import glob
 import os
 import traceback
 
@@ -200,6 +201,35 @@ def run():
                 check("a bare frame %r in no box: a band's ground on the panel's" % f.objectName(),
                       banded(inside, ground), (inside, ground, band_over(ground)))
         g.resetEdit()
+        settle(1000)
+
+        # A bare frame in no group box: TechDraw's rich annotation panel holds
+        # its form in one (TaskRichAnno.ui, "frame"; entry 229)
+        page = doc.addObject("TechDraw::DrawPage", "Page")
+        tmpl = doc.addObject("TechDraw::DrawSVGTemplate", "Template")
+        templates = glob.glob(os.path.join(FreeCAD.getResourceDir(), "Mod", "TechDraw",
+                                           "Templates", "**", "*A4*Landscape*.svg"), recursive=True)
+        if templates:
+            tmpl.Template = templates[0]
+        page.Template = tmpl
+        doc.recompute()
+        page.ViewObject.doubleClicked()
+        settle(2000)
+        FreeCADGui.Selection.clearSelection()
+        FreeCADGui.runCommand("TechDraw_RichTextAnnotation")
+        settle(2500)
+        anno = None
+        for w in mw().findChildren(QtWidgets.QFrame):
+            if (w.isVisible() and w.objectName() == "frame" and content_frame(w) is not None
+                    and w.findChild(QtWidgets.QLineEdit, "leBaseView") is not None):
+                anno = w
+        if check("the rich annotation panel, overlaid: its bare frame", anno is not None):
+            in_box = any(isinstance(p, QtWidgets.QGroupBox) for p in parents(anno))
+            check("... which is in no group box", not in_box)
+            inside, ground = alpha_in(anno)
+            check("a bare frame in no box: a band's ground on the panel's",
+                  banded(inside, ground), (inside, ground, band_over(ground)))
+        FreeCADGui.Control.closeDialog()
         settle(1000)
     except Exception:
         note("ABORT " + traceback.format_exc().replace("\n", " | "))

@@ -271,6 +271,8 @@ private:
     // Fills lastMalformedJoints: active joints whose references are set but unusable.
     void collectMalformedJoints();
     static bool isJointRefUsable(App::DocumentObject* joint, const char* propName);
+    // Gives the dragged parts their drag masses (setObjMasses) for the drag steps only.
+    void applyDragMasses();
 
     std::shared_ptr<MbD::ASMTAssembly> mbdAssembly;
 

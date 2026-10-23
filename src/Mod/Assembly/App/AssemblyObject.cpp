@@ -87,6 +87,8 @@
 #include <OndselSolver/ASMTTime.h>
 #include <OndselSolver/ASMTConstantGravity.h>
 #include <OndselSolver/ExternalSystem.h>
+#include <OndselSolver/DiagonalMatrix.h>
+#include <OndselSolver/Part.h>
 #include <OndselSolver/RedundantConstraint.h>
 #include <OndselSolver/enum.h>
 
@@ -671,6 +673,42 @@ void AssemblyObject::preDrag(std::vector<App::DocumentObject*> dragParts)
         draggedParts.push_back(part);
     }
 
+    applyDragMasses();
+}
+
+void AssemblyObject::applyDragMasses()
+{
+    // Every solver body is built with mass 1 and unit inertia (makeMbdPart), and
+    // that stays so for the static solve above and the one postDrag() runs: in
+    // an under-constrained assembly, OndselSolver's mass-weighted minimal motion
+    // decides which part moves, so changing those masses would change what a
+    // solve does. During the drag steps the GUI's heavier masses for the dragged
+    // parts (setObjMasses) are what make the dragged part follow the mouse and
+    // the others give way: PosICDragNewtonRaphson's weights come from
+    // Part::fillqsuWeights, which scales them by m / max(m) and aJ / max(aJ).
+    // So the masses go on the MbD bodies the drag steps solve, after the
+    // pre-drag solve built them, and the ASMT model keeps mass 1.
+    if (!mbdAssembly || !mbdAssembly->mbdSystem) {
+        return;
+    }
+
+    for (auto* part : draggedParts) {
+        const double mass = getObjMass(part);
+        if (mass <= 0.0 || mass == 1.0) {
+            continue;
+        }
+        auto it = objectPartMap.find(part);
+        if (it == objectPartMap.end() || !it->second.part) {
+            continue;
+        }
+        auto mbdPart = std::dynamic_pointer_cast<MbD::Part>(it->second.part->mbdObject);
+        if (!mbdPart) {
+            continue;
+        }
+        mbdPart->m = mass;
+        // The base inertia is unit, so a heavier part is heavier in rotation too.
+        mbdPart->aJ = std::make_shared<MbD::DiagonalMatrix<double>>(3, mass);
+    }
 }
 
 void AssemblyObject::prepareMbdForIslandDrag(std::vector<App::DocumentObject*> dragParts)

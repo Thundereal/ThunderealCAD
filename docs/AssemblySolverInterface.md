@@ -766,7 +766,10 @@ purpose by the registry.
 
 The enum has 37 values (with `Other`). `d` is the Distance property, `r1`,
 `r2` the radii of the first and second element after the builder's
-ordering. 20 have a case; 17 fall to the default Planar(d).
+ordering. Upstream has 20 cases and 17 fall to the default Planar(d); since
+decision 7 (audit sec 8.1, built in sec 6.8) 23 have a case and the other
+14 are refused for new joints, still Planar(d) with a warning for a joint
+already in a document.
 
 | sub-type | neutral (value) | Ondsel class |
 |---|---|---|
@@ -790,14 +793,16 @@ ordering. 20 have a case; 17 fall to the default Planar(d).
 | LinePlane | LineInPlane(d) | `ASMTLineInPlaneJoint` |
 | PointLine | PointLineDistance(d) | `ASMTCylSphJoint` |
 | PointCurve | PointInPlane(d) (plane of the curve) | `ASMTPointInPlaneJoint` |
-| PlaneCone, CylinderCone, ConeCone, ConeTorus, ConeSphere, PointCone, PointTorus, LineCylinder, LineSphere, LineCone, LineTorus, CurvePlane, CurveCylinder, CurveSphere, CurveCone, CurveTorus, Other | Planar(d) (default) | `ASMTPlanarJoint` |
+| LineCylinder (decision 7) | LineLineDistance(d + r1); I the cylinder's axis | `ASMTRevCylJoint` |
+| LineSphere (decision 7) | PointLineDistance(d + r1); swapped: I the line, J the sphere's centre | `ASMTCylSphJoint` |
+| CurvePlane (decision 7) | Planar(d) on the curve's plane | `ASMTPlanarJoint` |
+| PlaneCone, CylinderCone, ConeCone, ConeTorus, ConeSphere, PointCone, PointTorus, LineCone, LineTorus, CurveCylinder, CurveSphere, CurveCone, CurveTorus, Other | refused for new joints; in a document Planar(d) (default), with a warning | `ASMTPlanarJoint` |
 
 So the whole Distance family needs only seven neutral kinds: Spherical,
 Planar, PointInPlane, LineInPlane, PointPointDistance, PointLineDistance,
 LineLineDistance. The default row is questionable (Planar also locks the
-relative orientation, e.g. for a point on a cone) and should become a
-proper mapping or "unsupported" later, but it is kept as is for identical
-results.
+relative orientation, e.g. for a point on a cone); decision 7 refuses it
+for new joints and keeps it for old ones (sec 6.8).
 
 The 9 OndselSolver joint classes the workbench does not use
 (`ASMTUniversalJoint`, `ASMTConstantVelocityJoint`, `ASMTPointInLineJoint`,
@@ -1070,7 +1075,8 @@ drag of a Revolute-joined link; a rigid group with a drag; a drag that
 bundles Fixed joints. Not in it: the island drag (`prepareMbdForIslandDrag`),
 which no current test builds.
 
-**The Distance decision** (audit sec 8.1, decision 7) is not implemented:
+**The Distance decision** (audit sec 8.1, decision 7) was not implemented
+at this step (it is now: sec 6.8):
 phase 0 tested the 20 mapped sub-types (`TestJoints.py`) and nothing more;
 LineCylinder, LineSphere and CurvePlane still fall to Planar(d), and the
 other 14 are neither refused nor warned about. Mapping them changes
@@ -1247,8 +1253,8 @@ spread from 3.4 to 9.0 s); the largest model, star 199, is no slower.
   the document did; new cases pick Screw, RackPinion, the swapped Distance
   sub-types and reversed limits in both orders and assert that the document
   is unchanged after a solve.
-- Not needed by step 7, still open: the Distance mapping of decision 7, the
-  neutral formula evaluator (sec 7 q2), `solverCapabilities()` in the
+- Not needed by step 7, still open: the Distance mapping of decision 7 (done
+  since, sec 6.8), the neutral formula evaluator (sec 7 q2), `solverCapabilities()` in the
   binding, and the island drag (`prepareMbdForIslandDrag`), which no test
   builds.
 
@@ -1339,10 +1345,105 @@ Suite 134 run, 1 skipped (129 + the 5 new); ctest 911/911; Assembly gtest
 - `jcsSwapped` is builder state on `AssemblyObject`; if joints are ever
   built out of order or in parallel it has to move into a per-joint build
   context.
-- Not done here, still open: the Distance mapping of decision 7, the
-  formula evaluator, the island drag in the corpus, and the creation-time
-  swap in `ensureUnconnectedIsSecondRef` (it writes the document from the
-  joint task, by design for now).
+- Not done here, still open: the Distance mapping of decision 7 (done
+  since, sec 6.8), the formula evaluator, the island drag in the corpus,
+  and the creation-time swap in `ensureUnconnectedIsSecondRef` (it writes
+  the document from the joint task, by design for now).
+
+### 6.8 As built: the Distance sub-types, decision 7 (2026-10-23)
+
+Audit sec 8.1 decision 7, in `e320accd94` (builder, warning, gate) and
+`85a4379a0b` (the joint task). Of the 17 sub-types that fell to the
+default Planar(d), three are mapped and 14 refused; the table in sec 5.2
+is updated.
+
+**The three mappings**, after `getDistanceType`'s ordering (the face is
+side 1, the edge side 2, for every edge-face pair) and with the JCS
+`UtilsAssembly.findPlacement` gives a Distance joint (`ignoreVertex`):
+
+- **LineCylinder: LineLineDistance(d + r1).** Frame I is the cylinder: its
+  JCS is on the axis, z along it. Frame J is the line: origin at its
+  middle, z along it. `ASMTRevCylJoint` holds the two z axes parallel and
+  J's axis d + r from I's, so the line lies d off the surface, parallel to
+  the axis -- the same reading as CylinderCylinder with r2 = 0, and as
+  LineLine, which also makes the lines parallel. r1 is the cylinder's
+  radius (side 1), not r2 as for LineCircle, whose circle is side 2.
+- **LineSphere: PointLineDistance(d + r1), sides swapped.** The sphere's
+  JCS is at its centre, the line's z along the line. `ASMTCylSphJoint`
+  measures J's origin from I's z axis, so the line has to be frame I: the
+  case reads the radius from side 1, then calls the builder's `swapJCS`
+  (the one Screw uses; it flips `jcsSwapped`, the document is not
+  written). The centre ends d + r from the line, i.e. the line passes d
+  off the sphere. The model is therefore the swapped one: the body of the
+  line's part comes first.
+- **CurvePlane: Planar(d)**, the PlanePlane mapping on the curve's plane.
+  Frame I is the plane (z its normal); frame J is the curve's JCS, which
+  for a circle or arc is its centre and normal (unchanged), so the case is
+  byte for byte what the default gave for circles. For another planar curve
+  (an ellipse, a spline) `findPlacement` used to leave the JCS at the
+  identity, at the origin; it now takes the curve's plane
+  (`edge.findPlane()`) through its centre of mass. That also fixes
+  PointCurve on such curves, which reads the same JCS. A non-planar curve
+  (a helix) has no plane and keeps the old frame; it is not refused (the
+  decision does not list it) -- a gap to close if one shows up.
+
+**The 14 refused** (PlaneCone, CylinderCone, ConeCone, ConeTorus,
+ConeSphere, PointCone, PointTorus, LineCone, LineTorus, CurveCylinder,
+CurveSphere, CurveCone, CurveTorus, Other) are listed once, in
+`App/AssemblyUtils.cpp` `refusedDistanceTypes()`; `isDistanceTypeRefused`
+reads it, and Python reads it through `AssemblyApp`
+(`getRefusedDistanceTypes()`, `getDistanceType(joint)` by enumerator name,
+`isDistanceJointRefused(joint)`). One deviation: **Other is refused only
+when both sides name a vertex, an edge or a face.** A whole object on a
+side -- a datum plane, an LCS, a body -- also classifies as Other, and
+there the planar distance between the two objects' frames is exactly what
+a user picking two datum planes means; refusing it would have taken away
+a working case the decision did not aim at. `isDistanceJointRefused`
+applies that rule; the builder and the task both call it.
+
+- **New joints** (`JointObject.py`, `TaskAssemblyCreateJoint`): when two
+  picks would make a refused Distance joint, the pick is not taken. The
+  references are set on the joint to classify them (as
+  `setJointConnectors` would, without its solve); a refused second pick is
+  removed from the selection and the joint goes back to one reference; a
+  refused initial selection is cleared. A label in the panel and a warning
+  in the report view say "A distance between these elements (PlaneCone) is
+  not supported: the solver has no exact mapping for it. Select other
+  elements." Changing another joint's type to Distance on refused picks
+  shows the same, and OK refuses them.
+- **Joints already in a document** solve as before (the default case,
+  Planar(d)), with one warning: "Assembly: the Distance joint <doc#name> is
+  between elements (PlaneCone) the solver has no mapping for; it is solved
+  as a planar distance, as before. New joints of this kind are refused."
+  Once per joint and sub-type while the `AssemblyObject` lives
+  (`warnedRefusedDistance`, keyed by full name and sub-type), so once per
+  document load: a drag or a solve-per-edit session does not repeat it,
+  and re-picking the joint into another refused kind says so again. Opening
+  such a joint in the task shows no refusal and OK accepts it as it is;
+  only a new pick or a type change is checked.
+
+**Gate.** `TestSolverGateDistanceMapped` adds six cases (55 in all).
+CurvePlane on a circle and the refused PlaneCone and PointTorus were
+recorded from the build before the change (HEAD `758aad4c26`) and,
+recorded again after it, are identical -- export digest, solve, placements
+and statuses. LineCylinder, LineSphere and CurvePlane on an ellipse were
+recorded from the build of the change; they differ from the pre-change
+records, as intended (LineSphere's DoF goes from 33 to 35: a point-line
+distance takes one freedom where Planar took three). The 49 earlier
+records are untouched (the file gained only the six). `TestSolverGateOrder`
+builds LineCylinder, LineSphere and CurvePlane in both orders and they
+agree. `TestJoints.TestDistanceMapped` checks the new placements on the
+geometry, not the JCS: the line parallel to the cylinder's axis and d + r
+from it; the sphere's centre d + r from the line; every point of the
+circle and of the ellipse d above the plane, along its normal; and a
+PlaneCone joint built in the document solves as Planar(d) and warns once
+over three solves. `TestGuiCommands` covers the task: a refused initial
+selection, a refused second pick followed by an accepted one, a type
+change to Distance, and an existing PlaneCone joint edited and accepted.
+
+Suite 145 run, 1 skipped (134 + 11 new); ctest 911/911 (the two
+TransactionMeasureTest cases flaked in the parallel run and pass alone);
+Assembly gtest 11/11.
 
 ### 6.4 Where Python must change
 
@@ -1392,8 +1493,8 @@ Suite 134 run, 1 skipped (129 + the 5 new); ctest 911/911; Assembly gtest
 3. The 17 Distance sub-types that fall to Planar(d): keep, map properly
    (several have exact primitives: PointCone and PointTorus are point-surface
    distances), or report unsupported?
-   Decided (user, 2026-10-22): audit sec 8.1 decision 7; not implemented yet
-   (sec 6.5).
+   Decided (user, 2026-10-22): audit sec 8.1 decision 7. Implemented
+   2026-10-23 (`e320accd94`, `85a4379a0b`, sec 6.8).
 4. Is the `ReferenceBackend` worth writing before the OndselSolver rework, as
    the oracle that lets the rework be tested against something other than
    itself? Proposed: yes; it is a few hundred lines on Eigen, which the

@@ -551,9 +551,9 @@ and the suite is at 129 run, 1 skipped. The deviations -- `Session::poses()`,
 drag weights through `Session::update`, the DoF double count an on-demand
 status solve used to make, the trajectory kept across solves -- and what
 step 7 needs are in `docs/AssemblySolverInterface.md` sec 6.6. Not yet done
-from the decisions: the neutral formula evaluator and the Distance mapping
-of decision 7 (it changes results, so it comes with the result-changing
-steps). Chrono is not started.
+from the decisions: the neutral formula evaluator. The Distance mapping of
+decision 7 came after step 7 (`e320accd94`, `85a4379a0b`;
+`docs/AssemblySolverInterface.md` sec 6.8). Chrono is not started.
 
 **Phase 2 -- scale.** Where sec 4 measured the time going:
 
@@ -624,4 +624,5 @@ From `docs/AssemblySolverInterface.md` sec 7:
    default, then the preference.
 2. Decided (user, 2026-10-22): the neutral layer owns the motion-formula
    evaluator; OndselSolver's parser is not the shared one.
-3. Decided (user, 2026-10-22): see sec 8.1, decision 7.
+3. Decided (user, 2026-10-22): see sec 8.1, decision 7. Implemented
+   2026-10-23 (`docs/AssemblySolverInterface.md` sec 6.8).

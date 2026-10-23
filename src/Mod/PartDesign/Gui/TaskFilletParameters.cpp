@@ -160,8 +160,13 @@ void FilletSegmentDelegate::setModelData(QWidget *editor, QAbstractItemModel *mo
 {
     if (auto groupBox = qobject_cast<QSpinBox*>(editor)) {
         groupBox->interpretText();
-        model->setData(index, QString::number(groupBox->value()), Qt::DisplayRole);
-        model->setData(index, groupBox->value(), Qt::UserRole);
+        // The number first: a change of the cell's text has the view load
+        // the editor again from the number (setEditorData()), and the old
+        // group came back -- typed 2 for an edge on the default radius, it
+        // took 1, the spin box's least (entry 214's test)
+        const int group = groupBox->value();
+        model->setData(index, group, Qt::UserRole);
+        model->setData(index, QString::number(group), Qt::DisplayRole);
         return;
     }
     Gui::QuantitySpinBox *spinBox = static_cast<Gui::QuantitySpinBox*>(editor);
@@ -258,7 +263,7 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
     Base::connect(ui->checkBoxUseAllEdges, &QCheckBox::toggled,
         this, &TaskFilletParameters::onCheckBoxUseAllEdgesToggled);
 
-    Base::connect(ui->treeWidgetReferences, &QTreeWidget::currentItemChanged,
+    Base::connect(static_cast<QTreeWidget*>(ui->treeWidgetReferences), &QTreeWidget::currentItemChanged,
         [this](QTreeWidgetItem *, QTreeWidgetItem *) { setCornerGizmoPositions(); });
 
     refresh();
@@ -1000,7 +1005,19 @@ void TaskFilletParameters::setEdgeGroup(const std::string& edge, int group)
     }
     // 0: a group of its own, by the lowest free id
     fillet->Segments.setGroup(edge, group > 0 ? group : fillet->Segments.newGroup());
-    refresh();
+    // Only the edge's own entry changes (its group, its points from the
+    // group's): its row in place, not the list filled anew (entry 214; the
+    // reporter: "why there is any need to refresh list?")
+    for (int i = 0; i < ui->treeWidgetReferences->topLevelItemCount(); ++i) {
+        auto item = ui->treeWidgetReferences->topLevelItem(i);
+        if (!getCornerItem(item) && edge == getGeometryItemText(item).constData()) {
+            refreshEdgeRow(item);
+            break;
+        }
+    }
+    sortRows();
+    if (gizmoContainer)
+        setGizmoPositions();
     recompute();
 }
 
@@ -1488,21 +1505,7 @@ void TaskFilletParameters::refresh()
                                    "then the depths of its faces."));
             continue;
         }
-        const int group = pcFillet->Segments.getGroup(getGeometryItemText(item).constData());
-        item->setData(GroupColumn, Qt::UserRole, group);
-        item->setText(GroupColumn, group > 0 ? QString::number(group) : QString());
-        item->setIcon(GroupColumn, group > 0 ? groupIcon(group) : QIcon());
-        item->setToolTip(0, edgeModeTip(
-            edgeMode(pcFillet->Segments.getValue(getGeometryItemText(item).constData())),
-            group));
-        int j = 0;
-        for (const auto &segment : pcFillet->Segments.getValue(getGeometryItemText(item).constData())) {
-            setSegment(j<item->childCount() ? item->child(j) : new QTreeWidgetItem(item),
-                   segment.param, segment.radius, segment.length);
-            ++j;
-        }
-        while (j > item->childCount())
-            delete item->child(item->childCount()-1);
+        refreshEdgeRow(item);
     }
     // by the values just shown, if the list is sorted by one
     sortRows();
@@ -1513,6 +1516,29 @@ void TaskFilletParameters::refresh()
         setGizmoPositions();
 }
 
+void TaskFilletParameters::refreshEdgeRow(QTreeWidgetItem *item)
+{
+    auto DressUpView = getDressUpView();
+    if (!DressUpView || !item)
+        return;
+    auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
+    QSignalBlocker blocker(ui->treeWidgetReferences);
+    const std::string edge = getGeometryItemText(item).constData();
+    const int group = pcFillet->Segments.getGroup(edge);
+    item->setData(GroupColumn, Qt::UserRole, group);
+    item->setText(GroupColumn, group > 0 ? QString::number(group) : QString());
+    item->setIcon(GroupColumn, group > 0 ? groupIcon(group) : QIcon());
+    item->setToolTip(0, edgeModeTip(edgeMode(pcFillet->Segments.getValue(edge.c_str())), group));
+    int j = 0;
+    for (const auto &segment : pcFillet->Segments.getValue(edge.c_str())) {
+        setSegment(j<item->childCount() ? item->child(j) : new QTreeWidgetItem(item),
+               segment.param, segment.radius, segment.length);
+        ++j;
+    }
+    while (item->childCount() > j)
+        delete item->child(item->childCount()-1);
+}
+
 void TaskFilletParameters::updateSegment(QTreeWidgetItem *item, int column)
 {
     if (getCornerItem(item)) {
@@ -1521,9 +1547,21 @@ void TaskFilletParameters::updateSegment(QTreeWidgetItem *item, int column)
         return;
     }
     if (column == GroupColumn) {
-        if (!item->parent())
-            setEdgeGroup(getGeometryItemText(item).constData(),
-                         item->data(GroupColumn, Qt::UserRole).toInt());
+        if (item->parent())
+            return;
+        // After the edit, by the edge's name: setEdgeGroup() fills the list
+        // anew, this row gone with it, while Qt is still in its setData()
+        // -- a typed group corrupted the heap (entry 214). The delegate sets
+        // the text, then the number, each an itemChanged: a group the edge
+        // has already is no change.
+        std::string edge = getGeometryItemText(item).constData();
+        const int group = item->data(GroupColumn, Qt::UserRole).toInt();
+        QMetaObject::invokeMethod(this, [this, edge, group]() {
+            auto vp = getDressUpView();
+            auto fillet = vp ? dynamic_cast<PartDesign::Fillet*>(vp->getObject()) : nullptr;
+            if (fillet && fillet->Segments.getGroup(edge) != group)
+                setEdgeGroup(edge, group);
+        }, Qt::QueuedConnection);
         return;
     }
     if (column<1 || column>3)

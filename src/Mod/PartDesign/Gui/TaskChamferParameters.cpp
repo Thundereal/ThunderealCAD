@@ -170,8 +170,12 @@ void ChamferInfoDelegate::setModelData(QWidget *editor, QAbstractItemModel *mode
 {
     if (auto groupBox = qobject_cast<QSpinBox*>(editor)) {
         groupBox->interpretText();
-        model->setData(index, QString::number(groupBox->value()), Qt::DisplayRole);
-        model->setData(index, groupBox->value(), Qt::UserRole);
+        // The number first: a change of the cell's text has the view load
+        // the editor again from the number, and the old group came back (as
+        // the fillet's, entry 214)
+        const int group = groupBox->value();
+        model->setData(index, group, Qt::UserRole);
+        model->setData(index, QString::number(group), Qt::DisplayRole);
         return;
     }
     if (index.column() == 4) {
@@ -1002,7 +1006,24 @@ void TaskChamferParameters::setEdgeGroup(const std::string& edge, int group)
     }
     // 0: a group of its own, by the lowest free id
     chamfer->ChamferInfo.setGroup(edge, group > 0 ? group : chamfer->ChamferInfo.newGroup());
-    refresh();
+    // Only the edge's own entry changes (its group, its values from the
+    // group's): its row in place, not the list filled anew (entry 214)
+    Part::TopoShape::ChamferInfo info;
+    for (int i = 0; i < ui->treeWidgetReferences->topLevelItemCount(); ++i) {
+        auto item = ui->treeWidgetReferences->topLevelItem(i);
+        if (edge == getGeometryItemText(item).constData()) {
+            if (chamfer->ChamferInfo.getValue(edge, info))
+                setItem(item, info);
+            break;
+        }
+    }
+    sortRows();
+    if (gizmoContainer) {
+        setGizmoPositions();
+    }
+    if (onViewValues) {
+        onViewValues->refresh();
+    }
     recompute();
 }
 
@@ -1280,8 +1301,17 @@ Part::TopoShape::ChamferInfo TaskChamferParameters::getChamferInfo(QTreeWidgetIt
 void TaskChamferParameters::onUpdateItem(QTreeWidgetItem *item, int column)
 {
     if (column == GroupColumn) {
-        setEdgeGroup(getGeometryItemText(item).constData(),
-                     item->data(GroupColumn, Qt::UserRole).toInt());
+        // After the edit, by the edge's name: setEdgeGroup() fills the list
+        // anew, this row gone with it, while Qt is still in its setData()
+        // (the fillet's crash, entry 214). A group the edge has already --
+        // the delegate's first itemChanged, of the text -- is no change.
+        std::string edge = getGeometryItemText(item).constData();
+        const int group = item->data(GroupColumn, Qt::UserRole).toInt();
+        QMetaObject::invokeMethod(this, [this, edge, group]() {
+            auto chamfer = getChamfer();
+            if (chamfer && chamfer->ChamferInfo.getGroup(edge) != group)
+                setEdgeGroup(edge, group);
+        }, Qt::QueuedConnection);
         return;
     }
     if (column<1 || column>4)

@@ -198,6 +198,12 @@ fc_add_gui_test(GuiOverlayListRowBandsInView_tests_run overlay-list-row-bands-in
 fc_add_gui_test(GuiDressUpListSort_tests_run dressup-list-sort.py
                 --timeout 200)
 
+# Entry 214, a crash on stage28: a group typed into a fillet's Group cell
+# filled the list anew inside Qt's commit of it, the row deleted under the
+# commit (heap corruption). The edge's row is changed in place now.
+fc_add_gui_test(GuiDressUpTypedGroupKeepsRow_tests_run dressup-typed-group-keeps-row.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

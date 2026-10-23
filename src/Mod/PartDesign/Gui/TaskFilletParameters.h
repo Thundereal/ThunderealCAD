@@ -87,6 +87,8 @@ private Q_SLOTS:
 protected:
     void changeEvent(QEvent *e) override;
     void refresh() override;
+    /// An edge's row from the feature: its group, mode and points
+    void refreshEdgeRow(QTreeWidgetItem *item);
     void onNewItem(QTreeWidgetItem *item) override;
     bool isBaseItem(QTreeWidgetItem *item) const override;
     void syncOtherItems() override;

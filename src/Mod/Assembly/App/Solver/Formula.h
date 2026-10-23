@@ -78,6 +78,10 @@ public:
     }
     bool dependsOnTime() const;
 
+    // Plain IEEE arithmetic: outside a function's domain (ln of a number
+    // <= 0, sqrt of a negative, asin beyond +-1, a division by 0) the value
+    // is NaN or infinite, as are the derivatives there. Not an error here;
+    // a caller that holds a driver at the value checks it is finite.
     double value(double time) const;
     // Value and derivatives, analytic per node (a piecewise formula's
     // derivative is the derivative of the piece in effect: jumps are not seen).
@@ -98,6 +102,10 @@ public:
         Cos,
         ArcSin,
         ArcTan,
+        Tan,
+        Exp,
+        Ln,
+        Sqrt,
         // args: x, then n + 1 pieces, then n transitions
         Piecewise,
     };

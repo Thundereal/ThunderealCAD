@@ -373,6 +373,10 @@ private:
             {"asin", Op::ArcSin},
             {"arcsin", Op::ArcSin},
             {"arctan", Op::ArcTan},
+            {"tan", Op::Tan},
+            {"exp", Op::Exp},
+            {"ln", Op::Ln},
+            {"sqrt", Op::Sqrt},
         };
         for (const auto& fn : unary) {
             if (name == fn.name) {
@@ -411,6 +415,10 @@ private:
             "asin",
             "arcsin",
             "arctan",
+            "tan",
+            "exp",
+            "ln",
+            "sqrt",
             "rampstep",
             "piecewise",
         };
@@ -677,6 +685,38 @@ FormulaValue FormulaTree::eval(std::uint32_t index, double time) const
                 s * a.rate,
                 s * a.acceleration - 2.0 * a.value * s * s * a.rate * a.rate
             };
+        }
+        case Op::Tan: {
+            auto a = arg(0);
+            const double t = std::tan(a.value);
+            const double sec2 = 1.0 + t * t;  // the derivative, 1 / cos^2
+            return {t, sec2 * a.rate, sec2 * (a.acceleration + 2.0 * t * a.rate * a.rate)};
+        }
+        case Op::Exp: {
+            auto a = arg(0);
+            const double e = std::exp(a.value);
+            return {e, e * a.rate, e * (a.acceleration + a.rate * a.rate)};
+        }
+        case Op::Ln: {
+            auto a = arg(0);
+            FormulaValue f {std::log(a.value), 0.0, 0.0};
+            if (a.rate == 0.0 && a.acceleration == 0.0) {
+                return f;
+            }
+            const double r = a.rate / a.value;
+            f.rate = r;
+            f.acceleration = a.acceleration / a.value - r * r;
+            return f;
+        }
+        case Op::Sqrt: {
+            auto a = arg(0);
+            FormulaValue f {std::sqrt(a.value), 0.0, 0.0};
+            if (a.rate == 0.0 && a.acceleration == 0.0) {
+                return f;
+            }
+            f.rate = 0.5 * a.rate / f.value;
+            f.acceleration = (0.5 * a.acceleration - f.rate * f.rate) / f.value;
+            return f;
         }
         case Op::Piecewise: {
             const double x = arg(0).value;

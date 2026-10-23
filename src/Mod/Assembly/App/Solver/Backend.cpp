@@ -32,20 +32,26 @@ namespace
 {
 
 // The driver held at the formula's value: a constant formula, printed so that
-// it reads back as the same double.
-void hold(Formula& formula, double time)
+// it reads back as the same double. False when the value is not finite (the
+// formula is outside its domain at this time, e.g. ln(time - 1) at 0).
+bool hold(Formula& formula, double time)
 {
     if (formula.text.empty() && !formula.tree) {
-        return;  // the half of a driver that does not drive
+        return true;  // the half of a driver that does not drive
     }
     auto tree = formula.tree ? formula.tree : FormulaTree::parse(formula.text);
     if (!tree) {
-        return;
+        return true;
+    }
+    const double value = tree->value(time);
+    if (!std::isfinite(value)) {
+        return false;
     }
     char text[32];
-    std::snprintf(text, sizeof(text), "%.17g", tree->value(time));
+    std::snprintf(text, sizeof(text), "%.17g", value);
     formula.text = text;
     formula.tree = FormulaTree::parse(formula.text);
+    return true;
 }
 
 }  // namespace
@@ -78,8 +84,10 @@ Status Assembly::Solver::simulateByPositionSolves(
         for (std::size_t i = 0; i < frame.drivers.size(); ++i) {
             frame.drivers[i].rotation = model.drivers[i].rotation;
             frame.drivers[i].translation = model.drivers[i].translation;
-            hold(frame.drivers[i].rotation, time);
-            hold(frame.drivers[i].translation, time);
+            if (!hold(frame.drivers[i].rotation, time)
+                || !hold(frame.drivers[i].translation, time)) {
+                return Status::Failed;
+            }
         }
         if (Status status = session.load(frame); status != Status::Ok) {
             return status;

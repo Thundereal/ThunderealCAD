@@ -16,6 +16,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <string>
 #include <vector>
 
@@ -23,7 +24,7 @@
 #include <Mod/Assembly/App/Solver/Formula.h>
 
 #include <OndselSolver/SymbolicParser.h>
-#include <OndselSolver/Variable.h>
+#include <OndselSolver/SymTime.h>
 
 using namespace Assembly::Solver;
 
@@ -47,10 +48,36 @@ public:
         time->setValue(t);
         return expr->getValue();
     }
+    // The first two time derivatives as runKINEMATIC forms them
+    // (ASMTRotationalMotion::createMbD simplifies, then
+    // EndFrameqct::initpPhiThePsiptBlks differentiates and simplifies, twice).
+    // Throws where a function has no derivative in OndselSolver.
+    void differentiate()
+    {
+        auto simple = expr->simplified(expr);
+        auto d1 = simple->differentiateWRT(time);
+        rateExpr = d1->simplified(d1);
+        auto d2 = rateExpr->differentiateWRT(time);
+        accelerationExpr = d2->simplified(d2);
+    }
+    double rate(double t)
+    {
+        time->setValue(t);
+        return rateExpr->getValue();
+    }
+    double acceleration(double t)
+    {
+        time->setValue(t);
+        return accelerationExpr->getValue();
+    }
 
 private:
-    std::shared_ptr<MbD::Variable> time = std::make_shared<MbD::Variable>("time");
+    // An independent variable, as the system's time a motion's geoTime
+    // stands for (differentiating a plain Variable throws).
+    std::shared_ptr<MbD::Time> time = std::make_shared<MbD::Time>();
     MbD::Symsptr expr;
+    MbD::Symsptr rateExpr;
+    MbD::Symsptr accelerationExpr;
 };
 
 bool ondselAccepts(const std::string& text)
@@ -162,6 +189,25 @@ std::vector<Case> corpus()
         {"time^(sin(time) + 2)"},
         {"1/(1 + time)"},
         {"1/(1 + time^2) - time/(2 + cos(time))"},
+        // tan, exp, ln, sqrt; the help text's Exponential with C = 2, TIMEC = 0.8
+        {"2*exp(time/0.8)"},
+        {"exp(time)"},
+        {"exp(-time)*sin(3*time)"},
+        {"time*exp(-time^2)"},
+        {"exp(time)^2"},
+        {"ln(time)", 0.1},
+        {"ln(2 + sin(time))"},
+        {"ln(1 + time^2)/2"},
+        {"exp(ln(1 + time))"},
+        {"sqrt(time)", 0.1},
+        {"sqrt(1 + time^2)"},
+        {"1/sqrt(1 + time)"},
+        {"sqrt(exp(time))*ln(1 + time^2)"},
+        {"tan(time/4)"},
+        {"tan(time)", 0.01, 1.4},
+        {"tan(time + 2)", 0.01, 1.0},  // cos < 0
+        {"tan(sqrt(time))/ln(3 + time)"},
+        {"-2*tan(time/4)^2 + sqrt(2)*exp(1)"},
         {"rampstep(time, 0.2, 1, 0.8, 3)", 0.01, 2.5, {0.2, 0.8}},
         {"rampstep(2*time, 0.4, -1, 1.6, 2.5)*time", 0.01, 2.5, {0.2, 0.8}},
         {"piecewise(time, functions(0, time^2, 1), transitions(0.3, 0.7))", 0.01, 2.5, {0.3, 0.7}},
@@ -240,6 +286,90 @@ TEST(FormulaEvaluator, derivativesMatchFiniteDifferences)
     }
 }
 
+// OndselSolver's symbolic derivatives, as runKINEMATIC uses them for the
+// velocities and accelerations of a motion, against the evaluator's. abs,
+// asin and arctan have no derivative in OndselSolver (FunctionX throws "To be
+// implemented"), so a kinematic run of a formula using them fails there.
+// Four formulas get wrong derivatives from OndselSolver, none through tan,
+// exp, ln or sqrt: a power with a time-dependent base and exponent
+// (Symbolic::times appends to the terms vector of the Product it is given,
+// which the Power's derivative still shares), and a piecewise whose x is not
+// time itself (PiecewiseFunction::differentiateWRTx differentiates the pieces
+// with respect to x, and the pieces are functions of time). The test keeps
+// them, asserting that they still disagree, so a fix shows up here.
+TEST(FormulaEvaluator, derivativesMatchOndselSolver)
+{
+    const std::vector<std::string> underivable = {"abs(", "asin(", "arcsin(", "arctan("};
+    const std::vector<std::string> wrongInOndsel = {
+        "(time + 1)^time",
+        "time^(sin(time) + 2)",
+        "rampstep(2*time, 0.4, -1, 1.6, 2.5)*time",
+        "piecewise(time - 1, functions(sin(time), 2*time), transitions(0))",
+    };
+    for (const auto& c : corpus()) {
+        SCOPED_TRACE(c.text);
+        auto tree = FormulaTree::parse(c.text);
+        ASSERT_TRUE(tree);
+        OndselFormula ondsel(c.text);
+        const bool expectFailure = std::ranges::any_of(underivable, [&](const std::string& f) {
+            return c.text.find(f) != std::string::npos;
+        });
+        try {
+            ondsel.differentiate();
+        }
+        catch (const std::exception&) {
+            EXPECT_TRUE(expectFailure);
+            continue;
+        }
+        EXPECT_FALSE(expectFailure);
+        const bool wrong = std::ranges::find(wrongInOndsel, c.text) != wrongInOndsel.end();
+        bool differs = false;
+        for (double t : samples(c)) {
+            if (nearKink(c, t, 1e-9)) {
+                continue;
+            }
+            const FormulaValue v = tree->evaluate(t);
+            const double rate = ondsel.rate(t);
+            const double acceleration = ondsel.acceleration(t);
+            if (wrong) {
+                differs = differs || std::abs(v.rate - rate) > 1e-6 * std::max(1.0, std::abs(rate));
+                continue;
+            }
+            EXPECT_NEAR(v.rate, rate, 1e-10 * std::max(1.0, std::abs(rate))) << "t=" << t;
+            EXPECT_NEAR(v.acceleration, acceleration, 1e-10 * std::max(1.0, std::abs(acceleration)))
+                << "t=" << t;
+        }
+        EXPECT_EQ(differs, wrong);
+    }
+}
+
+// Outside a function's domain the evaluator gives what IEEE arithmetic gives
+// (NaN, or an infinity), as SymbolicParser's functions do alone; a caller
+// holding a driver checks the value is finite (simulateByPositionSolves).
+TEST(FormulaEvaluator, domainErrors)
+{
+    auto at = [](const std::string& text, double t) {
+        auto tree = FormulaTree::parse(text);
+        EXPECT_TRUE(tree) << text;
+        return tree ? tree->evaluate(t) : FormulaValue {};
+    };
+    for (const char* text : {"ln(time - 1)", "sqrt(time - 1)", "ln(-1)", "sqrt(-2)", "asin(time + 1)"}) {
+        SCOPED_TRACE(text);
+        FormulaValue v = at(text, 0.5);
+        EXPECT_TRUE(std::isnan(v.value));
+        EXPECT_TRUE(std::isnan(OndselFormula(text).value(0.5)));
+    }
+    EXPECT_EQ(at("ln(time - 0.5)", 0.5).value, -std::numeric_limits<double>::infinity());
+    EXPECT_EQ(at("ln(0)", 0.0).value, -std::numeric_limits<double>::infinity());
+    EXPECT_EQ(at("sqrt(time - 0.5)", 0.5).value, 0.0);
+    EXPECT_EQ(at("sqrt(0)", 0.0).rate, 0.0);
+    EXPECT_TRUE(std::isinf(at("sqrt(time - 0.5)", 0.5).rate));
+    // OndselSolver's products drop a non-finite factor: 2*ln(time - 1) is 2
+    // there at 0.5, NaN here.
+    EXPECT_TRUE(std::isnan(at("2*ln(time - 1)", 0.5).value));
+    EXPECT_EQ(OndselFormula("2*ln(time - 1)").value(0.5), 2.0);
+}
+
 TEST(FormulaEvaluator, exactDerivatives)
 {
     auto at = [](const std::string& text, double t) {
@@ -276,6 +406,29 @@ TEST(FormulaEvaluator, exactDerivatives)
     EXPECT_EQ(v.rate, 0.0);
     v = at("rampstep(time, 1, 0, 3, 4)", 3.0);
     EXPECT_EQ(v.value, 4.0);
+
+    v = at("3*exp(2*time)", 0.0);
+    EXPECT_DOUBLE_EQ(v.value, 3.0);
+    EXPECT_DOUBLE_EQ(v.rate, 6.0);
+    EXPECT_DOUBLE_EQ(v.acceleration, 12.0);
+
+    v = at("ln(time)", 2.0);
+    EXPECT_DOUBLE_EQ(v.value, std::log(2.0));
+    EXPECT_DOUBLE_EQ(v.rate, 0.5);
+    EXPECT_DOUBLE_EQ(v.acceleration, -0.25);
+
+    v = at("sqrt(time)", 4.0);
+    EXPECT_DOUBLE_EQ(v.value, 2.0);
+    EXPECT_DOUBLE_EQ(v.rate, 0.25);
+    EXPECT_DOUBLE_EQ(v.acceleration, -1.0 / 32.0);
+
+    v = at("tan(time)", 0.0);
+    EXPECT_EQ(v.value, 0.0);
+    EXPECT_DOUBLE_EQ(v.rate, 1.0);
+    EXPECT_EQ(v.acceleration, 0.0);
+    v = at("tan(time)", std::numbers::pi / 4);
+    EXPECT_DOUBLE_EQ(v.rate, 2.0);
+    EXPECT_DOUBLE_EQ(v.acceleration, 4.0);
 }
 
 namespace
@@ -294,8 +447,9 @@ struct Bad
 TEST(FormulaEvaluator, errorsWithPositions)
 {
     const std::vector<Bad> cases = {
-        {"exp(time)", 0, "unknown function 'exp'"},
-        {"2*exp (time)", 2, "unknown function 'exp'"},
+        {"log(time)", 0, "unknown function 'log'"},
+        {"2*acos (time)", 2, "unknown function 'acos'"},
+        {"Exp(time)", 0, "case-sensitive: write 'exp'"},
         {"1 + x", 4, "unknown name 'x'"},
         {"TIME", 0, "case-sensitive: write 'time'"},
         {"Sin(time)", 0, "case-sensitive: write 'sin'"},

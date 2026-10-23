@@ -945,7 +945,7 @@ class TestSolverGateSimulation(SolverGateBase):
         g, b = self.ground_and_mover()
         rev = self.joint("Revolute", (g, ["Face6"]), self.JCS_G, (b, ["Face5"]), self.JCS_B)
         self.doc.recompute()
-        for formula in ("36*time)", "exp(time)", "2*-time"):
+        for formula in ("36*time)", "log(time)", "2*-time"):
             sim = self.make_simulation([(rev, "Angular", formula)])
             self.doc.recompute()
             self.assertEqual(self.assembly.generateSimulation(sim), -1, formula)
@@ -954,6 +954,37 @@ class TestSolverGateSimulation(SolverGateBase):
         self.doc.recompute()
         self.assertEqual(self.assembly.generateSimulation(sim), 0)
         self.assertGreater(self.assembly.numberOfFrames(), 2)
+
+    def test_exp_motion(self):
+        """An exp motion (sec 4.6.1) slides the part as the formula says.
+
+        Not a recorded case: before exp, ln, sqrt and tan were added the
+        builder refused it. The help text's C*exp(time/TIMEC), C = 2 mm and
+        TIMEC = 0.8 s, on a slider whose JCS start coincident.
+        """
+        import math
+
+        g = self.box("G", size=20.0)
+        b = self.box("B", plc(30, 0, 20))
+        self.ground(g)
+        sli = self.joint("Slider", (g, ["Face6"]), plc(15, 5, 20), (b, ["Face5"]), plc(5, 5, 0))
+        self.doc.recompute()
+        sim = self.make_simulation([(sli, "Linear", "2*exp(time/0.8)")])
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        n = self.assembly.numberOfFrames()
+        frames = []
+        for i in range(n):
+            self.assembly.updateForFrame(i)
+            frames.append(App.Vector(b.Placement.Base))
+        # The last frame is bTimeEnd, one per cTimeStepOutput before it.
+        self.assertGreaterEqual(n, 11, frames)
+        for k in (0, 3, 5, 10):
+            t = 1.0 - 0.1 * k
+            p = frames[n - 1 - k]
+            self.assertAlmostEqual(p.z - 20.0, 2.0 * math.exp(t / 0.8), 6, (t, frames))
+            self.assertAlmostEqual(p.x, 10.0, 6, (t, frames))
+            self.assertAlmostEqual(p.y, 0.0, 6, (t, frames))
 
 class TestSolverGateBench(SolverGateBase):
     """The bench's chain and star (scripts/assembly-bench/bench.py) at N = 10 and 50."""

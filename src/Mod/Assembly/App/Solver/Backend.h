@@ -175,8 +175,9 @@ public:
     virtual std::vector<BodyPose> poses() const = 0;
 
     virtual Diagnostics analyse() = 0;  // at the current state
-    // The default, a sequence of warm position solves driven by the neutral
-    // formula evaluator (sec 4.6), does not exist yet.
+    // A backend without kinematics of its own can answer with
+    // simulateByPositionSolves() below (sec 4.6); the base class does not
+    // keep the model, so it is not the default.
     virtual Status simulate(const SimulationSpec& spec, TrajectorySink& sink)
     {
         (void)spec;
@@ -199,5 +200,18 @@ public:
     virtual Capabilities capabilities() const = 0;
     virtual std::unique_ptr<Session> createSession() = 0;
 };
+
+// The kinematic run of sec 4.6 on any session that solves positions: at each
+// output time tStart + k * tOutput, every driver is held at its formula's value
+// (a constant formula, printed to round-trip), the model is loaded and solved,
+// starting from the previous frame's poses, and the poses go to the sink.
+// Velocities and accelerations are not integrated; tolerances other than the
+// output step are not used.
+AssemblyExport Status simulateByPositionSolves(
+    Session& session,
+    const Model& model,
+    const SimulationSpec& spec,
+    TrajectorySink& sink
+);
 
 }  // namespace Assembly::Solver

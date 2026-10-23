@@ -8,6 +8,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
@@ -593,4 +594,152 @@ TEST(OndselAdapter, sessionReportsRedundantJoints)  // NOLINT
     }
     EXPECT_TRUE(d.conflicting.empty());
     EXPECT_EQ(d.dof, 7);
+}
+
+namespace
+{
+
+struct Recorder: TrajectorySink
+{
+    std::vector<double> times;
+    std::vector<std::vector<BodyPose>> frames;
+    bool frame(double time, const std::vector<BodyPose>& poses) override
+    {
+        times.push_back(time);
+        frames.push_back(poses);
+        return true;
+    }
+};
+
+// TestSolverGateSimulation.simulation_doc as a model: a revolute driven in
+// angle, a slider in length, a cylindrical in both (with the angular driver
+// repeated, as makeMbdJoint does).
+Model gateSimulation()
+{
+    Model m;
+    Frame gi;
+    gi.label = m.addSource("marker-G");
+    Id frameGround = m.addFrame(gi);
+    Body g;
+    g.source = m.addSource("G");
+    g.grounded = true;
+    Id bg = m.addBody(g);
+    Frame fix;
+    fix.body = bg;
+    fix.label = m.addSource("FixingMarker");
+    Id frameFix = m.addFrame(fix);
+    m.addGround({NoId, m.addSource("G"), frameGround, frameFix});
+
+    auto body = [&](const char* name, double x) {
+        Body b;
+        b.source = m.addSource(name);
+        b.placement = Base::Placement(Base::Vector3d(x, 0, 20), Base::Rotation());
+        return m.addBody(b);
+    };
+    auto joint = [&](const char* name, JointKind kind, Id other, Base::Vector3d at) {
+        Frame fi;
+        fi.body = bg;
+        fi.local = Base::Placement(at, Base::Rotation());
+        fi.label = m.addSource(name);
+        Frame fj;
+        fj.body = other;
+        fj.local = Base::Placement(Base::Vector3d(5, 5, 0), Base::Rotation());
+        fj.label = m.addSource(name);
+        Joint j;
+        j.kind = kind;
+        j.source = m.addSource(name);
+        j.frameI = m.addFrame(fi);
+        j.frameJ = m.addFrame(fj);
+        m.addJoint(j);
+        return j;
+    };
+    auto driver = [&](const Joint& j, DriverKind kind, const char* rotation, const char* translation) {
+        Driver d;
+        d.source = j.source;
+        d.frameI = j.frameI;
+        d.frameJ = j.frameJ;
+        d.kind = kind;
+        d.rotation.text = rotation;
+        d.translation.text = translation;
+        d.rotation.tree = FormulaTree::parse(rotation);
+        d.translation.tree = FormulaTree::parse(translation);
+        m.addDriver(d);
+    };
+    Joint rev = joint("Rev", JointKind::Revolute, body("A", 0), Base::Vector3d(5, 5, 20));
+    Joint sli = joint("Sli", JointKind::Prismatic, body("B", 30), Base::Vector3d(15, 5, 20));
+    Joint cyl = joint("Cyl", JointKind::Cylindrical, body("C", -30), Base::Vector3d(2, 15, 20));
+    driver(rev, DriverKind::RotationZ, "36*time", "");
+    driver(sli, DriverKind::TranslationZ, "", "5*time + 0");
+    driver(cyl, DriverKind::Both, "90*time", "2*sin(time)");
+    driver(cyl, DriverKind::RotationZ, "90*time", "");
+    return m;
+}
+
+}  // namespace
+
+// The default kinematic run (simulateByPositionSolves, sec 4.6) against
+// OndselSolver's runKINEMATIC on the same model: the same frames, the same
+// poses to the solver's tolerance.
+TEST(OndselAdapter, positionSolvesFollowTheKinematicRun)  // NOLINT
+{
+    const Model m = gateSimulation();
+    SimulationSpec spec;
+    spec.tStart = 0.0;
+    spec.tEnd = 1.0;
+    spec.tOutput = 0.1;
+    spec.errorTolerance = 1.0e-6;
+
+    auto kinematic = std::make_unique<OndselSession>(false);
+    ASSERT_EQ(kinematic->load(m), Status::Ok);
+    Recorder expected;
+    ASSERT_EQ(kinematic->simulate(spec, expected), Status::Ok);
+
+    auto stepped = std::make_unique<OndselSession>(false);
+    Recorder actual;
+    ASSERT_EQ(simulateByPositionSolves(*stepped, m, spec, actual), Status::Ok);
+
+    // runKINEMATIC reports the start twice: the assembled pose, then the
+    // first output time. The position solves report each output time once.
+    ASSERT_EQ(expected.frames.size(), 12u);
+    ASSERT_EQ(expected.times[0], expected.times[1]);
+    expected.times.erase(expected.times.begin());
+    expected.frames.erase(expected.frames.begin());
+    ASSERT_EQ(actual.frames.size(), expected.frames.size());
+    ASSERT_EQ(actual.frames.size(), 11u);
+    double worst = 0.0;
+    for (std::size_t k = 0; k < actual.frames.size(); ++k) {
+        SCOPED_TRACE(k);
+        EXPECT_NEAR(actual.times[k], expected.times[k], 1e-9);
+        ASSERT_EQ(actual.frames[k].size(), expected.frames[k].size());
+        for (std::size_t i = 0; i < actual.frames[k].size(); ++i) {
+            const Base::Placement& a = actual.frames[k][i].placement;
+            const Base::Placement& e = expected.frames[k][i].placement;
+            const double dp = (a.getPosition() - e.getPosition()).Length();
+            Base::Vector3d axis;
+            double angle = 0.0;
+            (a.getRotation().inverse() * e.getRotation()).getValue(axis, angle);
+            const double da = std::abs(std::remainder(angle, 2 * std::numbers::pi));
+            worst = std::max({worst, dp, da});
+            EXPECT_LT(dp, 1e-6) << "body " << i;
+            EXPECT_LT(da, 1e-8) << "body " << i;
+        }
+    }
+    // The driven bodies did move: the frames are not all the start.
+    const auto& last = actual.frames.back();
+    EXPECT_GT((last[3].placement.getPosition() - m.bodies[3].placement.getPosition()).Length(), 1.0);
+    std::ostringstream worstText;
+    worstText << worst;
+    RecordProperty("worst", worstText.str());
+}
+
+// A formula the evaluator rejects stops the run before any solve.
+TEST(OndselAdapter, positionSolvesRefuseABadFormula)  // NOLINT
+{
+    Model m = gateSimulation();
+    m.drivers[0].rotation.text = "36*time)";
+    m.drivers[0].rotation.tree.reset();
+    auto session = std::make_unique<OndselSession>(false);
+    Recorder sink;
+    EXPECT_EQ(simulateByPositionSolves(*session, m, SimulationSpec {}, sink), Status::Failed);
+    EXPECT_TRUE(sink.frames.empty());
 }

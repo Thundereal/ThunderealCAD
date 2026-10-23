@@ -330,6 +330,14 @@ void DlgImportLinkedSet::showImported()
                 continue;
             if (!r.error.empty())
                 item->setText(State, qs(r.error));
+            else if (r.linksOnly) {
+                // Nothing of theirs but its links (sec 35.15 G1): ours kept
+                item->setText(State, tr("branch %1, its links only").arg(qs(r.branch)));
+                auto combo = qobject_cast<QComboBox*>(_files->itemWidget(item, Action));
+                const int at = combo ? combo->findData(int(r.action)) : -1;
+                if (at >= 0)
+                    combo->setCurrentIndex(at);
+            }
             else if (!r.branch.empty())
                 item->setText(State, tr("branch %1").arg(qs(r.branch)));
             else if (r.held)

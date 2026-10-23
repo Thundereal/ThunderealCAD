@@ -13715,6 +13715,53 @@ void Document::_finishImport(Document* replay, bool scratch, int64_t branch,
     signalBranchesChanged(*this);
 }
 
+std::string Document::importLinksOnly(int64_t base, const std::string& file)
+{
+    // docs/TransactionLog.md sec 35.15 G1: their file is ours at `base`; the
+    // branch is for its links, which the set's import relinks.
+    OperationScope scope;   // sec 27.38
+    checkNotFrozen("import a file's history");
+    TransactionLog* log = getTransactionLog();
+    if (!log)
+        THROWM(Base::RuntimeError, "no transaction log");
+    if (base <= 0)
+        THROWM(Base::ValueError, "no row both files hold");
+    _checkBranchable("import a file's history");
+    getFileHistory();
+    log->resolvePending();
+    LogBranch mine;
+    bool scratch = false;
+    Document* replay = _importReplay(base, file, mine, scratch);
+    nlohmann::json m;
+    m["file"] = file;
+    m["base"] = base;
+    m["rows"] = 0;
+    m["links_only"] = true;
+    if (auto set = ImportSetRecord::current())
+        m["set"] = {{"id", set->id}, {"name", set->name}};
+    nlohmann::json j;
+    j["import"] = std::move(m);
+    // As _finishImport(), with no map kept: a later import of the copy is
+    // not this branch continued.
+    auto& app = GetApplication();
+    Document* active = app.getActiveDocument() == replay ? this : app.getActiveDocument();
+    replay->getTransactionLog()->record("import", "Import " + file + ", its links", j.dump());
+    replay->getTransactionLog()->flush();
+    if (scratch) {
+        try {
+            replay->_leaveBranch();
+        }
+        catch (Base::Exception& e) {
+            FC_WARN("import of " << file << ": " << e.what());
+        }
+        app.closeDocument(replay->getName());
+        if (active && app.getActiveDocument() != active)
+            app.setActiveDocument(active);
+    }
+    signalBranchesChanged(*this);
+    return mine.name;
+}
+
 void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
                                   std::map<std::string, std::string>& names,
                                   std::map<std::string, std::string>& renamed,

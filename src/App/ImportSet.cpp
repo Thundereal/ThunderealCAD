@@ -475,11 +475,72 @@ std::string nameOf(const Target& t)
     return t.file;
 }
 
+/** The links of `doc` -- each a link, or an entry of a list of links (sec
+ * 35.15 G2: a SubShapeBinder's Support) -- to a file of the set that came
+ * as something else here: in `changes` the object they link now, or with
+ * `plainly`, in `plain` the file they name plainly. */
+void gatherRelinks(Document* doc, const std::map<LinkKey, Target>& targets,
+                   const std::map<std::string, Target>& byHeld, bool plainly,
+                   std::vector<std::pair<PropertyXLink*, App::DocumentObject*>>& changes,
+                   std::vector<std::pair<PropertyXLink*, std::string>>& plain)
+{
+    auto& app = GetApplication();
+    for (auto obj : doc->getObjects()) {
+        std::vector<App::Property*> props;
+        obj->getPropertyList(props);
+        // A link, and each entry of a list of links (sec 35.15 G2: a
+        // SubShapeBinder's Support): an entry's change is its list's
+        std::vector<PropertyXLink*> links;
+        for (auto prop : props) {
+            if (prop->getContainer() != obj)
+                continue;
+            if (auto link = Base::freecad_dynamic_cast<PropertyXLink>(prop))
+                links.push_back(link);
+            else if (auto list = Base::freecad_dynamic_cast<PropertyXLinkSubList>(prop)) {
+                for (auto& entry : list->getSubListValues())
+                    links.push_back(const_cast<PropertyXLinkSub*>(&entry));
+            }
+        }
+        for (auto link : links) {
+            if (!link->getValue())
+                continue;
+            const Document* linked = link->getValue()->getDocument();
+            if (linked == doc)
+                continue;
+            const Target* found = nullptr;
+            auto held = link->getHeldHash().empty() ? byHeld.end()
+                                                    : byHeld.find(link->getHeldHash());
+            if (held != byHeld.end())
+                found = &held->second;
+            else {
+                auto it = targets.find(keyOfDocument(linked));
+                if (it != targets.end())
+                    found = &it->second;
+            }
+            if (!found || nameOf(*found) == linked->FileName.getStrValue())
+                continue;
+            if (plainly) {
+                // By name: the object may be ours only once the file it is
+                // in is merged.
+                plain.emplace_back(link, found->file);
+                continue;
+            }
+            Document* to = app.openDocument(nameOf(*found).c_str(), false);
+            auto target = to ? to->getObject(link->getValue()->getNameInDocument()) : nullptr;
+            if (!target) {
+                FC_WARN("set import: " << link->getFullName() << " has no "
+                        << link->getValue()->getNameInDocument() << " in " << nameOf(*found));
+                continue;
+            }
+            changes.emplace_back(link, target);
+        }
+    }
+}
+
 /** The links of branch `branch` of `ourFile` that still point at a file of
  * the set as it is here -- set before the copies parted, they are in no
  * row brought -- pointed at what that file came as: one row on the branch.
- * Returns how many. Only links held by a property of their own; one inside
- * a list is left as it is.
+ * Returns how many (gatherRelinks(): a list's entries too).
  */
 int relinkBranch(const std::string& ourFile, const std::string& branch,
                  const std::map<LinkKey, Target>& targets,
@@ -514,44 +575,7 @@ int relinkBranch(const std::string& ourFile, const std::string& branch,
         doc->commitTransaction();
     std::vector<std::pair<PropertyXLink*, App::DocumentObject*>> changes;
     std::vector<std::pair<PropertyXLink*, std::string>> plain;
-    for (auto obj : doc->getObjects()) {
-        std::vector<App::Property*> props;
-        obj->getPropertyList(props);
-        for (auto prop : props) {
-            auto link = Base::freecad_dynamic_cast<PropertyXLink>(prop);
-            if (!link || prop->getContainer() != obj || !link->getValue())
-                continue;
-            const Document* linked = link->getValue()->getDocument();
-            if (linked == doc)
-                continue;
-            const Target* found = nullptr;
-            auto held = link->getHeldHash().empty() ? byHeld.end()
-                                                    : byHeld.find(link->getHeldHash());
-            if (held != byHeld.end())
-                found = &held->second;
-            else {
-                auto it = targets.find(keyOfDocument(linked));
-                if (it != targets.end())
-                    found = &it->second;
-            }
-            if (!found || nameOf(*found) == linked->FileName.getStrValue())
-                continue;
-            if (plainly) {
-                // By name: the object may be ours only once the file it is
-                // in is merged.
-                plain.emplace_back(link, found->file);
-                continue;
-            }
-            Document* to = app.openDocument(nameOf(*found).c_str(), false);
-            auto target = to ? to->getObject(link->getValue()->getNameInDocument()) : nullptr;
-            if (!target) {
-                FC_WARN("set import: " << link->getFullName() << " has no "
-                        << link->getValue()->getNameInDocument() << " in " << nameOf(*found));
-                continue;
-            }
-            changes.emplace_back(link, target);
-        }
-    }
+    gatherRelinks(doc, targets, byHeld, plainly, changes, plain);
     if (changes.empty() && plain.empty())
         return 0;
     const int mode = doc->getUndoMode();
@@ -613,9 +637,10 @@ SetImportResult App::importSet(const SetImportPlan& plan)
     // in of them is their views, and their changes are the program's, not
     // the command's that runs the import.
     Document::UserEditSuspend suspend;
+    auto& app = GetApplication();
     SetImportResult result;
     std::set<Document*> before;
-    for (auto doc : GetApplication().getDocuments())
+    for (auto doc : app.getDocuments())
         before.insert(doc);
     std::map<LinkKey, Target> targets;
     PropertyXLink::ImportSetLinks links;
@@ -631,45 +656,60 @@ SetImportResult App::importSet(const SetImportPlan& plan)
     result.theirTop = plan.files.empty() ? std::string() : plan.files.back().theirs;
     result.name = ss(QFileInfo(qs(result.theirTop)).fileName());
     ImportSetRecord setRecord(result.id, result.name);
-    if (plan.ourTop && plan.ourTop->getTransactionLog()) {
+    auto holdAlone = [&](const SetImportFile& f) {
         const std::string& theirTop = result.name;
-        for (const auto& f : plan.files) {
-            if (f.ours || f.ambiguous)
-                continue;
-            // Their path, with no way out of the folder it is written in.
-            QStringList parts = QDir::cleanPath(qs(f.relative)).split(QLatin1Char('/'));
-            for (auto& part : parts) {
-                if (part == QStringLiteral(".."))
-                    part = QStringLiteral("_up");
-            }
-            const std::string heldPath = setId + "/" + ss(parts.join(QLatin1Char('/')));
-            try {
-                const int64_t seq = plan.ourTop->keepSentFileAt(
-                    f.theirs, ss(QFileInfo(qs(f.theirs)).fileName()), theirTop, "set");
-                std::string hash;
-                for (const auto& sent : plan.ourTop->sentFiles()) {
-                    if (sent.seq == seq)
-                        hash = sent.hash;
-                }
-                const std::string staged =
-                    plan.ourTop->TransientDir.getStrValue() + "/held/" + heldPath;
-                QDir().mkpath(QFileInfo(qs(staged)).absolutePath());
-                plan.ourTop->writeSentFile(seq, staged);
-                Target target;
-                target.file = staged;
-                target.held = hash;
-                target.heldPath = heldPath;
-                PropertyXLink::ImportSetLinks::add(f.theirs, target);
-                held[f.theirs] = {seq, staged};
-            }
-            catch (Base::Exception& e) {
-                FC_ERR("set import: " << f.theirs << " not held: " << e.what());
-            }
+        // Their path, with no way out of the folder it is written in.
+        QStringList parts = QDir::cleanPath(qs(f.relative)).split(QLatin1Char('/'));
+        for (auto& part : parts) {
+            if (part == QStringLiteral(".."))
+                part = QStringLiteral("_up");
         }
-    }
+        const std::string heldPath = setId + "/" + ss(parts.join(QLatin1Char('/')));
+        const std::string staged =
+            plan.ourTop->TransientDir.getStrValue() + "/held/" + heldPath;
+        try {
+            QDir().mkpath(QFileInfo(qs(staged)).absolutePath());
+            // G4 (sec 35.15): their file read with its links mapped as the
+            // rows brought are -- to what a file of the set came as, a file
+            // of theirs alone held before it -- and that copy held, so its
+            // links resolve here, and where the copy is written again in
+            // another session. Not when their file is open already: it is
+            // not read again, and is held as it is.
+            bool relinked = false;
+            if (!app.getDocumentByPath(f.theirs.c_str())) {
+                PropertyXLink::ImportPaths paths(f.theirs, f.theirs);
+                PropertyXLink::ImportPaths::intoFile(f.theirs);
+                if (Document* doc = app.openDocument(f.theirs.c_str(), false)) {
+                    ExportSetPaths copy({});
+                    ExportSetPaths::writing(doc);
+                    relinked = doc->saveCopy(staged.c_str(), false);
+                }
+            }
+            const int64_t seq = plan.ourTop->keepSentFileAt(
+                relinked ? staged : f.theirs, ss(QFileInfo(qs(f.theirs)).fileName()), theirTop,
+                "set");
+            std::string hash;
+            for (const auto& sent : plan.ourTop->sentFiles()) {
+                if (sent.seq == seq)
+                    hash = sent.hash;
+            }
+            if (!relinked)
+                plan.ourTop->writeSentFile(seq, staged);
+            Target target;
+            target.file = staged;
+            target.held = hash;
+            target.heldPath = heldPath;
+            PropertyXLink::ImportSetLinks::add(f.theirs, target);
+            held[f.theirs] = {seq, staged};
+        }
+        catch (Base::Exception& e) {
+            FC_ERR("set import: " << f.theirs << " not held: " << e.what());
+        }
+    };
 
     const QDir ourDir = plan.ourTop
         ? QFileInfo(qs(plan.ourTop->FileName.getStrValue())).absoluteDir() : QDir();
+    std::set<std::string> branched;   // their files that came as a branch
     for (const auto& f : plan.files) {
         SetImportedFile r;
         r.theirs = f.theirs;
@@ -679,6 +719,9 @@ SetImportResult App::importSet(const SetImportPlan& plan)
         if (!f.ours && !f.ambiguous)
             r.writeTo = ss(QDir::cleanPath(ourDir.absoluteFilePath(qs(f.relative))));
         if (!f.ours) {
+            // Held at its turn: after the files it links (G4)
+            if (!f.ambiguous && plan.ourTop && plan.ourTop->getTransactionLog())
+                holdAlone(f);
             auto it = held.find(f.theirs);
             if (it != held.end()) {
                 r.held = it->second.first;
@@ -696,6 +739,20 @@ SetImportResult App::importSet(const SetImportPlan& plan)
             r.independent = res.independent;
             r.stoppedAt = res.stoppedAt;
             r.reason = res.reason;
+            // G1 (sec 35.15): nothing new of its own, but a file it links
+            // came as a branch -- else what links it sees, through it, ours.
+            // Files come after what they link, so those are known.
+            if (r.branch.empty() && res.base > 0 && !res.independent && !res.stoppedAt) {
+                bool reaches = false;
+                for (const auto& link : f.links)
+                    reaches = reaches || branched.count(link);
+                if (reaches) {
+                    r.branch = f.ours->importLinksOnly(
+                        res.base, ss(QFileInfo(qs(f.theirs)).completeBaseName()));
+                    r.linksOnly = true;
+                    r.action = SetMergeAction::KeepOurs;
+                }
+            }
         }
         catch (Base::Exception& e) {
             r.error = e.what();
@@ -703,6 +760,8 @@ SetImportResult App::importSet(const SetImportPlan& plan)
         catch (std::exception& e) {
             r.error = e.what();
         }
+        if (!r.branch.empty())
+            branched.insert(f.theirs);
         // What their file is here, for the files linking it, imported after.
         PropertyXLink::ImportSetLinks::Target target;
         target.file = f.ourFile;
@@ -750,6 +809,7 @@ SetImportResult App::importSet(const SetImportPlan& plan)
                                 {"our_file", r.ourFile},
                                 {"pairing", setPairingName(r.pairing)},
                                 {"branch", r.branch},
+                                {"links_only", r.linksOnly},
                                 {"held", r.held},
                                 {"action", setMergeActionName(r.action)},
                                 {"write_to", r.writeTo},
@@ -880,6 +940,7 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
 
     // Their files alone, where the user says; links to them, there.
     std::map<std::string, Target> byHeld;
+    std::vector<std::size_t> writes;
     for (std::size_t i = 0; i < files.size(); ++i) {
         const auto& f = files[i];
         if (f.action != SetMergeAction::Write)
@@ -890,12 +951,11 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
                 hash = sent.hash;
         }
         QDir().mkpath(QFileInfo(qs(f.writeTo)).absolutePath());
-        ourTop.writeSentFile(f.held, f.writeTo);
-        result.files[i].written = f.writeTo;
         Target t;
         t.file = f.writeTo;
         if (!hash.empty())
             byHeld[hash] = t;
+        writes.push_back(i);
     }
     // Each branch's links to the set's branches made plain links to ours,
     // which hold what they had once merged; one row of the branch, before
@@ -908,6 +968,61 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
         Target t;
         t.file = keyOf(f.ourFile);
         plain[LinkKey {keyOf(f.ourFile), 0, f.branch}] = t;
+    }
+    // A file of theirs alone is held with its links the set's (G4, sec
+    // 35.15): to the branches, to the others held. Written, its links are
+    // made the same plain links to ours, and to the others written --
+    // relative, as between the files of a set. Read from a copy written
+    // aside; the held bytes stay as they are. Written as held when it
+    // cannot be read.
+    {
+        std::map<const Document*, std::string> copies;
+        std::vector<std::pair<std::size_t, Document*>> read;
+        for (auto i : writes) {
+            const auto& f = files[i];
+            const std::string aside = ourTop.TransientDir.getStrValue() + "/held/merge/"
+                + std::to_string(i) + "/" + ss(QFileInfo(qs(f.writeTo)).fileName());
+            Document* doc = nullptr;
+            try {
+                QDir().mkpath(QFileInfo(qs(aside)).absolutePath());
+                ourTop.writeSentFile(f.held, aside);
+                doc = app.openDocument(aside.c_str(), false);
+            }
+            catch (Base::Exception& e) {
+                FC_WARN("set merge: " << f.writeTo << " written as held: " << e.what());
+            }
+            if (doc)
+                copies[doc] = f.writeTo;
+            read.emplace_back(i, doc);
+        }
+        for (const auto& f : files) {
+            if (f.ourFile.empty())
+                continue;
+            if (auto doc = app.getDocumentByPath(f.ourFile.c_str()))
+                copies[doc] = keyOf(f.ourFile);
+        }
+        for (auto [i, doc] : read) {
+            const auto& f = files[i];
+            bool done = false;
+            if (doc) {
+                try {
+                    std::vector<std::pair<PropertyXLink*, App::DocumentObject*>> none;
+                    std::vector<std::pair<PropertyXLink*, std::string>> links;
+                    gatherRelinks(doc, plain, byHeld, true, none, links);
+                    for (auto& [link, file] : links)
+                        link->setPlainFile(file);
+                    ExportSetPaths scope(copies);
+                    ExportSetPaths::writing(doc);
+                    done = doc->saveCopy(f.writeTo.c_str(), false);
+                }
+                catch (Base::Exception& e) {
+                    FC_WARN("set merge: " << f.writeTo << " written as held: " << e.what());
+                }
+            }
+            if (!done)
+                ourTop.writeSentFile(f.held, f.writeTo);
+            result.files[i].written = f.writeTo;
+        }
     }
 
     for (std::size_t i = 0; i < files.size(); ++i) {

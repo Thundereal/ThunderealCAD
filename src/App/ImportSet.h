@@ -136,6 +136,10 @@ struct AppExport SetImportedFile
     /// Links of its branch made links to what the files of the set came
     /// as, in a row of their own: the links the copies had in common.
     int relinked = 0;
+    /// It brought nothing new, but links a file of the set that did: its
+    /// branch holds only the row that links what that file came as (sec
+    /// 35.15 G1), and the set's merge keeps ours by default.
+    bool linksOnly = false;
     /// What the set's merge does with it by default (Q8), and for a file of
     /// theirs alone where it is written: its path in their set, under our
     /// top's folder (Q2).

@@ -10735,6 +10735,212 @@ class TransactionBranchCases(unittest.TestCase):
             os.path.realpath(got["Bolt.FCStd"]["staged"]),
         )
 
+    def subAssemblyCopies(self, topChanged):
+        # Sec 35.15 G1, G2: `Asm` links `Sub.L`, which links `Part.Box`, and
+        # binds the box's face (a SubShapeBinder, its Support a list of
+        # links); a copy in theirs whose box is made longer, and whose
+        # `Asm`, with `topChanged`, moves its link to `Sub` -- `Sub` itself
+        # never changed.
+        import shutil
+
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        os.makedirs(ours)
+
+        def made(name, fill, path):
+            d = FreeCAD.newDocument(name)
+            d.UndoMode = 1
+            d.openTransaction(name)
+            fill(d)
+            d.recompute()
+            d.commitTransaction()
+            d.saveAs(path)
+            return d
+
+        part = made("SubPart", lambda d: d.addObject("Part::Box", "Box"),
+                    os.path.join(ours, "Part.FCStd"))
+        sub = made("SubSub",
+                   lambda d: setattr(d.addObject("App::Link", "L"), "LinkedObject", part.Box),
+                   os.path.join(ours, "Sub.FCStd"))
+
+        def top(d):
+            d.addObject("App::Link", "S").LinkedObject = sub.L
+            d.addObject("Part::SubShapeBinder", "B").Support = [(part.Box, ("Face1",))]
+
+        asm = made("SubAsm", top, os.path.join(ours, "Asm.FCStd"))
+        for d in (asm, sub, part):
+            FreeCAD.closeDocument(d.Name)
+        shutil.copytree(ours, theirs)
+        p = FreeCAD.openDocument(os.path.join(theirs, "Part.FCStd"))
+        p.Box.Length = 25
+        p.recompute()
+        p.save()
+        if topChanged:
+            a = FreeCAD.openDocument(os.path.join(theirs, "Asm.FCStd"))
+            a.S.Placement = FreeCAD.Placement(FreeCAD.Vector(5, 0, 0), FreeCAD.Rotation())
+            a.recompute()
+            a.save()
+        for name in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(name)
+        return ours, theirs
+
+    def openedTip(self, ours, got, name):
+        tip = self.track(
+            FreeCAD.openDocument(os.path.join(ours, name) + "@" + got[name]["branch"] + "@")
+        )
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+        return tip
+
+    def testASubAssemblyThatBroughtNothingStillShowsTheirPart(self):
+        # Sec 35.15 G1: their Sub brought nothing new, but links their Part,
+        # which did: it gets a branch of its links alone, and the top's
+        # branch shows their box through it -- not ours, through our Sub.
+        # G2: the binder's Support, a list of links the copies had in
+        # common, is relinked too.
+        ours, theirs = self.subAssemblyCopies(True)
+        doc = self.openedSet(os.path.join(ours, "Asm.FCStd"))
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        got = {os.path.basename(f["theirs"]): f for f in res["files"]}
+        for name in ("Part.FCStd", "Sub.FCStd", "Asm.FCStd"):
+            self.assertEqual(got[name]["error"], "", got[name])
+            self.assertNotEqual(got[name]["branch"], "", got[name])
+        self.assertTrue(got["Sub.FCStd"]["links_only"])
+        self.assertEqual(got["Sub.FCStd"]["rows"], 0)
+        self.assertEqual(got["Sub.FCStd"]["action"], "ours")
+        self.assertFalse(got["Asm.FCStd"]["links_only"])
+        self.assertEqual(got["Sub.FCStd"]["relinked"], 1)
+
+        tip = self.openedTip(ours, got, "Asm.FCStd")
+        self.assertIn("@" + got["Sub.FCStd"]["branch"] + "@", tip.S.LinkedObject.Document.FileName)
+        self.assertEqual(tip.S.getLinkedObject(True).Length.Value, 25)
+        bound = tip.B.Support[0][0]
+        self.assertIn("@" + got["Part.FCStd"]["branch"] + "@", bound.Document.FileName)
+        self.assertEqual(bound.Length.Value, 25)
+        # Ours stay as they were.
+        self.assertEqual(doc.S.getLinkedObject(True).Length.Value, 10)
+
+    def testATopThatBroughtNothingGetsABranchForItsLinks(self):
+        # Sec 35.15 G1, carried up: only their Part changed; Sub and the top
+        # each get a branch of their links alone, so there is a top's branch
+        # to see their set from. The set's merge keeps ours of those and
+        # merges the part; ours then show their box through our own files.
+        ours, theirs = self.subAssemblyCopies(False)
+        doc = self.openedSet(os.path.join(ours, "Asm.FCStd"))
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        got = {os.path.basename(f["theirs"]): f for f in res["files"]}
+        self.assertFalse(got["Part.FCStd"]["links_only"])
+        for name in ("Sub.FCStd", "Asm.FCStd"):
+            self.assertTrue(got[name]["links_only"], got[name])
+            self.assertEqual(got[name]["action"], "ours")
+        tip = self.openedTip(ours, got, "Asm.FCStd")
+        self.assertEqual(tip.S.getLinkedObject(True).Length.Value, 25)
+        self.assertEqual(tip.B.Support[0][0].Length.Value, 25)
+
+        for name in list(FreeCAD.listDocuments()):
+            if "@" in FreeCAD.getDocument(name).FileName:
+                FreeCAD.closeDocument(name)
+        merged = doc.mergeLinkedSet(res["files"])
+        self.assertEqual(merged["refused"], False, merged)
+        self.assertEqual(doc.S.getLinkedObject(True).Length.Value, 25)
+        self.assertEqual(doc.S.LinkedObject.Document.FileName, os.path.join(ours, "Sub.FCStd"))
+        self.assertEqual(doc.B.Support[0][0].Document.FileName, os.path.join(ours, "Part.FCStd"))
+
+    def testTheirFileAloneLinksWhatTheSetsFilesCameAs(self):
+        # Sec 35.15 G4: their Bolt, which we have no file of, links their
+        # Part, paired with ours. Held, its link is to what their Part came
+        # as -- our Part's branch -- not to a Part.FCStd beside the held
+        # copy, which is none; so again in another session, the copy
+        # written from the log. Merged, the Bolt written beside ours links
+        # our Part, plainly and relatively.
+        import shutil
+        import zipfile
+
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        os.makedirs(ours)
+        part = FreeCAD.newDocument("BoltPart")
+        part.UndoMode = 1
+        part.openTransaction("box")
+        part.addObject("Part::Box", "Box")
+        part.recompute()
+        part.commitTransaction()
+        part.saveAs(os.path.join(ours, "Part.FCStd"))
+        asm = FreeCAD.newDocument("BoltAsm")
+        asm.UndoMode = 1
+        asm.openTransaction("link")
+        asm.addObject("App::Link", "L").LinkedObject = part.Box
+        asm.recompute()
+        asm.commitTransaction()
+        asm.saveAs(os.path.join(ours, "Asm.FCStd"))
+        for d in (asm, part):
+            FreeCAD.closeDocument(d.Name)
+        shutil.copytree(ours, theirs)
+        p = FreeCAD.openDocument(os.path.join(theirs, "Part.FCStd"))
+        p.Box.Length = 25
+        p.recompute()
+        p.save()
+        bolt = FreeCAD.newDocument("BoltBolt")
+        bolt.addObject("App::Link", "B").LinkedObject = p.Box
+        bolt.recompute()
+        bolt.saveAs(os.path.join(theirs, "Bolt.FCStd"))
+        a = FreeCAD.openDocument(os.path.join(theirs, "Asm.FCStd"))
+        a.addObject("App::Link", "L2").LinkedObject = bolt.B
+        a.recompute()
+        a.save()
+        for name in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(name)
+
+        asmPath = os.path.join(ours, "Asm.FCStd")
+        doc = self.openedSet(asmPath)
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        got = {os.path.basename(f["theirs"]): f for f in res["files"]}
+        self.assertGreater(got["Bolt.FCStd"]["held"], 0)
+        partBranch = "@" + got["Part.FCStd"]["branch"] + "@"
+        # Their folder gone: nothing of theirs is read from it after this.
+        shutil.rmtree(theirs)
+
+        def boltBox():
+            tip = self.openedTip(ours, got, "Asm.FCStd")
+            b = tip.L2.LinkedObject
+            self.assertIsNotNone(b)
+            self.assertIsNotNone(b.LinkedObject, "the held Bolt's link is broken")
+            return b.LinkedObject
+
+        box = boltBox()
+        self.assertIn(partBranch, box.Document.FileName)
+        self.assertEqual(box.Length.Value, 25)
+
+        # Another session: the held copy written again from the log. Each
+        # file of ours saved, the branches their imports made with it.
+        for d in FreeCAD.listDocuments().values():
+            if d.FileName.startswith(ours) and "@" not in d.FileName:
+                d.save()
+        for name in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(name)
+        self.assertFalse(os.path.exists(got["Bolt.FCStd"]["staged"]))
+        doc = self.openedSet(asmPath)
+        box = boltBox()
+        self.assertIn(partBranch, box.Document.FileName)
+        self.assertEqual(box.Length.Value, 25)
+
+        for name in list(FreeCAD.listDocuments()):
+            if "@" in FreeCAD.getDocument(name).FileName:
+                FreeCAD.closeDocument(name)
+        merged = doc.mergeLinkedSet(res["files"])
+        self.assertEqual(merged["refused"], False, merged)
+        written = os.path.join(ours, "Bolt.FCStd")
+        with zipfile.ZipFile(written) as z:
+            xml = z.read("Document.xml").decode("utf-8")
+        self.assertIn('file="Part.FCStd"', xml)
+        self.assertNotIn("branch=", xml)
+        self.assertNotIn("held=", xml)
+        b = self.track(FreeCAD.openDocument(written))
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+        self.assertEqual(b.B.LinkedObject.Document.FileName, os.path.join(ours, "Part.FCStd"))
+        self.assertEqual(b.B.LinkedObject.Length.Value, 25)
+
     def testTheirFileAloneIsHeldForTheTopsBranch(self):
         # Sec 35 L5, Q2 (c): their Bolt, which we have no file of, is held in
         # our top's log for the top's branch -- not written into our folder

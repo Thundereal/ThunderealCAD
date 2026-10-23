@@ -2177,6 +2177,7 @@ Py::Dict setImportDict(const App::SetImportResult& result)
         d.setItem("held", Py::Long(static_cast<long long>(f.held)));
         d.setItem("staged", Py::String(f.staged));
         d.setItem("relinked", Py::Long(f.relinked));
+        d.setItem("links_only", Py::Boolean(f.linksOnly));
         d.setItem("action", Py::String(App::setMergeActionName(f.action)));
         d.setItem("write_to", Py::String(f.writeTo));
         d.setItem("error", Py::String(f.error));

@@ -1374,7 +1374,7 @@ public:
      * file's folder has that file, else their file by its full path. A link
      * to a file neither folder has stays broken, as at an open, instead of
      * stopping the import. Only the restores into the document given by
-     * into() are mapped -- not their file opened to be read.
+     * into() or intoFile() are mapped -- not their file opened to be read.
      */
     class AppExport ImportPaths
     {
@@ -1385,6 +1385,11 @@ public:
         ImportPaths& operator=(const ImportPaths&) = delete;
         /// The document the open scope's import restores into.
         static void into(const App::Document* doc);
+        /** Or a document opened from `file`: their file read, its links
+         * mapped as the rows brought are (sec 35.15 G4, a file of theirs
+         * alone held with its links made the set's).
+         */
+        static void intoFile(const std::string& file);
         /// The open scope, when `link` is restored into its document.
         static const ImportPaths* covering(const PropertyXLink& link);
         /// What map() made of a link to a file of a set (sec 35 L4).
@@ -1402,6 +1407,7 @@ public:
         std::string _theirDir;
         std::string _ourDir;
         const App::Document* _into = nullptr;
+        std::string _intoFile;
         ImportPaths* _outer;
     };
 

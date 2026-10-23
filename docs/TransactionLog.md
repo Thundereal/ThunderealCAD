@@ -56,7 +56,7 @@ question is the one that holds.
 | 32 | A shape diff: what a merge or a pick would take; kept values (32.11) | built |
 | 33 | What the merge into LinkVibe exposed | fixed |
 | 34 | Held: what Scion's design suggests | held |
-| 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; the gaps left elaborated, G1-G6 (35.15) |
+| 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G6 (35.15), G1 G2 G4 built, G7 found (35.16) |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the dialog marks open |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12) | none left from 37.12 |
 
@@ -22210,6 +22210,62 @@ Recommended order: G1 (a wrong picture, small), G2 (common in PartDesign
 work, small), then G4; G5 when the dialog is next touched; G3 and G6 when
 a case asks for them. The expression case is probed before anything is
 said of it.
+
+### 35.16 G1, G2 and G4 built; the expression case probed (user: "yes, and agree with the rest", 2026-10-23)
+
+**G1.** `importSet`: a file that brought nothing new (`importFork` says
+so, with the row both hold) and links -- directly, by its plan's `links`
+-- a file of the set that came as a branch gets a branch from that row
+(`Document::importLinksOnly`: the import's replay document, forked there,
+no row of theirs, an `import` record with `links_only` and the set, and
+no map kept, so a later import of the copy is a branch of its own). Its
+relink row is made with the others'. The files come after what they link,
+so the rule carries up any depth; a top that brought nothing gets one
+too. `SetImportedFile::linksOnly` (`links_only` in Python and in the
+set's record); default action Keep ours, which the merge's "Link our
+set" row skips, so ours stay as they are. The dialog says "branch X, its
+links only" and sets Keep ours.
+
+**G2.** `relinkBranch`'s walk is `gatherRelinks()`: a link, and each
+entry of a `PropertyXLinkSubList`, whose change is its list's (one undo
+row, as any).
+
+**G4.** A file of theirs alone is held at its turn in the plan -- after
+the files it links -- and the copy held is their file read with its links
+mapped as the rows brought are (`ImportPaths::intoFile`: the restores
+into a document opened from that file), written by `saveCopy` with no
+history under `ExportSetPaths`, which names a file outside the set by
+its full path and keeps a link's branch and held attributes. So its link
+to their `Part` is to our `Part`'s branch, here and when the copy is
+written again from the log in another session. When their file is open
+already it is not read again, and is held as it is. At the set's merge,
+Write reads the held copy written aside, makes its links plain links to
+ours -- the branches' files, the others written -- and writes it with
+`saveCopy` under `ExportSetPaths` mapping the set's documents to their
+files, so those links are relative, as between the files of a set; when
+it cannot be read, the held bytes as before. Found probing it: before,
+the held `Bolt`'s link to `Part.FCStd` was relative to the held copy's
+folder, where there is none, and did not restore at all
+(`~/.cache/lv-merge/probe/g4.py`), not "their file" as 35.15 said.
+
+**The expression case (G7), probed** (`~/.cache/lv-merge/probe/expr.py`;
+reading another document needs `doc.foreign` granted, which the probe
+does): their top's `C.Length = Part#Box.Length`, their box 25. In the
+top's branch, `C` comes with their value, 25, and a recompute makes it
+10: the expression reads the document named `Part`, ours; their part's
+branch is not opened. The engine holds its link to another file in its
+own `_XLinks`, not as a property `gatherRelinks()` walks, and the
+expression names the document in its text. Not built; what would close it
+is the engine's links relinked like a property's, and the expression's
+document name mapped through them as a restore maps it -- to be looked
+into, and put to the user.
+
+Tests (`Document.py`, `TransactionBranchCases`):
+`testASubAssemblyThatBroughtNothingStillShowsTheirPart` (G1, G2; without
+G2 the binder reads our part), `testATopThatBroughtNothingGetsABranchForItsLinks`
+(G1 up to the top, and the set's merge), and
+`testTheirFileAloneLinksWhatTheSetsFilesCameAs` (G4: in review, in another
+session, and written by the merge, `file="Part.FCStd"` with no branch).
 
 ## 36. Object UIDs: an object known by what it is, not its name (2026-10-21)
 

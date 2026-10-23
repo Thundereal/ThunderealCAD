@@ -1129,6 +1129,16 @@ public:
     ImportResult importFork(const std::string& path, const std::string& branch = std::string(),
                             const std::string& sender = std::string());
 
+    /** A branch of this file at row `base`, both copies' row, that brings
+     * nothing (docs/TransactionLog.md sec 35.15 G1): made for a file of a set
+     * that brought nothing new but links one that did, so that its links can
+     * name what that one came as -- else a top's branch shows, through it,
+     * ours. Not switched to; named after `file`, its import record says so
+     * (`links_only`). Not continued by a later import of the copy. Returns the
+     * branch's name; throws as importFork() does.
+     */
+    std::string importLinksOnly(int64_t base, const std::string& file);
+
     /// An imported branch that waits to be merged (sec 30.20 H1, 30.23).
     struct ImportRequest
     {

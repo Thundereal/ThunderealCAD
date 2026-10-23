@@ -5720,12 +5720,25 @@ void PropertyXLink::ImportPaths::into(const App::Document* doc)
         _ImportPaths->_into = doc;
 }
 
+void PropertyXLink::ImportPaths::intoFile(const std::string& file)
+{
+    if (_ImportPaths)
+        _ImportPaths->_intoFile = FileHistory::canonicalPath(file);
+}
+
 const PropertyXLink::ImportPaths* PropertyXLink::ImportPaths::covering(const PropertyXLink& link)
 {
-    if (!_ImportPaths || !_ImportPaths->_into)
+    if (!_ImportPaths || (!_ImportPaths->_into && _ImportPaths->_intoFile.empty()))
         return nullptr;
     auto owner = Base::freecad_dynamic_cast<const DocumentObject>(link.getContainer());
-    return owner && owner->getDocument() == _ImportPaths->_into ? _ImportPaths : nullptr;
+    if (!owner || !owner->getDocument())
+        return nullptr;
+    if (_ImportPaths->_into)
+        return owner->getDocument() == _ImportPaths->_into ? _ImportPaths : nullptr;
+    return FileHistory::canonicalPath(owner->getDocument()->FileName.getStrValue())
+            == _ImportPaths->_intoFile
+        ? _ImportPaths
+        : nullptr;
 }
 
 std::string PropertyXLink::ImportPaths::map(const std::string& file, Mapped* mapped) const

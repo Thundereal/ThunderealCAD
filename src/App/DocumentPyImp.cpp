@@ -2242,6 +2242,52 @@ PyObject* DocumentPy::getLinkedSetImports(PyObject* args)
     } PY_CATCH;
 }
 
+namespace
+{
+
+/// The files of a set's merge, as mergeLinkedSet() and previewLinkedSet()
+/// take them.
+std::vector<App::SetMergeFile> setMergeFilesOf(PyObject* list)
+{
+    auto text = [](const Py::Dict& d, const char* key) {
+        return d.hasKey(key) && !d.getItem(key).isNone()
+            ? Py::String(d.getItem(key)).as_std_string("utf-8") : std::string();
+    };
+    std::vector<App::SetMergeFile> files;
+    for (const auto& item : Py::Sequence(list)) {
+        const Py::Dict d(item);
+        App::SetMergeFile f;
+        f.theirs = text(d, "theirs");
+        f.ourFile = text(d, "our_file");
+        f.branch = text(d, "branch");
+        f.writeTo = text(d, "write_to");
+        f.fallback = text(d, "fallback");
+        if (d.hasKey("held"))
+            f.held = Py::Long(d.getItem("held")).as_long_long();
+        const std::string action = text(d, "action");
+        bool known = false;
+        for (auto a : {App::SetMergeAction::Merge, App::SetMergeAction::TakeTheirs,
+                       App::SetMergeAction::KeepOurs, App::SetMergeAction::Write,
+                       App::SetMergeAction::Drop}) {
+            if (action == App::setMergeActionName(a)) {
+                f.action = a;
+                known = true;
+            }
+        }
+        if (!known)
+            throw Py::ValueError("unknown action '" + action + "'");
+        if (d.hasKey("picks")) {
+            for (const auto& pick : Py::Dict(d.getItem("picks")))
+                f.picks[Py::String(pick.first).as_std_string("utf-8")] =
+                    Py::String(pick.second).as_std_string("utf-8");
+        }
+        files.push_back(std::move(f));
+    }
+    return files;
+}
+
+}  // namespace
+
 PyObject* DocumentPy::mergeLinkedSet(PyObject* args, PyObject* kwds)
 {
     PyObject* list = nullptr;
@@ -2253,40 +2299,7 @@ PyObject* DocumentPy::mergeLinkedSet(PyObject* args, PyObject* kwds)
                                              &overwrite, &name, &set))
         return nullptr;
     PY_TRY {
-        auto text = [](const Py::Dict& d, const char* key) {
-            return d.hasKey(key) && !d.getItem(key).isNone()
-                ? Py::String(d.getItem(key)).as_std_string("utf-8") : std::string();
-        };
-        std::vector<App::SetMergeFile> files;
-        for (const auto& item : Py::Sequence(list)) {
-            const Py::Dict d(item);
-            App::SetMergeFile f;
-            f.theirs = text(d, "theirs");
-            f.ourFile = text(d, "our_file");
-            f.branch = text(d, "branch");
-            f.writeTo = text(d, "write_to");
-            f.fallback = text(d, "fallback");
-            if (d.hasKey("held"))
-                f.held = Py::Long(d.getItem("held")).as_long_long();
-            const std::string action = text(d, "action");
-            bool known = false;
-            for (auto a : {App::SetMergeAction::Merge, App::SetMergeAction::TakeTheirs,
-                           App::SetMergeAction::KeepOurs, App::SetMergeAction::Write,
-                           App::SetMergeAction::Drop}) {
-                if (action == App::setMergeActionName(a)) {
-                    f.action = a;
-                    known = true;
-                }
-            }
-            if (!known)
-                throw Py::ValueError("unknown action '" + action + "'");
-            if (d.hasKey("picks")) {
-                for (const auto& pick : Py::Dict(d.getItem("picks")))
-                    f.picks[Py::String(pick.first).as_std_string("utf-8")] =
-                        Py::String(pick.second).as_std_string("utf-8");
-            }
-            files.push_back(std::move(f));
-        }
+        const auto files = setMergeFilesOf(list);
         App::SetMergeOptions options;
         options.name = name;
         options.overwrite = Base::asBoolean(overwrite);
@@ -2306,6 +2319,10 @@ PyObject* DocumentPy::mergeLinkedSet(PyObject* args, PyObject* kwds)
             for (const auto& s : f.failed)
                 failed.append(Py::String(s));
             d.setItem("failed", failed);
+            Py::List references;
+            for (const auto& s : f.references)
+                references.append(Py::String(s));
+            d.setItem("references", references);
             d.setItem("error", Py::String(f.error));
             out.append(d);
         }
@@ -2314,6 +2331,24 @@ PyObject* DocumentPy::mergeLinkedSet(PyObject* args, PyObject* kwds)
         d.setItem("transaction", Py::Long(result.transaction));
         d.setItem("refused", Py::Boolean(result.refused));
         return Py::new_reference_to(d);
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::previewLinkedSet(PyObject* args)
+{
+    PyObject* list = nullptr;
+    if (!PyArg_ParseTuple(args, "O", &list))
+        return nullptr;
+    PY_TRY {
+        const auto result = App::previewSetReferences(*getDocumentPtr(), setMergeFilesOf(list));
+        Py::List out;
+        for (const auto& refs : result) {
+            Py::List l;
+            for (const auto& s : refs)
+                l.append(Py::String(s));
+            out.append(l);
+        }
+        return Py::new_reference_to(out);
     } PY_CATCH;
 }
 

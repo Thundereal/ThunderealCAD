@@ -65,6 +65,10 @@ private:
     void bringIn();
     /// The actions as listed, merged.
     void merge();
+    /// The files as the list says them, for the set's merge
+    std::vector<App::SetMergeFile> listed() const;
+    /// Their file's line
+    QTreeWidgetItem* lineOf(const std::string& theirs) const;
     /// The actions a row offers, for whether it is paired.
     void fillActions(QTreeWidgetItem* item, bool paired, bool certain);
     /// The rows' states, as the import left them; the merge next.

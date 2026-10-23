@@ -353,11 +353,18 @@ void DlgImportLinkedSet::showImported()
     _state->setText(tr("Imported as branches of ours. Merge to take them in, as one undo step."));
 }
 
-void DlgImportLinkedSet::merge()
+QTreeWidgetItem* DlgImportLinkedSet::lineOf(const std::string& theirs) const
 {
-    auto doc = top();
-    if (!doc)
-        return;
+    for (int i = 0; i < _files->topLevelItemCount(); ++i) {
+        auto item = _files->topLevelItem(i);
+        if (ss(item->data(TheirFile, Qt::UserRole).toString()) == theirs)
+            return item;
+    }
+    return nullptr;
+}
+
+std::vector<App::SetMergeFile> DlgImportLinkedSet::listed() const
+{
     std::vector<App::SetMergeFile> files;
     for (const auto& r : _imported.files) {
         App::SetMergeFile f;
@@ -366,10 +373,7 @@ void DlgImportLinkedSet::merge()
         f.branch = r.branch;
         f.held = r.held;
         f.action = r.action;
-        for (int i = 0; i < _files->topLevelItemCount(); ++i) {
-            auto item = _files->topLevelItem(i);
-            if (ss(item->data(TheirFile, Qt::UserRole).toString()) != r.theirs)
-                continue;
+        if (auto item = lineOf(r.theirs)) {
             if (auto action = qobject_cast<QComboBox*>(_files->itemWidget(item, Action)))
                 f.action = App::SetMergeAction(action->currentData().toInt());
             if (auto writeTo = qobject_cast<QLineEdit*>(_files->itemWidget(item, WriteTo)))
@@ -377,6 +381,89 @@ void DlgImportLinkedSet::merge()
         }
         files.push_back(std::move(f));
     }
+    return files;
+}
+
+void DlgImportLinkedSet::merge()
+{
+    auto doc = top();
+    if (!doc)
+        return;
+    std::vector<App::SetMergeFile> files = listed();
+
+    // Q4 (b), sec 35.16 G5: what will not resolve after the merge, said
+    // first, on each file's line; the files kept ours that it needs offered
+    // to be merged too.
+    std::vector<std::vector<std::string>> refs;
+    try {
+        refs = App::previewSetReferences(*doc, files);
+    }
+    catch (Base::Exception& e) {
+        FC_WARN("set merge: references not checked: " << e.what());
+    }
+    QStringList lines;
+    std::set<std::string> needed;   // their files kept ours that a reference needs
+    for (std::size_t i = 0; i < refs.size() && i < files.size(); ++i) {
+        auto item = lineOf(files[i].theirs);
+        if (!item)
+            continue;
+        QStringList mine;
+        for (const auto& ref : refs[i]) {
+            mine << qs(ref);
+            // "Owner.Prop -> File.FCStd#Object[.Element]": the file's name
+            const auto arrow = ref.find(" -> ");
+            const auto hash = ref.find('#', arrow == std::string::npos ? 0 : arrow);
+            if (arrow == std::string::npos || hash == std::string::npos)
+                continue;
+            const QString name = qs(ref.substr(arrow + 4, hash - arrow - 4));
+            for (const auto& f : files) {
+                if (f.action == App::SetMergeAction::KeepOurs && !f.branch.empty()
+                        && QFileInfo(qs(f.ourFile)).fileName() == name)
+                    needed.insert(f.theirs);
+            }
+        }
+        item->setToolTip(State, mine.join(QLatin1Char('\n')));
+        if (!mine.isEmpty())
+            item->setText(State, tr("%n reference(s) will not resolve", nullptr, mine.size()));
+        lines << mine;
+    }
+    if (!lines.isEmpty()) {
+        QStringList shown = lines.mid(0, 10);
+        if (lines.size() > shown.size())
+            shown << tr("... and %n more", nullptr, int(lines.size() - shown.size()));
+        QMessageBox box(QMessageBox::Warning, windowTitle(),
+                        tr("%n reference(s) will not resolve after the merge:", nullptr,
+                           lines.size())
+                            + QStringLiteral("\n\n") + shown.join(QLatin1Char('\n')),
+                        QMessageBox::Cancel, this);
+        QPushButton* too = nullptr;
+        if (!needed.empty()) {
+            QStringList names;
+            for (const auto& theirs : needed)
+                names << QFileInfo(qs(theirs)).fileName();
+            too = box.addButton(tr("Merge %1 too").arg(names.join(QStringLiteral(", "))),
+                                QMessageBox::AcceptRole);
+        }
+        auto asListed = box.addButton(tr("Merge as listed"), QMessageBox::AcceptRole);
+        box.setDefaultButton(too ? too : asListed);
+        box.exec();
+        if (box.clickedButton() == too && too) {
+            for (const auto& theirs : needed) {
+                auto item = lineOf(theirs);
+                auto action = item
+                    ? qobject_cast<QComboBox*>(_files->itemWidget(item, Action)) : nullptr;
+                const int at =
+                    action ? action->findData(int(App::SetMergeAction::Merge)) : -1;
+                if (at >= 0)
+                    action->setCurrentIndex(at);
+            }
+            merge();   // checked again, with them merged
+            return;
+        }
+        if (box.clickedButton() != asListed)
+            return;
+    }
+
     App::SetMergeOptions options;
     options.name = ss(tr("Merge their set"));
     options.set = _imported.id;
@@ -403,6 +490,10 @@ void DlgImportLinkedSet::merge()
     for (const auto& f : result.files) {
         if (!f.error.empty())
             errors << QStringLiteral("%1: %2").arg(QFileInfo(qs(f.theirs)).fileName(), qs(f.error));
+        // Q4 (b): in the report after, too
+        for (const auto& ref : f.references)
+            errors << tr("%1: does not resolve: %2")
+                          .arg(QFileInfo(qs(f.theirs)).fileName(), qs(ref));
     }
     if (result.refused) {
         QMessageBox::warning(this, windowTitle(),

@@ -216,6 +216,9 @@ struct AppExport SetMergedFile
     int undoId = 0;           ///< the undo step it is in; 0 for none
     std::size_t unresolved = 0;
     std::vector<std::string> failed;   ///< objects whose recompute failed
+    /// What of it does not resolve after the merge (Q4), as
+    /// previewSetReferences() says it.
+    std::vector<std::string> references;
     std::string error;
 };
 
@@ -239,6 +242,18 @@ struct AppExport SetMergeResult
  */
 AppExport SetMergeResult mergeSet(Document& ourTop, const std::vector<SetMergeFile>& files,
                                   const SetMergeOptions& options = {});
+
+/** What will not resolve once the set is merged as `files` say (sec 35.6
+ * Q4 (b), 35.16 G5), per file in `files`' order: each reference a file to
+ * be merged or taken will hold to a file of the set -- a link, an entry of
+ * a list, what an expression reads -- looked up in what that file will be:
+ * the merge's result (Document::previewMergeResult) for one merged, its
+ * branch for one taken, ours as it is for one kept. An object that is not
+ * there, or an element of it that is not, as "Joint001.Reference2 ->
+ * Bracket.FCStd#Box.Face7". Nothing moves; what it opens is closed.
+ */
+AppExport std::vector<std::vector<std::string>>
+previewSetReferences(Document& ourTop, const std::vector<SetMergeFile>& files);
 
 /** The sets imported into `ourTop` and not merged yet (sec 35 Q9), oldest
  * first, as the records of the branch it is on hold them: what importSet()

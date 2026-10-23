@@ -56,7 +56,7 @@ question is the one that holds.
 | 32 | A shape diff: what a merge or a pick would take; kept values (32.11) | built |
 | 33 | What the merge into LinkVibe exposed | fixed |
 | 34 | Held: what Scion's design suggests | held |
-| 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G6 (35.15), G1 G2 G4 built, G7 found (35.16) |
+| 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the dialog marks open |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12) | none left from 37.12 |
 
@@ -22266,6 +22266,48 @@ G2 the binder reads our part), `testATopThatBroughtNothingGetsABranchForItsLinks
 (G1 up to the top, and the set's merge), and
 `testTheirFileAloneLinksWhatTheSetsFilesCameAs` (G4: in review, in another
 session, and written by the merge, `file="Part.FCStd"` with no branch).
+
+### 35.17 G7 and G5 built (user: "do G7 and G5", 2026-10-23)
+
+**G7, an expression that reads another file of the set.** The relink
+(`gatherRelinks`) also looks at each expression container of an object --
+its `ExpressionEngine`, a sheet's cells, any `PropertyXLinkContainer` --
+for what it reads of a file of the set that came as something else, and
+swaps each such object for the one of its name there through
+`CopyOnLinkReplace`, the call a copy-on-change link's swap uses: the
+expression's document name becomes the branch's document's
+(`Part_v2#Box.Length`), and the engine's link to it is live to the
+branch. Saved, the engine's `DocMap` beside that link maps the name to
+whatever the branch's document is called when it is read again, so it
+holds in another session. At the merge, "Link our set" swaps it to ours by
+the same name; an object their file made, which ours has not until its
+merge, is left as it is, with a warning. The written copy of a file of
+theirs alone gets the same.
+
+**G5, what will not resolve, said before the merge (Q4 (b)).**
+`App::previewSetReferences(ourTop, files)`, in Python
+`Document.previewLinkedSet(files)`: for each file to be merged or taken,
+what it will be is made -- `previewMergeResult` for a merge (the branch's
+head for a fast-forward), the branch's head for Take theirs -- and ours as
+it is stands for a file kept. Each of its references to a file of the set
+-- a link, an entry of a list, what an expression reads -- is looked up
+in what that file will be: the object by its name, and an element of it by
+`GeoFeature::resolveElement`, a missing mark, or an index past the shape's
+count. A link that resolves to nothing is looked up by the file and the
+object it names. Each that fails: `L3.LinkedObject -> Part.FCStd#Cyl`,
+`B2.Support -> Part.FCStd#F.Face8`. The merge's report says the same of
+what was merged (`references` per file). The dialog's Merge checks first:
+the count on each file's line, the list in its tooltip, and a question
+listing them, which offers "Merge X too" for the files kept ours that the
+references need -- set to Merge and checked again -- or "Merge as
+listed", or Cancel.
+
+Tests: `testAnExpressionReadsWhatTheSetsFilesCameAs` (G7: in review, in
+another session, merged), `testWhatWillNotResolveIsSaidBeforeTheMerge`
+(G5: a cylinder their Part added and a face of their eight-faced F, kept
+ours; none when merged; the report after), driven
+`GuiImportLinkedSetReferences` (`tests/gui/import-linked-set-references.py`:
+the question, the line, "Merge Part.FCStd too" taken).
 
 ## 36. Object UIDs: an object known by what it is, not its name (2026-10-21)
 

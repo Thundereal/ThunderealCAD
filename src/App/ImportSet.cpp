@@ -48,6 +48,7 @@
 #include "ExportSet.h"
 #include "FileBlobManager.h"
 #include "FileHistory.h"
+#include "GeoFeature.h"
 #include "ImportSet.h"
 #include "LibraryPaths.h"
 #include "PropertyLinks.h"
@@ -475,16 +476,44 @@ std::string nameOf(const Target& t)
     return t.file;
 }
 
+/// What an expression container (an object's expressions, a sheet) reads of
+/// another file of the set, and what it reads instead (sec 35.16 G7).
+struct ExpressionRelink
+{
+    PropertyXLinkContainer* prop = nullptr;
+    DocumentObject* owner = nullptr;
+    std::vector<std::pair<DocumentObject*, DocumentObject*>> swaps;   // old, new
+};
+
 /** The links of `doc` -- each a link, or an entry of a list of links (sec
  * 35.15 G2: a SubShapeBinder's Support) -- to a file of the set that came
  * as something else here: in `changes` the object they link now, or with
- * `plainly`, in `plain` the file they name plainly. */
+ * `plainly`, in `plain` the file they name plainly. An expression's reads of
+ * such a file (G7) in `exprs`, each to the object of that name there --
+ * plainly, ours, which an object their file made is not yet: it is left. */
 void gatherRelinks(Document* doc, const std::map<LinkKey, Target>& targets,
                    const std::map<std::string, Target>& byHeld, bool plainly,
                    std::vector<std::pair<PropertyXLink*, App::DocumentObject*>>& changes,
-                   std::vector<std::pair<PropertyXLink*, std::string>>& plain)
+                   std::vector<std::pair<PropertyXLink*, std::string>>& plain,
+                   std::vector<ExpressionRelink>* exprs = nullptr)
 {
     auto& app = GetApplication();
+    // The file a link to `linked` names here instead, if any
+    auto targetOf = [&](const PropertyXLink* link, const Document* linked) -> const Target* {
+        const Target* found = nullptr;
+        auto held = !link || link->getHeldHash().empty() ? byHeld.end()
+                                                         : byHeld.find(link->getHeldHash());
+        if (held != byHeld.end())
+            found = &held->second;
+        else {
+            auto it = targets.find(keyOfDocument(linked));
+            if (it != targets.end())
+                found = &it->second;
+        }
+        if (!found || nameOf(*found) == linked->FileName.getStrValue())
+            return nullptr;
+        return found;
+    };
     for (auto obj : doc->getObjects()) {
         std::vector<App::Property*> props;
         obj->getPropertyList(props);
@@ -507,17 +536,8 @@ void gatherRelinks(Document* doc, const std::map<LinkKey, Target>& targets,
             const Document* linked = link->getValue()->getDocument();
             if (linked == doc)
                 continue;
-            const Target* found = nullptr;
-            auto held = link->getHeldHash().empty() ? byHeld.end()
-                                                    : byHeld.find(link->getHeldHash());
-            if (held != byHeld.end())
-                found = &held->second;
-            else {
-                auto it = targets.find(keyOfDocument(linked));
-                if (it != targets.end())
-                    found = &it->second;
-            }
-            if (!found || nameOf(*found) == linked->FileName.getStrValue())
+            const Target* found = targetOf(link, linked);
+            if (!found)
                 continue;
             if (plainly) {
                 // By name: the object may be ours only once the file it is
@@ -534,6 +554,60 @@ void gatherRelinks(Document* doc, const std::map<LinkKey, Target>& targets,
             }
             changes.emplace_back(link, target);
         }
+        if (!exprs)
+            continue;
+        // G7: what its expressions read of another file of the set
+        for (auto prop : props) {
+            auto container = Base::freecad_dynamic_cast<PropertyXLinkContainer>(prop);
+            if (!container || prop->getContainer() != obj)
+                continue;
+            std::vector<DocumentObject*> read;
+            container->getLinks(read, true);
+            ExpressionRelink relink;
+            std::set<DocumentObject*> seen;
+            for (auto old : read) {
+                if (!old || !seen.insert(old).second || old->getDocument() == doc)
+                    continue;
+                const Target* found = targetOf(nullptr, old->getDocument());
+                if (!found)
+                    continue;
+                Document* to = plainly ? app.getDocumentByPath(found->file.c_str())
+                                       : app.openDocument(nameOf(*found).c_str(), false);
+                if (plainly && !to)
+                    to = app.openDocument(found->file.c_str(), false);
+                auto now = to ? to->getObject(old->getNameInDocument()) : nullptr;
+                if (!now) {
+                    FC_WARN("set import: " << prop->getFullName() << " reads "
+                            << old->getFullName() << ", which " << nameOf(*found)
+                            << " has not: left as it is");
+                    continue;
+                }
+                relink.swaps.emplace_back(old, now);
+            }
+            if (!relink.swaps.empty()) {
+                relink.prop = container;
+                relink.owner = obj;
+                exprs->push_back(std::move(relink));
+            }
+        }
+    }
+}
+
+/// G7: each container's reads swapped, one value set per container.
+void applyExpressionRelinks(const std::vector<ExpressionRelink>& exprs)
+{
+    for (const auto& r : exprs) {
+        std::unique_ptr<Property> now;
+        for (const auto& [old, with] : r.swaps) {
+            const auto from = now ? Base::freecad_dynamic_cast<PropertyLinkBase>(now.get())
+                                  : static_cast<const PropertyLinkBase*>(r.prop);
+            if (!from)
+                break;
+            if (auto copy = from->CopyOnLinkReplace(r.owner, old, with))
+                now.reset(copy);
+        }
+        if (now)
+            r.prop->Paste(*now);
     }
 }
 
@@ -575,8 +649,9 @@ int relinkBranch(const std::string& ourFile, const std::string& branch,
         doc->commitTransaction();
     std::vector<std::pair<PropertyXLink*, App::DocumentObject*>> changes;
     std::vector<std::pair<PropertyXLink*, std::string>> plain;
-    gatherRelinks(doc, targets, byHeld, plainly, changes, plain);
-    if (changes.empty() && plain.empty())
+    std::vector<ExpressionRelink> exprs;
+    gatherRelinks(doc, targets, byHeld, plainly, changes, plain, &exprs);
+    if (changes.empty() && plain.empty() && exprs.empty())
         return 0;
     const int mode = doc->getUndoMode();
     if (!mode)
@@ -587,6 +662,7 @@ int relinkBranch(const std::string& ourFile, const std::string& branch,
             link->setValue(target, std::vector<std::string>(link->getSubValues()));
         for (auto& [link, file] : plain)
             link->setPlainFile(file);
+        applyExpressionRelinks(exprs);
         doc->commitTransaction();
     }
     catch (...) {
@@ -597,7 +673,7 @@ int relinkBranch(const std::string& ourFile, const std::string& branch,
     }
     if (!mode)
         doc->setUndoMode(0);
-    return static_cast<int>(changes.size() + plain.size());
+    return static_cast<int>(changes.size() + plain.size() + exprs.size());
 }
 
 /// Close what was opened since `before`, unless a document staying open
@@ -872,6 +948,182 @@ void recordTaken(Document& doc, const std::string& branch, const char* how)
 
 }  // namespace
 
+namespace
+{
+
+/// The file a document is of: its key, a branch's or a version's as its own
+std::string fileOf(const Document* doc)
+{
+    return std::get<0>(keyOfDocument(doc));
+}
+
+/** G5: the references of `doc` to a file of the set (keyed in `after`) that
+ * do not resolve in what that file is after the merge. */
+void checkReferences(Document* doc, const std::map<std::string, Document*>& after,
+                     std::vector<std::string>& out)
+{
+    const std::string self = fileOf(doc);
+    // `file` and `name` what is read: an object of a document, or what a
+    // link that does not resolve names
+    auto check = [&](DocumentObject* obj, Property* prop, const std::string& file,
+                     const std::string& name, const std::vector<std::string>& subs,
+                     const std::vector<std::string>& shown) {
+        auto it = after.find(file);
+        if (file.empty() || name.empty() || file == self || it == after.end() || !it->second)
+            return;
+        const std::string from = std::string(obj->getNameInDocument()) + "." + prop->getName()
+            + " -> " + ss(QFileInfo(qs(file)).fileName()) + "#" + name;
+        auto there = it->second->getObject(name.c_str());
+        if (!there) {
+            out.push_back(from);
+            return;
+        }
+        for (std::size_t i = 0; i < subs.size(); ++i) {
+            const char* element = Data::findElementName(subs[i].c_str());
+            if (!element || !*element)
+                continue;
+            std::pair<std::string, std::string> name;
+            GeoFeature* geo = nullptr;
+            auto owner = GeoFeature::resolveElement(there, subs[i].c_str(), name, false,
+                                                    GeoFeature::Normal, nullptr, nullptr, &geo);
+            bool missing = !owner || GeoFeature::hasMissingElement(name.first.c_str())
+                || GeoFeature::hasMissingElement(name.second.c_str());
+            // An element named by its index: one past the shape's count
+            if (!missing && geo && !name.second.empty()) {
+                Data::IndexedName indexed(name.second.c_str());
+                auto prop = geo->getPropertyOfGeometry();
+                auto data = prop ? prop->getComplexData() : nullptr;
+                if (indexed && data && indexed.getIndex() > 0
+                        && static_cast<unsigned long>(indexed.getIndex())
+                            > data->countSubElements(indexed.getType()))
+                    missing = true;
+            }
+            if (missing)
+                out.push_back(from + "." + (i < shown.size() ? shown[i] : subs[i]));
+        }
+    };
+    for (auto obj : doc->getObjects()) {
+        std::vector<Property*> props;
+        obj->getPropertyList(props);
+        for (auto prop : props) {
+            if (prop->getContainer() != obj)
+                continue;
+            std::vector<PropertyXLink*> links;
+            if (auto link = Base::freecad_dynamic_cast<PropertyXLink>(prop))
+                links.push_back(link);
+            else if (auto list = Base::freecad_dynamic_cast<PropertyXLinkSubList>(prop)) {
+                for (auto& entry : list->getSubListValues())
+                    links.push_back(const_cast<PropertyXLinkSub*>(&entry));
+            }
+            else if (auto container = Base::freecad_dynamic_cast<PropertyXLinkContainer>(prop)) {
+                std::vector<DocumentObject*> read;
+                container->getLinks(read, true);
+                std::set<DocumentObject*> seen;
+                for (auto target : read) {
+                    if (target && target->isAttachedToDocument() && target->getDocument() != doc
+                            && seen.insert(target).second)
+                        check(obj, prop, fileOf(target->getDocument()),
+                              target->getNameInDocument(), {}, {});
+                }
+                continue;
+            }
+            for (auto link : links) {
+                auto target = link->getValue();
+                if (target && target->isAttachedToDocument()) {
+                    if (target->getDocument() != doc)
+                        check(obj, prop, fileOf(target->getDocument()),
+                              target->getNameInDocument(), link->getSubValues(true),
+                              link->getSubValues(false));
+                    continue;
+                }
+                // Not resolved: by the file and the object it names
+                std::string path = link->getDocumentPath() ? link->getDocumentPath() : "";
+                if (path.empty())
+                    continue;
+                if (QFileInfo(qs(path)).isRelative())
+                    path = ss(QFileInfo(qs(doc->FileName.getStrValue()))
+                                  .absoluteDir()
+                                  .absoluteFilePath(qs(path)));
+                FileHistory::NameParts parts;
+                const std::string file =
+                    keyOf(FileHistory::parseName(path, parts) ? parts.file : path);
+                check(obj, prop, file, link->getObjectName(), link->getSubValues(true),
+                      link->getSubValues(false));
+            }
+        }
+    }
+}
+
+/** What each of our files of the set is after the merge as `files` say:
+ * its merge's result, its branch, or itself; `made` the results, the
+ * caller's to close. A file that cannot be told says so in `out`. */
+std::map<std::string, Document*> afterMerge(const std::vector<SetMergeFile>& files,
+                                            std::vector<Document*>& made,
+                                            std::vector<std::vector<std::string>>& out)
+{
+    auto& app = GetApplication();
+    std::map<std::string, Document*> after;
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        const auto& f = files[i];
+        if (f.ourFile.empty())
+            continue;
+        Document* doc = nullptr;
+        try {
+            const std::string tip = keyOf(f.ourFile) + "@" + f.branch + "@";
+            if (!f.branch.empty() && f.action == SetMergeAction::Merge) {
+                Document* ours = app.openDocument(f.ourFile.c_str(), false);
+                auto outcome = ours ? ours->previewMergeResult(f.branch, f.picks, f.fallback)
+                                    : Document::MergeOutcome();
+                if (outcome.document) {
+                    doc = outcome.document;
+                    made.push_back(doc);
+                }
+                else if (outcome.theirs)
+                    doc = app.openDocument(tip.c_str(), false);
+            }
+            else if (!f.branch.empty() && f.action == SetMergeAction::TakeTheirs)
+                doc = app.openDocument(tip.c_str(), false);
+            if (!doc)
+                doc = app.openDocument(f.ourFile.c_str(), false);
+        }
+        catch (Base::Exception& e) {
+            out[i].push_back(std::string("not checked: ") + e.what());
+        }
+        after[keyOf(f.ourFile)] = doc;
+    }
+    return after;
+}
+
+}  // namespace
+
+std::vector<std::vector<std::string>>
+App::previewSetReferences(Document& ourTop, const std::vector<SetMergeFile>& files)
+{
+    (void)ourTop;
+    Document::UserEditSuspend suspend;
+    auto& app = GetApplication();
+    std::set<Document*> before;
+    for (auto doc : app.getDocuments())
+        before.insert(doc);
+    std::vector<std::vector<std::string>> out(files.size());
+    std::vector<Document*> made;
+    auto after = afterMerge(files, made, out);
+    for (std::size_t i = 0; i < files.size(); ++i) {
+        const auto& f = files[i];
+        if (f.ourFile.empty() || f.branch.empty()
+                || (f.action != SetMergeAction::Merge && f.action != SetMergeAction::TakeTheirs))
+            continue;
+        if (auto doc = after[keyOf(f.ourFile)])
+            checkReferences(doc, after, out[i]);
+    }
+    for (auto doc : made) {
+        if (app.getDocument(doc->getName()) == doc)
+            app.closeDocument(doc->getName());
+    }
+    closeOpened(before);
+    return out;
+}
+
 SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& files,
                              const SetMergeOptions& options)
 {
@@ -1008,9 +1260,11 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
                 try {
                     std::vector<std::pair<PropertyXLink*, App::DocumentObject*>> none;
                     std::vector<std::pair<PropertyXLink*, std::string>> links;
-                    gatherRelinks(doc, plain, byHeld, true, none, links);
+                    std::vector<ExpressionRelink> exprs;
+                    gatherRelinks(doc, plain, byHeld, true, none, links, &exprs);
                     for (auto& [link, file] : links)
                         link->setPlainFile(file);
+                    applyExpressionRelinks(exprs);
                     ExportSetPaths scope(copies);
                     ExportSetPaths::writing(doc);
                     done = doc->saveCopy(f.writeTo.c_str(), false);
@@ -1098,6 +1352,24 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
             catch (std::exception& e) {
                 r.error = e.what();
             }
+        }
+    }
+    // Q4 (b), G5: what does not resolve now, in the report
+    {
+        std::map<std::string, Document*> now;
+        for (const auto& f : files) {
+            if (!f.ourFile.empty())
+                now[keyOf(f.ourFile)] = docOf(f.ourFile);
+        }
+        for (std::size_t i = 0; i < files.size(); ++i) {
+            const auto& f = files[i];
+            auto& r = result.files[i];
+            if (f.ourFile.empty() || f.branch.empty() || !r.error.empty()
+                    || (f.action != SetMergeAction::Merge
+                        && f.action != SetMergeAction::TakeTheirs))
+                continue;
+            if (auto doc = now[keyOf(f.ourFile)])
+                checkReferences(doc, now, r.references);
         }
     }
     // Q9: the set no longer pending.

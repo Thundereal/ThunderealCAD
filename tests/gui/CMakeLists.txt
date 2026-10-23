@@ -2208,3 +2208,10 @@ fc_add_gui_test(GuiImportClash_tests_run
 fc_add_gui_test(GuiLinkGroupDragOut_tests_run
                 link-group-drag-out.py
                 --timeout 120)
+
+# A set's merge says first what will not resolve after it
+# (docs/TransactionLog.md sec 35.6 Q4, 35.16 G5), and offers to merge
+# the file kept ours that it needs.
+fc_add_gui_test(GuiImportLinkedSetReferences_tests_run
+                import-linked-set-references.py
+                --timeout 180)

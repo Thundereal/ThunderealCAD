@@ -10941,6 +10941,163 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(b.B.LinkedObject.Document.FileName, os.path.join(ours, "Part.FCStd"))
         self.assertEqual(b.B.LinkedObject.Length.Value, 25)
 
+    def testAnExpressionReadsWhatTheSetsFilesCameAs(self):
+        # Sec 35.16 G7: our top's C.Length reads Part#Box.Length, an
+        # expression set before the copies parted. In the top's branch it
+        # reads their box -- what our Part came as -- here and in another
+        # session; merged, ours, which then holds their box.
+        import shutil
+
+        security = FreeCAD.ExpressionSecurity
+
+        def allow(doc):
+            # Reading another document asks for doc.foreign (docs/Sandbox.md)
+            doc.recompute()
+            for asked in security.pending():
+                if asked["permission"] == "doc.foreign":
+                    security.grant(asked["principal"], "doc.foreign", asked["target"], True,
+                                   "session")
+                    security.clearPending(asked["principal"], "doc.foreign", asked["target"])
+                    self.addCleanup(security.revoke, asked["principal"], "doc.foreign", "*")
+            doc.recompute(None, True, True)
+
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        os.makedirs(ours)
+        part = FreeCAD.newDocument("ExprPart")
+        part.UndoMode = 1
+        part.openTransaction("box")
+        part.addObject("Part::Box", "Box")
+        part.recompute()
+        part.commitTransaction()
+        part.saveAs(os.path.join(ours, "Part.FCStd"))
+        asm = FreeCAD.newDocument("ExprAsm")
+        asm.UndoMode = 1
+        asm.openTransaction("c")
+        asm.addObject("Part::Box", "C").setExpression("Length", part.Name + "#Box.Length")
+        allow(asm)
+        asm.commitTransaction()
+        asm.saveAs(os.path.join(ours, "Asm.FCStd"))
+        for d in (asm, part):
+            FreeCAD.closeDocument(d.Name)
+        shutil.copytree(ours, theirs)
+        p = FreeCAD.openDocument(os.path.join(theirs, "Part.FCStd"))
+        p.Box.Length = 25
+        p.recompute()
+        p.save()
+        a = FreeCAD.openDocument(os.path.join(theirs, "Asm.FCStd"))
+        a.C.Width = 3
+        allow(a)
+        a.save()
+        for name in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(name)
+
+        asmPath = os.path.join(ours, "Asm.FCStd")
+        doc = self.openedSet(asmPath)
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        got = {os.path.basename(f["theirs"]): f for f in res["files"]}
+        self.assertEqual(got["Asm.FCStd"]["relinked"], 1)
+        tip = self.openedTip(ours, got, "Asm.FCStd")
+        allow(tip)
+        self.assertEqual(tip.C.Length.Value, 25)
+        self.assertEqual(doc.C.Length.Value, 10)
+
+        # Another session: the branch's expression names the branch's file
+        for d in FreeCAD.listDocuments().values():
+            if d.FileName.startswith(ours) and "@" not in d.FileName:
+                d.save()
+        for name in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(name)
+        doc = self.openedSet(asmPath)
+        tip = self.openedTip(ours, got, "Asm.FCStd")
+        allow(tip)
+        self.assertEqual(tip.C.Length.Value, 25)
+
+        for name in list(FreeCAD.listDocuments()):
+            if "@" in FreeCAD.getDocument(name).FileName:
+                FreeCAD.closeDocument(name)
+        merged = doc.mergeLinkedSet(res["files"])
+        self.assertEqual(merged["refused"], False, merged)
+        ourPart = [d for d in FreeCAD.listDocuments().values()
+                   if d.FileName == os.path.join(ours, "Part.FCStd")][0]
+        self.assertEqual(doc.C.ExpressionEngine, [("Length", ourPart.Name + "#Box.Length")])
+        allow(doc)
+        self.assertEqual(doc.C.Length.Value, 25)
+
+    def testWhatWillNotResolveIsSaidBeforeTheMerge(self):
+        # Sec 35.6 Q4 (b), 35.16 G5: their top links a cylinder their Part
+        # added, and binds Face8 of their F, an eight-faced prism where ours
+        # is a box. Keeping our Part, both are listed on the top's line
+        # before the merge, and in the report after; merging the Part too,
+        # none.
+        import shutil
+        import Part
+
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        os.makedirs(ours)
+        part = FreeCAD.newDocument("RefPart")
+        part.UndoMode = 1
+        part.openTransaction("f")
+        part.addObject("Part::Feature", "F").Shape = Part.makeBox(10, 10, 10)
+        part.recompute()
+        part.commitTransaction()
+        part.saveAs(os.path.join(ours, "Part.FCStd"))
+        asm = FreeCAD.newDocument("RefAsm")
+        asm.UndoMode = 1
+        asm.openTransaction("l")
+        asm.addObject("App::Link", "L").LinkedObject = part.F
+        asm.recompute()
+        asm.commitTransaction()
+        asm.saveAs(os.path.join(ours, "Asm.FCStd"))
+        for d in (asm, part):
+            FreeCAD.closeDocument(d.Name)
+        shutil.copytree(ours, theirs)
+        p = FreeCAD.openDocument(os.path.join(theirs, "Part.FCStd"))
+        hexagon = Part.makePolygon(
+            [FreeCAD.Vector(10 * math.cos(a * math.pi / 3), 10 * math.sin(a * math.pi / 3), 0)
+             for a in range(7)])
+        p.F.Shape = Part.Face(Part.Wire(hexagon)).extrude(FreeCAD.Vector(0, 0, 5))
+        self.assertEqual(len(p.F.Shape.Faces), 8)
+        p.addObject("Part::Cylinder", "Cyl")
+        p.recompute()
+        p.save()
+        a = FreeCAD.openDocument(os.path.join(theirs, "Asm.FCStd"))
+        a.addObject("App::Link", "L3").LinkedObject = p.Cyl
+        a.addObject("Part::SubShapeBinder", "B2").Support = [(p.F, ("Face8",))]
+        a.recompute()
+        a.save()
+        for name in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(name)
+
+        doc = self.openedSet(os.path.join(ours, "Asm.FCStd"))
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        files = res["files"]
+        names = [os.path.basename(f["theirs"]) for f in files]
+        top = names.index("Asm.FCStd")
+        for f in files:
+            if os.path.basename(f["theirs"]) == "Part.FCStd":
+                f["action"] = "ours"
+        refs = doc.previewLinkedSet(files)
+        self.assertEqual(sorted(refs[top]),
+                         ["B2.Support -> Part.FCStd#F.Face8", "L3.LinkedObject -> Part.FCStd#Cyl"])
+        self.assertEqual(refs[names.index("Part.FCStd")], [])
+        # Nothing moved, nothing left open
+        self.assertFalse(doc.getObject("L3"))
+        self.assertEqual([d for d in FreeCAD.listDocuments().values() if "@" in d.FileName], [])
+
+        for f in files:
+            f["action"] = "merge"
+        self.assertEqual(doc.previewLinkedSet(files)[top], [])
+
+        for f in files:
+            if os.path.basename(f["theirs"]) == "Part.FCStd":
+                f["action"] = "ours"
+        merged = doc.mergeLinkedSet(files)
+        self.assertEqual(merged["refused"], False, merged)
+        self.assertEqual(sorted(merged["files"][top]["references"]),
+                         ["B2.Support -> Part.FCStd#F.Face8", "L3.LinkedObject -> Part.FCStd#Cyl"])
+
     def testTheirFileAloneIsHeldForTheTopsBranch(self):
         # Sec 35 L5, Q2 (c): their Bolt, which we have no file of, is held in
         # our top's log for the top's branch -- not written into our folder

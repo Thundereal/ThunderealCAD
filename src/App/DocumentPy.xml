@@ -970,9 +970,22 @@ has a conflict with no side, or a file to be written is there and
 Otherwise the files alone are written, each branch's links to the set's
 branches made links to ours, and each file merged, taken or kept, as one undo
 step across the documents. Returns 'files' (per file 'action', 'seq',
-'written', 'undo_id', 'unresolved', 'failed', 'error'), 'transaction' (the
+'written', 'undo_id', 'unresolved', 'failed', 'references' -- what of it does
+not resolve now, as previewLinkedSet() says it -- 'error'), 'transaction' (the
 undo step's id) and 'refused'. `set`, the id importLinkedSet() gave the set,
 records it merged: getLinkedSetImports() no longer lists it.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="previewLinkedSet">
+      <Documentation>
+        <UserDocu>previewLinkedSet(files) -> list of list of str
+What will not resolve once the set is merged as `files` say, `files` as
+mergeLinkedSet() takes them (docs/TransactionLog.md sec 35.6 Q4, 35.16 G5):
+per file, in their order, each reference a file merged or taken will hold to
+a file of the set -- a link, an entry of a list, what an expression reads --
+whose object, or element of it, is not in what that file will be: its merge's
+result, its branch when taken, ours as it is when kept. Each as
+'Joint001.Reference2 -> Bracket.FCStd#Box.Face7'. Nothing moves.</UserDocu>
       </Documentation>
     </Methode>
     <Methode Name="getLinkedSetImports">

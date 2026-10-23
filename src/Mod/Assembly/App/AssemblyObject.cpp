@@ -41,6 +41,7 @@
 #include <App/Document.h>
 #include <App/DocumentObjectGroup.h>
 #include <App/FeaturePythonPyImp.h>
+#include <App/ElementNamingUtils.h>
 #include <App/Link.h>
 #include <App/PropertyPythonObject.h>
 #include <Base/Console.h>
@@ -52,6 +53,7 @@
 #include <Mod/Part/App/TopoShape.h>
 #include <Mod/Part/App/AttachExtension.h>
 #include <Mod/Part/App/DatumFeature.h>
+#include <Mod/Part/App/PartFeature.h>
 
 #include <OndselSolver/CREATE.h>
 #include <OndselSolver/ASMTSimulationParameters.h>
@@ -85,6 +87,7 @@
 #include <OndselSolver/ASMTTime.h>
 #include <OndselSolver/ASMTConstantGravity.h>
 #include <OndselSolver/ExternalSystem.h>
+#include <OndselSolver/RedundantConstraint.h>
 #include <OndselSolver/enum.h>
 
 #include "AssemblyLink.h"
@@ -256,6 +259,39 @@ void setGearJointCarrierMarkerIfAvailable(
     }
 }
 
+// A redundant equation whose residual is still above this after the solve is a
+// conflict: the solver dropped it to get a full-rank system, and the solution
+// of the remaining equations does not satisfy it. Residuals are in model units
+// (mm, OndselSolver's mbdUnits are all 1; mm^2 for the squared distances of
+// DistancexyConstraintIJ) for displacement equations and dimensionless for
+// direction cosines; a satisfied equation ends near 1e-12.
+constexpr double conflictResidualTolerance = 1.0e-6;
+
+// Re-evaluates the equation OndselSolver set aside as redundant at the solved
+// configuration. RedundantConstraint stubs out every update, so the wrapped
+// equation's aG is stale until asked here.
+bool isConflicting(const std::shared_ptr<MbD::RedundantConstraint>& redundant)
+{
+    if (!redundant || !redundant->constraint) {
+        return false;
+    }
+    try {
+        redundant->constraint->postPosICIteration();
+    }
+    catch (...) {
+        return false;
+    }
+    const double residual = redundant->constraint->aG;
+    return !std::isfinite(residual) || std::abs(residual) > conflictResidualTolerance;
+}
+
+void appendUnique(std::vector<std::string>& names, const std::string& name)
+{
+    if (std::ranges::find(names, name) == names.end()) {
+        names.push_back(name);
+    }
+}
+
 }  // namespace
 
 
@@ -334,6 +370,8 @@ int AssemblyObject::solve(bool enableRedo)
 
     syncGroundedJoints();
 
+    collectMalformedJoints();
+
     mbdAssembly = makeMbdAssembly();
     objectPartMap.clear();
     rebuildRigidClusters();
@@ -387,6 +425,13 @@ void AssemblyObject::updateSolveStatus()
 {
     lastRedundantJoints.clear();
     lastHasRedundancies = false;
+    lastConflictingJoints.clear();
+    lastHasConflict = false;
+    lastPartialRedundantJoints.clear();
+    lastHasPartialRedundancies = false;
+    // Malformed joints are found while the model is built (solve()); a status
+    // refresh without a solve keeps the last solve's list.
+    lastHasMalformedConstraints = !lastMalformedJoints.empty();
 
     int numberOfSolverBodies = numberOfComponents();
     if (!objectPartMap.empty()) {
@@ -431,20 +476,33 @@ void AssemblyObject::updateSolveStatus()
         if (!jm) {
             return;
         }
-        // Base::Console().Warning("jm->name %s\n", jm->name);
-        bool isJointRedundant = false;
+        // OndselSolver removes redundancy per equation: during the first
+        // assembly solve, rows of the Jacobian found linearly dependent are
+        // wrapped in a RedundantConstraint and left out. A joint is one MbD
+        // joint with one equation per constraint, so per joint:
+        //  - redundant: at least one equation removed (what the list has always
+        //    meant, and what the over-constrained message lists);
+        //  - partially redundant: some, not all, of its equations removed;
+        //  - conflicting: a removed equation is not satisfied at the solution,
+        //    i.e. the joint contradicts the others instead of repeating them.
+        int nEquations = 0;
+        int nRedundant = 0;
+        bool isJointConflicting = false;
 
         jm->constraintsDo([&](std::shared_ptr<MbD::Constraint> con) {
             if (!con) {
                 return;
             }
-
-            std::string spec = con->constraintSpec();
-            // A constraint is redundant if its spec starts with "Redundant"
-            if (spec.rfind("Redundant", 0) == 0) {
-                isJointRedundant = true;
+            ++nEquations;
+            if (auto redundant = std::dynamic_pointer_cast<MbD::RedundantConstraint>(con)) {
+                ++nRedundant;
+                if (isConflicting(redundant)) {
+                    isJointConflicting = true;
+                }
+                // A removed equation takes no freedom away: the remaining ones
+                // are full rank, so their count is the Jacobian's rank.
+                return;
             }
-            // Base::Console().Warning("    - %s\n", spec);
             --lastDoF;
         });
 
@@ -457,20 +515,21 @@ void AssemblyObject::updateSolveStatus()
             return;
         }
 
-        if (isJointRedundant) {
-            // Check if this joint is already in the list to avoid duplicates
-            std::string objName = docObj->getNameInDocument();
-            if (std::find(lastRedundantJoints.begin(), lastRedundantJoints.end(), objName)
-                == lastRedundantJoints.end()) {
-                lastRedundantJoints.push_back(objName);
+        if (nRedundant > 0) {
+            const std::string objName = docObj->getNameInDocument();
+            appendUnique(lastRedundantJoints, objName);
+            if (nRedundant < nEquations) {
+                appendUnique(lastPartialRedundantJoints, objName);
+            }
+            if (isJointConflicting) {
+                appendUnique(lastConflictingJoints, objName);
             }
         }
     });
 
-    // Update the summary boolean flag
-    if (!lastRedundantJoints.empty()) {
-        lastHasRedundancies = true;
-    }
+    lastHasRedundancies = !lastRedundantJoints.empty();
+    lastHasPartialRedundancies = !lastPartialRedundantJoints.empty();
+    lastHasConflict = !lastConflictingJoints.empty();
 
     signalSolverUpdate();
 }
@@ -611,6 +670,7 @@ void AssemblyObject::preDrag(std::vector<App::DocumentObject*> dragParts)
 
         draggedParts.push_back(part);
     }
+
 }
 
 void AssemblyObject::prepareMbdForIslandDrag(std::vector<App::DocumentObject*> dragParts)
@@ -1339,6 +1399,70 @@ std::vector<App::DocumentObject*> AssemblyObject::getJoints(bool delBadJoints, b
     }
 
     return joints;
+}
+
+void AssemblyObject::collectMalformedJoints()
+{
+    // getJoints() drops these silently, and handleOneSideOfJoint() only warns,
+    // so the solve goes on without them and nothing told the user. An
+    // incomplete joint -- a reference not set yet, as while the joint task is
+    // open -- is not malformed: it is skipped, as before. Malformed is a joint
+    // whose references are set but cannot be used: both on the same part, or a
+    // sub-element that no longer resolves.
+    lastMalformedJoints.clear();
+
+    JointGroup* jointGroup = getJointGroup();
+    if (!jointGroup) {
+        return;
+    }
+
+    Base::PyGILStateLocker lock;
+    for (auto* joint : jointGroup->getObjects()) {
+        if (!joint || !joint->getPropertyByName("Reference1")) {
+            continue;
+        }
+        auto* suppressed = dynamic_cast<App::PropertyBool*>(joint->getPropertyByName("Suppressed"));
+        if (!suppressed || suppressed->getValue()) {
+            continue;
+        }
+        auto* proxy = dynamic_cast<App::PropertyPythonObject*>(joint->getPropertyByName("Proxy"));
+        if (!proxy || !proxy->getValue().hasAttr("setJointConnectors")) {
+            continue;
+        }
+
+        auto* part1 = getMovingPartFromRef(joint, "Reference1");
+        auto* part2 = getMovingPartFromRef(joint, "Reference2");
+        if (!part1 || !part2) {
+            continue;  // incomplete
+        }
+
+        if (part1 == part2 || !isJointRefUsable(joint, "Reference1")
+            || !isJointRefUsable(joint, "Reference2")) {
+            appendUnique(lastMalformedJoints, joint->getNameInDocument());
+        }
+    }
+}
+
+bool AssemblyObject::isJointRefUsable(App::DocumentObject* joint, const char* propName)
+{
+    if (!getObjFromJointRef(joint, propName)) {
+        return false;
+    }
+
+    // The element the reference names must exist: after a topology change a
+    // joint keeps its last placement while pointing at a face that is gone.
+    const auto* prop = joint->getPropertyByName<App::PropertyXLinkSub>(propName);
+    const auto& subs = prop->getSubValues();
+    const char* element = Data::findElementName(subs.front().c_str());
+    if (!element || !*element) {
+        return true;  // a whole object (datum, LCS): nothing more to resolve
+    }
+    try {
+        return !PartApp::Feature::getShape(prop->getValue(), subs.front().c_str(), true).IsNull();
+    }
+    catch (...) {
+        return false;
+    }
 }
 
 std::vector<App::DocumentObject*> AssemblyObject::getGroundedJoints()

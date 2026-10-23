@@ -1933,25 +1933,24 @@ void ViewProviderAssembly::UpdateSolverInformation()
     auto* assembly = getObject<AssemblyObject>();
 
     int dofs = assembly->getLastDoF();
+    bool hasConflicts = assembly->getLastHasConflicts();
     bool hasRedundancies = assembly->getLastHasRedundancies();
     bool hasMalformed = assembly->getLastHasMalformedConstraints();
+    // Partially redundant joints are a subset of the redundant ones (a joint
+    // with some, not all, of its equations removed); say so when that is all
+    // there is.
+    bool onlyPartiallyRedundant = hasRedundancies
+        && assembly->getLastPartiallyRedundant().size() == assembly->getLastRedundant().size();
 
     if (assembly->isEmpty()) {
         signalSetUp(QStringLiteral("empty"), tr("Empty Assembly"), QString(), QString());
     }
-    else if (dofs < 0 || /*hasConflicts*/ hasRedundancies) {  // over-constrained
-        // Currently the solver does not distinguish between conflicts and redundancies.
-        /*signalSetUp(QStringLiteral("conflicting_constraints"),
-                    tr("Over-constrained:") + QLatin1String(" "),
-                    QStringLiteral("#conflicting"),
-                    QStringLiteral("(%1)").arg(objListHelper(assembly,
-           assembly->getLastConflicting())));*/
-        // So for now we report like follows:
+    else if (hasConflicts) {  // over-constrained, and the extra joints disagree
         signalSetUp(
             QStringLiteral("conflicting_constraints"),
             tr("Over-constrained:") + QLatin1String(" "),
             QStringLiteral("#conflicting"),
-            QStringLiteral("(%1)").arg(objListHelper(assembly, assembly->getLastRedundant()))
+            QStringLiteral("(%1)").arg(objListHelper(assembly, assembly->getLastConflicting()))
         );
     }
     else if (hasMalformed) {  // malformed joints
@@ -1962,22 +1961,22 @@ void ViewProviderAssembly::UpdateSolverInformation()
             QStringLiteral("(%1)").arg(objListHelper(assembly, assembly->getLastMalformed()))
         );
     }
-    // Currently the solver does not distinguish between conflicts and redundancies.
-    /* else if (hasRedundancies) {
-        signalSetUp(QStringLiteral("redundant_constraints"),
-                    tr("Redundant joints:") + QLatin1String(" "),
-                    QStringLiteral("#redundant"),
-                    QStringLiteral("(%1)").arg(objListHelper(assembly,
-    assembly->getLastRedundant())));
+    else if (hasRedundancies && !onlyPartiallyRedundant) {
+        signalSetUp(
+            QStringLiteral("redundant_constraints"),
+            tr("Redundant joints:") + QLatin1String(" "),
+            QStringLiteral("#redundant"),
+            QStringLiteral("(%1)").arg(objListHelper(assembly, assembly->getLastRedundant()))
+        );
     }
-    else if (hasPartiallyRedundant) {
+    else if (hasRedundancies) {
         signalSetUp(
             QStringLiteral("partially_redundant_constraints"),
             tr("Partially redundant:") + QLatin1String(" "),
-            QStringLiteral("#partiallyredundant"),
-            QStringLiteral("(%1)").arg(objListHelper(assembly,
-    assembly->getLastPartiallyRedundant())));
-    }*/
+            QStringLiteral("#redundant"),
+            QStringLiteral("(%1)").arg(objListHelper(assembly, assembly->getLastPartiallyRedundant()))
+        );
+    }
     else if (assembly->getLastSolverStatus() != 0) {
         signalSetUp(
             QStringLiteral("solver_failed"),

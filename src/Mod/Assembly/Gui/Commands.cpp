@@ -178,9 +178,7 @@ void CmdAssemblySelectConflictingConstraints::activated(int iMsg)
         return;
     }
 
-    // NOTE: The solver currently reports conflicting constraints as redundant.
-    // This uses the redundant list until the solver provides a separate conflicting list.
-    selectObjectsByName(assembly, assembly->getLastRedundant());
+    selectObjectsByName(assembly, assembly->getLastConflicting());
 }
 
 bool CmdAssemblySelectConflictingConstraints::isActive()

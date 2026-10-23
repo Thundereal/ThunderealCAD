@@ -268,6 +268,9 @@ private:
     void syncActiveRigidGroupPlacements();
     void updateRigidPlacementCache();
     void prepareMbdForIslandDrag(std::vector<App::DocumentObject*> dragParts);
+    // Fills lastMalformedJoints: active joints whose references are set but unusable.
+    void collectMalformedJoints();
+    static bool isJointRefUsable(App::DocumentObject* joint, const char* propName);
 
     std::shared_ptr<MbD::ASMTAssembly> mbdAssembly;
 

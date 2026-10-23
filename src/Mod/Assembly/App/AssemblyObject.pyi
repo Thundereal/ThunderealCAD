@@ -173,5 +173,24 @@ class AssemblyObject(Part):
             A list of App.DocumentObject instances representing the downstream parts.
         """
         ...
+
+    @constmethod
+    def getSolveStatus(self) -> dict:
+        """
+        The diagnosis of the last solve, as the messages panel shows it.
+
+        Returns: a dict with
+            DoF: int, the degrees of freedom left (6 per solver body, minus
+                the equations the solver kept);
+            SolverStatus: int, 0 when the last solve converged, -1 when it failed;
+            Conflicting: list of joint names whose equations contradict the others;
+            Redundant: list of joint names with at least one equation the solver
+                dropped as redundant (conflicting ones included);
+            PartiallyRedundant: the subset of Redundant with only some of their
+                equations dropped;
+            Malformed: list of active joints whose references are set but
+                unusable (both on one part, or a sub-element that does not resolve).
+        """
+        ...
     Joints: Final[list]
     """A list of all joints this assembly has."""

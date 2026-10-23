@@ -197,6 +197,31 @@ PyObject* AssemblyObjectPy::exportAsASMT(PyObject* args) const
     Py_Return;
 }
 
+PyObject* AssemblyObjectPy::getSolveStatus(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+
+    auto* assembly = getAssemblyObjectPtr();
+    auto toList = [](const std::vector<std::string>& names) {
+        Py::List list;
+        for (const auto& name : names) {
+            list.append(Py::String(name));
+        }
+        return list;
+    };
+
+    Py::Dict ret;
+    ret.setItem("DoF", Py::Long(assembly->getLastDoF()));
+    ret.setItem("SolverStatus", Py::Long(assembly->getLastSolverStatus()));
+    ret.setItem("Conflicting", toList(assembly->getLastConflicting()));
+    ret.setItem("Redundant", toList(assembly->getLastRedundant()));
+    ret.setItem("PartiallyRedundant", toList(assembly->getLastPartiallyRedundant()));
+    ret.setItem("Malformed", toList(assembly->getLastMalformed()));
+    return Py::new_reference_to(ret);
+}
+
 Py::List AssemblyObjectPy::getJoints() const
 {
     Py::List ret;

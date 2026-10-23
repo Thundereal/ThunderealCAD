@@ -582,6 +582,35 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
     return 0;
 }
 
+// Not upstream: whether a child of a Simulation is a motion. A child whose
+// proxy is of another class is not, whatever its properties are called
+// (docs/AssemblyDynamics.md sec 1: later children of a Simulation carry other
+// proxies); one without a proxy -- a script's, or a Motion whose module did
+// not load -- is read by its properties, as before.
+static bool isMotionObject(App::DocumentObject* obj)
+{
+    if (!obj) {
+        return false;
+    }
+    if (auto* proxy = dynamic_cast<App::PropertyPythonObject*>(obj->getPropertyByName("Proxy"))) {
+        Base::PyGILStateLocker lock;
+        try {
+            Py::Object value = proxy->getValue();
+            if (!value.isNone()) {
+                const Py::Object type = value.type();
+                return type.hasAttr("__name__")
+                    && Py::String(type.getAttr("__name__")).as_std_string() == "Motion";
+            }
+        }
+        catch (Py::Exception&) {
+            Base::PyException e;  // clears the Python error
+            return false;
+        }
+    }
+    return obj->getPropertyByName("Joint") && obj->getPropertyByName("MotionType")
+        && obj->getPropertyByName("Formula");
+}
+
 std::vector<App::DocumentObject*> AssemblyObject::getMotionsFromSimulation(App::DocumentObject* sim)
 {
     if (!sim) {
@@ -593,7 +622,14 @@ std::vector<App::DocumentObject*> AssemblyObject::getMotionsFromSimulation(App::
         return {};
     }
 
-    return prop->getValue();
+    // Not upstream: only the Motion objects among the children.
+    std::vector<App::DocumentObject*> motions;
+    for (auto* obj : prop->getValue()) {
+        if (isMotionObject(obj)) {
+            motions.push_back(obj);
+        }
+    }
+    return motions;
 }
 
 int Assembly::AssemblyObject::updateForFrame(size_t index)

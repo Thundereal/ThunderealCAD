@@ -9,7 +9,8 @@ with a roller, each on a slider pressed onto the cam by the joint, simulated
 for more than six turns with an output step of 2 rad (more than a quarter
 turn), its lift checked at every frame on every backend; the same with a
 dwell-rise-dwell cam profile built as a B-spline, its lift checked against
-the B-spline's own evaluation.
+the B-spline's own evaluation; and which children of a Simulation are read
+as motions (by their proxy, not by their property names).
 
 CAM_LIFT_ERROR collects the largest lift error per case and backend.
 """
@@ -380,3 +381,66 @@ class TestCamJoint(CamMechanism, JointTestBase):
                 lifts = [profile_lift(curve, RATE * T_STEP * k) for k in range(21)]
                 self.assertGreater(max(lifts) - min(lifts), RISE - 0.1)
 
+
+class TestSimulationMotions(CamMechanism, JointTestBase):
+    """Which children of a Simulation are its motions (docs/AssemblyDynamics.md sec 1)."""
+
+    def test_only_motion_objects_drive(self):
+        """A child with a Motion proxy drives; one without a proxy too (as before); one
+        with another proxy does not, though it has Joint, MotionType and Formula."""
+        import CommandCreateSimulation
+
+        g = self.box("G", size=20.0)
+        a = self.box("A", plc(0, 0, 20))
+        b = self.box("B", plc(30, 0, 20))
+        c = self.box("C", plc(-30, 0, 20))
+        self.ground(g)
+        rev = self.joint("Revolute", (g, ["Face6"]), plc(5, 5, 20), (a, ["Face5"]), plc(5, 5, 0))
+        sli = self.joint("Slider", (g, ["Face6"]), plc(15, 5, 20), (b, ["Face5"]), plc(5, 5, 0))
+        sli2 = self.joint("Slider", (g, ["Face6"]), plc(2, 15, 20), (c, ["Face5"]), plc(5, 5, 0))
+        self.doc.recompute()
+
+        sim = self.make_simulation([(sli2, "Linear", "2*time")], t_end=1.0, t_step=0.1)
+        # A Motion as a file restores one: its proxy is CommandCreateSimulation's
+        # Motion. (Motion() itself asks for App::PropertyXLinkSubHidden, which
+        # this fork does not have; the properties are made as the helper makes
+        # them.)
+        motion = self.assembly.newObject("App::FeaturePython", "Motion")
+        motion.addProperty("App::PropertyXLinkSub", "Joint", "Motion")
+        motion.addProperty("App::PropertyString", "Formula", "Motion")
+        motion.addProperty("App::PropertyEnumeration", "MotionType", "Motion")
+        motion.MotionType = ["Angular", "Linear"]
+        motion.MotionType = "Angular"
+        motion.Joint = rev
+        motion.Formula = "36*time"
+        motion.Proxy = CommandCreateSimulation.Motion.__new__(CommandCreateSimulation.Motion)
+        self.assertEqual(type(motion.Proxy).__name__, "Motion")
+
+        # Something else that happens to carry the same property names.
+        class ForceElement:
+            def __init__(self, obj):
+                obj.Proxy = self
+
+        other = self.assembly.newObject("App::FeaturePython", "Force")
+        other.addProperty("App::PropertyXLinkSub", "Joint", "Force")
+        other.addProperty("App::PropertyString", "Formula", "Force")
+        other.addProperty("App::PropertyEnumeration", "MotionType", "Force")
+        other.MotionType = ["Angular", "Linear"]
+        other.MotionType = "Linear"
+        other.Joint = sli
+        other.Formula = "100*time"
+        ForceElement(other)
+        sim.Group = sim.Group + [motion, other]
+        self.doc.recompute()
+        b_start = App.Placement(b.Placement)
+
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        n = self.assembly.numberOfFrames()
+        self.assembly.updateForFrame(n - 1)
+        # The proxy-less motion drove C 2 mm up the slider in 1 s.
+        self.assertAlmostEqual(c.Placement.Base.z - 20.0, 2.0, delta=1e-6)
+        # The Motion turned A by 36 rad.
+        turn = math.remainder(turn_about_z(a.Placement) - 36.0, 2 * math.pi)
+        self.assertAlmostEqual(turn, 0.0, delta=1e-6)
+        # The force element did not drive B.
+        self.assertTrue(b.Placement.isSame(b_start, 1e-9), b.Placement)

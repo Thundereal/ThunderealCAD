@@ -50,7 +50,7 @@ question is the one that holds.
 | 26 | Phase 4: branches as built, switching, the tip rule | built |
 | 27 | Phase 5: pinned links -- and the ledger of every later ruling and measurement (27.1-27.71): frozen versions, schema 4/5, trim, squash, the store version, the embed's cost | built; read by number |
 | 28 | Phase 6: merge | built |
-| 29 | Concurrent writers: one connection per file, sessions | ruled; 29.1 deferred |
+| 29 | Concurrent writers: one connection per file, sessions; two processes on one file surveyed and probed (29.7) | ruled; 29.7 Q1-Q5 to rule |
 | 30 | A shared head, explicit branches, forks, actors and access | ruled, built |
 | 31 | Phase 8: a value that is many things (survey and questions); what it left, checked and finished (31.34) | built |
 | 32 | A shape diff: what a merge or a pick would take; kept values (32.11) | built |
@@ -11788,6 +11788,96 @@ Q1). Clients of a shared session as writers, and two processes on one
 file, are the same mechanism with more under it: a document per client
 (`docs/ThinClient.md` 8.12, `docs/MultiViewEdit.md` sec 10), and the store
 and its allocators shared across processes (27.41 Q6).
+
+### 29.7 Two processes on one file: survey, a probe, questions (2026-10-23)
+
+29.4 Q1 left two processes for later. Surveyed now; not built.
+
+**What happens today.** A process copies the file's history out at open,
+into a transient directory of its own (`<exe>_Doc_<uuid>_<hash>_<pid>`).
+The store, its counters and every allocator belong to that process.
+Nothing notices a second process on the file: there is no lock, and a
+save does not look at the file before writing it. When both save, the
+last save wins, as it always has for an FCStd, and its history wins with
+it. The other process's edits and rows are then in neither the file nor
+its history, only in the transient directory of a process that may have
+closed since.
+
+**The probe** (`~/.cache/lv-merge/probe29/two.py`, four FreeCADCmd
+processes, env `PROBE_ROLE`): a `.TStd` holding a box. A and B both open
+it. A makes the box longer and adds a cylinder. B makes it wider, adds a
+sphere and saves. A then copies the file as it is now on disk, imports the
+copy as a fork (30.13), merges it (28), and saves.
+
+- **With the history in the file it works, by hand.** The import brought
+  B's two rows in 34 ms, the merge was clean in 13 ms, and the save took
+  19 ms. Reopened, the file has the box at 20 x 30 x 10 with the cylinder
+  and the sphere. Its history has A's rows on `main`, B's on a branch,
+  and the merge.
+- **B's rows are named after the copy**: branch `disk-copy`, author
+  `host (disk-copy)`. That is because `openFork` refuses the document's
+  own file, so the import had to read a copy.
+- **Without the history in the file**, the same run brings the file as one
+  row from nothing (30.22). Every property either side changed is then a
+  conflict with no base: here the box's length and its width. That is an
+  `.FCStd`, which saves at schema 4 and carries no history, or any file
+  saved with the mode at 1. The first run of the probe hit this because
+  the user's `user.cfg` has `TransactionLog` at 1.
+- **Two races.** B can save again between A's read of the file and A's
+  write, and that save is lost. And B's document is now behind the file:
+  if B saves again without pulling, A's merge is overwritten. So the pull
+  has to be in every save, on both sides.
+
+**Two shapes.**
+
+- **(a) The file is the meeting point: a pull in every save.**
+  1. A save first looks at the file on disk. If it is no longer the save
+     this document last read or wrote (the save id in `Version`, 16.4),
+     another process has saved it.
+  2. The file's history is then imported as a branch and merged, which is
+     29.2's pull.
+  3. Only a clean merge is written. A conflict stops the save and opens
+     the picker, as in 29.4 Q4.
+
+  The read, merge and write run under a lock file beside the document, so
+  no third save can fall between them. The allocators need nothing,
+  because the replay gives what the other process made new ids here
+  (30.13). This works for two processes on one machine, two machines on a
+  shared folder, and a file synced by a cloud folder. A save that finds
+  the file unmoved costs nothing; one that finds it moved costs an import
+  and a merge, about 50 ms in the probe.
+- **(b) One live store shared by the processes**: 29.2 to the letter, a
+  push after every operation.
+  - The store moves out of the transient directory to a place every
+    process finds (13.3's `local`, `<user-data>/history/<Uid>/`). Each
+    process opens it; SQLite's WAL with the busy timeout (37.7 item 7)
+    takes the connections.
+  - Every allocator reserves blocks from the store (27.41 Q6): seqs,
+    version numbers, object ids and names, geometry ids, string ids.
+  - Every copy the core keeps of the store's state (the next seq, the live
+    values, the anchors, the strings written) is checked against the
+    store's `data_version` before use.
+  - A process learns that the target moved by polling.
+
+  This works on one machine only, since SQLite over a network share is not
+  safe. It means rewriting the core's assumption that it is the only
+  writer, and what it buys is live co-editing between processes. The
+  shared session (ThinClient 8.11) already gives that to anyone who
+  connects to one process.
+
+| | Question | Recommended |
+| --- | --- | --- |
+| Q1 | Which shape | **(a)**. (b) only if live co-editing between processes is ever asked for that a shared session cannot give. |
+| Q2 | When a process pulls | **At every save**, and only then. A process that sees the file change while it is idle (a file watcher) says so in the status line and the panel, and pulls nothing until it saves. A pull is a merge, so it is an undo step, and an automatic one would rewrite the document under the user. |
+| Q3 | A file with no history in it (an `.FCStd` at schema 4, or the mode at 1) | **The process keeps its own base.** The `version` table already records each save's `Document.xml` hash. The file on disk is compared with the save this process last read or wrote and brought as one row against it (30.19). Without this, two processes on a plain `.FCStd` see a conflict wherever both changed anything. |
+| Q4 | What the other process's rows are known by | **A branch named after the session that saved them** (its user, and its host when that is recorded, 30.6), extended by later pulls from the same session. The rows are kept: they are the history, the way an imported fork's are. |
+| Q5 | The lock | **A lock file beside the document, held only through the pull and the write.** A process that finds it waits, as a second SQLite connection does, then pulls. Also written at open, and read only to tell the user: the second process to open the file says "also open in <host> since <time>", and blocks nothing. |
+
+If (a) is ruled, the build order: the save detects a moved file and takes
+the lock; the pull at save, through the fork import of the document's own
+file under the session's name; a conflict stops the save at the picker;
+Q3's base for a file without history; the idle notice. Tests are a Python
+case that drives two FreeCADCmd processes, and a gtest of the lock.
 
 ## 30. A shared head, explicit branches, forks (rulings and plan, 2026-10-04)
 

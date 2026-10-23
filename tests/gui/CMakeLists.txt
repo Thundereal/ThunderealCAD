@@ -252,6 +252,11 @@ fc_add_gui_test(GuiChamferUndoSteps_tests_run chamfer-undo-steps.py
 fc_add_gui_test(GuiTechDrawPageScrollBarsHidden_tests_run techdraw-page-scroll-bars-hidden.py
                 --timeout 200)
 
+# Entry 222: a spreadsheet's scroll bars laid over the cells, out of the
+# overlaid docks' way, thin and fading.
+fc_add_gui_test(GuiSpreadsheetScrollBarsBesideOverlay_tests_run spreadsheet-scroll-bars-beside-overlay.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

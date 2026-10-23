@@ -164,6 +164,22 @@ class BaseGUITestRunner:
         pass
 
 
+def flushDeferredDeletes():
+    """Delete what the last test left to deleteLater().
+
+    A whole run happens inside one click handler, and processEvents() does
+    not run deferred deletes, so the views and panels of every document a
+    suite opens and closes would pile up until it ends. The Document suite
+    alone leaves about 13000 widgets that way, which runs the process out of
+    GDI handles (its 10000 quota); window and texture creation then fail.
+    """
+    try:
+        from PySide import QtCore
+    except ImportError:
+        return
+    QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.DeferredDelete)
+
+
 class GUITestResult(unittest.TestResult):
     """A TestResult that makes callbacks to its associated GUI TestRunner.
     Used by BaseGUITestRunner. Need not be created directly.
@@ -183,6 +199,7 @@ class GUITestResult(unittest.TestResult):
 
     def stopTest(self, test):
         unittest.TestResult.stopTest(self, test)
+        flushDeferredDeletes()
         self.callback.notifyTestFinished(test)
 
     def startTest(self, test):

@@ -63,6 +63,8 @@ SOURCE_GROUP("Module" FILES ${Module_SRCS})
 # The solver-neutral interface (docs/AssemblySolverInterface.md).
 SET(Solver_SRCS
     Solver/Backend.h
+    Solver/Formula.cpp
+    Solver/Formula.h
     Solver/Model.h
     Solver/Model.cpp
     Solver/OndselBackend.cpp

@@ -794,3 +794,241 @@ TEST(OndselAdapter, driversAreExternalFunctions)  // NOLINT
     EXPECT_FALSE(rev->rotationZFunction);
     EXPECT_EQ(rev->rotationZ, "36*time)");
 }
+
+// ---- OndselSolver's angular motion holds the angle with its turns counted.
+//
+// Before, ZRotation (and a GeneralMotion's turn about z) held only the
+// direction cosine of I's y and J's x, the sine of the angle, which is zero
+// half a turn away too: when the commanded angle moved more than a quarter
+// turn between two output times, Newton from the previous frame landed on the
+// root nearest, half a turn off, and every coupling the driven body turns
+// followed the wrong turn. These run OndselSolver's own kinematic run
+// (runKINEMATIC, OndselSession::simulate) with output steps from a small
+// fraction of a turn to more than a turn per frame.
+
+namespace
+{
+
+constexpr double pi = std::numbers::pi;
+
+Base::Placement at(double x, double y, double z, double turn = 0.0)
+{
+    return Base::Placement(Base::Vector3d(x, y, z), Base::Rotation(Base::Vector3d(0, 0, 1), turn));
+}
+
+// The angle of x about z, in (-pi, pi].
+double turnOf(const Base::Placement& p)
+{
+    const Base::Vector3d x = p.getRotation().multVec(Base::Vector3d(1, 0, 0));
+    return std::atan2(x.y, x.x);
+}
+
+// G grounded at the origin; frames get unique labels (the adapter names its
+// markers by them).
+struct Rig
+{
+    Model m;
+    Id g = NoId;
+
+    Rig()
+    {
+        Frame onGround;
+        onGround.label = m.addSource("marker-G");
+        const Id frameGround = m.addFrame(onGround);
+        Body body;
+        body.source = m.addSource("G");
+        body.grounded = true;
+        g = m.addBody(body);
+        Frame fix;
+        fix.body = g;
+        fix.label = m.addSource("FixingMarker");
+        const Id frameFix = m.addFrame(fix);
+        m.addGround({NoId, m.addSource("G"), frameGround, frameFix});
+    }
+    Id body(const char* name, const Base::Placement& placement)
+    {
+        Body b;
+        b.source = m.addSource(name);
+        b.placement = placement;
+        return m.addBody(b);
+    }
+    Id frame(Id body, const Base::Placement& local)
+    {
+        Frame f;
+        f.body = body;
+        f.local = local;
+        f.label = m.addSource("F" + std::to_string(m.frames.size()));
+        return m.addFrame(f);
+    }
+    Id joint(JointKind kind, Id fi, Id fj, double value = 0.0, double value2 = 0.0)
+    {
+        Joint j;
+        j.kind = kind;
+        j.source = m.addSource("J" + std::to_string(m.joints.size()));
+        j.frameI = fi;
+        j.frameJ = fj;
+        j.value = value;
+        j.value2 = value2;
+        return m.addJoint(j);
+    }
+    void turnDriver(Id joint, const char* formula)
+    {
+        Driver d;
+        d.source = m.joints[joint].source;
+        d.frameI = m.joints[joint].frameI;
+        d.frameJ = m.joints[joint].frameJ;
+        d.kind = DriverKind::RotationZ;
+        d.rotation.text = formula;
+        d.rotation.tree = FormulaTree::parse(formula);
+        m.addDriver(d);
+    }
+};
+
+// OndselSolver's kinematic run, the start reported twice dropped.
+void runKinematic(const Model& m, double tOutput, double tEnd, Recorder& out)
+{
+    SimulationSpec spec;
+    spec.tStart = 0.0;
+    spec.tEnd = tEnd;
+    spec.tOutput = tOutput;
+    auto session = std::make_unique<OndselSession>(false);
+    ASSERT_EQ(session->load(m), Status::Ok);
+    ASSERT_EQ(session->simulate(spec, out), Status::Ok);
+    ASSERT_GE(out.frames.size(), 2u);
+    ASSERT_EQ(out.times[0], out.times[1]);
+    out.times.erase(out.times.begin());
+    out.frames.erase(out.frames.begin());
+    // The run reached the end.
+    ASSERT_NEAR(out.times.back(), tEnd, 1e-9);
+}
+
+// From a twentieth of a turn per output step to more than a turn (at 90*time
+// 0.9 to 27 rad), and fewer for the couplings, which take longer.
+const double outputSteps[] = {0.01, 0.05, 0.1, 0.2, 0.3};
+const double couplingSteps[] = {0.02, 0.1, 0.3};
+
+}  // namespace
+
+// A revolute (A) and a cylindrical (C, with a slide as well: a GeneralMotion
+// beside the ZRotation, as makeMbdJoint builds it) driven at 36*time and
+// 90*time: at every frame each is at the commanded angle.
+TEST(OndselAdapter, drivenAnglesFollowTheFormula)  // NOLINT
+{
+    Rig r;
+    const Id a = r.body("A", at(0, 0, 20));
+    const Id c = r.body("C", at(-30, 0, 20));
+    const Id rev =
+        r.joint(JointKind::Revolute, r.frame(r.g, at(5, 5, 20)), r.frame(a, at(5, 5, 0)));
+    const Id cyl =
+        r.joint(JointKind::Cylindrical, r.frame(r.g, at(2, 15, 20)), r.frame(c, at(5, 5, 0)));
+    r.turnDriver(rev, "36*time");
+    Driver both;
+    both.source = r.m.joints[cyl].source;
+    both.frameI = r.m.joints[cyl].frameI;
+    both.frameJ = r.m.joints[cyl].frameJ;
+    both.kind = DriverKind::Both;
+    both.rotation.text = "90*time";
+    both.rotation.tree = FormulaTree::parse(both.rotation.text);
+    both.translation.text = "2*sin(time)";
+    both.translation.tree = FormulaTree::parse(both.translation.text);
+    r.m.addDriver(both);
+    r.turnDriver(cyl, "90*time");
+
+    for (double step : outputSteps) {
+        SCOPED_TRACE(step);
+        Recorder run;
+        runKinematic(r.m, step, 1.2, run);
+        ASSERT_GE(run.frames.size(), 5u);
+        double worst = 0.0;
+        for (std::size_t k = 0; k < run.frames.size(); ++k) {
+            SCOPED_TRACE(k);
+            const double t = run.times[k];
+            const auto& f = run.frames[k];
+            const double offA = std::remainder(turnOf(f[a].placement) - 36.0 * t, 2 * pi);
+            const double offC = std::remainder(turnOf(f[c].placement) - 90.0 * t, 2 * pi);
+            EXPECT_NEAR(offA, 0.0, 1e-9);
+            EXPECT_NEAR(offC, 0.0, 1e-9);
+            EXPECT_NEAR(f[c].placement.getPosition().z - 20.0, 2.0 * std::sin(t), 1e-9);
+            worst = std::max({worst, std::abs(offA), std::abs(offC)});
+        }
+        std::ostringstream worstText;
+        worstText << worst;
+        RecordProperty("worst" + std::to_string(int(step * 100 + 0.5)), worstText.str());
+    }
+}
+
+// What a driven body turns follows its turns: gear B (radius 20) of A
+// (radius 10) turns -45*time when A turns 90*time, a belt +45*time -- known
+// modulo a turn, but a turn of A counted wrong is half a turn of B -- and a
+// rack and a screw slide by the counted angle, which shows the whole turns.
+// OndselSolver holds x + 7 thez and 2 pi z - 3 thez (x, z: J's origin from
+// I's, I on the slider), so the rack moves 7 * 90*time along x and the screw
+// -3 * 90*time / (2 pi) along z.
+TEST(OndselAdapter, couplingsFollowADrivenTurn)  // NOLINT
+{
+    for (double rb : {20.0, -20.0}) {
+        SCOPED_TRACE(rb);
+        Rig r;
+        const Id a = r.body("A", at(0, 0, 10));
+        const Id b = r.body("B", at(30, 0, 10, 0.3));
+        const Id revA =
+            r.joint(JointKind::Revolute, r.frame(r.g, at(0, 0, 10)), r.frame(a, at(0, 0, 0)));
+        r.joint(JointKind::Revolute, r.frame(r.g, at(30, 0, 10)), r.frame(b, at(0, 0, 0)));
+        r.joint(JointKind::Gear, r.frame(a, at(0, 0, 0)), r.frame(b, at(0, 0, 0)), 10.0, rb);
+        r.turnDriver(revA, "90*time");
+        const double sense = rb > 0 ? -1.0 : 1.0;
+        for (double step : couplingSteps) {
+            SCOPED_TRACE(step);
+            Recorder run;
+            runKinematic(r.m, step, 0.6, run);
+            for (std::size_t k = 0; k < run.frames.size(); ++k) {
+                SCOPED_TRACE(k);
+                const double t = run.times[k];
+                const auto& f = run.frames[k];
+                EXPECT_NEAR(std::remainder(turnOf(f[a].placement) - 90.0 * t, 2 * pi), 0.0, 1e-9);
+                EXPECT_NEAR(
+                    std::remainder(turnOf(f[b].placement) - 0.3 - sense * 45.0 * t, 2 * pi),
+                    0.0,
+                    1e-8
+                );
+            }
+        }
+    }
+    for (JointKind kind : {JointKind::RackPinion, JointKind::Screw}) {
+        const bool rack = kind == JointKind::RackPinion;
+        SCOPED_TRACE(rack ? "RackPinion" : "Screw");
+        Rig r;
+        // S slides along x (the rack) or z (the screw); P turns about z.
+        const Id s = r.body("S", at(0, 0, 10));
+        const Id p = r.body("P", at(0, 20, 10));
+        const Base::Rotation axis =
+            rack ? Base::Rotation(Base::Vector3d(0, 1, 0), pi / 2) : Base::Rotation();
+        r.joint(
+            JointKind::Prismatic,
+            r.frame(r.g, Base::Placement(Base::Vector3d(0, 0, 10), axis)),
+            r.frame(s, Base::Placement(Base::Vector3d(0, 0, 0), axis))
+        );
+        const Id revP =
+            r.joint(JointKind::Revolute, r.frame(r.g, at(0, 20, 10)), r.frame(p, at(0, 0, 0)));
+        r.joint(kind, r.frame(s, at(0, 20, 0)), r.frame(p, at(0, 0, 0)), rack ? 7.0 : 3.0);
+        r.turnDriver(revP, "90*time");
+        for (double step : couplingSteps) {
+            SCOPED_TRACE(step);
+            Recorder run;
+            runKinematic(r.m, step, 0.6, run);
+            for (std::size_t k = 0; k < run.frames.size(); ++k) {
+                SCOPED_TRACE(k);
+                const double t = run.times[k];
+                const auto& f = run.frames[k];
+                EXPECT_NEAR(std::remainder(turnOf(f[p].placement) - 90.0 * t, 2 * pi), 0.0, 1e-9);
+                const Base::Vector3d d = f[s].placement.getPosition() - Base::Vector3d(0, 0, 10);
+                if (rack) {
+                    EXPECT_NEAR(d.x, 7.0 * 90.0 * t, 1e-7);
+                }
+                else {
+                    EXPECT_NEAR(d.z, -3.0 * 90.0 * t / (2 * pi), 1e-8);
+                }
+            }
+        }
+    }
+}

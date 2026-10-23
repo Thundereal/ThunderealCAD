@@ -824,11 +824,11 @@ TEST(ReferenceBackend, simulationFollowsTheKinematicRun)  // NOLINT
 
 // Drivers that turn more than a quarter turn between output times (the gate's
 // 36*time and 90*time at 0.1 s: 3.6 and 9 rad). The Reference holds the angle
-// itself and follows the formula. OndselSolver's angular motion holds only
-// its sine (ZRotation: the direction cosine of I's y and J's x), which is zero
-// at phi and at phi + pi, and from the previous frame it lands on the root
-// nearest to it: off by half a turn at every other frame. Asserted, so that a
-// fix shows.
+// itself and follows the formula; so does OndselSolver since its angular
+// motion holds the angle with its turns counted (sec 6.16). Before, it held
+// only the sine (ZRotation: the direction cosine of I's y and J's x), zero at
+// phi and at phi + pi, and from the previous frame landed on the root nearest
+// to it: off by half a turn at every other frame.
 TEST(ReferenceBackend, drivenAnglesFollowTheFormula)  // NOLINT
 {
     const Model m = gateSimulation();
@@ -868,11 +868,8 @@ TEST(ReferenceBackend, drivenAnglesFollowTheFormula)  // NOLINT
         SCOPED_TRACE(k);
         const double t = expected.times[k];
         const auto& f = expected.frames[k];
-        const double offA = std::remainder(turn(f[1].placement) - 36.0 * t, 2 * pi);
-        const double offC = std::remainder(turn(f[3].placement) - 90.0 * t, 2 * pi);
-        const double flipped = (k - 1) % 2 == 1 ? pi : 0.0;
-        EXPECT_NEAR(std::abs(offA), flipped, 1e-6);
-        EXPECT_NEAR(std::abs(offC), flipped, 1e-6);
+        EXPECT_NEAR(std::remainder(turn(f[1].placement) - 36.0 * t, 2 * pi), 0.0, 1e-9);
+        EXPECT_NEAR(std::remainder(turn(f[3].placement) - 90.0 * t, 2 * pi), 0.0, 1e-9);
     }
 }
 

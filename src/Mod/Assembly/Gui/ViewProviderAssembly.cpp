@@ -667,8 +667,13 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
             if (forceSolveOnMoveForRigid) {
                 assemblyPart->solve();
             }
-            else {
-                assemblyPart->doDragStep();
+            else if (!assemblyPart->doDragStep() && assemblyPart->getLastDragStepFailed()) {
+                // The parts stay where the last good step left them; tell the user
+                // why the part stopped following the mouse.
+                Gui::getMainWindow()->showMessage(
+                    tr("The assembly solver could not follow this move"),
+                    3000
+                );
             }
         }
         else {

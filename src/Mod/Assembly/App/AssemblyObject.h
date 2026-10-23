@@ -98,8 +98,24 @@ public:
     int updateForFrame(size_t index);
     size_t numberOfFrames();
     void preDrag(std::vector<App::DocumentObject*> dragParts);
-    void doDragStep();
+    /* One drag step: solves for the Placement the caller wrote on the dragged parts.
+    Returns false when no drag is in progress or the step failed; a failed step leaves
+    the parts where the last good step put them, and the drag can go on. */
+    bool doDragStep();
     void postDrag();
+    // Whether the last drag step failed, and the counts for the current drag.
+    bool getLastDragStepFailed() const
+    {
+        return lastDragStepFailed;
+    }
+    int getDragStepFailures() const
+    {
+        return dragStepFailures;
+    }
+    int getDragStepCount() const
+    {
+        return dragStepCount;
+    }
     void savePlacementsForUndo();
     void undoSolve();
     void clearUndo();
@@ -287,6 +303,11 @@ private:
     std::vector<std::pair<App::DocumentObject*, Base::Placement>> previousPositions;
 
     bool bundleFixed;
+
+    // Drag step bookkeeping, reset by preDrag().
+    int dragStepCount {0};
+    int dragStepFailures {0};
+    bool lastDragStepFailed {false};
 
     // True while solve() is running; breaks the solve()/updateSolveStatus() cycle.
     bool solveInProgress {false};

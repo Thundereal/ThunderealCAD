@@ -619,6 +619,10 @@ bool AssemblyObject::requiresRigidSolveForMove(const std::vector<App::DocumentOb
 
 void AssemblyObject::preDrag(std::vector<App::DocumentObject*> dragParts)
 {
+    dragStepCount = 0;
+    dragStepFailures = 0;
+    lastDragStepFailed = false;
+
     bundleFixed = true;
     bool hasUnconnectedDragPart = std::ranges::any_of(dragParts, [this](App::DocumentObject* part) {
         return part && !isPartConnected(part);
@@ -754,11 +758,16 @@ void AssemblyObject::prepareMbdForIslandDrag(std::vector<App::DocumentObject*> d
     }
 }
 
-void AssemblyObject::doDragStep()
+bool AssemblyObject::doDragStep()
 {
     if (!mbdAssembly || draggedParts.empty()) {
-        return;
+        return false;
     }
+
+    ++dragStepCount;
+    lastDragStepFailed = true;  // until the step below gets through
+    std::string failure;
+    bool restoreAfterFailedDragStep = false;
 
     try {
         std::vector<std::shared_ptr<MbD::ASMTPart>> dragMbdParts;
@@ -801,10 +810,14 @@ void AssemblyObject::doDragStep()
 
         // Timing mbdAssembly->runDragStep()
         auto dragPartsVec = std::make_shared<std::vector<std::shared_ptr<ASMTPart>>>(dragMbdParts);
-        mbdAssembly->runDragStep(dragPartsVec);
-
+        // OndselSolver retries a failed step at half, a quarter... of the move;
+        // when none converges it puts the parts back where the last step left them.
+        if (!mbdAssembly->runDragStep(dragPartsVec)) {
+            failure = "the solver did not converge";
+            restoreAfterFailedDragStep = true;
+        }
         // Timing the validation and placement setting
-        if (validateNewPlacements()) {
+        else if (validateNewPlacements()) {
             setNewPlacements();
             updateRigidPlacementCache();
 
@@ -815,11 +828,49 @@ void AssemblyObject::doDragStep()
                     redrawJointPlacement(joint);
                 }
             }
+            lastDragStepFailed = false;
+        }
+        else {
+            // The solver's state is that solution; nothing older to go back to.
+            failure = "a grounded part would have moved";
         }
     }
-    catch (...) {
-        // We do nothing if a solve step fails.
+    catch (const std::exception& e) {
+        failure = e.what();
+        restoreAfterFailedDragStep = true;
     }
+    catch (...) {
+        failure = "unknown exception";
+        restoreAfterFailedDragStep = true;
+    }
+
+    if (lastDragStepFailed && restoreAfterFailedDragStep) {
+        // The caller wrote the dragged parts' target Placement before calling;
+        // put the document back on the last good step so it shows what the
+        // solver holds and the next step starts from there.
+        try {
+            mbdAssembly->restorePosRot();
+            setNewPlacements();
+        }
+        catch (...) {
+        }
+    }
+
+    if (lastDragStepFailed) {
+        // The drag goes on: the parts stay where the last good step put them
+        // and the next mouse move tries again. Say so once per drag, not once
+        // per mouse move; postDrag() gives the count.
+        if (++dragStepFailures == 1) {
+            Base::Console().warning(
+                "Assembly: a drag step of %s failed (%s); the parts stay where the last "
+                "good step left them.\n",
+                getFullLabel().c_str(),
+                failure.c_str()
+            );
+        }
+        return false;
+    }
+    return true;
 }
 
 Base::Placement AssemblyObject::getMbdPlacement(std::shared_ptr<ASMTPart> mbdPart)
@@ -876,6 +927,15 @@ void AssemblyObject::postDrag()
 {
     if (!mbdAssembly) {
         return;
+    }
+
+    if (dragStepFailures > 1) {
+        Base::Console().warning(
+            "Assembly: %d of %d drag steps of %s failed.\n",
+            dragStepFailures,
+            dragStepCount,
+            getFullLabel().c_str()
+        );
     }
 
     mbdAssembly->runPostDrag();  // Do this after last drag

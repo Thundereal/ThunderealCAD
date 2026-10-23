@@ -444,7 +444,8 @@ struct Limit {
 // A formula of time in a grammar the neutral layer owns and can evaluate
 // (as built: sec 4.6.1 -- SymbolicParser's set, with tan, exp, ln and sqrt
 // since sec 6.10; without acos, log). 'initialValue' is substituted before it
-// gets here.
+// gets here. (As built, sec 6.9 and 6.12: also the parsed tree, and a callable
+// giving the value and the first two time derivatives at t.)
 struct Formula { std::string text; };
 enum class DriverKind : std::uint8_t { RotationZ, TranslationZ, Both };
 struct Driver {
@@ -709,8 +710,10 @@ The formula grammar must be written down as the workbench's, not Ondsel's.
 Phase one can keep using OndselSolver's `SymbolicParser` as the evaluator
 (it is linked anyway); a backend that parses formulas itself must accept
 the same grammar. (As built, sec 6.9: the neutral layer has its own
-evaluator and validates every formula with it; OndselSolver still
-evaluates its own copy of the text in `runKINEMATIC`.)
+evaluator and validates every formula with it. Since sec 6.12
+OndselSolver no longer reads the text either: the Ondsel adapter hands
+`runKINEMATIC` each driver as an `ExternalFunction` that calls the
+evaluator for the value and the exact derivatives.)
 
 #### 4.6.1 The formula grammar (the workbench's)
 
@@ -815,8 +818,11 @@ as parsed; OndselSolver multiplies by a reciprocal for `/` and simplifies
 the expression first, and its products skip non-finite factors. The two
 agree to 1e-12 relative on every formula of the test corpus (sec 6.9), not
 bit for bit. Derivatives with respect to `time` are exact per node; a
-piecewise formula's derivative is the piece in effect (jumps are not seen),
-as OndselSolver's `PiecewiseFunction::differentiateWRTx` has it.
+piecewise formula's derivative is the derivative of the piece in effect
+(jumps are not seen), and `abs`'s is sign(u) u', 0 at the kink. Since sec
+6.12 OndselSolver's own derivatives agree with these to 1e-10 relative on
+the whole corpus, and a simulation does not use them anyway: the Ondsel
+adapter passes the evaluator's.
 
 ### 4.7 Out of process
 
@@ -1698,8 +1704,9 @@ among them `2*exp(time/0.8)` (the help text's `C*exp(time/TIMEC)`),
 simplified and differentiated as `ASMTRotationalMotion::createMbD` and
 `EndFrameqct` form them for `runKINEMATIC`, against the evaluator's, to
 1e-10 relative, on the whole corpus. It found three things in OndselSolver
-that are not about the new functions and are left as they are, recorded by
-the test (which asserts they still disagree, so a fix shows):
+that are not about the new functions and were left as they were, recorded by
+the test (which asserted they still disagreed, so a fix would show). All
+three are fixed since sec 6.12, and the test now requires agreement:
 
 - `abs`, `asin`/`arcsin` and `arctan` have no derivative (`FunctionX`
   throws "To be implemented" when the derivative `runKINEMATIC` needs is
@@ -1905,6 +1912,133 @@ a freeform face where they used a cone.
 
 Suite 171 run, 1 skipped (147 + 24); ctest 922/922; Assembly gtest 22/22.
 
+### 6.12 As built: OndselSolver's derivatives and external motion functions (2026-10-23)
+
+Two steps the user approved after sec 6.10: fix what
+`derivativesMatchOndselSolver` found in OndselSolver's differentiation, so
+an ASMT file is right for any consumer, and stop OndselSolver from parsing
+and differentiating the workbench's formulas at all.
+
+**The fixes** (submodule `4e99d2f`, branch `LinkVibe`).
+
+- `Abs`, `ArcSine` (`asin`, `arcsin`) and `ArcTan` get `differentiateWRTx`.
+  `abs'` is a new `Sign` node: sign(x), **0 at x = 0** (the mean of the
+  one-sided slopes, what the evaluator gives), its own derivative 0 (the jump
+  is not seen, as a piecewise function's are not). `x/abs(x)` was not taken:
+  NaN at 0, and `Product::getValue` silently drops a NaN factor. `asin' =
+  1/sqrt(1 - x*x)`, `atan' = 1/(1 + x*x)`, the squares as products (no `Power`
+  of a negative base).
+- `Symbolic::times` and `Symbolic::sum` inserted into the terms vector of the
+  `Product` or `Sum` they were handed, so the argument changed with the
+  result. The case that showed: `Power::differentiateWRTx` forms `sum(y, -1)`;
+  when the exponent `y` is itself a `Sum` -- as it is in the velocity of
+  `(time + 1)^time`, which the acceleration is formed from -- the exponent
+  was decremented in place, and the velocity, still in use, changed. Both
+  functions now copy the vector before inserting. The new node copied it
+  anyway, so only aliased callers see a difference.
+- `PiecewiseFunction` (so `rampstep` too) overrides `differentiateWRT`:
+  the same selection of the pieces' derivatives with respect to the
+  variable. The pieces are functions of time; `FunctionX`'s
+  `differentiateWRTx() * dx/dt` differentiated them with respect to x (0 for
+  a piece of time) and was right only for x = `time`. A `RampStep`'s middle
+  piece is a `Polynomial` of x, whose own derivative applies the chain rule.
+
+Verified by `derivativesMatchOndselSolver`, now without its list of expected
+disagreements: no throw, and first and second derivatives within 1e-10
+relative of the evaluator's at 97 times, for all 95 corpus formulas
+(`abs(sin(time) - 0.3)`, `asin(time/4)`, `arctan(3*time - 2)^2`, `(time +
+1)^time`, `time^(sin(time) + 2)`, `rampstep(2*time, ...)*time`,
+`piecewise(time - 1, ...)` among them). New `absAtItsKink`: both give 0 at
+the kink, -1 and 1 on either side.
+
+**The external node** (submodule `232d69b`). `MbD::ExternalFunction`, a
+`FunctionX` holding `ExternalTimeFunction` -- `std::function<double(double
+time, int order)>`, the order-th time derivative -- an order, and a name
+for printing.
+
+- `getValue()` is `f(xx->getValue(), order)`; xx is the time it reads, a
+  motion's `geoTime` (`ASMTTime`, mbdUnits->time times the system's time).
+- `differentiateWRT(var)` applies the chain rule through xx: d xx / d var,
+  simplified, is 1 for the system's time in units of 1, and then the result
+  is the same callback with order + 1; another constant c gives c times
+  that; 0 gives 0 (any variable xx does not depend on); anything else the
+  product. This is what the task's "order + 1 when var is the time" comes
+  to, without assuming the time unit is 1.
+- Atomic: `expandUntil` and `simplifyUntil` return the node itself,
+  `clonesptr` copies it, `isConstant` is false (so `Sum` and `Product`
+  never fold it into a number). Prints as `external[36*time]''(ASMTTime)`.
+
+Every path a motion's block takes keeps it one node:
+`ASMTRotationalMotion::createMbD` multiplies by `1/mbdUnits->angle`
+(`Symbolic::times`: a `Product` of the node and 1) and simplifies (the
+constant 1 drops out: the block is the node); `EndFrameqct` differentiates
+with respect to the system's time and simplifies, twice (order 1, order 2);
+`EndFrameqct2` (a `GeneralMotion`'s `EulerAngles`) differentiates without
+simplifying, which gives the same nodes directly.
+
+The API: `ASMTRotationalMotion::setRotationZ(text, function)`,
+`ASMTTranslationalMotion::setTranslationZ(text, function)`,
+`ASMTGeneralMotion::setrIJI(i, text, function)` and `setangIJJ(i, text,
+function)`. `createMbD` builds the node on `geoTime` where it parsed the
+text, then goes on as before. The text is kept, because it is what
+`outputFile` writes; the one-argument setters, or an empty function, keep
+the text path (an ASMT file read back has no function).
+
+**FreeCAD.** `Solver::Formula` gains `function`, a `FormulaFunction`
+(`std::function<FormulaValue(double)>`: value, rate, acceleration at t),
+`functionOf(tree)`, and `evaluator()` -- `function`, else the tree's, else
+a parse of the text's, empty when that fails. The builder sets `function`
+from the tree it parsed, so every driver carries its callable; a backend
+that takes functions instead of text calls it, and a driver could be given
+one with no text behind it. The Ondsel adapter (`toAsmt`) passes each
+motion component as `externalFunction(formula)`: the evaluator's value,
+rate and acceleration for orders 0, 1, 2, NaN beyond (`runKINEMATIC` asks
+for no more). A text the evaluator rejects (only a hand-built model can
+have one; the builder refuses it, sec 6.9) has no evaluator and goes over
+as text, as before. `exportAsASMT` and the dump file still write the
+formula text: the gate's ASMT digests are unchanged.
+`simulateByPositionSolves` holds each driver at `evaluator()`'s value
+(the tree's, the same double as `value(t)`), and resets `function` with the
+held constant.
+
+**Gate.** `TestSolverGate`'s simulation frames are compared by position
+(1e-9 mm) and rotation angle (1e-9 rad; from the vector part of the
+relative quaternion, since `acos` near 1 cannot see 1e-9) instead of per
+value, and each simulation case records its largest deviation
+(`SIMULATION_DEVIATION`, also printed to the report view). Everything else
+is compared as before (digests and statuses exactly, the other
+placements per value within 1e-9). Not re-recorded. **Largest deviation
+seen: 0 mm and 0 rad** in `test_simulation`, its reverse playback and
+`test_simulation_gears`, **0 mm and 1.1e-16 rad** in
+`test_simulation_rigid_group`: the gate's formulas (`36*time`,
+`5*time + initialValue`, `90*time`, `2*sin(time)`, `45*time`) have the same
+derivatives either way, and the positions are solved to tolerance at each
+output time, so the frames came out the same.
+
+**Tests.** gtest: `externalFunctionIsTheEvaluator` (every corpus formula
+as a node through the units product, `simplified()` and two
+differentiations: one node of order 0, 1, 2 each time, its values equal to
+the evaluator's bit for bit at 97 times; on a `geoTime` of 2t the
+derivatives are 2 and 4 times the evaluator's; a variable the time does not
+depend on gives 0); `absAtItsKink`; `OndselAdapter.driversAreExternalFunctions`
+(the gate simulation's four motions carry their text and a function equal
+to the evaluator by order, a driver's own `function` is used when it has no
+tree, a rejected text goes over as text). Python
+(`TestSolverGateSimulation`, not recorded): `test_abs_motion`
+(`4*abs(time - 0.45)`, slider), `test_asin_motion` (`10*asin(time/2)`),
+`test_arcsin_angular_motion` (`arcsin(0.9*time)`, revolute),
+`test_arctan_motion` (the help text's smooth step as an angle),
+`test_power_of_time_motion` (`(time + 1)^time`),
+`test_piecewise_of_2time_motion` (`piecewise(2*time, functions(time,
+2*time - 0.3, 0.75 + 0.5*time), transitions(0.6, 1.4))`, revolute) and
+`test_rampstep_of_2time_motion`: each runs, and the part at all eleven
+output times is where the formula puts it, to 1e-6 mm or rad (a revolute's
+axis point fixed to 1e-6, the rotation about z only).
+
+Assembly gtest 25/25 (22 + 3); ctest 922/924 in the parallel run, the two
+`TransactionMeasureTest` cases pass alone; the Assembly suite 178 run, 1
+skipped (171 + 7).
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a
@@ -1950,8 +2084,9 @@ Suite 171 run, 1 skipped (147 + 24); ctest 922/922; Assembly gtest 22/22.
    keep OndselSolver's `SymbolicParser` as a library for all backends?
    Decided (user, 2026-10-22): the neutral layer owns it. Implemented
    2026-10-23 (`ccecaae903`, `a8ec840b7f`, `61edb5d599`; grammar sec 4.6.1,
-   as built sec 6.9). OndselSolver still evaluates the text it is handed in
-   `runKINEMATIC`; replacing that is a separate step.
+   as built sec 6.9). Since sec 6.12 `runKINEMATIC` evaluates the
+   neutral evaluator too, through `ExternalFunction`; the text still goes
+   into the ASMT file.
 3. The 17 Distance sub-types that fall to Planar(d): keep, map properly
    (several have exact primitives: PointCone and PointTorus are point-surface
    distances), or report unsupported?

@@ -12,6 +12,14 @@ references recorded in SolverGateReference.json:
   each simulation frame, within 1e-9 (frames also played in reverse order);
 - the return codes, the solve status and the drag status, exactly.
 
+Since sec 6.3 step 7 the solver no longer writes the document: the builder
+swaps frames I and J and orders limits in its model. That is the first step
+allowed to change results (placements within 1e-9 of the record, statuses --
+DoF, redundant and conflicting joints -- equal). The model reproduces the
+order the document swap gave exactly, so the ASMT text is still compared
+byte for byte; every case also checks that no joint property was written,
+and TestSolverGateOrder builds the swapped cases in both orders.
+
 The references were recorded on 2026-10-23 from the builder that wrote the
 ASMT model directly, in the same process as the builder that emits the
 solver-neutral model, and the two agreed byte for byte and bit for bit (sec
@@ -183,6 +191,7 @@ class SolverGateBase(JointTestBase):
         self.dump_file = os.path.join(self.tmp, "dump.asmt")
         self.p.SetString("SolverDumpFile", self.dump_file)
         self.reset_hooks = []
+        self.doc_alias = None
         if not RECORDING:
             ref = references()
             if ref.get("platform") != sys.platform:
@@ -205,6 +214,19 @@ class SolverGateBase(JointTestBase):
     def read(self, path):
         with open(path, "rb") as f:
             return f.read()
+
+    def digest(self, data):
+        """asmt_digest(), with this document's name read as the one of the case checked against.
+
+        The ASMT text carries the document's name (each test class has its
+        own document), so a case built in another class to check against a
+        recorded one is renamed to it first.
+        """
+        if data is not None and self.doc_alias:
+            data = data.replace(
+                (self.doc.Name + "#").encode("ascii"), (self.doc_alias + "#").encode("ascii")
+            )
+        return asmt_digest(data)
 
     def take_dump(self):
         """The ASMT text of the last model handed to the solver, then forget it."""
@@ -258,14 +280,14 @@ class SolverGateBase(JointTestBase):
         dump = self.take_dump()
         return dict(
             ret=r,
-            dump=asmt_digest(dump),
+            dump=self.digest(dump),
             status=self.status(self.assembly.getSolveStatus()),
             placements=self.values(),
         )
 
     def drag_once(self, part, targets):
         self.assembly.preDrag([part], 10.0)
-        dump = asmt_digest(self.take_dump())
+        dump = self.digest(self.take_dump())
         steps = []
         for t in targets:
             part.Placement = t
@@ -277,7 +299,7 @@ class SolverGateBase(JointTestBase):
 
     def simulate_once(self, sim, frame_order=None):
         r = self.assembly.generateSimulation(sim)
-        dump = asmt_digest(self.take_dump())
+        dump = self.digest(self.take_dump())
         frames = []
         n = self.assembly.numberOfFrames()
         for i in frame_order(n) if frame_order else range(n):
@@ -287,15 +309,63 @@ class SolverGateBase(JointTestBase):
 
     # ------------------------------------------------------------ the gate
 
-    def gate(self, drag=None, sim=None, label="", frame_order=None):
-        """Hands this document to the solver every way it can be, and checks the record."""
+    JOINT_PROPS = (
+        "Reference1", "Reference2", "Placement1", "Placement2", "Offset1", "Offset2",
+        "Detach1", "Detach2", "LengthMin", "LengthMax", "AngleMin", "AngleMax",
+        "EnableLengthMin", "EnableLengthMax", "EnableAngleMin", "EnableAngleMax",
+    )  # fmt: skip
+
+    def joint_state(self):
+        """What a solve must leave alone on every joint (sec 6.3 step 7)."""
+
+        def value(v):
+            if isinstance(v, App.Placement):
+                return placement_values(v)
+            if hasattr(v, "Value"):
+                return v.Value
+            if isinstance(v, tuple) and len(v) == 2 and hasattr(v[0], "Name"):
+                return (v[0].Name, list(v[1]))
+            return v
+
+        state = {}
+        for j in self.jointgroup.Group:
+            for p in self.JOINT_PROPS:
+                if p in j.PropertiesList:
+                    state["%s.%s" % (j.Name, p)] = value(getattr(j, p))
+        return state
+
+    def gate(self, drag=None, sim=None, label="", frame_order=None, key=None):
+        """Hands this document to the solver every way it can be, and checks the record.
+
+        key names the recorded case to check against (by default this test's
+        own id and label): a case built in the other order checks against the
+        record of the first.
+        """
+        if key:
+            self.doc_alias = key.split(".")[0]
+        result, text = self.run_all(drag, sim, frame_order)
+        key = key or self.id().split(".", 2)[-1] + ("[%s]" % label if label else "")
+        if RECORDING:
+            record(key, result)
+            return
+        expected = references()["cases"].get(key)
+        self.assertIsNotNone(expected, "no reference recorded for %s" % key)
+        self.check(expected, json.loads(json.dumps(result)), key, text)
+
+    def run_all(self, drag=None, sim=None, frame_order=None):
+        """The export, simulation, solve and drag of gate(); the result and the export text.
+
+        None of them may write the joints: their references, placements and
+        limits are the same after as before.
+        """
         self.doc.recompute()
         start = self.snapshot()
+        joints_before = self.joint_state()
         result = {}
 
         text = self.export()
         self.assertGreater(len(text), 500)
-        result["export"] = asmt_digest(text)
+        result["export"] = self.digest(text)
 
         if sim is not None:
             self.reset()
@@ -317,13 +387,8 @@ class SolverGateBase(JointTestBase):
             result["drag"] = self.drag_once(part, targets)
             self.assertIsNotNone(result["drag"]["dump"])
 
-        key = self.id().split(".", 2)[-1] + ("[%s]" % label if label else "")
-        if RECORDING:
-            record(key, result)
-            return
-        expected = references()["cases"].get(key)
-        self.assertIsNotNone(expected, "no reference recorded for %s" % key)
-        self.check(expected, json.loads(json.dumps(result)), key, text)
+        self.assertEqual(joints_before, self.joint_state(), "the solver wrote a joint")
+        return result, text
 
     def check(self, expected, actual, where, export_text):
         """Digests and statuses exactly, placements within TOL."""
@@ -413,7 +478,7 @@ class TestSolverGateJoints(SolverGateBase):
         self.ground(g)
         self.joint("Revolute", (g, ["Face6"]), plc(0, 0, 10), (shaft, ["Face3"]), plc())
         self.joint("Slider", (g, ["Face6"]), plc(10, 10, 10), (nut, ["Face5"]), plc())
-        # Shaft first: the builder swaps the sides so the sliding one is I.
+        # Shaft first: the builder swaps the sides in the model so the sliding one is I.
         self.joint("Screw", (shaft, ["Face1"]), plc(), (nut, ["Face5"]), plc(), Distance=8.0)
         self.gate()
 
@@ -474,7 +539,9 @@ class TestSolverGateDistance(SolverGateBase):
         ("LinePlane", ("g", "Face6"), ("box_m", "Edge1"), 3.0),
         ("PointLine", ("g", "Edge1"), ("box_m", "Vertex1"), 3.0),
         ("PointCurve", ("cyl_g", "Edge2"), ("box_m", "Vertex1"), 3.0),
-        # Reversed picks: the classification swaps the sides in the document.
+        # Reversed picks. The joint task's creation puts the connected side
+        # first (ensureUnconnectedIsSecondRef), so this is PlaneSphere again,
+        # recorded as such; the builder's own swaps are TestSolverGateOrder's.
         ("SpherePlane (swapped)", ("sph_m", "Face1"), ("g", "Face6"), 3.0),
     ]
 
@@ -518,7 +585,7 @@ class TestSolverGateLimits(SolverGateBase):
         self.gate(drag=(b, targets))
 
     def test_cylindrical_limits_reversed(self):
-        """Min above max: the builder swaps them in the document, then limits."""
+        """Min above max: the builder orders them in the model; the document keeps them."""
         g = self.box("G")
         b = self.box("B", plc(0, 0, 10))
         self.ground(g)
@@ -529,6 +596,156 @@ class TestSolverGateLimits(SolverGateBase):
         )  # fmt: skip
         targets = [App.Placement(Z * 12, App.Rotation(Z, 25)).multiply(b.Placement)]
         self.gate(drag=(b, targets))
+
+
+class TestSolverGateOrder(SolverGateBase):
+    """The builder's swaps live in the model (sec 6.3 step 7).
+
+    Screw and RackPinion want the sliding side as frame I, the Distance
+    sub-types want their sides in a set order, and a limit wants min below
+    max. Upstream writes that order into the document during the solve; here
+    the builder swaps its frames and orders its limits in the model, and the
+    document keeps what the user picked. Each case picks both orders: the one
+    the recorded reference was made from and the other, and both give the
+    same solver input (byte for byte) and the same placements. run_all checks
+    that the joints are not written.
+    """
+
+    def test_screw_slider_first(self):
+        """test_screw with the nut (the sliding side) as Reference1: no swap needed."""
+        g = self.box("G")
+        shaft = self.cylinder("Shaft", 3.0, 40.0, plc(0, 0, 10))
+        nut = self.box("Nut", plc(10, 10, 10), size=6.0)
+        self.ground(g)
+        self.joint("Revolute", (g, ["Face6"]), plc(0, 0, 10), (shaft, ["Face3"]), plc())
+        self.joint("Slider", (g, ["Face6"]), plc(10, 10, 10), (nut, ["Face5"]), plc())
+        self.joint("Screw", (nut, ["Face5"]), plc(), (shaft, ["Face1"]), plc(), Distance=8.0)
+        self.gate(key="TestSolverGateJoints.test_screw")
+
+    def test_rack_pinion_rack_first(self):
+        """test_rack_pinion with the rack as Reference1: no swap needed."""
+        g = self.box("G", size=10.0)
+        rack = self.box("Rack", plc(0, 0, 10), size=6.0)
+        pinion = self.cylinder("Pinion", 10.0, 5.0, plc(0, 20, 10))
+        self.ground(g)
+        along_x = App.Rotation(App.Vector(0, 1, 0), 90)
+        self.joint(
+            "Slider",
+            (g, ["Face6"]),
+            App.Placement(App.Vector(0, 0, 10), along_x),
+            (rack, ["Face5"]),
+            App.Placement(App.Vector(), along_x),
+        )
+        self.joint("Revolute", (g, ["Face6"]), plc(0, 20, 10), (pinion, ["Face3"]), plc())
+        self.joint(
+            "RackPinion",
+            (rack, ["Face5"]),
+            App.Placement(App.Vector(), along_x),
+            (pinion, ["Face1"]),
+            plc(),
+            Distance=10.0,
+        )
+        self.gate(key="TestSolverGateJoints.test_rack_pinion")
+
+    def test_cylindrical_limits_ordered(self):
+        """test_cylindrical_limits_reversed with min below max: the same limits."""
+        g = self.box("G")
+        b = self.box("B", plc(0, 0, 10))
+        self.ground(g)
+        self.joint(
+            "Cylindrical", (g, ["Face6"]), plc(5, 5, 10), (b, ["Face5"]), plc(5, 5, 0),
+            EnableLengthMin=True, LengthMin=-5.0, EnableLengthMax=True, LengthMax=25.0,
+            EnableAngleMin=True, AngleMin=-10.0, EnableAngleMax=True, AngleMax=40.0,
+        )  # fmt: skip
+        targets = [App.Placement(Z * 12, App.Rotation(Z, 25)).multiply(b.Placement)]
+        self.gate(drag=(b, targets), key="TestSolverGateLimits.test_cylindrical_limits_reversed")
+
+    # ------------------------------------------------------------ Distance
+
+    R_CYL = TestSolverGateDistance.R_CYL
+    R_SPH = TestSolverGateDistance.R_SPH
+    fixtures = TestSolverGateDistance.fixtures
+
+    def raw_distance_joint(self, ref1, ref2, d, offset1=None, offset2=None):
+        """A Distance joint with its references set as given.
+
+        Not through setJointConnectors, which puts the connected side first
+        (and solves); the JCS are still placed on the elements and offset as
+        the joint's own recompute does it.
+        """
+        j = self.jointgroup.newObject("App::FeaturePython", "Distance")
+        JointObject.Joint(j, JointObject.JointTypes.index("Distance"))
+        j.Distance = d
+        # Offsets before references: with both references set, an offset
+        # change solves the assembly.
+        if offset1 is not None:
+            j.Offset1 = offset1
+        if offset2 is not None:
+            j.Offset2 = offset2
+        j.Detach1 = True
+        j.Detach2 = True
+        j.Reference1 = [ref1[0], [ref1[1], ref1[1]]]
+        j.Reference2 = [ref2[0], [ref2[1], ref2[1]]]
+        j.Detach1 = False
+        j.Detach2 = False
+        j.recompute()
+        return j
+
+    def both_orders(self, name, ref1, ref2, d=3.0, offset=None):
+        """The case with ref1 first, then with ref2 first; the second checked against the first.
+
+        offset, when given, goes on ref1's side in both: Offset1 the first
+        time, Offset2 the second.
+        """
+        results = []
+        for swapped in (False, True):
+            self.tearDown()
+            self.setUp()
+            f = self.fixtures()
+            r1 = (f[ref1[0]], ref1[1])
+            r2 = (f[ref2[0]], ref2[1])
+            if swapped:
+                self.raw_distance_joint(r2, r1, d, offset2=offset)
+            else:
+                self.raw_distance_joint(r1, r2, d, offset1=offset)
+            result, text = self.run_all()
+            self.assertEqual(result["solve"]["ret"], 0, name)
+            results.append((json.loads(json.dumps(result)), text))
+        (first, _), (second, text) = results
+        self.check(first, second, "%s, other order" % name, text)
+
+    # (sub-type, the side it wants first, the other); the builder swaps when
+    # the other comes first.
+    SWAPPED_DISTANCE = [
+        ("LineCircle", ("g", "Edge1"), ("cyl_m", "Edge2")),
+        ("PlaneCylinder", ("g", "Face6"), ("cyl_m", "Face1")),
+        ("PlaneSphere", ("g", "Face6"), ("sph_m", "Face1")),
+        ("PlaneTorus", ("g", "Face6"), ("tor_m", "Face1")),
+        ("CylinderSphere", ("cyl_g", "Face1"), ("sph_m", "Face1")),
+        ("CylinderTorus", ("cyl_g", "Face1"), ("tor_m", "Face1")),
+        ("TorusSphere", ("tor_g", "Face1"), ("sph_m", "Face1")),
+        ("PointPlane", ("g", "Face6"), ("box_m", "Vertex1")),
+        ("PointCylinder", ("cyl_g", "Face1"), ("box_m", "Vertex1")),
+        ("PointSphere", ("sph_g", "Face1"), ("box_m", "Vertex1")),
+        ("LinePlane", ("g", "Face6"), ("box_m", "Edge1")),
+        ("PointLine", ("g", "Edge1"), ("box_m", "Vertex1")),
+        ("PointCurve", ("cyl_g", "Edge2"), ("box_m", "Vertex1")),
+    ]
+
+    def test_distance_both_orders(self):
+        for name, ref1, ref2 in self.SWAPPED_DISTANCE:
+            with self.subTest(subtype=name):
+                self.both_orders(name, ref1, ref2)
+
+    def test_offset_stays_with_its_reference(self):
+        """An offset moves the JCS of the side it belongs to, whichever side is frame I.
+
+        Upstream's swap in the document moved the references and placements
+        but not Offset1/Offset2, so the joint's next recompute put each offset
+        on the other side.
+        """
+        offset = App.Placement(App.Vector(2, 1, 1.5), App.Rotation(Z, 15))
+        self.both_orders("PointPlane, offset on the plane", ("g", "Face6"), ("box_m", "Vertex1"), offset=offset)
 
 
 class TestSolverGateSimulation(SolverGateBase):

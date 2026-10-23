@@ -40,6 +40,7 @@ from AssemblyTests.TestSolverGate import (
     TestSolverGateJoints,
     TestSolverGateDistance,
     TestSolverGateLimits,
+    TestSolverGateOrder,
     TestSolverGateSimulation,
     TestSolverGateBench,
     TestSolverGateRigid,
@@ -63,6 +64,7 @@ True if TestCoupledJoints else False
 True if TestSolverGateJoints else False
 True if TestSolverGateDistance else False
 True if TestSolverGateLimits else False
+True if TestSolverGateOrder else False
 True if TestSolverGateSimulation else False
 True if TestSolverGateBench else False
 True if TestSolverGateRigid else False

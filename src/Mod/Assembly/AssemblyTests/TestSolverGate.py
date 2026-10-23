@@ -59,7 +59,7 @@ taken, each leaving every joint satisfied; simulation frames within 1e-7
 (BACKEND_SIMULATION has the cases where OndselSolver's recorded frames are
 wrong; there the frames are checked against OndselSolver run again with an
 output step ten times finer). A backend may refuse a case it cannot express
-(sec 6.15: Chrono has no link for some joint kinds); BACKEND_REFUSED lists
+(sec 6.15: Chrono had no link for some joint kinds until sec 6.17); BACKEND_REFUSED lists
 each such case with the reason, and the gate asserts the refusal as recorded:
 the solve fails and moves nothing, a drag takes no step, a simulation fails,
 while OndselSolver's record solved it. The OndselSolver runs and their
@@ -117,6 +117,7 @@ BACKEND_SIMULATION = {}
 # Cases a backend refuses because it cannot express a joint of them:
 # {(backend, key): diagnosis}. Asserted as recorded (gate_backend), so that a
 # backend that learns the joint fails here and the entry gets looked at.
+# Empty since sec 6.17.
 BACKEND_REFUSED = {}
 
 BACKEND_DIFFERENCES.update(
@@ -164,85 +165,19 @@ BACKEND_DIFFERENCES.update(
             "satisfies both (ChLinkMateFix, ChLinkMateRevolute) and its Jacobian's rank "
             "gives DoF 1, nothing redundant",
         ),
+        ("Chrono", "TestSolverGateRoleMappings.test_distance_subtypes[LineTorus]"): (
+            {"DoF": 45, "Conflicting": [], "Redundant": [], "PartiallyRedundant": []},
+            "as the Reference (the same equations, sec 6.17): OndselSolver leaves the box "
+            "where it was, the distance 0.73 mm off, and reports it conflicting; Chrono's "
+            "NeutralLink satisfies the LineLineDistance and counts DoF 45, as both count for "
+            "LineCone, ConeCone and ConeTorus",
+        ),
     }
 )
 
-# The Chrono backend (sec 6.15) has no link for some joint kinds; a model with
-# one is refused as a whole (Chrono::refusal() gives each reason).
-_CHRONO_PLD = (
-    "the builder maps it to a PointLineDistance, and Chrono has no link for the "
-    "distance of a point from a line"
-)
-_CHRONO_LLD = (
-    "the builder maps it to a LineLineDistance, and Chrono has no link that holds "
-    "two lines parallel at a distance"
-)
-BACKEND_REFUSED.update(
-    {("Chrono", "TestSolverGateDistance.test_distance_subtypes[%s]" % k): why
-     for k, why in (
-         ("LineLine", _CHRONO_LLD),
-         ("LineCircle", _CHRONO_LLD),
-         ("CircleCircle", _CHRONO_LLD),
-         ("CylinderCylinder", _CHRONO_LLD),
-         ("CylinderTorus", _CHRONO_LLD),
-         ("CylinderSphere", _CHRONO_PLD),
-         ("TorusSphere", _CHRONO_PLD),
-         ("PointCylinder", _CHRONO_PLD),
-         ("PointLine", _CHRONO_PLD),
-     )}
-)  # fmt: skip
-BACKEND_REFUSED.update(
-    {("Chrono", "TestSolverGateDistanceMapped.test_distance_subtypes[%s]" % k): why
-     for k, why in (
-         ("LineCylinder", _CHRONO_LLD),
-         ("LineSphere", _CHRONO_PLD),
-         ("PointTorus", _CHRONO_PLD),
-     )}
-)  # fmt: skip
-BACKEND_REFUSED.update(
-    {("Chrono", "TestSolverGateRoleMappings.test_distance_subtypes[%s]" % k): why
-     for k, why in (
-         ("CylinderCone", _CHRONO_LLD),
-         ("ConeCone", _CHRONO_LLD),
-         ("ConeTorus", _CHRONO_LLD),
-         ("LineCone", _CHRONO_LLD),
-         ("LineTorus", _CHRONO_LLD),
-         ("CurveCylinder", _CHRONO_LLD),
-         ("CurveCone", _CHRONO_LLD),
-         ("CurveTorus", _CHRONO_LLD),
-         ("CylinderCylinder B-spline", _CHRONO_LLD),
-         ("LineCircle B-spline", _CHRONO_LLD),
-         ("ConeSphere", _CHRONO_PLD),
-         ("PointCone", _CHRONO_PLD),
-         ("PointTorus", _CHRONO_PLD),
-         ("CurveSphere", _CHRONO_PLD),
-     )}
-)  # fmt: skip
-BACKEND_REFUSED.update(
-    {
-        ("Chrono", "TestSolverGateJoints.test_lower_pairs_and_orientation[Angle{'Angle': 30.0}]"): (
-            "an AngleZ of 30 degrees: Chrono has no link for an angle between two axes "
-            "other than a right angle (ChLinkMateOrthogonal) or none (ChLinkMateParallel)"
-        ),
-        ("Chrono", "TestSolverGateJoints.test_gears_and_belt[Belt]"): (
-            "a belt: ChLinkLockPulley couples its pulleys at velocity level only (its "
-            "phase correction is unfinished in Chrono 10), and ChLinkLockGear's "
-            "epicyclic form divides by zero for equal radii"
-        ),
-        ("Chrono", "TestSolverGateJoints.test_coaxial_gear_with_carrier"): (
-            "a CoaxialGear: ChLinkLockGear measures each gear's turn from the line "
-            "between the two shafts and has no carrier frame"
-        ),
-        ("Chrono", "TestSolverGateJoints.test_rack_pinion"): (
-            "ChLinkMateRackPinion recomputes its contact frames at every update and "
-            "holds the rack against the pinion at velocity level only"
-        ),
-        ("Chrono", "TestSolverGateJoints.test_screw"): (
-            "ChLinkLockScrew is a whole screw pair (five equations, the axes held "
-            "together too); the neutral Screw is the coupling alone"
-        ),
-    }
-)
+# The Chrono backend refused 31 cases while it had no link for some joint
+# kinds (sec 6.15); since sec 6.17 a link of its own holds the neutral
+# equations for them, and none is refused.
 
 
 def source_reference_path():

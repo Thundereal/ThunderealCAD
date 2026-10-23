@@ -493,8 +493,8 @@ class TestSolverBackend(AssemblyTestBase):
 
         A revolute solves as OndselSolver does (statuses equal, the joint
         satisfied by the neutral checker); an Angle of 30 degrees, which
-        Chrono has no link for, is refused: the solve returns -1 and moves
-        nothing.
+        Chrono has no link for, is held by the neutral equations (sec 6.17)
+        and solves as OndselSolver does too, its link named in the export.
         """
         import AssemblyApp
 
@@ -547,15 +547,28 @@ class TestSolverBackend(AssemblyTestBase):
                 os.remove(path)
             os.rmdir(tmp)
 
-        # A kind Chrono refuses.
-        self.assembly.SolverBackend = "Chrono"
+        # A kind Chrono has no link for: the neutral equations hold it.
         joint.JointType = "Angle"
         joint.Angle = 30.0
-        box.Placement = start
-        self.assertEqual(self.assembly.solve(), -1)
-        self.assertTrue(box.Placement.isSame(start, 0.0))
-        self.assembly.SolverBackend = "Ondsel"
-        self.assertEqual(self.assembly.solve(), 0)
+        statuses = {}
+        for name in ("Ondsel", "Chrono"):
+            self.assembly.SolverBackend = name
+            box.Placement = start
+            self.assertEqual(self.assembly.solve(), 0, name)
+            residuals = self.assembly.getSolverResiduals()
+            self.assertLess(residuals[joint.Name], 1e-9, name)
+            statuses[name] = self.assembly.getSolveStatus()
+        self.assertEqual(statuses["Ondsel"], statuses["Chrono"])
+        tmp = tempfile.mkdtemp(prefix="fc_solver_chrono_")
+        path = os.path.join(tmp, "chrono.json")
+        try:
+            self.assembly.exportAsASMT(path)
+            with open(path) as f:
+                self.assertIn("AssemblyNeutralLink", f.read())
+        finally:
+            if os.path.exists(path):
+                os.remove(path)
+            os.rmdir(tmp)
 
     def test_property_is_saved(self):
         self.make_pair()

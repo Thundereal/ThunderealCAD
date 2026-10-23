@@ -1,10 +1,9 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
-if (NOT FREECAD_USE_EXTERNAL_ONDSELSOLVER)
-include_directories(
-    ${CMAKE_SOURCE_DIR}/src/3rdParty/OndselSolver
-)
-else ()
+# Only App includes the solver's headers (App/Solver/OndselBackend.cpp, and
+# AssemblyObject.cpp until playback leaves the ASMT model): App/CMakeLists.txt
+# gives that target the in-tree include path. Gui does without.
+if (FREECAD_USE_EXTERNAL_ONDSELSOLVER)
     check_include_file_cxx(OndselSolver/enum.h HAVE_ONDSELSOLVER_H)
     if (NOT HAVE_ONDSELSOLVER_H)
         message(FATAL_ERROR "FREECAD_USE_EXTERNAL_ONDSELSOLVER is set but the required system includes are not available")

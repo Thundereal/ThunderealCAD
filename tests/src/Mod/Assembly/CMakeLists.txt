@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 
 # Upstream's tests/src/Mod/Assembly, in this fork's style (as Points does):
-# AssemblyObject.h includes the solver's headers, hence its source directory.
+# the Ondsel adapter's test includes the solver's headers, hence its source
+# directory (AssemblyObject.h no longer does).
 target_include_directories(Assembly_tests_run PUBLIC
     ${EIGEN3_INCLUDE_DIR}
     ${OCC_INCLUDE_DIR}

@@ -99,6 +99,9 @@ target_include_directories(
     ${CMAKE_BINARY_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}
 )
+if (NOT FREECAD_USE_EXTERNAL_ONDSELSOLVER)
+    target_include_directories(Assembly PRIVATE ${CMAKE_SOURCE_DIR}/src/3rdParty/OndselSolver)
+endif ()
 target_link_libraries(Assembly ${Assembly_LIBS})
 if (FREECAD_WARN_ERROR)
     target_compile_warn_error(Assembly)

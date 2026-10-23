@@ -35,18 +35,7 @@
 #include <App/Part.h>
 #include <App/PropertyLinks.h>
 
-#include <OndselSolver/enum.h>
-
 #include "Solver/Model.h"
-
-namespace MbD
-{
-class ASMTPart;
-class ASMTAssembly;
-class ASMTJoint;
-class ASMTMarker;
-class ASMTPart;
-}  // namespace MbD
 
 namespace App
 {
@@ -133,7 +122,6 @@ public:
     void exportAsASMT(std::string fileName);
     bool requiresRigidSolveForMove(const std::vector<App::DocumentObject*>& movedParts);
 
-    Base::Placement getMbdPlacement(std::shared_ptr<MbD::ASMTPart> mbdPart);
     bool validateNewPlacements();
     void setNewPlacements();
     static void redrawJointPlacements(std::vector<App::DocumentObject*> joints);

@@ -55,42 +55,8 @@
 #include <Mod/Part/App/DatumFeature.h>
 #include <Mod/Part/App/PartFeature.h>
 
-#include <OndselSolver/CREATE.h>
-#include <OndselSolver/ASMTSimulationParameters.h>
+// Playback reads the session's ASMT model until sec 6.3 step 6.
 #include <OndselSolver/ASMTAssembly.h>
-#include <OndselSolver/ASMTMarker.h>
-#include <OndselSolver/ASMTPart.h>
-#include <OndselSolver/ASMTJoint.h>
-#include <OndselSolver/ASMTAngleJoint.h>
-#include <OndselSolver/ASMTFixedJoint.h>
-#include <OndselSolver/ASMTGearJoint.h>
-#include <OndselSolver/ASMTRevoluteJoint.h>
-#include <OndselSolver/ASMTCylindricalJoint.h>
-#include <OndselSolver/ASMTTranslationalJoint.h>
-#include <OndselSolver/ASMTSphericalJoint.h>
-#include <OndselSolver/ASMTParallelAxesJoint.h>
-#include <OndselSolver/ASMTPerpendicularJoint.h>
-#include <OndselSolver/ASMTPointInPlaneJoint.h>
-#include <OndselSolver/ASMTPointInLineJoint.h>
-#include <OndselSolver/ASMTLineInPlaneJoint.h>
-#include <OndselSolver/ASMTPlanarJoint.h>
-#include <OndselSolver/ASMTRevCylJoint.h>
-#include <OndselSolver/ASMTCylSphJoint.h>
-#include <OndselSolver/ASMTRackPinionJoint.h>
-#include <OndselSolver/ASMTRotationLimit.h>
-#include <OndselSolver/ASMTTranslationLimit.h>
-#include <OndselSolver/ASMTRotationalMotion.h>
-#include <OndselSolver/ASMTTranslationalMotion.h>
-#include <OndselSolver/ASMTGeneralMotion.h>
-#include <OndselSolver/ASMTScrewJoint.h>
-#include <OndselSolver/ASMTSphSphJoint.h>
-#include <OndselSolver/ASMTTime.h>
-#include <OndselSolver/ASMTConstantGravity.h>
-#include <OndselSolver/ExternalSystem.h>
-#include <OndselSolver/DiagonalMatrix.h>
-#include <OndselSolver/Part.h>
-#include <OndselSolver/RedundantConstraint.h>
-#include <OndselSolver/enum.h>
 
 #include "AssemblyLink.h"
 #include "AssemblyObject.h"
@@ -104,7 +70,6 @@
 FC_LOG_LEVEL_INIT("Assembly", true, true, true)
 
 using namespace Assembly;
-using namespace MbD;
 
 
 namespace PartApp = Part;
@@ -836,23 +801,6 @@ bool AssemblyObject::doDragStep()
         return false;
     }
     return true;
-}
-
-Base::Placement AssemblyObject::getMbdPlacement(std::shared_ptr<ASMTPart> mbdPart)
-{
-    if (!mbdPart) {
-        return Base::Placement();
-    }
-
-    double x, y, z;
-    mbdPart->getPosition3D(x, y, z);
-    Base::Vector3d pos = Base::Vector3d(x, y, z);
-
-    double q0, q1, q2, q3;
-    mbdPart->getQuarternions(q3, q0, q1, q2);
-    Base::Rotation rot = Base::Rotation(q0, q1, q2, q3);
-
-    return Base::Placement(pos, rot);
 }
 
 bool AssemblyObject::validateNewPlacements()

@@ -211,7 +211,10 @@ void TaskFeatureParameters::addBlinkWidget(QWidget *widget, const QString &txt)
         text = w->text();
     else
         return;
+    bool added = !blinkWidgets.count(widget);
     auto &info = blinkWidgets[widget];
+    if (added)
+        info.minWidth = widget->minimumWidth();
     info.widget = widget;
     info.text = text;
     info.altText = txt;
@@ -237,6 +240,12 @@ void TaskFeatureParameters::removeBlinkWidget(QWidget *widget)
     auto it = blinkWidgets.find(widget);
     if (it != blinkWidgets.end()) {
         it->second.setText(it->second.text);
+        // the width held while it blinked let go: its own, or the one
+        // fitTaskWidgets() gave it meanwhile
+        if (auto w = it->second.widget.data()) {
+            QVariant fitted = w->property("fitMinWidth");
+            w->setMinimumWidth(fitted.isValid() ? fitted.toInt() : it->second.minWidth);
+        }
         blinkWidgets.erase(it);
     }
 }

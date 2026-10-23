@@ -204,6 +204,12 @@ fc_add_gui_test(GuiDressUpListSort_tests_run dressup-list-sort.py
 fc_add_gui_test(GuiDressUpTypedGroupKeepsRow_tests_run dressup-typed-group-keeps-row.py
                 --timeout 200)
 
+# The reporter, 2026-10-23: PartDesign task panels narrow with their dock
+# (buttons, check boxes, spin and combo boxes at a few letters' minimum), and
+# a dress-up's element column stays put while the others scroll sideways.
+fc_add_gui_test(GuiPdPanelWidthsStickyColumn_tests_run pd-panel-widths-sticky-column.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

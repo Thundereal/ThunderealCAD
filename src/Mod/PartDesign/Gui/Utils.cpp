@@ -29,9 +29,15 @@
 # include <QMessageBox>
 # include <QAction>
 # include <QActionGroup>
+# include <QAbstractItemView>
+# include <QAbstractSpinBox>
 # include <QCheckBox>
 # include <QComboBox>
+# include <QLabel>
 # include <QMenu>
+# include <QRadioButton>
+# include <QStyle>
+# include <QStyleOptionButton>
 # include <QTimer>
 # include <QTreeWidget>
 # include <Precision.hxx>
@@ -62,6 +68,7 @@
 #include <Gui/MainWindow.h>
 #include <Gui/MDIView.h>
 #include <Gui/OnViewValue.h>
+#include <Gui/TaskView/TaskDialog.h>
 #include <Gui/Inventor/Draggers/Gizmo.h>
 #include <Gui/ViewProviderPart.h>
 #include <Gui/View3DInventor.h>
@@ -1647,6 +1654,116 @@ void initMonitor()
                 });
             });
         });
+    }
+}
+
+void showTaskDialog(Gui::TaskView::TaskDialog *dlg)
+{
+    QPointer<Gui::TaskView::TaskDialog> guard(dlg);
+    Gui::Control().showDialog(dlg);
+    // once shown, in the fonts and the style sheet it is shown with
+    QTimer::singleShot(0, [guard]() {
+        if (!guard || Gui::Control().activeDialog() != guard)
+            return;
+        for (auto widget : guard->getDialogContent())
+            fitTaskWidgets(widget);
+    });
+}
+
+void fitTaskWidgets(QWidget *root)
+{
+    if (!root)
+        return;
+    for (auto w : root->findChildren<QWidget*>()) {
+        // an item view's editors are sized by its cells, a spin box's line
+        // edit and a combo box's list by their owner
+        bool inside = false;
+        for (auto p = w->parentWidget(); p && p != root; p = p->parentWidget()) {
+            if (qobject_cast<QAbstractItemView*>(p) || qobject_cast<QAbstractSpinBox*>(p)
+                    || qobject_cast<QComboBox*>(p)) {
+                inside = true;
+                break;
+            }
+        }
+        if (inside)
+            continue;
+
+        // A container that will not go below its preferred width holds the
+        // whole panel however narrow its widgets can go: its policy made
+        // one that can shrink, growing as it did (Hole's form: Minimum in
+        // its .ui, 368 px of its 260 px minimum)
+        if (w->layout() && w->minimumWidth() == 0) {
+            QSizePolicy policy = w->sizePolicy();
+            switch (policy.horizontalPolicy()) {
+            case QSizePolicy::Minimum:
+                policy.setHorizontalPolicy(QSizePolicy::Preferred);
+                break;
+            case QSizePolicy::MinimumExpanding:
+                policy.setHorizontalPolicy(QSizePolicy::Expanding);
+                break;
+            case QSizePolicy::Fixed:
+                policy.setHorizontalPolicy(QSizePolicy::Maximum);
+                break;
+            default:
+                break;
+            }
+            if (policy != w->sizePolicy())
+                w->setSizePolicy(policy);
+        }
+
+        const QFontMetrics fm(w->font());
+        // about six letters of a text, eight of a value
+        const int letters = fm.averageCharWidth() * 6;
+        auto textWidth = [&](const QString &text) {
+            QString plain = text;
+            plain.remove(QLatin1Char('&'));
+            return std::min(fm.horizontalAdvance(plain), letters);
+        };
+        int want = -1;
+        if (auto button = qobject_cast<QCheckBox*>(w)) {
+            QStyleOptionButton opt;
+            opt.initFrom(button);
+            want = button->style()->pixelMetric(QStyle::PM_IndicatorWidth, &opt, button)
+                + button->style()->pixelMetric(QStyle::PM_CheckBoxLabelSpacing, &opt, button)
+                + textWidth(button->text());
+        }
+        else if (auto button = qobject_cast<QRadioButton*>(w)) {
+            QStyleOptionButton opt;
+            opt.initFrom(button);
+            want = button->style()->pixelMetric(QStyle::PM_ExclusiveIndicatorWidth, &opt, button)
+                + button->style()->pixelMetric(QStyle::PM_RadioButtonLabelSpacing, &opt, button)
+                + textWidth(button->text());
+        }
+        else if (auto button = qobject_cast<QAbstractButton*>(w)) {
+            // a push or tool button: its text (or icon) and a little room
+            if (button->text().isEmpty())
+                continue;
+            want = textWidth(button->text()) + fm.height();
+            if (!button->icon().isNull())
+                want += button->iconSize().width() + fm.averageCharWidth();
+        }
+        else if (qobject_cast<QAbstractSpinBox*>(w)) {
+            // eight letters of value, the arrows and the frame
+            want = fm.averageCharWidth() * 8 + fm.height() + 2 * fm.averageCharWidth();
+        }
+        else if (qobject_cast<QComboBox*>(w)) {
+            want = letters + 2 * fm.height();
+        }
+        else if (auto label = qobject_cast<QLabel*>(w)) {
+            if (label->wordWrap() || label->text().isEmpty() || label->minimumWidth() > 0)
+                continue;
+            want = textWidth(label->text());
+        }
+        else
+            continue;
+
+        // never wider than Qt would have it
+        want = std::min(want, w->minimumSizeHint().width());
+        if (want <= 0 || (w->minimumWidth() > 0 && w->minimumWidth() <= want))
+            continue;
+        w->setMinimumWidth(want);
+        // for a blinking button to come back to (TaskFeatureParameters)
+        w->setProperty("fitMinWidth", want);
     }
 }
 

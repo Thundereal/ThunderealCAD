@@ -248,6 +248,8 @@ SET(PartDesignGuiModule_SRCS
     PreCompiled.h
     SketchWorkflow.cpp
     SketchWorkflow.h
+    StickyColumnTreeWidget.cpp
+    StickyColumnTreeWidget.h
     Utils.cpp
     Utils.h
     Workbench.cpp

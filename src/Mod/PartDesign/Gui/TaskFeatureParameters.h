@@ -193,6 +193,8 @@ protected:
         QPointer<QWidget> widget;
         QString text;
         QString altText;
+        /// the widget's own minimum width, back once it stops blinking
+        int minWidth = 0;
         void setText(const QString &text);
     };
     std::unordered_map<void*, BlinkInfo> blinkWidgets;

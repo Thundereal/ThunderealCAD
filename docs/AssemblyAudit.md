@@ -536,11 +536,24 @@ adapter turns it into the same ASMT model as before, and
 `AssemblyTests/TestSolverGate.py` (46 cases) holds the solver input and the
 results to what the old builder gave. The suite is at 121 run, 1 skipped.
 The deviations from the design, and what step 4 (drag and status through
-the session) needs, are in `docs/AssemblySolverInterface.md` sec 6.5. Not
-yet done from the decisions: the `SolverBackend` property and preference
-(the registry reads them once they exist), the neutral formula evaluator,
-and the Distance mapping of decision 7 (it changes results, so it comes
-after step 6). Chrono is not started.
+the session) needs, are in `docs/AssemblySolverInterface.md` sec 6.5.
+**Steps 4-6 done 2026-10-23** (`cae7e1ade6` drag and status through the
+session, `701f889a70` the header clean, `7b54d90575` playback from a stored
+trajectory; the solver fork's `881d949` drops `freecadAssemblyObject`, local
+only), and the backend selection (`6a4b278213`: the `SolverBackend`
+property, empty by default, the preference, default "Ondsel", and
+`AssemblyApp.getAvailableSolvers()`). `AssemblyObject` holds no solver type,
+and only `App/Solver/OndselBackend.cpp` includes OndselSolver; Gui builds
+without the solver's include path. The gate held through all four (step 6
+added three recorded simulation cases, checked frame by frame against the
+old playback in one process first), the bench is unchanged within noise,
+and the suite is at 129 run, 1 skipped. The deviations -- `Session::poses()`,
+drag weights through `Session::update`, the DoF double count an on-demand
+status solve used to make, the trajectory kept across solves -- and what
+step 7 needs are in `docs/AssemblySolverInterface.md` sec 6.6. Not yet done
+from the decisions: the neutral formula evaluator and the Distance mapping
+of decision 7 (it changes results, so it comes with the result-changing
+steps). Chrono is not started.
 
 **Phase 2 -- scale.** Where sec 4 measured the time going:
 

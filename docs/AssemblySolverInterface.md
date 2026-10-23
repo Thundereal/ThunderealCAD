@@ -926,14 +926,19 @@ Results identical (ASMT text and placements equal):
    becomes `Session::analyse` mapped to names; the Ondsel adapter keeps the
    `constraintSpec` scan and the count. Drag masses go into
    `Body::dragWeight` (still unused by the solver, as today).
+   **Done 2026-10-23** (`cae7e1ade6`), with the deviations of sec 6.6.
 5. **Header clean.** Remove `OndselSolver/enum.h`, the `MbD` forward
    declarations and every ASMT member from `App/AssemblyObject.h`; drop the
    vestigial gravity include; Gui no longer needs the solver include path.
+   **Done 2026-10-23** (`701f889a70`).
 6. **Trajectory in the neutral layer.** The Ondsel `simulate` copies every
    frame out after `runKINEMATIC` (loop over `updateForFrame` once);
    `AssemblyObject::updateForFrame` plays from the stored `Trajectory`.
    Gate: per-frame placements equal. Remove `freecadAssemblyObject` from
    `OS/ExternalSystem.h` (solver fork) and its two setters.
+   **Done 2026-10-23** (`7b54d90575`; the solver fork's `881d949`, local
+   only). The backend selection of sec 4.8 came between steps 5 and 6
+   (`6a4b278213`).
 
 Results change by design (tolerance gates: placements within 1e-9 mm and
 1e-9 rad of the identity-path result on the corpus; DOF and redundancy
@@ -1012,7 +1017,8 @@ short:
    the registry needs no AssemblyObject header. The per-assembly
    `SolverBackend` property itself is not added yet (it is read when
    present), nor the `SolverBackend` entry in `AssemblyParams.py`, nor
-   `AssemblyApp.getAvailableSolvers()`.
+   `AssemblyApp.getAvailableSolvers()`. (All three added in `6a4b278213`,
+   sec 6.6.)
 6. **Angles in limits are radians**, as designed; the adapter prints
    `std::to_string(toDegrees(rad)) + "*pi/180.0"`. The round trip to the six
    printed decimals was checked with Base::toRadians / toDegrees's formulas
@@ -1021,11 +1027,13 @@ short:
 7. **The empty ASMT model at the start of a build stays**:
    `makeMbdAssembly()` still resets `mbdAssembly` to an empty one, because a
    build that stops early (no grounded part: -6) always left it so, and
-   `updateSolveStatus` / `numberOfFrames` act on that.
+   `updateSolveStatus` / `numberOfFrames` act on that. (Step 4 replaced it:
+   a build starts with no session, which reads the same way.)
 8. **A dump hook**: the preference `Mod/Assembly/SolverDumpFile` (a path,
    unset by default) writes every ASMT model handed to the solver, so the
    gate sees the input of a solve, a drag and a simulation, not only the
    export. It moves into the session (`exportNative` after `load`) at step 4.
+   (Done: `OndselSession` writes it in `load` and `simulate`.)
 
 **The identity gate** (`AssemblyTests/TestSolverGate.py`, also run by
 `TestAssemblyWorkbench`). Step 3 kept the old builder beside the new one
@@ -1094,6 +1102,153 @@ step of its own after step 6, gated by tolerance tests.
 - The gate needs no change: its recorded drag steps and statuses are step
   4's acceptance test; only the dump hook moves into the session.
 
+### 6.6 As built: steps 4-6 and the backend selection (2026-10-23)
+
+`AssemblyObject` holds no solver type any more. It keeps the model it built
+(`solverModel`), the session that model was handed to (`session`, from
+`Registry::select(this)` in `makeMbdModel()`; a build starts without one),
+the number of bodies the session was loaded with, and the last simulation's
+`Trajectory` with the part-to-body map of that build. `AssemblyObject.h`
+includes `Solver/Model.h` and nothing of OndselSolver; `AssemblyObject.cpp`
+includes `Solver/Backend.h` and `Solver/Registry.h`; only
+`App/Solver/OndselBackend.cpp` includes OndselSolver.
+
+**Step 4** (`cae7e1ade6`):
+
+- `preDrag` solves as before, then gives the dragged parts' bodies their
+  drag masses as `Body::dragWeight`, hands the model to `Session::update`
+  and calls `beginDrag(bodies)`. `OndselSession::beginDrag` puts the weights
+  on the MbD bodies built by the pre-drag solve (phase 0's
+  `applyDragMasses`, moved); the ASMT model keeps mass 1, so the dumps are
+  unchanged.
+- `doDragStep` turns each dragged part's `Placement` into its body's target
+  (the bundle offset taken out, one target per body) and calls `dragStep`.
+  The session sets the targets, runs `runDragStep`, and on a step that does
+  not converge or throws puts the bodies back (`restorePosRot`) and answers
+  `NotConverged` / `Failed` with the message the warning prints. The
+  failed-step warning, the counts and `getDragStatus` are unchanged.
+- `postDrag` calls `endDrag` (`runPostDrag`).
+- `setNewPlacements` and `validateNewPlacements` read `Session::poses()`.
+- `updateSolveStatus` maps `Session::analyse()` back to names. The scan, the
+  equation count and the conflict re-check of phase 0 (`isConflicting`)
+  moved into `OndselSession::analyse`, which matches the system's MbD joints
+  to model joints through the ASMT joints the adapter made (their
+  `mbdObject`), and reports ids; `AssemblyObject::jointNameOf` maps an id
+  through `Joint::source` to the document joint, by the same name lookup as
+  before.
+
+Deviations:
+
+1. **`Session::poses()`** (pure virtual): every body's pose, entry i for body
+   i. `OndselSession` reads them back once after each load, solve, drag step
+   and end of drag, and `Result::moved` compares against that cache.
+2. **`Session::update(model)` takes drag weights**: a model equal to the
+   loaded one apart from `Body::dragWeight` (`sameExceptDragWeights`, exact,
+   in the new `Solver/Model.cpp`) is `Ok`; anything else is `NeedsReload`,
+   as before. That is how the weights reach a session without a reload or a
+   weight argument on `beginDrag`.
+3. **`Diagnostics::dof` counts the session's bodies**: 6 x (1 + bodies) minus
+   the equations kept. `AssemblyObject` adds 6 for each part left out of the
+   model (not connected to ground), which gives today's number.
+4. **The malformed check stays in the builder.** Those joints are found from
+   the document and never reach the model, so a session cannot see them;
+   `Diagnostics::malformed` is merged when a backend reports it. Ondsel
+   reports none.
+5. **A status query with nothing solved returns after its on-demand solve.**
+   Before, the outer `updateSolveStatus` went on to scan the system the
+   inner solve had already scanned, subtracting every equation from the DoF
+   a second time. No test saw it: the gate and the suite read the status of
+   an explicit solve.
+6. **`endDrag` reports instead of throwing**: an exception in the post-drag
+   solve is a `Failed` result and an error in the report view, not a C++
+   exception out of `postDrag`.
+7. **The dump in `generateSimulation` is written twice** (`load`, then
+   `simulate` with the simulation parameters); the second is the one the
+   gate reads, and its text is what `makeMbdModel` wrote before.
+8. **No `freecadAssemblyObject` setter remains**: the constructor,
+   `makeMbdAssembly` and `makeMbdModel` set it on the ASMT model; with no
+   ASMT model in `AssemblyObject` they are gone.
+
+**Step 5** (`701f889a70`): `OndselSolver/enum.h`, the `MbD` forward
+declarations and `getMbdPlacement(std::shared_ptr<MbD::ASMTPart>)` left the
+header, and 35 of the 36 OndselSolver includes (the vestigial
+`ASMTConstantGravity.h` among them) and `using namespace MbD` left the
+source. The solver include path was not in `Gui/CMakeLists.txt` but in
+`src/Mod/Assembly/CMakeLists.txt`, at directory scope, which Gui inherited:
+it is now a PRIVATE include directory of the `Assembly` target. After the
+reconfigure none of AssemblyGui's 14 compile commands carries it, all 20 of
+Assembly's do, and the tree builds.
+
+**Backend selection** (`6a4b278213`, sec 4.8, sec 7 q1): the property
+`AssemblyObject::SolverBackend` (`App::PropertyString`, group "Solver",
+empty by default); a file without it restores empty, and a file that stored
+an enumeration restores its name (`handleChangedPropertyType`). The
+preference `Mod/Assembly/SolverBackend` (default "Ondsel") is in
+`App/AssemblyParams.py`, with `AssemblyParams.h/.cpp` regenerated by cog.
+`AssemblyApp.getAvailableSolvers()` lists the registered names. An unknown
+name warns once and solves with the default (`TestCore.TestSolverBackend`).
+
+**Step 6** (`7b54d90575`): `generateSimulation` records what
+`OndselSession::simulate` streams into a `Trajectory` and keeps it with the
+part map of that build; `updateForFrame` / `numberOfFrames` play from it.
+`OndselSession::asmt()` is gone. Deviation: **the trajectory is kept until
+the next simulation.** The ASMT model played whatever the last solve had
+left in it: every static solve and drag step appended a "frame", so a solve
+between two playbacks used to change the frame count and what frame 0
+showed. Now a solve, a drag or an export does not touch playback
+(`test_playback_survives_a_solve`). Only poses are stored; the velocities
+and accelerations OndselSolver also computes are not, as nothing read them.
+
+The solver fork: `ExternalSystem::freecadAssemblyObject` and the three
+`else if` branches that tested it (bodies commented out) are gone
+(`881d949` on the submodule's local `LinkVibe`, not pushed). The member was
+null in every `System`'s own `ExternalSystem` (value-initialised by
+`make_shared`), so no path changes.
+
+**Gate, per step.** Steps 4 and 5 passed the recorded references unchanged
+(46 cases). Step 6 added three simulation cases -- the simulation played in
+reverse order, a gear driven through its revolute, a driven part in a rigid
+group (the other member placed by its offset) -- 49 cases in all. Before the
+old playback went, a build that kept it behind a temporary preference
+played every frame of the four simulation cases both ways in one process,
+each part set to a sentinel pose before each play: 48 frames, equal bit for
+bit. The new cases were then recorded three times -- in that process, in a
+second process through the old path, in a third through the new one into
+`SolverGateReference.json` -- and the three records are identical; the
+file gained only those three cases.
+
+**Bench** (`scripts/assembly-bench/bench.py`, odd N so the dragged link is
+Revolute-joined and the drag steps solve; seconds; before = `e9fd614968`,
+after = step 6):
+
+| case | solve_1 | preDrag | doDragStep (median of 10) | postDrag |
+|---|---|---|---|---|
+| star 49 | 0.0554 / 0.0574 | 0.0417 / 0.0455 | 0.0126 / 0.0132 | 0.0143 / 0.0144 |
+| chain 49 | 0.596 / 0.605 | 0.0687 / 0.0711 | 0.0267 / 0.0278 | 0.0339 / 0.0349 |
+| star 199 | 0.429 / 0.436 | 0.277 / 0.274 | 0.0794 / 0.0782 | 0.0956 / 0.0963 |
+| chain 99 | 9.01 / 9.28 | 1.51 / 1.48 | 0.970 / 0.986 | 0.913 / 0.829 |
+
+Within run-to-run noise (the "before" run's own three solves of chain 99
+spread from 3.4 to 9.0 s); the largest model, star 199, is no slower.
+
+**What step 7 needs** (the builder stops writing the document):
+
+- `getDistanceType` and `slidingPartIndex` call `swapJCS`, and
+  `makeMbdJoint` swaps reversed limits, on the document. The builder swaps
+  its own frames I and J (and orders min / max) in the model instead.
+- Every reader of the swapped order has to be found first: `JointObject.py`
+  (offsets, the joint task's display, `preSolve` / `matchJCS`), the view
+  provider, and `TestJoints.py`'s expectations of the swapped references.
+- The gate changes form: placements within tolerance of the recorded
+  references, the ASMT text compared only where the model swaps exactly as
+  the document did; new cases pick Screw, RackPinion, the swapped Distance
+  sub-types and reversed limits in both orders and assert that the document
+  is unchanged after a solve.
+- Not needed by step 7, still open: the Distance mapping of decision 7, the
+  neutral formula evaluator (sec 7 q2), `solverCapabilities()` in the
+  binding, and the island drag (`prepareMbdForIslandDrag`), which no test
+  builds.
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a
@@ -1123,6 +1278,7 @@ step of its own after step 6, gated by tolerance tests.
   the backend's native format, or the neutral model's own dump when there is
   none; the command is enabled when the backend has a native format.
 - `App/AssemblyParams.py:42` area -- add `SolverBackend` (string, "Ondsel").
+  Done (`6a4b278213`).
 - Tests (`AssemblyTests/`) -- the identity gate, then the corpus run once per
   registered backend against the Reference oracle.
 
@@ -1132,7 +1288,8 @@ step of its own after step 6, gated by tolerance tests.
 1. Per-assembly backend property, or preference only as the PR does? The
    property is Assembly3's practice and makes a file reproducible; the
    preference is cheaper. Proposed: both, property empty by default.
-   Decided (user, 2026-10-22): both (audit sec 8.3).
+   Decided (user, 2026-10-22): both (audit sec 8.3). Implemented
+   2026-10-23 (`6a4b278213`, sec 6.6).
 2. Does the neutral layer own the formula evaluator (a small parser), or
    keep OndselSolver's `SymbolicParser` as a library for all backends?
    Decided (user, 2026-10-22): the neutral layer owns it. Not built yet:

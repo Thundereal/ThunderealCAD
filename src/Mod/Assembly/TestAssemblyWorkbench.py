@@ -36,6 +36,7 @@ from AssemblyTests.TestJoints import (
     TestLimits,
     TestCoupledJoints,
 )
+from AssemblyTests.TestGuiCommands import TestGuiCommands
 
 # Use the modules so that code checkers don't complain (flake8)
 True if TestCore else False
@@ -50,3 +51,4 @@ True if TestSolveStatus else False
 True if TestDrag else False
 True if TestLimits else False
 True if TestCoupledJoints else False
+True if TestGuiCommands else False

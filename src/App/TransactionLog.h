@@ -758,6 +758,10 @@ public:
     /// read when the job was posted) go, oldest first (sec 16.3). Worker
     /// thread, after a version is added.
     void evictVersions(long keep);
+    /// The cache tier held under its budget (TransactionStore::evictTier,
+    /// sec 37.13). Worker thread, a job of its own: between two jobs
+    /// every value put is named by a row.
+    void evictCache(uint64_t bytes, uint64_t values);
     /// Store a captured value (fragment and attachments) and return its ref.
     /// Each blob the value names (its `blobs`, decision 6b) is held and
     /// becomes a `blob` ref of the value. Worker thread.
@@ -891,6 +895,17 @@ public:
     /// the worker never touches the preferences.
     std::atomic<long> _deltaHops {0};
     std::atomic<long> _deltaRatio {0};
+    /// The cache tier's budget (sec 37.13), read the same way: bytes and
+    /// values, 0 for none.
+    std::atomic<uint64_t> _cacheBytes {0};
+    std::atomic<uint64_t> _cacheValues {0};
+    /// What the worker put in the cache tier since the budget was last
+    /// looked at, and that it is to be looked at: set when that passes an
+    /// eighth of a budget, and on open, and taken by post(), which queues
+    /// the look as a job of its own.
+    uint64_t _cacheWrittenBytes {0};
+    uint64_t _cacheWrittenValues {0};
+    std::atomic<bool> _cacheDue {true};
     /// The ids the store's string table holds, and the largest, as posted
     /// (sec 27.50 item 2); the hasher whose strings the store's were last
     /// taken into (loadStrings). Main thread.

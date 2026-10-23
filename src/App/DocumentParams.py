@@ -335,6 +335,14 @@ Params = [
             '37.4 P6): when a version is added, the oldest unnamed ones over\n'
             'this count are evicted -- never a named one, never the newest of\n'
             'a branch. 0 keeps all.'),
+    ParamInt('TransactionLogCacheSize', 256,
+        doc='The budget of the transaction log cache tier, in MB (docs/\n'
+            'TransactionLog.md sec 37.13): the shapes recomputes wrote that only\n'
+            'the history holds. Past it the oldest go, the quickest to recompute\n'
+            'first, down to three quarters; an undo onto one recomputes it. The\n'
+            'newest of each property and what a version lists stay. 0 for none.'),
+    ParamInt('TransactionLogCacheValues', 10000,
+        doc='The same budget as TransactionLogCacheSize, in values. 0 sets none.'),
     ParamInt('TransactionLogCoalesceSeconds', 3,
         doc='A commit that writes by hand the one property the commit before\n'
             'it wrote, by the same author under the same name and within this\n'

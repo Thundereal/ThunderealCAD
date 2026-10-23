@@ -31,7 +31,7 @@ question is the one that holds.
 | 1-7 | The idea: an append-only log, undo as a forward step, the multi-client substrate; open questions; what it is not | as recorded 2026-09-18 |
 | 8 | Design summary (8.1) and the shape of the answer | ruled 2026-09-21 |
 | 9 | The record model: transactions, ops, values by hash | built |
-| 10 | The filter: derived values (Shape) and the cache tier | built; the budget of 16.3 not (37.4) |
+| 10 | The filter: derived values (Shape) and the cache tier | built; the cache tier's budget built (37.13) |
 | 11 | Pseudo transactions: recompute, save, snapshot rows | built |
 | 12 | Undo over the log: the inverse as a row | built |
 | 13 | The store: SQLite, WAL, one file per history, the embedded copy (13.3) | built; the copy's bound 37.5 P1 |
@@ -58,7 +58,7 @@ question is the one that holds.
 | 34 | Held: what Scion's design suggests | held |
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
-| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12) | none left from 37.12 |
+| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -23973,3 +23973,77 @@ their A comes in as an object of its own); and
 `testAForkWhoseGroupGotAnElementApartKeepsBoth` (each copy put an object
 of its own first in the same group: two objects after the merge). On the
 index pairing both fail (the merge makes the two one: `['Ours']`).
+
+### 37.13 The cache tier's budget (user: "do cache size limit", 2026-10-23)
+
+Item 1 of 37.4's list: sec 10 puts a derived value -- the shape a
+recompute writes -- in an evictable tier "under the one eviction budget
+of 16.3 (bytes and count, weighted by the cost to regenerate)", and a
+missing value means "recompute". Only the count of unnamed versions was
+built (37.5 P6); nothing ever dropped a cache-tier value from the live
+store, so it grew with every recompute until a trim or a squash.
+
+**The budget.** Two preferences, `TransactionLogCacheSize` (MB, default
+256) and `TransactionLogCacheValues` (default 10000), 0 for no limit.
+What they measure: the values of the cache tier the rows name, and the
+bytes only they hold -- the fragment rows, their attachments and the
+files of the blob store they name, as each lies (a delta's patch, a
+file's size). Over either, values go until both are at three quarters
+(`TransactionStore::evictTier`):
+- of each property, the oldest first. A value is a delta on the one after
+  it (23.2), so the chain is cut from its old end;
+- across properties, by age (how many values of the property came after
+  it) times bytes, over the seconds the object's recomputes took on
+  average (the recompute records' `s`, 27.52): a cheap shape goes before
+  one that took minutes, as 10.1 asked;
+- what stays whatever the budget: the newest value of each property on
+  each branch (what a switch shows), what a version lists, a kept value
+  or object (32.11).
+The ops keep their refs. A value gone is read as one never kept: a cold
+undo onto it skips it and touches the object (24.1), and the recompute
+that follows makes it.
+
+**Found building it: a durable value held the whole chain.** The shape a
+`create` op records is durable (37.4 item 5), and it is stored as a delta
+on the first shape the recompute wrote, that one on the next, and so on to
+the newest. Following the bases from what stays, as `dropTier` does,
+held every attachment of every shape the object ever had: on a box with
+three recomputes, 365 of the tier's 1330 bytes counted as the tier's and
+could go, the rest pinned. Now a delta that stays on a base that goes is
+written full (zstd past 128 bytes) in the same SQL transaction, and the
+measure does not follow a base edge into the tier from what stays. One
+that cannot be read full brings its base back instead.
+
+**When it runs.** On the log's worker, as a job of its own between two
+jobs (every value put is named by a row by then), queued by `post()` when
+the worker has put an eighth of either budget in the cache tier since the
+last look, and once on the first post after open. Under the budget it is
+one read of the graph, as a version's collection is. Python:
+`Document.evictTransactionCache(size=None, values=None)` runs it now
+with the preferences or the numbers given (bytes, values) and returns the
+tier's values and bytes before, the values evicted and the bytes left;
+with both 0 it measures.
+
+**Measured** (`~/.cache/lv-merge/probe37/budget.py`, 37.4's fusion, 300
+recomputed edits of the box's length, folding off):
+
+| budget | tier values | tier bytes | live db used | 300 edits |
+|---|---|---|---|---|
+| none | 607 | 260 KB | 1236 KB | 2.16 s |
+| 50 values | 51 | 37 KB | 532 KB | 2.18 s |
+
+Then 25 undos, five of them past the hot window onto values that went:
+the same length and volume (22.75, 3053.10) both ways.
+
+Not built: 16.3's byte limit on unnamed *versions*. A version holds what
+its manifest lists, and they are bounded by count (five, P6); the bytes a
+version lists in the cache tier stay with it, as they did.
+
+Tests: `theCacheTierIsHeldUnderItsBudget` (gtest, the store: under the
+budget nothing goes; over it the quick object's old values go before the
+slow one's, the newest of each stays, what a version lists stays, a delta
+kept on a value that goes is written full; then by count);
+`TransactionBranchCases.testTheCacheTierIsHeldUnderItsBudget` (a box
+recomputed 24 times, a budget of 4 values: the oldest 22 shapes go, the
+newest stays, and 22 undos back past the hot window give length 12's
+shape after a recompute).

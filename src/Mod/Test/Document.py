@@ -4374,6 +4374,57 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertTrue(opened.switchTransactionBranch("main"))
         self.assertEqual(opened.getObject("Obj").Integer, 1)
 
+    def testTheCacheTierIsHeldUnderItsBudget(self):
+        # Sec 37.13: past the cache tier's budget the oldest shapes a
+        # recompute wrote go, the newest stays, and an undo past the hot
+        # window to a shape that went gets it by a recompute.
+        param = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        coalesce = param.GetInt("TransactionLogCoalesceSeconds", 3)
+        param.SetInt("TransactionLogCoalesceSeconds", 0)
+        try:
+            doc = self.track(FreeCAD.newDocument("Budget"))
+            doc.UndoMode = 1
+            doc.openTransaction("create")
+            box = doc.addObject("Part::Box", "Box")
+            doc.commitTransaction()
+            doc.recompute()
+            for i in range(24):
+                doc.openTransaction("length %d" % i)
+                box.Length = 11 + i
+                doc.commitTransaction()
+                doc.recompute()
+            shapes = []
+            for row in doc.getTransactionLog():
+                for op in doc.getTransactionOps(row["seq"]):
+                    if (
+                        op["prop"] == "Shape"
+                        and op["derived"]
+                        and op["after"]
+                        and op["after"] not in shapes
+                    ):
+                        shapes.append(op["after"])
+            self.assertEqual(len(shapes), 25)
+            self.assertTrue(all(doc.getTransactionValue(h) for h in shapes))
+            # Under the default budget, nothing goes.
+            before = doc.evictTransactionCache()
+            self.assertEqual(before["evicted"], 0)
+            self.assertGreaterEqual(before["values"], 25)
+            got = doc.evictTransactionCache(size=0, values=4)
+            self.assertEqual(got["values"], before["values"])
+            self.assertEqual(got["evicted"], got["values"] - 3)
+            self.assertLess(got["left"], got["bytes"])
+            self.assertIsNone(doc.getTransactionValue(shapes[0]))
+            self.assertIsNone(doc.getTransactionValue(shapes[-4]))
+            self.assertTrue(doc.getTransactionValue(shapes[-1]))
+            # Back past the hot window (20 steps) to length 2's.
+            for _ in range(22):
+                doc.undo()
+            self.assertEqual(box.Length.Value, 12)
+            doc.recompute()
+            self.assertAlmostEqual(box.Shape.Volume, 12 * 10 * 10)
+        finally:
+            param.SetInt("TransactionLogCoalesceSeconds", coalesce)
+
     def testAFileCarriesItsHistoryFromTheOldestVersionKept(self):
         # Sec 37.4 P1: a save carries the newest `named` named versions and
         # the newest `snapshots` unnamed ones of each branch, and leaves out

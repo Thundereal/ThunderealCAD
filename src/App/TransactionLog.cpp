@@ -332,6 +332,13 @@ public:
         inner().dropTier(tier, evict);
         _core.releaseBlobs();
     }
+    LogTierEviction evictTier(const std::string& tier, uint64_t bytes, uint64_t values) override
+    {
+        auto r = inner().evictTier(tier, bytes, values);
+        if (r.evicted)
+            _core.releaseBlobs();
+        return r;
+    }
     bool nameVersion(int64_t num, const std::string& name) override
     {
         if (!inner().nameVersion(num, name))
@@ -884,10 +891,22 @@ void TransactionLogCore::post(std::function<void()> job)
     releaseRetired();   // every post is the main thread's
     _deltaHops = DocumentParams::getTransactionLogDeltaHops();
     _deltaRatio = DocumentParams::getTransactionLogDeltaRatio();
+    const auto mb = std::max(0L, DocumentParams::getTransactionLogCacheSize());
+    const uint64_t cacheBytes = static_cast<uint64_t>(mb) << 20;
+    const uint64_t cacheValues =
+        static_cast<uint64_t>(std::max(0L, DocumentParams::getTransactionLogCacheValues()));
+    _cacheBytes = cacheBytes;
+    _cacheValues = cacheValues;
     {
         std::lock_guard<std::mutex> lock(_mutex);
         if (_stop)
             return;   // the process is ending (liveLogs): nothing runs it
+        // The budget looked at between two jobs (sec 37.13), ahead of this
+        // one: what the worker put since is named by rows by now.
+        if ((cacheBytes || cacheValues) && _cacheDue.exchange(false))
+            _queue.push_back([this, cacheBytes, cacheValues]() {
+                evictCache(cacheBytes, cacheValues);
+            });
         _queue.push_back(std::move(job));
     }
     _wake.notify_one();
@@ -2490,6 +2509,18 @@ void TransactionLogCore::evictVersions(long keep)
     releaseBlobs();
 }
 
+void TransactionLogCore::evictCache(uint64_t bytes, uint64_t values)
+{
+    if (!_store)
+        return;
+    const auto r = _store->evictTier("cache", bytes, values);
+    if (!r.evicted)
+        return;
+    FC_LOG("transaction log: cache tier " << r.values << " values, " << r.bytes
+           << " bytes; " << r.evicted << " evicted, " << r.left << " bytes left");
+    releaseBlobs();
+}
+
 namespace {
 
 /// zstd at level 3 for anything over 128 bytes; smaller stays raw.
@@ -2621,6 +2652,24 @@ std::string TransactionLogCore::putValue(const CapturedValue& value, const std::
     e.refs.insert(e.refs.end(), blobRefs.begin(), blobRefs.end());
     compressInto(e, value.fragment);
     _store->putEntity(e);
+    if (tier == "cache") {
+        // An eighth of a budget put since it was last looked at has it
+        // looked at again (sec 37.13).
+        _cacheWrittenBytes += e.data.size();
+        for (const auto& a : value.attachments)
+            _cacheWrittenBytes += a.bytes.size();
+        for (const auto& blob : value.blobs) {
+            if (blob)
+                _cacheWrittenBytes += blob->size();
+        }
+        ++_cacheWrittenValues;
+        const uint64_t bytes = _cacheBytes, values = _cacheValues;
+        if ((bytes && _cacheWrittenBytes >= bytes / 8)
+            || (values && _cacheWrittenValues >= values / 8)) {
+            _cacheWrittenBytes = _cacheWrittenValues = 0;
+            _cacheDue = true;
+        }
+    }
     // The string ids it uses (sec 27.50 item 4), dropped with it.
     _store->addStringRefs(e.hash, idRanges(value.stringIds));
     return e.hash;

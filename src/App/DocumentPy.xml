@@ -404,6 +404,19 @@ Set the file's own numbers of getHistoryRetention(); one left None keeps
 what it is. They are the file's: a save carries them with the history.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="evictTransactionCache" Keyword="true">
+      <Documentation>
+        <UserDocu>evictTransactionCache(size=None, values=None) -> dict
+
+Hold the cache tier of this file's log under a budget now
+(docs/TransactionLog.md sec 37.13), as the log does by itself as it
+grows: `size` in bytes and `values`, 0 for no limit, each left None the
+preference's (TransactionLogCacheSize in MB, TransactionLogCacheValues).
+Over either, the oldest derived values go until both are at three
+quarters. Returns values and bytes (the tier before), evicted, and left
+(its bytes after).</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="snapshotTransactionLog">
       <Documentation>
         <UserDocu>snapshotTransactionLog() -> int

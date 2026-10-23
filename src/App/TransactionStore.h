@@ -251,6 +251,15 @@ struct LogKept
     std::string name;
 };
 
+/// What TransactionStore::evictTier() found and left (sec 37.13).
+struct LogTierEviction
+{
+    uint64_t values {0};    ///< the tier's values the rows name, before
+    uint64_t bytes {0};     ///< the bytes only they hold, before
+    uint64_t evicted {0};   ///< the values that went
+    uint64_t left {0};      ///< the bytes only the values left hold
+};
+
 /** A stored entity (table `entity`, sec 23.1): anything the log holds
  * bytes for -- a property's fragment (`prop`), a file it handed to
  * addFile() (`attach`), a file of the document's blob store (`blob`), an
@@ -621,6 +630,21 @@ public:
     /// as evictVersions() would take them, in the same collection -- the
     /// embedded copy's retention, which paid for three (sec 27.69).
     virtual void dropTier(const std::string& tier, const std::vector<int64_t>& evict) = 0;
+
+    /** Hold the values of `tier` the rows name under a budget
+     * (docs/TransactionLog.md sec 10, 16.3, 37.13): `bytes` of what only
+     * they hold, `values` of them, 0 for no limit. Over either, values go
+     * until both are at three quarters: of each property the oldest first
+     * (a value is a delta on the one after it, 23.2), and across properties
+     * by age in values since, times bytes, over the seconds the object's
+     * recomputes took. What stays whatever the budget: the newest value of
+     * a property on each branch, what a manifest lists and a value kept
+     * (keepValue(), keepObject()). A delta that stays on a base that goes
+     * is written full. The ops' refs stay; a value gone is one a reader
+     * recomputes.
+     */
+    virtual LogTierEviction evictTier(const std::string& tier, uint64_t bytes,
+                                      uint64_t values) = 0;
 
     /// Open or create the SQLite log at `path` (WAL, synchronous=NORMAL).
     /// `readOnly` reads a file as it is -- the embedded copy a guard reads

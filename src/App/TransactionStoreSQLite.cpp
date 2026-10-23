@@ -25,8 +25,10 @@
 #ifndef _PreComp_
 # include <algorithm>
 # include <array>
+# include <cstdlib>
 # include <cstring>
 # include <map>
+# include <queue>
 # include <set>
 # include <sstream>
 # include <unordered_map>
@@ -750,6 +752,20 @@ public:
     {
         exec("BEGIN");
         try {
+            reencodeRow(hash, enc, base, data);
+            exec("COMMIT");
+        }
+        catch (...) {
+            rollback();
+            throw;
+        }
+    }
+
+    /// reencodeEntity() inside the caller's transaction.
+    void reencodeRow(const std::string& hash, const std::string& enc,
+                     const std::string& base, const std::string& data)
+    {
+        {
             // Delete and insert, not update (sec 27.54, F6): a row shrunk
             // in place leaves its leaf page mostly empty, and SQLite merges
             // a leaf only under a third full; the new row goes with the
@@ -758,7 +774,6 @@ public:
             bindHash(s, 1, hash);
             if (sqlite3_step(s) != SQLITE_ROW) {
                 sqlite3_reset(s);
-                exec("COMMIT");
                 return;
             }
             const std::string kind = text(s, 0);
@@ -783,12 +798,26 @@ public:
             step(s);
             if (enc == "delta" && !base.empty())
                 insertRef(hash, LogRef {base, "base", ""}, 1 << 30);
-            exec("COMMIT");
         }
-        catch (...) {
-            rollback();
-            throw;
+    }
+
+    /// `bytes` as a full entity's row holds them: zstd at level 3 past 128
+    /// bytes where that is smaller, else raw.
+    static void encodeFull(const std::string& bytes, std::string& enc, std::string& data)
+    {
+        enc = "raw";
+        data = bytes;
+#ifdef FC_HAVE_ZSTD
+        if (bytes.size() > 128) {
+            std::string packed(ZSTD_compressBound(bytes.size()), '\0');
+            size_t n = ZSTD_compress(packed.data(), packed.size(), bytes.data(), bytes.size(), 3);
+            if (!ZSTD_isError(n) && n < bytes.size()) {
+                packed.resize(n);
+                data = std::move(packed);
+                enc = "zstd";
+            }
         }
+#endif
     }
 
     void addRef(const std::string& entity, const LogRef& r) override
@@ -2088,6 +2117,291 @@ public:
             rollback();
             throw;
         }
+    }
+
+    /// The seconds each object's recomputes took, on average, by id: the
+    /// cost to regenerate one of its values (sec 10.1, 27.52), read off the
+    /// recompute records `{"seconds":S,"objects":[{"id":N,"s":x,...}]}`.
+    std::unordered_map<long, double> recomputeSeconds()
+    {
+        std::unordered_map<long, std::pair<double, int>> sum;
+        auto s = prepare("SELECT script FROM txn WHERE kind='recompute'");
+        static const char key[] = "{\"id\":";
+        while (sqlite3_step(s) == SQLITE_ROW) {
+            const std::string j = columnScript(s, 0);
+            for (size_t pos = j.find(key); pos != std::string::npos; pos = j.find(key, pos)) {
+                pos += sizeof(key) - 1;
+                char* end = nullptr;
+                const long id = std::strtol(j.c_str() + pos, &end, 10);
+                // The seconds come right after the id; an object that failed
+                // has none
+                if (std::strncmp(end, ",\"s\":", 5) != 0)
+                    continue;
+                auto& v = sum[id];
+                v.first += std::strtod(end + 5, nullptr);
+                ++v.second;
+            }
+        }
+        sqlite3_reset(s);
+        std::unordered_map<long, double> out;
+        for (const auto& kv : sum)
+            out[kv.first] = kv.second.first / kv.second.second;
+        return out;
+    }
+
+    LogTierEviction evictTier(const std::string& tier, uint64_t maxBytes,
+                              uint64_t maxValues) override
+    {
+        LogTierEviction out;
+        exec("BEGIN");
+        try {
+            HeldGraph g;
+            loadGraph(g);
+            // What stays whatever the budget: what a manifest lists, what is
+            // kept, the files held; and the ops' values of other tiers.
+            std::vector<uint32_t> fixed;
+            addRoots(g, manifestRoots, fixed);
+            addRoots(g, keptValueRoots, fixed);
+            addRoots(g, keptObjectRoots, fixed);
+            addRoots(g, fileRoots, fixed);
+            std::unordered_set<uint32_t> tierSet;
+            {
+                auto s = prepare("SELECT hash FROM entity WHERE tier=?");
+                bindText(s, 1, tier);
+                while (sqlite3_step(s) == SQLITE_ROW) {
+                    HeldKey key;
+                    if (columnKey(s, 0, key))
+                        tierSet.insert(g.id(std::move(key)));
+                }
+                sqlite3_reset(s);
+            }
+            // The values the rows name: each with the newest row naming it,
+            // the after of a row counting past its before, and the property
+            // it was last a value of.
+            struct Value
+            {
+                int64_t newest {-1};
+                std::string chain;
+                bool protect {false};
+                long cid {0};
+            };
+            std::unordered_map<uint32_t, Value> values;
+            // Per branch and property, the value of its newest row: the
+            // state a switch to that branch shows, which stays.
+            std::map<std::pair<int64_t, std::string>, std::pair<int64_t, uint32_t>> newestOn;
+            {
+                auto s = prepare("SELECT o.txn, t.branch, o.ckind, o.cid, o.prop, o.vbefore,"
+                                 " o.vafter FROM op o JOIN txn t ON t.seq=o.txn");
+                while (sqlite3_step(s) == SQLITE_ROW) {
+                    const int64_t seq = sqlite3_column_int64(s, 0);
+                    const int64_t branch = sqlite3_column_int64(s, 1);
+                    const long cid = static_cast<long>(sqlite3_column_int64(s, 3));
+                    std::string chain = text(s, 2);
+                    chain += ' ';
+                    chain += std::to_string(cid);
+                    chain += ' ';
+                    chain += text(s, 4);
+                    for (int col : {5, 6}) {
+                        HeldKey key;
+                        if (sqlite3_column_bytes(s, col) == 0 || !columnKey(s, col, key))
+                            continue;   // none, or one still pending
+                        const uint32_t n = g.id(std::move(key));
+                        if (!tierSet.count(n)) {
+                            fixed.push_back(n);
+                            continue;
+                        }
+                        const int64_t at = seq * 2 + (col == 6 ? 1 : 0);
+                        auto& v = values[n];
+                        if (at > v.newest) {
+                            v.newest = at;
+                            v.chain = chain;
+                            v.cid = cid;
+                        }
+                        auto& top = newestOn[{branch, chain}];
+                        if (at >= top.first)
+                            top = {at, n};
+                    }
+                }
+                sqlite3_reset(s);
+            }
+            for (const auto& kv : newestOn)
+                values[kv.second.second].protect = true;
+
+            std::vector<uint32_t> roots = fixed;
+            for (const auto& kv : values)
+                roots.push_back(kv.first);
+            // What stays does not hold the tier's entities it is a delta
+            // on: those can go, the delta then written full (below).
+            std::vector<std::pair<uint32_t, uint32_t>> cut;
+            for (uint32_t n = 0; n < g.base.size(); ++n) {
+                const uint32_t b = g.base[n];
+                if (b == HeldGraph::none || !tierSet.count(b))
+                    continue;
+                auto& e = g.edges[n];
+                e.erase(std::remove(e.begin(), e.end(), b), e.end());
+                cut.emplace_back(n, b);
+            }
+            std::vector<char> stays, held;
+            const bool read = walk(g, fixed, nullptr, stays);
+            for (const auto& nb : cut)
+                g.edges[nb.first].push_back(nb.second);
+            if (!read || !walk(g, roots, nullptr, held)) {
+                exec("COMMIT");
+                return out;
+            }
+            stays.resize(g.keys.size(), 0);
+            // The bytes each entity takes where it lies: a file's in the
+            // blob store, the rest in its row.
+            std::vector<uint64_t> stored(g.keys.size(), 0);
+            {
+                auto s = prepare("SELECT hash, enc, size, length(data) FROM entity");
+                while (sqlite3_step(s) == SQLITE_ROW) {
+                    HeldKey key;
+                    if (!columnKey(s, 0, key))
+                        continue;
+                    auto it = g.ids.find(key);
+                    if (it == g.ids.end() || it->second >= stored.size())
+                        continue;
+                    stored[it->second] = static_cast<uint64_t>(
+                        text(s, 1) == "file" ? sqlite3_column_int64(s, 2)
+                                             : sqlite3_column_int64(s, 3));
+                }
+                sqlite3_reset(s);
+            }
+            auto onlyTheirs = [&](const std::vector<char>& reached) {
+                uint64_t bytes = 0;
+                for (size_t n = 0; n < reached.size() && n < stored.size(); ++n) {
+                    if (reached[n] && !stays[n])
+                        bytes += stored[n];
+                }
+                return bytes;
+            };
+            // A value a manifest lists or a kept one reaches is not the
+            // tier's to give up, and not counted in it.
+            for (auto it = values.begin(); it != values.end();) {
+                if (stays[it->first])
+                    it = values.erase(it);
+                else
+                    ++it;
+            }
+            out.values = values.size();
+            out.bytes = onlyTheirs(held);
+            out.left = out.bytes;
+            const bool overBytes = maxBytes && out.bytes > maxBytes;
+            const bool overValues = maxValues && out.values > maxValues;
+            if (!overBytes && !overValues) {
+                exec("COMMIT");
+                return out;
+            }
+            const uint64_t toBytes = maxBytes ? maxBytes - maxBytes / 4 : UINT64_MAX;
+            const uint64_t toValues = maxValues ? maxValues - maxValues / 4 : UINT64_MAX;
+
+            // Each property's values oldest first; the age of one is how
+            // many came after it.
+            std::map<std::string, std::vector<uint32_t>> chains;
+            for (const auto& kv : values)
+                chains[kv.second.chain].push_back(kv.first);
+            const auto cost = recomputeSeconds();
+            struct Candidate
+            {
+                double score;
+                std::string chain;
+                size_t at;
+                bool operator<(const Candidate& o) const { return score < o.score; }
+            };
+            auto bytesOf = [&](uint32_t n) {
+                // Its row and what it names directly but its base: the
+                // fragment, the attachments, the files.
+                uint64_t b = stored[n];
+                for (uint32_t t : g.edges[n]) {
+                    if (t != g.base[n] && t < held.size() && held[t] && !stays[t])
+                        b += stored[t];
+                }
+                return b;
+            };
+            std::priority_queue<Candidate> queue;
+            auto offer = [&](const std::string& chain, size_t at) {
+                const auto& list = chains[chain];
+                if (at >= list.size())
+                    return;
+                const Value& v = values[list[at]];
+                if (v.protect)
+                    return;
+                auto c = cost.find(v.cid);
+                const double secs = std::max(c == cost.end() ? 0.0 : c->second, 1e-3);
+                const double age = static_cast<double>(list.size() - at);
+                queue.push({age * static_cast<double>(bytesOf(list[at])) / secs, chain, at});
+            };
+            for (auto& kv : chains) {
+                std::sort(kv.second.begin(), kv.second.end(), [&](uint32_t a, uint32_t b) {
+                    return values[a].newest < values[b].newest;
+                });
+                offer(kv.first, 0);
+            }
+            std::vector<char> gone(g.keys.size(), 0);
+            uint64_t bytes = out.bytes;
+            uint64_t count = out.values;
+            while (!queue.empty() && (bytes > toBytes || count > toValues)) {
+                Candidate c = queue.top();
+                queue.pop();
+                const uint32_t n = chains[c.chain][c.at];
+                gone[n] = 1;
+                const uint64_t b = bytesOf(n);
+                bytes = bytes > b ? bytes - b : 0;
+                --count;
+                offer(c.chain, c.at + 1);
+            }
+            // A delta kept on a base that goes stands on its own: it is
+            // written full. Each value is a delta on the one after it, so
+            // without that the oldest value kept -- the shape a create
+            // wrote, which is durable -- held every one after it through
+            // their bases. One that cannot be read full brings its base
+            // back instead, to a fixpoint.
+            std::vector<char> kept;
+            for (;;) {
+                if (!walk(g, roots, &gone, kept)) {
+                    exec("COMMIT");
+                    return out;
+                }
+                bool back = false;
+                for (size_t n = 0; n < kept.size(); ++n) {
+                    const uint32_t b = n < g.base.size() ? g.base[n] : HeldGraph::none;
+                    if (!kept[n] || b == HeldGraph::none || b >= gone.size() || !gone[b])
+                        continue;
+                    std::string bytes, enc, data;
+                    Decoded decoded;
+                    if (readStored(keyHash(g.keys[n]), bytes, decoded)) {
+                        encodeFull(bytes, enc, data);
+                        reencodeRow(keyHash(g.keys[n]), enc, {}, data);
+                        auto& e = g.edges[n];
+                        e.erase(std::remove(e.begin(), e.end(), b), e.end());
+                        g.base[n] = HeldGraph::none;
+                        if (n < stored.size())
+                            stored[n] = data.size();
+                    }
+                    else {
+                        gone[b] = 0;
+                        back = true;
+                    }
+                }
+                if (!back)
+                    break;
+            }
+            for (const auto& kv : values) {
+                if (kv.first < gone.size() && gone[kv.first])
+                    ++out.evicted;
+            }
+            stored.resize(g.keys.size(), 0);
+            out.left = onlyTheirs(kept);
+            if (out.evicted)
+                sweep(g, kept);
+            exec("COMMIT");
+        }
+        catch (...) {
+            rollback();
+            throw;
+        }
+        return out;
     }
 
     bool nameVersion(int64_t num, const std::string& name) override

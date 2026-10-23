@@ -3816,6 +3816,114 @@ TEST_F(TransactionLogTest, dropTierWithEvictionIsTheTwoCalls)
     Base::FileInfo(pathB).deleteFile();
 }
 
+TEST_F(TransactionLogTest, theCacheTierIsHeldUnderItsBudget)
+{
+    // docs/TransactionLog.md sec 37.13: over the budget, of each property
+    // the oldest values go first, the cheapest to recompute first across
+    // properties, down to three quarters; the newest of a property, what a
+    // version lists stay, and a delta kept on a value that goes is written
+    // full.
+    const std::string path = Base::FileInfo::getTempFileName("txnlog-budget") + ".db";
+    auto h = [](char c) { return std::string(40, c); };
+    // Object 7, slow to recompute: v1..v5; version 1 lists v2, and v4 is a
+    // delta on w1. Object 8, quick: w1..w3.
+    const std::string v1 = h('1'), v2 = h('2'), v3 = h('3'), v4 = h('4'), v5 = h('5');
+    const std::string w1 = h('6'), w2 = h('7'), w3 = h('8'), skel = h('9');
+    const std::string listing = "skeleton " + skel + "\nc Obj\np 0 " + v2 + " A\n";
+    const std::string c1 = App::hashBytes(listing);
+    auto store = App::TransactionStore::openSQLite(path);
+    auto put = [&](const std::string& hash, const char* tier, const std::string& bytes,
+                   const std::string& base = {}, const char* kind = "prop") {
+        App::LogEntity e;
+        e.hash = hash;
+        e.kind = kind;
+        e.enc = base.empty() ? "raw" : "delta";
+        e.base = base;
+        e.tier = tier;
+        e.size = bytes.size();
+        e.data = bytes;
+        store->putEntity(e);
+    };
+    for (const auto& v : {v1, v2, v3, v5, w1, w2, w3})
+        put(v, "cache", std::string(1000, v[0]));
+    std::string patch;
+    ASSERT_TRUE(App::TransactionLog::deltaEncode(std::string(1000, '4'), std::string(1000, '6'),
+                                                 patch));
+    {
+        App::LogEntity e;
+        e.hash = v4;
+        e.enc = "delta";
+        e.base = w1;
+        e.tier = "cache";
+        e.size = 1000;
+        e.data = patch;
+        store->putEntity(e);
+    }
+    put(skel, "durable", "<a>", {}, "skeleton");
+    put(c1, "durable", listing, {}, "composite");
+    App::LogVersion version;
+    version.kind = "unnamed";
+    store->addVersion(version, {{"Document.xml", c1}});
+    auto row = [&](long cid, const std::string& before, const std::string& after) {
+        App::LogTransaction t;
+        t.kind = "recompute";
+        std::vector<App::LogOp> ops(1);
+        ops[0].op = "set";
+        ops[0].ckind = "obj";
+        ops[0].cid = cid;
+        ops[0].prop = "Shape";
+        ops[0].derived = true;
+        ops[0].vbefore = before;
+        ops[0].vafter = after;
+        store->append(t, ops);
+    };
+    row(7, {}, v1);
+    row(8, {}, w1);
+    row(7, v1, v2);
+    row(8, w1, w2);
+    row(7, v2, v3);
+    row(7, v3, v4);
+    row(8, w2, w3);
+    row(7, v4, v5);
+    App::LogTransaction rec;
+    rec.kind = "recompute";
+    rec.script = R"({"seconds":10.02,"objects":[{"id":7,"s":10},{"id":8,"s":0.01}]})";
+    std::vector<App::LogOp> none;
+    store->append(rec, none);
+
+    // Under the budget: nothing goes.
+    auto r = store->evictTier("cache", 7000, 0);
+    EXPECT_EQ(r.values, 7u);   // v2 is the version's
+    EXPECT_EQ(r.bytes, 6000u + patch.size());
+    EXPECT_EQ(r.evicted, 0u);
+    // Over it: 4500 bytes to reach. w1 first by cost, then w2, and that
+    // reaches it. v4 was a delta on w1: it is written full and stays.
+    r = store->evictTier("cache", 6000, 0);
+    EXPECT_EQ(r.evicted, 2u);
+    EXPECT_LT(r.left, 4500u);
+    for (const auto& kept : {v1, v2, v3, v4, v5, w3})
+        EXPECT_TRUE(store->hasEntity(kept)) << kept;
+    for (const auto& gone : {w1, w2})
+        EXPECT_FALSE(store->hasEntity(gone)) << gone;
+    App::LogEntity e;
+    ASSERT_TRUE(store->getEntity(v4, e));
+    EXPECT_NE(e.enc, "delta");
+    EXPECT_TRUE(e.base.empty());
+    // By count: 5 values over 3, to 3 (three quarters, rounded up): v1 and
+    // v3, the oldest of object 7; w3 is the newest of its property.
+    r = store->evictTier("cache", 0, 3);
+    EXPECT_EQ(r.values, 5u);
+    EXPECT_EQ(r.evicted, 2u);
+    for (const auto& gone : {v1, v3})
+        EXPECT_FALSE(store->hasEntity(gone)) << gone;
+    for (const auto& kept : {v2, v4, v5, w3})
+        EXPECT_TRUE(store->hasEntity(kept)) << kept;
+    // The rows keep their refs.
+    EXPECT_EQ(store->ops(1).at(0).vafter, v1);
+    store.reset();
+    Base::FileInfo(path).deleteFile();
+}
+
 TEST_F(TransactionLogTest, branchesSwitchInPlace)
 {
     // docs/TransactionLog.md sec 26 (4.b): a branch from the head leaves the

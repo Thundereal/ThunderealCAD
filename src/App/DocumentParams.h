@@ -722,6 +722,34 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter TransactionLogCacheSize
+    ///
+    /// The budget of the transaction log cache tier, in MB (docs/
+    /// TransactionLog.md sec 37.13): the shapes recomputes wrote that only
+    /// the history holds. Past it the oldest go, the quickest to recompute
+    /// first, down to three quarters; an undo onto one recomputes it. The
+    /// newest of each property and what a version lists stay. 0 for none.
+    static const long & getTransactionLogCacheSize();
+    static const long & defaultTransactionLogCacheSize();
+    static void removeTransactionLogCacheSize();
+    static void setTransactionLogCacheSize(const long &v);
+    static const char *docTransactionLogCacheSize();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter TransactionLogCacheValues
+    ///
+    /// The same budget as TransactionLogCacheSize, in values. 0 sets none.
+    static const long & getTransactionLogCacheValues();
+    static const long & defaultTransactionLogCacheValues();
+    static void removeTransactionLogCacheValues();
+    static void setTransactionLogCacheValues(const long &v);
+    static const char *docTransactionLogCacheValues();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter TransactionLogCoalesceSeconds
     ///
     /// A commit that writes by hand the one property the commit before

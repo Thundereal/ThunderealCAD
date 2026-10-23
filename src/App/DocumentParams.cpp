@@ -92,6 +92,8 @@ public:
         signalParamChanged("TransactionLogDerived");
         signalParamChanged("TransactionLogSnapshotTransactions");
         signalParamChanged("TransactionLogKeepVersions");
+        signalParamChanged("TransactionLogCacheSize");
+        signalParamChanged("TransactionLogCacheValues");
         signalParamChanged("TransactionLogCoalesceSeconds");
         signalParamChanged("TransactionLogKeepNamed");
         signalParamChanged("TransactionLogCompactSize");
@@ -166,6 +168,8 @@ public:
     long TransactionLogDerived;
     long TransactionLogSnapshotTransactions;
     long TransactionLogKeepVersions;
+    long TransactionLogCacheSize;
+    long TransactionLogCacheValues;
     long TransactionLogCoalesceSeconds;
     long TransactionLogKeepNamed;
     long TransactionLogCompactSize;
@@ -289,6 +293,10 @@ public:
         funcs["TransactionLogSnapshotTransactions"] = &DocumentParamsP::updateTransactionLogSnapshotTransactions;
         TransactionLogKeepVersions = this->handle->GetInt("TransactionLogKeepVersions", 5);
         funcs["TransactionLogKeepVersions"] = &DocumentParamsP::updateTransactionLogKeepVersions;
+        TransactionLogCacheSize = this->handle->GetInt("TransactionLogCacheSize", 256);
+        funcs["TransactionLogCacheSize"] = &DocumentParamsP::updateTransactionLogCacheSize;
+        TransactionLogCacheValues = this->handle->GetInt("TransactionLogCacheValues", 10000);
+        funcs["TransactionLogCacheValues"] = &DocumentParamsP::updateTransactionLogCacheValues;
         TransactionLogCoalesceSeconds = this->handle->GetInt("TransactionLogCoalesceSeconds", 3);
         funcs["TransactionLogCoalesceSeconds"] = &DocumentParamsP::updateTransactionLogCoalesceSeconds;
         TransactionLogKeepNamed = this->handle->GetInt("TransactionLogKeepNamed", 10);
@@ -539,6 +547,14 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLogKeepVersions(DocumentParamsP *self) {
         self->TransactionLogKeepVersions = self->handle->GetInt("TransactionLogKeepVersions", 5);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogCacheSize(DocumentParamsP *self) {
+        self->TransactionLogCacheSize = self->handle->GetInt("TransactionLogCacheSize", 256);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogCacheValues(DocumentParamsP *self) {
+        self->TransactionLogCacheValues = self->handle->GetInt("TransactionLogCacheValues", 10000);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLogCoalesceSeconds(DocumentParamsP *self) {
@@ -887,6 +903,16 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
 "37.4 P6): when a version is added, the oldest unnamed ones over\n"
 "this count are evicted -- never a named one, never the newest of\n"
 "a branch. 0 keeps all."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCacheSize", "TransactionLogCacheSize", App::ParamInfo::Int, 256)
+        .setTitle("Transaction Log Cache Size")
+        .setDoc("The budget of the transaction log cache tier, in MB (docs/\n"
+"TransactionLog.md sec 37.13): the shapes recomputes wrote that only\n"
+"the history holds. Past it the oldest go, the quickest to recompute\n"
+"first, down to three quarters; an undo onto one recomputes it. The\n"
+"newest of each property and what a version lists stay. 0 for none."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCacheValues", "TransactionLogCacheValues", App::ParamInfo::Int, 10000)
+        .setTitle("The same budget as TransactionLogCacheSize, in values. 0 sets none.")
+        .setDoc("The same budget as TransactionLogCacheSize, in values. 0 sets none."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCoalesceSeconds", "TransactionLogCoalesceSeconds", App::ParamInfo::Int, 3)
         .setTitle("Transaction Log Coalesce Seconds")
         .setDoc("A commit that writes by hand the one property the commit before\n"
@@ -2419,6 +2445,66 @@ void DocumentParams::setTransactionLogKeepVersions(const long &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void DocumentParams::removeTransactionLogKeepVersions() {
     instance()->handle->RemoveInt("TransactionLogKeepVersions");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogCacheSize() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"The budget of the transaction log cache tier, in MB (docs/\n"
+"TransactionLog.md sec 37.13): the shapes recomputes wrote that only\n"
+"the history holds. Past it the oldest go, the quickest to recompute\n"
+"first, down to three quarters; an undo onto one recomputes it. The\n"
+"newest of each property and what a version lists stay. 0 for none.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getTransactionLogCacheSize() {
+    return instance()->TransactionLogCacheSize;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultTransactionLogCacheSize() {
+    const static long def = 256;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogCacheSize(const long &v) {
+    instance()->handle->SetInt("TransactionLogCacheSize",v);
+    instance()->TransactionLogCacheSize = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogCacheSize() {
+    instance()->handle->RemoveInt("TransactionLogCacheSize");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogCacheValues() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"The same budget as TransactionLogCacheSize, in values. 0 sets none.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getTransactionLogCacheValues() {
+    return instance()->TransactionLogCacheValues;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultTransactionLogCacheValues() {
+    const static long def = 10000;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogCacheValues(const long &v) {
+    instance()->handle->SetInt("TransactionLogCacheValues",v);
+    instance()->TransactionLogCacheValues = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogCacheValues() {
+    instance()->handle->RemoveInt("TransactionLogCacheValues");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

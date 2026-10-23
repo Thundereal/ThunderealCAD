@@ -862,6 +862,9 @@ void QGIViewBalloon::setPrettyPre(void)
     //    balloonShape->setFill(Qt::white, Qt::NoBrush);
     balloonShape->setPrettyPre();
     balloonLines->setPrettyPre();
+    // the label's text too: a tree hover lit the shape alone, as a
+    // dimension's its arrows (docs/HandsOnQueue.md entry 218)
+    balloonLabel->setPrettyPre();
 }
 
 void QGIViewBalloon::setPrettySel(void)
@@ -871,6 +874,7 @@ void QGIViewBalloon::setPrettySel(void)
     //    balloonShape->setFill(Qt::white, Qt::NoBrush);
     balloonShape->setPrettySel();
     balloonLines->setPrettySel();
+    balloonLabel->setPrettySel();
 }
 
 void QGIViewBalloon::setPrettyNormal(void)
@@ -879,6 +883,7 @@ void QGIViewBalloon::setPrettyNormal(void)
     //    balloonShape->setFill(Qt::white, Qt::SolidPattern);
     balloonShape->setPrettyNormal();
     balloonLines->setPrettyNormal();
+    balloonLabel->setPrettyNormal();
 }
 
 

@@ -422,33 +422,39 @@ double QGIDatumLabel::getTolAdjust()
 }
 
 
+void QGIDatumLabel::showPretty(int state)
+{
+    for (QGCustomText* text : {m_dimText, m_tolTextOver, m_tolTextUnder, m_unitText}) {
+        if (state == PRE) {
+            text->setPrettyPre();
+        }
+        else if (state == SEL) {
+            text->setPrettySel();
+        }
+        else {
+            text->setPrettyNormal();
+        }
+    }
+}
+
 void QGIDatumLabel::setPrettySel()
 {
     //    Base::Console().Message("QGIDL::setPrettySel()\n");
-    m_dimText->setPrettySel();
-    m_tolTextOver->setPrettySel();
-    m_tolTextUnder->setPrettySel();
-    m_unitText->setPrettySel();
+    showPretty(SEL);
     Q_EMIT setPretty(SEL);
 }
 
 void QGIDatumLabel::setPrettyPre()
 {
     //    Base::Console().Message("QGIDL::setPrettyPre()\n");
-    m_dimText->setPrettyPre();
-    m_tolTextOver->setPrettyPre();
-    m_tolTextUnder->setPrettyPre();
-    m_unitText->setPrettyPre();
+    showPretty(PRE);
     Q_EMIT setPretty(PRE);
 }
 
 void QGIDatumLabel::setPrettyNormal()
 {
     //    Base::Console().Message("QGIDL::setPrettyNormal()\n");
-    m_dimText->setPrettyNormal();
-    m_tolTextOver->setPrettyNormal();
-    m_tolTextUnder->setPrettyNormal();
-    m_unitText->setPrettyNormal();
+    showPretty(NORMAL);
     Q_EMIT setPretty(NORMAL);
 }
 
@@ -2660,11 +2666,16 @@ void QGIViewDimension::onPrettyChanged(int state)
     }
 }
 
+// The label's text with the arrows and the lines: a tree hover (MDIViewPage's
+// preselect), a hover of the lines and a selection lit the arrows alone
+// (docs/HandsOnQueue.md entry 218). The label's own setters tell the
+// dimension back (setPretty -> onPrettyChanged), so it is told quietly.
 void QGIViewDimension::setPrettyPre()
 {
     aHead1->setPrettyPre();
     aHead2->setPrettyPre();
     dimLines->setPrettyPre();
+    datumLabel->showPretty(PRE);
 }
 
 void QGIViewDimension::setPrettySel()
@@ -2672,6 +2683,7 @@ void QGIViewDimension::setPrettySel()
     aHead1->setPrettySel();
     aHead2->setPrettySel();
     dimLines->setPrettySel();
+    datumLabel->showPretty(SEL);
 }
 
 void QGIViewDimension::setPrettyNormal()
@@ -2679,6 +2691,7 @@ void QGIViewDimension::setPrettyNormal()
     aHead1->setPrettyNormal();
     aHead2->setPrettyNormal();
     dimLines->setPrettyNormal();
+    datumLabel->showPretty(NORMAL);
 }
 
 void QGIViewDimension::drawBorder()

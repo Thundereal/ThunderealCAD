@@ -232,6 +232,11 @@ fc_add_gui_test(GuiTechDrawProjGroupAutoDistribute_tests_run techdraw-projgroup-
 fc_add_gui_test(GuiTechDrawTreePickSwitchesPage_tests_run techdraw-tree-pick-switches-page.py
                 --timeout 200)
 
+# Entry 218: a tree hover (preselect) lights a dimension's label and a
+# balloon's, not only their lines.
+fc_add_gui_test(GuiTechDrawTreeHoverLightsLabel_tests_run techdraw-tree-hover-lights-label.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

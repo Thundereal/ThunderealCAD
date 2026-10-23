@@ -109,34 +109,15 @@ BACKEND_DIFFERENCES = {}
 
 # Simulation cases whose recorded OndselSolver frames are wrong: {key:
 # diagnosis}. The backend's frames are checked against OndselSolver run again
-# with a tenth of the output step instead (check_simulation_finer).
+# with a tenth of the output step instead (check_simulation_finer). Empty
+# since OndselSolver holds an angular motion's angle with its turns counted
+# (sec 6.16); the four simulation cases were here while it held the sine.
 BACKEND_SIMULATION = {}
 
 # Cases a backend refuses because it cannot express a joint of them:
 # {(backend, key): diagnosis}. Asserted as recorded (gate_backend), so that a
 # backend that learns the joint fails here and the entry gets looked at.
 BACKEND_REFUSED = {}
-
-_FLIP = (
-    "OndselSolver's angular motion holds only the sine of the angle (ZRotation: "
-    "the direction cosine of I's y and J's x), which is zero half a turn away "
-    "too; between two output times %s turns more than a quarter turn, and from "
-    "the previous frame the solver lands on the root nearest to it, off by "
-    "half a turn at every other frame%s. The Reference holds the angle with its "
-    "turns counted."
-)
-BACKEND_SIMULATION.update(
-    {
-        "TestSolverGateSimulation.test_simulation": _FLIP
-        % ("36*time (3.6 rad) and 90*time (9 rad)", ""),
-        "TestSolverGateSimulation.test_simulation_reverse_playback[reverse]": _FLIP
-        % ("36*time (3.6 rad) and 90*time (9 rad)", ""),
-        "TestSolverGateSimulation.test_simulation_gears": _FLIP
-        % ("90*time (9 rad)", ", and the gear it drives follows the wrong turn"),
-        "TestSolverGateSimulation.test_simulation_rigid_group": _FLIP
-        % ("45*time (4.5 rad)", ", with the rigid group's other member"),
-    }
-)
 
 BACKEND_DIFFERENCES.update(
     {

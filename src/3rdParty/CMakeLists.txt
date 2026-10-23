@@ -285,3 +285,8 @@ if (BUILD_ASSEMBLY AND NOT FREECAD_USE_EXTERNAL_ONDSELSOLVER)
     endif()
     add_subdirectory(OndselSolver)
 endif()
+
+# Project Chrono's core, for the Assembly's optional Chrono solver backend.
+if (BUILD_ASSEMBLY AND BUILD_ASSEMBLY_CHRONO)
+    include(ChronoCore.cmake)
+endif()

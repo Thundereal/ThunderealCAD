@@ -170,6 +170,9 @@ macro(InitializeFreeCADBuildOptions)
     option(BUILD_CAM "Build the FreeCAD CAM module" ON)
     option(BUILD_CAM_SIMULATOR_GL "Build the CAM simulator's own OpenGL viewer" ON)
     option(BUILD_ASSEMBLY "Build the FreeCAD Assembly module" ON)
+    # The Assembly's Chrono solver backend and Project Chrono's core library
+    # (submodule src/3rdParty/chrono); the module builds and runs without it.
+    option(BUILD_ASSEMBLY_CHRONO "Build the Assembly's Chrono solver backend (Project Chrono core)" OFF)
     option(BUILD_PLOT "Build the FreeCAD plot module" ON)
     option(BUILD_POINTS "Build the FreeCAD points module" ON)
     option(BUILD_REVERSEENGINEERING "Build the FreeCAD reverse engineering module" ON)

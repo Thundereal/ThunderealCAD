@@ -201,6 +201,19 @@ Each was checked against the code.
    A probe of every module, document and view member the workbench names
    found these; members of other objects need the GUI smoke test of
    phase 0.
+   **Fixed 2026-10-23.** `Gui.TaskPlacement` and the dialog's
+   `setIgnoreTransactions` (`6a84408660`); `Gui.IconPosition` and
+   `getOverlayIcons()` merged into the tree icon (`02f7b5a09e`).
+   `Gui.QtTools.deleteKeySequence` is left out: upstream has no
+   `Gui.QtTools` either -- its own caller falls back the same way -- so
+   there is no upstream API to match. The GUI smoke test
+   (`AssemblyTests/TestGuiCommands.py`, `dfe91bf673`) runs all 33
+   commands and scans 42 members read off views, view objects, Gui
+   documents, Selection and Control; it found one more missing API,
+   `ViewProviderSheet.showSheetMdi` (BOM accept, `68ca964185`), and three
+   console errors (`b85a4cd4db`): every Rigid Group printed a traceback
+   (`RigidPlacements` set before it existed), and Insert New Part without
+   a joint recomputed a removed joint and an empty Link.
 
 
 ## 4. Performance at scale
@@ -470,6 +483,9 @@ land in the very functions the interface work moves
    (`Gui.IconPosition`, `getOverlayIcons`). Then a GUI smoke test that runs
    every Assembly command on a real document, so a call into an API the
    fork lacks fails a test instead of a user.
+   **Done 2026-10-23**: `6a84408660`, `02f7b5a09e`, `68ca964185`,
+   `b85a4cd4db`, `dfe91bf673` (defect 9 has the details). The suite is at
+   105 run, 1 skipped.
 
 5. After the upstream merge (step 2): **an audit of header inclusion**
    (user, 2026-10-22), so that a change rebuilds only what depends on it.
@@ -490,8 +506,8 @@ land in the very functions the interface work moves
    config structs) carry no merge cost and come first.
    **Applied in three rounds**, `docs/HeaderInclusionAudit.md` sec 6.
 
-Done so far: step 1 (`aa0b4a9691`), step 3 (2026-10-23, above), the
-first part of step 4 (`6cac2592a1`), and step 5 (the header audit,
+Done so far: step 1 (`aa0b4a9691`), step 3 (2026-10-23, above), step 4
+(`6cac2592a1`, then 2026-10-23, above), and step 5 (the header audit,
 applied in three rounds).
 
 **Phase 1 -- the solver interface, results identical.** Steps 1-6 of

@@ -178,6 +178,11 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-23 11:05: entry 217 -- a TechDraw object selected in the tree does not
+switch to its page (Std_TreeSyncView on); a request: a double-click edit
+switches to its page always; ASSIGNED to x16win after 216, which it is
+diagnosing.** Under the entries.
+
 **2026-10-23 11:02: entry 216 -- a projection group's X/Y spacing does not apply with
 Auto Distribution on until the toggle; ASSIGNED to x16win.** Under the
 entries.
@@ -4297,7 +4302,8 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 213 | 2026-10-23 | a change request (relayed by fcad-dc, "hands the pending request to 'notes' session"): in a DRESS-UP feature's edit, when a handle is made ACTIVE (selected), SELECT the CORRESPONDING EDGE -- or its PREVIEW FACE when the edge is missing | OPEN; 2026-10-23 09:28; ASSIGNED to fcad-dc (PD task panels and the handles, its area; it is in TaskDressUpParameters/TaskFilletParameters for the reporter's panel-width request now), AFTER its current task. 2026-10-23 09:32 the reporter (to the note-taker): "no just select the corresponding edge, as the right click context menu is meant to apply to that edge which may change its mode" -- ONE edge, the one the handle belongs to, NOT every edge a shared handle moves; the reason: the right-click menu then acts on that edge (e.g. changing its mode); passed on to fcad-dc. 2026-10-23 09:35 the reporter: today hovering a handle highlights ALL handles of its GROUP and selecting shows the selection highlight on all; if 213 makes ONLY that one handle highlighted, that is ACCEPTABLE (allowed, not asked for); passed on to fcad-dc |
 | 214 | 2026-10-23 | A CRASH on stage28 (heap corruption, c0000374, held by cdb): in PrismLocker's fillet edit, Edge12's Group typed from 3 to 1 and Enter pressed -- the edited row is deleted while Qt is still setting its data (FilletSegmentDelegate::setModelData -> itemChanged -> updateSegment -> setEdgeGroup -> refresh() -> populateGeometryReferences -> treeWidget->clear()) | OPEN; 2026-10-23 09:41; the stack READ by the note-taker on the reporter's word through a cdb client; a regression of 202 (`8b4b49a405`, the typed Group column); ASSIGNED to fcad-dc (PD task panels), FIRST, before 213. 2026-10-23 09:47 the reporter: "why there is any need to refresh list? the grouping only takes effect fillet setting change, there is no need to do physcial grouping" -- the note-taker CHECKED: Part::PropertyFilletSegments::setGroup changes only the joining edge's own entry (its group id, and its points copied from a member of the new group, reversed if their directions differ); no other row changes and the list is never ordered by group; so NO list rebuild -- only that edge's row updated in place (Group text and icon, tip, its point rows) and the handles; passed on to fcad-dc as the fix. 2026-10-23 09:50 FIX WRITTEN by fcad-dc (uncommitted, r205 building 09:49): setEdgeGroup (fillet AND chamfer -- the chamfer had the same crash path) no longer calls refresh(), the joining edge's own row changed in place (fillet refreshEdgeRow(), chamfer setItem()), then sortRows (a no-op unless the reporter sorted the list by a column title -- the note-taker read it), setGizmoPositions, recompute; the typed Group cell applies the group from a QUEUED call after Qt's commit returns, and skips a group the edge already has; also the fillet refresh()'s extra point rows never removed (while (j > childCount)), right way round in refreshEdgeRow; new tests/gui/dressup-typed-group-keeps-row.py (no row deleted, each edge's group, one undo step each; on unfixed r204 every typed group reset the list; r204 also gave 'Edge2 typed 2 -> group 1' and two missing undo steps, to see if they go); the scanner-copy run (PrismLocker Edge12 3 -> 1) after the build. 2026-10-23 10:30 DONE by fcad-dc `4fd954f833`, local, NOT pushed, NOT staged: setEdgeGroup (fillet and chamfer) changes the joining edge's row in place, no refresh(); the typed cell applies the group after Qt's commit returns; a SECOND bug the test found, both panels: the Group delegate wrote the cell's text before its number, and the text change made the view reload the open editor from the old number -- the old group written back (typed 2 on a default edge took 1; the reporter's 3 -> 1 would have stayed 3); the number first now; a scanner COPY after the migration recompute, PrismLocker's Fillet004, Edge12 3 -> 1 and Enter: group 1, the list not rebuilt, no crash; dressup-typed-group-keeps-row.py 28/28, fillet-groups-and-preview-menu.py 19/19; a chamfer undo finding made entry 215 |
 | 215 | 2026-10-23 | a defect found by fcad-dc (on 214), made an entry by the note-taker coordinating: on a CHAMFER, an edge JOINING a GROUP shares the UNDO STEP of the change before it (Edge1 typed 1, then Edge2 typed 1: UndoCount stays 1, one undo takes both back); the fillet gives each its own step; older than 214 (the unfixed r204 did the same) | OPEN; 2026-10-23 10:30; ASSIGNED to fcad-dc (PD task panels, TaskChamferParameters, the files of its open work), after its panel-width task and 213 |
-| 216 | 2026-10-23 | a defect: a TechDraw PROJECTION GROUP with AUTO DISTRIBUTION on -- changing its X/Y SPACING does NOT APPLY after the commit; the views move only after Auto Distribution is toggled | OPEN; said to the note-taker 2026-10-23 11:02; ASSIGNED to x16win (TechDraw, its area; idle) |
+| 216 | 2026-10-23 | a defect: a TechDraw PROJECTION GROUP with AUTO DISTRIBUTION on -- changing its X/Y SPACING does NOT APPLY after the commit; the views move only after Auto Distribution is toggled | OPEN; said to the note-taker 2026-10-23 11:02; ASSIGNED to x16win (TechDraw, its area; idle). 2026-10-23 11:05 ACCEPTED by x16win, diagnosing; its build tree is in use by an Assembly agent on its box (branch AssemblyPort), so the repro and the test wait for it; the fix to be committed on LinkVibe and cherry-picked into AssemblyPort (agreed by the note-taker coordinating), no push without the reporter's word; its lead from a read: `0fbe1d250c` (2026-08-13) stopped the items placing themselves in postHlrTasks, so positions come only from DPG::execute after reportReady, and `cbe029d5b5` (a restored page reuses stored geometry) may leave a spacing-only change with no HLR run and so no reportReady; to be confirmed by reproduction |
+| 217 | 2026-10-23 | a defect and a change request: (a) a TechDraw DIMENSION (or other TechDraw object) SELECTED IN THE TREE does NOT SWITCH to its PAGE VIEW even with Std_TreeSyncView ON; (b) a DOUBLE CLICK to EDIT a TechDraw object SWITCHES to ITS OWN PAGE VIEW REGARDLESS of Std_TreeSyncView | OPEN; said to the note-taker 2026-10-23 11:05; ASSIGNED to x16win (TechDraw Gui), after 216 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -29685,6 +29691,55 @@ ASSIGNED to x16win (TechDraw, its area; idle): reproduce (the task panel
 and the property view), fix, a test that changes the spacing with Auto
 Distribution on and claims the views' places follow without a toggle.
 
+**2026-10-23 11:05, x16win: 216 accepted, diagnosing.** Its constraint: on its box
+the checkout is on branch AssemblyPort, and an Assembly agent is building
+and running FreeCAD in its one build tree, so it reads and patches now
+and builds, reproduces and tests only when that agent is done. Its plan:
+commit on LinkVibe (the regression candidate `0fbe1d250c`, 2026-08-13,
+is on LinkVibe and every branch since), carry it into AssemblyPort by
+cherry-pick, no push without the reporter's word -- AGREED by the
+note-taker coordinating (LinkVibe is the working branch). Its lead from
+a read: "0fbe1d250c stopped the items positioning themselves in
+postHlrTasks. Positioning now happens only when DPG::execute runs after
+reportReady. cbe029d5b5 (a restored page reuses stored geometry) may
+leave a spacing-only change with no HLR run at all, and then no
+reportReady." To be confirmed by reproduction.
+
+## 217. Tree selection of a TechDraw object does not switch to its page (Std_TreeSyncView on); a double-click edit switches to its page always (a defect and a change request) -- OPEN
+
+**2026-10-23 11:05, the reporter (to the note-taker):** "new defect. when techdraw
+dimension (or other object) is selected in the tree, it does not switch
+to that page view even when Std_TreeSyncView is enabled. a related
+request, when double click to edit techdraw object, switch to its own
+page view regardless of Std_TreeSyncView"
+The note-taker's reading: (a) a defect -- with Std_TreeSyncView on, a
+tree click on a dimension (and any TechDraw object: a view, a balloon,
+an annotation, a hatch ...) should bring the page view that shows it to
+the front, as a 3D object brings its 3D view; it does not. (b) a change
+request -- a double click that starts the edit of a TechDraw object
+brings its own page view to the front whether Std_TreeSyncView is on or
+off. NOT said: an object on several pages (DrawView::findAllParentPages;
+read as: the page view already active if it shows the object, else the
+first); a page whose view is closed (read as: (a) switches only to an
+open page view, (b) may open it, as the edit needs it -- to be shown to
+the reporter); which stage (read as stage28); whether (a) ever worked.
+A lead from a read, not a diagnosis: the tree's sync
+(TreeWidgetP::syncView, Tree.cpp 667-685) calls
+Gui::Document::setActiveView(vp) (Document.cpp 5722), which takes
+vp->getMDIView() first; ViewProviderDrawingView::getMDIView
+(ViewProviderDrawingView.cpp 366) returns the page's MDIViewPage
+through findParentPage(), so the path looks meant to work -- where it
+stops (no first sync item for the click, a dimension's view provider,
+the page lookup, or MainWindow::setActiveWindow, cf. 132's
+dropActiveWindow) is for the assignee to find.
+COORDINATION: ASSIGNED to x16win (TechDraw Gui, its area; (b) is a
+TechDraw view provider's edit), after 216; it may read now while its
+build tree is busy. If (a)'s cause is in Tree.cpp (fcad-dc's area), the
+change is still x16win's, told to fcad-dc first (no file of fcad-dc's
+open work there). A test: Std_TreeSyncView on, two page views and a 3D
+view open, a tree click on a dimension of the page behind brings that
+page to the front; a double click with sync off does too.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -29696,5 +29751,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 216
+the build session, 131 and 132 found by it; entries 134 to 217
 are of 2026-10-15, 134 said to the build session)

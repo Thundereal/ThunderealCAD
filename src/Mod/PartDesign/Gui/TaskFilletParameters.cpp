@@ -754,7 +754,7 @@ void TaskFilletParameters::setEdgePointPosition(const std::string& edge, int poi
     else {
         segment.param = fraction;
     }
-    setupTransaction();
+    setupTransaction(tr("%1 point %2 moved").arg(QString::fromStdString(edge)).arg(point + 1));
     fillet->Segments.setValue(edge, std::move(segments));
     refresh();
     recompute();
@@ -773,7 +773,9 @@ void TaskFilletParameters::setEdgePointRadius(const std::string& edge, int point
         return;
     }
     segments[point].radius = radius;
-    setupTransaction();
+    setupTransaction(segments.size() > 1
+        ? tr("%1 point %2 radius").arg(QString::fromStdString(edge)).arg(point + 1)
+        : tr("%1 radius").arg(QString::fromStdString(edge)));
     fillet->Segments.setValue(edge, std::move(segments));
     refresh();
     recompute();
@@ -939,7 +941,10 @@ void TaskFilletParameters::setEdgeMode(const std::string& edge, int mode, double
     if (!fillet || edgeMode(fillet->Segments.getValue(edge)) == mode) {
         return;
     }
-    setupTransaction();
+    const QString modes[] = {tr("default radius"), tr("one radius"), tr("two radii"),
+                             tr("varying radius")};
+    setupTransaction(tr("%1 to %2").arg(QString::fromStdString(edge),
+                                        modes[std::clamp(mode, 0, 3)]));
     switch (mode) {
         case 0:
             fillet->Segments.removeValue(edge);
@@ -995,7 +1000,8 @@ void TaskFilletParameters::setEdgeGroup(const std::string& edge, int group)
     if (!own && group <= 0) {
         return;
     }
-    setupTransaction();
+    setupTransaction(group > 0 ? tr("%1 to group %2").arg(QString::fromStdString(edge)).arg(group)
+                               : tr("%1 to a new group").arg(QString::fromStdString(edge)));
     // An edge on the default radius takes it as a point of its own first,
     // which changes nothing of the fillet; then it joins the group, its
     // points taken from there, or starts the group if none has that id
@@ -1093,7 +1099,7 @@ void TaskFilletParameters::setEdgeReversed(const std::string& edge, bool reverse
     if (!fillet || fillet->Segments.isReversed(edge) == reversed) {
         return;
     }
-    setupTransaction();
+    setupTransaction(tr("%1 reversed").arg(QString::fromStdString(edge)));
     fillet->Segments.setReversed(edge, reversed);
     refresh();
     recompute();
@@ -1118,7 +1124,7 @@ void TaskFilletParameters::removeEdge(const std::string& edge)
         return;
     }
     // The panel's own removal, of this row alone
-    setupTransaction();
+    setupTransaction(tr("remove %1").arg(QString::fromStdString(edge)));
     fillet->Segments.removeValue(edge);
     ui->treeWidgetReferences->clearSelection();
     item->setSelected(true);
@@ -1150,7 +1156,8 @@ void TaskFilletParameters::setupGizmos(ViewProviderDressUp* vp)
                 if (!DressUpView || target.vertex.empty())
                     return;
                 auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
-                setupTransaction();
+                setupTransaction(tr("%1 setback at %2").arg(QString::fromStdString(target.vertex),
+                                                            QString::fromStdString(target.edge)));
                 pcFillet->Corners.setValue(target.vertex, target.edge, value);
                 recompute();
             });
@@ -1173,7 +1180,8 @@ void TaskFilletParameters::setupGizmos(ViewProviderDressUp* vp)
                 if (!DressUpView || target.vertex.empty() || value <= 0.0)
                     return;
                 auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
-                setupTransaction();
+                setupTransaction(tr("%1 depth in %2").arg(QString::fromStdString(target.vertex),
+                                                          QString::fromStdString(target.edge)));
                 pcFillet->Corners.setValue(target.vertex, target.edge, value);
                 recompute();
             });
@@ -1607,12 +1615,12 @@ void TaskFilletParameters::updateSegments(QTreeWidgetItem *item)
     auto DressUpView = getDressUpView();
     if(!DressUpView)
         return;
-    setupTransaction();
-    PartDesign::Fillet* pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
-    Part::PropertyFilletSegments::Segments segments;
     auto parent = item->parent();
     if (!parent)
         parent = item;
+    setupTransaction(tr("%1 radii").arg(QString::fromLatin1(getGeometryItemText(parent))));
+    PartDesign::Fillet* pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
+    Part::PropertyFilletSegments::Segments segments;
     for (int i=0; i<parent->childCount(); ++i) {
         auto child = parent->child(i);
         segments.emplace_back(child->data(2, Qt::UserRole).toDouble(),
@@ -1639,7 +1647,12 @@ void TaskFilletParameters::clearSegments()
             item = parent;
         items.insert(item);
     }
-    setupTransaction();
+    QStringList cleared;
+    for (auto item : items)
+        cleared << QString::fromLatin1(getGeometryItemText(item));
+    for (auto item : corners)
+        cleared << QString::fromLatin1(getGeometryItemText(getCornerItem(item)));
+    setupTransaction(tr("clear %1").arg(cleared.join(QStringLiteral(", "))));
     clearCornerEdges(corners);
     PartDesign::Fillet* pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
     for (auto item : items) {
@@ -1655,7 +1668,17 @@ void TaskFilletParameters::removeSegments()
     auto DressUpView = getDressUpView();
     if(!DressUpView)
         return;
-    setupTransaction();
+    // the rows removed, or the points of an edge
+    QStringList rows;
+    QStringList points;
+    for (auto item : ui->treeWidgetReferences->selectedItems()) {
+        const QString name = QString::fromLatin1(getGeometryItemText(item->parent() ? item->parent() : item));
+        QStringList& list = item->parent() ? points : rows;
+        if (!list.contains(name))
+            list << name;
+    }
+    setupTransaction(!rows.isEmpty() ? tr("remove %1").arg(rows.join(QStringLiteral(", ")))
+                                     : tr("remove points of %1").arg(points.join(QStringLiteral(", "))));
     PartDesign::Fillet* pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
     std::vector<QTreeWidgetItem*> cornerEdges;
     for (auto item : ui->treeWidgetReferences->selectedItems()) {
@@ -1752,7 +1775,7 @@ void TaskFilletParameters::onCheckBoxUseAllEdgesToggled(bool checked)
     ui->buttonRefAdd->setEnabled(!checked);
     ui->treeWidgetReferences->setEnabled(!checked);
     try {
-        setupTransaction();
+        setupTransaction(checked ? tr("use all edges") : tr("use the listed edges"));
         auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
         pcFillet->UseAllEdges.setValue(checked);
         recompute();
@@ -1780,7 +1803,9 @@ void TaskFilletParameters::onLengthChanged(double len)
     // time, found with entry 215)
     if (pcFillet->Radius.getValue() == len)
         return;
-    setupTransaction();
+    // no value in the name: the box holds one step while it has the focus,
+    // through every value typed in it
+    setupTransaction(tr("default radius"));
     pcFillet->Radius.setValue(len);
     recompute();
 }
@@ -1796,7 +1821,7 @@ void TaskFilletParameters::onNewItem(QTreeWidgetItem *item)
     std::string vertex = getGeometryItemText(item).constData();
     if (pcFillet->Corners.getValue(vertex))
         return;
-    setupTransaction();
+    setupTransaction(tr("add corner %1").arg(QString::fromStdString(vertex)));
     pcFillet->Corners.setValue(vertex, getRadius());
     // A corner's row is not Base's, so the reference sync that called here
     // finds nothing changed and does not recompute
@@ -1864,7 +1889,10 @@ void TaskFilletParameters::syncOtherItems()
     }
     if (gone.empty())
         return;
-    setupTransaction();
+    QStringList names;
+    for (const auto &vertex : gone)
+        names << QString::fromStdString(vertex);
+    setupTransaction(tr("remove corner %1").arg(names.join(QStringLiteral(", "))));
     for (const auto &vertex : gone)
         pcFillet->Corners.removeValue(vertex);
     recompute();
@@ -2035,7 +2063,9 @@ void TaskFilletParameters::updateCorner(QTreeWidgetItem *item)
     auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
     std::string vertex = getGeometryItemText(corner).constData();
     double value = item->data(SetbackColumn, Qt::UserRole).toDouble();
-    setupTransaction();
+    setupTransaction(item == corner
+        ? tr("%1 setback").arg(QString::fromStdString(vertex))
+        : tr("%1 setback at %2").arg(QString::fromStdString(vertex), item->text(0)));
     std::string name = item->text(0).toStdString();
     if (item == corner)
         pcFillet->Corners.setValue(vertex, value);

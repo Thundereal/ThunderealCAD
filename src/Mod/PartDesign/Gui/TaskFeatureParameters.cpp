@@ -422,7 +422,7 @@ void TaskFeatureParameters::onUpdateViewTimer()
     recomputeFeature(false);
 }
 
-void TaskFeatureParameters::setupTransaction()
+void TaskFeatureParameters::setupTransaction(const QString& what)
 {
     if (!vp || !vp->getObject())
         return;
@@ -439,9 +439,16 @@ void TaskFeatureParameters::setupTransaction()
 
     if (fineUndo) {
         // A step of its own for what this event changes (entry 136), unless
-        // one is open already -- this event's, or a held one's
+        // one is open already -- this event's, or a held one's. Named for
+        // what it does, where the caller says (entry 228).
         if (!tid || tid != stepTid) {
-            stepTid = App::GetApplication().setActiveTransaction(n.c_str());
+            std::string step = n;
+            if (!what.isEmpty()) {
+                step = obj->Label.getValue();
+                step += ": ";
+                step += what.toUtf8().constData();
+            }
+            stepTid = App::GetApplication().setActiveTransaction(step.c_str());
             if (!transactionID)
                 transactionID = stepTid;
             if (!firstStepTid)
@@ -584,8 +591,10 @@ void TaskFeatureParameters::beginAcceptStep()
     App::GetApplication().getActiveTransaction(&tid);
     if (tid && tid == stepTid)
         App::GetApplication().closeActiveTransaction(false, tid);
-    std::string n("Edit ");
-    n += vp->getObject()->getNameInDocument();
+    // what it is, as each step says (entry 228)
+    std::string n = vp->getObject()->Label.getValue();
+    n += ": ";
+    n += tr("OK, recompute").toUtf8().constData();
     stepTid = App::GetApplication().setActiveTransaction(n.c_str());
     if (!transactionID)
         transactionID = stepTid;

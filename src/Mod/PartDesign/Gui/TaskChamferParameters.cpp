@@ -922,7 +922,10 @@ void TaskChamferParameters::setEdgeMode(const std::string& edge, Mode mode)
     }
     // From what the edge has now, own or default
     const Part::TopoShape::ChamferInfo current = edgeInfo(edge);
-    setupTransaction();
+    const QString modes[] = {tr("default size"), tr("one size"), tr("two sizes"),
+                             tr("size and angle")};
+    setupTransaction(tr("%1 to %2").arg(QString::fromStdString(edge),
+                                        modes[std::clamp(int(mode), 0, 3)]));
     if (mode == DefaultMode) {
         chamfer->ChamferInfo.removeValue(edge);
     }
@@ -961,7 +964,9 @@ void TaskChamferParameters::setEdgeValue(const std::string& edge, Field field, d
         return;
     }
     target = value;
-    setupTransaction();
+    const QString what = field == AngleField ? tr("angle")
+                         : field == Size2Field ? tr("second size") : tr("size");
+    setupTransaction(tr("%1 %2").arg(QString::fromStdString(edge), what));
     chamfer->ChamferInfo.setValue(edge, info);
     refresh();
     recompute();
@@ -973,7 +978,7 @@ void TaskChamferParameters::setEdgeFlip(const std::string& edge, bool flip)
     if (!chamfer || edgeInfo(edge).flip == flip) {
         return;
     }
-    setupTransaction();
+    setupTransaction(tr("%1 flipped").arg(QString::fromStdString(edge)));
     Part::TopoShape::ChamferInfo info;
     if (chamfer->ChamferInfo.getValue(edge, info)) {
         // its own: not mirrored to its group
@@ -1019,7 +1024,8 @@ void TaskChamferParameters::setEdgeGroup(const std::string& edge, int group)
     if (!own && group <= 0) {
         return;
     }
-    setupTransaction();
+    setupTransaction(group > 0 ? tr("%1 to group %2").arg(QString::fromStdString(edge)).arg(group)
+                               : tr("%1 to a new group").arg(QString::fromStdString(edge)));
     // An edge on the defaults takes them as values of its own first, which
     // changes nothing of the chamfer; then it joins the group, its values
     // taken from there, or starts the group if none has that id
@@ -1154,7 +1160,7 @@ void TaskChamferParameters::removeEdge(const std::string& edge)
         return;
     }
     // The panel's own removal, of this row alone
-    setupTransaction();
+    setupTransaction(tr("remove %1").arg(QString::fromStdString(edge)));
     chamfer->ChamferInfo.removeValue(edge);
     ui->treeWidgetReferences->clearSelection();
     item->setSelected(true);
@@ -1308,6 +1314,8 @@ void TaskChamferParameters::onCheckBoxUseAllEdgesToggled(bool checked)
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
     ui->buttonRefAdd->setEnabled(!checked);
     ui->treeWidgetReferences->setEnabled(!checked);
+    // a step of its own, as every change (it opened none)
+    setupTransaction(checked ? tr("use all edges") : tr("use the listed edges"));
     pcChamfer->UseAllEdges.setValue(checked);
     pcChamfer->getDocument()->recomputeFeature(pcChamfer);
 }
@@ -1373,7 +1381,7 @@ void TaskChamferParameters::updateItem(QTreeWidgetItem *item)
     auto DressUpView = getDressUpView();
     if(!DressUpView)
         return;
-    setupTransaction();
+    setupTransaction(tr("%1 values").arg(QString::fromLatin1(getGeometryItemText(item))));
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
     if (item->data(1, Qt::UserRole).isValid()) {
         Part::TopoShape::ChamferInfo info;
@@ -1393,11 +1401,17 @@ void TaskChamferParameters::clearItems()
     auto DressUpView = getDressUpView();
     if(!DressUpView)
         return;
-    setupTransaction();
     auto items = ui->treeWidgetReferences->selectedItems();
     if (items.isEmpty()) {
+        setupTransaction(tr("clear every edge's values"));
         for (int i=0; i<ui->treeWidgetReferences->topLevelItemCount(); ++i)
             items.append(ui->treeWidgetReferences->topLevelItem(i));
+    }
+    else {
+        QStringList names;
+        for (auto item : items)
+            names << QString::fromLatin1(getGeometryItemText(item));
+        setupTransaction(tr("clear %1").arg(names.join(QStringLiteral(", "))));
     }
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
     // The selected rows, or every row with none selected: it went over the
@@ -1473,6 +1487,9 @@ void TaskChamferParameters::onTypeChanged(int index)
     if (!DressUpView)
         return;
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
+    // a step of its own, as every change (it opened none)
+    if (pcChamfer->ChamferType.getValue() != index)
+        setupTransaction(tr("type %1").arg(ui->chamferType->itemText(index)));
     pcChamfer->ChamferType.setValue(index);
     ui->stackedWidget->setCurrentIndex(index);
     ui->flipDirection->setEnabled(index != 0); // Enable if type is not "Equal distance"
@@ -1491,7 +1508,7 @@ void TaskChamferParameters::onSizeChanged(double len)
     // time, entry 215)
     if (pcChamfer->Size.getValue() == len)
         return;
-    setupTransaction();
+    setupTransaction(tr("default size"));
     pcChamfer->Size.setValue(len);
     recompute();
 }
@@ -1504,7 +1521,7 @@ void TaskChamferParameters::onSize2Changed(double len)
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
     if (pcChamfer->Size2.getValue() == len)
         return;
-    setupTransaction();
+    setupTransaction(tr("default second size"));
     pcChamfer->Size2.setValue(len);
     pcChamfer->getDocument()->recomputeFeature(pcChamfer);
 }
@@ -1517,7 +1534,7 @@ void TaskChamferParameters::onAngleChanged(double angle)
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
     if (pcChamfer->Angle.getValue() == angle)
         return;
-    setupTransaction();
+    setupTransaction(tr("default angle"));
     pcChamfer->Angle.setValue(angle);
     pcChamfer->getDocument()->recomputeFeature(pcChamfer);
 }
@@ -1528,7 +1545,7 @@ void TaskChamferParameters::onFlipDirection(bool flip)
     if (!DressUpView)
         return;
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
-    setupTransaction();
+    setupTransaction(tr("default flip"));
     pcChamfer->FlipDirection.setValue(flip);
     pcChamfer->getDocument()->recomputeFeature(pcChamfer);
 }

@@ -464,7 +464,7 @@ void TaskDressUpParameters::addAllEdges()
     if (subValues.size() == len)
         return;
     try {
-        setupTransaction();
+        setupTransaction(tr("add all edges"));
         pcDressUp->Base.setValue(base, subValues);
         recompute();
         populate(true);
@@ -805,7 +805,8 @@ bool TaskDressUpParameters::replaceMissing(const std::string &picked)
     }
 
     try {
-        setupTransaction();
+        setupTransaction(tr("%1 in place of %2").arg(QString::fromStdString(element),
+                                                     QString::fromStdString(old)));
         // what the values are kept under follows the reference, as when the
         // element map renames it
         pcDressUp->Base.signalUpdateElementReference(old, element);
@@ -1151,11 +1152,28 @@ bool TaskDressUpParameters::syncItems(const std::vector<App::SubObjectT> &sels) 
     }
 
     syncOtherItems();
-    if(subs == pcDressUp->Base.getSubValues())
+    const auto before = pcDressUp->Base.getSubValues();
+    if(subs == before)
         return false;
 
     try {
-        setupTransaction();
+        // what was added, what removed
+        QStringList added;
+        QStringList removed;
+        for (const auto& s : subs) {
+            if (std::find(before.begin(), before.end(), s) == before.end())
+                added << QString::fromStdString(s);
+        }
+        for (const auto& s : before) {
+            if (std::find(subs.begin(), subs.end(), s) == subs.end())
+                removed << QString::fromStdString(s);
+        }
+        QStringList what;
+        if (!added.isEmpty())
+            what << tr("add %1").arg(added.join(QStringLiteral(", ")));
+        if (!removed.isEmpty())
+            what << tr("remove %1").arg(removed.join(QStringLiteral(", ")));
+        setupTransaction(what.join(QStringLiteral("; ")));
         pcDressUp->Base.setValue(base, subs);
         recompute();
     } catch (Base::Exception &e) {
@@ -1330,7 +1348,7 @@ void TaskDressUpParameters::addGroupColorActions(QMenu& menu, int group)
     automatic->setEnabled(pickedGroupColor(group).has_value());
     connect(automatic, &QAction::triggered, this, [this, group]() {
         QTimer::singleShot(0, this, [this, group]() {
-            setupTransaction();
+            setupTransaction(tr("group %1 colour automatic").arg(group));
             setGroupColor(group, std::nullopt);
         });
     });
@@ -1343,7 +1361,7 @@ void TaskDressUpParameters::pickGroupColor(int group)
                                           Gui::getMainWindow(),
                                           tr("The colour of group %1").arg(group));
     if (color.isValid()) {
-        setupTransaction();
+        setupTransaction(tr("group %1 colour").arg(group));
         setGroupColor(group, color);
     }
 }
@@ -1380,7 +1398,7 @@ void TaskDressUpParameters::createGroupColorActions(QTreeWidget* parentList)
         if (QTreeWidgetItem* item = parentList->currentItem()) {
             const int group = itemGroup(item);
             if (group > 0) {
-                setupTransaction();
+                setupTransaction(tr("group %1 colour automatic").arg(group));
                 setGroupColor(group, std::nullopt);
             }
         }

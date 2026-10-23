@@ -86,6 +86,8 @@ SET(Assembly_SRCS
     AssemblyUtils.h
     BomObject.cpp
     BomObject.h
+    ElementGeometry.cpp
+    ElementGeometry.h
     Groups.cpp
     Groups.h
     ${Module_SRCS}

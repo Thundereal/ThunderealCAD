@@ -25,6 +25,9 @@
 #include <iterator>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <Geom_Circle.hxx>
+#include <Geom_CylindricalSurface.hxx>
+#include <Geom_SphericalSurface.hxx>
 #include <BRepAdaptor_Surface.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Face.hxx>
@@ -50,6 +53,7 @@
 #include <Mod/PartDesign/App/Body.h>
 
 #include "AssemblyUtils.h"
+#include "ElementGeometry.h"
 #include "AssemblyObject.h"
 #include "AssemblyLink.h"
 
@@ -118,71 +122,39 @@ void swapJCS(const App::DocumentObject* joint)
     }
 }
 
+// Not upstream (docs/AssemblySolverInterface.md sec 6.11): the element's
+// type as ElementGeometry recognises it, so a B-spline that is a circle or a
+// cylinder within the tolerance counts as one. An analytic element reads as
+// before.
 bool isEdgeType(const App::DocumentObject* obj, const std::string& elName, const GeomAbs_CurveType type)
 {
-    auto* base = dynamic_cast<const PartApp::Feature*>(obj);
-    if (!base) {
-        return false;
-    }
-
-    const auto& TopShape = base->Shape.getShape();
-
-    // Check for valid face types
-    const auto edge = TopoDS::Edge(TopShape.getSubShape(elName.c_str()));
-    BRepAdaptor_Curve sf(edge);
-
-    return sf.GetType() == type;
+    return analyzeEdge(obj, elName).type == type;
 }
 
 bool isFaceType(const App::DocumentObject* obj, const std::string& elName, const GeomAbs_SurfaceType type)
 {
-    auto* base = dynamic_cast<const PartApp::Feature*>(obj);
-    if (!base) {
-        return false;
-    }
-
-    const auto TopShape = base->Shape.getShape();
-
-    // Check for valid face types
-    const auto face = TopoDS::Face(TopShape.getSubShape(elName.c_str()));
-    BRepAdaptor_Surface sf(face);
-
-    return sf.GetType() == type;
+    return analyzeFace(obj, elName).type == type;
 }
 
 double getFaceRadius(const App::DocumentObject* obj, const std::string& elt)
 {
-    auto* base = dynamic_cast<const PartApp::Feature*>(obj);
-    if (!base) {
-        return 0.0;
+    const auto face = analyzeFace(obj, elt);
+    if (auto cyl = Handle(Geom_CylindricalSurface)::DownCast(face.surface)) {
+        return cyl->Radius();
     }
-
-    const PartApp::TopoShape& TopShape = base->Shape.getShape();
-
-    // Check for valid face types
-    TopoDS_Face face = TopoDS::Face(TopShape.getSubShape(elt.c_str()));
-    BRepAdaptor_Surface sf(face);
-
-    const auto type = sf.GetType();
-    return type == GeomAbs_Cylinder ? sf.Cylinder().Radius()
-        : type == GeomAbs_Sphere    ? sf.Sphere().Radius()
-                                    : 0.0;
+    if (auto sphere = Handle(Geom_SphericalSurface)::DownCast(face.surface)) {
+        return sphere->Radius();
+    }
+    return 0.0;
 }
 
 double getEdgeRadius(const App::DocumentObject* obj, const std::string& elt)
 {
-    auto* base = dynamic_cast<const PartApp::Feature*>(obj);
-    if (!base) {
-        return 0.0;
+    const auto edge = analyzeEdge(obj, elt);
+    if (auto circle = Handle(Geom_Circle)::DownCast(edge.curve)) {
+        return circle->Radius();
     }
-
-    const auto& TopShape = base->Shape.getShape();
-
-    // Check for valid face types
-    const auto edge = TopoDS::Edge(TopShape.getSubShape(elt.c_str()));
-    BRepAdaptor_Curve sf(edge);
-
-    return sf.GetType() == GeomAbs_Circle ? sf.Circle().Radius() : 0.0;
+    return 0.0;
 }
 
 DistanceType getDistanceType(App::DocumentObject* joint, bool* swapped)

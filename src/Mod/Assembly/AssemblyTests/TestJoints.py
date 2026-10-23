@@ -538,6 +538,161 @@ class TestDistanceMapped(JointTestBase):
         self.assertClose(pi.inverse().multVec(pj.Base).z, self.D)
 
 
+def freeform(assembly, name="Free", placement=None):
+    """A part whose one face is a B-spline surface no canonical form fits."""
+    grid = [
+        [App.Vector(i * 4.0, j * 4.0, ((i * 7 + j * 3) % 5) * 0.9) for j in range(4)]
+        for i in range(4)
+    ]
+    surf = Part.BSplineSurface()
+    surf.interpolate(grid)
+    obj = assembly.newObject("Part::Feature", name)
+    obj.Shape = surf.toShape()
+    obj.Placement = placement or plc(7, -23, 41, App.Vector(1, 2, 3), 25)
+    return {"free": obj}
+
+
+def nurbs_copy(assembly, name, shape, placement):
+    """A part whose shape is shape with every face and edge made a B-spline (as from STEP)."""
+    obj = assembly.newObject("Part::Feature", name)
+    obj.Shape = shape.toNurbs()
+    obj.Placement = placement
+    return obj
+
+
+def surface_of(obj, face):
+    return obj.Shape.getElement(face).Surface
+
+
+def circle_of(obj, edge):
+    return obj.Shape.getElement(edge).Curve
+
+
+class TestElementRecognition(JointTestBase):
+    """Sec 6.11: a B-spline that is a circle, a cylinder, ... is classified and framed as one.
+
+    The same parts as analytic shapes and as B-spline copies (Shape.toNurbs(),
+    what a STEP file often holds) give the same classification, the same JCS
+    (to the recognition's fit, about 1e-8) and the same solve.
+    """
+
+    D = 3.0
+    R = 4.0
+    START = plc(7, -23, 41, App.Vector(1, 2, 3), 25)
+
+    def pair(self):
+        """A grounded analytic cylinder, a moving analytic one and a moving B-spline copy."""
+        cyl = Part.makeCylinder(self.R, 10.0)
+        g = self.assembly.newObject("Part::Feature", "CylG")
+        g.Shape = cyl
+        g.Placement = plc(40, 0, 0)
+        self.ground(g)
+        exact = self.assembly.newObject("Part::Feature", "Exact")
+        exact.Shape = cyl
+        exact.Placement = self.START
+        spline = nurbs_copy(self.assembly, "Spline", cyl, self.START)
+        self.doc.recompute()
+        return g, exact, spline
+
+    def test_analysis(self):
+        import AssemblyApp
+
+        cyl = Part.makeCylinder(self.R, 10.0)
+        nurbs = cyl.toNurbs()
+        self.assertEqual(nurbs.Face1.Surface.TypeId, "Part::GeomBSplineSurface")
+        self.assertEqual(nurbs.Edge1.Curve.TypeId, "Part::GeomBSplineCurve")
+        info = AssemblyApp.analyzeElement(nurbs.Face1)
+        self.assertEqual(info["Type"], "Cylinder")
+        self.assertTrue(info["Recognized"])
+        self.assertLessEqual(info["Gap"], info["Tolerance"])
+        # The tolerance: 1e-6 of the bounding-box diagonal.
+        ratio = info["Tolerance"] / (1e-6 * nurbs.Face1.BoundBox.DiagonalLength)
+        self.assertTrue(0.5 < ratio < 2.0, ratio)
+        circle = AssemblyApp.getElementGeometry(nurbs.Edge1)  # a circle (Edge2 is the seam)
+        self.assertEqual(circle.TypeId, "Part::GeomCircle")
+        self.assertClose(circle.Radius, self.R)
+        self.assertVecClose(circle.Center, cyl.Edge1.Curve.Center)
+        # An analytic element is taken as it is.
+        info = AssemblyApp.analyzeElement(cyl.Face1)
+        self.assertEqual((info["Type"], info["Recognized"]), ("Cylinder", False))
+        # A cone, a sphere, a torus, a plane and a line.
+        for shape, kind in (
+            (Part.makeCone(5, 2, 8).Face1, "Cone"),
+            (Part.makeSphere(5).Face1, "Sphere"),
+            (Part.makeTorus(8, 2).Face1, "Torus"),
+            (Part.makeBox(10, 10, 10).Face6, "Plane"),
+            (Part.makeBox(10, 10, 10).Edge1, "Line"),
+        ):
+            nurbs = shape.toNurbs()
+            element = nurbs.Edges[0] if kind == "Line" else nurbs.Faces[0]
+            info = AssemblyApp.analyzeElement(element)
+            self.assertEqual((info["Type"], info["Recognized"]), (kind, True), kind)
+        # Freeform stays freeform.
+        free = freeform(self.assembly)["free"]
+        self.assertIsNone(AssemblyApp.getElementGeometry(free.Shape.Face1))
+        self.assertEqual(AssemblyApp.analyzeElement(free.Shape.Face1)["Type"], "BSplineSurface")
+
+    def test_cached(self):
+        import AssemblyApp
+
+        nurbs = Part.makeCylinder(self.R, 10.0).toNurbs()
+        AssemblyApp.clearElementGeometryCache()
+        AssemblyApp.analyzeElement(nurbs.Face1)
+        AssemblyApp.getElementGeometry(nurbs.Face1)
+        moved = nurbs.Face1  # a new wrapper of the same TShape
+        moved.Placement = self.START
+        g = AssemblyApp.getElementGeometry(moved)  # the same TShape, moved
+        self.assertEqual(AssemblyApp.getElementGeometryConversions(), 1)
+        self.assertVecClose(g.Axis, self.START.Rotation.multVec(Z))
+
+    def test_same_frames(self):
+        g, exact, spline = self.pair()
+        for element in ("Edge1", "Face1"):
+            pe = UtilsAssembly.findPlacement([exact, [element, element]], True)
+            ps = UtilsAssembly.findPlacement([spline, [element, element]], True)
+            self.assertVecClose(pe.Base, ps.Base, 1e-6, element)
+            self.assertClose(zaxis(pe).dot(zaxis(ps)), 1.0, 1e-9, element)
+
+    def test_same_distance_type_and_solve(self):
+        import AssemblyApp
+
+        results = {}
+        for key in ("exact", "spline"):
+            self.tearDown()
+            self.setUp()
+            g, exact, spline = self.pair()
+            moving = exact if key == "exact" else spline
+            j = TestDistanceJoint.distance_joint(self, (g, "Face1"), (moving, "Face1"), self.D)
+            self.assertEqual(AssemblyApp.getDistanceType(j), "CylinderCylinder", key)
+            self.solve()
+            s_g = surface_of(g, "Face1")
+            s_m = surface_of(exact, "Face1")  # the analytic face where the part went
+            if key == "spline":
+                s_m = AssemblyApp.getElementGeometry(spline.Shape.Face1)
+            self.assertClose(abs(s_g.Axis.dot(s_m.Axis)), 1.0)
+            self.assertClose(dist_to_line(s_m.Center, s_g.Center, s_g.Axis), self.D + 2 * self.R)
+            results[key] = moving.Placement
+        self.assertTrue(results["exact"].isSame(results["spline"], 1e-6), results)
+
+    def test_revolute_on_spline_circle(self):
+        """Every joint type, not only Distance: a revolute on a B-spline circle takes its axis."""
+        g, exact, spline = self.pair()
+        j = self.jointgroup.newObject("App::FeaturePython", "Revolute")
+        JointObject.Joint(j, JointObject.JointTypes.index("Revolute"))
+        j.Proxy.setJointConnectors(j, [[g, ["Edge1", "Edge1"]], [spline, ["Edge3", "Edge3"]]])
+        self.solve()
+        top = circle_of(g, "Edge1")
+        bottom = AssemblyApp_geometry(spline.Shape.Edge3)
+        self.assertVecClose(bottom.Center, top.Center, 1e-6)
+        self.assertClose(abs(bottom.Axis.dot(top.Axis)), 1.0)
+
+
+def AssemblyApp_geometry(shape):
+    import AssemblyApp
+
+    return AssemblyApp.getElementGeometry(shape)
+
+
 class TestSolveStatus(JointTestBase):
     """DoF, redundancy, conflicts and malformed joints, as getSolveStatus() reports them."""
 

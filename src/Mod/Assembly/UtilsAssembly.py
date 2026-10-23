@@ -527,6 +527,33 @@ def extract_type_and_number(element_name):
         return None, None
 
 
+def elementGeometry(element):
+    """The analytic geometry of an edge or a face, else its own Curve / Surface.
+
+    Not upstream (docs/AssemblySolverInterface.md sec 6.11). The C++ side
+    (AssemblyApp.getElementGeometry, App/ElementGeometry.h) decides: an
+    analytic element is taken as it is, a B-spline or another form that is a
+    line, a circle, an ellipse, a plane, a cylinder, a cone, a sphere or a
+    torus within the tolerance is recognised as one. It is the classification
+    the solver builder uses, so the frames here agree with it.
+    """
+    import AssemblyApp
+
+    try:
+        geom = AssemblyApp.getElementGeometry(element)
+    except Exception:
+        geom = None
+    if geom is not None:
+        return geom
+    return element.Curve if element.ShapeType == "Edge" else element.Surface
+
+
+def isOnAxis(point, origin, axis):
+    """Whether point lies on the line through origin along axis (Part.Precision)."""
+    d = point - origin
+    return (d - axis * d.dot(axis)).Length <= Part.Precision.confusion()
+
+
 def findElementClosestVertex(ref, mousePos):
     element_name = getElementName(ref[1][0])
     if element_name == "":
@@ -549,7 +576,7 @@ def findElementClosestVertex(ref, mousePos):
 
     elif elt_type == "Edge":
         edge = obj.Shape.getElement(element_name)
-        curve = edge.Curve
+        curve = elementGeometry(edge)
         if curve.TypeId == "Part::GeomCircle":
             # For centers, as they are not shape vertexes, we return the element name.
             # For now we only allow selecting the center of arcs / circles.
@@ -576,7 +603,7 @@ def findElementClosestVertex(ref, mousePos):
 
     elif elt_type == "Face":
         face = obj.Shape.getElement(element_name)
-        surface = face.Surface
+        surface = elementGeometry(face)
         _type = surface.TypeId
         if _type == "Part::GeomSphere" or _type == "Part::GeomTorus":
             return element_name
@@ -590,6 +617,14 @@ def findElementClosestVertex(ref, mousePos):
             curve = edge.Curve
             if curve.TypeId == "Part::GeomCircle" or curve.TypeId == "Part::GeomEllipse":
                 center_points.append(curve.Location)
+                center_points_edge_indexes.append(i)
+
+            elif (
+                curve.TypeId == "Part::GeomBSplineCurve"
+                and elementGeometry(edge).TypeId == "Part::GeomCircle"
+            ):
+                # Not upstream: a B-spline that is a circle offers its centre.
+                center_points.append(elementGeometry(edge).Location)
                 center_points_edge_indexes.append(i)
 
             elif _type == "Part::GeomCylinder" and curve.TypeId == "Part::GeomBSplineCurve":
@@ -1117,7 +1152,7 @@ def findPlacement(ref, ignoreVertex=False):
         if edge is None:
             return App.Placement()
 
-        curve = edge.Curve
+        curve = elementGeometry(edge)
 
         # First we find the translation
         if vtx_type == "Edge" or ignoreVertex:
@@ -1162,7 +1197,7 @@ def findPlacement(ref, ignoreVertex=False):
         if face is None:
             return App.Placement()
 
-        surface = face.Surface
+        surface = elementGeometry(face)
 
         # First we find the translation
         if vtx_type == "Face" or ignoreVertex:
@@ -1172,6 +1207,16 @@ def findPlacement(ref, ignoreVertex=False):
                 centerPoint = centerPoint + App.Vector().projectToLine(centerOfG, surface.Axis)
                 plc.Base = centerPoint
             elif surface.TypeId == "Part::GeomTorus" or surface.TypeId == "Part::GeomSphere":
+                plc.Base = surface.Center
+            elif surface.TypeId == "Part::GeomToroid" and not isOnAxis(
+                face.CenterOfGravity, surface.Center, surface.Axis
+            ):
+                # Not upstream. A torus is Part::GeomToroid, so the line above never
+                # matches one and a torus falls to its centre of gravity below. That
+                # is on the axis for a torus of revolution through 360 degrees, and
+                # is kept there (bit for bit what it always gave); a part of one (a
+                # fillet's quarter) has it off the axis, and the axis roles of sec
+                # 6.11 (PointTorus, LineTorus, ...) need a frame on the axis.
                 plc.Base = surface.Center
             elif surface.TypeId == "Part::GeomCone":
                 plc.Base = surface.Apex
@@ -1183,13 +1228,14 @@ def findPlacement(ref, ignoreVertex=False):
             if edge is None:
                 return App.Placement()
 
-            curve = edge.Curve
+            curve = elementGeometry(edge)
             if curve.TypeId == "Part::GeomCircle":
                 center_point = curve.Location
                 plc.Base = (center_point.x, center_point.y, center_point.z)
 
             elif (
-                surface.TypeId == "Part::GeomCylinder" and curve.TypeId == "Part::GeomBSplineCurve"
+                surface.TypeId == "Part::GeomCylinder"
+                and edge.Curve.TypeId == "Part::GeomBSplineCurve"
             ):
                 # handle special case of 2 cylinder intersecting.
                 plc.Base = findCylindersIntersection(obj, surface, edge, elt_index)

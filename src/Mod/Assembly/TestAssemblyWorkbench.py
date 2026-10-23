@@ -32,6 +32,7 @@ from AssemblyTests.TestJoints import (
     TestJointTypes,
     TestDistanceJoint,
     TestDistanceMapped,
+    TestElementRecognition,
     TestSolveStatus,
     TestDrag,
     TestLimits,
@@ -60,6 +61,7 @@ True if TestSettings else False
 True if TestJointTypes else False
 True if TestDistanceJoint else False
 True if TestDistanceMapped else False
+True if TestElementRecognition else False
 True if TestSolveStatus else False
 True if TestDrag else False
 True if TestLimits else False

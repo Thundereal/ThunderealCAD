@@ -31,6 +31,7 @@
 #include "BomObject.h"
 #include "Groups.h"
 #include "Solver/OndselBackend.h"
+#include "Solver/ReferenceBackend.h"
 #include "Solver/Registry.h"
 
 
@@ -72,6 +73,8 @@ PyMOD_INIT_FUNC(AssemblyApp)
 
     // The solver backends (docs/AssemblySolverInterface.md sec 4.3).
     Assembly::Solver::Registry::instance().add(std::make_unique<Assembly::Solver::OndselBackend>());
+    // The oracle the others are tested against (sec 6.13).
+    Assembly::Solver::Registry::instance().add(std::make_unique<Assembly::Solver::ReferenceBackend>());
 
     PyMOD_Return(mod);
 }

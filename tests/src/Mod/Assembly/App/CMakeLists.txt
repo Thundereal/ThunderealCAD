@@ -5,4 +5,5 @@ target_sources(
             ${CMAKE_CURRENT_SOURCE_DIR}/FormulaEvaluator.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/SolverRegistry.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/OndselAdapter.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/ReferenceBackend.cpp
 )

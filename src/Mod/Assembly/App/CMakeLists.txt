@@ -70,6 +70,8 @@ SET(Solver_SRCS
     Solver/Model.cpp
     Solver/OndselBackend.cpp
     Solver/OndselBackend.h
+    Solver/ReferenceBackend.cpp
+    Solver/ReferenceBackend.h
     Solver/Registry.cpp
     Solver/Registry.h
 )

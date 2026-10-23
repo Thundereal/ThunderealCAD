@@ -642,6 +642,7 @@ SET(Properties_HPP_SRCS
     PropertyGeo.h
     PropertyElementAppearance.h
     PropertyLinks.h
+    ShadowSub.h
     PropertyPythonObject.h
     PropertyStandard.h
     PropertyUnits.h

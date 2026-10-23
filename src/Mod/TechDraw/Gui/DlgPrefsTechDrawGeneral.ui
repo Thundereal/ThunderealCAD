@@ -884,7 +884,7 @@ for ProjectionGroups</string>
      <property name="maximumSize">
       <size>
        <width>16777215</width>
-       <height>100</height>
+       <height>16777215</height>
       </size>
      </property>
      <property name="title">
@@ -912,6 +912,27 @@ for ProjectionGroups</string>
           </property>
           <property name="prefEntry" stdset="0">
            <cstring>multiSelection</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>Mod/TechDraw/General</cstring>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="0">
+         <widget class="Gui::PrefCheckBox" name="cbHideScrollBars">
+          <property name="toolTip">
+           <string>Hide the vertical and horizontal scroll bars of a page view: at the view's
+edges they look like overlay panels or their handles. The page still pans
+with the mouse, the wheel and the keys. Applies at once to open pages.</string>
+          </property>
+          <property name="text">
+           <string>Hide page view scroll bars</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>HideScrollBars</cstring>
           </property>
           <property name="prefPath" stdset="0">
            <cstring>Mod/TechDraw/General</cstring>

@@ -24,6 +24,8 @@
 
 #include "PreCompiled.h"
 
+#include <Mod/TechDraw/App/TechDrawParams.h>
+
 #include "DlgPrefsTechDrawGeneralImp.h"
 #include "ui_DlgPrefsTechDrawGeneral.h"
 #include "PreferencesGui.h"
@@ -74,6 +76,7 @@ void DlgPrefsTechDrawGeneralImp::saveSettings()
     ui->psb_GridSpacing->onSave();
 
     ui->cbMultiSelection->onSave();
+    ui->cbHideScrollBars->onSave();
 }
 
 void DlgPrefsTechDrawGeneralImp::loadSettings()
@@ -114,6 +117,9 @@ void DlgPrefsTechDrawGeneralImp::loadSettings()
     bool multiSelectionDefault = PreferencesGui::multiSelection();
     ui->cbMultiSelection->setChecked(multiSelectionDefault);
     ui->cbMultiSelection->onRestore();
+
+    ui->cbHideScrollBars->setChecked(TechDraw::TechDrawParams::defaultHideScrollBars());
+    ui->cbHideScrollBars->onRestore();
 }
 
 /**

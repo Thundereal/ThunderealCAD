@@ -205,6 +205,9 @@ public:
             page->resetCachedContent();
             page->viewport()->update();
         }
+        else if (strcmp(Reason, "HideScrollBars") == 0) {
+            page->updateScrollBars();
+        }
         else if (strcmp(Reason, "NavigationStyle") == 0) {
             std::string model =
                 rGrp.GetASCII("NavigationStyle", Gui::ViewParams::defaultNavigationStyle().c_str());
@@ -279,6 +282,7 @@ QGVPage::QGVPage(ViewProviderPage* vpPage, QGSPage* scenePage, QWidget* parent)
     //    setDragMode(ScrollHandDrag);
     setDragMode(QGraphicsView::NoDrag);
     resetCursor();
+    updateScrollBars();
 
     bkgBrush = new QBrush(getBackgroundColor());
 
@@ -1163,6 +1167,19 @@ void QGVPage::focusOutEvent(QFocusEvent* event)
 {
     Q_UNUSED(event);
     m_navStyle->handleFocusOutEvent(event);
+}
+
+void QGVPage::updateScrollBars()
+{
+    // Hidden, at the view's edges they look like overlay panels or their
+    // handles (docs/HandsOnQueue.md entry 221). Only not shown: their ranges
+    // stay, and panning -- the navigation styles', the keys' below -- moves
+    // their values as before.
+    const bool hide = Preferences::getPreferenceGroup("General")->GetBool(
+        "HideScrollBars", TechDraw::TechDrawParams::defaultHideScrollBars());
+    const auto policy = hide ? Qt::ScrollBarAlwaysOff : Qt::ScrollBarAsNeeded;
+    setHorizontalScrollBarPolicy(policy);
+    setVerticalScrollBarPolicy(policy);
 }
 
 void QGVPage::kbPanScroll(int xMove, int yMove)

@@ -98,6 +98,12 @@ Params = [
         title = "Handle Faces",
         doc = "Find the faces of each view, needed for hatching and face colours.\n"
               "Off is faster. Takes effect when a view is recomputed."),
+    ParamBool('HideScrollBars', True, subpath='General',
+        title = "Hide page view scroll bars",
+        doc = "Hide the vertical and horizontal scroll bars of a page view: at the\n"
+              "view's edges they look like overlay panels or their handles. The\n"
+              "page still pans with the mouse, the wheel and the keys. Applies at\n"
+              "once to open pages."),
     ParamInt('KbPan', 1, subpath='General',
         title = "Kb Pan",
         doc = "Direction of horizontal movement of a drawing page with the arrow\n"

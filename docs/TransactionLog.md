@@ -22139,6 +22139,20 @@ changes nothing of ours; its default action can be Keep ours. Cost: small
 version)`), the relink is the existing function. Test: three files, the
 part changed only; the top's branch shows their box length.
 
+Probed (2026-10-23, `~/.cache/lv-merge/probe/g1.py`; the user asked how
+it can be, when a link already notices a change of the file it links by
+its timestamp): `Asm` links `Sub.L`, `Sub.L` links `Part.Box`; theirs
+changed the box to 25 and moved `Asm.S`. Imported: `Part` and `Asm`
+branches, `Sub` none. In the top's branch, `S` is our `Sub.FCStd`, whose
+link is our `Part.FCStd` -- the file, at its head -- and the box reads 10.
+The timestamp does not come into it: our `Part.FCStd` did not change; their
+box is in a branch of its log, which opens as another document
+(`Part.FCStd@Part@`), and only a link rewritten to name that branch reaches
+it -- which the relink row does for the files that got a branch, and
+nothing does for `Sub`. With their `Asm` unchanged too, no file but `Part`
+gets a branch, and there is no top's branch to look at their set from: the
+same fix, carried up, gives the top one.
+
 **G2. A link inside a list is not relinked.** `relinkBranch` changes
 properties that are a `PropertyXLink` (and so `PropertyXLinkSub`); a
 `PropertyXLinkSubList` is not one, and its entries are left pointing at

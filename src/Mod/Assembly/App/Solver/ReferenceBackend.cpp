@@ -212,6 +212,10 @@ public:
                     continue;
                 }
             }
+            if (joint.kind == JointKind::PointOnCurve && !curveOf(joint)) {
+                error = "a point-on-curve joint has no curve";
+                continue;
+            }
             if (jointAngleSlots(joint.kind) > 0) {
                 const FrameState fi = frameState(joint.frameI, start);
                 const FrameState fj = frameState(joint.frameJ, start);
@@ -220,8 +224,14 @@ public:
                 if (carrier) {
                     fk = frameState(joint.frameK, start);
                 }
-                const JointState state =
-                    startState(joint, coaxial[joint.id], fi, fj, carrier ? &fk : nullptr);
+                const JointState state = startState(
+                    joint,
+                    coaxial[joint.id],
+                    fi,
+                    fj,
+                    carrier ? &fk : nullptr,
+                    curveOf(joint)
+                );
                 angles.joint[joint.id] = state.angles;
                 constants[joint.id] = state.constant;
             }
@@ -279,6 +289,16 @@ public:
     std::size_t pinnedCount() const
     {
         return static_cast<std::size_t>(std::count(pinned.begin(), pinned.end(), 1));
+    }
+
+    // A PointOnCurve's curve; null for another kind, or a curve not in the
+    // model.
+    const CurveGeometry* curveOf(const Joint& joint) const
+    {
+        if (joint.kind != JointKind::PointOnCurve || !model || joint.curve >= model->curves.size()) {
+            return nullptr;
+        }
+        return model->curves[joint.curve].geometry.get();
     }
 
     bool valid(Id frame) const
@@ -358,6 +378,22 @@ public:
     void commit(const Angles& measured)
     {
         angles = measured;
+    }
+
+    // Each PointOnCurve's parameter set to the closest point over its whole
+    // curve at these poses: for the checker, which measures a joint at poses
+    // it did not follow the motion to.
+    void seedCurves(const std::vector<Pose>& poses)
+    {
+        for (const auto& joint : model->joints) {
+            const CurveGeometry* curve = curveOf(joint);
+            if (!curve || !valid(joint.frameI) || !valid(joint.frameJ)) {
+                continue;
+            }
+            const Base::Vector3d x =
+                localPoint(frameState(joint.frameI, poses), frameState(joint.frameJ, poses));
+            angles.joint[joint.id][0] = projectOnCurveGlobally(*curve, x).u;
+        }
     }
 
     // A driver's value at 'time'; false when it does not drive (an empty
@@ -483,7 +519,8 @@ private:
             state,
             false,
             scratch,
-            measured.joint[joint.id]
+            measured.joint[joint.id],
+            curveOf(joint)
         );
         append(rows, scratch, Owner::Joint, joint.id);
     }
@@ -691,6 +728,7 @@ std::vector<double> ownerResiduals(
     System system;
     system.pin(model, start, false);
     system.init(model, start);
+    system.seedCurves(poses);
     std::vector<Row> rows;
     System::Angles measured;
     system.evaluate(poses, rows, measured);
@@ -1530,7 +1568,15 @@ Status ReferenceSession::exportNative(const std::string& path)
             << static_cast<int>(j.kind) << ' ';
         id(j.frameI) << ' ';
         id(j.frameJ) << ' ';
-        id(j.frameK) << ' ' << j.value << ' ' << j.value2 << "\n";
+        id(j.frameK) << ' ' << j.value << ' ' << j.value2;
+        if (j.curve != NoId) {
+            out << " curve " << j.curve;
+        }
+        out << "\n";
+    }
+    for (const auto& c : m.curves) {
+        out << "curve " << c.id << " \"" << m.sourceName(c.source) << "\" "
+            << (c.geometry ? c.geometry->describe() : std::string("-")) << "\n";
     }
     for (const auto& l : m.limits) {
         out << "limit " << l.id << " \"" << m.sourceName(l.source) << "\" "

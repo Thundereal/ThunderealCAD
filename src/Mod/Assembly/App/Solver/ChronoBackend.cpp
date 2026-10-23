@@ -49,9 +49,20 @@
 //
 // and every other kind -- AngleZ other than a right angle, PointLineDistance,
 // LineLineDistance, a belt, a gear between coaxial frames or shafts that are
-// not parallel, CoaxialGear, RackPinion, Screw -- a NeutralLink: a link of our
-// own holding the neutral layer's equations (JointEquations.h), the
-// Reference's, with their analytic Jacobian in Chrono's coordinates.
+// not parallel, CoaxialGear, RackPinion, Screw, PointOnCurve -- a
+// NeutralLink: a link of our own holding the neutral layer's equations
+// (JointEquations.h), the Reference's, with their analytic Jacobian in
+// Chrono's coordinates.
+//
+// PointOnCurve (a cam) is a NeutralLink rather than ChLinkLockPointSpline:
+// that link finds its nearest point by sampling the whole ChLine on every
+// update (FindNearestLinePoint: it can jump across a cam to a closer
+// stretch), to a tolerance of 1e-6, takes the tangent and the curvature by
+// finite differences (a step of 1e-4 of the parameter), and holds the point
+// by moving its marker onto the curve at each update, like ChLinkLockGear's
+// phase. The NeutralLink evaluates the exact OCCT curve through the neutral
+// projector, follows the closest point from the last one, and holds the
+// equations with their analytic Jacobian.
 // Chrono::nativeLink() decides; Chrono::refusal() says why a joint cannot be
 // held at all (a gear without a ratio).
 //
@@ -198,6 +209,8 @@ const char* kindName(JointKind kind)
             return "RackPinion";
         case JointKind::Screw:
             return "Screw";
+        case JointKind::PointOnCurve:
+            return "PointOnCurve";
         case JointKind::Count_:
             break;
     }
@@ -316,7 +329,9 @@ namespace eq = Assembly::Solver::Equations;
 // as the Reference does: Update() reads them (measured), commit() takes the
 // reading at the current poses once the backend accepts them, and the
 // backend's states carry the committed angles, so a rejected step and a
-// finite-difference probe leave the count as it was.
+// finite-difference probe leave the count as it was. A PointOnCurve's curve
+// parameter is kept the same way (its one slot): the closest point is
+// projected from the committed one, and a closed cam's turns are counted.
 class NeutralLink: public ch::ChLinkBase
 {
 public:
@@ -328,8 +343,13 @@ public:
         ch::ChFramed local;
     };
 
-    NeutralLink(const Joint& joint, const FrameRef& i, const FrameRef& j, const FrameRef* k)
+    NeutralLink(const Joint& joint,
+                const FrameRef& i,
+                const FrameRef& j,
+                const FrameRef* k,
+                std::shared_ptr<const CurveGeometry> curve = nullptr)
         : joint(joint)
+        , curve(std::move(curve))
         , frames {i, j, k ? *k : FrameRef {}}
         , hasCarrier(k != nullptr)
     {
@@ -356,7 +376,12 @@ public:
         if (joint.kind == JointKind::Gear || joint.kind == JointKind::CoaxialGear) {
             coaxial = eq::framesAreCoaxial(fs[0], fs[1]);
         }
-        state = eq::startState(joint, coaxial, fs[0], fs[1], hasCarrier ? &fs[2] : nullptr);
+        state = eq::startState(joint,
+                               coaxial,
+                               fs[0],
+                               fs[1],
+                               hasCarrier ? &fs[2] : nullptr,
+                               this->curve.get());
         measured = state.angles;
         // The rows, as many as the equations at the start.
         std::vector<eq::Equation> rows;
@@ -588,6 +613,10 @@ public:
         archive_out << ch::make_ChNameValue("value", value);
         archive_out << ch::make_ChNameValue("value2", value2);
         archive_out << ch::make_ChNameValue("constant", constant);
+        if (curve) {
+            std::string text = curve->describe();
+            archive_out << ch::make_ChNameValue("curve", text);
+        }
     }
 
 private:
@@ -633,7 +662,8 @@ private:
                       state,
                       false,
                       rows,
-                      reading);
+                      reading,
+                      curve.get());
     }
 
     // C and Cq from the equations: the rotation block of each gradient from
@@ -663,6 +693,7 @@ private:
     }
 
     Joint joint;
+    std::shared_ptr<const CurveGeometry> curve;  // a PointOnCurve's
     std::array<FrameRef, 3> frames;
     bool hasCarrier = false;
     std::array<int, 3> slot {-1, -1, -1};
@@ -786,6 +817,7 @@ bool Chrono::nativeLink(const Joint& joint)
         case JointKind::CoaxialGear:
         case JointKind::RackPinion:
         case JointKind::Screw:
+        case JointKind::PointOnCurve:  // ChLinkLockPointSpline: see the header
         case JointKind::Count_:
             return false;
         case JointKind::Gear:
@@ -1036,7 +1068,17 @@ struct ChronoSession::Impl
         if (carrier) {
             fk = ref(joint.frameK);
         }
-        auto link = std::make_shared<NeutralLink>(joint, fi, fj, carrier ? &fk : nullptr);
+        std::shared_ptr<const CurveGeometry> curve;
+        if (joint.kind == JointKind::PointOnCurve) {
+            if (joint.curve < model.curves.size()) {
+                curve = model.curves[joint.curve].geometry;
+            }
+            if (!curve) {
+                return "it holds a point on a curve the model does not have";
+            }
+        }
+        auto link =
+            std::make_shared<NeutralLink>(joint, fi, fj, carrier ? &fk : nullptr, std::move(curve));
         if (link->rowCategories().empty()) {
             // The Reference fails the same.
             return "its frames are coaxial and it has no carrier frame to measure the turns from";

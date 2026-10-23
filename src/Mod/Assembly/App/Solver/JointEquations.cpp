@@ -97,7 +97,40 @@ void distanceXYRow(const FrameState& fi, const FrameState& fj, double d, std::ve
     push(rows, s, Category::Displacement, std::sqrt(x.v * x.v + y.v * y.v) - std::abs(d));
 }
 
+// A point on a curve: x = oJ in I's axes (three scalars with their
+// gradients), the curve's two equations at x, and their gradients through x.
+void curveRows(
+    const CurveGeometry& curve,
+    double offset,
+    const FrameState& fi,
+    const FrameState& fj,
+    double from,
+    std::vector<Equation>& rows,
+    double& measured
+)
+{
+    const V r = origin(fj) - origin(fi);
+    const std::array<S, 3> x {dot(r, axis(fi, 0)), dot(r, axis(fi, 1)), dot(r, axis(fi, 2))};
+    const PointOnCurveRows eq =
+        pointOnCurveRows(curve, offset, Base::Vector3d(x[0].v, x[1].v, x[2].v), from);
+    measured = eq.u;
+    for (int k = 0; k < 2; ++k) {
+        S s;
+        for (int m = 0; m < 3; ++m) {
+            s = s + eq.gradient[k][m] * x[m];
+        }
+        s.v = eq.value[k];
+        push(rows, s, Category::Displacement);
+    }
+}
+
 }  // namespace
+
+Base::Vector3d localPoint(const FrameState& fi, const FrameState& fj)
+{
+    const Vec3 x = fi.A.transpose() * (fj.o - fi.o);
+    return Base::Vector3d(x.x(), x.y(), x.z());
+}
 
 void atPointRows(const FrameState& fi, const FrameState& fj, std::vector<Equation>& rows)
 {
@@ -123,6 +156,7 @@ int jointAngleSlots(JointKind kind)
             return 2;
         case JointKind::RackPinion:
         case JointKind::Screw:
+        case JointKind::PointOnCurve:
             return 1;
         default:
             return 0;
@@ -189,11 +223,19 @@ JointState startState(
     bool coaxial,
     const FrameState& fi,
     const FrameState& fj,
-    const FrameState* fk
+    const FrameState* fk,
+    const CurveGeometry* curve
 )
 {
     JointState state;
     state.coaxial = coaxial;
+    if (joint.kind == JointKind::PointOnCurve) {
+        // No constant: the curve is the relation.
+        if (curve) {
+            state.angles[0] = projectOnCurveGlobally(*curve, localPoint(fi, fj)).u;
+        }
+        return state;
+    }
     if (jointAngleSlots(joint.kind) == 0) {
         return state;
     }
@@ -218,7 +260,8 @@ void jointRows(
     const JointState& state,
     bool raw,
     std::vector<Equation>& rows,
-    std::array<double, 2>& measured
+    std::array<double, 2>& measured,
+    const CurveGeometry* curve
 )
 {
     measured = state.angles;
@@ -320,6 +363,11 @@ void jointRows(
             push(rows, s, Category::Essential, s.v / twoPi);
             break;
         }
+        case JointKind::PointOnCurve:
+            if (curve) {
+                curveRows(*curve, joint.value, fi, fj, state.angles[0], rows, measured[0]);
+            }
+            break;
         case JointKind::Count_:
             break;
     }

@@ -273,6 +273,9 @@ Corpus makeCorpus(bool withSimulation)
     std::vector<std::shared_ptr<MbD::ASMTJoint>> refJoints;
     for (int k = 0; k < static_cast<int>(JointKind::Count_); ++k) {
         auto kind = static_cast<JointKind>(k);
+        if (kind == JointKind::PointOnCurve) {
+            continue;  // needs a curve; PointOnCurve.cpp has it
+        }
         std::string name = "Assembly#Joint" + std::to_string(k);
         Joint j;
         j.kind = kind;

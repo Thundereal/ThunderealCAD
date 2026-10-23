@@ -64,6 +64,8 @@ SOURCE_GROUP("Module" FILES ${Module_SRCS})
 SET(Solver_SRCS
     Solver/Backend.cpp
     Solver/Backend.h
+    Solver/Curve.cpp
+    Solver/Curve.h
     Solver/Formula.cpp
     Solver/Formula.h
     Solver/JointEquations.cpp
@@ -96,6 +98,8 @@ SET(Assembly_SRCS
     AssemblyUtils.h
     BomObject.cpp
     BomObject.h
+    CamJoint.cpp
+    CamJoint.h
     ElementGeometry.cpp
     ElementGeometry.h
     Groups.cpp

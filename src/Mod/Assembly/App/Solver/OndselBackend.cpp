@@ -25,6 +25,7 @@
 #include <cstdio>
 #include <exception>
 #include <limits>
+#include <stdexcept>
 #include <string>
 #include <utility>
 #include <unordered_map>
@@ -50,6 +51,7 @@
 #include <OndselSolver/ASMTPlanarJoint.h>
 #include <OndselSolver/ASMTPointInLineJoint.h>
 #include <OndselSolver/ASMTPointInPlaneJoint.h>
+#include <OndselSolver/ASMTPointOnCurveJoint.h>
 #include <OndselSolver/ASMTPrincipalMassMarker.h>
 #include <OndselSolver/ASMTRackPinionJoint.h>
 #include <OndselSolver/ASMTRevCylJoint.h>
@@ -203,10 +205,62 @@ std::shared_ptr<MbD::ASMTJoint> makeJoint(const Joint& joint)
             mbdJoint->pitch = joint.value;
             return mbdJoint;
         }
+        case JointKind::PointOnCurve:  // needs the model's curve: toAsmt()
         case JointKind::Count_:
             break;
     }
     return nullptr;
+}
+
+// A PointOnCurve's equations as OndselSolver's host function
+// (MbD::PointOnCurveFunction): the neutral projector and rows (Curve.h). The
+// closest point is followed from one call to the next -- OndselSolver has no
+// notion of an accepted pose, its Newton iterates and its kinematic run's
+// steps simply follow each other -- and the first call searches the whole
+// curve. The two equations of a joint share the function, so the second
+// call at a point projects from where the first ended.
+MbD::PointOnCurveFunction curveFunction(std::shared_ptr<const CurveGeometry> curve, double offset)
+{
+    struct Tracker
+    {
+        bool started = false;
+        double u = 0.0;
+    };
+    auto tracker = std::make_shared<Tracker>();
+    return [curve = std::move(curve), offset, tracker](
+               const std::array<double, 3>& x,
+               MbD::PointOnCurveValues& values
+           ) {
+        const Base::Vector3d point(x[0], x[1], x[2]);
+        if (!tracker->started) {
+            tracker->u = projectOnCurveGlobally(*curve, point).u;
+            tracker->started = true;
+        }
+        const PointOnCurveRows rows = pointOnCurveRows(*curve, offset, point, tracker->u);
+        tracker->u = rows.u;
+        values.value = rows.value;
+        values.gradient = rows.gradient;
+        values.hessian = rows.hessian;
+    };
+}
+
+// A PointOnCurve as OndselSolver's PointOnCurveJoint, the curve evaluated by
+// the neutral layer; the ASMT text records the curve's description.
+std::shared_ptr<MbD::ASMTJoint> makeCurveJoint(const Model& model, const Joint& joint)
+{
+    if (joint.curve >= model.curves.size() || !model.curves[joint.curve].geometry) {
+        throw std::runtime_error("a point-on-curve joint has no curve");
+    }
+    const auto& curve = model.curves[joint.curve].geometry;
+    auto mbdJoint = MbD::ASMTPointOnCurveJoint::With();
+    std::string text = curve->describe();
+    if (joint.value != 0.0) {
+        char buf[48];
+        std::snprintf(buf, sizeof(buf), " offset %.17g", joint.value);
+        text += buf;
+    }
+    mbdJoint->setCurve(text, curveFunction(curve, joint.value));
+    return mbdJoint;
 }
 
 std::string toleranceString(double tolerance)
@@ -342,7 +396,8 @@ Ondsel::AsmtModel Ondsel::toAsmt(const Model& model, const SimulationSpec* simul
 
     result.joints.resize(model.joints.size());
     for (const auto& joint : model.joints) {
-        auto mbdJoint = makeJoint(joint);
+        auto mbdJoint = joint.kind == JointKind::PointOnCurve ? makeCurveJoint(model, joint)
+                                                               : makeJoint(joint);
         if (!mbdJoint) {
             continue;
         }

@@ -43,6 +43,7 @@
 
 #include <Mod/Assembly/AssemblyGlobal.h>
 
+#include "Curve.h"
 #include "Formula.h"
 
 namespace Assembly::Solver
@@ -110,7 +111,10 @@ enum class JointKind : std::uint8_t
     CoaxialGear,  // as Gear, angles measured against carrier frame K
     RackPinion,   // slide(I along x) = value*theta(J)       1
     Screw,        // slide(I along z) = value*theta/(2 pi)   1
-    // reserved: Universal, ConstantVelocity, Tangent, Slot, Cam, Path
+    // a point on a curve (sec 6.18)
+    PointOnCurve,  // oJ on the curve (Joint::curve, in frame I) offset by value
+                   // in its plane                              2
+    // reserved: Universal, ConstantVelocity, Tangent, Slot, Path
     Count_
 };
 
@@ -124,6 +128,19 @@ struct Joint
     Id frameK = NoId;  // CoaxialGear only
     double value = 0.0;  // offset | distance | angle (rad) | radius | pitch
     double value2 = 0.0;  // second radius
+    Id curve = NoId;  // PointOnCurve only: the curve, in Model::curves
+};
+
+// A curve a joint holds a point on (JointKind::PointOnCurve), given in the
+// coordinates of that joint's frame I and evaluated exactly (Curve.h). Shared:
+// the geometry is not copied with the model. A record of its own, so that a
+// later lift-off cam can reference the same curve (docs/AssemblyDynamics.md
+// sec 6.1).
+struct Curve
+{
+    Id id = NoId;
+    Id source = NoId;
+    std::shared_ptr<const CurveGeometry> geometry;
 };
 
 // Pins a body to the ground: frameI is on the ground (body NoId) at the pose the
@@ -224,6 +241,7 @@ struct Model
     std::vector<Ground> grounds;
     std::vector<Limit> limits;
     std::vector<Driver> drivers;
+    std::vector<Curve> curves;
 
     Id addSource(std::string name)
     {
@@ -253,6 +271,10 @@ struct Model
     Id addDriver(Driver driver)
     {
         return add(drivers, std::move(driver));
+    }
+    Id addCurve(Curve curve)
+    {
+        return add(curves, std::move(curve));
     }
 
     const std::string& sourceName(Id index) const

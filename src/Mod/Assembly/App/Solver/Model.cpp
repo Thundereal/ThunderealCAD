@@ -65,7 +65,18 @@ bool same(const Joint& a, const Joint& b)
 {
     return a.id == b.id && a.source == b.source && a.kind == b.kind && a.frameI == b.frameI
         && a.frameJ == b.frameJ && a.frameK == b.frameK && a.value == b.value
-        && a.value2 == b.value2;
+        && a.value2 == b.value2 && a.curve == b.curve;
+}
+
+bool same(const Curve& a, const Curve& b)
+{
+    if (a.id != b.id || a.source != b.source) {
+        return false;
+    }
+    if (!a.geometry || !b.geometry) {
+        return !a.geometry && !b.geometry;
+    }
+    return a.geometry == b.geometry || a.geometry->same(*b.geometry);
 }
 
 bool same(const Ground& a, const Ground& b)
@@ -107,5 +118,5 @@ bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
     return a.version == b.version && a.sources == b.sources && sameRecords(a.bodies, b.bodies)
         && sameRecords(a.frames, b.frames) && sameRecords(a.joints, b.joints)
         && sameRecords(a.grounds, b.grounds) && sameRecords(a.limits, b.limits)
-        && sameRecords(a.drivers, b.drivers);
+        && sameRecords(a.drivers, b.drivers) && sameRecords(a.curves, b.curves);
 }

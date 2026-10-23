@@ -342,7 +342,9 @@ void atPointRows(const FrameState& fi, const FrameState& fj, std::vector<Equatio
 // The Fixed joint's (and a Ground's): AtPoint and three direction cosines.
 void fixedRows(const FrameState& fi, const FrameState& fj, std::vector<Equation>& rows);
 
-// How many angles a coupler measures (and counts the turns of).
+// How many angles a coupler measures (and counts the turns of); for a
+// PointOnCurve, the one slot is the curve parameter of the closest point,
+// which a closed curve counts the turns of too.
 int jointAngleSlots(JointKind kind);
 
 // Whether a gear's frames share their axis (OndselSolver's GearJoint test).
@@ -355,7 +357,10 @@ std::pair<double, double> rawOrbit(const FrameState& fi, const FrameState& fj);
 // What a joint keeps between evaluations: whether a gear's frames are
 // coaxial (decided at the start), a coupler's constant (the relation it has
 // at the start), and the angles it measures, unwrapped -- their turns counted
-// -- against the last committed reading.
+// -- against the last committed reading. A PointOnCurve keeps the parameter
+// of the curve's point closest to frame J's origin in angles[0]: the next
+// evaluation projects from it (Curve.h, projectOnCurve), so the follower
+// stays on the stretch of the curve it is on.
 struct JointState
 {
     bool coaxial = false;
@@ -376,13 +381,17 @@ std::array<std::pair<double, double>, 2> rawCouplerAngles(
 
 // The state at the start poses: OndselSolver's first reading of each angle
 // the joint measures, and its constant -- what the equation without it reads
-// there -- so that a coupler holds the relation it starts with.
+// there -- so that a coupler holds the relation it starts with. A
+// PointOnCurve's parameter is the closest point over the whole curve
+// (projectOnCurveGlobally): the one place it is searched for, not followed.
+// 'curve' is the joint's curve, for a PointOnCurve.
 JointState startState(
     const Joint& joint,
     bool coaxial,
     const FrameState& fi,
     const FrameState& fj,
-    const FrameState* fk
+    const FrameState* fk,
+    const CurveGeometry* curve = nullptr
 );
 
 // The joint's equations at the frames' states, appended to 'rows' in
@@ -390,7 +399,13 @@ JointState startState(
 // state.angles and written to 'measured' (a commit takes them once the poses
 // are accepted); 'raw' leaves out the coupler's constant (to measure it).
 // A coaxial gear without a carrier (fk null), or with a zero second radius,
-// has no equation.
+// has no equation; nor has a PointOnCurve without its curve.
+//
+// PointOnCurve: frame J's origin in frame I's coordinates, x, held on the
+// curve (offset by joint.value in its plane): the two rows of
+// pointOnCurveRows() (Curve.h), displacements, their gradient through x by
+// the chain rule; the closest point is followed from state.angles[0] and its
+// parameter written to measured[0].
 void jointRows(
     const Joint& joint,
     const FrameState& fi,
@@ -399,7 +414,12 @@ void jointRows(
     const JointState& state,
     bool raw,
     std::vector<Equation>& rows,
-    std::array<double, 2>& measured
+    std::array<double, 2>& measured,
+    const CurveGeometry* curve = nullptr
 );
+
+// Frame J's origin in frame I's coordinates (what a PointOnCurve holds on
+// its curve).
+Base::Vector3d localPoint(const FrameState& fi, const FrameState& fj);
 
 }  // namespace Assembly::Solver::Equations

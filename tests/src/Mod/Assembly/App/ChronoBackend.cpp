@@ -18,8 +18,15 @@
 #include <random>
 #include <string>
 
+#include <GeomAPI_Interpolate.hxx>
+#include <Geom_BSplineCurve.hxx>
+#include <Geom_Circle.hxx>
+#include <NCollection_HArray1.hxx>
+#include <gp_Ax2.hxx>
+
 #include <Base/Interpreter.h>
 #include <Base/Placement.h>
+#include <Mod/Assembly/App/CamJoint.h>
 #include <Mod/Assembly/App/Solver/ChronoBackend.h>
 #include <Mod/Assembly/App/Solver/ReferenceBackend.h>
 #include <Mod/Assembly/App/Solver/Registry.h>
@@ -340,12 +347,14 @@ TEST(ChronoBackend, refusalsAndTheLinkEachKindGets)  // NOLINT
     EXPECT_FALSE(Chrono::nativeLink(joint(JointKind::CoaxialGear, 10.0, 5.0)));
     EXPECT_FALSE(Chrono::nativeLink(joint(JointKind::RackPinion, 7.0)));
     EXPECT_FALSE(Chrono::nativeLink(joint(JointKind::Screw, 3.0)));
+    EXPECT_FALSE(Chrono::nativeLink(joint(JointKind::PointOnCurve, 2.0)));
     for (JointKind k : {JointKind::AngleZ,
                         JointKind::PointLineDistance,
                         JointKind::LineLineDistance,
                         JointKind::CoaxialGear,
                         JointKind::RackPinion,
-                        JointKind::Screw}) {
+                        JointKind::Screw,
+                        JointKind::PointOnCurve}) {
         EXPECT_TRUE(Chrono::refusal(joint(k, 1.0, 1.0)).empty()) << static_cast<int>(k);
     }
     EXPECT_TRUE(Chrono::refusal(joint(JointKind::Gear, 10.0, -20.0)).empty());
@@ -527,6 +536,107 @@ TEST(ChronoBackend, neutralJacobianInChronosCoordinates)  // NOLINT
         }
         // The probes left the session as it was.
         EXPECT_EQ(session.constraintsAt(poses), C);
+    }
+}
+
+// A PointOnCurve (sec 6.18) held by the NeutralLink: its rows equal the
+// Reference's, its Jacobian in Chrono's coordinates against differences
+// under Chrono's increments; a circle with a roller, and a 3D spline; and a
+// model whose curve is missing is refused with the reason.
+TEST(ChronoBackend, neutralPointOnCurveInChronosCoordinates)  // NOLINT
+{
+    Handle(Geom_Circle) circle = new Geom_Circle(gp_Ax2(gp_Pnt(2, 1, 0), gp_Dir(0, 0, 1)), 12.0);
+    Handle(NCollection_HArray1<gp_Pnt>) pts = new NCollection_HArray1<gp_Pnt>(1, 9);
+    for (int i = 0; i < 9; ++i) {
+        const double a = 0.7 * i;
+        pts->SetValue(i + 1, gp_Pnt(10.0 * std::cos(a), 10.0 * std::sin(a), 1.5 * i));
+    }
+    GeomAPI_Interpolate interpolate(pts, Standard_False, 1e-9);
+    interpolate.Perform();
+    Handle(Geom_BSplineCurve) spline = interpolate.Curve();
+    struct Case
+    {
+        const char* name;
+        std::shared_ptr<const CurveGeometry> curve;
+        double offset;
+    };
+    const Case cases[] = {
+        {"circle, roller", Assembly::makeCurveGeometry(circle, 0.0, 2 * pi), 2.5},
+        {"3D spline",
+         Assembly::makeCurveGeometry(spline, spline->FirstParameter(), spline->LastParameter()),
+         0.0},
+    };
+    for (const Case& c : cases) {
+        SCOPED_TRACE(c.name);
+        Builder b;
+        const Id a = b.body("A", randomPose(10.0));
+        const Id bb = b.body("B", randomPose(10.0));
+        const Base::Placement onA = randomPose(4.0);
+        const Base::Placement onB = randomPose(4.0);
+        // Frame J near the curve: 1.3 mm from its point at a third of the range.
+        const CurvePoint p =
+            c.curve->evaluate(c.curve->first() + (c.curve->last() - c.curve->first()) / 3.0);
+        const Base::Vector3d x = p.p + Base::Vector3d(0.6, -1.1, 0.4);
+        b.m.bodies[bb].placement =
+            b.m.bodies[a].placement * onA * at(x.x, x.y, x.z, rot(1, 2, 3, 0.5)) * onB.inverse();
+        const Id id = b.joint(JointKind::PointOnCurve, b.frame(a, onA), b.frame(bb, onB), c.offset);
+        Curve record;
+        record.source = b.m.joints[id].source;
+        record.geometry = c.curve;
+        b.m.joints[id].curve = b.m.addCurve(record);
+
+        ChronoSession session;
+        ASSERT_EQ(session.load(b.m), Status::Ok);
+        ASSERT_TRUE(session.refusalMessage().empty()) << session.refusalMessage();
+        ASSERT_EQ(session.neutralLinkCount(), 1);
+        std::vector<Base::Placement> poses;
+        for (const auto& body : b.m.bodies) {
+            poses.push_back(body.placement);
+        }
+        const auto C = session.constraintsAt(poses);
+        const auto J = session.jacobianAt(poses);
+        ASSERT_EQ(C.size(), 2u);
+        ReferenceSession reference;
+        ASSERT_EQ(reference.load(b.m), Status::Ok);
+        const auto rc = reference.residualsAt(poses);
+        ASSERT_EQ(rc.size(), 6u + 2u);
+        for (std::size_t r = 0; r < C.size(); ++r) {
+            EXPECT_NEAR(C[r], rc[6 + r], 1e-12 * std::max(1.0, std::abs(C[r])));
+        }
+        const double h = 1e-6;
+        for (std::size_t body = 1; body < poses.size(); ++body) {
+            const Base::Rotation R = poses[body].getRotation();
+            for (int col = 0; col < 6; ++col) {
+                auto plus = poses;
+                auto minus = poses;
+                Base::Vector3d e;
+                e[col % 3] = 1.0;
+                if (col < 3) {
+                    plus[body].setPosition(plus[body].getPosition() + e * h);
+                    minus[body].setPosition(minus[body].getPosition() - e * h);
+                }
+                else {
+                    plus[body].setRotation(R * Base::Rotation(e, h));
+                    minus[body].setRotation(R * Base::Rotation(e, -h));
+                }
+                const auto cp = session.constraintsAt(plus);
+                const auto cm = session.constraintsAt(minus);
+                for (std::size_t r = 0; r < C.size(); ++r) {
+                    const double numeric = (cp[r] - cm[r]) / (2 * h);
+                    EXPECT_NEAR(J[r][6 * body + col], numeric, 1e-6 * std::max(1.0, std::abs(numeric)))
+                        << "row " << r << " body " << body << " column " << col;
+                }
+            }
+        }
+        EXPECT_EQ(session.constraintsAt(poses), C);
+
+        // Without its curve the joint cannot be held.
+        Model bad = b.m;
+        bad.joints[id].curve = NoId;
+        ChronoSession refused;
+        ASSERT_EQ(refused.load(bad), Status::Ok);
+        EXPECT_NE(refused.refusalMessage().find("curve"), std::string::npos)
+            << refused.refusalMessage();
     }
 }
 

@@ -877,8 +877,13 @@ The enum has 37 values (with `Other`). `d` is the Distance property, `r1`,
 `r2` the radii of the first and second element after the builder's
 ordering. Upstream has 20 cases and 17 fall to the default Planar(d); since
 decision 7 (audit sec 8.1, built in sec 6.8) 23 have a case and the other
-14 are refused for new joints, still Planar(d) with a warning for a joint
-already in a document.
+14 were refused for new joints. Since the role mappings (sec 6.11) 36 have
+a case; only `Other` between two elements is refused whatever they are,
+and four Curve sub-types are refused on a curve that is not a circle, two
+on one that is not planar. A refused joint already in a document solves as
+before, with a warning. Every element is classified after canonical
+recognition (sec 6.11): a B-spline that is a circle or a cylinder counts
+as one.
 
 | sub-type | neutral (value) | Ondsel class |
 |---|---|---|
@@ -904,14 +909,24 @@ already in a document.
 | PointCurve | PointInPlane(d) (plane of the curve) | `ASMTPointInPlaneJoint` |
 | LineCylinder (decision 7) | LineLineDistance(d + r1); I the cylinder's axis | `ASMTRevCylJoint` |
 | LineSphere (decision 7) | PointLineDistance(d + r1); swapped: I the line, J the sphere's centre | `ASMTCylSphJoint` |
-| CurvePlane (decision 7) | Planar(d) on the curve's plane | `ASMTPlanarJoint` |
-| PlaneCone, CylinderCone, ConeCone, ConeTorus, ConeSphere, PointCone, PointTorus, LineCone, LineTorus, CurveCylinder, CurveSphere, CurveCone, CurveTorus, Other | refused for new joints; in a document Planar(d) (default), with a warning | `ASMTPlanarJoint` |
+| CurvePlane (decision 7) | Planar(d) on the curve's plane; refused on a non-planar curve | `ASMTPlanarJoint` |
+| PlaneCone (sec 6.11) | LineInPlane(d): the cone's axis | `ASMTLineInPlaneJoint` |
+| CylinderCone (sec 6.11) | LineLineDistance(d + r1) | `ASMTRevCylJoint` |
+| ConeCone, ConeTorus, LineCone, LineTorus (sec 6.11) | LineLineDistance(d): the axes | `ASMTRevCylJoint` |
+| ConeSphere (sec 6.11) | PointLineDistance(d + r2) | `ASMTCylSphJoint` |
+| PointCone, PointTorus (sec 6.11) | PointLineDistance(d): the point to the axis | `ASMTCylSphJoint` |
+| CurveCylinder (sec 6.11) | LineLineDistance(d + r1 + r2), r2 the circle's | `ASMTRevCylJoint` |
+| CurveSphere (sec 6.11) | PointLineDistance(d + r1 + r2); swapped: I the circle's axis | `ASMTCylSphJoint` |
+| CurveCone, CurveTorus (sec 6.11) | LineLineDistance(d + r2), r2 the circle's | `ASMTRevCylJoint` |
+| Curve{Cylinder,Sphere,Cone,Torus} on a curve that is not a circle; CurvePlane, PointCurve on one that is not planar; Other between two elements | refused for new joints, the message names the element and what it is; in a document as before (Planar(d), PointInPlane(d)), with a warning | `ASMTPlanarJoint` / `ASMTPointInPlaneJoint` |
+| Other with a whole object on a side (a datum plane, an LCS, a body) | Planar(d) between the objects' frames | `ASMTPlanarJoint` |
 
 So the whole Distance family needs only seven neutral kinds: Spherical,
 Planar, PointInPlane, LineInPlane, PointPointDistance, PointLineDistance,
 LineLineDistance. The default row is questionable (Planar also locks the
-relative orientation, e.g. for a point on a cone); decision 7 refuses it
-for new joints and keeps it for old ones (sec 6.8).
+relative orientation, e.g. for a point on a cone); decision 7 refused it
+for new joints and kept it for old ones (sec 6.8), and the role mappings
+(sec 6.11) gave all but `Other` a mapping of their own.
 
 The 9 OndselSolver joint classes the workbench does not use
 (`ASMTUniversalJoint`, `ASMTConstantVelocityJoint`, `ASMTPointInLineJoint`,
@@ -1710,6 +1725,185 @@ function. The gate's records are untouched.
 Assembly gtest 22/22 (20 + 2); ctest 920/922 in the parallel run, the two
 `TransactionMeasureTest` cases pass alone; the Assembly suite 147 run, 1
 skipped.
+
+### 6.11 As built: geometry recognition and role mappings (2026-10-23)
+
+The user's decision on Distance "Other", four points: interpret geometry
+the flexible way Assembly3 does -- recognise canonical geometry first,
+keep whole-object picks, refuse what is truly freeform with a message
+that says why, and map the 14 refused pairs by role.
+
+**1. Recognition** (`App/ElementGeometry.{h,cpp}`, not upstream). The
+one place the workbench reads an element's curve or surface type. An
+analytic element (line, circle, ellipse; plane, cylinder, cone, sphere,
+torus) is taken as it is, through the same adaptor `edge.Curve` and
+`face.Surface` use. Any other (B-spline, Bezier, offset, surface of
+revolution or extrusion) goes to OCCT's `ShapeAnalysis_CanonicalRecognition`
+-- `IsLine`, `IsCircle`, `IsEllipse` for an edge; `IsPlane`,
+`IsCylinder`, `IsCone`, `IsSphere` for a face, in that order -- and, for
+the torus, which it does not try, to the converter it drives
+(`GeomConvert_SurfToAnaSurf` aimed at `GeomAbs_Torus`). What is still
+unrecognised is freeform.
+
+- *Tolerance:* 1e-6 of the element's bounding-box diagonal (Assembly3's
+  normalised 1e-6, `asm3/utils.py` `fit_rotation_axis_to_surface1`
+  callers), at least `Precision::Confusion()`. A B-spline circle from
+  `Part.Circle().toBSpline()` is recognised with a gap of 1.1e-8 (the
+  fit's, not the curve's: centre and radius off by 4e-9); `toNurbs()`
+  cylinders, cones, spheres, tori and planes at 1e-14 or less.
+- *Cache:* by the element's TShape, in its own coordinates (the location
+  is applied on the way out), so the same face of a linked part placed
+  ten times is converted once. Held by handle, at most 4096 of each,
+  cleared when full. `AssemblyApp.clearElementGeometryCache()` and
+  `getElementGeometryConversions()` exist for the test that checks it.
+- *Readers:* `isEdgeType`, `isFaceType`, `getFaceRadius`,
+  `getEdgeRadius` (so `getDistanceType` and the builder's radii), the
+  refusal (below); Python through `AssemblyApp.getElementGeometry(shape)`
+  (the analytic Part geometry, or None) and `analyzeElement(shape)` (type,
+  recognised, gap, tolerance). `UtilsAssembly.elementGeometry()` wraps the
+  first; `findPlacement` and `findElementClosestVertex` use it, so every
+  joint type frames a recognised element as its analytic form: a revolute
+  on a B-spline circle takes the circle's centre and normal. Part has no
+  binding for canonical recognition (only `toPlane`/`toLine`), so the one
+  source of truth is the Assembly module's.
+- *What changes:* only elements that were not analytic. A recognised
+  cone's axis may come out reversed and a recognised plane's or
+  circle's x axis turned (the fit picks its own parametrisation): the
+  distance kinds ignore both, a joint that uses x (Fixed, Angle) on such
+  an element sees it. An existing joint on a B-spline element that is now
+  recognised changes classification (from Other, Planar(d), to its proper
+  sub-type) without a message.
+- *A torus's frame.* `findPlacement` tests `"Part::GeomTorus"`, but a
+  torus is `Part::GeomToroid`, so upstream frames every torus at its face's
+  centre of gravity. That is on the axis for a torus of revolution through
+  360 degrees, and is kept there: changing it to the centre moves the
+  digest of four recorded torus cases by rounding. A part of one (a
+  fillet's quarter) has it off the axis, and every axis reading below
+  would measure from the wrong line; such a face now takes the torus's
+  centre.
+
+**2. Whole objects** stay as built in sec 6.8: Other with a whole object on
+a side (a datum plane, an LCS, a body) is not refused and solves as
+Planar(d) between the objects' frames. Now tested
+(`TestDistanceRefusal.test_whole_objects_are_other_and_accepted`).
+
+**3. Refusal says why.** `refusedDistanceTypes()` is now `{Other}`; the rule
+is `distanceJointRefusal(joint, type)` in `AssemblyUtils.cpp`, which
+returns the reason, naming the element by its name and the picked
+component's label, and what it is:
+
+- Other between two elements: the first face that is not analytic, "the
+  face Face1 of Free is not planar, cylindrical, conical, spherical or
+  toroidal: it is a B-spline surface"; else (two edges) the first edge
+  that is not a line or a circle, "the edge Edge1 of EllM is not a line
+  or a circle: it is an ellipse".
+- CurveCylinder, CurveSphere, CurveCone, CurveTorus on a curve that is not
+  a circle (the curve stands for its axis and radius): the same edge
+  message.
+- CurvePlane and PointCurve on a curve that is neither a line, a circle,
+  an ellipse nor planar (`TopoShape::findPlane`, what `edge.findPlane()`
+  calls): "the edge Edge1 of HelixM is not a line and not planar: it is a
+  B-spline curve". Sec 6.8 left the helix as a known gap; its frame was
+  the identity at the origin.
+
+`isDistanceJointRefused` is `!distanceJointRefusal().empty()`; Python has
+`AssemblyApp.getDistanceRefusal(joint)`. The joint task shows "A distance
+between these elements is not supported: <reason>. Select other
+elements." (label and report view), with the same pick handling as sec
+6.8. A refused joint already in a document solves as before (Planar(d);
+CurvePlane, PointCurve their own case) and warns once per joint and
+sub-type: "Assembly: the Distance joint <doc#name> is between elements
+(<sub-type>) the solver has no mapping for: <reason>. It is solved as
+before; new joints of this kind are refused."
+
+**4. Role mappings.** Assembly3's constraints take a role from each
+element (`asm3/constraint.py` `_p` point, `_n` normal, `_l` line, `_w`
+plane). The workbench's existing mappings already read roles: a cylinder
+is its axis plus a radius (PlaneCylinder, CylinderCylinder, PointCylinder,
+LineCylinder), a sphere its centre plus a radius, a circle its axis plus
+a radius (LineCircle, CircleCircle), a torus its axis with radius 0 next
+to an axis or a point (CylinderTorus, TorusSphere; `getFaceRadius` gives
+0 for it) and its equatorial plane next to a plane (PlaneTorus,
+TorusTorus). Each new mapping is an existing one with one element read
+the way that mapping already reads its kind: **a cone is its axis, as a
+cylinder of radius 0** (no constant offset from the axis exists; its JCS
+is on the axis at the apex, z along it), a torus and a circle as above.
+So `d` keeps the meaning it has everywhere else: the gap from the
+surface of a cylinder, sphere or circle's cylinder, to the axis of a
+cone or torus.
+
+| pair (I, J after the ordering) | reuses | neutral (value) | meaning of d |
+|---|---|---|---|
+| PlaneCone | PlaneCylinder, r = 0 | LineInPlane(d) | the cone's axis parallel to the plane, d from it |
+| CylinderCone | CylinderCylinder, r2 = 0 | LineLineDistance(d + r1) | the cone's axis parallel to the cylinder's, d from the cylinder |
+| ConeCone | CylinderCylinder, r = 0 | LineLineDistance(d) | the axes parallel, d apart |
+| ConeTorus | CylinderTorus, r1 = 0 | LineLineDistance(d) | the cone's and the torus's axes parallel, d apart |
+| ConeSphere | CylinderSphere, r1 = 0 | PointLineDistance(d + r2) | the sphere d from the cone's axis |
+| PointCone | PointCylinder, r = 0 | PointLineDistance(d) | the point d from the cone's axis |
+| PointTorus | TorusSphere, r = 0 | PointLineDistance(d) | the point d from the torus's axis |
+| LineCone | LineCylinder, r = 0 | LineLineDistance(d) | the line parallel to the cone's axis, d from it |
+| LineTorus | CylinderTorus with a line | LineLineDistance(d) | the line parallel to the torus's axis, d from it |
+| CurveCylinder (a circle) | CircleCircle / CylinderCylinder | LineLineDistance(d + r1 + r2) | the axes parallel, the circle d from the cylinder |
+| CurveSphere (a circle) | CylinderSphere; swapped as LineSphere | PointLineDistance(d + r1 + r2) | the sphere d from the circle's cylinder |
+| CurveCone (a circle) | LineCircle | LineLineDistance(d + r2) | the axes parallel, the circle d from the cone's axis |
+| CurveTorus (a circle) | LineCircle | LineLineDistance(d + r2) | the axes parallel, the circle d from the torus's axis |
+
+Left refused, because no reading is defensible:
+
+| pair | why |
+|---|---|
+| Other between two elements | an element that is freeform after recognition (no point, axis or plane of its own), or two edges of which one is neither a line nor a circle (an ellipse has a plane but no axis to keep parallel or measure from) |
+| CurveCylinder, CurveSphere, CurveCone, CurveTorus on an ellipse or a planar spline | the mapping reads the curve as an axis and a radius; only a circle has them |
+| CurvePlane, PointCurve on a non-planar curve | the mapping reads the curve as a plane |
+
+Alternatives weighed and not taken: a cone's apex as its point (PlaneCone
+as PointInPlane, PointCone as PointPointDistance) -- every other
+mapping reads an axisymmetric surface as its axis, and the apex of a
+frustum lies off the face; and PointTorus to the centre -- TorusSphere
+already measures a point (the sphere's centre) from the torus's axis.
+None of the readings makes a cone or a torus touch its partner
+(tangency is not a neutral kind).
+
+**Existing documents.** A joint of the 13 sub-types solved as Planar(d)
+(with the sec 6.8 warning); it now solves with its mapping, so a document
+saved with one moves on its next solve, and the DoF changes (PlaneCone
+in the gate: 33 to 34; PointTorus 33 to 35). That is applied, not asked:
+the old result was the questionable default the decision set out to
+replace. The builder logs it once per joint and sub-type, at log level
+(the report view shows it when log messages are on): "Assembly: the
+Distance joint <doc#name> (PointTorus) is solved as the point d from the
+torus's axis; before the role mappings (2026-10-23) it was a planar
+distance." Log, not warning: a joint made after the change would
+otherwise warn on every load, and nothing records which joints are old.
+
+**Gate.** `TestSolverGateDistanceMapped`'s two refused cases changed
+classification, so only they were re-recorded, under new keys (the label
+lost "(refused, planar)"): PlaneCone (export digest `ec2ef719b2b8...` to
+`2bf10b8d3471...`, DoF 33 to 34) and PointTorus (`980d6927e445...` to
+`7232f1d9c0b4...`, DoF 33 to 35). The other 53 records are byte for byte
+what they were (checked on the parsed file: every old key but the two is
+equal). New `TestSolverGateRoleMappings` records 17 cases: the 13
+mappings, CylinderCylinder and LineCircle on a `toNurbs()` cylinder, and
+two refused joints in a document (CurveCylinder on an ellipse, Other on a
+freeform face; Planar(d)). `TestSolverGateOrder.test_role_mappings_both_orders`
+builds nine of them in both orders (CurveSphere swaps in the case). 72
+records in all.
+
+**Tests** (`TestJoints`). `TestDistanceRoleMappings`: each of the 13 on
+the solved shapes (axes parallel and their distance, a point's or a
+centre's distance to an axis, the cone's axis in a plane d above);
+a quarter torus's JCS on the axis and PointTorus measured from it; a
+mapped joint logs, no warning. `TestElementRecognition`: the analysis of
+`toNurbs()` shapes (seven kinds and a freeform face), the tolerance, the cache (one
+conversion for a face analysed three times, once moved), the same JCS
+for a B-spline cylinder face and circle as for the analytic ones (1e-6),
+the same CylinderCylinder classification and solve (placements within
+1e-6), a revolute on a B-spline circle. `TestDistanceRefusal`: the eight
+messages above and two accepted curve cases, whole objects.
+`TestDistanceMapped` and the four refusal tests in `TestGuiCommands` use
+a freeform face where they used a cone.
+
+Suite 171 run, 1 skipped (147 + 24); ctest 922/922; Assembly gtest 22/22.
 
 ### 6.4 Where Python must change
 

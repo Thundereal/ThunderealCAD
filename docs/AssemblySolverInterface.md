@@ -441,9 +441,9 @@ struct Limit {
     double tolerance = 1e-9;
 };
 
-// A formula of time in a grammar the neutral layer owns and can evaluate:
-// numbers, time, pi, + - * / ^, sin cos tan asin acos atan exp ln log sqrt
-// abs. 'initialValue' is substituted before it gets here.
+// A formula of time in a grammar the neutral layer owns and can evaluate
+// (as built: sec 4.6.1 -- SymbolicParser's set, without tan, acos, exp, ln,
+// log, sqrt). 'initialValue' is substituted before it gets here.
 struct Formula { std::string text; };
 enum class DriverKind : std::uint8_t { RotationZ, TranslationZ, Both };
 struct Driver {
@@ -707,7 +707,102 @@ same format later serves Chrono dynamics and the browser tier.
 The formula grammar must be written down as the workbench's, not Ondsel's.
 Phase one can keep using OndselSolver's `SymbolicParser` as the evaluator
 (it is linked anyway); a backend that parses formulas itself must accept
-the same grammar.
+the same grammar. (As built, sec 6.9: the neutral layer has its own
+evaluator and validates every formula with it; OndselSolver still
+evaluates its own copy of the text in `runKINEMATIC`.)
+
+#### 4.6.1 The formula grammar (the workbench's)
+
+What a motion's `Formula` may say. Derived from what OndselSolver's
+`SymbolicParser` (`OS/SymbolicParser.cpp`, as `ASMTRotationalMotion` /
+`ASMTTranslationalMotion` call it) accepts, and from the help text of
+`CommandCreateSimulation.py:541-578`; implemented by the neutral
+`App/Solver/Formula.{h,cpp}` (sec 6.9). Where the two differ, this section
+says so.
+
+**Meaning.** A formula is a function of `time`, in seconds from the
+simulation's start. An Angular motion's formula is the joint angle in
+**radians**, a Linear motion's the slide in **mm** (OndselSolver's units
+are all 1, `OS/ASMTAssembly.cpp:1125`). `initialValue` is not part of the
+grammar: the builder replaces it with the joint's current value (radians
+or mm, printed with 10 significant digits) before parsing. A blank formula
+is the constant 0; the builder skips a motion whose formula is empty.
+
+**Lexical.** Blanks (space, tab, newline) separate tokens and are
+otherwise ignored, except between a sign and its number (below). Names are
+a letter followed by letters, digits or `_`, and are **case-sensitive**
+(`Sin`, `TIME` are errors). A number starts with a digit: digits, an
+optional `.` and digits, an optional exponent `e`/`E` [`+`/`-`] digits,
+then optionally a second, Fortran-style exponent `d` [`+`/`-`] digits that
+multiplies by 10^n (`1.5d-1` is 0.15; SymbolicParser's `xDigit`). `.5` is
+an error; write `0.5`. No unit suffixes (`deg`, `mm`).
+
+**Syntax.**
+
+    formula    := expression | (blank)
+    expression := [ '+' | '-' ] term { ( '+' | '-' ) term }
+    term       := factor { ( '*' | '/' ) factor }
+    factor     := primary [ '^' factor ]
+    primary    := number
+                | sign number          -- no blank between them
+                | 'pi' | 'time'
+                | '(' expression ')'
+                | function '(' expression { ',' expression } ')'
+
+- `^` binds tightest and is **right associative**: `2^3^2` is 2^9; `*` and
+  `/` are left associative and bind tighter than `+` and `-`.
+- **A leading sign** (of the formula, of a parenthesis, of an argument)
+  negates the whole first term: `-2^2` is -4, `-time*3` is -(time*3).
+- **A sign glued to a number** is part of the number wherever an operand
+  is expected, and so binds tighter than `^`: `2*-3`, `time/-2`, `2^-1`,
+  `1 - -2`, `1--2` are accepted, and `3*-2^2` is 3*(-2)^2 = 12. A sign
+  before anything else in operand position is an error: `2*-time`,
+  `--time`, `1 - - 2` (write `2*(-time)` or `-2*time`).
+- Constants: `pi`. There is no `e`.
+
+**Functions** (arguments in radians where it applies):
+
+| function | meaning |
+|---|---|
+| `abs(u)` | absolute value |
+| `sin(u)`, `cos(u)` | |
+| `asin(u)`, `arcsin(u)` | the same function |
+| `arctan(u)` | one argument |
+| `rampstep(x, x0, y0, x1, y1)` | y0 for x < x0, y1 for x >= x1, the straight line between; x0, y0, x1, y1 constant, x0 != x1 (`OS/RampStepFunction.cpp`) |
+| `piecewise(x, functions(f0, ..., fn), transitions(x1, ..., xn))` | the first fi with x < x(i+1), else fn (`OS/PiecewiseFunction.cpp`) |
+
+Not available, because SymbolicParser never had them: `exp`, `ln`,
+`log`, `sqrt`, `tan`, `acos`, `atan`, `atan2`, `min`, `max`, `e`. Write
+`u^0.5` for sqrt, `sin(u)/cos(u)` for tan, `2.718281828459045^(u)` for exp.
+`spline(...)` and `integral(...)` exist in SymbolicParser and are refused
+(`spline` needs its own data form; `integral` throws "To be implemented"
+for most integrands).
+
+**The help text promises `exp`.** Its "Exponential: `C*exp(time/TIMEC)`"
+example has never run: SymbolicParser has no `exp`, so the simulation
+failed inside the solver. The grammar does not add it (the Ondsel adapter
+still hands OndselSolver the text, sec 6.9); the builder now refuses it with
+"unknown function 'exp'". Fixing the example (`C*2.718281828459045^(time/TIMEC)`)
+or teaching OndselSolver `exp` is left as a decision.
+
+**Stricter than SymbolicParser, deliberately.** SymbolicParser's
+`expected()` reports nothing, so it stops at the first token it cannot use
+and keeps what it read: `2t` ran as 2, `time)` and `time(2)` as `time`,
+`2 3` as 2, `1.2.3*time` as 1.2. These are errors now ("expected an
+operator or the end of the formula"). Also refused, where SymbolicParser
+asserted, read garbage or crashed: a wrong argument count (`sin(time, 2)`),
+`rampstep` with a time-dependent or equal x0/x1, `piecewise` without one
+function more than transitions, `functions`/`transitions` anywhere but
+inside `piecewise`, `-.5` (SymbolicParser read a stale number), an
+incomplete exponent (`1e`, `2d`), and the ASMT file's `<n>` line tags.
+
+**Values.** The evaluator computes with plain IEEE arithmetic on the tree
+as parsed; OndselSolver multiplies by a reciprocal for `/` and simplifies
+the expression first, and its products skip non-finite factors. The two
+agree to 1e-12 relative on every formula of the test corpus (sec 6.9), not
+bit for bit. Derivatives with respect to `time` are exact per node; a
+piecewise formula's derivative is the piece in effect (jumps are not seen),
+as OndselSolver's `PiecewiseFunction::differentiateWRTx` has it.
 
 ### 4.7 Out of process
 
@@ -1445,6 +1540,93 @@ Suite 145 run, 1 skipped (134 + 11 new); ctest 911/911 (the two
 TransactionMeasureTest cases flaked in the parallel run and pass alone);
 Assembly gtest 11/11.
 
+### 6.9 As built: the formula evaluator (2026-10-23)
+
+Sec 7 q2, in three commits: the evaluator (`ccecaae903`), the builder's
+parse and validation (`a8ec840b7f`), and the position-solve kinematic run
+of sec 4.6 (`61edb5d599`). The grammar is sec 4.6.1.
+
+**The evaluator** (`App/Solver/Formula.{h,cpp}`, no OndselSolver header).
+`FormulaTree::parse(text, &error)` returns a shared, immutable tree, or
+null with a `FormulaError` (message, 0-based position; `describe()` says
+"... at column N"). `value(t)` and `evaluate(t)` -- the latter a
+`FormulaValue` {value, rate, acceleration}, the first and second time
+derivatives exact per node (second-order forward mode: each node combines
+its children's value and two derivatives; `u^w` takes the constant-exponent,
+constant-base and general `exp(w ln u)` forms). `dependsOnTime()`. The
+parser is recursive descent in SymbolicParser's own shape (expression /
+term / symfunction / raisedTo), which is what makes the precedence quirks
+of sec 4.6.1 (`3*-2^2` is 12) come out the same. `rampstep` is lowered at
+parse time to the piecewise form `RampStepFunction` builds. Errors name the
+token found and, for a misspelt case (`Sin`, `TIME`), the right spelling.
+
+**The model.** `Formula` keeps `text` (the record) and gains `tree`, the
+builder's parse. `sameExceptDragWeights` compares the text only. The
+builder (`makeMbdJoint`) parses each motion's formula once, after the
+`initialValue` substitution, and uses the same parse for the `Both` driver
+and the single one a cylindrical joint gets. A formula that does not parse
+is reported once per build against its motion:
+
+    Assembly: the formula of Doc#Motion is not valid: unknown function 'exp' at column 1: exp(time)
+
+and `generateSimulation` returns -1 (with its usual "Generation of
+simulation failed") before the model reaches a session. There is no
+`Diagnostics` field for it: diagnostics are per joint, and the motion is
+not one; the report view and the return code are the existing status path
+of a simulation. Static solves and drags build no drivers, so nothing
+changes for them.
+
+**The Ondsel adapter is unchanged**: it hands OndselSolver the text, which
+`runKINEMATIC` parses and evaluates itself, so every simulation result is
+what it was. The gate passes with its records untouched (no re-recording).
+
+**How the two evaluators compare** (`tests/src/Mod/Assembly/App/
+FormulaEvaluator.cpp`; the gtest links OndselSolver for this only). 77
+formulas -- every formula of `AssemblyTests` (with `initialValue`
+substituted as the builder prints it, negative and exponent forms too), the
+help text's examples with numbers for the capitals, the property's and the
+dialog's defaults, and the grammar's corners (every sign rule, every
+precedence and associativity case, every number form, every function,
+`piecewise`, `rampstep`, blank) -- are evaluated by both at 97 times in
+[0.01, 2.5]: **no disagreement** beyond 1e-12 relative. Derivatives match
+five-point finite differences to 1e-6 relative (away from the pieces'
+transitions and `abs`'s kinks). Inputs where the two differ are all
+rejections, and all intended (sec 4.6.1): SymbolicParser **accepts** `2t`,
+`2 3`, `time)`, `time(2)`, `1.2.3*time`, `3pi`, `2*time 5`, `2 $ time` by
+dropping what follows the first complete formula; the evaluator rejects
+them, and the test asserts both halves. Sixteen more errors are rejected
+by both, with the evaluator's position checked; twelve malformed calls
+(`sin(time, 2)`, a time-dependent `rampstep` bound, `spline`, `-.5`, ...)
+are rejected by the evaluator and not handed to SymbolicParser, which
+asserts or reads garbage on them.
+
+**The help text.** Its "Exponential" example (`C*exp(time/TIMEC)`) has no
+`exp` to call in either evaluator; it never ran, and now fails at the build
+with the message above instead of inside the solver. The help text is
+unchanged (it is translated); sec 4.6.1 gives the replacement.
+
+**The default kinematic run, sec 4.6** (`Solver/Backend.{h,cpp}`):
+`simulateByPositionSolves(session, model, spec, sink)`. At each output time
+`tStart + k * tOutput` it holds every driver at its formula's value (a
+constant formula printed `%.17g`, so the double survives the text), loads
+the model with the bodies at the previous frame's poses, solves, and sends
+`poses()` to the sink. It is a free function, not `Session::simulate`'s
+default body, because the base class does not keep the model; a backend
+without kinematics answers `simulate` with it. No backend does yet.
+`OndselAdapter.positionSolvesFollowTheKinematicRun` builds the gate's
+simulation (`TestSolverGateSimulation.simulation_doc`: a revolute at
+`36*time`, a slider at `5*time + initialValue`, a cylindrical at `90*time`
+and `2*sin(time)`) as a model and runs it both ways: the eleven frames agree
+to **5e-13** in position and rotation angle. One difference in shape:
+`runKINEMATIC` reports the start twice (the assembled pose, then t = 0), the
+position solves once per output time; the test drops Ondsel's first frame.
+
+Tests: Assembly gtest 20/20 (11 + 7 `FormulaEvaluator` + 2 `OndselAdapter`);
+ctest 920/920 (the two `TransactionMeasureTest` cases flaked in the
+parallel run and pass alone); the Assembly suite 146 run, 1 skipped (145 +
+`TestSolverGateSimulation.test_bad_formula_refused`: `36*time)`,
+`exp(time)` and `2*-time` give -1 and no frames, `36*time` then runs).
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a
@@ -1488,8 +1670,10 @@ Assembly gtest 11/11.
    2026-10-23 (`6a4b278213`, sec 6.6).
 2. Does the neutral layer own the formula evaluator (a small parser), or
    keep OndselSolver's `SymbolicParser` as a library for all backends?
-   Decided (user, 2026-10-22): the neutral layer owns it. Not built yet:
-   `Driver` carries the formula text, which the Ondsel adapter passes on.
+   Decided (user, 2026-10-22): the neutral layer owns it. Implemented
+   2026-10-23 (`ccecaae903`, `a8ec840b7f`, `61edb5d599`; grammar sec 4.6.1,
+   as built sec 6.9). OndselSolver still evaluates the text it is handed in
+   `runKINEMATIC`; replacing that is a separate step.
 3. The 17 Distance sub-types that fall to Planar(d): keep, map properly
    (several have exact primitives: PointCone and PointTorus are point-surface
    distances), or report unsupported?

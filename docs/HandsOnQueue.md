@@ -178,6 +178,12 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-23 09:41: entry 214 -- a CRASH on stage28: typing a fillet edge's Group
+(PrismLocker, Edge12 3 -> 1) and pressing Enter corrupts the heap; the
+edit's itemChanged rebuilds the whole list (treeWidget->clear()) under
+Qt's setData; a regression of 202; ASSIGNED to fcad-dc, first.** Under
+the entries.
+
 **2026-10-23 09:28: entry 213 -- a dress-up handle made active selects its edge (or
 its preview face if the edge is missing); a change request, relayed by
 fcad-dc; ASSIGNED to fcad-dc after its panel-width task.** Under the
@@ -4279,6 +4285,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 211 | 2026-10-21 | a FUTURE change request (relayed by fcad-dc): a LOCALIZED, PARTIAL migration recompute -- only what an edit's PREVIEW needs (e.g. a fillet's base and the feature) -- so its preview shapes are up to date without the whole document's migration recompute | OPEN, FUTURE, not assigned; 2026-10-21 18:10; from 209 (a)/(b). 2026-10-21 18:40 MEASURED by fcad-dc on the reporter's "check if it fits and at what cost" (relayed): Fillet004 depends on 31 objects, 21 touched; doc.recompute([Fillet004]) recomputed 22 objects in 0.30 s vs ~29 s for the full migration recompute (~505-527 objects); it FITS -- Document::recompute(objs) already recomputes exactly the dependencies, so an edit could run it when its feature or a dependency is touched; caveat: an error in the chain still stops it. 2026-10-22 10:56 the reporter to fcad-dc (relayed): "1, but make sure only do this for the migration case" (1 = write the results into the document); the reporter to the note-taker: "Yes" (to: should x16win build it?); BEING BUILT by fcad-dc, uncommitted (App::Document::recomputeMigration, ObjectStatus::MigrationPending, called from Gui::Document::setEdit) -- LEFT with fcad-dc by the note-taker coordinating, x16win stays idle. 2026-10-22 14:48 DONE by fcad-dc `35dc43b306`: restore marks the objects queued for the migration recompute ObjectStatus::MigrationPending; an edit recomputes the edited object and what it needs only while one of them carries the mark (the migration case only); edit-migration-recompute.py 6/6; the scanner hover probe maps 8 of 9 Fillet004 preview faces with no recompute run first (209 (a)/(b)). 2026-10-22 14:48 PUSHED by fcad-dc on the reporter's word to it (relayed: "Onece finish your current task, push"): thundereal/LinkVibe 27e32d75f1..44ab0fc6dd, with the merge of x16win's push (`00e0eee3c8`); NOT restaged. 2026-10-22 22:07 STAGED (stage28, written 22:06:26, fcad `0ede2cb6b3` not dirty, r203, FreeCADGui 15:15) by fcad-dc on the reporter's "push and restage" (relayed) |
 | 212 | 2026-10-21 | a defect found by x16win (on 206), made an entry by the note-taker coordinating: a VRML object's TEXTURES are lost -- since the blob store (`959f96893c`, 2026-07-27) the VRML file is read from TransientDir/blobs, so Coin never finds its textures beside it; Urls and Resources stay empty and a SAVE DROPS the texture | OPEN; 2026-10-21 18:20; shown by x16win's probe GUI test on the current build (parked at D:/works/sw/tools/gt/pending/vrml-resources-neutral.py); ASSIGNED to x16win: the resources written as <name>.blob and found through the Quarter image reader (which Coin calls with the raw name when its own search fails). 2026-10-22 09:20 FIXED by x16win `27e32d75f1`: three breaks -- since the blob store the VRML file is read from TransientDir/blobs (no texture beside it); restore had registered resources under names no archive entry has and Urls.setSize() rewrote the saved Resources (broken before the blob store too -- the FreeCAD-Link-Tip 20251015 release cannot read back its own VRML file); under 206 a restored texture needs a neutral name; textures now <transient>/<Obj>/<path>.blob, each texture URL pointed at its stored file by full path; an old file (data/tests/VrmlTexturesByFork2025.FCStd, made in the 20251015 release) opens with its texture and saves it back byte for byte; vrml-resources-neutral.py 29/29 on screen, the App suites green. 2026-10-22 09:20 PUSHED by x16win on the reporter's word to it (relayed): thundereal/LinkVibe f1bf17a7e8..27e32d75f1; NOT restaged. 2026-10-22 22:07 STAGED (stage28, written 22:06:26, fcad `0ede2cb6b3` not dirty, r203, FreeCADGui 15:15) by fcad-dc on the reporter's "push and restage" (relayed) |
 | 213 | 2026-10-23 | a change request (relayed by fcad-dc, "hands the pending request to 'notes' session"): in a DRESS-UP feature's edit, when a handle is made ACTIVE (selected), SELECT the CORRESPONDING EDGE -- or its PREVIEW FACE when the edge is missing | OPEN; 2026-10-23 09:28; ASSIGNED to fcad-dc (PD task panels and the handles, its area; it is in TaskDressUpParameters/TaskFilletParameters for the reporter's panel-width request now), AFTER its current task. 2026-10-23 09:32 the reporter (to the note-taker): "no just select the corresponding edge, as the right click context menu is meant to apply to that edge which may change its mode" -- ONE edge, the one the handle belongs to, NOT every edge a shared handle moves; the reason: the right-click menu then acts on that edge (e.g. changing its mode); passed on to fcad-dc. 2026-10-23 09:35 the reporter: today hovering a handle highlights ALL handles of its GROUP and selecting shows the selection highlight on all; if 213 makes ONLY that one handle highlighted, that is ACCEPTABLE (allowed, not asked for); passed on to fcad-dc |
+| 214 | 2026-10-23 | A CRASH on stage28 (heap corruption, c0000374, held by cdb): in PrismLocker's fillet edit, Edge12's Group typed from 3 to 1 and Enter pressed -- the edited row is deleted while Qt is still setting its data (FilletSegmentDelegate::setModelData -> itemChanged -> updateSegment -> setEdgeGroup -> refresh() -> populateGeometryReferences -> treeWidget->clear()) | OPEN; 2026-10-23 09:41; the stack READ by the note-taker on the reporter's word through a cdb client; a regression of 202 (`8b4b49a405`, the typed Group column); ASSIGNED to fcad-dc (PD task panels), FIRST, before 213 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -29509,6 +29516,55 @@ NOT said: whether the hover should change too (read as: no change asked;
 the hover may keep its group highlight, or follow the selection to one
 handle, whichever the one-edge selection gives). Passed on to fcad-dc.
 
+## 214. Stage28: typing an edge's fillet Group and pressing Enter corrupts the heap (a crash, a regression of 202) -- OPEN
+
+**2026-10-23 09:41, the reporter (to the note-taker):** "check my live session cdb,
+there is a crash. I opened scanner document, did the migration
+recompute, and is editing PrsimLocker. I am changing Edge12 from Group 3
+to 1. the crash happen when press enter in group edit box."
+The note-taker's read, on the reporter's word: the staged copy runs
+under cdb (pid 137784, -server tcp:port=9311, log
+D:/works/sw/tools/dbg/cdb_fcad_user.log, arm file
+D:/works/sw/tools/fcad-user-arm.cdb). The log ends "Critical error
+detected c0000374" and a break in ntdll!RtlReportCriticalFailure at
+09:34:18 -- heap corruption, not an access violation, so the arm file's
+first-chance handler took no stack and no dump. A cdb client
+(-remote, commands from a file, .remote_exit, a 90 s bound; it ran
+.lastevent and kv 90 only, nothing that resumes) read the stack:
+  ntdll!RtlFreeHeap <- ucrtbase!_free_base
+  <- Qt6Widgets (export names only: "QTreeWidgetItem::setData+0x7c8",
+     "QTreeWidget::setCurrentItem+0xeb" -- the item's and the model's
+     setData, most likely)
+  <- PartDesignGui!FilletSegmentDelegate::setModelData
+     (TaskFilletParameters.cpp line 164)
+  <- QAbstractItemView::commitData <- the delegate's commitData signal
+  (Enter in the editor) <- the event loop.
+Cause (read in the staged source, 0ede2cb6b3): line 164 is
+`model->setData(index, groupBox->value(), Qt::UserRole)`; the tree's
+itemChanged reaches TaskFilletParameters::updateSegment, which for the
+Group column calls setEdgeGroup(edge, 1); that ends in refresh() ->
+TaskDressUpParameters::populate(true) ->
+PartDesignGui::populateGeometryReferences, whose first line is
+`treeWidget->clear()`. Every row is deleted and made again while Qt is
+still inside the deleted row's setData, and the item view still holds
+the editor and index for it: Qt then writes to and frees the deleted
+row's memory -- the heap corruption at the free. Line 163's DisplayRole
+setData emits itemChanged too, with the old group still in UserRole.
+A regression of 202: the typed Group column came with `8b4b49a405`
+(2026-10-21). The other columns' edits (updateSegment for columns 1-3)
+change the item in place and do not call refresh(); setEdgeGroup is the
+one path that rebuilds the list from inside the edit.
+The reporter's FreeCAD stays stopped at the break; its heap is
+corrupt, so nothing in it can be saved safely; ending it is the
+reporter's.
+COORDINATION: ASSIGNED to fcad-dc (PD task panels, its area; its open
+work is in this same file), FIRST -- before 213. The shape the
+note-taker suggests, not an order: the rebuild after a group change
+deferred out of the edit (queued to the event loop), or setEdgeGroup
+updating the rows in place; a GUI test that types a Group and presses
+Enter on a scanner COPY (PrismLocker, Edge12 3 -> 1), under the debug
+heap or page heap if it does not crash plainly.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -29520,5 +29576,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 213
+the build session, 131 and 132 found by it; entries 134 to 214
 are of 2026-10-15, 134 said to the build session)

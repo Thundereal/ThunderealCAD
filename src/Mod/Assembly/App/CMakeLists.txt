@@ -66,6 +66,8 @@ SET(Solver_SRCS
     Solver/Backend.h
     Solver/Formula.cpp
     Solver/Formula.h
+    Solver/JointEquations.cpp
+    Solver/JointEquations.h
     Solver/Model.h
     Solver/Model.cpp
     Solver/OndselBackend.cpp

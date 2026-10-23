@@ -27,7 +27,8 @@
 // rotation vector applied on the left of the body's quaternion, which is
 // renormalised after every step. No Euler angles, so no singularity.
 //
-// Equations: one function per JointKind below, each equation written from the
+// Equations: the neutral layer's (JointEquations.h, shared with the Chrono
+// backend), one function per JointKind, each equation written from the
 // frames' global origins and axes, in the form OndselSolver uses for it (the
 // same direction cosines, the same squared xy distance, the same angle
 // conventions for couplers), so that the rank of the Jacobian -- and with it
@@ -67,26 +68,23 @@
 
 #include <Base/Console.h>
 
+#include "JointEquations.h"
 #include "ReferenceBackend.h"
 
 using namespace Assembly::Solver;
 
-using Category = Reference::EquationInfo::Category;
 using Owner = Reference::EquationInfo::Owner;
 
 namespace
 {
 
-using Vec3 = Eigen::Vector3d;
-using Mat3 = Eigen::Matrix3d;
-using Row6 = Eigen::Matrix<double, 1, 6>;
-using Mat36 = Eigen::Matrix<double, 3, 6>;
+// The equations, their gradients and the angle conventions are the neutral
+// layer's (JointEquations.h), shared with the Chrono backend's NeutralLink.
+using namespace Assembly::Solver::Equations;
+
 using Quat = Eigen::Quaterniond;
 using VecX = Eigen::VectorXd;
 using MatX = Eigen::MatrixXd;
-
-constexpr double pi = std::numbers::pi;
-constexpr double twoPi = 2.0 * std::numbers::pi;
 
 // A dependent equation still unsatisfied after the solve by more than this is
 // a conflict (OndselSession's conflictResidualTolerance).
@@ -95,36 +93,9 @@ constexpr double conflictTolerance = 1.0e-6;
 // the span of the equations before it is below this, relative to the
 // gradient's norm (at least 1).
 constexpr double rankTolerance = 1.0e-8;
-// Within a gear joint's coaxial test (OndselSolver's GearJoint).
-constexpr double coaxialTolerance = 1.0e-9;
 // The metric of a rotation against a translation: Euler parameters move by
 // half the angle.
 constexpr double rotationWeight = 0.25;
-
-Mat3 skew(const Vec3& v)
-{
-    Mat3 m;
-    m << 0.0, -v.z(), v.y(), v.z(), 0.0, -v.x(), -v.y(), v.x(), 0.0;
-    return m;
-}
-
-double wrapAngle(double a)
-{
-    // To (-pi, pi].
-    a = std::remainder(a, twoPi);
-    return a <= -pi ? a + twoPi : a;
-}
-
-// OndselSolver's first reading of an angle: atan2 when the cosine is
-// positive, else the angle in [0, 2 pi) (AngleZIecJec / OrbitAngleZIecJec
-// postInput). It decides where a rotation limit's angle starts counting.
-double initialAngle(double s, double c)
-{
-    if (c > 0.0) {
-        return std::atan2(s, c);
-    }
-    return s >= 0.0 ? std::atan2(s, c) : twoPi + std::atan2(s, c);
-}
 
 struct Pose
 {
@@ -185,244 +156,15 @@ Vec3 logRotation(Quat q)
     return v / s * (2.0 * std::atan2(s, q.w()));
 }
 
-// ---------------------------------------------------------------- derivatives
-
-// d(scalar) / d(dx, dtheta) for the bodies it depends on (at most three: a
-// coaxial gear's I, J and carrier K).
-struct Grad
-{
-    std::array<int, 3> body {-1, -1, -1};
-    std::array<Row6, 3> g;
-    int n = 0;
-
-    void add(int b, const Row6& v)
-    {
-        if (b < 0) {
-            return;
-        }
-        for (int i = 0; i < n; ++i) {
-            if (body[i] == b) {
-                g[i] += v;
-                return;
-            }
-        }
-        if (n == 3) {
-            throw std::logic_error("an equation on more than three bodies");
-        }
-        body[n] = b;
-        g[n] = v;
-        ++n;
-    }
-    void addScaled(const Grad& o, double k)
-    {
-        for (int i = 0; i < o.n; ++i) {
-            add(o.body[i], o.g[i] * k);
-        }
-    }
-};
-
-// d(vector) / d(dx, dtheta), for at most two bodies (a difference of origins).
-struct VGrad
-{
-    std::array<int, 2> body {-1, -1};
-    std::array<Mat36, 2> g;
-    int n = 0;
-
-    void add(int b, const Mat36& v)
-    {
-        if (b < 0) {
-            return;
-        }
-        for (int i = 0; i < n; ++i) {
-            if (body[i] == b) {
-                g[i] += v;
-                return;
-            }
-        }
-        if (n == 2) {
-            throw std::logic_error("a vector on more than two bodies");
-        }
-        body[n] = b;
-        g[n] = v;
-        ++n;
-    }
-};
-
-struct S
-{
-    double v = 0.0;
-    Grad g;
-};
-
-struct V
-{
-    Vec3 v = Vec3::Zero();
-    VGrad g;
-};
-
-S constant(double value)
-{
-    S s;
-    s.v = value;
-    return s;
-}
-
-S operator+(S a, const S& b)
-{
-    a.v += b.v;
-    a.g.addScaled(b.g, 1.0);
-    return a;
-}
-
-S operator-(S a, const S& b)
-{
-    a.v -= b.v;
-    a.g.addScaled(b.g, -1.0);
-    return a;
-}
-
-S operator*(double k, const S& a)
-{
-    S r;
-    r.v = k * a.v;
-    r.g.addScaled(a.g, k);
-    return r;
-}
-
-S operator*(const S& a, const S& b)
-{
-    S r;
-    r.v = a.v * b.v;
-    r.g.addScaled(a.g, b.v);
-    r.g.addScaled(b.g, a.v);
-    return r;
-}
-
-V operator-(const V& a, const V& b)
-{
-    V r;
-    r.v = a.v - b.v;
-    for (int i = 0; i < a.g.n; ++i) {
-        r.g.add(a.g.body[i], a.g.g[i]);
-    }
-    for (int i = 0; i < b.g.n; ++i) {
-        r.g.add(b.g.body[i], -b.g.g[i]);
-    }
-    return r;
-}
-
-S dot(const V& a, const V& b)
-{
-    S r;
-    r.v = a.v.dot(b.v);
-    for (int i = 0; i < a.g.n; ++i) {
-        r.g.add(a.g.body[i], b.v.transpose() * a.g.g[i]);
-    }
-    for (int i = 0; i < b.g.n; ++i) {
-        r.g.add(b.g.body[i], a.v.transpose() * b.g.g[i]);
-    }
-    return r;
-}
-
-// The component of a along a constant direction.
-S dot(const V& a, const Vec3& u)
-{
-    S r;
-    r.v = a.v.dot(u);
-    for (int i = 0; i < a.g.n; ++i) {
-        r.g.add(a.g.body[i], u.transpose() * a.g.g[i]);
-    }
-    return r;
-}
-
-S norm(const V& a)
-{
-    S r;
-    r.v = a.v.norm();
-    if (r.v > 1e-300) {
-        const Vec3 u = a.v / r.v;
-        for (int i = 0; i < a.g.n; ++i) {
-            r.g.add(a.g.body[i], u.transpose() * a.g.g[i]);
-        }
-    }
-    // At 0 the distance has no gradient (a cone's tip); OndselSolver's has none
-    // either.
-    return r;
-}
-
-// atan2(y, x) and its derivative; the value is atan2's, the caller unwraps.
-S angle(const S& y, const S& x)
-{
-    S r;
-    r.v = std::atan2(y.v, x.v);
-    const double d = x.v * x.v + y.v * y.v;
-    if (d > 1e-300) {
-        r.g.addScaled(y.g, x.v / d);
-        r.g.addScaled(x.g, -y.v / d);
-    }
-    return r;
-}
-
-// A frame's global state at some body poses.
-struct FrameState
-{
-    int body = -1;  // -1: on the ground
-    Vec3 o = Vec3::Zero();  // origin
-    Vec3 base = Vec3::Zero();  // the body's position (o - base is the lever arm)
-    Mat3 A = Mat3::Identity();  // axes as columns
-};
-
-V origin(const FrameState& f)
-{
-    V r;
-    r.v = f.o;
-    if (f.body >= 0) {
-        Mat36 g;
-        g.leftCols<3>() = Mat3::Identity();
-        g.rightCols<3>() = -skew(f.o - f.base);
-        r.g.add(f.body, g);
-    }
-    return r;
-}
-
-V axis(const FrameState& f, int k)
-{
-    V r;
-    r.v = f.A.col(k);
-    if (f.body >= 0) {
-        Mat36 g;
-        g.leftCols<3>().setZero();
-        g.rightCols<3>() = -skew(r.v);
-        r.g.add(f.body, g);
-    }
-    return r;
-}
-
 // ---------------------------------------------------------------- equations
 
-struct Row
+// An equation (its raw residual, natural error and category) and its owner.
+struct Row: Equation
 {
-    S s;  // the raw residual, as the solver drives it to zero
-    double natural = 0.0;  // the error in natural units (the checker's)
-    Category category = Category::Essential;
     Owner owner = Owner::Joint;
     Id id = NoId;
     int bound = -1;  // a limit's bound: 2 * limit + (0 min, 1 max)
 };
-
-int jointAngleSlots(JointKind kind)
-{
-    switch (kind) {
-        case JointKind::Gear:
-        case JointKind::CoaxialGear:
-            return 2;
-        case JointKind::RackPinion:
-        case JointKind::Screw:
-            return 1;
-        default:
-            return 0;
-    }
-}
 
 // The equations of a model at some body poses. Holds what a session keeps
 // between evaluations: the frames' local placements, each coupler's constant
@@ -471,10 +213,17 @@ public:
                 }
             }
             if (jointAngleSlots(joint.kind) > 0) {
-                auto raw = rawCouplerAngles(joint, start);
-                for (int k = 0; k < 2; ++k) {
-                    angles.joint[joint.id][k] = initialAngle(raw[k].first, raw[k].second);
+                const FrameState fi = frameState(joint.frameI, start);
+                const FrameState fj = frameState(joint.frameJ, start);
+                FrameState fk;
+                const bool carrier = valid(joint.frameK);
+                if (carrier) {
+                    fk = frameState(joint.frameK, start);
                 }
+                const JointState state =
+                    startState(joint, coaxial[joint.id], fi, fj, carrier ? &fk : nullptr);
+                angles.joint[joint.id] = state.angles;
+                constants[joint.id] = state.constant;
             }
         }
         for (const auto& limit : m.limits) {
@@ -484,17 +233,6 @@ public:
             }
         }
         alignDrivers(start);
-        std::vector<Row> rows;
-        Angles measured = angles;
-        for (const auto& joint : m.joints) {
-            if (jointAngleSlots(joint.kind) > 0 && valid(joint.frameI) && valid(joint.frameJ)) {
-                rows.clear();
-                jointRows(joint, start, rows, measured, true);
-                if (!rows.empty()) {
-                    constants[joint.id] = rows.front().s.v;
-                }
-            }
-        }
     }
 
     // The bodies the Ground records pin are not variables: each is put where
@@ -578,19 +316,17 @@ public:
     {
         rows.clear();
         measured = angles;
+        std::vector<Equation> scratch;
         for (const auto& ground : model->grounds) {
             if (!valid(ground.frameI) || !valid(ground.frameJ)) {
                 continue;
             }
-            const std::size_t first = rows.size();
-            fixedRows(frameState(ground.frameI, poses), frameState(ground.frameJ, poses), rows);
-            for (std::size_t i = first; i < rows.size(); ++i) {
-                rows[i].owner = Owner::Ground;
-                rows[i].id = ground.id;
-            }
+            scratch.clear();
+            fixedRows(frameState(ground.frameI, poses), frameState(ground.frameJ, poses), scratch);
+            append(rows, scratch, Owner::Ground, ground.id);
         }
         for (const auto& joint : model->joints) {
-            jointRows(joint, poses, rows, measured, false);
+            jointRows(joint, poses, rows, measured, scratch);
         }
         for (const auto& driver : model->drivers) {
             driverRows(driver, poses, rows, measured);
@@ -687,278 +423,69 @@ public:
     std::string error;
 
 private:
-    static double unwrap(double raw, double reference)
-    {
-        return reference + wrapAngle(raw - reference);
-    }
-
-    static bool framesAreCoaxial(const FrameState& fi, const FrameState& fj)
-    {
-        const Vec3 zi = fi.A.col(2);
-        const Vec3 zj = fj.A.col(2);
-        if (1.0 - std::abs(zi.dot(zj)) > coaxialTolerance) {
-            return false;
-        }
-        return (fj.o - fi.o).cross(zi).norm() <= coaxialTolerance;
-    }
-
-    // thez(I, J): the angle of xJ about zI, measured from xI (AngleZIeJe).
-    static S angleZ(const FrameState& fi, const FrameState& fj)
-    {
-        const V xj = axis(fj, 0);
-        return angle(dot(axis(fi, 1), xj), dot(axis(fi, 0), xj));
-    }
-
-    // The orbit of J's origin about I's z (OrbitAngleZIeJe).
-    static S orbit(const FrameState& fi, const FrameState& fj)
-    {
-        const V r = origin(fj) - origin(fi);
-        return angle(dot(r, axis(fi, 1)), dot(r, axis(fi, 0)));
-    }
-
     std::pair<double, double> rawAngleZ(Id i, Id j, const std::vector<Pose>& poses) const
     {
-        FrameState fi = frameState(i, poses);
-        FrameState fj = frameState(j, poses);
-        const Vec3 xj = fj.A.col(0);
-        return {fi.A.col(1).dot(xj), fi.A.col(0).dot(xj)};
+        return Equations::rawAngleZ(frameState(i, poses), frameState(j, poses));
     }
 
-    std::pair<double, double> rawOrbit(Id i, Id j, const std::vector<Pose>& poses) const
-    {
-        FrameState fi = frameState(i, poses);
-        FrameState fj = frameState(j, poses);
-        const Vec3 r = fj.o - fi.o;
-        return {r.dot(fi.A.col(1)), r.dot(fi.A.col(0))};
-    }
-
-    // The (sin, cos) of each angle a coupler measures, in its slot order.
-    std::array<std::pair<double, double>, 2>
-    rawCouplerAngles(const Joint& joint, const std::vector<Pose>& poses) const
-    {
-        std::array<std::pair<double, double>, 2> raw {};
-        switch (joint.kind) {
-            case JointKind::Gear:
-            case JointKind::CoaxialGear:
-                if (coaxial[joint.id]) {
-                    if (valid(joint.frameK)) {
-                        raw[0] = rawAngleZ(joint.frameK, joint.frameI, poses);
-                        raw[1] = rawAngleZ(joint.frameK, joint.frameJ, poses);
-                    }
-                }
-                else {
-                    raw[0] = rawOrbit(joint.frameI, joint.frameJ, poses);
-                    raw[1] = rawOrbit(joint.frameJ, joint.frameI, poses);
-                }
-                break;
-            case JointKind::RackPinion:
-            case JointKind::Screw:
-                raw[0] = rawAngleZ(joint.frameI, joint.frameJ, poses);
-                break;
-            default:
-                break;
-        }
-        return raw;
-    }
-
-    static void push(std::vector<Row>& rows, const S& s, Category category, double natural)
+    static void push(std::vector<Row>& rows, const S& s, Category category)
     {
         Row row;
         row.s = s;
-        row.natural = natural;
+        row.natural = s.v;
         row.category = category;
         rows.push_back(row);
     }
-    static void push(std::vector<Row>& rows, const S& s, Category category)
-    {
-        push(rows, s, category, s.v);
-    }
 
-    // Origins coincide, as OndselSolver's AtPoint: three global components.
-    static void atPointRows(const FrameState& fi, const FrameState& fj, std::vector<Row>& rows)
+    // The equations, owned.
+    static void
+    append(std::vector<Row>& rows, const std::vector<Equation>& equations, Owner owner, Id id)
     {
-        const V r = origin(fj) - origin(fi);
-        for (int k = 0; k < 3; ++k) {
-            push(rows, dot(r, Vec3::Unit(k)), Category::Displacement);
+        for (const auto& equation : equations) {
+            Row row;
+            static_cast<Equation&>(row) = equation;
+            row.owner = owner;
+            row.id = id;
+            rows.push_back(row);
         }
     }
 
-    // OndselSolver's InLine: oJ on I's z axis (its x and y in I's frame).
-    static void inLineRows(const FrameState& fi, const FrameState& fj, std::vector<Row>& rows)
-    {
-        const V r = origin(fj) - origin(fi);
-        push(rows, dot(r, axis(fi, 0)), Category::Displacement);
-        push(rows, dot(r, axis(fi, 1)), Category::Displacement);
-    }
-
-    // OndselSolver's InPlane: oJ at 'offset' along I's z.
-    static void
-    inPlaneRow(const FrameState& fi, const FrameState& fj, double offset, std::vector<Row>& rows)
-    {
-        const V r = origin(fj) - origin(fi);
-        push(rows, dot(r, axis(fi, 2)) - constant(offset), Category::Displacement);
-    }
-
-    // A direction cosine: axis a of I against axis b of J, less a constant.
-    static void cosineRow(
-        const FrameState& fi,
-        int a,
-        const FrameState& fj,
-        int b,
-        double c,
-        std::vector<Row>& rows
-    )
-    {
-        push(rows, dot(axis(fi, a), axis(fj, b)) - constant(c), Category::Perpendicular);
-    }
-
-    static void parallelRows(const FrameState& fi, const FrameState& fj, std::vector<Row>& rows)
-    {
-        cosineRow(fi, 2, fj, 0, 0.0, rows);
-        cosineRow(fi, 2, fj, 1, 0.0, rows);
-    }
-
-    static void fixedRows(const FrameState& fi, const FrameState& fj, std::vector<Row>& rows)
-    {
-        atPointRows(fi, fj, rows);
-        cosineRow(fi, 1, fj, 0, 0.0, rows);
-        cosineRow(fi, 2, fj, 0, 0.0, rows);
-        cosineRow(fi, 2, fj, 1, 0.0, rows);
-    }
-
-    // x^2 + y^2 - d^2 of oJ in I's frame (DistancexyConstraintIJ); the
-    // natural error is the distance's.
-    static void
-    distanceXYRow(const FrameState& fi, const FrameState& fj, double d, std::vector<Row>& rows)
-    {
-        const V r = origin(fj) - origin(fi);
-        const S x = dot(r, axis(fi, 0));
-        const S y = dot(r, axis(fi, 1));
-        const S s = x * x + y * y - constant(d * d);
-        push(rows, s, Category::Displacement, std::sqrt(x.v * x.v + y.v * y.v) - std::abs(d));
-    }
-
+    // The joint's equations (JointEquations.h), with this system's constant
+    // and angles for it.
     void jointRows(
         const Joint& joint,
         const std::vector<Pose>& poses,
         std::vector<Row>& rows,
         Angles& measured,
-        bool raw
+        std::vector<Equation>& scratch
     ) const
     {
         if (!valid(joint.frameI) || !valid(joint.frameJ)) {
             return;
         }
-        const std::size_t first = rows.size();
         const FrameState fi = frameState(joint.frameI, poses);
         const FrameState fj = frameState(joint.frameJ, poses);
-        switch (joint.kind) {
-            case JointKind::Fixed:
-                fixedRows(fi, fj, rows);
-                break;
-            case JointKind::Revolute:
-                atPointRows(fi, fj, rows);
-                parallelRows(fi, fj, rows);
-                break;
-            case JointKind::Cylindrical:
-                inLineRows(fi, fj, rows);
-                parallelRows(fi, fj, rows);
-                break;
-            case JointKind::Prismatic:
-                inLineRows(fi, fj, rows);
-                cosineRow(fi, 1, fj, 0, 0.0, rows);
-                parallelRows(fi, fj, rows);
-                break;
-            case JointKind::Spherical:
-                atPointRows(fi, fj, rows);
-                break;
-            case JointKind::Planar:
-                inPlaneRow(fi, fj, joint.value, rows);
-                parallelRows(fi, fj, rows);
-                break;
-            case JointKind::ParallelZ:
-                parallelRows(fi, fj, rows);
-                break;
-            case JointKind::PerpendicularZ:
-                cosineRow(fi, 2, fj, 2, 0.0, rows);
-                break;
-            case JointKind::AngleZ:
-                cosineRow(fi, 2, fj, 2, std::cos(joint.value), rows);
-                break;
-            case JointKind::PointInPlane:
-                inPlaneRow(fi, fj, joint.value, rows);
-                break;
-            case JointKind::LineInPlane:
-                inPlaneRow(fi, fj, joint.value, rows);
-                cosineRow(fi, 2, fj, 2, 0.0, rows);
-                break;
-            case JointKind::PointOnLine:
-                inLineRows(fi, fj, rows);
-                break;
-            case JointKind::PointPointDistance: {
-                const S s = norm(origin(fj) - origin(fi)) - constant(joint.value);
-                push(rows, s, Category::Displacement);
-                break;
-            }
-            case JointKind::PointLineDistance:
-                distanceXYRow(fi, fj, joint.value, rows);
-                break;
-            case JointKind::LineLineDistance:
-                distanceXYRow(fi, fj, joint.value, rows);
-                parallelRows(fi, fj, rows);
-                break;
-            case JointKind::Gear:
-            case JointKind::CoaxialGear: {
-                if (joint.value2 == 0.0) {
-                    break;
-                }
-                const double ratio = joint.value / joint.value2;
-                S a0, a1;
-                if (coaxial[joint.id]) {
-                    if (!valid(joint.frameK)) {
-                        break;
-                    }
-                    const FrameState fk = frameState(joint.frameK, poses);
-                    a0 = angleZ(fk, fi);  // angleKI
-                    a1 = angleZ(fk, fj);  // angleKJ
-                }
-                else {
-                    a0 = orbit(fi, fj);  // orbitIeJe
-                    a1 = orbit(fj, fi);  // orbitJeIe
-                }
-                a0.v = unwrap(a0.v, angles.joint[joint.id][0]);
-                a1.v = unwrap(a1.v, angles.joint[joint.id][1]);
-                measured.joint[joint.id] = {a0.v, a1.v};
-                const S s = a1 + ratio * a0 - constant(raw ? 0.0 : constants[joint.id]);
-                push(rows, s, Category::Essential);
-                break;
-            }
-            case JointKind::RackPinion: {
-                S thez = angleZ(fi, fj);
-                thez.v = unwrap(thez.v, angles.joint[joint.id][0]);
-                measured.joint[joint.id][0] = thez.v;
-                const S x = dot(origin(fj) - origin(fi), axis(fi, 0));
-                const S s = x + joint.value * thez - constant(raw ? 0.0 : constants[joint.id]);
-                push(rows, s, Category::Essential);
-                break;
-            }
-            case JointKind::Screw: {
-                S thez = angleZ(fi, fj);
-                thez.v = unwrap(thez.v, angles.joint[joint.id][0]);
-                measured.joint[joint.id][0] = thez.v;
-                const S z = dot(origin(fj) - origin(fi), axis(fi, 2));
-                const S s = twoPi * z - joint.value * thez
-                    - constant(raw ? 0.0 : constants[joint.id]);
-                push(rows, s, Category::Essential, s.v / twoPi);
-                break;
-            }
-            case JointKind::Count_:
-                break;
+        FrameState fk;
+        const bool carrier = valid(joint.frameK);
+        if (carrier) {
+            fk = frameState(joint.frameK, poses);
         }
-        for (std::size_t i = first; i < rows.size(); ++i) {
-            rows[i].owner = Owner::Joint;
-            rows[i].id = joint.id;
-        }
+        JointState state;
+        state.coaxial = coaxial[joint.id] != 0;
+        state.constant = constants[joint.id];
+        state.angles = angles.joint[joint.id];
+        scratch.clear();
+        Equations::jointRows(
+            joint,
+            fi,
+            fj,
+            carrier ? &fk : nullptr,
+            state,
+            false,
+            scratch,
+            measured.joint[joint.id]
+        );
+        append(rows, scratch, Owner::Joint, joint.id);
     }
 
     // A driver held at its formula's value at 'time' (a static solve: time 0).
@@ -2046,7 +1573,7 @@ std::vector<Reference::EquationInfo> ReferenceSession::equations() const
         Reference::EquationInfo info;
         info.owner = rows[i].owner;
         info.id = rows[i].id;
-        info.category = rows[i].category;
+        info.category = static_cast<Reference::EquationInfo::Category>(rows[i].category);
         info.value = rows[i].s.v;
         info.independent = independent[i] != 0;
         out.push_back(info);

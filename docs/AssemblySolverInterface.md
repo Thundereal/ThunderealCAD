@@ -442,8 +442,9 @@ struct Limit {
 };
 
 // A formula of time in a grammar the neutral layer owns and can evaluate
-// (as built: sec 4.6.1 -- SymbolicParser's set, without tan, acos, exp, ln,
-// log, sqrt). 'initialValue' is substituted before it gets here.
+// (as built: sec 4.6.1 -- SymbolicParser's set, with tan, exp, ln and sqrt
+// since sec 6.10; without acos, log). 'initialValue' is substituted before it
+// gets here.
 struct Formula { std::string text; };
 enum class DriverKind : std::uint8_t { RotationZ, TranslationZ, Both };
 struct Driver {
@@ -768,22 +769,35 @@ an error; write `0.5`. No unit suffixes (`deg`, `mm`).
 | `sin(u)`, `cos(u)` | |
 | `asin(u)`, `arcsin(u)` | the same function |
 | `arctan(u)` | one argument |
+| `tan(u)` | |
+| `exp(u)` | e^u |
+| `ln(u)` | natural logarithm |
+| `sqrt(u)` | square root |
 | `rampstep(x, x0, y0, x1, y1)` | y0 for x < x0, y1 for x >= x1, the straight line between; x0, y0, x1, y1 constant, x0 != x1 (`OS/RampStepFunction.cpp`) |
 | `piecewise(x, functions(f0, ..., fn), transitions(x1, ..., xn))` | the first fi with x < x(i+1), else fn (`OS/PiecewiseFunction.cpp`) |
 
-Not available, because SymbolicParser never had them: `exp`, `ln`,
-`log`, `sqrt`, `tan`, `acos`, `atan`, `atan2`, `min`, `max`, `e`. Write
-`u^0.5` for sqrt, `sin(u)/cos(u)` for tan, `2.718281828459045^(u)` for exp.
-`spline(...)` and `integral(...)` exist in SymbolicParser and are refused
-(`spline` needs its own data form; `integral` throws "To be implemented"
-for most integrands).
+`tan`, `exp`, `ln` and `sqrt` were added to both evaluators on
+2026-10-23 (user's decision; sec 6.10). Not available: `log`, `acos`,
+`atan`, `atan2`, `min`, `max`, `e` (write `exp(1)`). `spline(...)` and
+`integral(...)` exist in SymbolicParser and are refused (`spline` needs its
+own data form; `integral` throws "To be implemented" for most integrands).
 
-**The help text promises `exp`.** Its "Exponential: `C*exp(time/TIMEC)`"
-example has never run: SymbolicParser has no `exp`, so the simulation
-failed inside the solver. The grammar does not add it (the Ondsel adapter
-still hands OndselSolver the text, sec 6.9); the builder now refuses it with
-"unknown function 'exp'". Fixing the example (`C*2.718281828459045^(time/TIMEC)`)
-or teaching OndselSolver `exp` is left as a decision.
+**The help text's `exp`.** Its "Exponential: `C*exp(time/TIMEC)`" example
+never ran before sec 6.10 (SymbolicParser had no `exp`; the builder then
+refused it with "unknown function 'exp'"). It runs now, unchanged.
+
+**Outside a function's domain** -- `ln` of a number <= 0, `sqrt` of a
+negative, `asin` beyond +-1, `tan` at an odd multiple of pi/2, a division by
+0 -- the formula is still valid: the grammar is about text, and a domain
+depends on `time`. The evaluator gives what IEEE arithmetic gives (NaN, or
+an infinity: `ln(0)` is -inf, the rate of `sqrt` at 0 is +inf), the way it
+always did for `asin(2)` and `1/0`; it has no evaluation errors. The
+position-solve kinematic run (sec 4.6) stops with `Failed` at the first
+output time where a driver's value is not finite. OndselSolver's functions
+give the same NaN alone, but its products drop a non-finite factor (sec
+6.10), so `2*ln(time - 1)` is 2 there at t = 0.5 and NaN here; what its
+`runKINEMATIC` does with a non-finite driver is not specified by the
+grammar (sec 6.10 says what was seen).
 
 **Stricter than SymbolicParser, deliberately.** SymbolicParser's
 `expected()` reports nothing, so it stops at the first token it cannot use
@@ -1600,10 +1614,11 @@ by both, with the evaluator's position checked; twelve malformed calls
 are rejected by the evaluator and not handed to SymbolicParser, which
 asserts or reads garbage on them.
 
-**The help text.** Its "Exponential" example (`C*exp(time/TIMEC)`) has no
-`exp` to call in either evaluator; it never ran, and now fails at the build
-with the message above instead of inside the solver. The help text is
-unchanged (it is translated); sec 4.6.1 gives the replacement.
+**The help text.** Its "Exponential" example (`C*exp(time/TIMEC)`) had no
+`exp` to call in either evaluator; it never ran, and failed at the build
+with the message above instead of inside the solver. Since sec 6.10 both
+evaluators have `exp`, and it runs; the help text is unchanged (it is
+translated, and now correct).
 
 **The default kinematic run, sec 4.6** (`Solver/Backend.{h,cpp}`):
 `simulateByPositionSolves(session, model, spec, sink)`. At each output time
@@ -1626,6 +1641,75 @@ ctest 920/920 (the two `TransactionMeasureTest` cases flaked in the
 parallel run and pass alone); the Assembly suite 146 run, 1 skipped (145 +
 `TestSolverGateSimulation.test_bad_formula_refused`: `36*time)`,
 `exp(time)` and `2*-time` give -1 and no frames, `36*time` then runs).
+
+### 6.10 As built: tan, exp, ln, sqrt (2026-10-23)
+
+The user's decision: the grammar gains `tan`, `exp`, `ln` and `sqrt`
+(sec 4.6.1), in both evaluators, so the help text's Exponential example
+runs as written.
+
+**OndselSolver** (submodule `61fa24e`, branch `LinkVibe`).
+`SymbolicParser::intrinsic()` maps the four names. `Exponential` and `Ln`
+existed and were reused, both unfinished: `Exponential::getValue()`
+returned `log(x)`, and neither had a derivative. `Sqrt` and `Tan` are new,
+in the style of `Sine`/`Cosine`. `Reciprocal`'s derivative was `-(x^2)`
+instead of `-1/x^2`; fixed, since `ln'` and `sqrt'` go through it (it also
+corrected the velocity and acceleration of every motion that divides by
+something time-dependent; positions never used it).
+
+**The evaluator** (`Formula.cpp`): `Op::Tan`, `Exp`, `Ln`, `Sqrt`, with
+exact first and second derivatives. `ln` and `sqrt` of a constant argument
+have rate 0 (not NaN times 0). `simulateByPositionSolves` now returns
+`Failed` at an output time where a driver's value is not finite, instead of
+printing `nan` into a constant formula.
+
+**Domain errors, as measured.** The evaluator gives NaN or an infinity
+(sec 4.6.1). OndselSolver's `runKINEMATIC`, on a slider at
+`ln(time - 0.5)`: `generateSimulation` returns 0 and every frame leaves
+the part where it was -- the NaN at t = 0 is never recovered from, even
+after t = 0.5. `sqrt(0.5 - time)` is right up to t = 0.4 and stuck from
+0.5 on. `2*ln(time - 0.5)` gives 2 before t = 0.5 (its product drops the
+NaN factor) and the right values after. So OndselSolver does not report a
+domain error; the builder does not check values (a domain depends on time,
+and checking it would mean sampling), and the run "succeeds" with frames
+that do not follow the formula. A position-solve backend fails instead.
+
+**Tests.** `FormulaEvaluator.cpp`: 18 new corpus formulas (95 in all),
+among them `2*exp(time/0.8)` (the help text's `C*exp(time/TIMEC)`),
+`sqrt(1 + time^2)`, `ln(2 + sin(time))`, `tan(time/4)`, `tan(time + 2)`
+(cos < 0), compositions of all four: values agree with SymbolicParser to
+1e-12 relative, derivatives with five-point differences to 1e-6. New
+`derivativesMatchOndselSolver`: SymbolicParser's own symbolic derivatives,
+simplified and differentiated as `ASMTRotationalMotion::createMbD` and
+`EndFrameqct` form them for `runKINEMATIC`, against the evaluator's, to
+1e-10 relative, on the whole corpus. It found three things in OndselSolver
+that are not about the new functions and are left as they are, recorded by
+the test (which asserts they still disagree, so a fix shows):
+
+- `abs`, `asin`/`arcsin` and `arctan` have no derivative (`FunctionX`
+  throws "To be implemented" when the derivative `runKINEMATIC` needs is
+  formed). Not tried in a kinematic run here; the help text's arctan
+  examples are such formulas.
+- A power with a time-dependent base and exponent (`(time + 1)^time`,
+  `time^(sin(time) + 2)`) gets a wrong derivative: `Symbolic::times`
+  appends to the terms vector of the `Product` it is handed, which the
+  `Power`'s derivative still shares.
+- A piecewise whose x is not `time` itself (`rampstep(2*time, ...)`,
+  `piecewise(time - 1, ...)`): `PiecewiseFunction::differentiateWRTx`
+  differentiates the pieces, which are functions of time, with respect to
+  x.
+
+New `domainErrors` (the IEEE values, and the `2*ln(time - 1)` difference);
+`errorsWithPositions` uses `log` and `acos` where it used `exp`, and checks
+`Exp` gets the case hint. Python: `TestSolverGateSimulation.test_exp_motion`
+runs a slider at `2*exp(time/0.8)` through `generateSimulation` and checks
+the part's z at t = 0, 0.5, 0.7 and 1 against the formula to 1e-6 mm (and
+x, y unmoved); `test_bad_formula_refused` uses `log(time)` for the unknown
+function. The gate's records are untouched.
+
+Assembly gtest 22/22 (20 + 2); ctest 920/922 in the parallel run, the two
+`TransactionMeasureTest` cases pass alone; the Assembly suite 147 run, 1
+skipped.
 
 ### 6.4 Where Python must change
 

@@ -237,6 +237,11 @@ fc_add_gui_test(GuiTechDrawTreePickSwitchesPage_tests_run techdraw-tree-pick-swi
 fc_add_gui_test(GuiTechDrawTreeHoverLightsLabel_tests_run techdraw-tree-hover-lights-label.py
                 --timeout 200)
 
+# Entry 219: a double click on a dimension while a projection group is in
+# edit ends the group's edit, its change kept, and edits the dimension.
+fc_add_gui_test(GuiTechDrawDimensionEditEndsGroupEdit_tests_run techdraw-dimension-edit-ends-group-edit.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

@@ -191,7 +191,7 @@ void QGIDatumLabel::mouseDoubleClickEvent(QGraphicsSceneMouseEvent* event)
         return;
     }
 
-    ViewProvider->startDefaultEditMode();
+    ViewProvider->startEdit();
     QGraphicsItem::mouseDoubleClickEvent(event);
 }
 

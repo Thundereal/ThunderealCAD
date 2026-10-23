@@ -2760,10 +2760,14 @@ void ViewArea::deleteSelf()
     // MainWindow::removeWindow does.
     if (auto sub = qobject_cast<QMdiSubWindow*>(parentWidget())) {
         if (sub->parent()) {
-            sub->setParent(nullptr);
             // A maximized shell shows itself again once out of the area,
             // as a top-level window covering the main one (see
-            // MainWindow::removeWindow).
+            // MainWindow::removeWindow). The show happens inside setParent
+            // (hiding first does not stop it), and for that moment the
+            // shell was a real top-level window that took the focus from
+            // whatever had it; it is going, so it never reaches the screen.
+            sub->setAttribute(Qt::WA_DontShowOnScreen);
+            sub->setParent(nullptr);
             sub->hide();
         }
     }

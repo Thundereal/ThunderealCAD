@@ -68,6 +68,18 @@ static PyObject *removeLibraryPathPy(PyObject *self, PyObject *args);
 static PyObject *resolveLibraryPathPy(PyObject *self, PyObject *args);
 static PyObject *applyLibraryPathsPy(PyObject *self, PyObject *args);
 
+// Fork-only wrappers, file-local so that Application.h keeps upstream's list.
+static PyObject *sCloseReleasedVersions(PyObject *self, PyObject *args);
+static PyObject *sDumpSWIG(PyObject *self, PyObject *args);
+static PyObject *sMarkTransactionMeasure(PyObject *self, PyObject *args);
+static PyObject *sOpenFileVersion(PyObject *self, PyObject *args);
+static PyObject *sPopSaveTrigger(PyObject *self, PyObject *args);
+static PyObject *sPushSaveTrigger(PyObject *self, PyObject *args);
+static PyObject *sRecoverDocument(PyObject *self, PyObject *args);
+static PyObject *sSilenceSequencer(PyObject *self, PyObject *args);
+static PyObject *sStartTransactionMeasure(PyObject *self, PyObject *args);
+static PyObject *sStopTransactionMeasure(PyObject *self, PyObject *args);
+
 // Application methods structure
 PyMethodDef Application::Methods[] = {
     {"ParamGet",       (PyCFunction) Application::sGetParam, METH_VARARGS,
@@ -127,13 +139,13 @@ PyMethodDef Application::Methods[] = {
      "* If no module exists to load the file an exception will be raised."},
     {"open",   reinterpret_cast<PyCFunction>(reinterpret_cast<void (*) ()>( Application::sOpenDocument )), METH_VARARGS|METH_KEYWORDS,
      "See openDocument(string)"},
-    {"recoverDocument", (PyCFunction) Application::sRecoverDocument, METH_VARARGS,
+    {"recoverDocument", (PyCFunction) sRecoverDocument, METH_VARARGS,
      "recoverDocument(transientDir) -> object\n"
      "Recover the document of a crashed session from the transaction log left\n"
      "in its transient directory (docs/TransactionLog.md sec 25): a new\n"
      "document, its newest version with the log's tail replayed over it, that\n"
      "takes the log over. The directory is removed once it is done."},
-    {"openFileVersion", (PyCFunction) Application::sOpenFileVersion, METH_VARARGS,
+    {"openFileVersion", (PyCFunction) sOpenFileVersion, METH_VARARGS,
      "openFileVersion(path, num, createView=True) -> Document\n"
      "Open version `num` of the file at `path` as a document of its own\n"
      "(docs/TransactionLog.md sec 27.7, 27.13), whether or not the file is\n"
@@ -150,11 +162,11 @@ PyMethodDef Application::Methods[] = {
 //  {"saveDocument",   (PyCFunction) Application::sSaveDocument, METH_VARARGS,
 //   "saveDocument(string) -- Save the document to a file."},
 //  {"saveDocumentAs", (PyCFunction) Application::sSaveDocumentAs, METH_VARARGS},
-    {"pushSaveTrigger", reinterpret_cast<PyCFunction>(reinterpret_cast<void (*) ()>( Application::sPushSaveTrigger )), METH_VARARGS,
+    {"pushSaveTrigger", reinterpret_cast<PyCFunction>(reinterpret_cast<void (*) ()>( sPushSaveTrigger )), METH_VARARGS,
      "pushSaveTrigger(name) -- Name who asks for the saves run on this thread, until\n"
      "popSaveTrigger(): a host running code for a client names the client, as the\n"
      "MCP console does (docs/HandsOnQueue.md entry 167)."},
-    {"popSaveTrigger", reinterpret_cast<PyCFunction>(reinterpret_cast<void (*) ()>( Application::sPopSaveTrigger )), METH_VARARGS,
+    {"popSaveTrigger", reinterpret_cast<PyCFunction>(reinterpret_cast<void (*) ()>( sPopSaveTrigger )), METH_VARARGS,
      "popSaveTrigger() -- Close the scope pushSaveTrigger() opened."},
     {"newDocument",    reinterpret_cast<PyCFunction>(reinterpret_cast<void (*) ()>( Application::sNewDocument )), METH_VARARGS|METH_KEYWORDS,
      "newDocument(name, label=None, hidden=False, temp=False, clear=True) -> object\n"
@@ -172,7 +184,7 @@ PyMethodDef Application::Methods[] = {
     {"closeDocument",  (PyCFunction) Application::sCloseDocument, METH_VARARGS,
      "closeDocument(string) -> None\n\n"
      "Close the document with a given name."},
-    {"closeReleasedVersions", (PyCFunction) Application::sCloseReleasedVersions, METH_VARARGS,
+    {"closeReleasedVersions", (PyCFunction) sCloseReleasedVersions, METH_VARARGS,
      "closeReleasedVersions() -> int\n\n"
      "Close the pinned versions no link pins any more, now, when the ClosePinnedVersion\n"
      "preference says close. Also done when an operation that released one ends\n"
@@ -226,17 +238,17 @@ PyMethodDef Application::Methods[] = {
      "getActiveTransaction() -> (name,id) return the current active transaction name and ID"},
     {"closeActiveTransaction", (PyCFunction) Application::sCloseActiveTransaction, METH_VARARGS,
      "closeActiveTransaction(abort=False) -- commit or abort current active transaction"},
-    {"startTransactionMeasure", (PyCFunction) Application::sStartTransactionMeasure, METH_VARARGS,
+    {"startTransactionMeasure", (PyCFunction) sStartTransactionMeasure, METH_VARARGS,
      "startTransactionMeasure(csvPath) -- measure what each transaction commit would log\n\n"
      "Phase 0 of docs/TransactionLog.md: every commit serialises the values it would\n"
      "write and appends bytes, hashes, compressed sizes and timings to the CSV."},
-    {"stopTransactionMeasure", (PyCFunction) Application::sStopTransactionMeasure, METH_VARARGS,
+    {"stopTransactionMeasure", (PyCFunction) sStopTransactionMeasure, METH_VARARGS,
      "stopTransactionMeasure() -- stop measuring transaction commits"},
-    {"markTransactionMeasure", (PyCFunction) Application::sMarkTransactionMeasure, METH_VARARGS,
+    {"markTransactionMeasure", (PyCFunction) sMarkTransactionMeasure, METH_VARARGS,
      "markTransactionMeasure(label) -- write a marker row into the measurement CSV"},
     {"isRestoring", (PyCFunction) Application::sIsRestoring, METH_VARARGS,
      "isRestoring() -> Bool -- Test if the application is opening some document"},
-    {"dumpSWIG", (PyCFunction) Application::sDumpSWIG, METH_VARARGS,
+    {"dumpSWIG", (PyCFunction) sDumpSWIG, METH_VARARGS,
      "dumpSWIG() -- Dump SWIG internal types"},
     {"checkAbort", (PyCFunction) Application::sCheckAbort, METH_VARARGS,
      "checkAbort() -- check for user abort in length operation.\n\n"
@@ -244,7 +256,7 @@ PyMethodDef Application::Methods[] = {
      "There is an active sequencer during document restore and recomputation. User may\n"
      "abort the operation by pressing the ESC key. Once detected, this function will\n"
      "trigger a RuntimeError exception."},
-    {"silenceSequencer", (PyCFunction) Application::sSilenceSequencer, METH_VARARGS,
+    {"silenceSequencer", (PyCFunction) sSilenceSequencer, METH_VARARGS,
      "silenceSequencer(enable = True : Bool) -- suppress progress sequencer output"},
     {"getProgress", (PyCFunction) getProgressPy, METH_VARARGS,
      "getProgress(maxLevels=5) -> dict\n\n"
@@ -376,7 +388,7 @@ PyObject* Application::sLoadFile(PyObject * /*self*/, PyObject *args)
     } PY_CATCH
 }
 
-PyObject* Application::sStartTransactionMeasure(PyObject * /*self*/, PyObject *args)
+static PyObject* sStartTransactionMeasure(PyObject * /*self*/, PyObject *args)
 {
     const char *path = nullptr;
     if (!PyArg_ParseTuple(args, "s", &path))
@@ -386,7 +398,7 @@ PyObject* Application::sStartTransactionMeasure(PyObject * /*self*/, PyObject *a
     } PY_CATCH;
 }
 
-PyObject* Application::sStopTransactionMeasure(PyObject * /*self*/, PyObject *args)
+static PyObject* sStopTransactionMeasure(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
@@ -394,7 +406,7 @@ PyObject* Application::sStopTransactionMeasure(PyObject * /*self*/, PyObject *ar
     Py_Return;
 }
 
-PyObject* Application::sMarkTransactionMeasure(PyObject * /*self*/, PyObject *args)
+static PyObject* sMarkTransactionMeasure(PyObject * /*self*/, PyObject *args)
 {
     const char *label = nullptr;
     if (!PyArg_ParseTuple(args, "s", &label))
@@ -426,7 +438,7 @@ PyObject* Application::sOpenDocument(PyObject * /*self*/, PyObject *args, PyObje
     } PY_CATCH
 }
 
-PyObject* Application::sRecoverDocument(PyObject * /*self*/, PyObject *args)
+static PyObject* sRecoverDocument(PyObject * /*self*/, PyObject *args)
 {
     char* dir;
     if (!PyArg_ParseTuple(args, "et", "utf-8", &dir))
@@ -438,7 +450,7 @@ PyObject* Application::sRecoverDocument(PyObject * /*self*/, PyObject *args)
     } PY_CATCH
 }
 
-PyObject* Application::sOpenFileVersion(PyObject * /*self*/, PyObject *args)
+static PyObject* sOpenFileVersion(PyObject * /*self*/, PyObject *args)
 {
     char* file;
     long long num;
@@ -493,7 +505,7 @@ PyObject* Application::sSetActiveDocument(PyObject * /*self*/, PyObject *args)
     Py_Return;
 }
 
-PyObject* Application::sCloseReleasedVersions(PyObject * /*self*/, PyObject *args)
+static PyObject* sCloseReleasedVersions(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
@@ -534,7 +546,7 @@ namespace {
 thread_local std::vector<std::unique_ptr<App::SaveTrigger>> _pythonSaveTriggers;
 }
 
-PyObject* Application::sPushSaveTrigger(PyObject * /*self*/, PyObject *args)
+static PyObject* sPushSaveTrigger(PyObject * /*self*/, PyObject *args)
 {
     const char* name = nullptr;
     if (!PyArg_ParseTuple(args, "s", &name))
@@ -543,7 +555,7 @@ PyObject* Application::sPushSaveTrigger(PyObject * /*self*/, PyObject *args)
     Py_Return;
 }
 
-PyObject* Application::sPopSaveTrigger(PyObject * /*self*/, PyObject *args)
+static PyObject* sPopSaveTrigger(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
@@ -1243,7 +1255,7 @@ PyObject *Application::sCheckAbort(PyObject * /*self*/, PyObject *args)
     }PY_CATCH
 }
 
-PyObject *Application::sSilenceSequencer(PyObject * /*self*/, PyObject *args)
+static PyObject* sSilenceSequencer(PyObject * /*self*/, PyObject *args)
 {
     PyObject *enable = Py_True;
     if (!PyArg_ParseTuple(args, "|O", &enable))
@@ -1508,7 +1520,7 @@ static PyObject *listParamsPy(PyObject * /*self*/, PyObject *args)
     } PY_CATCH
 }
 
-PyObject *Application::sDumpSWIG(PyObject * /*self*/, PyObject *args)
+static PyObject* sDumpSWIG(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return 0;

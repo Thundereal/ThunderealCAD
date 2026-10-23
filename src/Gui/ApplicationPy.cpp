@@ -177,6 +177,38 @@ PyObject* sDoCommandSkip(PyObject * /*self*/, PyObject *args)
 }
 }
 
+// Fork-only wrappers, file-local so that Application.h keeps upstream's list.
+static PyObject *sAddIconContext(PyObject *self, PyObject *args);
+static PyObject *sApplyTheme(PyObject *self, PyObject *args);
+static PyObject *sCyclesDevices(PyObject *self, PyObject *args);
+static PyObject *sCyclesRenderTest(PyObject *self, PyObject *args, PyObject *kwd);
+static PyObject *sGetIconContext(PyObject *self, PyObject *args);
+static PyObject *sGetIconNames(PyObject *self, PyObject *args);
+static PyObject *sIsBuildingVisuals(PyObject *self, PyObject *args);
+static PyObject *sIsLiveImport(PyObject *self, PyObject *args);
+static PyObject *sListConfigBackups(PyObject *self, PyObject *args);
+static PyObject *sListConfigUndos(PyObject *self, PyObject *args);
+static PyObject *sListThemes(PyObject *self, PyObject *args);
+static PyObject *sPumpLiveImport(PyObject *self, PyObject *args);
+static PyObject *sResetEdit(PyObject *self, PyObject *args);
+static PyObject *sRevertConfig(PyObject *self, PyObject *args);
+static PyObject *sServeBranch(PyObject *self, PyObject *args);
+static PyObject *sServeClients(PyObject *self, PyObject *args);
+static PyObject *sServeDevices(PyObject *self, PyObject *args);
+static PyObject *sServeDocument(PyObject *self, PyObject *args);
+static PyObject *sServeDropRequest(PyObject *self, PyObject *args);
+static PyObject *sServeGrants(PyObject *self, PyObject *args);
+static PyObject *sServeKickClient(PyObject *self, PyObject *args);
+static PyObject *sServeRequests(PyObject *self, PyObject *args);
+static PyObject *sServeSetClientMode(PyObject *self, PyObject *args);
+static PyObject *sServeSetClientSelection(PyObject *self, PyObject *args);
+static PyObject *sServeSetDevices(PyObject *self, PyObject *args);
+static PyObject *sServeSetGrants(PyObject *self, PyObject *args);
+static PyObject *sServeStop(PyObject *self, PyObject *args);
+static PyObject *sServeUploads(PyObject *self, PyObject *args);
+static PyObject *sSetLiveImport(PyObject *self, PyObject *args);
+static PyObject *sUndoConfig(PyObject *self, PyObject *args);
+
 // Application methods structure
 PyMethodDef Application::Methods[] = {
   {"activateWorkbench",(PyCFunction) Application::sActivateWorkbenchHandler, METH_VARARGS,
@@ -249,10 +281,10 @@ PyMethodDef Application::Methods[] = {
    "original: whether to force return the the original icon. If false\n"
    "          then return the current icon for the key, which may be\n"
    "          overridden by user."},
-  {"getIconContext",          (PyCFunction) Application::sGetIconContext, METH_VARARGS,
+  {"getIconContext",          (PyCFunction) sGetIconContext, METH_VARARGS,
    "getIconContext(key:string) -> List[string]\n\n"
    "Get user defined icon usage context"},
-  {"addIconContext",          (PyCFunction) Application::sAddIconContext, METH_VARARGS,
+  {"addIconContext",          (PyCFunction) sAddIconContext, METH_VARARGS,
    "addIconContext(key:string) -> None\n\n"
    "Set user defined icon usage context"},
   {"isIconCached",           (PyCFunction) Application::sIsIconCached, METH_VARARGS,
@@ -260,7 +292,7 @@ PyMethodDef Application::Methods[] = {
    "Check if an icon with the given name is cached\n"
    "\n"
    "key: key of the icon.\n"},
-  {"getIconNames",                 (PyCFunction) Application::sGetIconNames, METH_VARARGS,
+  {"getIconNames",                 (PyCFunction) sGetIconNames, METH_VARARGS,
    "getIconNames() -> List[string]\n\n"
    "Get all cached icon names in the system"},
   {"getMainWindow",           (PyCFunction) Application::sGetMainWindow, METH_VARARGS,
@@ -271,7 +303,7 @@ PyMethodDef Application::Methods[] = {
    "updateGui() -> None\n"
    "\n"
    "Update the main window and all its windows."},
-  {"setLiveImport",           (PyCFunction) Application::sSetLiveImport, METH_VARARGS,
+  {"setLiveImport",           (PyCFunction) sSetLiveImport, METH_VARARGS,
    "setLiveImport(doc, enable=True) -> None\n"
    "\n"
    "Let a long import keep the 3D view in the user's hands.\n"
@@ -286,7 +318,7 @@ PyMethodDef Application::Methods[] = {
    "Only meaningful for a loop that keeps pumping events -- one that\n"
    "holds the thread outright has nothing to deliver the input with.\n"
    "Always disable it again from a finally block."},
-  {"pumpLiveImport",          (PyCFunction) Application::sPumpLiveImport, METH_VARARGS,
+  {"pumpLiveImport",          (PyCFunction) sPumpLiveImport, METH_VARARGS,
    "pumpLiveImport(force=False) -> bool\n"
    "\n"
    "Give the event loop a turn in the middle of a live import.\n"
@@ -299,7 +331,7 @@ PyMethodDef Application::Methods[] = {
    "costs a clock read. Pass force=True to pump regardless.\n"
    "\n"
    "Returns True when it did pump."},
-  {"isLiveImport",            (PyCFunction) Application::sIsLiveImport, METH_VARARGS,
+  {"isLiveImport",            (PyCFunction) sIsLiveImport, METH_VARARGS,
    "isLiveImport() -> bool\n"
    "\n"
    "Whether a live import is filling a document right now.\n"
@@ -328,7 +360,7 @@ PyMethodDef Application::Methods[] = {
    "The visual builds since the last document open began (it zeroes\n"
    "them): count, the builds, and seconds, their time. A load builds each\n"
    "shown shape once; more is a shape built twice."},
-  {"isBuildingVisuals",       (PyCFunction) Application::sIsBuildingVisuals, METH_VARARGS,
+  {"isBuildingVisuals",       (PyCFunction) sIsBuildingVisuals, METH_VARARGS,
    "isBuildingVisuals() -> bool\n"
    "\n"
    "Whether geometry is still being built into the views.\n"
@@ -346,13 +378,13 @@ PyMethodDef Application::Methods[] = {
    "covered-pixel count sitting at zero reads the same while the\n"
    "drain is still working as it does once the drain has finished\n"
    "and the scene is genuinely empty. This says which."},
-  {"cyclesDevices",           (PyCFunction) Application::sCyclesDevices, METH_VARARGS,
+  {"cyclesDevices",           (PyCFunction) sCyclesDevices, METH_VARARGS,
    "cyclesDevices() -> list\n"
    "\n"
    "The compute devices the Cycles path tracer can render on, one dict\n"
    "each: type ('CPU', 'CUDA', 'OPTIX', 'HIP', ...) and description.\n"
    "Empty when the build carries no Cycles engine (BUILD_CYCLES)."},
-  {"cyclesRenderTest",        reinterpret_cast<PyCFunction>(reinterpret_cast<void (*) (void)>( Application::sCyclesRenderTest )), METH_VARARGS|METH_KEYWORDS,
+  {"cyclesRenderTest",        reinterpret_cast<PyCFunction>(reinterpret_cast<void (*) (void)>( sCyclesRenderTest )), METH_VARARGS|METH_KEYWORDS,
    "cyclesRenderTest(path, width=640, height=480, samples=64, device='CPU') -> bool\n"
    "\n"
    "Render Cycles' built-in test scene (a cube on a floor under a\n"
@@ -361,7 +393,7 @@ PyMethodDef Application::Methods[] = {
    "process, nothing more (docs/CyclesIntegration.md sec 8, phase 2).\n"
    "Blocks until the render is done. Raises RuntimeError with the\n"
    "engine's message on failure."},
-  {"serveDocument",           (PyCFunction) Application::sServeDocument, METH_VARARGS,
+  {"serveDocument",           (PyCFunction) sServeDocument, METH_VARARGS,
    "serveDocument(doc, port=0) -> bool\n"
    "\n"
    "Publish a document to streaming viewers with no 3D view behind it\n"
@@ -370,7 +402,7 @@ PyMethodDef Application::Methods[] = {
    "display at all. A non-zero port starts the scene stream server\n"
    "there. Returns False when the configured render engine cannot\n"
    "publish without a graphics device."},
-  {"serveBranch",             (PyCFunction) Application::sServeBranch, METH_VARARGS,
+  {"serveBranch",             (PyCFunction) sServeBranch, METH_VARARGS,
    "serveBranch(doc, name='', port=0) -> Document\n"
    "\n"
    "Serve a branch of a document to clients of its own\n"
@@ -386,7 +418,7 @@ PyMethodDef Application::Methods[] = {
    "the document serving it already is returned. Raises where another\n"
    "document is on that branch, it is closed, the document keeps no\n"
    "log, or it cannot be served."},
-  {"serveRequests",           (PyCFunction) Application::sServeRequests, METH_VARARGS,
+  {"serveRequests",           (PyCFunction) sServeRequests, METH_VARARGS,
    "serveRequests(doc='') -> list\n"
    "\n"
    "The files clients of a served document sent to be merged, which\n"
@@ -396,17 +428,17 @@ PyMethodDef Application::Methods[] = {
    "its document's history, id the row's number, with no path; one of a\n"
    "document that keeps no log is a file of this process. The\n"
    "transaction log panel brings one in. With doc, only that document's."},
-  {"serveDropRequest",        (PyCFunction) Application::sServeDropRequest, METH_VARARGS,
+  {"serveDropRequest",        (PyCFunction) sServeDropRequest, METH_VARARGS,
    "serveDropRequest(id, doc='') -> bool\n"
    "\n"
    "Drop a sent file unread, by its id -- a row's number is one\n"
    "document's, so say which with doc. False when there is none."},
-  {"serveUploads",            (PyCFunction) Application::sServeUploads, METH_VARARGS,
+  {"serveUploads",            (PyCFunction) sServeUploads, METH_VARARGS,
    "serveUploads() -> (count, bytes)\n"
    "\n"
    "The uploads whose pieces are arriving (docs/TransactionLog.md sec\n"
    "32.36): how many, and the bytes they hold together."},
-  {"serveClients",            (PyCFunction) Application::sServeClients, METH_VARARGS,
+  {"serveClients",            (PyCFunction) sServeClients, METH_VARARGS,
    "serveClients() -> list\n"
    "\n"
    "The scene stream server's connected clients, one dict each: id,\n"
@@ -420,14 +452,14 @@ PyMethodDef Application::Methods[] = {
    "uplink counters uplinkMsgs/uplinkBytes/uplinkWire with the camera\n"
    "frames (cameraMsgs/cameraWire), picks (pickMsgs/pickWire) and\n"
    "input events (inputMsgs/inputWire) of that total counted apart."},
-  {"serveSetClientMode",      (PyCFunction) Application::sServeSetClientMode, METH_VARARGS,
+  {"serveSetClientMode",      (PyCFunction) sServeSetClientMode, METH_VARARGS,
    "serveSetClientMode(id, mode) -> bool\n"
    "\n"
    "Set a connected client's access for this session: mode True is\n"
    "view-only (picks dropped, mutating control ops refused), False is\n"
    "edit, or 'view', 'edit' or 'host'. False when it is gone, or when\n"
    "'host' is asked for a client no front door verified an identity for."},
-  {"serveSetClientSelection", (PyCFunction) Application::sServeSetClientSelection, METH_VARARGS,
+  {"serveSetClientSelection", (PyCFunction) sServeSetClientSelection, METH_VARARGS,
    "serveSetClientSelection(id, route) -> bool\n"
    "\n"
    "Set where a connected client's committed selection goes, for this\n"
@@ -435,12 +467,12 @@ PyMethodDef Application::Methods[] = {
    "this desktop as the same click here would, 'everyone' also tells\n"
    "the other clients so they can show it as that client's. The host's\n"
    "to set and never part of a grant. False when the id is gone."},
-  {"serveKickClient",         (PyCFunction) Application::sServeKickClient, METH_VARARGS,
+  {"serveKickClient",         (PyCFunction) sServeKickClient, METH_VARARGS,
    "serveKickClient(id) -> bool\n"
    "\n"
    "Disconnect a client: it is told and closed by its own loop.\n"
    "False when it is gone."},
-  {"serveGrants",             (PyCFunction) Application::sServeGrants, METH_VARARGS,
+  {"serveGrants",             (PyCFunction) sServeGrants, METH_VARARGS,
    "serveGrants() -> list\n"
    "\n"
    "The scene stream server's live grant list (the door), one dict\n"
@@ -449,14 +481,14 @@ PyMethodDef Application::Methods[] = {
    "names literally, edit for anyone else it matches), liveOnly,\n"
    "maxUsers (how many browsers it is for; 0 counts none) and devices\n"
    "(the keys of those enrolled, docs/TransactionLog.md sec 30.32)."},
-  {"serveSetGrants",          (PyCFunction) Application::sServeSetGrants, METH_VARARGS,
+  {"serveSetGrants",          (PyCFunction) sServeSetGrants, METH_VARARGS,
    "serveSetGrants(list) -> None\n"
    "\n"
    "Replace the live grant list with dicts of the serveGrants() shape\n"
    "(all keys optional). A non-empty list becomes the door on every\n"
    "endpoint; an empty one falls back to the shared token. Every\n"
    "connection is re-judged."},
-  {"serveDevices",            (PyCFunction) Application::sServeDevices, METH_VARARGS,
+  {"serveDevices",            (PyCFunction) sServeDevices, METH_VARARGS,
    "serveDevices() -> list\n"
    "\n"
    "The record of browsers (docs/TransactionLog.md sec 30.32), one dict\n"
@@ -464,13 +496,13 @@ PyMethodDef Application::Methods[] = {
    "user calls itself, as last given), enrolledAs (as first given),\n"
    "identity (the verified one it last came with), label (the host's\n"
    "own name for it), first, last, enabled."},
-  {"serveSetDevices",         (PyCFunction) Application::sServeSetDevices, METH_VARARGS,
+  {"serveSetDevices",         (PyCFunction) sServeSetDevices, METH_VARARGS,
    "serveSetDevices(list) -> None\n"
    "\n"
    "Replace the record of browsers with dicts of the serveDevices()\n"
    "shape. One with enabled False is refused wherever a grant counts\n"
    "its users; every connection is re-judged."},
-  {"serveStop",               (PyCFunction) Application::sServeStop, METH_VARARGS,
+  {"serveStop",               (PyCFunction) sServeStop, METH_VARARGS,
    "serveStop() -> None\n"
    "\n"
    "Stop the scene stream server: close the listener and disconnect\n"
@@ -615,7 +647,7 @@ PyMethodDef Application::Methods[] = {
    "\n"
    "Return the current editing document. If no one exists,\n"
    "return None."},
-  {"resetEdit", (PyCFunction)Application::sResetEdit, METH_VARARGS,
+  {"resetEdit", (PyCFunction)sResetEdit, METH_VARARGS,
    "resetEdit()\n\n"
    "Reset current editing document if there is one" },
   {"getDocument",             (PyCFunction) Application::sGetDocument, METH_VARARGS,
@@ -667,12 +699,12 @@ PyMethodDef Application::Methods[] = {
    "\n"
    "grp: str\n    Group to show.\n"
    "index : int\n    Page index."},
-  {"listThemes",                  (PyCFunction) Application::sListThemes, METH_VARARGS,
+  {"listThemes",                  (PyCFunction) sListThemes, METH_VARARGS,
    "listThemes() -> list of str\n"
    "\n"
    "The themes that can be applied, in the order the Theme preferences page\n"
    "shows them. A theme is a preference pack whose metadata type is Theme."},
-  {"applyTheme",                  (PyCFunction) Application::sApplyTheme, METH_VARARGS,
+  {"applyTheme",                  (PyCFunction) sApplyTheme, METH_VARARGS,
    "applyTheme(name) -> bool\n"
    "\n"
    "Apply a theme, as picking it on the Theme preferences page would. This\n"
@@ -683,12 +715,12 @@ PyMethodDef Application::Methods[] = {
    "\n"
    "Returns True if it was applied, False if the pack's own pre.FCMacro or\n"
    "post.FCMacro refused it."},
-  {"listConfigBackups",           (PyCFunction) Application::sListConfigBackups, METH_VARARGS,
+  {"listConfigBackups",           (PyCFunction) sListConfigBackups, METH_VARARGS,
    "listConfigBackups() -> list of str\n"
    "\n"
    "The configuration backups written before each applyTheme(), newest first.\n"
    "They are kept for a week."},
-  {"revertConfig",                (PyCFunction) Application::sRevertConfig, METH_VARARGS,
+  {"revertConfig",                (PyCFunction) sRevertConfig, METH_VARARGS,
    "revertConfig(backup=None) -> str\n"
    "\n"
    "Undo an applyTheme() by restoring the whole BaseApp configuration from one\n"
@@ -698,14 +730,14 @@ PyMethodDef Application::Methods[] = {
    "    which is the state before the last theme was applied.\n"
    "\n"
    "Returns the backup that was restored, or an empty string if there was none."},
-  {"listConfigUndos",             (PyCFunction) Application::sListConfigUndos, METH_VARARGS,
+  {"listConfigUndos",             (PyCFunction) sListConfigUndos, METH_VARARGS,
    "listConfigUndos() -> list of str\n"
    "\n"
    "What undoConfig() can undo: the presets and preference packs applied so far\n"
    "in this session, newest first. This is the Undo entry of the presets menu,\n"
    "and unlike listConfigBackups() it is held in memory only -- it goes when\n"
    "FreeCAD does, and it is empty in a session with no main window."},
-  {"undoConfig",                  (PyCFunction) Application::sUndoConfig, METH_VARARGS,
+  {"undoConfig",                  (PyCFunction) sUndoConfig, METH_VARARGS,
    "undoConfig(index=0) -> str\n"
    "\n"
    "Undo applying a preset or a preference pack, restoring the configuration as\n"
@@ -810,13 +842,13 @@ PyObject* Gui::Application::sEditDocument(PyObject * /*self*/, PyObject *args)
         Py_Return;
 }
 
-PyObject* Gui::Application::sResetEdit(PyObject * /*self*/, PyObject *args)
+static PyObject* sResetEdit(PyObject * /*self*/, PyObject *args)
 {
 	if (!PyArg_ParseTuple(args, ""))     // convert args: Python->C 
 		return NULL;                       // NULL triggers exception 
 
     PY_TRY {
-        Instance->setEditDocument(nullptr);
+        Application::Instance->setEditDocument(nullptr);
 	    Py_Return;
     } PY_CATCH
 }
@@ -1212,7 +1244,7 @@ std::unique_ptr<Gui::WaitCursorRestorer> liveImportCursor;
 QElapsedTimer liveImportPumpClock;
 }  // namespace
 
-PyObject* Application::sSetLiveImport(PyObject * /*self*/, PyObject *args)
+static PyObject* sSetLiveImport(PyObject * /*self*/, PyObject *args)
 {
     PyObject *pyDoc = nullptr;
     PyObject *pyEnable = Py_True;
@@ -1253,7 +1285,7 @@ PyObject* Application::sSetLiveImport(PyObject * /*self*/, PyObject *args)
     Py_Return;
 }
 
-PyObject* Application::sPumpLiveImport(PyObject * /*self*/, PyObject *args)
+static PyObject* sPumpLiveImport(PyObject * /*self*/, PyObject *args)
 {
     PyObject *pyForce = Py_False;
     if (!PyArg_ParseTuple(args, "|O!", &PyBool_Type, &pyForce))
@@ -1283,7 +1315,7 @@ PyObject* Application::sPumpLiveImport(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(Py::Boolean(true));
 }
 
-PyObject* Application::sIsLiveImport(PyObject * /*self*/, PyObject *args)
+static PyObject* sIsLiveImport(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
@@ -1291,12 +1323,12 @@ PyObject* Application::sIsLiveImport(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(Py::Boolean(liveImportNavigable != nullptr));
 }
 
-PyObject* Application::sIsBuildingVisuals(PyObject * /*self*/, PyObject *args)
+static PyObject* sIsBuildingVisuals(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
 
-    bool building = Instance && Instance->isBuildingVisuals();
+    bool building = Application::Instance && Application::Instance->isBuildingVisuals();
     // The view-provider drain counts as building too, and it has to: a
     // progressive load parks the view providers THEMSELVES, so while
     // that drain runs there is nothing on the visual queue to raise the
@@ -1305,9 +1337,9 @@ PyObject* Application::sIsBuildingVisuals(PyObject * /*self*/, PyObject *args)
     // "not building" over an empty viewport five seconds into a 17800-
     // object load, which is the exact reading this call exists to
     // prevent.
-    if (!building && Instance) {
+    if (!building && Application::Instance) {
         for (auto doc : App::GetApplication().getDocuments()) {
-            auto guiDoc = Instance->getDocument(doc);
+            auto guiDoc = Application::Instance->getDocument(doc);
             if (guiDoc && guiDoc->isRestoringViewProviders()) {
                 building = true;
                 break;
@@ -1317,7 +1349,7 @@ PyObject* Application::sIsBuildingVisuals(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(Py::Boolean(building));
 }
 
-PyObject* Application::sServeDocument(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeDocument(PyObject * /*self*/, PyObject *args)
 {
     PyObject *pyDoc = nullptr;
     int port = 0;
@@ -1344,7 +1376,7 @@ PyObject* Application::sServeDocument(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(Py::Boolean(ok));
 }
 
-PyObject* Application::sServeBranch(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeBranch(PyObject * /*self*/, PyObject *args)
 {
     PyObject *pyDoc = nullptr;
     const char *name = "";
@@ -1361,7 +1393,7 @@ PyObject* Application::sServeBranch(PyObject * /*self*/, PyObject *args)
     PY_CATCH
 }
 
-PyObject* Application::sCyclesDevices(PyObject * /*self*/, PyObject *args)
+static PyObject* sCyclesDevices(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
@@ -1376,7 +1408,7 @@ PyObject* Application::sCyclesDevices(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(list);
 }
 
-PyObject* Application::sCyclesRenderTest(PyObject * /*self*/, PyObject *args, PyObject *kwd)
+static PyObject* sCyclesRenderTest(PyObject * /*self*/, PyObject *args, PyObject *kwd)
 {
     const char *path = "";
     int width = 640;
@@ -1402,7 +1434,7 @@ PyObject* Application::sCyclesRenderTest(PyObject * /*self*/, PyObject *args, Py
     Py_RETURN_TRUE;
 }
 
-PyObject* Application::sServeRequests(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeRequests(PyObject * /*self*/, PyObject *args)
 {
     const char *doc = "";
     if (!PyArg_ParseTuple(args, "|s", &doc))
@@ -1425,7 +1457,7 @@ PyObject* Application::sServeRequests(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(list);
 }
 
-PyObject* Application::sServeDropRequest(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeDropRequest(PyObject * /*self*/, PyObject *args)
 {
     unsigned long long id = 0;
     const char *doc = "";
@@ -1434,7 +1466,7 @@ PyObject* Application::sServeDropRequest(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(Py::Boolean(SceneRequests::drop(id, false, doc)));
 }
 
-PyObject* Application::sServeUploads(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeUploads(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
@@ -1443,7 +1475,7 @@ PyObject* Application::sServeUploads(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(Py::TupleN(Py::Long(count), Py::Long(static_cast<long long>(bytes))));
 }
 
-PyObject* Application::sServeClients(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeClients(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
@@ -1493,7 +1525,7 @@ PyObject* Application::sServeClients(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(list);
 }
 
-PyObject* Application::sServeSetClientMode(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeSetClientMode(PyObject * /*self*/, PyObject *args)
 {
     unsigned long long id = 0;
     PyObject *mode = nullptr;
@@ -1516,7 +1548,7 @@ PyObject* Application::sServeSetClientMode(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(Py::Boolean(ok));
 }
 
-PyObject* Application::sServeSetClientSelection(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeSetClientSelection(PyObject * /*self*/, PyObject *args)
 {
     unsigned long long id = 0;
     const char *route = nullptr;
@@ -1538,7 +1570,7 @@ PyObject* Application::sServeSetClientSelection(PyObject * /*self*/, PyObject *a
     return Py::new_reference_to(Py::Boolean(ok));
 }
 
-PyObject* Application::sServeKickClient(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeKickClient(PyObject * /*self*/, PyObject *args)
 {
     unsigned long long id = 0;
     if (!PyArg_ParseTuple(args, "K", &id))
@@ -1547,7 +1579,7 @@ PyObject* Application::sServeKickClient(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(Py::Boolean(ok));
 }
 
-PyObject* Application::sServeGrants(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeGrants(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
@@ -1571,7 +1603,7 @@ PyObject* Application::sServeGrants(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(list);
 }
 
-PyObject* Application::sServeSetGrants(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeSetGrants(PyObject * /*self*/, PyObject *args)
 {
     PyObject *seq = nullptr;
     if (!PyArg_ParseTuple(args, "O", &seq))
@@ -1613,7 +1645,7 @@ PyObject* Application::sServeSetGrants(PyObject * /*self*/, PyObject *args)
     }
 }
 
-PyObject* Application::sServeDevices(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeDevices(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
@@ -1633,7 +1665,7 @@ PyObject* Application::sServeDevices(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(list);
 }
 
-PyObject* Application::sServeSetDevices(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeSetDevices(PyObject * /*self*/, PyObject *args)
 {
     PyObject *seq = nullptr;
     if (!PyArg_ParseTuple(args, "O", &seq))
@@ -1670,7 +1702,7 @@ PyObject* Application::sServeSetDevices(PyObject * /*self*/, PyObject *args)
     }
 }
 
-PyObject* Application::sServeStop(PyObject * /*self*/, PyObject *args)
+static PyObject* sServeStop(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
@@ -2220,7 +2252,7 @@ PyObject* Application::sGetIcon(PyObject * /*self*/, PyObject *args)
     Py_Return;
 }
 
-PyObject* Application::sGetIconContext(PyObject * /*self*/, PyObject *args)
+static PyObject* sGetIconContext(PyObject * /*self*/, PyObject *args)
 {
     char *iconName;
     if (!PyArg_ParseTuple(args, "s", &iconName))
@@ -2232,7 +2264,7 @@ PyObject* Application::sGetIconContext(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(res);
 }
 
-PyObject* Application::sAddIconContext(PyObject * /*self*/, PyObject *args)
+static PyObject* sAddIconContext(PyObject * /*self*/, PyObject *args)
 {
     char *iconName;
     char *ctx;
@@ -2254,7 +2286,7 @@ PyObject* Application::sIsIconCached(PyObject * /*self*/, PyObject *args)
     return Py::new_reference_to(Py::Boolean(BitmapFactory().findPixmapInCache(iconName, icon)));
 }
 
-PyObject* Application::sGetIconNames(PyObject * /*self*/, PyObject *args)
+static PyObject* sGetIconNames(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return NULL;
@@ -2475,13 +2507,13 @@ PyObject* Application::sShowPreferences(PyObject * /*self*/, PyObject *args)
     Py_Return;
 }
 
-PyObject* Application::sListThemes(PyObject * /*self*/, PyObject *args)
+static PyObject* sListThemes(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
 
     PY_TRY {
-        auto manager = Instance->prefPackManager();
+        auto manager = Application::Instance->prefPackManager();
         manager->rescan();
         Py::List names;
         for (const auto& pack : manager->preferencePacks()) {
@@ -2493,46 +2525,46 @@ PyObject* Application::sListThemes(PyObject * /*self*/, PyObject *args)
     } PY_CATCH;
 }
 
-PyObject* Application::sApplyTheme(PyObject * /*self*/, PyObject *args)
+static PyObject* sApplyTheme(PyObject * /*self*/, PyObject *args)
 {
     char *name = nullptr;
     if (!PyArg_ParseTuple(args, "s", &name))
         return nullptr;
 
     PY_TRY {
-        auto manager = Instance->prefPackManager();
+        auto manager = Application::Instance->prefPackManager();
         manager->rescan();
         return Py::new_reference_to(Py::Boolean(manager->apply(name)));
     } PY_CATCH;
 }
 
-PyObject* Application::sListConfigBackups(PyObject * /*self*/, PyObject *args)
+static PyObject* sListConfigBackups(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
 
     PY_TRY {
         Py::List paths;
-        for (const auto& backup : Instance->prefPackManager()->configBackups()) {
+        for (const auto& backup : Application::Instance->prefPackManager()->configBackups()) {
             paths.append(Py::String(backup.string()));
         }
         return Py::new_reference_to(paths);
     } PY_CATCH;
 }
 
-PyObject* Application::sRevertConfig(PyObject * /*self*/, PyObject *args)
+static PyObject* sRevertConfig(PyObject * /*self*/, PyObject *args)
 {
     char *backup = nullptr;
     if (!PyArg_ParseTuple(args, "|z", &backup))
         return nullptr;
 
     PY_TRY {
-        auto restored = Instance->prefPackManager()->revertToBackup(backup ? backup : "");
+        auto restored = Application::Instance->prefPackManager()->revertToBackup(backup ? backup : "");
         return Py::new_reference_to(Py::String(restored.string()));
     } PY_CATCH;
 }
 
-PyObject* Application::sListConfigUndos(PyObject * /*self*/, PyObject *args)
+static PyObject* sListConfigUndos(PyObject * /*self*/, PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
@@ -2547,7 +2579,7 @@ PyObject* Application::sListConfigUndos(PyObject * /*self*/, PyObject *args)
     } PY_CATCH;
 }
 
-PyObject* Application::sUndoConfig(PyObject * /*self*/, PyObject *args)
+static PyObject* sUndoConfig(PyObject * /*self*/, PyObject *args)
 {
     int index = 0;
     if (!PyArg_ParseTuple(args, "|i", &index))

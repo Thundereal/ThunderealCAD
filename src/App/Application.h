@@ -630,6 +630,7 @@ private:
     static void setupPythonException(PyObject*);
 
     // static python wrapper of the exported functions
+    // New fork-only wrappers go file-local in ApplicationPy.cpp, not here.
     static PyObject* sGetParam          (PyObject *self, PyObject *args);
     static PyObject* sSaveParameter     (PyObject *self, PyObject *args);
     static PyObject* sGetVersion        (PyObject *self, PyObject *args);
@@ -655,15 +656,10 @@ private:
 
     static PyObject* sLoadFile          (PyObject *self,PyObject *args);
     static PyObject* sOpenDocument      (PyObject *self,PyObject *args, PyObject *kwd);
-    static PyObject* sRecoverDocument   (PyObject *self,PyObject *args);
-    static PyObject* sOpenFileVersion   (PyObject *self,PyObject *args);
     static PyObject* sSaveDocument      (PyObject *self,PyObject *args);
-    static PyObject* sPushSaveTrigger   (PyObject *self,PyObject *args);
-    static PyObject* sPopSaveTrigger    (PyObject *self,PyObject *args);
     static PyObject* sSaveDocumentAs    (PyObject *self,PyObject *args);
     static PyObject* sNewDocument       (PyObject *self,PyObject *args, PyObject *kwd);
     static PyObject* sCloseDocument     (PyObject *self,PyObject *args);
-    static PyObject* sCloseReleasedVersions(PyObject *self,PyObject *args);
     static PyObject* sActiveDocument    (PyObject *self,PyObject *args);
     static PyObject* sSetActiveDocument (PyObject *self,PyObject *args);
     static PyObject* sGetDocument       (PyObject *self,PyObject *args);
@@ -684,14 +680,7 @@ private:
     static PyObject *sGetActiveTransaction  (PyObject *self,PyObject *args);
     static PyObject *sCloseActiveTransaction(PyObject *self,PyObject *args);
 
-    static PyObject *sStartTransactionMeasure(PyObject *self,PyObject *args);
-    static PyObject *sStopTransactionMeasure (PyObject *self,PyObject *args);
-    static PyObject *sMarkTransactionMeasure (PyObject *self,PyObject *args);
-
-    static PyObject *sDumpSWIG(PyObject *self,PyObject *args);
-
     static PyObject *sCheckAbort(PyObject *self,PyObject *args);
-    static PyObject *sSilenceSequencer(PyObject *self, PyObject *args);
     static PyMethodDef    Methods[];
 
     friend class ApplicationObserver;

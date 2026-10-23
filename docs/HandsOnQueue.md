@@ -178,6 +178,10 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-23 11:06: entry 218 -- a tree hover on a TechDraw dimension lights its
+arrows, not its label (QGIViewDimension's pretty states leave out
+datumLabel); ASSIGNED to x16win after 216, 217.** Under the entries.
+
 **2026-10-23 11:05: entry 217 -- a TechDraw object selected in the tree does not
 switch to its page (Std_TreeSyncView on); a request: a double-click edit
 switches to its page always; ASSIGNED to x16win after 216, which it is
@@ -4304,6 +4308,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 215 | 2026-10-23 | a defect found by fcad-dc (on 214), made an entry by the note-taker coordinating: on a CHAMFER, an edge JOINING a GROUP shares the UNDO STEP of the change before it (Edge1 typed 1, then Edge2 typed 1: UndoCount stays 1, one undo takes both back); the fillet gives each its own step; older than 214 (the unfixed r204 did the same) | OPEN; 2026-10-23 10:30; ASSIGNED to fcad-dc (PD task panels, TaskChamferParameters, the files of its open work), after its panel-width task and 213 |
 | 216 | 2026-10-23 | a defect: a TechDraw PROJECTION GROUP with AUTO DISTRIBUTION on -- changing its X/Y SPACING does NOT APPLY after the commit; the views move only after Auto Distribution is toggled | OPEN; said to the note-taker 2026-10-23 11:02; ASSIGNED to x16win (TechDraw, its area; idle). 2026-10-23 11:05 ACCEPTED by x16win, diagnosing; its build tree is in use by an Assembly agent on its box (branch AssemblyPort), so the repro and the test wait for it; the fix to be committed on LinkVibe and cherry-picked into AssemblyPort (agreed by the note-taker coordinating), no push without the reporter's word; its lead from a read: `0fbe1d250c` (2026-08-13) stopped the items placing themselves in postHlrTasks, so positions come only from DPG::execute after reportReady, and `cbe029d5b5` (a restored page reuses stored geometry) may leave a spacing-only change with no HLR run and so no reportReady; to be confirmed by reproduction |
 | 217 | 2026-10-23 | a defect and a change request: (a) a TechDraw DIMENSION (or other TechDraw object) SELECTED IN THE TREE does NOT SWITCH to its PAGE VIEW even with Std_TreeSyncView ON; (b) a DOUBLE CLICK to EDIT a TechDraw object SWITCHES to ITS OWN PAGE VIEW REGARDLESS of Std_TreeSyncView | OPEN; said to the note-taker 2026-10-23 11:05; ASSIGNED to x16win (TechDraw Gui), after 216 |
+| 218 | 2026-10-23 | a defect: a TREE HOVER on a TechDraw DIMENSION highlights only its ARROWS (and lines), NOT its LABEL | OPEN; said to the note-taker 2026-10-23 11:06; READ by the note-taker: QGIViewDimension::setPreselect/setPrettyPre light aHead1, aHead2 and dimLines only, never datumLabel -- the label lights itself only on its own pointer hover (QGIDatumLabel::hoverEnterEvent); ASSIGNED to x16win (TechDraw Gui), after 216 and 217 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -29740,6 +29745,37 @@ open work there). A test: Std_TreeSyncView on, two page views and a 3D
 view open, a tree click on a dimension of the page behind brings that
 page to the front; a double click with sync off does too.
 
+## 218. A tree hover on a TechDraw dimension highlights its arrows but not its label (a defect) -- OPEN
+
+**2026-10-23 11:06, the reporter (to the note-taker):** "new defect, tree view hover
+of techdraw dimension only highlight the arrows but not its label"
+The note-taker's reading: hovering a dimension's row in the tree should
+preselect the whole dimension on the page -- label (value, tolerances,
+unit) as well as arrows and lines -- as a pointer hover over its label
+does; only the arrows (and lines) light.
+READ by the note-taker (working tree, src/Mod/TechDraw/Gui/): a tree
+hover reaches MDIViewPage's SetPreselect branch (MDIViewPage.cpp
+~862-873), which calls view->setPreselect(true) on the dimension's
+QGIView. QGIViewDimension::setPreselect (QGIViewDimension.cpp 567)
+calls setPrettyPre(), and QGIViewDimension::setPrettyPre (2663) lights
+aHead1, aHead2 and dimLines ONLY -- datumLabel is not among them; the
+same for setPrettySel/setPrettyNormal. The label lights itself only in
+its own QGIDatumLabel::hoverEnterEvent (468: emits hover(true), then
+its own setPrettyPre()), so a pointer on the label lights both, while a
+tree hover -- and, by the same code, a pointer on the lines or arrows
+(made hoverable 2026-10-16, `3a5e7c0239`) -- lights the arrows alone.
+Read as: a defect of the fork's recent dimension picking
+(`eefc466af4`, `3370553582`, `3a5e7c0239`, 10-15/16) or older; not
+verified on screen. The likely fix (the assignee's to judge): the
+dimension's pretty states carry the label too, and the label's leave
+not clearing a preselect the tree still holds.
+NOT said: whether the hover on the lines/arrows in the page shows the
+same (read as: yes, to be checked and fixed with it); balloons and
+other annotations (to be checked).
+ASSIGNED to x16win (TechDraw Gui, its area), after 216 and 217. A
+test: a tree preselect of a dimension lights its label's text items
+(colour), and RmvPreselect puts them back.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -29751,5 +29787,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 217
+the build session, 131 and 132 found by it; entries 134 to 218
 are of 2026-10-15, 134 said to the build session)

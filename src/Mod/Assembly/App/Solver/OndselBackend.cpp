@@ -24,7 +24,9 @@
 #include <cmath>
 #include <cstdio>
 #include <exception>
+#include <limits>
 #include <string>
+#include <utility>
 #include <unordered_map>
 
 #include <App/Application.h>
@@ -62,6 +64,7 @@
 #include <OndselSolver/ASMTTranslationalJoint.h>
 #include <OndselSolver/ASMTTranslationalMotion.h>
 #include <OndselSolver/Constraint.h>
+#include <OndselSolver/ExternalFunction.h>
 #include <OndselSolver/DiagonalMatrix.h>
 #include <OndselSolver/FullColumn.h>
 #include <OndselSolver/Joint.h>
@@ -238,6 +241,34 @@ void addLimitBound(
     assembly.addLimit(limit);
 }
 
+// A driver's formula as OndselSolver's ExternalFunction callback: the n-th
+// time derivative at t, from the neutral evaluator, so that runKINEMATIC
+// neither parses nor differentiates the text (it did both before, and got
+// some derivatives wrong or had none; docs/AssemblySolverInterface.md sec
+// 6.12). It asks for n = 0, 1, 2; NaN beyond. Empty when the formula has no
+// evaluator (its text does not parse): the motion then reads the text, as
+// before. The text is set either way: it is what the ASMT file records.
+MbD::ExternalTimeFunction externalFunction(const Formula& formula)
+{
+    FormulaFunction evaluate = formula.evaluator();
+    if (!evaluate) {
+        return {};
+    }
+    return [evaluate = std::move(evaluate)](double time, int order) {
+        const FormulaValue v = evaluate(time);
+        switch (order) {
+            case 0:
+                return v.value;
+            case 1:
+                return v.rate;
+            case 2:
+                return v.acceleration;
+            default:
+                return std::numeric_limits<double>::quiet_NaN();
+        }
+    };
+}
+
 }  // namespace
 
 std::string Ondsel::limitValueString(LimitKind kind, double value)
@@ -357,8 +388,8 @@ Ondsel::AsmtModel Ondsel::toAsmt(const Model& model, const SimulationSpec* simul
                 motion->setName(name + "-ScrewMotion");
                 motion->setMarkerI(path(driver.frameI));
                 motion->setMarkerJ(path(driver.frameJ));
-                motion->rIJI->atiput(2, driver.translation.text);
-                motion->angIJJ->atiput(2, driver.rotation.text);
+                motion->setrIJI(2, driver.translation.text, externalFunction(driver.translation));
+                motion->setangIJJ(2, driver.rotation.text, externalFunction(driver.rotation));
                 assembly->addMotion(motion);
                 break;
             }
@@ -367,7 +398,7 @@ Ondsel::AsmtModel Ondsel::toAsmt(const Model& model, const SimulationSpec* simul
                 motion->setName(name + "-AngularMotion");
                 motion->setMarkerI(path(driver.frameI));
                 motion->setMarkerJ(path(driver.frameJ));
-                motion->setRotationZ(driver.rotation.text);
+                motion->setRotationZ(driver.rotation.text, externalFunction(driver.rotation));
                 assembly->addMotion(motion);
                 break;
             }
@@ -376,7 +407,7 @@ Ondsel::AsmtModel Ondsel::toAsmt(const Model& model, const SimulationSpec* simul
                 motion->setName(name + "-LinearMotion");
                 motion->setMarkerI(path(driver.frameI));
                 motion->setMarkerJ(path(driver.frameJ));
-                motion->setTranslationZ(driver.translation.text);
+                motion->setTranslationZ(driver.translation.text, externalFunction(driver.translation));
                 assembly->addMotion(motion);
                 break;
             }

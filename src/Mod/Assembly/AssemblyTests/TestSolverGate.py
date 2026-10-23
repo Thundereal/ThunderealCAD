@@ -8,9 +8,19 @@ references recorded in SolverGateReference.json:
 - the solver input, as OndselSolver's ASMT text (the export, and the model
   of every solve, drag and simulation, which the preference SolverDumpFile
   writes out), by SHA-256;
-- the placement of every object after the solve, after each drag step and at
-  each simulation frame, within 1e-9 (frames also played in reverse order);
+- the placement of every object after the solve and after each drag step,
+  each value within 1e-9;
+- the placement of every object at each simulation frame (frames also played
+  in reverse order), within 1e-9 mm in position and 1e-9 rad in rotation;
 - the return codes, the solve status and the drag status, exactly.
+
+Since sec 6.12 OndselSolver no longer parses or differentiates a motion's
+formula: the adapter hands it the neutral evaluator's value and exact
+derivatives as an ExternalFunction. The integrator's velocities and
+accelerations then differ from its own by rounding, and so may the frames'
+last bits; the ASMT text (which keeps the formula) does not change. The
+records were not re-recorded: each simulation case reports the largest
+deviation it saw (SIMULATION_DEVIATION, and the report view).
 
 Since sec 6.3 step 7 the solver no longer writes the document: the builder
 swaps frames I and J and orders limits in its model. That is the first step
@@ -42,6 +52,7 @@ another platform the gate skips.
 
 import hashlib
 import json
+import math
 import os
 import sys
 import tempfile
@@ -58,6 +69,10 @@ from AssemblyTests.TestJoints import JointTestBase, plc, Z
 PREFS = "User parameter:BaseApp/Preferences/Mod/Assembly"
 TOL = 1e-9
 REFERENCE_NAME = "SolverGateReference.json"
+
+# The largest deviation of a simulation frame from its record, by case:
+# {key: (mm, rad)} (sec 6.12).
+SIMULATION_DEVIATION = {}
 
 
 def source_reference_path():
@@ -176,6 +191,20 @@ def asmt_digest(data):
 
 def placement_values(p):
     return [p.Base.x, p.Base.y, p.Base.z] + list(p.Rotation.Q)
+
+
+def placement_deviation(expected, actual):
+    """The distance (mm) and the rotation angle (rad) between two placement_values().
+
+    The angle from the vector part of the relative quaternion, not its scalar:
+    acos near 1 cannot see 1e-9 rad.
+    """
+    e = App.Placement(App.Vector(*expected[:3]), App.Rotation(*expected[3:]))
+    a = App.Placement(App.Vector(*actual[:3]), App.Rotation(*actual[3:]))
+    distance = (a.Base - e.Base).Length
+    x, y, z, w = (a.Rotation.inverted() * e.Rotation).Q
+    angle = 2.0 * math.atan2(math.sqrt(x * x + y * y + z * z), abs(w))
+    return distance, angle
 
 
 class SolverGateBase(JointTestBase):
@@ -351,7 +380,14 @@ class SolverGateBase(JointTestBase):
             return
         expected = references()["cases"].get(key)
         self.assertIsNotNone(expected, "no reference recorded for %s" % key)
+        self.deviation_key = key
         self.check(expected, json.loads(json.dumps(result)), key, text)
+        if key in SIMULATION_DEVIATION:
+            mm, rad = SIMULATION_DEVIATION[key]
+            App.Console.PrintMessage(
+                "Solver gate: %s: simulation frames within %.3g mm, %.3g rad of the record\n"
+                % (key, mm, rad)
+            )
 
     def run_all(self, drag=None, sim=None, frame_order=None):
         """The export, simulation, solve and drag of gate(); the result and the export text.
@@ -400,6 +436,15 @@ class SolverGateBase(JointTestBase):
                 self.check(expected[k], actual[k], "%s/%s" % (where, k), export_text)
         elif isinstance(expected, list) and expected and isinstance(expected[0], float):
             self.assertEqual(len(expected), len(actual), where)
+            if "/simulation/frames[" in where:
+                # sec 6.12: position and rotation, within TOL mm and TOL rad.
+                distance, angle = placement_deviation(expected, actual)
+                key = self.deviation_key
+                mm, rad = SIMULATION_DEVIATION.get(key, (0.0, 0.0))
+                SIMULATION_DEVIATION[key] = (max(mm, distance), max(rad, angle))
+                self.assertLessEqual(distance, TOL, "%s: %r != %r" % (where, actual, expected))
+                self.assertLessEqual(angle, TOL, "%s: %r != %r" % (where, actual, expected))
+                return
             for e, a in zip(expected, actual):
                 self.assertLessEqual(abs(e - a), TOL, "%s: %r != %r" % (where, actual, expected))
         elif isinstance(expected, list):
@@ -1069,6 +1114,103 @@ class TestSolverGateSimulation(SolverGateBase):
             self.assertAlmostEqual(p.z - 20.0, 2.0 * math.exp(t / 0.8), 6, (t, frames))
             self.assertAlmostEqual(p.x, 10.0, 6, (t, frames))
             self.assertAlmostEqual(p.y, 0.0, 6, (t, frames))
+
+    # sec 6.12: formulas whose derivatives OndselSolver did not have (abs, asin,
+    # arctan) or got wrong (a power of time to a power of time, a piecewise of
+    # 2*time). Not recorded cases; each runs and follows its formula.
+
+    def follow(self, mtype, formula, f):
+        """Runs one motion; the driven part at every frame against f(time).
+
+        Linear: a slider whose JCS start coincident, the part's z rises by
+        f(t) mm. Angular: a revolute about z through (5, 5), the part turns
+        by f(t) rad.
+        """
+        g = self.box("G", size=20.0)
+        self.ground(g)
+        if mtype == "Linear":
+            b = self.box("B", plc(30, 0, 20))
+            j = self.joint("Slider", (g, ["Face6"]), plc(15, 5, 20), (b, ["Face5"]), plc(5, 5, 0))
+        else:
+            b = self.box("A", plc(0, 0, 20))
+            j = self.joint("Revolute", (g, ["Face6"]), plc(5, 5, 20), (b, ["Face5"]), plc(5, 5, 0))
+        self.doc.recompute()
+        sim = self.make_simulation([(j, mtype, formula)])
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0, formula)
+        n = self.assembly.numberOfFrames()
+        frames = []
+        for i in range(n):
+            self.assembly.updateForFrame(i)
+            frames.append(App.Placement(b.Placement))
+        # The last frame is bTimeEnd, one per cTimeStepOutput before it.
+        self.assertGreaterEqual(n, 11, formula)
+        for k in range(11):
+            t = 1.0 - 0.1 * k
+            p = frames[n - 1 - k]
+            where = (formula, t, p)
+            if mtype == "Linear":
+                self.assertAlmostEqual(p.Base.z - 20.0, f(t), 6, where)
+                self.assertAlmostEqual(p.Base.x, 10.0, 6, where)
+                self.assertAlmostEqual(p.Base.y, 0.0, 6, where)
+            else:
+                x, y, z, w = p.Rotation.Q
+                self.assertAlmostEqual(x, 0.0, 9, where)
+                self.assertAlmostEqual(y, 0.0, 9, where)
+                angle = 2.0 * math.atan2(z, w)
+                turn = math.remainder(angle - f(t), 2.0 * math.pi)
+                self.assertAlmostEqual(turn, 0.0, 6, where)
+                # The JCS stays on the axis: (5, 5, 20) is fixed.
+                axis = p.multVec(App.Vector(5, 5, 0))
+                self.assertAlmostEqual((axis - App.Vector(5, 5, 20)).Length, 0.0, 6, where)
+
+    def test_abs_motion(self):
+        self.follow("Linear", "4*abs(time - 0.45)", lambda t: 4.0 * abs(t - 0.45))
+
+    def test_asin_motion(self):
+        self.follow("Linear", "10*asin(time/2)", lambda t: 10.0 * math.asin(t / 2.0))
+
+    def test_arcsin_angular_motion(self):
+        self.follow("Angular", "arcsin(0.9*time)", lambda t: math.asin(0.9 * t))
+
+    def test_arctan_motion(self):
+        # The help text's smooth step, 10 + (20 - 10)*(1/2 + arctan(50*(time - 0.5))/pi),
+        # as an angle: a turn of 1 rad around t = 0.5.
+        self.follow(
+            "Angular",
+            "(1/2) + (1/pi)*arctan(10*(time - 0.5))",
+            lambda t: 0.5 + math.atan(10.0 * (t - 0.5)) / math.pi,
+        )
+
+    def test_power_of_time_motion(self):
+        self.follow("Linear", "(time + 1)^time", lambda t: (t + 1.0) ** t)
+
+    def test_piecewise_of_2time_motion(self):
+        # x = 2*time selects the piece; the pieces are functions of time.
+        def f(t):
+            x = 2.0 * t
+            if x < 0.6:
+                return t
+            if x < 1.4:
+                return 2.0 * t - 0.3
+            return 0.75 + 0.5 * t
+
+        self.follow(
+            "Angular",
+            "piecewise(2*time, functions(time, 2*time - 0.3, 0.75 + 0.5*time), transitions(0.6, 1.4))",
+            f,
+        )
+
+    def test_rampstep_of_2time_motion(self):
+        def ramp(t):
+            x = 2.0 * t
+            if x < 0.4:
+                return 1.0
+            if x >= 1.6:
+                return 3.0
+            return 1.0 + (x - 0.4) * (3.0 - 1.0) / (1.6 - 0.4)
+
+        self.follow("Linear", "rampstep(2*time, 0.4, 1, 1.6, 3)", ramp)
 
 class TestSolverGateBench(SolverGateBase):
     """The bench's chain and star (scripts/assembly-bench/bench.py) at N = 10 and 50."""

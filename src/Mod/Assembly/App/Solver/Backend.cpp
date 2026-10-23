@@ -36,14 +36,14 @@ namespace
 // formula is outside its domain at this time, e.g. ln(time - 1) at 0).
 bool hold(Formula& formula, double time)
 {
-    if (formula.text.empty() && !formula.tree) {
+    if (formula.text.empty() && !formula.tree && !formula.function) {
         return true;  // the half of a driver that does not drive
     }
-    auto tree = formula.tree ? formula.tree : FormulaTree::parse(formula.text);
-    if (!tree) {
+    auto evaluate = formula.evaluator();
+    if (!evaluate) {
         return true;
     }
-    const double value = tree->value(time);
+    const double value = evaluate(time).value;
     if (!std::isfinite(value)) {
         return false;
     }
@@ -51,6 +51,7 @@ bool hold(Formula& formula, double time)
     std::snprintf(text, sizeof(text), "%.17g", value);
     formula.text = text;
     formula.tree = FormulaTree::parse(formula.text);
+    formula.function = Formula::functionOf(formula.tree);
     return true;
 }
 

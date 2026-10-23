@@ -743,3 +743,54 @@ TEST(OndselAdapter, positionSolvesRefuseABadFormula)  // NOLINT
     EXPECT_EQ(simulateByPositionSolves(*session, m, SimulationSpec {}, sink), Status::Failed);
     EXPECT_TRUE(sink.frames.empty());
 }
+
+// Every driver reaches OndselSolver as an ExternalFunction backed by the
+// neutral evaluator (sec 6.12), with its text kept for the ASMT file; a text
+// the evaluator rejects is handed over as text, as before.
+TEST(OndselAdapter, driversAreExternalFunctions)  // NOLINT
+{
+    Model m = gateSimulation();
+    m.drivers[1].translation.function = [](double t) {
+        return FormulaValue {5 * t, 5, 0};
+    };
+    m.drivers[1].translation.tree.reset();
+    m.drivers[1].translation.text = "5*time + 0";
+    auto asmt = Ondsel::toAsmt(m);
+    const auto& motions = *asmt.assembly->motions;
+    ASSERT_EQ(motions.size(), 4u);
+    auto check = [](const MbD::ExternalTimeFunction& f, const Formula& formula) {
+        ASSERT_TRUE(f);
+        auto tree = FormulaTree::parse(formula.text);
+        for (double t : {0.0, 0.3, 1.7}) {
+            const FormulaValue v = tree->evaluate(t);
+            EXPECT_EQ(f(t, 0), v.value);
+            EXPECT_EQ(f(t, 1), v.rate);
+            EXPECT_EQ(f(t, 2), v.acceleration);
+        }
+        EXPECT_TRUE(std::isnan(f(0.5, 3)));
+    };
+    auto rev = std::dynamic_pointer_cast<MbD::ASMTRotationalMotion>(motions[0]);
+    ASSERT_TRUE(rev);
+    EXPECT_EQ(rev->rotationZ, "36*time");
+    check(rev->rotationZFunction, m.drivers[0].rotation);
+    auto sli = std::dynamic_pointer_cast<MbD::ASMTTranslationalMotion>(motions[1]);
+    ASSERT_TRUE(sli);
+    EXPECT_EQ(sli->translationZ, "5*time + 0");
+    check(sli->translationZFunction, m.drivers[1].translation);
+    auto both = std::dynamic_pointer_cast<MbD::ASMTGeneralMotion>(motions[2]);
+    ASSERT_TRUE(both);
+    EXPECT_EQ(both->rIJI->at(2), "2*sin(time)");
+    EXPECT_EQ(both->angIJJ->at(2), "90*time");
+    check(both->rIJIFunctions[2], m.drivers[2].translation);
+    check(both->angIJJFunctions[2], m.drivers[2].rotation);
+    EXPECT_FALSE(both->rIJIFunctions[0]);
+
+    m.drivers[0].rotation.text = "36*time)";
+    m.drivers[0].rotation.tree.reset();
+    m.drivers[0].rotation.function = nullptr;
+    asmt = Ondsel::toAsmt(m);
+    rev = std::dynamic_pointer_cast<MbD::ASMTRotationalMotion>((*asmt.assembly->motions)[0]);
+    ASSERT_TRUE(rev);
+    EXPECT_FALSE(rev->rotationZFunction);
+    EXPECT_EQ(rev->rotationZ, "36*time)");
+}

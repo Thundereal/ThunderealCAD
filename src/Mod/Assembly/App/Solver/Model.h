@@ -31,6 +31,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -156,14 +157,42 @@ struct Limit
     double tolerance = 1e-9;
 };
 
+// The value and first two time derivatives of a formula at a time.
+using FormulaFunction = std::function<FormulaValue(double time)>;
+
 // A formula of time in the workbench's grammar (sec 4.6.1, Formula.h);
 // 'initialValue' is substituted before it gets here. The text is the record;
 // the tree is the builder's parse of it, shared, so a backend or the default
 // simulation evaluates without parsing again. Null when nobody parsed it.
+// 'function' is the formula as a callable, which a backend that takes
+// functions rather than text calls (the Ondsel adapter hands it to
+// OndselSolver as an ExternalFunction, so the solver neither parses nor
+// differentiates the formula); the builder backs it with the tree.
 struct Formula
 {
     std::string text;
     std::shared_ptr<const FormulaTree> tree;
+    FormulaFunction function;
+
+    static FormulaFunction functionOf(std::shared_ptr<const FormulaTree> tree)
+    {
+        if (!tree) {
+            return {};
+        }
+        return [tree = std::move(tree)](double time) {
+            return tree->evaluate(time);
+        };
+    }
+
+    // 'function', else the tree's, else a parse of the text's; empty when the
+    // text does not parse.
+    FormulaFunction evaluator() const
+    {
+        if (function) {
+            return function;
+        }
+        return functionOf(tree ? tree : FormulaTree::parse(text));
+    }
 };
 
 enum class DriverKind : std::uint8_t

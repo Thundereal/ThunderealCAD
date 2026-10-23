@@ -7,7 +7,8 @@
 // the edge cases of the grammar; derivatives against finite differences; and
 // the errors, with their positions.
 //
-// This is the only place the evaluator meets OndselSolver: the comparison.
+// Besides the Ondsel adapter, which hands OndselSolver the evaluator as an
+// ExternalFunction (sec 6.12), this is where the two meet: the comparison.
 
 #include <gtest/gtest.h>
 
@@ -22,7 +23,12 @@
 
 #include <Base/Tools.h>  // M_PI, which OndselSolver's headers use
 #include <Mod/Assembly/App/Solver/Formula.h>
+#include <Mod/Assembly/App/Solver/Model.h>
 
+#include <OndselSolver/Constant.h>
+#include <OndselSolver/ASMTTime.h>
+#include <OndselSolver/ExternalFunction.h>
+#include <OndselSolver/Product.h>
 #include <OndselSolver/SymbolicParser.h>
 #include <OndselSolver/SymTime.h>
 
@@ -287,43 +293,23 @@ TEST(FormulaEvaluator, derivativesMatchFiniteDifferences)
 }
 
 // OndselSolver's symbolic derivatives, as runKINEMATIC uses them for the
-// velocities and accelerations of a motion, against the evaluator's. abs,
-// asin and arctan have no derivative in OndselSolver (FunctionX throws "To be
-// implemented"), so a kinematic run of a formula using them fails there.
-// Four formulas get wrong derivatives from OndselSolver, none through tan,
-// exp, ln or sqrt: a power with a time-dependent base and exponent
-// (Symbolic::times appends to the terms vector of the Product it is given,
-// which the Power's derivative still shares), and a piecewise whose x is not
-// time itself (PiecewiseFunction::differentiateWRTx differentiates the pieces
-// with respect to x, and the pieces are functions of time). The test keeps
-// them, asserting that they still disagree, so a fix shows up here.
+// velocities and accelerations of a motion, against the evaluator's, on the
+// whole corpus. Until 2026-10-23 (docs/AssemblySolverInterface.md sec 6.12)
+// abs, asin and arctan had no derivative in OndselSolver (FunctionX threw "To
+// be implemented"), a power with a time-dependent base and exponent got a
+// wrong one (Symbolic::sum and times inserted into the terms vector of the Sum
+// or Product they were given, which an expression formed earlier still
+// shared), and so did a piecewise whose x is not time itself
+// (PiecewiseFunction differentiated the pieces, functions of time, with
+// respect to x). All fixed in the OndselSolver fork; they agree now.
 TEST(FormulaEvaluator, derivativesMatchOndselSolver)
 {
-    const std::vector<std::string> underivable = {"abs(", "asin(", "arcsin(", "arctan("};
-    const std::vector<std::string> wrongInOndsel = {
-        "(time + 1)^time",
-        "time^(sin(time) + 2)",
-        "rampstep(2*time, 0.4, -1, 1.6, 2.5)*time",
-        "piecewise(time - 1, functions(sin(time), 2*time), transitions(0))",
-    };
     for (const auto& c : corpus()) {
         SCOPED_TRACE(c.text);
         auto tree = FormulaTree::parse(c.text);
         ASSERT_TRUE(tree);
         OndselFormula ondsel(c.text);
-        const bool expectFailure = std::ranges::any_of(underivable, [&](const std::string& f) {
-            return c.text.find(f) != std::string::npos;
-        });
-        try {
-            ondsel.differentiate();
-        }
-        catch (const std::exception&) {
-            EXPECT_TRUE(expectFailure);
-            continue;
-        }
-        EXPECT_FALSE(expectFailure);
-        const bool wrong = std::ranges::find(wrongInOndsel, c.text) != wrongInOndsel.end();
-        bool differs = false;
+        ASSERT_NO_THROW(ondsel.differentiate());
         for (double t : samples(c)) {
             if (nearKink(c, t, 1e-9)) {
                 continue;
@@ -331,16 +317,120 @@ TEST(FormulaEvaluator, derivativesMatchOndselSolver)
             const FormulaValue v = tree->evaluate(t);
             const double rate = ondsel.rate(t);
             const double acceleration = ondsel.acceleration(t);
-            if (wrong) {
-                differs = differs || std::abs(v.rate - rate) > 1e-6 * std::max(1.0, std::abs(rate));
-                continue;
-            }
             EXPECT_NEAR(v.rate, rate, 1e-10 * std::max(1.0, std::abs(rate))) << "t=" << t;
             EXPECT_NEAR(v.acceleration, acceleration, 1e-10 * std::max(1.0, std::abs(acceleration)))
                 << "t=" << t;
         }
-        EXPECT_EQ(differs, wrong);
     }
+}
+
+// abs's derivative at its kink is sign(0) = 0 in both, the mean of the two
+// one-sided slopes.
+TEST(FormulaEvaluator, absAtItsKink)
+{
+    OndselFormula ondsel("abs(time - 1)");
+    ondsel.differentiate();
+    const FormulaValue v = FormulaTree::parse("abs(time - 1)")->evaluate(1.0);
+    EXPECT_EQ(v.rate, 0.0);
+    EXPECT_EQ(ondsel.rate(1.0), 0.0);
+    EXPECT_EQ(ondsel.rate(0.5), -1.0);
+    EXPECT_EQ(ondsel.rate(1.5), 1.0);
+    EXPECT_EQ(ondsel.acceleration(1.0), 0.0);
+}
+
+namespace
+{
+
+// What the Ondsel adapter hands OndselSolver for a driver's formula
+// (OndselBackend.cpp externalFunction): the evaluator's value and
+// derivatives by order.
+MbD::ExternalTimeFunction externalOf(const std::shared_ptr<const FormulaTree>& tree)
+{
+    FormulaFunction evaluate = Formula::functionOf(tree);
+    return [evaluate](double time, int order) {
+        const FormulaValue v = evaluate(time);
+        switch (order) {
+            case 0:
+                return v.value;
+            case 1:
+                return v.rate;
+            case 2:
+                return v.acceleration;
+            default:
+                return std::numeric_limits<double>::quiet_NaN();
+        }
+    };
+}
+
+}  // namespace
+
+// The ExternalFunction node (OndselSolver/ExternalFunction.h) the adapter
+// passes a motion's formula as. Through what ASMTRotationalMotion::createMbD
+// and EndFrameqct do to a motion's block -- the units product, simplified(),
+// differentiation with respect to the system's time, simplified(), twice --
+// it stays one node, of order 0, 1 and 2, and its values are the evaluator's
+// bit for bit. With a time in other units (a geoTime of 2 t), the chain rule
+// scales each derivative by 2.
+TEST(FormulaEvaluator, externalFunctionIsTheEvaluator)
+{
+    for (const auto& c : corpus()) {
+        SCOPED_TRACE(c.text);
+        auto tree = FormulaTree::parse(c.text);
+        ASSERT_TRUE(tree);
+
+        auto time = std::make_shared<MbD::Time>();
+        MbD::Symsptr node = std::make_shared<MbD::ExternalFunction>(time, externalOf(tree), 0, c.text);
+        auto geo = MbD::Symbolic::times(node, std::make_shared<MbD::Constant>(1.0));
+        auto block = geo->simplified(geo);
+        auto d1 = block->differentiateWRT(time);
+        auto rate = d1->simplified(d1);
+        auto d2 = rate->differentiateWRT(time);
+        auto acceleration = d2->simplified(d2);
+        int order = 0;
+        for (const auto& sym : {block, rate, acceleration}) {
+            auto external = std::dynamic_pointer_cast<MbD::ExternalFunction>(sym);
+            ASSERT_TRUE(external) << "order " << order;
+            EXPECT_EQ(external->order, order);
+            EXPECT_EQ(external->name, c.text);
+            ++order;
+        }
+        for (double t : samples(c)) {
+            time->setValue(t);
+            const FormulaValue v = tree->evaluate(t);
+            EXPECT_EQ(block->getValue(), v.value) << "t=" << t;
+            EXPECT_EQ(rate->getValue(), v.rate) << "t=" << t;
+            EXPECT_EQ(acceleration->getValue(), v.acceleration) << "t=" << t;
+        }
+
+        // geoTime = 2 t: ASMTTime is mbdUnits->time * t.
+        auto scaled = std::make_shared<MbD::ASMTTime>();
+        scaled->xexpression(
+            time,
+            std::make_shared<MbD::Product>(std::make_shared<MbD::Constant>(2.0), time)
+        );
+        MbD::Symsptr scaledNode = std::make_shared<MbD::ExternalFunction>(scaled, externalOf(tree));
+        auto s1 = scaledNode->differentiateWRT(time);
+        auto scaledRate = s1->simplified(s1);
+        auto s2 = scaledRate->differentiateWRT(time);
+        auto scaledAcceleration = s2->simplified(s2);
+        for (double t : samples(c)) {
+            time->setValue(t / 2);
+            const FormulaValue v = tree->evaluate(t);
+            EXPECT_EQ(scaledNode->getValue(), v.value) << "t=" << t;
+            EXPECT_DOUBLE_EQ(scaledRate->getValue(), 2 * v.rate) << "t=" << t;
+            EXPECT_DOUBLE_EQ(scaledAcceleration->getValue(), 4 * v.acceleration) << "t=" << t;
+        }
+    }
+    // Not the time: no dependence.
+    auto time = std::make_shared<MbD::Time>();
+    auto other = std::make_shared<MbD::Time>();
+    MbD::Symsptr node = std::make_shared<MbD::ExternalFunction>(
+        time,
+        externalOf(FormulaTree::parse("36*time"))
+    );
+    auto d = node->differentiateWRT(other);
+    EXPECT_TRUE(d->isConstant());
+    EXPECT_EQ(d->getValue(), 0.0);
 }
 
 // Outside a function's domain the evaluator gives what IEEE arithmetic gives

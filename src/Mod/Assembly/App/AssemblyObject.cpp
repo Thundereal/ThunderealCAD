@@ -2593,6 +2593,7 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
     auto setFormula = [this](Solver::Formula& target, std::string text, App::DocumentObject* motion) {
         Solver::FormulaError error;
         target.tree = Solver::FormulaTree::parse(text, &error);
+        target.function = Solver::Formula::functionOf(target.tree);
         if (!target.tree) {
             ++badFormulas;
             Base::Console().error(

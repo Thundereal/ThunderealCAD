@@ -83,6 +83,8 @@ OverlayScrollBars::OverlayScrollBars(QAbstractScrollArea* scrollArea)
     hbar = make(Qt::Horizontal, heffect);
 
     // the area's own: off, and followed
+    ownVPolicy = area->verticalScrollBarPolicy();
+    ownHPolicy = area->horizontalScrollBarPolicy();
     area->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     area->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     follow(area->verticalScrollBar(), vbar);
@@ -114,6 +116,27 @@ OverlayScrollBars::OverlayScrollBars(QAbstractScrollArea* scrollArea)
 }
 
 OverlayScrollBars::~OverlayScrollBars() = default;
+
+void OverlayScrollBars::remove()
+{
+    fade->stop();
+    idle.stop();
+    if (area) {
+        area->removeEventFilter(this);
+        area->viewport()->removeEventFilter(this);
+        area->setVerticalScrollBarPolicy(ownVPolicy);
+        area->setHorizontalScrollBarPolicy(ownHPolicy);
+    }
+    delete vbar;
+    delete hbar;
+    delete this;
+}
+
+OverlayScrollBars* OverlayScrollBars::of(QAbstractScrollArea* area)
+{
+    return area ? area->findChild<OverlayScrollBars*>(QString(), Qt::FindDirectChildrenOnly)
+                : nullptr;
+}
 
 QScrollBar* OverlayScrollBars::bar(Qt::Orientation orientation) const
 {

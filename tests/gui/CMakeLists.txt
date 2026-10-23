@@ -247,14 +247,25 @@ fc_add_gui_test(GuiTechDrawDimensionEditEndsGroupEdit_tests_run techdraw-dimensi
 fc_add_gui_test(GuiChamferUndoSteps_tests_run chamfer-undo-steps.py
                 --timeout 200)
 
-# Entry 221: a TechDraw page view shows no scroll bars (General/HideScrollBars,
-# on by default, applied at once) and still pans.
-fc_add_gui_test(GuiTechDrawPageScrollBarsHidden_tests_run techdraw-page-scroll-bars-hidden.py
+# Entries 221, 224: a TechDraw page view shows the spreadsheet's thin
+# overlaid scroll bars (General/HidePageScrollBars, off by default, hides
+# them, applied at once) and pans either way.
+fc_add_gui_test(GuiTechDrawPageOverlayScrollBars_tests_run techdraw-page-overlay-scroll-bars.py
                 --timeout 200)
 
 # Entry 222: a spreadsheet's scroll bars laid over the cells, out of the
 # overlaid docks' way, thin and fading.
 fc_add_gui_test(GuiSpreadsheetScrollBarsBesideOverlay_tests_run spreadsheet-scroll-bars-beside-overlay.py
+                --timeout 200)
+
+# Entry 226: a dress-up group's automatic colour by its id alone; an edge
+# typed into an existing group takes that group's colour.
+fc_add_gui_test(GuiDressUpGroupColorsKept_tests_run dressup-group-colors-kept.py
+                --timeout 200)
+
+# Entry 228: each fine undo step of a fillet's or chamfer's panel is named
+# for what it did.
+fc_add_gui_test(GuiPdUndoStepNames_tests_run pd-undo-step-names.py
                 --timeout 200)
 
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a

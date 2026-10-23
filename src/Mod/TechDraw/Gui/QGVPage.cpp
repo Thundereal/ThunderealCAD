@@ -49,6 +49,7 @@
 #include <Gui/MainWindow.h>
 #include <Gui/ViewProviderDocumentObject.h>
 #include <Gui/NavigationStyle.h>
+#include <Gui/OverlayScrollBars.h>
 #include <Gui/Selection.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
@@ -205,7 +206,7 @@ public:
             page->resetCachedContent();
             page->viewport()->update();
         }
-        else if (strcmp(Reason, "HideScrollBars") == 0) {
+        else if (strcmp(Reason, "HidePageScrollBars") == 0) {
             page->updateScrollBars();
         }
         else if (strcmp(Reason, "NavigationStyle") == 0) {
@@ -1171,15 +1172,26 @@ void QGVPage::focusOutEvent(QFocusEvent* event)
 
 void QGVPage::updateScrollBars()
 {
-    // Hidden, at the view's edges they look like overlay panels or their
-    // handles (docs/HandsOnQueue.md entry 221). Only not shown: their ranges
-    // stay, and panning -- the navigation styles', the keys' below -- moves
-    // their values as before.
+    // Qt's own bars at the view's edges look like overlay panels or their
+    // handles (docs/HandsOnQueue.md entry 221): the spreadsheet's thin bars
+    // laid over the page, clear of the docks (entries 222, 224), or none.
+    // Either way their ranges stay, and panning -- the navigation styles',
+    // the keys' below -- moves their values as before.
     const bool hide = Preferences::getPreferenceGroup("General")->GetBool(
-        "HideScrollBars", TechDraw::TechDrawParams::defaultHideScrollBars());
-    const auto policy = hide ? Qt::ScrollBarAlwaysOff : Qt::ScrollBarAsNeeded;
-    setHorizontalScrollBarPolicy(policy);
-    setVerticalScrollBarPolicy(policy);
+        "HidePageScrollBars", TechDraw::TechDrawParams::defaultHidePageScrollBars());
+    auto bars = Gui::OverlayScrollBars::of(this);
+    if (hide) {
+        if (bars) {
+            bars->remove();
+        }
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+        setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    }
+    else if (!bars) {
+        setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
+        new Gui::OverlayScrollBars(this);
+    }
 }
 
 void QGVPage::kbPanScroll(int xMove, int yMove)

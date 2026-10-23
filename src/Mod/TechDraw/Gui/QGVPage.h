@@ -142,7 +142,8 @@ public:
     void setBalloonCursor(QLabel* label) { balloonCursor = label; }
 
     void kbPanScroll(int xMove = 1, int yMove = 1);
-    /// The scroll bars shown or not, as General/HideScrollBars says (entry 221)
+    /// Thin bars laid over the page, or none, as General/HidePageScrollBars
+    /// says (entries 221, 224)
     void updateScrollBars();
     QPointF getBalloonCursorPos() const { return balloonCursorPos; }
     void setBalloonCursorPos(QPoint pos) { balloonCursorPos = pos; }

@@ -118,7 +118,7 @@ void DlgPrefsTechDrawGeneralImp::loadSettings()
     ui->cbMultiSelection->setChecked(multiSelectionDefault);
     ui->cbMultiSelection->onRestore();
 
-    ui->cbHideScrollBars->setChecked(TechDraw::TechDrawParams::defaultHideScrollBars());
+    ui->cbHideScrollBars->setChecked(TechDraw::TechDrawParams::defaultHidePageScrollBars());
     ui->cbHideScrollBars->onRestore();
 }
 

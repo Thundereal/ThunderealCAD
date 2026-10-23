@@ -53,7 +53,7 @@ public:
     double FocusDistance;
     bool GlobalUpdateDrawings;
     bool HandleFaces;
-    bool HideScrollBars;
+    bool HidePageScrollBars;
     long KbPan;
     long KbScroll;
     bool KeepPagesUpToDate;
@@ -233,8 +233,8 @@ public:
         funcs["GlobalUpdateDrawings"] = &TechDrawParamsP::updateGlobalUpdateDrawings;
         HandleFaces = this->subHandles[0]->GetBool("HandleFaces", true);
         funcs["HandleFaces"] = &TechDrawParamsP::updateHandleFaces;
-        HideScrollBars = this->subHandles[0]->GetBool("HideScrollBars", true);
-        funcs["HideScrollBars"] = &TechDrawParamsP::updateHideScrollBars;
+        HidePageScrollBars = this->subHandles[0]->GetBool("HidePageScrollBars", false);
+        funcs["HidePageScrollBars"] = &TechDrawParamsP::updateHidePageScrollBars;
         KbPan = this->subHandles[0]->GetInt("KbPan", 1);
         funcs["KbPan"] = &TechDrawParamsP::updateKbPan;
         KbScroll = this->subHandles[0]->GetInt("KbScroll", 1);
@@ -544,8 +544,8 @@ public:
         self->HandleFaces = self->subHandles[0]->GetBool("HandleFaces", true);
     }
     // Auto generated code (Tools/params_utils.py:314)
-    static void updateHideScrollBars(TechDrawParamsP *self) {
-        self->HideScrollBars = self->subHandles[0]->GetBool("HideScrollBars", true);
+    static void updateHidePageScrollBars(TechDrawParamsP *self) {
+        self->HidePageScrollBars = self->subHandles[0]->GetBool("HidePageScrollBars", false);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateKbPan(TechDrawParamsP *self) {
@@ -1104,12 +1104,12 @@ static const App::ParamRegistry::Registrar _TechDrawParamsRegistrar({
         .setTitle("Handle Faces")
         .setDoc("Find the faces of each view, needed for hatching and face colours.\n"
 "Off is faster. Takes effect when a view is recomputed."),
-    App::ParamInfo("TechDraw", "TechDrawParams", "User parameter:BaseApp/Preferences/Mod/TechDraw/General", "HideScrollBars", "HideScrollBars", App::ParamInfo::Bool, true)
+    App::ParamInfo("TechDraw", "TechDrawParams", "User parameter:BaseApp/Preferences/Mod/TechDraw/General", "HidePageScrollBars", "HidePageScrollBars", App::ParamInfo::Bool, false)
         .setTitle("Hide page view scroll bars")
-        .setDoc("Hide the vertical and horizontal scroll bars of a page view: at the\n"
-"view's edges they look like overlay panels or their handles. The\n"
-"page still pans with the mouse, the wheel and the keys. Applies at\n"
-"once to open pages."),
+        .setDoc("Hide the scroll bars of a page view. Off, the page shows thin bars\n"
+"laid over it, clear of the overlay panels, while it scrolls or the\n"
+"pointer is near them. The page still pans with the mouse, the wheel\n"
+"and the keys. Applies at once to open pages."),
     App::ParamInfo("TechDraw", "TechDrawParams", "User parameter:BaseApp/Preferences/Mod/TechDraw/General", "KbPan", "KbPan", App::ParamInfo::Int, 1)
         .setTitle("Kb Pan")
         .setDoc("Direction of horizontal movement of a drawing page with the arrow\n"
@@ -2016,34 +2016,34 @@ void TechDrawParams::removeHandleFaces() {
 }
 
 // Auto generated code (Tools/params_utils.py:397)
-const char *TechDrawParams::docHideScrollBars() {
+const char *TechDrawParams::docHidePageScrollBars() {
     return QT_TRANSLATE_NOOP("TechDrawParams",
-"Hide the vertical and horizontal scroll bars of a page view: at the\n"
-"view's edges they look like overlay panels or their handles. The\n"
-"page still pans with the mouse, the wheel and the keys. Applies at\n"
-"once to open pages.");
+"Hide the scroll bars of a page view. Off, the page shows thin bars\n"
+"laid over it, clear of the overlay panels, while it scrolls or the\n"
+"pointer is near them. The page still pans with the mouse, the wheel\n"
+"and the keys. Applies at once to open pages.");
 }
 
 // Auto generated code (Tools/params_utils.py:405)
-const bool & TechDrawParams::getHideScrollBars() {
-    return instance()->HideScrollBars;
+const bool & TechDrawParams::getHidePageScrollBars() {
+    return instance()->HidePageScrollBars;
 }
 
 // Auto generated code (Tools/params_utils.py:413)
-const bool & TechDrawParams::defaultHideScrollBars() {
-    const static bool def = true;
+const bool & TechDrawParams::defaultHidePageScrollBars() {
+    const static bool def = false;
     return def;
 }
 
 // Auto generated code (Tools/params_utils.py:422)
-void TechDrawParams::setHideScrollBars(const bool &v) {
-    instance()->subHandles[0]->SetBool("HideScrollBars",v);
-    instance()->HideScrollBars = v;
+void TechDrawParams::setHidePageScrollBars(const bool &v) {
+    instance()->subHandles[0]->SetBool("HidePageScrollBars",v);
+    instance()->HidePageScrollBars = v;
 }
 
 // Auto generated code (Tools/params_utils.py:431)
-void TechDrawParams::removeHideScrollBars() {
-    instance()->subHandles[0]->RemoveBool("HideScrollBars");
+void TechDrawParams::removeHidePageScrollBars() {
+    instance()->subHandles[0]->RemoveBool("HidePageScrollBars");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

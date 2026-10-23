@@ -52,7 +52,7 @@ namespace Gui {
  *
  * The area's own bars are turned off and kept: these follow their ranges,
  * steps and values, and set their values back. Made by and owned by the
- * area.
+ * area, and go with it; remove() takes them off a living area.
  */
 class GuiExport OverlayScrollBars: public QObject
 {
@@ -66,6 +66,12 @@ public:
     QScrollBar* bar(Qt::Orientation orientation) const;
     /// Where the bars stand now, in the area's coordinates (empty: not shown)
     QRect barRect(Qt::Orientation orientation) const;
+
+    /// Takes the bars off: the area's own come back with the policies they
+    /// had, and this is deleted
+    void remove();
+    /// The bars laid over \a area, if any
+    static OverlayScrollBars* of(QAbstractScrollArea* area);
 
     /// How thick a bar is
     static constexpr int Thickness = 10;
@@ -82,8 +88,10 @@ private:
     bool pointerNear() const;
 
     QPointer<QAbstractScrollArea> area;
-    QScrollBar* vbar = nullptr;
-    QScrollBar* hbar = nullptr;
+    QPointer<QScrollBar> vbar;
+    QPointer<QScrollBar> hbar;
+    Qt::ScrollBarPolicy ownVPolicy = Qt::ScrollBarAsNeeded;
+    Qt::ScrollBarPolicy ownHPolicy = Qt::ScrollBarAsNeeded;
     QGraphicsOpacityEffect* veffect = nullptr;
     QGraphicsOpacityEffect* heffect = nullptr;
     QVariantAnimation* fade = nullptr;

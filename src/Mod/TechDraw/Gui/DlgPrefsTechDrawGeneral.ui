@@ -921,18 +921,19 @@ for ProjectionGroups</string>
         <item row="1" column="0">
          <widget class="Gui::PrefCheckBox" name="cbHideScrollBars">
           <property name="toolTip">
-           <string>Hide the vertical and horizontal scroll bars of a page view: at the view's
-edges they look like overlay panels or their handles. The page still pans
-with the mouse, the wheel and the keys. Applies at once to open pages.</string>
+           <string>Hide the scroll bars of a page view. Off, the page shows thin bars laid
+over it, clear of the overlay panels, while it scrolls or the pointer is
+near them. The page still pans with the mouse, the wheel and the keys.
+Applies at once to open pages.</string>
           </property>
           <property name="text">
            <string>Hide page view scroll bars</string>
           </property>
           <property name="checked">
-           <bool>true</bool>
+           <bool>false</bool>
           </property>
           <property name="prefEntry" stdset="0">
-           <cstring>HideScrollBars</cstring>
+           <cstring>HidePageScrollBars</cstring>
           </property>
           <property name="prefPath" stdset="0">
            <cstring>Mod/TechDraw/General</cstring>

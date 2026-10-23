@@ -159,7 +159,11 @@ AssemblyExport bool isFaceType(
 AssemblyExport double getFaceRadius(const App::DocumentObject* obj, const std::string& elName);
 AssemblyExport double getEdgeRadius(const App::DocumentObject* obj, const std::string& elName);
 
-AssemblyExport DistanceType getDistanceType(App::DocumentObject* joint);
+// The sub-type wants its sides in a set order (a line before a circle, a face
+// before a vertex, ...). Upstream swaps the joint's sides in the document to
+// get it; here the document is never written: *swapped, when given, says
+// whether the solver's frame I is the Reference2 side.
+AssemblyExport DistanceType getDistanceType(App::DocumentObject* joint, bool* swapped = nullptr);
 AssemblyExport JointGroup* getJointGroup(const App::Part* part);
 
 AssemblyExport std::vector<App::DocumentObject*> getAssemblyComponents(const AssemblyObject* assembly);

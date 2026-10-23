@@ -184,11 +184,21 @@ double getEdgeRadius(const App::DocumentObject* obj, const std::string& elt)
     return sf.GetType() == GeomAbs_Circle ? sf.Circle().Radius() : 0.0;
 }
 
-DistanceType getDistanceType(App::DocumentObject* joint)
+DistanceType getDistanceType(App::DocumentObject* joint, bool* swapped)
 {
+    if (swapped) {
+        *swapped = false;
+    }
     if (!joint) {
         return DistanceType::Other;
     }
+    // Shadows ::swapJCS: the sides trade places for the classification below
+    // and in the caller's solver model, not in the document.
+    auto swapJCS = [swapped](const App::DocumentObject*) {
+        if (swapped) {
+            *swapped = !*swapped;
+        }
+    };
 
     const auto type1 = getElementTypeFromProp(joint, "Reference1");
     const auto type2 = getElementTypeFromProp(joint, "Reference2");

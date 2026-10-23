@@ -2128,12 +2128,12 @@ std::shared_ptr<Solver::Joint> AssemblyObject::makeMbdJointOfType(App::DocumentO
 
 std::shared_ptr<Solver::Joint> AssemblyObject::makeMbdJointDistance(App::DocumentObject* joint)
 {
-    DistanceType type = getDistanceType(joint);
+    DistanceType type = getDistanceType(joint, &jcsSwapped);
 
-    std::string elt1 = getElementFromProp(joint, "Reference1");
-    std::string elt2 = getElementFromProp(joint, "Reference2");
-    auto* obj1 = getLinkedObjFromRef(joint, "Reference1");
-    auto* obj2 = getLinkedObjFromRef(joint, "Reference2");
+    std::string elt1 = getElementFromProp(joint, jcsRef(1));
+    std::string elt2 = getElementFromProp(joint, jcsRef(2));
+    auto* obj1 = getLinkedObjFromRef(joint, jcsRef(1));
+    auto* obj2 = getLinkedObjFromRef(joint, jcsRef(2));
 
     switch (type) {
         case DistanceType::PointPoint: {
@@ -2293,6 +2293,7 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
 
     JointType jointType = getJointType(joint);
 
+    jcsSwapped = false;
     std::shared_ptr<Solver::Joint> mbdJoint = makeMbdJointOfType(joint, jointType);
     if (!mbdJoint || !isMbDJointValid(joint)) {
         return {};
@@ -2307,8 +2308,8 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
         getRackPinionMarkers(joint, fullMarkerNameI, fullMarkerNameJ);
     }
     else {
-        fullMarkerNameI = handleOneSideOfJoint(joint, "Reference1", "Placement1");
-        fullMarkerNameJ = handleOneSideOfJoint(joint, "Reference2", "Placement2");
+        fullMarkerNameI = handleOneSideOfJoint(joint, jcsRef(1), jcsPlc(1));
+        fullMarkerNameJ = handleOneSideOfJoint(joint, jcsRef(2), jcsPlc(2));
     }
     if (fullMarkerNameI == Solver::NoId || fullMarkerNameJ == Solver::NoId) {
         return {};
@@ -2337,16 +2338,9 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
                 double minLength = pLenMin->getValue();
                 double maxLength = pLenMax->getValue();
 
+                // In the model only: the document keeps what the user typed.
                 if ((minLength > maxLength) && minEnabled && maxEnabled) {
-                    pLenMin->setValue(maxLength);
-                    pLenMax->setValue(minLength);
-                    minLength = maxLength;
-                    maxLength = pLenMax->getValue();
-
-                    pMinEnabled->setValue(maxEnabled);
-                    pMaxEnabled->setValue(minEnabled);
-                    minEnabled = maxEnabled;
-                    maxEnabled = pMaxEnabled->getValue();
+                    std::swap(minLength, maxLength);
                 }
 
                 if (minEnabled) {
@@ -2388,16 +2382,9 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
                 bool maxEnabled = pMaxEnabled->getValue();
                 double minAngle = pRotMin->getValue();
                 double maxAngle = pRotMax->getValue();
+                // In the model only: the document keeps what the user typed.
                 if ((minAngle > maxAngle) && minEnabled && maxEnabled) {
-                    pRotMin->setValue(maxAngle);
-                    pRotMax->setValue(minAngle);
-                    minAngle = maxAngle;
-                    maxAngle = pRotMax->getValue();
-
-                    pMinEnabled->setValue(maxEnabled);
-                    pMaxEnabled->setValue(minEnabled);
-                    minEnabled = maxEnabled;
-                    maxEnabled = pMaxEnabled->getValue();
+                    std::swap(minAngle, maxAngle);
                 }
 
                 if (minEnabled) {
@@ -2604,25 +2591,25 @@ void AssemblyObject::getRackPinionMarkers(
         swapJCS(joint);  // make sure that rack is first.
     }
 
-    App::DocumentObject* part1 = getMovingPartFromRef(joint, "Reference1");
-    App::DocumentObject* obj1 = getObjFromJointRef(joint, "Reference1");
-    Base::Placement plc1 = getPlacementFromProp(joint, "Placement1");
+    App::DocumentObject* part1 = getMovingPartFromRef(joint, jcsRef(1));
+    App::DocumentObject* obj1 = getObjFromJointRef(joint, jcsRef(1));
+    Base::Placement plc1 = getPlacementFromProp(joint, jcsPlc(1));
 
-    App::DocumentObject* obj2 = getObjFromJointRef(joint, "Reference2");
-    Base::Placement plc2 = getPlacementFromProp(joint, "Placement2");
+    App::DocumentObject* obj2 = getObjFromJointRef(joint, jcsRef(2));
+    Base::Placement plc2 = getPlacementFromProp(joint, jcsPlc(2));
 
     if (!part1 || !obj1) {
-        Base::Console().Warning("Reference1 of Joint %s is bad.\n", joint->getFullName());
+        Base::Console().Warning("%s of Joint %s is bad.\n", jcsRef(1), joint->getFullName());
         return;
     }
 
     // For the pinion nothing special needed :
-    markerNameJ = handleOneSideOfJoint(joint, "Reference2", "Placement2");
+    markerNameJ = handleOneSideOfJoint(joint, jcsRef(2), jcsPlc(2));
 
     // For the rack we need to change the placement :
     // make the pinion plc relative to the rack placement.
-    auto* ref1 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference1"));
-    auto* ref2 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference2"));
+    auto* ref1 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName(jcsRef(1)));
+    auto* ref2 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName(jcsRef(2)));
     if (!ref1 || !ref2) {
         return;
     }
@@ -2718,6 +2705,24 @@ int AssemblyObject::slidingPartIndex(App::DocumentObject* joint)
         }
     }
     return slidingFound;
+}
+
+void AssemblyObject::swapJCS(const App::DocumentObject* /*joint*/)
+{
+    // Upstream swaps Reference1/2 and Placement1/2 in the document here. A
+    // solve must not write the document (docs/AssemblySolverInterface.md
+    // sec 6.3 step 7), so the swap lives in the model being built instead.
+    jcsSwapped = !jcsSwapped;
+}
+
+const char* AssemblyObject::jcsRef(int side) const
+{
+    return ((side == 1) != jcsSwapped) ? "Reference1" : "Reference2";
+}
+
+const char* AssemblyObject::jcsPlc(int side) const
+{
+    return ((side == 1) != jcsSwapped) ? "Placement1" : "Placement2";
 }
 
 bool AssemblyObject::isMbDJointValid(App::DocumentObject* joint)

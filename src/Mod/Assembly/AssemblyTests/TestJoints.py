@@ -255,7 +255,8 @@ class TestDistanceJoint(JointTestBase):
     radii are folded into the distance, as docs/AssemblySolverInterface.md
     sec 5.2 tabulates. Each case here checks, on the solved JCS, the relation
     its solver joint imposes, with the distance the table gives. I is the
-    Reference1 side after the solve (the classification may swap sides).
+    Reference1 side: each case picks the side the sub-type wants first (the
+    builder swaps the other order in its model, never in the document).
     """
 
     D = 3.0

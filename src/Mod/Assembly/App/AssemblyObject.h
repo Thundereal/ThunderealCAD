@@ -294,6 +294,14 @@ private:
     void syncActiveRigidGroupPlacements();
     void updateRigidPlacementCache();
     void prepareMbdForIslandDrag(std::vector<App::DocumentObject*> dragParts);
+    // The builder's swapJCS (it shadows ::swapJCS in the builder functions):
+    // the joint being built takes its frame I from Reference2 and J from
+    // Reference1. The document keeps the order the user picked.
+    void swapJCS(const App::DocumentObject* joint);
+    // The document side ("Reference1"/"Placement1" or the 2s) of frame I
+    // (side 1) or J (side 2) of the joint being built.
+    const char* jcsRef(int side) const;
+    const char* jcsPlc(int side) const;
     // Fills lastMalformedJoints: active joints whose references are set but unusable.
     void collectMalformedJoints();
     static bool isJointRefUsable(App::DocumentObject* joint, const char* propName);
@@ -339,6 +347,9 @@ private:
     std::vector<std::pair<App::DocumentObject*, Base::Placement>> previousPositions;
 
     bool bundleFixed;
+    // Frames I and J of the joint being built come from Reference2 and
+    // Reference1 (swapJCS); reset by makeMbdJoint for each joint.
+    bool jcsSwapped {false};
 
     // Drag step bookkeeping, reset by preDrag().
     int dragStepCount {0};

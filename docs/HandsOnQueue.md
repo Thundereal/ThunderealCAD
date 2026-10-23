@@ -4328,8 +4328,8 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 218 | 2026-10-23 | a defect: a TREE HOVER on a TechDraw DIMENSION highlights only its ARROWS (and lines), NOT its LABEL | OPEN; said to the note-taker 2026-10-23 11:06; READ by the note-taker: QGIViewDimension::setPreselect/setPrettyPre light aHead1, aHead2 and dimLines only, never datumLabel -- the label lights itself only on its own pointer hover (QGIDatumLabel::hoverEnterEvent); ASSIGNED to x16win (TechDraw Gui), after 216 and 217. 2026-10-23 11:12 CONFIRMED by x16win by reading; fix planned: QGIViewDimension's setPrettyPre/Sel/Normal set the label's text items too, through a new non-emitting label setter (the label's own setPretty* emit setPretty -> onPrettyChanged and would loop); BALLOONS have the same gap (QGIViewBalloon's setPretty* never touch balloonLabel), fixed the same way |
 | 219 | 2026-10-23 | a defect: while a TechDraw PROJECTION GROUP is IN EDIT, a DOUBLE CLICK on a DIMENSION does NOT start its edit; wanted: the projection group's edit DISMISSED and the DIMENSION'S EDIT started | OPEN; said to the note-taker 2026-10-23 11:11; READ by the note-taker: ViewProviderProjGroup::doubleClicked() calls its own setEdit(0), which shows TaskDlgProjGroup directly -- not through Gui::Document::setEdit, so the document holds no edit to end; the dimension's double click goes Document::setEdit -> ViewProviderDimension::setEdit, which returns false while any task dialog is open; ASSIGNED to x16win (TechDraw Gui), after 216, 217, 218 |
 | 220 | 2026-10-23 | a defect: the TechDraw DIMENSION EDIT PANEL's GROUP BOXES have an OPAQUE BACKGROUND in OVERLAY TRANSPARENT mode | OPEN; said to the note-taker 2026-10-23 11:12; TaskDimension.ui's four boxes are plain QGroupBox (no style sheet, no autoFillBackground of their own); no QGroupBox rule in src/Gui/Stylesheets/overlay/; ASSIGNED to fcad-dc (overlays, its area; 184, 208), after 213 |
-| 221 | 2026-10-23 | a change request: HIDE the TechDraw page view's VERTICAL and HORIZONTAL SCROLLBARS so they are not confused with OVERLAY PANELS | OPEN; said to the note-taker 2026-10-23 11:12; ASSIGNED to x16win (TechDraw Gui), after 219 |
-| 222 | 2026-10-23 | a change request: the SPREADSHEET view's scroll bars have the SAME PROBLEM as 221 (confused with OVERLAY PANELS), but it NEEDS its scroll bars for easy scrolling -- the reporter asks for a SUGGESTION of how they COEXIST with overlay panels | OPEN; said to the note-taker 2026-10-23 11:14; SUGGESTED by the note-taker: (A, recommended) the bars step inside the area the overlaid docks leave free, as the navigation cube (76) and the in-view task panel already do through OverlayManager::occupied()/covered() and layoutChanged()/coverChanged(); (B) thin transient bars that show only while scrolling or with the pointer near the edge; the reporter's choice awaited; NOT assigned (overlays: fcad-dc's area) |
+| 221 | 2026-10-23 | a change request: HIDE the TechDraw page view's VERTICAL and HORIZONTAL SCROLLBARS so they are not confused with OVERLAY PANELS | OPEN; said to the note-taker 2026-10-23 11:12; ASSIGNED to x16win (TechDraw Gui), after 219. 2026-10-23 11:25 the reporter (under 222): "techdraw page no need scroll bar, since it supports mouse pan" -- 221 stays as asked, the page's bars HIDDEN (not moved as 222's A); x16win told to go ahead in its order |
+| 222 | 2026-10-23 | a change request: the SPREADSHEET view's scroll bars have the SAME PROBLEM as 221 (confused with OVERLAY PANELS), but it NEEDS its scroll bars for easy scrolling -- the reporter asks for a SUGGESTION of how they COEXIST with overlay panels | OPEN; said to the note-taker 2026-10-23 11:14; SUGGESTED by the note-taker: (A, recommended) the bars step inside the area the overlaid docks leave free, as the navigation cube (76) and the in-view task panel already do through OverlayManager::occupied()/covered() and layoutChanged()/coverChanged(); (B) thin transient bars that show only while scrolling or with the pointer near the edge; the reporter's choice awaited; NOT assigned (overlays: fcad-dc's area). 2026-10-23 11:25 the reporter: "222, A and B, but techdraw page no need scroll bar, since it supports mouse pan" -- the spreadsheet gets BOTH: its bars in the area the docks leave free (A) AND thin transient bars (B); ASSIGNED to fcad-dc (overlays), after 215 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -29896,7 +29896,7 @@ page view looks the same either way; to be shown to the reporter); a
 setting to bring them back (read as: none asked).
 ASSIGNED to x16win (TechDraw Gui, its area), after 219.
 
-## 222. The spreadsheet's scroll bars beside overlay panels: kept, but not confused with them (a change request: a suggestion asked for) -- OPEN
+## 222. The spreadsheet's scroll bars beside overlay panels: kept, but not confused with them (a change request: a suggestion asked for) -- OPEN, A and B chosen
 
 **2026-10-23 11:14, the reporter (to the note-taker):** "new request, spreadsheet has
 the same problem, but it does need scroll bar for easy scrolling.
@@ -29928,6 +29928,22 @@ like a panel's edge, but they still sit under a dock where one stands.
 place of hiding, should the reporter want its bars back.
 Waiting on the reporter's choice; NOT assigned (overlays are fcad-dc's
 area).
+
+**2026-10-23 11:25, the reporter (to the note-taker):** "222, A and B, but techdraw
+page no need scroll bar, since it supports mouse pan"
+The note-taker's reading: the spreadsheet view gets both suggestions --
+(A) its scroll bars placed inside the area the overlaid docks leave free,
+following them as they show, hide and resize (OverlayManager::occupied/
+covered, layoutChanged/coverChanged), and (B) the bars thin, see-through,
+shown while scrolling or with the pointer near them, fading after. The
+TechDraw page does NOT get (A): 221 stands as asked, its bars hidden,
+the page panned by mouse. NOT said: whether (B)'s look reaches other
+views' scroll bars (read as: the spreadsheet's only); whether (A)/(B)
+apply only while docks are overlaid (read as: (A) moves the bars only
+where a dock stands over the view, nothing to move otherwise; (B)
+always, to be shown to the reporter).
+ASSIGNED to fcad-dc (overlays, its area), after 215; x16win told that
+221 goes ahead as hidden.
 
 ## Inbox
 

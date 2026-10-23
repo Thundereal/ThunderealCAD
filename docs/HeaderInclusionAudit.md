@@ -397,3 +397,94 @@ reconstruction approximates the preprocessor (unknown `#if` branches are taken, 
 headers in the TU's real set count); the IWYU correction is name-based and misses uses through
 members of unnamed types (the `getDocument()->` regex covers the main one); churn counts commits,
 not builds.
+
+## 6. Applied
+
+All on branch AssemblyPort, one commit per proposal. Reach is in TUs, measured with
+`run_audit.sh` on the rebuilt tree after each round; the churn-weighted total is
+`header_cost.py`'s sum of edits x rebuild CPU over 12 months (it moves with the
+timing of the last build too, so read it as a trend).
+
+### Round 1 -- the fork-owned splits (P2, P3, P4, P10)
+
+| proposal | commit | reach before -> after |
+|---|---|---|
+| P2 blob value types into `App/FileBlob.h` | `7bea959cbd` | FileBlobManager.h 1265 -> 37 (per edit 285 -> 10 CPU-min); FileBlob.h takes the old 1265 |
+| P3 `PropertyMaterial.h` drops `Materials.h` / `Base/Reader.h`; `MaterialValue.h`, `QuantitySpinBox.h` use `Base/Quantity.h` | `8e742e01f2` | Materials.h 515 -> 54, Gui/MetaTypes.h 658 -> 64, MaterialValue.h 526 -> 65, Model.h 525 -> 64, Reader.h 628 -> 251, Writer.h 652 -> 279 |
+| P4 appearance properties into `App/PropertyAppearance.h` | `9a0bf61237` | AppearanceList.h 1228 -> 650, COWData.h 1233 -> 758, MaterialAppearance.h 1312 -> 1080, FileBlob.h 1265 -> 989; PropertyStandard.h keeps 1227 |
+| P10 renderer settings into `Gui/Renderer/RenderConfig.h` | `061ab170ae` | Renderer.h 123 -> 99 |
+
+Deviations: P3 also moved `isSame()` out of line, and four .cpp that convert a
+metatype through QVariant include `Gui/MetaTypes.h` themselves. P4 keeps the
+implementations in PropertyStandard.cpp (shared file-local colour helpers). P10
+falls short of the audit's 123 -> ~72 for settings edits: Renderer.h includes
+RenderConfig.h, so RenderConfig.h reaches all 123; the saving lands on interface
+edits.
+
+### Round 2 -- the upstream headers (P1, P6, P7, P8, P9, P11, P12, P14, P16)
+
+Commits `661baefef6` (P1), `0484780d02` (P6), `f40a66c294` (P7), `1f4bfbc6c0` (P8),
+`2ef05f354a` (P11), `f961a23286` (P12), `807fb68653` (P16), `3da6e15b37` (P9),
+`7fe00d9a3c` (P14).
+
+| header | before -> after |
+|---|---|
+| Gui/Document.h | 406 -> 264 |
+| App/Document.h | 712 -> 494 |
+| MDIView.h | 459 -> 173 |
+| Tree.h | 467 -> 36 |
+| View3DInventorViewer.h | 184 -> 127 |
+| Base/Tools.h | 1043 -> 717 |
+| Gui/Application.h | 491 -> 426 |
+| App/Application.h | 1425 -> 831 |
+| Console.h | 1773 -> 1471 |
+| CXX/Objects.hxx | 1613 -> 1422 |
+| churn-weighted total | 2302 -> 2065 CPU-h |
+
+Deviations: P16 includes `CXX/WrapPython.h` rather than nothing, since
+StringHasher.h has an inline `Py_INCREF`. P9 moved only `hash_combine` (into
+`Base/HashCombine.h`), not the small math templates. P14 adds two out-of-line
+helpers in Observer.cpp, `subjectNotifyFailed()` and `subjectWarning()`.
+
+### Round 3 -- P13, P15, P5 (zero-conflict variant)
+
+| proposal | commit |
+|---|---|
+| P13 `DocumentObject.h` forward-declares `Placement`, drops `PropertyGeo.h` / `Placement.h` | `623c38d3d4` |
+| P15 `FileException` keeps a path string; `Exception.h` forward-declares `FileInfo` | `4a209f9c4e` |
+| P5 fork-only `Application::s*` wrappers become file-local in ApplicationPy.cpp | `6fccb26dca` |
+
+| header | before -> after |
+|---|---|
+| App/PropertyGeo.h | 1176 -> 922 |
+| Base/Placement.h | 1354 -> 1178 |
+| Base/Rotation.h | 1365 -> 1191 |
+| Base/Matrix.h | 1445 -> 1330 |
+| Base/Vector3D.h | 1498 -> 1438 |
+| Base/FileInfo.h | 1791 -> 1404 |
+| Base/TimeInfo.h | 1793 -> 1406 |
+| Base/Exception.h | 1774 -> 1693 (not P15's doing, see below) |
+| Gui/Application.h, App/Application.h | 426, 831 (unchanged; P5 is about edit frequency) |
+| headers parsed by a full build | 18322 -> 17894 MB |
+| churn-weighted total | 2065 -> 1987 CPU-h |
+
+Deviations and notes:
+- P13 needed no fallout fix at all. The one blocker in the header was the inline
+  body of `mustSave()` (fork-added), which tests `PropertyComplexGeoData`; it moved
+  verbatim into DocumentObject.cpp.
+- P15 kept the API: the `const FileInfo&` constructor and `getFileName()` keep their
+  signatures (their bodies were already out of line), and `getFileName()` and the
+  Python dict's `filename` still give the base name. Fallout was two Base files,
+  Parameter.cpp (FileInfo.h) and Unit.cpp (`<cassert>`).
+- The Exception.h drop, and HashCombine.h's apparent growth of 212 TUs since round
+  2, come from about 80 TUs whose `.ninja_deps` entries were still from before
+  round 2. This round's rebuilds refreshed them. They are measurement artifacts,
+  not effects of these commits.
+- P5: upstream has since moved all its wrappers out of Application.h, into
+  `ApplicationPy.h` (`a8f2ddb038` for Gui, `4f116d8de3` for App, neither merged
+  here). So "upstream has it" was judged against upstream's Application.h before
+  that move, plus its ApplicationPy.h on upstream/main. That left 31 Gui and 10 App
+  wrappers as fork-only. 30 Gui and all 10 App became file-local `static`
+  functions. `sSetExecFile` stays a member because it writes the private
+  `_ExecFile`. Each remaining block has a one-line comment: new fork-only wrappers
+  go file-local in ApplicationPy.cpp.

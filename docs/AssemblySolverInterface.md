@@ -2206,18 +2206,21 @@ compared are unchanged. Result, all 72 records:
   `BACKEND_DIFFERENCES` records them, asserted as they are.
 - **Drag:** the same steps taken in all eight drag cases, every joint
   satisfied after each.
-- **Simulation:** the four cases disagree with the records, and the
-  records are wrong. OndselSolver's angular motion holds only the sine of
+- **Simulation:** the four cases disagreed with the records, and the
+  records were wrong. OndselSolver's angular motion held only the sine of
   the angle (`ZRotation`: the direction cosine of I's y and J's x), zero
   half a turn away too; the gate's drivers turn 3.6, 9 and 4.5 rad per
-  0.1 s output step, and from the previous frame it lands on the root
+  0.1 s output step, and from the previous frame it landed on the root
   nearest, half a turn off at every other frame (and the gear driven
-  through it follows the wrong turn). Against OndselSolver run again at a
-  tenth of the output step the Reference's frames agree to 3.4e-10
-  (`BACKEND_SIMULATION`); the gtest `drivenAnglesFollowTheFormula` checks
-  them against the formulas and asserts OndselSolver's half turns, so a
-  fix shows. At a 0.01 s step the two agree to 1e-7 on the gate's
-  simulation (`simulationFollowsTheKinematicRun`).
+  through it followed the wrong turn). Against OndselSolver run again at a
+  tenth of the output step the Reference's frames agreed to 3.4e-10
+  (`BACKEND_SIMULATION`); the gtest `drivenAnglesFollowTheFormula` checked
+  them against the formulas and asserted OndselSolver's half turns, so a
+  fix would show. At a 0.01 s step the two agree to 1e-7 on the gate's
+  simulation (`simulationFollowsTheKinematicRun`). *Fixed in OndselSolver
+  (sec 6.16)*: the records were taken again, `BACKEND_SIMULATION` is
+  empty, and the Reference's frames are compared with them directly
+  (3.5e-10 at most).
 
 **Bench** (`scripts/assembly-bench/bench.py` through the preference, the
 runs of sec 6.6; seconds, Reference / Ondsel, one run each):
@@ -2267,12 +2270,13 @@ LineTorus disagreement (sec 6.13) is unchanged.
 
 Simulation note, from the Reference backend's run (sec 6.13), checked
 against the records. In `test_simulation`, the box driven at `36*time`
-with a 0.1 s output step advances 3.6 - pi = 0.4584 rad per recorded
-frame instead of 3.6. OndselSolver's angular driver holds only the sine
-of the angle, so from the previous frame the solver takes the root half a
-turn short. The records keep OndselSolver's frames as they are: the gate
-records what OndselSolver does, and the Reference is checked against
-OndselSolver at a tenth of the step instead.
+with a 0.1 s output step advanced 3.6 - pi = 0.4584 rad per recorded
+frame instead of 3.6. OndselSolver's angular driver held only the sine
+of the angle, so from the previous frame the solver took the root half a
+turn short. The records kept OndselSolver's frames as they were, and the
+Reference was checked against OndselSolver at a tenth of the step
+instead -- until sec 6.16 fixed the driver in OndselSolver and the four
+simulation records were taken again.
 
 ### 6.15 As built: the Chrono backend (2026-10-23)
 
@@ -2419,8 +2423,9 @@ NaN: the evaluator has no third derivative; nothing kinematic asks for it).
 `motionFunctionIsTheEvaluator` compares them bit for bit.
 `ChLinkMotorRotationAngle` holds the angle modulo a full turn (the quaternion
 component sin((theta - f) / 2)), not modulo half a turn as OndselSolver's
-sine does, so a driven body never lands half a turn off; to count the turns
-for what it drives (a gear), each output interval is split so that no
+sine did before sec 6.16, so a driven body never lands half a turn off; to
+count the turns for what it drives (a gear), each output interval is split
+so that no
 driven angle moves more than a quarter radian per step (divided by the
 largest gear ratio), and each step starts from the pose predicted by
 Chrono's velocities: the KKT solve of Cq v = -Ct, whose Ct are the motors'
@@ -2496,11 +2501,13 @@ records:
   (`BACKEND_DIFFERENCES`). LineTorus, the Reference's other, is refused.
 - **Drag:** the same steps taken in all ten drag cases it solves (the
   Belt's is refused), every joint satisfied after each.
-- **Simulation:** the four cases are `BACKEND_SIMULATION`'s (OndselSolver's
+- **Simulation:** the four cases were `BACKEND_SIMULATION`'s (OndselSolver's
   records half a turn off); against OndselSolver at a tenth of the output
-  step Chrono's frames agree to **1.6e-12** (gears), 2.5e-12 (rigid group),
+  step Chrono's frames agreed to **1.6e-12** (gears), 2.5e-12 (rigid group),
   4.5e-13 (the others). The gear driven at 9 rad per output step follows
-  with its turns counted.
+  with its turns counted. Since sec 6.16 they are compared with the
+  re-taken records directly: 1.7e-11 (gears), 2.6e-13 (rigid group),
+  2.3e-13 (the others).
 
 **Tests.** Assembly gtest 51/51 (38 + 13 `ChronoBackend`; 38 with the
 option off); ctest 950/951 in the parallel run (the
@@ -2535,6 +2542,94 @@ Reference's; OndselSolver's within 1e-14.
 LineLineDistance exactly; a position-level rack, belt and screw coupling
 would need links of our own); setting conflicting equations aside as
 OndselSolver does.
+
+### 6.16 As built: OndselSolver's angular motion counts its turns (2026-10-23)
+
+What sec 6.13 found and sec 6.14 noted, fixed in OndselSolver itself
+(submodule `bb86857`, superproject `86245287e2` and `e54953e909`).
+
+**Cause.** `ZRotation::initializeGlobally` (`ZRotation.cpp:31` before the
+fix) held a RotationalMotion with one equation, the direction cosine of
+I's y and J's x, frame I being the motion's `EndFrameqct` turned by the
+commanded angle: sin(theta - phi), zero at phi and at phi + pi.
+`FullMotion` (a GeneralMotion, which `makeMbdJoint` builds for a
+Cylindrical driven both ways) had the same cosine as its fourth equation
+(`FullMotion.cpp:36`), which with the other two cosines also holds the
+half turn about z. A kinematic run steps straight to the next output time
+(`BasicQuasiIntegrator::selectStepSize`) and solves from the previous
+pose, with no prediction (`PartFrame::prePosKine`), so a command that
+moved more than a quarter turn took the body to the nearer root, half a
+turn off.
+
+**Fix.**
+
+- `AngleZIeqctJeqc`: the angle of J's x about I's z for the moving frame
+  I, atan2 of the two direction cosines (I's x and y against J's x), its
+  whole turns counted across iterations as `AngleZIecJec` counts them for
+  gears and limits. Across time steps the count follows frame I's own
+  turn: when the command moves by d, the value the count stays nearest to
+  moves by -d, so the value is the bodies' turn less the commanded angle,
+  with turns. It starts at the turn nearest the command, (-pi, pi]. Its
+  time partials (velocity, acceleration solves) are those of atan2 through
+  `DirectionCosineIeqctJeqc`'s.
+- `AngleZConstraintIqctJqc`: that angle = 0, essential, as the cosine was.
+  `ZRotation`'s equation and `FullMotion`'s (I's y, J's x) cosine are now
+  this. One equation each as before; where it holds its gradient is the
+  cosine's, so the rank, the redundancy and the DoF are the same (the 68
+  non-simulation records are unchanged byte for byte, the simulation
+  records' solves and statuses too).
+- `EndFrameqct::turnAboutZ` (and `EndFrameqct2`'s, for rotation orders):
+  the frame's turn about z from its angle blocks, NaN when it is not a
+  turn about z alone (the count then follows the bodies only).
+- `PrescribedMotion` suggests integrator steps (`suggestSmallerOrAccept
+  DynStepSize`, the hook `PartFrame` uses for its rotation limit) that
+  split the step to the next output time into equal parts with at most
+  pi/4 of frame turn each. The equation is right whatever the step; this
+  bounds the Newton iteration. Each iteration turns a body less than half
+  a turn (a linearised Euler-parameter step), so without it 18 rad per
+  output step stopped 3e-8 off when `isConvergedToNumericalLimit` relaxed
+  its tolerance with the iteration count, and 27 rad met a singular
+  matrix. With the equation alone, steps of 0.36, 1.8, 3.6 and 9 rad per
+  frame already followed the formula to 1e-9.
+
+**Couplings.** Gear, belt, rack and pinion, and screw measure their angles
+with `AngleZIecJec` / `OrbitAngleZIecJec`, which count turns per
+iteration, so they follow the driven body once it goes through the
+commanded angle: no change needed. Checked with a gear and a belt (B at
+-/+45*time when A is driven at 90*time), and a rack and a screw, whose
+slides (7 * 90*time and -3 * 90*time / (2 pi)) show the accumulated turns
+directly, at output steps up to 27 rad per frame.
+
+**Evidence.**
+
+- OndselSolver's `tests/test.cpp`, `rotationalMotionCountsTurns`: a gear
+  pair driven at 90*time, output steps 0.01 to 0.3 s, both gears at the
+  formula to 1e-9 at every frame (built standalone with
+  `ONDSELSOLVER_BUILD_TESTS`).
+- gtest `OndselAdapter.drivenAnglesFollowTheFormula` (a revolute at
+  36*time, a cylindrical at 90*time and 2*sin(time); steps 0.01 to 0.3 s;
+  largest error 7.1e-15 rad at every step), `couplingsFollowADrivenTurn`;
+  `ReferenceBackend.drivenAnglesFollowTheFormula` now asserts
+  OndselSolver's frames follow the formula instead of its half turns.
+- The four simulation records, re-taken; only `simulation/frames` changed
+  in each. Against the formulas (turn about the joint axis, axis points,
+  slides, the rigid group's other member): `test_simulation` and its
+  reverse playback were pi off at every other frame, now 2.1e-14 rad;
+  `test_simulation_gears` pi off at eight of ten frames, now 1.6e-11 (B's
+  phase from the start solve); `test_simulation_rigid_group` pi off at
+  every other frame, now 1.1e-14.
+- `BACKEND_SIMULATION` is empty: the Reference's frames are within
+  3.5e-10 of the records, Chrono's within 1.7e-11.
+
+The ASMT text is unchanged (the motion's text is what it writes).
+
+**Tests.** Assembly gtest 53/53 (51 + 2); ctest 953/953 in the parallel
+run (951 + 2); the Assembly suite 254 run, 1 skipped, no failures.
+
+**Not done:** a GeneralMotion turning about x or y as well keeps the
+cosine branches of those axes (the half turns about x and y), as every
+OndselSolver joint holding axes parallel does (sec 6.15, Branches); the
+count of its z turn then follows the bodies only.
 
 ### 6.4 Where Python must change
 

@@ -350,6 +350,87 @@ class TestGuiCommands(unittest.TestCase):
         self.assertEqual(len(self.joints("Revolute")), 1)
         self.assertClean()
 
+    # ------------------------------------------------------------ refused Distance
+
+    def cone(self):
+        cone = self.assembly.newObject("Part::Cone", "Cone")
+        cone.Placement.Base = App.Vector(-30, 0, 0)
+        self.doc.recompute()
+        _process()
+        return cone
+
+    def assertRefusal(self, task, subtype):
+        self.assertFalse(task.refusalLabel.isHidden(), "the refusal is not shown")
+        self.assertIn(subtype, task.refusalLabel.text())
+
+    def test_joint_distance_refused_initial_selection(self):
+        """Audit sec 8.1 decision 7: a plane and a cone (PlaneCone) do not make a Distance joint."""
+        cone = self.cone()
+        self.select(self.box, "Face6")
+        self.select(cone, "Face1")
+        self.run_command("Assembly_CreateJointDistance")
+        task = JointObject.activeTask
+        self.assertIsNotNone(task)
+        self.assertEqual(task.refs, [], "the refused picks were taken")
+        self.assertRefusal(task, "PlaneCone")
+        self.assertFalse(task.accept())
+        self.assertClean()
+
+    def test_joint_distance_refused_pick(self):
+        """The refused second pick is dropped; a mapped one is then taken."""
+        cone = self.cone()
+        self.run_command("Assembly_CreateJointDistance")
+        task = JointObject.activeTask
+        self.select(self.box, "Face6")
+        _process()
+        self.assertEqual(len(task.refs), 1)
+        self.select(cone, "Face1")
+        _process()
+        self.assertEqual(len(task.refs), 1, "the refused pick was taken")
+        self.assertRefusal(task, "PlaneCone")
+        self.assertEqual(task.joint.Reference2, None)
+        self.select(self.cyl1, "Face1")  # PlaneCylinder
+        _process()
+        self.assertEqual(len(task.refs), 2)
+        self.assertTrue(task.refusalLabel.isHidden())
+        self.accept_task()
+        self.assertEqual(len(self.joints("Distance")), 1)
+        self.assertClean()
+
+    def test_joint_distance_refused_by_type_change(self):
+        """Picks taken for another joint type are refused when it becomes a Distance joint."""
+        cone = self.cone()
+        self.select(self.box, "Face6")
+        self.select(cone, "Face1")
+        self.run_command("Assembly_CreateJointRevolute")
+        task = JointObject.activeTask
+        self.assertEqual(len(task.refs), 2)
+        task.jForm.jointType.setCurrentIndex(JointObject.JointTypes.index("Distance"))
+        _process()
+        self.assertRefusal(task, "PlaneCone")
+        self.assertFalse(task.accept())
+        self.assertClean()
+
+    def test_joint_distance_refused_kind_in_document_stays_editable(self):
+        """A joint of a refused kind already in the document opens and accepts as it is."""
+        cone = self.cone()
+        j = self.jointgroup.newObject("App::FeaturePython", "Distance")
+        JointObject.Joint(j, JointObject.JointTypes.index("Distance"))
+        JointObject.ViewProviderJoint(j.ViewObject)
+        j.Proxy.setJointConnectors(
+            j, [[self.box, ["Face6", "Face6"]], [cone, ["Face1", "Face1"]]]
+        )
+        _process()
+        self.assertTrue(j.ViewObject.Proxy.doubleClicked(j.ViewObject))
+        _process()
+        task = JointObject.activeTask
+        self.assertIsNotNone(task)
+        self.assertTrue(task.refusalLabel.isHidden())
+        self.accept_task()
+        picked = {UtilsAssembly.getObject(j.Reference1), UtilsAssembly.getObject(j.Reference2)}
+        self.assertEqual(picked, {self.box, cone})
+        self.assertClean()
+
     def test_joint_overlay_icon(self):
         """A joint to a part not connected to ground shows Part_Detached."""
         j = self.make_joint("Assembly_CreateJointRevolute", "Revolute")

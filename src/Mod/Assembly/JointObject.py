@@ -1780,6 +1780,13 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
             layout.setSpacing(0)
         layout.addWidget(self.jForm)
 
+        # Not upstream (audit sec 8.1 decision 7): why a Distance pick was refused.
+        self.refusalLabel = QtWidgets.QLabel(self.form)
+        self.refusalLabel.setWordWrap(True)
+        self.refusalLabel.hide()
+        layout.addWidget(self.refusalLabel)
+        self.picksChanged = False
+
         self.isolate_modes = ["Transparent", "Wireframe", "Hidden", "Disabled"]
         self.jForm.isolateType.addItems(
             [translate("Assembly", mode) for mode in self.isolate_modes]
@@ -1805,6 +1812,11 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
             Gui.ActiveDocument.openCommand("Edit " + self.jointName + " Joint")
 
             self.updateTaskboxFromJoint()
+            # Showing the joint's own type and picks changes nothing: a joint
+            # of a refused Distance sub-type already in the document stays
+            # acceptable until it is re-picked (audit sec 8.1 decision 7).
+            self.picksChanged = False
+            self.showDistanceRefusal("")
             self.visibilityBackup = self.joint.Visibility
             self.joint.Visibility = True
 
@@ -1890,6 +1902,13 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
                 translate("Assembly", "Select 2 elements from 2 separate parts")
             )
             return False
+
+        # A joint already in a document keeps its picks; new ones are checked.
+        if self.creating or self.picksChanged:
+            refused = self.refusedDistancePick()
+            if refused:
+                self.showDistanceRefusal(refused)
+                return False
 
         self.deactivate()
 
@@ -1986,7 +2005,45 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
             self.refs.clear()
             Gui.Selection.clearSelection()
         else:
+            refused = self.refusedDistancePick()
+            if refused:
+                self.refs.clear()
+                Gui.Selection.clearSelection()
+                self.updateJoint()
+                self.showDistanceRefusal(refused)
+                return
             self.updateJoint()
+
+    def refusedDistancePick(self):
+        """The Distance sub-type of the two picks if it is refused, else "".
+
+        Not upstream (audit sec 8.1 decision 7). The list is the C++ one
+        (AssemblyUtils refusedDistanceTypes). The picks are set on the joint to
+        classify them, as setJointConnectors sets them, without solving.
+        """
+        if self.jType != "Distance" or len(self.refs) != 2:
+            return ""
+        import AssemblyApp
+
+        self.joint.Reference1 = self.refs[0]
+        self.joint.Reference2 = self.refs[1]
+        if AssemblyApp.isDistanceJointRefused(self.joint):
+            return AssemblyApp.getDistanceType(self.joint)
+        return ""
+
+    def showDistanceRefusal(self, subtype):
+        """Says why a Distance pick was refused, or clears it ("")."""
+        if not subtype:
+            self.refusalLabel.hide()
+            return
+        msg = translate(
+            "Assembly",
+            "A distance between these elements ({}) is not supported: the solver "
+            "has no exact mapping for it. Select other elements.",
+        ).format(subtype)
+        App.Console.PrintWarning(msg + "\n")
+        self.refusalLabel.setText(msg)
+        self.refusalLabel.show()
 
     def createJointObject(self):
         type_index = self.jForm.jointType.currentIndex()
@@ -2008,6 +2065,10 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         self.jType = JointTypes[self.jForm.jointType.currentIndex()]
         self.joint.Proxy.setJointType(self.joint, self.jType)
         self.adaptUi()
+        # A joint turned into a Distance one is a new Distance joint: OK refuses
+        # it if its picks are (audit sec 8.1 decision 7).
+        self.picksChanged = True
+        self.showDistanceRefusal(self.refusedDistancePick())
 
     def onAngleChanged(self, quantity):
         self.joint.Angle = self.jForm.angleSpinbox.property("rawValue")
@@ -2453,6 +2514,20 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         ref = UtilsAssembly.addVertexToReference(ref, vertex_name)
 
         self.refs.append(ref)
+        self.picksChanged = True
+
+        # Not upstream (audit sec 8.1 decision 7): a Distance between these
+        # elements has no solver mapping; the pick is not taken.
+        refused = self.refusedDistancePick()
+        if refused:
+            self.refs.pop()
+            self.addition_rejected = True
+            Gui.Selection.removeSelection(doc_name, obj_name, sub_name)
+            self.updateJoint()
+            self.showDistanceRefusal(refused)
+            return
+        self.showDistanceRefusal("")
+
         self.updateJoint()
 
         # We hide the preview JCS if we just added to the selection
@@ -2480,6 +2555,7 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         else:
             print("No matching ref found for removal!")
 
+        self.picksChanged = True
         self.updateJoint()
 
     def setPreselection(self, doc_name, obj_name, sub_name):

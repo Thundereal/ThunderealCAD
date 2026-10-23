@@ -538,6 +538,7 @@ SET(Dialog_CPP_SRCS
     DlgUndoRedo.cpp
     InputVector.cpp
     Placement.cpp
+    TaskPlacementPy.cpp
     PropertyPage.cpp
     SceneInspector.cpp
     TextureMapping.cpp
@@ -581,6 +582,7 @@ SET(Dialog_HPP_SRCS
     DlgUndoRedo.h
     InputVector.h
     Placement.h
+    TaskPlacementPy.h
     PropertyPage.h
     SceneInspector.h
     TextureMapping.h

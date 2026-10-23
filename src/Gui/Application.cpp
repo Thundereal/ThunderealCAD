@@ -120,6 +120,7 @@
 #include "GuiInitScript.h"
 #include "LinkViewPy.h"
 #include "InputHintPy.h"
+#include "TaskPlacementPy.h"
 #include "LiveViewInteraction.h"
 #include "DlgDocumentPermissions.h"
 #include "MainWindow.h"
@@ -741,6 +742,7 @@ Application::Application(bool GUIenabled)
         Gui::TaskView::TaskDialogPy::init_type();
 
         registerUserInputEnumInPython(module);
+        Gui::Dialog::registerTaskPlacementInPython(module);
 
         CommandActionPy::init_type();
         Base::Interpreter().addType(CommandActionPy::type_object(),

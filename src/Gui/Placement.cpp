@@ -127,6 +127,37 @@ const std::string& PlacementHandler::getPropertyName() const
     return propertyName;
 }
 
+void PlacementHandler::setIgnoreTransactions(bool value)
+{
+    ignoreTransaction = value;
+}
+
+void PlacementHandler::setSelection(const std::vector<Gui::SelectionObject>& selection)
+{
+    selectionObjects = selection;
+}
+
+void PlacementHandler::openCommandIfActive(Gui::Document* document)
+{
+    if (!ignoreTransaction) {
+        document->openCommand(QT_TRANSLATE_NOOP("Command", "Placement"));
+    }
+}
+
+void PlacementHandler::commitCommandIfActive(Gui::Document* document)
+{
+    if (!ignoreTransaction) {
+        document->commitCommand();
+    }
+}
+
+void PlacementHandler::abortCommandIfActive(Gui::Document* document)
+{
+    if (!ignoreTransaction) {
+        document->abortCommand();
+    }
+}
+
 void PlacementHandler::appendDocument(const std::string& name)
 {
     documents.insert(name);
@@ -143,6 +174,9 @@ void PlacementHandler::activatedDocument(const std::string& name)
 
 void PlacementHandler::openTransaction()
 {
+    if (ignoreTransaction) {
+        return;
+    }
     App::Document* activeDoc = App::GetApplication().getActiveDocument();
     if (activeDoc)
         activeDoc->openTransaction("Placement");
@@ -160,7 +194,7 @@ void PlacementHandler::revertTransformation()
                 revertTransformationOfViewProviders(document);
             }
             else {
-                document->abortCommand();
+                abortCommandIfActive(document);
             }
         }
     }
@@ -173,6 +207,18 @@ std::vector<App::DocumentObject*> PlacementHandler::getObjects(Gui::Document* do
 
 std::vector<App::DocumentObject*> PlacementHandler::getSelectedObjects(Gui::Document* document) const
 {
+    // The objects the caller named come first (upstream does the same), so
+    // that an object can be edited without being selected
+    std::vector<App::DocumentObject*> list;
+    for (const auto& it : selectionObjects) {
+        auto obj = const_cast<App::DocumentObject*>(it.getObject());
+        if (obj && obj->getDocument() == document->getDocument()) {
+            list.push_back(obj);
+        }
+    }
+    if (!list.empty()) {
+        return list;
+    }
     return Gui::Selection().getObjectsOfType(App::DocumentObject::getClassTypeId(), document->getDocument()->getName());
 }
 
@@ -245,19 +291,19 @@ void PlacementHandler::applyPlacement(const QString& data, bool incremental)
     // When directly changing the property we now only have to commit the transaction,
     // do a recompute and open a new transaction
     if (changeProperty) {
-        document->commitCommand();
+        commitCommandIfActive(document);
         tryRecompute(document);
-        document->openCommand(QT_TRANSLATE_NOOP("Command", "Placement"));
+        openCommandIfActive(document);
     }
     else {
         std::vector<App::DocumentObject*> sel = getSelectedObjects(document);
         if (!sel.empty()) {
-            document->openCommand(QT_TRANSLATE_NOOP("Command", "Placement"));
+            openCommandIfActive(document);
             for (const auto & it : sel) {
                 applyPlacement(it, data, incremental);
             }
 
-            document->commitCommand();
+            commitCommandIfActive(document);
             tryRecompute(document);
         }
         else {
@@ -779,6 +825,12 @@ void Placement::onResetButtonClicked()
 void Placement::setSelection(const std::vector<Gui::SelectionObject>& selection)
 {
     selectionObjects = selection;
+    handler.setSelection(selection);
+}
+
+void Placement::setIgnoreTransactions(bool value)
+{
+    handler.setIgnoreTransactions(value);
 }
 
 void  Placement::setPropertyName(const std::string& name)

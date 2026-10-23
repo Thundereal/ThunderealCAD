@@ -64,6 +64,7 @@ SOURCE_GROUP("Module" FILES ${Module_SRCS})
 SET(Solver_SRCS
     Solver/Backend.h
     Solver/Model.h
+    Solver/Model.cpp
     Solver/OndselBackend.cpp
     Solver/OndselBackend.h
     Solver/Registry.cpp

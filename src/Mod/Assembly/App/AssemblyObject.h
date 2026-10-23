@@ -65,6 +65,8 @@ namespace Assembly
 
 namespace Solver
 {
+class Session;
+struct BodyPose;
 struct SimulationSpec;
 }
 
@@ -161,8 +163,6 @@ public:
     {
         Solver::Id body = Solver::NoId;
         Base::Placement offsetPlc;  // This is the offset within the bundled parts
-        // The body's ASMT part, once the model is handed to the solver.
-        std::shared_ptr<MbD::ASMTPart> part;
     };
     MbDPartData getMbDData(App::DocumentObject* part);
     Solver::Frame makeMbdMarker(std::string& name, Base::Placement& plc);
@@ -299,16 +299,26 @@ private:
     // Fills lastMalformedJoints: active joints whose references are set but unusable.
     void collectMalformedJoints();
     static bool isJointRefUsable(App::DocumentObject* joint, const char* propName);
-    // Gives the dragged parts their drag masses (setObjMasses) for the drag steps only.
+    // Gives the dragged parts' bodies their drag masses (setObjMasses) as drag
+    // weights, and starts the session's drag.
     void applyDragMasses();
-    // Hands the model built so far to the Ondsel adapter: the ASMT model the
-    // solve, drag and playback then run on, and each part's ASMT part.
+    // Hands the model built so far to a session of the selected backend
+    // (Solver::Registry::select): the solve, drag and playback then run on it.
     void makeMbdModel();
+    bool validateNewPlacements(const std::vector<Solver::BodyPose>& poses);
+    void setNewPlacements(const std::vector<Solver::BodyPose>& poses);
+    // The document name of the joint a model joint came from, if it is one
+    // with references in this document; empty otherwise.
+    std::string jointNameOf(Solver::Id joint) const;
 
-    // The model being built; its ASMT form below (until step 4 of sec 6.3).
+    // The model being built, and the session it was handed to. A build starts
+    // without a session, so status and playback find nothing solved until it
+    // is handed over.
     std::unique_ptr<Solver::Model> solverModel;
     std::unique_ptr<Solver::SimulationSpec> simulationSpec;
-    std::shared_ptr<MbD::ASMTAssembly> mbdAssembly;
+    std::unique_ptr<Solver::Session> session;
+    // The bodies the session was loaded with (bodies added later have no pose).
+    std::size_t loadedBodies {0};
 
 
     std::unordered_map<App::DocumentObject*, MbDPartData> objectPartMap;

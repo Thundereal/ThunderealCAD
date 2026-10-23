@@ -488,3 +488,109 @@ TEST(OndselAdapter, sessionSolvesAndExports)  // NOLINT
     // The revolute puts B's frame on G's: B's origin at (0, 0, 10).
     EXPECT_NEAR((r.moved[0].placement.getPosition() - Base::Vector3d(0, 0, 10)).Length(), 0.0, 1e-9);
 }
+
+namespace
+{
+
+// G grounded, B hanging from it by a revolute joint (twice, if 'redundant').
+Model pendulum(Id& bg, Id& bb, bool redundant)
+{
+    Model m;
+    Frame gi;
+    gi.label = m.addSource("marker-G");
+    Id frameGround = m.addFrame(gi);
+    Body g;
+    g.source = m.addSource("G");
+    g.grounded = true;
+    bg = m.addBody(g);
+    Frame fix;
+    fix.body = bg;
+    fix.label = m.addSource("FixingMarker");
+    Id frameFix = m.addFrame(fix);
+    m.addGround({NoId, m.addSource("G"), frameGround, frameFix});
+    Body b;
+    b.source = m.addSource("B");
+    b.placement = plc(3, 1, 2, 0.2);
+    bb = m.addBody(b);
+    for (int k = 0; k < (redundant ? 2 : 1); ++k) {
+        const std::string name = k == 0 ? "J" : "J2";
+        Frame fi;
+        fi.body = bg;
+        fi.local = plc(0, 0, 10);
+        fi.label = m.addSource(name);
+        Frame fj = fi;
+        fj.body = bb;
+        fj.local = Base::Placement();
+        Joint j;
+        j.kind = JointKind::Revolute;
+        j.source = m.addSource(name);
+        j.frameI = m.addFrame(fi);
+        j.frameJ = m.addFrame(fj);
+        m.addJoint(j);
+    }
+    return m;
+}
+
+}  // namespace
+
+TEST(OndselAdapter, sessionDragsAndAnalyses)  // NOLINT
+{
+    Id bg = NoId;
+    Id bb = NoId;
+    Model m = pendulum(bg, bb, false);
+    auto session = std::make_unique<OndselSession>(false);
+    ASSERT_EQ(session->load(m), Status::Ok);
+    // Nothing solved, nothing known.
+    EXPECT_EQ(session->analyse().known, 0u);
+    ASSERT_EQ(session->solve({}).status, Status::Ok);
+
+    auto poses = session->poses();
+    ASSERT_EQ(poses.size(), 2u);
+    EXPECT_EQ(poses[bb].body, bb);
+    EXPECT_NEAR((poses[bb].placement.getPosition() - Base::Vector3d(0, 0, 10)).Length(), 0.0, 1e-9);
+
+    // 6 x (1 + 2 bodies) - 6 (ground) - 5 (revolute).
+    Diagnostics d = session->analyse();
+    EXPECT_TRUE(d.known & Diagnostics::KnownDof);
+    EXPECT_EQ(d.dof, 7);
+    EXPECT_TRUE(d.redundant.empty());
+
+    // A drag weight alone is a warm update; any other change needs a load.
+    Model weighted = m;
+    weighted.bodies[bb].dragWeight = 10.0;
+    EXPECT_EQ(session->update(weighted), Status::Ok);
+    Model moved = m;
+    moved.joints[0].value = 1.0;
+    EXPECT_EQ(session->update(moved), Status::NeedsReload);
+
+    // Drag B a quarter turn about the joint axis: it follows.
+    ASSERT_EQ(session->beginDrag({bb}, {}), Status::Ok);
+    Base::Placement target(
+        Base::Vector3d(0, 0, 10),
+        Base::Rotation(Base::Vector3d(0, 0, 1), std::numbers::pi / 2)
+    );
+    Result r = session->dragStep({{bb, target}});
+    ASSERT_EQ(r.status, Status::Ok) << r.message;
+    EXPECT_TRUE(session->poses()[bb].placement.isSame(target, 1e-6));
+    EXPECT_EQ(session->endDrag().status, Status::Ok);
+    EXPECT_TRUE(session->poses()[bb].placement.isSame(target, 1e-6));
+}
+
+TEST(OndselAdapter, sessionReportsRedundantJoints)  // NOLINT
+{
+    Id bg = NoId;
+    Id bb = NoId;
+    Model m = pendulum(bg, bb, true);
+    auto session = std::make_unique<OndselSession>(false);
+    ASSERT_EQ(session->load(m), Status::Ok);
+    ASSERT_EQ(session->solve({}).status, Status::Ok);
+    Diagnostics d = session->analyse();
+    // The second revolute repeats the first: five equations go, whichever
+    // joint they are taken from, and nothing conflicts.
+    ASSERT_FALSE(d.redundant.empty());
+    for (Id id : d.redundant) {
+        EXPECT_LT(id, 2u);
+    }
+    EXPECT_TRUE(d.conflicting.empty());
+    EXPECT_EQ(d.dof, 7);
+}

@@ -99,6 +99,7 @@
 #include "Groups.h"
 #include "Solver/Backend.h"
 #include "Solver/OndselBackend.h"
+#include "Solver/Registry.h"
 
 FC_LOG_LEVEL_INIT("Assembly", true, true, true)
 
@@ -273,32 +274,6 @@ std::shared_ptr<Solver::Joint> makeJoint(Solver::JointKind kind)
     return mbdJoint;
 }
 
-// A redundant equation whose residual is still above this after the solve is a
-// conflict: the solver dropped it to get a full-rank system, and the solution
-// of the remaining equations does not satisfy it. Residuals are in model units
-// (mm, OndselSolver's mbdUnits are all 1; mm^2 for the squared distances of
-// DistancexyConstraintIJ) for displacement equations and dimensionless for
-// direction cosines; a satisfied equation ends near 1e-12.
-constexpr double conflictResidualTolerance = 1.0e-6;
-
-// Re-evaluates the equation OndselSolver set aside as redundant at the solved
-// configuration. RedundantConstraint stubs out every update, so the wrapped
-// equation's aG is stale until asked here.
-bool isConflicting(const std::shared_ptr<MbD::RedundantConstraint>& redundant)
-{
-    if (!redundant || !redundant->constraint) {
-        return false;
-    }
-    try {
-        redundant->constraint->postPosICIteration();
-    }
-    catch (...) {
-        return false;
-    }
-    const double residual = redundant->constraint->aG;
-    return !std::isfinite(residual) || std::abs(residual) > conflictResidualTolerance;
-}
-
 void appendUnique(std::vector<std::string>& names, const std::string& name)
 {
     if (std::ranges::find(names, name) == names.end()) {
@@ -314,8 +289,7 @@ void appendUnique(std::vector<std::string>& names, const std::string& name)
 PROPERTY_SOURCE(Assembly::AssemblyObject, App::Part)
 
 AssemblyObject::AssemblyObject()
-    : mbdAssembly(std::make_shared<ASMTAssembly>())
-    , bundleFixed(false)
+    : bundleFixed(false)
     , lastDoF(0)
     , lastHasConflict(false)
     , lastHasRedundancies(false)
@@ -323,8 +297,6 @@ AssemblyObject::AssemblyObject()
     , lastHasMalformedConstraints(false)
     , lastSolverStatus(0)
 {
-    mbdAssembly->externalSystem->freecadAssemblyObject = this;
-
     // The workbench's Python decides "is this container a real assembly?" by
     // testing Type == "Assembly" (six sites in JointObject.py). Upstream stamps
     // it from CommandCreateAssembly.py, so an assembly created any other way --
@@ -410,22 +382,20 @@ int AssemblyObject::solve(bool enableRedo)
         savePlacementsForUndo();
     }
 
-    try {
-        mbdAssembly->runPreDrag();
-        lastSolverStatus = 0;
+    Solver::Result result;
+    if (session) {
+        result = session->solve({});
     }
-    catch (const std::exception& e) {
-        FC_ERR("Solve failed: " << e.what());
+    else {
+        result.message = "no solver backend";
+    }
+    if (result.status != Solver::Status::Ok) {
+        FC_ERR("Solve failed: " << result.message);
         lastSolverStatus = -1;
         updateSolveStatus();
         return -1;
     }
-    catch (...) {
-        FC_ERR("Solve failed: unhandled exception");
-        lastSolverStatus = -1;
-        updateSolveStatus();
-        return -1;
-    }
+    lastSolverStatus = 0;
 
     setNewPlacements();
     updateRigidPlacementCache();
@@ -451,103 +421,79 @@ void AssemblyObject::updateSolveStatus()
 
     int numberOfSolverBodies = numberOfComponents();
     if (!objectPartMap.empty()) {
-        std::unordered_set<MbD::ASMTPart*> uniqueParts;
+        std::unordered_set<Solver::Id> uniqueBodies;
         for (const auto& entry : objectPartMap) {
-            if (entry.second.part) {
-                uniqueParts.insert(entry.second.part.get());
+            if (entry.second.body < loadedBodies) {
+                uniqueBodies.insert(entry.second.body);
             }
         }
 
-        const int bundledParts = static_cast<int>(objectPartMap.size() - uniqueParts.size());
+        const int bundledParts = static_cast<int>(objectPartMap.size() - uniqueBodies.size());
         numberOfSolverBodies -= bundledParts;
     }
 
     // +1 because the assembly origin is also represented by a solver body.
     lastDoF = (1 + numberOfSolverBodies) * 6;
 
-    // Solve on demand when queried before the system is solved, but not from within
-    // a solve: solve() calls this, so a failed solve would recurse indefinitely.
-    if (!solveInProgress && (!mbdAssembly || !mbdAssembly->mbdSystem)) {
-        solve();
+    Solver::Diagnostics diagnostics;
+    if (session) {
+        diagnostics = session->analyse();
     }
-
-    if (!mbdAssembly || !mbdAssembly->mbdSystem) {
+    if (!(diagnostics.known & Solver::Diagnostics::KnownDof)) {
+        // Solve on demand when queried before the system is solved, but not from
+        // within a solve: solve() calls this, so a failed solve would recurse
+        // indefinitely. A solve that gets that far refreshes the status itself.
+        if (!solveInProgress) {
+            solve();
+        }
         return;
     }
 
-    // Helper lambda to clean up the joint name from the solver
-    auto cleanJointName = [](const std::string& rawName) -> std::string {
-        // rawName is like : /OndselAssembly/ground_moves#Joint001
-        size_t hashPos = rawName.find_last_of('#');
-        if (hashPos != std::string::npos) {
-            // Return the substring after the '#'
-            return rawName.substr(hashPos + 1);
+    // The session counts the bodies it was given; parts left out of the model
+    // (not connected to ground) keep their 6 freedoms.
+    lastDoF = diagnostics.dof + 6 * (numberOfSolverBodies - static_cast<int>(loadedBodies));
+
+    // Joints map back to the document by their source; grounds, limits and
+    // drivers are not joints of the document.
+    auto collect = [&](const std::vector<Solver::Id>& ids, std::vector<std::string>& names) {
+        for (Solver::Id id : ids) {
+            std::string name = jointNameOf(id);
+            if (!name.empty()) {
+                appendUnique(names, name);
+            }
         }
-        return rawName;
     };
-
-
-    // Iterate through all joints and motions in the MBD system
-    mbdAssembly->mbdSystem->jointsMotionsDo([&](std::shared_ptr<MbD::Joint> jm) {
-        if (!jm) {
-            return;
-        }
-        // OndselSolver removes redundancy per equation: during the first
-        // assembly solve, rows of the Jacobian found linearly dependent are
-        // wrapped in a RedundantConstraint and left out. A joint is one MbD
-        // joint with one equation per constraint, so per joint:
-        //  - redundant: at least one equation removed (what the list has always
-        //    meant, and what the over-constrained message lists);
-        //  - partially redundant: some, not all, of its equations removed;
-        //  - conflicting: a removed equation is not satisfied at the solution,
-        //    i.e. the joint contradicts the others instead of repeating them.
-        int nEquations = 0;
-        int nRedundant = 0;
-        bool isJointConflicting = false;
-
-        jm->constraintsDo([&](std::shared_ptr<MbD::Constraint> con) {
-            if (!con) {
-                return;
-            }
-            ++nEquations;
-            if (auto redundant = std::dynamic_pointer_cast<MbD::RedundantConstraint>(con)) {
-                ++nRedundant;
-                if (isConflicting(redundant)) {
-                    isJointConflicting = true;
-                }
-                // A removed equation takes no freedom away: the remaining ones
-                // are full rank, so their count is the Jacobian's rank.
-                return;
-            }
-            --lastDoF;
-        });
-
-        const std::string fullName = cleanJointName(jm->name);
-        App::DocumentObject* docObj = getDocument()->getObject(fullName.c_str());
-
-        // We only care about objects that are actual joints in the FreeCAD document.
-        // This effectively filters out the grounding joints, which are named after parts.
-        if (!docObj || !docObj->getPropertyByName("Reference1")) {
-            return;
-        }
-
-        if (nRedundant > 0) {
-            const std::string objName = docObj->getNameInDocument();
-            appendUnique(lastRedundantJoints, objName);
-            if (nRedundant < nEquations) {
-                appendUnique(lastPartialRedundantJoints, objName);
-            }
-            if (isJointConflicting) {
-                appendUnique(lastConflictingJoints, objName);
-            }
-        }
-    });
+    collect(diagnostics.redundant, lastRedundantJoints);
+    collect(diagnostics.partiallyRedundant, lastPartialRedundantJoints);
+    collect(diagnostics.conflicting, lastConflictingJoints);
+    if (diagnostics.known & Solver::Diagnostics::KnownMalformed) {
+        collect(diagnostics.malformed, lastMalformedJoints);
+        lastHasMalformedConstraints = !lastMalformedJoints.empty();
+    }
 
     lastHasRedundancies = !lastRedundantJoints.empty();
     lastHasPartialRedundancies = !lastPartialRedundantJoints.empty();
     lastHasConflict = !lastConflictingJoints.empty();
 
     signalSolverUpdate();
+}
+
+std::string AssemblyObject::jointNameOf(Solver::Id joint) const
+{
+    if (!solverModel || joint >= solverModel->joints.size()) {
+        return {};
+    }
+    // The source is the joint's full name, like Document#Joint001.
+    const std::string& rawName = solverModel->sourceName(solverModel->joints[joint].source);
+    size_t hashPos = rawName.find_last_of('#');
+    const std::string name = hashPos != std::string::npos ? rawName.substr(hashPos + 1) : rawName;
+    App::DocumentObject* docObj = getDocument()->getObject(name.c_str());
+
+    // Only objects that are actual joints in the document.
+    if (!docObj || !docObj->getPropertyByName("Reference1")) {
+        return {};
+    }
+    return docObj->getNameInDocument();
 }
 
 int AssemblyObject::generateSimulation(App::DocumentObject* sim)
@@ -573,10 +519,17 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
 
     makeMbdModel();
 
-    try {
-        mbdAssembly->runKINEMATIC();
-    }
-    catch (...) {
+    // Playback reads the session's ASMT model until the trajectory moves into
+    // the neutral layer (sec 6.3 step 6); the frames are not kept here yet.
+    struct DiscardFrames: Solver::TrajectorySink
+    {
+        bool frame(double, const std::vector<Solver::BodyPose>&) override
+        {
+            return true;
+        }
+    } sink;
+    if (!session || !simulationSpec
+        || session->simulate(*simulationSpec, sink) != Solver::Status::Ok) {
         Base::Console().Error("Generation of simulation failed\n");
         motions.clear();
         return -1;
@@ -603,17 +556,24 @@ std::vector<App::DocumentObject*> AssemblyObject::getMotionsFromSimulation(App::
 
 int Assembly::AssemblyObject::updateForFrame(size_t index)
 {
-    if (!mbdAssembly) {
+    auto* ondsel = dynamic_cast<Solver::OndselSession*>(session.get());
+    if (!ondsel || !ondsel->asmt().assembly) {
         return -1;
     }
+    const auto& asmt = ondsel->asmt();
 
-    auto nfrms = mbdAssembly->numberOfFrames();
+    auto nfrms = asmt.assembly->numberOfFrames();
     if (index >= nfrms) {
         return -1;
     }
 
-    mbdAssembly->updateForFrame(index);
-    setNewPlacements();
+    asmt.assembly->updateForFrame(index);
+    std::vector<Solver::BodyPose> poses;
+    poses.reserve(asmt.parts.size());
+    for (size_t i = 0; i < asmt.parts.size(); ++i) {
+        poses.push_back({static_cast<Solver::Id>(i), Solver::Ondsel::partPlacement(asmt.parts[i])});
+    }
+    setNewPlacements(poses);
     auto jointDocs = getJoints();
     redrawJointPlacements(jointDocs);
     return 0;
@@ -621,7 +581,11 @@ int Assembly::AssemblyObject::updateForFrame(size_t index)
 
 size_t Assembly::AssemblyObject::numberOfFrames()
 {
-    return mbdAssembly->numberOfFrames();
+    auto* ondsel = dynamic_cast<Solver::OndselSession*>(session.get());
+    if (!ondsel || !ondsel->asmt().assembly) {
+        return 0;
+    }
+    return ondsel->asmt().assembly->numberOfFrames();
 }
 
 bool AssemblyObject::requiresRigidSolveForMove(const std::vector<App::DocumentObject*>& movedParts)
@@ -698,37 +662,35 @@ void AssemblyObject::preDrag(std::vector<App::DocumentObject*> dragParts)
 
 void AssemblyObject::applyDragMasses()
 {
-    // Every solver body is built with mass 1 and unit inertia (makeMbdPart), and
-    // that stays so for the static solve above and the one postDrag() runs: in
-    // an under-constrained assembly, OndselSolver's mass-weighted minimal motion
-    // decides which part moves, so changing those masses would change what a
-    // solve does. During the drag steps the GUI's heavier masses for the dragged
-    // parts (setObjMasses) are what make the dragged part follow the mouse and
-    // the others give way: PosICDragNewtonRaphson's weights come from
-    // Part::fillqsuWeights, which scales them by m / max(m) and aJ / max(aJ).
-    // So the masses go on the MbD bodies the drag steps solve, after the
-    // pre-drag solve built them, and the ASMT model keeps mass 1.
-    if (!mbdAssembly || !mbdAssembly->mbdSystem) {
+    // The GUI's heavier masses for the dragged parts (setObjMasses) become the
+    // drag weights of their bodies; the session puts them on the solver's bodies
+    // for the drag steps only (OndselSession::beginDrag says why), never into
+    // what a static solve is built from.
+    if (!session || !solverModel) {
         return;
     }
 
+    std::vector<Solver::Id> bodies;
     for (auto* part : draggedParts) {
+        auto it = objectPartMap.find(part);
+        if (it == objectPartMap.end() || it->second.body >= loadedBodies) {
+            continue;
+        }
+        const Solver::Id body = it->second.body;
+        if (std::ranges::find(bodies, body) == bodies.end()) {
+            bodies.push_back(body);
+        }
         const double mass = getObjMass(part);
         if (mass <= 0.0 || mass == 1.0) {
             continue;
         }
-        auto it = objectPartMap.find(part);
-        if (it == objectPartMap.end() || !it->second.part) {
-            continue;
-        }
-        auto mbdPart = std::dynamic_pointer_cast<MbD::Part>(it->second.part->mbdObject);
-        if (!mbdPart) {
-            continue;
-        }
-        mbdPart->m = mass;
-        // The base inertia is unit, so a heavier part is heavier in rotation too.
-        mbdPart->aJ = std::make_shared<MbD::DiagonalMatrix<double>>(3, mass);
+        solverModel->bodies[body].dragWeight = mass;
     }
+
+    if (session->update(*solverModel) != Solver::Status::Ok) {
+        FC_LOG("Assembly: the solver did not take the drag weights");
+    }
+    session->beginDrag(bodies, {});
 }
 
 void AssemblyObject::prepareMbdForIslandDrag(std::vector<App::DocumentObject*> dragParts)
@@ -751,7 +713,8 @@ void AssemblyObject::prepareMbdForIslandDrag(std::vector<App::DocumentObject*> d
     removeUnconnectedJoints(joints, seededParts);
     if (joints.empty()) {
         objectPartMap.clear();
-        mbdAssembly.reset();
+        session.reset();
+        loadedBodies = 0;
         return;
     }
 
@@ -759,26 +722,25 @@ void AssemblyObject::prepareMbdForIslandDrag(std::vector<App::DocumentObject*> d
 
     makeMbdModel();
 
-    try {
-        mbdAssembly->runPreDrag();
+    Solver::Result result;
+    if (session) {
+        result = session->solve({});
     }
-    catch (const std::exception& e) {
-        FC_ERR("Drag setup failed: " << e.what());
-        objectPartMap.clear();
-        mbdAssembly.reset();
-        return;
+    else {
+        result.message = "no solver backend";
     }
-    catch (...) {
-        FC_ERR("Drag setup failed: unhandled exception");
+    if (result.status != Solver::Status::Ok) {
+        FC_ERR("Drag setup failed: " << result.message);
         objectPartMap.clear();
-        mbdAssembly.reset();
+        session.reset();
+        loadedBodies = 0;
         return;
     }
 }
 
 bool AssemblyObject::doDragStep()
 {
-    if (!mbdAssembly || draggedParts.empty()) {
+    if (!session || draggedParts.empty()) {
         return false;
     }
 
@@ -788,55 +750,41 @@ bool AssemblyObject::doDragStep()
     bool restoreAfterFailedDragStep = false;
 
     try {
-        std::vector<std::shared_ptr<MbD::ASMTPart>> dragMbdParts;
-        std::unordered_set<ASMTPart*> seenMbdParts;
-
+        // The target of each dragged body: the Placement the caller wrote on
+        // its part, taken back to the body's frame for a bundled part.
+        std::vector<Solver::BodyPose> targets;
         for (auto& part : draggedParts) {
             if (!part) {
                 continue;
             }
 
-            auto mbdPart = getMbDData(part).part;
-            if (!mbdPart) {
+            const Solver::Id body = getMbDData(part).body;
+            if (body >= loadedBodies) {
                 continue;
             }
 
-            if (!seenMbdParts.insert(mbdPart.get()).second) {
+            if (std::ranges::any_of(targets, [&](const auto& t) { return t.body == body; })) {
                 continue;
             }
-
-            dragMbdParts.push_back(mbdPart);
 
             Base::Placement plc = getPlacementFromProp(part, "Placement");
             if (auto it = objectPartMap.find(part);
                 it != objectPartMap.end() && !it->second.offsetPlc.isIdentity()) {
                 plc = plc * it->second.offsetPlc.inverse();
             }
-            Base::Vector3d pos = plc.getPosition();
-            mbdPart->updateMbDFromPosition3D(
-                std::make_shared<FullColumn<double>>(ListD {pos.x, pos.y, pos.z})
-            );
-
-            Base::Rotation rot = plc.getRotation();
-            Base::Matrix4D mat;
-            rot.getValue(mat);
-            Base::Vector3d r0 = mat.getRow(0);
-            Base::Vector3d r1 = mat.getRow(1);
-            Base::Vector3d r2 = mat.getRow(2);
-            mbdPart->updateMbDFromRotationMatrix(r0.x, r0.y, r0.z, r1.x, r1.y, r1.z, r2.x, r2.y, r2.z);
+            targets.push_back({body, plc});
         }
 
-        // Timing mbdAssembly->runDragStep()
-        auto dragPartsVec = std::make_shared<std::vector<std::shared_ptr<ASMTPart>>>(dragMbdParts);
-        // OndselSolver retries a failed step at half, a quarter... of the move;
-        // when none converges it puts the parts back where the last step left them.
-        if (!mbdAssembly->runDragStep(dragPartsVec)) {
-            failure = "the solver did not converge";
+        // The session retries a failed step and, when none converges, puts the
+        // bodies back where the last step left them.
+        Solver::Result result = session->dragStep(targets);
+        if (result.status != Solver::Status::Ok) {
+            failure = result.message;
             restoreAfterFailedDragStep = true;
         }
         // Timing the validation and placement setting
-        else if (validateNewPlacements()) {
-            setNewPlacements();
+        else if (auto poses = session->poses(); validateNewPlacements(poses)) {
+            setNewPlacements(poses);
             updateRigidPlacementCache();
 
             auto joints = getJoints();
@@ -867,7 +815,6 @@ bool AssemblyObject::doDragStep()
         // put the document back on the last good step so it shows what the
         // solver holds and the next step starts from there.
         try {
-            mbdAssembly->restorePosRot();
             setNewPlacements();
         }
         catch (...) {
@@ -910,6 +857,11 @@ Base::Placement AssemblyObject::getMbdPlacement(std::shared_ptr<ASMTPart> mbdPar
 
 bool AssemblyObject::validateNewPlacements()
 {
+    return validateNewPlacements(session ? session->poses() : std::vector<Solver::BodyPose> {});
+}
+
+bool AssemblyObject::validateNewPlacements(const std::vector<Solver::BodyPose>& poses)
+{
     // First we check if a grounded object has moved. It can happen that they flip.
     auto groundedParts = getGroundedParts();
     for (auto* obj : groundedParts) {
@@ -919,8 +871,9 @@ bool AssemblyObject::validateNewPlacements()
 
             auto it = objectPartMap.find(obj);
             if (it != objectPartMap.end()) {
-                std::shared_ptr<MbD::ASMTPart> mbdPart = it->second.part;
-                Base::Placement newPlacement = getMbdPlacement(mbdPart);
+                const Solver::Id body = it->second.body;
+                Base::Placement newPlacement = body < poses.size() ? poses[body].placement
+                                                                   : Base::Placement();
                 if (!it->second.offsetPlc.isIdentity()) {
                     newPlacement = newPlacement * it->second.offsetPlc;
                 }
@@ -943,7 +896,7 @@ bool AssemblyObject::validateNewPlacements()
 
 void AssemblyObject::postDrag()
 {
-    if (!mbdAssembly) {
+    if (!session) {
         return;
     }
 
@@ -956,7 +909,11 @@ void AssemblyObject::postDrag()
         );
     }
 
-    mbdAssembly->runPostDrag();  // Do this after last drag
+    // Do this after last drag
+    Solver::Result result = session->endDrag();
+    if (result.status != Solver::Status::Ok) {
+        FC_ERR("Post-drag solve failed: " << result.message);
+    }
     purgeTouched();
 }
 
@@ -1028,7 +985,12 @@ void AssemblyObject::exportAsASMT(std::string fileName)
 
     makeMbdModel();
 
-    mbdAssembly->outputFile(fileName);
+    if (!session || session->exportNative(fileName) != Solver::Status::Ok) {
+        Base::Console().error(
+            "Assembly: the solver backend could not export %s\n",
+            fileName.c_str()
+        );
+    }
 }
 
 void AssemblyObject::rebuildRigidClusters()
@@ -1253,11 +1215,18 @@ bool isFinitePlacement(const Base::Placement& plc)
 
 void AssemblyObject::setNewPlacements()
 {
+    if (session) {
+        setNewPlacements(session->poses());
+    }
+}
+
+void AssemblyObject::setNewPlacements(const std::vector<Solver::BodyPose>& poses)
+{
     for (auto& pair : objectPartMap) {
         App::DocumentObject* obj = pair.first;
-        std::shared_ptr<ASMTPart> mbdPart = pair.second.part;
+        const Solver::Id body = pair.second.body;
 
-        if (!obj || !mbdPart) {
+        if (!obj || body >= poses.size()) {
             continue;
         }
 
@@ -1268,7 +1237,7 @@ void AssemblyObject::setNewPlacements()
         }
 
 
-        Base::Placement newPlacement = getMbdPlacement(mbdPart);
+        Base::Placement newPlacement = poses[body].placement;
         if (!pair.second.offsetPlc.isIdentity()) {
             newPlacement = newPlacement * pair.second.offsetPlc;
         }
@@ -1340,38 +1309,27 @@ std::unique_ptr<Solver::Model> AssemblyObject::makeMbdAssembly()
     auto assembly = std::make_unique<Solver::Model>();
     simulationSpec.reset();
 
-    // Status, drag and playback still read the ASMT model (until step 4 of
-    // sec 6.3): a build starts it empty, as it always did, until
-    // makeMbdModel() hands it the model built.
-    mbdAssembly = Solver::Ondsel::toAsmt(*assembly).assembly;
-    mbdAssembly->externalSystem->freecadAssemblyObject = this;
+    // A build starts with nothing solved, as it always did: a status query or
+    // playback before the model is handed over finds no session.
+    session.reset();
+    loadedBodies = 0;
     return assembly;
 }
 
 void AssemblyObject::makeMbdModel()
 {
-    ParameterGrp::handle hPgr = App::GetApplication().GetParameterGroupByPath(
-        "User parameter:BaseApp/Preferences/Mod/Assembly"
-    );
-
-    auto asmt = Solver::Ondsel::toAsmt(
-        *solverModel,
-        simulationSpec.get(),
-        hPgr->GetBool("LogSolverDebug", Assembly::AssemblyParams::defaultLogSolverDebug())
-    );
-    mbdAssembly = asmt.assembly;
-    mbdAssembly->externalSystem->freecadAssemblyObject = this;
-    for (auto& entry : objectPartMap) {
-        MbDPartData& data = entry.second;
-        data.part = data.body < asmt.parts.size() ? asmt.parts[data.body] : nullptr;
+    loadedBodies = 0;
+    Solver::Backend* backend = Solver::Registry::instance().select(this);
+    session = backend ? backend->createSession() : nullptr;
+    if (!session) {
+        FC_ERR("Assembly: no solver backend is registered");
+        return;
     }
-
-    // Every model handed to the solver, as ASMT text: the identity gate's
-    // view of what a solve, a drag or a simulation runs on.
-    std::string dumpFile = hPgr->GetASCII("SolverDumpFile", "");
-    if (!dumpFile.empty()) {
-        mbdAssembly->outputFile(dumpFile);
+    if (session->load(*solverModel) != Solver::Status::Ok) {
+        FC_ERR("Assembly: the solver backend '" << backend->name() << "' did not take the model");
+        return;
     }
+    loadedBodies = solverModel->bodies.size();
 }
 
 App::DocumentObject* AssemblyObject::getJointOfPartConnectingToGround(

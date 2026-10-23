@@ -41,6 +41,10 @@ public:
     {
         return {};
     }
+    std::vector<BodyPose> poses() const override
+    {
+        return {};
+    }
     Diagnostics analyse() override
     {
         return {};

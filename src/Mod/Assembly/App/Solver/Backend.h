@@ -156,7 +156,8 @@ public:
 
     virtual Status load(const Model& model) = 0;
     // NeedsReload if the backend cannot apply the change to the live system.
-    // Takes the new model whole until ModelDelta exists (sec 4.2, step 8).
+    // Takes the new model whole until ModelDelta exists (sec 4.2, step 8). A
+    // change of Body::dragWeight alone is what a drag needs before beginDrag.
     virtual Status update(const Model& model)
     {
         (void)model;
@@ -167,6 +168,11 @@ public:
     virtual Status beginDrag(const std::vector<Id>& bodies, const DragOptions& options) = 0;
     virtual Result dragStep(const std::vector<BodyPose>& targets) = 0;
     virtual Result endDrag() = 0;  // no full re-solve required
+
+    // Every body's pose as the session holds it now, in Model::bodies order
+    // (the entry of body i has body == i). Result::moved names only the bodies
+    // that moved; writing back and checking grounded bodies need them all.
+    virtual std::vector<BodyPose> poses() const = 0;
 
     virtual Diagnostics analyse() = 0;  // at the current state
     // The default, a sequence of warm position solves driven by the neutral

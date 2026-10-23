@@ -39,6 +39,7 @@
 namespace MbD
 {
 class ASMTAssembly;
+class ASMTJoint;
 class ASMTPart;
 }  // namespace MbD
 
@@ -53,6 +54,7 @@ struct AsmtModel
 {
     std::shared_ptr<MbD::ASMTAssembly> assembly;
     std::vector<std::shared_ptr<MbD::ASMTPart>> parts;  // by body id
+    std::vector<std::shared_ptr<MbD::ASMTJoint>> joints;  // by joint id
 };
 
 // Builds the ASMT model. 'simulation' sets the simulation parameters; without
@@ -77,31 +79,44 @@ public:
     std::unique_ptr<Session> createSession() override;
 };
 
-// A session on one ASMT model. Drag and diagnostics come with step 4 of sec 6.3.
+// A session on one ASMT model.
 class AssemblyExport OndselSession: public Session
 {
 public:
-    explicit OndselSession(bool debug = false);
+    // 'dumpFile', when not empty, receives the ASMT text of every model the
+    // session is given (load, simulate): the identity gate's view of the input.
+    explicit OndselSession(bool debug = false, std::string dumpFile = {});
     ~OndselSession() override;
 
     Status load(const Model& model) override;
+    // Takes new drag weights on the live system; anything else needs a load.
+    Status update(const Model& model) override;
     Result solve(const SolveOptions& options) override;
     Status beginDrag(const std::vector<Id>& bodies, const DragOptions& options) override;
     Result dragStep(const std::vector<BodyPose>& targets) override;
     Result endDrag() override;
+    std::vector<BodyPose> poses() const override;
     Diagnostics analyse() override;
     Status simulate(const SimulationSpec& spec, TrajectorySink& sink) override;
     Status exportNative(const std::string& path) override;
 
+    // The ASMT model, for playback until the trajectory moves into the
+    // neutral layer (sec 6.3 step 6).
     const Ondsel::AsmtModel& asmt() const
     {
         return current;
     }
 
 private:
+    // Reads every body's pose back from the solver; returns the bodies that moved.
+    std::vector<BodyPose> refreshPoses();
+    void dump() const;
+
     bool debug;
+    std::string dumpFile;
     Model model;
     Ondsel::AsmtModel current;
+    std::vector<Base::Placement> currentPoses;  // by body id
 };
 
 }  // namespace Assembly::Solver

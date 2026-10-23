@@ -21,9 +21,11 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <cmath>
 #include <cstdio>
 #include <exception>
 #include <string>
+#include <unordered_map>
 
 #include <App/Application.h>
 #include <Base/Matrix.h>
@@ -59,6 +61,13 @@
 #include <OndselSolver/ASMTTranslationLimit.h>
 #include <OndselSolver/ASMTTranslationalJoint.h>
 #include <OndselSolver/ASMTTranslationalMotion.h>
+#include <OndselSolver/Constraint.h>
+#include <OndselSolver/DiagonalMatrix.h>
+#include <OndselSolver/FullColumn.h>
+#include <OndselSolver/Joint.h>
+#include <OndselSolver/Part.h>
+#include <OndselSolver/RedundantConstraint.h>
+#include <OndselSolver/System.h>
 
 #include "OndselBackend.h"
 
@@ -300,11 +309,13 @@ Ondsel::AsmtModel Ondsel::toAsmt(const Model& model, const SimulationSpec* simul
         assembly->addJoint(mbdJoint);
     }
 
+    result.joints.resize(model.joints.size());
     for (const auto& joint : model.joints) {
         auto mbdJoint = makeJoint(joint);
         if (!mbdJoint) {
             continue;
         }
+        result.joints[joint.id] = mbdJoint;
         if (joint.kind == JointKind::CoaxialGear && joint.frameK != NoId) {
             std::static_pointer_cast<MbD::ASMTGearJoint>(mbdJoint)->setMarkerK(path(joint.frameK));
         }
@@ -403,10 +414,9 @@ Capabilities OndselBackend::capabilities() const
     caps.limits = true;
     caps.drivers = true;
     caps.kinematics = true;
-    // Drag and diagnostics reach the solver directly from AssemblyObject until
-    // step 4 of sec 6.3 routes them through the session.
-    caps.drag = false;
-    caps.redundancy = false;
+    caps.drag = true;
+    caps.redundancy = true;
+    caps.conflicts = true;
     caps.nativeFormat = "asmt";
     return caps;
 }
@@ -416,28 +426,122 @@ std::unique_ptr<Session> OndselBackend::createSession()
     ParameterGrp::handle hGrp = App::GetApplication().GetParameterGroupByPath(
         "User parameter:BaseApp/Preferences/Mod/Assembly"
     );
-    return std::make_unique<OndselSession>(hGrp->GetBool("LogSolverDebug", false));
+    // SolverDumpFile: a path, unset by default; every model handed to the
+    // solver is written there as ASMT text (the identity gate reads it).
+    return std::make_unique<OndselSession>(
+        hGrp->GetBool("LogSolverDebug", false),
+        hGrp->GetASCII("SolverDumpFile", "")
+    );
 }
 
 // ------------------------------------------------------------------ session
 
-OndselSession::OndselSession(bool debug)
+namespace
+{
+
+// A redundant equation whose residual is still above this after the solve is a
+// conflict: the solver dropped it to get a full-rank system, and the solution
+// of the remaining equations does not satisfy it. Residuals are in model units
+// (mm, OndselSolver's mbdUnits are all 1; mm^2 for the squared distances of
+// DistancexyConstraintIJ) for displacement equations and dimensionless for
+// direction cosines; a satisfied equation ends near 1e-12.
+constexpr double conflictResidualTolerance = 1.0e-6;
+
+// Re-evaluates the equation OndselSolver set aside as redundant at the solved
+// configuration. RedundantConstraint stubs out every update, so the wrapped
+// equation's aG is stale until asked here.
+bool isConflicting(const std::shared_ptr<MbD::RedundantConstraint>& redundant)
+{
+    if (!redundant || !redundant->constraint) {
+        return false;
+    }
+    try {
+        redundant->constraint->postPosICIteration();
+    }
+    catch (...) {
+        return false;
+    }
+    const double residual = redundant->constraint->aG;
+    return !std::isfinite(residual) || std::abs(residual) > conflictResidualTolerance;
+}
+
+void setRotationMatrix(MbD::ASMTPart& part, const Base::Rotation& rot)
+{
+    Base::Matrix4D mat;
+    rot.getValue(mat);
+    Base::Vector3d r0 = mat.getRow(0);
+    Base::Vector3d r1 = mat.getRow(1);
+    Base::Vector3d r2 = mat.getRow(2);
+    part.updateMbDFromRotationMatrix(r0.x, r0.y, r0.z, r1.x, r1.y, r1.z, r2.x, r2.y, r2.z);
+}
+
+}  // namespace
+
+OndselSession::OndselSession(bool debug, std::string dumpFile)
     : debug(debug)
+    , dumpFile(std::move(dumpFile))
 {}
 
 OndselSession::~OndselSession() = default;
 
+void OndselSession::dump() const
+{
+    if (!dumpFile.empty() && current.assembly) {
+        current.assembly->outputFile(dumpFile);
+    }
+}
+
+std::vector<BodyPose> OndselSession::refreshPoses()
+{
+    std::vector<BodyPose> moved;
+    currentPoses.resize(current.parts.size());
+    for (std::size_t i = 0; i < current.parts.size(); ++i) {
+        Base::Placement plc = Ondsel::partPlacement(current.parts[i]);
+        if (!plc.isSame(currentPoses[i])) {
+            moved.push_back({static_cast<Id>(i), plc});
+        }
+        currentPoses[i] = plc;
+    }
+    return moved;
+}
+
+std::vector<BodyPose> OndselSession::poses() const
+{
+    std::vector<BodyPose> result;
+    result.reserve(currentPoses.size());
+    for (std::size_t i = 0; i < currentPoses.size(); ++i) {
+        result.push_back({static_cast<Id>(i), currentPoses[i]});
+    }
+    return result;
+}
+
 Status OndselSession::load(const Model& newModel)
 {
+    currentPoses.clear();
     try {
         model = newModel;
         current = Ondsel::toAsmt(model, nullptr, debug);
-        return Status::Ok;
     }
     catch (...) {
         current = {};
         return Status::Failed;
     }
+    dump();
+    // The poses the solver starts from, as it reads them back.
+    refreshPoses();
+    return Status::Ok;
+}
+
+Status OndselSession::update(const Model& newModel)
+{
+    if (!current.assembly || !sameExceptDragWeights(model, newModel)) {
+        return Status::NeedsReload;
+    }
+    // Drag weights reach the solver in beginDrag, never the ASMT model.
+    for (std::size_t i = 0; i < model.bodies.size(); ++i) {
+        model.bodies[i].dragWeight = newModel.bodies[i].dragWeight;
+    }
+    return Status::Ok;
 }
 
 Result OndselSession::solve(const SolveOptions& options)
@@ -460,46 +564,205 @@ Result OndselSession::solve(const SolveOptions& options)
         return result;
     }
     result.status = Status::Ok;
-    for (std::size_t i = 0; i < current.parts.size(); ++i) {
-        Base::Placement plc = Ondsel::partPlacement(current.parts[i]);
-        if (!plc.isSame(model.bodies[i].placement)) {
-            result.moved.push_back({static_cast<Id>(i), plc});
-        }
-    }
+    result.moved = refreshPoses();
     return result;
 }
 
 Status OndselSession::beginDrag(const std::vector<Id>& bodies, const DragOptions& options)
 {
-    (void)bodies;
+    // Fixed joints are bundled by the builder (AssemblyObject's bundleFixed), so
+    // the option has nothing left to do here.
     (void)options;
-    return Status::Unsupported;
+
+    // Every solver body is built with mass 1 and unit inertia, and that stays
+    // so for the static solve before the drag and the one endDrag() runs: in an
+    // under-constrained assembly, OndselSolver's mass-weighted minimal motion
+    // decides which part moves, so changing those masses would change what a
+    // solve does. During the drag steps the heavier weights of the dragged
+    // bodies are what make them follow the mouse and the others give way:
+    // PosICDragNewtonRaphson's weights come from Part::fillqsuWeights, which
+    // scales them by m / max(m) and aJ / max(aJ). So the weights go on the MbD
+    // bodies the drag steps solve, after the pre-drag solve built them, and the
+    // ASMT model keeps mass 1.
+    if (!current.assembly || !current.assembly->mbdSystem) {
+        return Status::Failed;
+    }
+    for (Id body : bodies) {
+        if (body >= model.bodies.size() || body >= current.parts.size() || !current.parts[body]) {
+            continue;
+        }
+        const double weight = model.bodies[body].dragWeight;
+        if (weight <= 0.0 || weight == 1.0) {
+            continue;
+        }
+        auto mbdPart = std::dynamic_pointer_cast<MbD::Part>(current.parts[body]->mbdObject);
+        if (!mbdPart) {
+            continue;
+        }
+        mbdPart->m = weight;
+        // The base inertia is unit, so a heavier body is heavier in rotation too.
+        mbdPart->aJ = std::make_shared<MbD::DiagonalMatrix<double>>(3, weight);
+    }
+    return Status::Ok;
 }
 
 Result OndselSession::dragStep(const std::vector<BodyPose>& targets)
 {
-    (void)targets;
     Result result;
-    result.status = Status::Unsupported;
+    if (!current.assembly) {
+        result.message = "no model loaded";
+        return result;
+    }
+
+    bool restore = false;
+    try {
+        std::vector<std::shared_ptr<MbD::ASMTPart>> dragParts;
+        for (const auto& target : targets) {
+            if (target.body >= current.parts.size() || !current.parts[target.body]) {
+                continue;
+            }
+            const auto& mbdPart = current.parts[target.body];
+            dragParts.push_back(mbdPart);
+
+            Base::Vector3d pos = target.placement.getPosition();
+            mbdPart->updateMbDFromPosition3D(
+                std::make_shared<MbD::FullColumn<double>>(MbD::ListD {pos.x, pos.y, pos.z})
+            );
+            setRotationMatrix(*mbdPart, target.placement.getRotation());
+        }
+
+        using PartList = std::vector<std::shared_ptr<MbD::ASMTPart>>;
+        auto dragPartsVec = std::make_shared<PartList>(dragParts);
+        // OndselSolver retries a failed step at half, a quarter... of the move;
+        // when none converges it puts the parts back where the last step left them.
+        if (current.assembly->runDragStep(dragPartsVec)) {
+            result.status = Status::Ok;
+        }
+        else {
+            result.status = Status::NotConverged;
+            result.message = "the solver did not converge";
+            restore = true;
+        }
+    }
+    catch (const std::exception& e) {
+        result.status = Status::Failed;
+        result.message = e.what();
+        restore = true;
+    }
+    catch (...) {
+        result.status = Status::Failed;
+        result.message = "unknown exception";
+        restore = true;
+    }
+
+    if (restore) {
+        // The targets went into the parts before the step; put them back on the
+        // last good step so the next one starts from there.
+        try {
+            current.assembly->restorePosRot();
+        }
+        catch (...) {
+        }
+    }
+    try {
+        result.moved = refreshPoses();
+    }
+    catch (...) {
+    }
     return result;
 }
 
 Result OndselSession::endDrag()
 {
     Result result;
-    result.status = Status::Unsupported;
+    if (!current.assembly) {
+        result.message = "no model loaded";
+        return result;
+    }
+    // A full re-solve at the dragged state, with the bodies at mass 1 again.
+    current.assembly->runPostDrag();
+    result.status = Status::Ok;
+    result.moved = refreshPoses();
     return result;
 }
 
 Diagnostics OndselSession::analyse()
 {
-    return {};
+    Diagnostics diagnostics;
+    if (!current.assembly || !current.assembly->mbdSystem) {
+        return diagnostics;  // nothing solved: nothing known
+    }
+
+    // The MbD joint each model joint became in the last system built.
+    std::unordered_map<const MbD::Item*, Id> jointIds;
+    for (std::size_t i = 0; i < current.joints.size(); ++i) {
+        if (current.joints[i] && current.joints[i]->mbdObject) {
+            jointIds.emplace(current.joints[i]->mbdObject.get(), static_cast<Id>(i));
+        }
+    }
+
+    // Today's convention: the assembly origin is a body too, and every body
+    // has 6 freedoms; each equation the solver keeps takes one.
+    int dof = static_cast<int>(1 + model.bodies.size()) * 6;
+
+    current.assembly->mbdSystem->jointsMotionsDo([&](std::shared_ptr<MbD::Joint> jm) {
+        if (!jm) {
+            return;
+        }
+        // OndselSolver removes redundancy per equation: during the first
+        // assembly solve, rows of the Jacobian found linearly dependent are
+        // wrapped in a RedundantConstraint and left out. A joint is one MbD
+        // joint with one equation per constraint, so per joint:
+        //  - redundant: at least one equation removed;
+        //  - partially redundant: some, not all, of its equations removed;
+        //  - conflicting: a removed equation is not satisfied at the solution,
+        //    i.e. the joint contradicts the others instead of repeating them.
+        int nEquations = 0;
+        int nRedundant = 0;
+        bool isJointConflicting = false;
+
+        jm->constraintsDo([&](std::shared_ptr<MbD::Constraint> con) {
+            if (!con) {
+                return;
+            }
+            ++nEquations;
+            if (auto redundant = std::dynamic_pointer_cast<MbD::RedundantConstraint>(con)) {
+                ++nRedundant;
+                if (isConflicting(redundant)) {
+                    isJointConflicting = true;
+                }
+                // A removed equation takes no freedom away: the remaining ones
+                // are full rank, so their count is the Jacobian's rank.
+                return;
+            }
+            --dof;
+        });
+
+        // Grounds and drivers count above; only the model's joints are reported.
+        auto it = jointIds.find(jm.get());
+        if (it == jointIds.end() || nRedundant == 0) {
+            return;
+        }
+        diagnostics.redundant.push_back(it->second);
+        if (nRedundant < nEquations) {
+            diagnostics.partiallyRedundant.push_back(it->second);
+        }
+        if (isJointConflicting) {
+            diagnostics.conflicting.push_back(it->second);
+        }
+    });
+
+    diagnostics.dof = dof;
+    diagnostics.known = Diagnostics::KnownDof | Diagnostics::KnownRedundant
+        | Diagnostics::KnownConflicting | Diagnostics::KnownPartiallyRedundant;
+    return diagnostics;
 }
 
 Status OndselSession::simulate(const SimulationSpec& spec, TrajectorySink& sink)
 {
     try {
         current = Ondsel::toAsmt(model, &spec, debug);
+        dump();
         current.assembly->runKINEMATIC();
         const std::size_t frames = current.assembly->numberOfFrames();
         std::vector<BodyPose> poses(current.parts.size());

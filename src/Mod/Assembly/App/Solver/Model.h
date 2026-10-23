@@ -39,6 +39,8 @@
 #include <Base/Rotation.h>
 #include <Base/Vector3D.h>
 
+#include <Mod/Assembly/AssemblyGlobal.h>
+
 namespace Assembly::Solver
 {
 
@@ -62,6 +64,9 @@ struct Body
     Base::Placement placement;  // current pose, the solve's starting point
     bool grounded = false;  // set when a Ground record pins this body
     MassProps mass;
+    // How hard the body resists being moved during drag steps, against the
+    // others at 1; the GUI gives the dragged bodies more so they follow the
+    // mouse. Static solves ignore it.
     double dragWeight = 1.0;
 };
 
@@ -230,5 +235,10 @@ private:
         return records.back().id;
     }
 };
+
+// Whether two models are the same record for record, bit for bit, apart from
+// the bodies' drag weights: the one change a session takes without a reload
+// before a drag (Session::update).
+AssemblyExport bool sameExceptDragWeights(const Model& a, const Model& b);
 
 }  // namespace Assembly::Solver

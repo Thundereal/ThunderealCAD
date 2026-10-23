@@ -20,5 +20,12 @@
           <UserDocu>Get access to the sheet view</UserDocu>
         </Documentation>
       </Methode>
+      <Methode Name="showSheetMdi">
+        <Documentation>
+          <UserDocu>showSheetMdi() -> None
+
+Open the sheet view, or bring it to the front if it is open (upstream's).</UserDocu>
+        </Documentation>
+      </Methode>
     </PythonExport>
 </GenerateModel>

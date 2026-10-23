@@ -51,6 +51,19 @@ PyObject* ViewProviderSpreadsheetPy::getView(PyObject* args)
     Py_RETURN_NONE;
 }
 
+PyObject* ViewProviderSpreadsheetPy::showSheetMdi(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+
+    // What a double click on a plain sheet does: open the view, or reveal
+    // the open one. Called by its qualified name, as a subclass (the
+    // Assembly BOM) overrides doubleClicked() to open its editor instead.
+    this->getViewProviderSheetPtr()->ViewProviderSheet::doubleClicked();
+    Py_RETURN_NONE;
+}
+
 PyObject* ViewProviderSpreadsheetPy::getCustomAttributes(const char* /*attr*/) const
 {
     return nullptr;

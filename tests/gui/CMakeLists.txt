@@ -242,6 +242,11 @@ fc_add_gui_test(GuiTechDrawTreeHoverLightsLabel_tests_run techdraw-tree-hover-li
 fc_add_gui_test(GuiTechDrawDimensionEditEndsGroupEdit_tests_run techdraw-dimension-edit-ends-group-edit.py
                 --timeout 200)
 
+# Entry 215: every change in a chamfer's panel an undo step of its own, as
+# the fillet's (entry 136); Cancel takes the edit back.
+fc_add_gui_test(GuiChamferUndoSteps_tests_run chamfer-undo-steps.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

@@ -294,6 +294,25 @@ TaskChamferParameters::TaskChamferParameters(ViewProviderDressUp *DressUpView,QW
         return getHoverHandle();
     });
     setupGizmos(DressUpView);
+
+    // Every operation an undo step of its own, as the fillet's (entry 136):
+    // the chamfer's edit was one step, every change of the panel in it -- an
+    // edge joining a group shared the step of the change before it, one undo
+    // took both back (docs/HandsOnQueue.md entry 215). A drag or a label
+    // open for typing one step, a cancelled drag rolled back, a default
+    // value's box one step while it has the focus.
+    fineUndo = true;
+    onViewValues->setCancelWritesBack(false);
+    connect(onViewValues.get(), &Gui::OnViewValueSet::stepBegun, this, [this]() {
+        beginHeldStep();
+    });
+    connect(onViewValues.get(), &Gui::OnViewValueSet::stepEnded, this, [this](bool abort) {
+        endHeldStep(abort);
+    });
+    holdStepWhileFocused(ui->chamferSize);
+    holdStepWhileFocused(ui->chamferSize2);
+    holdStepWhileFocused(ui->chamferAngle);
+
     connRecomputed = pcChamfer->getDocument()->signalRecomputedObject.connect(
         [this, self = QPointer<TaskChamferParameters>(this)](const App::DocumentObject& obj) {
             if (&obj != getChamfer()) {
@@ -1467,6 +1486,11 @@ void TaskChamferParameters::onSizeChanged(double len)
         return;
 
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
+    // The box tells its value again as it lets go of the focus: no step,
+    // no recompute for a value the chamfer has (an empty undo step each
+    // time, entry 215)
+    if (pcChamfer->Size.getValue() == len)
+        return;
     setupTransaction();
     pcChamfer->Size.setValue(len);
     recompute();
@@ -1478,6 +1502,8 @@ void TaskChamferParameters::onSize2Changed(double len)
     if (!DressUpView)
         return;
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
+    if (pcChamfer->Size2.getValue() == len)
+        return;
     setupTransaction();
     pcChamfer->Size2.setValue(len);
     pcChamfer->getDocument()->recomputeFeature(pcChamfer);
@@ -1489,6 +1515,8 @@ void TaskChamferParameters::onAngleChanged(double angle)
     if (!DressUpView)
         return;
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
+    if (pcChamfer->Angle.getValue() == angle)
+        return;
     setupTransaction();
     pcChamfer->Angle.setValue(angle);
     pcChamfer->getDocument()->recomputeFeature(pcChamfer);

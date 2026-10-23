@@ -14,8 +14,8 @@ A PartDesign box, a fillet of three edges on the default radius. In edit,
 typed into the Group cells with Enter: A 1, B 2, then B 1. Claims, for each:
   - no row of the list is deleted (the list is not filled anew);
   - the group is the edge's, and one undo step each;
-and the same for a chamfer: A 1, B 1 (B's join shares A's undo step, as it
-did before: noted, not claimed).
+and the same for a chamfer: A 1, B 1 (B's join a step of its own since
+entry 215).
 
 Runs offscreen as well.
 """
@@ -186,9 +186,8 @@ def run():
         if check("the chamfer is in edit, its list shown",
                  gdoc.getInEdit() is not None and tree() is not None):
             type_group(doc, "Edge1", 1, "chamfer")
-            # (a chamfer's join goes into the step before it, as it did before
-            # 214: one undo takes both back -- not this test's matter)
-            type_group(doc, "Edge2", 1, "chamfer, joining", own_step=False)
+            # a step of its own (entry 215: the chamfer's edit was one step)
+            type_group(doc, "Edge2", 1, "chamfer, joining")
             check("the chamfer still in edit", gdoc.getInEdit() is not None)
         gdoc.resetEdit()
         pump(40)

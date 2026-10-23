@@ -1775,6 +1775,11 @@ void TaskFilletParameters::onLengthChanged(double len)
 
     clearButtons(none);
     PartDesign::Fillet* pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
+    // The box tells its value again as it lets go of the focus: no step,
+    // no recompute for the radius the fillet has (an empty undo step each
+    // time, found with entry 215)
+    if (pcFillet->Radius.getValue() == len)
+        return;
     setupTransaction();
     pcFillet->Radius.setValue(len);
     recompute();

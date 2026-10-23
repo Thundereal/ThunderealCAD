@@ -43,6 +43,24 @@ leading grounded parts, the leading grounding joints), everything else in
 order; placements with a tolerance, since the column order can move the last
 bits.
 
+Every other registered backend (AssemblyApp.getAvailableSolvers(); since sec
+6.13 the Reference backend) runs the same cases through the assembly's
+SolverBackend property, in a generated class named after the case's class and
+the backend (TestSolverGateJointsReference, ...), and is compared with the
+OndselSolver record by the oracle's rules instead (gate_backend): it must
+converge wherever OndselSolver did; DoF, redundant, partially redundant,
+conflicting and malformed joints equal, except the disagreements listed in
+BACKEND_DIFFERENCES with their diagnosis (asserted as they are, so a fix on
+either side shows); placements within 1e-7 when OndselSolver's DoF is 0, and
+otherwise every joint satisfied to 1e-9 by the neutral checker
+(getSolverResiduals) with the solution no farther from the start, in the
+Reference's metric, than OndselSolver's; drag steps that OndselSolver took,
+taken, each leaving every joint satisfied; simulation frames within 1e-7
+(BACKEND_SIMULATION has the cases where OndselSolver's recorded frames are
+wrong; there the frames are checked against OndselSolver run again with an
+output step ten times finer). The OndselSolver runs and their records are not
+touched by any of this. BACKEND_DEVIATION collects the numbers.
+
 To re-record after a change that is meant to alter the solver input or its
 results: run with ASM_SOLVER_GATE_RECORD=1; the file in the source tree is
 rewritten (SolverGateReference.json beside this file, or the path the
@@ -73,6 +91,70 @@ REFERENCE_NAME = "SolverGateReference.json"
 # The largest deviation of a simulation frame from its record, by case:
 # {key: (mm, rad)} (sec 6.12).
 SIMULATION_DEVIATION = {}
+
+# What another backend's run of each case gave against the OndselSolver
+# record (gate_backend): {(backend, key): {...}}.
+BACKEND_DEVIATION = {}
+
+# Where a backend disagrees with OndselSolver's record on a status, and why.
+# {(backend, key): ({field: the backend's value}, diagnosis)}; the fields are
+# getSolveStatus() keys and "ret". Asserted as recorded, so that a fix on
+# either side fails here and gets looked at.
+BACKEND_DIFFERENCES = {}
+
+# Simulation cases whose recorded OndselSolver frames are wrong: {key:
+# diagnosis}. The backend's frames are checked against OndselSolver run again
+# with a tenth of the output step instead (check_simulation_finer).
+BACKEND_SIMULATION = {}
+
+_FLIP = (
+    "OndselSolver's angular motion holds only the sine of the angle (ZRotation: "
+    "the direction cosine of I's y and J's x), which is zero half a turn away "
+    "too; between two output times %s turns more than a quarter turn, and from "
+    "the previous frame the solver lands on the root nearest to it, off by "
+    "half a turn at every other frame%s. The Reference holds the angle with its "
+    "turns counted."
+)
+BACKEND_SIMULATION.update(
+    {
+        "TestSolverGateSimulation.test_simulation": _FLIP
+        % ("36*time (3.6 rad) and 90*time (9 rad)", ""),
+        "TestSolverGateSimulation.test_simulation_reverse_playback[reverse]": _FLIP
+        % ("36*time (3.6 rad) and 90*time (9 rad)", ""),
+        "TestSolverGateSimulation.test_simulation_gears": _FLIP
+        % ("90*time (9 rad)", ", and the gear it drives follows the wrong turn"),
+        "TestSolverGateSimulation.test_simulation_rigid_group": _FLIP
+        % ("45*time (4.5 rad)", ", with the rigid group's other member"),
+    }
+)
+
+BACKEND_DIFFERENCES.update(
+    {
+        ("Reference", "TestSolverGateDistance.test_distance_subtypes[PointPoint d=0]"): (
+            {"ret": 0},
+            "the builder makes a Spherical joint of it; OndselSolver does not converge "
+            "from this start (the box 50 mm from the point) and leaves the box where it "
+            "was, the Reference puts the vertices together",
+        ),
+        ("Reference", "TestSolverGateRigid.test_drag_bundles_fixed"): (
+            {"DoF": 1, "Conflicting": [], "Redundant": [], "PartiallyRedundant": []},
+            "C starts 50 mm from where the Fixed joint puts it; OndselSolver sets "
+            "equations of the Fixed and the Revolute aside as redundant (it removes "
+            "them at the first singular matrix it meets on the way) and solves without "
+            "them, leaving the Revolute 0.80 and the Fixed 0.92 off (the neutral "
+            "checker) and both reported conflicting. Nothing is redundant in a "
+            "revolute with a part fixed to its arm: the Reference satisfies both and "
+            "counts DoF 1",
+        ),
+        ("Reference", "TestSolverGateRoleMappings.test_distance_subtypes[LineTorus]"): (
+            {"DoF": 45, "Conflicting": [], "Redundant": [], "PartiallyRedundant": []},
+            "OndselSolver leaves the box where it was, the distance 0.73 mm off (the "
+            "neutral checker), and reports it conflicting; the Reference satisfies the "
+            "LineLineDistance and counts DoF 45, as both count for the other "
+            "LineLineDistance role mappings (LineCone, ConeCone, ConeTorus)",
+        ),
+    }
+)
 
 
 def source_reference_path():
@@ -208,8 +290,16 @@ def placement_deviation(expected, actual):
 
 
 class SolverGateBase(JointTestBase):
+    # The backend the cases run with; the generated classes at the end of
+    # this file set another, and GATE_CLASS to the class whose records they
+    # are compared with.
+    BACKEND = "Ondsel"
+    GATE_CLASS = None
+
     def setUp(self):
         super().setUp()
+        if self.BACKEND != "Ondsel":
+            self.assembly.SolverBackend = self.BACKEND
         self.p = App.ParamGet(PREFS)
         self._saved = (
             self.p.GetString("SolverDumpFile", ""),
@@ -373,6 +463,13 @@ class SolverGateBase(JointTestBase):
         """
         if key:
             self.doc_alias = key.split(".")[0]
+        if self.BACKEND != "Ondsel":
+            key = key or "%s.%s%s" % (
+                self.GATE_CLASS,
+                self._testMethodName,
+                "[%s]" % label if label else "",
+            )
+            return self.gate_backend(key, drag, sim, frame_order)
         result, text = self.run_all(drag, sim, frame_order)
         key = key or self.id().split(".", 2)[-1] + ("[%s]" % label if label else "")
         if RECORDING:
@@ -395,6 +492,8 @@ class SolverGateBase(JointTestBase):
         None of them may write the joints: their references, placements and
         limits are the same after as before.
         """
+        if self.BACKEND != "Ondsel":
+            return self.run_all_backend(drag, sim, frame_order), b""
         self.doc.recompute()
         start = self.snapshot()
         joints_before = self.joint_state()
@@ -426,6 +525,203 @@ class SolverGateBase(JointTestBase):
 
         self.assertEqual(joints_before, self.joint_state(), "the solver wrote a joint")
         return result, text
+
+    # ------------------------------------------------------------ other backends
+
+    def assert_satisfied(self, where):
+        """Every joint satisfied to TOL at the solver's poses (the neutral checker)."""
+        residuals = self.assembly.getSolverResiduals()
+        worst = max(residuals.values(), default=0.0)
+        bad = {k: v for k, v in residuals.items() if not v <= TOL}
+        self.assertFalse(bad, "%s: joints not satisfied: %r" % (where, bad))
+        return worst
+
+    def run_all_backend(self, drag=None, sim=None, frame_order=None):
+        """run_all() for a backend other than OndselSolver: no export, no dumps.
+
+        The result has the record's shape without the digests. Every joint
+        is checked satisfied after the solve and after each drag step taken.
+        """
+        self.doc.recompute()
+        start = self.snapshot()
+        self.backend_start = self.values()
+        self.backend_start_snapshot = start
+        joints_before = self.joint_state()
+        result = {}
+        worst = 0.0
+
+        if sim is not None:
+            self.reset()
+            self.restore(start)
+            r = self.assembly.generateSimulation(sim)
+            frames = []
+            n = self.assembly.numberOfFrames()
+            for i in frame_order(n) if frame_order else range(n):
+                self.assembly.updateForFrame(i)
+                frames.append(self.values())
+            result["simulation"] = dict(ret=r, frames=frames)
+
+        self.reset()
+        self.restore(start)
+        r = self.assembly.solve()
+        result["solve"] = dict(
+            ret=r,
+            status=self.status(self.assembly.getSolveStatus()),
+            placements=self.values(),
+        )
+        if r == 0:
+            worst = max(worst, self.assert_satisfied("solve"))
+        solved = self.snapshot()
+
+        if drag is not None:
+            part, targets = drag
+            self.reset()
+            self.restore(solved)
+            self.assembly.preDrag([part], 10.0)
+            steps = []
+            for i, t in enumerate(targets):
+                part.Placement = t
+                ok = self.assembly.doDragStep()
+                steps.append(dict(ok=ok, placements=self.values()))
+                if ok:
+                    worst = max(worst, self.assert_satisfied("drag step %d" % i))
+            self.assembly.postDrag()
+            steps.append(dict(ok="post", placements=self.values()))
+            worst = max(worst, self.assert_satisfied("after the drag"))
+            result["drag"] = dict(steps=steps, status=self.assembly.getDragStatus())
+
+        self.backend_residual = worst
+        self.assertEqual(joints_before, self.joint_state(), "the solver wrote a joint")
+        return json.loads(json.dumps(result))
+
+    @staticmethod
+    def moves(start, placements):
+        """sum |dx|^2 + |dtheta|^2 / 4 over the objects: the Reference's metric."""
+        total = 0.0
+        for name, before in start.items():
+            if name not in placements:
+                continue
+            distance, angle = placement_deviation(before, placements[name])
+            total += distance * distance + 0.25 * angle * angle
+        return total
+
+    def gate_backend(self, key, drag=None, sim=None, frame_order=None):
+        """The case run with this class's backend, against OndselSolver's record."""
+        expected = references()["cases"].get(key)
+        self.assertIsNotNone(expected, "no reference recorded for %s" % key)
+        actual = self.run_all_backend(drag, sim, frame_order)
+        where = "%s with %s" % (key, self.BACKEND)
+        stats = BACKEND_DEVIATION.setdefault((self.BACKEND, key), {})
+        stats["residual"] = self.backend_residual
+
+        # Statuses: equal, or the recorded disagreement.
+        exp_solve, act_solve = expected["solve"], actual["solve"]
+        got = dict(act_solve["status"], ret=act_solve["ret"])
+        want = dict(exp_solve["status"], ret=exp_solve["ret"])
+        known, diagnosis = BACKEND_DIFFERENCES.get((self.BACKEND, key), ({}, ""))
+        for field in sorted(set(want) | set(got)):
+            if field == "SolverStatus":
+                continue
+            if field in known:
+                self.assertEqual(
+                    got.get(field), known[field], "%s: %s (%s)" % (where, field, diagnosis)
+                )
+                self.assertNotEqual(
+                    got.get(field), want.get(field), "%s: %s agrees now" % (where, field)
+                )
+                stats.setdefault("differs", []).append(field)
+            else:
+                self.assertEqual(got.get(field), want.get(field), "%s: %s" % (where, field))
+
+        # Placements: equal when nothing is free; otherwise as close to the
+        # start as OndselSolver's, in the Reference's metric.
+        if exp_solve["ret"] == 0 and act_solve["ret"] == 0:
+            if exp_solve["status"].get("DoF") == 0:
+                dev = 0.0
+                for name, values in exp_solve["placements"].items():
+                    distance, angle = placement_deviation(values, act_solve["placements"][name])
+                    dev = max(dev, distance, angle)
+                stats["placement"] = dev
+                self.assertLessEqual(dev, 1e-7, "%s: placements" % where)
+            else:
+                mine = self.moves(self.backend_start, act_solve["placements"])
+                theirs = self.moves(self.backend_start, exp_solve["placements"])
+                stats["moves"] = (mine, theirs)
+                # A solution OndselSolver left with a conflict is no bound.
+                if not exp_solve["status"].get("Conflicting"):
+                    self.assertLessEqual(
+                        mine, theirs * (1.0 + 1e-6) + 1e-9, "%s: farther from the start" % where
+                    )
+
+        # Drag: the steps OndselSolver took, taken; the counts equal.
+        if "drag" in expected:
+            exp_steps = [s["ok"] for s in expected["drag"]["steps"]]
+            act_steps = [s["ok"] for s in actual["drag"]["steps"]]
+            self.assertEqual(act_steps, exp_steps, "%s: drag steps" % where)
+            self.assertEqual(
+                actual["drag"]["status"], expected["drag"]["status"], "%s: drag status" % where
+            )
+
+        # Simulation: the frames within 1e-7, or the formulas.
+        if "simulation" in expected:
+            self.assertEqual(actual["simulation"]["ret"], expected["simulation"]["ret"], where)
+            exp_frames = expected["simulation"]["frames"]
+            act_frames = actual["simulation"]["frames"]
+            # OndselSolver reports the start twice (sec 6.9); the first, or in
+            # reverse order the last, is the extra one.
+            if len(act_frames) == len(exp_frames) - 1:
+                reverse = "reverse" in key
+                exp_frames = exp_frames[:-1] if reverse else exp_frames[1:]
+            self.assertEqual(len(act_frames), len(exp_frames), "%s: frames" % where)
+            dev = 0.0
+            for e, a in zip(exp_frames, act_frames):
+                for name in e:
+                    distance, angle = placement_deviation(e[name], a[name])
+                    dev = max(dev, distance, angle)
+            stats["simulation"] = dev
+            if key in BACKEND_SIMULATION:
+                self.assertGreater(dev, 1e-3, "%s: OndselSolver's frames agree now" % where)
+                stats["finer"] = self.check_simulation_finer(where, sim, frame_order, act_frames)
+            else:
+                self.assertLessEqual(dev, 1e-7, "%s: simulation frames" % where)
+
+    def check_simulation_finer(self, where, sim, frame_order, frames):
+        """The frames against OndselSolver's with an output step ten times finer.
+
+        A driver that turns less than a quarter turn between two output
+        times keeps OndselSolver on the right root (BACKEND_SIMULATION says
+        why it matters); every tenth of those frames is an output time of the
+        case. The largest deviation.
+        """
+        step = sim.cTimeStepOutput.Value
+        backend = self.assembly.SolverBackend
+        self.reset()
+        self.restore(self.backend_start_snapshot)
+        try:
+            sim.cTimeStepOutput = step / 10.0
+            self.assembly.SolverBackend = "Ondsel"
+            self.assertEqual(self.assembly.generateSimulation(sim), 0, where)
+            finer = []
+            for i in range(self.assembly.numberOfFrames()):
+                self.assembly.updateForFrame(i)
+                finer.append(self.values())
+        finally:
+            sim.cTimeStepOutput = step
+            self.assembly.SolverBackend = backend
+        # OndselSolver reports the start twice; then every tenth frame.
+        finer = finer[1::10]
+        if frame_order:
+            finer = [finer[i] for i in frame_order(len(finer))]
+        self.assertEqual(len(finer), len(frames), where)
+        dev = 0.0
+        for e, a in zip(finer, frames):
+            for name in e:
+                distance, angle = placement_deviation(e[name], a[name])
+                dev = max(dev, distance, angle)
+        self.assertLessEqual(
+            dev, 1e-7, "%s: frames against OndselSolver at a tenth of the step" % where
+        )
+        return dev
 
     def check(self, expected, actual, where, export_text):
         """Digests and statuses exactly, placements within TOL."""
@@ -514,7 +810,8 @@ class TestSolverGateJoints(SolverGateBase):
         self.joint("Revolute", (g, ["Face6"]), plc(0, 0, 25), (b, ["Face5"]), plc())
         self.joint("Gears", (a, ["Face1"]), plc(), (b, ["Face1"]), plc(), Distance=10.0, Distance2=5.0)
         self.doc.recompute()
-        self.assertIn(b"MarkerK", self.export())
+        if self.BACKEND == "Ondsel":
+            self.assertIn(b"MarkerK", self.export())
         self.gate()
 
     def test_screw(self):
@@ -1308,3 +1605,50 @@ class TestSolverGateRigid(SolverGateBase):
             for a in (20, 40, 60)
         ]
         self.gate(drag=(b, targets))
+
+
+# ---------------------------------------------------------------- other backends
+
+GATE_CLASSES = (
+    TestSolverGateJoints,
+    TestSolverGateDistance,
+    TestSolverGateDistanceMapped,
+    TestSolverGateRoleMappings,
+    TestSolverGateLimits,
+    TestSolverGateOrder,
+    TestSolverGateSimulation,
+    TestSolverGateBench,
+    TestSolverGateRigid,
+)
+
+
+def backend_gate_classes():
+    """Every gate class once per registered backend other than OndselSolver.
+
+    {name: class}; TestAssemblyWorkbench puts them in its namespace, so the
+    suite runs them.
+    """
+    import AssemblyApp
+
+    classes = {}
+    for backend in AssemblyApp.getAvailableSolvers():
+        if backend == "Ondsel":
+            continue
+        for cls in GATE_CLASSES:
+            name = cls.__name__ + backend
+            classes[name] = type(
+                name,
+                (cls,),
+                {
+                    "BACKEND": backend,
+                    "GATE_CLASS": cls.__name__,
+                    "__module__": __name__,
+                    "__doc__": "%s with the %s backend, against the OndselSolver records."
+                    % (cls.__name__, backend),
+                },
+            )
+    return classes
+
+
+BACKEND_GATE_CLASSES = backend_gate_classes()
+globals().update(BACKEND_GATE_CLASSES)

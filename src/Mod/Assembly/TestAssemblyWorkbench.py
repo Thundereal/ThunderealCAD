@@ -50,6 +50,7 @@ from AssemblyTests.TestSolverGate import (
     TestSolverGateSimulation,
     TestSolverGateBench,
     TestSolverGateRigid,
+    BACKEND_GATE_CLASSES,
 )
 from AssemblyTests.TestGuiCommands import TestGuiCommands
 
@@ -81,3 +82,7 @@ True if TestSolverGateSimulation else False
 True if TestSolverGateBench else False
 True if TestSolverGateRigid else False
 True if TestGuiCommands else False
+
+# The gate once more per registered backend other than OndselSolver
+# (TestSolverGateJointsReference, ...), compared with OndselSolver's records.
+globals().update(BACKEND_GATE_CLASSES)

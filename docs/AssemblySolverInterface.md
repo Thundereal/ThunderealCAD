@@ -1,7 +1,9 @@
 # Assembly: an abstract solver interface
 
-Status (2026-10-22): design proposal, read-only study. Branch `AssemblyPort`
-(`fe871ff48c`). Extends `docs/AssemblyAudit.md` (sec 4: the solver is the
+Status (2026-10-23): steps 1-3 of sec 6.3 are done (`83ca3dcc4f`,
+`65b0540fbe`, `09ce3133a3`, `18d3ecccc3`); sec 6.5 records what was built
+and where it departs from secs 4.2/4.3. Written 2026-10-22 as a design
+study on branch `AssemblyPort` (`fe871ff48c`). Extends `docs/AssemblyAudit.md` (sec 4: the solver is the
 measured bottleneck; sec 8.2 phase 2: the solver rework and the warm
 model). Paths are relative to `src/Mod/Assembly/` unless they start at the
 repo root. `OS/` abbreviates `src/3rdParty/OndselSolver/OndselSolver/`.
@@ -898,6 +900,7 @@ Results identical (ASMT text and placements equal):
 
 1. **Interfaces only.** Add `App/Solver/Model.h`, `Backend.h`,
    `Registry.{h,cpp}`; compiled, unused.
+   **Done 2026-10-23** (`83ca3dcc4f`), with the deviations of sec 6.5.
 2. **Ondsel adapter beside the old path.** `App/Solver/OndselBackend.cpp`
    turns a `Model` into an `ASMTAssembly` with today's names and order:
    `"OndselAssembly"`, `"marker-<name>"`, `"FixingMarker"`, joint and
@@ -906,12 +909,17 @@ Results identical (ASMT text and placements equal):
    neutral model carries numbers, the adapter recreates the exact strings),
    motion names. A test-only `ModelFromAsmt` is not needed: the gate compares
    texts.
+   **Done 2026-10-23** (`65b0540fbe`): `App/Solver/OndselBackend.{h,cpp}`,
+   registered as "Ondsel" at module init; tested against AssemblyObject's
+   own ASMT statements in `tests/src/Mod/Assembly/App/OndselAdapter.cpp`.
 3. **Builder switch.** `makeMbdAssembly`, `getMbDData`, `fixGroundedPart`,
    `handleOneSideOfJoint`, `getRackPinionMarkers`, `makeMbdJointOfType`,
    `makeMbdJointDistance`, `makeMbdJoint`, `create_mbdSimulationParameters`
    emit into a `Model` (rule 2); `solve`, `exportAsASMT` and
    `generateSimulation` hand it to the adapter. Document writes during the
    build (`swapJCS`, limit swaps) are kept for now.
+   **Done 2026-10-23** (`09ce3133a3`, gate in-process; `18d3ecccc3`, the old
+   builder removed and the gate kept on recorded references, sec 6.5).
 4. **Drag and status through the session.** `preDrag`/`doDragStep`/`postDrag`
    call `beginDrag`/`dragStep`/`endDrag`; `doDragStep` still reads the target
    from the document `Placement` (the GUI is unchanged). `updateSolveStatus`
@@ -949,6 +957,142 @@ lists equal):
     grant's "solvers installable as Python addons"); then Chrono for
     dynamics, out of process per `docs/Simulator.md` stage 2, via
     `RemoteBackend`.
+
+### 6.5 As built: steps 1-3 (2026-10-23)
+
+**The interface as built** (`App/Solver/`):
+
+- `Model.h`: `Body`, `Frame`, `Joint` (the 19 `JointKind`s of sec 4.2),
+  `Ground`, `Limit`, `Driver`, `Model`; every record's `Id` is its index in
+  its vector, and `Model::add*()` assigns it.
+- `Backend.h`: `Status`, `Diagnostics` (a `Field` bit per `known` entry),
+  `BodyPose`, `Result`, `Capabilities`, `SolveOptions`, `DragOptions`,
+  `SimulationSpec`, `Trajectory`, `TrajectorySink`, `Session`, `Backend`.
+- `Registry.{h,cpp}`: `add` (replaces a same-named backend), `remove`,
+  `find`, `names`, `requestedName`, `select`.
+- `OndselBackend.{h,cpp}`: `Ondsel::toAsmt(model, simulation, debug)` (the
+  adapter; it also returns each body's `ASMTPart`), `Ondsel::partPlacement`,
+  `Ondsel::limitValueString`; `OndselBackend` ("Ondsel", registered in
+  `AppAssembly.cpp`); `OndselSession` (load, solve, simulate, exportNative;
+  drag and analyse answer `Unsupported` until step 4).
+- `AssemblyObject` keeps the model being built (`solverModel`, with
+  `simulationSpec`) and, until step 4, the ASMT model (`mbdAssembly`) that
+  status, drag and playback read. `makeMbdModel()` hands the model to the
+  adapter at the four build sites (solve, generateSimulation, exportAsASMT,
+  the island drag). The builder functions kept their names, parameters and
+  statement order; their return types are model handles now (`Solver::Id`
+  for a part or a marker, `std::shared_ptr<Solver::Joint>` for a joint not
+  yet in the model). Python and Gui see no change.
+
+**Deviations from secs 4.2/4.3**, each where the code showed the design
+short:
+
+1. **Grounding is a `Ground` record, not only a flag.** One body can bundle
+   several grounded objects (a rigid group), and each gets its own fixed
+   joint, assembly marker and `FixingMarker` today. `Ground` names the
+   grounded object, a frame on the ground (`Frame::body == NoId`, at the
+   object's pose) and a frame on the body; `Body::grounded` is set as well,
+   for backends that make the pose constant instead.
+2. **Frames carry a `label`** (an index into `Model::sources`). ASMT
+   addresses markers by name, and the names cannot be derived: a gear's
+   carrier marker is named after the gear joint but placed by the carrier
+   joint; grounding uses "marker-<name>" and "FixingMarker". Other backends
+   may use the label for diagnostics or ignore it.
+3. **Limits and drivers name their two frames, not a joint.** The builder
+   makes them before the joint enters the model (`makeMbdJoint` returns the
+   joint, `jointParts` adds it), so no joint id exists yet; and the frames
+   are what a limit or a driver acts on. The joint is the one with the same
+   `source`. One `Limit` record per bound, as ASMT has one limit per bound;
+   the adapter writes min before max either way.
+4. **`TopologyKey`, `ModelDelta` and `diff()` are not declared yet**; they
+   come with step 8. Until then `Session::update` takes a whole `Model` and
+   answers `NeedsReload`.
+5. **`Registry::select` takes an `App::DocumentObject*`** (or a name), not
+   `const AssemblyObject&`: it only reads the `SolverBackend` property, and
+   the registry needs no AssemblyObject header. The per-assembly
+   `SolverBackend` property itself is not added yet (it is read when
+   present), nor the `SolverBackend` entry in `AssemblyParams.py`, nor
+   `AssemblyApp.getAvailableSolvers()`.
+6. **Angles in limits are radians**, as designed; the adapter prints
+   `std::to_string(toDegrees(rad)) + "*pi/180.0"`. The round trip to the six
+   printed decimals was checked with Base::toRadians / toDegrees's formulas
+   over -3600..3600 deg in steps of 7e-4 deg (10 million values), and the
+   gate's limit cases pass.
+7. **The empty ASMT model at the start of a build stays**:
+   `makeMbdAssembly()` still resets `mbdAssembly` to an empty one, because a
+   build that stops early (no grounded part: -6) always left it so, and
+   `updateSolveStatus` / `numberOfFrames` act on that.
+8. **A dump hook**: the preference `Mod/Assembly/SolverDumpFile` (a path,
+   unset by default) writes every ASMT model handed to the solver, so the
+   gate sees the input of a solve, a drag and a simulation, not only the
+   export. It moves into the session (`exportNative` after `load`) at step 4.
+
+**The identity gate** (`AssemblyTests/TestSolverGate.py`, also run by
+`TestAssemblyWorkbench`). Step 3 kept the old builder beside the new one
+(`App/Solver/LegacyBuilder.cpp`, preference `SolverLegacyBuilder`) and
+compared them in one process: the export byte for byte, the dumped input of
+every solve, drag and simulation byte for byte, and the placements after
+the solve, each drag step and each simulation frame, the return codes and
+the statuses exactly. A rigid group's placement cache makes a run depend on
+the one before, so each phase ran the old builder until it repeated itself,
+then the new one, then the old one again, and the rigid-group case clears
+the cache between runs (a solve with the group suppressed). Then the old
+builder was removed and the gate kept by **recording one reference per
+corpus case** (`AssemblyTests/SolverGateReference.json`, 46 cases): the
+SHA-256 of each ASMT text with the grounded entries sorted (their order
+follows an unordered_set of pointers), the placements within 1e-9, and the
+statuses exactly. The references were recorded three times, in three
+processes, twice through the new builder and once through the old one; the
+three files are identical. `ASM_SOLVER_GATE_RECORD=1` re-records after an
+intended change; another platform skips. A 1e-7 change to a value the
+adapter writes fails both forms of the gate.
+
+Corpus: every joint type (Fixed, Revolute, Cylindrical, Slider, Ball,
+Parallel, Perpendicular, Angle 30 and Angle 0; Gears and Belt with drags; a
+coaxial gear with its carrier marker; Screw and RackPinion picked in the
+order the builder swaps); the 20 mapped Distance sub-types, PointPoint at
+d = 0 and a swapped SpherePlane pick; Slider, Revolute and Cylindrical
+limits, reversed ones included, with drags into them; one simulation with
+an Angular, a Linear and a Cylindrical driven both ways (with
+`initialValue`); the bench's chain and star at N = 10 and 50, each with a
+drag of a Revolute-joined link; a rigid group with a drag; a drag that
+bundles Fixed joints. Not in it: the island drag (`prepareMbdForIslandDrag`),
+which no current test builds.
+
+**The Distance decision** (audit sec 8.1, decision 7) is not implemented:
+phase 0 tested the 20 mapped sub-types (`TestJoints.py`) and nothing more;
+LineCylinder, LineSphere and CurvePlane still fall to Planar(d), and the
+other 14 are neither refused nor warned about. Mapping them changes
+results, so it belongs with the result-changing steps (7 onwards) or in a
+step of its own after step 6, gated by tolerance tests.
+
+**What step 4 needs:**
+
+- `OndselSession` drag: `beginDrag(bodies)` records the drag bodies (the
+  builder already bundles when `bundleFixed` is set, so `DragOptions` only
+  passes it on) and applies the drag weights; `dragStep(targets)` does what
+  `doDragStep` does today (`updateMbDFromPosition3D`,
+  `updateMbDFromRotationMatrix`, `runDragStep`, `restorePosRot` on
+  failure); `endDrag` runs `runPostDrag`.
+- **Drag weights** go into `Body::dragWeight` and are applied to the MbD
+  bodies after the pre-drag solve, never written into the ASMT model, so the
+  gate's dumps stay identical (`applyDragMasses` today).
+- **All poses back, not only the moved ones**: `setNewPlacements` and
+  `validateNewPlacements` read every part, while `Result::moved` carries
+  only those beyond tolerance. A `Session::poses()`, or a flag asking for
+  all, is a deviation to make at step 4.
+- `updateSolveStatus` -> `Session::analyse()`: the constraint scan, the
+  equation count for DoF and the residual test of `isConflicting` move into
+  the adapter; joint ids map back to names through `Joint::source`.
+  `Diagnostics` needs today's DoF convention for bundled bodies (6 x (1 +
+  solver bodies) minus the equations kept).
+- Playback (`numberOfFrames`, `updateForFrame`) stays on the ASMT model
+  until step 6, so the session must still expose it (`OndselSession::asmt()`
+  exists for that).
+- The session comes from `Registry::select(assembly)`; adding the
+  `SolverBackend` property and preference makes the choice visible.
+- The gate needs no change: its recorded drag steps and statuses are step
+  4's acceptance test; only the dump hook moves into the session.
 
 ### 6.4 Where Python must change
 
@@ -988,11 +1132,16 @@ lists equal):
 1. Per-assembly backend property, or preference only as the PR does? The
    property is Assembly3's practice and makes a file reproducible; the
    preference is cheaper. Proposed: both, property empty by default.
+   Decided (user, 2026-10-22): both (audit sec 8.3).
 2. Does the neutral layer own the formula evaluator (a small parser), or
    keep OndselSolver's `SymbolicParser` as a library for all backends?
+   Decided (user, 2026-10-22): the neutral layer owns it. Not built yet:
+   `Driver` carries the formula text, which the Ondsel adapter passes on.
 3. The 17 Distance sub-types that fall to Planar(d): keep, map properly
    (several have exact primitives: PointCone and PointTorus are point-surface
    distances), or report unsupported?
+   Decided (user, 2026-10-22): audit sec 8.1 decision 7; not implemented yet
+   (sec 6.5).
 4. Is the `ReferenceBackend` worth writing before the OndselSolver rework, as
    the oracle that lets the rework be tested against something other than
    itself? Proposed: yes; it is a few hundred lines on Eigen, which the

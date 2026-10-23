@@ -528,6 +528,19 @@ backend-neutral, and the two can be benchmarked against each other with
 (`docs/AssemblySolverInterface.md` sec 5.3: no Angle, PointLineDistance,
 LineLineDistance or LineInPlane as primitives); the gaps are reported
 through the backend's capabilities, not hidden.
+**Steps 1-3 done 2026-10-23** (`83ca3dcc4f` interfaces, `65b0540fbe` the
+Ondsel adapter, `09ce3133a3` the builder switch with the in-process gate,
+`18d3ecccc3` the gate on recorded references and the old builder removed):
+the builder emits a `Solver::Model` under upstream's function names, the
+adapter turns it into the same ASMT model as before, and
+`AssemblyTests/TestSolverGate.py` (46 cases) holds the solver input and the
+results to what the old builder gave. The suite is at 121 run, 1 skipped.
+The deviations from the design, and what step 4 (drag and status through
+the session) needs, are in `docs/AssemblySolverInterface.md` sec 6.5. Not
+yet done from the decisions: the `SolverBackend` property and preference
+(the registry reads them once they exist), the neutral formula evaluator,
+and the Distance mapping of decision 7 (it changes results, so it comes
+after step 6). Chrono is not started.
 
 **Phase 2 -- scale.** Where sec 4 measured the time going:
 

@@ -23,12 +23,14 @@
 
 #pragma once
 
-// The Chrono backend (docs/AssemblySolverInterface.md sec 6.15): the neutral
-// model as a Project Chrono 10 system -- a ChBody per body, Chrono's links
-// (ChLinkMate*, ChLinkDistance, ChLinkLockGear) per joint, and
-// ChLinkMotorRotationAngle / ChLinkMotorLinearPosition per driver, driven by
-// the neutral formula evaluator. Kinematics only: positions are found with
-// Chrono's own constraint equations, Jacobians and KKT solver.
+// The Chrono backend (docs/AssemblySolverInterface.md sec 6.15, 6.17): the
+// neutral model as a Project Chrono 10 system -- a ChBody per body, Chrono's
+// links (ChLinkMate*, ChLinkDistance, ChLinkLockGear) per joint, a link of
+// our own holding the neutral layer's equations (NeutralLink) for the kinds
+// Chrono has no link for, and ChLinkMotorRotationAngle /
+// ChLinkMotorLinearPosition per driver, driven by the neutral formula
+// evaluator. Kinematics only: positions are found with Chrono's constraint
+// equations, Jacobians and KKT solver.
 //
 // Built only with BUILD_ASSEMBLY_CHRONO (the macro ASSEMBLY_WITH_CHRONO). No
 // Chrono header is included here: the session keeps its Chrono system behind
@@ -48,15 +50,22 @@ namespace Assembly::Solver
 namespace Chrono
 {
 
-// Why Chrono cannot hold this joint, or empty when it can. Decided by the
-// kind and the joint's values alone: an AngleZ of a right angle is
-// ChLinkMateOrthogonal, and a Gear with a negative second radius (a belt) is
-// refused. A Gear whose frames turn out coaxial, or whose shafts are not
-// parallel, is refused when the model is loaded (ChronoSession::load).
+// Why the backend cannot hold this joint, or empty when it can. Decided by
+// the kind and the joint's values alone: since sec 6.17 every kind is held,
+// a gear with a zero second radius (no ratio) is refused. A coaxial gear
+// without a carrier frame is refused when the model is loaded.
 AssemblyExport std::string refusal(const Joint& joint);
 
-// The kinds Chrono expresses in general (Capabilities::joints). AngleZ is not
-// among them, though a right angle is accepted.
+// Whether one of Chrono's own links holds this joint (sec 6.15), else the
+// neutral equations do (NeutralLink, sec 6.17): an AngleZ of a right angle
+// is ChLinkMateOrthogonal, any other angle neutral; PointLineDistance,
+// LineLineDistance, CoaxialGear, RackPinion and Screw are neutral; a Gear
+// with both radii positive is ChLinkLockGear unless its frames turn out
+// coaxial or its shafts not parallel at load, any other Gear (a belt) is
+// neutral.
+AssemblyExport bool nativeLink(const Joint& joint);
+
+// The kinds the backend expresses (Capabilities::joints): all of them.
 AssemblyExport JointKindSet supportedKinds();
 
 // A motion's formula as the ChFunction the backend gives a Chrono motor: its
@@ -103,8 +112,17 @@ public:
 
     // Why the loaded model is refused; empty when it is not.
     std::string refusalMessage() const;
-    // How many Chrono links the joints became (for tests).
+    // How many Chrono links the joints became, and how many of them hold the
+    // neutral equations (for tests).
     int linkCount() const;
+    int neutralLinkCount() const;
+    // Chrono's constraint values and Jacobian at the given body poses, for
+    // every link in creation order (for tests): the Jacobian with 6 columns
+    // per body, its position and its angular velocity in its own frame
+    // (Chrono's velocity coordinates), zero for a body Chrono holds fixed. The
+    // session's poses and counts of turns are left as they were.
+    std::vector<double> constraintsAt(const std::vector<Base::Placement>& poses);
+    std::vector<std::vector<double>> jacobianAt(const std::vector<Base::Placement>& poses);
     // The rank of Chrono's constraint Jacobian at the current poses (for tests).
     int rank() const;
 

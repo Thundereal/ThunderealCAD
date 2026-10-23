@@ -21,7 +21,7 @@
  *                                                                          *
  ***************************************************************************/
 
-// The Chrono backend (docs/AssemblySolverInterface.md sec 6.15).
+// The Chrono backend (docs/AssemblySolverInterface.md sec 6.15, 6.17).
 //
 // The model: a ChBody per Model::Body (mass and inertia set so that Chrono's
 // mass matrix is the metric of the solve, below); a body pinned by a Ground
@@ -39,15 +39,21 @@
 //   Planar(v)               ChLinkMatePlanar, SetDistance(v)
 //   ParallelZ               ChLinkMateParallel
 //   PerpendicularZ          ChLinkMateOrthogonal
-//   AngleZ(pi/2)            ChLinkMateOrthogonal (any other angle: refused)
+//   AngleZ(pi/2)            ChLinkMateOrthogonal
 //   PointInPlane(v)         ChLinkMateDistanceZ, SetDistance(v)
 //   LineInPlane(v)          ChLinkMateDistanceZ and ChLinkMateOrthogonal
 //   PointOnLine             ChLinkMateGeneric(x, y)
 //   PointPointDistance(v)   ChLinkDistance
-//   Gear                    ChLinkLockGear with its phase enforced
+//   Gear (r1, r2 > 0)       ChLinkLockGear with its phase enforced
 //   drivers                 ChLinkMotorRotationAngle, ChLinkMotorLinearPosition
 //
-// and Chrono::refusal() says why the other kinds are refused.
+// and every other kind -- AngleZ other than a right angle, PointLineDistance,
+// LineLineDistance, a belt, a gear between coaxial frames or shafts that are
+// not parallel, CoaxialGear, RackPinion, Screw -- a NeutralLink: a link of our
+// own holding the neutral layer's equations (JointEquations.h), the
+// Reference's, with their analytic Jacobian in Chrono's coordinates.
+// Chrono::nativeLink() decides; Chrono::refusal() says why a joint cannot be
+// held at all (a gear without a ratio).
 //
 // Branches. OndselSolver writes a parallel axis as two direction cosines,
 // which hold zJ = zI and zJ = -zI alike, and a fixed rotation as three, which
@@ -104,12 +110,16 @@
 #include <chrono/physics/ChLinkMotorLinearPosition.h>
 #include <chrono/physics/ChLinkMotorRotationAngle.h>
 #include <chrono/physics/ChSystemNSC.h>
+#include <chrono/physics/ChLinkBase.h>
 #include <chrono/serialization/ChArchiveJSON.h>
+#include <chrono/solver/ChConstraintNgeneric.h>
 #include <chrono/solver/ChDirectSolverLS.h>
+#include <chrono/solver/ChSystemDescriptor.h>
 
 #include <Base/Console.h>
 
 #include "ChronoBackend.h"
+#include "JointEquations.h"
 #include "ReferenceBackend.h"
 
 using namespace Assembly::Solver;
@@ -286,6 +296,389 @@ private:
     FormulaFunction function;
 };
 
+// ---------------------------------------------------------------- NeutralLink
+
+namespace eq = Assembly::Solver::Equations;
+
+// A joint held by the neutral layer's own equations (JointEquations.h, the
+// Reference's), for the kinds Chrono has no link for: the same residuals,
+// in OndselSolver's forms, with the same analytic gradients, the same
+// constants and the same turn counting. Up to three bodies (a coaxial gear's
+// carrier is the third), one ChConstraintNgeneric per equation.
+//
+// The gradients are the Reference's: per body d/dx and d/dtheta, theta the
+// spatial rotation vector (q' = exp(dtheta) q). Chrono's velocity
+// coordinates of a body are its position and its angular velocity in the
+// body's own frame (ChBody::IntStateIncrement: q' = q exp(dw)), so dtheta =
+// R dw and the rotation block of a row becomes g R: Cq = [g_x, g_theta R].
+//
+// Turns. A coupler's angles are unwrapped against the angles last committed,
+// as the Reference does: Update() reads them (measured), commit() takes the
+// reading at the current poses once the backend accepts them, and the
+// backend's states carry the committed angles, so a rejected step and a
+// finite-difference probe leave the count as it was.
+class NeutralLink: public ch::ChLinkBase
+{
+public:
+    // A frame of the joint: on 'body' (null: a constant frame -- the ground,
+    // or a body Chrono holds fixed) at 'local' in it.
+    struct FrameRef
+    {
+        ch::ChBody* body = nullptr;
+        ch::ChFramed local;
+    };
+
+    NeutralLink(const Joint& joint, const FrameRef& i, const FrameRef& j, const FrameRef* k)
+        : joint(joint)
+        , frames {i, j, k ? *k : FrameRef {}}
+        , hasCarrier(k != nullptr)
+    {
+        // The variables: the distinct moving bodies, in frame order.
+        for (std::size_t f = 0; f < 3; ++f) {
+            slot[f] = -1;
+            if (f == 2 && !hasCarrier) {
+                continue;
+            }
+            ch::ChBody* body = frames[f].body;
+            if (!body || body->IsFixed()) {
+                continue;
+            }
+            const auto at = std::find(bodies.begin(), bodies.end(), body);
+            slot[f] = static_cast<int>(at - bodies.begin());
+            if (at == bodies.end()) {
+                bodies.push_back(body);
+            }
+        }
+        // What the joint keeps from the start: the coaxial test, the first
+        // reading of its angles and its constant.
+        const auto fs = frameStates();
+        bool coaxial = false;
+        if (joint.kind == JointKind::Gear || joint.kind == JointKind::CoaxialGear) {
+            coaxial = eq::framesAreCoaxial(fs[0], fs[1]);
+        }
+        state = eq::startState(joint, coaxial, fs[0], fs[1], hasCarrier ? &fs[2] : nullptr);
+        measured = state.angles;
+        // The rows, as many as the equations at the start.
+        std::vector<eq::Equation> rows;
+        evaluate(rows, measured);
+        categories.reserve(rows.size());
+        for (const auto& row : rows) {
+            categories.push_back(row.category);
+        }
+        std::vector<ch::ChVariables*> variables;
+        for (ch::ChBody* body : bodies) {
+            variables.push_back(&body->Variables());
+        }
+        constraints.resize(rows.size());
+        for (auto& c : constraints) {
+            c.SetVariables(variables);
+        }
+        C.setZero(static_cast<Eigen::Index>(rows.size()));
+        reactions.setZero(static_cast<Eigen::Index>(rows.size()));
+        load(rows);
+    }
+
+    NeutralLink* Clone() const override
+    {
+        return new NeutralLink(*this);
+    }
+
+    // The equations' categories, in row order (OndselSolver's, for the rank
+    // analysis).
+    const std::vector<eq::Category>& rowCategories() const
+    {
+        return categories;
+    }
+
+    // The committed angles, and setting them back (a rejected step).
+    const std::array<double, 2>& angles() const
+    {
+        return state.angles;
+    }
+    void setAngles(const std::array<double, 2>& angles)
+    {
+        state.angles = angles;
+    }
+    // Takes the angles the current poses read, their turns counted from the
+    // last committed ones.
+    void commit()
+    {
+        if (eq::jointAngleSlots(joint.kind) == 0) {
+            return;
+        }
+        std::vector<eq::Equation> rows;
+        std::array<double, 2> reading {};
+        evaluate(rows, reading);
+        state.angles = reading;
+    }
+    // The largest speed ratio the joint couples, for the kinematic run's step.
+    double speedRatio() const
+    {
+        if ((joint.kind == JointKind::Gear || joint.kind == JointKind::CoaxialGear)
+            && joint.value != 0.0 && joint.value2 != 0.0) {
+            const double ratio = std::abs(joint.value / joint.value2);
+            return std::max(ratio, 1.0 / ratio);
+        }
+        return 1.0;
+    }
+
+    unsigned int GetNumConstraintsBilateral() override
+    {
+        return static_cast<unsigned int>(constraints.size());
+    }
+    unsigned int GetNumAffectedCoords() override
+    {
+        return static_cast<unsigned int>(6 * bodies.size());
+    }
+    ch::ChVectorDynamic<> GetConstraintViolation() const override
+    {
+        return C;
+    }
+    ch::ChFramed GetFrame1Abs() const override
+    {
+        return absolute(frames[1]);
+    }
+    ch::ChFramed GetFrame2Abs() const override
+    {
+        return absolute(frames[0]);
+    }
+    // Kinematics only: no reactions are reported.
+    ch::ChWrenchd GetReaction1() const override
+    {
+        return {ch::VNULL, ch::VNULL};
+    }
+    ch::ChWrenchd GetReaction2() const override
+    {
+        return {ch::VNULL, ch::VNULL};
+    }
+
+    void Update(double time, ch::UpdateFlags flags) override
+    {
+        ch::ChPhysicsItem::Update(time, flags);
+        std::vector<eq::Equation> rows;
+        evaluate(rows, measured);
+        load(rows);
+    }
+
+    // ------------------------------------------------ state bookkeeping
+
+    void IntStateGatherReactions(const unsigned int off_L, ch::ChVectorDynamic<>& L) override
+    {
+        if (IsActive()) {
+            L.segment(off_L, reactions.size()) = reactions;
+        }
+    }
+    void IntStateScatterReactions(const unsigned int off_L,
+                                  const ch::ChVectorDynamic<>& L) override
+    {
+        if (IsActive()) {
+            reactions = L.segment(off_L, reactions.size());
+        }
+    }
+    void IntLoadResidual_CqL(const unsigned int off_L,
+                             ch::ChVectorDynamic<>& R,
+                             const ch::ChVectorDynamic<>& L,
+                             const double c) override
+    {
+        if (!IsActive()) {
+            return;
+        }
+        for (std::size_t r = 0; r < constraints.size(); ++r) {
+            constraints[r].AddJacobianTransposedTimesScalarInto(
+                R,
+                L(off_L + static_cast<unsigned int>(r)) * c);
+        }
+    }
+    void IntLoadConstraint_C(const unsigned int off_L,
+                             ch::ChVectorDynamic<>& Qc,
+                             const double c,
+                             bool do_clamp,
+                             double recovery_clamp) override
+    {
+        if (!IsActive()) {
+            return;
+        }
+        for (Eigen::Index r = 0; r < C.size(); ++r) {
+            const double v = c * C(r);
+            Qc(off_L + r) += do_clamp ? std::clamp(v, -recovery_clamp, recovery_clamp) : v;
+        }
+    }
+    // Scleronomic: the equations do not depend on time, Ct is zero.
+    void IntLoadConstraint_Ct(const unsigned int, ch::ChVectorDynamic<>&, const double) override
+    {}
+    void IntToDescriptor(const unsigned int,
+                         const ch::ChStateDelta&,
+                         const ch::ChVectorDynamic<>&,
+                         const unsigned int off_L,
+                         const ch::ChVectorDynamic<>& L,
+                         const ch::ChVectorDynamic<>& Qc) override
+    {
+        if (!IsActive()) {
+            return;
+        }
+        for (std::size_t r = 0; r < constraints.size(); ++r) {
+            const unsigned int i = off_L + static_cast<unsigned int>(r);
+            constraints[r].SetLagrangeMultiplier(L(i));
+            constraints[r].SetRightHandSide(Qc(i));
+        }
+    }
+    void IntFromDescriptor(const unsigned int,
+                           ch::ChStateDelta&,
+                           const unsigned int off_L,
+                           ch::ChVectorDynamic<>& L) override
+    {
+        if (!IsActive()) {
+            return;
+        }
+        for (std::size_t r = 0; r < constraints.size(); ++r) {
+            L(off_L + static_cast<unsigned int>(r)) = constraints[r].GetLagrangeMultiplier();
+        }
+    }
+
+    // ------------------------------------------------ solver interface
+
+    void InjectConstraints(ch::ChSystemDescriptor& descriptor) override
+    {
+        if (!IsActive()) {
+            return;
+        }
+        for (auto& c : constraints) {
+            descriptor.InsertConstraint(&c);
+        }
+    }
+    void ConstraintsBiReset() override
+    {
+        for (auto& c : constraints) {
+            c.SetRightHandSide(0.0);
+        }
+    }
+    void ConstraintsBiLoad_C(double factor, double recovery_clamp, bool do_clamp) override
+    {
+        if (!IsActive()) {
+            return;
+        }
+        for (std::size_t r = 0; r < constraints.size(); ++r) {
+            const double v = factor * C(static_cast<Eigen::Index>(r));
+            constraints[r].SetRightHandSide(
+                constraints[r].GetRightHandSide()
+                + (do_clamp ? std::clamp(v, -recovery_clamp, recovery_clamp) : v));
+        }
+    }
+    void LoadConstraintJacobians() override
+    {
+        // Loaded by Update().
+    }
+    void ConstraintsFetch_react(double factor) override
+    {
+        for (std::size_t r = 0; r < constraints.size(); ++r) {
+            reactions(static_cast<Eigen::Index>(r)) =
+                constraints[r].GetLagrangeMultiplier() * factor;
+        }
+    }
+
+    void ArchiveOut(ch::ChArchiveOut& archive_out) override
+    {
+        archive_out.VersionWrite<NeutralLink>();
+        ch::ChLinkBase::ArchiveOut(archive_out);
+        int kind = static_cast<int>(joint.kind);
+        double value = joint.value;
+        double value2 = joint.value2;
+        double constant = state.constant;
+        archive_out << ch::make_ChNameValue("kind", kind);
+        archive_out << ch::make_ChNameValue("value", value);
+        archive_out << ch::make_ChNameValue("value2", value2);
+        archive_out << ch::make_ChNameValue("constant", constant);
+    }
+
+private:
+    ch::ChFramed absolute(const FrameRef& f) const
+    {
+        return f.body ? f.local >> *f.body : f.local;
+    }
+
+    std::array<eq::FrameState, 3> frameStates() const
+    {
+        std::array<eq::FrameState, 3> out;
+        for (std::size_t f = 0; f < 3; ++f) {
+            const FrameRef& ref = frames[f];
+            const ch::ChFramed local = ref.local;
+            const ch::ChVector3d lp = local.GetPos();
+            const ch::ChMatrix33<> lr = local.GetRotMat();
+            eq::FrameState& s = out[f];
+            s.body = slot[f];
+            if (!ref.body) {
+                s.o = eq::Vec3(lp.x(), lp.y(), lp.z());
+                s.base = s.o;
+                s.A = eq::Mat3(lr);
+                continue;
+            }
+            const ch::ChVector3d bp = ref.body->GetPos();
+            const eq::Mat3 br = ref.body->GetRotMat();
+            const eq::Mat3 lrm = lr;
+            s.base = eq::Vec3(bp.x(), bp.y(), bp.z());
+            s.o = s.base + br * eq::Vec3(lp.x(), lp.y(), lp.z());
+            s.A = br * lrm;
+        }
+        return out;
+    }
+
+    void evaluate(std::vector<eq::Equation>& rows, std::array<double, 2>& reading) const
+    {
+        const auto fs = frameStates();
+        rows.clear();
+        eq::jointRows(joint,
+                      fs[0],
+                      fs[1],
+                      hasCarrier ? &fs[2] : nullptr,
+                      state,
+                      false,
+                      rows,
+                      reading);
+    }
+
+    // C and Cq from the equations: the rotation block of each gradient from
+    // the spatial rotation vector to the body's angular velocity in its own
+    // frame.
+    void load(const std::vector<eq::Equation>& rows)
+    {
+        const std::size_t n = std::min(rows.size(), constraints.size());
+        for (std::size_t r = 0; r < n; ++r) {
+            C(static_cast<Eigen::Index>(r)) = rows[r].s.v;
+            ch::ChConstraintNgeneric& c = constraints[r];
+            for (std::size_t b = 0; b < bodies.size(); ++b) {
+                c.Get_Cq_N(b).setZero();
+            }
+            const eq::Grad& g = rows[r].s.g;
+            for (int k = 0; k < g.n; ++k) {
+                const int b = g.body[k];
+                if (b < 0 || static_cast<std::size_t>(b) >= bodies.size()) {
+                    continue;
+                }
+                const eq::Mat3 R = bodies[b]->GetRotMat();
+                auto row = c.Get_Cq_N(static_cast<std::size_t>(b));
+                row.segment(0, 3) = g.g[k].leftCols<3>();
+                row.segment(3, 3) = g.g[k].rightCols<3>() * R;
+            }
+        }
+    }
+
+    Joint joint;
+    std::array<FrameRef, 3> frames;
+    bool hasCarrier = false;
+    std::array<int, 3> slot {-1, -1, -1};
+    std::vector<ch::ChBody*> bodies;
+    eq::JointState state;
+    std::array<double, 2> measured {};
+    std::vector<eq::Category> categories;
+    std::vector<ch::ChConstraintNgeneric> constraints;
+    ch::ChVectorDynamic<> C;
+    ch::ChVectorDynamic<> reactions;
+};
+
+// Named in Chrono's class factory, so that its JSON archive (exportNative)
+// says what the link is.
+const ch::ChClassRegistration<NeutralLink> neutralLinkRegistration("AssemblyNeutralLink");
+
 // ---------------------------------------------------------------- the model
 
 struct Pose
@@ -369,45 +762,37 @@ ch::ChQuaterniond branchOf(JointKind kind, const ch::ChMatrix33<>& rel)
 std::string Chrono::refusal(const Joint& joint)
 {
     switch (joint.kind) {
-        case JointKind::AngleZ:
-            if (isRightAngle(joint.value)) {
-                return {};
-            }
-            return "Chrono has no link that holds an angle between two axes other than a right "
-                   "angle (ChLinkMateOrthogonal holds 90 degrees, ChLinkMateParallel 0)";
-        case JointKind::PointLineDistance:
-            return "Chrono has no link for the distance of a point from a line (ChLinkDistance "
-                   "is point to point, ChLinkMateDistanceZ point to plane, and "
-                   "ChLinkRevoluteSpherical holds a point at a fixed radius in a fixed plane)";
-        case JointKind::LineLineDistance:
-            return "Chrono has no link that holds two lines parallel at a distance "
-                   "(ChLinkMateCylindrical holds them at distance 0)";
-        case JointKind::CoaxialGear:
-            return "ChLinkLockGear measures each gear's turn from the line between the two "
-                   "shafts, and has no carrier frame for coaxial gears";
         case JointKind::Gear:
-            if (joint.value == 0.0 || joint.value2 == 0.0) {
+        case JointKind::CoaxialGear:
+            // The ratio is value / value2 (the Reference fails the same).
+            if (joint.value2 == 0.0) {
                 return "a gear radius is zero";
             }
-            if (joint.value2 < 0.0 || joint.value < 0.0) {
-                return "a belt: ChLinkLockPulley couples its pulleys at velocity level only (its "
-                       "phase correction is unfinished in Chrono 10), so a position solve does "
-                       "not hold it, and ChLinkLockGear's epicyclic form divides by zero for "
-                       "equal radii";
-            }
             return {};
-        case JointKind::RackPinion:
-            return "ChLinkMateRackPinion recomputes its contact frames at every update and "
-                   "couples the rack's slide to the pinion's turn at velocity level only, so a "
-                   "position solve does not hold it";
-        case JointKind::Screw:
-            return "ChLinkLockScrew is a whole screw pair (it also holds the two axes "
-                   "together, five equations); the neutral Screw is the coupling of the slide "
-                   "and the turn alone, one equation";
         case JointKind::Count_:
             return "not a joint kind";
         default:
             return {};
+    }
+}
+
+bool Chrono::nativeLink(const Joint& joint)
+{
+    switch (joint.kind) {
+        case JointKind::AngleZ:
+            return isRightAngle(joint.value);
+        case JointKind::PointLineDistance:
+        case JointKind::LineLineDistance:
+        case JointKind::CoaxialGear:
+        case JointKind::RackPinion:
+        case JointKind::Screw:
+        case JointKind::Count_:
+            return false;
+        case JointKind::Gear:
+            // Between parallel shafts that are not coaxial, decided at load.
+            return joint.value > 0.0 && joint.value2 > 0.0;
+        default:
+            return true;
     }
 }
 
@@ -485,6 +870,8 @@ struct ChronoSession::Impl
     std::vector<double> weights;
     std::vector<double> lever;
     std::vector<LinkRecord> links;
+    // The joints held by the neutral equations (NeutralLink), in model order.
+    std::vector<std::shared_ptr<NeutralLink>> neutral;
     // Joints whose two frames are on one rigid thing (one body, or two fixed
     // ones): no link; the checker evaluates them.
     std::vector<Id> unlinked;
@@ -631,10 +1018,46 @@ struct ChronoSession::Impl
                {owner == Owner::Joint ? Category::Displacement : Category::Essential});
     }
 
+    // A joint held by the neutral layer's own equations (NeutralLink); the
+    // reason it cannot be, or empty.
+    std::string neutralJoint(const Joint& joint)
+    {
+        auto ref = [&](Id frame) {
+            NeutralLink::FrameRef r;
+            const Id body = model.frames[frame].body;
+            r.body = body == NoId ? nullptr : bodies[body].get();
+            r.local = localOf(frame);
+            return r;
+        };
+        const NeutralLink::FrameRef fi = ref(joint.frameI);
+        const NeutralLink::FrameRef fj = ref(joint.frameJ);
+        NeutralLink::FrameRef fk;
+        const bool carrier = validFrame(joint.frameK);
+        if (carrier) {
+            fk = ref(joint.frameK);
+        }
+        auto link = std::make_shared<NeutralLink>(joint, fi, fj, carrier ? &fk : nullptr);
+        if (link->rowCategories().empty()) {
+            // The Reference fails the same.
+            return "its frames are coaxial and it has no carrier frame to measure the turns from";
+        }
+        sys->AddLink(link);
+        std::vector<Category> rows;
+        for (eq::Category c : link->rowCategories()) {
+            rows.push_back(static_cast<Category>(c));
+        }
+        record(link, Owner::Joint, joint.id, std::move(rows));
+        neutral.push_back(link);
+        gearRatio = std::max(gearRatio, link->speedRatio());
+        return {};
+    }
+
     // The rows of a Gear. Ondsel's relation, orbit(J, I) + ratio orbit(I,
     // J) = c with ratio = value / value2, is ChLinkLockGear's a1 + a2 / tau
     // = phase with shaft 1 = J and tau = value2 / value: both measure each
-    // gear's turn from the line between the shafts.
+    // gear's turn from the line between the shafts. Between coaxial frames
+    // (no such line) or shafts that are not parallel (ChLinkLockGear takes
+    // them for a bevel gear), the neutral equations hold it.
     std::string gear(const Joint& joint)
     {
         const ch::ChFramed i = globalOf(joint.frameI);
@@ -644,11 +1067,10 @@ struct ChronoSession::Impl
         const ch::ChVector3d d = j.GetPos() - i.GetPos();
         if (1.0 - std::abs(ch::Vdot(zi, zj)) <= coaxialTolerance
             && ch::Vcross(d, zi).Length() <= coaxialTolerance) {
-            return "its frames are coaxial: ChLinkLockGear measures each gear's turn from the "
-                   "line between the two shafts, which coaxial gears do not have";
+            return neutralJoint(joint);
         }
         if (std::abs(ch::Vdot(zi, zj)) <= 0.96) {
-            return "its shafts are not parallel: ChLinkLockGear takes them for a bevel gear";
+            return neutralJoint(joint);
         }
         const double tau = joint.value2 / joint.value;
         auto link = std::make_shared<ch::ChLinkLockGear>();
@@ -682,6 +1104,9 @@ struct ChronoSession::Impl
             unlinked.push_back(joint.id);
             return {};
         }
+        if (!Chrono::nativeLink(joint)) {
+            return neutralJoint(joint);
+        }
         const ch::ChQuaterniond relq =
             globalOf(joint.frameI).GetRot().GetConjugate() * globalOf(joint.frameJ).GetRot();
         const ch::ChQuaterniond turn = branchOf(joint.kind, ch::ChMatrix33<>(relq));
@@ -712,7 +1137,7 @@ struct ChronoSession::Impl
                 mateJoint<ch::ChLinkMateParallel>(joint, turn);
                 break;
             case JointKind::PerpendicularZ:
-            case JointKind::AngleZ:  // a right angle (refusal())
+            case JointKind::AngleZ:  // a right angle (nativeLink())
                 orthogonal(joint);
                 break;
             case JointKind::PointInPlane:
@@ -817,11 +1242,14 @@ struct ChronoSession::Impl
         sys->DescriptorPrepareInject();
     }
 
+    // A state of the system: Chrono's, and the angles the neutral links
+    // have committed there (their turns counted).
     struct State
     {
         ch::ChState x;
         ch::ChStateDelta v;
         double t = 0.0;
+        std::vector<std::array<double, 2>> angles;
     };
 
     State gather() const
@@ -832,12 +1260,40 @@ struct ChronoSession::Impl
         sys->StateGather(s.x, s.v, s.t);
         // Kinematics: no velocities are kept.
         s.v.setZero(sys->GetNumCoordsVelLevel(), sys.get());
+        s.angles = linkAngles();
         return s;
     }
 
     void scatter(const State& s)
     {
+        setLinkAngles(s.angles);
         sys->StateScatter(s.x, s.v, s.t, ch::UpdateFlags::UPDATE_ALL);
+    }
+
+    std::vector<std::array<double, 2>> linkAngles() const
+    {
+        std::vector<std::array<double, 2>> out;
+        out.reserve(neutral.size());
+        for (const auto& link : neutral) {
+            out.push_back(link->angles());
+        }
+        return out;
+    }
+
+    void setLinkAngles(const std::vector<std::array<double, 2>>& angles)
+    {
+        for (std::size_t k = 0; k < neutral.size() && k < angles.size(); ++k) {
+            neutral[k]->setAngles(angles[k]);
+        }
+    }
+
+    // The neutral links take the angles the current poses read: the poses
+    // are accepted (the Reference's commit).
+    void commitAngles()
+    {
+        for (const auto& link : neutral) {
+            link->commit();
+        }
     }
 
     State stepped(const State& s, const ch::ChStateDelta& dx, double alpha) const
@@ -1002,7 +1458,18 @@ struct ChronoSession::Impl
         return ok;
     }
 
+    // The neutral links' angles are committed at every pose accepted, as the
+    // Reference commits them.
     bool restoreSteps()
+    {
+        const bool ok = newtonSteps();
+        if (ok) {
+            commitAngles();
+        }
+        return ok;
+    }
+
+    bool newtonSteps()
     {
         State s = gather();
         ch::ChVectorDynamic<> c = constraints();
@@ -1027,7 +1494,9 @@ struct ChronoSession::Impl
                 ch::ChVectorDynamic<> c1 = constraints();
                 const double n1 = infNorm(c1);
                 if (n1 == n1 && (c1.norm() < c2 * (1.0 - 1e-4 * alpha) || n1 <= tight)) {
+                    commitAngles();
                     s = t;
+                    s.angles = linkAngles();
                     c = c1;
                     cn = n1;
                     break;
@@ -1297,6 +1766,7 @@ struct ChronoSession::Impl
         }
         const std::vector<BodyPose> before = posesNow();
         const std::vector<Pose> start = current();
+        const auto startAngles = linkAngles();
         std::vector<double> angles = limitAngle;
         iterations = 0;
         setWeights(weights);
@@ -1326,6 +1796,7 @@ struct ChronoSession::Impl
             result.status = Status::Ok;
         }
         else {
+            setLinkAngles(startAngles);
             setPoses(start);
             result.status = Status::NotConverged;
             if (result.message.empty()) {
@@ -1423,6 +1894,7 @@ Status ChronoSession::load(const Model& model)
     d->refused.clear();
     d->unsupported.clear();
     d->links.clear();
+    d->neutral.clear();
     d->unlinked.clear();
     d->motors.clear();
     d->boundLinks.clear();
@@ -1861,6 +2333,63 @@ std::string ChronoSession::refusalMessage() const
 int ChronoSession::linkCount() const
 {
     return static_cast<int>(d->links.size());
+}
+
+int ChronoSession::neutralLinkCount() const
+{
+    return static_cast<int>(d->neutral.size());
+}
+
+std::vector<double> ChronoSession::constraintsAt(const std::vector<Base::Placement>& poses)
+{
+    std::vector<double> out;
+    if (!d->loaded) {
+        return out;
+    }
+    const auto saved = d->gather();
+    std::vector<Pose> at = d->current();
+    for (std::size_t b = 0; b < at.size() && b < poses.size(); ++b) {
+        const ch::ChFramed f = toCh(poses[b]);
+        at[b] = {f.GetPos(), f.GetRot()};
+    }
+    d->setPoses(at);
+    const ch::ChVectorDynamic<> c = d->constraints();
+    out.assign(c.data(), c.data() + c.size());
+    d->scatter(saved);
+    return out;
+}
+
+std::vector<std::vector<double>>
+ChronoSession::jacobianAt(const std::vector<Base::Placement>& poses)
+{
+    std::vector<std::vector<double>> out;
+    if (!d->loaded) {
+        return out;
+    }
+    const auto saved = d->gather();
+    std::vector<Pose> at = d->current();
+    for (std::size_t b = 0; b < at.size() && b < poses.size(); ++b) {
+        const ch::ChFramed f = toCh(poses[b]);
+        at[b] = {f.GetPos(), f.GetRot()};
+    }
+    d->setPoses(at);
+    d->sys->DescriptorPrepareInject();
+    const MatX J = d->jacobian();
+    for (Eigen::Index r = 0; r < J.rows(); ++r) {
+        std::vector<double> row(6 * d->bodies.size(), 0.0);
+        for (std::size_t b = 0; b < d->bodies.size(); ++b) {
+            if (d->bodies[b]->IsFixed()) {
+                continue;
+            }
+            const unsigned int off = d->bodies[b]->GetOffset_w();
+            for (int k = 0; k < 6; ++k) {
+                row[6 * b + k] = J(r, off + k);
+            }
+        }
+        out.push_back(std::move(row));
+    }
+    d->scatter(saved);
+    return out;
 }
 
 int ChronoSession::rank() const

@@ -508,6 +508,13 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
 
     create_mbdSimulationParameters(sim);
 
+    if (badFormulas > 0) {
+        // Each was reported by the build, with its position in the text.
+        Base::Console().Error("Generation of simulation failed\n");
+        motions.clear();
+        return -1;
+    }
+
     makeMbdModel();
 
     // Every frame the backend produces is kept here, so playback needs no
@@ -1299,6 +1306,7 @@ std::unique_ptr<Solver::Model> AssemblyObject::makeMbdAssembly()
 {
     auto assembly = std::make_unique<Solver::Model>();
     simulationSpec.reset();
+    badFormulas = 0;
 
     // A build starts with nothing solved, as it always did: a status query or
     // playback before the model is handed over finds no session.
@@ -2475,6 +2483,23 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
             }
         };
 
+    // Parsed here, once, in the workbench's grammar (Solver/Formula.h): a bad
+    // formula is reported against its motion instead of failing in the solver.
+    auto setFormula = [this](Solver::Formula& target, std::string text, App::DocumentObject* motion) {
+        Solver::FormulaError error;
+        target.tree = Solver::FormulaTree::parse(text, &error);
+        if (!target.tree) {
+            ++badFormulas;
+            Base::Console().error(
+                "Assembly: the formula of %s is not valid: %s: %s\n",
+                motion->getFullLabel().c_str(),
+                error.describe().c_str(),
+                text.c_str()
+            );
+        }
+        target.text = std::move(text);
+    };
+
     // Add motions if needed
     for (auto* motion : motions) {
         if (std::ranges::find(done, motion) != done.end()) {
@@ -2502,6 +2527,8 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
         std::string motionType = pType->getValueAsString();
 
         replaceInitialValue(formula, joint, motionType);
+        Solver::Formula parsed;
+        setFormula(parsed, formula, motion);
 
         // check if there is a second motion as cylindrical can have both,
         // in which case the solver needs a general motion.
@@ -2532,14 +2559,16 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
             }
 
             replaceInitialValue(formula2, joint, motionType2);
+            Solver::Formula parsed2;
+            setFormula(parsed2, formula2, motion2);
 
             Solver::Driver ASMTmotion;
             ASMTmotion.source = solverModel->addSource(joint->getFullName());
             ASMTmotion.frameI = fullMarkerNameI;
             ASMTmotion.frameJ = fullMarkerNameJ;
             ASMTmotion.kind = Solver::DriverKind::Both;
-            ASMTmotion.translation.text = motionType == "Angular" ? formula2 : formula;
-            ASMTmotion.rotation.text = motionType == "Angular" ? formula : formula2;
+            ASMTmotion.translation = motionType == "Angular" ? parsed2 : parsed;
+            ASMTmotion.rotation = motionType == "Angular" ? parsed : parsed2;
             solverModel->addDriver(ASMTmotion);
 
             done.push_back(motion2);
@@ -2551,7 +2580,7 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
             ASMTmotion.frameI = fullMarkerNameI;
             ASMTmotion.frameJ = fullMarkerNameJ;
             ASMTmotion.kind = Solver::DriverKind::RotationZ;
-            ASMTmotion.rotation.text = formula;
+            ASMTmotion.rotation = parsed;
             solverModel->addDriver(ASMTmotion);
         }
         else if (motionType == "Linear") {
@@ -2560,7 +2589,7 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
             ASMTmotion.frameI = fullMarkerNameI;
             ASMTmotion.frameJ = fullMarkerNameJ;
             ASMTmotion.kind = Solver::DriverKind::TranslationZ;
-            ASMTmotion.translation.text = formula;
+            ASMTmotion.translation = parsed;
             solverModel->addDriver(ASMTmotion);
         }
     }

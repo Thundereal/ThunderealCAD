@@ -345,6 +345,9 @@ private:
     std::vector<std::pair<App::DocumentObject*, double>> objMasses;
     std::vector<App::DocumentObject*> draggedParts;
     std::vector<App::DocumentObject*> motions;
+    // Motions whose formula did not parse in the last model build; each is
+    // reported once by the build, and a simulation does not run with any.
+    int badFormulas {0};
 
     std::vector<std::pair<App::DocumentObject*, Base::Placement>> previousPositions;
 

@@ -935,6 +935,26 @@ class TestSolverGateSimulation(SolverGateBase):
         self.assertEqual(play(), first)
 
 
+    def test_bad_formula_refused(self):
+        """A formula outside the grammar (sec 4.6.1) stops the run before any solve.
+
+        Not a recorded case. OndselSolver ran the first one as 36*time (it
+        dropped the text it could not read) and failed inside the solver on
+        the other two.
+        """
+        g, b = self.ground_and_mover()
+        rev = self.joint("Revolute", (g, ["Face6"]), self.JCS_G, (b, ["Face5"]), self.JCS_B)
+        self.doc.recompute()
+        for formula in ("36*time)", "exp(time)", "2*-time"):
+            sim = self.make_simulation([(rev, "Angular", formula)])
+            self.doc.recompute()
+            self.assertEqual(self.assembly.generateSimulation(sim), -1, formula)
+            self.assertEqual(self.assembly.numberOfFrames(), 0, formula)
+        sim = self.make_simulation([(rev, "Angular", "36*time")])
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        self.assertGreater(self.assembly.numberOfFrames(), 2)
+
 class TestSolverGateBench(SolverGateBase):
     """The bench's chain and star (scripts/assembly-bench/bench.py) at N = 10 and 50."""
 

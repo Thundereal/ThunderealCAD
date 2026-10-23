@@ -31,6 +31,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -40,6 +41,8 @@
 #include <Base/Vector3D.h>
 
 #include <Mod/Assembly/AssemblyGlobal.h>
+
+#include "Formula.h"
 
 namespace Assembly::Solver
 {
@@ -153,11 +156,14 @@ struct Limit
     double tolerance = 1e-9;
 };
 
-// A formula of time in the workbench's grammar (sec 4.6); 'initialValue' is
-// substituted before it gets here.
+// A formula of time in the workbench's grammar (sec 4.6.1, Formula.h);
+// 'initialValue' is substituted before it gets here. The text is the record;
+// the tree is the builder's parse of it, shared, so a backend or the default
+// simulation evaluates without parsing again. Null when nobody parsed it.
 struct Formula
 {
     std::string text;
+    std::shared_ptr<const FormulaTree> tree;
 };
 
 enum class DriverKind : std::uint8_t

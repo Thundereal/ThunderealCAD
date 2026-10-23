@@ -114,24 +114,73 @@ Each was checked against the code.
    false in the constructor (`App/AssemblyObject.cpp:110-113`) and never
    again; the messages panel's "Malformed" and conflict links cannot appear
    (`Gui/ViewProviderAssembly.cpp:1840-1910`).
+   **Fixed 2026-10-23, `f3920f1797`.** Upstream does not fill them either
+   (checked at `d3f4da791d`). OndselSolver removes redundancy per equation
+   (rows of the Jacobian found dependent become `RedundantConstraint`s) but
+   cannot tell a repeated equation from a contradicting one, so
+   `updateSolveStatus()` re-evaluates each removed equation at the
+   solution: a residual above 1e-6 makes its joint conflicting. Per joint,
+   redundant = any equation removed (as before), partially redundant =
+   some but not all (planegcs's split per tag). DoF now counts only the
+   kept equations, the Jacobian's rank. Malformed = an active joint whose
+   references are set but unusable (both on one part, an object or element
+   that no longer resolves); an incomplete joint is not. The panel shows
+   conflicting, malformed, redundant, partially redundant in that order;
+   Python reads it all from `getSolveStatus()`. Which of two contradicting
+   joints is named depends on the solver's pivot order.
 2. **Every part has mass 1 and unit inertia** (`App/AssemblyObject.cpp:1944-1946`).
    The drag code sets heavier masses on dragged parts
    (`Gui/ViewProviderAssembly.cpp:1135-1140`), but `getObjMass` (`:2042`)
    has no caller, so that weighting does nothing. It also blocks any
    dynamics (`docs/Simulator.md` stage 0).
+   **Drag weighting wired 2026-10-23, `048dab4c27`.** `preDrag()` puts the
+   GUI's drag masses (10, inertia scaled to match) on the MbD bodies after
+   the pre-drag solve built them, so they act in the drag steps only
+   (`PosICDragNewtonRaphson` weights come from `Part::fillqsuWeights`, by
+   m / max(m)). **Static solves keep mass 1 on purpose**: in an
+   under-constrained assembly the mass-weighted minimal motion decides
+   which part moves, so real masses would change what a solve does. The
+   ASMT model, the pre-drag solve and `postDrag()`'s solve are unchanged.
+   Real mass and inertia from the shapes belong to the dynamics work
+   (`docs/Simulator.md`). `TestDrag.test_drag_weighting` shows the effect.
 3. **`solve()` and `updateSolveStatus()` call each other** (`:201-215`,
    `:227-229`) when no solver system exists. Upstream broke this loop in
    PR #32008; ours is unchanged. Not reproduced here.
+   **Fixed by the upstream robustness picks (phase 0 step 2):** `solve()`
+   holds `Base::StateLocker lock(solveInProgress)` and
+   `updateSolveStatus()` solves on demand only when `!solveInProgress`
+   (`App/AssemblyObject.cpp`, `solve()` and `updateSolveStatus()`),
+   verified 2026-10-23.
 4. **OndselSolver's convergence test compares a step with itself.**
    `NewtonRaphson.cpp:115` reads `dxNorms->at(iterNo)` for the previous
    step (it should be `iterNo - 1`), so "still converging" is never true,
    and `iterNo / iterMax` at `:117` is integer division, so the tolerance
    never relaxes. Newton runs extra full factorisations.
+   **Fixed 2026-10-23** in `realthunder/OndselSolver` LinkVibe `92c8a0d`,
+   bumped in `48d87d69ad`. The prediction was wrong: the bug made every
+   position solve stop after exactly 5 iterations (one, then four
+   miscounted divergences); fixed, a halving step no longer counts, and
+   solves take 5 to 8. Placements are identical within 5e-13 mm on the
+   bench (star 50/200, chain 50/100); solve times are within noise on the
+   chains and up to ~15% on the stars. The logged step norm reaches a floor
+   after one or two iterations (3e-9 on a star, up to 1e-6 on a chain), so
+   `PosICNewtonRaphson`, which has no step tolerance, always ends on the
+   divergence count: the early-out belongs to phase 2 step 1.
 5. **A failed drag step is swallowed** (`App/AssemblyObject.cpp:453-455`);
    the part just stops following the mouse with no message.
+   **Fixed 2026-10-23, `2dbeb5b9da`.** Most failures never reached that
+   catch: OndselSolver's `runDragStep()` retried at smaller fractions and
+   restored the parts silently; it now returns whether a step converged
+   (LinkVibe `2282fe8`). `doDragStep()` returns bool, warns once per drag
+   (with `postDrag()` reporting "N of M steps failed"), puts the document
+   back on the last good step, and the 3D view says so in the status bar;
+   the drag goes on. Python: `preDrag` / `doDragStep` / `postDrag` /
+   `getDragStatus` (`1345e21cc5`).
 6. **Joints not reachable from ground are silently dropped**
    (`removeUnconnectedJoints`, `:1017`); with nothing grounded the solve
-   returns -6 and does nothing (`:177-181`). Upstream now drags islands
+   returns -6 and does nothing (`:177-181`). (Since the port the Origin
+   always counts as grounded, so -6 cannot happen: the island is dropped
+   and `solve()` returns 0, `TestJointTypes.test_island_without_ground_stays`.) Upstream now drags islands
    without a ground (sec 6).
 7. **Zero-tolerance placement compare** in the write-back
    (`App/AssemblyObject.cpp:603` -> `Base/Placement.cpp:98`, and
@@ -405,6 +454,17 @@ land in the very functions the interface work moves
 3. Defects 1-5 of sec 3 that upstream does not fix; Python bindings for
    `preDrag` / `doDragStep` / `postDrag`; tests for every joint type,
    limits, DoF and drag.
+   **Done 2026-10-23**: defects 1, 2, 4, 5 (`f3920f1797`, `048dab4c27`,
+   `48d87d69ad`, `2dbeb5b9da`; defect 3 came with step 2), the bindings
+   (`1345e21cc5`), and `AssemblyTests/TestJoints.py` (`b771e014cf`, 30
+   tests: every joint type, the 20 mapped Distance sub-types, limits, DoF,
+   redundancy / conflict / malformed status, drag weighting and drag
+   failure). The suite is at 72 run, 1 skipped. Found on the way, not
+   fixed: a NaN Placement on a `Part::Feature` recurses between its
+   Placement and Shape sync until the stack overflows; OndselSolver's
+   spherical joint does not converge from starts its sphere-sphere joint
+   handles; the bench's drag phase does nothing at even N (the last link
+   is Fixed-bundled, so it is not a drag part).
 4. The rest of defect 9: `Gui.TaskPlacement` with the placement dialog's
    `setIgnoreTransactions`, and overlay icons from Python
    (`Gui.IconPosition`, `getOverlayIcons`). Then a GUI smoke test that runs
@@ -427,10 +487,12 @@ land in the very functions the interface work moves
    PCH is off, and compile time is header parsing (~1 s per MB pulled in).
    Ten ranked proposals save ~390 CPU-h a year; the fork-owned splits
    (FileBlobManager.h, the Material headers, PropertyAppearance, Renderer.h's
-   config structs) carry no merge cost and come first. Not applied yet.
+   config structs) carry no merge cost and come first.
+   **Applied in three rounds**, `docs/HeaderInclusionAudit.md` sec 6.
 
-Done so far: step 1 (`aa0b4a9691`), and the first part of step 4
-(`6cac2592a1`).
+Done so far: step 1 (`aa0b4a9691`), step 3 (2026-10-23, above), the
+first part of step 4 (`6cac2592a1`), and step 5 (the header audit,
+applied in three rounds).
 
 **Phase 1 -- the solver interface, results identical.** Steps 1-6 of
 `docs/AssemblySolverInterface.md` sec 6.3: a solver-neutral model and

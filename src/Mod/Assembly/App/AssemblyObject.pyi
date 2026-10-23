@@ -240,5 +240,19 @@ class AssemblyObject(Part):
                 unusable (both on one part, or a sub-element that does not resolve).
         """
         ...
+
+    @constmethod
+    def getSolverResiduals(self) -> dict:
+        """
+        How far each joint is from satisfied at the poses the solver holds now
+        (after a solve, or a drag step), by the solver-neutral checker: the
+        same equations for every backend, each joint's largest error in mm
+        (positions, distances) or rad (angles; the cosine for an orientation
+        equation). A coupler (gears, rack and pinion, screw) is measured
+        against the relation it had when the solve started.
+
+        Returns: a dict {joint name: error}; empty when nothing was solved.
+        """
+        ...
     Joints: Final[list]
     """A list of all joints this assembly has."""

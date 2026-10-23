@@ -301,6 +301,19 @@ PyObject* AssemblyObjectPy::getSolveStatus(PyObject* args) const
     return Py::new_reference_to(ret);
 }
 
+PyObject* AssemblyObjectPy::getSolverResiduals(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+
+    Py::Dict ret;
+    for (const auto& [name, error] : getAssemblyObjectPtr()->getSolverResiduals()) {
+        ret.setItem(name, Py::Float(error));
+    }
+    return Py::new_reference_to(ret);
+}
+
 Py::List AssemblyObjectPy::getJoints() const
 {
     Py::List ret;

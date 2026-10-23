@@ -456,6 +456,38 @@ class TestSolverBackend(AssemblyTestBase):
         self.assertEqual(results[0][1], results[1][1])
         self.assertEqual(results[1][1]["SolverStatus"], 0)
 
+    def test_reference_backend(self):
+        """The Reference backend, chosen by the property, solves as OndselSolver does.
+
+        A revolute leaves one rotation free, so the two placements need not
+        be the same; each satisfies the joint by the neutral checker, and the
+        statuses are equal (docs/AssemblySolverInterface.md sec 6.13).
+        """
+        import AssemblyApp
+
+        self.assertIn("Reference", AssemblyApp.getAvailableSolvers())
+        box = self.assembly.newObject("Part::Box", "Box")
+        box2 = self.assembly.newObject("Part::Box", "Box")
+        self.doc.recompute()  # the shapes the references name
+        ground = self.jointgroup.newObject("App::FeaturePython", "GroundedJoint")
+        JointObject.GroundedJoint(ground, box2)
+        joint = self.jointgroup.newObject("App::FeaturePython", "testJoint")
+        JointObject.Joint(joint, 1)  # Revolute
+        joint.Proxy.setJointConnectors(joint, [[box2, ["Face6", "Vertex7"]], [box, ["Face6", "Vertex7"]]])
+        start = App.Placement(App.Vector(1, 2, 3), App.Rotation(10, 20, 30))
+        statuses = {}
+        for name in ("Ondsel", "Reference"):
+            self.assembly.SolverBackend = name
+            box.Placement = start
+            self.assertEqual(self.assembly.solve(), 0, name)
+            residuals = self.assembly.getSolverResiduals()
+            self.assertEqual(sorted(residuals), [joint.Name], name)
+            self.assertLess(residuals[joint.Name], 1e-9, name)
+            self.assertFalse(box.Placement.isSame(start, 1e-3), name)
+            statuses[name] = self.assembly.getSolveStatus()
+        self.assertEqual(statuses["Ondsel"], statuses["Reference"])
+        self.assertEqual(statuses["Reference"]["DoF"], 1)
+
     def test_property_is_saved(self):
         self.make_pair()
         self.assembly.SolverBackend = "Ondsel"

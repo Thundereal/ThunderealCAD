@@ -62,6 +62,7 @@
 #include "AssemblyUtils.h"
 #include "Groups.h"
 #include "Solver/Backend.h"
+#include "Solver/ReferenceBackend.h"
 #include "Solver/Registry.h"
 
 FC_LOG_LEVEL_INIT("Assembly", true, true, true)
@@ -483,6 +484,33 @@ std::string AssemblyObject::jointNameOf(Solver::Id joint) const
         return {};
     }
     return docObj->getNameInDocument();
+}
+
+std::vector<std::pair<std::string, double>> AssemblyObject::getSolverResiduals() const
+{
+    std::vector<std::pair<std::string, double>> out;
+    if (!session || !solverModel) {
+        return out;
+    }
+    std::vector<Base::Placement> poses;
+    for (const auto& pose : session->poses()) {
+        poses.push_back(pose.placement);
+    }
+    const std::vector<double> residuals = Solver::Reference::jointResiduals(*solverModel, poses);
+    for (std::size_t j = 0; j < residuals.size(); ++j) {
+        const std::string name = jointNameOf(static_cast<Solver::Id>(j));
+        if (name.empty()) {
+            continue;
+        }
+        auto it = std::ranges::find_if(out, [&](const auto& entry) { return entry.first == name; });
+        if (it == out.end()) {
+            out.emplace_back(name, residuals[j]);
+        }
+        else if (!(it->second >= residuals[j])) {
+            it->second = residuals[j];
+        }
+    }
+    return out;
 }
 
 int AssemblyObject::generateSimulation(App::DocumentObject* sim)

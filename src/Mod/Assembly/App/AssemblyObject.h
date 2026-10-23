@@ -287,6 +287,11 @@ public:
     {
         return lastMalformedJoints;
     }
+    // The error of every document joint at the poses the solver holds now, by
+    // the neutral checker (Solver::Reference::jointResiduals; mm, rad): the
+    // largest over the model joints a document joint became. Empty when
+    // nothing was solved.
+    std::vector<std::pair<std::string, double>> getSolverResiduals() const;
     fastsignals::signal<void()> signalSolverUpdate;
 
 private:

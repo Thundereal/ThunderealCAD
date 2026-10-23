@@ -178,6 +178,12 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-23 18:08: 225 go ahead (the two hide options default false), ASSIGNED to
+fcad-dc after 224; entry 226 -- a fillet edge joining an existing group
+recolours that group (autoGroupColor's hues follow the place among the
+groups that exist, a regression of 209 (c)); ASSIGNED to fcad-dc after
+223.** Under the entries.
+
 **2026-10-23 17:34: 224 -- 221's option kept, default off; entry 225 -- a general way
 to give every overlaid widget the auto scroll bars: possible (one hook in
 OverlayTabWidget::_setOverlayMode); the reporter's word awaited.** Under
@@ -4388,6 +4394,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 223 | 2026-10-23 | a change request (on 220): a GROUP BOX in an OVERLAY panel in transparent mode NOT COMPLETELY TRANSPARENT -- a faint ground like the ALTERNATING ROW background (193's bands), for ALL group boxes in overlay panels | OPEN; said to the note-taker 2026-10-23 17:21; ASSIGNED to fcad-dc (overlays; 220 was its). 2026-10-23 17:30 the reporter: "yes, include plain frames" -- the bare QFrames 220 cleared (Hole's DrillFrame) get the SAME faint ground as the group boxes (the note-taker's reading "frames stay transparent" WITHDRAWN); passed on to fcad-dc |
 | 224 | 2026-10-23 | a change request: the TechDraw PAGE view gets the SAME AUTO SCROLL BARS as the spreadsheet (222's Gui::OverlayScrollBars: out of the overlaid docks' way, thin, shown while scrolling or with the pointer near, faded after) -- "it looks nice" | OPEN; said to the note-taker 2026-10-23 17:30; ASSIGNED to fcad-dc (222 was its), after 223; the default of 221's HideScrollBars option asked of the reporter. 2026-10-23 17:33 the reporter (to the note-taker, the tool's choice): "Keep, default off (Recommended)" -- 221's HideScrollBars option KEPT, its default turned OFF: the page shows the new auto bars by default, the option ticked hides them; passed on to fcad-dc |
 | 225 | 2026-10-23 | a question and a possible change request: a GENERAL way to REPLACE the SCROLL BARS of ALL OTHER WIDGETS in OVERLAY TRANSPARENT mode (with 222's auto bars) | OPEN; asked of the note-taker 2026-10-23 17:34; ANSWERED by the note-taker from a read: possible -- OverlayTabWidget::_setOverlayMode (OverlayWidgets.cpp 1158) already visits every widget of a dock as it is overlaid and un-overlaid, and today only hides the property view's and the tree's vertical bar by two options; the hook there could give each QAbstractScrollArea in an overlaid dock a Gui::OverlayScrollBars (B: thin, laid over, faded) and take it away when the dock leaves overlay mode; the reporter's word awaited; NOT assigned. 2026-10-23 17:37 the reporter: "225, go ahead. two hide scroll bar options stay the same, but default false" -- BUILD it; the two options (TreeParams HideScrollBar, default TRUE now -> FALSE; OverlayParams DockOverlayHidePropertyViewScrollBar, already false -- read by the note-taker) keep what they do, both default false; ASSIGNED to fcad-dc, after 224 |
+| 226 | 2026-10-23 | a defect: a fillet edge's GROUP set to an EXISTING group's -- the reporter expects the changing group to TAKE the existing group's COLOUR, but it is the OTHER WAY ROUND (the existing group takes the old colour) | OPEN; said to the note-taker 2026-10-23 18:08; READ by the note-taker: TaskDressUpParameters::autoGroupColor (1193) colours the groups that exist, IN ID ORDER, each by Base::spreadHues -- so when a group empties (its last edge joins another), every later group's hue SHIFTS one place: an edge alone in group 1 joining group 3 leaves group 3 first in order, with group 1's old hue; a regression of 209 (c) (`f9682c8e9d`); ASSIGNED to fcad-dc (its code), after 223, before 224 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -30324,6 +30331,40 @@ reporter. NOT said: whether TreeParams HideScrollBar also acts outside
 overlay mode (to be checked; read as: its own behaviour unchanged).
 ASSIGNED to fcad-dc (overlays), after 224.
 
+## 226. A fillet edge joining an existing group: the existing group takes the old colour instead of keeping its own (a defect, a regression of 209 (c)) -- OPEN
+
+**2026-10-23 18:08, the reporter (to the note-taker):** "new defect, when set fillet
+edge group to be the same as some existing group, I am expecting the
+changing group to take the color from existing group. But it is the
+other way round"
+The note-taker's reading: typing an edge's Group to the number of a
+group that exists (the edge alone in its group, so its group goes away)
+should show the edge in the existing group's colour, the existing group
+unchanged; instead the existing group's colour changes to the one the
+edge's old group had.
+READ by the note-taker (working tree, src/Mod/PartDesign/Gui/
+TaskDressUpParameters.cpp 1193-1246): autoGroupColor(group) takes the
+handle's, selection and highlight hues and the picked colours as taken,
+then lays out the groups that EXIST and have no picked colour, SORTED BY
+ID, each the hue farthest from those before it (Base::spreadHues); a
+group's hue is its PLACE in that list. When a group empties, every group
+after it moves up one place and takes the hue of the one before: an edge
+alone in group 1 joining group 3 leaves group 3 in first place, with
+group 1's old hue -- what the reporter sees. A regression of 209 (c)
+(`f9682c8e9d`, 2026-10-22: hues spread apart in id order); before it a
+group's hue was stepped from its id alone.
+A possible fix, the assignee's to judge: a group's automatic hue that
+depends on its id and the picked colours only, not on which other groups
+exist -- e.g. the spread laid out over ids 1..id whether or not each
+exists (spreadHues' k-th hue does not depend on how many follow), or
+each group's automatic colour kept once given; and the same in the
+chamfer and the PD tag colours if they share the scheme (210).
+NOT said: a group that gains its first member from an emptied one
+(read as: same rule -- no surviving group changes colour).
+ASSIGNED to fcad-dc (209 (c) was its), after 223 and before 224. A
+test: groups 1, 2, 3 with their colours read; the edge of group 1 joins
+3; groups 2 and 3 keep their colours, the edge shows group 3's.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -30335,5 +30376,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 225
+the build session, 131 and 132 found by it; entries 134 to 226
 are of 2026-10-15, 134 said to the build session)

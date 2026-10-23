@@ -178,6 +178,12 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-23 11:11: entry 219 -- while a projection group is in edit, a double click
+on a dimension does not start its edit (the group's panel is no document
+edit; the dimension refuses any open dialog); wanted: the group's edit
+dismissed, the dimension's started; ASSIGNED to x16win after 216-218.**
+Under the entries.
+
 **2026-10-23 11:06: entry 218 -- a tree hover on a TechDraw dimension lights its
 arrows, not its label (QGIViewDimension's pretty states leave out
 datumLabel); ASSIGNED to x16win after 216, 217.** Under the entries.
@@ -4309,6 +4315,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 216 | 2026-10-23 | a defect: a TechDraw PROJECTION GROUP with AUTO DISTRIBUTION on -- changing its X/Y SPACING does NOT APPLY after the commit; the views move only after Auto Distribution is toggled | OPEN; said to the note-taker 2026-10-23 11:02; ASSIGNED to x16win (TechDraw, its area; idle). 2026-10-23 11:05 ACCEPTED by x16win, diagnosing; its build tree is in use by an Assembly agent on its box (branch AssemblyPort), so the repro and the test wait for it; the fix to be committed on LinkVibe and cherry-picked into AssemblyPort (agreed by the note-taker coordinating), no push without the reporter's word; its lead from a read: `0fbe1d250c` (2026-08-13) stopped the items placing themselves in postHlrTasks, so positions come only from DPG::execute after reportReady, and `cbe029d5b5` (a restored page reuses stored geometry) may leave a spacing-only change with no HLR run and so no reportReady; to be confirmed by reproduction |
 | 217 | 2026-10-23 | a defect and a change request: (a) a TechDraw DIMENSION (or other TechDraw object) SELECTED IN THE TREE does NOT SWITCH to its PAGE VIEW even with Std_TreeSyncView ON; (b) a DOUBLE CLICK to EDIT a TechDraw object SWITCHES to ITS OWN PAGE VIEW REGARDLESS of Std_TreeSyncView | OPEN; said to the note-taker 2026-10-23 11:05; ASSIGNED to x16win (TechDraw Gui), after 216. 2026-10-23 11:08 the reporter: "if tree view sync is on, switch to the page even it is closed. Note, this applies to select the page object itself" -- (a) with sync ON a tree pick OPENS a closed page view and switches to it (the note-taker's reading "only an open page view" WITHDRAWN); the same for a pick of the PAGE object itself; passed on to x16win |
 | 218 | 2026-10-23 | a defect: a TREE HOVER on a TechDraw DIMENSION highlights only its ARROWS (and lines), NOT its LABEL | OPEN; said to the note-taker 2026-10-23 11:06; READ by the note-taker: QGIViewDimension::setPreselect/setPrettyPre light aHead1, aHead2 and dimLines only, never datumLabel -- the label lights itself only on its own pointer hover (QGIDatumLabel::hoverEnterEvent); ASSIGNED to x16win (TechDraw Gui), after 216 and 217 |
+| 219 | 2026-10-23 | a defect: while a TechDraw PROJECTION GROUP is IN EDIT, a DOUBLE CLICK on a DIMENSION does NOT start its edit; wanted: the projection group's edit DISMISSED and the DIMENSION'S EDIT started | OPEN; said to the note-taker 2026-10-23 11:11; READ by the note-taker: ViewProviderProjGroup::doubleClicked() calls its own setEdit(0), which shows TaskDlgProjGroup directly -- not through Gui::Document::setEdit, so the document holds no edit to end; the dimension's double click goes Document::setEdit -> ViewProviderDimension::setEdit, which returns false while any task dialog is open; ASSIGNED to x16win (TechDraw Gui), after 216, 217, 218 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -29792,6 +29799,42 @@ shows the object, else the first); whether a page opened this way stays
 open when the pick moves on (read as: yes, it is an ordinary open
 view). Passed on to x16win.
 
+## 219. While a projection group is in edit, a double click on a dimension does not start its edit (a defect) -- OPEN
+
+**2026-10-23 11:11, the reporter (to the note-taker):** "new defect. when editing a
+techdraw projection group, double click dimension does not launch edit.
+I want to dismiss projection group edit and launch dimension edit."
+The note-taker's reading: with the projection group's task panel open,
+a double click on a dimension (on the page, and read as: in the tree as
+well) should end the group's edit and open the dimension's -- as a
+double click on another object does when one edit replaces another. NOT
+said: whether the group's edit is ended KEEPING its changes (as OK) or
+DISCARDING them (as Cancel) -- read as: kept, the way an edit ended by
+another edit's start ends (Gui::Document::setEdit -> _resetEdit), to be
+shown to the reporter; other TechDraw objects with an edit (balloons,
+leaders, annotations, other views) while some TechDraw edit is open --
+read as: the same, the dimension being the one seen.
+READ by the note-taker (working tree, src/Mod/TechDraw/Gui/):
+- ViewProviderProjGroup::doubleClicked() (ViewProviderProjGroup.cpp 94)
+  calls its own setEdit(0), which shows a TaskDlgProjGroup with
+  Gui::Control().showDialog (69-91) -- NOT through Gui::Document::
+  setEdit, so the document has no edit view provider for the group.
+- The dimension's double click: ViewProviderDimension::doubleClicked()
+  (116) -> startDefaultEditMode() (opens a transaction "Edit <label>")
+  -> Gui::Document::setEdit, which ends an edit it holds (_resetEdit,
+  Document.cpp 614-618) -- here none -> ViewProviderDimension::setEdit
+  (134), which returns false while ANY task dialog is active (139-141).
+  The group's dialog stays, the dimension's never opens; the
+  transaction opened for it is left as it is.
+Read as: the group's edit should be a real document edit (its double
+click through startDefaultEditMode / Document::setEdit, its dialog
+closed by unsetEdit), and the dimension's setEdit should not refuse an
+edit the document can end -- the assignee's to judge.
+ASSIGNED to x16win (TechDraw Gui, its area), after 216, 217, 218. A
+test: a projection group in edit, a double click on one of its views'
+dimensions -> the group's dialog closed, TaskDlgDimension open, the
+group's change kept (or as the reporter decides), one undo step each.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -29803,5 +29846,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 218
+the build session, 131 and 132 found by it; entries 134 to 219
 are of 2026-10-15, 134 said to the build session)

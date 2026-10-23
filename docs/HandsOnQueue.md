@@ -4328,7 +4328,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 218 | 2026-10-23 | a defect: a TREE HOVER on a TechDraw DIMENSION highlights only its ARROWS (and lines), NOT its LABEL | OPEN; said to the note-taker 2026-10-23 11:06; READ by the note-taker: QGIViewDimension::setPreselect/setPrettyPre light aHead1, aHead2 and dimLines only, never datumLabel -- the label lights itself only on its own pointer hover (QGIDatumLabel::hoverEnterEvent); ASSIGNED to x16win (TechDraw Gui), after 216 and 217. 2026-10-23 11:12 CONFIRMED by x16win by reading; fix planned: QGIViewDimension's setPrettyPre/Sel/Normal set the label's text items too, through a new non-emitting label setter (the label's own setPretty* emit setPretty -> onPrettyChanged and would loop); BALLOONS have the same gap (QGIViewBalloon's setPretty* never touch balloonLabel), fixed the same way |
 | 219 | 2026-10-23 | a defect: while a TechDraw PROJECTION GROUP is IN EDIT, a DOUBLE CLICK on a DIMENSION does NOT start its edit; wanted: the projection group's edit DISMISSED and the DIMENSION'S EDIT started | OPEN; said to the note-taker 2026-10-23 11:11; READ by the note-taker: ViewProviderProjGroup::doubleClicked() calls its own setEdit(0), which shows TaskDlgProjGroup directly -- not through Gui::Document::setEdit, so the document holds no edit to end; the dimension's double click goes Document::setEdit -> ViewProviderDimension::setEdit, which returns false while any task dialog is open; ASSIGNED to x16win (TechDraw Gui), after 216, 217, 218 |
 | 220 | 2026-10-23 | a defect: the TechDraw DIMENSION EDIT PANEL's GROUP BOXES have an OPAQUE BACKGROUND in OVERLAY TRANSPARENT mode | OPEN; said to the note-taker 2026-10-23 11:12; TaskDimension.ui's four boxes are plain QGroupBox (no style sheet, no autoFillBackground of their own); no QGroupBox rule in src/Gui/Stylesheets/overlay/; ASSIGNED to fcad-dc (overlays, its area; 184, 208), after 213 |
-| 221 | 2026-10-23 | a change request: HIDE the TechDraw page view's VERTICAL and HORIZONTAL SCROLLBARS so they are not confused with OVERLAY PANELS | OPEN; said to the note-taker 2026-10-23 11:12; ASSIGNED to x16win (TechDraw Gui), after 219. 2026-10-23 11:25 the reporter (under 222): "techdraw page no need scroll bar, since it supports mouse pan" -- 221 stays as asked, the page's bars HIDDEN (not moved as 222's A); x16win told to go ahead in its order |
+| 221 | 2026-10-23 | a change request: HIDE the TechDraw page view's VERTICAL and HORIZONTAL SCROLLBARS so they are not confused with OVERLAY PANELS | OPEN; said to the note-taker 2026-10-23 11:12; ASSIGNED to x16win (TechDraw Gui), after 219. 2026-10-23 11:25 the reporter (under 222): "techdraw page no need scroll bar, since it supports mouse pan" -- 221 stays as asked, the page's bars HIDDEN (not moved as 222's A); x16win told to go ahead in its order. 2026-10-23 11:26 the reporter: "make that a techdraw option instead, default hide scroll bar" -- a TechDraw PREFERENCE whether the page view shows its scroll bars, DEFAULT: HIDDEN; passed on to x16win |
 | 222 | 2026-10-23 | a change request: the SPREADSHEET view's scroll bars have the SAME PROBLEM as 221 (confused with OVERLAY PANELS), but it NEEDS its scroll bars for easy scrolling -- the reporter asks for a SUGGESTION of how they COEXIST with overlay panels | OPEN; said to the note-taker 2026-10-23 11:14; SUGGESTED by the note-taker: (A, recommended) the bars step inside the area the overlaid docks leave free, as the navigation cube (76) and the in-view task panel already do through OverlayManager::occupied()/covered() and layoutChanged()/coverChanged(); (B) thin transient bars that show only while scrolling or with the pointer near the edge; the reporter's choice awaited; NOT assigned (overlays: fcad-dc's area). 2026-10-23 11:25 the reporter: "222, A and B, but techdraw page no need scroll bar, since it supports mouse pan" -- the spreadsheet gets BOTH: its bars in the area the docks leave free (A) AND thin transient bars (B); ASSIGNED to fcad-dc (overlays), after 215 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
@@ -29944,6 +29944,16 @@ where a dock stands over the view, nothing to move otherwise; (B)
 always, to be shown to the reporter).
 ASSIGNED to fcad-dc (overlays, its area), after 215; x16win told that
 221 goes ahead as hidden.
+
+**2026-10-23 11:26, the reporter (to the note-taker), on 221:** "make that a techdraw
+option instead, default hide scroll bar"
+The note-taker's reading: hiding the page view's scroll bars becomes a
+TechDraw option, by default ON (bars hidden); turned off, the page view
+shows its bars as before. NOT said: where the option is shown (read as:
+TechDraw's preferences, a TechDrawParams entry like the fork's other
+TechDraw settings, with its tool tip saying why -- the overlay panels);
+whether a change applies to open page views at once (read as: yes).
+Passed on to x16win.
 
 ## Inbox
 

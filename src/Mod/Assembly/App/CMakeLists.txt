@@ -75,6 +75,12 @@ SET(Solver_SRCS
     Solver/Registry.cpp
     Solver/Registry.h
 )
+# The Chrono backend (sec 6.15), only with BUILD_ASSEMBLY_CHRONO: Chrono's
+# headers and defines go to its source alone (src/3rdParty/ChronoCore.cmake).
+if (BUILD_ASSEMBLY_CHRONO)
+    list(APPEND Solver_SRCS Solver/ChronoBackend.cpp Solver/ChronoBackend.h)
+endif()
+
 SOURCE_GROUP("Solver" FILES ${Solver_SRCS})
 
 SET(Assembly_SRCS
@@ -110,6 +116,16 @@ if (NOT FREECAD_USE_EXTERNAL_ONDSELSOLVER)
     target_include_directories(Assembly PRIVATE ${CMAKE_SOURCE_DIR}/src/3rdParty/OndselSolver)
 endif ()
 target_link_libraries(Assembly ${Assembly_LIBS})
+if (BUILD_ASSEMBLY_CHRONO)
+    target_link_libraries(Assembly ChronoCore)
+    target_compile_definitions(Assembly PRIVATE ASSEMBLY_WITH_CHRONO)
+    get_target_property(CHRONO_INCLUDE_DIRS ChronoCore CHRONO_INCLUDE_DIRS)
+    get_target_property(CHRONO_DEFINITIONS ChronoCore CHRONO_DEFINITIONS)
+    set_source_files_properties(Solver/ChronoBackend.cpp PROPERTIES
+        INCLUDE_DIRECTORIES "${CHRONO_INCLUDE_DIRS}"
+        COMPILE_DEFINITIONS "${CHRONO_DEFINITIONS}"
+    )
+endif()
 if (FREECAD_WARN_ERROR)
     target_compile_warn_error(Assembly)
 endif()

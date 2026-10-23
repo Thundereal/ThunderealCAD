@@ -32,6 +32,9 @@
 #include "Groups.h"
 #include "Solver/OndselBackend.h"
 #include "Solver/ReferenceBackend.h"
+#ifdef ASSEMBLY_WITH_CHRONO
+#include "Solver/ChronoBackend.h"
+#endif
 #include "Solver/Registry.h"
 
 
@@ -75,6 +78,10 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::Solver::Registry::instance().add(std::make_unique<Assembly::Solver::OndselBackend>());
     // The oracle the others are tested against (sec 6.13).
     Assembly::Solver::Registry::instance().add(std::make_unique<Assembly::Solver::ReferenceBackend>());
+#ifdef ASSEMBLY_WITH_CHRONO
+    // Project Chrono, when built (BUILD_ASSEMBLY_CHRONO; sec 6.15).
+    Assembly::Solver::Registry::instance().add(std::make_unique<Assembly::Solver::ChronoBackend>());
+#endif
 
     PyMOD_Return(mod);
 }

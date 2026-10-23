@@ -968,9 +968,9 @@ Chrono 10 API; SolveSpace per py-slvs / libslvs as used by Assembly3.
 | CoaxialGear | N (upstream) | - | ? (carrier frame) | N |
 | RackPinion | N | - | N `ChLinkMateRackPinion` | N |
 | Screw | N | - | N `ChLinkLockScrew` | N |
-| limits | N (inequality, applied while dragging) | - | after-step clamp only (PR) | bounds / penalty |
+| limits | N (inequality, applied while dragging) | - | after-step clamp only (PR) | bounds / penalty (Reference: active set, sec 6.13) |
 | drivers | N symbolic | S | N with `ChFunction` (PR: not done) | S |
-| drag | N | initial guess only (`addWhereDragged` unreliable) | mouse body (PR, unstable) | initial guess |
+| drag | N | initial guess only (`addWhereDragged` unreliable) | mouse body (PR, unstable) | initial guess (Reference: weighted target, sec 6.13) |
 | DOF / redundancy | count; redundancy by marking; no conflicts | `Dof`, `Failed` list | none (PR reports false) | rank of the neutral Jacobian |
 | native dump | ASMT | slvs dump | -- | the neutral model |
 
@@ -1100,6 +1100,10 @@ lists equal):
     grant's "solvers installable as Python addons"); then Chrono for
     dynamics, out of process per `docs/Simulator.md` stage 2, via
     `RemoteBackend`.
+    **The first done 2026-10-23** (`47e02a7cc5`, `6e635ce875`,
+    `20f8f1ef8e`): the `ReferenceBackend`, sec 6.13, and the solver gate
+    run once per registered backend. The user's order: the reference
+    solver, then Chrono.
 
 ### 6.5 As built: steps 1-3 (2026-10-23)
 
@@ -2039,6 +2043,203 @@ Assembly gtest 25/25 (22 + 3); ctest 922/924 in the parallel run, the two
 `TransactionMeasureTest` cases pass alone; the Assembly suite 178 run, 1
 skipped (171 + 7).
 
+### 6.13 As built: the Reference backend (2026-10-23)
+
+Sec 6.3 step 10's first backend and sec 7 q4, in three commits: the
+backend and its gtests (`47e02a7cc5`), the neutral checker in Python
+(`6e635ce875`), the gate once per backend (`20f8f1ef8e`).
+`App/Solver/ReferenceBackend.{h,cpp}`, Eigen only, registered as
+"Reference" after "Ondsel" (`AppAssembly.cpp`), so the `SolverBackend`
+property, the preference and `getAvailableSolvers()` name it. The whole
+model at once, simple rather than fast: it is the oracle other backends
+are tested against.
+
+**Variables.** Per body a position and a rotation increment: the spatial
+rotation vector, applied on the left of the body's quaternion, which is
+renormalised after every step (no Euler angles, no singularity). A body
+a `Ground` record pins is not a variable: it is put where its first
+Ground holds it (left bit for bit when it is there within 1e-12) and
+stays. The metric of a solve is `|dx|^2 + |dtheta|^2 / 4` per body (mm,
+rad): OndselSolver's, whose Euler parameters move by half the angle.
+
+**Equations**, each in the form OndselSolver uses for it, so that the
+rank of the Jacobian -- and with it the DoF and the redundancy --
+answers the same question. `r` is oJ - oI; `xI, yI, zI` frame I's axes;
+"cos(a, b)" a direction cosine.
+
+| kind | equations |
+|---|---|
+| Fixed, Ground | r along the three global axes; cos(yI, xJ), cos(zI, xJ), cos(zI, yJ) |
+| Revolute | r global (3); cos(zI, xJ), cos(zI, yJ) |
+| Cylindrical | r.xI, r.yI; cos(zI, xJ), cos(zI, yJ) |
+| Prismatic | r.xI, r.yI; cos(yI, xJ), cos(zI, xJ), cos(zI, yJ) |
+| Spherical | r global (3) |
+| Planar(v) | r.zI - v; cos(zI, xJ), cos(zI, yJ) |
+| ParallelZ / PerpendicularZ / AngleZ(v) | cos(zI, xJ), cos(zI, yJ) / cos(zI, zJ) / cos(zI, zJ) - cos v |
+| PointInPlane(v) / LineInPlane(v) / PointOnLine | r.zI - v / that and cos(zI, zJ) / r.xI, r.yI |
+| PointPointDistance(v) | \|r\| - v |
+| PointLineDistance(v) / LineLineDistance(v) | (r.xI)^2 + (r.yI)^2 - v^2 / that and cos(zI, xJ), cos(zI, yJ) |
+| Gear, Belt (value / value2 = ratio) | orbit(J, I) + ratio orbit(I, J) - c; coaxial frames (OndselSolver's test, 1e-9): angleZ(K, J) + ratio angleZ(K, I) - c, a carrier frame K required |
+| RackPinion(p) / Screw(p) | r.xI + p thetaZ(I, J) - c / 2 pi r.zI - p thetaZ(I, J) - c |
+
+`thetaZ(I, J)` is the angle of xJ about zI from xI, `orbit(I, J)` the angle
+of J's origin about zI (OndselSolver's `AngleZIeJe`, `OrbitAngleZIeJe`).
+A coupler's constant `c` is its value at the start, as OndselSolver's is,
+and its angles are unwrapped across iterations from OndselSolver's first
+reading (atan2 when the cosine is positive, else [0, 2 pi)). The
+Jacobian is analytic: every quantity carries its derivative with respect
+to the six variables of each of the (at most three) bodies it depends on;
+a gtest checks every kind, the couplers and the drivers against central
+differences.
+
+**Solve.** The pose closest to a target in the metric, subject to the
+equations: the start for a static solve, the drag targets for a drag
+step. Equations dependent at the start are set aside (what OndselSolver
+does at its first singular matrix); the rest are solved by
+**restoration** -- minimum-norm Gauss-Newton steps, Levenberg-Marquardt
+damping and backtracking when a step does not reduce the residual, in a
+metric that weighs a turn by the body's largest lever arm squared, and no
+body turned more than a radian per step (without that, a far start turned
+a box through ten radians to touch a plane) -- alternated with steps
+**along the manifold** towards the target: the projected gradient, and
+after six rounds the reduced Newton step (the Lagrangian's Hessian by
+central differences of the analytic gradients, on the null space of the
+kept equations, when positive definite), each step restored onto the
+manifold and taken when it brings the poses closer. It stops when the
+projected step is below 1e-11, the kept equations below 1e-11 (1e-9
+accepted when rounding stalls there). Then equations set aside that the
+solution shows independent and unsatisfied join and the solve repeats,
+so a singular start does not stick. Without the Newton step the gate's
+PointCone case stopped 0.05 % farther from the start than OndselSolver's
+solution.
+
+**Limits** are inequalities, by an active set: a solution that violates
+a bound gets the bound as an equation (essential for an angle,
+displacement for a slide, as OndselSolver's limits) and the solve
+repeats; a bound whose multiplier says the solution would leave it is
+released. In static solves too -- OndselSolver applies limits only in
+drag steps. A rotation limit's angle is counted in turns from
+OndselSolver's first reading. Limits are not in the diagnostics.
+
+**Drag.** `dragStep` is the same solve with the dragged bodies' targets
+and weights (`Body::dragWeight`; the others held where they are with
+weight 1), so a dragged body follows the mouse as far as the joints and
+the other bodies' resistance allow; a step that fails is retried half
+way, then the poses go back and it answers `NotConverged`. `endDrag` is a
+static solve from the dragged state. `update` takes drag weights and
+answers `NeedsReload` for anything else.
+
+**Drivers and simulation.** A driver is an essential equation: the slide
+along zI at the formula's value, the turn thetaZ(I, J) at it with its
+turns counted -- the formula is an absolute angle, so the count starts at
+the turn nearest the formula's value and follows the motion. `simulate`
+solves each output time in one session from the previous frame
+(`simulateByPositionSolves`, which reloads the model per frame and so
+loses the turns, is not used). Outside a formula's domain the run stops
+with `Failed` (sec 4.6.1).
+
+**Diagnostics.** The DoF from the rank of the Jacobian by column-pivoted
+QR, rows scaled to unit length, threshold 1e-8 relative to the largest
+pivot; in `OndselSession`'s convention, 6 x (1 + bodies) less the
+equations kept (sec 6.6, deviation 3). Which equations are dependent:
+Gram-Schmidt with reorthogonalisation over the rows in OndselSolver's
+order (its categories -- essential, displacement, perpendicular -- then
+model order), an equation dependent when what is left of its gradient is
+below 1e-8 of its norm (at least 1); the two counts are compared, a
+mismatch logged. A joint with a dependent equation is redundant,
+partially when not all of its equations are, conflicting when a dependent
+equation is unsatisfied by more than 1e-6 (OndselSolver's threshold).
+The same `Diagnostics` fields as `OndselSession` fills, the same meaning.
+
+**Capabilities** (sec 5.3's Reference column): every `JointKind`, limits,
+drivers, drag, kinematics (by position solves), redundancy, conflicts;
+not dynamics, warm update, per-body DoF; native format "neutral" --
+`exportNative` writes the neutral model as text (bodies at their current
+poses, frames, grounds, joints, limits, drivers), which nothing reads
+yet. `exportAsASMT` writes it too when the assembly's backend is the
+Reference: it is the session's `exportNative`.
+
+**The checker** (sec 4.4 item 7): `Solver::Reference::jointResiduals(model,
+poses)` and `groundResiduals`, each joint's largest error in natural
+units (mm, rad; the distance itself for the squared forms, the slide for
+a screw), couplers against the relation at the model's poses.
+`AssemblyObject::getSolverResiduals()` / `assembly.getSolverResiduals()`
+apply it to the session's poses, by joint name: for any backend.
+
+**Gate** (`TestSolverGate.py`). Every gate class runs again per
+registered backend other than OndselSolver (`TestSolverGateJointsReference`
+and so on, generated; the backend set by the `SolverBackend` property),
+compared with the OndselSolver records by the oracle's rules
+(`gate_backend`): converged wherever OndselSolver converged; DoF and the
+redundant, partially redundant, conflicting and malformed lists equal;
+placements within 1e-7 where the DoF is 0, otherwise every joint
+satisfied to 1e-9 by the checker and the solution no farther from the
+start than OndselSolver's in the Reference's metric; the drag steps
+OndselSolver took taken, each leaving every joint satisfied; simulation
+frames within 1e-7. The OndselSolver runs, the records and how they are
+compared are unchanged. Result, all 72 records:
+
+- **Converged** in all 72, including PointPoint at d = 0, where
+  OndselSolver returns -1 (the builder makes it a Spherical joint;
+  OndselSolver does not converge from the box 50 mm away and leaves it
+  there; the Reference puts the vertices together).
+- **Fully constrained** (OndselSolver's DoF 0: Fixed): placements
+  8.3e-11 from the record. Every joint of every case satisfied to 1.0e-11.
+- **Closest to the start:** of the 69 cases with a free DoF where
+  OndselSolver's solution satisfies the joints, neither moved anything in
+  13 (the start already solved), the Reference's solution is as close as
+  OndselSolver's in 39 (within 0.1 %) and closer in 17 (PointLine 122.7
+  against 292.5, PointPoint 2295 against 2899, CylinderCylinder 854
+  against 2624, in mm^2 + rad^2 / 4); never farther.
+- **DoF and redundancy** equal in 70; two differ, both cases where
+  OndselSolver leaves joints unsatisfied (measured with the checker) and
+  calls them conflicting: `test_drag_bundles_fixed` (the Revolute 0.80
+  and the Fixed 0.92 off; record DoF 8, both redundant and conflicting --
+  C starts 50 mm from where the Fixed joint puts it, and OndselSolver
+  solves without the equations it set aside on the way; the Reference
+  satisfies both, DoF 1, nothing redundant) and the LineTorus role mapping
+  (0.73 mm off, the box not moved, DoF 49; the Reference satisfies it,
+  DoF 45, as both count for LineCone, ConeCone and ConeTorus).
+  `BACKEND_DIFFERENCES` records them, asserted as they are.
+- **Drag:** the same steps taken in all eight drag cases, every joint
+  satisfied after each.
+- **Simulation:** the four cases disagree with the records, and the
+  records are wrong. OndselSolver's angular motion holds only the sine of
+  the angle (`ZRotation`: the direction cosine of I's y and J's x), zero
+  half a turn away too; the gate's drivers turn 3.6, 9 and 4.5 rad per
+  0.1 s output step, and from the previous frame it lands on the root
+  nearest, half a turn off at every other frame (and the gear driven
+  through it follows the wrong turn). Against OndselSolver run again at a
+  tenth of the output step the Reference's frames agree to 3.4e-10
+  (`BACKEND_SIMULATION`); the gtest `drivenAnglesFollowTheFormula` checks
+  them against the formulas and asserts OndselSolver's half turns, so a
+  fix shows. At a 0.01 s step the two agree to 1e-7 on the gate's
+  simulation (`simulationFollowsTheKinematicRun`).
+
+**Bench** (`scripts/assembly-bench/bench.py` through the preference, the
+runs of sec 6.6; seconds, Reference / Ondsel, one run each):
+
+| case | solve_1 | preDrag | doDragStep (median of 10) | postDrag |
+|---|---|---|---|---|
+| star 49 | 0.054 / 0.056 | 0.028 / 0.044 | 0.0049 / 0.013 | 0.0023 / 0.014 |
+| chain 49 | 0.052 / 0.60 | 0.031 / 0.069 | 1.28 / 0.027 | 0.0025 / 0.034 |
+| star 199 | 2.36 / 0.43 | 0.42 / 0.27 | 0.18 / 0.083 | 0.12 / 0.099 |
+| chain 99 | 0.31 / 9.07 | 0.088 / 1.47 | 13.7 / 1.00 | 0.018 / 0.79 |
+
+Dense linear algebra on the whole model: the star at 199 pays for it.
+A chain's drag step turns every link and runs into the reduced Newton
+step, whose Hessian by differences costs 12 evaluations of the system per
+body. Speed is not this backend's job. The JCS origins after a solve are
+within 2.3e-12 mm (OndselSolver 1e-14): the Reference stops at 1e-11.
+
+**Tests.** Assembly gtest 38/38 (25 + 13 `ReferenceBackend`); the
+Assembly suite 216 run, 1 skipped (178 + 37 generated gate tests +
+`TestSolverBackend.test_reference_backend`); ctest 938/938.
+
+**Not done:** per-body DoF, `overDefinedGroups`, warm updates beyond drag
+weights; nothing reads the neutral text yet; `PyBackend` and Chrono are
+the next backends of step 10.
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a
@@ -2096,6 +2297,9 @@ skipped (171 + 7).
    the oracle that lets the rework be tested against something other than
    itself? Proposed: yes; it is a few hundred lines on Eigen, which the
    module already includes (`App/CMakeLists.txt:14`).
+   Decided (user, 2026-10-23): yes, the reference solver first, then
+   Chrono. Implemented 2026-10-23 (`47e02a7cc5`, sec 6.13); it came to
+   about 2000 lines with the diagnostics, limits, drag and simulation.
 5. Answered by the user 2026-10-22: the rework stays in our fork; nothing
    goes to the FreeCAD org. The original question: should the solver fork's
    changes (warm update, the reverse dependency

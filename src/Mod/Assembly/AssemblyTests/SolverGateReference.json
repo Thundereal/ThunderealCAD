@@ -6244,10 +6244,10 @@
    }
   },
   "TestSolverGateDistance.test_distance_subtypes[CylinderTorus]": {
-   "export": "ddff2d00ed51b7ca7e9973130bab66fe52ecc31cfccbe6118e5ef84298a58355",
+   "export": "073950c08a75c22343256b28ff4912a3706628a01a4089eb4aca4b534981e17c",
    "solve": {
     "ret": 0,
-    "dump": "ddff2d00ed51b7ca7e9973130bab66fe52ecc31cfccbe6118e5ef84298a58355",
+    "dump": "073950c08a75c22343256b28ff4912a3706628a01a4089eb4aca4b534981e17c",
     "status": {
      "DoF": 21,
      "SolverStatus": 0,
@@ -6331,12 +6331,12 @@
      ],
      "TorM": [
       34.257212832610094,
-      -4.002548631817208,
+      -4.002548631817207,
       41.0,
       0.0,
       0.0,
-      0.17354225616217486,
-      0.9848264239581217
+      0.1735422561620827,
+      0.984826423958138
      ]
     }
    }
@@ -6930,10 +6930,10 @@
    }
   },
   "TestSolverGateDistance.test_distance_subtypes[PlaneTorus]": {
-   "export": "e458ca16c88370339d0e3828dae3d6e888f210981a19e97399b13d3922461015",
+   "export": "c0db86e8c7cef4bb97d6acd24827ab4d240cf23d8a938b62d6403097d2432bf5",
    "solve": {
     "ret": 0,
-    "dump": "e458ca16c88370339d0e3828dae3d6e888f210981a19e97399b13d3922461015",
+    "dump": "c0db86e8c7cef4bb97d6acd24827ab4d240cf23d8a938b62d6403097d2432bf5",
     "status": {
      "DoF": 21,
      "SolverStatus": 0,
@@ -7910,10 +7910,10 @@
    }
   },
   "TestSolverGateDistance.test_distance_subtypes[TorusSphere]": {
-   "export": "1e1f4e44c2aaec5722b300f3519f402e569a7831e3df8fc5ab061a3d1ac90a64",
+   "export": "6cda2ed48d6deee5669973706f7473989c52480c17ee64788a9aeeac0855fa86",
    "solve": {
     "ret": 0,
-    "dump": "1e1f4e44c2aaec5722b300f3519f402e569a7831e3df8fc5ab061a3d1ac90a64",
+    "dump": "6cda2ed48d6deee5669973706f7473989c52480c17ee64788a9aeeac0855fa86",
     "status": {
      "DoF": 23,
      "SolverStatus": 0,
@@ -8008,10 +8008,10 @@
    }
   },
   "TestSolverGateDistance.test_distance_subtypes[TorusTorus]": {
-   "export": "bc1e5f0e4d9393e1a63b60f185296d700450441d014c0d529ae9850156ce0b4b",
+   "export": "41c1d40bf17f88d5a15c4c1b2d2d5deaaeef179bde4e2ec43d99cd9e4f9a19b4",
    "solve": {
     "ret": 0,
-    "dump": "bc1e5f0e4d9393e1a63b60f185296d700450441d014c0d529ae9850156ce0b4b",
+    "dump": "41c1d40bf17f88d5a15c4c1b2d2d5deaaeef179bde4e2ec43d99cd9e4f9a19b4",
     "status": {
      "DoF": 21,
      "SolverStatus": 0,
@@ -8686,10 +8686,10 @@
    }
   },
   "TestSolverGateDistanceMapped.test_distance_subtypes[PointTorus]": {
-   "export": "7232f1d9c0b42d7872c9d8d9b572e64b8027afe391c91603fa3046baa7123bbe",
+   "export": "46664cde530b76106699b9de81c45e3f285d10daebbc801364af1a036967573d",
    "solve": {
     "ret": 0,
-    "dump": "7232f1d9c0b42d7872c9d8d9b572e64b8027afe391c91603fa3046baa7123bbe",
+    "dump": "46664cde530b76106699b9de81c45e3f285d10daebbc801364af1a036967573d",
     "status": {
      "DoF": 35,
      "SolverStatus": 0,
@@ -10762,10 +10762,10 @@
    }
   },
   "TestSolverGateRoleMappings.test_distance_subtypes[ConeTorus]": {
-   "export": "5d94921e158c29591cedfe1da846d9896ee003c9fa986141c2e1c690e0b69a57",
+   "export": "82ce21229de8ce0c878f4d8e9b26fa42b2ad89d0dde9bff5eb3d588d8138c2c6",
    "solve": {
     "ret": 0,
-    "dump": "5d94921e158c29591cedfe1da846d9896ee003c9fa986141c2e1c690e0b69a57",
+    "dump": "82ce21229de8ce0c878f4d8e9b26fa42b2ad89d0dde9bff5eb3d588d8138c2c6",
     "status": {
      "DoF": 45,
      "SolverStatus": 0,
@@ -10893,13 +10893,13 @@
       1.0
      ],
      "TorM": [
-      0.6817405606553316,
+      0.6817405606553331,
       -48.443200908563156,
       31.739432204828212,
-      0.171579785910863,
-      -0.026722026005305665,
-      0.15154814026724187,
-      0.973077320450176
+      0.1715797859108559,
+      -0.0267220260053512,
+      0.15154814026750002,
+      0.9730773204501358
      ]
     }
    }
@@ -11477,10 +11477,10 @@
    }
   },
   "TestSolverGateRoleMappings.test_distance_subtypes[CurveTorus]": {
-   "export": "f30784f2ea82a931d69c1182e5a5d1bfc0b0f26188b3924f7c330a91f7babe09",
+   "export": "1aeacb9b9fb2be8ec7de205f91044f63e4001265fda1cf1cab187cb97bd8c9ee",
    "solve": {
     "ret": 0,
-    "dump": "f30784f2ea82a931d69c1182e5a5d1bfc0b0f26188b3924f7c330a91f7babe09",
+    "dump": "1aeacb9b9fb2be8ec7de205f91044f63e4001265fda1cf1cab187cb97bd8c9ee",
     "status": {
      "DoF": 45,
      "SolverStatus": 0,
@@ -12192,10 +12192,10 @@
    }
   },
   "TestSolverGateRoleMappings.test_distance_subtypes[LineTorus]": {
-   "export": "8110368af0e064da9fad901056cfa911fbaf05041b52e931a37420c97868e1ff",
+   "export": "5c9c5f27d3090fe4340c618593f129d90fb77c5695569ea9ff144328db9d03d5",
    "solve": {
     "ret": 0,
-    "dump": "8110368af0e064da9fad901056cfa911fbaf05041b52e931a37420c97868e1ff",
+    "dump": "5c9c5f27d3090fe4340c618593f129d90fb77c5695569ea9ff144328db9d03d5",
     "status": {
      "DoF": 49,
      "SolverStatus": 0,
@@ -12770,10 +12770,10 @@
    }
   },
   "TestSolverGateRoleMappings.test_distance_subtypes[PointTorus]": {
-   "export": "71ffb74c9f38535cb8432d582abf9a00f65237c2f5450fd10e1104ab98086c78",
+   "export": "be17a94498c74325e0dc6e1968fc6f31d7a7e922f379eed5641d7b9996ebb6e8",
    "solve": {
     "ret": 0,
-    "dump": "71ffb74c9f38535cb8432d582abf9a00f65237c2f5450fd10e1104ab98086c78",
+    "dump": "be17a94498c74325e0dc6e1968fc6f31d7a7e922f379eed5641d7b9996ebb6e8",
     "status": {
      "DoF": 47,
      "SolverStatus": 0,

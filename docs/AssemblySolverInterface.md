@@ -1786,12 +1786,10 @@ unrecognised is freeform.
   sub-type) without a message.
 - *A torus's frame.* `findPlacement` tests `"Part::GeomTorus"`, but a
   torus is `Part::GeomToroid`, so upstream frames every torus at its face's
-  centre of gravity. That is on the axis for a torus of revolution through
-  360 degrees, and is kept there: changing it to the centre moves the
-  digest of four recorded torus cases by rounding. A part of one (a
-  fillet's quarter) has it off the axis, and every axis reading below
-  would measure from the wrong line; such a face now takes the torus's
-  centre.
+  centre of gravity. That is near the axis for a torus of revolution
+  through 360 degrees, but off it for a part of one (a fillet's quarter),
+  and every axis reading below would measure from the wrong line. Every
+  torus face now takes the torus's centre (sec 6.14).
 
 **2. Whole objects** stay as built in sec 6.8: Other with a whole object on
 a side (a datum plane, an LCS, a body) is not refused and solves as
@@ -2239,6 +2237,37 @@ Assembly suite 216 run, 1 skipped (178 + 37 generated gate tests +
 **Not done:** per-body DoF, `overDefinedGroups`, warm updates beyond drag
 weights; nothing reads the neutral text yet; `PyBackend` and Chrono are
 the next backends of step 10.
+
+### 6.14 As built: a torus is Part::GeomToroid (2026-10-23)
+
+Upstream's `UtilsAssembly` tests a face's surface for `"Part::GeomTorus"`
+in two places; a torus is `Part::GeomToroid`, so neither ever matched.
+
+- `findPlacement` framed a torus at its face's centre of gravity instead
+  of the torus's centre. Sec 6.11 had moved only a partial torus (centre
+  of gravity off the axis) to the centre; now every torus face is framed
+  at `surface.Center`, as a sphere is.
+- `findElementClosestVertex` returns a sphere face itself, with no vertex,
+  and meant to do the same for a torus. A torus face instead looked for a
+  circle edge to take the centre of, so a pick on a fillet snapped to the
+  centre of one of its edge arcs. It now takes the face, as a sphere does.
+
+Nine gate records were recorded again, all of them torus cases:
+PlaneTorus, CylinderTorus, TorusTorus, TorusSphere, PointTorus (mapped and
+role), ConeTorus, LineTorus, CurveTorus. In each, the export digest and
+the solver input changed, because the frame moved by rounding onto the
+axis. Statuses and DoF are unchanged. Placements moved by at most 2.6e-13
+(ConeTorus), and seven of the nine not at all. The Reference backend's
+LineTorus disagreement (sec 6.13) is unchanged.
+
+Simulation note, from the Reference backend's run (sec 6.13), checked
+against the records. In `test_simulation`, the box driven at `36*time`
+with a 0.1 s output step advances 3.6 - pi = 0.4584 rad per recorded
+frame instead of 3.6. OndselSolver's angular driver holds only the sine
+of the angle, so from the previous frame the solver takes the root half a
+turn short. The records keep OndselSolver's frames as they are: the gate
+records what OndselSolver does, and the Reference is checked against
+OndselSolver at a tenth of the step instead.
 
 ### 6.4 Where Python must change
 

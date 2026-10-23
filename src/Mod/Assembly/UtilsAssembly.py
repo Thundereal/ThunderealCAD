@@ -548,12 +548,6 @@ def elementGeometry(element):
     return element.Curve if element.ShapeType == "Edge" else element.Surface
 
 
-def isOnAxis(point, origin, axis):
-    """Whether point lies on the line through origin along axis (Part.Precision)."""
-    d = point - origin
-    return (d - axis * d.dot(axis)).Length <= Part.Precision.confusion()
-
-
 def findElementClosestVertex(ref, mousePos):
     element_name = getElementName(ref[1][0])
     if element_name == "":
@@ -605,7 +599,9 @@ def findElementClosestVertex(ref, mousePos):
         face = obj.Shape.getElement(element_name)
         surface = elementGeometry(face)
         _type = surface.TypeId
-        if _type == "Part::GeomSphere" or _type == "Part::GeomTorus":
+        # Not upstream: a torus is Part::GeomToroid; upstream named "Part::GeomTorus",
+        # which no surface is, so a torus face fell through to its circle edges.
+        if _type == "Part::GeomSphere" or _type == "Part::GeomToroid":
             return element_name
 
         # Handle the circle/arc edges for their centers
@@ -1206,17 +1202,11 @@ def findPlacement(ref, ignoreVertex=False):
                 centerPoint = surface.Center + centerOfG
                 centerPoint = centerPoint + App.Vector().projectToLine(centerOfG, surface.Axis)
                 plc.Base = centerPoint
-            elif surface.TypeId == "Part::GeomTorus" or surface.TypeId == "Part::GeomSphere":
-                plc.Base = surface.Center
-            elif surface.TypeId == "Part::GeomToroid" and not isOnAxis(
-                face.CenterOfGravity, surface.Center, surface.Axis
-            ):
-                # Not upstream. A torus is Part::GeomToroid, so the line above never
-                # matches one and a torus falls to its centre of gravity below. That
-                # is on the axis for a torus of revolution through 360 degrees, and
-                # is kept there (bit for bit what it always gave); a part of one (a
-                # fillet's quarter) has it off the axis, and the axis roles of sec
-                # 6.11 (PointTorus, LineTorus, ...) need a frame on the axis.
+            elif surface.TypeId == "Part::GeomToroid" or surface.TypeId == "Part::GeomSphere":
+                # Not upstream: upstream named "Part::GeomTorus", which no surface
+                # is, so a torus fell to its centre of gravity below -- near the
+                # centre for a whole torus, off the axis for a part of one (a
+                # fillet's quarter). The axis roles of sec 6.11 need the centre.
                 plc.Base = surface.Center
             elif surface.TypeId == "Part::GeomCone":
                 plc.Base = surface.Apex

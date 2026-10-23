@@ -215,6 +215,11 @@ fc_add_gui_test(GuiPdPanelWidthsStickyColumn_tests_run pd-panel-widths-sticky-co
 fc_add_gui_test(GuiDressUpHandleSelectsEdge_tests_run dressup-handle-selects-edge.py
                 --timeout 200)
 
+# Entry 220, the reporter 2026-10-23: a group box (a bare frame) in an
+# overlaid task panel is as see-through as the panel, not the theme's ground.
+fc_add_gui_test(GuiOverlayPanelGroupBoxSeeThrough_tests_run overlay-panel-groupbox-see-through.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

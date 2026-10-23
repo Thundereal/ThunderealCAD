@@ -229,6 +229,16 @@ public:
                    "QSint--ActionGroup QFrame[class=\"content\"] {"
                    " background-color: rgba(%1,%2,%3,%4); }\n"
                    "QSint--ActionGroup QFrame[class=\"content\"] > QWidget {"
+                   " background-color: transparent; }\n"
+                   // Deeper in the panel a theme's ground for every QWidget
+                   // (Dark.qss #7F7F7F) is painted by what draws a styled
+                   // ground of its own: a group box, a bare frame (entry
+                   // 220, the reporter: "dimension edit panel groupbox has
+                   // opaque background in overlay transparent mode"; Pad's,
+                   // Hole's DrillFrame alike). ".QFrame" is that class only,
+                   // not a label, a list or a text box.
+                   "QSint--ActionGroup QFrame[class=\"content\"] QGroupBox,"
+                   " QSint--ActionGroup QFrame[class=\"content\"] .QFrame {"
                    " background-color: transparent; }\n")
             .arg(panel.red())
             .arg(panel.green())

@@ -226,6 +226,12 @@ fc_add_gui_test(GuiOverlayPanelGroupBoxSeeThrough_tests_run overlay-panel-groupb
 fc_add_gui_test(GuiTechDrawProjGroupAutoDistribute_tests_run techdraw-projgroup-auto-distribute.py
                 --timeout 200)
 
+# Entry 217: a tree pick of a TechDraw object (sync on) brings its page view
+# to the front, opening it if closed; a double click does so whatever the
+# sync.
+fc_add_gui_test(GuiTechDrawTreePickSwitchesPage_tests_run techdraw-tree-pick-switches-page.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.

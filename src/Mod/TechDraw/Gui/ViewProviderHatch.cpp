@@ -150,3 +150,13 @@ Gui::MDIView *ViewProviderHatch::getMDIView() const
         return nullptr;
     return vp->getMDIView();
 }
+
+Gui::MDIView *ViewProviderHatch::getOrCreateMDIView()
+{
+    // its view's page view, opened if closed (entry 217)
+    auto obj = getViewObject();
+    auto vp = obj ? dynamic_cast<Gui::ViewProviderDocumentObject*>(
+                        Gui::Application::Instance->getViewProvider(obj->getSourceView()))
+                  : nullptr;
+    return vp ? vp->getOrCreateMDIView() : nullptr;
+}

@@ -5727,6 +5727,12 @@ MDIView *Document::setActiveView(ViewProviderDocumentObject *vp, Base::Type type
     }
     else {
         view = vp->getMDIView();
+        // An object of a view of its own whose view is closed: that view
+        // opened, not a 3D view raised (a TechDraw page's, entry 217). Not
+        // from inside a client's view, which no desktop path opens (below).
+        if (!view && vp->hasOwnView() && typeId.isBad() && !ViewerContext::current()) {
+            view = vp->getOrCreateMDIView();
+        }
         if (!view) {
             auto obj = vp->getObject();
             if (!obj) {

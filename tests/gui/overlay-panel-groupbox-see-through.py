@@ -1,19 +1,25 @@
-"""A group box in an overlaid task panel is as see-through as the panel.
+"""A group box in an overlaid task panel: a faint ground of its own, not the theme's opaque one.
 
 docs/HandsOnQueue.md entry 220 (the reporter, 2026-10-23): "new defect
 dimension edit panel groupbox has opaque background in overlay transparent
 mode". Not TechDraw's own: the Dark theme grounds every QWidget (#7F7F7F),
 and what paints a styled ground of its own deeper in a panel -- a group box,
 a bare frame -- painted it over the overlay's see-through panel ground.
+Entry 223: "do not make the group box background completely transparent ...
+Maybe like the alternative item background, do that for all group box in
+overlay panel"; "yes, include plain frames".
 
 The Dark theme, every dock overlaid and transparent. A Pad in edit (three
 group boxes), then a Hole (its DrillFrame). Each panel's content frame is
 rendered with its children onto a clear image. Claims:
   - inside each group box, below its title, where no child widget is, the
-    commonest alpha is the panel's own ground's (View/DockOverlayAlpha), not
-    opaque (the title and the border stay as drawn);
-  - the same inside Hole's bare frame;
-  - a spin box's field keeps its own ground (it is not made see-through).
+    commonest alpha is a list's second row's over the panel's ground --
+    the band at View/DockOverlayAlpha on the panel's ground at it -- not
+    the panel's alone (entry 220's), not opaque (the theme's);
+  - inside Hole's bare frame, which is in a group box, the box's ground --
+    not a second one on it; a bare frame in no box, if the panels have one,
+    a ground of its own;
+  - a spin box's field keeps its own ground.
 
 Runs offscreen as well.
 """
@@ -96,6 +102,26 @@ def alpha_in(w, top=4):
     return max(seen, key=seen.get), QtGui.QColor.fromRgba(img.pixel(1, 1)).alpha()
 
 
+def parents(w):
+    p = w.parentWidget()
+    while p is not None and p.property("class") != "content":
+        yield p
+        p = p.parentWidget()
+
+
+def band_over(ground):
+    """The alpha of a band at the overlay's alpha laid on the panel's ground"""
+    alpha = VIEW.GetInt("DockOverlayAlpha", 180)
+    return 255 - (255 - alpha) * (255 - ground) // 255
+
+
+def banded(inside, ground):
+    # the band's ground on the panel's: more than the panel's alone (entry
+    # 220's see-through box), less than the theme's opaque one
+    return (inside is not None and abs(inside - band_over(ground)) <= 8
+            and inside > ground + 10 and inside < 250)
+
+
 def run():
     try:
         check("the Dark theme applies", FreeCADGui.applyTheme("Dark"))
@@ -133,9 +159,8 @@ def run():
         for b in boxes:
             # below its title
             inside, ground = alpha_in(b, top=b.fontMetrics().height() + 6)
-            check("Pad's group box %r: inside at the panel's alpha, not opaque" % b.title(),
-                  inside is not None and abs(inside - ground) <= 6 and inside < 250,
-                  (inside, ground))
+            check("Pad's group box %r: inside a band's ground on the panel's, not opaque"
+                  % b.title(), banded(inside, ground), (inside, ground, band_over(ground)))
         spin = None
         for w in mw().findChildren(QtWidgets.QAbstractSpinBox):
             if w.isVisible() and content_frame(w) is not None and w.objectName() == "lengthEdit":
@@ -159,9 +184,21 @@ def run():
                 frame = w
         if check("Hole's panel, overlaid: its DrillFrame", frame is not None):
             inside, ground = alpha_in(frame)
-            check("Hole's bare frame: inside at the panel's alpha, not opaque",
-                  inside is not None and abs(inside - ground) <= 6 and inside < 250,
-                  (inside, ground))
+            # in a group box: the box's ground, not a second one on it
+            check("Hole's bare frame, in its group box: the box's ground, not a second one",
+                  banded(inside, ground), (inside, ground, band_over(ground)))
+        frames = [w for w in mw().findChildren(QtWidgets.QFrame)
+                  if w.isVisible() and type(w) is QtWidgets.QFrame
+                  and w.metaObject().className() == "QFrame" and content_frame(w) is not None
+                  and w.property("class") is None
+                  and w.frameShape() not in (QtWidgets.QFrame.HLine, QtWidgets.QFrame.VLine)
+                  and not any(isinstance(p, QtWidgets.QGroupBox) for p in parents(w))]
+        note("INFO bare frames in no group box: %s" % [f.objectName() for f in frames])
+        for f in frames[:3]:
+            inside, ground = alpha_in(f)
+            if inside is not None:
+                check("a bare frame %r in no box: a band's ground on the panel's" % f.objectName(),
+                      banded(inside, ground), (inside, ground, band_over(ground)))
         g.resetEdit()
         settle(1000)
     except Exception:

@@ -42,8 +42,10 @@
 # include <QStyleHints>
 #endif
 
+#include <QGroupBox>
 #include <QListView>
 #include <QPainterPath>
+#include <QStyleOptionGroupBox>
 #include <QPropertyAnimation>
 #include <QRegularExpression>
 #include <QTableView>
@@ -1990,6 +1992,8 @@ isNear(const QPoint &a, const QPoint &b, int tol = 16)
 }
 
 static void paintRowBands(QAbstractItemView *view, const QPaintEvent *ev);
+static bool paintsBoxGround(const QWidget *widget);
+static void paintBoxGround(QWidget *widget, const QPaintEvent *ev);
 
 bool OverlayManager::eventFilter(QObject *o, QEvent *ev)
 {
@@ -2057,6 +2061,10 @@ bool OverlayManager::eventFilter(QObject *o, QEvent *ev)
     }
     case QEvent::Paint:
         if (auto widget = qobject_cast<QWidget*>(o)) {
+            // A group box's ground in an overlaid panel, under what it paints
+            // next (docs/HandsOnQueue.md entry 223)
+            if (paintsBoxGround(widget))
+                paintBoxGround(widget, static_cast<QPaintEvent*>(ev));
             auto view = qobject_cast<QAbstractItemView*>(widget->parentWidget());
             // The overlay's row bands, under what the view paints next
             // (docs/HandsOnQueue.md entry 193)
@@ -2683,6 +2691,10 @@ QBrush OverlayManager::overlayItemBackground(const QBrush &own, int alpha, const
     return brush;
 }
 
+/// Whether \a view wears the overlay's look: in an overlaid dock, or in a task
+/// panel laid over the picture of its view
+static bool hasOverlayLook(const QWidget *view);
+
 bool OverlayManager::hasOverlayRowBands(const QWidget *view)
 {
     if (!view || !(qobject_cast<const QListView*>(view) || qobject_cast<const QTreeView*>(view)
@@ -2691,6 +2703,13 @@ bool OverlayManager::hasOverlayRowBands(const QWidget *view)
     // The model tree keeps its own: a ground behind each item's text alone,
     // by its own settings (entries 69, 87, 98; the reporter, entry 193)
     if (qobject_cast<const TreeWidget*>(view))
+        return false;
+    return hasOverlayLook(view);
+}
+
+static bool hasOverlayLook(const QWidget *view)
+{
+    if (!view)
         return false;
     const QWidget *tab = overlayOf(view);
     // A task panel laid over the picture in its view (TaskPanelHost, in
@@ -2715,6 +2734,73 @@ bool OverlayManager::hasOverlayRowBands(const QWidget *view)
             decides = w->parentWidget();
     }
     return decides && decides->testAttribute(Qt::WA_NoSystemBackground);
+}
+
+/** A group box, or a bare frame, in an overlaid task panel: the theme's
+ * ground the settings' rules take away (entry 220) given back faint -- the
+ * colour and the opacity of a list's second rows (paintRowBands()), so that
+ * it still reads as a box (docs/HandsOnQueue.md entry 223, the reporter: "do
+ * not make the group box background completely transparent ... Maybe like
+ * the alternative item background, do that for all group box in overlay
+ * panel"; "yes, include plain frames").
+ */
+static bool paintsBoxGround(const QWidget *widget)
+{
+    bool frame = false;
+    if (!qobject_cast<const QGroupBox*>(widget)) {
+        // a bare frame, that class only: a label, a list or a text box is a
+        // frame too; a line between two parts of a panel is not a box
+        auto f = qobject_cast<const QFrame*>(widget);
+        if (!f || f->metaObject() != &QFrame::staticMetaObject
+                || f->frameShape() == QFrame::HLine || f->frameShape() == QFrame::VLine)
+            return false;
+        frame = true;
+    }
+    // inside a task panel's content, not that frame itself; and in no box
+    // that has a ground already -- two would add up to all but opaque
+    // (Hole's DrillFrame, in its group box)
+    bool inContent = false;
+    for (auto p = widget->parentWidget(); p; p = p->parentWidget()) {
+        if (qobject_cast<const QFrame*>(p) && p->property("class").toString() == QLatin1String("content")) {
+            inContent = true;
+            break;
+        }
+        if (qobject_cast<const QGroupBox*>(p))
+            return false;
+        auto pf = qobject_cast<const QFrame*>(p);
+        if (pf && pf->metaObject() == &QFrame::staticMetaObject
+                && pf->frameShape() != QFrame::HLine && pf->frameShape() != QFrame::VLine
+                && !pf->property("class").isValid())
+            return false;
+    }
+    if (!inContent || (frame && widget->property("class").isValid()))
+        return false;
+    return hasOverlayLook(widget);
+}
+
+static void paintBoxGround(QWidget *widget, const QPaintEvent *ev)
+{
+    QRect area = widget->rect();
+    if (auto box = qobject_cast<QGroupBox*>(widget)) {
+        // the box's frame, not the strip its title stands in above it
+        struct BoxAccess : QGroupBox {
+            using QGroupBox::initStyleOption;
+        };
+        QStyleOptionGroupBox opt;
+        (box->*&BoxAccess::initStyleOption)(&opt);
+        area = box->style()->subControlRect(QStyle::CC_GroupBox, &opt,
+                                            QStyle::SC_GroupBoxFrame, box);
+    }
+    if (area.isEmpty())
+        return;
+    QColor ground = widget->palette().color(QPalette::AlternateBase);
+    ground.setAlpha(OverlayManager::overlayAlpha());
+    QPainter painter(widget);
+    painter.setClipRegion(ev->region());
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(ground);
+    painter.drawRoundedRect(QRectF(area).adjusted(0.5, 0.5, -0.5, -0.5), 2.0, 2.0);
 }
 
 /// The overlay's row bands of \a view, painted on its viewport before its

@@ -178,6 +178,11 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-23 17:34: 224 -- 221's option kept, default off; entry 225 -- a general way
+to give every overlaid widget the auto scroll bars: possible (one hook in
+OverlayTabWidget::_setOverlayMode); the reporter's word awaited.** Under
+the entries.
+
 **2026-10-23 17:30: 223 includes plain frames; entry 224 -- the TechDraw page gets
 the spreadsheet's auto scroll bars; ASSIGNED to fcad-dc after 223.**
 Under the entries.
@@ -4382,6 +4387,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 222 | 2026-10-23 | a change request: the SPREADSHEET view's scroll bars have the SAME PROBLEM as 221 (confused with OVERLAY PANELS), but it NEEDS its scroll bars for easy scrolling -- the reporter asks for a SUGGESTION of how they COEXIST with overlay panels | OPEN; said to the note-taker 2026-10-23 11:14; SUGGESTED by the note-taker: (A, recommended) the bars step inside the area the overlaid docks leave free, as the navigation cube (76) and the in-view task panel already do through OverlayManager::occupied()/covered() and layoutChanged()/coverChanged(); (B) thin transient bars that show only while scrolling or with the pointer near the edge; the reporter's choice awaited; NOT assigned (overlays: fcad-dc's area). 2026-10-23 11:25 the reporter: "222, A and B, but techdraw page no need scroll bar, since it supports mouse pan" -- the spreadsheet gets BOTH: its bars in the area the docks leave free (A) AND thin transient bars (B); ASSIGNED to fcad-dc (overlays), after 215. 2026-10-23 16:41 DONE by fcad-dc `a19fb686e7`: Gui::OverlayScrollBars on the spreadsheet's table view -- (A) the bars stand just inside a dock over the right edge and just above one over the bottom edge (OverlayManager::covered(), following coverChanged/layoutChanged), else at the view's edges; (B) thin and see-through, shown while scrolling or with the pointer near, faded and hidden 1.2 s after; spreadsheet-scroll-bars-beside-overlay.py 8/8. 2026-10-23 16:41 PUSHED (thundereal/LinkVibe 62c2b0a87c..a19fb686e7) and STAGED (stage29, written 16:31:04, fcad `a19fb686e7` not dirty, FreeCADGui 15:56 r222) by fcad-dc on the reporter's "once done all the fixes, push and restage" (relayed); the hand check is the reporter's |
 | 223 | 2026-10-23 | a change request (on 220): a GROUP BOX in an OVERLAY panel in transparent mode NOT COMPLETELY TRANSPARENT -- a faint ground like the ALTERNATING ROW background (193's bands), for ALL group boxes in overlay panels | OPEN; said to the note-taker 2026-10-23 17:21; ASSIGNED to fcad-dc (overlays; 220 was its). 2026-10-23 17:30 the reporter: "yes, include plain frames" -- the bare QFrames 220 cleared (Hole's DrillFrame) get the SAME faint ground as the group boxes (the note-taker's reading "frames stay transparent" WITHDRAWN); passed on to fcad-dc |
 | 224 | 2026-10-23 | a change request: the TechDraw PAGE view gets the SAME AUTO SCROLL BARS as the spreadsheet (222's Gui::OverlayScrollBars: out of the overlaid docks' way, thin, shown while scrolling or with the pointer near, faded after) -- "it looks nice" | OPEN; said to the note-taker 2026-10-23 17:30; ASSIGNED to fcad-dc (222 was its), after 223; the default of 221's HideScrollBars option asked of the reporter. 2026-10-23 17:33 the reporter (to the note-taker, the tool's choice): "Keep, default off (Recommended)" -- 221's HideScrollBars option KEPT, its default turned OFF: the page shows the new auto bars by default, the option ticked hides them; passed on to fcad-dc |
+| 225 | 2026-10-23 | a question and a possible change request: a GENERAL way to REPLACE the SCROLL BARS of ALL OTHER WIDGETS in OVERLAY TRANSPARENT mode (with 222's auto bars) | OPEN; asked of the note-taker 2026-10-23 17:34; ANSWERED by the note-taker from a read: possible -- OverlayTabWidget::_setOverlayMode (OverlayWidgets.cpp 1158) already visits every widget of a dock as it is overlaid and un-overlaid, and today only hides the property view's and the tree's vertical bar by two options; the hook there could give each QAbstractScrollArea in an overlaid dock a Gui::OverlayScrollBars (B: thin, laid over, faded) and take it away when the dock leaves overlay mode; the reporter's word awaited; NOT assigned |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -30267,6 +30273,41 @@ preference page, if saved) is NOT the reporter's choice (203's rule: a
 saved default is not a choice) -- how to tell them apart is fcad-dc's to
 judge, or to show the reporter. Passed on to fcad-dc.
 
+## 225. One general way to give every widget's scroll bars the auto look in overlay transparent mode (a question; a possible change request) -- OPEN
+
+**2026-10-23 17:34, the reporter (to the note-taker):** "also, would it be possible to
+have a general way to replace the scroll bar of all other widgets in
+overlay transparent mode?"
+The note-taker's reading: every scroll area inside an overlaid
+(transparent) panel -- the tree, the property view, the selection view,
+the report view, lists in task panels and the like -- would use 222's
+auto bars instead of Qt's, set up in one place rather than widget by
+widget.
+The note-taker's ANSWER, from a read (working tree): yes, possible.
+- The hook exists: OverlayTabWidget::_setOverlayMode
+  (src/Gui/OverlayWidgets.cpp 1158) is called for every widget of a
+  dock when it is overlaid and when it leaves, with OverlayOption::
+  Disable on the way out. Today it gives the property view its overlay
+  look and, by two options (OverlayParams DockOverlayHidePropertyView-
+  ScrollBar, TreeParams HideScrollBar), sets the property view's and the
+  tree's VERTICAL bar to zero width (1171-1198); the overlay style sheet
+  already thins every QScrollBar (OverlayManager.cpp 273-294).
+- The change: there, each QAbstractScrollArea in the overlaid dock gets
+  a Gui::OverlayScrollBars (222), taken away -- its own bars and their
+  policies put back -- when the dock leaves overlay mode. Inside a dock
+  only (B) matters (thin, laid over the content, shown while scrolling
+  or with the pointer near, faded); (A), keeping out of the docks' way,
+  is for views under the docks and comes for free (no dock stands over
+  a dock).
+- What to watch: widgets that set their own scroll-bar policy later or
+  handle their bars themselves (the tree's auto scroll, text editors'
+  viewport margins, a combo box's popup, which is a window of its own
+  and is left out); the two hide options would become "auto bars" or
+  stay as they are -- the reporter's to say; MDI views not under a dock
+  (spreadsheet 222, TechDraw 224) already get their own.
+Waiting on the reporter's word whether to build it; NOT assigned (it
+would go to fcad-dc, overlays).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -30278,5 +30319,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 224
+the build session, 131 and 132 found by it; entries 134 to 225
 are of 2026-10-15, 134 said to the build session)

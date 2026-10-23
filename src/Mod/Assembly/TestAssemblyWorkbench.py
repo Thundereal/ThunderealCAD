@@ -50,6 +50,7 @@ from AssemblyTests.TestSolverGate import (
     TestSolverGateSimulation,
     TestSolverGateBench,
     TestSolverGateRigid,
+    TestSolverGateCam,
     BACKEND_GATE_CLASSES,
 )
 from AssemblyTests.TestCamJoint import TestCamJoint, TestSimulationMotions
@@ -82,6 +83,7 @@ True if TestSolverGateOrder else False
 True if TestSolverGateSimulation else False
 True if TestSolverGateBench else False
 True if TestSolverGateRigid else False
+True if TestSolverGateCam else False
 True if TestCamJoint else False
 True if TestSimulationMotions else False
 True if TestGuiCommands else False

@@ -88,6 +88,7 @@ import JointObject
 import UtilsAssembly
 
 from AssemblyTests.TestJoints import JointTestBase, plc, Z
+from AssemblyTests.TestCamJoint import CamMechanism, ROLLER
 
 PREFS = "User parameter:BaseApp/Preferences/Mod/Assembly"
 TOL = 1e-9
@@ -1667,6 +1668,35 @@ class TestSolverGateRigid(SolverGateBase):
         self.gate(drag=(b, targets))
 
 
+class TestSolverGateCam(CamMechanism, SolverGateBase):
+    """The Cam joint (sec 6.18): a point and a roller on a disk cam, and a B-spline profile.
+
+    Each follower starts off its cam, so the solve has something to do. The
+    ASMT text records the curve's description (OndselSolver's
+    PointOnCurveJoint).
+    """
+
+    def test_point_follower(self):
+        cam, rev, f = self.disk_mechanism(0.0, start_error=0.8)
+        sim = self.make_simulation([(rev, "Angular", "10*time")], t_end=2.0, t_step=0.2)
+        self.doc.recompute()
+        self.gate(sim=sim)
+
+    def test_roller_follower_drag(self):
+        cam, rev, f = self.disk_mechanism(ROLLER, start_error=-0.6)
+        targets = [
+            App.Placement(App.Vector(), App.Rotation(Z, a)).multiply(cam.Placement)
+            for a in (30, 60, 90)
+        ]
+        self.gate(drag=(cam, targets))
+
+    def test_bspline_profile(self):
+        cam, rev, f, curve = self.profile_mechanism(start_error=0.5)
+        sim = self.make_simulation([(rev, "Angular", "10*time")], t_end=2.0, t_step=0.2)
+        self.doc.recompute()
+        self.gate(sim=sim)
+
+
 # ---------------------------------------------------------------- other backends
 
 GATE_CLASSES = (
@@ -1679,6 +1709,7 @@ GATE_CLASSES = (
     TestSolverGateSimulation,
     TestSolverGateBench,
     TestSolverGateRigid,
+    TestSolverGateCam,
 )
 
 

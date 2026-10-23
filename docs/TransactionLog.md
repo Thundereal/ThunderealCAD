@@ -52,7 +52,7 @@ question is the one that holds.
 | 28 | Phase 6: merge | built |
 | 29 | Concurrent writers: one connection per file, sessions | ruled; 29.1 deferred |
 | 30 | A shared head, explicit branches, forks, actors and access | ruled, built |
-| 31 | Phase 8: a value that is many things (survey and questions) | partly built |
+| 31 | Phase 8: a value that is many things (survey and questions); what it left, checked and finished (31.34) | built |
 | 32 | A shape diff: what a merge or a pick would take; kept values (32.11) | built |
 | 33 | What the merge into LinkVibe exposed | fixed |
 | 34 | Held: what Scion's design suggests | held |
@@ -17565,6 +17565,44 @@ map only, which is what the worker does with what was held.
 Nothing to change. Kept as gtest
 `PropertyShapeImmutableTest.DISABLED_aHoldOfAMapByItsDepth`, which also
 asserts what it holds is held and let go of.
+
+### 31.34 What sec 31 left, checked and finished (user: "do sec31", 2026-10-23)
+
+31.20 and 31.22 left five things. Four were written before the look moved
+onto the object (docs/ShapeAppearanceDesign.md sec 14.6: a look is a value
+of the object, `ElementAppearance`, merged by `ElementAppearanceMerge`), so
+each was probed first (`~/.cache/lv-merge/probe31/`); one was still so, and
+is built.
+
+| Left | Probed | Now |
+| --- | --- | --- |
+| An object's own look changed by theirs while ours painted a face: theirs' left out (31.20) | `p1b.py`, and with the Gui up `p1gui.py`: theirs makes a box red, ours paints `Face6` green | **closed by 14.6.** One change, `Box.ElementAppearance` merged; stated and drawn: five faces red, `Face6` green; one undo takes theirs back. The per-face list `updateColors()` wrote is no longer a value of the view provider to tell apart |
+| Faces given a look by number -- a script, an importer -- looked up at merge time (31.17 Q2, `TransactionLogMergeFaceLoss`) | `p12.py`: theirs writes `ShapeAppearance` per face by index, ours drills the cut (six faces become seven) | **closed by 14.6.** A write by number is taken apart when it is written (`writeFaces()`): the face is named then (`Face2`), and after the merge it is `Face6`, the same face. The lookup at merge time, and its threshold, have nothing left to do |
+| A look that names a texture: its claim on the content not carried by a value put back as text | `p3.py`: theirs gives `Face6` a texture whose image is in the file store (`insertTextureFile`), ours paints another face | **holds.** Merged, undone and redone, switched away and back, saved and reopened: the texture's content is there (`getTextureFile`). The value restores its blobs (`restoreBlobsOf`) as it lands |
+| `App::Part`'s and a link's `ColoredElements` by their own rule | -- | **closed by 14.6.10**: a link and a part have an `ElementAppearance`, merged as any object's (`ElementAppearanceLinkMergeTest`) |
+| A reference into a shape with no element map -- an import's -- not followed (31.22: "no name, and nothing is searched for it") | `p5.py`: a `Part::Feature` given a box; theirs attaches a plane to its top, `Face6`; ours replaces the shape with the box drilled through, where the top is `Face3` and `Face6` the drill's bottom | **was so**: the plane was put on the drill's bottom (z 0), nothing asked, nothing failed. **Built**, below |
+
+**Built: an unnamed reference followed by geometry in a merge.** A
+reference with no mapped name never "missed" by name -- ours' shape has a
+`Face6` too -- so the merge's follow (31.22) left it as it was. Now, in
+`followElementReferences`' first pass, a reference the shape names no
+element for is said as missed, as a name missed is
+(`_updateElementReference`, `Following::Names`); where the feature has
+what it was written against (the merge's `writtenAgainst`: theirs' value
+of the shape, else the base's where ours changed it), the second pass
+(`Following::Unnamed`) searches it by geometry in that shape, as a
+missing reference is: found, its number is the one found (`Face6` ->
+`Face3`, with the warning any found reference gives); not found, it is
+marked missing (`?Face6`) rather than left on another face, and the object
+attached to it says it cannot be placed (`failed`). Where neither side
+changed the shape, nothing is searched. The search's own rule stays: a
+shape with one face of the kind wanted gives that one (a sphere is taken
+for a box's top), as for a name.
+
+Test `testAReferenceToAShapeNobodyNamedIsFoundByGeometry`: the drilled
+case on `Face3`, the plane on the top, undone; a short cylinder for a top
+that is nowhere, `?Face6` and the plane failed. On the code before, the
+plane stays on `Face6`.
 
 ## 32. A shape diff: seeing what a merge or a pick would take (plan, 2026-10-06)
 

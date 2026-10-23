@@ -296,6 +296,9 @@ enum class Following {
     No,     ///< as ever: searched by geometry, else marked missing
     Names,  ///< left as it is, and said in followMissed
     Mark,   ///< marked missing, nothing searched
+    /// As No, and an element no mapped name says -- of a shape nobody
+    /// named, an import's -- is searched by geometry too (sec 31.34)
+    Unnamed,
 };
 thread_local Following following = Following::No;
 thread_local bool followMissed = false;
@@ -327,7 +330,9 @@ void PropertyLinkBase::followElementReferences(const ElementEvidence &evidence)
         auto geo = Base::freecad_dynamic_cast<GeoFeature>(feature);
         if (geo && evidence && evidence(geo, this)) {
             // The feature has what this was written against: as any
-            // reference whose element went
+            // reference whose element went, and one that no name says, by
+            // the geometry its number had there (sec 31.34)
+            FollowingScope search(Following::Unnamed);
             updateElementReference(feature, false, true);
         }
         else {
@@ -673,6 +678,7 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
         _ElementRefMap[geo].insert(this);
 
     bool missing = GeoFeature::hasMissingElement(elementName.second.c_str());
+    bool unnamed = false;
     if (!missing && Data::hasMissingElement(element)) {
         // The sub-name is itself the missing marker ('?Face3', what a
         // missing reference reads as once it has been saved and restored).
@@ -702,13 +708,26 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
         // the search below is what the restore is for (TopoNamingEnhance.md
         // 7.16).
         if (elementName.first.empty() && !(restoring && !found)) {
-            shadow.second.swap(elementName.second);
-            return false;
+            // No name says the element -- a shape nobody named, an
+            // import's (sec 31.34). In a merge its number is theirs': said
+            // as a name missed is, so that what it was written against is
+            // had, and then searched for by geometry as a missing one is.
+            const bool merged = feature == geo && !GeoFeature::hasMissingElement(sub.c_str());
+            if (following == Following::Names && merged) {
+                followMissed = true;
+                return false;
+            }
+            if (following != Following::Unnamed || !merged) {
+                shadow.second.swap(elementName.second);
+                return false;
+            }
+            unnamed = true;
+            missing = true;
         }
         // Unchanged, unless it is a missing reference being restored: the
         // XML pass may have resolved it before the shapes arrived, and the
         // request below is what the restore is for.
-        if(shadow==elementName && !(restoring && missing)) {
+        if(shadow==elementName && !(restoring && missing) && !unnamed) {
             holdShadowIDs(shadow, geo, missing ? nullptr : shadowElement(shadow), false, hasher);
             return false;
         }
@@ -758,6 +777,14 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
                             << " auto change element reference " << ret->getFullName() << " "
                             << oldName << " -> " << newName);
                 }
+            }
+            // Not found, an unnamed one is marked as a missed name is: left
+            // as its number, it is some other element of this shape
+            else if (unnamed) {
+                std::string marked(subname, strlen(subname) - strlen(element));
+                marked += Data::missingPrefix();
+                marked += element;
+                elementName.second = marked;
             }
             // Note: the following code proves to be too risky. There is no way
             // (so far) to ensure the recompute do not change the geometry. If
@@ -821,6 +848,9 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
         holdShadowIDs(shadow, geo, shadowElement(shadow), true, hasher);
         if(shadow.first.size() && Data::hasMappedElementName(sub.c_str()))
             updateSub(shadow.first);
+        // Found by geometry with no name (sec 31.34): its number is all
+        else if (unnamed)
+            updateSub(shadow.second);
     }
 
     if(reverse) {

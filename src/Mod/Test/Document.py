@@ -6793,6 +6793,69 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertAlmostEqual(ref.Side, 600.0)
         self.assertAlmostEqual(ref.Top, 200.0 - math.pi * 4)
 
+    def testAReferenceToAShapeNobodyNamedIsFoundByGeometry(self):
+        # Sec 31.34: a shape with no element map -- an import's -- has no
+        # names for its faces. Theirs attaches a plane to its top, Face6;
+        # ours replaces the shape with one drilled through, where the top is
+        # Face3 and Face6 the drill's bottom. Merged, the plane is on the
+        # top, found by its geometry in the shape it was attached to. A face
+        # that is nowhere in ours is marked missing, not left on another.
+        import Part
+
+        def face(shape, **kw):
+            for i, f in enumerate(shape.Faces):
+                bb = f.BoundBox
+                if all(abs(getattr(bb, k) - v) < 1e-6 for k, v in kw.items()):
+                    return "Face%d" % (i + 1)
+
+        def case(replacement):
+            doc = self.track(FreeCAD.newDocument("Unnamed"))
+            doc.UndoMode = 1
+            doc.openTransaction("base")
+            imp = doc.addObject("Part::Feature", "Imp")
+            imp.Shape = Part.makeBox(10, 10, 10)
+            doc.recompute()
+            doc.commitTransaction()
+            self.assertEqual(len(imp.Shape.ElementMap), 0)
+            doc.saveAs(os.path.join(self.dir, "unnamed%d.FCStd" % len(self.docs)))
+            doc.createTransactionBranch("side")
+            top = face(imp.Shape, ZMin=10)
+            doc.openTransaction("side: a plane on the top")
+            plane = doc.addObject("Part::Plane", "Plane")
+            plane.Length = 2
+            plane.Width = 2
+            plane.AttachmentSupport = [(imp, top)]
+            plane.MapMode = "FlatFace"
+            doc.recompute()
+            doc.commitTransaction()
+            doc.switchTransactionBranch("main")
+            doc.openTransaction("main: the shape replaced")
+            imp.Shape = replacement
+            doc.recompute()
+            doc.commitTransaction()
+            merged = doc.mergeTransactionBranch("side")
+            self.assertEqual(merged["unresolved"], [])
+            doc.recompute()
+            return doc, imp, doc.getObject("Plane"), merged["failed"]
+
+        drilled = Part.makeBox(10, 10, 10).cut(Part.makeCylinder(2, 30, FreeCAD.Vector(5, 5, -10)))
+        doc, imp, plane, failed = case(drilled)
+        self.assertEqual(failed, [])
+        top = face(imp.Shape, ZMin=10)
+        self.assertEqual(top, "Face3")
+        self.assertEqual(plane.AttachmentSupport[0][1], (top,))
+        self.assertAlmostEqual(plane.Placement.Base.z, 10)
+        doc.undo()
+        self.assertIsNone(doc.getObject("Plane"))
+
+        # Nowhere -- a short cylinder has three faces, none where the top
+        # was: marked missing, and the plane says it cannot be placed. (A
+        # shape with one face of the kind would be taken for it, as for a
+        # name, by the search's own rule.)
+        doc, imp, plane, failed = case(Part.makeCylinder(3, 4))
+        self.assertEqual(plane.AttachmentSupport[0][1], ("?Face6",))
+        self.assertEqual(failed, ["Plane"])
+
     def testAReferenceTakenToAFaceTheirsMadeComesWithIt(self):
         # Sec 31.22: theirs moved the notch into the corner and refers to a
         # wall of it. Ours' shape has no such face until the merge computes

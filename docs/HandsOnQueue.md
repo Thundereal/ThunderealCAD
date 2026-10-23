@@ -178,6 +178,11 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-23 11:12: entries 220 (the dimension panel's group boxes opaque in overlay
+transparent mode; fcad-dc after 213) and 221 (hide the TechDraw page
+view's scrollbars; x16win after 219); x16win's leads on 216-218.**
+Under the entries.
+
 **2026-10-23 11:11: entry 219 -- while a projection group is in edit, a double click
 on a dimension does not start its edit (the group's panel is no document
 edit; the dimension refuses any open dialog); wanted: the group's edit
@@ -4312,10 +4317,12 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 213 | 2026-10-23 | a change request (relayed by fcad-dc, "hands the pending request to 'notes' session"): in a DRESS-UP feature's edit, when a handle is made ACTIVE (selected), SELECT the CORRESPONDING EDGE -- or its PREVIEW FACE when the edge is missing | OPEN; 2026-10-23 09:28; ASSIGNED to fcad-dc (PD task panels and the handles, its area; it is in TaskDressUpParameters/TaskFilletParameters for the reporter's panel-width request now), AFTER its current task. 2026-10-23 09:32 the reporter (to the note-taker): "no just select the corresponding edge, as the right click context menu is meant to apply to that edge which may change its mode" -- ONE edge, the one the handle belongs to, NOT every edge a shared handle moves; the reason: the right-click menu then acts on that edge (e.g. changing its mode); passed on to fcad-dc. 2026-10-23 09:35 the reporter: today hovering a handle highlights ALL handles of its GROUP and selecting shows the selection highlight on all; if 213 makes ONLY that one handle highlighted, that is ACCEPTABLE (allowed, not asked for); passed on to fcad-dc |
 | 214 | 2026-10-23 | A CRASH on stage28 (heap corruption, c0000374, held by cdb): in PrismLocker's fillet edit, Edge12's Group typed from 3 to 1 and Enter pressed -- the edited row is deleted while Qt is still setting its data (FilletSegmentDelegate::setModelData -> itemChanged -> updateSegment -> setEdgeGroup -> refresh() -> populateGeometryReferences -> treeWidget->clear()) | OPEN; 2026-10-23 09:41; the stack READ by the note-taker on the reporter's word through a cdb client; a regression of 202 (`8b4b49a405`, the typed Group column); ASSIGNED to fcad-dc (PD task panels), FIRST, before 213. 2026-10-23 09:47 the reporter: "why there is any need to refresh list? the grouping only takes effect fillet setting change, there is no need to do physcial grouping" -- the note-taker CHECKED: Part::PropertyFilletSegments::setGroup changes only the joining edge's own entry (its group id, and its points copied from a member of the new group, reversed if their directions differ); no other row changes and the list is never ordered by group; so NO list rebuild -- only that edge's row updated in place (Group text and icon, tip, its point rows) and the handles; passed on to fcad-dc as the fix. 2026-10-23 09:50 FIX WRITTEN by fcad-dc (uncommitted, r205 building 09:49): setEdgeGroup (fillet AND chamfer -- the chamfer had the same crash path) no longer calls refresh(), the joining edge's own row changed in place (fillet refreshEdgeRow(), chamfer setItem()), then sortRows (a no-op unless the reporter sorted the list by a column title -- the note-taker read it), setGizmoPositions, recompute; the typed Group cell applies the group from a QUEUED call after Qt's commit returns, and skips a group the edge already has; also the fillet refresh()'s extra point rows never removed (while (j > childCount)), right way round in refreshEdgeRow; new tests/gui/dressup-typed-group-keeps-row.py (no row deleted, each edge's group, one undo step each; on unfixed r204 every typed group reset the list; r204 also gave 'Edge2 typed 2 -> group 1' and two missing undo steps, to see if they go); the scanner-copy run (PrismLocker Edge12 3 -> 1) after the build. 2026-10-23 10:30 DONE by fcad-dc `4fd954f833`, local, NOT pushed, NOT staged: setEdgeGroup (fillet and chamfer) changes the joining edge's row in place, no refresh(); the typed cell applies the group after Qt's commit returns; a SECOND bug the test found, both panels: the Group delegate wrote the cell's text before its number, and the text change made the view reload the open editor from the old number -- the old group written back (typed 2 on a default edge took 1; the reporter's 3 -> 1 would have stayed 3); the number first now; a scanner COPY after the migration recompute, PrismLocker's Fillet004, Edge12 3 -> 1 and Enter: group 1, the list not rebuilt, no crash; dressup-typed-group-keeps-row.py 28/28, fillet-groups-and-preview-menu.py 19/19; a chamfer undo finding made entry 215 |
 | 215 | 2026-10-23 | a defect found by fcad-dc (on 214), made an entry by the note-taker coordinating: on a CHAMFER, an edge JOINING a GROUP shares the UNDO STEP of the change before it (Edge1 typed 1, then Edge2 typed 1: UndoCount stays 1, one undo takes both back); the fillet gives each its own step; older than 214 (the unfixed r204 did the same) | OPEN; 2026-10-23 10:30; ASSIGNED to fcad-dc (PD task panels, TaskChamferParameters, the files of its open work), after its panel-width task and 213 |
-| 216 | 2026-10-23 | a defect: a TechDraw PROJECTION GROUP with AUTO DISTRIBUTION on -- changing its X/Y SPACING does NOT APPLY after the commit; the views move only after Auto Distribution is toggled | OPEN; said to the note-taker 2026-10-23 11:02; ASSIGNED to x16win (TechDraw, its area; idle). 2026-10-23 11:05 ACCEPTED by x16win, diagnosing; its build tree is in use by an Assembly agent on its box (branch AssemblyPort), so the repro and the test wait for it; the fix to be committed on LinkVibe and cherry-picked into AssemblyPort (agreed by the note-taker coordinating), no push without the reporter's word; its lead from a read: `0fbe1d250c` (2026-08-13) stopped the items placing themselves in postHlrTasks, so positions come only from DPG::execute after reportReady, and `cbe029d5b5` (a restored page reuses stored geometry) may leave a spacing-only change with no HLR run and so no reportReady; to be confirmed by reproduction |
-| 217 | 2026-10-23 | a defect and a change request: (a) a TechDraw DIMENSION (or other TechDraw object) SELECTED IN THE TREE does NOT SWITCH to its PAGE VIEW even with Std_TreeSyncView ON; (b) a DOUBLE CLICK to EDIT a TechDraw object SWITCHES to ITS OWN PAGE VIEW REGARDLESS of Std_TreeSyncView | OPEN; said to the note-taker 2026-10-23 11:05; ASSIGNED to x16win (TechDraw Gui), after 216. 2026-10-23 11:08 the reporter: "if tree view sync is on, switch to the page even it is closed. Note, this applies to select the page object itself" -- (a) with sync ON a tree pick OPENS a closed page view and switches to it (the note-taker's reading "only an open page view" WITHDRAWN); the same for a pick of the PAGE object itself; passed on to x16win |
-| 218 | 2026-10-23 | a defect: a TREE HOVER on a TechDraw DIMENSION highlights only its ARROWS (and lines), NOT its LABEL | OPEN; said to the note-taker 2026-10-23 11:06; READ by the note-taker: QGIViewDimension::setPreselect/setPrettyPre light aHead1, aHead2 and dimLines only, never datumLabel -- the label lights itself only on its own pointer hover (QGIDatumLabel::hoverEnterEvent); ASSIGNED to x16win (TechDraw Gui), after 216 and 217 |
+| 216 | 2026-10-23 | a defect: a TechDraw PROJECTION GROUP with AUTO DISTRIBUTION on -- changing its X/Y SPACING does NOT APPLY after the commit; the views move only after Auto Distribution is toggled | OPEN; said to the note-taker 2026-10-23 11:02; ASSIGNED to x16win (TechDraw, its area; idle). 2026-10-23 11:05 ACCEPTED by x16win, diagnosing; its build tree is in use by an Assembly agent on its box (branch AssemblyPort), so the repro and the test wait for it; the fix to be committed on LinkVibe and cherry-picked into AssemblyPort (agreed by the note-taker coordinating), no push without the reporter's word; its lead from a read: `0fbe1d250c` (2026-08-13) stopped the items placing themselves in postHlrTasks, so positions come only from DPG::execute after reportReady, and `cbe029d5b5` (a restored page reuses stored geometry) may leave a spacing-only change with no HLR run and so no reportReady; to be confirmed by reproduction. 2026-10-23 11:12 x16win: the headless reproduction hangs under FreeCADCmd (no event loop for the HLR watcher), so a GUI run; order 216, 217, 218; builds and GUI runs wait for the Assembly agent |
+| 217 | 2026-10-23 | a defect and a change request: (a) a TechDraw DIMENSION (or other TechDraw object) SELECTED IN THE TREE does NOT SWITCH to its PAGE VIEW even with Std_TreeSyncView ON; (b) a DOUBLE CLICK to EDIT a TechDraw object SWITCHES to ITS OWN PAGE VIEW REGARDLESS of Std_TreeSyncView | OPEN; said to the note-taker 2026-10-23 11:05; ASSIGNED to x16win (TechDraw Gui), after 216. 2026-10-23 11:08 the reporter: "if tree view sync is on, switch to the page even it is closed. Note, this applies to select the page object itself" -- (a) with sync ON a tree pick OPENS a closed page view and switches to it (the note-taker's reading "only an open page view" WITHDRAWN); the same for a pick of the PAGE object itself; passed on to x16win. 2026-10-23 11:12 x16win's leads: CLOSED page -- ViewProviderDrawingView::getMDIView() is null, so Gui::Document::setActiveView falls back to the View3DInventor type and raises the 3D view; the fix opens the page view; OPEN page -- the static path looks right, a GUI reproduction needed; a Tree.cpp change to be told to fcad-dc first |
+| 218 | 2026-10-23 | a defect: a TREE HOVER on a TechDraw DIMENSION highlights only its ARROWS (and lines), NOT its LABEL | OPEN; said to the note-taker 2026-10-23 11:06; READ by the note-taker: QGIViewDimension::setPreselect/setPrettyPre light aHead1, aHead2 and dimLines only, never datumLabel -- the label lights itself only on its own pointer hover (QGIDatumLabel::hoverEnterEvent); ASSIGNED to x16win (TechDraw Gui), after 216 and 217. 2026-10-23 11:12 CONFIRMED by x16win by reading; fix planned: QGIViewDimension's setPrettyPre/Sel/Normal set the label's text items too, through a new non-emitting label setter (the label's own setPretty* emit setPretty -> onPrettyChanged and would loop); BALLOONS have the same gap (QGIViewBalloon's setPretty* never touch balloonLabel), fixed the same way |
 | 219 | 2026-10-23 | a defect: while a TechDraw PROJECTION GROUP is IN EDIT, a DOUBLE CLICK on a DIMENSION does NOT start its edit; wanted: the projection group's edit DISMISSED and the DIMENSION'S EDIT started | OPEN; said to the note-taker 2026-10-23 11:11; READ by the note-taker: ViewProviderProjGroup::doubleClicked() calls its own setEdit(0), which shows TaskDlgProjGroup directly -- not through Gui::Document::setEdit, so the document holds no edit to end; the dimension's double click goes Document::setEdit -> ViewProviderDimension::setEdit, which returns false while any task dialog is open; ASSIGNED to x16win (TechDraw Gui), after 216, 217, 218 |
+| 220 | 2026-10-23 | a defect: the TechDraw DIMENSION EDIT PANEL's GROUP BOXES have an OPAQUE BACKGROUND in OVERLAY TRANSPARENT mode | OPEN; said to the note-taker 2026-10-23 11:12; TaskDimension.ui's four boxes are plain QGroupBox (no style sheet, no autoFillBackground of their own); no QGroupBox rule in src/Gui/Stylesheets/overlay/; ASSIGNED to fcad-dc (overlays, its area; 184, 208), after 213 |
+| 221 | 2026-10-23 | a change request: HIDE the TechDraw page view's VERTICAL and HORIZONTAL SCROLLBARS so they are not confused with OVERLAY PANELS | OPEN; said to the note-taker 2026-10-23 11:12; ASSIGNED to x16win (TechDraw Gui), after 219 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -29835,6 +29842,53 @@ test: a projection group in edit, a double click on one of its views'
 dimensions -> the group's dialog closed, TaskDlgDimension open, the
 group's change kept (or as the reporter decides), one undo step each.
 
+**2026-10-23 11:12, x16win: 216, 217 (with its update), 218 received; order 216, 217,
+218; builds and GUI runs wait for the Assembly agent, code reading
+started.** 218: "Confirmed by reading. Fix planned: QGIViewDimension's
+setPrettyPre/Sel/Normal will also set the label's text items. This goes
+through a new non-emitting label setter, because the label's own
+setPretty* emit setPretty -> onPrettyChanged and would loop. Balloons
+have the same gap: QGIViewBalloon's setPretty* never touch
+balloonLabel. Same fix there." 217: "Closed page:
+ViewProviderDrawingView::getMDIView() is null, so Gui::Document::
+setActiveView falls back to the View3DInventor type and raises the 3D
+view. The fix opens the page view instead. Open page: the static path
+looks right ... That case needs a GUI reproduction. A Tree.cpp change
+will be announced to fcad-dc first." 216: "The headless reproduction
+hangs under FreeCADCmd (no event loop for the HLR watcher), so it moves
+to a GUI run as well."
+
+## 220. The TechDraw dimension edit panel's group boxes are opaque in overlay transparent mode (a defect) -- OPEN
+
+**2026-10-23 11:12, the reporter (to the note-taker):** "new defect dimension edit
+panel groupbox has opaque background in overlay transparent mode"
+The note-taker's reading: with the panels overlaid and transparent, the
+dimension's task panel (TaskDimension: Tolerancing, Formatting, Display
+Style, Lines) shows each group box on an opaque ground, where the rest
+of an overlaid panel is see-through. NOT said: other panels with group
+boxes (read as: any panel's group box in an overlay, the dimension's
+being the one seen); docked overlay or the in-view panel (read as:
+both). A read: TaskDimension.ui's boxes are plain QGroupBox, no style
+sheet or autoFillBackground of their own; no QGroupBox rule in
+src/Gui/Stylesheets/overlay/ -- where the ground comes from is the
+assignee's to find.
+ASSIGNED to fcad-dc (overlay looks, its area: 184's transparent lists,
+208's in-view boxes), after 213.
+
+## 221. Hide the TechDraw page view's scrollbars, not to be confused with overlay panels (a change request) -- OPEN
+
+**2026-10-23 11:12, the reporter (to the note-taker):** "new request. hide techdraw
+vertical and horizontal scrollbar to not cause confusion with overlay
+panels"
+The note-taker's reading: a TechDraw page view (QGVPage, a
+QGraphicsView) shows no vertical or horizontal scrollbar; at the view's
+edges they look like overlay panels or their handles. Panning by mouse,
+wheel and keys stays as it is. NOT said: always, or only while overlay
+panels are in use (read as: always -- the reason is overlays, but a
+page view looks the same either way; to be shown to the reporter); a
+setting to bring them back (read as: none asked).
+ASSIGNED to x16win (TechDraw Gui, its area), after 219.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -29846,5 +29900,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 219
+the build session, 131 and 132 found by it; entries 134 to 221
 are of 2026-10-15, 134 said to the build session)

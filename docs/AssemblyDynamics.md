@@ -524,7 +524,7 @@ by `AssemblyObject`'s builder, by property name, as motions are read today.
 
 | object | lives in | properties (internal units) | Chrono |
 |---|---|---|---|
-| `Simulation` (existing, extended) | assembly's Simulations | existing a..j; new: `AnalysisType` {Kinematic, Dynamic, Static} (default Kinematic); `SolverBackend` (empty: the first registered backend that can run the type); `Gravity` (vector, default (0, 0, -9806.65) mm/s^2) and `GravityEnabled` (default true for Dynamic and Static); `ContactMethod` {Impact, Restitution}; `Integrator` {Auto, HHT, ImplicitEuler}; `MaxStep` (Time; default = output step); `Accuracy` (float; maps to Newton tolerances, sec 8.2); `ContactTolerance` (Length; the contact mesh deflection, sec 7.2); `RedundantJoints` {Remove, Bushings}; `Excluded` (LinkList); `KeepResults` (bool); `Results` (PropertyFileIncluded); `ResultsHash` (string, read-only) | system settings |
+| `Simulation` (existing, extended) | assembly's Simulations | existing a..j; new: `AnalysisType` {Kinematic, Dynamic, Static} (default Kinematic); `SolverBackend` (empty: the first registered backend that can run the type); `Gravity` (vector, default (0, 0, -9806.65) mm/s^2) and `GravityEnabled` (default true for Dynamic and Static); `ContactMethod` {Impact, Restitution}; `Integrator` {Auto, HHT, ImplicitEuler}; `MaxStep` (Time; default = output step); `Accuracy` (float; maps to Newton tolerances, sec 8.2); `ContactTolerance` (Length; the contact mesh deflection, sec 7.2); `RedundantJoints` {Remove, Bushings}; `Excluded` (LinkList); `KeepResults` {None, Motion, All} (default Motion); `Results` (PropertyFileIncluded); `ResultsHash` (string, read-only) | system settings |
 | `Motion` (existing, extended) | Simulation | existing Joint, MotionType, Formula; new: `Control` {Position, Speed, Effort} (default Position); `Profile` (link to a `MotionTable`, optional, overriding Formula) | `ChLinkMotorRotationAngle / Speed / Torque`, `...Linear...`; Position = today's motion |
 | `MotionTable` | Simulation | `Points` (PropertyVectorList of (x, y)); `Independent` {time, joint value}; `Interpolation` {Akima, Cubic, Linear} (P4) | a `ChFunction` built from the table (the neutral evaluator's) |
 | `MassOverride` | Physics | `Part` (link); `Mode` {Density, Mass, Full}; `Density`; `Mass`; `CenterOfMass` (vector, in the part frame); `Inertia` (6 values, about the CoM) | `ChBodyAuxRef` mass and inertia |
@@ -544,10 +544,10 @@ by `AssemblyObject`'s builder, by property name, as motions are read today.
 through `BRepGProp::VolumeProperties`, using the density of its
 `ShapeMaterial`.
 - A part with no material, or a material without a density, gets the
-  preference `Mod/Assembly/DefaultDensity`. Its default is 7850 kg/m^3,
-  steel.
-- The panel then shows "assumed density" in warning colour; open question
-  11 asks whether to refuse instead.
+  preference `Mod/Assembly/DefaultMaterial`, a material card whose default
+  is aluminium (2700 kg/m^3) (decided, open question 11).
+- The panel then shows "assumed material" in warning colour. The run is
+  not refused.
 - Inventor gives sketch-only parts 1 kg and 0.01 kg m^2, and Nikra-DAP and
   Simscape default to 1000 kg/m^3. A visible warning matters more than
   which default is used.
@@ -566,9 +566,11 @@ the neutral layer already (SI sec 4.4).
   copies a reference, not the data.
 - The format is a zip holding `index.json` plus one `.npy` per channel
   (sec 8.4).
-- `KeepResults` defaults to false. With it off, the results live in memory
-  and in the transient directory, and are not saved; a reopened document
-  shows "not calculated". With it on, they are saved (open question 5).
+- `KeepResults` {None, Motion, All} defaults to Motion, which saves what
+  playback and the animation exports need. The storage is in sec 8.4
+  (decided, open question 5). With None, the results live in memory and in
+  the transient directory only, and a reopened document shows "not
+  calculated".
 - `ResultsHash` is a hash of the neutral model, the spec, the backend name
   and the backend version.
   - A recompute that changes the hash marks the results stale. This is
@@ -1019,7 +1021,49 @@ sensor tripped.
 
 **Size.** 100 bodies, 1000 frames, about 30 doubles per body plus the
 joints comes to about 30 MB uncompressed, and float64 is kept for accuracy.
-That is why `KeepResults` is opt-in.
+
+**Saved in the .FCStd, efficiently (decided 2026-10-23, open question 5).**
+The user wants results in the file when that is cheap, with playback and
+exports working from them. The storage rules:
+- **Tiers.** `KeepResults` {None, Motion, All}, default **Motion**.
+  - Motion keeps what playback and the animation exports need: the pose
+    block (7 per body per frame) and the event list. 100 bodies x 1000
+    frames is 5.6 MB raw.
+  - All adds every channel of the table above.
+  - A plot or sensor that needs a channel the file does not hold marks the
+    results partial and offers a re-run, rather than guessing.
+- **Compression.** Each channel block is stored column-major (one channel
+  over time), delta-coded along time, and byte-shuffled before deflate (the
+  HDF5 shuffle filter's trick). Smooth trajectories then compress several
+  times better than plain deflate does on float64. The figure is to be
+  measured on the benchmark set before the default is fixed; the tier
+  default drops to None if Motion does not stay small.
+  The values are kept bit-exact: delta coding is done on the integer bit
+  patterns, not on the values, so decoding is exact.
+- **Blob storage.** The archive is one `App::PropertyFileIncluded` blob
+  (docs/FileBlobsManager.md). Content-addressed and reference-counted, a
+  touch or an undo step never copies it, and saving an unchanged result
+  does not rewrite it.
+- **Lazy.** Opening a document reads only `index.json`. The blocks are
+  read the first time playback, a plot or an export asks for them, so a
+  file with long studies opens as fast as one without.
+- **Stale.** Results carry the model hash. A change to the mechanism keeps
+  the stored results playable but marks them stale in the tree and the
+  panel, until the study is re-run.
+
+**Animation and exports from stored results.**
+- Playback, the timeline scrubber and the synchronised plots read the pose
+  block, with no solver.
+- The existing MP4/GIF export (`CommandCreateSimulation.py`) renders from
+  the same frames.
+- New exports:
+  - CSV or a Spreadsheet of any channels;
+  - **animated glTF**: the parts' meshes plus one node animation per
+    body, for Blender and web viewers;
+  - the browser tier's stream (Simulator sec 7), which plays the same
+    pose block.
+- Export works on stale results too, and says so in the exported file's
+  metadata.
 
 **Format.** A zip with:
 - `index.json`: schema version, units, channel names, owners (document
@@ -1214,6 +1258,20 @@ can be rebuilt as documents to compare shapes of curves, not digits.
 
 
 ## 11. Open questions
+
+**Answered by the user (2026-10-23):**
+- 5: results are saved in the .FCStd, provided it is efficient, and
+  animation and exports work from them. The storage design is in sec 8.4.
+- 6: no OndselSolver dynamics. All dynamics, inverse dynamics included,
+  goes to Chrono, and OndselSolver stays kinematic.
+- 9: HACDv2, the decomposition already in Chrono. No new dependency.
+- 11: a preference sets the default material for parts without one; its
+  default is aluminium (2700 kg/m^3). The Mass Properties table marks
+  every part that uses it as assumed.
+- 12: gravity is on by default for new Dynamic and Static simulations.
+- 13: interference moves forward into D2, sharing D2's contact cache.
+
+Questions 1-4, 7, 8 and 10 are still open, as below.
 
 1. **Where mechanism elements live.**
    - Proposed: Creo's split (sec 5.1). Springs, contacts and mass overrides

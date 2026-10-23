@@ -164,6 +164,18 @@ AssemblyExport double getEdgeRadius(const App::DocumentObject* obj, const std::s
 // get it; here the document is never written: *swapped, when given, says
 // whether the solver's frame I is the Reference2 side.
 AssemblyExport DistanceType getDistanceType(App::DocumentObject* joint, bool* swapped = nullptr);
+// The enumerator's name ("PlaneCone"), for messages and Python.
+AssemblyExport const char* distanceTypeName(DistanceType type);
+// Audit sec 8.1 decision 7: the Distance sub-types with no proper solver
+// mapping. The joint task refuses a new joint of one of these; a joint
+// already in a document is still solved as Planar(d), with a warning. The
+// one list; Python reads it through AssemblyApp.getRefusedDistanceTypes().
+AssemblyExport const std::vector<DistanceType>& refusedDistanceTypes();
+AssemblyExport bool isDistanceTypeRefused(DistanceType type);
+// The joint's sub-type is refused. Not for Other when a side is a whole
+// object (a datum plane, an LCS, a body: no vertex, edge or face): that is
+// a planar distance between the objects' frames, which is what it gives.
+AssemblyExport bool isDistanceJointRefused(App::DocumentObject* joint, DistanceType type);
 AssemblyExport JointGroup* getJointGroup(const App::Part* part);
 
 AssemblyExport std::vector<App::DocumentObject*> getAssemblyComponents(const AssemblyObject* assembly);

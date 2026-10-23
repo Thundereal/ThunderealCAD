@@ -25,6 +25,9 @@
 #include <Base/Interpreter.h>
 #include <Base/Tools.h>
 
+#include <App/DocumentObjectPy.h>
+
+#include "AssemblyUtils.h"
 #include "Solver/Registry.h"
 
 
@@ -43,6 +46,27 @@ public:
             "The names of the registered solver backends, in registration order: the\n"
             "values the SolverBackend property and preference take."
         );
+        add_varargs_method(
+            "getDistanceType",
+            &Module::getDistanceType,
+            "getDistanceType(joint) -> str\n\n"
+            "The sub-type of a Distance joint, as its references make it ('PlaneCone'):\n"
+            "the name of the C++ DistanceType."
+        );
+        add_varargs_method(
+            "getRefusedDistanceTypes",
+            &Module::getRefusedDistanceTypes,
+            "getRefusedDistanceTypes() -> list of str\n\n"
+            "The Distance sub-types the solver has no mapping for: a new joint of one is\n"
+            "refused, one already in a document is solved as a planar distance."
+        );
+        add_varargs_method(
+            "isDistanceJointRefused",
+            &Module::isDistanceJointRefused,
+            "isDistanceJointRefused(joint) -> bool\n\n"
+            "True when the joint's sub-type is refused: one of getRefusedDistanceTypes(),\n"
+            "except 'Other' with a whole object (a datum, an LCS) on a side."
+        );
         initialize("This module is the Assembly module.");  // register with Python
     }
 
@@ -57,6 +81,38 @@ private:
             names.append(Py::String(name));
         }
         return names;
+    }
+
+    static App::DocumentObject* jointArg(const Py::Tuple& args)
+    {
+        PyObject* pyJoint = nullptr;
+        if (!PyArg_ParseTuple(args.ptr(), "O!", &App::DocumentObjectPy::Type, &pyJoint)) {
+            throw Py::Exception();
+        }
+        return static_cast<App::DocumentObjectPy*>(pyJoint)->getDocumentObjectPtr();
+    }
+
+    Py::Object getDistanceType(const Py::Tuple& args)
+    {
+        return Py::String(Assembly::distanceTypeName(Assembly::getDistanceType(jointArg(args))));
+    }
+
+    Py::Object getRefusedDistanceTypes(const Py::Tuple& args)
+    {
+        if (!PyArg_ParseTuple(args.ptr(), "")) {
+            throw Py::Exception();
+        }
+        Py::List names;
+        for (auto type : refusedDistanceTypes()) {
+            names.append(Py::String(distanceTypeName(type)));
+        }
+        return names;
+    }
+
+    Py::Object isDistanceJointRefused(const Py::Tuple& args)
+    {
+        auto* joint = jointArg(args);
+        return Py::Boolean(Assembly::isDistanceJointRefused(joint, Assembly::getDistanceType(joint)));
     }
 };
 

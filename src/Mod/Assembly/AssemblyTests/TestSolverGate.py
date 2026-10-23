@@ -555,6 +555,61 @@ class TestSolverGateDistance(SolverGateBase):
                 self.gate(label=name)
 
 
+class TestSolverGateDistanceMapped(SolverGateBase):
+    """Audit sec 8.1 decision 7: the sub-types that used to fall to Planar(d).
+
+    LineCylinder, LineSphere and CurvePlane have a mapping of their own
+    (docs/AssemblySolverInterface.md sec 6.8); PlaneCone and PointTorus stand
+    for the 14 refused ones, which a joint already in a document still
+    solves as Planar(d). The two refused cases and CurvePlane on a circle
+    were recorded before the mapping went in and are what the default case
+    gave; LineCylinder, LineSphere and CurvePlane on an ellipse were
+    recorded after it (TestJoints.TestDistanceMapped checks them on the
+    geometry).
+    """
+
+    D = TestSolverGateDistance.D
+    R_CYL = TestSolverGateDistance.R_CYL
+    R_SPH = TestSolverGateDistance.R_SPH
+    fixtures = TestSolverGateDistance.fixtures
+    distance_joint = TestSolverGateDistance.distance_joint
+
+    def mapped_fixtures(self):
+        """TestDistanceJoint's fixtures, a cone and an ellipse on the moving side."""
+        f = self.fixtures()
+        start = f["box_m"].Placement
+        cone_m = self.assembly.newObject("Part::Cone", "ConeM")
+        cone_m.Radius1 = 5.0
+        cone_m.Radius2 = 2.0
+        cone_m.Height = 8.0
+        cone_m.Placement = start
+        ell_m = self.assembly.newObject("Part::Ellipse", "EllM")
+        ell_m.MajorRadius = 6.0
+        ell_m.MinorRadius = 3.0
+        ell_m.Placement = start
+        self.doc.recompute()
+        f.update(cone_m=cone_m, ell_m=ell_m)
+        return f
+
+    CASES = [
+        ("LineCylinder", ("cyl_g", "Face1"), ("box_m", "Edge1"), 3.0),
+        ("LineSphere", ("sph_g", "Face1"), ("box_m", "Edge1"), 3.0),
+        ("CurvePlane", ("g", "Face6"), ("cyl_m", "Edge2"), 3.0),
+        ("CurvePlane ellipse", ("g", "Face6"), ("ell_m", "Edge1"), 3.0),
+        ("PlaneCone (refused, planar)", ("g", "Face6"), ("cone_m", "Face1"), 3.0),
+        ("PointTorus (refused, planar)", ("tor_g", "Face1"), ("box_m", "Vertex1"), 3.0),
+    ]
+
+    def test_distance_subtypes(self):
+        for name, ref1, ref2, d in self.CASES:
+            with self.subTest(subtype=name):
+                self.tearDown()
+                self.setUp()
+                f = self.mapped_fixtures()
+                self.distance_joint((f[ref1[0]], ref1[1]), (f[ref2[0]], ref2[1]), d)
+                self.gate(label=name)
+
+
 class TestSolverGateLimits(SolverGateBase):
     """Limits on Slider, Revolute and Cylindrical joints, with a drag that hits them."""
 
@@ -730,6 +785,10 @@ class TestSolverGateOrder(SolverGateBase):
         ("LinePlane", ("g", "Face6"), ("box_m", "Edge1")),
         ("PointLine", ("g", "Edge1"), ("box_m", "Vertex1")),
         ("PointCurve", ("cyl_g", "Edge2"), ("box_m", "Vertex1")),
+        # Decision 7's mapped sub-types (LineSphere also swaps in the case).
+        ("LineCylinder", ("cyl_g", "Face1"), ("box_m", "Edge1")),
+        ("LineSphere", ("sph_g", "Face1"), ("box_m", "Edge1")),
+        ("CurvePlane", ("g", "Face6"), ("cyl_m", "Edge2")),
     ]
 
     def test_distance_both_orders(self):

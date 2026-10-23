@@ -26,7 +26,9 @@
 
 #include <fastsignals/signal.h>
 #include <memory>
+#include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include <Mod/Assembly/AssemblyGlobal.h>
@@ -350,6 +352,10 @@ private:
     // Frames I and J of the joint being built come from Reference2 and
     // Reference1 (swapJCS); reset by makeMbdJoint for each joint.
     bool jcsSwapped {false};
+    // Distance joints of a refused sub-type (isDistanceTypeRefused) already
+    // warned about, by full name and sub-type: one warning per joint while
+    // this object lives (from a document load), not one per solve or drag.
+    std::unordered_set<std::string> warnedRefusedDistance;
 
     // Drag step bookkeeping, reset by preDrag().
     int dragStepCount {0};

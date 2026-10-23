@@ -22,6 +22,7 @@
  ***************************************************************************/
 
 #include <algorithm>
+#include <iterator>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
@@ -412,6 +413,57 @@ DistanceType getDistanceType(App::DocumentObject* joint, bool* swapped)
         }
     }
     return DistanceType::Other;
+}
+
+const char* distanceTypeName(DistanceType type)
+{
+    // In the enum's order.
+    static const char* const names[] = {
+        "PointPoint",    "LineLine",      "LineCircle",       "CircleCircle",  "PlanePlane",
+        "PlaneCylinder", "PlaneSphere",   "PlaneCone",        "PlaneTorus",    "CylinderCylinder",
+        "CylinderSphere", "CylinderCone", "CylinderTorus",    "ConeCone",      "ConeTorus",
+        "ConeSphere",    "TorusTorus",    "TorusSphere",      "SphereSphere",  "PointPlane",
+        "PointCylinder", "PointSphere",   "PointCone",        "PointTorus",    "LinePlane",
+        "LineCylinder",  "LineSphere",    "LineCone",         "LineTorus",     "CurvePlane",
+        "CurveCylinder", "CurveSphere",   "CurveCone",        "CurveTorus",    "PointLine",
+        "PointCurve",    "Other",
+    };
+    static_assert(std::size(names) == static_cast<std::size_t>(DistanceType::Other) + 1);
+    auto index = static_cast<std::size_t>(type);
+    return index < std::size(names) ? names[index] : "Other";
+}
+
+const std::vector<DistanceType>& refusedDistanceTypes()
+{
+    static const std::vector<DistanceType> refused = {
+        DistanceType::PlaneCone,     DistanceType::CylinderCone, DistanceType::ConeCone,
+        DistanceType::ConeTorus,     DistanceType::ConeSphere,   DistanceType::PointCone,
+        DistanceType::PointTorus,    DistanceType::LineCone,     DistanceType::LineTorus,
+        DistanceType::CurveCylinder, DistanceType::CurveSphere,  DistanceType::CurveCone,
+        DistanceType::CurveTorus,    DistanceType::Other,
+    };
+    return refused;
+}
+
+bool isDistanceTypeRefused(DistanceType type)
+{
+    const auto& refused = refusedDistanceTypes();
+    return std::find(refused.begin(), refused.end(), type) != refused.end();
+}
+
+bool isDistanceJointRefused(App::DocumentObject* joint, DistanceType type)
+{
+    if (!isDistanceTypeRefused(type)) {
+        return false;
+    }
+    if (type == DistanceType::Other) {
+        auto isElement = [joint](const char* prop) {
+            const auto t = getElementTypeFromProp(joint, prop);
+            return t == "Vertex" || t == "Edge" || t == "Face";
+        };
+        return isElement("Reference1") && isElement("Reference2");
+    }
+    return true;
 }
 
 JointGroup* getJointGroup(const App::Part* part)

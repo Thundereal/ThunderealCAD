@@ -1129,6 +1129,12 @@ def findPlacement(ref, ignoreVertex=False):
                 edge_points = getPointsFromVertexes(edge.Vertexes)
                 line_middle = (edge_points[0] + edge_points[1]) * 0.5
                 plc.Base = line_middle
+            elif edge.findPlane() is not None:
+                # Not upstream (audit sec 8.1 decision 7): another planar curve
+                # (an ellipse, a spline) at its centre of mass, which is in its
+                # plane. A Distance joint to a plane (CurvePlane) or from a
+                # point (PointCurve) acts on that plane.
+                plc.Base = edge.CenterOfMass
         else:
             vertex = get_element(obj.Shape, vtx)
             if vertex is None:
@@ -1146,6 +1152,11 @@ def findPlacement(ref, ignoreVertex=False):
             plane_origin = App.Vector(0, 0, 0)
             plane = Part.Plane(plane_origin, plane_normal)
             plc.Rotation = App.Rotation(plane.Rotation)
+        elif curve.TypeId != "Part::GeomCircle":
+            # Not upstream: another planar curve takes its plane's orientation.
+            curve_plane = edge.findPlane()
+            if curve_plane is not None:
+                plc.Rotation = App.Rotation(curve_plane.Rotation)
     elif elt_type == "Face":
         face = get_element(obj.Shape, elt)
         if face is None:

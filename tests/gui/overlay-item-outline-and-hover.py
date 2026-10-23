@@ -35,7 +35,9 @@ mode on (with it off a panel is solid while the pointer is in it):
     are painted as without the pointer; and with the pointer gone the tree
     is painted as before;
   - the tree's scroll bar: nothing of it more opaque than the opacity
-    setting, a handle at that opacity, and the rest of it clear.
+    setting, a handle at that opacity, and the rest of it clear. Since entry
+    225 the thin overlaid bars stand in its place: its own off, and theirs
+    hidden with the pointer away.
 """
 import os
 import traceback
@@ -273,7 +275,17 @@ def one_theme(theme):
           differing(gone, base, rows_area) == 0,
           "%d pixels differ" % differing(gone, base, rows_area))
 
-    # the scroll bar
+    # the scroll bar: since entry 225 the thin overlaid ones in place of the
+    # tree's own (TreeView/HideScrollBarInOverlay off), hidden at rest
+    laid = [b for b in tree.findChildren(QtWidgets.QScrollBar)
+            if b.objectName() == "OverlayScrollBarV" and b.parent() is tree]
+    if laid:
+        check("%s: the tree's own scroll bar is off, the overlaid one in its place" % theme,
+              not tree.verticalScrollBar().isVisible()
+              and tree.verticalScrollBarPolicy() == QtCore.Qt.ScrollBarAlwaysOff)
+        check("%s: the pointer away, the overlaid one is hidden" % theme,
+              not laid[0].isVisible())
+        return
     bar_widget = tree.verticalScrollBar()
     if check("%s: the tree has a scroll bar to look at" % theme,
              bar_widget.isVisible() and bar_widget.maximum() > 0):

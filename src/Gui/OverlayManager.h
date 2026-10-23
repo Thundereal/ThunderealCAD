@@ -222,6 +222,24 @@ public:
      */
     static bool hasOverlayRowBands(const QWidget *view);
 
+    /** Every scroll area in \a widget, \a widget too, given the thin bars
+     * laid over it (Gui::OverlayScrollBars) while it shows the overlay look,
+     * and its own back when it no longer does (docs/HandsOnQueue.md entry
+     * 225, the reporter: "a general way to replace the scroll bar of all
+     * other widgets in overlay transparent mode").
+     *
+     * Called after each walk that gives a panel the overlay look or takes it
+     * away, and as a scroll area is shown, which reaches what is made in a
+     * panel later (a task panel's lists). Left out: an area whose bars were
+     * put there by something else (the spreadsheet's, a TechDraw page's), a
+     * list in a window of its own (a combo box's), the model tree and the
+     * property view while their own hide options are on (TreeParams
+     * HideScrollBarInOverlay, OverlayParams
+     * DockOverlayHidePropertyViewScrollBar), and an area with both its own
+     * bars off for good.
+     */
+    static void updateScrollBars(QWidget *widget);
+
     /** The parts of \a widget that are laid over: by the overlaid docks,
      * as occupied() answers, and by whatever else registered itself with
      * addCover() -- a task panel shown over its view.

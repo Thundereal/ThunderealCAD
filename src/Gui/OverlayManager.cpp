@@ -73,8 +73,10 @@
 #include "MDIView.h"
 #include "NaviCube.h"
 #include "OverlayParams.h"
+#include "OverlayScrollBars.h"
 #include "StyleParameters/ParameterManager.h"
 #include "OverlayWidgets.h"
+#include "propertyeditor/PropertyEditor.h"
 #include "TaskView/TaskPanelHost.h"
 #include "TaskView/TaskView.h"
 #include "Tree.h"
@@ -1994,6 +1996,7 @@ isNear(const QPoint &a, const QPoint &b, int tol = 16)
 static void paintRowBands(QAbstractItemView *view, const QPaintEvent *ev);
 static bool paintsBoxGround(const QWidget *widget);
 static void paintBoxGround(QWidget *widget, const QPaintEvent *ev);
+static void updateAreaScrollBars(QAbstractScrollArea *area);
 
 bool OverlayManager::eventFilter(QObject *o, QEvent *ev)
 {
@@ -2059,6 +2062,12 @@ bool OverlayManager::eventFilter(QObject *o, QEvent *ev)
         }
         break;
     }
+    case QEvent::Show:
+        // A list made in an overlaid panel after its walk: the thin bars too
+        // (docs/HandsOnQueue.md entry 225)
+        if (auto area = qobject_cast<QAbstractScrollArea*>(o))
+            updateAreaScrollBars(area);
+        break;
     case QEvent::Paint:
         if (auto widget = qobject_cast<QWidget*>(o)) {
             // A group box's ground in an overlaid panel, under what it paints
@@ -2734,6 +2743,47 @@ static bool hasOverlayLook(const QWidget *view)
             decides = w->parentWidget();
     }
     return decides && decides->testAttribute(Qt::WA_NoSystemBackground);
+}
+
+// The property OverlayManager::updateScrollBars() marks its own bars with
+static const char *OverlayMadeBars = "_overlayMadeBars";
+
+static bool wantsOverlayScrollBars(const QAbstractScrollArea *area)
+{
+    if (qobject_cast<const TreeWidget*>(area) && TreeParams::getHideScrollBarInOverlay())
+        return false;
+    if (qobject_cast<const PropertyEditor::PropertyEditor*>(area)
+            && OverlayParams::getDockOverlayHidePropertyViewScrollBar())
+        return false;
+    return hasOverlayLook(area);
+}
+
+static void updateAreaScrollBars(QAbstractScrollArea *area)
+{
+    auto bars = OverlayScrollBars::of(area);
+    if (bars && !bars->property(OverlayMadeBars).toBool())
+        return;
+    const bool want = wantsOverlayScrollBars(area);
+    if (bars && !want) {
+        bars->remove();
+    }
+    else if (!bars && want
+             && (area->verticalScrollBarPolicy() != Qt::ScrollBarAlwaysOff
+                 || area->horizontalScrollBarPolicy() != Qt::ScrollBarAlwaysOff)) {
+        bars = new OverlayScrollBars(area);
+        bars->setProperty(OverlayMadeBars, true);
+    }
+}
+
+void OverlayManager::updateScrollBars(QWidget *widget)
+{
+    if (!widget)
+        return;
+    if (auto area = qobject_cast<QAbstractScrollArea*>(widget))
+        updateAreaScrollBars(area);
+    const auto areas = widget->findChildren<QAbstractScrollArea*>();
+    for (auto area : areas)
+        updateAreaScrollBars(area);
 }
 
 /** A group box, or a bare frame, in an overlaid task panel: the theme's

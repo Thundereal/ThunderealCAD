@@ -143,8 +143,9 @@ Params = [
         doc = "Tree view item background padding."),
     ParamBool('HideColumn', True, on_change=True, title="Hide extra column",
         doc = "Hide extra tree view column for item description."),
-    ParamBool('HideScrollBar', True, title="Hide scroll bar",
-        doc = "Hide tree view scroll bar in dock overlay."),
+    ParamBool('HideScrollBarInOverlay', False, title="Hide scroll bar",
+        doc = "Hide tree view scroll bar in dock overlay. Off, the tree shows thin\n"
+              "scroll bars laid over it there, as the other lists do."),
     ParamBool('HideHeaderView', True, title="Hide header",
         doc = "Hide tree view header view in dock overlay."),
     ParamBool('ResizableColumn', False, on_change=True, title="Resizable columns",

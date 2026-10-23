@@ -926,6 +926,7 @@ void TaskPanelHost::applyLook()
     }
     if (_page) {
         OverlayTabWidget::applyOverlayLook(_page, overlay);
+        OverlayManager::updateScrollBars(_page);
     }
     updateGrip();
     if (!overlay) {
@@ -1108,6 +1109,7 @@ void TaskPanelHost::setPage(TaskPage* page)
         _page->panel->removeEventFilter(this);
         disconnect(_page->scrollarea->verticalScrollBar(), nullptr, this, nullptr);
         OverlayTabWidget::applyOverlayLook(_page, false);
+        OverlayManager::updateScrollBars(_page);
         _layout->removeWidget(_page);
     }
     _page = page;
@@ -1148,6 +1150,7 @@ TaskPage* TaskPanelHost::takePage()
         // As it was before it came here: where it goes next it is a plain
         // page again
         OverlayTabWidget::applyOverlayLook(page, false);
+        OverlayManager::updateScrollBars(page);
         _layout->removeWidget(page);
         page->hide();
     }

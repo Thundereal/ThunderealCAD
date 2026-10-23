@@ -258,6 +258,12 @@ fc_add_gui_test(GuiTechDrawPageOverlayScrollBars_tests_run techdraw-page-overlay
 fc_add_gui_test(GuiSpreadsheetScrollBarsBesideOverlay_tests_run spreadsheet-scroll-bars-beside-overlay.py
                 --timeout 200)
 
+# Entry 225: every list in an overlaid panel takes the thin overlaid scroll
+# bars, a task panel's made later too, and gives them back when the panel
+# leaves overlay mode; the tree's hide option, on, keeps them off it.
+fc_add_gui_test(GuiOverlayDockAutoScrollBars_tests_run overlay-dock-auto-scroll-bars.py
+                --timeout 200)
+
 # Entry 226: a dress-up group's automatic colour by its id alone; an edge
 # typed into an existing group takes that group's colour.
 fc_add_gui_test(GuiDressUpGroupColorsKept_tests_run dressup-group-colors-kept.py

@@ -222,9 +222,11 @@ void OverlayScrollBars::place()
         pair.second->setPageStep(pair.first->pageStep());
         pair.second->setSingleStep(pair.first->singleStep());
     }
-    const bool showV = area->verticalScrollBar()->maximum() > area->verticalScrollBar()->minimum();
-    const bool showH =
-        area->horizontalScrollBar()->maximum() > area->horizontalScrollBar()->minimum();
+    // none where the area had its own turned off for good
+    const bool showV = ownVPolicy != Qt::ScrollBarAlwaysOff
+        && area->verticalScrollBar()->maximum() > area->verticalScrollBar()->minimum();
+    const bool showH = ownHPolicy != Qt::ScrollBarAlwaysOff
+        && area->horizontalScrollBar()->maximum() > area->horizontalScrollBar()->minimum();
     vrect = showV ? QRect(view.left() + right - Thickness, view.top() + top, Thickness,
                           bottom - top - (showH ? Thickness : 0))
                   : QRect();

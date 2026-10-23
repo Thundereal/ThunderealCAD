@@ -947,6 +947,9 @@ lists equal):
 7. **The builder stops writing the document** (frames swapped in the model,
    limits ordered in the model). Gate: same placements; the document's
    Reference1/Reference2 order no longer changes on solve.
+   **Done 2026-10-23** (`5a73e4dbfc`, gate `33b30436e0`), sec 6.7: the
+   model is the one the document swap gave, so the results are identical
+   after all.
 8. **Warm sessions and value deltas** (needs the OndselSolver rework of
    audit phase 2.1: update markers and values on a live `System`). Remove the
    full re-solve at `endDrag` and the joint task's second solve
@@ -1248,6 +1251,98 @@ spread from 3.4 to 9.0 s); the largest model, star 199, is no slower.
   neutral formula evaluator (sec 7 q2), `solverCapabilities()` in the
   binding, and the island drag (`prepareMbdForIslandDrag`), which no test
   builds.
+
+### 6.7 As built: step 7 (2026-10-23)
+
+**The builder** (`5a73e4dbfc`). `AssemblyObject` gained a private
+`swapJCS(const App::DocumentObject*)`, which shadows the free `::swapJCS`
+inside the builder functions and flips `jcsSwapped` (reset by
+`makeMbdJoint` before each joint), and `jcsRef(side)` / `jcsPlc(side)`,
+which name the document property of frame I (side 1) or J (side 2). So the
+two upstream statements `swapJCS(joint);` in `makeMbdJointOfType` (Screw)
+and `getRackPinionMarkers` are untouched; what changed is the property
+names read after them (`"Reference1"` -> `jcsRef(1)` and so on, in
+`makeMbdJoint`, `makeMbdJointDistance` and `getRackPinionMarkers`).
+`getDistanceType(joint, bool* swapped = nullptr)` never writes the
+document: its ten `swapJCS(joint)` calls go to a local lambda that flips
+`*swapped`. The reversed-limit blocks became `std::swap` of the two local
+values (both bounds are enabled there, so the enable swap was a no-op).
+`::swapJCS` itself stays, exported and now unused.
+
+Frame I is still handled first, so bodies and markers enter the model in
+the order the swapped document gave them: **the solver input is byte for
+byte what it was**, and the placements bit for bit.
+
+**Readers of the swapped order**, each checked:
+
+- `JointObject.py`: `preSolve` / `matchJCS`, `preventParallel`,
+  `areJcsSameDir` read the two sides symmetrically (pick the unconnected
+  one); no change. `ensureUnconnectedIsSecondRef` swaps at creation, in
+  Python, with the offsets and detach flags -- a user action, not a solve;
+  left as is. The task panel's `refs` and its offset widgets now stay in
+  step with the document instead of disagreeing after the first solve.
+- **Offsets (user-visible).** The document swap exchanged Reference1/2 and
+  Placement1/2 but not Offset1/Offset2, and setting Reference1 recomputes
+  the joint (`onChanged` -> `updateJCSPlacements`), so after the first
+  solve each offset sat on the other side. Now an offset stays on its
+  reference. Only a joint the builder swaps (Screw, RackPinion, the
+  swapped Distance picks) with a non-identity offset solves differently;
+  the joint task's simple offset (Offset2) now moves the second pick, as
+  it does for every other joint.
+- **Limits (user-visible).** A reversed min/max pair stays as typed; the
+  spin boxes show what the user entered.
+- `UtilsAssembly.getJointDistance` / `getJointXYAngle` feed the limit
+  spin boxes of Slider / Revolute / Cylindrical, which are never swapped.
+- `ViewProviderAssembly::findDragMode` called `getDistanceType` and so
+  wrote the document at the start of a drag (after it had read the side's
+  placement); it now only classifies.
+- C++ readers outside the builder (connectivity, downstream parts,
+  isolation, `slidingPartIndex`) are symmetric in the two sides.
+- Tests: none asserted a swapped reference. `TestDistanceJoint`'s cases
+  all pick the side the sub-type wants first; its docstring now says so.
+  `TestCore.test_rack_pinion_with_slider_offset` picks the rack first.
+
+**Gate** (`33b30436e0`). Every case now also snapshots each joint's
+references, placements, offsets, detach flags and limits before the
+export, simulation, solve and drag, and asserts them unchanged after
+(the old builder fails this on the Screw, RackPinion and reversed-limit
+cases). `gate(key=...)` checks a case against another case's record, the
+document's name in the ASMT text read as that record's. New,
+`TestSolverGateOrder` (5 tests): Screw slider-first and RackPinion
+rack-first against the recorded swapped picks; the Cylindrical limits in
+order against the reversed record; the 13 Distance sub-types the builder
+swaps (LineCircle, PlaneCylinder, PlaneSphere, PlaneTorus, CylinderSphere,
+CylinderTorus, TorusSphere, PointPlane, PointCylinder, PointSphere,
+LinePlane, PointLine, PointCurve) built in both orders in one process and
+compared; a PointPlane offset on the plane side in both orders. The
+Distance cases set the references directly: `setJointConnectors` puts the
+connected side first, so the recorded "SpherePlane (swapped)" case never
+reached the builder's swap -- its record equals PlaneSphere's.
+
+The comparison is in the tolerance form of this step (placements within
+1e-9, statuses -- DoF, redundant, conflicting -- equal), but since the
+model is unchanged the ASMT text is still compared byte for byte. Result:
+no recorded case moved; across the 25 gate tests 1346 placement lists were
+compared, **max deviation 0.0** (all bit-equal). No reference was
+re-recorded; the new cases check against existing records or against
+each other, so `SolverGateReference.json` is unchanged.
+
+Suite 134 run, 1 skipped (129 + the 5 new); ctest 911/911; Assembly gtest
+11/11.
+
+**What step 8 needs:**
+
+- The swap is decided per build from the document (`slidingPartIndex`
+  scans every Slider; `getDistanceType` reads the shapes). A warm session
+  needs it to be part of the topology key: a change that flips it (a
+  Slider added, a reference re-picked) is a reload, not a value delta.
+- `jcsSwapped` is builder state on `AssemblyObject`; if joints are ever
+  built out of order or in parallel it has to move into a per-joint build
+  context.
+- Not done here, still open: the Distance mapping of decision 7, the
+  formula evaluator, the island drag in the corpus, and the creation-time
+  swap in `ensureUnconnectedIsSecondRef` (it writes the document from the
+  joint task, by design for now).
 
 ### 6.4 Where Python must change
 

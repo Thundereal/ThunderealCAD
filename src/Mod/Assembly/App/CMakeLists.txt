@@ -60,6 +60,15 @@ SET(Module_SRCS
 )
 SOURCE_GROUP("Module" FILES ${Module_SRCS})
 
+# The solver-neutral interface (docs/AssemblySolverInterface.md).
+SET(Solver_SRCS
+    Solver/Backend.h
+    Solver/Model.h
+    Solver/Registry.cpp
+    Solver/Registry.h
+)
+SOURCE_GROUP("Solver" FILES ${Solver_SRCS})
+
 SET(Assembly_SRCS
     AssemblyParams.cpp
     AssemblyParams.h
@@ -74,6 +83,7 @@ SET(Assembly_SRCS
     Groups.cpp
     Groups.h
     ${Module_SRCS}
+    ${Solver_SRCS}
     ${Python_SRCS}
 )
 

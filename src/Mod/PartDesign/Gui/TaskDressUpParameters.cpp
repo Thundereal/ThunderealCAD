@@ -1218,29 +1218,26 @@ Base::Color TaskDressUpParameters::autoGroupColor(int group) const
     take(fromPacked(Gui::ViewParams::getHighlightColor()));
 
     // A colour the user picked for another group is taken too
-    std::vector<int> automatic;
     for (int id : groupIds()) {
-        if (id == group) {
-            continue;
-        }
-        if (auto picked = pickedGroupColor(id)) {
-            take(*picked);
-        }
-        else {
-            automatic.push_back(id);
+        if (id != group) {
+            if (auto picked = pickedGroupColor(id)) {
+                take(*picked);
+            }
         }
     }
-    automatic.push_back(group);
-    std::sort(automatic.begin(), automatic.end());
 
-    // The groups in turn by id, each the hue farthest from every hue taken
-    // so far -- the handle's, the picked ones, and the groups' before it
-    // (Base::spreadHues). Fixed for a given set of groups; a hue stepped from
-    // the id alone kept clear of the handle's but not of the other groups',
-    // and two groups pushed out of one taken band landed side by side (the
-    // user, entry 209: "group 2 and 3 has very similar color")
-    const auto at = std::find(automatic.begin(), automatic.end(), group);
-    const auto hues = Base::spreadHues(taken, int(at - automatic.begin()) + 1);
+    // The ids in turn from 1, each the hue farthest from every hue taken so
+    // far -- the handle's, the picked ones, and the ids' before it
+    // (Base::spreadHues): two groups close in id stay apart (the user, entry
+    // 209: "group 2 and 3 has very similar color"). By the id alone, every id
+    // before it counted whether it is a group now or not: counted among the
+    // groups there are, a group that emptied moved every later one onto the
+    // hue of the one before it -- an edge that joined group 3 from group 1
+    // took nothing, group 3 took group 1's colour (entry 226). Past 64 ids
+    // the spread comes round again.
+    constexpr int Spread = 64;
+    const int place = group > 0 ? (group - 1) % Spread + 1 : 1;
+    const auto hues = Base::spreadHues(taken, place);
     QColor color = QColor::fromHsvF(hues.back(), 0.75F, 0.95F);
     return Base::Color(float(color.redF()), float(color.greenF()), float(color.blueF()));
 }

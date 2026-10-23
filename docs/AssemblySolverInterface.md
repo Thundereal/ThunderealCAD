@@ -356,7 +356,7 @@ initial guess; groups overloaded with three meanings; status by exception.
    |-- OndselBackend   (the only file including OndselSolver headers)
    |-- ReferenceBackend (C++ Eigen LM on the neutral residuals; test oracle)
    |-- PyBackend       (trampoline to a Python object: py-slvs, scipy, addons)
-   |-- ChronoBackend   (optional, find_package)
+   |-- ChronoBackend   (optional; as built BUILD_ASSEMBLY_CHRONO, sec 6.15)
    |-- RemoteBackend   (any of the above in a solver process)
 ```
 
@@ -944,35 +944,36 @@ missing "universal" joint already exists in the solver.
 ### 5.3 What each backend can express
 
 `N` native, `E` expressible by composing primitives in the adapter, `S`
-neutral-layer stepping, `-` not available. Chrono per the PR's code and the
-Chrono 10 API; SolveSpace per py-slvs / libslvs as used by Assembly3.
+neutral-layer stepping, `-` not available. Chrono as built (sec 6.15; the
+PR's choices, where they differed, in parentheses); SolveSpace per py-slvs /
+libslvs as used by Assembly3.
 
 | neutral | Ondsel | SolveSpace | Chrono | scipy / Reference |
 |---|---|---|---|---|
-| Fixed | N | E coincident + same orientation | N `ChLinkLockLock` | N |
-| Revolute | N | E coincident + parallel normals | N `ChLinkLockRevolute` | N |
-| Cylindrical | N | E point on line + parallel | N | N |
-| Prismatic | N | E point on line + same orientation | N | N |
-| Spherical | N | N coincident | N | N |
-| Planar(off) | N | E point-plane distance + parallel | N lock planar; offset needs a shifted frame (PR dropped it) | N |
-| ParallelZ | N | N parallel | N `ChLinkLockParallel` | N |
-| PerpendicularZ | N | N perpendicular | N `ChLinkLockPerpend` | N |
-| AngleZ | N | N angle | - (PR skipped; a `ChLinkMateGeneric` or custom link) | N |
-| PointInPlane(off) | N | N point-plane distance | N `ChLinkLockPointPlane` with shifted frame | N |
-| LineInPlane(off) | N | E point-plane distance + perpendicular | - (PR mapped to Planar: wrong) | N |
-| PointOnLine | N (unused) | N | N `ChLinkLockPointLine` | N |
+| Fixed | N | E coincident + same orientation | N `ChLinkMateFix`, on the branch the start is nearest | N |
+| Revolute | N | E coincident + parallel normals | N `ChLinkMateRevolute` | N |
+| Cylindrical | N | E point on line + parallel | N `ChLinkMateCylindrical` | N |
+| Prismatic | N | E point on line + same orientation | N `ChLinkMatePrismatic` | N |
+| Spherical | N | N coincident | N `ChLinkMateSpherical` | N |
+| Planar(off) | N | E point-plane distance + parallel | N `ChLinkMatePlanar` with its distance (PR dropped the offset) | N |
+| ParallelZ | N | N parallel | N `ChLinkMateParallel` | N |
+| PerpendicularZ | N | N perpendicular | N `ChLinkMateOrthogonal` (`ChLinkLockPerpend` holds two rotations, not one) | N |
+| AngleZ | N | N angle | - refused; a right angle is `ChLinkMateOrthogonal` | N |
+| PointInPlane(off) | N | N point-plane distance | N `ChLinkMateDistanceZ` | N |
+| LineInPlane(off) | N | E point-plane distance + perpendicular | E `ChLinkMateDistanceZ` + `ChLinkMateOrthogonal` (PR mapped to Planar: wrong) | N |
+| PointOnLine | N (unused) | N | N `ChLinkMateGeneric(x, y)` | N |
 | PointPointDistance | N | N | N `ChLinkDistance` | N |
-| PointLineDistance | N | N point-line distance | - (PR skipped) | N |
-| LineLineDistance | N | E two point-line distances + parallel | - (PR skipped) | N |
-| Gear / Belt | N | - | N `ChLinkLockGear` / `ChLinkLockPulley` | N |
-| CoaxialGear | N (upstream) | - | ? (carrier frame) | N |
-| RackPinion | N | - | N `ChLinkMateRackPinion` | N |
-| Screw | N | - | N `ChLinkLockScrew` | N |
-| limits | N (inequality, applied while dragging) | - | after-step clamp only (PR) | bounds / penalty (Reference: active set, sec 6.13) |
-| drivers | N symbolic | S | N with `ChFunction` (PR: not done) | S |
-| drag | N | initial guess only (`addWhereDragged` unreliable) | mouse body (PR, unstable) | initial guess (Reference: weighted target, sec 6.13) |
-| DOF / redundancy | count; redundancy by marking; no conflicts | `Dof`, `Failed` list | none (PR reports false) | rank of the neutral Jacobian |
-| native dump | ASMT | slvs dump | -- | the neutral model |
+| PointLineDistance | N | N point-line distance | - refused (PR skipped) | N |
+| LineLineDistance | N | E two point-line distances + parallel | - refused (PR skipped) | N |
+| Gear / Belt | N | - | N `ChLinkLockGear`, phase enforced / - refused (`ChLinkLockPulley` is velocity-level only) | N |
+| CoaxialGear | N (upstream) | - | - refused (no carrier frame) | N |
+| RackPinion | N | - | - refused (`ChLinkMateRackPinion` is velocity-level only) | N |
+| Screw | N | - | - refused (`ChLinkLockScrew` is a whole screw pair) | N |
+| limits | N (inequality, applied while dragging) | - | active set of Chrono links (PR: after-step clamp) | bounds / penalty (Reference: active set, sec 6.13) |
+| drivers | N symbolic | S | N motors with a `ChFunction` on the neutral evaluator (PR: not done) | S |
+| drag | N | initial guess only (`addWhereDragged` unreliable) | weighted target, as the Reference (PR: mouse body, unstable) | initial guess (Reference: weighted target, sec 6.13) |
+| DOF / redundancy | count; redundancy by marking; no conflicts | `Dof`, `Failed` list | rank of Chrono's Jacobian (PR reports false) | rank of the neutral Jacobian |
+| native dump | ASMT | slvs dump | Chrono's JSON archive | the neutral model |
 
 Two constraints on the list: SolveSpace (libslvs and py-slvs) is **GPLv3**,
 so it can only be a user-installed addon through `PyBackend` or a separate
@@ -1104,6 +1105,10 @@ lists equal):
     `20f8f1ef8e`): the `ReferenceBackend`, sec 6.13, and the solver gate
     run once per registered backend. The user's order: the reference
     solver, then Chrono.
+    **The second done 2026-10-23** (`3fe6057c93`, `dda9ce366d`,
+    `3e4d4dbdf6`): the `ChronoBackend` in process (sec 6.15), kinematics
+    only, built from the submodule with `BUILD_ASSEMBLY_CHRONO`; out of
+    process and dynamics remain. Next: `PyBackend`.
 
 ### 6.5 As built: steps 1-3 (2026-10-23)
 
@@ -2268,6 +2273,268 @@ of the angle, so from the previous frame the solver takes the root half a
 turn short. The records keep OndselSolver's frames as they are: the gate
 records what OndselSolver does, and the Reference is checked against
 OndselSolver at a tenth of the step instead.
+
+### 6.15 As built: the Chrono backend (2026-10-23)
+
+Sec 6.3 step 10's second backend, in three commits: the build option
+(`3fe6057c93`), the backend and its gtests (`dda9ce366d`), the gate and
+the selection test (`3e4d4dbdf6`). `App/Solver/ChronoBackend.{h,cpp}`,
+registered as "Chrono" after the Reference when built, so the
+`SolverBackend` property, the preference and `getAvailableSolvers()` name
+it. Kinematics only (static solves, drag, simulation); dynamics, and the
+out-of-process form of sec 4.7, are not attempted.
+
+**Build.** `BUILD_ASSEMBLY_CHRONO` (off by default, in
+`InitializeFreeCADBuildOptions.cmake`) builds the core library of the
+`src/3rdParty/chrono` submodule (Thundereal/chrono, release 10.0.0) with
+Chrono's own CMake, as an external project (`src/3rdParty/ChronoCore.cmake`):
+Chrono's lists address their tree through `CMAKE_SOURCE_DIR`, so they
+cannot be `add_subdirectory()`'d. Only `Chrono_core`, static, with demos,
+tests, OpenMP, SIMD, CUDA, MPI, Thrust and HDF5 off, with this tree's
+compiler and flags; `CHRONO_BUILD_JOBS` caps the nested build (6 here).
+About 500 objects, half an hour at 6 jobs; the library is 1.3 GB with its
+debug information, and Chrono's first configure copies its 750 MB `data`
+directory into the nested tree (a cost of using its top-level CMakeLists
+unchanged). The imported target `ChronoCore` carries the library;
+Chrono's include directories and `CH_STATIC` go to `ChronoBackend.cpp`
+alone (its include root has a directory named `chrono`, which must not
+shadow the standard header elsewhere), and `ASSEMBLY_WITH_CHRONO` guards
+the registration. `ChronoBackend.h` includes no Chrono header (the session
+keeps its system behind a pointer). With the option off the module builds
+as before and the gtests run 38; verified both ways on this tree.
+
+**The model.** A `ChSystemNSC` with `ChSolverSparseQR` and no gravity or
+collision; a `ChBody` per body (mass 1, inertia 1/4, below); a body a
+`Ground` pins `SetFixed()` where its first Ground holds it, as the
+Reference pins; a fixed world body for frames on no body. Chrono's links
+measure frame 1 in frame 2 and the neutral joints J in I, so frame J is on
+Chrono's body 1, frame I on body 2.
+
+| neutral | Chrono | equations |
+|---|---|---|
+| Fixed | `ChLinkMateFix` | 6 |
+| Revolute / Cylindrical / Prismatic / Spherical | `ChLinkMateRevolute` / `-Cylindrical` / `-Prismatic` / `-Spherical` | 5 / 4 / 5 / 3 |
+| Planar(v) | `ChLinkMatePlanar`, `SetDistance(v)` | 3 |
+| ParallelZ | `ChLinkMateParallel` | 2 |
+| PerpendicularZ | `ChLinkMateOrthogonal` | 1 |
+| AngleZ(pi/2) | `ChLinkMateOrthogonal` | 1 |
+| PointInPlane(v) | `ChLinkMateDistanceZ`, `SetDistance(v)` | 1 |
+| LineInPlane(v) | `ChLinkMateDistanceZ` + `ChLinkMateOrthogonal` | 2 |
+| PointOnLine | `ChLinkMateGeneric(x, y)` | 2 |
+| PointPointDistance(v) | `ChLinkDistance` | 1 |
+| Gear (r1, r2 > 0, parallel shafts, not coaxial) | `ChLinkLockGear`, ratio r2 / r1, phase enforced from the start | 1 |
+| RotationZ / TranslationZ driver | `ChLinkMotorRotationAngle` / `ChLinkMotorLinearPosition`, spindle / guide free | 1 |
+| limit bound, while active | `ChLinkMateDistanceZ` / a constant `ChLinkMotorRotationAngle` | 1 |
+
+`ChLinkLockGear` measures each gear's turn from the line between the two
+shafts, which is OndselSolver's `OrbitAngleZIeJe`: its relation a1 + a2 /
+tau = phase is OndselSolver's orbit(J, I) + ratio orbit(I, J) = c with
+tau = 1 / ratio. Its phase correction moves its markers at each update and
+is clamped to 45 degrees, so it holds at position level once within that
+(`gearFollowsADrag`; the gate's gear drag and driven gear).
+
+**Refused**, each with a reason (`Chrono::refusal()`; the gaps sec 8 of
+the audit expected, and three it did not):
+
+| kind | why |
+|---|---|
+| AngleZ other than a right angle | no link holds an angle between two axes but 90 degrees (`ChLinkMateOrthogonal`) or 0 (`ChLinkMateParallel`) |
+| PointLineDistance | no link for a point's distance from a line (`ChLinkDistance` is point to point, `ChLinkMateDistanceZ` point to plane, `ChLinkRevoluteSpherical` a fixed radius in a fixed plane) |
+| LineLineDistance | no link holds two lines parallel at a distance (`ChLinkMateCylindrical` holds them at 0) |
+| Gear as a belt (a negative radius) | `ChLinkLockPulley` couples its pulleys at velocity level only (its phase correction is a TODO in Chrono 10), and `ChLinkLockGear`'s epicyclic form divides by zero for equal radii |
+| Gear between coaxial frames, or non-parallel shafts | no line between the shafts to measure from; `ChLinkLockGear` takes non-parallel shafts for a bevel gear (refused at load) |
+| CoaxialGear | no carrier frame |
+| RackPinion | `ChLinkMateRackPinion` recomputes its contact frames at every update and holds the rack against the pinion at velocity level only: a position solve does not couple them |
+| Screw | `ChLinkLockScrew` is a whole screw pair (five equations, the axes held together); the neutral Screw is the coupling alone, one equation |
+
+Both distances are exactly expressible by composing links with an
+auxiliary body (a revolute about I's axis carrying a point at radius v,
+and a point-on-line or cylindrical to it); that is a composition of the
+adapter, not a Chrono link, and was not done. A model with a refused joint
+loads (`load` is `Ok`), and every solve, drag step and simulation answers
+`Unsupported` with "the Chrono backend cannot solve this assembly: the
+joint Doc#Joint (PointLineDistance): Chrono has no link for ...", which
+`AssemblyObject::solve` prints and answers -1; `analyse()` lists the
+joints in `Diagnostics::unsupported` and knows no DoF. `Capabilities::joints`
+is the 13 kinds of the first table (AngleZ not among them, though a right
+angle is accepted). Not skip-and-say: a solve that ignored the joint would
+report a pose that does not satisfy it.
+
+**Branches.** OndselSolver writes "axes parallel" as two direction cosines,
+which hold zJ = -zI as well as zJ = zI, and a fixed rotation as three, which
+hold the identity and the half turns about x, y and z. Chrono's mates hold
+components of the relative quaternion, which only the identity (or a turn
+about z) zeroes. So when a link is made, frame J is turned onto the
+solution the start is nearest: a half turn about x when zJ starts against
+zI (Revolute, Cylindrical, Planar, ParallelZ), the nearest of the four for
+Fixed and Prismatic. The joint is unchanged; Chrono holds the branch
+OndselSolver would converge to from there
+(`keepsTheBranchTheStartIsNearest`). Drivers and limits on such a joint
+take the same half turn about x, which keeps xJ and so thetaZ.
+
+**Solve** -- the pose closest to the target (the start for a static solve,
+the drag targets for a drag step) in the Reference's metric |dx|^2 +
+|dtheta|^2 / 4 per body, subject to Chrono's constraint equations. Chrono's
+own `ChAssemblyAnalysis` is a Newton iteration whose step is the KKT solve
+[M Cq'; Cq 0] [dx; -l] = [0; -C], the step of least M-norm onto the
+linearised constraints; with mass 1 and inertia 1/4, M is that metric. The
+backend runs the same iteration itself, through `ChSystem::
+StateSolveCorrection` (Chrono's KKT assembly and solver, its state
+increments, its constraint residuals and Jacobians), in three parts:
+
+- *restoration*: the Newton iteration with backtracking on |C| until |C| is
+  below 1e-11 (1e-9 accepted when rounding stalls), in a metric where a turn
+  weighs as much as moving the body's farthest frame by as much, and no body
+  turned more than a radian per step. Without that a box 50 mm from the
+  plane its vertex must touch turned through radians (the gate's PointPlane,
+  PointCurve, PointPoint and PointSphere failed so; the Reference met the
+  same, sec 6.13);
+- *pull*: the KKT solve with right-hand side [M (target - x); -C], whose
+  step goes to the point of the linearised constraints closest to the
+  target, restored and taken while it brings the poses closer;
+- after six rounds, a *reduced Newton step*: the null space Z of Chrono's
+  Jacobian (column-pivoted QR), multipliers making the gradient of the
+  Lagrangian normal to it, its Hessian on Z by central differences of that
+  gradient with Chrono's Jacobian at the perturbed states, and the step Z
+  (Z' H Z)^-1 Z' g when Z' H Z is positive definite (up to 120 freedoms).
+  The plain step zigzags on a curved constraint: on the far PointInPlane
+  case it crawled for 200 rounds and stopped 0.007 % farther than the
+  Reference; with the Newton step both agree (`farStartWithManyGroundedBodies`).
+
+Limits are an active set: a bound a solution violates gets a Chrono link
+holding it there and the solve repeats (up to eight rounds); every bound is
+released after the solve. In static solves too, as the Reference.
+
+**Drag.** As the Reference: the dragged bodies pulled to their targets with
+their drag weights as Chrono masses, the others held where they are with
+weight 1; a step that fails is retried half way, then the poses go back and
+it answers `NotConverged`. `endDrag` is a static solve from the dragged
+state. `update` takes drag weights.
+
+**Drivers and simulation.** Each driver is a motor whose function is
+`FormulaChFunction`, a `ChFunction` whose `GetVal`, `GetDer` and `GetDer2`
+are the neutral evaluator's value, rate and acceleration
+(`Formula::evaluator()`), never Chrono's finite differences (`GetDer3` is
+NaN: the evaluator has no third derivative; nothing kinematic asks for it).
+`motionFunctionIsTheEvaluator` compares them bit for bit.
+`ChLinkMotorRotationAngle` holds the angle modulo a full turn (the quaternion
+component sin((theta - f) / 2)), not modulo half a turn as OndselSolver's
+sine does, so a driven body never lands half a turn off; to count the turns
+for what it drives (a gear), each output interval is split so that no
+driven angle moves more than a quarter radian per step (divided by the
+largest gear ratio), and each step starts from the pose predicted by
+Chrono's velocities: the KKT solve of Cq v = -Ct, whose Ct are the motors'
+exact rates (`GetDer`). Each step is then solved closest to the previous
+one. Outside a formula's domain the run stops with `Failed` (sec 4.6.1).
+The motors exist during `simulate` only.
+
+**Diagnostics.** Chrono's constraint Jacobian (`GetConstraintJacobianMatrix`)
+at the current poses, each row owned through its link's `GetOffset_L()`;
+the rank by column-pivoted QR (rows scaled, 1e-8), which rows depend on the
+ones before them by Gram-Schmidt in OndselSolver's order (its categories --
+essential, displacement (x, y, z rows, distances), perpendicular (rotation
+rows) -- then model order), conflicting when a dependent row is
+unsatisfied by more than 1e-6: the Reference's analysis on Chrono's
+equations, in `OndselSession`'s DoF convention. A joint whose frames are on
+one rigid thing gets no link and counts as all dependent, conflicting when
+the checker finds it unsatisfied.
+
+Where it cannot match OndselSolver's convention:
+
+- *Conflicting joints.* OndselSolver (and the Reference) set equations
+  dependent at the start aside and solve the rest, answering `Ok` with the
+  conflict reported. Chrono's KKT solve takes the inconsistent system in
+  the least-squares sense and the Newton iteration does not converge: the
+  solve answers `NotConverged` and leaves the bodies where they were, and
+  `analyse()` there (which `AssemblyObject` calls after a failed solve too)
+  names the conflict, the same joints the Reference names
+  (`rankOnHandCountedModels`). Chrono's own `RemoveRedundantConstraints`
+  could deactivate rows first, but picks them by its QR pivoting, not
+  OndselSolver's order; not used.
+- *Equations.* Chrono's rotation rows are quaternion components, OndselSolver's
+  direction cosines: the same counts and ranks where the constraints are
+  regular (every gate case), different singular sets elsewhere.
+- *Limits* apply in static solves (OndselSolver applies them in drag steps
+  only), and a rotation bound is held modulo a turn, so an angle more than
+  a turn beyond its bound is held a turn away.
+- *A refused joint* fails the whole solve, where OndselSolver solves.
+
+**Capabilities**: the 13 kinds, limits, drivers, drag, kinematics,
+redundancy, conflicts; not dynamics, warm update, per-body DoF. Native
+format `chrono-json`: `exportNative` (so `exportAsASMT` with this backend)
+writes Chrono's own JSON archive of the system (`ChArchiveOutJSON`).
+
+**Gate** (`TestSolverGate*Chrono`, the 37 generated tests, against the
+OndselSolver records by the oracle's rules of sec 6.13). New
+`BACKEND_REFUSED`: a case a backend refuses, with the reason, asserted as
+recorded -- OndselSolver's record solved it; the backend's solve returns -1
+and moves nothing, a drag takes no step, a simulation fails -- and
+`TestSolverGateOrder` expects the refusal in both orders. Result, all 72
+records:
+
+- **Refused: 31.** The 23 Distance sub-types and role mappings the builder
+  maps to PointLineDistance (CylinderSphere, TorusSphere, PointCylinder,
+  PointLine, LineSphere, PointTorus twice, ConeSphere, PointCone,
+  CurveSphere) or LineLineDistance (LineLine, LineCircle, CircleCircle,
+  CylinderCylinder, CylinderTorus, LineCylinder, CylinderCone, ConeCone,
+  ConeTorus, LineCone, LineTorus, CurveCylinder, CurveCone, CurveTorus, and
+  the B-spline CylinderCylinder and LineCircle); Angle 30; Belt; the coaxial
+  gear; RackPinion; Screw.
+- **Converged** in the other 41, including PointPoint at d = 0, where
+  OndselSolver does not (`BACKEND_DIFFERENCES`, as for the Reference).
+  Every joint satisfied to 1.1e-11 by the neutral checker after every solve
+  and drag step.
+- **Fully constrained** (Fixed): placements 9e-16 from the record.
+- **Closest to the start**: of the 38 cases with a free DoF and a record
+  without a conflict, neither moved anything in 9, Chrono's solution is as
+  close as OndselSolver's (within 0.1 %) in 25 and closer in 4 (PointPoint
+  2288 against 2899, PointSphere 2351 against 4159, Perpendicular 0.350
+  against 0.363, the rigid-group simulation's solve); never farther.
+- **DoF and redundancy** equal in all but `test_drag_bundles_fixed`, the
+  Reference's own disagreement: Chrono satisfies the Fixed and the Revolute
+  OndselSolver leaves conflicting, DoF 1, nothing redundant
+  (`BACKEND_DIFFERENCES`). LineTorus, the Reference's other, is refused.
+- **Drag:** the same steps taken in all ten drag cases it solves (the
+  Belt's is refused), every joint satisfied after each.
+- **Simulation:** the four cases are `BACKEND_SIMULATION`'s (OndselSolver's
+  records half a turn off); against OndselSolver at a tenth of the output
+  step Chrono's frames agree to **1.6e-12** (gears), 2.5e-12 (rigid group),
+  4.5e-13 (the others). The gear driven at 9 rad per output step follows
+  with its turns counted.
+
+**Tests.** Assembly gtest 51/51 (38 + 13 `ChronoBackend`; 38 with the
+option off); ctest 950/951 in the parallel run (the
+`TransactionMeasureTest` flake, which passes alone; 938 + 13); the Assembly
+suite 254 run, 1 skipped (216 + 37 generated gate tests +
+`TestSolverBackend.test_chrono_backend`), no failures.
+
+**Bench** (`scripts/assembly-bench/bench.py` through the preference, the
+cases of sec 6.6 and 6.13, the three backends run one after the other on
+this build; seconds, Chrono / Ondsel / Reference, one run each):
+
+| case | solve_1 | preDrag | doDragStep (median of 10) | postDrag |
+|---|---|---|---|---|
+| star 49 | 0.047 / 0.091 / 0.055 | 0.028 / 0.072 / 0.032 | 0.0069 / 0.019 / 0.0055 | 0.0019 / 0.020 / 0.0036 |
+| chain 49 | 0.057 / 0.61 / 0.079 | 0.033 / 0.072 / 0.033 | 0.018 / 0.027 / 1.42 | 0.0040 / 0.035 / 0.0036 |
+| star 199 | 1.64 / 0.51 / 2.42 | 0.35 / 0.30 / 0.43 | 0.20 / 0.10 / 0.20 | 0.091 / 0.16 / 0.14 |
+| chain 99 | 0.33 / 14.6 / 0.32 | 0.11 / 1.55 / 0.093 | 0.086 / 1.16 / 14.4 | 0.024 / 0.89 / 0.022 |
+
+Chrono's sparse KKT solves beat OndselSolver everywhere but the star at
+199 (a hub with 199 links: its static solve three times slower, its drag
+step twice; every Newton and pull step assembles and factors the whole KKT
+system, which was not profiled further), and the Reference's dense algebra
+on the larger models. A
+chain's drag step, which costs the Reference its finite-difference
+Hessian per body, stays at tens of milliseconds. The JCS origins after a
+solve are within 7e-13 mm (chain 99) and 2.3e-12 mm (star 199), as the
+Reference's; OndselSolver's within 1e-14.
+
+**Not done:** dynamics and the out-of-process session; per-body DoF,
+`overDefinedGroups`, warm updates beyond drag weights; the refused kinds
+(the auxiliary-body compositions above would give PointLineDistance and
+LineLineDistance exactly; a position-level rack, belt and screw coupling
+would need links of our own); setting conflicting equations aside as
+OndselSolver does.
 
 ### 6.4 Where Python must change
 

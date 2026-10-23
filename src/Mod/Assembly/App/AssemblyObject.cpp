@@ -1340,17 +1340,6 @@ std::unique_ptr<Solver::Model> AssemblyObject::makeMbdAssembly()
     auto assembly = std::make_unique<Solver::Model>();
     simulationSpec.reset();
 
-    ParameterGrp::handle hPgr = App::GetApplication().GetParameterGroupByPath(
-        "User parameter:BaseApp/Preferences/Mod/Assembly"
-    );
-
-    // TEMPORARY, for the identity gate (docs/AssemblySolverInterface.md sec 6.2).
-    legacyBuilder = hPgr->GetBool("SolverLegacyBuilder", false);
-    if (legacyBuilder) {
-        mbdAssembly = legacy_makeMbdAssembly();
-        return assembly;
-    }
-
     // Status, drag and playback still read the ASMT model (until step 4 of
     // sec 6.3): a build starts it empty, as it always did, until
     // makeMbdModel() hands it the model built.
@@ -1365,18 +1354,16 @@ void AssemblyObject::makeMbdModel()
         "User parameter:BaseApp/Preferences/Mod/Assembly"
     );
 
-    if (!legacyBuilder) {
-        auto asmt = Solver::Ondsel::toAsmt(
-            *solverModel,
-            simulationSpec.get(),
-            hPgr->GetBool("LogSolverDebug", Assembly::AssemblyParams::defaultLogSolverDebug())
-        );
-        mbdAssembly = asmt.assembly;
-        mbdAssembly->externalSystem->freecadAssemblyObject = this;
-        for (auto& entry : objectPartMap) {
-            MbDPartData& data = entry.second;
-            data.part = data.body < asmt.parts.size() ? asmt.parts[data.body] : nullptr;
-        }
+    auto asmt = Solver::Ondsel::toAsmt(
+        *solverModel,
+        simulationSpec.get(),
+        hPgr->GetBool("LogSolverDebug", Assembly::AssemblyParams::defaultLogSolverDebug())
+    );
+    mbdAssembly = asmt.assembly;
+    mbdAssembly->externalSystem->freecadAssemblyObject = this;
+    for (auto& entry : objectPartMap) {
+        MbDPartData& data = entry.second;
+        data.part = data.body < asmt.parts.size() ? asmt.parts[data.body] : nullptr;
     }
 
     // Every model handed to the solver, as ASMT text: the identity gate's
@@ -1820,11 +1807,6 @@ std::unordered_set<App::DocumentObject*> AssemblyObject::fixGroundedParts()
 
 void AssemblyObject::fixGroundedPart(App::DocumentObject* obj, Base::Placement& plc, std::string& name)
 {
-    if (legacyBuilder) {
-        legacy_fixGroundedPart(obj, plc, name);
-        return;
-    }
-
     if (!obj) {
         return;
     }
@@ -2081,11 +2063,6 @@ bool AssemblyObject::isPartConnected(App::DocumentObject* obj)
 
 void AssemblyObject::jointParts(std::vector<App::DocumentObject*> joints)
 {
-    if (legacyBuilder) {
-        legacy_jointParts(joints);
-        return;
-    }
-
     for (auto* joint : joints) {
         if (!joint) {
             continue;
@@ -2100,11 +2077,6 @@ void AssemblyObject::jointParts(std::vector<App::DocumentObject*> joints)
 
 void Assembly::AssemblyObject::create_mbdSimulationParameters(App::DocumentObject* sim)
 {
-    if (legacyBuilder) {
-        legacy_create_mbdSimulationParameters(sim);
-        return;
-    }
-
     auto mbdSim = std::make_unique<Solver::SimulationSpec>();
     if (!sim) {
         return;
@@ -2824,10 +2796,6 @@ bool AssemblyObject::isMbDJointValid(App::DocumentObject* joint)
 
 AssemblyObject::MbDPartData AssemblyObject::getMbDData(App::DocumentObject* part)
 {
-    if (legacyBuilder) {
-        return legacy_getMbDData(part);
-    }
-
     auto it = objectPartMap.find(part);
     if (it != objectPartMap.end()) {
         // part has been associated with an ASMTPart before

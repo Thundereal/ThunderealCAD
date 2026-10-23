@@ -1,23 +1,41 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
 """The identity gate of the solver interface (docs/AssemblySolverInterface.md sec 6.2).
 
-Every case builds one document and hands it to the solver through two
-builders in the same process: the one that emits the solver-neutral model
-(Assembly::Solver::Model, turned into OndselSolver's ASMT model by the
-adapter) and the pre-interface one that wrote the ASMT model directly
-(App/Solver/LegacyBuilder.cpp, selected by the preference SolverLegacyBuilder).
-The two must give the same solver input, byte for byte (the ASMT text: the
-export, and the dump of every model the solver is handed), and the same
-results, bit for bit (placements after a solve, after each drag step, at
-each simulation frame; return codes and the solve status).
+Every case builds a document, hands it to the solver -- an ASMT export, a
+static solve, a drag, a simulation -- and checks the result against the
+references recorded in SolverGateReference.json:
 
-Same process matters: grounded parts come from an unordered_set of pointers,
-so their order -- and with it OndselSolver's column order -- differs from one
-run to the next, never within one.
+- the solver input, as OndselSolver's ASMT text (the export, and the model
+  of every solve, drag and simulation, which the preference SolverDumpFile
+  writes out), by SHA-256;
+- the placement of every object after the solve, after each drag step and at
+  each simulation frame, within 1e-9;
+- the return codes, the solve status and the drag status, exactly.
+
+The references were recorded on 2026-10-23 from the builder that wrote the
+ASMT model directly, in the same process as the builder that emits the
+solver-neutral model, and the two agreed byte for byte and bit for bit (sec
+6.3 step 3; that in-process comparison is commit 09ce3133a3). So a change
+that alters what the solver is given, or what it gives back, fails here.
+
+Grounded parts come from an unordered_set of pointers, so their order -- in
+the ASMT text, and in OndselSolver's columns -- differs from run to run. The
+text is compared with the grounded entries sorted (assembly markers, the
+leading grounded parts, the leading grounding joints), everything else in
+order; placements with a tolerance, since the column order can move the last
+bits.
+
+To re-record after a change that is meant to alter the solver input or its
+results: run with ASM_SOLVER_GATE_RECORD=1; the file in the source tree is
+rewritten (SolverGateReference.json beside this file, or the path the
+variable gives if it is not "1"). The references are this platform's: on
+another platform the gate skips.
 """
 
-import math
+import hashlib
+import json
 import os
+import sys
 import tempfile
 
 import FreeCAD as App
@@ -29,11 +47,126 @@ import UtilsAssembly
 from AssemblyTests.TestJoints import JointTestBase, plc, Z
 
 PREFS = "User parameter:BaseApp/Preferences/Mod/Assembly"
+TOL = 1e-9
+REFERENCE_NAME = "SolverGateReference.json"
 
 
-def placement_key(p):
-    """A placement as exact numbers."""
-    return (p.Base.x, p.Base.y, p.Base.z) + tuple(p.Rotation.Q)
+def source_reference_path():
+    """The reference file in the source tree (this file is copied into the build)."""
+    here = os.path.dirname(os.path.abspath(__file__))
+    env = os.environ.get("ASM_SOLVER_GATE_RECORD", "")
+    if env and env != "1":
+        return env
+    # build/<tree>/Mod/Assembly/AssemblyTests -> src/Mod/Assembly/AssemblyTests
+    src = os.path.join(App.getHomePath(), "..", "..", "src", "Mod", "Assembly", "AssemblyTests")
+    src = os.path.normpath(src)
+    if os.path.isdir(src):
+        return os.path.join(src, REFERENCE_NAME)
+    return os.path.join(here, REFERENCE_NAME)
+
+
+RECORDING = bool(os.environ.get("ASM_SOLVER_GATE_RECORD"))
+_references = None
+_recorded = {}
+
+
+def references():
+    global _references
+    if _references is None:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), REFERENCE_NAME)
+        with open(path) as f:
+            _references = json.load(f)
+    return _references
+
+
+def record(key, value):
+    """Adds one case to the reference file (record mode)."""
+    path = source_reference_path()
+    data = {"platform": sys.platform, "cases": {}}
+    if os.path.exists(path):
+        with open(path) as f:
+            data = json.load(f)
+    data["platform"] = sys.platform
+    data["cases"][key] = value
+    data["cases"] = dict(sorted(data["cases"].items()))
+    with open(path, "w", newline="\n") as f:
+        json.dump(data, f, indent=1, sort_keys=False)
+        f.write("\n")
+
+
+# ---------------------------------------------------------------- ASMT text
+
+
+def parse_tree(lines):
+    """ASMT text as (line, children) nodes by tab indentation."""
+    root = ("", [])
+    stack = [(-1, root)]
+    for line in lines:
+        depth = len(line) - len(line.lstrip("\t"))
+        node = (line, [])
+        while stack[-1][0] >= depth:
+            stack.pop()
+        stack[-1][1][1].append(node)
+        stack.append((depth, node))
+    return root
+
+
+def flatten(node, out):
+    out.append(node[0])
+    for child in node[1]:
+        flatten(child, out)
+    return out
+
+
+def node_text(node):
+    return "\n".join(flatten(node, []))
+
+
+def child(node, name):
+    for c in node[1]:
+        if c[0].strip() == name:
+            return c
+    return None
+
+
+def sort_leading(children, is_grounded):
+    """The leading run of grounded entries sorted; the rest kept in order."""
+    n = 0
+    while n < len(children) and is_grounded(children[n]):
+        n += 1
+    return sorted(children[:n], key=node_text) + children[n:]
+
+
+def canonical_asmt(data):
+    """The ASMT text with the grounded entries, whose order varies by run, sorted."""
+    text = data.decode("ascii").replace("\r\n", "\n")
+    root = parse_tree([l for l in text.split("\n") if l != ""])
+    asm = child(root, "Assembly")
+    if asm is None:
+        return text
+    refpoints = child(asm, "RefPoints")
+    if refpoints is not None:
+        refpoints[1].sort(key=node_text)
+    parts = child(asm, "Parts")
+    if parts is not None:
+        parts[1][:] = sort_leading(parts[1], lambda n: "FixingMarker" in node_text(n))
+    sets = child(asm, "ConstraintSets")
+    joints = child(sets, "Joints") if sets is not None else None
+    if joints is not None:
+        joints[1][:] = sort_leading(
+            joints[1], lambda n: "/OndselAssembly/marker-" in node_text(n)
+        )
+    return node_text(root) + "\n"
+
+
+def asmt_digest(data):
+    if data is None:
+        return None
+    return hashlib.sha256(canonical_asmt(data).encode("ascii")).hexdigest()
+
+
+def placement_values(p):
+    return [p.Base.x, p.Base.y, p.Base.z] + list(p.Rotation.Q)
 
 
 class SolverGateBase(JointTestBase):
@@ -41,21 +174,22 @@ class SolverGateBase(JointTestBase):
         super().setUp()
         self.p = App.ParamGet(PREFS)
         self._saved = (
-            self.p.GetBool("SolverLegacyBuilder", False),
             self.p.GetString("SolverDumpFile", ""),
             self.p.GetBool("SolveOnRecompute", True),
         )
         # The gate decides when to solve.
         self.p.SetBool("SolveOnRecompute", False)
         self.tmp = tempfile.mkdtemp(prefix="fc_solver_gate_")
-        self.reset_hooks = []
         self.dump_file = os.path.join(self.tmp, "dump.asmt")
         self.p.SetString("SolverDumpFile", self.dump_file)
-        self.use_legacy(False)
+        self.reset_hooks = []
+        if not RECORDING:
+            ref = references()
+            if ref.get("platform") != sys.platform:
+                self.skipTest("references recorded on %s" % ref.get("platform"))
 
     def tearDown(self):
-        legacy, dump, solve_on_recompute = self._saved
-        self.p.SetBool("SolverLegacyBuilder", legacy)
+        dump, solve_on_recompute = self._saved
         if dump:
             self.p.SetString("SolverDumpFile", dump)
         else:
@@ -67,9 +201,6 @@ class SolverGateBase(JointTestBase):
         super().tearDown()
 
     # ------------------------------------------------------------ plumbing
-
-    def use_legacy(self, legacy):
-        self.p.SetBool("SolverLegacyBuilder", legacy)
 
     def read(self, path):
         with open(path, "rb") as f:
@@ -94,8 +225,8 @@ class SolverGateBase(JointTestBase):
     def snapshot(self):
         return {n: App.Placement(o.Placement) for n, o in self.placed().items()}
 
-    def keys(self):
-        return {n: placement_key(o.Placement) for n, o in self.placed().items()}
+    def values(self):
+        return {n: placement_values(o.Placement) for n, o in sorted(self.placed().items())}
 
     def reset(self):
         """Clears what a run leaves behind for the next (see TestSolverGateRigid)."""
@@ -105,127 +236,117 @@ class SolverGateBase(JointTestBase):
 
     def restore(self, snap):
         for n, o in self.placed().items():
-            if n in snap and placement_key(o.Placement) != placement_key(snap[n]):
+            if n in snap and placement_values(o.Placement) != placement_values(snap[n]):
                 o.Placement = snap[n]
 
-    # ------------------------------------------------------------ one path
+    @staticmethod
+    def status(st):
+        return {k: (sorted(v) if isinstance(v, list) else v) for k, v in st.items()}
 
-    def export(self, legacy):
-        self.use_legacy(legacy)
-        path = os.path.join(self.tmp, "export_%d.asmt" % legacy)
+    # ------------------------------------------------------------ the runs
+
+    def export(self):
+        path = os.path.join(self.tmp, "export.asmt")
         self.assembly.exportAsASMT(path)
         text = self.read(path)
         os.remove(path)
         self.take_dump()
         return text
 
-    def solve_once(self, legacy):
-        self.use_legacy(legacy)
+    def solve_once(self):
         r = self.assembly.solve()
         dump = self.take_dump()
-        status = self.assembly.getSolveStatus()
-        return dict(ret=r, dump=dump, status=status, placements=self.keys())
+        return dict(
+            ret=r,
+            dump=asmt_digest(dump),
+            status=self.status(self.assembly.getSolveStatus()),
+            placements=self.values(),
+        )
 
-    def drag_once(self, legacy, part, targets):
-        self.use_legacy(legacy)
+    def drag_once(self, part, targets):
         self.assembly.preDrag([part], 10.0)
-        dumps = [self.take_dump()]
+        dump = asmt_digest(self.take_dump())
         steps = []
         for t in targets:
             part.Placement = t
             ok = self.assembly.doDragStep()
-            steps.append((ok, self.keys()))
+            steps.append(dict(ok=ok, placements=self.values()))
         self.assembly.postDrag()
-        steps.append(("post", self.keys()))
-        return dict(dumps=dumps, steps=steps, status=self.assembly.getDragStatus())
+        steps.append(dict(ok="post", placements=self.values()))
+        return dict(dump=dump, steps=steps, status=self.assembly.getDragStatus())
 
-    def simulate_once(self, legacy, sim):
-        self.use_legacy(legacy)
+    def simulate_once(self, sim):
         r = self.assembly.generateSimulation(sim)
-        dump = self.take_dump()
+        dump = asmt_digest(self.take_dump())
         frames = []
-        n = self.assembly.numberOfFrames()
-        for i in range(n):
+        for i in range(self.assembly.numberOfFrames()):
             self.assembly.updateForFrame(i)
-            frames.append(self.keys())
+            frames.append(self.values())
         return dict(ret=r, dump=dump, frames=frames)
 
     # ------------------------------------------------------------ the gate
 
-    def assertSame(self, a, b, what):
-        if a != b:
-            self.fail("%s differs between the legacy and the new builder" % what)
-
-    def compare(self, what, run, keys):
-        """run(legacy) on both builders: legacy until it repeats itself, new, legacy again.
-
-        A run may leave state behind that the next one starts from (the rigid
-        groups' placement cache: a restored member counts as moved), so the
-        legacy path first runs until two runs in a row agree; from there on
-        every run starts from the same state, and the new builder must give
-        exactly what the legacy one gives before and after it.
-        """
-        prev = run(True)
-        for _ in range(6):
-            cur = run(True)
-            if all(cur[k] == prev[k] for k in keys):
-                break
-            prev = cur
-        else:
-            self.fail("legacy %s does not repeat itself" % what)
-        new = run(False)
-        after = run(True)
-        for k in keys:
-            self.assertSame(cur[k], after[k], "legacy %s %s (before and after the new one)" % (what, k))
-            self.assertSame(cur[k], new[k], "%s %s" % (what, k))
-        return new
-
-    def gate(self, drag=None, sim=None):
-        """Both builders on this document: identical input, identical results."""
+    def gate(self, drag=None, sim=None, label=""):
+        """Hands this document to the solver every way it can be, and checks the record."""
         self.doc.recompute()
         start = self.snapshot()
+        result = {}
 
-        # The export (no solve). A first build may reorder references in the
-        # document (swapJCS, limit swaps); the legacy path runs on both sides
-        # of the new one, so that cannot hide a difference.
-        old1 = self.export(True)
-        new = self.export(False)
-        old2 = self.export(True)
-        self.assertGreater(len(new), 500)
-        self.assertSame(old1, old2, "legacy export (run twice)")
-        self.assertSame(old1, new, "the ASMT export")
+        text = self.export()
+        self.assertGreater(len(text), 500)
+        result["export"] = asmt_digest(text)
 
-        def solve(legacy):
+        if sim is not None:
             self.reset()
             self.restore(start)
-            return self.solve_once(legacy)
+            result["simulation"] = self.simulate_once(sim)
+            self.assertEqual(result["simulation"]["ret"], 0)
+            self.assertGreater(len(result["simulation"]["frames"]), 2)
 
-        new = self.compare("solve", solve, ("ret", "dump", "status", "placements"))
-        self.assertIsNotNone(new["dump"])
+        self.reset()
+        self.restore(start)
+        result["solve"] = self.solve_once()
+        self.assertIsNotNone(result["solve"]["dump"])
         solved = self.snapshot()
 
         if drag is not None:
             part, targets = drag
+            self.reset()
+            self.restore(solved)
+            result["drag"] = self.drag_once(part, targets)
+            self.assertIsNotNone(result["drag"]["dump"])
 
-            def drag_run(legacy):
-                self.reset()
-                self.restore(solved)
-                return self.drag_once(legacy, part, targets)
+        key = self.id().split(".", 2)[-1] + ("[%s]" % label if label else "")
+        if RECORDING:
+            record(key, result)
+            return
+        expected = references()["cases"].get(key)
+        self.assertIsNotNone(expected, "no reference recorded for %s" % key)
+        self.check(expected, json.loads(json.dumps(result)), key, text)
 
-            new = self.compare("drag", drag_run, ("dumps", "steps", "status"))
-            self.assertIsNotNone(new["dumps"][0])
-
-        if sim is not None:
-
-            def sim_run(legacy):
-                self.reset()
-                self.restore(start)
-                return self.simulate_once(legacy, sim)
-
-            new = self.compare("simulation", sim_run, ("ret", "dump", "frames"))
-            self.assertEqual(new["ret"], 0)
-            self.assertGreater(len(new["frames"]), 2)
-        self.use_legacy(False)
+    def check(self, expected, actual, where, export_text):
+        """Digests and statuses exactly, placements within TOL."""
+        if isinstance(expected, dict):
+            self.assertIsInstance(actual, dict, where)
+            self.assertEqual(sorted(expected), sorted(actual), "%s: keys" % where)
+            for k in expected:
+                self.check(expected[k], actual[k], "%s/%s" % (where, k), export_text)
+        elif isinstance(expected, list) and expected and isinstance(expected[0], float):
+            self.assertEqual(len(expected), len(actual), where)
+            for e, a in zip(expected, actual):
+                self.assertLessEqual(abs(e - a), TOL, "%s: %r != %r" % (where, actual, expected))
+        elif isinstance(expected, list):
+            self.assertEqual(len(expected), len(actual), where)
+            for i, (e, a) in enumerate(zip(expected, actual)):
+                self.check(e, a, "%s[%d]" % (where, i), export_text)
+        elif expected != actual and where.endswith("/export"):
+            # Keep the text a failure was about, for a diff against a re-record.
+            path = os.path.join(tempfile.gettempdir(), "solver_gate_failed.asmt")
+            with open(path, "w", newline="\n") as f:
+                f.write(canonical_asmt(export_text))
+            self.fail("%s: the ASMT export changed (canonical text in %s)" % (where, path))
+        else:
+            self.assertEqual(expected, actual, where)
 
 
 class TestSolverGateJoints(SolverGateBase):
@@ -247,7 +368,7 @@ class TestSolverGateJoints(SolverGateBase):
                 self.tearDown()
                 self.setUp()
                 self.pair_joint(jtype, **props)
-                self.gate()
+                self.gate(label="%s%s" % (jtype, props))
 
     def gear_pair(self, jtype):
         g = self.box("G")
@@ -269,7 +390,7 @@ class TestSolverGateJoints(SolverGateBase):
                 target = App.Placement(App.Vector(), App.Rotation(Z, 20), App.Vector(0, 0, 10)).multiply(
                     a.Placement
                 )
-                self.gate(drag=(a, [target]))
+                self.gate(drag=(a, [target]), label=jtype)
 
     def test_coaxial_gear_with_carrier(self):
         """Two gears on one axis of a common carrier: the gear joint gets marker K."""
@@ -281,7 +402,7 @@ class TestSolverGateJoints(SolverGateBase):
         self.joint("Revolute", (g, ["Face6"]), plc(0, 0, 25), (b, ["Face5"]), plc())
         self.joint("Gears", (a, ["Face1"]), plc(), (b, ["Face1"]), plc(), Distance=10.0, Distance2=5.0)
         self.doc.recompute()
-        self.assertIn(b"MarkerK", self.export(False))
+        self.assertIn(b"MarkerK", self.export())
         self.gate()
 
     def test_screw(self):
@@ -363,7 +484,7 @@ class TestSolverGateDistance(SolverGateBase):
                 self.setUp()
                 f = self.fixtures()
                 self.distance_joint((f[ref1[0]], ref1[1]), (f[ref2[0]], ref2[1]), d)
-                self.gate()
+                self.gate(label=name)
 
 
 class TestSolverGateLimits(SolverGateBase):

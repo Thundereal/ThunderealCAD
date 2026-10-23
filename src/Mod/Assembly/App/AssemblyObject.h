@@ -289,41 +289,6 @@ public:
     }
     fastsignals::signal<void()> signalSolverUpdate;
 
-    // TEMPORARY, for the identity gate (docs/AssemblySolverInterface.md sec 6.2):
-    // the pre-interface builder in Solver/LegacyBuilder.cpp, selected by the
-    // preference Mod/Assembly/SolverLegacyBuilder.
-    bool legacyBuilder {false};
-    std::shared_ptr<MbD::ASMTAssembly> legacy_makeMbdAssembly();
-    void legacy_create_mbdSimulationParameters(App::DocumentObject* sim);
-    std::shared_ptr<MbD::ASMTPart> legacy_makeMbdPart(
-        std::string& name,
-        Base::Placement plc = Base::Placement(),
-        double mass = 1.0
-    );
-    std::shared_ptr<MbD::ASMTPart> legacy_getMbDPart(App::DocumentObject* obj);
-    MbDPartData legacy_getMbDData(App::DocumentObject* part);
-    std::shared_ptr<MbD::ASMTMarker> legacy_makeMbdMarker(std::string& name, Base::Placement& plc);
-    std::vector<std::shared_ptr<MbD::ASMTJoint>> legacy_makeMbdJoint(App::DocumentObject* joint);
-    std::shared_ptr<MbD::ASMTJoint> legacy_makeMbdJointOfType(
-        App::DocumentObject* joint,
-        JointType jointType
-    );
-    std::shared_ptr<MbD::ASMTJoint> legacy_makeMbdJointDistance(App::DocumentObject* joint);
-    std::string legacy_handleOneSideOfJoint(
-        App::DocumentObject* joint,
-        const char* propRefName,
-        const char* propPlcName,
-        const std::string& markerName = std::string()
-    );
-    void legacy_getRackPinionMarkers(
-        App::DocumentObject* joint,
-        std::string& markerNameI,
-        std::string& markerNameJ
-    );
-    void legacy_jointParts(std::vector<App::DocumentObject*> joints);
-    void legacy_fixGroundedPart(App::DocumentObject* obj, Base::Placement& plc, std::string& jointName);
-    bool legacy_isMbDJointValid(App::DocumentObject* joint);
-
 private:
     void rebuildRigidClusters();
     App::DocumentObject* getRigidRepresentative(App::DocumentObject* part) const;

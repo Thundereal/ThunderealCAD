@@ -20,7 +20,8 @@ question is the one that holds.
 - **What is built** is said in the "as built" blocks at the end of each
   design section and in the audit, sec 37; **what is open** is 37.2
   (left as found; elaborated in 37.7; built in 37.8-37.12, nothing left), the
-  "Not built" lines of 35.11 and 36.6, and 34 (held).
+  "Not built" lines of 35.11 and 36.6, 34 (held), and 38 (a survey with
+  questions, nothing built).
 - A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
   found with `grep -n '^### 27.22\|^## 36' docs/TransactionLog.md`.
 
@@ -59,6 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6) | survey; nothing built |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -12048,6 +12050,9 @@ documents saved as folder"; the history in it, user: "go", the same day).
 - *Not built:* the save of the history alone (27.29), which rewrites the
   archive in place, still refuses a folder ("has no file to save its
   history into").
+- *Not safe against a crash:* a folder save killed part way can leave a
+  folder that does not open, or one that opens as a mix of two saves with
+  no word. Sec 38 measures it and proposes the fix.
 
 **The second pull of a file without history** extended the first pull's
 branch, which is closed once its save is written, and failed with "branch
@@ -24352,3 +24357,296 @@ kept on a value that goes is written full; then by count);
 recomputed 24 times, a budget of 4 values: the oldest 22 shapes go, the
 newest stays, and 22 undos back past the hot window give length 12's
 shape after a recompute).
+
+## 38. A document as a folder, the format the log wants: survey, probes, questions (2026-10-24)
+
+The user, 2026-10-24: "I got the feeling that with transaction log, deal
+with directory is better than archive file, if we can get things right",
+then "Write the doc for the folder save now". This section is the survey,
+the probes and the questions. Nothing in it is built. The probes are in
+`~/.cache/lv-merge/probe38/`.
+
+### 38.1 Why a folder suits the log
+
+An archive is rewritten whole on every save: a zip's central directory is
+at its end, so no entry can grow or be replaced in place. That is why
+13.3 copies the whole history into the file at each save (`VACUUM INTO`,
+bounded by 37.5 P1), and why appending to it was never on the table. A
+folder has neither limit, since its files are independent of each other.
+Five things could follow from that:
+
+1. **A save that costs what changed.** The log knows which objects changed
+   since the last save. A folder can write those files alone, where an
+   archive has to write every entry.
+2. **Blobs written once.** Blobs are known by their content hash already.
+   In a folder one need never be written twice, and the old blobs a
+   version or a pin refers to stay where they are for nothing.
+3. **The history not copied whole.** The folder's own database can take
+   the rows since the last save, where the archive needs a full copy.
+4. **Reading what is needed.** An object or a version can be read from its
+   own files, with no archive index to go through. 35.15's G3, opening a
+   branch tip only in part, would be easy.
+5. **Other tools see it.** Git, diff and backup tools see one XML file per
+   object and blobs that do not change.
+
+What 38.2 and 38.3 found: 2 is built already, 1 and 3 are not, and a
+folder save today is slower than an archive save and not safe against a
+crash (38.4).
+
+### 38.2 What a folder save is today (survey)
+
+The format is this fork's (1dfd9b93c9, 2019).
+
+- **The write.** `Document::saveToFile`:
+  - **An archive** is written to `<file>.<uuid>` and renamed over the file
+    (`BackupPolicy`, with the `.FCBak` copies).
+  - **A folder** is written by `Base::FileWriter` into the folder in place.
+    Each entry is opened with truncation. There is no temporary file and no
+    backup: the policy is off for a folder.
+- **The order**, from the mtimes of a save:
+  1. `Document.xml`. It is opened, truncated, before the object pass and
+     closed when the first blob is written, so it sits truncated or half
+     written through the whole object pass.
+  2. `blobs/`: the index `Content.xml` first, then the content files, then
+     `History.db` (29.8).
+  3. The split files: one `<Name>.xml` per object (`SplitXML`, on by
+     default), named from `Document.xml` by a `file=` attribute. The Gui
+     splits its view providers the same way (`Gui/Document.cpp`).
+  4. The sweep (`AutoRemoveFile`, on by default) deletes the files this
+     save did not write.
+- **Blobs are already written once.** `FileBlobManager::writeBlobs` reads
+  the index in the folder and skips a name whose recorded hash is the
+  content's and whose file exists. The names are derived: after the first
+  holder (`Box0.Shape.brp`), or after the hash when that name is taken. So
+  a name can mean other bytes after a save, and only the index says what
+  it holds. An object names its blob by hash (`<Part ... hash="...">`),
+  never by file.
+- **Object files are not.** Every object is serialised and its file
+  rewritten at every save. An unchanged one comes out byte for byte the
+  same: in the probe, a save of a one-box edit rewrote 606 of 616 files,
+  and 6 of them differed.
+- **String ids are stable across saves.** A save's compaction (27.50,
+  27.51) drops ids and renumbers none. An unchanged object's file
+  therefore stays valid against the next save's table.
+- **The history** (29.8) is the bounded `VACUUM INTO` copy, kept as
+  `blobs/History.db`. Its bytes change at every save, so it is rewritten
+  whole every time.
+- **The read is eager.** An open reads `Document.xml` and every object's
+  file. It copies every file under `blobs/` into the transient store
+  (`restoreFromDirectory`, by `insertFile`). The deferred read
+  (`DeferShapeLoad`) is the archive's only. Once an open returns, nothing
+  in the folder is read again, except by a pull (29.8), which copies the
+  folder under the save lock. An open takes no lock.
+
+### 38.3 What a save costs (measured)
+
+**The cost of a save** (`cost.py`):
+- Boxes, the timed saves each following an edit of one box's length, 10 of
+  each, mode 2 with the history in the file, mode 1 without.
+- An archive's size is the file as compressed; "history" is its database
+  unpacked. A folder's size counts every file, its history included.
+
+| Objects | Form | History | Size | Of it, history | Save, median |
+| ---: | --- | --- | ---: | ---: | ---: |
+| 60 | archive | in it | 82 KB | 224 KB | 43.5 ms |
+| 60 | folder | in it | 660 KB | 304 KB | 50.4 ms |
+| 60 | archive | none | 28 KB | -- | 22.1 ms |
+| 60 | folder | none | 354 KB | -- | 27.9 ms |
+| 600 | archive | in it | 526 KB | 1028 KB | 279.6 ms |
+| 600 | folder | in it | 5086 KB | 1768 KB | 349.5 ms |
+| 600 | archive | none | 189 KB | -- | 202.5 ms |
+| 600 | folder | none | 3317 KB | -- | 260.2 ms |
+
+**Where the time goes** (`phases.py`):
+- The save's own phase line (`FC_LOG "save <doc>: ..."`), at 600 boxes.
+- Saves 2-4 after the `saveAs`, with logging on. The first save after a
+  `saveAs` is an outlier at 440-490 ms.
+- The "object pass" column includes the beforeSave column.
+
+| Form, history | Save | History copy (collect) | Object pass | Of it, each object's `beforeSave` | Blobs | Files |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| archive, in it | 254-260 ms | 78-83 | 159-162 | 127-130 | 6 | 5 |
+| folder, in it | 325-339 ms | 118-123 | 132-141 | 128-137 | 7-9 | 56-60 |
+| archive, none | 202-211 ms | 19-28 | 164-168 | 133-136 | 5-9 | 5-6 |
+| folder, none | 258-272 ms | 41-47 | 130-133 | 128-130 | 14-15 | 61-65 |
+
+What the tables say:
+- **A folder save is slower than an archive save,** by 50-70 ms at 600
+  boxes. Most of that is the 600 object files written one by one (the
+  files phase, 57 ms against 5). The rest is a longer collect.
+- **Neither costs what changed.** In both, each object's `beforeSave` is
+  half the save, 0.2 ms a box, and it runs for every object, changed or
+  not.
+- **The history copy** is the collect with the history in it, less the
+  collect without it: about 55 ms in an archive and 75 ms in a folder at
+  600 boxes. It grows with the history, which P1 bounds, not with the
+  change.
+- **A folder is ten times the archive on disk.** Its XML is uncompressed,
+  5.4 KB a box, and the split layout writes no class-defaults block. That
+  is by choice: per `Document.cpp`, a shared block would make every object
+  file depend on a record for the whole document.
+
+### 38.4 A folder save killed part way (probes)
+
+**Kills at random** (`crash.py`, `crashrun.py`):
+- 600 boxes, every box's length changed, then the save killed at a
+  random moment by SIGKILL, and the folder opened in a fresh process.
+- Of 20 rounds, 11 kills came after the save had finished. Of the 9 that
+  came during it:
+  - **5** left the folder as it was. The save had not written yet.
+  - **3** left a folder that does not open: "Error reading project file",
+    with `Document.xml` torn.
+  - **1** opened, without a word, as 225 boxes at the old length and 375
+    at the new.
+
+**Torn by hand** (`tear.py`): each stage of the write order built from two
+whole saves (every box at 10, then every box at 11), and opened in a fresh
+process.
+
+| State | Opens as |
+| --- | --- |
+| `Document.xml` half written | Nothing: an XML parse error. |
+| `Document.xml` new, the rest old | The old lengths. The new `Document.xml` names a save the old `History.db` does not know, so the guard (13.3) keeps the history as closed branches and starts a new `main`. The history looks gone, though it is all there. |
+| `Document.xml` and `blobs/` new (so `History.db` too), the object files old | The old lengths, with no word. Its history says the version opened is the save of the new ones. |
+| Half the object files new | 300 boxes at 10 and 300 at 11, with no word. The history is as in the row above. |
+| Every file new but the last object's, cut in half | It opens. That object is half read, its shape no longer matching its length, and the report view shows a parse error. |
+| Every file new | The new lengths. |
+
+- **An archive does not have these states.** Its save writes a temporary
+  file and renames it, so a kill leaves the old file or the new one.
+- **The silent mixes are the worst.** The document opens as a state
+  nobody saved, and the history names the save that was cut short. A
+  later save would record the mix as the next version: in the half-new
+  case, as 300 boxes put back to their old length.
+- **Another process opening the folder during a save** reads the same
+  states, since an open takes no lock.
+- **Not run:** crash recovery (25) of a folder document.
+
+### 38.5 Proposed shape, in three stages
+
+**S1: `Document.xml` is the save's one commit point.**
+1. **Every other file is written under a name no earlier save used for
+   other bytes**:
+   - An object file is `<Name>.<h>.xml`, where `h` is a short hash of its
+     bytes. The same bytes give the same name, and that file is not written
+     again. `Document.xml` names it by `file=` already, so the reader needs
+     no change.
+   - A blob is `blobs/<hash>.<ext>`, and so is the history's database. It
+     is never rewritten, and no name ever comes to hold other bytes.
+   - The string table is `StringTable.<h>.txt`. `Document.xml` names the
+     table by its reference already.
+   - The index `blobs/Content.xml` keeps its fixed name, so builds that
+     read it by that name still do (Q2). It is written to a temporary file
+     and renamed into place before `Document.xml`. It lists the blobs of
+     the new save and of the previous one, so whichever `Document.xml` is
+     on disk finds its blobs in it.
+2. **`Document.xml` is written last**, to a temporary file in the folder,
+   then renamed over the old one, as the marker is (`QSaveFile`). That
+   rename is the save.
+3. **The sweep runs after the rename, under the save lock.** It deletes
+   only what neither the new `Document.xml` nor the previous one names. A
+   reader that started before the rename finds every file it reads. An
+   open takes the save lock shared: boost's `file_lock` has
+   `lock_sharable`, the same lock file as 29.8. So no sweep runs while an
+   open is reading.
+4. **What a crash then leaves:**
+   - Before the rename: the old save, whole, plus files that no
+     `Document.xml` names. The next save sweeps those.
+   - After the rename: the new save, whole.
+- **Durability.** No fsync, as for the archive today. That is safe against
+  a crash of the process; a power loss is left to the file system, as an
+  archive's rename is (Q5).
+- **Windows.** A rename over `Document.xml` fails while another program
+  holds it open without delete sharing. The shared lock keeps our own
+  opens away, but a sync client or a virus scanner may still hold it, so
+  the rename retries the way `writeMarker` does (50 x 10 ms).
+- **What it costs.** Nothing extra at the write. Fewer files are written:
+  only those whose bytes changed, so the files phase of 38.3 drops to the
+  changed objects. An open copies every file under `blobs/`, so it also
+  copies the previous save's blobs until they are swept, unless it reads
+  only the blobs the index names, which is a small change.
+- **An older build of this fork** reads such a folder by the `file=`
+  names and the index. When it saves, it writes its fixed names, and its
+  sweep deletes the files it read and did not write. The folder simply
+  returns to the old layout.
+
+**S2: a save writes only what changed.**
+- **What is skipped.** For an object the log says is unchanged since this
+  folder's last save, the save skips its `beforeSave`, its serialisation
+  and its file. `Document.xml` keeps the file name from the last save.
+- **What "unchanged" means:**
+  - no op on the object, on any of its properties or on its view
+    provider, between the version of the last save and now;
+  - the folder's stamp is this document's own, so no pull merged anything
+    into it (29.8);
+  - the save's options are the same: schema, `ForceXML`, `PreferBinary`.
+  Anything else is serialised.
+- **The log's save record.** The version is the previous one with the
+  changed objects' entries replaced, which is how the log keeps a version
+  already (23.3). The capture then sees only the changed objects.
+- **A check mode**, a developer preference, serialises every object anyway
+  and compares the bytes. The gates run with it on.
+- **Before building:** check `beforeSave` by property type. Any work it
+  does beyond the object's own bytes has to come from the kept state
+  instead: for example a store for the whole document collecting what the
+  objects made ready (`docs/SharedShapeStorage.md`).
+- **The gain.** At 600 boxes, the object pass (130-165 ms) and the files
+  phase (57 ms) drop to the changed objects. What remains is
+  `Document.xml`'s own pass and the history, which S3 decides. To be
+  measured when built.
+
+**S3: the history at a save.** Two ways:
+- **(a) Appended at the save.** The folder's database is a file of its
+  own, `history.db` beside `Document.xml`, not a blob.
+  1. At a save, under the save lock, the rows since the last save and the
+     new version go into it in one SQLite transaction. It uses a rollback
+     journal, not WAL: no shared-memory file, and one file once closed.
+  2. Then S1's rename of `Document.xml`.
+
+  A crash between the two leaves the database one version ahead of
+  `Document.xml`. The open takes the version that `Document.xml` names.
+  The rows after it are a tail offered as recovery (25), never shown as
+  the saved state. The cost is the rows since the last save, not the
+  whole history. P1's bound becomes a trim in place (16.7), with a
+  `VACUUM` now and then.
+  - The history-only save (27.29), which refuses a folder today (29.8,
+    "Not built"), is then this append with no `Document.xml` written.
+  - The pull of 29.8 could later read the other process's rows from that
+    database instead of importing a copy of the folder.
+- **(b) Live in the folder.** The process's store is the folder's database:
+  13.3's `local`, kept in the folder. Every commit is written there.
+  Nothing happens at a save, and a crash loses nothing. Against it:
+  - SQLite's WAL needs shared memory, and SQLite says it does not work over
+    a network file system. A rollback journal on NFS or SMB is only as good
+    as the share's locking.
+  - A sync client (Dropbox, OneDrive) copies the database in the middle of
+    a transaction. It can upload a torn file or make conflict copies.
+  - Every edit lands in a shared folder, saved or not, against 13.3's
+    privacy points.
+  - Two processes would share one store. That is 29.7's shape (b), against
+    the ruling (29.8, Q1).
+
+### 38.6 Questions
+
+| | Question | Recommended |
+| --- | --- | --- |
+| Q1 | Build S1 | **Yes, first.** It removes every state of 38.4's table but "old" and "new", on its own. |
+| Q2 | Older builds of this fork opening a folder S1 wrote | **They read it with no change**: the `file=` names are theirs already, and the index keeps its name and lists both saves' blobs (S1 item 1). No format version is bumped. |
+| Q3 | S2's "unchanged" | **From the log** (the ops since the last save's version, the stamp, the options), with the check mode on in the gates. |
+| Q4 | S3: (a) appended at the save, or (b) live in the folder | **(a).** (b) only if asked for, and then only for a folder on a local disk. |
+| Q5 | Power loss | **No fsync**, as the archive today. Otherwise: fsync the changed files and the temporary `Document.xml` before the rename. That costs a sync per changed file, to be measured. |
+| Q6 | A backup for a folder (the archive's `.FCBak`) | **None.** The previous save's files stay until the next save, and the history holds the versions (16). |
+| Q7 | The folder as the working format (open an archive into a folder, export an archive) | **Not now.** Ask again once S1-S3 are built and measured against 38.3. |
+
+### 38.7 Build order, once ruled
+
+1. **S1.** Tests:
+   - each state of 38.4's table, built by hand as `tear.py` does, opens as
+     the old save or the new;
+   - a save killed at random, as `crashrun.py` does;
+   - an open in a second process during a save;
+   - an older layout's folder saved over in the new one.
+2. **S2's survey of `beforeSave`,** then S2, with the check mode in the
+   gates. `cost.py` again.
+3. **S3 (a).** Then the history-only save of a folder (27.29).
+4. **Crash recovery (25) of a folder document,** run once S3 is in.

@@ -86,6 +86,8 @@ public:
     bool isLocked() const;
 
     static std::string lockPath(const std::string& file);
+    /// A SaveLock of this process holds the lock of `file` now.
+    static bool heldHere(const std::string& file);
 
 private:
     /// One try: true when taken, or when no lock can be made at all.
@@ -127,6 +129,33 @@ AppExport void remove(const std::string& file);
 /// "host (pid N) since <time>", for a message.
 AppExport std::string describe(const FileOpener& opener);
 }   // namespace FileOpeners
+
+/** A document saved as a folder goes in whole (docs/TransactionLog.md sec
+ * 38). The save writes into a stage beside the folder, `.~<name>.save`,
+ * laid out as the folder is. Once every entry is closed, commit() drops the
+ * staged files whose bytes the folder has already, writes the stage's
+ * record (what to delete), and only then moves the rest in, Document.xml
+ * last. A save cut short before the record leaves a stage that is thrown
+ * away; one cut short after it is moved in by the next open or save of the
+ * folder (recover()). All of it under the folder's SaveLock.
+ */
+namespace FolderSave
+{
+/// The stage beside `folder` (its canonical path when it has one).
+AppExport std::string stagePath(const std::string& folder);
+/// A stage left by a save that did not finish is there.
+AppExport bool pending(const std::string& folder);
+/// An empty stage for a save of `folder`, after recover().
+AppExport std::string freshStage(const std::string& folder);
+/// Move the staged save in; `removals` are files of the folder, relative to
+/// it, that the save no longer has. Throws Base::FileException when the
+/// record cannot be written (the folder is then as it was) or a file cannot
+/// be moved in (the next open or save finishes it).
+AppExport void commit(const std::string& folder, const std::vector<std::string>& removals);
+/// What a save cut short left: 1 a recorded stage moved in, -1 a stage with
+/// no record deleted, 0 none there.
+AppExport int recover(const std::string& folder);
+}   // namespace FolderSave
 
 }   // namespace App
 

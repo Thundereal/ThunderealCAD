@@ -1499,7 +1499,7 @@ const std::string& FileBlobManager::historyReferrer()
     return history;
 }
 
-void FileBlobManager::prune(const std::string& dir,
+void FileBlobManager::prune(Base::FileWriter& writer, const std::string& dir,
                             const std::map<std::string, BlobIndexEntry>& previous,
                             const std::set<std::string>& kept)
 {
@@ -1507,9 +1507,8 @@ void FileBlobManager::prune(const std::string& dir,
         if (kept.count(entry.first)) {
             continue;
         }
-        Base::FileInfo fi(dir + entry.first);
-        if (fi.exists()) {
-            fi.deleteFile();
+        if (Base::FileInfo(dir + entry.first).exists()) {
+            writer.dropFile(std::string(archivePrefix()) + entry.first);
         }
     }
 
@@ -1527,7 +1526,7 @@ void FileBlobManager::prune(const std::string& dir,
         if (kept.count(name) || !isContentAddressedName(name)) {
             continue;
         }
-        Base::FileInfo(dir + name).deleteFile();
+        writer.dropFile(std::string(archivePrefix()) + name);
     }
 }
 
@@ -1680,7 +1679,7 @@ void FileBlobManager::writeBlobs(Base::Writer& writer)
     }
 
     if (fileWriter) {
-        prune(dir, previous, kept);
+        prune(*fileWriter, dir, previous, kept);
     }
 
     // A save is one of the batches new content is written in (sec 15.7).

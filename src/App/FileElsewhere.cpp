@@ -26,6 +26,7 @@
 # include <chrono>
 # include <cstdio>
 # include <ctime>
+# include <filesystem>
 # include <mutex>
 # include <set>
 # include <sstream>
@@ -47,10 +48,14 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
+#include <QDirIterator>
 #include <QFile>
 #include <QFileInfo>
 #include <QSaveFile>
 #include <QSysInfo>
+
+#include <Base/Exception.h>
+#include <Base/FileInfo.h>
 
 #include "FileElsewhere.h"
 
@@ -359,6 +364,12 @@ std::string SaveLock::lockPath(const std::string& file)
     return beside(file, ".lock");
 }
 
+bool SaveLock::heldHere(const std::string& file)
+{
+    std::lock_guard<std::mutex> guard(heldMutex);
+    return heldPaths.count(lockPath(file)) > 0;
+}
+
 std::string FileOpeners::markerPath(const std::string& file)
 {
     return beside(file, ".open");
@@ -421,4 +432,192 @@ std::string FileOpeners::describe(const FileOpener& opener)
     if (std::tm* tm = std::localtime(&t))
         std::strftime(when, sizeof(when), "%Y-%m-%d %H:%M", tm);
     return opener.host + " (pid " + std::to_string(opener.pid) + ") since " + when;
+}
+
+namespace
+{
+
+/// The stage's record: written last, through a rename, so that a stage that
+/// has one holds a whole save.
+const char* const commitName = ".~commit";
+const char* const commitHeader = "FreeCAD folder save 1";
+
+std::filesystem::path fsPath(const QString& path)
+{
+#ifdef _WIN32
+    return std::filesystem::path(path.toStdWString());
+#else
+    return std::filesystem::path(path.toStdString());
+#endif
+}
+
+bool sameBytes(const QString& a, const QString& b)
+{
+    QFileInfo fa(a);
+    QFileInfo fb(b);
+    if (!fb.exists() || fa.size() != fb.size())
+        return false;
+    QFile ra(a);
+    QFile rb(b);
+    if (!ra.open(QIODevice::ReadOnly) || !rb.open(QIODevice::ReadOnly))
+        return false;
+    constexpr qint64 chunk = 1 << 16;
+    while (!ra.atEnd()) {
+        if (ra.read(chunk) != rb.read(chunk))
+            return false;
+    }
+    return true;
+}
+
+/// The staged files, relative to the stage, the record left out.
+QStringList stagedFiles(const QString& stage)
+{
+    QStringList files;
+    QDir root(stage);
+    QDirIterator it(stage, QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot,
+                    QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        const QString rel = root.relativeFilePath(it.next());
+        if (rel != QLatin1String(commitName))
+            files.push_back(rel);
+    }
+    return files;
+}
+
+/// A rename over a file another program holds open fails on Windows (a sync
+/// client, a scanner): retried a while, as the open marker's is.
+bool moveOver(const QString& from, const QString& to, std::string& why)
+{
+    for (int i = 0; i < 50; ++i) {
+        std::error_code ec;
+        std::filesystem::rename(fsPath(from), fsPath(to), ec);
+        if (!ec)
+            return true;
+        why = ec.message();
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    return false;
+}
+
+/// Move a recorded stage in. False when it has no record.
+bool rollForward(const QString& folder, const QString& stage)
+{
+    QFile record(QDir(stage).filePath(QLatin1String(commitName)));
+    if (!record.open(QIODevice::ReadOnly | QIODevice::Text))
+        return false;
+    QStringList removals;
+    bool header = true;
+    while (!record.atEnd()) {
+        QString line = QString::fromUtf8(record.readLine());
+        if (line.endsWith(QLatin1Char('\n')))
+            line.chop(1);
+        if (header) {
+            header = false;
+            if (line != QLatin1String(commitHeader))
+                return false;
+            continue;
+        }
+        if (line.startsWith(QLatin1String("remove ")))
+            removals.push_back(line.mid(7));
+    }
+    record.close();
+
+    // Document.xml last: what the folder is reads it first, so a reader that
+    // stamped it before reading sees, by the stamp after, that a save came
+    // in while it read (sec 38).
+    QStringList files = stagedFiles(stage);
+    const QString docXml = QStringLiteral("Document.xml");
+    if (files.removeAll(docXml))
+        files.push_back(docXml);
+    QDir target(folder);
+    for (const QString& rel : files) {
+        const QString to = target.filePath(rel);
+        target.mkpath(QFileInfo(to).absolutePath());
+        std::string why;
+        if (!moveOver(QDir(stage).filePath(rel), to, why)) {
+            THROWM(Base::FileException,
+                   ("the save is whole beside the folder but '" + rel.toStdString()
+                    + "' cannot be moved in (" + why
+                    + "); the next open or save of the folder finishes it")
+                       .c_str(),
+                   Base::FileInfo(folder.toStdString()));
+        }
+    }
+    for (const QString& rel : removals)
+        QFile::remove(target.filePath(rel));
+    record.remove();
+    QDir(stage).removeRecursively();
+    return true;
+}
+
+}   // namespace
+
+std::string FolderSave::stagePath(const std::string& folder)
+{
+    QFileInfo fi(QString::fromStdString(folder));
+    const QString canonical = fi.canonicalFilePath();
+    return beside(canonical.isEmpty() ? folder : canonical.toStdString(), ".save");
+}
+
+bool FolderSave::pending(const std::string& folder)
+{
+    return QFileInfo::exists(QString::fromStdString(stagePath(folder)));
+}
+
+int FolderSave::recover(const std::string& folder)
+{
+    const QString stage = QString::fromStdString(stagePath(folder));
+    if (!QFileInfo::exists(stage))
+        return 0;
+    QFileInfo fi(QString::fromStdString(folder));
+    const QString canonical = fi.canonicalFilePath();
+    if (rollForward(canonical.isEmpty() ? fi.absoluteFilePath() : canonical, stage))
+        return 1;
+    QDir(stage).removeRecursively();
+    return -1;
+}
+
+std::string FolderSave::freshStage(const std::string& folder)
+{
+    recover(folder);
+    const std::string stage = stagePath(folder);
+    if (!QDir().mkpath(QString::fromStdString(stage))) {
+        THROWM(Base::FileException, "cannot make the stage to save the folder in",
+               Base::FileInfo(stage));
+    }
+    return stage;
+}
+
+void FolderSave::commit(const std::string& folder, const std::vector<std::string>& removals)
+{
+    const QString stage = QString::fromStdString(stagePath(folder));
+    QFileInfo fi(QString::fromStdString(folder));
+    const QString canonical = fi.canonicalFilePath();
+    const QString target = canonical.isEmpty() ? fi.absoluteFilePath() : canonical;
+
+    // What the folder holds already stays as it is: not moved, not touched,
+    // its time unchanged for whatever watches the folder.
+    for (const QString& rel : stagedFiles(stage)) {
+        const QString staged = QDir(stage).filePath(rel);
+        if (sameBytes(staged, QDir(target).filePath(rel)))
+            QFile::remove(staged);
+    }
+
+    QSaveFile record(QDir(stage).filePath(QLatin1String(commitName)));
+    if (!record.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        THROWM(Base::FileException, "cannot write the record of the folder's save",
+               Base::FileInfo(folder));
+    }
+    QByteArray bytes(commitHeader);
+    bytes += '\n';
+    for (const auto& rel : removals) {
+        bytes += "remove ";
+        bytes += QByteArray::fromStdString(rel);
+        bytes += '\n';
+    }
+    if (record.write(bytes) != bytes.size() || !record.commit()) {
+        THROWM(Base::FileException, "cannot write the record of the folder's save",
+               Base::FileInfo(folder));
+    }
+    rollForward(target, stage);
 }

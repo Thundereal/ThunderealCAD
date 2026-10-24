@@ -39,6 +39,11 @@
 #include <FCGlobal.h>
 #include <Base/Persistence.h>
 
+namespace Base
+{
+class FileWriter;
+}
+
 namespace App
 {
 
@@ -745,8 +750,9 @@ private:
                                const std::vector<std::string>& referrers);
     /// Write the content index as the first entry of the blob directory.
     static void writeIndex(Base::Writer& writer, const std::vector<SaveEntry>& entries);
-    /// Remove the files the previous index listed and this save did not write.
-    static void prune(const std::string& dir,
+    /// Remove the files the previous index listed and this save did not write,
+    /// through the writer: a staged save removes them once it is in.
+    static void prune(Base::FileWriter& writer, const std::string& dir,
                       const std::map<std::string, BlobIndexEntry>& previous,
                       const std::set<std::string>& kept);
     /// Called from ~FileBlob: drop the map entry and unlink the file.

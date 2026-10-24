@@ -20,8 +20,8 @@ question is the one that holds.
 - **What is built** is said in the "as built" blocks at the end of each
   design section and in the audit, sec 37; **what is open** is 37.2
   (left as found; elaborated in 37.7; built in 37.8-37.12, nothing left), the
-  "Not built" lines of 35.11 and 36.6, 34 (held), and 38 (a survey with
-  questions, nothing built).
+  "Not built" lines of 35.11 and 36.6, 34 (held), and 38 (S1 built in
+  38.8; S2, S3 and the questions open).
 - A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
   found with `grep -n '^### 27.22\|^## 36' docs/TransactionLog.md`.
 
@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6) | survey; nothing built |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8) | S1 built; S2, S3 and Q2-Q7 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -12050,9 +12050,9 @@ documents saved as folder"; the history in it, user: "go", the same day).
 - *Not built:* the save of the history alone (27.29), which rewrites the
   archive in place, still refuses a folder ("has no file to save its
   history into").
-- *Not safe against a crash:* a folder save killed part way can leave a
-  folder that does not open, or one that opens as a mix of two saves with
-  no word. Sec 38 measures it and proposes the fix.
+- *Not safe against a crash* (until 38.8): a folder save killed part way
+  could leave a folder that does not open, or one that opens as a mix of
+  two saves with no word. Sec 38 measured it; 38.8 builds the fix.
 
 **The second pull of a file without history** extended the first pull's
 branch, which is closed once its save is written, and failed with "branch
@@ -24650,3 +24650,96 @@ process.
    gates. `cost.py` again.
 3. **S3 (a).** Then the history-only save of a folder (27.29).
 4. **Crash recovery (25) of a folder document,** run once S3 is in.
+
+### 38.8 S1 as built: the folder save goes in whole (2026-10-25)
+
+**Ruling (user, 2026-10-25):** "Continue stage 1", so Q1 is yes. Q2-Q7 are
+not ruled; what is built follows their recommendations where it touches
+them (no fsync, no backup, the reader unchanged).
+
+**Not as proposed: no new names.** 38.5's S1 gave every file but
+`Document.xml` a name of its own bytes. Building it showed why that does
+not hold. A property can add a data file of its own from inside its
+object's file (`writer.addFile` in `PropertyTopoShape` at schema 4, in
+`MeshProperties`, in `PropertyTopoShapeList`). An object's file then names
+a file that is written after it, so a name by hash would have to be
+patched into the files that name it, down a chain. Instead, every file
+keeps its name, and the save goes in through a stage:
+
+1. **The stage.** A folder save writes every entry into `.~<name>.save`,
+   beside the folder and laid out as it is (`Base::FileWriter::setStageDir`).
+   The stage is beside the folder, not in it, so nothing that reads the
+   folder (an open, a pull's copy, `FileHistory::openFile`) ever sees it.
+2. **Unchanged files stay.** When the save is whole, every staged file
+   whose bytes the folder has already is dropped from the stage. Such a
+   file is not moved and not touched: its time and inode are as they
+   were.
+3. **The record.** `.~commit` in the stage, written through a rename
+   (`QSaveFile`), lists what to delete: what the blob index no longer has
+   (`FileBlobManager::prune`, through `FileWriter::dropFile`, where it used
+   to delete during the save), and the files the last save wrote and this
+   one did not (`AutoRemoveFile`). Writing the record is the commit.
+4. **The move.** The rest is renamed into the folder (`std::filesystem::rename`,
+   retried 50 x 10 ms for Windows), `Document.xml` last. Then the deletions
+   run, and the stage goes.
+
+`App::FolderSave` in `FileElsewhere.cpp`: `freshStage`, `commit`, `recover`,
+`pending`, `stagePath`.
+
+**A save cut short.** Whatever finds a stage beside a folder settles it
+first: an open (`Document::restore`), a save (`save()` under its lock,
+before the look of 29.8), and a save-as (`freshStage`).
+- **A stage with a record** is moved in. The move is idempotent: a file
+  already moved is not in the stage any more.
+- **A stage without a record** is deleted, and the folder is the save
+  before it.
+- **The report view** says which it was.
+- **It runs under the folder's `SaveLock`**, so a live save's stage is
+  never taken for a dead one: a folder save now always holds the lock.
+  `save()` holds it already when it pulls; `saveToFile` takes it when this
+  process does not (`SaveLock::heldHere`), which covers a save-as and a
+  save with the pull off.
+
+**A read during another's save.** An open takes no lock. It stamps
+`Document.xml` before the read and again after it. A commit moves
+`Document.xml` in last, so a save that came in during the read changed the
+stamp, and the report view says so ("was saved by another process while
+it was read: ... Close it and open it again"). Not built: opening it
+again by itself.
+
+**Measured** (38.4's probes again, on the build):
+- **Killed at random**, 40 rounds (`crashrun.py`, `crashrun2.txt`; the span
+  is now measured right, so every kill lands in the save). In every round
+  the folder opened whole.
+  - **39** left a stage with no record. Each was thrown away, and the
+    folder opened as the save before.
+  - **1** came after the record (round 13). It was moved in at the open,
+    and the folder opened as the new save.
+  - **None** left a folder that does not open, or a mix.
+- **The cost of a save** (`cost.py`, `cost2.txt`):
+
+  | Objects, history | Folder before | Folder now | Archive (same run) |
+  | --- | ---: | ---: | ---: |
+  | 600, in it | 349.5 ms | 362.6 ms | 288.7 ms |
+  | 600, none | 260.2 ms | 276.3 ms | 220.4 ms |
+  | 60, in it | 50.4 ms | 53.1 ms | 44.3 ms |
+
+  - A one-box edit now touches 6 of 616 files (606 before).
+  - The time is within the run's noise: the archive rows moved 9-18 ms
+    the same way. The stage is written whole and compared, so this is no
+    faster; S2 is what makes it so.
+
+**Tests.**
+- gtest `FileElsewhereTest`:
+  - `aFolderSaveMovesInOnlyWhatChanged`: the unchanged file keeps its
+    stamp, a removal goes, the stage goes;
+  - `aStageWithoutItsRecordIsThrownAway`;
+  - `aRecordedStageIsMovedInEvenHalfMovedAlready`.
+- Python `FolderSaveCases`, with the stages built by hand from two whole
+  saves:
+  - a save moves in only what changed, and a removed object's file goes;
+  - a stage cut short before its record opens as the old save, without
+    the second save's row;
+  - one with its record, half moved in already, opens as the new save
+    with its history;
+  - a save-as over the folder finishes the stage first.

@@ -5099,6 +5099,10 @@ bool Document::save ()
                                              + "; nothing was written").c_str(),
                        Base::FileInfo(file));
         }
+        // Another process's save of the folder cut short is finished or thrown
+        // away first: the look below is at what the folder is (sec 38).
+        if (pulling && Base::FileInfo(file).isDir())
+            FolderSave::recover(file);
         d->lastPull = SavePull();
         if (pulling && (!d->pullBranch.empty() || isFileChangedElsewhere()))
             _pullFromDisk(file);
@@ -5728,13 +5732,48 @@ bool Document::saveToFile(const char* filename) const
     }
     Base::FileInfo tmp(fn);
 
+    // A folder is written into a stage beside it and moved in whole
+    // (docs/TransactionLog.md sec 38), under its lock: save() holds it
+    // already when it pulls; a save-as, or a save with the pull off, takes it
+    // here.
+    std::unique_ptr<SaveLock> folderLock;
+    std::string stage;
+    if (!archive) {
+        if (!SaveLock::heldHere(filename)) {
+            folderLock = std::make_unique<SaveLock>(filename);
+            std::string holder;
+            if (!folderLock->lock(60000, &holder))
+                THROWM(Base::FileException, ("'" + std::string(filename) + "' is being saved by "
+                                             + holder + "; nothing was written").c_str(),
+                       Base::FileInfo(filename));
+        }
+        stage = FolderSave::freshStage(nativePath);
+    }
+    // A save that throws before its stage is whole leaves none behind.
+    struct StageGuard
+    {
+        std::string folder;
+        bool done {false};
+        ~StageGuard()
+        {
+            if (folder.empty() || done)
+                return;
+            try {
+                FolderSave::recover(folder);
+            }
+            catch (...) {
+            }
+        }
+    } stageGuard {stage.empty() ? std::string() : nativePath};
 
     std::vector<std::string> fileNames;
+    std::vector<std::string> removals;
 
     // open extra scope to close ZipWriter properly
     {
         Base::ofstream file;
         std::unique_ptr<Base::Writer> _writer;
+        Base::FileWriter* folderWriter = nullptr;
         if(archive) {
             file.open(tmp, std::ios::out | std::ios::binary);
             if (!file.is_open())
@@ -5744,11 +5783,15 @@ bool Document::saveToFile(const char* filename) const
             zipwriter->setComment("FreeCAD Document");
             zipwriter->setLevel(compression);
         } else {
-            _writer.reset(new Base::FileWriter(tmp.filePath().c_str()));
+            folderWriter = new Base::FileWriter(tmp.filePath().c_str());
+            folderWriter->setStageDir(stage);
+            _writer.reset(folderWriter);
         }
 
         save(*_writer, archive);
         fileNames = _writer->getFilenames();
+        if (folderWriter)
+            removals = folderWriter->removals();
         // Known once the save has resolved the schema; written when the zip closes
         if (archive) {
             static_cast<Base::ZipWriter*>(_writer.get())
@@ -5756,6 +5799,20 @@ bool Document::saveToFile(const char* filename) const
         }
     }
 
+
+    if (!archive) {
+        // The files the last save wrote and this one did not, deleted once
+        // this one is in.
+        if (DocumentParams::getAutoRemoveFile()) {
+            std::set<std::string> written(fileNames.begin(), fileNames.end());
+            for (const auto& f : d->files) {
+                if (!written.count(f))
+                    removals.push_back(f);
+            }
+        }
+        FolderSave::commit(nativePath, removals);
+        stageGuard.done = true;
+    }
 
     if (policy) {
         // if saving the project data succeeded rename to the actual file name
@@ -5809,14 +5866,10 @@ bool Document::saveToFile(const char* filename) const
 
         GetApplication().signalDocumentFilesSaved(*this, filename, files);
 
-        bool remove = DocumentParams::getAutoRemoveFile();
-        std::string path(filename);
-        path += "/";
+        // Those to go went with the commit above.
         for(auto &v : files) {
             if(v.second>=0)
                 d->files.insert(std::move(v.first));
-            else if(remove) 
-                Base::FileInfo(path+v.first).deleteFile();
         }
     }
 
@@ -5992,11 +6045,34 @@ void Document::restore (const char *filename,
 
     if(!filename)
         filename = FileName.getValue();
+    Base::FileInfo fi(filename);
+    const bool folder = fi.isDir();
+    // A folder whose last save was cut short (docs/TransactionLog.md sec
+    // 38): a whole save beside it is moved in, a part of one thrown away,
+    // under its lock so that no live save of it is taken for either.
+    if (folder && FolderSave::pending(filename)) {
+        std::unique_ptr<SaveLock> lock;
+        if (!SaveLock::heldHere(filename)) {
+            lock = std::make_unique<SaveLock>(filename);
+            std::string holder;
+            if (!lock->lock(60000, &holder))
+                FC_WARN("'" << filename << "' is being saved by " << holder
+                        << "; read as it is");
+        }
+        if (!lock || lock->isLocked()) {
+            int settled = FolderSave::recover(filename);
+            if (settled > 0)
+                FC_WARN("'" << filename << "': a save cut short, whole, finished");
+            else if (settled < 0)
+                FC_WARN("'" << filename << "': a save cut short before it was whole, "
+                        "thrown away; the folder is the save before it");
+        }
+    }
     // The file as it is before a byte of it is read (docs/TransactionLog.md
     // sec 29.8): what a save later compares the file on disk with.
     d->readStamp = DiskStamp::of(filename);
-    Base::FileInfo fi(filename);
-    if(fi.isDir()) {
+    const DiskStamp readStart = d->readStamp;
+    if(folder) {
         fi.setFile(std::string(filename)+'/'+"Document.xml");
         if(!fi.exists()) 
             THROWM(Base::FileException, "Project file not found", fi);
@@ -6093,6 +6169,14 @@ void Document::restore (const char *filename,
     }
 
     restore(*_xmlReader, delaySignal, objNames);
+
+    // A save moves Document.xml in last (sec 38): another process's save that
+    // came in while this read has changed its stamp, and what was read may
+    // be some of each.
+    if (folder && readStart.valid() && !DiskStamp::of(filename).sameAs(readStart)) {
+        FC_WARN("'" << filename << "' was saved by another process while it was read: "
+                "what is open may be some of each save. Close it and open it again.");
+    }
 
     // The index holds the file open, and on Windows an open file cannot be
     // renamed or deleted -- not by the user, and not by the recovery dialog

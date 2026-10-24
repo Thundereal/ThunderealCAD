@@ -588,10 +588,34 @@ public:
      */
     virtual bool shouldWrite(const std::string& name, const Base::Persistence* Object) const;
 
-    /// Directory the entries are written into.
+    /// Directory the entries are for: what is in it is the save before this
+    /// one, and what a writer compares with.
     const std::string& getDirName() const
     {
         return DirName;
+    }
+
+    /** Write every entry into `dir` instead, laid out as in the directory
+     * itself, for the caller to move in once the save is whole
+     * (docs/TransactionLog.md sec 38). Empty, the default, writes in place.
+     */
+    void setStageDir(const std::string& dir)
+    {
+        StageDir = dir;
+    }
+    const std::string& getStageDir() const
+    {
+        return StageDir;
+    }
+
+    /** A file of the directory, relative to it, that this save no longer
+     * has. Deleted at once when writing in place; when staging, kept in
+     * removals() for the caller to delete once the save is in.
+     */
+    void dropFile(const std::string& name);
+    const std::vector<std::string>& removals() const
+    {
+        return Removals;
     }
 
     FileWriter(const FileWriter&) = delete;
@@ -602,6 +626,8 @@ public:
 protected:
     // NOLINTBEGIN
     std::string DirName;
+    std::string StageDir;
+    std::vector<std::string> Removals;
     /// Base::ofstream, not std::ofstream: on Windows the narrow overload
     /// converts the path with the ANSI code page, so a UTF-8 entry name
     /// lands on disk as mojibake, and a path past MAX_PATH is not opened

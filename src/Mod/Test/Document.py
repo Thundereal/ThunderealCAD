@@ -12411,6 +12411,131 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(doc.Box.Height.Value, 10)
 
 
+class FolderSaveCases(unittest.TestCase):
+    # A document saved as a folder goes in whole (docs/TransactionLog.md sec
+    # 38): the save writes into a stage beside the folder, `.~<name>.save`,
+    # then moves in what changed, Document.xml last. A stage left by a save
+    # cut short is thrown away at the next open without its record, and
+    # moved in with it.
+
+    def setUp(self):
+        self.param = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        self.mode = self.param.GetInt("TransactionLog", 2)
+        self.param.SetInt("TransactionLog", 2)
+        self.dir = tempfile.mkdtemp(prefix="fc-folder-")
+        self.docs = []
+
+    def tearDown(self):
+        import shutil
+
+        for name in self.docs:
+            if name in FreeCAD.listDocuments():
+                FreeCAD.closeDocument(name)
+        self.param.SetInt("TransactionLog", self.mode)
+        shutil.rmtree(self.dir, True)
+
+    def track(self, doc):
+        self.docs.append(doc.Name)
+        return doc
+
+    def edit(self, doc, name, change):
+        doc.openTransaction(name)
+        change(doc)
+        doc.recompute()
+        doc.commitTransaction()
+
+    def saved(self, name, boxes=3):
+        path = os.path.join(self.dir, name)
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument(name))
+        doc.UndoMode = 1
+
+        def make(d):
+            for i in range(boxes):
+                d.addObject("Part::Box", "Box%d" % i)
+
+        self.edit(doc, "create", make)
+        doc.saveAs(path)
+        return doc, path
+
+    def stage(self, path):
+        return os.path.join(os.path.dirname(path), ".~%s.save" % os.path.basename(path))
+
+    def stamp(self, path):
+        st = os.stat(path)
+        return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+    def testASaveMovesInOnlyWhatChanged(self):
+        doc, path = self.saved("Only")
+        before = {n: self.stamp(os.path.join(path, n)) for n in ("Box1.xml", "Box2.xml")}
+        box0 = open(os.path.join(path, "Box0.xml")).read()
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        doc.save()
+        self.assertFalse(os.path.exists(self.stage(path)))
+        for n, s in before.items():
+            self.assertEqual(self.stamp(os.path.join(path, n)), s, n)
+        self.assertNotEqual(open(os.path.join(path, "Box0.xml")).read(), box0)
+        # A file the save no longer has goes once it is in.
+        self.edit(doc, "remove", lambda d: d.removeObject("Box2"))
+        doc.save()
+        self.assertFalse(os.path.exists(os.path.join(path, "Box2.xml")))
+        self.assertTrue(os.path.exists(os.path.join(path, "Box1.xml")))
+
+    def cutShort(self, name, record, halfMoved=False):
+        # A folder saved at Length 10, then at 20; the second save's files
+        # made into a stage beside the first's, as a save cut short leaves.
+        import shutil
+
+        doc, path = self.saved(name)
+        old = os.path.join(self.dir, name + "-old")
+        shutil.copytree(path, old)
+        self.edit(doc, "longer", lambda d: [setattr(o, "Length", 20) for o in d.Objects])
+        doc.save()
+        FreeCAD.closeDocument(doc.Name)
+        stage = self.stage(path)
+        os.rename(path, stage)
+        os.rename(old, path)
+        if record:
+            with open(os.path.join(stage, ".~commit"), "w") as f:
+                f.write("FreeCAD folder save 1\n")
+        if halfMoved:
+            # Moved in before it was cut short: some of the objects' files.
+            for n in ("Box0.xml", "Box1.xml"):
+                os.replace(os.path.join(stage, n), os.path.join(path, n))
+        return path, stage
+
+    def testASaveCutShortBeforeItIsWholeIsThrownAway(self):
+        path, stage = self.cutShort("Short", record=False)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertFalse(os.path.exists(stage))
+        self.assertEqual([o.Length.Value for o in doc.Objects], [10, 10, 10])
+        names = [t["name"] for t in doc.getTransactionLog()]
+        self.assertIn("create", names)
+        self.assertNotIn("longer", names)
+
+    def testASaveCutShortWhenWholeIsFinishedAtOpen(self):
+        path, stage = self.cutShort("Whole", record=True, halfMoved=True)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertFalse(os.path.exists(stage))
+        self.assertEqual([o.Length.Value for o in doc.Objects], [20, 20, 20])
+        # Its history is the save's: the version it opens is "longer".
+        names = [t["name"] for t in doc.getTransactionLog()]
+        self.assertIn("longer", names)
+
+    def testASaveFinishesAStageCutShortFirst(self):
+        # A save of the folder meets a stage another save left whole: moved
+        # in first, then this save is written over it.
+        path, stage = self.cutShort("Again", record=True)
+        doc = self.track(FreeCAD.newDocument("Again2"))
+        doc.UndoMode = 1
+        self.edit(doc, "create", lambda d: d.addObject("Part::Box", "Box0"))
+        doc.saveAs(path)
+        self.assertFalse(os.path.exists(stage))
+        xml = open(os.path.join(path, "Document.xml")).read()
+        self.assertIn('name="Box0"', xml)
+        self.assertNotIn('name="Box1"', xml)
+
+
 class TransactionTwoProcessCases(unittest.TestCase):
     # Two processes on one file (docs/TransactionLog.md sec 29.7, 29.8): a
     # save first brings in and merges what another process saved into the

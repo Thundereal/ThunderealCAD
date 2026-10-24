@@ -216,3 +216,78 @@ TEST_F(FileElsewhereTest, theOpenMarkerSaysWhoElseHasTheFile)
     EXPECT_FALSE(fs::exists(marker));
     EXPECT_FALSE(fs::exists(SaveLock::lockPath(_file)));
 }
+
+namespace
+{
+
+std::string readAll(const fs::path& path)
+{
+    std::ifstream in(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+}
+
+}   // namespace
+
+// A folder save goes in whole (docs/TransactionLog.md sec 38).
+TEST_F(FileElsewhereTest, aFolderSaveMovesInOnlyWhatChanged)
+{
+    const fs::path folder = _root / "Doc";
+    fs::create_directories(folder);
+    write((folder / "Document.xml").string(), "doc one");
+    write((folder / "Same.xml").string(), "same");
+    write((folder / "Gone.xml").string(), "gone");
+    const DiskStamp same = DiskStamp::of((folder / "Same.xml").string());
+
+    const fs::path stage = App::FolderSave::freshStage(folder.string());
+    EXPECT_EQ(stage, fs::path(App::FolderSave::stagePath(folder.string())));
+    EXPECT_TRUE(App::FolderSave::pending(folder.string()));
+    fs::create_directories(stage / "blobs");
+    write((stage / "Document.xml").string(), "doc two");
+    write((stage / "Same.xml").string(), "same");
+    write((stage / "blobs" / "New.brp").string(), "new");
+
+    App::FolderSave::commit(folder.string(), {"Gone.xml"});
+    EXPECT_FALSE(App::FolderSave::pending(folder.string()));
+    EXPECT_FALSE(fs::exists(stage));
+    EXPECT_EQ(readAll(folder / "Document.xml"), "doc two");
+    EXPECT_EQ(readAll(folder / "blobs" / "New.brp"), "new");
+    EXPECT_FALSE(fs::exists(folder / "Gone.xml"));
+    // Not moved, not touched: the same file as before.
+    EXPECT_TRUE(DiskStamp::of((folder / "Same.xml").string()).sameAs(same));
+}
+
+TEST_F(FileElsewhereTest, aStageWithoutItsRecordIsThrownAway)
+{
+    const fs::path folder = _root / "Doc";
+    fs::create_directories(folder);
+    write((folder / "Document.xml").string(), "doc one");
+    const fs::path stage = App::FolderSave::freshStage(folder.string());
+    write((stage / "Document.xml").string(), "doc tw");   // cut short
+
+    EXPECT_EQ(App::FolderSave::recover(folder.string()), -1);
+    EXPECT_FALSE(fs::exists(stage));
+    EXPECT_EQ(readAll(folder / "Document.xml"), "doc one");
+    EXPECT_EQ(App::FolderSave::recover(folder.string()), 0);
+}
+
+TEST_F(FileElsewhereTest, aRecordedStageIsMovedInEvenHalfMovedAlready)
+{
+    const fs::path folder = _root / "Doc";
+    fs::create_directories(folder);
+    write((folder / "Document.xml").string(), "doc one");
+    write((folder / "A.xml").string(), "a one");
+    write((folder / "Gone.xml").string(), "gone");
+    const fs::path stage = App::FolderSave::freshStage(folder.string());
+    write((stage / "Document.xml").string(), "doc two");
+    write((stage / "B.xml").string(), "b two");
+    write((stage / ".~commit").string(), "FreeCAD folder save 1\nremove Gone.xml\n");
+    // A.xml was moved in before the save was cut short.
+    write((folder / "A.xml").string(), "a two");
+
+    EXPECT_EQ(App::FolderSave::recover(folder.string()), 1);
+    EXPECT_FALSE(fs::exists(stage));
+    EXPECT_EQ(readAll(folder / "Document.xml"), "doc two");
+    EXPECT_EQ(readAll(folder / "A.xml"), "a two");
+    EXPECT_EQ(readAll(folder / "B.xml"), "b two");
+    EXPECT_FALSE(fs::exists(folder / "Gone.xml"));
+}

@@ -25,6 +25,8 @@
 
 #include "ViewProviderDocumentObject.h"
 
+class SoGroup;
+
 namespace App {
 class AuxGroup;
 }
@@ -61,10 +63,29 @@ public:
 
     std::vector<App::DocumentObject*> claimChildren() const override;
 
+    /** @name 3D, of an owning group only
+     *
+     * The children of an owning group (the elements of an Elements group)
+     * are drawn by it, as nothing else claims them: they are in its owner's
+     * coordinate system, and its owner claims the group. A view of its
+     * owner's children draws nothing; the owner draws them.
+     */
+    //@{
+    void attach(App::DocumentObject *obj) override;
+    std::vector<App::DocumentObject*> claimChildren3D() const override;
+    SoGroup *getChildRoot() const override;
+    std::vector<std::string> getDisplayModes() const override;
+    void setDisplayMode(const char *mode) override;
+    const char *getDefaultDisplayMode() const override;
+    //@}
+
 protected:
     App::AuxGroup *getAuxGroup() const;
     /// The view provider of the group's owner
     ViewProvider *getOwnerViewProvider() const;
+
+private:
+    SoGroup *pcChildren;
 };
 
 } // namespace Gui

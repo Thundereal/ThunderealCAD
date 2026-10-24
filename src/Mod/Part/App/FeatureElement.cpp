@@ -25,8 +25,10 @@
 
 #include <algorithm>
 
+#include <App/Application.h>
 #include <App/AuxGroup.h>
 #include <App/Document.h>
+#include <App/GroupExtension.h>
 #include <Base/Exception.h>
 #include <Base/Tools.h>
 
@@ -121,6 +123,22 @@ void Element::onBeforeChangeLabel(std::string &newLabel)
         newLabel = Base::Tools::getUniqueName(newLabel, labels, 3);
 }
 
+static ParameterGrp::handle partParams()
+{
+    return App::GetApplication().GetParameterGroupByPath(
+            "User parameter:BaseApp/Preferences/Mod/Part");
+}
+
+bool Element::autoVisibility()
+{
+    return partParams()->GetBool("AutoElementVisibility", true);
+}
+
+void Element::setAutoVisibility(bool on)
+{
+    partParams()->SetBool("AutoElementVisibility", on);
+}
+
 Element *Element::create(App::DocumentObject *container,
                          App::DocumentObject *target,
                          const char *subname,
@@ -144,8 +162,9 @@ Element *Element::create(App::DocumentObject *container,
     if (subname && *subname)
         subs.emplace_back(subname);
     element->Target.setValue(target, std::move(subs));
-    // The geometry is the target's; the copy is shown when it is picked
-    element->Visibility.setValue(false);
+    // The geometry is the target's; with auto visibility the copy is seen
+    // while the element is selected or preselected
+    element->Visibility.setValue(!autoVisibility());
     return element;
 }
 
@@ -160,6 +179,27 @@ ElementLink::ElementLink()
             "elements, or the container's own Elements group and an element");
     ADD_PROPERTY_TYPE(Offset, (Base::Placement()), "Element", App::Prop_None,
             "A placement of the frame relative to the element's, for this use only");
+}
+
+ElementLink *ElementLink::create(App::DocumentObject *container,
+                                 App::DocumentObject *obj,
+                                 const char *subname)
+{
+    auto group = container ? container->getExtensionByType<App::GroupExtension>(true) : nullptr;
+    if (!group)
+        THROWM(Base::TypeError, "The container is not a group");
+    auto doc = container->getDocument();
+    auto link = static_cast<ElementLink*>(doc->addObject("Part::ElementLink", "ElementLink"));
+    // The container's own, whatever its GroupMode
+    auto children = group->Group.getValues();
+    children.push_back(link);
+    group->Group.setValues(children);
+    std::vector<std::string> subs;
+    if (subname && *subname)
+        subs.emplace_back(subname);
+    link->Element.setValue(obj, std::move(subs));
+    link->Visibility.setValue(!Element::autoVisibility());
+    return link;
 }
 
 App::DocumentObjectExecReturn *ElementLink::execute()

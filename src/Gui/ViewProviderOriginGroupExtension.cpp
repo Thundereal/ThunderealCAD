@@ -151,6 +151,12 @@ void ViewProviderOriginGroupExtension::extensionClaimChildren (std::vector<App::
 
 void ViewProviderOriginGroupExtension::extensionClaimChildren3D (std::vector<App::DocumentObject *> &children) const {
     ViewProviderGeoFeatureGroupExtension::extensionClaimChildren3D (children);
+    // The Elements group draws the elements in this coordinate system
+    auto owner = dynamic_cast<App::AuxGroupOwner*>(getExtendedViewProvider()->getObject());
+    if (auto elements = owner ? owner->getElementsGroup(false) : nullptr) {
+        if (std::find(children.begin(), children.end(), elements) == children.end())
+            children.push_back(elements);
+    }
     constructChildren ( children );
 }
 

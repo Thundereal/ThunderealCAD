@@ -88,6 +88,23 @@ bool OriginGroupExtension::extensionGetSubObject(DocumentObject *&ret, const cha
             return true;
         }
     }
+    // The Elements group by its name or label, as the origin: it is held by a
+    // property, not in Group, and a path the tree makes names it so
+    auto owner = dynamic_cast<AuxGroupOwner*>(const_cast<DocumentObject*>(getExtendedObject()));
+    auto elements = owner ? owner->getElementsGroup(false) : nullptr;
+    if (elements && elements->isAttachedToDocument() && subname && (dot=strchr(subname,'.'))) {
+        bool found;
+        if (subname[0] == '$')
+            found = std::string(subname+1,dot) == elements->Label.getValue();
+        else
+            found = std::string(subname,dot) == elements->getNameInDocument();
+        if (found) {
+            if (mat && transform)
+                *mat *= const_cast<OriginGroupExtension*>(this)->placement().getValue().toMatrix();
+            ret = elements->getSubObject(dot+1,pyObj,mat,true,depth+1);
+            return true;
+        }
+    }
     return GeoFeatureGroupExtension::extensionGetSubObject(ret,subname,pyObj,mat,transform,depth);
 }
 

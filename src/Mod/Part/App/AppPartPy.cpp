@@ -2139,20 +2139,7 @@ private:
         PY_TRY {
             auto container = static_cast<App::DocumentObjectPy*>(pyContainer)->getDocumentObjectPtr();
             auto obj = static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr();
-            auto group = container->getExtensionByType<App::GroupExtension>(true);
-            if (!group)
-                throw Py::TypeError("The container is not a group");
-            auto doc = container->getDocument();
-            auto link = static_cast<Part::ElementLink*>(
-                    doc->addObject("Part::ElementLink", "ElementLink"));
-            // The container's own, whatever its GroupMode
-            auto children = group->Group.getValues();
-            children.push_back(link);
-            group->Group.setValues(children);
-            std::vector<std::string> subs;
-            if (*subname)
-                subs.emplace_back(subname);
-            link->Element.setValue(obj, std::move(subs));
+            auto link = Part::ElementLink::create(container, obj, subname);
             return Py::asObject(link->getPyObject());
         } _PY_CATCH_OCC(throw Py::Exception())
     }

@@ -68,6 +68,9 @@ public:
 
     App::DocumentObjectExecReturn *execute() override;
     void onChanged(const App::Property *prop) override;
+    const char *getViewProviderName() const override {
+        return "PartGui::ViewProviderElement";
+    }
     bool allowDuplicateLabel() const override {
         return true;
     }
@@ -90,6 +93,16 @@ public:
                            App::DocumentObject *target,
                            const char *subname,
                            const char *label = nullptr);
+
+    /** Whether elements and element links are hidden, and shown only while
+     * selected or preselected, as Assembly3's "Auto element visibility"
+     *
+     * On by default. A new element or element link is made hidden while it
+     * is on, visible while it is off. The setting is the Part preference
+     * AutoElementVisibility.
+     */
+    static bool autoVisibility();
+    static void setAutoVisibility(bool on);
 };
 
 /** How a container uses an element, for a joint of its own
@@ -114,6 +127,20 @@ public:
     App::PropertyPlacement Offset;
 
     App::DocumentObjectExecReturn *execute() override;
+    const char *getViewProviderName() const override {
+        return "PartGui::ViewProviderElementLink";
+    }
+
+    /** Add an element link to a container, made its own child whatever its
+     * GroupMode
+     *
+     * @param container: the container
+     * @param obj: a direct child of the container, or its Elements group
+     * @param subname: the path to an element of the child, or one in the group
+     */
+    static ElementLink *create(App::DocumentObject *container,
+                               App::DocumentObject *obj,
+                               const char *subname);
 };
 
 }  // namespace Part

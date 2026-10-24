@@ -360,8 +360,40 @@ Built as step 3a (2026-10-24), `Part/App/FeatureElement.{h,cpp}`:
   links to, and a child moved out does not take its elements along.
 - **Tree.** `ViewProviderOriginGroupExtension::extensionClaimChildren` puts
   the Elements group right after the origin, for a part and a body alike.
-  Not yet: drawing an element (it is hidden, and the container does not
-  claim elements in 3D), and the pick commands.
+  `OriginGroupExtension::extensionGetSubObject` resolves the group by its
+  name or label too, as it does the origin, so the path the tree makes
+  (`Part.Elements001.Element.`) reaches an element.
+- **Display, as Assembly3's** (`asm3/assembly.py:1287-1310`, `:2326-2343`,
+  `asm3/gui.py:31-160`, `:712-745`):
+  - `PartGui::ViewProviderElement`: the copy in half transparent cyan,
+    lines and points 4 wide, `OnTopWhenSelected` "Object";
+    `PartGui::ViewProviderElementLink`: the same in red.
+  - The owning group draws its elements (`Gui::ViewProviderAuxGroup` gives
+    an owning group a child root and claims its children in 3D), and the
+    container claims the group in 3D, so an element is in the scene in the
+    container's coordinate system and a selection path to it resolves.
+  - **Auto element visibility** (the Part preference
+    `AutoElementVisibility`, on by default, Assembly3's default too): new
+    elements and element links are made hidden, and each is seen only
+    while it is selected or preselected. Assembly3 does that by toggling
+    `Visibility` from a selection observer, and stands down when the core
+    draws the selection on top (`asm3/gui.py:78`). This fork's core always
+    can: with `ShowSelectionOnTop`, on by default, the render manager draws
+    a selection and the preselection highlight with the switch override
+    (`SoFCSwitch::setOverrideSwitch`, `Gui/SoFCUnifiedSelection.cpp:930`,
+    `Gui/Inventor/SoFCRenderCacheManager.cpp:1249`), which draws a hidden
+    object too. So nothing toggles `Visibility`, and no document is
+    modified by looking. Off: new ones are made visible, and each is shown
+    and hidden by hand. The element's context menu has the switch;
+    turning it on hides every element and element link, as Assembly3's
+    command does.
+  - Not yet: Assembly3's "Show element coordinate system" (a coordinate
+    cross at the element's frame), and the pick commands.
+  - Verified: the look, the hidden default, both scene paths. The on-top
+    drawing of a hidden selection is the core's and is read from the code:
+    the render manager's on-top state is not reachable from Python, and a
+    count of the old Coin on-top groups stays 0 in render-cache mode even
+    for a visible object.
 - A body's Elements group in an older build: that build has no
   `Part::Element` and refreshes a `PartDesign::AuxGroup` from the body's
   `Group`, which this one is not in, so it empties the group. Nothing an

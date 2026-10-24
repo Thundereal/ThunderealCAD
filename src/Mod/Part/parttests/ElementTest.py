@@ -193,3 +193,31 @@ class ElementTest(unittest.TestCase):
         self.assertEqual(element.TypeId, "Part::Element")
         self.assertSameFace(element.Shape, box.Shape.Face6)
         self.assertEqual(element.getParentGeoFeatureGroup(), part)
+
+    def testGroupIsReachedByNameAndLabel(self):
+        # The paths the tree makes name the group, which is in no Group
+        part, box = self.makePart("Part")
+        element = Part.makeElement(part, box, "Face6", "Top")
+        group = part.Elements
+        self.assertEqual(part.getSubObject(group.Name + ".$Top.", retType=1), element)
+        self.assertEqual(part.getSubObject("$" + group.Label + ".$Top.", retType=1), element)
+
+    def testAutoVisibilityOffMakesThemVisible(self):
+        params = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/Part")
+        old = params.GetBool("AutoElementVisibility", True)
+        params.SetBool("AutoElementVisibility", False)
+        try:
+            part, box = self.makePart("Part")
+            element = Part.makeElement(part, box, "Face6", "Top")
+            link = Part.makeElementLink(part, part.Elements, "$Top.")
+            self.assertTrue(element.Visibility)
+            self.assertTrue(link.Visibility)
+        finally:
+            params.SetBool("AutoElementVisibility", old)
+
+    def testAutoVisibilityHidesThem(self):
+        part, box = self.makePart("Part")
+        element = Part.makeElement(part, box, "Face6", "Top")
+        link = Part.makeElementLink(part, part.Elements, "$Top.")
+        self.assertFalse(element.Visibility)
+        self.assertFalse(link.Visibility)

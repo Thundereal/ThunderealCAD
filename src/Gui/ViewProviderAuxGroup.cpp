@@ -32,6 +32,7 @@
 #include "Application.h"
 #include "Document.h"
 #include "Selection.h"
+#include "SoFCUnifiedSelection.h"
 
 using namespace Gui;
 
@@ -40,9 +41,53 @@ PROPERTY_SOURCE(Gui::ViewProviderAuxGroup, Gui::ViewProviderDocumentObject)
 ViewProviderAuxGroup::ViewProviderAuxGroup()
 {
     sPixmap = "folder";
+    pcChildren = new SoFCSelectionRoot;
+    pcChildren->ref();
 }
 
-ViewProviderAuxGroup::~ViewProviderAuxGroup() = default;
+ViewProviderAuxGroup::~ViewProviderAuxGroup()
+{
+    pcChildren->unref();
+}
+
+void ViewProviderAuxGroup::attach(App::DocumentObject *obj)
+{
+    inherited::attach(obj);
+    addDisplayMaskMode(pcChildren, "Group");
+}
+
+std::vector<std::string> ViewProviderAuxGroup::getDisplayModes() const
+{
+    auto modes = inherited::getDisplayModes();
+    modes.emplace_back("Group");
+    return modes;
+}
+
+void ViewProviderAuxGroup::setDisplayMode(const char *mode)
+{
+    if (mode && strcmp(mode, "Group") == 0)
+        setDisplayMaskMode("Group");
+    inherited::setDisplayMode(mode);
+}
+
+const char *ViewProviderAuxGroup::getDefaultDisplayMode() const
+{
+    return "Group";
+}
+
+std::vector<App::DocumentObject*> ViewProviderAuxGroup::claimChildren3D() const
+{
+    auto group = getAuxGroup();
+    if (group && group->isOwning())
+        return group->Group.getValues();
+    return {};
+}
+
+SoGroup *ViewProviderAuxGroup::getChildRoot() const
+{
+    auto group = getAuxGroup();
+    return group && group->isOwning() ? pcChildren : nullptr;
+}
 
 App::AuxGroup *ViewProviderAuxGroup::getAuxGroup() const
 {

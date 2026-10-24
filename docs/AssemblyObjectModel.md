@@ -45,16 +45,23 @@ Sources:
 12. **Which shape a Body's element takes is the user's choice** (sec 5.2):
     any child shape of the Body can be a target, with no machinery to favour
     or repair one kind.
+13. **The Parts group is optional, off by default** (sec 3.1): components
+    sit directly under the assembly unless the user asks for the group.
+14. **A frozen assembly always has a Parts group**, which stores the
+    compound shape of all its components (sec 3.1).
+15. **A Body with SolidBodies shows each solid's elements in that
+    SolidBody** (sec 5.3): they are grouped automatically by the solid that
+    owns the feature they link to. The Body's Elements group still owns
+    them all.
 
 ## 1. The tree
 
 ```
 Rotor                       Assembly : App::Part, GroupMode = Auto   (Rotor.FCStd)
   Origin
-  Parts                     aux view
-    Dome                    direct child: a plain part in this document
-    Axis                    owned App::Link -> Axis (an assembly in Axis.FCStd)
-    Bracket                 owned App::Link -> Bracket.FCStd#Body
+  Dome                      direct child: a plain part in this document
+  Axis                      owned App::Link -> Axis (an assembly in Axis.FCStd)
+  Bracket                   owned App::Link -> Bracket.FCStd#Body
   Elements                  owns its elements; Rotor's interface and label namespace
     HubFace       -> (Dome, "Face12")                declared for Rotor's parents
     _Element      -> (Dome, "Edge7")                 convenience: Dome has no Elements
@@ -76,18 +83,25 @@ Rotor                       Assembly : App::Part, GroupMode = Auto   (Rotor.FCSt
     Exploded View           owns its steps
       Move                  Components = [Bracket]
 
-Axis                        Assembly in its part role: an interface, no joints
-  Parts
+Axis                        Assembly in its part role, Freeze = true
+  Parts                     aux view, required when frozen: Shape = compound of the parts
     Pin                     owned App::Link -> Pin.FCStd#Pin (an App::Part)
   Elements
     PinEnd        -> (Pin, "$$Elements.$End.")
 
-Bracket                     PartDesign::Body (Bracket.FCStd)
+Bracket                     PartDesign::Body with two solids (Bracket.FCStd)
   Origin
   Sketches  Datums  Misc    aux views, as today
-  Elements                  owns its elements; the Body's interface
-    Bore          -> Pad, "Face4"                 (sec 5.2)
-  Pad  Pocket ...
+  Elements                  owns every element; shows those of no solid
+    Mount         -> Sketch, "Edge3"
+  Solid                     PartDesign::SolidBody
+    Elements                aux view: elements whose target is a feature of this solid
+      Bore        -> Pad, "Face4"                 (sec 5.2)
+    Pad  Pocket ...
+  Solid001                  PartDesign::SolidBody
+    Elements
+      Tab         -> Pad001, "Face2"
+    Pad001 ...
 ```
 
 ## 2. The container: App::Part with group modes
@@ -135,9 +149,9 @@ Hidden links and no cross-document links are needed in joints or elements.
 
 - The container's `Group` owns its children flat: components, joints,
   Physics items, studies, exploded views, and its aux groups.
-- Aux groups show subsets sorted by C++ type (Parts, Joints, Physics,
-  Simulations, Views), as `PartDesign::AuxGroup` shows Sketches, Datums and
-  Misc. They own nothing.
+- Aux groups show subsets sorted by C++ type (Joints, Physics,
+  Simulations, Views, and Parts when asked for, sec 3.1), as
+  `PartDesign::AuxGroup` shows Sketches, Datums and Misc. They own nothing.
 - Three things own their children instead:
   - **the Elements group**: it is the label namespace (decision 5);
   - **a study** owns its own items (motions, loads, initial conditions,
@@ -148,6 +162,32 @@ Hidden links and no cross-document links are needed in joints or elements.
 - Physics items stay shared and flat; a study lists the ones it uses in its
   `Elements` link list (`docs/AssemblyDynamics.md` sec 5.1, which this
   changes only in that Physics becomes an aux view).
+
+### 3.1 The Parts group, and a frozen assembly
+
+- **Optional, off by default** (decision 13). Components sit directly under
+  the container, as upstream shows them. The container's context menu adds
+  or removes the Parts group, as Body's "Toggle auto auxiliary group" does
+  for Sketches, Datums and Misc. The group's presence is the setting; there
+  is no property to keep in step with it.
+- **Mandatory for a frozen assembly** (decision 14). Freezing creates the
+  Parts group when there is none, and removing it is refused while frozen;
+  unfreezing leaves it, for the user to remove. A frozen assembly:
+  - stores the compound of all its components, at their placements, in the
+    Parts group's `Shape`, taken when it freezes and again on an explicit
+    refresh;
+  - skips solving;
+  - answers `canLoadPartial` 1 on the assembly and the Parts group, so that
+    in a parent document the components are created but not restored, and
+    the stored compound is what is shown (Assembly3's Freeze,
+    `docs/AssemblyFromAsm3.md` A.5).
+- **Why the Parts group holds it.** The assembly is an `App::Part` and has
+  no shape of its own. The Parts group is the one object that already
+  stands for "all the components", it is restored when they are not, and
+  its view provider can draw the compound in their place.
+- **The class.** An `App::Part`'s Parts group is a plain App aux group.
+  An assembly's is `Assembly::PartsGroup`, deriving from it and adding
+  `Shape`, since App cannot hold shapes. Freeze is the assembly's alone.
 
 ## 4. Elements and ElementLinks
 
@@ -274,9 +314,9 @@ Here the ElementLink also stores the shape:
   `canLoadPartial` 1; an element link into an unloaded child keeps its copy
   and reports itself unresolved, not broken.
 - **Display is the container's business.** Showing an unloaded child needs
-  the child container to keep a frozen shape of its own (Assembly3's Freeze,
-  `docs/AssemblyFromAsm3.md` A.5); the copies on elements only serve the
-  solver, the highlight and the joints.
+  the child container to keep a frozen shape of its own, in its Parts group
+  (sec 3.1); the copies on elements only serve the solver, the highlight
+  and the joints.
 - **No hash of its own is needed to notice a change.** The link
   dependencies already trigger the recompute: in a session through the
   dependency graph, and across sessions through the owned link's
@@ -329,6 +369,29 @@ a binder, an intermediate feature, a `SolidBody`.
 - **No extra machinery.** No result elements kept up by the Body's
   `execute`, and no auto-fix aimed at moving targets. An element on a Body
   is repaired like any other (sec 4.5).
+
+### 5.3 Elements of a Body with SolidBodies
+
+A Body holding more than one solid has a `PartDesign::SolidBody` for each.
+Its elements are then shown by solid (decision 15):
+
+- **Ownership does not move.** The Body's Elements group owns every element
+  and stays their label namespace, so `(Bracket, "$$Elements.$Bore.")` is
+  the same path whichever solid `Bore` is shown in, and stays valid when a
+  feature moves to another solid or the body goes back to one solid.
+- **Each SolidBody shows an Elements aux view**: the elements whose
+  `Target` is a feature of that solid (`SolidBody::hasFeature`). It is a
+  Filter group whose source is the Body's Elements group rather than its
+  owner's `Group` (sec 6.2), with the SolidBody as owner.
+- **Kept automatically.** `Body::syncSolidBodies()`, which keeps the
+  SolidBodies in step with the BaseFeature chains, also makes a solid's
+  Elements view when the Body has an Elements group, and removes it with
+  the solid. A view refreshes when the Elements group's children change,
+  when an element's `Target` changes, and when a solid's `Group` changes.
+- **The rest stay at Body level.** An element whose target is no feature of
+  a solid (a sketch, a datum, a binder) is shown under the Body's Elements
+  group, which in the tree lists only those. The Elements group's view
+  provider leaves out of `claimChildren` what a solid's view shows.
 
 ## 6. Generalizing AuxGroup
 
@@ -386,6 +449,8 @@ Nothing outside PartDesign, Part's preference page and Body uses it.
 - **Three modes**:
   - Filter: the output `Group` is computed from the owner's `Group` by role
     (Sketches, Datums, Misc, Parts, Joints, Physics, Simulations, Views);
+    or from another group's children when the owner names that source, as
+    a SolidBody's Elements view takes the Body's Elements group (sec 5.3);
   - Curated: the user's subset of the owner's children, as Body's "Add
     group" makes today;
   - Owning: the Elements group. Its `Group` is an ordinary link list, its
@@ -524,12 +589,14 @@ links store `$$Elements.` and `$PinEnd.` instead.
 1. `App::AuxGroup` and `Gui::ViewProviderAuxGroup`, with Body moved onto
    them; no behaviour change. Tests: the existing PartDesign suites, and an
    old Body file with Sketches, Datums and Misc round-tripped.
-2. `GroupMode` on `App::Part`, with gtests for each case of sec 2.
+2. `GroupMode` on `App::Part`, with gtests for each case of sec 2, and
+   its aux groups, the Parts group optional (sec 3.1).
 3. `Part::Element` and `Part::ElementLink`, the Owning aux group, and
-   Elements on `App::Part` and Body.
+   Elements on `App::Part` and Body, with the SolidBody views (sec 5.3).
 4. The C++ assembly objects (joint, simulation, motion, Physics items,
    exploded view), the solver builder on them, and the upstream converter.
-5. Partial loading through element links (sec 4.4), and repair (sec 4.5).
+5. Partial loading through element links (sec 4.4), Freeze with the Parts
+   group's compound (sec 3.1), and repair (sec 4.5).
 
 ## 10. Open questions
 

@@ -80,6 +80,20 @@ App::DocumentObjectExecReturn *Element::execute()
     return App::DocumentObject::StdReturn;
 }
 
+void Element::onChanged(const App::Property *prop)
+{
+    // What the target is may decide where the element is shown: a body
+    // shows it under the solid body of its target feature
+    auto doc = getDocument();
+    if (prop == &Target && doc && !isRestoring() && !isRemoving()
+            && !doc->testStatus(App::Document::Restoring)
+            && !doc->isPerformingTransaction()) {
+        if (auto owner = dynamic_cast<App::AuxGroupOwner*>(getContainer()))
+            owner->onElementsChanged();
+    }
+    inherited::onChanged(prop);
+}
+
 App::AuxGroup *Element::getElementsGroup() const
 {
     return App::AuxGroup::getOwningGroupOf(this);

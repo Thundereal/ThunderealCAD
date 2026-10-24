@@ -85,3 +85,100 @@ class TestBodyElement(unittest.TestCase):
         self.doc.removeObject(self.body.Name)
         self.assertIsNone(self.doc.getObject(group))
         self.assertIsNone(self.doc.getObject(name))
+
+
+class TestSolidBodyElements(unittest.TestCase):
+    """A body with SolidBodies shows each solid's elements in that solid
+    body; the body's Elements group still owns them all (sec 5.3)"""
+
+    def setUp(self):
+        self.doc = FreeCAD.newDocument("PartDesignTestSolidBodyElements")
+        self.body = self.doc.addObject("PartDesign::Body", "Body")
+        self.a = self.box("Box")
+        self.b = self.box("Box001", 100, newSolid=True)
+        self.doc.recompute()
+        self.solidA, self.solidB = self.body.SolidBodies
+
+    def tearDown(self):
+        FreeCAD.closeDocument(self.doc.Name)
+
+    def box(self, name, x=0.0, newSolid=False):
+        feat = self.body.newObjectAt("PartDesign::AdditiveBox", name)
+        feat.Placement.Base = FreeCAD.Vector(x, 0, 0)
+        if newSolid:
+            feat.NewSolid = True
+        return feat
+
+    def view(self, solid):
+        views = [
+            o
+            for o in self.body.Group
+            if o.isDerivedFrom("App::AuxGroup") and getattr(o, "_Owner", None) == solid
+        ]
+        self.assertLessEqual(len(views), 1)
+        return views[0] if views else None
+
+    def testNoViewsWithoutElements(self):
+        self.assertIsNone(self.view(self.solidA))
+        self.assertIsNone(self.view(self.solidB))
+
+    def testEachSolidShowsItsElements(self):
+        a = Part.makeElement(self.body, self.a, "Face6", "A")
+        b = Part.makeElement(self.body, self.b, "Face6", "B")
+        self.assertEqual(self.body.Elements.Group, [a, b])
+        self.assertEqual(self.view(self.solidA).Group, [a])
+        self.assertEqual(self.view(self.solidB).Group, [b])
+        self.assertEqual(self.view(self.solidA).Role, "Elements")
+        # The path does not name the solid
+        self.assertEqual(self.body.getSubObject("$$Elements.$B.", retType=1), b)
+
+    def testAnElementOfNoSolidStaysWithTheBody(self):
+        plane = self.body.newObject("PartDesign::Plane", "DatumPlane")
+        datum = Part.makeElement(self.body, plane, "", "Datum")
+        self.assertEqual(self.body.Elements.Group, [datum])
+        self.assertEqual(self.view(self.solidA).Group, [])
+        self.assertEqual(self.view(self.solidB).Group, [])
+
+    def testRetargetMovesTheElement(self):
+        a = Part.makeElement(self.body, self.a, "Face6", "A")
+        a.Target = (self.b, ["Face6"])
+        self.assertEqual(self.view(self.solidA).Group, [])
+        self.assertEqual(self.view(self.solidB).Group, [a])
+
+    def testViewsGoWithTheSolids(self):
+        Part.makeElement(self.body, self.a, "Face6", "A")
+        viewB = self.view(self.solidB).Name
+        # Back to one solid: the second solid body goes, and its view
+        self.b.NewSolid = False
+        self.doc.recompute()
+        self.assertIsNone(self.doc.getObject(viewB))
+
+    def testViewsGoWithTheElementsGroup(self):
+        Part.makeElement(self.body, self.a, "Face6", "A")
+        views = [self.view(self.solidA).Name, self.view(self.solidB).Name]
+        self.doc.removeObject(self.body.Elements.Name)
+        for name in views:
+            self.assertIsNone(self.doc.getObject(name))
+
+    def testDeletingTheBodyTakesEverything(self):
+        Part.makeElement(self.body, self.a, "Face6", "A")
+        Part.makeElement(self.body, self.b, "Face6", "B")
+        self.body.removeObjectsFromDocument()
+        self.doc.removeObject(self.body.Name)
+        self.doc.recompute()
+        left = [o.TypeId for o in self.doc.Objects]
+        self.assertNotIn("Part::Element", left)
+        self.assertNotIn("App::PartAuxGroup", left)
+
+    def testUndoAndRedoAnElement(self):
+        self.doc.UndoMode = 1
+        self.doc.openTransaction("element")
+        a = Part.makeElement(self.body, self.a, "Face6", "A")
+        self.doc.commitTransaction()
+        name = a.Name
+        self.doc.undo()
+        self.assertIsNone(self.doc.getObject(name))
+        self.doc.redo()
+        a = self.doc.getObject(name)
+        self.assertIsNotNone(a)
+        self.assertEqual(self.view(self.solidA).Group, [a])

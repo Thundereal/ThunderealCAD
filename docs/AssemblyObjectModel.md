@@ -481,6 +481,35 @@ Its elements are then shown by solid (decision 15):
   a solid (a sketch, a datum, a binder) is shown under the Body's Elements
   group, which in the tree lists only those. The Elements group's view
   provider leaves out of `claimChildren` what a solid's view shows.
+- **A body with no SolidBody** (one solid, or `AddSolidBody` off) has no
+  views, and its Elements group shows every element.
+
+Built as step 3b (2026-10-24):
+
+- `SolidBody` is an `App::AuxGroupOwner`. Its view is an
+  `App::PartAuxGroup` of role "Elements" in the body's `Group`, right
+  behind the solid body, held by the solid body's hidden `_ElementsView`.
+  The link is what the tree needs: a child claimed by a sibling leaves the
+  parent's level only if the sibling links to it (`filterLinksByScope`).
+  Being hidden, it adds no dependency.
+- `AuxGroupOwner` gains `getAuxGroupSource()` (what a group shows a part
+  of; the owner's `Group` by default, the body's Elements group for a
+  solid body), `hasAuxGroup()` (whether the group is still the owner's)
+  and `onElementsChanged()`. A group of role "Elements" is owning only if
+  its owner holds it (`getElementsGroup()`); any other is a view.
+- `Body::syncElementViews()` makes, refreshes and removes the views. It
+  runs at the end of `syncSolidBodies()`, when the Elements group is made
+  or goes, and on `onElementsChanged()`, which the owning group calls when
+  its children change and an element calls when its `Target` changes. A
+  solid body refreshes its view when its features change, and takes it
+  along when it goes.
+- Tests: `PartDesignTests/TestBodyElement.py`, `TestSolidBodyElements`
+  (8): no views without elements, each solid showing its elements, an
+  element of no solid staying with the body, a retarget moving the
+  element, views going with their solid body and with the Elements group,
+  the whole body removed, and undo and redo. Checked in the GUI: the body
+  lists Origin, its Elements group (the datum's element only), then each
+  solid body, which lists its Elements view and then its features.
 
 ## 6. Generalizing AuxGroup
 
@@ -683,7 +712,7 @@ links store `$$Elements.` and `$PinEnd.` instead.
    its aux groups, the Parts group optional (sec 3.1). Done 2026-10-24.
 3. `Part::Element` and `Part::ElementLink`, the Owning aux group, and
    Elements on `App::Part` and Body (done 2026-10-24, sec 4.3), with the
-   SolidBody views (sec 5.3).
+   SolidBody views (done 2026-10-24, sec 5.3).
 4. The C++ assembly objects (joint, simulation, motion, Physics items,
    exploded view), the solver builder on them, and the upstream converter.
 5. Partial loading through element links (sec 4.4), Freeze with the Parts

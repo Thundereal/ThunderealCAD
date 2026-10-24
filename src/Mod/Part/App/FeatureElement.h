@@ -67,6 +67,7 @@ public:
     App::PropertyBool Detach;
 
     App::DocumentObjectExecReturn *execute() override;
+    void onChanged(const App::Property *prop) override;
     bool allowDuplicateLabel() const override {
         return true;
     }

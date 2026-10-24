@@ -34,7 +34,7 @@ from PartDesignTests.TestBaseFeature import TestBaseFeature
 from PartDesignTests.TestBodyMaterial import TestBodyMaterial
 from PartDesignTests.TestSolidBody import TestSolidBody
 from PartDesignTests.TestAuxGroup import TestAuxGroup
-from PartDesignTests.TestBodyElement import TestBodyElement
+from PartDesignTests.TestBodyElement import TestBodyElement, TestSolidBodyElements
 from PartDesignTests.TestSketchWireProfile import TestSketchWireProfile
 
 # additive/subtractive features & primitives

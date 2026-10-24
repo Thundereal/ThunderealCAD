@@ -268,6 +268,12 @@ public:
                            const App::DocumentObject *obj) const override;
     bool isAuxGroupChild(const App::DocumentObject *obj) const override;
     App::AuxGroup *getElementsGroup(bool create = false) override;
+    void onElementsChanged() override;
+    /** Give each solid body a view of the elements of its features, while
+     * there is an Elements group, and refresh them; take them away when
+     * there is none (docs/AssemblyObjectModel.md sec 5.3)
+     */
+    void syncElementViews();
     //@}
 
     // a body is solid if it has features that are solid according to member isSolidFeature.

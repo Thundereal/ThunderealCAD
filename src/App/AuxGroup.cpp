@@ -39,6 +39,20 @@ AuxGroup *AuxGroupOwner::getElementsGroup(bool)
     return nullptr;
 }
 
+PropertyLinkList *AuxGroupOwner::getAuxGroupSource(const AuxGroup *) const
+{
+    auto owner = dynamic_cast<const DocumentObject*>(this);
+    auto group = owner ? owner->getExtensionByType<GroupExtension>(true) : nullptr;
+    return group ? &group->Group : nullptr;
+}
+
+bool AuxGroupOwner::hasAuxGroup(const AuxGroup *group) const
+{
+    auto source = AuxGroupOwner::getAuxGroupSource(group);
+    return source && group && group->isAttachedToDocument()
+        && source->find(group->getNameInDocument()) == group;
+}
+
 bool AuxGroupOwner::isAuxGroupChild(const DocumentObject *obj) const
 {
     auto owner = dynamic_cast<const DocumentObject*>(this);
@@ -65,7 +79,10 @@ const char *AuxGroup::ElementsRole = "Elements";
 
 bool AuxGroup::isOwning() const
 {
-    return getRole() == ElementsRole;
+    if (getRole() != ElementsRole)
+        return false;
+    auto owner = getAuxGroupOwner();
+    return owner && owner->getElementsGroup(false) == this;
 }
 
 AuxGroup *AuxGroup::getOwningGroupOf(const DocumentObject *obj)
@@ -82,8 +99,10 @@ AuxGroup *AuxGroup::getOwningGroupOf(const DocumentObject *obj)
 
 void AuxGroup::unsetupObject()
 {
-    // An owning group takes its children along
+    // An owning group takes its children along, and tells its owner, which
+    // may have views of them to take away
     if (isOwning()) {
+        auto owner = getAuxGroupOwner();
         std::vector<DocumentObjectT> children;
         for (auto child : Group.getValues())
             children.emplace_back(child);
@@ -92,6 +111,8 @@ void AuxGroup::unsetupObject()
             if (child && !child->isRemoving())
                 child->getDocument()->removeObject(child->getNameInDocument());
         }
+        if (owner)
+            owner->onElementsChanged();
     }
     inherited::unsetupObject();
 }
@@ -114,6 +135,10 @@ void AuxGroup::onChanged(const Property* prop)
         }
         else if (prop == &Role)
             refresh();
+        else if (prop == &Group && !isRemoving() && isOwning()) {
+            if (auto owner = getAuxGroupOwner())
+                owner->onElementsChanged();
+        }
     }
     inherited::onChanged(prop);
 }
@@ -151,11 +176,12 @@ GroupExtension *AuxGroup::getOwnerGroup() const
 void AuxGroup::attachOwner()
 {
     // An owning group's children are its own, not a view of the owner's
-    auto group = isOwning() ? nullptr : getOwnerGroup();
-    if (!group)
+    auto owner = getAuxGroupOwner();
+    auto source = owner && !isOwning() ? owner->getAuxGroupSource(this) : nullptr;
+    if (!source)
         connOwner.disconnect();
     else
-        connOwner = group->Group.signalChanged.connect(
+        connOwner = source->signalChanged.connect(
                 std::bind(&AuxGroup::refresh, this));
 }
 
@@ -211,14 +237,16 @@ void AuxGroup::setChildrenVisible(bool visible)
 
 void AuxGroup::refresh()
 {
-    if (isOwning())
+    if (isRemoving() || isOwning())
         return;
-    auto group = getOwnerGroup();
-    if (!group) {
-        Group.setValues();
+    auto owner = getAuxGroupOwner();
+    auto source = owner ? owner->getAuxGroupSource(this) : nullptr;
+    if (!source) {
+        if (Group.getSize())
+            Group.setValues();
         return;
     }
-    if (group->Group.find(getNameInDocument()) != this) {
+    if (!owner->hasAuxGroup(this)) {
         setOwner(nullptr);
         Group.setValues();
         return;
@@ -227,7 +255,7 @@ void AuxGroup::refresh()
     if (isCurated()) {
         auto curated = Group.getValues();
         std::sort(curated.begin(), curated.end());
-        for (auto obj : group->Group.getValues()) {
+        for (auto obj : source->getValues()) {
             auto it = std::lower_bound(curated.begin(), curated.end(), obj);
             if (it != curated.end() && *it == obj) {
                 children.push_back(obj);
@@ -236,12 +264,13 @@ void AuxGroup::refresh()
         }
     }
     else {
-        for (auto obj : group->Group.getValues()) {
+        for (auto obj : source->getValues()) {
             if (isObjectAllowed(obj))
                 children.push_back(obj);
         }
     }
-    Group.setValues(children);
+    if (Group.getValues() != children)
+        Group.setValues(children);
 }
 
 // ------------------------------------------------------------------------

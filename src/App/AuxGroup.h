@@ -64,6 +64,23 @@ public:
      * @param create: make the group if there is none
      */
     virtual AuxGroup *getElementsGroup(bool create = false);
+
+    /** The list the given group of this owner shows a part of
+     *
+     * The default is the owner's Group. A SolidBody's Elements view shows a
+     * part of its body's Elements group instead.
+     */
+    virtual PropertyLinkList *getAuxGroupSource(const AuxGroup *group) const;
+
+    /** Whether the given group still belongs to this owner
+     *
+     * The default is membership of the owner's Group.
+     */
+    virtual bool hasAuxGroup(const AuxGroup *group) const;
+
+    /// Called when this owner's elements change: one is added or removed,
+    /// or what one links to
+    virtual void onElementsChanged() {}
 };
 
 /** A group showing some of its owner's children, which it does not own
@@ -112,13 +129,15 @@ public:
         return getRole().empty();
     }
 
-    /// The role of the group owning its owner's elements
+    /// The role of a group of elements: the one owning them, or a view of it
     static const char *ElementsRole;
     /** Whether this group owns its children
      *
-     * The Elements group does: its Group is what it holds, not a view of
-     * its owner's, and deleting it deletes them. It and its children are in
-     * its owner's coordinate system, as an origin and its features are.
+     * The Elements group its owner holds does (AuxGroupOwner::
+     * getElementsGroup()): its Group is what it holds, not a view of its
+     * owner's, and deleting it deletes them. It and its children are in its
+     * owner's coordinate system, as an origin and its features are. Another
+     * group of the role, such as a SolidBody's, is a view.
      */
     bool isOwning() const;
     /// The owning group holding \a obj, or null
@@ -141,6 +160,9 @@ public:
     /// Show or hide every child
     void setChildrenVisible(bool visible);
 
+    /// Recompute the children shown from the owner's
+    void refresh();
+
 protected:
     /// Called by a derived class's constructor with its owner link property
     void setOwnerProperty(PropertyLinkHidden *prop);
@@ -148,7 +170,6 @@ protected:
     /// The role of a group whose Role property is empty
     virtual std::string getDefaultRole() const;
 
-    void refresh();
     void attachOwner();
 
 private:

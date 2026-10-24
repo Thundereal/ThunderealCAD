@@ -255,7 +255,7 @@ bool Body::isAllowed(const Base::Type &type)
             type.isDerivedFrom(Part::Part2DObject::getClassTypeId()) ||
             type.isDerivedFrom(PartDesign::ShapeBinder::getClassTypeId()) ||
             type.isDerivedFrom(Part::SubShapeBinder::getClassTypeId()) ||
-            type.isDerivedFrom(PartDesign::AuxGroup::getClassTypeId()) ||
+            type.isDerivedFrom(App::AuxGroup::getClassTypeId()) ||
             // a coordinate system and a lone datum element, as upstream
             // takes them; an origin belongs to its own container
             type.isDerivedFrom(App::DatumElement::getClassTypeId()) ||
@@ -713,6 +713,9 @@ void Body::onChanged (const App::Property* prop) {
         }
         else if (prop == &AddSolidBody) {
             syncSolidBodies(true);
+        }
+        else if (prop == &Elements) {
+            syncElementViews();
         }
         else if (prop == &ShapeMaterial) {
             // A body is one solid of one material (upstream 0804d80ebf). Its
@@ -1178,6 +1181,8 @@ void Body::syncSolidBodies(bool force)
         }
     }
 
+    syncElementViews();
+
     // The changes made here are not news
     solidBodyTouched = false;
 }
@@ -1296,7 +1301,63 @@ App::AuxGroup *Body::getElementsGroup(bool create)
     auxGroup->Label.setValue("Elements");
     Elements.setValue(auxGroup);
     auxGroup->_Body.setValue(this);
+    syncElementViews();
     return auxGroup;
+}
+
+void Body::onElementsChanged()
+{
+    syncElementViews();
+}
+
+void Body::syncElementViews()
+{
+    auto doc = getDocument();
+    if (!doc || !isAttachedToDocument() || isRestoring() || testStatus(App::Remove)
+            || doc->testStatus(App::Document::Restoring)
+            || doc->isPerformingTransaction())
+        return;
+    auto elements = getElementsGroup(false);
+    // A group on its way out is none
+    if (elements && elements->isRemoving())
+        elements = nullptr;
+    bool made = false;
+    for (auto solid : getSolidBodies()) {
+        if (solid->isRemoving())
+            continue;
+        auto view = solid->getElementsView();
+        if (view && view->isRemoving())
+            continue;
+        if (!elements) {
+            if (view)
+                doc->removeObject(view->getNameInDocument());
+            continue;
+        }
+        if (view) {
+            view->refresh();
+            continue;
+        }
+        view = static_cast<App::AuxGroup*>(doc->addObject("App::PartAuxGroup", "Elements"));
+        view->Role.setValue(App::AuxGroup::ElementsRole);
+        view->Label.setValue("Elements");
+        // In the body behind its solid body, which shows it in the tree
+        auto group = Group.getValues();
+        auto it = std::find(group.begin(), group.end(), solid);
+        group.insert(it == group.end() ? it : it+1, view);
+        {
+            // User3 is to skip GeoFeatureGroupExtension group check
+            Base::ObjectStatusLocker<App::Property::Status, App::Property>
+                guard(App::Property::User3, &Group);
+            Group.setValues(group);
+        }
+        view->setOwner(solid);
+        solid->_ElementsView.setValue(view);
+        made = true;
+    }
+    // The tree took the new views as the body's own children when they came
+    // into its Group, before their solid bodies claimed them
+    if (made)
+        _GroupTouched.touch();
 }
 
 bool Body::isAuxGroupAllowed(const App::AuxGroup *group, const App::DocumentObject *obj) const

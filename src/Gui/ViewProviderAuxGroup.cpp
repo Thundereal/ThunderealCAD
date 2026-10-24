@@ -142,9 +142,29 @@ void ViewProviderAuxGroup::dragObject(App::DocumentObject *obj) {
 }
 
 std::vector<App::DocumentObject*> ViewProviderAuxGroup::claimChildren() const {
-    if (auto group = getAuxGroup())
+    auto group = getAuxGroup();
+    if (!group)
+        return {};
+    if (!group->isOwning())
         return group->Group.getValues();
-    return {};
+    // An owning group leaves out what a view of it shows: a body's Elements
+    // group lists only the elements no solid body shows
+    std::vector<App::DocumentObject*> res;
+    for (auto child : group->Group.getValues()) {
+        bool shown = false;
+        for (auto parent : child->getInList()) {
+            auto view = Base::freecad_dynamic_cast<App::AuxGroup>(parent);
+            if (view && view != group && !view->isOwning()
+                    && view->getRole() == group->getRole()
+                    && view->Group.find(child->getNameInDocument()) == child) {
+                shown = true;
+                break;
+            }
+        }
+        if (!shown)
+            res.push_back(child);
+    }
+    return res;
 }
 
 bool ViewProviderAuxGroup::reorderObjects(const std::vector<App::DocumentObject*> &objs,

@@ -34,6 +34,7 @@
 #include "OriginFeature.h"
 #include "OriginGroupExtension.h"
 #include "GroupParams.h"
+#include "Part.h"
 
 
 FC_LOG_LEVEL_INIT("App",true,true);
@@ -148,14 +149,35 @@ GeoFeatureGroupExtension::addObject(DocumentObject* obj)
     return addObjects({obj});
 }
 
+static int _MovingObject;
+
+bool GeoFeatureGroupExtension::isMovingObject()
+{
+    return _MovingObject > 0;
+}
+
+GeoFeatureGroupExtension::MovingObjectGuard::MovingObjectGuard()
+{
+    ++_MovingObject;
+}
+
+GeoFeatureGroupExtension::MovingObjectGuard::~MovingObjectGuard()
+{
+    --_MovingObject;
+}
+
 std::vector<DocumentObject*>
 GeoFeatureGroupExtension::addObjects(std::vector<App::DocumentObject*> objects)
 {
+    auto owner = getExtendedObject();
+
+    // A part's GroupMode may put an owned link in place of an object
+    if (auto part = Base::freecad_dynamic_cast<App::Part>(owner))
+        objects = part->prepareObjectsToAdd(objects);
+
     const auto & grp = Group.getValues();
     std::vector<DocumentObject*> ret;
     ret.reserve(objects.size()*2);
-
-    auto owner = getExtendedObject();
 
     auto objSet = owner->getInListEx(true);
     objSet.insert(owner);
@@ -171,6 +193,7 @@ GeoFeatureGroupExtension::addObjects(std::vector<App::DocumentObject*> objects)
         if(group) {
             if (group == owner)
                 continue;
+            MovingObjectGuard moving;
             group->getExtensionByType<App::GroupExtension>()->removeObject(object);
         }
         ret.push_back(object);
@@ -244,9 +267,14 @@ std::vector<DocumentObject*> GeoFeatureGroupExtension::removeObjects(std::vector
     }
     
     if(!removed.empty()) {
-        Base::ObjectStatusLocker<Property::Status, Property> guard(Property::User3, &Group);
-        buildExport(grp);
-        Group.setValues(grp);
+        {
+            Base::ObjectStatusLocker<Property::Status, Property> guard(Property::User3, &Group);
+            buildExport(grp);
+            Group.setValues(grp);
+        }
+        // A part deletes the links it owns
+        if (auto part = Base::freecad_dynamic_cast<App::Part>(getExtendedObject()))
+            part->onObjectsRemoved(removed);
     }
     
     return removed;

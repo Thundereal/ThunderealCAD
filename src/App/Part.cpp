@@ -26,7 +26,12 @@
 #include <App/DocumentObject.h>
 
 #include "Application.h"
+#include "Document.h"
+#include "DocumentObserver.h"
+#include "Link.h"
 #include "LinkAppearance.h"
+#include "Origin.h"
+#include "OriginFeature.h"
 #include "Part.h"
 #include "PartPy.h"
 
@@ -82,6 +87,16 @@ Part::Part()
     ShapeAppearance.setWriter([this](const AppearanceList &, const AppearanceList &after, int) {
         LinkAppearance::writeAppearance(LinkAppearance::namesOf(this), after, mirroringLooks);
     });
+
+    static const char *GroupModeEnums[] = {"Normal", "Auto", "Link", nullptr};
+    GroupMode.setEnums(GroupModeEnums);
+    ADD_PROPERTY_TYPE(GroupMode, (long(GroupModeNormal)), "Part", App::Prop_None,
+            "How an existing object is added.\n\n"
+            "Normal: move it in, out of the group it was in.\n\n"
+            "Auto: move it in, or add a link to it owned by this part when it\n"
+            "cannot be moved: it is in another document, another part or body\n"
+            "holds it, or it is here already.\n\n"
+            "Link: always add a link owned by this part.");
 
     OriginGroupExtension::initExtension(this);
 
@@ -139,6 +154,140 @@ App::Part *Part::getPartOfObject (const DocumentObject* obj, bool recursive) {
     return _getPartOfObject(obj, &objset);
 }
 
+
+const char *Part::PartsRole = "Parts";
+
+bool Part::isOwnedLink(const DocumentObject *obj) const
+{
+    if (!obj || !obj->isAttachedToDocument() || !isAttachedToDocument())
+        return false;
+    auto link = Base::freecad_dynamic_cast<const App::Link>(obj);
+    return link && link->_LinkOwner.getValue() == getID();
+}
+
+bool Part::needsLink(const DocumentObject *obj) const
+{
+    if (!obj || !obj->isAttachedToDocument())
+        return false;
+    if (obj->getDocument() != getDocument())
+        return true;
+    if (Group.find(obj->getNameInDocument()) == obj)
+        return true;
+    auto owner = GeoFeatureGroupExtension::getGroupOfObject(obj);
+    if (owner && owner != this)
+        return true;
+    // Moving it in takes along what its placement depends on
+    for (auto dep : GeoFeatureGroupExtension::getCSRelevantLinks(obj)) {
+        auto depOwner = GeoFeatureGroupExtension::getGroupOfObject(dep);
+        if (depOwner && depOwner != this)
+            return true;
+    }
+    return false;
+}
+
+std::vector<DocumentObject*> Part::prepareObjectsToAdd(const std::vector<DocumentObject*> &objs)
+{
+    auto doc = getDocument();
+    long mode = GroupMode.getValue();
+    if (mode == GroupModeNormal || !doc || doc->isPerformingTransaction()
+            || doc->testStatus(Document::Restoring))
+        return objs;
+
+    auto inList = getInListEx(true);
+    std::vector<DocumentObject*> res;
+    res.reserve(objs.size());
+    for (auto obj : objs) {
+        // Left to the group to refuse, and never linked: an owned link of
+        // ours, an aux group, a container of this part
+        if (!obj || !obj->isAttachedToDocument() || obj == this
+                || inList.count(obj) || isOwnedLink(obj)
+                || obj->isDerivedFrom<AuxGroup>()
+                || obj->isDerivedFrom<App::OriginFeature>()
+                || obj->isDerivedFrom<App::Origin>()
+                || (mode == GroupModeAuto && !needsLink(obj))) {
+            res.push_back(obj);
+            continue;
+        }
+
+        auto link = new App::Link;
+        link->_LinkOwner.setValue(getID());
+        doc->addObject(link, doc->getUniqueObjectName("Link").c_str());
+        link->setLink(-1, obj);
+        link->Label.setValue(obj->Label.getValue());
+        // Where the object is, so that nothing jumps
+        link->Placement.setValue(globalPlacement().inverse()
+                * GeoFeature::getGlobalPlacement(obj));
+        // A link in Link mode stands in for an original at the top level
+        if (mode == GroupModeLink && obj->getDocument() == doc
+                && !GroupExtension::getAnyGroupOfObject(obj))
+            obj->Visibility.setValue(false);
+        res.push_back(link);
+    }
+    return res;
+}
+
+void Part::onObjectsRemoved(const std::vector<DocumentObject*> &objs)
+{
+    auto doc = getDocument();
+    if (!doc || doc->isPerformingTransaction() || doc->testStatus(Document::Restoring))
+        return;
+    std::vector<App::DocumentObjectT> owned;
+    for (auto obj : objs) {
+        if (!isOwnedLink(obj) || obj->isRemoving())
+            continue;
+        if (GeoFeatureGroupExtension::isMovingObject()) {
+            // Taken by another group: not ours any more
+            static_cast<App::Link*>(obj)->_LinkOwner.setValue(0);
+            continue;
+        }
+        owned.emplace_back(obj);
+    }
+    for (auto &objT : owned) {
+        if (auto obj = objT.getObject())
+            doc->removeObject(obj->getNameInDocument());
+    }
+}
+
+bool Part::isAuxGroupAllowed(const AuxGroup *group, const DocumentObject *obj) const
+{
+    if (!group || !obj || obj->isDerivedFrom<AuxGroup>())
+        return false;
+    if (group->getRole() != PartsRole)
+        return false;
+    // The components are what no other group of a role takes
+    for (auto child : Group.getValues()) {
+        auto other = Base::freecad_dynamic_cast<AuxGroup>(child);
+        if (other && other != group && other->getOwner() == this && !other->isCurated()
+                && other->getRole() != PartsRole && isAuxGroupAllowed(other, obj))
+            return false;
+    }
+    return true;
+}
+
+AuxGroup *Part::getAuxGroup(const char *role) const
+{
+    for (auto child : Group.getValues()) {
+        auto group = Base::freecad_dynamic_cast<AuxGroup>(child);
+        if (group && group->getOwner() == this && group->getRole() == role)
+            return group;
+    }
+    return nullptr;
+}
+
+int Part::getAuxGroupRank(const AuxGroup *group)
+{
+    static const char *roles[] = {"Elements", "Joints", "Physics", "Simulations", "Views"};
+    const auto &role = group->getRole();
+    int rank = 0;
+    for (auto r : roles) {
+        if (role == r)
+            return rank;
+        ++rank;
+    }
+    if (role == PartsRole)
+        return rank + 1;
+    return rank;
+}
 
 PyObject *Part::getPyObject()
 {

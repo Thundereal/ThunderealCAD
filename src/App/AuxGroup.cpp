@@ -199,3 +199,14 @@ void AuxGroup::refresh()
     }
     Group.setValues(children);
 }
+
+// ------------------------------------------------------------------------
+
+PROPERTY_SOURCE(App::PartAuxGroup, App::AuxGroup)
+
+PartAuxGroup::PartAuxGroup()
+{
+    ADD_PROPERTY_TYPE(_Owner, (nullptr), "Base",
+            (App::PropertyType)(App::Prop_Hidden|App::Prop_ReadOnly|App::Prop_Output), 0);
+    setOwnerProperty(&_Owner);
+}

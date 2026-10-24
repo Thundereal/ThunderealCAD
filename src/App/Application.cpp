@@ -2719,6 +2719,7 @@ void Application::initTypes()
     App::DocumentObjectGroup       ::init();
     App::DocumentObjectGroupPython ::init();
     App::AuxGroup                  ::init();
+    App::PartAuxGroup              ::init();
     App::DocumentObjectFileIncluded::init();
     Image::ImagePlane              ::init();
     App::InventorObject            ::init();

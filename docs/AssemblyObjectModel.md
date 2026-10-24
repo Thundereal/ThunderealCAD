@@ -144,6 +144,26 @@ Rules:
 - **Replacing a component** is re-pointing its owned link (sec 4.5). A
   direct child is first turned into a link ("Replace with link").
 
+Built as step 2 (2026-10-24):
+
+- `App::Part::GroupMode` (Normal, Auto, Link; Normal by default).
+  `Part::prepareObjectsToAdd()` puts an owned `App::Link` in place of an
+  object, called by `GeoFeatureGroupExtension::addObjects` and, before it
+  relinks to the origin, by `OriginGroupExtension::addObjects`; an owned
+  link of the part passes through, so the second call is harmless. Never
+  linked: aux groups, the origin and its features, and the part's own
+  containers.
+- `Part::onObjectsRemoved()`, called by `removeObjects`, deletes the owned
+  links taken out, in every mode. A link another group takes is a move,
+  not a removal: the group taking it says so with
+  `GeoFeatureGroupExtension::MovingObjectGuard`, and the link is disowned
+  (`_LinkOwner` 0) and kept.
+- Not yet: a pick with a subname or a sub-element (the add API takes whole
+  objects; this comes with Insert Component), and Auto as Assembly's
+  default, which comes with the C++ assembly objects (step 4) so that the
+  current Python assembly code is not changed under it.
+- Tests: `tests/src/App/PartGroupMode.cpp`, one case per rule above.
+
 Every reference inside the container ends at one of its own children: an
 element links to a child (a direct part or an owned link) with a subname, a
 joint links to its own element links. All are local links; only an owned
@@ -201,6 +221,16 @@ Hidden links and no cross-document links are needed in joints or elements.
 - **The class.** An `App::Part`'s Parts group is a plain App aux group.
   An assembly's is `Assembly::PartsGroup`, deriving from it and adding
   `Shape`, since App cannot hold shapes. Freeze is the assembly's alone.
+
+Built as step 2 (2026-10-24): `App::PartAuxGroup` (owner in `_Owner`), and
+`App::Part` as an `AuxGroupOwner`. The Parts group takes every child no
+other group of a role takes, so it needs no list of component types, and
+an assembly's Joints or Physics group (step 4) narrows it by existing.
+`Gui::ViewProviderPart::claimChildren` orders the groups
+(`Part::getAuxGroupRank`), and the context menu's "Parts group" toggles
+it. Checked in the GUI: Origin, Views, a user's group, Parts, in that
+order whatever the order in `Group`; the components under Parts; a link
+Auto mode adds goes to Parts.
 
 ## 4. Elements and ElementLinks
 
@@ -601,9 +631,10 @@ links store `$$Elements.` and `$PinEnd.` instead.
 
 1. `App::AuxGroup` and `Gui::ViewProviderAuxGroup`, with Body moved onto
    them; no behaviour change. Tests: the existing PartDesign suites, and an
-   old Body file with Sketches, Datums and Misc round-tripped.
+   old Body file with Sketches, Datums and Misc round-tripped. Done
+   2026-10-24.
 2. `GroupMode` on `App::Part`, with gtests for each case of sec 2, and
-   its aux groups, the Parts group optional (sec 3.1).
+   its aux groups, the Parts group optional (sec 3.1). Done 2026-10-24.
 3. `Part::Element` and `Part::ElementLink`, the Owning aux group, and
    Elements on `App::Part` and Body, with the SolidBody views (sec 5.3).
 4. The C++ assembly objects (joint, simulation, motion, Physics items,

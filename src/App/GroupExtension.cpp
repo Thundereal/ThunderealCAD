@@ -185,14 +185,17 @@ std::vector< DocumentObject* > GroupExtension::addObjects(std::vector< DocumentO
         //only one group per object. Note that it is allowed to be in a group and geofeaturegroup. However,
         //getGroupOfObject() returns only normal groups, no GeoFeatureGroups. Hence this works.
         auto *group = App::GroupExtension::getGroupOfObject(obj);
-        if(group && group != getExtendedObject())
+        if(group && group != getExtendedObject()) {
+            GeoFeatureGroupExtension::MovingObjectGuard moving;
             group->getExtensionByType<App::GroupExtension>()->removeObject(obj);
+        }
         
         //if we are in a geofeaturegroup we need to ensure the object is too
         auto geogrp = GeoFeatureGroupExtension::getGroupOfObject(getExtendedObject());
         auto objgrp = GeoFeatureGroupExtension::getGroupOfObject(obj);
         if( geogrp != objgrp ) {
             //what to do depends on if we are in  geofeature group or not
+            GeoFeatureGroupExtension::MovingObjectGuard moving;
             if(geogrp)
                 geogrp->getExtensionByType<GeoFeatureGroupExtension>()->addObject(obj);
             else 

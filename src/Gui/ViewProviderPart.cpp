@@ -27,6 +27,8 @@
 # include <QMenu>
 #endif
 
+#include <App/AuxGroup.h>
+#include <App/AutoTransaction.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/Part.h>
@@ -144,7 +146,79 @@ void ViewProviderPart::setupContextMenu(QMenu* menu, QObject* receiver, const ch
         act->setData(QVariant((int)ViewProvider::Color));
     }
 
+    if (auto part = Base::freecad_dynamic_cast<App::Part>(getObject())) {
+        act = menu->addAction(QObject::tr("Parts group"));
+        act->setCheckable(true);
+        act->setChecked(part->getAuxGroup(App::Part::PartsRole) != nullptr);
+        act->setToolTip(QObject::tr("Show the components in a group of their own"));
+        func->trigger(act, [this]() {
+            this->togglePartsGroup();
+        });
+    }
+
     inherited::setupContextMenu(menu, receiver, member);
+}
+
+void ViewProviderPart::togglePartsGroup()
+{
+    auto part = Base::freecad_dynamic_cast<App::Part>(getObject());
+    if (!part)
+        return;
+    App::AutoTransaction committer("Toggle Parts group");
+    try {
+        if (auto group = part->getAuxGroup(App::Part::PartsRole)) {
+            group->setOwner(nullptr);
+            part->getDocument()->removeObject(group->getNameInDocument());
+            return;
+        }
+        auto doc = part->getDocument();
+        auto group = static_cast<App::AuxGroup*>(doc->addObject("App::PartAuxGroup", "Parts"));
+        group->Label.setValue("Parts");
+        group->Role.setValue(App::Part::PartsRole);
+        // A group the part makes is its own child, whatever its GroupMode
+        auto children = part->Group.getValues();
+        children.push_back(group);
+        part->Group.setValues(children);
+        group->setOwner(part);
+    }
+    catch (Base::Exception &e) {
+        e.ReportException();
+        committer.close(true);
+    }
+}
+
+std::vector<App::DocumentObject*> ViewProviderPart::claimChildren() const
+{
+    auto children = inherited::claimChildren();
+    auto part = Base::freecad_dynamic_cast<App::Part>(getObject());
+    if (!part)
+        return children;
+    auto origin = part->Origin.getValue();
+    bool hasOrigin = false;
+    std::vector<App::AuxGroup*> groups;
+    std::vector<App::DocumentObject*> rest;
+    for (auto child : children) {
+        auto group = Base::freecad_dynamic_cast<App::AuxGroup>(child);
+        if (group && group->getOwner() == part)
+            groups.push_back(group);
+        else if (child == origin && origin)
+            hasOrigin = true;
+        else
+            rest.push_back(child);
+    }
+    if (groups.empty())
+        return children;
+    std::stable_sort(groups.begin(), groups.end(),
+            [](const App::AuxGroup *a, const App::AuxGroup *b) {
+                return App::Part::getAuxGroupRank(a) < App::Part::getAuxGroupRank(b);
+            });
+    std::vector<App::DocumentObject*> res;
+    res.reserve(children.size());
+    if (hasOrigin)
+        res.push_back(origin);
+    res.insert(res.end(), groups.begin(), groups.end());
+    res.insert(res.end(), rest.begin(), rest.end());
+    return res;
 }
 
 bool ViewProviderPart::isActivePart(const char* key)

@@ -136,6 +136,18 @@ private:
     mutable bool defaultRoleValid = false;
 };
 
+/// An aux group of an App::Part (and so of an assembly)
+class AppExport PartAuxGroup : public AuxGroup
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(App::PartAuxGroup);
+
+public:
+    PartAuxGroup();
+
+    /// The part this group belongs to
+    PropertyLinkHidden _Owner;
+};
+
 }  // namespace App
 
 

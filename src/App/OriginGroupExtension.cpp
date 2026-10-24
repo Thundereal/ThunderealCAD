@@ -30,6 +30,7 @@
 #include "OriginGroupExtension.h"
 #include "GeoFeature.h"
 #include "Origin.h"
+#include "Part.h"
 
 
 FC_LOG_LEVEL_INIT("App", true, true)
@@ -260,6 +261,11 @@ void OriginGroupExtension::relinkToOrigin(App::DocumentObject* obj)
 }
 
 std::vector< DocumentObject* > OriginGroupExtension::addObjects(std::vector<DocumentObject*> objs) {
+
+    // A part's GroupMode first, so that an object replaced by a link keeps
+    // its own references
+    if (auto part = Base::freecad_dynamic_cast<App::Part>(getExtendedObject()))
+        objs = part->prepareObjectsToAdd(objs);
 
     for(auto obj : objs)
         relinkToOrigin(obj);

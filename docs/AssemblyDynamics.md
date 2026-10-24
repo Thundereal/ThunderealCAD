@@ -496,13 +496,42 @@ phase 4.
   upstream joints get no dynamics properties. Per-joint dynamic data
   (initial velocity, friction, stop behaviour) is held by new objects that
   link to a joint, as `Motion` already does.
-- **Creo's split (P3).** Mechanism elements are facts of the mechanism and
-  live in an assembly-level **Physics** group: mass overrides, springs and
-  dampers, bushings, contact sets, contact materials, cam contacts. Each
-  Simulation holds its scenario: analysis type, motions and motors,
-  gravity, applied forces, initial conditions, sensors, settings and
-  results. It also has an `Excluded` link list for the Physics elements it
-  leaves out. By default everything is included.
+- **Both Creo's split and SOLIDWORKS's per-study view (P3; decided, open
+  question 1).** Where an element is owned and where it is shown are kept
+  apart, as in the rest of FreeCAD:
+  - **Owned** by an assembly-level **Physics** group: mass overrides,
+    springs and dampers, bushings, contact sets, contact materials, cam
+    contacts, joint dynamics. Physics is an `App::DocumentObjectGroup`,
+    like Joints. Like Joints, its members are also listed in the
+    assembly's own Group, because `GroupExtension::addObjects` adds them
+    to the enclosing GeoFeatureGroup. The assembly therefore owns their
+    placement and 3D, and the group only organises the tree.
+  - **Used** by a Simulation through its `Elements` link list. The
+    Simulation's view provider claims its motions (its Group) plus its
+    Elements. An element therefore shows under Physics and under every
+    Simulation that uses it, with no copy: selecting, editing or deleting
+    it acts on the one object.
+  - `Elements` is a plain link list, not group membership. This is the
+    PartDesign `AuxGroup` pattern (`PartDesign/App/AuxGroup.h`), whose
+    `Group` is a `PropertyLinkList` and has no GroupExtension. A Simulation
+    is a `GroupExtensionPython`, and a GroupExtension allows one plain group
+    per object (`GroupExtension.cpp`, `addObjects`). Putting an element in
+    a Simulation's Group would take it out of Physics.
+  - **Shared or private.** Each element has `AllSimulations` (bool).
+    - True: the element is used by every Simulation, present and future,
+      without being listed. Elements created from the Physics group
+      default to this (Creo).
+    - False: the element is used only by the Simulations whose Elements
+      list it. An element created from inside a Simulation is false and
+      listed there (SOLIDWORKS).
+    - Unticking a shared element in one Simulation's includes table sets
+      it to false and lists it in every other Simulation, so no other
+      study changes. Dragging an element onto a Simulation adds it there.
+    - An element that is false and listed nowhere shows only under
+      Physics, greyed as unused.
+  - Each Simulation holds its scenario: analysis type, motions and motors,
+    gravity, applied forces, initial conditions, sensors, settings and
+    results. These are per-study by nature and stay in its Group.
 - **Every number is a typed property** (`App::PropertyLength`,
   `PropertyForce`, `PropertyStiffness`, and so on). Values are stored in
   internal units (sec 8.1) and shown through the unit schema. Nothing is
@@ -524,7 +553,7 @@ by `AssemblyObject`'s builder, by property name, as motions are read today.
 
 | object | lives in | properties (internal units) | Chrono |
 |---|---|---|---|
-| `Simulation` (existing, extended) | assembly's Simulations | existing a..j; new: `AnalysisType` {Kinematic, Dynamic, Static} (default Kinematic); `SolverBackend` (empty: the first registered backend that can run the type); `Gravity` (vector, default (0, 0, -9806.65) mm/s^2) and `GravityEnabled` (default true for Dynamic and Static); `ContactMethod` {Impact, Restitution}; `Integrator` {Auto, HHT, ImplicitEuler}; `MaxStep` (Time; default = output step); `Accuracy` (float; maps to Newton tolerances, sec 8.2); `ContactTolerance` (Length; the contact mesh deflection, sec 7.2); `RedundantJoints` {Remove, Bushings}; `Excluded` (LinkList); `KeepResults` {None, Motion, All} (default Motion); `Results` (PropertyFileIncluded); `ResultsHash` (string, read-only) | system settings |
+| `Simulation` (existing, extended) | assembly's Simulations | existing a..j; new: `AnalysisType` {Kinematic, Dynamic, Static} (default Kinematic); `SolverBackend` (empty: the first registered backend that can run the type); `Gravity` (vector, default (0, 0, -9806.65) mm/s^2) and `GravityEnabled` (default true for Dynamic and Static); `ContactMethod` {Impact, Restitution}; `Integrator` {Auto, HHT, ImplicitEuler}; `MaxStep` (Time; default = output step); `Accuracy` (float; maps to Newton tolerances, sec 8.2); `ContactTolerance` (Length; the contact mesh deflection, sec 7.2); `RedundantJoints` {Remove, Bushings}; `Elements` (LinkList: the private Physics elements it uses, sec 5.1); `KeepResults` {None, Motion, All} (default Motion); `Results` (PropertyFileIncluded); `ResultsHash` (string, read-only) | system settings |
 | `Motion` (existing, extended) | Simulation | existing Joint, MotionType, Formula; new: `Control` {Position, Speed, Effort} (default Position); `Profile` (link to a `MotionTable`, optional, overriding Formula) | `ChLinkMotorRotationAngle / Speed / Torque`, `...Linear...`; Position = today's motion |
 | `MotionTable` | Simulation | `Points` (PropertyVectorList of (x, y)); `Independent` {time, joint value}; `Interpolation` {Akima, Cubic, Linear} (P4) | a `ChFunction` built from the table (the neutral evaluator's) |
 | `MassOverride` | Physics | `Part` (link); `Mode` {Density, Mass, Full}; `Density`; `Mass`; `CenterOfMass` (vector, in the part frame); `Inertia` (6 values, about the CoM) | `ChBodyAuxRef` mass and inertia |
@@ -1144,14 +1173,16 @@ driven here by `Capabilities`.
 
     Assembly
       Joints ...
-      Physics                      <- new group (Creo's mechanism entities)
+      Physics                      <- new group, owns every mechanism element
         Mass overrides, SpringDamper001, Bushing001, ContactSet001,
-        ContactMaterials, CamContact001, JointDynamics001
+        ContactMaterials, CamContact001, JointDynamics001, Spring002
       Simulations
         Simulation001  [Dynamic]   <- type shown in the label; stale overlay
           Motion001 [Speed]        <- existing motions, control mode shown
           Gravity, Force001, InitialCondition001, Sensor001
           Plot001
+          SpringDamper001, ...     <- the Physics elements it uses, claimed,
+          Spring002                   not copied (sec 5.1)
 
 **The Simulation task panel** (`TaskAssemblyCreateSimulation`) gains the
 following:
@@ -1159,7 +1190,8 @@ following:
 - The backend that will run it, with a refusal message inline when the
   backend cannot (sec 6.3).
 - An includes table (P3, Creo's tabs). It lists every Physics element with
-  a check box, plus gravity on/off and direction.
+  a check box (shared elements marked), plus gravity on/off and direction.
+  Ticking edits `Elements` and `AllSimulations` as in sec 5.1.
 - The existing time fields and the motion list. Each motion's row gets a
   Control column.
 - Calculate with a progress bar and Cancel. Results are flagged stale
@@ -1270,7 +1302,12 @@ can be rebuilt as documents to compare shapes of curves, not digits.
 
 ## 11. Open questions
 
-**Answered by the user (2026-10-23):**
+**Answered by the user (2026-10-23, 2026-10-24):**
+- 1: both. Ownership and display are separate, as elsewhere in FreeCAD:
+  every element is owned by the Physics group and shown, not copied,
+  under each Simulation that uses it. `AllSimulations` marks it shared
+  (Creo); a Simulation's `Elements` list holds its private ones
+  (SOLIDWORKS). Sec 5.1.
 - 5: results are saved in the .FCStd, provided it is efficient, and
   animation and exports work from them. The storage design is in sec 8.4.
 - 6: no OndselSolver dynamics. All dynamics, inverse dynamics included,
@@ -1282,14 +1319,8 @@ can be rebuilt as documents to compare shapes of curves, not digits.
 - 12: gravity is on by default for new Dynamic and Static simulations.
 - 13: interference moves forward into D2, sharing D2's contact cache.
 
-Questions 1-4, 7, 8 and 10 are still open, as below.
+Questions 2-4, 7, 8 and 10 are still open, as below.
 
-1. **Where mechanism elements live.**
-   - Proposed: Creo's split (sec 5.1). Springs, contacts and mass overrides
-     go in an assembly-level Physics group, and each Simulation includes or
-     excludes them.
-   - The alternative is SOLIDWORKS's: everything inside each study. It is
-     simpler to explain, but a spring must be redefined per study.
 2. **The default contact method.**
    - Proposed: Impact (Chrono SMC, an Adams-style law, direct solver), as
      accuracy first.

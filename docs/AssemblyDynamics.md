@@ -517,18 +517,18 @@ phase 4.
     is a `GroupExtensionPython`, and a GroupExtension allows one plain group
     per object (`GroupExtension.cpp`, `addObjects`). Putting an element in
     a Simulation's Group would take it out of Physics.
-  - **Shared or private.** Each element has `AllSimulations` (bool).
-    - True: the element is used by every Simulation, present and future,
-      without being listed. Elements created from the Physics group
-      default to this (Creo).
-    - False: the element is used only by the Simulations whose Elements
-      list it. An element created from inside a Simulation is false and
-      listed there (SOLIDWORKS).
-    - Unticking a shared element in one Simulation's includes table sets
-      it to false and lists it in every other Simulation, so no other
-      study changes. Dragging an element onto a Simulation adds it there.
-    - An element that is false and listed nowhere shows only under
-      Physics, greyed as unused.
+  - **No private elements.** Every element lives in Physics, the one place
+    a user looks for them, as a Body's sketches all show in its Sketches
+    group. A Simulation uses an element the way a Pad uses its sketch: it
+    links to it, and the tree shows it under the Simulation too.
+    - In the study task panel the user either creates an element or picks
+      existing ones from a list. A created element always goes into
+      Physics, and is added to that study's `Elements`.
+    - A new study's list starts with every existing element ticked (Creo's
+      default), and the user unticks what it leaves out. That is a panel
+      default, not a stored flag.
+    - Dragging an element onto a Simulation adds it there. An element no
+      study uses stays in Physics, as an unused sketch stays in its Body.
   - Each Simulation holds its scenario: analysis type, motions and motors,
     gravity, applied forces, initial conditions, sensors, settings and
     results. These are per-study by nature and stay in its Group.
@@ -553,7 +553,7 @@ by `AssemblyObject`'s builder, by property name, as motions are read today.
 
 | object | lives in | properties (internal units) | Chrono |
 |---|---|---|---|
-| `Simulation` (existing, extended) | assembly's Simulations | existing a..j; new: `AnalysisType` {Kinematic, Dynamic, Static} (default Kinematic); `SolverBackend` (empty: the first registered backend that can run the type); `Gravity` (vector, default (0, 0, -9806.65) mm/s^2) and `GravityEnabled` (default true for Dynamic and Static); `ContactMethod` {Impact, Restitution}; `Integrator` {Auto, HHT, ImplicitEuler}; `MaxStep` (Time; default = output step); `Accuracy` (float; maps to Newton tolerances, sec 8.2); `ContactTolerance` (Length; the contact mesh deflection, sec 7.2); `RedundantJoints` {Remove, Bushings}; `Elements` (LinkList: the private Physics elements it uses, sec 5.1); `KeepResults` {None, Motion, All} (default Motion); `Results` (PropertyFileIncluded); `ResultsHash` (string, read-only) | system settings |
+| `Simulation` (existing, extended) | assembly's Simulations | existing a..j; new: `AnalysisType` {Kinematic, Dynamic, Static} (default Kinematic); `SolverBackend` (empty: the first registered backend that can run the type); `Gravity` (vector, default (0, 0, -9806.65) mm/s^2) and `GravityEnabled` (default true for Dynamic and Static); `ContactMethod` {Impact, Restitution}; `Integrator` {Auto, HHT, ImplicitEuler}; `MaxStep` (Time; default = output step); `Accuracy` (float; maps to Newton tolerances, sec 8.2); `ContactTolerance` (Length; the contact mesh deflection, sec 7.2); `RedundantJoints` {Remove, Bushings}; `Elements` (LinkList: the Physics elements it uses, sec 5.1); `KeepResults` {None, Motion, All} (default Motion); `Results` (PropertyFileIncluded); `ResultsHash` (string, read-only) | system settings |
 | `Motion` (existing, extended) | Simulation | existing Joint, MotionType, Formula; new: `Control` {Position, Speed, Effort} (default Position); `Profile` (link to a `MotionTable`, optional, overriding Formula) | `ChLinkMotorRotationAngle / Speed / Torque`, `...Linear...`; Position = today's motion |
 | `MotionTable` | Simulation | `Points` (PropertyVectorList of (x, y)); `Independent` {time, joint value}; `Interpolation` {Akima, Cubic, Linear} (P4) | a `ChFunction` built from the table (the neutral evaluator's) |
 | `MassOverride` | Physics | `Part` (link); `Mode` {Density, Mass, Full}; `Density`; `Mass`; `CenterOfMass` (vector, in the part frame); `Inertia` (6 values, about the CoM) | `ChBodyAuxRef` mass and inertia |
@@ -1190,8 +1190,8 @@ following:
 - The backend that will run it, with a refusal message inline when the
   backend cannot (sec 6.3).
 - An includes table (P3, Creo's tabs). It lists every Physics element with
-  a check box (shared elements marked), plus gravity on/off and direction.
-  Ticking edits `Elements` and `AllSimulations` as in sec 5.1.
+  a check box, a New button that creates one into Physics, plus gravity
+  on/off and direction. Ticking edits `Elements` (sec 5.1).
 - The existing time fields and the motion list. Each motion's row gets a
   Control column.
 - Calculate with a progress bar and Cancel. Results are flagged stale
@@ -1305,9 +1305,10 @@ can be rebuilt as documents to compare shapes of curves, not digits.
 **Answered by the user (2026-10-23, 2026-10-24):**
 - 1: both. Ownership and display are separate, as elsewhere in FreeCAD:
   every element is owned by the Physics group and shown, not copied,
-  under each Simulation that uses it. `AllSimulations` marks it shared
-  (Creo); a Simulation's `Elements` list holds its private ones
-  (SOLIDWORKS). Sec 5.1.
+  under each Simulation that uses it, as a Pad shows its sketch. A study
+  lists what it uses in `Elements`; its task panel creates an element
+  (always into Physics) or picks existing ones. No private elements.
+  Sec 5.1.
 - 5: results are saved in the .FCStd, provided it is efficient, and
   animation and exports work from them. The storage design is in sec 8.4.
 - 6: no OndselSolver dynamics. All dynamics, inverse dynamics included,

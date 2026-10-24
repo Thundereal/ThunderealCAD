@@ -106,6 +106,43 @@ TEST_F(FileElsewhereTest, aSaveLockIsHeldAgainstAnother)
 }
 
 #ifndef _WIN32
+TEST_F(FileElsewhereTest, aSaveLockIsHeldAgainstAnotherProcess)
+{
+    write(_file, "x");
+    // The lock is fcntl's, which only another process sees.
+    int taken[2];
+    int done[2];
+    ASSERT_EQ(pipe(taken), 0);
+    ASSERT_EQ(pipe(done), 0);
+    const pid_t child = fork();
+    ASSERT_GE(child, 0);
+    if (child == 0) {
+        SaveLock theirs(_file);
+        const char ok = theirs.lock(0) ? 'y' : 'n';
+        (void)!::write(taken[1], &ok, 1);
+        char c = 0;
+        (void)!::read(done[0], &c, 1);
+        _exit(0);
+    }
+    char ok = 0;
+    ASSERT_EQ(::read(taken[0], &ok, 1), 1);
+    ASSERT_EQ(ok, 'y');
+
+    SaveLock mine(_file);
+    std::string holder;
+    EXPECT_FALSE(mine.lock(100, &holder));
+    EXPECT_EQ(holder.rfind("another process", 0), 0u) << holder;
+
+    // Let go there, taken here while it waits.
+    const char c = 'x';
+    (void)!::write(done[1], &c, 1);
+    EXPECT_TRUE(mine.lock(5000));
+    int status = 0;
+    waitpid(child, &status, 0);
+    for (int fd : {taken[0], taken[1], done[0], done[1]})
+        ::close(fd);
+}
+
 TEST_F(FileElsewhereTest, aLockLeftByAGoneProcessIsTakenOver)
 {
     write(_file, "x");

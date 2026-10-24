@@ -26,6 +26,8 @@
 # include <chrono>
 # include <cstdio>
 # include <ctime>
+# include <mutex>
+# include <set>
 # include <sstream>
 # include <thread>
 #endif
@@ -35,11 +37,12 @@
 #else
 # include <cerrno>
 # include <csignal>
-# include <fcntl.h>
-# include <sys/file.h>
 # include <sys/stat.h>
-# include <unistd.h>
 #endif
+
+#include <boost/interprocess/exceptions.hpp>
+#include <boost/interprocess/sync/file_lock.hpp>
+#include <boost/version.hpp>
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -149,6 +152,11 @@ bool isMe(const FileOpener& o)
     return o.pid == thisPid() && o.host == thisHost();
 }
 
+/// The lock files a SaveLock of this process holds. An fcntl lock belongs
+/// to the process, so a second one taken here would not see the first.
+std::mutex heldMutex;
+std::set<std::string> heldPaths;
+
 }   // namespace
 
 DiskStamp DiskStamp::of(const std::string& path)
@@ -181,7 +189,8 @@ DiskStamp DiskStamp::of(const std::string& path)
 }
 
 SaveLock::SaveLock(const std::string& file)
-    : _path(lockPath(file))
+    : _file(file)
+    , _path(lockPath(file))
 {}
 
 SaveLock::~SaveLock()
@@ -191,53 +200,57 @@ SaveLock::~SaveLock()
 
 bool SaveLock::tryOnce()
 {
-#ifdef _WIN32
-    const std::wstring wide = QString::fromStdString(_path).toStdWString();
-    HANDLE h = CreateFileW(wide.c_str(), GENERIC_READ | GENERIC_WRITE,
-                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                           OPEN_ALWAYS, FILE_ATTRIBUTE_HIDDEN, nullptr);
-    if (h == INVALID_HANDLE_VALUE) {
-        // Held open, or being deleted by the last to close the document:
-        // wait. Anything else means no lock can be made here.
-        const DWORD e = GetLastError();
-        return !(e == ERROR_SHARING_VIOLATION
-                 || (e == ERROR_ACCESS_DENIED && QFileInfo::exists(QString::fromStdString(_path))));
+    namespace bip = boost::interprocess;
+    {
+        std::lock_guard<std::mutex> guard(heldMutex);
+        if (!heldPaths.insert(_path).second)
+            return false;   // another SaveLock here has it
     }
-    OVERLAPPED at {};
-    if (!LockFileEx(h, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, 1, 0, &at)) {
-        CloseHandle(h);
-        return false;
+    _held = true;
+    auto letGo = [this](bool result) {
+        std::lock_guard<std::mutex> guard(heldMutex);
+        heldPaths.erase(_path);
+        _held = false;
+        return result;
+    };
+
+    const QString path = QString::fromStdString(_path);
+    DiskStamp before = DiskStamp::of(_path);
+    if (!before.valid()) {
+        // file_lock opens and never creates. Closing this handle before the
+        // lock is taken costs nothing: none is held here yet (heldPaths).
+        QFile make(path);
+        if (!make.open(QIODevice::ReadWrite)) {
+            // A folder that takes files: the one there is being deleted by
+            // the last to close the document (Windows), so wait. Otherwise
+            // no lock can be made here; the save says what it meets.
+            return letGo(!QFileInfo(QFileInfo(path).absolutePath()).isWritable());
+        }
+        make.close();
+        before = DiskStamp::of(_path);
     }
-    _handle = h;
-    const std::string who = thisHost() + " " + std::to_string(thisPid()) + "\n";
-    DWORD written = 0;
-    SetFilePointer(h, 0, nullptr, FILE_BEGIN);
-    WriteFile(h, who.data(), static_cast<DWORD>(who.size()), &written, nullptr);
-    SetEndOfFile(h);
+    try {
+#if defined(_WIN32) && BOOST_VERSION >= 107600
+        auto lock = std::make_unique<bip::file_lock>(path.toStdWString().c_str());
 #else
-    const int fd = ::open(_path.c_str(), O_RDWR | O_CREAT | O_CLOEXEC, 0644);
-    if (fd < 0)
-        return true;   // no lock can be made here; the save says what it meets
-    if (::flock(fd, LOCK_EX | LOCK_NB) != 0) {
-        ::close(fd);
-        return false;
-    }
-    // Taken on the file the name still names: a last process closing the
-    // document may have unlinked the one this opened.
-    struct stat mine {};
-    struct stat named {};
-    if (::fstat(fd, &mine) != 0 || ::stat(_path.c_str(), &named) != 0
-            || mine.st_ino != named.st_ino || mine.st_dev != named.st_dev) {
-        ::close(fd);
-        return false;
-    }
-    _fd = fd;
-    // Who has it, for one that waits to say; not synced, it is a courtesy.
-    const std::string who = thisHost() + " " + std::to_string(thisPid()) + "\n";
-    if (::ftruncate(fd, 0) == 0 && ::pwrite(fd, who.data(), who.size(), 0) < 0) {
-        // nothing to do: the lock is what matters
-    }
+        auto lock = std::make_unique<bip::file_lock>(path.toUtf8().constData());
 #endif
+        if (!lock->try_lock())
+            return letGo(false);
+        // Taken on the file the name still names: a last process closing
+        // the document may have deleted the one this opened. The file is
+        // never written, so the stamp moves only when it is made anew.
+        if (!before.valid() || !DiskStamp::of(_path).sameAs(before)) {
+            lock->unlock();
+            return letGo(false);
+        }
+        _lock = std::move(lock);
+    }
+    catch (const bip::interprocess_exception&) {
+        // Gone since, or being deleted: try again. One that is there and
+        // cannot be written means no lock can be made here.
+        return letGo(QFileInfo::exists(path) && !QFileInfo(path).isWritable());
+    }
     _locked = true;
     return true;
 }
@@ -255,37 +268,47 @@ bool SaveLock::lock(int timeoutMs, std::string* holder)
         std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     if (holder) {
+        // The lock file says nothing (on Windows it cannot even be read
+        // while held): who has the file open is what there is to tell.
         holder->clear();
-        QFile in(QString::fromStdString(_path));
-        if (in.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            std::istringstream fields(in.readAll().toStdString());
-            std::string host;
-            int64_t pid = 0;
-            if (fields >> host >> pid)
-                *holder = host + " (pid " + std::to_string(pid) + ")";
+        bool here = false;
+        {
+            std::lock_guard<std::mutex> guard(heldMutex);
+            here = heldPaths.count(_path) > 0;
         }
-        if (holder->empty())
+        if (here)
+            *holder = "this process (pid " + std::to_string(thisPid()) + ")";
+        else {
+            std::string open;
+            for (const auto& o : FileOpeners::others(_file)) {
+                if (!open.empty())
+                    open += ", ";
+                open += FileOpeners::describe(o);
+            }
             *holder = "another process";
+            if (!open.empty())
+                *holder += " (it is open in " + open + ")";
+        }
     }
     return false;
 }
 
 void SaveLock::unlock()
 {
-#ifdef _WIN32
-    if (_handle) {
-        OVERLAPPED at {};
-        UnlockFileEx(static_cast<HANDLE>(_handle), 0, 1, 0, &at);
-        CloseHandle(static_cast<HANDLE>(_handle));
-        _handle = nullptr;
+    if (_lock) {
+        try {
+            _lock->unlock();
+        }
+        catch (const boost::interprocess::interprocess_exception&) {
+            // closing it below lets it go all the same
+        }
+        _lock.reset();
     }
-#else
-    if (_fd >= 0) {
-        ::flock(_fd, LOCK_UN);
-        ::close(_fd);
-        _fd = -1;
+    if (_held) {
+        std::lock_guard<std::mutex> guard(heldMutex);
+        heldPaths.erase(_path);
+        _held = false;
     }
-#endif
     _locked = false;
 }
 

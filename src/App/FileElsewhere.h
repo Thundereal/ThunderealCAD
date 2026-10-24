@@ -30,6 +30,11 @@
 
 #include <FCGlobal.h>
 
+namespace boost::interprocess
+{
+class file_lock;
+}
+
 namespace App
 {
 
@@ -56,11 +61,14 @@ struct AppExport DiskStamp
 };
 
 /** The lock a save holds beside the file it writes, from the look at the
- * file through the pull to the write (sec 29.7 Q5): an OS lock (flock,
- * LockFileEx) on `.~<name>.lock`. A process that finds it held waits. The
- * system lets it go when the process ends, however it ends, so none is ever
- * left stale; the file stays while the document is open, and goes with the
- * marker of the last process that has it open (FileOpeners::remove).
+ * file through the pull to the write (sec 29.7 Q5): boost's file_lock on
+ * `.~<name>.lock`, which is fcntl on POSIX and LockFileEx on Windows. A
+ * process that finds it held waits. The system lets it go when the process
+ * ends, however it ends, so none is ever left stale; the file stays while
+ * the document is open, and goes with the marker of the last process that
+ * has it open (FileOpeners::remove). An fcntl lock is the process's, not the
+ * handle's, so the lock is also kept among the paths this process holds: a
+ * second SaveLock here on the same file waits as one elsewhere would.
  */
 class AppExport SaveLock
 {
@@ -83,12 +91,10 @@ private:
     /// One try: true when taken, or when no lock can be made at all.
     bool tryOnce();
 
+    std::string _file;
     std::string _path;
-#ifdef _WIN32
-    void* _handle {nullptr};
-#else
-    int _fd {-1};
-#endif
+    std::unique_ptr<boost::interprocess::file_lock> _lock;
+    bool _held {false};   ///< among the paths this process holds
     bool _locked {false};
 };
 

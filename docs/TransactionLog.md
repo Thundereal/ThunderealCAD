@@ -11905,19 +11905,30 @@ two processes could both write the same stale id.
 
 **The lock (Q5)**: `.~<name>.lock` beside the file, held from that look to
 the end of the write (`App::SaveLock`). A save that finds it held waits up
-to 60 s, then fails with "being saved by <host> (pid N)", nothing written.
-- **It is an OS lock**: `flock` on POSIX, `LockFileEx` on Windows. The
-  system lets it go when the process ends, however it ends, so no lock is
-  ever left stale.
+to 60 s, then fails with "being saved by another process (it is open in
+<host> (pid N) since <time>)", nothing written.
+- **It is boost's `file_lock`**, portable code with no platform branch of
+  ours: fcntl on POSIX, `LockFileEx` on Windows. The system lets it go when
+  the process ends, however it ends, so no lock is ever left stale. The
+  lock file is empty and never written; on Windows a held one cannot even
+  be read, so who holds it is told from the marker below.
+- **An fcntl lock is the process's**, not the handle's: a second lock taken
+  in the same process would succeed. So the lock files a `SaveLock` of
+  this process holds are also kept in a set, and a second one here waits
+  as one in another process would. And no other code may open and close
+  the lock file while it is held, since closing any handle of it lets the
+  process's lock go: the file is made, when missing, before the lock.
 - **Not QLockFile.** QLockFile was the first build. Measured here, a lock
-  and unlock took 1.5 ms (median of 500), most likely because it syncs the
-  file to disk. On a 30 ms schema-4 save that read as 2.6 ms slower (the
-  first table below). The OS lock is an open, a lock, two stats and a
-  small write, with no sync.
-- **On POSIX it checks the inode.** After taking the lock, the save checks
-  that the lock file it holds is the one the name still names. The last
-  process to close the document unlinks the lock file, and another may
-  have opened the old one in between.
+  and unlock took 1.46 ms (median of 400), most likely because it syncs
+  the file to disk. On a 30 ms schema-4 save that read as 2.6 ms slower
+  (the table below). A hand-written `flock`/`LockFileEx` replaced
+  it first, at 1.6 us; boost then replaced that, at 2.0 us, for the
+  portability (`~/.cache/lv-merge/probe29/bench/lockbench.cpp`).
+- **The name is checked after the lock.** The last process to close the
+  document deletes the lock file, and another may have opened the old one
+  in between. The file's stamp (size, time, inode, as below) is taken
+  before the lock and again after; a lock file made anew has another, and
+  the save tries again.
 
 **The marker (Q5)**: `.~<name>.open`, one line per process that has the
 file open (host, pid, time).
@@ -11990,15 +12001,18 @@ save so that it writes, saves alternating with the preference on and off,
 
 | Mode, schema | File | On, median | Off, median |
 | --- | --- | --- | --- |
-| 2 (embedded), 5 | 90 KB | 45.45 ms | 47.17 ms |
-| 2, 4 | 61 KB | 31.45 ms | 31.34 ms |
-| 1 (session), 5 | 31 KB | 21.36 ms | 21.29 ms |
-| 1, 4 | 61 KB | 31.24 ms | 31.10 ms |
+| 2 (embedded), 5 | 90 KB | 46.75 ms | 46.23 ms |
+| 2, 4 | 61 KB | 30.16 ms | 30.26 ms |
+| 1 (session), 5 | 31 KB | 20.61 ms | 20.55 ms |
+| 1, 4 | 61 KB | 31.25 ms | 31.20 ms |
 
-Every median is within 0.15 ms of the other, either way. The first row
-came out faster with the check on, which shows the scatter. The look alone
-(`isFileChangedElsewhere()` on an unmoved file) is 1.5 us. With QLockFile
-the schema-4 rows were 33.08 against 30.44 ms and 33.52 against 30.81 ms.
+That is with boost's lock. Three medians are within 0.1 ms of the other,
+either way; the first row is 0.5 ms apart, and its minimums go the other
+way (39.38 on, 41.04 off), which shows the scatter. With the hand-written
+lock the same rows were 45.45/47.17, 31.45/31.34, 21.36/21.29 and
+31.24/31.10. The look alone (`isFileChangedElsewhere()` on an unmoved file)
+is 1.5 us. With QLockFile the schema-4 rows were 33.08 against 30.44 ms and
+33.52 against 30.81 ms.
 
 **A pull costs**, in the driven test, 0.18 s for an import and merge of one
 row with a recompute. That is only on the save that finds the file moved.
@@ -12007,12 +12021,14 @@ row with a recompute. That is only on the save that finds the file moved.
 - *A project directory* (a document saved as a folder): the stamp is its
   `Document.xml`, but a moved one is not pulled. The save warns and writes
   over it, as before.
-- *The Windows lock* is written (`LockFileEx`, a lock file being deleted
-  is waited on) but not run: there is no Windows box here.
+- *Windows* is not run: there is no Windows box here. The lock is boost's
+  there too, a lock file being deleted is waited on, and the lock file is
+  not marked hidden, as the hand-written one was.
 
 **Tests.**
 - gtest `FileElsewhereTest`: the stamp tells a write by rename and one in
-  place; a lock is held against a second lock in this process; a lock
+  place; a lock is held against a second lock in this process, and
+  against one in a forked child until the child lets it go; a lock
   whose holder died (a forked child) is taken; the marker tells another
   host's line, drops a gone process of this host, and goes with the lock
   file at the last close.

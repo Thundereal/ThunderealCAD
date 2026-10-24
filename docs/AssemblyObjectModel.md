@@ -186,10 +186,17 @@ at display or solve time.
 
 - `Part::Element`: `Target` (an `App::PropertyXLinkSub`, always to a child
   of its own container, so same-document: subname paths, `$Label`, shadow
-  names), `Offset`, `Detach`, `Shape` (the copy, as
-  `asm3/assembly.py:880-912`), `Placement`.
+  names; empty for a Body's element on its own result, sec 5.2), `Offset`,
+  `Detach`, `Shape` (the copy), `Placement`.
 - `Part::ElementLink`: `Element` (a plain link to an element of its
   container), `Offset`, `Shape` (sec 4.4), `ElementHash`.
+- **Frames.** Both copies are expressed in the frame of the component they
+  belong to (the direct child of the container that the container's solver
+  moves), and `Placement` puts them where that component currently is.
+  Unlike Assembly3, which bakes the part's placement into the element's
+  shape (`asm3/assembly.py:900-910`), a solve here changes only `Placement`
+  outputs, never a stored shape, and an element and its element links hold
+  the same geometry, one `TShape`.
 - Both keep `OnTopWhenSelected` on by default, as Assembly3's do.
 
 What Assembly3 took from `LinkBaseExtension` for these two, and where it

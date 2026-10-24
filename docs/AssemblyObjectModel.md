@@ -42,6 +42,9 @@ Sources:
 11. **`$$Name.` in a subname steps through the link property `Name`** of
     the object it is applied to (sec 6.3). The Elements group is reached as
     `$$Elements.`, held by a property as the Origin is.
+12. **Which shape a Body's element takes is the user's choice** (sec 5.2):
+    any child shape of the Body can be a target, with no machinery to favour
+    or repair one kind.
 
 ## 1. The tree
 
@@ -83,7 +86,7 @@ Bracket                     PartDesign::Body (Bracket.FCStd)
   Origin
   Sketches  Datums  Misc    aux views, as today
   Elements                  owns its elements; the Body's interface
-    Bore          -> the body's result, "Face9"   (sec 5.2)
+    Bore          -> Pad, "Face4"                 (sec 5.2)
   Pad  Pocket ...
 ```
 
@@ -202,8 +205,8 @@ they own their `Shape`, so nothing needs the geometry of what they point at
 at display or solve time.
 
 - `Part::Element`: `Target` (an `App::PropertyLinkSub`: a direct child of
-  its own container, plus a subname into it; empty for a Body's element on
-  its own result, sec 5.2), `Offset`, `Detach`, `Shape` (the copy),
+  its own container, plus a subname into it), `Offset`, `Detach`, `Shape`
+  (the copy),
   `Placement`.
 - `Part::ElementLink`: `Element` (an `App::PropertyLinkSub`: a direct child
   of its container and the subname to an element in that child's Elements
@@ -308,47 +311,24 @@ in an assembly is no longer needed: a Body or a Part declares its own.
   early feature), which is the wiki's advice for stable interfaces
   (How to Handle Large Scale Assembly). That is cycle-free like the above.
 
-### 5.2 A Body's element on the body's own result
+### 5.2 Which shape a Body's element takes
 
-The common pick is a face of the finished body: the selection is
-`Bracket` + `Face9`, the face of the Body's `Shape`, which is the tip's.
-The two obvious targets both fail:
+The user's choice (decision 12). The program provides the capability: an
+element's `Target` can be any child shape of the Body -- a sketch, a datum,
+a binder, an intermediate feature, a `SolidBody`.
 
-- **`Target = (Bracket, "Face9")`** is a cycle. The Body holds its Elements
-  group (sec 6.3), so the Body depends on the element, and the element
-  would depend on the Body.
-- **`Target = (Pad002, "Face9")`**, the tip at the time of the pick, is
-  cycle-free but goes stale silently. Add a Fillet after `Pad002` and the
-  interface still offers `Pad002`'s unfilleted face; delete or reorder
-  `Pad002` and it breaks. A parent assembly would mate against geometry the
-  part no longer has.
-
-The rule proposed instead:
-
-- **The element has no `Target` link.** It stores the face's name relative
-  to its owner, as a mapped (topological) name: `Face9` plus its shadow.
-- **The Body refreshes these elements at the end of its own `execute`**,
-  after its `Shape` is final: it looks each name up in the new shape and
-  sets the element's `Shape`. A name that no longer resolves goes through
-  the repair order of sec 4.5 (`getRelatedElements`, then the geometric
-  search against the old copy), run by the Body there and then.
-- **They are outputs.** The element's `Shape` and `Placement` are written
-  only by the Body, as `Prop_Output`, so writing them does not touch the
-  element itself and no extra recompute round is queued.
-- **Dependency order stays right.** The DAG has Body -> Elements group ->
-  elements and nothing back. Element links in parent assemblies reach the
-  element through the component (`(Bracket, "$$Elements.$Bore.")`), so they
-  depend on the Body and recompute after it, when the copies are final.
-- **Elements on features stay as they are.** An element on `Sketch.Edge3`,
-  a datum or an early feature keeps a normal `Target`, which the wiki
-  recommends for stable interfaces (How to Handle Large Scale Assembly). The
-  pick decides: a face of the finished body gives a result element; a pick
-  inside a feature (through the tree, or a sketch or a datum) gives a
-  target element.
-
-The same rule serves any container whose own result is a shape (a
-`SolidBody`, later a frozen assembly). An `App::Part` has no result shape of
-its own and an assembly's elements point at children, so neither needs it.
+- **Advice, not enforcement.** Pick a feature early in the history. The
+  Body's shape and a `SolidBody`'s are moving targets that every later
+  feature changes. This goes in the documentation and the command's tool
+  tip, not into code.
+- **The Body's own shape** cannot be a `Target` link: the Body holds its
+  Elements group (sec 6.3), so the link would be a cycle. A user who wants
+  it anyway binds it with an expression through `hiddenref()`, which records
+  no dependency (`App/Expression.cpp:2777`). The element is then not touched
+  when the Body changes; that trade is the user's.
+- **No extra machinery.** No result elements kept up by the Body's
+  `execute`, and no auto-fix aimed at moving targets. An element on a Body
+  is repaired like any other (sec 4.5).
 
 ## 6. Generalizing AuxGroup
 
@@ -518,12 +498,12 @@ links store `$$Elements.` and `$PinEnd.` instead.
    old Body file with Sketches, Datums and Misc round-tripped.
 2. `GroupMode` on `App::Part`, with gtests for each case of sec 2.
 3. `Part::Element` and `Part::ElementLink`, the Owning aux group, and
-   Elements on `App::Part` and Body (sec 5.2 for a Body's own result).
+   Elements on `App::Part` and Body.
 4. The C++ assembly objects (joint, simulation, motion, Physics items,
    exploded view), the solver builder on them, and the upstream converter.
 5. Partial loading through element links (sec 4.4), and repair (sec 4.5).
 
 ## 10. Open questions
 
-1. Sec 5.2: is an element on a Body's own result, updated by the Body's
-   `execute` with no link to the Body, the rule you want?
+None. The last one, a Body's element on its own result, is settled by
+decision 12 (sec 5.2).

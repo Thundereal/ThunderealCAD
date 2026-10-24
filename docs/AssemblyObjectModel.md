@@ -180,14 +180,33 @@ a frame (a circular edge, a datum, an LCS) needs no offset.
 ### 4.3 Classes
 
 C++ in the Part module (they hold shapes; `App::Part` sees them by type
-name):
+name). Both are plain shape objects, not link objects (user, 2026-10-24):
+they own their `Shape`, so nothing needs the geometry of what they point at
+at display or solve time.
 
-- `Part::Element`: a link object (`LinkBaseExtension`, `LinkedObject` an
-  `App::PropertyXLink` with subname, `LinkTransform`), `Offset`, `Detach`,
-  `Shape` (the copy, as `asm3/assembly.py:880-912`), `Placement`.
-- `Part::ElementLink`: a link object to an element of its container, with
-  `Offset`, `Shape` (sec 4.4) and `ElementHash`.
+- `Part::Element`: `Target` (an `App::PropertyXLinkSub`, always to a child
+  of its own container, so same-document: subname paths, `$Label`, shadow
+  names), `Offset`, `Detach`, `Shape` (the copy, as
+  `asm3/assembly.py:880-912`), `Placement`.
+- `Part::ElementLink`: `Element` (a plain link to an element of its
+  container), `Offset`, `Shape` (sec 4.4), `ElementHash`.
 - Both keep `OnTopWhenSelected` on by default, as Assembly3's do.
+
+What Assembly3 took from `LinkBaseExtension` for these two, and where it
+goes instead:
+
+| Assembly3 use | here |
+|---|---|
+| showing the referenced geometry in place (`ViewProviderLinkPython`, `asm3/assembly.py:250`) | a part view provider showing the copy, at the component's current placement |
+| link navigation ("Select linked", "Select final"): `getLinkedViewProvider` (`Gui/CommandLink.cpp:923`) | the element view providers override `getLinkedViewProvider` to step to the target. `getLinkedObject` is NOT overridden: `Part::Feature::getTopoShape` follows it (`Part/App/PartFeature.cpp:1235`) and would bypass the copy, which `asm3/assembly.py:598` warns of too |
+| a link-array ElementLink for constraint multiplication (`Count`, `PlacementList`, `ShowElement`; `asm3/assembly.py:1898-1903`, `:2210-2248`, `:2541`) | one joint per array instance, each with its own ElementLinks; per-instance offsets then need no second "expand" step |
+| re-pointing by drag and drop | the view providers' own drop handlers, as Assembly3's are (`:2363`) |
+
+Not tied to the extension, so kept as they are: `$Label` references and
+their update on relabel (`PropertyLinkBase::updateLabelReferences`), the
+adjustment of relative links on "Replace with link"
+(`DocumentObject::adjustRelativeLinks`), import of links, version pinning
+(on the owned `App::Link`, not on elements), and partial loading (sec 4.4).
 
 ### 4.4 Shapes on both, and partial loading
 
@@ -211,8 +230,19 @@ Here the ElementLink also stores the shape:
   with a round-trip probe when it is built.
 - **A joint is self-contained.** The solver, the highlight and the joint's
   display read the ElementLinks alone.
-- **A child need not be loaded at all**, not only frozen. Joints and element
-  links answer `canLoadPartial` 1: the chain below is created, not restored.
+- **A child need not be loaded at all to solve**, not only frozen. Partial
+  loading is object- and property-level, not a link-extension feature:
+  `DocumentObject::canLoadPartial` is written into the file's dependency
+  table (`App/Document.cpp:3822`) and read back to create dependencies
+  without restoring them (`:4063-4097`), and an XLink with `AllowPartial`
+  opens its document partially and tolerates a missing target
+  (`App/PropertyLinks.cpp:4255`, `:5082`). Joints and element links answer
+  `canLoadPartial` 1; a local element over an unloaded child keeps its copy
+  and reports itself unresolved, not broken.
+- **Display is the container's business.** Showing an unloaded child needs
+  the child container to keep a frozen shape of its own (Assembly3's Freeze,
+  `docs/AssemblyFromAsm3.md` A.5); the copies on elements only serve the
+  solver, the highlight and the joints.
 - **Stale copies are flagged, never silently used.** `ElementHash` is the
   content hash of the Element shape that was copied. When the child loads
   and the hash differs, the joint shows "element changed below"; the user

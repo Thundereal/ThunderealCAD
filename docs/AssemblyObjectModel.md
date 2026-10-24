@@ -53,15 +53,15 @@ Sources:
     SolidBody** (sec 5.3): they are grouped automatically by the solid that
     owns the feature they link to. The Body's Elements group still owns
     them all.
+16. **The groups come first, right after Origin, and Parts is the last of
+    them** (sec 3): Origin, Elements, Joints, Physics, Simulations, Views,
+    then Parts when there is one, then any component not in a group.
 
 ## 1. The tree
 
 ```
 Rotor                       Assembly : App::Part, GroupMode = Auto   (Rotor.FCStd)
   Origin
-  Dome                      direct child: a plain part in this document
-  Axis                      owned App::Link -> Axis (an assembly in Axis.FCStd)
-  Bracket                   owned App::Link -> Bracket.FCStd#Body
   Elements                  owns its elements; Rotor's interface and label namespace
     HubFace       -> (Dome, "Face12")                declared for Rotor's parents
     _Element      -> (Dome, "Edge7")                 convenience: Dome has no Elements
@@ -82,12 +82,17 @@ Rotor                       Assembly : App::Part, GroupMode = Auto   (Rotor.FCSt
   Views
     Exploded View           owns its steps
       Move                  Components = [Bracket]
+  Dome                      direct child: a plain part in this document
+  Axis                      owned App::Link -> Axis (an assembly in Axis.FCStd)
+  Bracket                   owned App::Link -> Bracket.FCStd#Body
 
 Axis                        Assembly in its part role, Freeze = true
-  Parts                     aux view, required when frozen: Shape = compound of the parts
-    Pin                     owned App::Link -> Pin.FCStd#Pin (an App::Part)
+  Origin
   Elements
     PinEnd        -> (Pin, "$$Elements.$End.")
+  Parts                     aux view, the last group; required when frozen:
+                            Shape = compound of the parts
+    Pin                     owned App::Link -> Pin.FCStd#Pin (an App::Part)
 
 Bracket                     PartDesign::Body with two solids (Bracket.FCStd)
   Origin
@@ -152,6 +157,14 @@ Hidden links and no cross-document links are needed in joints or elements.
 - Aux groups show subsets sorted by C++ type (Joints, Physics,
   Simulations, Views, and Parts when asked for, sec 3.1), as
   `PartDesign::AuxGroup` shows Sketches, Datums and Misc. They own nothing.
+- **The groups come first** (decision 16). The container lists, in this
+  order: Origin, Elements, Joints, Physics, Simulations, Views, then Parts
+  when there is one, then whatever component is in no group (all of them,
+  without a Parts group). The order is the container view provider's
+  `claimChildren`, not positions in `Group`, so it holds however `Group` was
+  reordered or filled, and a file written in another order shows the same.
+  A group that does not exist is skipped; the Elements group is held by a
+  property (sec 6.2) and is placed the same way.
 - Three things own their children instead:
   - **the Elements group**: it is the label namespace (decision 5);
   - **a study** owns its own items (motions, loads, initial conditions,

@@ -44,6 +44,22 @@ def consoleExe():
     return None
 
 
+def pathKey(path):
+    """A path as one file has one spelling of it: on Windows a document's
+    FileName may be in Qt's form (C:/...) or keep an 8.3 short name
+    (LEI~1.ZHE) where Python's join and realpath give another."""
+    return os.path.normcase(os.path.realpath(path))
+
+
+def samePath(a, b):
+    return pathKey(a) == pathKey(b)
+
+
+def isUnder(path, folder):
+    path, folder = pathKey(path), pathKey(folder)
+    return path.startswith(folder.rstrip(os.sep) + os.sep)
+
+
 class Proxy:
     def __init__(self, obj):
         self.Dictionary = {}
@@ -11067,8 +11083,12 @@ class TransactionBranchCases(unittest.TestCase):
         merged = doc.mergeLinkedSet(res["files"])
         self.assertEqual(merged["refused"], False, merged)
         self.assertEqual(doc.S.getLinkedObject(True).Length.Value, 25)
-        self.assertEqual(doc.S.LinkedObject.Document.FileName, os.path.join(ours, "Sub.FCStd"))
-        self.assertEqual(doc.B.Support[0][0].Document.FileName, os.path.join(ours, "Part.FCStd"))
+        self.assertTrue(
+            samePath(doc.S.LinkedObject.Document.FileName, os.path.join(ours, "Sub.FCStd"))
+        )
+        self.assertTrue(
+            samePath(doc.B.Support[0][0].Document.FileName, os.path.join(ours, "Part.FCStd"))
+        )
 
     def testTheirFileAloneLinksWhatTheSetsFilesCameAs(self):
         # Sec 35.15 G4: their Bolt, which we have no file of, links their
@@ -11138,7 +11158,7 @@ class TransactionBranchCases(unittest.TestCase):
         # Another session: the held copy written again from the log. Each
         # file of ours saved, the branches their imports made with it.
         for d in FreeCAD.listDocuments().values():
-            if d.FileName.startswith(ours) and "@" not in d.FileName:
+            if isUnder(d.FileName, ours) and "@" not in d.FileName:
                 d.save()
         for name in list(FreeCAD.listDocuments()):
             FreeCAD.closeDocument(name)
@@ -11162,7 +11182,9 @@ class TransactionBranchCases(unittest.TestCase):
         b = self.track(FreeCAD.openDocument(written))
         for d in FreeCAD.listDocuments().values():
             self.track(d)
-        self.assertEqual(b.B.LinkedObject.Document.FileName, os.path.join(ours, "Part.FCStd"))
+        self.assertTrue(
+            samePath(b.B.LinkedObject.Document.FileName, os.path.join(ours, "Part.FCStd"))
+        )
         self.assertEqual(b.B.LinkedObject.Length.Value, 25)
 
     def testAnExpressionReadsWhatTheSetsFilesCameAs(self):
@@ -11228,7 +11250,7 @@ class TransactionBranchCases(unittest.TestCase):
 
         # Another session: the branch's expression names the branch's file
         for d in FreeCAD.listDocuments().values():
-            if d.FileName.startswith(ours) and "@" not in d.FileName:
+            if isUnder(d.FileName, ours) and "@" not in d.FileName:
                 d.save()
         for name in list(FreeCAD.listDocuments()):
             FreeCAD.closeDocument(name)
@@ -11974,18 +11996,18 @@ class TransactionBranchCases(unittest.TestCase):
         copy.save()
         for name in list(FreeCAD.listDocuments()):
             d = FreeCAD.getDocument(name)
-            if d.FileName.startswith(out):
+            if isUnder(d.FileName, out):
                 FreeCAD.closeDocument(name)
         self.param.SetInt("TransactionLog", 2)
 
         res = asm.importLinkedSet(os.path.join(out, "Asm.FCStd"))
-        got = {f["theirs"]: f for f in res["files"]}
+        got = {pathKey(f["theirs"]): f for f in res["files"]}
         for f in res["files"]:
             self.assertEqual(f["error"], "", f)
             self.assertEqual(f["stopped_at"], 0, f)
             self.assertNotEqual(f["our_file"], "", f)
-        theirAsm = got[os.path.realpath(os.path.join(out, "Asm.FCStd"))]
-        theirPart = got[os.path.realpath(os.path.join(out, "Part.FCStd"))]
+        theirAsm = got[pathKey(os.path.join(out, "Asm.FCStd"))]
+        theirPart = got[pathKey(os.path.join(out, "Part.FCStd"))]
         self.assertNotEqual(theirPart["branch"], "")
         self.assertNotEqual(theirAsm["branch"], "")
         self.assertEqual((obj.Integer, asm.Pin.LinkedObject.Integer), (2, 1))
@@ -13032,8 +13054,10 @@ class LibraryPathCases(unittest.TestCase):
 
     def tearDown(self):
         FreeCAD.removeLibraryPath(self.NAME)
-        for name in list(FreeCAD.listDocuments()):
-            if name.startswith("PyLib"):
+        # And what a link opened from the folder: named after its file (bolt),
+        # left open it outlived the folder.
+        for name, doc in list(FreeCAD.listDocuments().items()):
+            if name.startswith("PyLib") or (doc.FileName and isUnder(doc.FileName, self.dir)):
                 FreeCAD.closeDocument(name)
 
     def same(self, a, b):
@@ -13086,6 +13110,20 @@ class LibraryPathCases(unittest.TestCase):
         # A token needs no saved owner (3.8).
         h.L = (self.token, "Bolt")
         self.assertEqual(h.L.Name, "Bolt")
+
+    def testAMissingFileIsNotADocumentWhoseFileWentAway(self):
+        # Neither has a canonical path: "" matched "", and the link to a file
+        # that is not there was given the open document whose file was
+        # deleted (Application::getDocumentByPath).
+        import shutil
+
+        gone = tempfile.mkdtemp(prefix="fc-libpaths-gone-")
+        stale = FreeCAD.newDocument("PyLibStale")
+        stale.addObject("App::FeatureTest", "Bolt")
+        stale.saveAs(os.path.join(gone, "bolt.FCStd"))
+        shutil.rmtree(gone)
+        with self.assertRaises(ValueError):
+            self.holder.L = (os.path.join(self.dir, "none.FCStd"), "Bolt")
 
     def testAnExportedSetLeavesItsLibraryFiles(self):
         # docs/LibraryPaths.md step 4: the set exported (TransactionLog sec

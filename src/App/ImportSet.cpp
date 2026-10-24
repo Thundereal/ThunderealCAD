@@ -72,12 +72,11 @@ std::string ss(const QString& s)
     return s.toUtf8().constData();
 }
 
-/// A full path, cleaned, the one key of a file here.
+/// A full path, cleaned, the one key of a file here: the history's key, so
+/// a Windows short name and the long one are one file.
 std::string keyOf(const std::string& path)
 {
-    const QFileInfo info(qs(path));
-    const QString canonical = info.canonicalFilePath();
-    return ss(canonical.isEmpty() ? QDir::cleanPath(info.absoluteFilePath()) : canonical);
+    return FileHistory::canonicalPath(path);
 }
 
 /// An attribute's value as Persistence::encodeAttribute() wrote it, read.

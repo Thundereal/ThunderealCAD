@@ -37,6 +37,10 @@
 #include <QFile>
 #include <QFileInfo>
 
+#ifdef _WIN32
+# include <windows.h>
+#endif
+
 #include <zipios++/zipios-config.h>
 #include <zipios++/zipfile.h>
 
@@ -448,6 +452,37 @@ FileBlobManager& FileHistory::blobs()
     return *_blobs;
 }
 
+#ifdef _WIN32
+namespace
+{
+/// The long form of a path: QFileInfo::canonicalFilePath keeps an 8.3 short
+/// name (C:/Users/LEI~1.ZHE/...), so the same file reached by its long name
+/// had another key. A file that is not there yet: its folder expanded, its
+/// name kept.
+QString longName(const QString& path)
+{
+    const std::wstring native = QDir::toNativeSeparators(path).toStdWString();
+    DWORD n = GetLongPathNameW(native.c_str(), nullptr, 0);
+    if (n) {
+        std::wstring out(n, L'\0');
+        n = GetLongPathNameW(native.c_str(), out.data(), n);
+        if (n) {
+            out.resize(n);
+            return QDir::fromNativeSeparators(QString::fromStdWString(out));
+        }
+    }
+    const QFileInfo info(path);
+    const QString parent = info.absolutePath();
+    if (parent == path || parent.isEmpty())
+        return path;
+    QString head = longName(parent);
+    if (!head.endsWith(QLatin1Char('/')))
+        head += QLatin1Char('/');
+    return head + info.fileName();
+}
+}   // namespace
+#endif
+
 std::string FileHistory::canonicalPath(const std::string& path)
 {
     if (path.empty())
@@ -455,7 +490,10 @@ std::string FileHistory::canonicalPath(const std::string& path)
     QFileInfo info(QString::fromUtf8(path.c_str()));
     QString canonical = info.canonicalFilePath();
     if (canonical.isEmpty())
-        canonical = info.absoluteFilePath();
+        canonical = QDir::cleanPath(info.absoluteFilePath());
+#ifdef _WIN32
+    canonical = longName(canonical);
+#endif
     return canonical.toUtf8().constData();
 }
 

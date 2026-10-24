@@ -511,6 +511,9 @@ phase 4.
     assembly's own Group, because `GroupExtension::addObjects` adds them
     to the enclosing GeoFeatureGroup. The assembly therefore owns their
     placement and 3D, and the group only organises the tree.
+    (Revised 2026-10-24: with the C++ object model Physics becomes an aux
+    view of the assembly's own `Group`, `docs/AssemblyObjectModel.md`
+    sec 3; ownership is unchanged.)
   - **Used** by a Simulation through its `Elements` link list. The tree
     does not show them under the Simulation: they are listed in its task
     panel, and the tree stays as it is. Claiming them there (the

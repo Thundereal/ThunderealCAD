@@ -435,6 +435,13 @@ kinematic run, ASMT export, link arrays in assemblies.
    CurveCylinder, CurveSphere, CurveCone, CurveTorus, Other) are refused
    for new joints with a message, while joints of those kinds already in a
    document keep today's planar behaviour with a warning.
+8. **The assembly object model is C++** (user, 2026-10-24):
+   `docs/AssemblyObjectModel.md`. The container stays an `App::Part`, given
+   LinkGroup-like group modes; ownership follows Body and its aux groups,
+   with `PartDesign::AuxGroup` generalized for every container; Assembly3's
+   Elements and ElementLinks are adopted, declared by Assembly, App::Part
+   and Body alike. This narrows decision 1: upstream's commits to the
+   objects that move to C++ are ported by hand, not taken as they come.
 
 Standing rule: nothing is pushed to, or written in, any repo of the
 FreeCAD GitHub org. The `upstream` remote is fetch-only; the solver's

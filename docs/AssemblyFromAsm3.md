@@ -3,6 +3,12 @@
 Status (2026-10-22): a study, nothing changed. It extends
 `docs/AssemblyAudit.md` (branch `AssemblyPort`).
 
+Revised 2026-10-24: the Element verdict of A.1 was wrong, and so was the
+merge-cost premise behind it. The object model moves to C++ with Assembly3's
+Elements and ElementLinks: `docs/AssemblyObjectModel.md`. Section B's
+mapping of elements onto upstream's joint references is superseded by it;
+Assembly3 elements now map 1:1.
+
 Sources:
 - the Assembly3 clone at `D:\works\sw\FreeCAD_assembly3` (master, `773b977`,
   2025-11-08, version 0.12.3);
@@ -56,8 +62,7 @@ objects:
 - the mover conveniences;
 - per-transaction auto-solve.
 
-The Element object model itself should not be taken; its benefits can be
-had on top of upstream's references (sec A.1).
+The Element object model is taken as well (revised 2026-10-24, sec A.1).
 
 
 ## A. What to borrow
@@ -164,37 +169,23 @@ as a link group at run time (`configLinkProperty`, `asm3/assembly.py:320-334`).
      sub-assembly are copied by property name into mirrored objects
      (`Assembly/App/AssemblyLink.cpp:561-686`, F9).
 
-**Verdict.**
+**Verdict (revised 2026-10-24): adopt Element and ElementLink.**
 
-- **Do not adopt Element / ElementLink objects.**
-  - They diverge from upstream's object model at its centre: every joint
-    command, the task panel, `getComponentReference`, AssemblyLink joint
-    sync and every future upstream joint feature would need a parallel path.
-    That is a permanent merge cost on the busiest files.
-  - They also cost objects: the sample file has 12 constraints that need 31
-    Elements and 22 ElementLinks (sec B.6), against F8, where joints are
-    already the heavy objects.
-- **Take the behaviours, which fit upstream's references.**
-  1. *Auto-fix of broken joint references.* In the joint's execute, before
-     raising: `Part.getRelatedElements` on the stored shadow name, then a
-     geometric match against a cached copy of the element (a hidden
-     `PropertyPartShape` or a hashed descriptor kept on the joint). This is
-     Assembly3's `fix()` almost line for line.
-     - Gain: joints survive the common part edits.
-     - Cost: a cached element shape per joint connector (memory), about 150
-       lines.
-     - Merge: additive, behind upstream's existing execute.
-  2. *Named interfaces as the documented practice.* Upstream joints can
-     already reference a datum or LCS inside a part (`findPlacement`'s
-     whole-object branch, `Assembly/UtilsAssembly.py:1051-1060`). An
-     LCS-per-interface convention is Assembly3's element without new types.
-     - Cost: a "create interface LCS from selection" command.
-     - Merge: none.
-  3. *Replace keeping joints*: rewrite `Reference*[0]` to the new component
-     and run (1) to re-match subs. Assembly3's
-     `ViewProviderAsmPartGroup.replaceObject` (`asm3/assembly.py:537-546`)
-     shows the shape of it. Merge: additive.
-  4. *Rigid sub-assemblies by reference, not mirror*: see A.3 and F9.
+The first verdict here ("do not adopt", costed by the merge burden on
+upstream's Python joints and by object counts) misread the design: it
+treated elements as a pool of references owned by the assembly that uses
+them. In Assembly3 an Element is an interface declared by the assembly that
+holds the geometry, for its parents to connect to, and an ElementLink is how
+an assembly uses an element of a direct child (or its own) to form a
+constraint (wiki, Concepts / Element). The shadow subnames of a joint
+reference give topological-naming safety, but not a declared interface,
+not a single point of repair across hierarchy levels, and not replacement
+by label.
+
+With the object model moving to C++ (`docs/AssemblyAudit.md` decision 8),
+the merge premise is gone too. The design, including elements on Body and
+App::Part and a shape copy on each ElementLink, is
+`docs/AssemblyObjectModel.md`.
 
 ### A.2 Solver abstraction
 
@@ -864,4 +855,5 @@ need Assembly3 or `py_slvs` installed):
 | joint selection validation messages | joint task | small | low |
 | pattern command (array + N joints) | new command | small | none |
 | Assembly3 importer (B) | new files | about 1000 lines plus tests | none |
-| **not** Element objects, **not** the SolveSpace interface, **not** relation objects | -- | -- | -- |
+| Element and ElementLink objects (revised 2026-10-24) | `docs/AssemblyObjectModel.md` | large | the object model leaves upstream's (decision 8) |
+| **not** the SolveSpace interface, **not** relation objects | -- | -- | -- |

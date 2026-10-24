@@ -252,6 +252,10 @@ public:
     /// sec 32.11, 32.27): a value kept or let go, an object kept or no longer.
     /// No row says so, so nothing else does
     fastsignals::signal<void (const App::Document&)> signalLogKeptChanged;
+    /// signal when a save stopped at the merge of what another process saved
+    /// into the file (docs/TransactionLog.md sec 29.8): the branch it came as,
+    /// whose conflicts are for the user to pick
+    fastsignals::signal<void (const App::Document&, const std::string&)> signalSaveMergeConflict;
     /// signal on a frozen version document opened for a pin when the last
     /// link pinned to it lets go (docs/TransactionLog.md sec 27.21 Q5, 27.30):
     /// unpinned, deleted, re-pinned, or its document closed. What becomes of
@@ -1152,6 +1156,32 @@ public:
      * branch's name; throws as importFork() does.
      */
     std::string importLinksOnly(int64_t base, const std::string& file);
+
+    /// What a save took of the file as another process left it (sec 29.8).
+    struct SavePull
+    {
+        bool pulled {false};      ///< the file had moved, and was brought in
+        std::string branch;       ///< the branch it came as
+        size_t rows {0};          ///< rows the import brought
+        bool merged {false};      ///< merged; the save then wrote it
+        bool unchanged {false};   ///< the merge changed nothing here
+        /// The conflicts that stopped the save, by key.
+        std::vector<std::string> conflicts;
+        double seconds {0};       ///< the import and the merge
+    };
+    /** The file on disk was written since this document last read or wrote
+     * it (docs/TransactionLog.md sec 29.7, 29.8): by another process, or by
+     * anything else. One stat while the file is as it was left; a file only
+     * touched -- its save id the one this document read or wrote -- is not.
+     */
+    bool isFileChangedElsewhere() const;
+    /// What the last save of this document pulled; `pulled` false when it
+    /// found the file as it had left it.
+    const SavePull& lastSavePull() const;
+    /// The branch whose merge a save stopped at, empty when none waits.
+    std::string pendingSaveMerge() const;
+    /// The other processes the marker beside the file says have it open.
+    std::vector<std::string> fileOpeners() const;
 
     /// An imported branch that waits to be merged (sec 30.20 H1, 30.23).
     struct ImportRequest
@@ -2093,7 +2123,12 @@ protected:
     void _releaseSentFiles();
     ImportResult _importState(const std::string& path, const std::string& file,
                               const std::string& saveId, const std::string& hash,
-                              const std::string& sender);
+                              const std::string& sender, int64_t baseSeq = 0);
+    /// Sec 29.8: the file as this document now leaves it, or reads it.
+    void _noteDiskState(const std::string& file);
+    /// Sec 29.8: the file moved under this document: bring it in and merge
+    /// it, before the save writes. Throws when the merge conflicts.
+    void _pullFromDisk(const std::string& file);
     /// Sec 26: refuse a branch operation in the middle of something else;
     /// an implicit transaction is committed first.
     void _checkBranchable(const char* what);

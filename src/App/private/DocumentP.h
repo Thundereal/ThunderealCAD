@@ -32,6 +32,7 @@
 #include <App/DocumentObserver.h>
 #include <App/StringHasher.h>
 #include <App/FileBlobManager.h>
+#include <App/FileElsewhere.h>
 #include <App/FileHistory.h>
 #include <App/TransactionLog.h>
 #include <Base/Reader.h>
@@ -226,6 +227,28 @@ struct DocumentP
     /// for the import's record to name; empty for a file from a path.
     std::string importingRequest;
     std::function<void()> restoreHistory;
+    /// Two processes on one file (docs/TransactionLog.md sec 29.8): the file
+    /// as this document last read or wrote it -- its stamp, the save id its
+    /// `Version` carried, and the row of the log whose state it is -- and
+    /// the stamp taken as a restore starts, kept once the restore is done.
+    DiskStamp diskStamp;
+    std::string diskSaveId;
+    int64_t diskSeq {0};
+    DiskStamp readStamp;
+    /// A stamp seen and found to be only a touch: not asked again.
+    mutable DiskStamp touchedStamp;
+    /// A stamp seen and found to be another's write: not read again.
+    mutable DiskStamp movedStamp;
+    /// The file this process marks itself as having open.
+    std::string openMarker;
+    Document::SavePull lastPull;
+    /// The branch a pull came as and has not been merged: the next save
+    /// merges it again, with nothing new to bring.
+    std::string pullBranch;
+    /// importFork() of the file as another process left it: the name it
+    /// comes under, and the row of a file without history to start from.
+    std::string pullLabel;
+    int64_t pullBase {0};
 #ifdef USE_OLD_DAG
     DependencyList DepList;
     std::map<DocumentObject*, Vertex> VertexObjectList;

@@ -30,6 +30,7 @@
 #include <functional>
 #include <initializer_list>
 #include <memory>
+#include <set>
 #include <QPointer>
 #include <QTimer>
 
@@ -111,6 +112,8 @@ private Q_SLOTS:
     void onRequestContextMenu(const QPoint& pos);
     /// Ask the merge's preview of each request how many conflicts it finds.
     void previewRequests();
+    /// Say which open documents' files another process has written.
+    void checkDisks();
     void applyVisibility();
     /// Lay the graph out over the rows shown (docs/TransactionLog.md sec 26).
     void layoutGraph();
@@ -122,6 +125,10 @@ public Q_SLOTS:
     /// (docs/TransactionLog.md sec 28): the preview in a dialog where each
     /// conflict gets a side, then the merge.
     void mergeBranch(const QString& name);
+    /// A save of document `doc` stopped at the merge of what another process
+    /// saved into its file (docs/TransactionLog.md sec 29.8): the panel shows
+    /// that document and puts branch `branch` to mergeBranch().
+    void mergeSaved(const QString& doc, const QString& branch);
     /// Apply log rows to the branch the document is on, as a step of its
     /// own (docs/TransactionLog.md sec 31.12): `seqs` is their numbers,
     /// comma-separated. The preview, a side for each conflict, the pick.
@@ -289,6 +296,10 @@ private:
     };
     std::map<std::string, Previewed> _previewed;
     QTimer _previewTimer;
+    /// Looks at the files of the open documents (sec 29.8): one written by
+    /// another process is said once, and merged by the next save.
+    QTimer _diskTimer;
+    std::set<std::string> _toldElsewhere;
     bool _fillingBranches {false};
 
     QLabel* _status {nullptr};

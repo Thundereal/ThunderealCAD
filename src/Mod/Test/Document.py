@@ -12328,6 +12328,215 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(doc.Box.Height.Value, 10)
 
 
+class TransactionTwoProcessCases(unittest.TestCase):
+    # Two processes on one file (docs/TransactionLog.md sec 29.7, 29.8): a
+    # save first brings in and merges what another process saved into the
+    # file since it was read here. The other process is a FreeCADCmd run.
+
+    def setUp(self):
+        import sys
+
+        self.exe = os.path.join(
+            FreeCAD.getHomePath(), "bin", "FreeCADCmd" + (".exe" if sys.platform == "win32" else "")
+        )
+        if not os.path.isfile(self.exe):
+            self.skipTest("no FreeCADCmd beside this build")
+        self.param = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        self.mode = self.param.GetInt("TransactionLog", 2)
+        self.param.SetInt("TransactionLog", 2)
+        self.dir = tempfile.mkdtemp(prefix="fc-twoproc-")
+        self.docs = []
+
+    def tearDown(self):
+        import shutil
+
+        for name in self.docs:
+            if name in FreeCAD.listDocuments():
+                FreeCAD.closeDocument(name)
+        self.param.SetInt("TransactionLog", self.mode)
+        shutil.rmtree(self.dir, True)
+
+    def track(self, doc):
+        self.docs.append(doc.Name)
+        return doc
+
+    def made(self, name, schema=5):
+        doc = self.track(FreeCAD.newDocument(name))
+        doc.UndoMode = 1
+        doc.SaveSchemaVersion = schema
+        doc.openTransaction("create")
+        doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        doc.commitTransaction()
+        path = os.path.join(self.dir, name + (".TStd" if schema >= 5 else ".FCStd"))
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        # A plain save of a standard file raises it into a sibling (ruling
+        # 2026-10-14): kept where it is, it is the file both write.
+        doc.SaveSchemaVersion = schema
+        return doc, path
+
+    def other(self, path, code, mode=2, schema=5):
+        # Another process opens the file, runs `code` on `doc`, saves and
+        # prints what it was told. Its settings are put back as it ends.
+        import subprocess
+
+        script = os.path.join(self.dir, "other.py")
+        with open(script, "w") as f:
+            f.write(
+                "import FreeCAD\n"
+                "p = FreeCAD.ParamGet('User parameter:BaseApp/Preferences/Document')\n"
+                "was = p.GetInt('TransactionLog', 2)\n"
+                "p.SetInt('TransactionLog', %d)\n"
+                "try:\n"
+                "    doc = FreeCAD.openDocument(%r)\n"
+                "    doc.UndoMode = 1\n"
+                "    doc.SaveSchemaVersion = %d\n"
+                "    print('openers', doc.getFileOpeners(), flush=True)\n"
+                "    doc.openTransaction('theirs')\n"
+                "%s"
+                "    doc.recompute()\n"
+                "    doc.commitTransaction()\n"
+                "    doc.save()\n"
+                "    print('saved', flush=True)\n"
+                "finally:\n"
+                "    p.SetInt('TransactionLog', was)\n"
+                % (mode, path, schema, "".join("    " + line + "\n" for line in code.splitlines()))
+            )
+        done = subprocess.run([self.exe, script], capture_output=True, timeout=300)
+        out = done.stdout.decode("utf-8", "replace")
+        self.assertIn("saved", out, out + done.stderr.decode("utf-8", "replace"))
+        return out
+
+    def edit(self, doc, name, fn):
+        doc.openTransaction(name)
+        fn(doc)
+        doc.recompute()
+        doc.commitTransaction()
+
+    def testASaveMergesWhatAnotherProcessSaved(self):
+        doc, path = self.made("Shared")
+        # Opened here: the marker beside the file says so to the other.
+        self.assertTrue(os.path.exists(os.path.join(self.dir, ".~Shared.TStd.open")))
+        self.assertFalse(doc.isFileChangedElsewhere())
+        out = self.other(path, "doc.Box.Width = 30\ndoc.addObject('Part::Sphere', 'Sphere')")
+        self.assertIn("(pid %d) since" % os.getpid(), out)
+        self.assertTrue(doc.isFileChangedElsewhere())
+
+        self.edit(doc, "ours longer", lambda d: setattr(d.Box, "Length", 20))
+        self.edit(doc, "ours cylinder", lambda d: d.addObject("Part::Cylinder", "Cyl"))
+        doc.save()
+        pull = doc.getLastSavePull()
+        self.assertTrue(pull["pulled"], pull)
+        self.assertTrue(pull["merged"], pull)
+        self.assertEqual(pull["rows"], 1, pull)
+        self.assertTrue(pull["branch"].startswith("Shared saved"), pull)
+        self.assertEqual(pull["conflicts"], [])
+        self.assertEqual(pull["pending"], "")
+        self.assertFalse(doc.isFileChangedElsewhere())
+        self.assertEqual(doc.Box.Length.Value, 20)
+        self.assertEqual(doc.Box.Width.Value, 30)
+        self.assertIsNotNone(doc.getObject("Sphere"))
+        self.assertIsNotNone(doc.getObject("Cyl"))
+        self.assertAlmostEqual(doc.Box.Shape.Volume, 20 * 30 * 10, 6)
+        # Their row came under the branch it is named for.
+        rows = [t for t in doc.getTransactionLog() if t["name"] == "theirs"]
+        self.assertEqual([t["branch"] for t in rows], [pull["branch"]])
+
+        # The other again, on the file as merged here: only its new row comes,
+        # on the same branch.
+        self.other(path, "doc.Box.Height = 5")
+        self.assertTrue(doc.isFileChangedElsewhere())
+        doc.save()
+        again = doc.getLastSavePull()
+        self.assertTrue(again["merged"], again)
+        self.assertEqual(again["rows"], 1, again)
+        # Its row starts from the merge saved here, so it is a branch of its
+        # own; the first, merged and written, is closed and keeps its row.
+        self.assertTrue(again["branch"].startswith(pull["branch"]), again)
+        self.assertNotEqual(again["branch"], pull["branch"])
+        branches = {b["name"]: b for b in doc.getTransactionBranches()}
+        self.assertTrue(branches[pull["branch"]]["closed"])
+        self.assertTrue(branches[again["branch"]]["closed"])
+        self.assertEqual(doc.Box.Height.Value, 5)
+        self.assertEqual(doc.Box.Length.Value, 20)
+
+        # And the file has it all.
+        self.assertTrue(os.path.exists(os.path.join(self.dir, ".~Shared.TStd.lock")))
+        FreeCAD.closeDocument(doc.Name)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, ".~Shared.TStd.open")))
+        self.assertFalse(os.path.exists(os.path.join(self.dir, ".~Shared.TStd.lock")))
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(
+            (doc.Box.Length.Value, doc.Box.Width.Value, doc.Box.Height.Value), (20, 30, 5)
+        )
+        self.assertIsNotNone(doc.getObject("Sphere"))
+        self.assertIsNotNone(doc.getObject("Cyl"))
+
+    def testASaveStopsAtAConflictWithAnotherProcess(self):
+        doc, path = self.made("Clash")
+        self.other(path, "doc.Box.Length = 30")
+        with open(path, "rb") as f:
+            theirs = f.read()
+        self.edit(doc, "ours", lambda d: setattr(d.Box, "Length", 20))
+        with self.assertRaises(Exception):
+            doc.save()
+        pull = doc.getLastSavePull()
+        self.assertEqual(pull["conflicts"], ["Box.Length"], pull)
+        self.assertNotEqual(pull["pending"], "")
+        self.assertFalse(pull["merged"])
+        # Nothing was written, and nothing here moved.
+        with open(path, "rb") as f:
+            self.assertEqual(f.read(), theirs)
+        self.assertEqual(doc.Box.Length.Value, 20)
+
+        # Picked, the next save writes it.
+        merged = doc.mergeTransactionBranch(pull["pending"], {"Box.Length": "ours"})
+        self.assertEqual(merged["unresolved"], [])
+        doc.save()
+        again = doc.getLastSavePull()
+        self.assertTrue(again["pulled"], again)
+        self.assertEqual(again["pending"], "")
+        self.assertFalse(doc.isFileChangedElsewhere())
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(doc.Box.Length.Value, 20)
+
+    def testASaveWithNobodyElsePullsNothing(self):
+        doc, path = self.made("Alone")
+        self.edit(doc, "ours", lambda d: setattr(d.Box, "Length", 20))
+        doc.save()
+        self.assertFalse(doc.getLastSavePull()["pulled"])
+        # A file only touched -- a sync tool, a backup -- is not another's save.
+        st = os.stat(path)
+        os.utime(path, ns=(st.st_atime_ns, st.st_mtime_ns + 5000000000))
+        self.assertFalse(doc.isFileChangedElsewhere())
+        self.edit(doc, "ours again", lambda d: setattr(d.Box, "Width", 20))
+        doc.save()
+        self.assertFalse(doc.getLastSavePull()["pulled"])
+        rows = [t for t in doc.getTransactionLog() if t["kind"] == "merge"]
+        self.assertEqual(rows, [])
+
+    def testAPlainFileMergesAgainstWhatThisProcessLeft(self):
+        # Sec 29.7 Q3: no history in the file, an .FCStd at schema 4. What
+        # each side changed is told by the state this process left the file
+        # in, so the two widths and lengths do not conflict.
+        doc, path = self.made("Plain", schema=4)
+        self.other(path, "doc.Box.Width = 30", mode=1, schema=4)
+        self.assertTrue(doc.isFileChangedElsewhere())
+        self.edit(doc, "ours", lambda d: setattr(d.Box, "Length", 20))
+        doc.save()
+        pull = doc.getLastSavePull()
+        self.assertTrue(pull["merged"], pull)
+        self.assertEqual(pull["conflicts"], [])
+        self.assertEqual((doc.Box.Length.Value, doc.Box.Width.Value), (20, 30))
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual((doc.Box.Length.Value, doc.Box.Width.Value), (20, 30))
+
+
 class XLinkIntoUnsavedCases(unittest.TestCase):
     # A copy of objects with external links into a document never saved: the
     # links keep the full path till its first save writes them relative.

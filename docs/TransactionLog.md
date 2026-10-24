@@ -50,7 +50,7 @@ question is the one that holds.
 | 26 | Phase 4: branches as built, switching, the tip rule | built |
 | 27 | Phase 5: pinned links -- and the ledger of every later ruling and measurement (27.1-27.71): frozen versions, schema 4/5, trim, squash, the store version, the embed's cost | built; read by number |
 | 28 | Phase 6: merge | built |
-| 29 | Concurrent writers: one connection per file, sessions; two processes on one file surveyed and probed (29.7) | ruled; 29.7 Q1-Q5 to rule |
+| 29 | Concurrent writers: one connection per file, sessions; two processes on one file (29.7, 29.8) | built; two processes as a pull in every save (29.8) |
 | 30 | A shared head, explicit branches, forks, actors and access | ruled, built |
 | 31 | Phase 8: a value that is many things (survey and questions); what it left, checked and finished (31.34) | built |
 | 32 | A shape diff: what a merge or a pick would take; kept values (32.11) | built |
@@ -11878,6 +11878,153 @@ the lock; the pull at save, through the fork import of the document's own
 file under the session's name; a conflict stops the save at the picker;
 Q3's base for a file without history; the idle notice. Tests are a Python
 case that drives two FreeCADCmd processes, and a gtest of the lock.
+
+### 29.8 Two processes on one file, as built (2026-10-24)
+
+**Rulings (user, 2026-10-24): Q1-Q5 as recommended**, with one addition: a
+save with no second writer must not be slowed down.
+
+**How a save tells that another process wrote the file.** The document
+keeps a stamp of the file as it last read or wrote it: size, mtime in ns
+and inode (`App::DiskStamp`, `FileElsewhere.h`). That is one `stat`, taken
+as a restore starts and kept once it is done, and taken again after each
+save. A save compares the file with the stamp.
+
+- **Same stamp:** nobody wrote the file, and the save goes on as before.
+- **Different stamp, and the document wrote the history into the file:**
+  the file's `Version` is read. If the save id is still this document's,
+  the file was only touched (a sync tool, a backup, `touch`). That stamp
+  is remembered as a touch and nothing is pulled.
+- **Otherwise another process saved the file.** That stamp is remembered
+  too, so the idle check below reads the archive once, not every time.
+
+A save id counts only when the file carries the history. A save that leaves
+the history out writes whatever `Version` the document had from before, and
+two processes could both write the same stale id.
+`Document::isFileChangedElsewhere()`; Python `isFileChangedElsewhere()`.
+
+**The lock (Q5)**: `.~<name>.lock` beside the file, held from that look to
+the end of the write (`App::SaveLock`). A save that finds it held waits up
+to 60 s, then fails with "being saved by <host> (pid N)", nothing written.
+- **It is an OS lock**: `flock` on POSIX, `LockFileEx` on Windows. The
+  system lets it go when the process ends, however it ends, so no lock is
+  ever left stale.
+- **Not QLockFile.** QLockFile was the first build. Measured here, a lock
+  and unlock took 1.5 ms (median of 500), most likely because it syncs the
+  file to disk. On a 30 ms schema-4 save that read as 2.6 ms slower (the
+  first table below). The OS lock is an open, a lock, two stats and a
+  small write, with no sync.
+- **On POSIX it checks the inode.** After taking the lock, the save checks
+  that the lock file it holds is the one the name still names. The last
+  process to close the document unlinks the lock file, and another may
+  have opened the old one in between.
+
+**The marker (Q5)**: `.~<name>.open`, one line per process that has the
+file open (host, pid, time).
+- **When it is written:** at open, and at a save to a new name.
+- **What it tells:** a process that finds others there warns "'X' is also
+  open in <host> (pid N) since <time>". Python `getFileOpeners()`.
+- **When lines go:** this process's line goes at close. Lines of gone
+  processes of this host are dropped whenever the marker is read. The
+  last process to close the file removes the marker and the lock file.
+- It is written whole and renamed into place (QSaveFile), and it blocks
+  nothing.
+
+**The pull (Q1, Q2)**, `Document::_pullFromDisk`, run at the start of
+`save()` under the lock:
+1. **The file is copied** into `<TransientDir>/pull/<n>/`. `openFork`
+   refuses the document's own file, and a history read from a path is the
+   one read from that path, so each pull gets a copy of its own.
+2. **The copy is brought in by `importFork`**, under the name the pull
+   gives it (Q4): `<file> saved elsewhere`, or `<file> saved by <author>`
+   when the file's `LastModifiedBy` names someone. The authors of the rows
+   follow, `host (<file> saved elsewhere)`.
+3. **The branch is merged (28).** If the merge is clean, the save writes.
+4. **If the merge conflicts, the save stops**: nothing written,
+   `signalSaveMergeConflict(doc, branch)`, and a `Base::RuntimeError` that
+   names the branch. The branch is kept as pending, and the next save
+   merges it again with nothing new to bring. A conflict picked in the
+   meantime has already been merged, so that save writes.
+5. **After the write, the branch is closed** (`closed` set); its rows stay.
+
+**What the next pull comes as.** The other process's next rows start from
+the merge this save wrote, so the import never continues the branch. Under
+F7 (30.14) a later import continues a branch only when nothing moved on
+this side since. Each pull after a save here therefore comes as a branch of
+its own: `<file> saved elsewhere`, then `~2`, and so on. That is why a
+finished one is closed: it stays in the history, out of the way. An import
+for a pull also never extends a closed branch.
+
+**A file without history (Q3).** The base is the row the document's log
+was at when it last read or wrote the file. It is kept in memory, with no
+flush and no meta write in the save, and passed to `_importState` as the
+row to start from where the file names no save. The file then comes as one
+row against that state (30.19), so two processes on an `.FCStd` merge by
+what each changed.
+
+Building it showed a gap in `_importReplay` (30.15). A base at the
+`restore` row of an open could not be reached: the version of an open is
+recorded at that row's parent, and moving along a row that carries no ops
+failed. Rows with no ops between the version and the base change nothing,
+so they are no longer moved along.
+
+**Gui.**
+- **The idle notice (Q2).** The log panel stats each open document's file
+  every 3 s (`checkDisks`). It says once, in the status bar and the report
+  view, "<doc> was saved by another process: its changes are merged in at
+  the next save here". Its status line says so too, or "a save waits on
+  the merge of <branch>".
+- **A conflicted save.** `Gui::Document` hands the branch to the panel
+  (`mergeSaved`, queued so it runs once the save has returned). The panel
+  attaches to that document and opens the merge to pick. `Gui::Document`
+  does not show its "Saving document failed" box in that case; the report
+  view has the reason.
+
+**The preference.** `TransactionLogPullOnSave`, default on. Off, a save
+takes no lock, looks at nothing and writes over the file as before.
+
+**What a save with nobody else costs.** Measured with
+`~/.cache/lv-merge/probe29/savetime.py`: 60 boxes, a small edit before each
+save so that it writes, saves alternating with the preference on and off,
+40 of each.
+
+| Mode, schema | File | On, median | Off, median |
+| --- | --- | --- | --- |
+| 2 (embedded), 5 | 90 KB | 45.45 ms | 47.17 ms |
+| 2, 4 | 61 KB | 31.45 ms | 31.34 ms |
+| 1 (session), 5 | 31 KB | 21.36 ms | 21.29 ms |
+| 1, 4 | 61 KB | 31.24 ms | 31.10 ms |
+
+Every median is within 0.15 ms of the other, either way. The first row
+came out faster with the check on, which shows the scatter. The look alone
+(`isFileChangedElsewhere()` on an unmoved file) is 1.5 us. With QLockFile
+the schema-4 rows were 33.08 against 30.44 ms and 33.52 against 30.81 ms.
+
+**A pull costs**, in the driven test, 0.18 s for an import and merge of one
+row with a recompute. That is only on the save that finds the file moved.
+
+**Not built.**
+- *A project directory* (a document saved as a folder): the stamp is its
+  `Document.xml`, but a moved one is not pulled. The save warns and writes
+  over it, as before.
+- *The Windows lock* is written (`LockFileEx`, a lock file being deleted
+  is waited on) but not run: there is no Windows box here.
+
+**Tests.**
+- gtest `FileElsewhereTest`: the stamp tells a write by rename and one in
+  place; a lock is held against a second lock in this process; a lock
+  whose holder died (a forked child) is taken; the marker tells another
+  host's line, drops a gone process of this host, and goes with the lock
+  file at the last close.
+- Python `TransactionTwoProcessCases`, the other process a FreeCADCmd run:
+  - a clean merge, then a second pull as a branch of its own with the
+    first closed;
+  - a conflict that writes nothing until picked;
+  - a save with nobody else, and a file only touched, pulls nothing;
+  - an `.FCStd` at schema 4 merges against what this process left.
+- Driven `GuiSaveMergesAnotherProcess`: the idle notice in the status bar
+  and the panel; a clean merge at save; a conflicted save with no error
+  box, the merge opened with the conflict, then written as picked.
 
 ## 30. A shared head, explicit branches, forks (rulings and plan, 2026-10-04)
 

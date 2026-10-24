@@ -444,6 +444,7 @@ SET(Document_CPP_SRCS
     UnitsParams.cpp
     SandboxParams.cpp
     FileBlobManager.cpp
+    FileElsewhere.cpp
     FileHistory.cpp
     LibraryPaths.cpp
     ExportSet.cpp
@@ -535,6 +536,7 @@ SET(Document_HPP_SRCS
     UnitsParams.h
     SandboxParams.h
     FileBlobManager.h
+    FileElsewhere.h
     FileHistory.h
     LibraryPaths.h
     ExportSet.h

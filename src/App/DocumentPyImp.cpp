@@ -2416,6 +2416,49 @@ Py::Dict importResultDict(const App::Document::ImportResult& result)
 
 } // namespace
 
+PyObject* DocumentPy::isFileChangedElsewhere(PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        return Py::new_reference_to(Py::Boolean(getDocumentPtr()->isFileChangedElsewhere()));
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::getLastSavePull(PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        const auto& pull = getDocumentPtr()->lastSavePull();
+        Py::Dict d;
+        d.setItem("pulled", Py::Boolean(pull.pulled));
+        d.setItem("branch", Py::String(pull.branch));
+        d.setItem("rows", Py::Long(static_cast<long long>(pull.rows)));
+        d.setItem("merged", Py::Boolean(pull.merged));
+        d.setItem("unchanged", Py::Boolean(pull.unchanged));
+        Py::List conflicts;
+        for (const auto& key : pull.conflicts)
+            conflicts.append(Py::String(key));
+        d.setItem("conflicts", conflicts);
+        d.setItem("seconds", Py::Float(pull.seconds));
+        d.setItem("pending", Py::String(getDocumentPtr()->pendingSaveMerge()));
+        return Py::new_reference_to(d);
+    } PY_CATCH;
+}
+
+PyObject* DocumentPy::getFileOpeners(PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        Py::List list;
+        for (const auto& who : getDocumentPtr()->fileOpeners())
+            list.append(Py::String(who));
+        return Py::new_reference_to(list);
+    } PY_CATCH;
+}
+
 PyObject* DocumentPy::importTransactionFork(PyObject *args)
 {
     char* path;

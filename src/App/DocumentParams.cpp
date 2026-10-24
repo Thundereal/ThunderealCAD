@@ -94,6 +94,7 @@ public:
         signalParamChanged("TransactionLogKeepVersions");
         signalParamChanged("TransactionLogCacheSize");
         signalParamChanged("TransactionLogCacheValues");
+        signalParamChanged("TransactionLogPullOnSave");
         signalParamChanged("TransactionLogCoalesceSeconds");
         signalParamChanged("TransactionLogKeepNamed");
         signalParamChanged("TransactionLogCompactSize");
@@ -170,6 +171,7 @@ public:
     long TransactionLogKeepVersions;
     long TransactionLogCacheSize;
     long TransactionLogCacheValues;
+    bool TransactionLogPullOnSave;
     long TransactionLogCoalesceSeconds;
     long TransactionLogKeepNamed;
     long TransactionLogCompactSize;
@@ -297,6 +299,8 @@ public:
         funcs["TransactionLogCacheSize"] = &DocumentParamsP::updateTransactionLogCacheSize;
         TransactionLogCacheValues = this->handle->GetInt("TransactionLogCacheValues", 10000);
         funcs["TransactionLogCacheValues"] = &DocumentParamsP::updateTransactionLogCacheValues;
+        TransactionLogPullOnSave = this->handle->GetBool("TransactionLogPullOnSave", true);
+        funcs["TransactionLogPullOnSave"] = &DocumentParamsP::updateTransactionLogPullOnSave;
         TransactionLogCoalesceSeconds = this->handle->GetInt("TransactionLogCoalesceSeconds", 3);
         funcs["TransactionLogCoalesceSeconds"] = &DocumentParamsP::updateTransactionLogCoalesceSeconds;
         TransactionLogKeepNamed = this->handle->GetInt("TransactionLogKeepNamed", 10);
@@ -555,6 +559,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLogCacheValues(DocumentParamsP *self) {
         self->TransactionLogCacheValues = self->handle->GetInt("TransactionLogCacheValues", 10000);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogPullOnSave(DocumentParamsP *self) {
+        self->TransactionLogPullOnSave = self->handle->GetBool("TransactionLogPullOnSave", true);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLogCoalesceSeconds(DocumentParamsP *self) {
@@ -913,6 +921,12 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCacheValues", "TransactionLogCacheValues", App::ParamInfo::Int, 10000)
         .setTitle("The same budget as TransactionLogCacheSize, in values. 0 sets none.")
         .setDoc("The same budget as TransactionLogCacheSize, in values. 0 sets none."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogPullOnSave", "TransactionLogPullOnSave", App::ParamInfo::Bool, true)
+        .setTitle("Transaction Log Pull On Save")
+        .setDoc("A save first brings in what another process saved into the file\n"
+"since it was read here, and merges it (docs/TransactionLog.md sec\n"
+"29.8); a conflict stops the save at the merge. Off, the save takes\n"
+"no lock and writes over the file as before."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCoalesceSeconds", "TransactionLogCoalesceSeconds", App::ParamInfo::Int, 3)
         .setTitle("Transaction Log Coalesce Seconds")
         .setDoc("A commit that writes by hand the one property the commit before\n"
@@ -2505,6 +2519,37 @@ void DocumentParams::setTransactionLogCacheValues(const long &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void DocumentParams::removeTransactionLogCacheValues() {
     instance()->handle->RemoveInt("TransactionLogCacheValues");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogPullOnSave() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"A save first brings in what another process saved into the file\n"
+"since it was read here, and merges it (docs/TransactionLog.md sec\n"
+"29.8); a conflict stops the save at the merge. Off, the save takes\n"
+"no lock and writes over the file as before.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const bool & DocumentParams::getTransactionLogPullOnSave() {
+    return instance()->TransactionLogPullOnSave;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const bool & DocumentParams::defaultTransactionLogPullOnSave() {
+    const static bool def = true;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogPullOnSave(const bool &v) {
+    instance()->handle->SetBool("TransactionLogPullOnSave",v);
+    instance()->TransactionLogPullOnSave = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogPullOnSave() {
+    instance()->handle->RemoveBool("TransactionLogPullOnSave");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

@@ -750,6 +750,21 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter TransactionLogPullOnSave
+    ///
+    /// A save first brings in what another process saved into the file
+    /// since it was read here, and merges it (docs/TransactionLog.md sec
+    /// 29.8); a conflict stops the save at the merge. Off, the save takes
+    /// no lock and writes over the file as before.
+    static const bool & getTransactionLogPullOnSave();
+    static const bool & defaultTransactionLogPullOnSave();
+    static void removeTransactionLogPullOnSave();
+    static void setTransactionLogPullOnSave(const bool &v);
+    static const char *docTransactionLogPullOnSave();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter TransactionLogCoalesceSeconds
     ///
     /// A commit that writes by hand the one property the commit before

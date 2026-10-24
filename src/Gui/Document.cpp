@@ -83,6 +83,7 @@
 #include "DrainCursor.h"
 #include "FileDialog.h"
 #include "MainWindow.h"
+#include "TransactionLogView.h"
 #include "MDIView.h"
 #include "NotificationArea.h"
 #include "Selection.h"
@@ -379,6 +380,7 @@ struct DocumentP
     Connection connectPinsReleased;
     Connection connectLogKept;
     Connection connectBranches;
+    Connection connectSaveMerge;
     Connection connectAssignLook;
     Connection connectTouchedObject;
     Connection connectPurgeTouchedObject;
@@ -543,6 +545,19 @@ Document::Document(App::Document* pcDocument,Application * app)
                 }
             }
         });
+    // A save stopped at the merge of what another process saved into the
+    // file (docs/TransactionLog.md sec 29.8): the log panel puts the merge
+    // to the user once the save has returned.
+    d->connectSaveMerge = pcDocument->signalSaveMergeConflict.connect(
+        [](const App::Document& doc, const std::string& branch) {
+            // Docked or not: the panel exists whether the workbench shows it.
+            auto main = getMainWindow();
+            auto view = main ? main->findChild<DockWnd::TransactionLogView*>() : nullptr;
+            if (view)
+                QMetaObject::invokeMethod(view, "mergeSaved", Qt::QueuedConnection,
+                                          Q_ARG(QString, QString::fromUtf8(doc.getName())),
+                                          Q_ARG(QString, QString::fromStdString(branch)));
+        });
     d->connectBranches = pcDocument->signalBranchesChanged.connect(
         [this](const App::Document& doc) {
             if (!doc.testStatus(App::Document::VersionDoc)
@@ -597,6 +612,7 @@ Document::~Document()
     d->connectTransactionRemove.disconnect();
     d->connectLogKept.disconnect();
     d->connectBranches.disconnect();
+    d->connectSaveMerge.disconnect();
     d->connectAssignLook.disconnect();
     d->connectTouchedObject.disconnect();
     d->connectPurgeTouchedObject.disconnect();
@@ -2517,6 +2533,14 @@ bool Document::save()
             return askIfSavingFailed(QString::fromUtf8(e.what()));
         }
         catch (const Base::Exception& e) {
+            // Stopped at the merge of what another process saved (sec 29.8):
+            // the log panel opens it, and the report view says why.
+            for (auto doc : App::GetApplication().getDocuments()) {
+                if (!doc->lastSavePull().conflicts.empty() && !doc->pendingSaveMerge().empty()) {
+                    Base::Console().Warning("%s\n", e.what());
+                    return false;
+                }
+            }
             QMessageBox::critical(getMainWindow(), QObject::tr("Saving document failed"),
                 QString::fromUtf8(e.what()));
             return false;

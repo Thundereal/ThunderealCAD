@@ -2752,6 +2752,8 @@ Document::~Document()
     // of, and crashed. Nothing reads the log of a document that is going;
     // the transaction itself is destroyed as it always was.
     d->closing = true;
+    if (!d->openMarker.empty())
+        FileOpeners::remove(d->openMarker);
     try {
         clearUndos();
     }
@@ -5078,6 +5080,25 @@ bool Document::save ()
             FileName.setValue(target);
             Uid.touch(); // a different file: rename the transient directory, as saveAs does
         }
+        // Two processes on one file (docs/TransactionLog.md sec 29.7, 29.8):
+        // from the look at the file to the write, under the lock beside it,
+        // so that no other save falls between. A file another process wrote
+        // since this document read or wrote it is brought in and merged
+        // first. The file as it was left costs one stat.
+        const std::string file = FileName.getStrValue();
+        const bool pulling = DocumentParams::getTransactionLogPullOnSave() && getTransactionLog();
+        std::unique_ptr<SaveLock> lock;
+        if (pulling) {
+            lock = std::make_unique<SaveLock>(file);
+            std::string holder;
+            if (!lock->lock(60000, &holder))
+                THROWM(Base::FileException, ("'" + file + "' is being saved by " + holder
+                                             + "; nothing was written").c_str(),
+                       Base::FileInfo(file));
+        }
+        d->lastPull = SavePull();
+        if (pulling && (!d->pullBranch.empty() || isFileChangedElsewhere()))
+            _pullFromDisk(file);
         {
             Base::FlagToggler<> quiet(d->bookkeeping, false);
             // Save the name of the tip object in order to handle in Restore()
@@ -5100,10 +5121,175 @@ bool Document::save ()
         if (!saveToFile(FileName.getValue()))
             return false;
         d->fileSchema = getSaveSchemaVersion();
+        _noteDiskState(file);
+        // A pull merged and written is done with: its branch is closed, its
+        // rows kept (sec 29.7 Q4). The next pull's rows start from this
+        // save, so they never continue it.
+        if (d->lastPull.merged && !d->lastPull.branch.empty()) {
+            if (TransactionLog* log = getTransactionLog()) {
+                LogBranch pulled;
+                if (log->store().findBranch(d->lastPull.branch, pulled) && !pulled.closed) {
+                    pulled.closed = std::chrono::duration<double>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    log->store().updateBranch(pulled);
+                    signalBranchesChanged(*this);
+                }
+            }
+        }
         return true;
     }
 
     return false;
+}
+
+void Document::_noteDiskState(const std::string& file)
+{
+    // The stamp a restore took before it read, else the file as written.
+    if (d->readStamp.valid() && d->readStamp.path == file)
+        d->diskStamp = d->readStamp;
+    else
+        d->diskStamp = DiskStamp::of(file);
+    d->touchedStamp = DiskStamp();
+    d->movedStamp = DiskStamp();
+    // The save id is the file's only when the file carries the history: a
+    // save that leaves it out writes whatever `Version` was there before.
+    d->diskSaveId.clear();
+    auto history = Base::freecad_dynamic_cast<PropertyHistory>(getPropertyByName("History"));
+    auto version = Base::freecad_dynamic_cast<PropertyString>(getPropertyByName("Version"));
+    if (history && !history->isEmpty() && version) {
+        std::istringstream in(version->getValue());
+        int64_t num = 0;
+        in >> num >> d->diskSaveId;
+    }
+    TransactionLog* log = getTransactionLog();
+    d->diskSeq = log ? log->head() : 0;
+    // Marked as open here, and told who else has it open (sec 29.7 Q5).
+    if (d->openMarker != file) {
+        if (!d->openMarker.empty())
+            FileOpeners::remove(d->openMarker);
+        d->openMarker = file;
+        for (const auto& other : FileOpeners::add(file))
+            Base::Console().Warning("'%s' is also open in %s\n", Label.getValue(),
+                                    FileOpeners::describe(other).c_str());
+    }
+}
+
+bool Document::isFileChangedElsewhere() const
+{
+    const std::string file = FileName.getStrValue();
+    if (file.empty() || !d->diskStamp.valid() || d->diskStamp.path != file)
+        return false;
+    const DiskStamp now = DiskStamp::of(file);
+    // Gone, the save writes it anew; as it was left, nobody wrote it.
+    if (!now.valid() || now.sameAs(d->diskStamp)
+            || (d->touchedStamp.valid() && now.sameAs(d->touchedStamp)))
+        return false;
+    if (d->movedStamp.valid() && now.sameAs(d->movedStamp))
+        return true;
+    // Touched and not written: the save id is still the one left here.
+    if (!d->diskSaveId.empty() && !Base::FileInfo(file).isDir()) {
+        FileHistory::Saved saved;
+        if (FileHistory::savedAs(file, saved) && saved.history && saved.saveId == d->diskSaveId) {
+            d->touchedStamp = now;
+            return false;
+        }
+    }
+    d->movedStamp = now;
+    return true;
+}
+
+const Document::SavePull& Document::lastSavePull() const
+{
+    return d->lastPull;
+}
+
+std::string Document::pendingSaveMerge() const
+{
+    return d->pullBranch;
+}
+
+std::vector<std::string> Document::fileOpeners() const
+{
+    std::vector<std::string> out;
+    if (!d->openMarker.empty()) {
+        for (const auto& other : FileOpeners::others(d->openMarker))
+            out.push_back(FileOpeners::describe(other));
+    }
+    return out;
+}
+
+void Document::_pullFromDisk(const std::string& file)
+{
+    const auto start = std::chrono::steady_clock::now();
+    if (Base::FileInfo(file).isDir()) {
+        // Not built for a project directory: written over, as before.
+        FC_WARN("'" << Label.getValue() << "': its directory was written by another process "
+                    "since it was read here, and is written over");
+        return;
+    }
+    // A copy of the file as it is: the import reads the document's own file
+    // as that document's, and refuses it. A copy of its own each time, as
+    // a history read from a path is the one read from that path.
+    static int pulls = 0;
+    Base::FileInfo fi(file);
+    const std::string dir =
+        TransientDir.getStrValue() + "/pull/" + std::to_string(++pulls);
+    const std::string copy = dir + "/" + fi.fileName();
+    Base::FileInfo(dir).createDirectories();
+    if (!fi.copyTo(copy.c_str()))
+        THROWM(Base::FileException, ("cannot copy '" + file + "' to bring in what another "
+                                     "process saved; nothing was written").c_str(), fi);
+    struct Cleanup
+    {
+        DocumentP* d;
+        std::string dir;
+        ~Cleanup()
+        {
+            d->pullLabel.clear();
+            d->pullBase = 0;
+            Base::FileInfo(dir).deleteDirectoryRecursive();
+        }
+    } cleanup {d, dir};
+    // Sec 29.7 Q4: named after who saved it, and continued by the next.
+    FileHistory::Saved saved;
+    FileHistory::savedAs(copy, saved);
+    d->pullLabel = fi.fileNamePure()
+        + (saved.modifiedBy.empty() ? std::string(" saved elsewhere")
+                                    : " saved by " + saved.modifiedBy);
+    // A file without history comes against the state this document left it
+    // in (Q3).
+    d->pullBase = d->diskSeq;
+    const ImportResult imported = importFork(copy);
+    d->lastPull.pulled = true;
+    d->lastPull.rows = imported.rows;
+    if (!imported.branch.empty() && (imported.rows || imported.stoppedAt))
+        d->pullBranch = imported.branch;
+    d->lastPull.branch = d->pullBranch;
+    if (imported.stoppedAt)
+        FC_WARN("'" << Label.getValue() << "': what another process saved came only in part: "
+                    << imported.reason);
+    if (!d->pullBranch.empty()) {
+        const MergeResult merged = mergeBranch(d->pullBranch);
+        d->lastPull.seconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        if (!merged.unresolved.empty()) {
+            for (const auto& c : merged.unresolved)
+                d->lastPull.conflicts.push_back(c.key);
+            signalSaveMergeConflict(*this, d->pullBranch);
+            THROWM(Base::RuntimeError,
+                   "'" + std::string(Label.getValue()) + "' was saved by another process since "
+                   "it was read here, and " + std::to_string(merged.unresolved.size())
+                   + " of its changes conflict with these. Pick a side for each in the merge "
+                   "of branch '" + d->pullBranch + "', then save again; nothing was written");
+        }
+        d->lastPull.merged = true;
+        d->lastPull.unchanged = merged.unchanged;
+        d->pullBranch.clear();
+    }
+    d->lastPull.seconds =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    FC_LOG("'" << getName() << "': pulled " << d->lastPull.rows << " rows of " << file << " in "
+               << d->lastPull.seconds << " s");
 }
 
 namespace App {
@@ -5790,6 +5976,9 @@ void Document::restore (const char *filename,
 
     if(!filename)
         filename = FileName.getValue();
+    // The file as it is before a byte of it is read (docs/TransactionLog.md
+    // sec 29.8): what a save later compares the file on disk with.
+    d->readStamp = DiskStamp::of(filename);
     Base::FileInfo fi(filename);
     if(fi.isDir()) {
         fi.setFile(std::string(filename)+'/'+"Document.xml");
@@ -13684,7 +13873,15 @@ Document* Document::_importReplay(int64_t base, const std::string& stem, LogBran
     scratch = true;
     try {
         TransactionLog* rlog = replay->getTransactionLog();
+        // Rows with no ops between the version and the row change nothing:
+        // the restore row a version of an open is taken at is one (a base
+        // a pull names, sec 29.8), and is the version's own state.
+        bool moves = false;
         if (anchor.seq != base) {
+            for (const auto& t : store.chain(base, anchor.seq + 1))
+                moves = moves || !store.ops(t.seq).empty();
+        }
+        if (moves) {
             Base::FlagToggler<> replaying(replay->d->replaying);
             if (!replay->_moveAlongLog(anchor.seq, base, false))
                 THROWM(Base::RuntimeError, "cannot reach the row both files hold");
@@ -14109,7 +14306,7 @@ bool Document::_importStateRow(Document& from, const std::string& file,
 
 Document::ImportResult Document::_importState(const std::string& path, const std::string& file,
                                               const std::string& saveId, const std::string& hash,
-                                              const std::string& sender)
+                                              const std::string& sender, int64_t baseSeq)
 {
     // docs/TransactionLog.md sec 30.19: a file with no history. Its
     // `Version` names the save it is from (G1); the state at that save's
@@ -14123,7 +14320,12 @@ Document::ImportResult Document::_importState(const std::string& path, const std
     // No save of this history named, or one its rows no longer reach: the
     // file is not refused (sec 30.22). It comes as an independent branch,
     // from nothing.
-    if (TransactionLog::savedAt(store, saveId, version, result.base)) {
+    // Or the row given, where the file names none: the state this process
+    // left the file in, for a file another process saved without history
+    // (sec 29.7 Q3).
+    if (!TransactionLog::savedAt(store, saveId, version, result.base))
+        result.base = baseSeq;
+    if (result.base) {
         bool reached = false;
         for (const auto& t : store.transactions(result.base, 1))
             reached = t.seq == result.base;
@@ -14299,12 +14501,17 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
     TransactionLogCore& core = TransactionLogCore::of(*d->history);
 
     ForkSource fork = openFork(d->history, path);
+    // The file as another process left it (sec 29.8): under the name the
+    // pull gives it, not its copy's.
+    if (!d->pullLabel.empty())
+        fork.file = d->pullLabel;
     if (!fork.history) {
         // No history: the file as it is, against the save it names.
         if (!branch.empty())
             THROWM(Base::ValueError, "'" + path + "' carries no history, and so no branch '"
                                          + branch + "'");
-        return _importState(path, fork.file, fork.saved.saveId, fork.saved.hash, sender);
+        return _importState(path, fork.file, fork.saved.saveId, fork.saved.hash, sender,
+                            d->pullBase);
     }
     auto& theirs = fork.core->store();
     // F6: the branch asked for, else the one the copy's file reopens on.
@@ -14339,7 +14546,8 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
         if (other)
             THROWM(Base::ValueError, "branch '" + result.from + "' of '" + path
                                          + "' shares no history with this file");
-        return _importState(path, fork.file, std::string(), fork.saved.hash, sender);
+        return _importState(path, fork.file, std::string(), fork.saved.hash, sender,
+                            d->pullBase);
     }
     const auto rows = theirs.chain(from.head, base + 1);
     std::vector<LogTransaction> tailRows;
@@ -14374,6 +14582,10 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
             const auto was = nlohmann::json::parse(meta, nullptr, false);
             if (!was.is_object() || was.value("file", std::string()) != fork.file
                     || was.value("branch", std::string()) != from.name)
+                continue;
+            // A pull's branch closed once merged is not written to again
+            // (sec 29.8).
+            if (b.closed && !d->pullLabel.empty())
                 continue;
             const auto after = store.chain(b.head, result.base);
             if (after.empty() || after.front().seq != result.base)
@@ -15769,6 +15981,12 @@ bool Document::afterRestore(bool checkPartial) {
                 d->undoFloor = log->lastSeq();
         }
     }
+    // The file this document now is, for its saves to compare (sec 29.8):
+    // a document of the file, not a version of it or a copy for a merge.
+    if (d->readStamp.valid() && d->readStamp.path == FileName.getStrValue()
+            && !testStatus(PartialDoc) && !testStatus(VersionDoc) && !testStatus(TempDoc))
+        _noteDiskState(FileName.getStrValue());
+    d->readStamp = DiskStamp();
     return true;
 }
 

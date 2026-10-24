@@ -343,6 +343,11 @@ Params = [
             'newest of each property and what a version lists stay. 0 for none.'),
     ParamInt('TransactionLogCacheValues', 10000,
         doc='The same budget as TransactionLogCacheSize, in values. 0 sets none.'),
+    ParamBool('TransactionLogPullOnSave', True,
+        doc='A save first brings in what another process saved into the file\n'
+            'since it was read here, and merges it (docs/TransactionLog.md sec\n'
+            '29.8); a conflict stops the save at the merge. Off, the save takes\n'
+            'no lock and writes over the file as before.'),
     ParamInt('TransactionLogCoalesceSeconds', 3,
         doc='A commit that writes by hand the one property the commit before\n'
             'it wrote, by the same author under the same name and within this\n'

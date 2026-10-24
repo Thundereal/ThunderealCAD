@@ -1010,6 +1010,33 @@ branch it is on hold them: each as importLinkedSet() returned it, with 'when'
 it was imported -- to be merged later by mergeLinkedSet(files, set=...).</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="isFileChangedElsewhere">
+      <Documentation>
+        <UserDocu>isFileChangedElsewhere() -> bool
+The file on disk was written since this document last read or wrote it --
+by another process, or anything else (docs/TransactionLog.md sec 29.8). The
+next save brings what is in it in and merges it first. One stat while the
+file is as it was left.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getLastSavePull">
+      <Documentation>
+        <UserDocu>getLastSavePull() -> dict
+What the last save took of the file as another process left it (sec 29.8):
+{'pulled', 'branch', 'rows', 'merged', 'unchanged', 'conflicts', 'seconds',
+'pending'}. 'pulled' is False when the save found the file as it had left
+it. 'conflicts' are the keys of the conflicts that stopped the save, and
+'pending' the branch whose merge the next save tries again, empty when
+none waits.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getFileOpeners">
+      <Documentation>
+        <UserDocu>getFileOpeners() -> list
+The other processes the marker beside the file says have it open (sec 29.7
+Q5), each as 'host (pid N) since time'.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="importTransactionFork">
       <Documentation>
         <UserDocu>importTransactionFork(path, branch='', sender='') -> dict

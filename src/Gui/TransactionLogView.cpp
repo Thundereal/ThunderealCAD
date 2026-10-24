@@ -83,7 +83,9 @@
 #include "TransactionLogView.h"
 #include "Application.h"
 #include "Document.h"
+#include "DockWindowManager.h"
 #include "FileDialog.h"
+#include "MainWindow.h"
 #include "SceneLog.h"
 #include "SceneRequests.h"
 #include "SceneServeSource.h"
@@ -1285,6 +1287,10 @@ TransactionLogView::TransactionLogView(Gui::Document* pcDocument, QWidget* paren
     _previewTimer.setSingleShot(true);
     _previewTimer.setInterval(800);
     connect(&_previewTimer, &QTimer::timeout, this, &TransactionLogView::previewRequests);
+    // A stat of each open document's file every few seconds (sec 29.8).
+    _diskTimer.setInterval(3000);
+    connect(&_diskTimer, &QTimer::timeout, this, &TransactionLogView::checkDisks);
+    _diskTimer.start();
     connect(_allBranches, &QCheckBox::toggled, this, &TransactionLogView::applyVisibility);
     connect(_hideRecords, &QCheckBox::toggled, this, &TransactionLogView::applyVisibility);
     connect(_showLogins, &QCheckBox::toggled, this, &TransactionLogView::applyVisibility);
@@ -3874,6 +3880,41 @@ void TransactionLogView::onImportFile()
         importFile(path, QString());
 }
 
+void TransactionLogView::mergeSaved(const QString& doc, const QString& branch)
+{
+    App::Document* saved = App::GetApplication().getDocument(doc.toUtf8().constData());
+    if (!saved)
+        return;
+    attach(saved);
+    if (auto mgr = DockWindowManager::instance())
+        mgr->activate(this);
+    _status->setText(tr("%1 was saved by another process since it was read here: pick a side for "
+                        "each conflict, then save again")
+                         .arg(QString::fromUtf8(saved->Label.getValue())));
+    mergeBranch(branch);
+}
+
+void TransactionLogView::checkDisks()
+{
+    for (App::Document* doc : App::GetApplication().getDocuments()) {
+        const std::string name = doc->getName();
+        if (!doc->isFileChangedElsewhere()) {
+            _toldElsewhere.erase(name);
+            continue;
+        }
+        if (!_toldElsewhere.insert(name).second)
+            continue;
+        const QString text = tr("%1 was saved by another process: its changes are merged in at "
+                                "the next save here")
+                                 .arg(QString::fromUtf8(doc->Label.getValue()));
+        Base::Console().Message("%s\n", text.toUtf8().constData());
+        if (auto main = getMainWindow())
+            main->showMessage(text, 10000);
+        if (doc == _doc)
+            updateStatus();
+    }
+}
+
 void TransactionLogView::importFile(const QString& path, const QString& branch)
 {
     importFrom(path, branch, QString());
@@ -4958,6 +4999,13 @@ void TransactionLogView::updateStatus()
     }
     catch (Base::Exception&) {
     }
+    // Sec 29.8: the file written elsewhere, and a save that waits on a merge.
+    if (!_doc->pendingSaveMerge().empty())
+        modeText += QStringLiteral(", ")
+                  + tr("a save waits on the merge of %1")
+                        .arg(QString::fromStdString(_doc->pendingSaveMerge()));
+    else if (_doc->isFileChangedElsewhere())
+        modeText += QStringLiteral(", ") + tr("saved by another process: merged at the next save");
     _status->setText(tr("%1 [%7]: %2 transactions, %3 versions, %4 pending, session %5  --  %6")
                          .arg(QString::fromUtf8(_doc->getName()))
                          .arg(_lastSeq)

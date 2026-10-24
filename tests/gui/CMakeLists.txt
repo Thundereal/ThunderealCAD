@@ -2227,3 +2227,9 @@ fc_add_gui_test(GuiSetImportMarksModified_tests_run
 fc_add_gui_test(GuiPasteAssignLook_tests_run
                 paste-assign-look.py
                 --timeout 120)
+
+# A save merges what another process saved into the file, says it while
+# idle, and puts a conflict to the merge (docs/TransactionLog.md sec 29.8).
+fc_add_gui_test(GuiSaveMergesAnotherProcess_tests_run
+                save-merges-another-process.py
+                --timeout 180)

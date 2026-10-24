@@ -35,6 +35,13 @@ Sources:
 7. **Body and App::Part declare interfaces as well as Assembly** (sec 5),
    using the same aux group.
 8. **Generalize `PartDesign::AuxGroup` for every container** (sec 6).
+9. **Auto is Assembly's group mode by default** (sec 2); Insert Component's
+   "always link" stays as an option of that command.
+10. **A pick on a child that cannot be edited falls back** to a convenience
+    element in the picking container, and says so (sec 4.1).
+11. **`$$Name.` in a subname steps through the link property `Name`** of
+    the object it is applied to (sec 6.3). The Elements group is reached as
+    `$$Elements.`, held by a property as the Origin is.
 
 ## 1. The tree
 
@@ -48,15 +55,15 @@ Rotor                       Assembly : App::Part, GroupMode = Auto   (Rotor.FCSt
   Elements                  owns its elements; Rotor's interface and label namespace
     HubFace       -> (Dome, "Face12")                declared for Rotor's parents
     _Element      -> (Dome, "Edge7")                 convenience: Dome has no Elements
-    ShaftEnd      -> (Axis, "$Elements.$PinEnd.")    re-exported upward, renamed
+    ShaftEnd      -> (Axis, "$$Elements.$PinEnd.")    re-exported upward, renamed
   Joints                    aux view
     Revolute001             a joint owns its ElementLinks
       ElementLink     -> (Elements, "$_Element.")      Shape copy, Offset
-      ElementLink001  -> (Axis, "$Elements.$PinEnd.")  straight into the child's interface
+      ElementLink001  -> (Axis, "$$Elements.$PinEnd.")  straight into the child's interface
   Physics                   aux view; shared items
     Spring001
       ElementLink     -> (Elements, "$HubFace.")
-      ElementLink001  -> (Bracket, "$Elements.$Bore.")  a Body's own interface
+      ElementLink001  -> (Bracket, "$$Elements.$Bore.")  a Body's own interface
   Simulations               aux view
     Study001 [Dynamic]      owns its own items; Elements = the Physics items it uses
       Motion001             Joint = Revolute001 (a whole joint, plain link)
@@ -70,7 +77,7 @@ Axis                        Assembly in its part role: an interface, no joints
   Parts
     Pin                     owned App::Link -> Pin.FCStd#Pin (an App::Part)
   Elements
-    PinEnd        -> (Pin, "$Elements.$End.")
+    PinEnd        -> (Pin, "$$Elements.$End.")
 
 Bracket                     PartDesign::Body (Bracket.FCStd)
   Origin
@@ -147,7 +154,7 @@ The Assembly3 concept, unchanged (wiki, Concepts / Element):
 
 - **An Element is declared by the container that holds the geometry.** It
   links either to geometry of one of its own children (`Dome.Face12`), or to
-  an element of a child container (`Axis.$Elements.$PinEnd.`), which
+  an element of a child container (`Axis.$$Elements.$PinEnd.`), which
   re-exports the lower interface upward.
 - **Addressed by `$Label`.** Labels are unique among the siblings of one
   Elements group and may repeat across containers, so interchangeable parts
@@ -156,7 +163,7 @@ The Assembly3 concept, unchanged (wiki, Concepts / Element):
   (wiki, Constraints and Solvers / Constraining Geometry Element).
 - **An ElementLink is the use site.** A joint in container A holds
   ElementLinks. Each links straight to an element declared by one of A's
-  direct children, through that child: `(Axis, "$Elements.$PinEnd.")`.
+  direct children, through that child: `(Axis, "$$Elements.$PinEnd.")`.
   Only a child with no Elements group of its own (a plain feature such as
   `Dome`) gets a convenience element in A's own Elements group (`_Element`
   above), and the ElementLink links to that.
@@ -167,8 +174,10 @@ The Assembly3 concept, unchanged (wiki, Concepts / Element):
 - **A pick on a child that declares elements** creates the element in that
   child's Elements group when the face is not declared yet, as Assembly3
   does (wiki, Constraints and Solvers / Constraining Geometry Element);
-  that edits the child's document. Open: what to do when the child cannot
-  be edited (frozen, partially loaded, read-only), sec 10.
+  that edits the child's document. When the child cannot be edited
+  (frozen, partially loaded, read-only document), the element is made as a
+  convenience element in the picking container instead, and the report
+  view says so (decision 10).
 - **Offsets.** An ElementLink's `Offset` affects only its joint; an
   Element's `Offset` affects every user.
 - **Repair is in one place.** When a face is renamed, only the deepest
@@ -301,19 +310,45 @@ in an assembly is no longer needed: a Body or a Part declares its own.
 
 ### 5.2 A Body's element on the body's own result
 
-The common pick is a face of the finished body. Linking the element to the
-Body would be a cycle (the Body owns the Elements group through `Group`),
-and linking to the tip feature goes stale when a later feature changes that
-face. So:
+The common pick is a face of the finished body: the selection is
+`Bracket` + `Face9`, the face of the Body's `Shape`, which is the tip's.
+The two obvious targets both fail:
 
-- the element stores a subname relative to its owner ("Face9" with its
-  mapped name) and no link to the owner;
-- the Body updates its elements at the end of its own `execute`, from its
-  result shape: they are the Body's outputs, like its `Shape`;
-- element links in parents depend on the element, so they recompute after.
+- **`Target = (Bracket, "Face9")`** is a cycle. The Body holds its Elements
+  group (sec 6.3), so the Body depends on the element, and the element
+  would depend on the Body.
+- **`Target = (Pad002, "Face9")`**, the tip at the time of the pick, is
+  cycle-free but goes stale silently. Add a Fillet after `Pad002` and the
+  interface still offers `Pad002`'s unfilleted face; delete or reorder
+  `Pad002` and it breaks. A parent assembly would mate against geometry the
+  part no longer has.
 
-The same rule serves any container whose result is a shape. An `App::Part`
-has no result shape of its own, so it does not need it.
+The rule proposed instead:
+
+- **The element has no `Target` link.** It stores the face's name relative
+  to its owner, as a mapped (topological) name: `Face9` plus its shadow.
+- **The Body refreshes these elements at the end of its own `execute`**,
+  after its `Shape` is final: it looks each name up in the new shape and
+  sets the element's `Shape`. A name that no longer resolves goes through
+  the repair order of sec 4.5 (`getRelatedElements`, then the geometric
+  search against the old copy), run by the Body there and then.
+- **They are outputs.** The element's `Shape` and `Placement` are written
+  only by the Body, as `Prop_Output`, so writing them does not touch the
+  element itself and no extra recompute round is queued.
+- **Dependency order stays right.** The DAG has Body -> Elements group ->
+  elements and nothing back. Element links in parent assemblies reach the
+  element through the component (`(Bracket, "$$Elements.$Bore.")`), so they
+  depend on the Body and recompute after it, when the copies are final.
+- **Elements on features stay as they are.** An element on `Sketch.Edge3`,
+  a datum or an early feature keeps a normal `Target`, which the wiki
+  recommends for stable interfaces (How to Handle Large Scale Assembly). The
+  pick decides: a face of the finished body gives a result element; a pick
+  inside a feature (through the tree, or a sketch or a datum) gives a
+  target element.
+
+The same rule serves any container whose own result is a shape (a
+`SolidBody`, later a frozen assembly). An `App::Part` has no result shape of
+its own and an assembly's elements point at children, so neither needs it.
 
 ## 6. Generalizing AuxGroup
 
@@ -376,13 +411,62 @@ Nothing outside PartDesign, Part's preference page and Body uses it.
   - Owning: the Elements group. Its `Group` is an ordinary link list, its
     children are not in the owner's `Group`, it resolves subnames to them
     including `$Label`, and it keeps their labels unique among siblings.
-    Its own label is fixed ("Elements") and not translated, because
-    `$Elements.` is part of every path into it.
+    The owner holds it through a link property named `Elements`, as an
+    `OriginGroupExtension` holds its `Origin`
+    (`App/OriginGroupExtension.cpp:69-89`), and paths step into it as
+    `$$Elements.` (sec 6.3), so its name and label are free.
 - **`PartDesign::AuxGroup` stays as a registered type**, derived from
   `App::AuxGroup`, and keeps its `_Body` property name. Old files restore
   unchanged, and an older build still reads the Body groups of a new file.
 - **The unique-label setting** becomes an App parameter read by every aux
   group; the Part preference keeps its checkbox, pointed at it.
+
+### 6.3 `$$Name.`: a subname step through a link property
+
+Every path into a child's interface needs one step into its Elements group.
+By object name it breaks on replacement: the group is `Elements` in one
+document and `Elements001` in another. By label (`$Elements.`) it breaks on
+a relabel or a translated label. A reserved key would need every resolver to
+learn it, and could collide with names in existing files. The step is made
+by property name instead:
+
+- **`$$Name.` resolves to the object held by the link property `Name`** of
+  the object the step is applied to, then continues from it:
+  `Axis.$$Elements.$PinEnd.` is Axis, its `Elements` property's object, then
+  the child labelled `PinEnd` there. Any single-object link property works
+  (`PropertyLink*`, `PropertyXLink`); a list property does not.
+- **Transform**: the property's object is taken as a child in the owner's
+  coordinate system, as `OriginGroupExtension` does for its `Origin`
+  (`App/OriginGroupExtension.cpp:83-85`).
+- **Resolved in one place**, at the top of `DocumentObject::getSubObject`
+  (`App/DocumentObject.cpp:1168`), before the extensions are asked. Every
+  resolver reaches it:
+  - `GroupExtension`, `GeoFeatureGroupExtension`, `OriginGroupExtension`
+    and `LinkBaseExtension` each read a leading `$` as a label
+    (`App/GroupExtension.cpp:703`, `App/GeoFeatureGroupExtension.cpp:513`,
+    `App/OriginGroupExtension.cpp:78`, `App/Link.cpp:1271-1340`) and would
+    otherwise look for an object labelled `$Elements`;
+  - a link forwards to its linked object's `getSubObject`;
+  - `Part::Feature` and `PartDesign::Body` hand any path with a dot to
+    `DocumentObject::getSubObject` (`Part/App/PartFeature.cpp:693-694`,
+    `PartDesign/App/Body.cpp:783-810`).
+  A Python proxy with its own `getSubObject` sees the raw step; none of ours
+  needs one.
+- **Existing files keep their meaning.** Today `$$X.` can only mean an
+  object labelled `$X`. The new step falls back to that when the object has
+  no link property `X`, so a file that used such a label still resolves.
+- **Label references must skip it.** `PropertyLinkBase::getLabelReferences`
+  (`App/PropertyLinks.cpp:158-166`) would register `$Elements` as a label.
+  `updateLabelReference` (`:189` on) would find `$Elements.` inside
+  `$$Elements.` when an object labelled `Elements` is relabelled, and
+  rewrite the step into a property name that does not exist. Both learn to
+  step over `$$` tokens.
+- **Picks are rewritten into this form.** A selection in the 3D view or the
+  tree carries object names (`Axis.Elements001.PinEnd.`); the commands that
+  make elements and element links store `$$Elements.` and `$PinEnd.`
+  instead.
+- To check when built: expressions (`App/ObjectIdentifier.cpp:1303-1312`
+  reads `$` tokens), and the tree's selection sync into a `$$` path.
 
 ## 7. Joints, Physics items and studies
 
@@ -428,13 +512,3 @@ Nothing outside PartDesign, Part's preference page and Body uses it.
 
 1. Sec 5.2: is an element on a Body's own result, updated by the Body's
    `execute` with no link to the Body, the rule you want?
-2. Sec 6.2: is `$Elements.` (a fixed label) the right step into a child's
-   Elements group, or should the owner resolve a reserved key that no
-   relabel can touch?
-3. Sec 2: Auto as Assembly's default, with Insert Component's "always link"
-   kept as a command option?
-4. Sec 4.1: a pick on a child that declares elements, when the child cannot
-   be edited (frozen, partially loaded, read-only document): refuse, as
-   Assembly3 does for a frozen assembly ("Cannot create element in frozen
-   assembly"), or fall back to a convenience element in the picking
-   container?

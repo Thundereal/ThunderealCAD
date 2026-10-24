@@ -6321,6 +6321,7 @@ void PropertyXLink::setAllowPartial(bool enable) {
 //++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 
 TYPESYSTEM_SOURCE(App::PropertyXLinkSub , App::PropertyXLink)
+TYPESYSTEM_SOURCE(App::PropertyXLinkSubHidden , App::PropertyXLinkSub)
 
 PropertyXLinkSub::PropertyXLinkSub(bool allowPartial, PropertyLinkBase *parent)
     :PropertyXLink(allowPartial,parent)

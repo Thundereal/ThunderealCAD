@@ -2586,6 +2586,7 @@ void Application::initTypes()
     App::PropertyLinkSubListHidden  ::init();
     App::PropertyXLink              ::init();
     App::PropertyXLinkSub           ::init();
+    App::PropertyXLinkSubHidden     ::init();
     App::PropertyXLinkSubList       ::init();
     App::PropertyXLinkList          ::init();
     App::PropertyXLinkContainer     ::init();

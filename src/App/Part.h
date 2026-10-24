@@ -94,6 +94,8 @@ public:
      * Removing an owned link deletes it, whatever the mode.
      */
     App::PropertyEnumeration GroupMode;
+    /// The group owning the elements this part declares (getElementsGroup())
+    App::PropertyLink Elements;
     enum GroupModeValue {
         GroupModeNormal,
         GroupModeAuto,
@@ -138,6 +140,7 @@ public:
     bool isAuxGroupAllowed(const AuxGroup *group, const DocumentObject *obj) const override;
     /// The aux group of the given role, or null
     AuxGroup *getAuxGroup(const char *role) const;
+    AuxGroup *getElementsGroup(bool create = false) override;
     /** Where a group of this role is listed among the groups
      *
      * The groups come right after Origin in this order: Elements, Joints,

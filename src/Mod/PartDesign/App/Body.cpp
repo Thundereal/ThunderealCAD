@@ -76,6 +76,11 @@ Body::Body() {
     ADD_PROPERTY_TYPE(AddSolidBody,(false),"Base",(App::PropertyType)(App::Prop_Output),
             "Group the features of each solid under a solid body once the body\n"
             "has more than one solid. AutoGroupSolids is ignored while this is on");
+
+    ADD_PROPERTY_TYPE(Elements, (nullptr), "Base",
+            (App::PropertyType)(App::Prop_Hidden|App::Prop_ReadOnly),
+            "The group owning the elements this body declares");
+    Elements.setScope(App::LinkScope::Child);
 }
 
 /*
@@ -1278,6 +1283,20 @@ Body::getSiblings(App::DocumentObject *obj, bool all, bool reversed) const
 bool Body::isAuxGroupChild(const App::DocumentObject *obj) const
 {
     return findBodyOf(obj) == this;
+}
+
+App::AuxGroup *Body::getElementsGroup(bool create)
+{
+    auto group = Base::freecad_dynamic_cast<App::AuxGroup>(Elements.getValue());
+    if (group || !create || !getDocument())
+        return group;
+    auto auxGroup = static_cast<AuxGroup*>(
+            getDocument()->addObject("PartDesign::AuxGroup", "Elements"));
+    auxGroup->Role.setValue(App::AuxGroup::ElementsRole);
+    auxGroup->Label.setValue("Elements");
+    Elements.setValue(auxGroup);
+    auxGroup->_Body.setValue(this);
+    return auxGroup;
 }
 
 bool Body::isAuxGroupAllowed(const App::AuxGroup *group, const App::DocumentObject *obj) const

@@ -83,6 +83,7 @@
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObjectPy.h>
+#include <App/GroupExtension.h>
 #include <App/DocumentPy.h>
 #include <App/DocumentObserver.h>
 #include <App/ExpressionParser.h>
@@ -106,6 +107,7 @@
 #include "modelRefine.h"
 #include "OCCError.h"
 #include "PartFeature.h"
+#include "FeatureElement.h"
 #include "ShapeDiff.h"
 #include "PartPyCXX.h"
 #include "SubShapeBinder.h"
@@ -821,6 +823,18 @@ public:
             "makeHelix(pitch,height,radius,[angle]) -- Make a helix with a given pitch, height and radius\n"
             "By default a cylindrical surface is used to create the helix. If the fourth parameter is set\n"
             "(the apex given in degree) a conical surface is used instead"
+        );
+        add_varargs_method("makeElement",&Module::makeElement,
+            "makeElement(container, target, subname='', label='') -- Declare an element\n"
+            "in the Elements group of a container (an App::Part or a Body), made if\n"
+            "missing. 'target' is a direct child of the container and 'subname' a\n"
+            "path into it. Returns the Part::Element."
+        );
+        add_varargs_method("makeElementLink",&Module::makeElementLink,
+            "makeElementLink(container, obj, subname) -- Add a Part::ElementLink to a\n"
+            "container, to an element: 'obj' is a direct child of the container and\n"
+            "'subname' the path to one of its elements ('$$Elements.$Name.'), or 'obj'\n"
+            "is the container's own Elements group and 'subname' an element in it."
         );
         add_varargs_method("makeLongHelix",&Module::makeLongHelix,
             "makeLongHelix(pitch,height,radius,[angle],[hand]) -- Make a (multi-edge) helix with a given pitch, height and radius\n"
@@ -2095,6 +2109,52 @@ private:
         catch (Standard_Failure& e) {
             throw Py::Exception(PartExceptionOCCError, e.GetMessageString());
         }
+    }
+    Py::Object makeElement(const Py::Tuple& args)
+    {
+        PyObject *pyContainer, *pyTarget;
+        const char *subname = "";
+        const char *label = "";
+        if (!PyArg_ParseTuple(args.ptr(), "O!O!|ss",
+                              &App::DocumentObjectPy::Type, &pyContainer,
+                              &App::DocumentObjectPy::Type, &pyTarget,
+                              &subname, &label))
+            throw Py::Exception();
+        PY_TRY {
+            auto container = static_cast<App::DocumentObjectPy*>(pyContainer)->getDocumentObjectPtr();
+            auto target = static_cast<App::DocumentObjectPy*>(pyTarget)->getDocumentObjectPtr();
+            auto element = Part::Element::create(container, target, subname, label);
+            return Py::asObject(element->getPyObject());
+        } _PY_CATCH_OCC(throw Py::Exception())
+    }
+    Py::Object makeElementLink(const Py::Tuple& args)
+    {
+        PyObject *pyContainer, *pyObj;
+        const char *subname = "";
+        if (!PyArg_ParseTuple(args.ptr(), "O!O!|s",
+                              &App::DocumentObjectPy::Type, &pyContainer,
+                              &App::DocumentObjectPy::Type, &pyObj,
+                              &subname))
+            throw Py::Exception();
+        PY_TRY {
+            auto container = static_cast<App::DocumentObjectPy*>(pyContainer)->getDocumentObjectPtr();
+            auto obj = static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr();
+            auto group = container->getExtensionByType<App::GroupExtension>(true);
+            if (!group)
+                throw Py::TypeError("The container is not a group");
+            auto doc = container->getDocument();
+            auto link = static_cast<Part::ElementLink*>(
+                    doc->addObject("Part::ElementLink", "ElementLink"));
+            // The container's own, whatever its GroupMode
+            auto children = group->Group.getValues();
+            children.push_back(link);
+            group->Group.setValues(children);
+            std::vector<std::string> subs;
+            if (*subname)
+                subs.emplace_back(subname);
+            link->Element.setValue(obj, std::move(subs));
+            return Py::asObject(link->getPyObject());
+        } _PY_CATCH_OCC(throw Py::Exception())
     }
     Py::Object makeLongHelix(const Py::Tuple& args)
     {

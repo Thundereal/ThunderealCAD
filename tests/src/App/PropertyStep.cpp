@@ -38,10 +38,9 @@ protected:
         pinEnd = _doc->addObject<App::DocumentObjectGroup>("Feature");
         pinEnd->Label.setValue("PinEnd");
         elements->addObject(pinEnd);
-        auto prop = Base::freecad_dynamic_cast<App::PropertyLink>(
-            part->addDynamicProperty("App::PropertyLink", "Elements"));
-        ASSERT_NE(prop, nullptr);
-        prop->setValue(elements);
+        // App::Part's own Elements property; any single-object link
+        // property serves the same
+        part->Elements.setValue(elements);
     }
 
     void TearDown() override

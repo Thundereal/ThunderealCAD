@@ -54,6 +54,16 @@ public:
      * is membership of the owner's Group.
      */
     virtual bool isAuxGroupChild(const DocumentObject *obj) const;
+
+    /** The group owning the elements this owner declares
+     *
+     * Held by the owner's link property "Elements", outside its Group, as
+     * an origin is, and reached in a subname as "$$Elements."
+     * (docs/AssemblyObjectModel.md sec 6.2). The default has none.
+     *
+     * @param create: make the group if there is none
+     */
+    virtual AuxGroup *getElementsGroup(bool create = false);
 };
 
 /** A group showing some of its owner's children, which it does not own
@@ -87,6 +97,7 @@ public:
 
     void onDocumentRestored() override;
     void onChanged(const Property* prop) override;
+    void unsetupObject() override;
     bool allowDuplicateLabel() const override;
 
     /** The role of this group; empty for a curated group
@@ -100,6 +111,18 @@ public:
     bool isCurated() const {
         return getRole().empty();
     }
+
+    /// The role of the group owning its owner's elements
+    static const char *ElementsRole;
+    /** Whether this group owns its children
+     *
+     * The Elements group does: its Group is what it holds, not a view of
+     * its owner's, and deleting it deletes them. It and its children are in
+     * its owner's coordinate system, as an origin and its features are.
+     */
+    bool isOwning() const;
+    /// The owning group holding \a obj, or null
+    static AuxGroup *getOwningGroupOf(const DocumentObject *obj);
 
     /// The owner, as a document object
     DocumentObject *getOwner() const;

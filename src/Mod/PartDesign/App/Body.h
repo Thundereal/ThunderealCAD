@@ -61,6 +61,9 @@ public:
      */
     App::PropertyBool AddSolidBody;
 
+    /// The group owning the elements this body declares (getElementsGroup())
+    App::PropertyLink Elements;
+
     Body();
 
     fastsignals::signal<void (const std::deque<App::DocumentObject*>&)>
@@ -264,6 +267,7 @@ public:
     bool isAuxGroupAllowed(const App::AuxGroup *group,
                            const App::DocumentObject *obj) const override;
     bool isAuxGroupChild(const App::DocumentObject *obj) const override;
+    App::AuxGroup *getElementsGroup(bool create = false) override;
     //@}
 
     // a body is solid if it has features that are solid according to member isSolidFeature.

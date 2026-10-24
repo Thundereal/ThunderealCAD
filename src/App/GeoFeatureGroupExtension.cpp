@@ -29,6 +29,7 @@
 #include <Base/Tools.h>
 
 #include "GeoFeatureGroupExtension.h"
+#include "AuxGroup.h"
 #include "Link.h"
 #include "Origin.h"
 #include "OriginFeature.h"
@@ -93,6 +94,19 @@ DocumentObject* GeoFeatureGroupExtension::getGroupOfObject(const DocumentObject*
     //we will find origins, but not origin features
     if(checkOrigin && obj->isDerivedFrom(App::OriginFeature::getClassTypeId())) 
         return OriginGroupExtension::getGroupOfObject(obj);
+
+    // The Elements group and its elements are in their owner's coordinate
+    // system, as an origin and its features are
+    if (auto aux = Base::freecad_dynamic_cast<const AuxGroup>(obj)) {
+        if (aux->isOwning()) {
+            auto owner = aux->getOwner();
+            if (owner && owner->hasExtension(GeoFeatureGroupExtension::getExtensionClassTypeId()))
+                return owner;
+            return getGroupOfObject(owner, checkOrigin);
+        }
+    }
+    if (auto aux = AuxGroup::getOwningGroupOf(obj))
+        return getGroupOfObject(aux, checkOrigin);
 
     //compared to GroupExtension we do return here all GeoFeatureGroups including all extensions derived from it
     //like OriginGroup. That is needed as we use this function to get all local coordinate systems. Also there
@@ -438,6 +452,22 @@ std::vector< DocumentObject* > GeoFeatureGroupExtension::getScopedObjectsFromLin
     return result;
 }
 
+/** Whether \a obj stays in the coordinate system it belongs to whatever
+ * links to it or from it: an origin and its features, and an Elements
+ * group and its elements (App::AuxGroup::isOwning()). None of them is ever
+ * moved along with what it links to, or what links to it.
+ */
+static bool isFixedInCoordinateSystem(const App::DocumentObject *obj)
+{
+    if (obj->isDerivedFrom(App::OriginFeature::getClassTypeId())
+            || obj->isDerivedFrom(App::Origin::getClassTypeId()))
+        return true;
+    auto aux = Base::freecad_dynamic_cast<const AuxGroup>(obj);
+    if (aux && aux->isOwning())
+        return true;
+    return AuxGroup::getOwningGroupOf(obj) != nullptr;
+}
+
 void GeoFeatureGroupExtension::getCSOutList(const App::DocumentObject* obj,
                                             std::vector< DocumentObject* >& vec) {
 
@@ -448,10 +478,10 @@ void GeoFeatureGroupExtension::getCSOutList(const App::DocumentObject* obj,
     //also we only want links with scope Local
     auto result = getScopedObjectsFromLinks(obj, LinkScope::Local);
 
-    //we remove all links to origin features and origins, they belong to a CS too and can't be moved
+    //we remove all links to origin features and origins, they belong to a CS too and can't be moved;
+    //so do the Elements group and its elements
     result.erase(std::remove_if(result.begin(), result.end(), [](App::DocumentObject* obj)->bool {
-        return (obj->isDerivedFrom(App::OriginFeature::getClassTypeId()) ||
-                obj->isDerivedFrom(App::Origin::getClassTypeId()));
+        return isFixedInCoordinateSystem(obj);
     }), result.end());
 
     vec.insert(vec.end(), result.begin(), result.end());
@@ -472,6 +502,10 @@ void GeoFeatureGroupExtension::getCSInList(const DocumentObject* obj,
 
         //not interested in other groups (and here we mean all groups, normal ones and geofeaturegroup)
         if(parent->hasExtension(App::GroupExtension::getExtensionClassTypeId()))
+            continue;
+
+        //nor in an element declared on it, which stays with its container
+        if(isFixedInCoordinateSystem(parent))
             continue;
 
         //check if the link is real Local scope one or if it is a expression one (could also be both, so it is not

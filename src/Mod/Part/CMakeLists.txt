@@ -75,6 +75,7 @@ set(Part_tests
     parttests/ColorPerFaceTest.py
     parttests/ElementAppearanceTest.py
     parttests/ElementNameTest.py
+    parttests/ElementTest.py
     parttests/HLRProjectionTest.py
     parttests/PrimitiveNamesTest.py
     parttests/TestLinkArray.py

@@ -27,11 +27,17 @@
 
 #include "AuxGroup.h"
 #include "Document.h"
+#include "DocumentObserver.h"
 #include "GroupExtension.h"
 
 using namespace App;
 
 AuxGroupOwner::~AuxGroupOwner() = default;
+
+AuxGroup *AuxGroupOwner::getElementsGroup(bool)
+{
+    return nullptr;
+}
 
 bool AuxGroupOwner::isAuxGroupChild(const DocumentObject *obj) const
 {
@@ -54,6 +60,41 @@ AuxGroup::AuxGroup()
 }
 
 AuxGroup::~AuxGroup() = default;
+
+const char *AuxGroup::ElementsRole = "Elements";
+
+bool AuxGroup::isOwning() const
+{
+    return getRole() == ElementsRole;
+}
+
+AuxGroup *AuxGroup::getOwningGroupOf(const DocumentObject *obj)
+{
+    if (!obj || !obj->isAttachedToDocument())
+        return nullptr;
+    for (auto parent : obj->getInList()) {
+        auto group = Base::freecad_dynamic_cast<AuxGroup>(parent);
+        if (group && group->isOwning() && group->Group.find(obj->getNameInDocument()) == obj)
+            return group;
+    }
+    return nullptr;
+}
+
+void AuxGroup::unsetupObject()
+{
+    // An owning group takes its children along
+    if (isOwning()) {
+        std::vector<DocumentObjectT> children;
+        for (auto child : Group.getValues())
+            children.emplace_back(child);
+        for (auto &childT : children) {
+            auto child = childT.getObject();
+            if (child && !child->isRemoving())
+                child->getDocument()->removeObject(child->getNameInDocument());
+        }
+    }
+    inherited::unsetupObject();
+}
 
 void AuxGroup::setOwnerProperty(PropertyLinkHidden *prop)
 {
@@ -109,7 +150,8 @@ GroupExtension *AuxGroup::getOwnerGroup() const
 
 void AuxGroup::attachOwner()
 {
-    auto group = getOwnerGroup();
+    // An owning group's children are its own, not a view of the owner's
+    auto group = isOwning() ? nullptr : getOwnerGroup();
     if (!group)
         connOwner.disconnect();
     else
@@ -169,6 +211,8 @@ void AuxGroup::setChildrenVisible(bool visible)
 
 void AuxGroup::refresh()
 {
+    if (isOwning())
+        return;
     auto group = getOwnerGroup();
     if (!group) {
         Group.setValues();

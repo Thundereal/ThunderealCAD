@@ -328,6 +328,52 @@ adjustment of relative links on "Replace with link"
 (`DocumentObject::adjustRelativeLinks`), import of links, version pinning
 (on the owned `App::Link`, not on elements), and partial loading (sec 4.4).
 
+Built as step 3a (2026-10-24), `Part/App/FeatureElement.{h,cpp}`:
+
+- `Part::Element` and `Part::ElementLink`, both `Part::Feature`. Each
+  `execute` takes the shape its link resolves to (`Feature::getTopoShape`
+  on the link's object and subname) and keeps it with its location in
+  `Placement`. `Detach` keeps the copy and skips the target. `Offset` is
+  stored on both and composed by the frame computation of the joints
+  (step 4); nothing reads it yet.
+- `Element::create()` (Python: `Part.makeElement(container, target,
+  subname, label)`) makes the container's Elements group if missing,
+  puts the element in it first and then labels it, so the label is made
+  unique among its siblings (`onBeforeChangeLabel`) and no wider: it allows
+  duplicate labels in the document. A new element is hidden; its
+  geometry is the target's. `Part.makeElementLink(container, obj,
+  subname)` adds an ElementLink to the container's `Group` directly,
+  whatever its GroupMode (a joint owns them from step 4).
+- The Elements group is an `App::AuxGroup` of role "Elements", which makes
+  it owning (`AuxGroup::isOwning()`): its `Group` is what it holds, it is
+  no view of the owner's, and deleting it, or the container
+  (`OriginGroupExtension::onExtendedUnsetupObject`), deletes the elements.
+  `App::Part` and Body hold it in their `Elements` property (scope Child,
+  as `Origin`) and make it through `AuxGroupOwner::getElementsGroup()`:
+  an `App::PartAuxGroup` for a part, a `PartDesign::AuxGroup` for a body.
+- **Coordinate system.** The group and its elements are in their
+  container's, as an origin and its features are:
+  `GeoFeatureGroupExtension::getGroupOfObject` answers the container for
+  them, and the coordinate-system link walk (`getCSOutList`,
+  `getCSInList`) leaves them out, so an element's target link is in scope,
+  an element is never dragged into the container's `Group` with what it
+  links to, and a child moved out does not take its elements along.
+- **Tree.** `ViewProviderOriginGroupExtension::extensionClaimChildren` puts
+  the Elements group right after the origin, for a part and a body alike.
+  Not yet: drawing an element (it is hidden, and the container does not
+  claim elements in 3D), and the pick commands.
+- A body's Elements group in an older build: that build has no
+  `Part::Element` and refreshes a `PartDesign::AuxGroup` from the body's
+  `Group`, which this one is not in, so it empties the group. Nothing an
+  older build can do with elements is lost by that.
+- Tests: `parttests/ElementTest.py` (13) and
+  `PartDesignTests/TestBodyElement.py` (4): the group and its property,
+  `$$Elements.` with the group relabelled, copies at the right place and
+  following their target, `Detach`, labels unique among siblings only,
+  re-export through an owned link, an ElementLink to a child's element and
+  to a convenience element, relabel updating the ElementLink, deletion,
+  save and restore, and a body's element recomputing with no cycle.
+
 ### 4.4 Shapes on both, and partial loading
 
 Assembly3 stores the copy on the Element only: `AsmElement.execute` keeps
@@ -636,7 +682,8 @@ links store `$$Elements.` and `$PinEnd.` instead.
 2. `GroupMode` on `App::Part`, with gtests for each case of sec 2, and
    its aux groups, the Parts group optional (sec 3.1). Done 2026-10-24.
 3. `Part::Element` and `Part::ElementLink`, the Owning aux group, and
-   Elements on `App::Part` and Body, with the SolidBody views (sec 5.3).
+   Elements on `App::Part` and Body (done 2026-10-24, sec 4.3), with the
+   SolidBody views (sec 5.3).
 4. The C++ assembly objects (joint, simulation, motion, Physics items,
    exploded view), the solver builder on them, and the upstream converter.
 5. Partial loading through element links (sec 4.4), Freeze with the Parts

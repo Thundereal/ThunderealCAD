@@ -98,6 +98,10 @@ Part::Part()
             "holds it, or it is here already.\n\n"
             "Link: always add a link owned by this part.");
 
+    ADD_PROPERTY_TYPE(Elements, (nullptr), "Part", (App::PropertyType)(Prop_Hidden|Prop_ReadOnly),
+            "The group owning the elements this part declares");
+    Elements.setScope(LinkScope::Child);
+
     OriginGroupExtension::initExtension(this);
 
     ExportMode.setStatus(Property::Hidden,false);
@@ -272,6 +276,19 @@ AuxGroup *Part::getAuxGroup(const char *role) const
             return group;
     }
     return nullptr;
+}
+
+AuxGroup *Part::getElementsGroup(bool create)
+{
+    auto group = Base::freecad_dynamic_cast<AuxGroup>(Elements.getValue());
+    if (group || !create || !getDocument())
+        return group;
+    group = static_cast<AuxGroup*>(getDocument()->addObject("App::PartAuxGroup", "Elements"));
+    group->Role.setValue(AuxGroup::ElementsRole);
+    group->Label.setValue("Elements");
+    Elements.setValue(group);
+    group->setOwner(this);
+    return group;
 }
 
 int Part::getAuxGroupRank(const AuxGroup *group)

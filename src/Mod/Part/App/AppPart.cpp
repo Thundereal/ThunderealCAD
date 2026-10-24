@@ -80,6 +80,7 @@
 #include "FeatureGeometrySet.h"
 #include "FeatureMirroring.h"
 #include "FeatureOffset.h"
+#include "FeatureElement.h"
 #include "FeaturePartBoolean.h"
 #include "FeaturePartBox.h"
 #include "FeaturePartCircle.h"
@@ -527,6 +528,8 @@ PyMOD_INIT_FUNC(Part)
     Part::Loft                  ::init();
     Part::Sweep                 ::init();
     Part::Offset                ::init();
+    Part::Element               ::init();
+    Part::ElementLink           ::init();
     Part::Offset2D              ::init();
     Part::Thickness             ::init();
     Part::Refine                ::init();

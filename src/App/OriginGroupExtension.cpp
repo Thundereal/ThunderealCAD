@@ -29,6 +29,7 @@
 
 #include "OriginGroupExtension.h"
 #include "GeoFeature.h"
+#include "AuxGroup.h"
 #include "Origin.h"
 #include "Part.h"
 
@@ -166,6 +167,13 @@ void OriginGroupExtension::onExtendedUnsetupObject () {
     App::DocumentObject *origin = Origin.getValue ();
     if (origin && !origin->isRemoving ()) {
         origin->getDocument ()->removeObject (origin->getNameInDocument());
+    }
+
+    // The Elements group goes with its owner, as the origin does
+    if (auto owner = dynamic_cast<AuxGroupOwner*>(getExtendedObject())) {
+        auto elements = owner->getElementsGroup(false);
+        if (elements && !elements->isRemoving())
+            elements->getDocument()->removeObject(elements->getNameInDocument());
     }
 
     GeoFeatureGroupExtension::onExtendedUnsetupObject ();

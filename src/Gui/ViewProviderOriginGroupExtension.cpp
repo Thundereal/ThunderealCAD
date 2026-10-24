@@ -22,6 +22,7 @@
  ***************************************************************************/
 
 #include "PreCompiled.h"
+#include <algorithm>
 #include <cmath>
 #include <memory>
 
@@ -32,6 +33,7 @@
 #endif
 
 #include <App/AutoTransaction.h>
+#include <App/AuxGroup.h>
 #include <App/Document.h>
 #include <App/DocumentObserver.h>
 #include <App/GeoFeature.h>
@@ -137,6 +139,13 @@ void ViewProviderOriginGroupExtension::constructChildren (
 
 void ViewProviderOriginGroupExtension::extensionClaimChildren (std::vector<App::DocumentObject *> &children) const {
     ViewProviderGeoFeatureGroupExtension::extensionClaimChildren (children);
+    // The Elements group right after the origin: held by a property, not in
+    // Group, as the origin is (docs/AssemblyObjectModel.md sec 3)
+    auto owner = dynamic_cast<App::AuxGroupOwner*>(getExtendedViewProvider()->getObject());
+    if (auto elements = owner ? owner->getElementsGroup(false) : nullptr) {
+        if (std::find(children.begin(), children.end(), elements) == children.end())
+            children.insert(children.begin(), elements);
+    }
     constructChildren ( children );
 }
 

@@ -128,23 +128,31 @@ std::vector<FileOpener> readMarker(const std::string& marker)
 }
 
 /// Written whole and renamed into place, so a reader sees one or the other.
+/// On Windows the rename fails while another process reads the marker (a
+/// reader holds no lock): tried again, not given up on.
 void writeMarker(const std::string& marker, const std::vector<FileOpener>& openers)
 {
     const QString path = QString::fromStdString(marker);
-    if (openers.empty()) {
-        QFile::remove(path);
-        return;
-    }
     std::ostringstream text;
     text.precision(17);
     for (const auto& o : openers)
         text << o.host << ' ' << o.pid << ' ' << o.since << '\n';
-    QSaveFile out(path);
-    if (!out.open(QIODevice::WriteOnly | QIODevice::Text))
-        return;
     const std::string bytes = text.str();
-    out.write(bytes.data(), static_cast<qint64>(bytes.size()));
-    out.commit();
+    for (int attempt = 0; attempt < 50; ++attempt) {
+        if (attempt)
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        if (openers.empty()) {
+            if (QFile::remove(path) || !QFileInfo::exists(path))
+                return;
+            continue;
+        }
+        QSaveFile out(path);
+        if (!out.open(QIODevice::WriteOnly | QIODevice::Text))
+            return;   // a folder that takes no files: nothing to tell
+        out.write(bytes.data(), static_cast<qint64>(bytes.size()));
+        if (out.commit())
+            return;
+    }
 }
 
 bool isMe(const FileOpener& o)
@@ -156,6 +164,35 @@ bool isMe(const FileOpener& o)
 /// to the process, so a second one taken here would not see the first.
 std::mutex heldMutex;
 std::set<std::string> heldPaths;
+
+/// The marker read and rewritten under the file's lock, or two processes
+/// opening the file at once each write the marker without the other's line
+/// (three opened together, two were told: sec 29.8). None is taken where
+/// this process holds it already -- a save adding its line, under its own.
+/// One that stays held (a long save elsewhere) is waited for a while, then
+/// the marker is changed without it, as before: it only tells the user.
+class MarkerLock
+{
+public:
+    explicit MarkerLock(const std::string& file)
+    {
+        {
+            std::lock_guard<std::mutex> guard(heldMutex);
+            if (heldPaths.count(SaveLock::lockPath(file)))
+                return;
+        }
+        _lock = std::make_unique<SaveLock>(file);
+        _lock->lock(10000);
+    }
+    /// Held by this process, here or by its caller.
+    bool held() const
+    {
+        return !_lock || _lock->isLocked();
+    }
+
+private:
+    std::unique_ptr<SaveLock> _lock;
+};
 
 }   // namespace
 
@@ -340,6 +377,7 @@ std::vector<FileOpener> FileOpeners::others(const std::string& file)
 std::vector<FileOpener> FileOpeners::add(const std::string& file)
 {
     const std::string marker = markerPath(file);
+    MarkerLock lock(file);
     std::vector<FileOpener> all;
     std::vector<FileOpener> others;
     for (const auto& o : readMarker(marker)) {
@@ -362,6 +400,7 @@ void FileOpeners::remove(const std::string& file)
     const std::string marker = markerPath(file);
     if (!QFileInfo::exists(QString::fromStdString(marker)))
         return;
+    MarkerLock lock(file);
     std::vector<FileOpener> rest;
     for (const auto& o : readMarker(marker)) {
         if (!isMe(o))
@@ -371,13 +410,8 @@ void FileOpeners::remove(const std::string& file)
     // The last to close it takes the lock file with it -- under the lock,
     // so that a save in another process is not between its look and its
     // write; one that opened the old file sees it is no longer named.
-    if (rest.empty()) {
-        SaveLock lock(file);
-        if (lock.lock(0)) {
-            QFile::remove(QString::fromStdString(SaveLock::lockPath(file)));
-            lock.unlock();
-        }
-    }
+    if (rest.empty() && lock.held())
+        QFile::remove(QString::fromStdString(SaveLock::lockPath(file)));
 }
 
 std::string FileOpeners::describe(const FileOpener& opener)

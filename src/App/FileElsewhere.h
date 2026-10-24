@@ -110,7 +110,10 @@ struct AppExport FileOpener
  * `.~<name>.open`, one line per process: written at open and at a save to a
  * new name, the line taken out at close and the file with the last. Read
  * only to tell the user; it blocks nothing. A line of a process of this
- * host that is gone is dropped when the marker is read.
+ * host that is gone is dropped when the marker is read. Each change reads
+ * and rewrites the marker under the file's SaveLock (none taken where this
+ * process holds it already: a save adding its line), so that two processes
+ * opening the file at once do not write over each other's line.
  */
 namespace FileOpeners
 {

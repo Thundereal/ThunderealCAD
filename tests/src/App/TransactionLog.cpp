@@ -426,7 +426,9 @@ TEST_F(TransactionLogTest, aGroupsElementPastedFollowsItsUidNotItsPlace)
     EXPECT_NE(std::find(elements.begin(), elements.end(), b), elements.end());
     int tests = 0;
     for (auto o : doc()->getObjects())
-        tests += o->isDerivedFrom<App::FeatureTest>() ? 1 : 0;
+        // dynamic_cast: FeatureTest is not exported, so its type id does not
+        // link on Windows
+        tests += dynamic_cast<App::FeatureTest*>(o) ? 1 : 0;
     EXPECT_EQ(tests, 2);
     App::GetApplication().closeDocument(otherName.c_str());
 }
@@ -3071,6 +3073,11 @@ TEST_F(TransactionLogTest, aRecoveryThatCannotTakeTheWalLeavesTheLogWhole)
     const std::string oldLog = crashed + "/history/log.db";
     if (!Base::FileInfo(oldLog + "-wal").exists())
         GTEST_SKIP() << "no WAL beside the copied log";
+#ifdef _WIN32
+    // The case is made by unlinking the open WAL below, which Windows refuses
+    // ("being used by another process").
+    GTEST_SKIP() << "an open WAL cannot be unlinked on Windows";
+#endif
 
     auto other = App::GetApplication().newDocument("RecoverInto", "RecoverInto");
     const std::string otherName = other->getName();

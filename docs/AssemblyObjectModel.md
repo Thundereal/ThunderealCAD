@@ -47,18 +47,16 @@ Rotor                       Assembly : App::Part, GroupMode = Auto   (Rotor.FCSt
     Bracket                 owned App::Link -> Bracket.FCStd#Body
   Elements                  owns its elements; Rotor's interface and label namespace
     HubFace       -> (Dome, "Face12")                declared for Rotor's parents
-    _Element      -> (Dome, "Edge7")                 made from a pick for a joint
-    _Element001   -> (Axis, "$Elements.$PinEnd.")    local element over a child's
-    _Element002   -> (Bracket, "$Elements.$Bore.")   a Body's own interface
+    _Element      -> (Dome, "Edge7")                 convenience: Dome has no Elements
     ShaftEnd      -> (Axis, "$Elements.$PinEnd.")    re-exported upward, renamed
   Joints                    aux view
     Revolute001             a joint owns its ElementLinks
       ElementLink     -> (Elements, "$_Element.")      Shape copy, Offset
-      ElementLink001  -> (Elements, "$_Element001.")
+      ElementLink001  -> (Axis, "$Elements.$PinEnd.")  straight into the child's interface
   Physics                   aux view; shared items
     Spring001
       ElementLink     -> (Elements, "$HubFace.")
-      ElementLink001  -> (Elements, "$_Element002.")
+      ElementLink001  -> (Bracket, "$Elements.$Bore.")  a Body's own interface
   Simulations               aux view
     Study001 [Dynamic]      owns its own items; Elements = the Physics items it uses
       Motion001             Joint = Revolute001 (a whole joint, plain link)
@@ -157,10 +155,20 @@ The Assembly3 concept, unchanged (wiki, Concepts / Element):
 - **One geometry per element**, read flexibly as a point, a line or a plane
   (wiki, Constraints and Solvers / Constraining Geometry Element).
 - **An ElementLink is the use site.** A joint in container A holds
-  ElementLinks; each links to an element of A. For a direct part that is
-  A's own element; for a child container's element it is a local element
-  of A over it (`_Element001` above). That is Assembly3's rule since 0.9: a
-  constraint always links through a local element, which keeps a copy.
+  ElementLinks. Each links straight to an element declared by one of A's
+  direct children, through that child: `(Axis, "$Elements.$PinEnd.")`.
+  Only a child with no Elements group of its own (a plain feature such as
+  `Dome`) gets a convenience element in A's own Elements group (`_Element`
+  above), and the ElementLink links to that.
+- **Not Assembly3's 0.9 rule.** Since 0.9 Assembly3 always links through a
+  local element, so that a copy survives a missing lower element (release
+  notes 0.9). Here the ElementLink keeps its own copy (sec 4.4), so that
+  indirection is not needed.
+- **A pick on a child that declares elements** creates the element in that
+  child's Elements group when the face is not declared yet, as Assembly3
+  does (wiki, Constraints and Solvers / Constraining Geometry Element);
+  that edits the child's document. Open: what to do when the child cannot
+  be edited (frozen, partially loaded, read-only), sec 10.
 - **Offsets.** An ElementLink's `Offset` affects only its joint; an
   Element's `Offset` affects every user.
 - **Repair is in one place.** When a face is renamed, only the deepest
@@ -184,19 +192,29 @@ name). Both are plain shape objects, not link objects (user, 2026-10-24):
 they own their `Shape`, so nothing needs the geometry of what they point at
 at display or solve time.
 
-- `Part::Element`: `Target` (an `App::PropertyXLinkSub`, always to a child
-  of its own container, so same-document: subname paths, `$Label`, shadow
-  names; empty for a Body's element on its own result, sec 5.2), `Offset`,
-  `Detach`, `Shape` (the copy), `Placement`.
-- `Part::ElementLink`: `Element` (a plain link to an element of its
-  container), `Offset`, `Shape` (sec 4.4), `ElementHash`.
-- **Frames.** Both copies are expressed in the frame of the component they
-  belong to (the direct child of the container that the container's solver
-  moves), and `Placement` puts them where that component currently is.
-  Unlike Assembly3, which bakes the part's placement into the element's
-  shape (`asm3/assembly.py:900-910`), a solve here changes only `Placement`
-  outputs, never a stored shape, and an element and its element links hold
-  the same geometry, one `TShape`.
+- `Part::Element`: `Target` (an `App::PropertyLinkSub`: a direct child of
+  its own container, plus a subname into it; empty for a Body's element on
+  its own result, sec 5.2), `Offset`, `Detach`, `Shape` (the copy),
+  `Placement`.
+- `Part::ElementLink`: `Element` (an `App::PropertyLinkSub`: a direct child
+  of its container and the subname to an element in that child's Elements
+  group, or the container's own Elements group and a convenience element),
+  `Offset`, `Shape` (sec 4.4).
+- **Why `PropertyLinkSub`, not `PropertyXLinkSub`.** Both targets are
+  always in the same document, because an external part comes in as an
+  owned `App::Link` child. `PropertyLinkSub` already has what is needed:
+  shadow (mapped) names, label references and their update on relabel,
+  `adjustLink`, and `updateElementReference` (`App/PropertyLinks.h:961-1070`).
+  What the X adds -- another document, relative paths, the modification
+  stamp, `AllowPartial`, version pinning -- belongs to the owned
+  `App::Link`, and subnames resolve through it.
+- **Copies follow their source.** A copy is taken as its source resolves in
+  the element's container and is retaken whenever the source recomputes.
+  That includes a component that deforms under motion: assembly solving
+  recomputes anyway, and a component that only moved costs a relocation of
+  the same `TShape`. On disk the shape store strips the top-level location
+  (`docs/SharedShapeStorage.md` sec 11.4), so copies of one geometry at
+  different places still dedup.
 - Both keep `OnTopWhenSelected` on by default, as Assembly3's do.
 
 What Assembly3 took from `LinkBaseExtension` for these two, and where it
@@ -227,9 +245,6 @@ that is frozen or loaded far enough for the chain to resolve.
 
 Here the ElementLink also stores the shape:
 
-- **In the frame of the component its container moves** (the direct child),
-  not the container's: the solver's placement writes never touch it, and two
-  instances of one child using the same element hold the same copy.
 - **It costs almost nothing.** In memory the copy shares the element's
   `TShape`. On disk the shape store keeps what is shared in memory once
   (`docs/SharedShapeStorage.md` sec 11.4; `docs/RoadMap.md`, workstream 2).
@@ -244,16 +259,18 @@ Here the ElementLink also stores the shape:
   without restoring them (`:4063-4097`), and an XLink with `AllowPartial`
   opens its document partially and tolerates a missing target
   (`App/PropertyLinks.cpp:4255`, `:5082`). Joints and element links answer
-  `canLoadPartial` 1; a local element over an unloaded child keeps its copy
+  `canLoadPartial` 1; an element link into an unloaded child keeps its copy
   and reports itself unresolved, not broken.
 - **Display is the container's business.** Showing an unloaded child needs
   the child container to keep a frozen shape of its own (Assembly3's Freeze,
   `docs/AssemblyFromAsm3.md` A.5); the copies on elements only serve the
   solver, the highlight and the joints.
-- **Stale copies are flagged, never silently used.** `ElementHash` is the
-  content hash of the Element shape that was copied. When the child loads
-  and the hash differs, the joint shows "element changed below"; the user
-  accepts it, or auto-fix re-matches the element (sec 4.5).
+- **No hash of its own is needed to notice a change.** The link
+  dependencies already trigger the recompute: in a session through the
+  dependency graph, and across sessions through the owned link's
+  `PropertyXLink`, which keeps the linked document's `LastModifiedDate` and
+  touches the linking object when it differs (`App/PropertyLinks.cpp:4507`,
+  `:5100`).
 
 ### 4.5 Repair and replacement
 
@@ -416,3 +433,8 @@ Nothing outside PartDesign, Part's preference page and Body uses it.
    relabel can touch?
 3. Sec 2: Auto as Assembly's default, with Insert Component's "always link"
    kept as a command option?
+4. Sec 4.1: a pick on a child that declares elements, when the child cannot
+   be edited (frozen, partially loaded, read-only document): refuse, as
+   Assembly3 does for a frozen assembly ("Cannot create element in frozen
+   assembly"), or fall back to a convenience element in the picking
+   container?

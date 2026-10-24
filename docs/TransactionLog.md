@@ -12018,21 +12018,36 @@ is 1.5 us. With QLockFile the schema-4 rows were 33.08 against 30.44 ms and
 row with a recompute. That is only on the save that finds the file moved.
 
 **A document saved as a folder** (built 2026-10-24, user: "do the
-documents saved as folder").
-- *What it is like.* A folder save never carries the history:
-  `embedHistory` is asked for an archive only, at any schema and mode. So
-  a folder merges as a plain file does (Q3), against the state this
-  process left it in.
-- *The stamp* is its `Document.xml`. A folder save writes a new folder and
-  renames it into place, so the inode moves with every save.
+documents saved as folder"; the history in it, user: "go", the same day).
+- *It carries the history now.* Until this, a folder save never did:
+  `embedHistory` was asked for an archive only, a gate from the first
+  build of the embedded history (16.4) with no ruling behind it. A folder
+  save already wrote its blobs as files under `blobs/`, and the history's
+  database is one more: the gate is now that the blob store writes entries
+  (`BlobFormat::Entries`), an archive or a folder, not inline XML. So a
+  folder keeps its rows across a close, and a version another document
+  pins travels with it as 27.5 ruling 1 has it -- before, a pinned folder
+  lost the version at its next save with the preference off.
+- *Read as a file is.* `FileHistory::openFile`, `readTable` and `savedAs`,
+  `FileBlobManager::splitArchive` and `readArchiveMember` take a folder:
+  its entries are its files, named relative to it, and its blobs are read
+  as an open of the folder reads them (`restoreFromDirectory`). A folder
+  pulled at a save is then imported by its history, as a `.TStd` is, and a
+  folder saved without it (mode 1, or by an older build) comes as a state
+  against what this process left (Q3).
+- *The stamp* is its `Document.xml`. A folder save writes into the folder
+  in place -- no temporary folder renamed over it, unlike an archive -- so
+  `Document.xml` keeps its inode and the stamp moves by its time and size.
+  The touched-only check reads its save id as for a file.
 - *The lock and the marker* are beside the folder, `.~<folder>.lock` and
-  `.~<folder>.open`; replacing the folder does not touch them.
+  `.~<folder>.open`.
 - *The pull* copies the folder whole into `<TransientDir>/pull/<n>/`
-  (QDirIterator, every file and hidden file). `FileHistory::savedAs` reads
-  a folder's `Document.xml`, which it refused before. The import already
-  opened the copy as a document, and `openDocument` takes a folder.
-- *A side effect:* `importFork` of a folder now works as an import of a
-  file without history. Before, it failed with "no such file".
+  (QDirIterator, every file and hidden file).
+- *Side effects:* `importFork` of a folder works, as a file with history or
+  without it; it failed before with "no such file".
+- *Not built:* the save of the history alone (27.29), which rewrites the
+  archive in place, still refuses a folder ("has no file to save its
+  history into").
 
 **The second pull of a file without history** extended the first pull's
 branch, which is closed once its save is written, and failed with "branch
@@ -12060,9 +12075,14 @@ is a pull's and closed, as F7 has it for a file with history.
   - a save with nobody else, and a file only touched, pulls nothing;
   - an `.FCStd` at schema 4 merges against what this process left, and a
     second pull comes as a branch of its own;
-  - a folder merges twice, each against what this process left, and keeps
-    its folder;
-  - a folder that conflicts writes nothing until picked.
+  - a folder keeps its history across a reopen, and another process's save
+    of it comes by that history, one row;
+  - a folder merges twice and keeps its folder;
+  - a folder the other saves without history, in conflict, writes nothing
+    until picked.
+- Python `testAPinnedFolderKeepsItsVersion` (`TransactionBranchCases`): a
+  folder pinned by another document keeps `blobs/History.db` saved with
+  the preference off, and the pin opens the version after a reopen.
 - Driven `GuiSaveMergesAnotherProcess`: the idle notice in the status bar
   and the panel; a clean merge at save; a conflicted save with no error
   box, the merge opened with the conflict, then written as picked.

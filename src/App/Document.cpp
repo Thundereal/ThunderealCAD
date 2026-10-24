@@ -5190,7 +5190,7 @@ bool Document::isFileChangedElsewhere() const
     if (d->movedStamp.valid() && now.sameAs(d->movedStamp))
         return true;
     // Touched and not written: the save id is still the one left here.
-    if (!d->diskSaveId.empty() && !Base::FileInfo(file).isDir()) {
+    if (!d->diskSaveId.empty()) {
         FileHistory::Saved saved;
         if (FileHistory::savedAs(file, saved) && saved.history && saved.saveId == d->diskSaveId) {
             d->touchedStamp = now;
@@ -5227,8 +5227,7 @@ void Document::_pullFromDisk(const std::string& file)
     // A copy of the file as it is: the import reads the document's own file
     // as that document's, and refuses it. A copy of its own each time, as
     // a history read from a path is the one read from that path. A document
-    // saved as a folder is copied whole; such a save never carries the
-    // history, so it comes as a file without one (Q3).
+    // saved as a folder is copied whole.
     static int pulls = 0;
     Base::FileInfo fi(file);
     const std::string dir =
@@ -5873,7 +5872,10 @@ void Document::save(Base::Writer &writer, bool archive) const {
     // be in place before the collect pass notes what the archive carries.
     // Below schema 5 there is no blob store to carry it (PropertyHistory
     // writes an empty element), so no copy is made (sec 27.56).
-    const_cast<Document*>(this)->embedHistory(archive && writer.getSchemaVersion() >= 5);
+    // Wherever the blobs go as entries -- an archive, or a folder (sec 29.8):
+    // the history's database is one more of them.
+    const_cast<Document*>(this)->embedHistory(
+        getFileBlobManager().blobFormat() == FileBlobManager::BlobFormat::Entries);
     collectFileBlobs();
     const double tCollect = phaseSplit();
 

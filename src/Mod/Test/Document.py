@@ -3405,6 +3405,55 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(os.path.normpath(link.LinkedObject.Document.FileName),
                          os.path.normpath(partPath))
 
+    def testAPinnedFolderKeepsItsVersion(self):
+        # Sec 29.8, 27.5 ruling 1: a document saved as a folder that another
+        # pins a version of keeps its history with the preference off, as an
+        # archive does, and the pin opens the version after a reopen.
+        partPath = os.path.join(self.dir, "pinfolder")
+        os.makedirs(partPath)
+        part = self.track(FreeCAD.newDocument("PinFolder"))
+        part.UndoMode = 1
+        part.openTransaction("create")
+        target = part.addObject("App::FeatureTest", "Obj")
+        target.Integer = 1
+        part.commitTransaction()
+        part.saveAs(partPath)
+        onDisk = int(part.Version.split()[0])
+
+        asm = self.track(FreeCAD.newDocument("PinFolderAsm"))
+        asm.UndoMode = 1
+        asm.openTransaction("link")
+        link = asm.addObject("App::Link", "L")
+        link.LinkedObject = target
+        asm.commitTransaction()
+        asmPath = os.path.join(self.dir, "pinfolderasm.FCStd")
+        asm.saveAs(asmPath)
+        asm.openTransaction("pin")
+        self.assertEqual(link.pinLink("LinkedObject"), onDisk)
+        asm.commitTransaction()
+        self.track(link.LinkedObject.Document)
+
+        self.param.SetInt("TransactionLog", 1)
+        part.openTransaction("two")
+        target.Integer = 2
+        part.commitTransaction()
+        part.save()
+        self.param.SetInt("TransactionLog", 2)
+        self.assertTrue(os.path.isfile(os.path.join(partPath, "blobs", "History.db")))
+        self.assertEqual(link.LinkedObject.Integer, 1)
+
+        asm.save()
+        shown = link.LinkedObject.Document
+        for doc in (asm, shown, part):
+            FreeCAD.closeDocument(doc.Name)
+        asm = self.track(FreeCAD.openDocument(asmPath))
+        link = asm.getObject("L")
+        shown = link.LinkedObject
+        self.assertIsNotNone(shown)
+        self.track(shown.Document)
+        self.assertTrue(shown.Document.FileName.endswith("@v%d" % onDisk))
+        self.assertEqual(shown.Integer, 1)
+
     def testAPinnedVersionIsReadInPartForItsLinks(self):
         # Sec 35 L8: a frozen version opened for pins reads the objects they
         # link and what those depend on, as a plain file opened for links
@@ -12553,10 +12602,44 @@ class TransactionTwoProcessCases(unittest.TestCase):
             (doc.Box.Length.Value, doc.Box.Width.Value, doc.Box.Height.Value), (20, 40, 5)
         )
 
+    def testAFolderCarriesItsHistory(self):
+        # Sec 29.8: a folder save embeds the history as an archive does, as
+        # blobs/History.db, and a reopen continues from it.
+        path = os.path.join(self.dir, "Kept")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("Kept"))
+        doc.UndoMode = 1
+        self.edit(doc, "create", lambda d: d.addObject("Part::Box", "Box"))
+        doc.saveAs(path)
+        self.edit(doc, "longer", lambda d: setattr(d.Box, "Length", 20))
+        doc.save()
+        self.assertTrue(os.path.isfile(os.path.join(path, "blobs", "History.db")))
+        self.assertTrue(doc.Version)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        names = [t["name"] for t in doc.getTransactionLog()]
+        self.assertIn("create", names)
+        self.assertIn("longer", names)
+        self.assertEqual(doc.Box.Length.Value, 20)
+        # Opened elsewhere, the folder is read as a file with a history:
+        # only the other's new row comes.
+        doc.UndoMode = 1
+        self.other(path, "doc.Box.Width = 30")
+        self.edit(doc, "higher", lambda d: setattr(d.Box, "Height", 5))
+        doc.save()
+        pull = doc.getLastSavePull()
+        self.assertTrue(pull["merged"], pull)
+        self.assertEqual(pull["rows"], 1, pull)
+        self.assertEqual(
+            (doc.Box.Length.Value, doc.Box.Width.Value, doc.Box.Height.Value), (20, 30, 5)
+        )
+        theirs = [t for t in doc.getTransactionLog() if t["name"] == "theirs"]
+        self.assertEqual([t["branch"] for t in theirs], [pull["branch"]])
+
     def testAFolderMergesWhatAnotherProcessSaved(self):
-        # Sec 29.8: a document saved as a folder. Such a save carries no
-        # history, so it merges as a plain file does, against the state this
-        # process left it in; the folder is copied whole for the pull.
+        # Sec 29.8: a document saved as a folder merges what another process
+        # saved into it as a file does; the folder is copied whole for the
+        # pull.
         path = os.path.join(self.dir, "Folder")
         os.makedirs(path)
         doc = self.track(FreeCAD.newDocument("Folder"))
@@ -12614,7 +12697,9 @@ class TransactionTwoProcessCases(unittest.TestCase):
         FreeCAD.closeDocument(doc.Name)
         doc = self.track(FreeCAD.openDocument(path))
         doc.UndoMode = 1
-        self.other(path, "doc.Box.Length = 30")
+        # The other saves without the history (mode 1): the folder comes as
+        # a state against what this process left (Q3).
+        self.other(path, "doc.Box.Length = 30", mode=1)
         with open(os.path.join(path, "Document.xml"), "rb") as f:
             theirs = f.read()
         self.edit(doc, "ours", lambda d: setattr(d.Box, "Length", 20))

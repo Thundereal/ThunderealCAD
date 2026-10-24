@@ -12383,7 +12383,11 @@ class TransactionTwoProcessCases(unittest.TestCase):
         # prints what it was told. Its settings are put back as it ends.
         import subprocess
 
-        script = os.path.join(self.dir, "other.py")
+        # A name of its own each run: the script is imported, and a cached
+        # one of the same size written within the same second would be run
+        # in its place.
+        self.runs = getattr(self, "runs", 0) + 1
+        script = os.path.join(self.dir, "other%d.py" % self.runs)
         with open(script, "w") as f:
             f.write(
                 "import FreeCAD\n"
@@ -12532,9 +12536,101 @@ class TransactionTwoProcessCases(unittest.TestCase):
         self.assertTrue(pull["merged"], pull)
         self.assertEqual(pull["conflicts"], [])
         self.assertEqual((doc.Box.Length.Value, doc.Box.Width.Value), (20, 30))
+        # Again: the first pull's branch is closed with its save, so this one
+        # is a branch of its own, from the state that save left.
+        self.other(path, "doc.Box.Height = 5", mode=1, schema=4)
+        self.edit(doc, "ours wider", lambda d: setattr(d.Box, "Width", 40))
+        doc.save()
+        again = doc.getLastSavePull()
+        self.assertTrue(again["merged"], again)
+        self.assertNotEqual(again["branch"], pull["branch"])
+        self.assertEqual(
+            (doc.Box.Length.Value, doc.Box.Width.Value, doc.Box.Height.Value), (20, 40, 5)
+        )
         FreeCAD.closeDocument(doc.Name)
         doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(
+            (doc.Box.Length.Value, doc.Box.Width.Value, doc.Box.Height.Value), (20, 40, 5)
+        )
+
+    def testAFolderMergesWhatAnotherProcessSaved(self):
+        # Sec 29.8: a document saved as a folder. Such a save carries no
+        # history, so it merges as a plain file does, against the state this
+        # process left it in; the folder is copied whole for the pull.
+        path = os.path.join(self.dir, "Folder")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("Folder"))
+        doc.UndoMode = 1
+        doc.openTransaction("create")
+        doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        doc.commitTransaction()
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        self.assertEqual(doc.FileName, path)
+        self.assertTrue(os.path.exists(os.path.join(self.dir, ".~Folder.open")))
+        self.other(path, "doc.Box.Width = 30")
+        self.assertTrue(doc.isFileChangedElsewhere())
+        self.edit(doc, "ours", lambda d: setattr(d.Box, "Length", 20))
+        doc.save()
+        pull = doc.getLastSavePull()
+        self.assertTrue(pull["merged"], pull)
+        self.assertEqual(pull["conflicts"], [])
+        self.assertTrue(pull["branch"].startswith("Folder saved"), pull)
         self.assertEqual((doc.Box.Length.Value, doc.Box.Width.Value), (20, 30))
+        self.assertFalse(doc.isFileChangedElsewhere())
+
+        # Again, against the state this save left: only the new change is
+        # theirs, so ours of the width does not clash with it.
+        self.other(path, "doc.Box.Height = 5")
+        self.edit(doc, "ours wider", lambda d: setattr(d.Box, "Width", 40))
+        doc.save()
+        again = doc.getLastSavePull()
+        self.assertTrue(again["merged"], again)
+        self.assertEqual(again["conflicts"], [])
+        self.assertEqual(
+            (doc.Box.Length.Value, doc.Box.Width.Value, doc.Box.Height.Value), (20, 40, 5)
+        )
+        self.assertTrue(os.path.isdir(path))
+        FreeCAD.closeDocument(doc.Name)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, ".~Folder.open")))
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(
+            (doc.Box.Length.Value, doc.Box.Width.Value, doc.Box.Height.Value), (20, 40, 5)
+        )
+
+    def testAFolderStopsAtAConflictWithAnotherProcess(self):
+        path = os.path.join(self.dir, "FolderClash")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("FolderClash"))
+        doc.UndoMode = 1
+        doc.openTransaction("create")
+        doc.addObject("Part::Box", "Box")
+        doc.recompute()
+        doc.commitTransaction()
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        self.other(path, "doc.Box.Length = 30")
+        with open(os.path.join(path, "Document.xml"), "rb") as f:
+            theirs = f.read()
+        self.edit(doc, "ours", lambda d: setattr(d.Box, "Length", 20))
+        with self.assertRaises(Exception):
+            doc.save()
+        pull = doc.getLastSavePull()
+        self.assertEqual(pull["conflicts"], ["Box.Length"], pull)
+        with open(os.path.join(path, "Document.xml"), "rb") as f:
+            self.assertEqual(f.read(), theirs)
+        merged = doc.mergeTransactionBranch(pull["pending"], {"Box.Length": "ours"})
+        self.assertEqual(merged["unresolved"], [])
+        doc.save()
+        self.assertEqual(doc.getLastSavePull()["pending"], "")
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(doc.Box.Length.Value, 20)
 
 
 class XLinkIntoUnsavedCases(unittest.TestCase):

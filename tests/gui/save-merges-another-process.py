@@ -49,7 +49,10 @@ def settle(ms=0):
 def other(path, code):
     exe = os.path.join(FreeCAD.getHomePath(), "bin",
                        "FreeCADCmd" + (".exe" if sys.platform == "win32" else ""))
-    script = os.path.join(ROOT, "other.py")
+    # A name of its own each run: the script is imported, and a cached one
+    # of the same size written within the same second would run instead.
+    other.runs = getattr(other, "runs", 0) + 1
+    script = os.path.join(ROOT, "other%d.py" % other.runs)
     with open(script, "w") as f:
         f.write("import FreeCAD\n"
                 "p = FreeCAD.ParamGet('User parameter:BaseApp/Preferences/Document')\n"

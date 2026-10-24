@@ -50,7 +50,7 @@ question is the one that holds.
 | 26 | Phase 4: branches as built, switching, the tip rule | built |
 | 27 | Phase 5: pinned links -- and the ledger of every later ruling and measurement (27.1-27.71): frozen versions, schema 4/5, trim, squash, the store version, the embed's cost | built; read by number |
 | 28 | Phase 6: merge | built |
-| 29 | Concurrent writers: one connection per file, sessions; two processes on one file (29.7, 29.8) | built; two processes as a pull in every save (29.8) |
+| 29 | Concurrent writers: one connection per file, sessions; two processes on one file (29.7, 29.8) | built; two processes as a pull in every save, folders too (29.8) |
 | 30 | A shared head, explicit branches, forks, actors and access | ruled, built |
 | 31 | Phase 8: a value that is many things (survey and questions); what it left, checked and finished (31.34) | built |
 | 32 | A shape diff: what a merge or a pick would take; kept values (32.11) | built |
@@ -12017,10 +12017,31 @@ is 1.5 us. With QLockFile the schema-4 rows were 33.08 against 30.44 ms and
 **A pull costs**, in the driven test, 0.18 s for an import and merge of one
 row with a recompute. That is only on the save that finds the file moved.
 
+**A document saved as a folder** (built 2026-10-24, user: "do the
+documents saved as folder").
+- *What it is like.* A folder save never carries the history:
+  `embedHistory` is asked for an archive only, at any schema and mode. So
+  a folder merges as a plain file does (Q3), against the state this
+  process left it in.
+- *The stamp* is its `Document.xml`. A folder save writes a new folder and
+  renames it into place, so the inode moves with every save.
+- *The lock and the marker* are beside the folder, `.~<folder>.lock` and
+  `.~<folder>.open`; replacing the folder does not touch them.
+- *The pull* copies the folder whole into `<TransientDir>/pull/<n>/`
+  (QDirIterator, every file and hidden file). `FileHistory::savedAs` reads
+  a folder's `Document.xml`, which it refused before. The import already
+  opened the copy as a document, and `openDocument` takes a folder.
+- *A side effect:* `importFork` of a folder now works as an import of a
+  file without history. Before, it failed with "no such file".
+
+**The second pull of a file without history** extended the first pull's
+branch, which is closed once its save is written, and failed with "branch
+'X saved elsewhere' is closed". The folder test found it; a plain `.FCStd`
+met it the same way, and its test only did one round. `_importState` now
+starts a branch of its own (`~2`) when the branch the state was brought on
+is a pull's and closed, as F7 has it for a file with history.
+
 **Not built.**
-- *A project directory* (a document saved as a folder): the stamp is its
-  `Document.xml`, but a moved one is not pulled. The save warns and writes
-  over it, as before.
 - *Windows* is not run: there is no Windows box here. The lock is boost's
   there too, a lock file being deleted is waited on, and the lock file is
   not marked hidden, as the hand-written one was.
@@ -12037,10 +12058,21 @@ row with a recompute. That is only on the save that finds the file moved.
     first closed;
   - a conflict that writes nothing until picked;
   - a save with nobody else, and a file only touched, pulls nothing;
-  - an `.FCStd` at schema 4 merges against what this process left.
+  - an `.FCStd` at schema 4 merges against what this process left, and a
+    second pull comes as a branch of its own;
+  - a folder merges twice, each against what this process left, and keeps
+    its folder;
+  - a folder that conflicts writes nothing until picked.
 - Driven `GuiSaveMergesAnotherProcess`: the idle notice in the status bar
   and the panel; a clean merge at save; a conflicted save with no error
   box, the merge opened with the conflict, then written as picked.
+- *The other process's script gets a name of its own each run.* FreeCADCmd
+  imports it, so Python caches its bytecode, and checks the cache by the
+  source's size and its mtime in whole seconds. `doc.Box.Width = 30` and
+  `doc.Box.Height = 5` are the same size: written within one second, the
+  second run ran the first script again. The plain-file test's second
+  round lost its Height that way, at random, which looked for a while like
+  a lost write in the product.
 
 ## 30. A shared head, explicit branches, forks (rulings and plan, 2026-10-04)
 

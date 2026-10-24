@@ -32,6 +32,7 @@
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QFile>
 #include <QFileInfo>
 
 #include <zipios++/zipios-config.h>
@@ -191,22 +192,32 @@ bool FileHistory::savedAs(const std::string& path, Saved& saved, std::string* re
         return false;
     };
     Base::FileInfo fi(path);
-    if (!fi.exists() || fi.isDir())
+    if (!fi.exists())
         return fail("no such file");
     std::string docXml;
-    try {
-        zipios::ZipFile zip(path);
-        if (!zip.isValid())
-            return fail("not a document archive");
-        std::unique_ptr<std::istream> in(zip.getInputStream("Document.xml"));
-        if (!in)
+    if (fi.isDir()) {
+        // A document saved as a folder (sec 29.8): its Document.xml is a
+        // file there. Such a save never carries the history.
+        QFile in(QString::fromStdString(path + "/Document.xml"));
+        if (!in.open(QIODevice::ReadOnly))
             return fail("no Document.xml");
-        std::ostringstream buffer;
-        buffer << in->rdbuf();
-        docXml = buffer.str();
+        docXml = in.readAll().toStdString();
     }
-    catch (const std::exception& e) {
-        return fail(std::string("cannot read the archive: ") + e.what());
+    else {
+        try {
+            zipios::ZipFile zip(path);
+            if (!zip.isValid())
+                return fail("not a document archive");
+            std::unique_ptr<std::istream> in(zip.getInputStream("Document.xml"));
+            if (!in)
+                return fail("no Document.xml");
+            std::ostringstream buffer;
+            buffer << in->rdbuf();
+            docXml = buffer.str();
+        }
+        catch (const std::exception& e) {
+            return fail(std::string("cannot read the archive: ") + e.what());
+        }
     }
     FileFacts facts;
     if (!readFacts(docXml, facts))

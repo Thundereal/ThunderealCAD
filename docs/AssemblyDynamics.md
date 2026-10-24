@@ -506,21 +506,19 @@ phase 4.
     assembly's own Group, because `GroupExtension::addObjects` adds them
     to the enclosing GeoFeatureGroup. The assembly therefore owns their
     placement and 3D, and the group only organises the tree.
-  - **Used** by a Simulation through its `Elements` link list. The
-    Simulation's view provider claims its motions (its Group) plus its
-    Elements. An element therefore shows under Physics and under every
-    Simulation that uses it, with no copy: selecting, editing or deleting
-    it acts on the one object.
-  - `Elements` is a plain link list, not group membership. This is the
-    PartDesign `AuxGroup` pattern (`PartDesign/App/AuxGroup.h`), whose
-    `Group` is a `PropertyLinkList` and has no GroupExtension. A Simulation
+  - **Used** by a Simulation through its `Elements` link list. The tree
+    does not show them under the Simulation: they are listed in its task
+    panel, and the tree stays as it is. Claiming them there (the
+    PartDesign `AuxGroup` way, `PartDesign/App/AuxGroup.h`) is possible
+    later if a reason turns up; the user's call (2026-10-24) is to wait
+    and see.
+  - `Elements` is a plain link list, not group membership. A Simulation
     is a `GroupExtensionPython`, and a GroupExtension allows one plain group
     per object (`GroupExtension.cpp`, `addObjects`). Putting an element in
     a Simulation's Group would take it out of Physics.
   - **No private elements.** Every element lives in Physics, the one place
     a user looks for them, as a Body's sketches all show in its Sketches
-    group. A Simulation uses an element the way a Pad uses its sketch: it
-    links to it, and the tree shows it under the Simulation too.
+    group. A Simulation uses an element by linking to it.
     - In the study task panel the user either creates an element or picks
       existing ones from a list. A created element always goes into
       Physics, and is added to that study's `Elements`.
@@ -1180,9 +1178,8 @@ driven here by `Capabilities`.
         Simulation001  [Dynamic]   <- type shown in the label; stale overlay
           Motion001 [Speed]        <- existing motions, control mode shown
           Gravity, Force001, InitialCondition001, Sensor001
-          Plot001
-          SpringDamper001, ...     <- the Physics elements it uses, claimed,
-          Spring002                   not copied (sec 5.1)
+          Plot001                  <- the Physics elements it uses are in
+                                      its task panel, not here (sec 5.1)
 
 **The Simulation task panel** (`TaskAssemblyCreateSimulation`) gains the
 following:
@@ -1304,9 +1301,9 @@ can be rebuilt as documents to compare shapes of curves, not digits.
 
 **Answered by the user (2026-10-23, 2026-10-24):**
 - 1: both. Ownership and display are separate, as elsewhere in FreeCAD:
-  every element is owned by the Physics group and shown, not copied,
-  under each Simulation that uses it, as a Pad shows its sketch. A study
-  lists what it uses in `Elements`; its task panel creates an element
+  every element is owned by the Physics group, the one place to find
+  it. A study lists what it uses in `Elements`, shown in its task panel
+  rather than the tree; its task panel creates an element
   (always into Physics) or picks existing ones. No private elements.
   Sec 5.1.
 - 5: results are saved in the .FCStd, provided it is efficient, and

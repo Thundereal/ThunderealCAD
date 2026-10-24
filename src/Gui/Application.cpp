@@ -160,6 +160,7 @@
 #include "ViewProviderAnnotation.h"
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderDocumentObjectGroup.h"
+#include "ViewProviderAuxGroup.h"
 #include "ViewProviderDragger.h"
 #include "ViewProviderExtension.h"
 #include "ViewProviderExtern.h"
@@ -2641,6 +2642,7 @@ void Application::initTypes()
     Gui::ViewProviderFeature                    ::init();
     Gui::ViewProviderDocumentObjectGroup        ::init();
     Gui::ViewProviderDocumentObjectGroupPython  ::init();
+    Gui::ViewProviderAuxGroup                   ::init();
     Gui::ViewProviderDragger                    ::init();
     Gui::ViewProviderGeometryObject             ::init();
     Gui::ViewProviderImagePlane                 ::init();

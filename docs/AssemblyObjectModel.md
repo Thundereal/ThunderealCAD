@@ -401,6 +401,34 @@ Nothing outside PartDesign, Part's preference page and Body uses it.
 - **The unique-label setting** becomes an App parameter read by every aux
   group; the Part preference keeps its checkbox, pointed at it.
 
+Built as step 1 (2026-10-24), with these differences from the plan above:
+
+- **`App::AuxGroup` is abstract** (`App/AuxGroup.{h,cpp}`). The owner link
+  property belongs to the derived class, which hands it over with
+  `setOwnerProperty()`: `PartDesign::AuxGroup` keeps `_Body`, and a group for
+  `App::Part` (step 2) will name its own. One class cannot register the
+  property under two names, and a renamed property would cost an older
+  build the owner of every Body group in a new file.
+- **`App::AuxGroupOwner` has two calls**: `isAuxGroupAllowed(group, obj)`,
+  the filter of a role, and `isAuxGroupChild(obj)`, what a curated group
+  may take (by default, membership of the owner's `Group`; Body: everything
+  `Body::findBodyOf` gives it). The touch needs no call: `_GroupTouched` is
+  on `GroupExtension`, so the group touches its owner's. The visibility of a
+  group as one item is the group's own (`isChildVisible()`,
+  `setChildrenVisible()`).
+- **`Role`** is in, and the Body's context menu sets it. A group with no
+  `Role` reads it from its name through `getDefaultRole()`, which
+  `PartDesign::AuxGroup` answers with the old prefixes.
+- **`Gui::ViewProviderAuxGroup`** holds the drag, drop, reorder and delete
+  logic; `PartDesignGui::ViewProviderAuxGroup` only adds the icons.
+- **Not moved yet**: the unique-label setting stays in `Part::PartParams`,
+  read by `PartDesign::AuxGroup::allowDuplicateLabel()`. It moves to App
+  with the first owner outside PartDesign.
+- Tests: `PartDesignTests/TestAuxGroup.py`. A file written by the staged
+  older build (526afd96b3) loads in the new one with the same groups, and a
+  new file loads in the older build with the same groups (it ignores
+  `Role` and reads the names).
+
 ### 6.3 `$$Name.`: a subname step through a link property
 
 Every path into a child's interface needs one step into its Elements group.

@@ -456,6 +456,7 @@ SET(Document_CPP_SRCS
     GroupExtension.cpp
     GroupExtensionPyImp.cpp
     DocumentObjectFileIncluded.cpp
+    AuxGroup.cpp
     DocumentObjectGroup.cpp
     DocumentObjectGroupPyImp.cpp
     GeoFeaturePyImp.cpp
@@ -541,6 +542,7 @@ SET(Document_HPP_SRCS
     GroupExtension.h
     DocumentObjectExtension.h
     DocumentObjectFileIncluded.h
+    AuxGroup.h
     DocumentObjectGroup.h
     AppearanceUpdater.h
     ElementAppearanceMerge.h

@@ -40,6 +40,7 @@ set(PartDesign_TestScripts
     PartDesignTests/TestBaseFeature.py
     PartDesignTests/TestBodyMaterial.py
     PartDesignTests/TestSolidBody.py
+    PartDesignTests/TestAuxGroup.py
     PartDesignTests/TestSolidBodyGui.py
     PartDesignTests/TestPad.py
     PartDesignTests/TestSketchWireProfile.py

@@ -23,6 +23,8 @@
 
 #include "PreCompiled.h"
 
+#include <boost/algorithm/string/predicate.hpp>
+
 #include <Base/Console.h>
 #include <Base/Placement.h>
 #include <Base/Tools.h>
@@ -1273,17 +1275,49 @@ Body::getSiblings(App::DocumentObject *obj, bool all, bool reversed) const
     return res;
 }
 
+bool Body::isAuxGroupChild(const App::DocumentObject *obj) const
+{
+    return findBodyOf(obj) == this;
+}
+
+bool Body::isAuxGroupAllowed(const App::AuxGroup *group, const App::DocumentObject *obj) const
+{
+    auto auxGroup = Base::freecad_dynamic_cast<const AuxGroup>(group);
+    if (!auxGroup || !obj || boost::starts_with(obj->getNameInDocument(), "BaseFeature"))
+        return false;
+    auto type = obj->getTypeId();
+    // App datums and coordinate systems go with the PartDesign datums.
+    // PartDesign:: is spelled out: in here a bare Feature is Part::Feature.
+    bool isDatum = type.isDerivedFrom(Part::Datum::getClassTypeId())
+        || type.isDerivedFrom(App::DatumElement::getClassTypeId())
+        || type.isDerivedFrom(App::LocalCoordinateSystem::getClassTypeId());
+    switch (auxGroup->getGroupType()) {
+    case AuxGroup::SketchGroup:
+        return type.isDerivedFrom(Part::Part2DObject::getClassTypeId());
+    case AuxGroup::DatumGroup:
+        return isDatum;
+    case AuxGroup::MiscGroup:
+        return !type.isDerivedFrom(Part::Part2DObject::getClassTypeId())
+            && !isDatum
+            && !type.isDerivedFrom(PartDesign::Feature::getClassTypeId())
+            && !type.isDerivedFrom(PartDesign::Solid::getClassTypeId())
+            && !type.isDerivedFrom(PartDesign::SolidBody::getClassTypeId())
+            && !type.isDerivedFrom(App::AuxGroup::getClassTypeId());
+    case AuxGroup::OtherGroup:
+        return !type.isDerivedFrom(App::AuxGroup::getClassTypeId())
+            && !type.isDerivedFrom(PartDesign::SolidBody::getClassTypeId())
+            && !type.isDerivedFrom(PartDesign::Feature::getClassTypeId())
+            && isAllowed(type);
+    default:
+        return false;
+    }
+}
+
 int Body::isElementVisible(const char *element) const
 {
     auto obj = Group.find(element);
-    if (obj && obj->isDerivedFrom<AuxGroup>()) {
-        auto group = static_cast<AuxGroup*>(obj);
-        for (auto child : group->Group.getValues()) {
-            if (child->Visibility.getValue())
-                return 1;
-        }
-        return 0;
-    }
+    if (obj && obj->isDerivedFrom<App::AuxGroup>())
+        return static_cast<App::AuxGroup*>(obj)->isChildVisible() ? 1 : 0;
     if (obj && obj->isDerivedFrom<SolidBody>()) {
         // A solid is seen through one of its features, or through the solid
         // body's own shape when that was asked for
@@ -1295,10 +1329,8 @@ int Body::isElementVisible(const char *element) const
 int Body::setElementVisible(const char *element, bool visible)
 {
     auto obj = Group.find(element);
-    if (obj && obj->isDerivedFrom<AuxGroup>()) {
-        auto group = static_cast<AuxGroup*>(obj);
-        for (auto child : group->Group.getValues())
-            child->Visibility.setValue(visible);
+    if (obj && obj->isDerivedFrom<App::AuxGroup>()) {
+        static_cast<App::AuxGroup*>(obj)->setChildrenVisible(visible);
         return 1;
     }
     if (obj && obj->isDerivedFrom<SolidBody>()) {

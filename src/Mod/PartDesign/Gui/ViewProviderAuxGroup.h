@@ -23,34 +23,22 @@
 #ifndef PARTGUI_ViewProviderAuxGroup_H
 #define PARTGUI_ViewProviderAuxGroup_H
 
-#include <Gui/ViewProviderDocumentObject.h>
+#include <Gui/ViewProviderAuxGroup.h>
+#include <Mod/PartDesign/PartDesignGlobal.h>
 
 namespace PartDesignGui {
 
-class PartDesignGuiExport ViewProviderAuxGroup : public Gui::ViewProviderDocumentObject
+/// The view provider of a Body's aux group, which only adds the icons
+class PartDesignGuiExport ViewProviderAuxGroup : public Gui::ViewProviderAuxGroup
 {
     PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderAuxGroup);
-    typedef Gui::ViewProviderDocumentObject inherited;
+    typedef Gui::ViewProviderAuxGroup inherited;
 
 public:
     ViewProviderAuxGroup();
     virtual ~ViewProviderAuxGroup();
 
     virtual void attach(App::DocumentObject*) override;
-    virtual void updateData(const App::Property *) override;
-
-    virtual bool canDelete(App::DocumentObject* obj) const override;
-    virtual bool canDragAndDropObject(App::DocumentObject*) const override;
-    virtual bool canDropObjects() const override {return true;}
-    virtual bool canDropObject(App::DocumentObject *) const override;
-    virtual void dropObject(App::DocumentObject*) override;
-    virtual bool canDragObject(App::DocumentObject*) const override;
-    virtual bool canDragObjects() const override {return true;}
-    virtual void dragObject(App::DocumentObject*) override;
-    virtual bool reorderObjects(const std::vector<App::DocumentObject *>&, App::DocumentObject *) override;
-    virtual bool canReorderObject(App::DocumentObject *, App::DocumentObject *) override;
-
-    virtual std::vector<App::DocumentObject*> claimChildren(void) const override;
 };
 
 } // namespace PartDesignGui

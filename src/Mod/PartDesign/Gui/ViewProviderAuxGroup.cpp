@@ -25,21 +25,13 @@
 #ifndef _PreComp_
 #endif
 
-#include <Base/Tools.h>
-#include <App/Document.h>
-#include <Gui/Command.h>
-#include <Gui/Application.h>
-#include <Gui/Document.h>
-#include <Gui/Selection.h>
 #include <Mod/PartDesign/App/AuxGroup.h>
-#include <Mod/PartDesign/App/Body.h>
 
 #include "ViewProviderAuxGroup.h"
-#include "ViewProviderBody.h"
 
 using namespace PartDesignGui;
 
-PROPERTY_SOURCE(PartDesignGui::ViewProviderAuxGroup, Gui::ViewProviderDocumentObject)
+PROPERTY_SOURCE(PartDesignGui::ViewProviderAuxGroup, Gui::ViewProviderAuxGroup)
 
 ViewProviderAuxGroup::ViewProviderAuxGroup()
 {
@@ -69,142 +61,4 @@ void ViewProviderAuxGroup::attach(App::DocumentObject* obj)
             sPixmap = "PartDesign_Group.svg";
         }
     }
-}
-
-bool ViewProviderAuxGroup::canDropObject(App::DocumentObject *obj) const
-{
-    auto owner = Base::freecad_dynamic_cast<PartDesign::AuxGroup>(getObject());
-    auto body = owner->getBody();
-    if (!body || !owner->isObjectAllowed(obj))
-        return false;
-    if (owner->getGroupType() == PartDesign::AuxGroup::OtherGroup) {
-        if (PartDesign::Body::findBodyOf(obj) == body
-                && !owner->Group.find(obj->getNameInDocument()))
-            return true;
-    }
-    auto bodyVp = Gui::Application::Instance->getViewProvider(body);
-    return bodyVp && bodyVp->canDropObject(obj);
-}
-
-bool ViewProviderAuxGroup::canDragAndDropObject(App::DocumentObject *) const
-{
-    return true;
-}
-
-void ViewProviderAuxGroup::dropObject(App::DocumentObject *obj)
-{
-    auto owner = Base::freecad_dynamic_cast<PartDesign::AuxGroup>(getObject());
-    if (!owner)
-        return;
-    auto body = owner->getBody();
-    if (!body || !owner->isObjectAllowed(obj))
-        return;
-
-    if (PartDesign::Body::findBodyOf(obj) != body) {
-        auto bodyVp = Gui::Application::Instance->getViewProvider(body);
-        if (bodyVp && owner->isObjectAllowed(obj))
-            bodyVp->dropObject(obj);
-    }
-    if (owner->getGroupType() == PartDesign::AuxGroup::OtherGroup) {
-        if (PartDesign::Body::findBodyOf(obj) == body
-                && !owner->Group.find(obj->getNameInDocument())) {
-            auto children = owner->Group.getValues();
-            children.push_back(obj);
-            owner->Group.setValues(children);
-            body->_GroupTouched.touch();
-            return;
-        }
-    }
-}
-
-bool ViewProviderAuxGroup::canDragObject(App::DocumentObject * obj) const {
-    auto owner = Base::freecad_dynamic_cast<PartDesign::AuxGroup>(getObject());
-    if (!owner)
-        return true;
-
-    auto body = PartDesign::Body::findBodyOf(owner);
-    auto vpBody = Gui::Application::Instance->getViewProvider(body);
-
-    if (owner->getGroupType() != PartDesign::AuxGroup::OtherGroup) {
-        if (vpBody)
-            return vpBody->canDragObject(obj);
-        return false;
-    }
-
-    if (body) {
-        auto target = Gui::Selection().getContext(1).getSubObject();
-        if (body == target)
-           return true;
-
-        if (auto group = Base::freecad_dynamic_cast<PartDesign::AuxGroup>(target))
-            return PartDesign::Body::findBodyOf(group) == body;
-
-        if (vpBody)
-            return vpBody->canDragObject(obj);
-    }
-    return true;
-}
-
-void ViewProviderAuxGroup::dragObject(App::DocumentObject *obj) {
-    auto owner = Base::freecad_dynamic_cast<PartDesign::AuxGroup>(getObject());
-    if (owner) {
-        auto group = owner->Group.getValues();
-        group.erase(std::remove(group.begin(), group.end(), obj), group.end());
-        owner->Group.setValues(group);
-    }
-}
-
-std::vector<App::DocumentObject*> ViewProviderAuxGroup::claimChildren(void) const {
-    auto owner = Base::freecad_dynamic_cast<PartDesign::AuxGroup>(getObject());
-    if(owner)
-        return owner->Group.getValues();
-    return {};
-}
-
-bool ViewProviderAuxGroup::reorderObjects(const std::vector<App::DocumentObject*> &objs,
-                                          App::DocumentObject *before)
-{
-    auto owner = Base::freecad_dynamic_cast<PartDesign::AuxGroup>(getObject());
-    if (!owner)
-        return 0;
-    auto bodyVp = Gui::Application::Instance->getViewProvider(owner->getBody());
-    if (bodyVp)
-        return bodyVp->reorderObjects(objs, before);
-    return 0;
-}
-
-bool ViewProviderAuxGroup::canReorderObject(App::DocumentObject *obj,
-                                            App::DocumentObject *before)
-{
-    auto owner = Base::freecad_dynamic_cast<PartDesign::AuxGroup>(getObject());
-    if (!owner)
-        return false;
-    auto bodyVp = Gui::Application::Instance->getViewProvider(owner->getBody());
-    return bodyVp && bodyVp->canReorderObject(obj, before);
-}
-
-void ViewProviderAuxGroup::updateData(const App::Property *prop)
-{
-    auto doc = getDocument()->getDocument();
-    if (doc && !doc->isPerformingTransaction()
-            && !doc->testStatus(App::Document::Restoring)) {
-        auto owner = Base::freecad_dynamic_cast<PartDesign::AuxGroup>(getObject());
-        if (prop == &owner->Group) {
-            auto body = owner->getBody();
-            if (body)
-                body->_GroupTouched.touch();
-        }
-    }
-    inherited::updateData(prop);
-}
-
-bool ViewProviderAuxGroup::canDelete(App::DocumentObject* obj) const
-{
-    auto owner = Base::freecad_dynamic_cast<PartDesign::AuxGroup>(getObject());
-    if (owner) {
-        auto bodyvp = Gui::Application::Instance->getViewProvider(owner->getBody());
-        if (bodyvp)
-            return bodyvp->canDelete(obj);
-    }
-    return true;
 }

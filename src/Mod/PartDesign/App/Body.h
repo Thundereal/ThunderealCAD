@@ -27,6 +27,7 @@
 #include <deque>
 #include <fastsignals/signal.h>
 
+#include <App/AuxGroup.h>
 #include <App/DocumentObserver.h>
 #include <Mod/Part/App/BodyBase.h>
 #include <Mod/PartDesign/PartDesignGlobal.h>
@@ -41,7 +42,7 @@ namespace PartDesign
 class Feature;
 class SolidBody;
 
-class PartDesignExport Body : public Part::BodyBase
+class PartDesignExport Body : public Part::BodyBase, public App::AuxGroupOwner
 {
     PROPERTY_HEADER_WITH_OVERRIDE(PartDesign::Body);
 
@@ -257,6 +258,13 @@ public:
 
     virtual int isElementVisible(const char *element) const override;
     virtual int setElementVisible(const char *element, bool visible) override;
+
+    /** @name The owner of aux groups (Sketches, Datums, Misc and the user's) */
+    //@{
+    bool isAuxGroupAllowed(const App::AuxGroup *group,
+                           const App::DocumentObject *obj) const override;
+    bool isAuxGroupChild(const App::DocumentObject *obj) const override;
+    //@}
 
     // a body is solid if it has features that are solid according to member isSolidFeature.
     bool isSolid();

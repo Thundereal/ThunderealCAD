@@ -1078,6 +1078,7 @@ SET(Viewprovider_CPP_SRCS
     LinkLooks.cpp
     ViewProviderAnnotation.cpp
     ViewProviderDocumentObject.cpp
+    ViewProviderAuxGroup.cpp
     ViewProviderDocumentObjectGroup.cpp
     ViewProviderDocumentObjectPyImp.cpp
     ViewProviderDragger.cpp
@@ -1128,6 +1129,7 @@ SET(Viewprovider_SRCS
     PropertyGroupName.h
     LinkLooks.h
     ViewProviderDocumentObject.h
+    ViewProviderAuxGroup.h
     ViewProviderDocumentObjectGroup.h
     ViewProviderDragger.h
     ViewProviderExtern.h

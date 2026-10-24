@@ -100,6 +100,7 @@
 #include "FileHistory.h"
 #include "DocumentObjectFileIncluded.h"
 #include "DocumentObjectGroup.h"
+#include "AuxGroup.h"
 #include "DocumentObjectGroupPy.h"
 #include "DocumentObserver.h"
 #include "DocumentObserver.h"
@@ -2717,6 +2718,7 @@ void Application::initTypes()
     App::Document                  ::init();
     App::DocumentObjectGroup       ::init();
     App::DocumentObjectGroupPython ::init();
+    App::AuxGroup                  ::init();
     App::DocumentObjectFileIncluded::init();
     Image::ImagePlane              ::init();
     App::InventorObject            ::init();

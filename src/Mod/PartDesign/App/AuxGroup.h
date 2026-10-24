@@ -23,9 +23,7 @@
 #ifndef PARTDESIGN_AuxGroup_H
 #define PARTDESIGN_AuxGroup_H
 
-#include <fastsignals/signal.h>
-#include <App/DocumentObject.h>
-#include <App/PropertyLinks.h>
+#include <App/AuxGroup.h>
 #include <Mod/PartDesign/PartDesignGlobal.h>
 
 namespace PartDesign
@@ -33,28 +31,30 @@ namespace PartDesign
 class Body;
 
 /** For grouping non PartDesign::Feature objects in Body
+ *
+ * The owner is kept in _Body, the name its files have always used.
  */
-class PartDesignExport AuxGroup : public App::DocumentObject
+class PartDesignExport AuxGroup : public App::AuxGroup
 {
     PROPERTY_HEADER_WITH_OVERRIDE(PartDesign::AuxGroup);
 
-    typedef App::DocumentObject inherited;
+    typedef App::AuxGroup inherited;
 
 public:
     AuxGroup();
 
-    App::PropertyLinkList Group;
     App::PropertyLinkHidden _Body;
 
     virtual const char* getViewProviderName(void) const override {
         return "PartDesignGui::ViewProviderAuxGroup";
     }
 
-    virtual void onDocumentRestored() override;
-    virtual void onChanged(const App::Property* prop) override;
     virtual bool allowDuplicateLabel() const override;
 
-    bool isObjectAllowed(const App::DocumentObject *obj) const;
+    /// The roles of a Body's groups
+    static const char *SketchRole;
+    static const char *DatumRole;
+    static const char *MiscRole;
 
     enum GroupType {
         UnknownGroup,
@@ -67,12 +67,8 @@ public:
     PartDesign::Body * getBody() const;
 
 protected:
-    void refresh();
-    void attachBody();
-
-private:
-    fastsignals::scoped_connection connBody;
-    mutable GroupType groupType = UnknownGroup;
+    /// A file written before Role says the role with the name
+    virtual std::string getDefaultRole() const override;
 };
 
 } //namespace PartDesign

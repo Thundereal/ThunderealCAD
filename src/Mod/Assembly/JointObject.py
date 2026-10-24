@@ -612,9 +612,13 @@ class Joint:
         if not joint.hasExtension("App::SuppressibleExtensionPython"):
             joint.addExtension("App::SuppressibleExtensionPython")
 
-        if App.GuiUp:
-            if not joint.ViewObject.hasExtension("Gui::ViewProviderSuppressibleExtensionPython"):
-                joint.ViewObject.addExtension("Gui::ViewProviderSuppressibleExtensionPython")
+        # Not upstream: this fork builds view providers after the document is
+        # restored, so ViewObject is None here and ViewProviderJoint.attach()
+        # adds the extension instead. Raising here skipped every later script.
+        vobj = joint.ViewObject if App.GuiUp else None
+        if vobj is not None:
+            if not vobj.hasExtension("Gui::ViewProviderSuppressibleExtensionPython"):
+                vobj.addExtension("Gui::ViewProviderSuppressibleExtensionPython")
 
         if hasattr(joint, "Activated"):
             activated = joint.Activated
@@ -1116,6 +1120,11 @@ class ViewProviderJoint:
     def attach(self, vobj):
         """Setup the scene sub-graph of the view provider, this method is mandatory"""
         self.app_obj = vobj.Object
+
+        # Not upstream: migrationScript5's half for a joint from before the
+        # Suppressed property (the view provider did not exist yet when it ran).
+        if not vobj.hasExtension("Gui::ViewProviderSuppressibleExtensionPython"):
+            vobj.addExtension("Gui::ViewProviderSuppressibleExtensionPython")
 
         self.switch_JCS1 = SoSwitchMarker(vobj)
         self.switch_JCS2 = SoSwitchMarker(vobj)

@@ -1165,10 +1165,56 @@ PyObject *DocumentObject::getPyObject()
     return Py::new_reference_to(PythonObject);
 }
 
+bool DocumentObject::resolvePropertyStep(const char *subname, DocumentObject *&ret,
+                                         const char **next) const
+{
+    if(!isPropertyStep(subname))
+        return false;
+    const char *dot = strchr(subname+2,'.');
+    if(!dot || dot == subname+2)
+        return false;
+    auto prop = getPropertyByName(std::string(subname+2,dot).c_str());
+    if(auto link = freecad_dynamic_cast<PropertyLink>(prop))
+        ret = link->getValue();
+    else if(auto linkSub = freecad_dynamic_cast<PropertyLinkSub>(prop))
+        ret = linkSub->getValue();
+    else
+        return false;
+    if(next)
+        *next = dot+1;
+    return true;
+}
+
+bool DocumentObject::getSubObjectByProperty(DocumentObject *&ret, const char *subname,
+        PyObject **pyObj, Base::Matrix4D *mat, bool transform, int depth) const
+{
+    while(subname && *subname=='.') ++subname; // skip leading .
+    const char *next = nullptr;
+    if(!isPropertyStep(subname)
+            || hasExtension(LinkBaseExtension::getExtensionClassTypeId())
+            || !resolvePropertyStep(subname,ret,&next))
+        return false;
+    if(!ret || !ret->isAttachedToDocument()) {
+        ret = nullptr;
+        return true;
+    }
+    if(transform && mat) {
+        auto pla = freecad_dynamic_cast<PropertyPlacement>(getPropertyByName("Placement"));
+        if(pla)
+            *mat *= pla->getValue().toMatrix();
+    }
+    ret = ret->getSubObject(next,pyObj,mat,true,depth+1);
+    return true;
+}
+
 DocumentObject *DocumentObject::getSubObject(const char *subname,
         PyObject **pyObj, Base::Matrix4D *mat, bool transform, int depth) const
 {
     DocumentObject *ret = nullptr;
+    // A "$$Name." step is resolved before the extensions are asked, as each of
+    // them would read it as the label "$Name".
+    if(getSubObjectByProperty(ret,subname,pyObj,mat,transform,depth))
+        return ret;
     if(queryExtension(&DocumentObjectExtension::extensionGetSubObject, ret, subname, pyObj, mat, transform, depth))
         return ret;
 

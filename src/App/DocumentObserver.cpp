@@ -510,7 +510,12 @@ bool SubObjectT::normalize(NormalizeOptions options)
             }
         }
         bool _keepSub;
-        if (!std::isdigit(sub[0]))
+        if (App::DocumentObject::isPropertyStep(sub)
+                && objs[i-1]->getSubObject(std::string(sub, end).c_str()) == objs[i])
+            // A "$$Name." step is already the stable form, and the object it
+            // gives may be no child to name
+            _keepSub = true;
+        else if (!std::isdigit(sub[0]))
             _keepSub = keepSub;
         else if (!convertIndex)
             _keepSub = true;

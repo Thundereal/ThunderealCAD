@@ -434,39 +434,54 @@ by property name instead:
   the object the step is applied to, then continues from it:
   `Axis.$$Elements.$PinEnd.` is Axis, its `Elements` property's object, then
   the child labelled `PinEnd` there. Any single-object link property works
-  (`PropertyLink*`, `PropertyXLink`); a list property does not.
+  (`PropertyLink` and its variants, `PropertyXLink`, `PropertyLinkSub`); a
+  list property does not. It works on any object, not only containers.
 - **Transform**: the property's object is taken as a child in the owner's
-  coordinate system, as `OriginGroupExtension` does for its `Origin`
-  (`App/OriginGroupExtension.cpp:83-85`).
-- **Resolved in one place**, at the top of `DocumentObject::getSubObject`
-  (`App/DocumentObject.cpp:1168`), before the extensions are asked. Every
-  resolver reaches it:
-  - `GroupExtension`, `GeoFeatureGroupExtension`, `OriginGroupExtension`
-    and `LinkBaseExtension` each read a leading `$` as a label
-    (`App/GroupExtension.cpp:703`, `App/GeoFeatureGroupExtension.cpp:513`,
-    `App/OriginGroupExtension.cpp:78`, `App/Link.cpp:1271-1340`) and would
-    otherwise look for an object labelled `$Elements`;
-  - a link forwards to its linked object's `getSubObject`;
-  - `Part::Feature` and `PartDesign::Body` hand any path with a dot to
-    `DocumentObject::getSubObject` (`Part/App/PartFeature.cpp:693-694`,
-    `PartDesign/App/Body.cpp:783-810`).
-  A Python proxy with its own `getSubObject` sees the raw step; none of ours
-  needs one.
-- **Existing files keep their meaning.** Today `$$X.` can only mean an
-  object labelled `$X`. The new step falls back to that when the object has
-  no link property `X`, so a file that used such a label still resolves.
-- **Label references must skip it.** `PropertyLinkBase::getLabelReferences`
-  (`App/PropertyLinks.cpp:158-166`) would register `$Elements` as a label.
-  `updateLabelReference` (`:189` on) would find `$Elements.` inside
-  `$$Elements.` when an object labelled `Elements` is relabelled, and
-  rewrite the step into a property name that does not exist. Both learn to
-  step over `$$` tokens.
-- **Picks are rewritten into this form.** A selection in the 3D view or the
-  tree carries object names (`Axis.Elements001.PinEnd.`); the commands that
-  make elements and element links store `$$Elements.` and `$PinEnd.`
-  instead.
-- To check when built: expressions (`App/ObjectIdentifier.cpp:1303-1312`
-  reads `$` tokens), and the tree's selection sync into a `$$` path.
+  coordinate system, as `OriginGroupExtension` does for its `Origin`.
+- **Existing files keep their meaning.** Before, `$$X.` could only mean an
+  object labelled `$X`. The step still means that when the object has no
+  single-object link property `X`.
+
+Implemented (2026-10-24) in `DocumentObject::resolvePropertyStep()` and
+`getSubObjectByProperty()`, and in every place that reads a `$Label` step:
+
+- **`DocumentObject::getSubObject`** resolves the step before the
+  extensions are asked, since `GroupExtension`, `GeoFeatureGroupExtension`
+  and `OriginGroupExtension` each read a leading `$` as a label. Every
+  override that passes a path with a dot to the base reaches it
+  (`Part::Feature`, `Mesh::Feature`, `PartDesign::Feature`, `Body`,
+  `SolidBody`, `Split`, `SubShapeBinder`).
+- **`FeaturePythonT::getSubObject`** resolves it before the proxy's own
+  `getSubObject`, and **`SketchObject::getSubObject`**, which reads paths
+  with a dot only against its `Exports`, resolves it there.
+- **Peeks skip it.** `GeoFeatureGroupExtension` and `Body` look one step
+  ahead for a sibling to collapse; a `$$` step names a property, never a
+  sibling.
+- **A link** resolves a step through its own property as it does its linked
+  object, and passes any other `$$` step to the linked object, which is how
+  `Axis.$$Elements.` reaches through an owned link. `getElementIndex` does
+  not read a step through its own property as an element.
+- **Label references.** `getLabelReferences` still registers `$Elements`
+  from `$$Elements.`, which is right for the old meaning and harmless
+  otherwise. `updateLabelReference` now matches a label only at the start
+  of a step, so relabelling an object labelled `Elements` no longer finds
+  `$Elements.` inside `$$Elements.`.
+- **Replace and export.** `tryReplaceLink` leaves a step through a property
+  alone (the property follows the replacement), and `exportSubName` keeps
+  it instead of writing the export name of the object it gives.
+- **`SubObjectT::normalize`** keeps the step: it is already the stable form,
+  and the object it gives may be no child to name.
+- **Expressions** write a `$$Name` step back as `<<$$Name>>`, so it reads
+  back as itself and not as the label `$Name`.
+- **Gui**: `LinkView::linkGetDetailPath` matches a `$$` step by the object
+  it gives, and `ViewProviderLink::getDetailPath` treats a step through the
+  link's own property as the linked object when that is what it holds.
+- Tests: `tests/src/App/PropertyStep.cpp`.
+
+Still to do when the commands are built: **picks are rewritten into this
+form.** A selection in the 3D view or the tree carries object names
+(`Axis.Elements001.PinEnd.`); the commands that make elements and element
+links store `$$Elements.` and `$PinEnd.` instead.
 
 ## 7. Joints, Physics items and studies
 

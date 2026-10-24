@@ -539,7 +539,9 @@ bool GeoFeatureGroupExtension::extensionGetSubObject(DocumentObject *&ret, const
                 // using Pad's placement.
                 //
                 const char *next = strchr(dot,'.');
-                if(next) {
+                // A "$$Name." step names a property of 'ret', not a sibling
+                DocumentObject *propObj = nullptr;
+                if(next && !ret->resolvePropertyStep(dot,propObj)) {
                     App::DocumentObject *nret=nullptr;
                     extensionGetSubObject(nret,dot,pyObj,mat,transform,depth+1);
                     if(nret) {

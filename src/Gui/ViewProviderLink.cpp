@@ -1788,12 +1788,27 @@ bool LinkView::linkGetDetailPath(const char *subname, SoFullPath *path, SoDetail
         if (subname[0]>='0' && subname[0]<='9') {
             idx = App::LinkBaseExtension::getArrayIndex(subname,&subname);
         } else {
+            // The object each step is taken from, to resolve a "$$Name." step
+            App::DocumentObject *parent = nullptr;
+            if (linkOwner && linkOwner->isLinked())
+                parent = linkOwner->pcLinked->getObject();
             while(true) {
                 const char *dot = strchr(subname,'.');
                 if(!dot)
                     break;
                 int i = 0;
-                if (subname[0] == '$') {
+                App::DocumentObject *propObj = nullptr;
+                if (parent && App::DocumentObject::isPropertyStep(subname))
+                    propObj = parent->getSubObject(std::string(subname, dot+1).c_str());
+                if (propObj) {
+                    for(const auto &info : nodeArray) {
+                        if(info->isLinked() && info->linkInfo->pcLinked->getObject() == propObj) {
+                            idx = i;
+                            break;
+                        }
+                        ++i;
+                    }
+                } else if (subname[0] == '$') {
                     CharRange name(subname+1,dot);
                     for(const auto &info : nodeArray) {
                         if(info->isLinked() && boost::equals(name,info->linkInfo->getLinkedLabel())) {
@@ -1827,6 +1842,8 @@ bool LinkView::linkGetDetailPath(const char *subname, SoFullPath *path, SoDetail
                 if(idx < 0 || idx >= (int)nodeArray.size())
                     return false;
 
+                parent = nodeArray[idx]->isLinked()
+                    ? nodeArray[idx]->linkInfo->pcLinked->getObject() : nullptr;
                 subname = dot+1;
                 if(!subname[0] || nodeArray[idx]->isGroup==0)
                     break;
@@ -2928,7 +2945,13 @@ bool ViewProviderLink::getDetailPath(
     if(subname && subname[0]) {
         if (auto linked = ext->getLinkedObjectValue()) {
             if (const char *dot = strchr(subname,'.')) {
-                if(subname[0]=='$') {
+                App::DocumentObject *propObj = nullptr;
+                if (getObject()->resolvePropertyStep(subname, propObj)) {
+                    // A step through a property of the link names the linked
+                    // object only if that is what the property holds
+                    if (propObj != linked)
+                        dot = nullptr;
+                } else if(subname[0]=='$') {
                     CharRange sub(subname+1, dot);
                     if (!boost::equals(sub, linked->Label.getValue()))
                         dot = nullptr;

@@ -789,7 +789,9 @@ App::DocumentObject *Body::getSubObject(const char *subname,
     // is free to expand/collapse at any time. To not disrupt subname path
     // because of this, the body will peek the next two sub-objects reference,
     // and skip the first sub-object if possible.
-    if(subname) {
+    // A "$$Name." step names the body's own property, never a sibling to skip
+    App::DocumentObject *propObj = nullptr;
+    if(subname && !resolvePropertyStep(subname, propObj)) {
         const char * firstDot = strchr(subname,'.');
         if (firstDot) {
             const char * secondDot = strchr(firstDot+1, '.');

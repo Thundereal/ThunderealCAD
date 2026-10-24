@@ -1639,6 +1639,9 @@ App::DocumentObject *SketchObject::getSubObject(
         return Part2DObject::getSubObject(subname,pyObj,pmat,transform,depth);
     const char *element = Data::findElementName(subname);
     if(element != subname) {
+        App::DocumentObject *ret = nullptr;
+        if(getSubObjectByProperty(ret,subname,pyObj,pmat,transform,depth))
+            return ret;
         const char *dot = strchr(subname,'.');
         if(!dot)
             return 0;

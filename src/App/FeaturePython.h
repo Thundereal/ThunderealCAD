@@ -211,6 +211,9 @@ public:
             Base::Matrix4D *mat, bool transform, int depth) const override 
     {
         App::DocumentObject *ret = nullptr;
+        // A "$$Name." step is the core's, not the proxy's to interpret
+        if(this->getSubObjectByProperty(ret,subname,pyObj,mat,transform,depth))
+            return ret;
         if(imp->getSubObject(ret,subname,pyObj,mat,transform,depth))
             return ret;
         return FeatureT::getSubObject(subname,pyObj,mat,transform,depth);

@@ -460,6 +460,11 @@ through `ChBodyAuxRef` (Simulator sec 6).
 | D4a loads to FEM | joint reactions and inertia loads at chosen frames into a FEM analysis (inertia relief or fixed) | D1; the Fem workbench | 2-3 weeks | medium |
 | D4b flexible bodies | a part meshed by the Fem workbench (tetrahedra) as a Chrono `ChMesh` (corotational), or modal reduction (`chrono_modal`) | D2; Spectra if modal | 8-12 weeks | high |
 
+**Phase order: D0, D1, D3, D2, D4** (decided, open question 4). D3 comes
+before D2, so a contact run that hangs or crashes on a bad mesh cannot
+take the user's session with it. D1 runs in process on a worker thread,
+with cancel.
+
 **The order within D1 is chosen so each step ships.**
 
 1. Gravity and masses, with a Dynamic analysis of an unpowered mechanism.
@@ -1317,7 +1322,23 @@ can be rebuilt as documents to compare shapes of curves, not digits.
 - 12: gravity is on by default for new Dynamic and Static simulations.
 - 13: interference moves forward into D2, sharing D2's contact cache.
 
-Questions 2-4, 7, 8 and 10 are still open, as below.
+**Answered by the user (2026-10-24): the proposals for 2-4, 7, 8 and 10
+stand.**
+- 2: Impact (Chrono SMC, direct solver) is the default contact method;
+  Restitution (NSC) is the option for piles and drop tests.
+- 3: SI inside Chrono, converted in the adapter; the neutral model stays
+  in FreeCAD's internal units.
+- 4: D1 in process on a worker thread with cancel; D3 (out of process)
+  before D2 (sec 4).
+- 7: the Reference backend gets a forward-dynamics oracle at the end of
+  D1, as the no-contact benchmarks' second implementation.
+- 8: in two steps. First the motor's own joint `angle` and `rate` as
+  names beside `time`; any measure later. Tables are a `MotionTable`
+  object, not grammar.
+- 10: D4a (loads to FEM) first; modal reduction (`chrono_modal`) later;
+  direct FEA bodies only for a specific need.
+
+The questions as they were put:
 
 2. **The default contact method.**
    - Proposed: Impact (Chrono SMC, an Adams-style law, direct solver), as

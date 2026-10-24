@@ -30,8 +30,10 @@
 #include <Base/Exception.h>
 #include <Base/Placement.h>
 #include <Base/Tools.h>
+#include <Base/Uuid.h>
 
 #include "Datums.h"
+#include "DocumentObjectExtension.h"
 
 using namespace App;
 
@@ -146,6 +148,34 @@ LocalCoordinateSystem::LocalCoordinateSystem()
 
 LocalCoordinateSystem::~LocalCoordinateSystem() = default;
 
+std::vector<DocumentObject*> LocalCoordinateSystem::getOwnedObjects() const
+{
+    // As they stand: an origin nothing asked about has none yet, and asking
+    // here would make them
+    auto owned = DocumentObject::getOwnedObjects();
+    for (auto obj : OriginFeatures.getValues())
+        owned.push_back(obj);
+    return owned;
+}
+
+DocumentObject* LocalCoordinateSystem::getOwnedCounterpart(const DocumentObject* owned,
+                                                           const DocumentObject* liveOwner,
+                                                           OwnedPaste& how) const
+{
+    auto element = Base::freecad_dynamic_cast<const DatumElement>(owned);
+    auto live = Base::freecad_dynamic_cast<const LocalCoordinateSystem>(liveOwner);
+    if (!element || !live || element->getLCS() != this)
+        return DocumentObject::getOwnedCounterpart(owned, liveOwner, how);
+    how = OwnedPaste::KeepLive;
+    // The live one's of that Role, made if it was not yet (Origin is lazy)
+    try {
+        return live->getDatumElement(element->Role.getValue());
+    }
+    catch (Base::Exception&) {
+        return nullptr;   // a role the live one has not: brought as it is
+    }
+}
+
 App::DatumElement* LocalCoordinateSystem::getDatumElement(const char* role) const
 {
     initObjects();
@@ -256,6 +286,13 @@ DatumElement* LocalCoordinateSystem::createDatum(const SetupData& data)
 {
     App::Document* doc = getDocument();
     std::string objName = doc->getUniqueObjectName(data.role);
+    // A UID of its system's and its Role (docs/TransactionLog.md sec 37.10
+    // (a)): an origin makes its features when first asked, so two copies of
+    // a file each make them, and the same plane must be the same object to
+    // a merge of the two, by its UID.
+    if (!getObjectUid().empty())
+        doc->giveNextObjectUid(
+            Base::Uuid::createUuid(getObjectUid(), std::string("datum ") + data.role));
     App::DocumentObject* featureObj = doc->addObject(data.type.getName(), objName.c_str());
 
     assert(featureObj && featureObj->isDerivedFrom<App::DatumElement>());
@@ -297,6 +334,20 @@ void LocalCoordinateSystem::initObjects() const
     if (testStatus(App::ObjectStatus::Remove) || !getDocument()
         || getDocument()->testStatus(App::Document::Restoring)
         || getDocument()->isPerformingTransaction() || getDocument()->isReplaying()) {
+        return;
+    }
+    // Nor in a version read to be compared or applied (a merge's base, a
+    // restore's whole read): what it holds is the version's, and features
+    // made there were brought into the document as objects of their own
+    // (docs/TransactionLog.md sec 37.10).
+    if (getDocument()->testStatus(App::Document::TempDoc)
+        && getDocument()->testStatus(App::Document::VersionDoc)) {
+        return;
+    }
+    // Nor while another copy's rows or state are written in (a fork's
+    // import): a value of OriginFeatures being written is read for first,
+    // and features made then are owned by nothing once it is written.
+    if (getDocument()->isWritingForeign()) {
         return;
     }
 

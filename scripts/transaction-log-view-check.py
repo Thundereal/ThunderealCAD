@@ -54,8 +54,10 @@ def run():
             ("obj", box.ID, "ElementAppearance") in logged
             and not any(kind == "view" and prop != "LineWidth" for kind, _, prop in logged),
         )
+        # Named apart: three steps, which a rapid run under one name would
+        # not be (docs/TransactionLog.md sec 37.4 P4).
         for i in range(3):
-            doc.openTransaction("length")
+            doc.openTransaction("length %d" % i)
             box.Length = 11 + i
             doc.commitTransaction()
         for i in range(4):

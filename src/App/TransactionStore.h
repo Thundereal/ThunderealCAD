@@ -251,6 +251,15 @@ struct LogKept
     std::string name;
 };
 
+/// What TransactionStore::evictTier() found and left (sec 37.13).
+struct LogTierEviction
+{
+    uint64_t values {0};    ///< the tier's values the rows name, before
+    uint64_t bytes {0};     ///< the bytes only they hold, before
+    uint64_t evicted {0};   ///< the values that went
+    uint64_t left {0};      ///< the bytes only the values left hold
+};
+
 /** A stored entity (table `entity`, sec 23.1): anything the log holds
  * bytes for -- a property's fragment (`prop`), a file it handed to
  * addFile() (`attach`), a file of the document's blob store (`blob`), an
@@ -385,6 +394,9 @@ public:
     /// Transactions with seq >= from, in order, at most `limit` (0: all).
     virtual std::vector<LogTransaction> transactions(int64_t from = 0, int limit = 0) = 0;
     virtual std::vector<LogOp> ops(int64_t txn) = 0;
+    /// The transactions with seq >= from that have an op: the rest are
+    /// records (sec 11). One query where ops() per row reads every op.
+    virtual std::vector<int64_t> rowsWithOps(int64_t from) = 0;
     virtual bool getOp(int64_t txn, int idx, LogOp& op) = 0;
     /// The transactions on the parent chain ending at `head`, oldest
     /// first, those with seq >= from (sec 26): one branch's history. A
@@ -411,6 +423,14 @@ public:
     /// Add `names` to the `objname` table; a pair whose id or name it has
     /// is left out.
     virtual void addObjectNames(const std::vector<std::pair<long, std::string>>& names) = 0;
+    /** The file's object UIDs (sec 36.3): the `objuid` table's pairs, then
+     * every `create` op's (id, UID), newest first -- as the names, the
+     * table is written into an embedded copy and the ops cover the rest.
+     */
+    virtual std::vector<std::pair<long, std::string>> objectUids() = 0;
+    /// Add `uids` to the `objuid` table; a pair whose id or UID it has is
+    /// left out.
+    virtual void addObjectUids(const std::vector<std::pair<long, std::string>>& uids) = 0;
     /// The last geometry id of each object (sec 27.40 item 4), table
     /// `lastgeoid`: (object id, id).
     virtual std::vector<std::pair<long, long>> lastGeoIds() = 0;
@@ -433,6 +453,9 @@ public:
     /// Drop the whole string table: an embedded copy, whose file carries
     /// the table as a member of its own.
     virtual void clearStrings() = 0;
+    /// Drop the secondary indexes: the embedded copy travels without them
+    /// (a tenth of it), and the open of an adopted copy makes them again.
+    virtual void dropIndexes() = 0;
     /** The string ids entity `owner` uses (sec 27.50 item 4, 27.51 Q4), as
      * inclusive ranges: a version's manifest (the ids its save marked), a
      * value (the ids its capture listed). Dropped with the entity.
@@ -450,9 +473,11 @@ public:
     virtual void removeTransactions(const std::vector<int64_t>& seqs) = 0;
     /// Rewrite row `txn.seq` -- its fields and its ops -- and drop the rows
     /// `seqs`, then the entities nothing reaches, atomically (sec 16.7,
-    /// squash). The ops' `txn` and `idx` are filled in.
+    /// squash). The ops' `txn` and `idx` are filled in. Without `collect`
+    /// what nothing reaches waits for the next collection (sec 37.4 P4: a
+    /// coalesced commit, too frequent to walk the store for).
     virtual void replaceTransactions(const LogTransaction& txn, std::vector<LogOp>& ops,
-                                     const std::vector<int64_t>& seqs) = 0;
+                                     const std::vector<int64_t>& seqs, bool collect = true) = 0;
 
     /// Id of the environment row holding `json`, made if absent (sec 11).
     virtual int64_t environment(const std::string& json) = 0;
@@ -606,9 +631,28 @@ public:
     /// embedded copy's retention, which paid for three (sec 27.69).
     virtual void dropTier(const std::string& tier, const std::vector<int64_t>& evict) = 0;
 
+    /** Hold the values of `tier` the rows name under a budget
+     * (docs/TransactionLog.md sec 10, 16.3, 37.13): `bytes` of what only
+     * they hold, `values` of them, 0 for no limit. Over either, values go
+     * until both are at three quarters: of each property the oldest first
+     * (a value is a delta on the one after it, 23.2), and across properties
+     * by age in values since, times bytes, over the seconds the object's
+     * recomputes took. What stays whatever the budget: the newest value of
+     * a property on each branch, what a manifest lists and a value kept
+     * (keepValue(), keepObject()). A delta that stays on a base that goes
+     * is written full. The ops' refs stay; a value gone is one a reader
+     * recomputes.
+     */
+    virtual LogTierEviction evictTier(const std::string& tier, uint64_t bytes,
+                                      uint64_t values) = 0;
+
     /// Open or create the SQLite log at `path` (WAL, synchronous=NORMAL).
+    /// `readOnly` reads a file as it is -- the embedded copy a guard reads
+    /// (sec 16.4), a content-addressed blob no open may rewrite: no journal
+    /// mode set, no migration in place, no -shm made beside it.
     /// Throws Base::RuntimeError on failure.
-    static std::unique_ptr<TransactionStore> openSQLite(const std::string& path);
+    static std::unique_ptr<TransactionStore> openSQLite(const std::string& path,
+                                                        bool readOnly = false);
 };
 
 } // namespace App

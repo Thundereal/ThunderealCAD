@@ -85,6 +85,7 @@
 #include "DrainCursor.h"
 #include "FileDialog.h"
 #include "MainWindow.h"
+#include "TransactionLogView.h"
 #include "MDIView.h"
 #include "NotificationArea.h"
 #include "Selection.h"
@@ -380,6 +381,9 @@ struct DocumentP
     Connection connectTransactionRemove;
     Connection connectPinsReleased;
     Connection connectLogKept;
+    Connection connectBranches;
+    Connection connectSaveMerge;
+    Connection connectAssignLook;
     Connection connectTouchedObject;
     Connection connectPurgeTouchedObject;
     Connection connectChangePropertyEditor;
@@ -504,6 +508,64 @@ Document::Document(App::Document* pcDocument,Application * app)
     // so keeping or letting go is a change of the file like any other.
     d->connectLogKept = pcDocument->signalLogKeptChanged.connect(
         [this](const App::Document&) { setModified(true); });
+    // So is a branch made, moved, merged or let go (sec 35.18): a set's
+    // import gives a file of it a branch in that file's history, which only
+    // its save writes -- closed unsaved, the branch was gone with no word.
+    // Not a branch's or a version's own document, which is not saved.
+    // An assigned paste's look (sec 35.18): what the copy's view provider
+    // read of the paste, the live one's -- as changes of the step, so an
+    // undo takes them back. Not the copy's visibility: a paste hides it.
+    d->connectAssignLook = pcDocument->signalAssignLook.connect(
+        [this](const App::Document&,
+               const std::vector<std::pair<App::DocumentObject*, App::DocumentObject*>>& pairs) {
+            for (const auto& [copy, live] : pairs) {
+                auto from = getViewProvider(copy);
+                auto to = getViewProvider(live);
+                if (!from || !to)
+                    continue;
+                std::vector<App::Property*> props;
+                from->getPropertyList(props);
+                for (auto prop : props) {
+                    const char* name = prop->getName();
+                    if (!name || std::strcmp(name, "Visibility") == 0
+                            || prop->testStatus(App::Property::Transient)
+                            || (from->getPropertyType(prop) & (App::Prop_Transient
+                                                               | App::Prop_NoPersist
+                                                               | App::Prop_Output)))
+                        continue;
+                    auto mine = to->getPropertyByName(name);
+                    if (!mine || mine->getTypeId() != prop->getTypeId() || mine->isSame(*prop))
+                        continue;
+                    try {
+                        std::unique_ptr<App::Property> value(prop->Copy());
+                        mine->Paste(*value);
+                    }
+                    catch (Base::Exception& e) {
+                        FC_WARN(live->getFullName() << ": the look's " << name
+                                << " not taken: " << e.what());
+                    }
+                }
+            }
+        });
+    // A save stopped at the merge of what another process saved into the
+    // file (docs/TransactionLog.md sec 29.8): the log panel puts the merge
+    // to the user once the save has returned.
+    d->connectSaveMerge = pcDocument->signalSaveMergeConflict.connect(
+        [](const App::Document& doc, const std::string& branch) {
+            // Docked or not: the panel exists whether the workbench shows it.
+            auto main = getMainWindow();
+            auto view = main ? main->findChild<DockWnd::TransactionLogView*>() : nullptr;
+            if (view)
+                QMetaObject::invokeMethod(view, "mergeSaved", Qt::QueuedConnection,
+                                          Q_ARG(QString, QString::fromUtf8(doc.getName())),
+                                          Q_ARG(QString, QString::fromStdString(branch)));
+        });
+    d->connectBranches = pcDocument->signalBranchesChanged.connect(
+        [this](const App::Document& doc) {
+            if (!doc.testStatus(App::Document::VersionDoc)
+                    && !doc.testStatus(App::Document::TempDoc))
+                setModified(true);
+        });
 
     // The on-top set is stored in each view's own OnTopObjects property
     // (docs/CoinRetirement.md 5.12), so every change to it has to reach
@@ -551,6 +613,9 @@ Document::~Document()
     d->connectTransactionAppend.disconnect();
     d->connectTransactionRemove.disconnect();
     d->connectLogKept.disconnect();
+    d->connectBranches.disconnect();
+    d->connectSaveMerge.disconnect();
+    d->connectAssignLook.disconnect();
     d->connectTouchedObject.disconnect();
     d->connectPurgeTouchedObject.disconnect();
     d->connectChangePropertyEditor.disconnect();
@@ -2484,6 +2549,14 @@ bool Document::save()
             return askIfSavingFailed(QString::fromUtf8(e.what()));
         }
         catch (const Base::Exception& e) {
+            // Stopped at the merge of what another process saved (sec 29.8):
+            // the log panel opens it, and the report view says why.
+            for (auto doc : App::GetApplication().getDocuments()) {
+                if (!doc->lastSavePull().conflicts.empty() && !doc->pendingSaveMerge().empty()) {
+                    Base::Console().Warning("%s\n", e.what());
+                    return false;
+                }
+            }
             QMessageBox::critical(getMainWindow(), QObject::tr("Saving document failed"),
                 QString::fromUtf8(e.what()));
             return false;
@@ -5990,17 +6063,18 @@ int Document::takeSteps(bool undo, int iSteps, int skipped)
 
     const auto kind = undo ? App::TransactionGuard::Undo : App::TransactionGuard::Redo;
     int taken = 0;
+    // Past a step that was refused (sec 33.11) there is no run of grouped
+    // transactions to ask about: the step taken is one of this document's,
+    // picked by the user. Asked before the run's guard is up: the other
+    // documents' steps are taken in there, with their own guards, and a
+    // step of theirs that goes through the log recomputes.
+    if (!skipped && !checkTransactionID(undo, iSteps))
+        return -1;
     {
         // One guard for the run, let go of around a step that goes through
         // the log (docs/TransactionLog.md sec 30.10): that one recomputes,
         // and the guard defers the touches a recompute works from.
         std::optional<App::TransactionGuard> guard(std::in_place, kind);
-
-        // Past a step that was refused (sec 33.11) there is no run of
-        // grouped transactions to ask about: the step taken is one of this
-        // document's, picked by the user.
-        if (!skipped && !checkTransactionID(undo, iSteps))
-            return -1;
 
         for (; taken < iSteps; ++taken) {
             if (getDocument()->stepNeedsLog(undo, skipped))

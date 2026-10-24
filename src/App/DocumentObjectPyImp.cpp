@@ -938,6 +938,20 @@ PyObject*  DocumentObjectPy::hasChildElement(PyObject *args)
     } PY_CATCH;
 }
 
+PyObject*  DocumentObjectPy::getOwnedObjects(PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        Py::List list;
+        for (auto obj : getDocumentObjectPtr()->getOwnedObjects()) {
+            if (obj)
+                list.append(Py::asObject(obj->getPyObject()));
+        }
+        return Py::new_reference_to(list);
+    } PY_CATCH;
+}
+
 PyObject*  DocumentObjectPy::getParentGroup(PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))
@@ -1093,16 +1107,32 @@ PyObject *DocumentObjectPy::getCustomAttributes(const char* attr) const
         if (obj->ViewObject.getValue().isNone())
             requestViewObject(*obj);
     }
+    // What was a property of a part and a FEM analysis is the object's UID
+    // (docs/TransactionLog.md sec 36.7); a property of the name answers
+    if (boost::equals(attr, "Uid")) {
+        auto obj = getDocumentObjectPtr();
+        if (obj->hasUidAttribute() && !obj->getPropertyByName(attr))
+            return Py::new_reference_to(Py::String(obj->getObjectUid()));
+    }
     return nullptr;
 }
 //remove
-int DocumentObjectPy::setCustomAttributes(const char* , PyObject *)
+int DocumentObjectPy::setCustomAttributes(const char* attr, PyObject *)
 {
+    if (boost::equals(attr, "Uid")) {
+        auto obj = getDocumentObjectPtr();
+        if (obj->hasUidAttribute() && !obj->getPropertyByName(attr))
+            throw Py::AttributeError("Object attribute 'Uid' is read-only");
+    }
     return 0;
 }
 
 Py::Int DocumentObjectPy::getID() const {
     return Py::Int(getDocumentObjectPtr()->getID());
+}
+
+Py::String DocumentObjectPy::getObjectUid() const {
+    return Py::String(getDocumentObjectPtr()->getObjectUid());
 }
 
 Py::Boolean DocumentObjectPy::getRemoving() const {

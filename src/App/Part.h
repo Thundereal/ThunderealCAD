@@ -52,8 +52,6 @@ public:
     //@{
     /// Id e.g. Part number
     App::PropertyString  Id;
-    /// unique identifier of the Item
-    App::PropertyUUID    Uid;
     /// material descriptions
     App::PropertyLink    Material;
     /// Meta descriptions
@@ -93,6 +91,10 @@ public:
 
 
     void handleChangedPropertyType(Base::XMLReader &reader, const char *TypeName, App::Property *prop) override;
+    /// The `Uid` of a file from before sec 36 is the part's UID
+    /// (docs/TransactionLog.md sec 36.7)
+    void handleChangedPropertyName(Base::XMLReader &reader, const char *TypeName, const char *PropName) override;
+    bool hasUidAttribute() const override {return true;}
 
 protected:
     void onChanged(const Property *prop) override;

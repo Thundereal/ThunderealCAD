@@ -29,6 +29,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -217,6 +218,8 @@ public:
         std::vector<std::pair<std::string, std::string>> blobs;   ///< (hash, ext)
         std::string saveId;
         int64_t version {0};
+        /// Rows the copy left out, older than what it carries (sec 37.4 P1).
+        size_t rowsLeftOut {0};
     };
     /// `trigger`: who asked for the save (SaveTrigger.h), recorded with it
     Embedded embed(const std::string& saveDate, const std::string& trigger = std::string());
@@ -282,6 +285,15 @@ public:
     /// The label and file name a recovery shows before anything is read
     /// (meta `label`, `file`), from a leftover store; false if none.
     static bool readRecoveryMeta(const std::string& oldDir, RecoverInfo& info);
+    /** What a saved file carries of its history (docs/TransactionLog.md sec
+     * 37.4 P1): `named` the newest named versions (0 every one, below 0 the
+     * whole history), `snapshots` the newest unnamed ones of each branch, at
+     * least 1. The store's own (meta `keep_named`, `keep_snapshots`), which
+     * the file carries, else the preferences TransactionLogKeepNamed and
+     * TransactionLogKeepVersions.
+     */
+    static void historyRetention(TransactionStore& store, long& named, long& snapshots);
+    static void setHistoryRetention(TransactionStore& store, long named, long snapshots);
     /// Keep the document's label and file name in `meta` for a recovery.
     void noteIdentity();
     /// Append the `recover` record (sec 25.2), `script` its JSON.
@@ -423,8 +435,20 @@ public:
 
     /// Serialise the live value behind every pending after ref. What a
     /// version snapshot does first; also what makes the log complete for
-    /// a reader that wants the head state from the log alone.
-    void resolvePending();
+    /// a reader that wants the head state from the log alone. With `rows`,
+    /// only the refs of ops in those rows.
+    void resolvePending(const std::set<int64_t>* rows = nullptr);
+    /** Fold row `prevSeq` into row `laterSeq`, the next commit, as one row
+     * (docs/TransactionLog.md sec 37.4 P4): the later row keeps its seq and
+     * ops and takes the earlier one's befores and parent, and what the
+     * earlier changed that the later did not; the rows between go with
+     * what they changed folded in too. Those may be recompute records and
+     * the rows `implicit`, the recompute's own steps, and nothing else:
+     * false, with nothing done, when they are not, or are not in memory.
+     * The store is rewritten on the worker without a collection; the values
+     * nothing names any more go at the next one. Main thread.
+     */
+    bool coalesceRows(int64_t prevSeq, int64_t laterSeq, const std::set<int64_t>& implicit);
     size_t pendingCount() const { return _pending.size(); }
 
     /// The store, for reading: what it returns waits for every queued
@@ -626,6 +650,11 @@ private:
     /// every copy posted with a key, every part a snapshot stored; taken
     /// out by a change whose value is not recorded. Main thread only.
     std::unordered_set<int64_t> _recorded;
+    /// Keys whose value the worker could not write, to leave _recorded:
+    /// filled on the worker, taken on the main thread (dropUnrecorded).
+    std::mutex _unrecordedMutex;
+    std::vector<int64_t> _unrecorded;
+    void dropUnrecorded();
     /// What the sink of the snapshot in progress did not claim, to join
     /// _recorded once the snapshot is posted. Main thread only.
     std::unordered_set<int64_t> _misses;
@@ -677,6 +706,14 @@ public:
     void postVersion(LogVersion v, LogTransaction t, const TransactionLog::Captures& entries,
                      const TransactionLog::Blobs& blobs, int schema, const std::string& path,
                      std::vector<std::pair<long, long>> strings = {}, bool marked = true);
+    /// The body of postVersion's job, on the worker: the composites, the
+    /// blobs, the version and its record. Throws on a store failure.
+    void writeVersion(LogVersion& v, LogTransaction& t, const TransactionLog::Captures& entries,
+                      TransactionLog::Blobs& blobs, int schema, const std::string& escaped,
+                      size_t nblobs, long keep, std::vector<std::pair<long, long>> strings,
+                      bool marked);
+    /// `text` as the body of a JSON string.
+    static std::string escapeJson(const std::string& text);
     /// The ids a version recorded with no marks keeps: every one the file's
     /// hasher holds (sec 27.50 item 4).
     std::vector<std::pair<long, long>> allStrings() const;
@@ -696,6 +733,12 @@ public:
     TransactionLog::Embedded embed(const std::string& saveDate, int64_t branch = 0,
                                    const std::string& saveId = std::string(),
                                    const std::string& trigger = std::string());
+    /// The embedded copy `copy` cut to the versions `travel` (sec 37.4 P1):
+    /// each branch trimmed at the oldest of them on it where the bound
+    /// binds -- a version older on its chain left out (`evictedAt` their
+    /// rows), or `snapshots` unnamed ones on it. Returns the rows left out.
+    size_t trimCopy(TransactionStore& copy, const std::set<int64_t>& travel,
+                    const std::set<int64_t>& evictedAt, long snapshots);
     /// The documents of the file and their branches (sec 27.7).
     Document* holderOf(int64_t id) const;
     std::vector<Document*> documents() const;
@@ -720,6 +763,10 @@ public:
     /// read when the job was posted) go, oldest first (sec 16.3). Worker
     /// thread, after a version is added.
     void evictVersions(long keep);
+    /// The cache tier held under its budget (TransactionStore::evictTier,
+    /// sec 37.13). Worker thread, a job of its own: between two jobs
+    /// every value put is named by a row.
+    void evictCache(uint64_t bytes, uint64_t values);
     /// Store a captured value (fragment and attachments) and return its ref.
     /// Each blob the value names (its `blobs`, decision 6b) is held and
     /// becomes a `blob` ref of the value. Worker thread.
@@ -754,6 +801,18 @@ public:
     /// a chain no longer than TransactionLogDeltaHops, a patch no larger
     /// than TransactionLogDeltaRatio of the full. Worker thread.
     void supersede(const std::string& older, const std::string& newer);
+    /** Sec 23.2, 37.4 P7: a named version is a full anchor, always. Every
+     * entity it reaches -- its entry list, each entry, a composite's
+     * skeleton and parts, a value's attachments, a blob and the blobs it
+     * reads -- is made full where it is a delta, and supersede() leaves
+     * it alone after. The store's nameVersion() calls it through store();
+     * main thread, queue drained.
+     */
+    void anchorVersion(int64_t num);
+    /// `hash` is reached from a named version: the set made from the store
+    /// on first use, added to by anchorVersion(). A version unnamed or gone
+    /// leaves its entities in it, which costs a delta, never a byte read.
+    bool anchored(const std::string& hash);
     /// The longest delta chain hanging off `hash`, in hops.
     int chainBelow(const std::string& hash, int depth = 0);
 
@@ -841,6 +900,17 @@ public:
     /// the worker never touches the preferences.
     std::atomic<long> _deltaHops {0};
     std::atomic<long> _deltaRatio {0};
+    /// The cache tier's budget (sec 37.13), read the same way: bytes and
+    /// values, 0 for none.
+    std::atomic<uint64_t> _cacheBytes {0};
+    std::atomic<uint64_t> _cacheValues {0};
+    /// What the worker put in the cache tier since the budget was last
+    /// looked at, and that it is to be looked at: set when that passes an
+    /// eighth of a budget, and on open, and taken by post(), which queues
+    /// the look as a job of its own.
+    uint64_t _cacheWrittenBytes {0};
+    uint64_t _cacheWrittenValues {0};
+    std::atomic<bool> _cacheDue {true};
     /// The ids the store's string table holds, and the largest, as posted
     /// (sec 27.50 item 2); the hasher whose strings the store's were last
     /// taken into (loadStrings). Main thread.
@@ -856,6 +926,16 @@ public:
     std::unordered_map<std::string, FileBlobHandle> _blobs;
     /// The blobs putSources() has read. Worker thread.
     std::unordered_set<std::string> _sourced;
+    /// Every entity a named version reaches (anchored()), with the blobs
+    /// among them and their extensions. Worker thread, or a flushed caller.
+    std::unordered_set<std::string> _anchors;
+    bool _anchorsLoaded {false};
+    /// Add `hash` and what it reaches to `_anchors` and to `out`, each
+    /// once a walk (`seen`), with `ext` the extension a blob is written
+    /// back under.
+    void anchorClosure(const std::string& hash, const std::string& ext,
+                       std::vector<std::pair<std::string, std::string>>& out,
+                       std::unordered_set<std::string>& seen, int depth = 0);
 
     std::thread _worker;
     std::mutex _mutex;
@@ -878,6 +958,28 @@ public:
     std::map<int64_t, TransactionLog*> _holders;
 };
 
+/** A branch's history cut at a version (docs/TransactionLog.md sec 16.7,
+ * "trim a branch"; the bridge of 27.71), on any store: what Document::
+ * trimBranch does to the live store and the embedded copy to itself (sec
+ * 37.4 P1). `keep` stays and anchors what is left; the rows of the chain up
+ * to it that no other branch shares go, and the unnamed versions on them.
+ */
+struct TrimPlan
+{
+    LogVersion keep;
+    std::vector<int64_t> rows;           ///< the chain's rows that go, squashed or not
+    std::vector<int64_t> versions;       ///< the versions evicted with them
+    std::vector<LogTransaction> span;    ///< squashed into keep's row: the bridge
+    int64_t from {0};                    ///< the bridge row's parent
+    size_t removed {0};                  ///< after applyTrim: rows removed outright
+    size_t squashed {0};                 ///< and rows folded into the bridge
+};
+/// What a trim of `branch` to `keep` takes; `bridge` asks for 27.71's.
+/// Nothing is changed.
+AppExport TrimPlan planTrim(TransactionStore& store, const LogBranch& branch,
+                            const LogVersion& keep, bool bridge);
+/// Carry `plan` out; `name` is the branch's, for the bridge row.
+AppExport void applyTrim(TransactionStore& store, TrimPlan& plan, const std::string& name);
 
 } // namespace App
 

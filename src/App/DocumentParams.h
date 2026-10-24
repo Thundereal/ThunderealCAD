@@ -271,6 +271,22 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter BlobAppendSize
+    ///
+    /// How full, in KB, the pack store segment new content is added to
+    /// may be before the next batch starts another (docs/TransactionLog.md
+    /// sec 37.4 P8): adding rewrites that segment whole, so this bounds
+    /// what a commit writes besides its own content. The small segments
+    /// left behind are merged in the background. At most BlobSegmentSize.
+    static const long & getBlobAppendSize();
+    static const long & defaultBlobAppendSize();
+    static void removeBlobAppendSize();
+    static void setBlobAppendSize(const long &v);
+    static const char *docBlobAppendSize();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter DeferShapeLoad
     ///
     /// When opening a document, read each shape on first use instead of
@@ -693,14 +709,91 @@ public:
     //@{
     /// Accessor for parameter TransactionLogKeepVersions
     ///
-    /// How many unnamed versions the transaction log keeps (sec 16.3):
-    /// when a version is added, the oldest unnamed ones over this count
-    /// are evicted -- never a named one, never the newest. 0 keeps all.
+    /// How many unnamed versions the transaction log keeps (sec 16.3,
+    /// 37.4 P6): when a version is added, the oldest unnamed ones over
+    /// this count are evicted -- never a named one, never the newest of
+    /// a branch. 0 keeps all.
     static const long & getTransactionLogKeepVersions();
     static const long & defaultTransactionLogKeepVersions();
     static void removeTransactionLogKeepVersions();
     static void setTransactionLogKeepVersions(const long &v);
     static const char *docTransactionLogKeepVersions();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter TransactionLogCacheSize
+    ///
+    /// The budget of the transaction log cache tier, in MB (docs/
+    /// TransactionLog.md sec 37.13): the shapes recomputes wrote that only
+    /// the history holds. Past it the oldest go, the quickest to recompute
+    /// first, down to three quarters; an undo onto one recomputes it. The
+    /// newest of each property and what a version lists stay. 0 for none.
+    static const long & getTransactionLogCacheSize();
+    static const long & defaultTransactionLogCacheSize();
+    static void removeTransactionLogCacheSize();
+    static void setTransactionLogCacheSize(const long &v);
+    static const char *docTransactionLogCacheSize();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter TransactionLogCacheValues
+    ///
+    /// The same budget as TransactionLogCacheSize, in values. 0 sets none.
+    static const long & getTransactionLogCacheValues();
+    static const long & defaultTransactionLogCacheValues();
+    static void removeTransactionLogCacheValues();
+    static void setTransactionLogCacheValues(const long &v);
+    static const char *docTransactionLogCacheValues();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter TransactionLogPullOnSave
+    ///
+    /// A save first brings in what another process saved into the file
+    /// since it was read here, and merges it (docs/TransactionLog.md sec
+    /// 29.8); a conflict stops the save at the merge. Off, the save takes
+    /// no lock and writes over the file as before.
+    static const bool & getTransactionLogPullOnSave();
+    static const bool & defaultTransactionLogPullOnSave();
+    static void removeTransactionLogPullOnSave();
+    static void setTransactionLogPullOnSave(const bool &v);
+    static const char *docTransactionLogPullOnSave();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter TransactionLogCoalesceSeconds
+    ///
+    /// A commit that writes by hand the one property the commit before
+    /// it wrote, by the same author under the same name and within this
+    /// many seconds of it, is folded into it: one row of the transaction
+    /// log and one undo step for the run, as a spinbox or a Python loop
+    /// makes it (docs/TransactionLog.md sec 37.4 P4). 0 never folds.
+    static const long & getTransactionLogCoalesceSeconds();
+    static const long & defaultTransactionLogCoalesceSeconds();
+    static void removeTransactionLogCoalesceSeconds();
+    static void setTransactionLogCoalesceSeconds(const long &v);
+    static const char *docTransactionLogCoalesceSeconds();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter TransactionLogKeepNamed
+    ///
+    /// How many named versions a saved file carries in its history
+    /// (docs/TransactionLog.md sec 37.4 P1), the newest first, for a file
+    /// that does not say (Document.setHistoryRetention): rows older than
+    /// the oldest version the file carries are left out of it. A version
+    /// a branch forked from and a pinned one always travel. 0 carries
+    /// every named version; below 0 carries the whole history.
+    static const long & getTransactionLogKeepNamed();
+    static const long & defaultTransactionLogKeepNamed();
+    static void removeTransactionLogKeepNamed();
+    static void setTransactionLogKeepNamed(const long &v);
+    static const char *docTransactionLogKeepNamed();
     //@}
 
     // Auto generated code (Tools/params_utils.py:139)

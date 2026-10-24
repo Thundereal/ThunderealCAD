@@ -566,6 +566,10 @@ void DocumentRecovery::accept()
                     if (item) {
                         item->setText(1, tr("Successfully recovered"));
                         item->setForeground(1, QColor(0,170,0));
+                        // Nothing is left to recover or clean up for it:
+                        // the directory went with the recovery
+                        item->setFlags(item->flags() & ~Qt::ItemIsUserCheckable);
+                        item->setData(0, Qt::CheckStateRole, QVariant());
                     }
                 }
                 catch (const Base::Exception& e) {
@@ -977,9 +981,11 @@ bool DocumentRecoveryFinder::isRecoverable(const QFileInfo& dir)
 {
     // What DocumentRecoveryPrivate::getRecoveryInfo() can open
     QDir docDir(dir.absoluteFilePath());
-    // a transaction log to recover from (docs/TransactionLog.md sec 25)
-    if (App::DocumentParams::getTransactionLog() != 0
-        && docDir.exists(QStringLiteral("history/log.db"))) {
+    // a transaction log to recover from (docs/TransactionLog.md sec 25):
+    // offered whatever the preference says now -- the unsaved tail of a
+    // crashed session is not deleted unlisted for having turned the log
+    // off since; the recovery itself says the log must be on
+    if (docDir.exists(QStringLiteral("history/log.db"))) {
         return true;
     }
     return docDir.exists(QStringLiteral("fc_recovery_file.fcstd"))

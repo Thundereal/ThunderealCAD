@@ -1465,3 +1465,31 @@ Not built yet: the recovery pass of 15.8 (reading several segments'
 directories, the newest number winning, finishing an interrupted merge) --
 that is phase 7 with the log's session recovery; a store opens fresh
 today and numbers its segments past any it finds.
+
+### 15.12 A small append segment (docs/TransactionLog.md sec 37.4 P8, 2026-10-21)
+
+A batch added to the segment being written to rewrote it whole: the
+live members carried into the next generation, then the new ones. With
+`BlobSegmentSize` at 64 MB that made a commit that wrote one small blob
+copy up to 64 MB of what was there already -- write amplification, not
+size. Ruled yes with the other storage proposals of 37.4.
+
+As built: a batch adds to the append segment only while it holds less
+than `BlobAppendSize` (new preference, KB, default 1024, at most
+`BlobSegmentSize`); past that it starts a new segment, so what a commit
+writes besides its own content is bounded by that, not by the segment
+cap. A batch bigger than that still fills one segment up to the cap: that
+is new content, written once.
+
+The small segments this leaves behind are merged by `maintain()`, which
+merged any run of two or more segments under a quarter of the cap. That
+rule would now rewrite a growing merged segment again for every small one
+that followed it, so the merge is size-tiered: the small segments in
+ascending order of live bytes, and a group grows only by a segment no
+larger than the group so far -- none of it more than half of it. Each
+byte is then merged a logarithmic number of times. The append segment
+itself is never merged, as before.
+
+Test: `FileBlobs.BlobPackStoreCases.testASaveRewritesNoMoreThanTheAppendCap`
+(20 saves of a 1000-byte blob each, append cap 4 KB: no segment file
+written is over the cap plus one batch).

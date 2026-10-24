@@ -137,6 +137,22 @@ public:
      * writes a reference outside the update that follows it.
      */
     void inheritDerived(const Transaction& from);
+    /** The one property this transaction wrote by hand (docs/TransactionLog.md
+     * sec 37.4 P4): every other write was a recompute's or followed another
+     * value, no object came or went, no freeze changed. False otherwise.
+     */
+    bool handWrite(const TransactionalObject*& obj, int64_t& propId) const;
+    /// Whether absorb() would take this one in: no object came or went and
+    /// no freeze changed.
+    bool absorbable() const;
+    /** Take `later`'s changes in, as though made in this one: what it
+     * changed that this did not, with the value before `later`; where both
+     * changed a property, this one's before stays. `later` keeps nothing it
+     * gave away and is deleted by the caller. False, with nothing moved,
+     * when `later` made or removed an object or changed a freeze (sec 37.4
+     * P4, a coalesced commit).
+     */
+    bool absorb(Transaction& later);
     /// The same for a cold step, whose copies are gone: `derived` and
     /// `followed` say, per container and property, what the log row it
     /// reverted recorded.

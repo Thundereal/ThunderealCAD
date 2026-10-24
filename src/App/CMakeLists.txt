@@ -87,7 +87,10 @@ list(APPEND FreeCADApp_LIBS
 )
 
 # The transaction log's store (docs/TransactionLog.md sec 13).
-find_package(SQLite3 REQUIRED)
+# 3.38: json_extract/json_valid built in (TransactionStoreSQLite.cpp reads
+# object UIDs out of op metadata with them); upsert (3.24) and VACUUM INTO
+# (3.27) come with it.
+find_package(SQLite3 3.38 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
 list(APPEND FreeCADApp_LIBS ${SQLite3_LIBRARIES})
 
@@ -441,8 +444,11 @@ SET(Document_CPP_SRCS
     UnitsParams.cpp
     SandboxParams.cpp
     FileBlobManager.cpp
+    FileElsewhere.cpp
     FileHistory.cpp
     LibraryPaths.cpp
+    ExportSet.cpp
+    ImportSet.cpp
     FileSet.cpp
     GroupParams.cpp
     DocumentObject.cpp
@@ -530,8 +536,11 @@ SET(Document_HPP_SRCS
     UnitsParams.h
     SandboxParams.h
     FileBlobManager.h
+    FileElsewhere.h
     FileHistory.h
     LibraryPaths.h
+    ExportSet.h
+    ImportSet.h
     FileSet.h
     GroupParams.h
     DocumentObject.h
@@ -635,6 +644,7 @@ SET(Properties_HPP_SRCS
     PropertyGeo.h
     PropertyElementAppearance.h
     PropertyLinks.h
+    ShadowSub.h
     PropertyPythonObject.h
     PropertyStandard.h
     PropertyUnits.h

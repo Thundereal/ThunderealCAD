@@ -2336,3 +2336,51 @@ fc_add_gui_test(GuiXLinkSnapshotSave_tests_run
 fc_add_gui_test(GuiCaptureWaitsForExactEdges_tests_run
                 capture-waits-for-exact-edges.py
                 --timeout 180)
+
+# File > Export with Linked Files (docs/TransactionLog.md sec 35 L7): the
+# dialog lists the set, writes it into a new folder, and asks before
+# writing into one that is not empty.
+fc_add_gui_test(GuiExportLinkedSet_tests_run
+                export-linked-set.py
+                --timeout 180)
+
+# File > Import a Linked Set (docs/TransactionLog.md sec 35 L6): the dialog
+# pairs another copy of the set with ours, imports it as branches and
+# merges it as one undo step.
+fc_add_gui_test(GuiImportLinkedSet_tests_run
+                import-linked-set.py
+                --timeout 180)
+fc_add_gui_test(GuiImportClash_tests_run
+                import-clash.py
+                --timeout 120)
+
+# A drag out of an Auto Delete link group (docs/TransactionLog.md sec
+# 37.12): a move, not the removal the mode makes of an element taken out.
+fc_add_gui_test(GuiLinkGroupDragOut_tests_run
+                link-group-drag-out.py
+                --timeout 120)
+
+# A set's merge says first what will not resolve after it
+# (docs/TransactionLog.md sec 35.6 Q4, 35.16 G5), and offers to merge
+# the file kept ours that it needs.
+fc_add_gui_test(GuiImportLinkedSetReferences_tests_run
+                import-linked-set-references.py
+                --timeout 180)
+
+# A linked set's import leaves its files to be saved (docs/TransactionLog.md
+# sec 35.18): each file given a branch is marked modified.
+fc_add_gui_test(GuiSetImportMarksModified_tests_run
+                set-import-marks-modified.py
+                --timeout 180)
+
+# A paste assigned onto an object here takes the look brought too, unless
+# unchecked (docs/TransactionLog.md sec 35.18).
+fc_add_gui_test(GuiPasteAssignLook_tests_run
+                paste-assign-look.py
+                --timeout 120)
+
+# A save merges what another process saved into the file, says it while
+# idle, and puts a conflict to the merge (docs/TransactionLog.md sec 29.8).
+fc_add_gui_test(GuiSaveMergesAnotherProcess_tests_run
+                save-merges-another-process.py
+                --timeout 180)

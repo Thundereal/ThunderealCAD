@@ -175,16 +175,19 @@ viewType (String): override the view provider type directly, only effective when
         <UserDocu>Remove a number of objects from the document</UserDocu>
       </Documentation>
     </Methode>
-    <Methode Name="copyObject">
+    <Methode Name="copyObject" Keyword="true">
       <Documentation>
           <UserDocu>
-copyObject(object, with_dependencies=False, return_all=False)
+copyObject(object, with_dependencies=False, return_all=False, assign=False)
 Copy an object or objects from another document to this document.
 
 object: can either a single object or sequence of objects
 with_dependencies: if True, all internal dependent objects are copied too.
 return_all: if True, return all copied objects, or else return only the copied
             object corresponding to the input objects.
+assign: where a live object here has the UID of one copied, and its type,
+        the live one takes the copy's state instead of a duplicate being made
+        (docs/TransactionLog.md sec 36.4).
           </UserDocu>
       </Documentation>
       <Sandbox tier="call"/>
@@ -393,6 +396,39 @@ The XML fragment of a logged value and its attachments, or None.</UserDocu>
 The versions of this document's log (docs/TransactionLog.md sec 16.3),
 each a dict with num, uuid, branch, kind, name, seq, env, docxml, schema,
 created, and manifest: a list of (entry, hash).</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getHistoryRetention">
+      <Documentation>
+        <UserDocu>getHistoryRetention() -> (named, snapshots)
+
+What a save of this file carries of its history (docs/TransactionLog.md
+sec 37.4 P1): the newest `named` named versions (0 every one, below 0 the
+whole history) and the newest `snapshots` unnamed versions of each branch;
+the rows older than the oldest version carried are left out. The file's
+own numbers, else the preferences TransactionLogKeepNamed and
+TransactionLogKeepVersions.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setHistoryRetention" Keyword="true">
+      <Documentation>
+        <UserDocu>setHistoryRetention(named=None, snapshots=None)
+
+Set the file's own numbers of getHistoryRetention(); one left None keeps
+what it is. They are the file's: a save carries them with the history.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="evictTransactionCache" Keyword="true">
+      <Documentation>
+        <UserDocu>evictTransactionCache(size=None, values=None) -> dict
+
+Hold the cache tier of this file's log under a budget now
+(docs/TransactionLog.md sec 37.13), as the log does by itself as it
+grows: `size` in bytes and `values`, 0 for no limit, each left None the
+preference's (TransactionLogCacheSize in MB, TransactionLogCacheValues).
+Over either, the oldest derived values go until both are at three
+quarters. Returns values and bytes (the tier before), evicted, and left
+(its bytes after).</UserDocu>
       </Documentation>
     </Methode>
     <Methode Name="snapshotTransactionLog">
@@ -888,6 +924,131 @@ the save its Version names. 'independent' says the entry shares no history
 with this file and is offered all the same (sec 30.22): 'base' is 0, and
 what the file is now comes as a branch from nothing. Raises when the file
 cannot be read, or is this document's own.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="exportLinkedSet" Keyword="true">
+      <Documentation>
+        <UserDocu>exportLinkedSet(folder, withHistory=False, overwrite=False, keepLibraries=False) -> dict
+Write this document and every document its links reach into `folder`
+(docs/TransactionLog.md sec 35 L7): the layout under this document's
+folder kept, a file outside it under `_external/`, a pinned version or a
+branch's document a file of its own (`Part.v3.FCStd`, `Part.side.FCStd`),
+and the links between them written as plain links to those files, so the
+set opens in any FreeCAD. A manifest, FreeCAD-set.json, says what each file
+is of. Returns 'manifest' (its path) and 'files', a list of dict: 'path'
+(relative to the folder), 'file' (the file here), 'branch', 'version',
+'save_id' and 'uid'. With `keepLibraries`, a file in a library that only
+library links reach is left there, its links kept in the library form for a
+recipient with the same library (docs/LibraryPaths.md step 4): listed with
+'path' empty, and 'lib' and 'libfile'. Raises when the folder is not empty
+and `overwrite` is not set, or when a document of the set has no file.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="planLinkedSetImport">
+      <Documentation>
+        <UserDocu>planLinkedSetImport(path) -> dict
+Another set of linked files, its top at `path`, and how its files pair with
+this document's set (docs/TransactionLog.md sec 35 L2, L3), with nothing
+imported: the files the top's links reach, read from the files, each paired
+with one of the documents this one's links reach by the first that answers
+of a history both hold, a save of ours it names, our export's manifest, the
+Uid in its Document.xml, the same path under the top. Returns 'files', a
+list of dict, their top last: 'theirs' (the full path), 'relative' (under
+their top's folder), 'uid', 'links' (their files it links), 'ours' (the
+document's name, empty for none), 'our_file', 'pairing' ('history', 'save',
+'manifest', 'uid', 'path' or 'none'), 'certain', 'ambiguous' (two of ours
+answered alike and none is paired), and 'branch' and 'version' when the
+manifest says the file was one of ours'; 'shared', the files it links that
+are ours already; and 'missing', those that are not there.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="importLinkedSet" Keyword="true">
+      <Documentation>
+        <UserDocu>importLinkedSet(path, pairs=None) -> dict
+Bring another set of linked files in, its top at `path` (docs/TransactionLog.md
+sec 35 L4): its files paired with this document's set as
+planLinkedSetImport() pairs them -- `pairs`, a dict of their file to the name
+of one of our documents or None, changes that by hand -- each paired file
+imported as a branch of ours, the files it links first, and in the rows
+brought a link to a paired file made a link to ours, live to the branch it
+came to. A file of theirs alone is held in this document's log (sec 35 L5),
+written to its transient directory, and linked there; it is let go when the
+top's branch is merged or deleted. Nothing is merged. Returns 'files', a
+list of dict in the plan's order: 'theirs', 'our_file' (empty for a file
+alone), 'branch' (empty when it brought nothing new), 'rows',
+'independent', 'stopped_at', 'reason', 'held' (the row holding a file
+alone, 0 for none), 'staged' (where it is written), 'relinked', 'relative',
+'pairing', the default 'action' and 'write_to' (for mergeLinkedSet()), and
+'error'; and the set (sec 35 Q9): 'set' (its id), 'name', 'top' and
+'record', the row of this document's log that maps it.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="mergeLinkedSet" Keyword="true">
+      <Documentation>
+        <UserDocu>mergeLinkedSet(files, overwrite=False, name='Merge their set', set='') -> dict
+The set's merge (docs/TransactionLog.md sec 35 L6): `files` as
+importLinkedSet() lists them, the files each links first, each a dict with
+'theirs', 'our_file', 'branch', 'held', 'write_to' and 'action' -- 'merge',
+'theirs' (ours made theirs, one row), 'ours', 'write' (a file of theirs
+alone written to 'write_to') or 'drop' -- and for a merge 'picks' and
+'fallback' as mergeTransactionBranch() takes them. Nothing moves when a merge
+has a conflict with no side, or a file to be written is there and
+`overwrite` is not set: 'refused', and the file's 'error' says why.
+Otherwise the files alone are written, each branch's links to the set's
+branches made links to ours, and each file merged, taken or kept, as one undo
+step across the documents. Returns 'files' (per file 'action', 'seq',
+'written', 'undo_id', 'unresolved', 'failed', 'references' -- what of it does
+not resolve now, as previewLinkedSet() says it -- 'error'), 'transaction' (the
+undo step's id) and 'refused'. `set`, the id importLinkedSet() gave the set,
+records it merged: getLinkedSetImports() no longer lists it.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="previewLinkedSet">
+      <Documentation>
+        <UserDocu>previewLinkedSet(files) -> list of list of str
+What will not resolve once the set is merged as `files` say, `files` as
+mergeLinkedSet() takes them (docs/TransactionLog.md sec 35.6 Q4, 35.16 G5):
+per file, in their order, each reference a file merged or taken will hold to
+a file of the set -- a link, an entry of a list, what an expression reads --
+whose object, or element of it, is not in what that file will be: its merge's
+result, its branch when taken, ours as it is when kept. Each as
+'Joint001.Reference2 -> Bracket.FCStd#Box.Face7'. Nothing moves.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getLinkedSetImports">
+      <Documentation>
+        <UserDocu>getLinkedSetImports() -> list of dict
+The sets imported into this document and not merged yet
+(docs/TransactionLog.md sec 35 Q9), oldest first, as the records of the
+branch it is on hold them: each as importLinkedSet() returned it, with 'when'
+it was imported -- to be merged later by mergeLinkedSet(files, set=...).</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="isFileChangedElsewhere">
+      <Documentation>
+        <UserDocu>isFileChangedElsewhere() -> bool
+The file on disk was written since this document last read or wrote it --
+by another process, or anything else (docs/TransactionLog.md sec 29.8). The
+next save brings what is in it in and merges it first. One stat while the
+file is as it was left.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getLastSavePull">
+      <Documentation>
+        <UserDocu>getLastSavePull() -> dict
+What the last save took of the file as another process left it (sec 29.8):
+{'pulled', 'branch', 'rows', 'merged', 'unchanged', 'conflicts', 'seconds',
+'pending'}. 'pulled' is False when the save found the file as it had left
+it. 'conflicts' are the keys of the conflicts that stopped the save, and
+'pending' the branch whose merge the next save tries again, empty when
+none waits.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getFileOpeners">
+      <Documentation>
+        <UserDocu>getFileOpeners() -> list
+The other processes the marker beside the file says have it open (sec 29.7
+Q5), each as 'host (pid N) since time'.</UserDocu>
       </Documentation>
     </Methode>
     <Methode Name="importTransactionFork">

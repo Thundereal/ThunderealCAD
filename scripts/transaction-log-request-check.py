@@ -254,6 +254,9 @@ def run():
 
             # A second one, dropped unread.
             reply = send(copy, "mine.FCStd", 7, "edit")
+            # The panel rebuilds on its timer, not in the signal (TransactionLog
+            # sec 37.7 item 14)
+            settle()
             other = [r for r in Gui.serveRequests() if r["id"] == reply.get("request")]
             check("the same name again is a second file",
                   len(other) == 1 and other[0]["id"] != sent[0]["id"]

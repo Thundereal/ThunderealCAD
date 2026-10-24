@@ -60,6 +60,7 @@ public:
         signalParamChanged("ArchiveRandomAccess");
         signalParamChanged("ArchiveBlobStore");
         signalParamChanged("BlobSegmentSize");
+        signalParamChanged("BlobAppendSize");
         signalParamChanged("DeferShapeLoad");
         signalParamChanged("SaveMaterialCards");
         signalParamChanged("DedupShapePCurves");
@@ -91,6 +92,11 @@ public:
         signalParamChanged("TransactionLogDerived");
         signalParamChanged("TransactionLogSnapshotTransactions");
         signalParamChanged("TransactionLogKeepVersions");
+        signalParamChanged("TransactionLogCacheSize");
+        signalParamChanged("TransactionLogCacheValues");
+        signalParamChanged("TransactionLogPullOnSave");
+        signalParamChanged("TransactionLogCoalesceSeconds");
+        signalParamChanged("TransactionLogKeepNamed");
         signalParamChanged("TransactionLogCompactSize");
         signalParamChanged("ClosePinnedVersion");
         signalParamChanged("TransactionLogDeltaHops");
@@ -131,6 +137,7 @@ public:
     bool ArchiveRandomAccess;
     bool ArchiveBlobStore;
     long BlobSegmentSize;
+    long BlobAppendSize;
     bool DeferShapeLoad;
     bool SaveMaterialCards;
     bool DedupShapePCurves;
@@ -162,6 +169,11 @@ public:
     long TransactionLogDerived;
     long TransactionLogSnapshotTransactions;
     long TransactionLogKeepVersions;
+    long TransactionLogCacheSize;
+    long TransactionLogCacheValues;
+    bool TransactionLogPullOnSave;
+    long TransactionLogCoalesceSeconds;
+    long TransactionLogKeepNamed;
     long TransactionLogCompactSize;
     long ClosePinnedVersion;
     long TransactionLogDeltaHops;
@@ -219,6 +231,8 @@ public:
         funcs["ArchiveBlobStore"] = &DocumentParamsP::updateArchiveBlobStore;
         BlobSegmentSize = this->handle->GetInt("BlobSegmentSize", 65536);
         funcs["BlobSegmentSize"] = &DocumentParamsP::updateBlobSegmentSize;
+        BlobAppendSize = this->handle->GetInt("BlobAppendSize", 1024);
+        funcs["BlobAppendSize"] = &DocumentParamsP::updateBlobAppendSize;
         DeferShapeLoad = this->handle->GetBool("DeferShapeLoad", true);
         funcs["DeferShapeLoad"] = &DocumentParamsP::updateDeferShapeLoad;
         SaveMaterialCards = this->handle->GetBool("SaveMaterialCards", true);
@@ -279,8 +293,18 @@ public:
         funcs["TransactionLogDerived"] = &DocumentParamsP::updateTransactionLogDerived;
         TransactionLogSnapshotTransactions = this->handle->GetInt("TransactionLogSnapshotTransactions", 200);
         funcs["TransactionLogSnapshotTransactions"] = &DocumentParamsP::updateTransactionLogSnapshotTransactions;
-        TransactionLogKeepVersions = this->handle->GetInt("TransactionLogKeepVersions", 0);
+        TransactionLogKeepVersions = this->handle->GetInt("TransactionLogKeepVersions", 5);
         funcs["TransactionLogKeepVersions"] = &DocumentParamsP::updateTransactionLogKeepVersions;
+        TransactionLogCacheSize = this->handle->GetInt("TransactionLogCacheSize", 256);
+        funcs["TransactionLogCacheSize"] = &DocumentParamsP::updateTransactionLogCacheSize;
+        TransactionLogCacheValues = this->handle->GetInt("TransactionLogCacheValues", 10000);
+        funcs["TransactionLogCacheValues"] = &DocumentParamsP::updateTransactionLogCacheValues;
+        TransactionLogPullOnSave = this->handle->GetBool("TransactionLogPullOnSave", true);
+        funcs["TransactionLogPullOnSave"] = &DocumentParamsP::updateTransactionLogPullOnSave;
+        TransactionLogCoalesceSeconds = this->handle->GetInt("TransactionLogCoalesceSeconds", 3);
+        funcs["TransactionLogCoalesceSeconds"] = &DocumentParamsP::updateTransactionLogCoalesceSeconds;
+        TransactionLogKeepNamed = this->handle->GetInt("TransactionLogKeepNamed", 10);
+        funcs["TransactionLogKeepNamed"] = &DocumentParamsP::updateTransactionLogKeepNamed;
         TransactionLogCompactSize = this->handle->GetInt("TransactionLogCompactSize", 256);
         funcs["TransactionLogCompactSize"] = &DocumentParamsP::updateTransactionLogCompactSize;
         ClosePinnedVersion = this->handle->GetInt("ClosePinnedVersion", 0);
@@ -399,6 +423,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateBlobSegmentSize(DocumentParamsP *self) {
         self->BlobSegmentSize = self->handle->GetInt("BlobSegmentSize", 65536);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateBlobAppendSize(DocumentParamsP *self) {
+        self->BlobAppendSize = self->handle->GetInt("BlobAppendSize", 1024);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateDeferShapeLoad(DocumentParamsP *self) {
@@ -522,7 +550,27 @@ public:
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLogKeepVersions(DocumentParamsP *self) {
-        self->TransactionLogKeepVersions = self->handle->GetInt("TransactionLogKeepVersions", 0);
+        self->TransactionLogKeepVersions = self->handle->GetInt("TransactionLogKeepVersions", 5);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogCacheSize(DocumentParamsP *self) {
+        self->TransactionLogCacheSize = self->handle->GetInt("TransactionLogCacheSize", 256);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogCacheValues(DocumentParamsP *self) {
+        self->TransactionLogCacheValues = self->handle->GetInt("TransactionLogCacheValues", 10000);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogPullOnSave(DocumentParamsP *self) {
+        self->TransactionLogPullOnSave = self->handle->GetBool("TransactionLogPullOnSave", true);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogCoalesceSeconds(DocumentParamsP *self) {
+        self->TransactionLogCoalesceSeconds = self->handle->GetInt("TransactionLogCoalesceSeconds", 3);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogKeepNamed(DocumentParamsP *self) {
+        self->TransactionLogKeepNamed = self->handle->GetInt("TransactionLogKeepNamed", 10);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLogCompactSize(DocumentParamsP *self) {
@@ -700,6 +748,13 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
 "whole when content is added to it or dropped from it, so this\n"
 "bounds the cost of every such rewrite. Content over a quarter of\n"
 "it is kept as a file of its own."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "BlobAppendSize", "BlobAppendSize", App::ParamInfo::Int, 1024)
+        .setTitle("Blob Append Size")
+        .setDoc("How full, in KB, the pack store segment new content is added to\n"
+"may be before the next batch starts another (docs/TransactionLog.md\n"
+"sec 37.4 P8): adding rewrites that segment whole, so this bounds\n"
+"what a commit writes besides its own content. The small segments\n"
+"left behind are merged in the background. At most BlobSegmentSize."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "DeferShapeLoad", "DeferShapeLoad", App::ParamInfo::Bool, true)
         .setTitle("Defer Shape Load")
         .setDoc("When opening a document, read each shape on first use instead of\n"
@@ -850,11 +905,43 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
 "none. A snapshot serialises the document like a save, without\n"
 "writing an archive. With the time rule of AutoSaveTimeout, it\n"
 "bounds how much a crash recovery replays (sec 25.3)."),
-    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogKeepVersions", "TransactionLogKeepVersions", App::ParamInfo::Int, 0)
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogKeepVersions", "TransactionLogKeepVersions", App::ParamInfo::Int, 5)
         .setTitle("Transaction Log Keep Versions")
-        .setDoc("How many unnamed versions the transaction log keeps (sec 16.3):\n"
-"when a version is added, the oldest unnamed ones over this count\n"
-"are evicted -- never a named one, never the newest. 0 keeps all."),
+        .setDoc("How many unnamed versions the transaction log keeps (sec 16.3,\n"
+"37.4 P6): when a version is added, the oldest unnamed ones over\n"
+"this count are evicted -- never a named one, never the newest of\n"
+"a branch. 0 keeps all."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCacheSize", "TransactionLogCacheSize", App::ParamInfo::Int, 256)
+        .setTitle("Transaction Log Cache Size")
+        .setDoc("The budget of the transaction log cache tier, in MB (docs/\n"
+"TransactionLog.md sec 37.13): the shapes recomputes wrote that only\n"
+"the history holds. Past it the oldest go, the quickest to recompute\n"
+"first, down to three quarters; an undo onto one recomputes it. The\n"
+"newest of each property and what a version lists stay. 0 for none."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCacheValues", "TransactionLogCacheValues", App::ParamInfo::Int, 10000)
+        .setTitle("The same budget as TransactionLogCacheSize, in values. 0 sets none.")
+        .setDoc("The same budget as TransactionLogCacheSize, in values. 0 sets none."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogPullOnSave", "TransactionLogPullOnSave", App::ParamInfo::Bool, true)
+        .setTitle("Transaction Log Pull On Save")
+        .setDoc("A save first brings in what another process saved into the file\n"
+"since it was read here, and merges it (docs/TransactionLog.md sec\n"
+"29.8); a conflict stops the save at the merge. Off, the save takes\n"
+"no lock and writes over the file as before."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCoalesceSeconds", "TransactionLogCoalesceSeconds", App::ParamInfo::Int, 3)
+        .setTitle("Transaction Log Coalesce Seconds")
+        .setDoc("A commit that writes by hand the one property the commit before\n"
+"it wrote, by the same author under the same name and within this\n"
+"many seconds of it, is folded into it: one row of the transaction\n"
+"log and one undo step for the run, as a spinbox or a Python loop\n"
+"makes it (docs/TransactionLog.md sec 37.4 P4). 0 never folds."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogKeepNamed", "TransactionLogKeepNamed", App::ParamInfo::Int, 10)
+        .setTitle("Transaction Log Keep Named")
+        .setDoc("How many named versions a saved file carries in its history\n"
+"(docs/TransactionLog.md sec 37.4 P1), the newest first, for a file\n"
+"that does not say (Document.setHistoryRetention): rows older than\n"
+"the oldest version the file carries are left out of it. A version\n"
+"a branch forked from and a pinned one always travel. 0 carries\n"
+"every named version; below 0 carries the whole history."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCompactSize", "TransactionLogCompactSize", App::ParamInfo::Int, 256)
         .setTitle("Transaction Log Compact Size")
         .setDoc("When the file-scope state of the transaction log is compacted on\n"
@@ -1409,6 +1496,38 @@ void DocumentParams::setBlobSegmentSize(const long &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void DocumentParams::removeBlobSegmentSize() {
     instance()->handle->RemoveInt("BlobSegmentSize");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docBlobAppendSize() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"How full, in KB, the pack store segment new content is added to\n"
+"may be before the next batch starts another (docs/TransactionLog.md\n"
+"sec 37.4 P8): adding rewrites that segment whole, so this bounds\n"
+"what a commit writes besides its own content. The small segments\n"
+"left behind are merged in the background. At most BlobSegmentSize.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getBlobAppendSize() {
+    return instance()->BlobAppendSize;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultBlobAppendSize() {
+    const static long def = 1024;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setBlobAppendSize(const long &v) {
+    instance()->handle->SetInt("BlobAppendSize",v);
+    instance()->BlobAppendSize = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeBlobAppendSize() {
+    instance()->handle->RemoveInt("BlobAppendSize");
 }
 
 // Auto generated code (Tools/params_utils.py:397)
@@ -2314,9 +2433,10 @@ void DocumentParams::removeTransactionLogSnapshotTransactions() {
 // Auto generated code (Tools/params_utils.py:397)
 const char *DocumentParams::docTransactionLogKeepVersions() {
     return QT_TRANSLATE_NOOP("DocumentParams",
-"How many unnamed versions the transaction log keeps (sec 16.3):\n"
-"when a version is added, the oldest unnamed ones over this count\n"
-"are evicted -- never a named one, never the newest. 0 keeps all.");
+"How many unnamed versions the transaction log keeps (sec 16.3,\n"
+"37.4 P6): when a version is added, the oldest unnamed ones over\n"
+"this count are evicted -- never a named one, never the newest of\n"
+"a branch. 0 keeps all.");
 }
 
 // Auto generated code (Tools/params_utils.py:405)
@@ -2326,7 +2446,7 @@ const long & DocumentParams::getTransactionLogKeepVersions() {
 
 // Auto generated code (Tools/params_utils.py:413)
 const long & DocumentParams::defaultTransactionLogKeepVersions() {
-    const static long def = 0;
+    const static long def = 5;
     return def;
 }
 
@@ -2339,6 +2459,162 @@ void DocumentParams::setTransactionLogKeepVersions(const long &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void DocumentParams::removeTransactionLogKeepVersions() {
     instance()->handle->RemoveInt("TransactionLogKeepVersions");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogCacheSize() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"The budget of the transaction log cache tier, in MB (docs/\n"
+"TransactionLog.md sec 37.13): the shapes recomputes wrote that only\n"
+"the history holds. Past it the oldest go, the quickest to recompute\n"
+"first, down to three quarters; an undo onto one recomputes it. The\n"
+"newest of each property and what a version lists stay. 0 for none.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getTransactionLogCacheSize() {
+    return instance()->TransactionLogCacheSize;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultTransactionLogCacheSize() {
+    const static long def = 256;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogCacheSize(const long &v) {
+    instance()->handle->SetInt("TransactionLogCacheSize",v);
+    instance()->TransactionLogCacheSize = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogCacheSize() {
+    instance()->handle->RemoveInt("TransactionLogCacheSize");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogCacheValues() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"The same budget as TransactionLogCacheSize, in values. 0 sets none.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getTransactionLogCacheValues() {
+    return instance()->TransactionLogCacheValues;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultTransactionLogCacheValues() {
+    const static long def = 10000;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogCacheValues(const long &v) {
+    instance()->handle->SetInt("TransactionLogCacheValues",v);
+    instance()->TransactionLogCacheValues = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogCacheValues() {
+    instance()->handle->RemoveInt("TransactionLogCacheValues");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogPullOnSave() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"A save first brings in what another process saved into the file\n"
+"since it was read here, and merges it (docs/TransactionLog.md sec\n"
+"29.8); a conflict stops the save at the merge. Off, the save takes\n"
+"no lock and writes over the file as before.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const bool & DocumentParams::getTransactionLogPullOnSave() {
+    return instance()->TransactionLogPullOnSave;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const bool & DocumentParams::defaultTransactionLogPullOnSave() {
+    const static bool def = true;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogPullOnSave(const bool &v) {
+    instance()->handle->SetBool("TransactionLogPullOnSave",v);
+    instance()->TransactionLogPullOnSave = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogPullOnSave() {
+    instance()->handle->RemoveBool("TransactionLogPullOnSave");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogCoalesceSeconds() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"A commit that writes by hand the one property the commit before\n"
+"it wrote, by the same author under the same name and within this\n"
+"many seconds of it, is folded into it: one row of the transaction\n"
+"log and one undo step for the run, as a spinbox or a Python loop\n"
+"makes it (docs/TransactionLog.md sec 37.4 P4). 0 never folds.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getTransactionLogCoalesceSeconds() {
+    return instance()->TransactionLogCoalesceSeconds;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultTransactionLogCoalesceSeconds() {
+    const static long def = 3;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogCoalesceSeconds(const long &v) {
+    instance()->handle->SetInt("TransactionLogCoalesceSeconds",v);
+    instance()->TransactionLogCoalesceSeconds = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogCoalesceSeconds() {
+    instance()->handle->RemoveInt("TransactionLogCoalesceSeconds");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogKeepNamed() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"How many named versions a saved file carries in its history\n"
+"(docs/TransactionLog.md sec 37.4 P1), the newest first, for a file\n"
+"that does not say (Document.setHistoryRetention): rows older than\n"
+"the oldest version the file carries are left out of it. A version\n"
+"a branch forked from and a pinned one always travel. 0 carries\n"
+"every named version; below 0 carries the whole history.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getTransactionLogKeepNamed() {
+    return instance()->TransactionLogKeepNamed;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultTransactionLogKeepNamed() {
+    const static long def = 10;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogKeepNamed(const long &v) {
+    instance()->handle->SetInt("TransactionLogKeepNamed",v);
+    instance()->TransactionLogKeepNamed = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogKeepNamed() {
+    instance()->handle->RemoveInt("TransactionLogKeepNamed");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

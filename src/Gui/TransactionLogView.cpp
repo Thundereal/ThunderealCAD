@@ -83,7 +83,9 @@
 #include "TransactionLogView.h"
 #include "Application.h"
 #include "Document.h"
+#include "DockWindowManager.h"
 #include "FileDialog.h"
+#include "MainWindow.h"
 #include "SceneLog.h"
 #include "SceneRequests.h"
 #include "SceneServeSource.h"
@@ -1285,6 +1287,10 @@ TransactionLogView::TransactionLogView(Gui::Document* pcDocument, QWidget* paren
     _previewTimer.setSingleShot(true);
     _previewTimer.setInterval(800);
     connect(&_previewTimer, &QTimer::timeout, this, &TransactionLogView::previewRequests);
+    // A stat of each open document's file every few seconds (sec 29.8).
+    _diskTimer.setInterval(3000);
+    connect(&_diskTimer, &QTimer::timeout, this, &TransactionLogView::checkDisks);
+    _diskTimer.start();
     connect(_allBranches, &QCheckBox::toggled, this, &TransactionLogView::applyVisibility);
     connect(_hideRecords, &QCheckBox::toggled, this, &TransactionLogView::applyVisibility);
     connect(_showLogins, &QCheckBox::toggled, this, &TransactionLogView::applyVisibility);
@@ -1299,6 +1305,13 @@ TransactionLogView::TransactionLogView(Gui::Document* pcDocument, QWidget* paren
         });
     _connDeleteDoc = App::GetApplication().signalDeleteDocument.connect(
         [this](const App::Document& doc) {
+            // A merge looked at goes with the document it is of, wherever
+            // the panel is (sec 37.7 item 15)
+            if (&doc == _mergeDoc) {
+                _mergeDoc = nullptr;   // no preview of it made again
+                if (_mergeDialog)
+                    _mergeDialog->reject();
+            }
             if (&doc == _doc)
                 detach();
         });
@@ -1352,9 +1365,11 @@ void TransactionLogView::attach(App::Document* doc)
         [this](const App::Document&) { scheduleRefresh(); }));
     _connections.emplace_back(_doc->signalRedo.connect(
         [this](const App::Document&) { scheduleRefresh(); }));
-    // Rows can go as well as come (a trim, a deleted branch): rebuilt whole.
+    // Rows can go as well as come (a trim, a deleted branch): rebuilt whole,
+    // on the refresh timer rather than inside the signal -- a switch or a
+    // merge of a long log stalled on it, visible or not (sec 37.7 item 14).
     _connections.emplace_back(_doc->signalBranchesChanged.connect(
-        [this](const App::Document&) { reload(); }));
+        [this](const App::Document&) { scheduleReload(); }));
     // What is kept, from Python or a served client's panel (sec 32.27):
     // no row says so. After the act that kept it, which may be this panel's
     _connections.emplace_back(_doc->signalLogKeptChanged.connect([this](const App::Document&) {
@@ -1367,9 +1382,9 @@ void TransactionLogView::attach(App::Document* doc)
 void TransactionLogView::detach()
 {
     _connections.clear();
-    // A merge being looked at is of the document that leaves
-    if (_mergeDialog)
-        _mergeDialog->reject();
+    // A merge being looked at stays open while another document is the
+    // panel's (sec 32.15's "in reach", ruled 37.7 item 15): it is of its own
+    // document, and goes only with that one.
     _doc = nullptr;
     _diffBar->setDocument(nullptr);
     _previewed.clear();
@@ -1397,6 +1412,17 @@ void TransactionLogView::onUpdate()
     scheduleRefresh();
 }
 
+void TransactionLogView::scheduleReload()
+{
+    // What the status says now: a message the panel's own act sets after
+    // the signal (a squash, a merge) outlives the rebuild, as it did when
+    // the rebuild came first.
+    if (!_reloadWanted)
+        _statusBeforeReload = _status->text();
+    _reloadWanted = true;
+    scheduleRefresh();
+}
+
 void TransactionLogView::scheduleRefresh()
 {
     _stale = true;
@@ -1420,6 +1446,7 @@ void TransactionLogView::hideEvent(QHideEvent* ev)
 
 void TransactionLogView::reload()
 {
+    _reloadWanted = false;
     _transactions->clear();
     _ops->clear();
     _versions->clear();
@@ -1458,6 +1485,13 @@ void TransactionLogView::guarded(F&& f)
 
 void TransactionLogView::refresh()
 {
+    if (_reloadWanted) {
+        const QString said = _status->text();
+        reload();   // which refreshes
+        if (said != _statusBeforeReload)
+            _status->setText(said);
+        return;
+    }
     _stale = false;
     auto l = log();
     if (!l) {
@@ -1756,6 +1790,7 @@ void TransactionLogView::onKeptContextMenu(const QPoint& pos)
     }
     if (seq)
         row = menu.addAction(tr("Show row %1").arg(seq));
+    pinMenu(menu, {row});
     auto chosen = menu.exec(_kept->viewport()->mapToGlobal(pos));
     if (!chosen)
         return;
@@ -1922,10 +1957,17 @@ void TransactionLogView::appendTransactions(int64_t fromSeq)
     std::map<int64_t, App::LogSession> sessions;
     for (auto& s : l->store().sessions())
         sessions[s.id] = s;
+    // Which rows change something, in one query (sec 37.7 item 14): reading
+    // each row's ops to learn it decoded the whole log on every reload.
+    std::set<int64_t> changing;
+    for (int64_t seq : l->store().rowsWithOps(fromSeq))
+        changing.insert(seq);
+    // Newest first, as git lists history: the new rows go on top, put in
+    // in one go.
+    QList<QTreeWidgetItem*> made;
     for (const auto& t : l->store().transactions(fromSeq, 0)) {
-        // Newest first, as git lists history: each new row goes on top.
         auto item = new QTreeWidgetItem();
-        _transactions->insertTopLevelItem(0, item);
+        made.prepend(item);
         item->setText(TxnSeq, QString::number(t.seq));
         item->setData(TxnSeq, Qt::UserRole, QVariant::fromValue(static_cast<qlonglong>(t.seq)));
         item->setText(TxnKind, QString::fromStdString(t.kind));
@@ -1954,7 +1996,7 @@ void TransactionLogView::appendTransactions(int64_t fromSeq)
         item->setData(TxnParent, RoleParent, QVariant::fromValue(static_cast<qlonglong>(t.parent)));
         item->setData(TxnBranch, RoleBranch, QVariant::fromValue(static_cast<qlonglong>(t.branch)));
         // A record changed nothing (sec 11): greyed, and hidden on request.
-        const bool record = l->store().ops(t.seq).empty();
+        const bool record = changing.count(t.seq) == 0;
         item->setData(TxnKind, RoleRecord, record);
         if (record) {
             for (int c = 0; c < TxnColumns; ++c)
@@ -1979,6 +2021,7 @@ void TransactionLogView::appendTransactions(int64_t fromSeq)
         item->setText(TxnBranch, branches[t.branch]);
         lastItem = item;
     }
+    _transactions->insertTopLevelItems(0, made);
     if (lastItem)
         _transactions->scrollToItem(lastItem);
     for (int c = 0; c < TxnColumns; ++c) {
@@ -2484,6 +2527,25 @@ void TransactionLogView::refreshBranches()
                              && SceneServeSource::sourceFor(_doc) != nullptr);
     _access->setEnabled(_doc != nullptr);
     _renameBranch->setEnabled(_doc != nullptr && _branch->currentIndex() >= 0);
+    // Sec 27.22, 37.7 item 16: nothing here changes a pinned version. The
+    // tip a widget had is kept aside while it says why, for the next
+    // document.
+    const QString why = tr("A pinned version: shown, not changed (sec 27.22)");
+    const char* kept = "unpinnedToolTip";
+    for (QWidget* w : std::initializer_list<QWidget*> {_branch, _newBranch, _deleteBranch,
+                                                     _renameBranch, _mergeBranch, _importFile,
+                                                     _openBranch, _serveBranch, _access}) {
+        if (pinned()) {
+            if (!w->property(kept).isValid())
+                w->setProperty(kept, w->toolTip());
+            w->setEnabled(false);
+            w->setToolTip(why);
+        }
+        else if (w->property(kept).isValid()) {
+            w->setToolTip(w->property(kept).toString());
+            w->setProperty(kept, QVariant());
+        }
+    }
 }
 
 void TransactionLogView::onRenameBranch()
@@ -3566,8 +3628,10 @@ int TransactionLogView::askBeside(QDialog& dialog, const std::string& said,
     // its answer all the same, in a loop of its own, so that whoever asked
     // goes on from it. What can happen meanwhile: the document changes --
     // the preview is made again and, where it says another thing, the
-    // dialog is told; the document leaves the panel -- detach() rejects the
-    // dialog; another merge is asked for -- refused where it is asked.
+    // dialog is told; another document is made the panel's -- the dialog
+    // stays, of its own document (ruled, sec 37.7 item 15), which is closed
+    // -- it is rejected; another merge is asked for -- refused where it is
+    // asked.
     QPointer<TransactionLogView> self(this);
     App::Document* doc = _doc;
     bool told = false;
@@ -3575,7 +3639,7 @@ int TransactionLogView::askBeside(QDialog& dialog, const std::string& said,
     check.setSingleShot(true);
     check.setInterval(300);
     QObject::connect(&check, &QTimer::timeout, &dialog, [&]() {
-        if (told || _doc != doc)
+        if (told || _mergeDoc != doc)
             return;
         std::string now;
         try {
@@ -3599,6 +3663,7 @@ int TransactionLogView::askBeside(QDialog& dialog, const std::string& said,
         [&check](const App::Document&) { check.start(); }));
     //NOLINTEND
     _mergeDialog = &dialog;
+    _mergeDoc = doc;
     dialog.setModal(false);
     dialog.show();
     dialog.raise();
@@ -3610,7 +3675,8 @@ int TransactionLogView::askBeside(QDialog& dialog, const std::string& said,
     if (!self)
         return QDialog::Rejected;
     _mergeDialog = nullptr;
-    return _doc == doc ? dialog.result() : static_cast<int>(QDialog::Rejected);
+    _mergeDoc = nullptr;
+    return dialog.result();
 }
 
 bool TransactionLogView::mergeIsOpen()
@@ -3647,19 +3713,21 @@ void TransactionLogView::mergeBranch(const QString& name)
     auto l = log();
     if (!l || !_doc || mergeIsOpen())
         return;
+    // The document asked of, whichever the panel shows once the preview is
+    // answered (sec 37.7 item 15)
+    App::Document* doc = _doc;
     try {
         std::map<std::string, std::string> picks;
         for (;;) {
-            const auto preview = _doc->previewMerge(name.toStdString());
+            const auto preview = doc->previewMerge(name.toStdString());
             if (preview.changes.empty() && preview.forward.empty()) {
                 _status->setText(tr("Nothing of %1 to merge").arg(name));
                 return;
             }
             App::LogBranch mine;
             l->store().getBranch(l->branch(), mine);
-            App::Document* doc = _doc;
             QPointer<MergeDialog> dialog(new MergeDialog(
-                preview, QString::fromStdString(mine.name), l, _doc, this, false,
+                preview, QString::fromStdString(mine.name), l, doc, this, false,
                 [doc, name](const std::map<std::string, std::string>& sides,
                             const std::string& again) {
                     return doc->previewMergeResult(name.toStdString(), sides, std::string(), 0,
@@ -3667,7 +3735,7 @@ void TransactionLogView::mergeBranch(const QString& name)
                 }));
             const int answer = askBeside(
                 *dialog, MergeDialog::said(preview),
-                [this, name]() { return MergeDialog::said(_doc->previewMerge(name.toStdString())); },
+                [doc, name]() { return MergeDialog::said(doc->previewMerge(name.toStdString())); },
                 [dialog]() {
                     if (dialog)
                         dialog->setStale();
@@ -3682,7 +3750,7 @@ void TransactionLogView::mergeBranch(const QString& name)
                 return;
             break;
         }
-        const auto result = _doc->mergeBranch(name.toStdString(), picks);
+        const auto result = doc->mergeBranch(name.toStdString(), picks);
         if (!result.unresolved.empty())
             _status->setText(tr("Merge of %1 refused: %2 conflicts have no side")
                                  .arg(name).arg(result.unresolved.size()));
@@ -3746,11 +3814,13 @@ void TransactionLogView::applyRows(const QString& seqs)
     std::vector<int64_t> rows;
     for (const QString& part : seqs.split(QLatin1Char(','), Qt::SkipEmptyParts))
         rows.push_back(part.trimmed().toLongLong());
+    // As mergeBranch: the document asked of (sec 37.7 item 15)
+    App::Document* doc = _doc;
     try {
         std::map<std::string, std::string> picks;
         QString what;
         for (;;) {
-            const auto preview = _doc->previewPick(rows);
+            const auto preview = doc->previewPick(rows);
             what = QString::fromStdString(preview.branch);
             if (preview.changes.empty()) {
                 _status->setText(tr("Nothing of %1 to apply").arg(what));
@@ -3758,16 +3828,15 @@ void TransactionLogView::applyRows(const QString& seqs)
             }
             App::LogBranch mine;
             l->store().getBranch(l->branch(), mine);
-            App::Document* doc = _doc;
             QPointer<MergeDialog> dialog(new MergeDialog(
-                preview, QString::fromStdString(mine.name), l, _doc, this, true,
+                preview, QString::fromStdString(mine.name), l, doc, this, true,
                 [doc, rows](const std::map<std::string, std::string>& sides,
                             const std::string& again) {
                     return doc->previewPickResult(rows, sides, std::string(), again);
                 }));
             const int answer = askBeside(
                 *dialog, MergeDialog::said(preview),
-                [this, rows]() { return MergeDialog::said(_doc->previewPick(rows)); },
+                [doc, rows]() { return MergeDialog::said(doc->previewPick(rows)); },
                 [dialog]() {
                     if (dialog)
                         dialog->setStale();
@@ -3782,7 +3851,7 @@ void TransactionLogView::applyRows(const QString& seqs)
                 return;
             break;
         }
-        const auto result = _doc->pickRows(rows, picks);
+        const auto result = doc->pickRows(rows, picks);
         if (!result.unresolved.empty())
             _status->setText(tr("%1 not applied: %2 conflicts have no side")
                                  .arg(what).arg(result.unresolved.size()));
@@ -3809,6 +3878,41 @@ void TransactionLogView::onImportFile()
         QStringLiteral("%1 (*.FCStd *.TStd)").arg(tr("FreeCAD document")));
     if (!path.isEmpty())
         importFile(path, QString());
+}
+
+void TransactionLogView::mergeSaved(const QString& doc, const QString& branch)
+{
+    App::Document* saved = App::GetApplication().getDocument(doc.toUtf8().constData());
+    if (!saved)
+        return;
+    attach(saved);
+    if (auto mgr = DockWindowManager::instance())
+        mgr->activate(this);
+    _status->setText(tr("%1 was saved by another process since it was read here: pick a side for "
+                        "each conflict, then save again")
+                         .arg(QString::fromUtf8(saved->Label.getValue())));
+    mergeBranch(branch);
+}
+
+void TransactionLogView::checkDisks()
+{
+    for (App::Document* doc : App::GetApplication().getDocuments()) {
+        const std::string name = doc->getName();
+        if (!doc->isFileChangedElsewhere()) {
+            _toldElsewhere.erase(name);
+            continue;
+        }
+        if (!_toldElsewhere.insert(name).second)
+            continue;
+        const QString text = tr("%1 was saved by another process: its changes are merged in at "
+                                "the next save here")
+                                 .arg(QString::fromUtf8(doc->Label.getValue()));
+        Base::Console().Message("%s\n", text.toUtf8().constData());
+        if (auto main = getMainWindow())
+            main->showMessage(text, 10000);
+        if (doc == _doc)
+            updateStatus();
+    }
 }
 
 void TransactionLogView::importFile(const QString& path, const QString& branch)
@@ -4079,6 +4183,7 @@ void TransactionLogView::onRequestContextMenu(const QPoint& pos)
     const QString branch = item->data(0, RoleRequestBranch).toString();
     const qulonglong id = item->data(0, RoleRequestId).toULongLong();
     QMenu menu(this);
+    std::vector<QAction*> reading;   // what a pinned version still allows
     // Sec 32.25: a merge that was asked for
     const qlonglong asked = item->data(0, RoleMergeRequest).toLongLong();
     if (asked > 0) {
@@ -4096,6 +4201,7 @@ void TransactionLogView::onRequestContextMenu(const QPoint& pos)
                 FC_ERR("reject request " << asked << ": " << e.what());
             }
         });
+        pinMenu(menu, {});
         menu.exec(_requests->viewport()->mapToGlobal(pos));
         return;
     }
@@ -4137,24 +4243,35 @@ void TransactionLogView::onRequestContextMenu(const QPoint& pos)
         menu.addAction(tr("Bring in only"), this, [this, id]() { bringRequestOnly(id); });
         SceneRequest request;
         if (SceneRequests::find(id, request, _doc->getName())) {
-            menu.addAction(tr("Save a copy as..."), this, [this, id, request]() {
+            reading.push_back(menu.addAction(tr("Save a copy as..."), this, [this, id, request]() {
                 const QString path = FileDialog::getSaveFileName(
                     this, tr("Save a copy of the sent file"), request.name,
                     tr("FreeCAD document (*.FCStd)"));
                 if (!path.isEmpty())
                     saveRequestAs(id, path);
-            });
+            }));
         }
         menu.addSeparator();
-        menu.addAction(tr("Delete, unread"), this, [this, id]() { dropRequest(id); });
+        // A sent file is not the document's history: let go of, pinned or not.
+        reading.push_back(
+            menu.addAction(tr("Delete, unread"), this, [this, id]() { dropRequest(id); }));
         if (SceneRequests::list(_doc->getName()).size() > 1)
-            menu.addAction(tr("Delete all, unread"), this, [this]() {
+            reading.push_back(menu.addAction(tr("Delete all, unread"), this, [this]() {
                 if (QMessageBox::question(this, tr("Delete the sent files"),
                                           tr("Delete every file that was sent and has not "
                                              "been read?"))
                         == QMessageBox::Yes)
                     dropAllRequests();
-            });
+            }));
+    }
+    if (pinned()) {
+        const std::set<QAction*> keep(reading.begin(), reading.end());
+        for (QAction* action : menu.actions()) {
+            if (!action->isSeparator() && !keep.count(action)) {
+                action->setEnabled(false);
+                action->setToolTip(tr("A pinned version: shown, not changed (sec 27.22)"));
+            }
+        }
     }
     menu.exec(_requests->viewport()->mapToGlobal(pos));
 }
@@ -4475,6 +4592,14 @@ void TransactionLogView::transactionMenu(QTreeWidgetItem* item, const QPoint& gl
                                 "%1 is no longer merged, and merging it asks everything again "
                                 "(sec 31.21)").arg(QString::fromStdString(undone.branch)));
     }
+    // Read before the menu runs: a refresh inside its event loop (a commit
+    // from a client, the snapshot cadence) rebuilds the list and `item`.
+    const QString script = item->data(TxnName, Qt::UserRole).toString();
+    QStringList cells;
+    for (int c = 0; c < TxnColumns; ++c)
+        cells << item->text(c);
+    item = nullptr;
+    pinMenu(menu, {copyScript, copyRow});
     auto chosen = menu.exec(global);
     if (chosen == branchHere) {
         createBranch(0, seq);
@@ -4493,12 +4618,9 @@ void TransactionLogView::transactionMenu(QTreeWidgetItem* item, const QPoint& gl
         return;
     }
     if (chosen == copyScript) {
-        QApplication::clipboard()->setText(item->data(TxnName, Qt::UserRole).toString());
+        QApplication::clipboard()->setText(script);
     }
     else if (chosen == copyRow) {
-        QStringList cells;
-        for (int c = 0; c < TxnColumns; ++c)
-            cells << item->text(c);
         QApplication::clipboard()->setText(cells.join(QLatin1Char('\t')));
     }
 }
@@ -4664,6 +4786,7 @@ void TransactionLogView::onOpContextMenu(const QPoint& pos)
     object->setToolTip(tr("Each shape its recomputes made, and will make: the file grows by "
                           "each"));
     const QString prop = item->text(OpProp);
+    pinMenu(menu, {});
     auto chosen = menu.exec(_ops->viewport()->mapToGlobal(pos));
     if (chosen == value)
         keepValue(seq, cid, prop, !valueKept);
@@ -4719,11 +4842,17 @@ void TransactionLogView::onVersionContextMenu(const QPoint& pos)
                             "(sec 32.11)"));
     auto letGoHere = menu.addAction(tr("Let go of the selected objects as they are at "
                                        "version %1").arg(num));
+    // Read before the menu runs: a refresh inside its event loop (a commit
+    // from a client, the snapshot cadence) rebuilds the list and `item`.
+    const qlonglong verSeq = item->text(VerSeq).toLongLong();
+    const QString verName = item->text(VerName);
+    item = nullptr;
+    pinMenu(menu, {open});
     auto chosen = menu.exec(_versions->viewport()->mapToGlobal(pos));
     if (!chosen)
         return;
     if (chosen == keepHere || chosen == letGoHere) {
-        keepSelectedAt(item->text(VerSeq).toLongLong(), chosen == keepHere);
+        keepSelectedAt(verSeq, chosen == keepHere);
         return;
     }
     if (chosen == squash) {
@@ -4761,26 +4890,42 @@ void TransactionLogView::onVersionContextMenu(const QPoint& pos)
                 Application::Instance->setActiveDocument(gdoc);
             return;
         }
-        auto l = log();
-        if (!l)
-            return;
         if (chosen == name) {
             bool ok = false;
             QString text = QInputDialog::getText(this, tr("Name version %1").arg(num),
-                                                 tr("Name:"), QLineEdit::Normal,
-                                                 item->text(VerName), &ok);
+                                                 tr("Name:"), QLineEdit::Normal, verName, &ok);
             if (!ok || text.trimmed().isEmpty())
                 return;
-            l->store().nameVersion(num, text.trimmed().toStdString());
+            doc->nameLogVersion(num, text.trimmed().toStdString());
         }
         else if (chosen == unname) {
-            l->store().nameVersion(num, std::string());
+            doc->nameLogVersion(num, std::string());
         }
         _lastVersion = -1;   // rows rebuilt
         refresh();
     }
     catch (Base::Exception& e) {
         FC_ERR("version " << num << ": " << e.what());
+    }
+}
+
+bool TransactionLogView::pinned() const
+{
+    return _doc && _doc->testStatus(App::Document::FrozenVersion);
+}
+
+void TransactionLogView::pinMenu(QMenu& menu, std::initializer_list<QAction*> reading) const
+{
+    // Sec 27.22, 37.7 item 16: a pinned version is shown, not changed. Every
+    // entry but those that only read is greyed, with the reason.
+    if (!pinned())
+        return;
+    const std::set<QAction*> keep(reading.begin(), reading.end());
+    for (QAction* action : menu.actions()) {
+        if (action->isSeparator() || keep.count(action))
+            continue;
+        action->setEnabled(false);
+        action->setToolTip(tr("A pinned version: shown, not changed (sec 27.22)"));
     }
 }
 
@@ -4810,7 +4955,7 @@ void TransactionLogView::updateStatus()
         return;
     }
     _resolve->setEnabled(true);
-    _snapshot->setEnabled(true);
+    _snapshot->setEnabled(!pinned());
     size_t versions = 0;
     try {
         versions = l->store().versions().size();
@@ -4819,6 +4964,8 @@ void TransactionLogView::updateStatus()
     }
     const long mode = App::DocumentParams::getTransactionLog();
     QString modeText = mode == 2 ? tr("embedded") : tr("session");
+    if (pinned())
+        modeText += QStringLiteral(", ") + tr("a pinned version: shown, not changed");
     try {
         App::LogBranch branch;
         if (l->store().getBranch(l->branch(), branch))
@@ -4852,6 +4999,13 @@ void TransactionLogView::updateStatus()
     }
     catch (Base::Exception&) {
     }
+    // Sec 29.8: the file written elsewhere, and a save that waits on a merge.
+    if (!_doc->pendingSaveMerge().empty())
+        modeText += QStringLiteral(", ")
+                  + tr("a save waits on the merge of %1")
+                        .arg(QString::fromStdString(_doc->pendingSaveMerge()));
+    else if (_doc->isFileChangedElsewhere())
+        modeText += QStringLiteral(", ") + tr("saved by another process: merged at the next save");
     _status->setText(tr("%1 [%7]: %2 transactions, %3 versions, %4 pending, session %5  --  %6")
                          .arg(QString::fromUtf8(_doc->getName()))
                          .arg(_lastSeq)

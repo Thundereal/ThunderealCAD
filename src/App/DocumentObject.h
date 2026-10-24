@@ -52,6 +52,8 @@ class DocumentObjectGroup;
 class DocumentObjectPy;
 class Expression;
 class PropertyPlacement;
+/// Defined in DocumentObjectExtension.h (sec 37.9)
+enum class OwnedPaste;
 
 enum ObjectStatus {
     Touch = 0,
@@ -168,6 +170,17 @@ public:
     const char *getNameInDocument() const;
     /// Return the object ID that is unique within its owner document
     long getID() const {return _Id;}
+    /** What the object is known by across copies of its file and across
+     * documents (docs/TransactionLog.md sec 36): given when it is created,
+     * kept when it is saved, restored or brought elsewhere, new only where
+     * a live object has it already.
+     */
+    const std::string& getObjectUid() const {return _uid;}
+    /** Whether Python's read-only `Uid` answers getObjectUid(): the classes
+     * that had a `Uid` property of their own before there was one for
+     * every object (docs/TransactionLog.md sec 36.7).
+     */
+    virtual bool hasUidAttribute() const {return false;}
     /// returns the name that is safe to be exported to other document
     std::string getExportName(bool forced=false) const;
     /// Return the object full name of the form DocName#ObjName
@@ -276,6 +289,26 @@ public:
 
     /// return true to activate tree view group object handling and element visibility
     virtual bool hasChildElement() const;
+    //@}
+
+    /** @name What an object owns (docs/TransactionLog.md sec 37.9)
+     *
+     * An owned object is made with its owner and removed with it, and is
+     * never another's: a body's or a part's Origin, a coordinate system's
+     * axes and planes. A paste follows the owner for it: what it owns is
+     * not chosen apart from it.
+     */
+    //@{
+    /// What this object owns; the extensions are asked, none by default.
+    virtual std::vector<DocumentObject*> getOwnedObjects() const;
+    /** Of what this object owns, the object of `liveOwner` -- an object
+     * this one is pasted onto -- that `owned` stands for, null if none,
+     * and in `how` whether it follows the owner or the live one is kept.
+     * An origin pairs by its slot, the axes and planes by Role.
+     */
+    virtual DocumentObject* getOwnedCounterpart(const DocumentObject* owned,
+                                                const DocumentObject* liveOwner,
+                                                OwnedPaste& how) const;
     //@}
 
 
@@ -983,6 +1016,12 @@ protected:
     /// get called when a property status has changed
     void onPropertyStatusChanged(const Property &prop, unsigned long oldStatus) override;
 
+    /** For handleChangedPropertyName(): a `Uid` property of an older file,
+     * which the classes that had one of their own wrote, is read for the
+     * object's UID (docs/TransactionLog.md sec 36.7). True if it was one.
+     */
+    bool restoreUidProperty(Base::XMLReader &reader, const char *TypeName, const char *PropName);
+
 private:
     void printInvalidLinks() const;
 
@@ -1004,6 +1043,8 @@ private:
 
     // unique identifier (among a document) of this object.
     long _Id{0};
+    // sec 36, set by App::Document
+    std::string _uid;
 
 private:
     // Back pointer to all the fathers in a DAG of the document

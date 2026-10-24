@@ -116,6 +116,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include "BrandText.h"
 #include "DocumentObserver.h"
 #include "DocumentObject.h"
+#include "Extension.h"
 #include "DocumentParams.h"
 #include "UnitsParams.h"
 #include "ExpressionParser.h"
@@ -306,6 +307,65 @@ struct Document::ColdRevert
 };
 
 namespace {
+
+/// The Python extensions a `create` or `remove` op says its object had
+/// (sec 9.2), by type name; a C++ one the class brings itself.
+std::vector<std::string> extensionsOfOp(const LogOp& o)
+{
+    std::vector<std::string> out;
+    if (o.meta.empty() || o.meta.front() != '{')
+        return out;
+    try {
+        auto j = nlohmann::json::parse(o.meta);
+        if (j.is_object() && j.contains("ext") && j["ext"].is_array()) {
+            for (const auto& e : j["ext"]) {
+                if (e.is_string())
+                    out.push_back(e.get<std::string>());
+            }
+        }
+    }
+    catch (...) {
+    }
+    return out;
+}
+
+/// The Python extensions `from` carries, by type name: what a file saves
+/// of an object's extensions (ExtensionContainer::saveExtensions).
+std::vector<std::string> pythonExtensionsOf(const ExtensionContainer& from)
+{
+    std::vector<std::string> out;
+    for (auto ext : from.getExtensionsDerivedFrom(Extension::getExtensionClassTypeId())) {
+        if (ext && ext->isPythonExtension())
+            out.push_back(ext->getExtensionTypeId().getName());
+    }
+    return out;
+}
+
+/// An object made again by type gets the Python extensions it had: a
+/// group extension, with its Group, where the type alone has none.
+void addExtensionsByName(DocumentObject* obj, const std::vector<std::string>& names)
+{
+    for (const auto& name : names) {
+        bool has = false;
+        for (auto ext : obj->getExtensionsDerivedFrom(Extension::getExtensionClassTypeId()))
+            has = has || name == ext->getExtensionTypeId().getName();
+        if (has)
+            continue;
+        Base::Type type = Base::Type::fromName(name.c_str());
+        if (type.isBad() || !type.isDerivedFrom(Extension::getExtensionClassTypeId())) {
+            FC_WARN(obj->getFullName() << ": no extension of type " << name);
+            continue;
+        }
+        auto ext = static_cast<Extension*>(type.createInstance());
+        if (!ext)
+            continue;
+        if (!ext->isPythonExtension()) {
+            delete ext;
+            continue;
+        }
+        ext->initExtension(obj);
+    }
+}
 
 /// The container an op names, in `doc` as it stands; null when gone.
 PropertyContainer* opContainer(Document& doc, const LogOp& op)
@@ -902,6 +962,7 @@ void Document::_applyRevert(ColdRevert& revert)
                 THROWM(Base::RuntimeError, "cannot create " + o->ctype);
             obj->_Id = o->cid;
             addObject(obj, o->cname.c_str(), false);
+            addExtensionsByName(obj, extensionsOfOp(*o));
             for (auto& kv : dynamicSets) {
                 if (kv.first.first != o->cid || obj->getPropertyByName(kv.first.second.c_str()))
                     continue;
@@ -1054,6 +1115,7 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs)
     // first, each from the state it left, and all of them or none.
     if (isPerformingTransaction() || d->committing)
         return false;
+    checkNotFrozen("undo a row");
     auto log = getTransactionLog();
     if (!log)
         return false;
@@ -1150,8 +1212,15 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs)
     }
 
     // The redo steps end here, with every row taken back: a refusal above
-    // leaves them as they were.
+    // leaves them as they were. Cleared with the step set aside, as
+    // _openTransaction clears them before it makes its own: deleting a redo
+    // step deletes the objects it holds, and what their teardown writes is
+    // not this undo's (sec 37.7 item 5) -- a step of its own if anything.
+    step = std::exchange(d->activeUndoTransaction, nullptr);
     _clearMyRedos();
+    if (d->activeUndoTransaction)
+        _commitTransaction(false);
+    d->activeUndoTransaction = step;
     _commitTransaction(false);
     return true;
 }
@@ -1370,9 +1439,19 @@ bool Document::_takeStep(bool undo, int id)
         _applyRevert(cold);
     else
         step->apply(*this, !undo);
-    if (touched.active)
-        touched.leave(*this, *d->activeUndoTransaction, cold.touched);
-    logInverse(*step, undo ? "undo" : "redo", step->Cold ? &cold : nullptr);
+    // The stacks are kept whatever the log makes of the step: an inverse
+    // left as the active transaction would take the next write as its own.
+    try {
+        if (touched.active)
+            touched.leave(*this, *d->activeUndoTransaction, cold.touched);
+        logInverse(*step, undo ? "undo" : "redo", step->Cold ? &cold : nullptr);
+    }
+    catch (Base::Exception& e) {
+        FC_ERR("transaction log: " << e.what());
+    }
+    catch (std::exception& e) {
+        FC_ERR("transaction log: " << e.what());
+    }
     // Of the kind the step taken was (sec 33.4). Set here, not when it was
     // opened: an open implicit transaction is committed by whatever
     // invocation ends.
@@ -1449,6 +1528,13 @@ bool Document::undo(int id)
                 // An implicit step is no step to undo down to (sec 33.4).
                 if (it->second->Implicit)
                     return false;
+                // Nor another author's (sec 30.10): it is in no run of this
+                // one's, and undoing down to it would take every step.
+                if (d->transactionLog
+                        && !sameUser(it->second->Author.get(), ActorScope::current().get())) {
+                    d->undoRefusal = "the step is another's";
+                    return false;
+                }
                 // The actor's steps down to that one (sec 30.10): another's
                 // on the way are not in its stack.
                 std::optional<TransactionGuard> guard;
@@ -1590,6 +1676,7 @@ void Document::_addOrRemoveProperty(TransactionalObject* obj, Property *prop, bo
 {
     if (d->bookkeeping)
         return;
+    checkNotFrozen(add ? "add a property" : "remove a property");
     // A property never saved -- a cache like Part's shape cache, added when
     // a command's isActive() builds a link's shape -- is no change to the
     // document: it opens no transaction, where it opened the running
@@ -1631,6 +1718,11 @@ void Document::setLibraryPathsQuietly(std::map<std::string, std::string>&& map)
 bool Document::isReplaying() const
 {
     return d->replaying || d->checkingOut;
+}
+
+bool Document::isWritingForeign() const
+{
+    return d->writingForeign;
 }
 
 namespace
@@ -1860,6 +1952,15 @@ void Document::_checkTransaction(DocumentObject* pcDelObj, const Property *What,
                             ignore = true;
                     }
                 }
+                // Not the application's id when a step on the undo stack
+                // already has it: an undo committed the transaction while the
+                // command that opened it still names it, and reopening it
+                // would throw "invalid transaction id". The write is a step
+                // of its own then (sec 37.7 item 4).
+                if(name && tid>0 && mUndoMap.count(tid)) {
+                    FC_LOG("transaction " << tid << " is closed, write is a step of its own");
+                    name = nullptr;
+                }
                 if(name && tid>0) {
                     if(FC_LOG_INSTANCE.isEnabled(FC_LOGLEVEL_LOG)) {
                         if(What)
@@ -1873,7 +1974,10 @@ void Document::_checkTransaction(DocumentObject* pcDelObj, const Property *What,
                         _openTransaction(name,tid);
                     return;
                 }
-                if(!ignore && !pcDelObj) {
+                // With the log on, a removal with nothing open is a step
+                // of its own too: the log's `remove` op is written at the
+                // commit, and a removal in no transaction left no row.
+                if(!ignore && (!pcDelObj || d->transactionLog)) {
                     _openImplicitTransaction();
                     return;
                 }
@@ -1996,11 +2100,12 @@ void Document::_commitTransaction(bool notify)
         if (!d->activeUndoTransaction->isEmpty())
             d->stateToken = ++d->stateCounter;
         d->activeUndoTransaction->StateAfter = d->stateToken;
-        if (d->iUndoMode) {
+        if (d->iUndoMode && !_coalesceStep(d->activeUndoTransaction)) {
             mUndoTransactions.push_back(d->activeUndoTransaction);
         }
         else {
-            // Recorded for the log only: no undo step is kept.
+            // Recorded for the log only: no undo step is kept. Or folded
+            // into the step before it (sec 37.4 P4).
             mUndoMap.erase(id);
             _deleteTransaction(d->activeUndoTransaction);
         }
@@ -2014,6 +2119,96 @@ void Document::_commitTransaction(bool notify)
         if (snapshotDue)
             snapshotToLog();
     }
+}
+
+bool Document::_coalesceStep(Transaction* later)
+{
+    // docs/TransactionLog.md sec 37.4 P4: a spinbox, a Python loop -- one
+    // property written commit after commit makes two rows, a value, a blob
+    // and a delta each time. Folded, the run is one row and one undo step:
+    // the undo granularity is the trade, as ruled.
+    const double now = std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    const double lastTime = d->lastCommitTime;
+    const int64_t lastSeq = d->lastCommitSeq;
+    d->lastCommitTime = now;
+    d->lastCommitSeq = later->LogSeq;
+    const long window = DocumentParams::getTransactionLogCoalesceSeconds();
+    TransactionLog* log = getTransactionLog();
+    if (window <= 0 || !log || d->closing || mUndoTransactions.empty() || later->LogSeq <= 0
+            || now - lastTime > static_cast<double>(window))
+        return false;
+    // The last commit is the newest step, and under it, past the implicit
+    // steps a recompute after it made (sec 33.4), the step to fold into.
+    if (mUndoTransactions.back()->LogSeq != lastSeq)
+        return false;
+    std::vector<Transaction*> between;
+    Transaction* prev = nullptr;
+    for (auto it = mUndoTransactions.rbegin(); it != mUndoTransactions.rend(); ++it) {
+        if (!(*it)->Implicit) {
+            prev = *it;
+            break;
+        }
+        between.push_back(*it);
+    }
+    if (!prev || prev->LogSeq <= 0 || prev->Cold)
+        return false;
+    // What is between wrote nothing by hand: a recompute's.
+    std::set<int64_t> implicitRows;
+    for (Transaction* step : between) {
+        const TransactionalObject* o = nullptr;
+        int64_t p = 0;
+        if (step->Cold || step->LogSeq <= 0 || step->handWrite(o, p) || o
+                || step->Author.get() != later->Author.get() || !step->absorbable())
+            return false;
+        implicitRows.insert(step->LogSeq);
+    }
+    // Plain user steps both, by one author, under one name.
+    auto plain = [](const Transaction* t) {
+        return !t->Implicit && t->LogKind.empty() && !t->Inverts && !t->MergeFrom
+            && t->LogScript.empty();
+    };
+    if (!plain(prev) || !plain(later) || prev->Origin != later->Origin
+            || prev->Author.get() != later->Author.get() || prev->Name != later->Name)
+        return false;
+    // The one same property, written by hand in each, and there still.
+    const TransactionalObject *prevObj = nullptr, *laterObj = nullptr;
+    int64_t prevProp = 0, laterProp = 0;
+    if (!prev->handWrite(prevObj, prevProp) || !later->handWrite(laterObj, laterProp)
+            || prevObj != laterObj || prevProp != laterProp)
+        return false;
+    auto obj = Base::freecad_dynamic_cast<const DocumentObject>(laterObj);
+    if (!obj || !obj->isAttachedToDocument() || obj->getDocument() != this)
+        return false;
+    std::vector<Property*> props;
+    obj->getPropertyList(props);
+    if (std::none_of(props.begin(), props.end(),
+                     [laterProp](const Property* p) { return p->getID() == laterProp; }))
+        return false;
+    // A step of the application's that spans other documents too is theirs
+    // as much as this one's.
+    for (auto doc : GetApplication().getDocuments()) {
+        if (doc != this && (doc->mUndoMap.count(prev->getID())
+                            || doc->mUndoMap.count(later->getID())))
+            return false;
+    }
+    if (!log->coalesceRows(prev->LogSeq, later->LogSeq, implicitRows))
+        return false;
+    // Oldest first into the earlier step, so its befores are the oldest:
+    // absorb() keeps the receiver's where both changed a property. Every
+    // one was checked absorbable above.
+    for (auto it = between.rbegin(); it != between.rend(); ++it) {
+        Transaction* step = *it;
+        prev->absorb(*step);
+        mUndoTransactions.remove(step);
+        mUndoMap.erase(step->getID());
+        _deleteTransaction(step);
+    }
+    prev->absorb(*later);
+    prev->LogSeq = later->LogSeq;
+    prev->StateAfter = later->StateAfter;
+    d->lastCommitSeq = prev->LogSeq;
+    return true;
 }
 
 void Document::abortTransaction() {
@@ -2120,6 +2315,8 @@ void Document::clearDocument()
     d->objectArray.clear();
     d->objectMap.clear();
     d->objectIdMap.clear();
+    d->objectUidMap.clear();
+    d->derivedUids.clear();
     d->lastObjectId = 0;
     // The ids of a file are never handed out again (sec 27.40), which is
     // for its versions and branches. A temporary document has neither, and
@@ -2246,6 +2443,9 @@ unsigned int Document::getMaxUndoStackSize()const
 void Document::onBeforeChange(const Property* prop)
 {
     if(!d->rollback && !d->bookkeeping) {
+        // A pinned version refuses its own properties as its objects'
+        // (sec 27.22); the naming writes are bookkeeping.
+        checkNotFrozen(prop->getName() ? prop->getName() : "a property");
         _checkTransaction(0, prop, __LINE__);
         if (d->activeUndoTransaction)
             d->activeUndoTransaction->addObjectChange(nullptr, prop);
@@ -2383,7 +2583,9 @@ void Document::onBeforeChangeProperty(const TransactionalObject *Who, const Prop
         if (obj && obj->testStatus(ObjectStatus::Restore))
             return;
     }
-    if(!d->rollback) {
+    // Bookkeeping -- a compatibility name put on an object (sec 36.7) --
+    // is no step and in no step that is open.
+    if(!d->rollback && !d->bookkeeping) {
         _checkTransaction(nullptr, What, __LINE__);
         if (d->activeUndoTransaction)
             d->activeUndoTransaction->addObjectChange(Who, What);
@@ -2392,6 +2594,7 @@ void Document::onBeforeChangeProperty(const TransactionalObject *Who, const Prop
 
 void Document::onBeforeChangeFreeze(const DocumentObject *Who)
 {
+    checkNotFrozen("freeze an object");
     // As a property change is recorded, so that freezing is undone
     if(!d->rollback) {
         _checkTransaction(nullptr, nullptr, __LINE__);
@@ -2586,6 +2789,8 @@ Document::~Document()
     // of, and crashed. Nothing reads the log of a document that is going;
     // the transaction itself is destroyed as it always was.
     d->closing = true;
+    if (!d->openMarker.empty())
+        FileOpeners::remove(d->openMarker);
     try {
         clearUndos();
     }
@@ -2778,6 +2983,12 @@ void Document::Save (Base::Writer &writer) const
         saveClock = now;
         return secs;
     };
+    // Upstream's format keeps each object's UID as `_ObjectUUID` (sec
+    // 36.7), there before the objects settle what they write.
+    if (writer.getSchemaVersion() < 5) {
+        for (auto o : d->objectArray)
+            const_cast<Document*>(this)->carryObjectUid(o, o->getObjectUid());
+    }
     for (auto o : d->objectArray) {
         if (d->saveSeq) {
             d->saveSeq->next();
@@ -2839,6 +3050,13 @@ void Document::Restore(Base::XMLReader &reader)
 
     if (reader.hasAttribute("Uid"))
         Uid.setValue(reader.getAttribute("Uid"));
+    // The file's Uid as read, before a clash with an open copy changes it:
+    // what an older file's object UIDs are derived from (sec 36 U3).
+    if (reader.hasAttribute("Uid")) {
+        d->fileUid = reader.getAttribute("Uid");
+        if (d->history)
+            d->history->noteFileUid(d->fileUid);
+    }
 
     // Both flags belong to the document element, and reading an element of
     // its own below replaces the attributes -- so take them while they are
@@ -3257,17 +3475,12 @@ void Document::exportObjects(const std::vector<App::DocumentObject*>& obj, std::
     DocumentExporting exporting(obj);
     d->hashers.clear();
 
-    if(FC_LOG_INSTANCE.isEnabled(FC_LOGLEVEL_LOG)) {
-        for(auto o : obj) {
-            if(o && o->isAttachedToDocument()) {
-                FC_LOG("exporting " << o->getFullName());
-                if (!o->getPropertyByName("_ObjectUUID")) {
-                    auto prop = static_cast<PropertyUUID*>(o->addDynamicProperty(
-                            "App::PropertyUUID", "_ObjectUUID", nullptr, nullptr,
-                            Prop_Output | Prop_Hidden));
-                    prop->setValue(Base::Uuid::createUuid());
-                }
-            }
+    // A fragment is upstream's format, which keeps each object's UID as
+    // `_ObjectUUID` besides the attribute this fork reads (sec 36.7).
+    for(auto o : obj) {
+        if(o && o->isAttachedToDocument()) {
+            FC_LOG("exporting " << o->getFullName());
+            o->getDocument()->carryObjectUid(o, o->getObjectUid());
         }
     }
 
@@ -3303,9 +3516,21 @@ void Document::exportObjects(const std::vector<App::DocumentObject*>& obj, std::
 
     writer.putNextEntry("Document.xml");
     writer.Stream() << "<?xml version='1.0' encoding='utf-8'?>\n";
+    // The document the objects are copied from, so that a paste into it is
+    // known for a copy beside them (sec 36.4): its transient directory,
+    // which no other open document has.
+    std::set<Document*> from;
+    for (auto o : obj) {
+        if (o && o->getDocument())
+            from.insert(o->getDocument());
+    }
     writer.Stream() << R"(<Document SchemaVersion=")" << writer.getSchemaVersion()
-                        << R"(" ProgramVersion=")" << programVersionAttribute()
-                        << R"(" FileVersion="1">\n)";
+                        << R"(" ProgramVersion=")" << programVersionAttribute() << '"';
+    if (from.size() == 1)
+        writer.Stream() << R"( From=")"
+                        << Property::encodeAttribute((*from.begin())->TransientDir.getStrValue())
+                        << '"';
+    writer.Stream() << R"( FileVersion="1">)" << '\n';
     // Add this block to have the same layout as for normal documents
     writer.Stream() << "<Properties Count=\"0\">\n";
     writer.Stream() << "</Properties>\n";
@@ -3454,6 +3679,14 @@ void Document::checkUserEdit(const Document *doc, const DocumentObject *obj,
                              const Property *prop)
 {
     if (!s_userEditing || !doc || !doc->testStatus(Status::LiveImport)) {
+        return;
+    }
+    // The document's bookkeeping, and a name over a value kept elsewhere
+    // (Legacy) or one that marks nothing modified: not an edit, and a copy
+    // or a save puts the UID's compatibility name on an object (sec 36.7).
+    if (doc->d->bookkeeping
+            || (prop && (prop->testStatus(Property::Legacy)
+                         || prop->testStatus(Property::NoModify)))) {
         return;
     }
     // Undoing, redoing or rolling back is the machinery taking an edit AWAY,
@@ -3847,6 +4080,9 @@ void Document::writeObjects(const std::vector<App::DocumentObject*>& obj,
         << "name=\"" << (*it)->getExportName()       << "\" "
         << "id=\"" << (*it)->getID()       << "\" "
         << "revision=\"" << (*it)->getRevision() << "\" ";
+        // Sec 36: what the object is known by across copies and documents.
+        if (!(*it)->getObjectUid().empty())
+            writer.Stream() << "uid=\"" << (*it)->getObjectUid() << "\" ";
 
         // Only write out custom view provider types
         std::string viewType = (*it)->getViewProviderNameStored();
@@ -4099,6 +4335,7 @@ Document::readObjects(Base::XMLReader& reader)
 {
     d->touchedObjs.clear();
     d->savedTouched.clear();
+    d->unsourcedUids.clear();
     bool keepDigits = testStatus(Document::KeepTrailingDigits);
     setStatus(Document::KeepTrailingDigits, !reader.doNameMapping());
     std::vector<App::DocumentObject*> objs;
@@ -4189,6 +4426,10 @@ Document::readObjects(Base::XMLReader& reader)
         d->restoringId = 0;
         if(!testStatus(Status::Importing) && reader.hasAttribute("id"))
             d->restoringId = reader.getAttributeAsInteger("id");
+        // Its UID (sec 36), which an import keeps unless a live object here
+        // has it; an object saved before UIDs, restored, gets one derived
+        // from the file (U3).
+        d->restoringUid = reader.getAttribute("uid", "");
 
         // To prevent duplicate name when export/import of objects from
         // external documents, we append those external object name with
@@ -4206,6 +4447,22 @@ Document::readObjects(Base::XMLReader& reader)
         }else
             obj_name = name.c_str();
 
+        // Sec 36.3: brought with a UID the file gave an id no live object
+        // has -- pasted back after it was removed -- it is that object
+        // again, under its id and the name the file gave it.
+        if (testStatus(Status::Importing) && d->history && !d->restoringUid.empty()
+                && !d->objectUidMap.count(d->restoringUid)) {
+            const long cid = d->history->objectIdOfUid(d->restoringUid);
+            if (cid && !d->objectIdMap.count(cid)) {
+                d->restoringId = cid;
+                const std::string* known = d->history->objectNameOfId(cid);
+                if (known && !getObject(known->c_str())) {
+                    _obj_name = *known;
+                    obj_name = _obj_name.c_str();
+                }
+            }
+        }
+
         try {
             // Use name from XML as is and do NOT remove trailing digits because
             // otherwise we may cause a dependency to itself
@@ -4216,11 +4473,14 @@ Document::readObjects(Base::XMLReader& reader)
             {
                 struct Reset {
                     long& id;
-                    ~Reset() { id = 0; }
-                } reset {d->restoringId};
+                    std::string& uid;
+                    ~Reset() { id = 0; uid.clear(); }
+                } reset {d->restoringId, d->restoringUid};
                 obj = addObject(type.c_str(), obj_name, /*isNew=*/ false, viewType.c_str(), partial);
             }
             FC_DURATION_PLUS(d->restoreTiming.createAdd, tAdd);
+            if (obj && testStatus(Status::Importing))
+                d->broughtNames[obj->_Id] = name;
             if (obj) {
                 if(lastId < obj->_Id)
                     lastId = obj->_Id;
@@ -4296,6 +4556,7 @@ Document::readObjects(Base::XMLReader& reader)
     reader.readEndElement("ObjectData");
     FC_DURATION_PLUS(d->restoreTiming.data, t);
     d->restoreTiming.props = PropertyContainer::restoreStats - propStats;
+    _adoptCarriedUids(objs);
 
     return objs;
 }
@@ -4339,6 +4600,17 @@ int Document::recomputeMigration(DocumentObject *obj)
 std::vector<App::DocumentObject*>
 Document::importObjects(Base::XMLReader& reader)
 {
+    // The clashes (sec 36.4) are settled once the import is over: they are
+    // changes like any, read through a name map of their own.
+    auto objs = _settleImportClashes(_importObjects(reader));
+    d->broughtUids.clear();
+    d->broughtNames.clear();
+    return objs;
+}
+
+std::vector<App::DocumentObject*>
+Document::_importObjects(Base::XMLReader& reader)
+{
     d->hashers.clear();
     Base::FlagToggler<> flag(globalIsRestoring, false);
     Base::ObjectStatusLocker<Status, Document> restoreBit(Status::Restoring, this);
@@ -4364,6 +4636,13 @@ Document::importObjects(Base::XMLReader& reader)
         reader.FileVersion = 0;
     }
 
+    // Copied from this very document (sec 36.4): a clash is a copy beside.
+    d->importFromHere = reader.hasAttribute("From")
+        && TransientDir.getStrValue() == reader.getAttribute("From");
+    d->importClashes.clear();
+    d->broughtUids.clear();
+    d->broughtNames.clear();
+
     // The imported objects' included files come in the same archive; they
     // become this document's content, counted against this document's store.
     getFileBlobManager().beginRestore(reader);
@@ -4374,19 +4653,6 @@ Document::importObjects(Base::XMLReader& reader)
         if(o && o->isAttachedToDocument()) {
             o->setStatus(App::ObjImporting,true);
             FC_LOG("importing " << o->getFullName());
-            if (auto propUUID = Base::freecad_dynamic_cast<PropertyUUID>(
-                        o->getPropertyByName("_ObjectUUID")))
-            {
-                auto propSource = Base::freecad_dynamic_cast<PropertyUUID>(
-                        o->getPropertyByName("_SourceUUID"));
-                if (!propSource)
-                    propSource = static_cast<PropertyUUID*>(o->addDynamicProperty(
-                                "App::PropertyUUID", "_SourceUUID", nullptr, nullptr,
-                                Prop_Output | Prop_Hidden));
-                if (propSource)
-                    propSource->setValue(propUUID->getValue());
-                propUUID->setValue(Base::Uuid::createUuid());
-            }
         }
     }
 
@@ -4416,6 +4682,298 @@ Document::importObjects(Base::XMLReader& reader)
 
     d->hashers.clear();
     return objs;
+}
+
+namespace {
+thread_local Document::ImportClashScope* importClashScope = nullptr;
+}
+
+Document::ImportClashScope::ImportClashScope(Mode mode,
+                                             std::function<bool(std::vector<ImportClash>&)> ask)
+    : mode(mode)
+    , ask(std::move(ask))
+    , _previous(importClashScope)
+{
+    importClashScope = this;
+}
+
+Document::ImportClashScope::~ImportClashScope()
+{
+    importClashScope = _previous;
+}
+
+Document::ImportClashScope* Document::ImportClashScope::current()
+{
+    return importClashScope;
+}
+
+std::vector<DocumentObject*> Document::_settleImportClashes(std::vector<DocumentObject*> objs)
+{
+    // docs/TransactionLog.md sec 36.4. Each clash came in as a copy, under
+    // a UID of its own: duplicated, it stays so. Assigned, what refers to
+    // the copy among the objects brought refers to the live one, the live
+    // one takes the copy's state, and the copy goes.
+    std::vector<ImportClash> clashes = std::move(d->importClashes);
+    d->importClashes.clear();
+    d->importFromHere = false;
+    auto scope = ImportClashScope::current();
+    const auto mode = scope ? scope->mode : ImportClashScope::Duplicate;
+    const bool copyLook = !scope || scope->copyLook;
+    // Answered before the import (sec 37.9): an object left out is settled
+    // here whether or not it clashes.
+    const bool answered = mode == ImportClashScope::Answered;
+    if (clashes.empty() && !answered)
+        return objs;
+    auto takeOf = [&](DocumentObject* o) {
+        if (!answered || !o)
+            return ImportTake::Duplicate;
+        auto name = d->broughtNames.find(o->getID());
+        if (name == d->broughtNames.end())
+            return ImportTake::Duplicate;
+        auto it = scope->answers.find(name->second);
+        // An object of another document is exported as `Name@Document`
+        // (copyObject, readObjects): answered by its name there too
+        const auto at = name->second.find('@');
+        if (it == scope->answers.end() && at != std::string::npos)
+            it = scope->answers.find(name->second.substr(0, at));
+        return it == scope->answers.end() ? ImportTake::Duplicate : it->second;
+    };
+    if (mode == ImportClashScope::Assign) {
+        for (auto& c : clashes)
+            c.assign = true;
+    }
+    else if (mode == ImportClashScope::Ask && scope->ask && !scope->ask(clashes)) {
+        // Cancelled: nothing brought stays. By name: a removal takes what
+        // it owns with it (an origin's features), which may be later in
+        // the list and gone by then.
+        std::vector<std::string> names;
+        for (auto o : objs) {
+            if (o && o->isAttachedToDocument())
+                names.push_back(o->getNameInDocument());
+        }
+        for (auto it = names.rbegin(); it != names.rend(); ++it) {
+            if (getObject(it->c_str()))
+                removeObject(it->c_str());
+        }
+        THROWM(Base::AbortException, "the paste was cancelled");
+    }
+    // Each brought object paired with a live one is assigned onto it, or
+    // left out with the live one kept as it is; one left out with none
+    // goes.
+    std::map<DocumentObject*, DocumentObject*> assigned;
+    std::map<DocumentObject*, DocumentObject*> kept;
+    std::set<DocumentObject*> dropped;
+    for (const auto& c : clashes) {
+        if (!c.brought || !c.live || !c.brought->isAttachedToDocument()
+                || !c.live->isAttachedToDocument())
+            continue;
+        const ImportTake take = answered ? takeOf(c.brought)
+            : c.assign ? ImportTake::Assign : ImportTake::Duplicate;
+        if (take == ImportTake::Assign)
+            assigned.emplace(c.brought, c.live);
+        else if (take == ImportTake::Exclude)
+            kept.emplace(c.brought, c.live);
+    }
+    // What an owner owns follows it (sec 37.9): paired with a live one,
+    // its own pair with the live one's -- an origin by its slot, its axes
+    // and planes by Role -- assigned with it, or kept where the owner says
+    // the live one stays (an origin's state is fixed). A body assigned with
+    // its origin duplicated left the live origin with no owner (37.7 item
+    // 10).
+    const std::set<DocumentObject*> brought(objs.begin(), objs.end());
+    std::map<DocumentObject*, DocumentObject*> clashLive;
+    for (const auto& c : clashes) {
+        if (c.brought && c.live)
+            clashLive.emplace(c.brought, c.live);
+    }
+    std::vector<std::pair<DocumentObject*, DocumentObject*>> owners(assigned.begin(),
+                                                                    assigned.end());
+    owners.insert(owners.end(), kept.begin(), kept.end());
+    for (std::size_t i = 0; i < owners.size(); ++i) {
+        auto [owner, live] = owners[i];
+        for (auto owned : owner->getOwnedObjects()) {
+            if (!owned || !brought.count(owned) || !owned->isAttachedToDocument())
+                continue;
+            OwnedPaste how = OwnedPaste::FollowOwner;
+            auto there = owner->getOwnedCounterpart(owned, live, how);
+            // Content the owner pairs by UID (a group's element, a joint)
+            // came in under a UID of its own: its clash names its live one,
+            // and it follows the owner onto it (sec 37.12)
+            if (!there) {
+                auto c = clashLive.find(owned);
+                if (c != clashLive.end()) {
+                    there = c->second;
+                    how = OwnedPaste::FollowOwner;
+                }
+            }
+            if (!there || there == owned || there->getDocument() != this
+                    || brought.count(there))
+                continue;
+            const bool keep = how == OwnedPaste::KeepLive || kept.count(owner);
+            if (keep && !kept.count(owned)) {
+                assigned.erase(owned);
+                kept.emplace(owned, there);
+            }
+            else if (!keep && !assigned.count(owned) && !kept.count(owned))
+                assigned.emplace(owned, there);
+            else
+                continue;
+            owners.emplace_back(owned, there);
+        }
+    }
+    if (answered) {
+        for (auto o : objs) {
+            if (o && o->isAttachedToDocument() && !assigned.count(o) && !kept.count(o)
+                    && takeOf(o) == ImportTake::Exclude)
+                dropped.insert(o);
+        }
+        // What a left-out owner owns goes with it
+        std::vector<DocumentObject*> owners(dropped.begin(), dropped.end());
+        for (std::size_t i = 0; i < owners.size(); ++i) {
+            for (auto owned : owners[i]->getOwnedObjects()) {
+                if (owned && brought.count(owned) && !assigned.count(owned)
+                        && !kept.count(owned) && dropped.insert(owned).second)
+                    owners.push_back(owned);
+            }
+        }
+    }
+    if (assigned.empty() && kept.empty() && dropped.empty())
+        return objs;
+    std::map<DocumentObject*, DocumentObject*> paired = assigned;
+    paired.insert(kept.begin(), kept.end());
+
+    // 1. What the objects brought refer to.
+    for (auto o : objs) {
+        if (!o || !o->isAttachedToDocument())
+            continue;
+        std::vector<Property*> props;
+        o->getPropertyList(props);
+        for (auto prop : props) {
+            auto link = Base::freecad_dynamic_cast<PropertyLinkBase>(prop);
+            if (!link)
+                continue;
+            for (const auto& kv : paired) {
+                std::unique_ptr<Property> copy(link->CopyOnLinkReplace(o, kv.first, kv.second));
+                if (copy)
+                    prop->Paste(*copy);
+            }
+            // One left out with nothing here to stand for it: referred to
+            // by nothing
+            for (auto gone : dropped) {
+                if (gone != o)
+                    link->breakLink(gone, false);
+            }
+        }
+    }
+    // 2. The live one takes the copy's state: its dynamic properties, then
+    // every value as a save writes it, read back through the names of the
+    // copies -- the label left, which the copy got made unique beside the
+    // live one.
+    std::map<std::string, std::string> names;
+    for (const auto& [copy, live] : assigned)
+        names[copy->getNameInDocument()] = live->getNameInDocument();
+    CaptureConfig config(*this);
+    std::vector<std::pair<std::pair<DocumentObject*, std::string>, CapturedValue>> values;
+    for (const auto& [copy, live] : assigned) {
+        std::map<std::string, Property*> want, have;
+        copy->getPropertyMap(want);
+        live->getPropertyMap(have);
+        for (auto& kv : have) {
+            // The UID's compatibility name is the live object's own (36.7)
+            if (!want.count(kv.first) && !live->getDynamicPropertyData(kv.second).name.empty()
+                    && kv.first != "_ObjectUUID")
+                live->removeDynamicProperty(kv.first.c_str());
+        }
+        for (auto& kv : want) {
+            const short type = copy->getPropertyType(kv.second);
+            if ((type & Prop_Transient) || (type & Prop_NoPersist) || kv.first == "Label"
+                    || kv.first == "_ObjectUUID")
+                continue;
+            // The look kept (sec 35.18): what the object keeps of it, its
+            // Appearances -- not the physical material, which is the design
+            if (!copyLook) {
+                const char* group = copy->getPropertyGroup(kv.second);
+                if (group && boost::starts_with(group, "Appearances")
+                        && !kv.second->isDerivedFrom(Base::Type::fromName("Materials::PropertyMaterial")))
+                    continue;
+            }
+            Property* prop = live->getPropertyByName(kv.first.c_str());
+            if (!prop) {
+                auto dyn = copy->getDynamicPropertyData(kv.second);
+                if (dyn.name.empty())
+                    continue;
+                prop = live->addDynamicProperty(kv.second->getTypeId().getName(),
+                                                kv.first.c_str(), dyn.group.c_str(),
+                                                dyn.getDoc(), dyn.attr, dyn.readonly, dyn.hidden);
+            }
+            if (!prop || prop->getTypeId() != kv.second->getTypeId())
+                continue;
+            CapturedValue v = captureValue(config, *kv.second);
+            if (!v.ok)
+                THROWM(Base::RuntimeError, "cannot read the value of " + kv.first);
+            values.push_back({{live, kv.first}, std::move(v)});
+        }
+    }
+    {
+        RestoreNames through(names);
+        RestoreBatch batch;
+        for (const auto& [key, v] : values) {
+            if (auto prop = key.first->getPropertyByName(key.second.c_str()))
+                restoreValue(*prop, v);
+        }
+        batch.finish();
+    }
+    for (const auto& kv : assigned)
+        kv.second->touch();
+    // Sec 35.18: the look brought, where the scope asks for it -- the view
+    // provider's, which the import read into the copy's, taken by whoever
+    // shows the document, before the copy goes
+    if (copyLook && !assigned.empty()) {
+        std::vector<std::pair<DocumentObject*, DocumentObject*>> pairs(assigned.begin(),
+                                                                       assigned.end());
+        signalAssignLook(*this, pairs);
+    }
+    // 3. The copies go -- assigned, kept, left out; the objects brought are
+    // the live ones in their place. A copy lets go of every link first:
+    // step 1 pointed its links at live objects, and a removal's unsetup
+    // takes what the object owns with it -- a body's origin, a link's
+    // copy-on-change group.
+    // The list handed back, made before anything goes
+    std::vector<DocumentObject*> out;
+    std::set<DocumentObject*> listed;
+    for (auto o : objs) {
+        if (dropped.count(o))
+            continue;
+        auto it = paired.find(o);
+        DocumentObject* now = it != paired.end() ? it->second : o;
+        if (listed.insert(now).second)
+            out.push_back(now);
+    }
+    std::vector<DocumentObject*> gone;
+    for (const auto& kv : paired)
+        gone.push_back(kv.first);
+    gone.insert(gone.end(), dropped.begin(), dropped.end());
+    for (auto copy : gone) {
+        if (!copy->isAttachedToDocument())
+            continue;
+        std::vector<Property*> props;
+        copy->getPropertyList(props);
+        for (auto prop : props) {
+            if (auto link = Base::freecad_dynamic_cast<PropertyLinkBase>(prop))
+                link->breakLink(copy, true);
+        }
+    }
+    // By name, looked up again: a removal may take another with it
+    std::vector<std::string> goneNames;
+    for (auto copy : gone) {
+        if (copy->isAttachedToDocument())
+            goneNames.emplace_back(copy->getNameInDocument());
+    }
+    for (const auto& name : goneNames) {
+        if (getObject(name.c_str()))
+            removeObject(name.c_str());
+    }
+    return out;
 }
 
 unsigned int Document::getMemSize () const
@@ -4587,6 +5145,25 @@ bool Document::save ()
             FileName.setValue(target);
             Uid.touch(); // a different file: rename the transient directory, as saveAs does
         }
+        // Two processes on one file (docs/TransactionLog.md sec 29.7, 29.8):
+        // from the look at the file to the write, under the lock beside it,
+        // so that no other save falls between. A file another process wrote
+        // since this document read or wrote it is brought in and merged
+        // first. The file as it was left costs one stat.
+        const std::string file = FileName.getStrValue();
+        const bool pulling = DocumentParams::getTransactionLogPullOnSave() && getTransactionLog();
+        std::unique_ptr<SaveLock> lock;
+        if (pulling) {
+            lock = std::make_unique<SaveLock>(file);
+            std::string holder;
+            if (!lock->lock(60000, &holder))
+                THROWM(Base::FileException, ("'" + file + "' is being saved by " + holder
+                                             + "; nothing was written").c_str(),
+                       Base::FileInfo(file));
+        }
+        d->lastPull = SavePull();
+        if (pulling && (!d->pullBranch.empty() || isFileChangedElsewhere()))
+            _pullFromDisk(file);
         {
             Base::FlagToggler<> quiet(d->bookkeeping, false);
             // Save the name of the tip object in order to handle in Restore()
@@ -4609,10 +5186,175 @@ bool Document::save ()
         if (!saveToFile(FileName.getValue()))
             return false;
         d->fileSchema = getSaveSchemaVersion();
+        _noteDiskState(file);
+        // A pull merged and written is done with: its branch is closed, its
+        // rows kept (sec 29.7 Q4). The next pull's rows start from this
+        // save, so they never continue it.
+        if (d->lastPull.merged && !d->lastPull.branch.empty()) {
+            if (TransactionLog* log = getTransactionLog()) {
+                LogBranch pulled;
+                if (log->store().findBranch(d->lastPull.branch, pulled) && !pulled.closed) {
+                    pulled.closed = std::chrono::duration<double>(
+                        std::chrono::system_clock::now().time_since_epoch()).count();
+                    log->store().updateBranch(pulled);
+                    signalBranchesChanged(*this);
+                }
+            }
+        }
         return true;
     }
 
     return false;
+}
+
+void Document::_noteDiskState(const std::string& file)
+{
+    // The stamp a restore took before it read, else the file as written.
+    if (d->readStamp.valid() && d->readStamp.path == file)
+        d->diskStamp = d->readStamp;
+    else
+        d->diskStamp = DiskStamp::of(file);
+    d->touchedStamp = DiskStamp();
+    d->movedStamp = DiskStamp();
+    // The save id is the file's only when the file carries the history: a
+    // save that leaves it out writes whatever `Version` was there before.
+    d->diskSaveId.clear();
+    auto history = Base::freecad_dynamic_cast<PropertyHistory>(getPropertyByName("History"));
+    auto version = Base::freecad_dynamic_cast<PropertyString>(getPropertyByName("Version"));
+    if (history && !history->isEmpty() && version) {
+        std::istringstream in(version->getValue());
+        int64_t num = 0;
+        in >> num >> d->diskSaveId;
+    }
+    TransactionLog* log = getTransactionLog();
+    d->diskSeq = log ? log->head() : 0;
+    // Marked as open here, and told who else has it open (sec 29.7 Q5).
+    if (d->openMarker != file) {
+        if (!d->openMarker.empty())
+            FileOpeners::remove(d->openMarker);
+        d->openMarker = file;
+        for (const auto& other : FileOpeners::add(file))
+            Base::Console().Warning("'%s' is also open in %s\n", Label.getValue(),
+                                    FileOpeners::describe(other).c_str());
+    }
+}
+
+bool Document::isFileChangedElsewhere() const
+{
+    const std::string file = FileName.getStrValue();
+    if (file.empty() || !d->diskStamp.valid() || d->diskStamp.path != file)
+        return false;
+    const DiskStamp now = DiskStamp::of(file);
+    // Gone, the save writes it anew; as it was left, nobody wrote it.
+    if (!now.valid() || now.sameAs(d->diskStamp)
+            || (d->touchedStamp.valid() && now.sameAs(d->touchedStamp)))
+        return false;
+    if (d->movedStamp.valid() && now.sameAs(d->movedStamp))
+        return true;
+    // Touched and not written: the save id is still the one left here.
+    if (!d->diskSaveId.empty() && !Base::FileInfo(file).isDir()) {
+        FileHistory::Saved saved;
+        if (FileHistory::savedAs(file, saved) && saved.history && saved.saveId == d->diskSaveId) {
+            d->touchedStamp = now;
+            return false;
+        }
+    }
+    d->movedStamp = now;
+    return true;
+}
+
+const Document::SavePull& Document::lastSavePull() const
+{
+    return d->lastPull;
+}
+
+std::string Document::pendingSaveMerge() const
+{
+    return d->pullBranch;
+}
+
+std::vector<std::string> Document::fileOpeners() const
+{
+    std::vector<std::string> out;
+    if (!d->openMarker.empty()) {
+        for (const auto& other : FileOpeners::others(d->openMarker))
+            out.push_back(FileOpeners::describe(other));
+    }
+    return out;
+}
+
+void Document::_pullFromDisk(const std::string& file)
+{
+    const auto start = std::chrono::steady_clock::now();
+    if (Base::FileInfo(file).isDir()) {
+        // Not built for a project directory: written over, as before.
+        FC_WARN("'" << Label.getValue() << "': its directory was written by another process "
+                    "since it was read here, and is written over");
+        return;
+    }
+    // A copy of the file as it is: the import reads the document's own file
+    // as that document's, and refuses it. A copy of its own each time, as
+    // a history read from a path is the one read from that path.
+    static int pulls = 0;
+    Base::FileInfo fi(file);
+    const std::string dir =
+        TransientDir.getStrValue() + "/pull/" + std::to_string(++pulls);
+    const std::string copy = dir + "/" + fi.fileName();
+    Base::FileInfo(dir).createDirectories();
+    if (!fi.copyTo(copy.c_str()))
+        THROWM(Base::FileException, ("cannot copy '" + file + "' to bring in what another "
+                                     "process saved; nothing was written").c_str(), fi);
+    struct Cleanup
+    {
+        DocumentP* d;
+        std::string dir;
+        ~Cleanup()
+        {
+            d->pullLabel.clear();
+            d->pullBase = 0;
+            Base::FileInfo(dir).deleteDirectoryRecursive();
+        }
+    } cleanup {d, dir};
+    // Sec 29.7 Q4: named after who saved it, and continued by the next.
+    FileHistory::Saved saved;
+    FileHistory::savedAs(copy, saved);
+    d->pullLabel = fi.fileNamePure()
+        + (saved.modifiedBy.empty() ? std::string(" saved elsewhere")
+                                    : " saved by " + saved.modifiedBy);
+    // A file without history comes against the state this document left it
+    // in (Q3).
+    d->pullBase = d->diskSeq;
+    const ImportResult imported = importFork(copy);
+    d->lastPull.pulled = true;
+    d->lastPull.rows = imported.rows;
+    if (!imported.branch.empty() && (imported.rows || imported.stoppedAt))
+        d->pullBranch = imported.branch;
+    d->lastPull.branch = d->pullBranch;
+    if (imported.stoppedAt)
+        FC_WARN("'" << Label.getValue() << "': what another process saved came only in part: "
+                    << imported.reason);
+    if (!d->pullBranch.empty()) {
+        const MergeResult merged = mergeBranch(d->pullBranch);
+        d->lastPull.seconds =
+            std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+        if (!merged.unresolved.empty()) {
+            for (const auto& c : merged.unresolved)
+                d->lastPull.conflicts.push_back(c.key);
+            signalSaveMergeConflict(*this, d->pullBranch);
+            THROWM(Base::RuntimeError,
+                   "'" + std::string(Label.getValue()) + "' was saved by another process since "
+                   "it was read here, and " + std::to_string(merged.unresolved.size())
+                   + " of its changes conflict with these. Pick a side for each in the merge "
+                   "of branch '" + d->pullBranch + "', then save again; nothing was written");
+        }
+        d->lastPull.merged = true;
+        d->lastPull.unchanged = merged.unchanged;
+        d->pullBranch.clear();
+    }
+    d->lastPull.seconds =
+        std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+    FC_LOG("'" << getName() << "': pulled " << d->lastPull.rows << " rows of " << file << " in "
+               << d->lastPull.seconds << " s");
 }
 
 namespace App {
@@ -5304,6 +6046,9 @@ void Document::restore (const char *filename,
 
     if(!filename)
         filename = FileName.getValue();
+    // The file as it is before a byte of it is read (docs/TransactionLog.md
+    // sec 29.8): what a save later compares the file on disk with.
+    d->readStamp = DiskStamp::of(filename);
     Base::FileInfo fi(filename);
     if(fi.isDir()) {
         fi.setFile(std::string(filename)+'/'+"Document.xml");
@@ -5330,10 +6075,12 @@ void Document::restore (const char *filename,
     d->restoreDocXml.clear();
     d->restoreTapped = false;
     d->fileEntries.clear();
-    auto tap = [this, &objNames](Base::Reader& reader) {
-        // A partial document is never snapshotted (sec 16.1), and a
-        // checkout is a version already.
-        if (!objNames.empty() || d->checkingOut || !getTransactionLog() || d->joinedHistory)
+    auto tap = [this](Base::Reader& reader) {
+        // A checkout is a version already. A file read for some of its
+        // objects is tapped too: whether that leaves the document partial
+        // is known only once its objects are read, and one that read them
+        // all is the file, editable, its history to continue (sec 35 L3).
+        if (d->checkingOut || !getTransactionLog() || d->joinedHistory)
             return;
         reader.beginTap([this](const char* p, std::size_t n) { d->restoreDocXml.append(p, n); });
         d->restoreTapped = true;
@@ -5628,6 +6375,8 @@ void Document::restore(Base::XMLReader &reader,
     d->objectArray.clear();
     d->objectMap.clear();
     d->objectIdMap.clear();
+    d->objectUidMap.clear();
+    d->derivedUids.clear();
     d->lastObjectId = 0;
 
     if(signal) {
@@ -5704,7 +6453,15 @@ void Document::restore(Base::XMLReader &reader,
     // 16.6): version 1 is Document.xml as tapped plus every blob the file
     // carried, now that readFiles() has them in the store. Not for a
     // Document.xml the loader could not read -- that is no version to go
-    // back to -- and never for a partial document, which was not tapped.
+    // back to -- and never for a partial document (sec 16.1), which is
+    // read-only and read again whole, its history with it, before it can
+    // change.
+    if (d->restoreTapped && testStatus(Document::PartialDoc)) {
+        d->restoreTapped = false;
+        reader.setEntrySink(nullptr);
+        d->restoreDocXml.clear();
+        d->fileEntries.clear();
+    }
     if (d->restoreTapped) {
         d->restoreTapped = false;
         reader.setEntrySink(nullptr);
@@ -5921,7 +6678,7 @@ bool Document::adoptEmbeddedHistory()
         in >> num >> saveId;
     }
     try {
-        auto copy = TransactionStore::openSQLite(history->getDatabase()->path());
+        auto copy = TransactionStore::openSQLite(history->getDatabase()->path(), true);
         const std::string id = copy->getMeta("save_id");
         const std::string date = copy->getMeta("save_date");
         copy.reset();
@@ -5943,7 +6700,23 @@ bool Document::adoptEmbeddedHistory()
 
 int64_t Document::snapshotToLog()
 {
+    checkNotFrozen("take a snapshot");
     return _snapshotToLog("snapshot");
+}
+
+bool Document::nameLogVersion(int64_t num, const std::string& name)
+{
+    TransactionLog* log = getTransactionLog();
+    if (!log || !log->store().nameVersion(num, name))
+        return false;
+    // The panels of the file's documents show the names; with the log
+    // embedded, a name reaches the file by a save (32.11).
+    refreshVersionNames();
+    for (auto doc : log->documents())
+        doc->signalBranchesChanged(*doc);
+    if (DocumentParams::getTransactionLog() == 2)
+        signalLogKeptChanged(*this);
+    return true;
 }
 
 int64_t Document::_snapshotToLog(const char* kind)
@@ -6128,7 +6901,8 @@ void copyBlob(FileBlobManager& manager, const FileBlobManager& from, const FileB
 
 } // namespace
 
-void Document::_applyVersion(Document& version, bool views)
+void Document::_applyVersion(Document& version, bool views,
+                             const std::map<std::string, std::string>* names)
 {
     // docs/TransactionLog.md sec 24.5, in the passes of 24.3: what the
     // version lacks goes, what it has comes (under its id and name), the
@@ -6150,10 +6924,19 @@ void Document::_applyVersion(Document& version, bool views)
 
     // 1. Objects the version does not have, or has as another type.
     std::vector<std::string> gone;
+    auto nameOf = [names](const DocumentObject* obj) {
+        const char* name = obj->getNameInDocument();
+        if (names) {
+            auto it = names->find(name);
+            if (it != names->end())
+                return it->second.c_str();
+        }
+        return name;
+    };
     for (auto obj : getObjects()) {
         auto it = target.find(obj->getID());
         if (it == target.end() || it->second->getTypeId() != obj->getTypeId()
-                || strcmp(it->second->getNameInDocument(), obj->getNameInDocument()) != 0)
+                || strcmp(nameOf(it->second), obj->getNameInDocument()) != 0)
             gone.emplace_back(obj->getNameInDocument());
     }
     for (const auto& name : gone)
@@ -6162,11 +6945,13 @@ void Document::_applyVersion(Document& version, bool views)
                 removeObject(name.c_str());
         });
 
-    // 2. Objects the version has, under its id and name.
+    // 2. Objects the version has, under its id and name -- or the name
+    // `names` gives it back (sec 36 U7), the one removed above having held
+    // it.
     for (auto& kv : target) {
         if (getObjectByID(kv.first))
             continue;
-        const char* name = kv.second->getNameInDocument();
+        const char* name = nameOf(kv.second);
         guarded(name, [&]() {
             if (getObject(name))
                 THROWM(Base::RuntimeError, "name taken by another object");
@@ -6175,6 +6960,9 @@ void Document::_applyVersion(Document& version, bool views)
                 THROWM(Base::RuntimeError, "cannot create the object");
             obj->_Id = kv.first;
             addObject(obj, name, false);
+            // With the Python extensions the version's object has: their
+            // properties are the version's to restore below.
+            addExtensionsByName(obj, pythonExtensionsOf(*kv.second));
         });
     }
 
@@ -6195,7 +6983,12 @@ void Document::_applyVersion(Document& version, bool views)
         for (auto& kv : have) {
             if (values || ownerOnly)
                 break;
-            if (want.count(kv.first) || live.getDynamicPropertyData(kv.second).name.empty())
+            // A compatibility name is in no version (sec 36.7); what the
+            // document keeps through a restore (its history) is in none
+            // written before it had one.
+            if (want.count(kv.first) || live.getDynamicPropertyData(kv.second).name.empty()
+                    || kv.second->testStatus(Property::Legacy)
+                    || (isDocument && keptOnRestore(kv.first.c_str())))
                 continue;
             guarded(kv.first, [&]() { live.removeDynamicProperty(kv.first.c_str()); });
         }
@@ -6210,8 +7003,15 @@ void Document::_applyVersion(Document& version, bool views)
             guarded(kv.first, [&]() {
                 Property* prop = live.getPropertyByName(kv.first.c_str());
                 if (!values) {
-                    if (prop)
-                        return;
+                    if (prop) {
+                        // One of the name and another type -- a pattern's
+                        // Offset, a length or an angle -- gives way to the
+                        // version's; a static one is the type's and stays.
+                        if (prop->getTypeId() == kv.second->getTypeId()
+                                || live.getDynamicPropertyData(prop).name.empty())
+                            return;
+                        live.removeDynamicProperty(kv.first.c_str());
+                    }
                     auto dyn = from.getDynamicPropertyData(kv.second);
                     if (dyn.name.empty())
                         return;
@@ -6408,6 +7208,18 @@ bool Document::recoverFromLog(const std::string& oldDir)
             Label.setValue(info.label);
         rows = _replayLog(haveAnchor ? anchor.seq : 0, last);
     }
+    // The replay ended before an incomplete row (sec 25.2 item 3): the
+    // document is the state at `last`, so that is the head -- the rows
+    // past it, never applied, go, and the undo stacks and the recovery
+    // row are made from there.
+    std::vector<int64_t> skipped;
+    if (last != log->head()) {
+        for (const auto& t : log->store().chain(log->head(), last + 1))
+            skipped.push_back(t.seq);
+        log->moveHead(last);
+        if (!skipped.empty())
+            log->store().removeTransactions(skipped);
+    }
     _rebuildUndoFromLog();
 
     std::string from;
@@ -6422,6 +7234,9 @@ bool Document::recoverFromLog(const std::string& oldDir)
            << ",\"rows\":" << rows << ",\"last\":" << last << ",\"sessions\":[";
     for (size_t i = 0; i < info.crashedSessions.size(); ++i)
         script << (i ? "," : "") << info.crashedSessions[i];
+    script << "],\"skipped\":[";
+    for (size_t i = 0; i < skipped.size(); ++i)
+        script << (i ? "," : "") << skipped[i];
     script << "]}";
     log->recordRecovery(script.str());
     return true;
@@ -6440,6 +7255,7 @@ size_t Document::_replayLog(int64_t after, int64_t& last, int64_t head, bool* wh
         bool exists {false};
         std::string name;
         std::string type;
+        std::vector<std::string> ext;
     };
     std::map<long, Obj> objects;
     std::map<Key, std::string> values;
@@ -6500,6 +7316,7 @@ size_t Document::_replayLog(int64_t after, int64_t& last, int64_t head, bool* wh
                 obj.exists = true;
                 obj.name = o.cname;
                 obj.type = o.ctype;
+                obj.ext = extensionsOfOp(o);
             }
             else if (o.op == "remove" && o.ckind == "obj") {
                 forget(o.cid);
@@ -6559,6 +7376,7 @@ size_t Document::_replayLog(int64_t after, int64_t& last, int64_t head, bool* wh
                 THROWM(Base::RuntimeError, "cannot create " + kv.second.type);
             obj->_Id = kv.first;
             addObject(obj, kv.second.name.c_str(), false);
+            addExtensionsByName(obj, kv.second.ext);
         });
     }
     // 2. Dynamic properties, as the tail left them.
@@ -6731,7 +7549,79 @@ void Document::_rebuildUndoFromLog(int64_t after)
     }
 }
 
+namespace
+{
+thread_local int _SetMergeScopes = 0;
+
+/// The application's active transaction's id under a SetMergeScope, else 0:
+/// a transaction of its own.
+int setMergeTransactionId()
+{
+    int tid = 0;
+    if (SetMergeScope::active())
+        GetApplication().getActiveTransaction(&tid);
+    return tid > 0 ? tid : 0;
+}
+
+/// `t`, open, is the set's merge's step: a change this document took from
+/// another's in that step -- a link's -- opened it under the shared id, and
+/// a merge or a restore of it goes in it too.
+bool joinsSetStep(const Transaction* t)
+{
+    return t && SetMergeScope::active() && setMergeTransactionId()
+        && t->getID() == setMergeTransactionId();
+}
+}  // namespace
+
+SetMergeScope::SetMergeScope()
+{
+    ++_SetMergeScopes;
+}
+
+SetMergeScope::~SetMergeScope()
+{
+    --_SetMergeScopes;
+}
+
+bool SetMergeScope::active()
+{
+    return _SetMergeScopes > 0;
+}
+
+namespace
+{
+thread_local ImportSetRecord* _ImportSetRecord = nullptr;
+}
+
+ImportSetRecord::ImportSetRecord(std::string id, std::string name)
+    : id(std::move(id))
+    , name(std::move(name))
+    , _outer(_ImportSetRecord)
+{
+    _ImportSetRecord = this;
+}
+
+ImportSetRecord::~ImportSetRecord()
+{
+    _ImportSetRecord = _outer;
+}
+
+const ImportSetRecord* ImportSetRecord::current()
+{
+    return _ImportSetRecord;
+}
+
+namespace {
+/// The names a restore gives back (sec 36 U7), while it runs.
+thread_local const std::map<std::string, std::string>* givenNames = nullptr;
+}  // namespace
+
 bool Document::restoreVersion(int64_t num)
+{
+    return restoreVersion(num, {});
+}
+
+bool Document::restoreVersion(int64_t num, const std::map<std::string, std::string>& names)
 {
     OperationScope scope;   // sec 27.38
     // docs/TransactionLog.md sec 24.5: a restore to version N is one
@@ -6741,22 +7631,43 @@ bool Document::restoreVersion(int64_t num)
     TransactionLog* log = getTransactionLog();
     if (!log)
         return false;
-    if (d->checkingOut || testStatus(Restoring) || isPerformingTransaction() || d->committing)
+    if (d->checkingOut || testStatus(Restoring) || isPerformingTransaction() || d->committing
+            || testStatus(Recomputing))
         THROWM(Base::RuntimeError, "cannot restore a version now");
-    if (d->activeUndoTransaction)
+    const bool joined = joinsSetStep(d->activeUndoTransaction);
+    if (d->activeUndoTransaction && !joined)
         commitImplicitTransaction();
-    if (d->activeUndoTransaction)
+    if (d->activeUndoTransaction && !joined)
         THROWM(Base::RuntimeError, "cannot restore a version inside a transaction");
     LogVersion version;
     if (!log->store().getVersion(num, version))
         THROWM(Base::RuntimeError, "no such version");
 
-    _clearMyRedos();
-    d->activeUndoTransaction = new Transaction(0);
+    if (!joined) {
+        _clearMyRedos();
+        d->activeUndoTransaction = new Transaction(setMergeTransactionId());
+        mUndoMap[d->activeUndoTransaction->getID()] = d->activeUndoTransaction;
+    }
     d->activeUndoTransaction->Name = "Restore version " + std::to_string(num)
         + (version.name.empty() ? "" : " " + version.name);
     d->activeUndoTransaction->LogKind = "restore";
-    mUndoMap[d->activeUndoTransaction->getID()] = d->activeUndoTransaction;
+    // A step of its own is not left open when the version cannot be read:
+    // whatever it did is taken back, and the next write is not its.
+    struct OpenStep
+    {
+        Document& doc;
+        bool armed;
+        ~OpenStep()
+        {
+            if (!armed)
+                return;
+            try {
+                doc.abortTransaction();
+            }
+            catch (...) {
+            }
+        }
+    } openStep {*this, !joined};
     // Through the rows between here and the version when the log has them
     // (sec 27.34): only what changed since is written. Else the version is
     // read whole into a document of its own and its difference applied --
@@ -6768,9 +7679,27 @@ bool Document::restoreVersion(int64_t num)
     for (auto obj : getObjects())
         before.emplace(obj->getID(), touchedStateOf(*obj));
     const int64_t head = log->head();
+    // Names given back (sec 36 U7), to the walk along the log or, failing
+    // it, to the version read whole.
+    struct Given
+    {
+        const std::map<std::string, std::string>* before;
+        ~Given() { givenNames = before; }
+    } given {givenNames};
+    givenNames = names.empty() ? nullptr : &names;
     if (!_moveAlongLog(head, version.seq, DocumentParams::getViewObjectTransaction())) {
         FC_LOG(getName() << ": version " << num << " restored by reading it whole");
-        _readVersion(num, [&](Document& read) { _applyVersion(read); });
+        _readVersion(num, [&](Document& read) {
+            std::map<std::string, std::string> kept;
+            for (const auto& kv : names) {
+                if (read.getObject(kv.first.c_str()) && !read.getObject(kv.second.c_str()))
+                    kept.insert(kv);
+            }
+            std::optional<RestoreNames> through;
+            if (!kept.empty())
+                through.emplace(kept);
+            _applyVersion(read, false, kept.empty() ? nullptr : &kept);
+        });
     }
     std::map<long, TouchedState> after;
     for (auto obj : getObjects()) {
@@ -6781,6 +7710,7 @@ bool Document::restoreVersion(int64_t num)
             after.emplace(obj->getID(), std::move(state));
     }
     d->activeUndoTransaction->LogScript = touchedRecord(before, after);
+    openStep.armed = false;
     if (d->activeUndoTransaction->isEmpty()) {
         // Already what the version was: nothing to record.
         mUndoMap.erase(d->activeUndoTransaction->getID());
@@ -6793,7 +7723,8 @@ bool Document::restoreVersion(int64_t num)
 }
 
 void Document::_restoreAsVersion(const std::shared_ptr<FileHistory>& history,
-                                 const std::string& dir, const std::string& fileName)
+                                 const std::string& dir, const std::string& fileName,
+                                 const std::vector<std::string>& objNames)
 {
     setStatus(VersionDoc, true);
     d->noLog = true;
@@ -6810,7 +7741,7 @@ void Document::_restoreAsVersion(const std::shared_ptr<FileHistory>& history,
         FileName.setValue(fileName);
     }
     Base::FlagToggler<> guard(d->checkingOut);
-    restore(dir.c_str(), false);
+    restore(dir.c_str(), false, objNames);
 }
 
 Document* Document::_openReadVersion(int64_t num, const std::string& stem, bool active)
@@ -6833,8 +7764,10 @@ Document* Document::_openReadVersion(int64_t num, const std::string& stem, bool 
         ~Cleanup() { Base::FileInfo(dir).deleteDirectoryRecursive(); }
     } cleanup {dir};
 
-    // A new document becomes the active one; the active one is handed back
-    // -- here, or with `active` by the caller once it has done with this one.
+    // A temporary document hands the active one back as it is made
+    // (Application::newDocument); with none active it stays the active one,
+    // and is handed back here, or with `active` by the caller once it has
+    // done with it (_readVersion, sec 37.7 item 8).
     auto& app = GetApplication();
     Document* was = app.getActiveDocument();
     const std::string name = app.getUniqueDocumentName(
@@ -6924,9 +7857,14 @@ void Document::_readVersion(int64_t num, const std::function<void(Document&)>& f
     std::unique_ptr<void, std::function<void(void*)>> closer(
         version, [&app, name, active](void*) {
             app.closeDocument(name.c_str());
-            if (active && app.getActiveDocument() != active)
+            if (app.getActiveDocument() != active)
                 app.setActiveDocument(active);
         });
+    // With none active, the scratch would be the active document while `fn`
+    // writes this one, and an object's code asking for the active document
+    // would get one deleted a moment later: this one is, until it is done.
+    if (!active)
+        app.setActiveDocument(this);
     fn(*version);
 }
 
@@ -7305,13 +8243,14 @@ int64_t Document::pinLink(PropertyXLink& link, int64_t version)
 }
 
 Document* Document::openFileBranch(const std::shared_ptr<FileHistory>& history,
-                                   const std::string& branch, int64_t num, bool createView)
+                                   const std::string& branch, int64_t num, bool createView,
+                                   const std::vector<std::string>& objNames)
 {
     // docs/TransactionLog.md sec 27.23, 27.24.
     if (!history)
         THROWM(Base::RuntimeError, "no file history");
     if (branch.empty())
-        return openFileVersion(history, num, createView, nullptr, true);
+        return openFileVersion(history, num, createView, nullptr, true, objNames);
     TransactionLogCore& log = TransactionLogCore::of(*history);
     auto& store = log.store();
     LogBranch b;
@@ -7417,7 +8356,8 @@ void Document::checkNotFrozen(const char* what) const
 }
 
 Document* Document::openFileVersion(const std::shared_ptr<FileHistory>& history, int64_t num,
-                                    bool createView, const Document* from, bool frozen)
+                                    bool createView, const Document* from, bool frozen,
+                                    const std::vector<std::string>& objNames)
 {
     // Sec 27.7, 27.13: with or without a document of the file open; the
     // frozen instance or the editable one (27.22), at most one of each.
@@ -7427,14 +8367,32 @@ Document* Document::openFileVersion(const std::shared_ptr<FileHistory>& history,
     LogVersion version;
     if (!log.store().getVersion(num, version))
         THROWM(Base::ValueError, "no version " + std::to_string(num));
-    if (Document* open = log.documentAt(version, frozen))
-        return open;
-    return _openVersionDocument(history, version, createView, from, frozen);
+    std::vector<std::string> names = frozen ? objNames : std::vector<std::string>();
+    if (Document* open = log.documentAt(version, frozen)) {
+        if (!open->testStatus(PartialDoc))
+            return open;
+        // Sec 35 L8: a frozen version read in part, asked for more -- or
+        // whole -- is read again, with what it has and what is asked.
+        bool enough = !names.empty();
+        for (const auto& name : names) {
+            auto obj = open->getObject(name.c_str());
+            enough = enough && obj && !obj->testStatus(PartialObject);
+        }
+        if (enough)
+            return open;
+        if (!names.empty()) {
+            for (auto obj : open->getObjects())
+                names.emplace_back(obj->getNameInDocument());
+        }
+        GetApplication().closeDocument(open->getName());
+    }
+    return _openVersionDocument(history, version, createView, from, frozen, names);
 }
 
 Document* Document::_openVersionDocument(const std::shared_ptr<FileHistory>& history,
                                          const LogVersion& version, bool createView,
-                                         const Document* from, bool frozen)
+                                         const Document* from, bool frozen,
+                                         const std::vector<std::string>& objNames)
 {
     TransactionLogCore& log = TransactionLogCore::of(*history);
     const int64_t num = version.num;
@@ -7469,7 +8427,9 @@ Document* Document::_openVersionDocument(const std::shared_ptr<FileHistory>& his
         // Named for now as the frozen instance is: the restore reads
         // relative links against the file's directory either way, and the
         // editable one is named for its branch once it has a log (27.23).
-        doc->_restoreAsVersion(history, dir, file.empty() ? file : file + suffix);
+        // Sec 35 L8: a frozen one, only what the links ask for.
+        doc->_restoreAsVersion(history, dir, file.empty() ? file : file + suffix,
+                               frozen ? objNames : std::vector<std::string>());
         doc->d->versionFile = file;
         doc->d->versionLabel = label;
         doc->d->versionTail = num;
@@ -7503,6 +8463,10 @@ Document* Document::_openVersionDocument(const std::shared_ptr<FileHistory>& his
             app.setActiveDocument(active);
         throw;
     }
+    // Made with no view (a branch served, a version read for a link), it
+    // is not what the user is on: newDocument made it the active one.
+    if (!createView && active && app.getActiveDocument() != active)
+        app.setActiveDocument(active);
     return doc;
 }
 
@@ -7534,8 +8498,10 @@ std::string jsonString(const std::string& s)
 
 void Document::_checkBranchable(const char* what)
 {
+    // Not under a recompute either: a removal there is deferred
+    // (pendingRemove), and the object would outlive the checkout.
     if (d->checkingOut || testStatus(Restoring) || isPerformingTransaction() || d->committing
-            || d->snapshotting || testStatus(PartialDoc))
+            || d->snapshotting || testStatus(PartialDoc) || testStatus(Recomputing))
         THROWM(Base::RuntimeError, std::string("cannot ") + what + " now");
     if (d->activeUndoTransaction)
         commitImplicitTransaction();
@@ -7587,6 +8553,7 @@ struct LogFold
         bool exists {false};
         std::string name;
         std::string type;
+        std::vector<std::string> ext;   // its Python extensions (sec 9.2)
     };
     std::map<long, Obj> objects;
     std::map<Key, std::string> values;   // the value it ends with, by hash
@@ -7625,11 +8592,11 @@ struct LogFold
             Key key(o.ckind, o.cid, o.prop);
             if (o.op == "create" && o.ckind == "obj") {
                 forget(o.cid);
-                objects[o.cid] = Obj {false, o.cname, o.ctype};
+                objects[o.cid] = Obj {false, o.cname, o.ctype, {}};
             }
             else if (o.op == "remove" && o.ckind == "obj") {
                 forget(o.cid);
-                objects[o.cid] = Obj {true, o.cname, o.ctype};
+                objects[o.cid] = Obj {true, o.cname, o.ctype, extensionsOfOp(o)};
             }
             else if (o.op == "addprop") {
                 added.erase(key);
@@ -7686,11 +8653,11 @@ struct LogFold
             Key key(o.ckind, o.cid, o.prop);
             if (o.op == "create" && o.ckind == "obj") {
                 forget(o.cid);
-                objects[o.cid] = Obj {true, o.cname, o.ctype};
+                objects[o.cid] = Obj {true, o.cname, o.ctype, extensionsOfOp(o)};
             }
             else if (o.op == "remove" && o.ckind == "obj") {
                 forget(o.cid);
-                objects[o.cid] = Obj {false, o.cname, o.ctype};
+                objects[o.cid] = Obj {false, o.cname, o.ctype, {}};
             }
             else if (o.op == "addprop") {
                 added[key] = o;
@@ -7950,12 +8917,41 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
         o.cid = std::get<1>(key);
         return opContainer(*this, o);
     };
+    // 0. Names given back (sec 36 U7): an object the end has under a name
+    // `givenNames` maps to one no object has at the end comes under that
+    // one, what holds it here now -- gone at the end -- removed first, and
+    // every value read through the names.
+    std::map<std::string, std::string> given;
+    if (givenNames) {
+        std::set<std::string> atEnd;
+        for (const auto& kv : fold.objects) {
+            if (kv.second.exists)
+                atEnd.insert(kv.second.name);
+        }
+        for (const auto& kv : *givenNames) {
+            if (atEnd.count(kv.first) && !atEnd.count(kv.second))
+                given.insert(kv);
+        }
+        for (const auto& kv : given) {
+            auto holder = getObject(kv.second.c_str());
+            if (!holder)
+                continue;
+            auto it = fold.objects.find(holder->getID());
+            if (it != fold.objects.end() && !it->second.exists)
+                guarded("remove", kv.second, [&]() { removeObject(kv.second.c_str()); });
+        }
+    }
+    std::optional<RestoreNames> renaming;
+    if (!given.empty())
+        renaming.emplace(given);
     // 1. The objects there at the end that are not, under id and name.
     for (const auto& kv : fold.objects) {
         if (!kv.second.exists || getObjectByID(kv.first))
             continue;
-        guarded("create", kv.second.name, [&]() {
-            if (getObject(kv.second.name.c_str()))
+        auto named = given.find(kv.second.name);
+        const std::string name = named == given.end() ? kv.second.name : named->second;
+        guarded("create", name, [&]() {
+            if (getObject(name.c_str()))
                 THROWM(Base::RuntimeError, "name taken by another object");
             Base::Type type = Base::Type::getTypeIfDerivedFrom(
                 kv.second.type.c_str(), DocumentObject::getClassTypeId(), true);
@@ -7963,16 +8959,27 @@ bool Document::_moveAlongLog(int64_t fromHead, int64_t toSeq, bool views,
             if (!obj)
                 THROWM(Base::RuntimeError, "cannot create " + kv.second.type);
             obj->_Id = kv.first;
-            addObject(obj, kv.second.name.c_str(), false);
+            addObject(obj, name.c_str(), false);
+            addExtensionsByName(obj, kv.second.ext);
         });
     }
     // 2. Dynamic properties as they end.
     for (const auto& kv : fold.added) {
         guarded("add property", std::get<2>(kv.first), [&]() {
             auto c = container(kv.first);
-            if (!c || c->getPropertyByName(std::get<2>(kv.first).c_str()))
+            if (!c)
                 return;
-            addLoggedProperty(*c, kv.second.ptype, std::get<2>(kv.first), kv.second.meta);
+            const std::string& pname = std::get<2>(kv.first);
+            if (auto there = c->getPropertyByName(pname.c_str())) {
+                // One of the name and another type -- a pattern's Offset, a
+                // length or an angle -- gives way to the one the rows end
+                // with; a static one is the type's and stays.
+                if (kv.second.ptype == there->getTypeId().getName()
+                        || c->getDynamicPropertyData(there).name.empty())
+                    return;
+                c->removeDynamicProperty(pname.c_str());
+            }
+            addLoggedProperty(*c, kv.second.ptype, pname, kv.second.meta);
         });
     }
     for (const auto& key : fold.removed) {
@@ -8153,7 +9160,17 @@ int64_t Document::createBranch(const std::string& name, int64_t version, int64_t
         clearUndos();
         _clearRedos();
         log->setBranch(branch.id);
-        _checkoutHead(leftHead);
+        try {
+            _checkoutHead(leftHead);
+        }
+        catch (...) {
+            // The version could not be read: back on the branch left, and
+            // the branch made is unmade.
+            log->setBranch(left.id);
+            store.removeBranch(branch.id);
+            log->forgetLiveValues();
+            throw;
+        }
         log->forgetLiveValues();
     }
     else {
@@ -8208,13 +9225,26 @@ bool Document::switchBranch(const std::string& name)
         THROWM(Base::ValueError, "branch '" + name + "' is closed; branch from one of its versions");
     LogBranch left;
     store.getBranch(log->branch(), left);
+    // Refused before anything moves: one document per branch (sec 27.7).
+    if (Document* holder = log->holderOf(branch.id); holder && holder != this)
+        THROWM(Base::RuntimeError, "branch '" + name + "' is open in "
+                                       + holder->Label.getStrValue());
 
     const int64_t fromHead = log->head();
     _leaveBranch();
     clearUndos();
     _clearRedos();
     log->setBranch(branch.id);
-    _checkoutHead(fromHead);
+    try {
+        _checkoutHead(fromHead);
+    }
+    catch (...) {
+        // The version could not be read: the document is as it was, and
+        // the cursor goes back to the branch it is on.
+        log->setBranch(left.id);
+        log->forgetLiveValues();
+        throw;
+    }
     log->forgetLiveValues();
     _arriveOnBranch();
 
@@ -8251,6 +9281,7 @@ struct NetChange
         bool alive {true};
         std::string cname;
         std::string ctype;
+        std::string meta;   ///< its UID (sec 36.3), as its ops say it
     };
     struct Val
     {
@@ -8309,6 +9340,8 @@ struct NetChange
                 obj.alive = o.op == "create";
                 obj.cname = o.cname;
                 obj.ctype = o.ctype;
+                if (!o.meta.empty())
+                    obj.meta = o.meta;
                 continue;
             }
             if (o.ckind == "obj")
@@ -8384,6 +9417,7 @@ struct NetChange
             c.cid = cid;
             c.cname = obj.cname;
             c.ctype = obj.ctype;
+            c.meta = obj.meta;
             ops.push_back(c);
             for (const Key* k : ofObject[cid]) {
                 const Key& key = *k;
@@ -8450,6 +9484,7 @@ struct NetChange
             r.cid = cid;
             r.cname = obj.cname;
             r.ctype = obj.ctype;
+            r.meta = obj.meta;
             ops.push_back(r);
         }
         return ops;
@@ -8495,6 +9530,83 @@ Shared sharedWith(TransactionStore& store, int64_t except)
 }
 
 } // namespace
+
+TrimPlan App::planTrim(TransactionStore& store, const LogBranch& branch, const LogVersion& keep,
+                       bool bridge)
+{
+    TrimPlan plan;
+    plan.keep = keep;
+    const Shared shared = sharedWith(store, branch.id);
+    const auto chain = store.chain(branch.head);
+    std::set<int64_t> gone;
+    for (const auto& t : chain) {
+        if (t.seq <= keep.seq && !shared.rows.count(t.seq)) {
+            plan.rows.push_back(t.seq);
+            gone.insert(t.seq);
+        }
+    }
+    for (const auto& v : store.versions()) {
+        if (v.num != keep.num && v.kind != "named" && !shared.forks.count(v.num)
+                && gone.count(v.seq))
+            plan.versions.push_back(v.num);
+    }
+    // The bridge (sec 27.71, user): where another branch shares this one's
+    // history, the rows from the newest shared one -- or from the start, for
+    // a branch made from nothing -- up to the kept version are squashed into
+    // the kept version's own row rather than removed, so the two histories
+    // still meet in rows and a switch between them walks them instead of
+    // reading a version whole. Below that row nothing is removed: it is the
+    // other branch's history too.
+    if (bridge && !plan.rows.empty() && store.branches().size() > 1) {
+        for (const auto& t : chain) {
+            if (t.seq <= keep.seq && shared.rows.count(t.seq))
+                plan.from = std::max(plan.from, t.seq);
+        }
+        plan.span = store.chain(keep.seq, plan.from + 1);
+        if (plan.span.empty() || plan.span.back().seq != keep.seq
+                || plan.span.front().parent != plan.from)
+            plan.span.clear();
+    }
+    return plan;
+}
+
+void App::applyTrim(TransactionStore& store, TrimPlan& plan, const std::string& name)
+{
+    std::vector<int64_t> rows = plan.rows;
+    plan.squashed = 0;
+    if (!plan.span.empty()) {
+        std::vector<LogOp> ops = netOps(store, plan.span);
+        LogTransaction t = plan.span.back();
+        t.parent = plan.from;
+        t.id = 0;
+        t.kind = "squash";
+        t.origin.clear();
+        t.inverts = 0;
+        t.mergeFrom = newestMergeFrom(plan.span);
+        t.name = "Trim " + name + " to version " + std::to_string(plan.keep.num);
+        std::ostringstream bridgeScript;
+        bridgeScript << "{\"trim\":" << jsonString(name) << ",\"from\":" << plan.from
+                     << ",\"rows\":" << plan.span.size() << ",\"ops\":" << ops.size() << "}";
+        t.script = bridgeScript.str();
+        std::set<int64_t> inSpan;
+        std::vector<int64_t> drop;
+        for (const auto& r : plan.span) {
+            inSpan.insert(r.seq);
+            if (r.seq != plan.keep.seq)
+                drop.push_back(r.seq);
+        }
+        store.replaceTransactions(t, ops, drop);
+        plan.squashed = drop.size();
+        rows.erase(std::remove_if(rows.begin(), rows.end(),
+                                  [&inSpan](int64_t seq) { return inSpan.count(seq) != 0; }),
+                   rows.end());
+    }
+    if (!rows.empty())
+        store.removeTransactions(rows);
+    if (!plan.versions.empty())
+        store.evictVersions(plan.versions);
+    plan.removed = rows.size();
+}
 
 namespace {
 
@@ -8744,74 +9856,15 @@ size_t Document::trimBranch(const std::string& name, int64_t version, bool bridg
         store.nameVersion(keep.num, "trim " + name);
 
     log->resolvePending();
-    const Shared shared = sharedWith(store, branch.id);
-    const auto chain = store.chain(branch.head);
-    std::vector<int64_t> rows;
-    std::set<int64_t> gone;
-    for (const auto& t : chain) {
-        if (t.seq <= keep.seq && !shared.rows.count(t.seq)) {
-            rows.push_back(t.seq);
-            gone.insert(t.seq);
-        }
-    }
-    std::vector<int64_t> versions;
-    for (const auto& v : store.versions()) {
-        if (v.num != keep.num && v.kind != "named" && !shared.forks.count(v.num)
-                && gone.count(v.seq))
-            versions.push_back(v.num);
-    }
-    const std::set<long> named = _objectIdsOfRows(rows);
-
-    // The bridge (sec 27.71, user): where another branch shares this one's
-    // history, the rows from the newest shared one -- or from the start, for
-    // a branch made from nothing -- up to the kept version are squashed into
-    // the kept version's own row rather than removed, so the two histories
-    // still meet in rows and a switch between them walks them instead of
-    // reading a version whole. Below that row nothing is removed: it is the
-    // other branch's history too.
-    std::vector<LogTransaction> span;
-    int64_t from = 0;
-    if (bridge && !rows.empty() && store.branches().size() > 1) {
-        for (const auto& t : chain) {
-            if (t.seq <= keep.seq && shared.rows.count(t.seq))
-                from = std::max(from, t.seq);
-        }
-        span = store.chain(keep.seq, from + 1);
-        if (span.empty() || span.back().seq != keep.seq || span.front().parent != from)
-            span.clear();
-    }
-    size_t squashed = 0;
-    if (!span.empty()) {
-        std::vector<LogOp> ops = netOps(store, span);
-        LogTransaction t = span.back();
-        t.parent = from;
-        t.id = 0;
-        t.kind = "squash";
-        t.origin.clear();
-        t.inverts = 0;
-        t.mergeFrom = newestMergeFrom(span);
-        t.name = "Trim " + name + " to version " + std::to_string(keep.num);
-        std::ostringstream bridgeScript;
-        bridgeScript << "{\"trim\":" << jsonString(name) << ",\"from\":" << from
-                     << ",\"rows\":" << span.size() << ",\"ops\":" << ops.size() << "}";
-        t.script = bridgeScript.str();
-        std::set<int64_t> inSpan;
-        std::vector<int64_t> drop;
-        for (const auto& r : span) {
-            inSpan.insert(r.seq);
-            if (r.seq != keep.seq)
-                drop.push_back(r.seq);
-        }
-        store.replaceTransactions(t, ops, drop);
-        squashed = drop.size();
-        rows.erase(std::remove_if(rows.begin(), rows.end(),
-                                  [&inSpan](int64_t seq) { return inSpan.count(seq) != 0; }),
-                   rows.end());
-    }
-    if (!rows.empty())
-        store.removeTransactions(rows);
-    if (!versions.empty())
-        store.evictVersions(versions);
+    TrimPlan plan = planTrim(store, branch, keep, bridge);
+    const std::set<long> named = _objectIdsOfRows(plan.rows);
+    applyTrim(store, plan, name);
+    const auto& span = plan.span;
+    const size_t squashed = plan.squashed;
+    const auto& versions = plan.versions;
+    // The pages freed are given back: a trim is what shrinks the store,
+    // and nothing else reclaims them (sec 37.4).
+    store.vacuum();
     if (current) {
         // The steps that named the rows gone are gone with them, and the
         // bridge is none: nothing is undone past the kept version (16.7).
@@ -8822,7 +9875,7 @@ size_t Document::trimBranch(const std::string& name, int64_t version, bool bridg
         _rebuildUndoFromLog(d->undoFloor);
     }
     const CompactEstimate estimate = _noteDroppedRows(named);
-    const size_t removed = rows.size() + squashed;
+    const size_t removed = plan.removed + squashed;
 
     std::ostringstream script;
     script << "{\"branch\":" << jsonString(name) << ",\"version\":" << keep.num
@@ -8904,6 +9957,7 @@ size_t Document::deleteBranch(const std::string& name)
     if (!versions.empty())
         store.evictVersions(versions);
     store.removeBranch(branch.id);
+    store.vacuum();   // the pages freed given back (sec 37.4)
     // What an import kept with it (sec 30.15) goes too: a branch made
     // later may be given its number, and would be taken for an import.
     if (!store.getMeta("import:" + std::to_string(branch.id)).empty())
@@ -8995,6 +10049,7 @@ size_t Document::squashVersions(int64_t from, int64_t to)
     store.replaceTransactions(t, ops, drop);
     if (!evict.empty())
         store.evictVersions(evict);
+    store.vacuum();   // the pages freed given back (sec 37.4)
     // Steps of this branch's that named the rows gone, gone with them.
     if (chainPoints(store, log->head()).count(last.seq)) {
         clearUndos();
@@ -9012,6 +10067,22 @@ size_t Document::squashVersions(int64_t from, int64_t to)
 }
 
 namespace {
+
+/// The UID a `create` or `remove` op says its object has (sec 36.3),
+/// empty for none: one written before UIDs.
+std::string uidOfOp(const LogOp& o)
+{
+    if (o.meta.empty() || o.meta.front() != '{')
+        return {};
+    try {
+        auto j = nlohmann::json::parse(o.meta);
+        if (j.is_object() && j.contains("uid") && j["uid"].is_string())
+            return j["uid"].get<std::string>();
+    }
+    catch (...) {
+    }
+    return {};
+}
 
 /// A row's ops taken back -- newest first, each reversed -- so that a run
 /// of rows crossed backward folds into a NetChange like one crossed forward.
@@ -9328,8 +10399,57 @@ bool sameLinkValue(TransactionLog& log, const std::string& ptype, const std::str
     CapturedValue va, vb;
     if (!log.readValue(a, va) || !log.readValue(b, vb))
         return false;
-    const std::string ca = LibraryPaths::comparableSaved(va.fragment);
-    return ca != va.fragment && ca == LibraryPaths::comparableSaved(vb.fragment);
+    // A link's stamp says when it last saw its file, not what it links: two
+    // copies of one file link alike with stamps of their own (sec 35 L1).
+    auto comparable = [](const std::string& fragment) {
+        std::string out = LibraryPaths::comparableSaved(fragment);
+        for (size_t at; (at = out.find(" stamp=\"")) != std::string::npos;) {
+            const size_t close = out.find('"', at + 8);
+            if (close == std::string::npos)
+                break;
+            out.erase(at, close + 1 - at);
+        }
+        return out;
+    };
+    return comparable(va.fragment) == comparable(vb.fragment);
+}
+
+/// Two logged values the same once read back (docs/TransactionLog.md sec
+/// 37.10): each read into a property of its type, as a restore reads it, and
+/// the two compared. A value replayed from another copy's log is written by
+/// a property that read it, and need not be the same text: a placement's
+/// quaternion is rebuilt from its axis and angle, an ulp off the one that
+/// was written. Not a link (sameLinkValue) and not one with files.
+bool sameReadValue(TransactionLog& log, const std::string& ptype, const std::string& a,
+                   const std::string& b)
+{
+    if (a.empty() || b.empty())
+        return false;
+    Base::Type type = Base::Type::fromName(ptype.c_str());
+    if (type.isBad() || !type.isDerivedFrom(Property::getClassTypeId())
+            || type.isDerivedFrom(PropertyLinkBase::getClassTypeId()))
+        return false;
+    CapturedValue va, vb;
+    if (!log.readValue(a, va) || !log.readValue(b, vb) || !va.attachments.empty()
+            || !vb.attachments.empty() || !va.blobs.empty() || !vb.blobs.empty())
+        return false;
+    try {
+        std::unique_ptr<Property> pa(static_cast<Property*>(type.createInstance()));
+        std::unique_ptr<Property> pb(static_cast<Property*>(type.createInstance()));
+        if (!pa || !pb)
+            return false;
+        restoreValue(*pa, va);
+        restoreValue(*pb, vb);
+        if (pa->isSame(*pb))
+            return true;
+        Base::StringWriter wa, wb;
+        pa->Save(wa);
+        pb->Save(wb);
+        return wa.getString() == wb.getString();
+    }
+    catch (...) {
+        return false;
+    }
 }
 
 /// A merge worked out (sec 28.2): what each side did since the base, and
@@ -10754,7 +11874,8 @@ void planWeigh(Document& doc, TransactionLog& logRef, MergePlan& plan)
             c.ours = o->second.atEnd ? o->second.after : std::string();
             if (o->second.atEnd == v.atEnd
                     && (o->second.after == v.after
-                        || sameLinkValue(*log, v.ptype, o->second.after, v.after)))
+                        || sameLinkValue(*log, v.ptype, o->second.after, v.after)
+                        || sameReadValue(*log, v.ptype, o->second.after, v.after)))
                 c.kind = "same";
             else
                 c.kind = ckind == "view" ? "view" : "conflict";
@@ -11142,6 +12263,7 @@ std::vector<std::string> Document::keepLogValue(long cid, const std::string& pro
                                                 bool keep, const std::string& keeperKind,
                                                 const std::string& keeperName)
 {
+    checkNotFrozen("keep a value");
     std::vector<std::string> out;
     TransactionLog* log = getTransactionLog();
     if (!log)
@@ -11205,6 +12327,7 @@ std::vector<Document::KeptValue> Document::keptLogValues()
 
 bool Document::releaseLogValue(const std::string& ref)
 {
+    checkNotFrozen("let go of a value");
     TransactionLog* log = getTransactionLog();
     if (!log || !log->store().releaseValue(ref))
         return false;
@@ -11214,6 +12337,7 @@ bool Document::releaseLogValue(const std::string& ref)
 
 void Document::keepLogValuesOf(long cid, bool keep)
 {
+    checkNotFrozen("keep an object's values");
     TransactionLog* log = getTransactionLog();
     if (!log)
         return;
@@ -11343,7 +12467,21 @@ bool Document::_rollBackUndoneMerge()
     _clearRedos();
     store.forwardBranch(log->branch(), before, {});
     log->moveHead(before);
-    _followHead(head);
+    // The document is in that state already: a follow that fails (the rows
+    // will not fold and the version will not read) leaves it there, and the
+    // rollback is finished all the same rather than left with the head
+    // moved and the rest undone (sec 37.7 item 9, ruled).
+    try {
+        _followHead(head);
+    }
+    catch (Base::Exception& e) {
+        FC_WARN(getName() << ": the merge rolled back without following the rows: " << e.what());
+        log->forgetLiveValues();
+    }
+    catch (std::exception& e) {
+        FC_WARN(getName() << ": the merge rolled back without following the rows: " << e.what());
+        log->forgetLiveValues();
+    }
     if (!evict.empty())
         store.evictVersions(evict);
     store.removeTransactions(seqs);
@@ -11504,7 +12642,8 @@ Document::MergeResult Document::_merge(const std::string& branch,
     for (const auto& c : plan.preview.changes)
         anyLeft = anyLeft || leftOut(c);
     // What is taken in part is not taken as it is: the merge writes its row.
-    if (anyLeft)
+    // So does a set's merge, one undo step across its documents (sec 35 L6).
+    if (anyLeft || SetMergeScope::active())
         plan.preview.forward.clear();
     result.preview = plan.preview;
     const MergePreview& pv = plan.preview;
@@ -11889,12 +13028,14 @@ Document::MergeResult Document::_merge(const std::string& branch,
         if (!picked)
             _leaveBranch();
 
-        _clearMyRedos();
-        d->activeUndoTransaction = new Transaction(0);
+        if (!joinsSetStep(d->activeUndoTransaction)) {
+            _clearMyRedos();
+            d->activeUndoTransaction = new Transaction(setMergeTransactionId());
+            mUndoMap[d->activeUndoTransaction->getID()] = d->activeUndoTransaction;
+        }
         d->activeUndoTransaction->Name = (picked ? "Apply " : "Merge ") + branch;
         d->activeUndoTransaction->LogKind = picked ? "pick" : "merge";
         d->activeUndoTransaction->MergeFrom = picked ? 0 : pv.theirs;
-        mUndoMap[d->activeUndoTransaction->getID()] = d->activeUndoTransaction;
     }
 
     // Ours unchanged since the base: the document moved to theirs' state
@@ -12374,6 +13515,7 @@ struct MadeObject
     std::string name;
     std::string source;
     std::string type;
+    std::string uid;   ///< sec 36.3, empty for a row written before UIDs
 };
 
 std::vector<MadeObject> madeBy(TransactionStore& store, const LogTransaction& t)
@@ -12396,6 +13538,7 @@ std::vector<MadeObject> madeBy(TransactionStore& store, const LogTransaction& t)
         m.id = o.cid;
         m.name = o.cname;
         m.type = o.ctype;
+        m.uid = uidOfOp(o);
         auto it = was.find(o.cname);
         m.source = it == was.end() ? o.cname : it->second;
         out.push_back(std::move(m));
@@ -12443,9 +13586,20 @@ void sameObjects(TransactionStore& scan, const std::vector<LogTransaction>& rows
         const auto theirs = madeBy(other, there);
         std::vector<int> match(mine.size(), -1);
         std::vector<bool> used(theirs.size(), false);
+        // By the UID first (sec 36 U6), where both rows say one.
         for (size_t i = 0; i < mine.size(); ++i) {
-            for (size_t j = 0; j < theirs.size(); ++j) {
+            for (size_t j = 0; j < theirs.size() && !mine[i].uid.empty(); ++j) {
+                if (!used[j] && mine[i].type == theirs[j].type && mine[i].uid == theirs[j].uid) {
+                    match[i] = static_cast<int>(j);
+                    used[j] = true;
+                    break;
+                }
+            }
+        }
+        for (size_t i = 0; i < mine.size(); ++i) {
+            for (size_t j = 0; j < theirs.size() && match[i] < 0; ++j) {
                 if (!used[j] && mine[i].type == theirs[j].type
+                        && (mine[i].uid.empty() || theirs[j].uid.empty())
                         && mine[i].source == theirs[j].source) {
                     match[i] = static_cast<int>(j);
                     used[j] = true;
@@ -12620,6 +13774,26 @@ bool closedPart(TransactionStore& theirs, int64_t current, LogBranch& closed, Lo
 
 } // namespace
 
+std::map<std::string, std::string> Document::importedNames(const std::string& branch) const
+{
+    // Sec 36 U7: the rows an import made on the branch say the names they
+    // could not keep -- the branch's own rows, not those it started from.
+    std::map<std::string, std::string> out;
+    TransactionLog* log = const_cast<Document*>(this)->getTransactionLog();
+    LogBranch b;
+    if (!log || !log->store().findBranch(branch, b))
+        return out;
+    for (const auto& t : log->store().history(b.head)) {
+        if (t.branch != b.id || !isReplayed(t))
+            continue;
+        for (const auto& m : madeBy(log->store(), t)) {
+            if (m.source != m.name)
+                out[m.name] = m.source;
+        }
+    }
+    return out;
+}
+
 std::vector<Document::ForkBranch> Document::forkBranches(const std::string& path)
 {
     TransactionLog* log = getTransactionLog();
@@ -12747,6 +13921,13 @@ Document* Document::_importReplay(int64_t base, const std::string& stem, LogBran
             replay->d->transactionLog->setBranch(made.id);
             replay->d->undoFloor = replay->d->transactionLog->lastSeq();
             store.getBranch(made.id, mine);
+            // Named as a live link names the branch's document (27.23): a
+            // relative link it is given resolves against this file's folder
+            // (sec 35 L1) -- with no name, it was refused.
+            if (!FileName.getStrValue().empty()) {
+                Base::FlagToggler<> quiet(replay->d->bookkeeping, false);
+                replay->FileName.setValue(FileName.getStrValue() + "@" + made.name + "@");
+            }
         }
         catch (...) {
             app.closeDocument(replay->getName());
@@ -12768,7 +13949,15 @@ Document* Document::_importReplay(int64_t base, const std::string& stem, LogBran
     scratch = true;
     try {
         TransactionLog* rlog = replay->getTransactionLog();
+        // Rows with no ops between the version and the row change nothing:
+        // the restore row a version of an open is taken at is one (a base
+        // a pull names, sec 29.8), and is the version's own state.
+        bool moves = false;
         if (anchor.seq != base) {
+            for (const auto& t : store.chain(base, anchor.seq + 1))
+                moves = moves || !store.ops(t.seq).empty();
+        }
+        if (moves) {
             Base::FlagToggler<> replaying(replay->d->replaying);
             if (!replay->_moveAlongLog(anchor.seq, base, false))
                 THROWM(Base::RuntimeError, "cannot reach the row both files hold");
@@ -12816,6 +14005,53 @@ void Document::_finishImport(Document* replay, bool scratch, int64_t branch,
     signalBranchesChanged(*this);
 }
 
+std::string Document::importLinksOnly(int64_t base, const std::string& file)
+{
+    // docs/TransactionLog.md sec 35.15 G1: their file is ours at `base`; the
+    // branch is for its links, which the set's import relinks.
+    OperationScope scope;   // sec 27.38
+    checkNotFrozen("import a file's history");
+    TransactionLog* log = getTransactionLog();
+    if (!log)
+        THROWM(Base::RuntimeError, "no transaction log");
+    if (base <= 0)
+        THROWM(Base::ValueError, "no row both files hold");
+    _checkBranchable("import a file's history");
+    getFileHistory();
+    log->resolvePending();
+    LogBranch mine;
+    bool scratch = false;
+    Document* replay = _importReplay(base, file, mine, scratch);
+    nlohmann::json m;
+    m["file"] = file;
+    m["base"] = base;
+    m["rows"] = 0;
+    m["links_only"] = true;
+    if (auto set = ImportSetRecord::current())
+        m["set"] = {{"id", set->id}, {"name", set->name}};
+    nlohmann::json j;
+    j["import"] = std::move(m);
+    // As _finishImport(), with no map kept: a later import of the copy is
+    // not this branch continued.
+    auto& app = GetApplication();
+    Document* active = app.getActiveDocument() == replay ? this : app.getActiveDocument();
+    replay->getTransactionLog()->record("import", "Import " + file + ", its links", j.dump());
+    replay->getTransactionLog()->flush();
+    if (scratch) {
+        try {
+            replay->_leaveBranch();
+        }
+        catch (Base::Exception& e) {
+            FC_WARN("import of " << file << ": " << e.what());
+        }
+        app.closeDocument(replay->getName());
+        if (active && app.getActiveDocument() != active)
+            app.setActiveDocument(active);
+    }
+    signalBranchesChanged(*this);
+    return mine.name;
+}
+
 void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
                                   std::map<std::string, std::string>& names,
                                   std::map<std::string, std::string>& renamed,
@@ -12834,15 +14070,61 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
         auto it = ids.find(id);
         return it == ids.end() ? id : it->second;
     };
+    Base::FlagToggler<> foreign(d->writingForeign);   // sec 37.10
     std::vector<std::pair<DocumentObject*, DocumentObject*>> pairs;   // theirs, the one here
     std::set<long> kept;
-    for (auto theirs : from.getObjects()) {
+    // Owners before what they own (sec 37.10 (b)): an object not paired by
+    // its UID is the one here its owner's counterpart names -- an origin's
+    // plane both copies made, each under a UID of its own.
+    std::map<DocumentObject*, DocumentObject*> ownerOf;
+    for (auto owner : from.getObjects()) {
+        for (auto owned : owner->getOwnedObjects())
+            ownerOf.emplace(owned, owner);
+    }
+    std::vector<DocumentObject*> order;
+    std::set<DocumentObject*> placed;
+    std::function<void(DocumentObject*)> place = [&](DocumentObject* obj) {
+        if (!placed.insert(obj).second)
+            return;
+        auto owner = ownerOf.find(obj);
+        if (owner != ownerOf.end())
+            place(owner->second);
+        order.push_back(obj);
+    };
+    for (auto obj : from.getObjects())
+        place(obj);
+    std::map<DocumentObject*, DocumentObject*> pairedHere;   // theirs -> the one here
+    for (auto theirs : order) {
         const std::string name = theirs->getNameInDocument();
-        DocumentObject* mine = getObjectByID(here(theirs->getID()));
-        const std::string expect = names.count(name) ? names[name] : name;
-        if (mine && (mine->getTypeId() != theirs->getTypeId() || kept.count(mine->getID())
-                     || expect != mine->getNameInDocument()))
-            mine = nullptr;
+        // Sec 36 U6: theirs is the one here of its UID and its type, the
+        // name not asked. A UID derived for a file written by a build that
+        // keeps none says nothing of ours, and the id and the name do, as
+        // before (30.19 G7).
+        const std::string& uid = theirs->getObjectUid();
+        DocumentObject* mine = nullptr;
+        if (auto it = d->objectUidMap.find(uid); !uid.empty() && it != d->objectUidMap.end()
+                && it->second->getTypeId() == theirs->getTypeId()
+                && !kept.count(it->second->getID()))
+            mine = it->second;
+        if (!mine && from.d->derivedUids.count(theirs->getID())) {
+            mine = getObjectByID(here(theirs->getID()));
+            const std::string expect = names.count(name) ? names[name] : name;
+            if (mine && (mine->getTypeId() != theirs->getTypeId() || kept.count(mine->getID())
+                         || expect != mine->getNameInDocument()))
+                mine = nullptr;
+        }
+        if (!mine) {
+            auto owner = ownerOf.find(theirs);
+            auto liveOwner = owner == ownerOf.end() ? pairedHere.end()
+                                                    : pairedHere.find(owner->second);
+            if (liveOwner != pairedHere.end()) {
+                OwnedPaste how = OwnedPaste::FollowOwner;
+                auto there = owner->second->getOwnedCounterpart(theirs, liveOwner->second, how);
+                if (there && there->getDocument() == this
+                        && there->getTypeId() == theirs->getTypeId() && !kept.count(there->getID()))
+                    mine = there;
+            }
+        }
         if (!mine) {
             auto obj = static_cast<DocumentObject*>(theirs->getTypeId().createInstance());
             if (!obj)
@@ -12854,7 +14136,22 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
             // -- unless `kin`, the document asked, has it as another type
             // -- and comes under both, as an object does on any branch of
             // its file. That is what lets a merge see the two as one.
-            if (kin && !ids.count(theirs->getID()) && !names.count(name)) {
+            // Sec 36.3: it comes with its UID; one the file gave an id
+            // (an object of ours removed here) is that object again, under
+            // its id and its name.
+            const bool derived = from.d->derivedUids.count(theirs->getID()) != 0;
+            std::string wanted = name;
+            obj->_uid = uid;
+            if (!derived && !uid.empty()) {
+                const long cid = d->history->objectIdOfUid(uid);
+                if (cid && !getObjectByID(cid)) {
+                    obj->_Id = cid;
+                    const std::string* known = d->history->objectNameOfId(cid);
+                    if (known && !getObject(known->c_str()))
+                        wanted = *known;
+                }
+            }
+            if (derived && kin && !ids.count(theirs->getID()) && !names.count(name)) {
                 const std::string* known = d->history->objectNameOfId(theirs->getID());
                 const DocumentObject* same = kin->getObjectByID(theirs->getID());
                 if (known && *known == name && !getObjectByID(theirs->getID())
@@ -12864,10 +14161,9 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
             }
             // Sec 30.33: one of this file's own that the copy took and this
             // branch has not got comes under the id and the name it has.
-            std::string wanted = name;
             auto both = paired ? paired->find(theirs->getID())
                                : std::map<long, long>::const_iterator();
-            if (paired && both != paired->end() && !getObjectByID(both->second)) {
+            if (!obj->_Id && paired && both != paired->end() && !getObjectByID(both->second)) {
                 const std::string* known = d->history->objectNameOfId(both->second);
                 if (known && !getObject(known->c_str())) {
                     obj->_Id = both->second;
@@ -12887,8 +14183,20 @@ void Document::_applyForeignState(Document& from, std::map<long, long>& ids,
             }
             mine = obj;
         }
+        else {
+            // Found by its UID, under an id or a name of its own here.
+            if (mine->getID() != theirs->getID())
+                ids[theirs->getID()] = mine->getID();
+            else
+                ids.erase(theirs->getID());
+            if (name != mine->getNameInDocument())
+                names[name] = mine->getNameInDocument();
+            else
+                names.erase(name);
+        }
         kept.insert(mine->getID());
         pairs.emplace_back(theirs, mine);
+        pairedHere[theirs] = mine;
     }
 
     CaptureConfig config(*this);
@@ -13074,7 +14382,7 @@ bool Document::_importStateRow(Document& from, const std::string& file,
 
 Document::ImportResult Document::_importState(const std::string& path, const std::string& file,
                                               const std::string& saveId, const std::string& hash,
-                                              const std::string& sender)
+                                              const std::string& sender, int64_t baseSeq)
 {
     // docs/TransactionLog.md sec 30.19: a file with no history. Its
     // `Version` names the save it is from (G1); the state at that save's
@@ -13088,7 +14396,12 @@ Document::ImportResult Document::_importState(const std::string& path, const std
     // No save of this history named, or one its rows no longer reach: the
     // file is not refused (sec 30.22). It comes as an independent branch,
     // from nothing.
-    if (TransactionLog::savedAt(store, saveId, version, result.base)) {
+    // Or the row given, where the file names none: the state this process
+    // left the file in, for a file another process saved without history
+    // (sec 29.7 Q3).
+    if (!TransactionLog::savedAt(store, saveId, version, result.base))
+        result.base = baseSeq;
+    if (result.base) {
         bool reached = false;
         for (const auto& t : store.transactions(result.base, 1))
             reached = t.seq == result.base;
@@ -13139,6 +14452,7 @@ Document::ImportResult Document::_importState(const std::string& path, const std
     bool scratch = false;
     try {
         replay = _importReplay(result.base, file, mine, scratch);
+        PropertyXLink::ImportPaths::into(replay);
         result.branch = mine.name;
         replay->_importStateRow(*theirs, file, ids, names, result,
                                 result.independent ? this : nullptr);
@@ -13161,6 +14475,9 @@ Document::ImportResult Document::_importState(const std::string& path, const std
         m["sender"] = sender;
     if (!d->importingRequest.empty())
         m["request"] = d->importingRequest;
+    // Sec 35 Q9: the set it is of.
+    if (auto set = ImportSetRecord::current())
+        m["set"] = {{"id", set->id}, {"name", set->name}};
     if (result.independent)
         m["independent"] = true;
     if (result.stoppedAt) {
@@ -13189,10 +14506,65 @@ Document::ImportResult Document::_importState(const std::string& path, const std
     return result;
 }
 
+namespace {
+/// The documents an import opens on the side -- their linked files, read
+/// with theirs -- closed when it is done (sec 35 L1), unless a document
+/// that stays open links to one.
+struct SideDocuments
+{
+    std::set<Document*> before;
+    SideDocuments()
+    {
+        for (auto doc : GetApplication().getDocuments())
+            before.insert(doc);
+    }
+    ~SideDocuments()
+    {
+        auto& app = GetApplication();
+        Document* active = app.getActiveDocument();
+        std::set<Document*> side;
+        for (auto doc : app.getDocuments()) {
+            if (!before.count(doc))
+                side.insert(doc);
+        }
+        for (bool kept = true; kept && !side.empty();) {
+            kept = false;
+            for (auto it = side.begin(); it != side.end();) {
+                bool linked = false;
+                auto inList = PropertyXLink::getDocumentInList(*it);
+                for (auto from : inList[*it])
+                    linked = linked || !side.count(from);
+                if (linked) {
+                    it = side.erase(it);
+                    kept = true;
+                }
+                else {
+                    ++it;
+                }
+            }
+        }
+        for (auto doc : side) {
+            try {
+                app.closeDocument(doc->getName());
+            }
+            catch (Base::Exception& e) {
+                FC_WARN("import: closing " << doc->getName() << ": " << e.what());
+            }
+        }
+        if (active && !side.count(active) && app.getActiveDocument() != active)
+            app.setActiveDocument(active);
+    }
+};
+} // namespace
+
 Document::ImportResult Document::importFork(const std::string& path, const std::string& branch,
                                             const std::string& sender)
 {
     OperationScope scope;   // sec 27.38
+    // Sec 35 L1: what the import opens of their files is closed after it,
+    // and their links come mapped to this file's folder.
+    SideDocuments side;
+    PropertyXLink::ImportPaths paths(path, FileName.getStrValue());
     // docs/TransactionLog.md sec 30.13, 30.14: replay, always (F1).
     checkNotFrozen("import a file's history");
     TransactionLog* log = getTransactionLog();
@@ -13205,12 +14577,17 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
     TransactionLogCore& core = TransactionLogCore::of(*d->history);
 
     ForkSource fork = openFork(d->history, path);
+    // The file as another process left it (sec 29.8): under the name the
+    // pull gives it, not its copy's.
+    if (!d->pullLabel.empty())
+        fork.file = d->pullLabel;
     if (!fork.history) {
         // No history: the file as it is, against the save it names.
         if (!branch.empty())
             THROWM(Base::ValueError, "'" + path + "' carries no history, and so no branch '"
                                          + branch + "'");
-        return _importState(path, fork.file, fork.saved.saveId, fork.saved.hash, sender);
+        return _importState(path, fork.file, fork.saved.saveId, fork.saved.hash, sender,
+                            d->pullBase);
     }
     auto& theirs = fork.core->store();
     // F6: the branch asked for, else the one the copy's file reopens on.
@@ -13245,7 +14622,8 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
         if (other)
             THROWM(Base::ValueError, "branch '" + result.from + "' of '" + path
                                          + "' shares no history with this file");
-        return _importState(path, fork.file, std::string(), fork.saved.hash, sender);
+        return _importState(path, fork.file, std::string(), fork.saved.hash, sender,
+                            d->pullBase);
     }
     const auto rows = theirs.chain(from.head, base + 1);
     std::vector<LogTransaction> tailRows;
@@ -13280,6 +14658,10 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
             const auto was = nlohmann::json::parse(meta, nullptr, false);
             if (!was.is_object() || was.value("file", std::string()) != fork.file
                     || was.value("branch", std::string()) != from.name)
+                continue;
+            // A pull's branch closed once merged is not written to again
+            // (sec 29.8).
+            if (b.closed && !d->pullLabel.empty())
                 continue;
             const auto after = store.chain(b.head, result.base);
             if (after.empty() || after.front().seq != result.base)
@@ -13456,6 +14838,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
         name += "@" + from.name;
     bool scratch = false;
     Document* replay = _importReplay(result.base, name, mine, scratch);
+    PropertyXLink::ImportPaths::into(replay);
     result.branch = mine.name;
     TransactionLog* rlog = replay->getTransactionLog();
 
@@ -13704,6 +15087,15 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                 // A merge of rows this file has not got is a row like any
                 // (sec 30.15); one of rows it has stays a merge (sec 30.34).
                 const int64_t second = t.kind == "merge" ? mergedHere(t) : 0;
+                // Sec 37.10 (b): an object the row makes that pairs with
+                // none here by its UID, but whose owner here owns one of its
+                // kind (an origin's plane both copies made, each under a UID
+                // of its own), is that one. Its owner is known once the row
+                // is applied, so the row is applied again, once, holding it.
+                std::map<long, long> ownedHeld, ownedFound;
+                bool ownedAgain = false;
+            applyRow:
+                ownedFound.clear();
                 const auto idsBefore = ids;
                 const auto namesBefore = names;
                 const auto mintedBefore = minted;
@@ -13734,6 +15126,7 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                         txn->Inverts = store.findRow(id);
                 }
                 replay->mUndoMap[txn->getID()] = txn;
+                Base::FlagToggler<> foreign(replay->d->writingForeign);
                 try {
                     auto here = [&](long cid) {
                         auto it = ids.find(cid);
@@ -13769,7 +15162,19 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                         long asId = 0;
                         std::string wanted = o.cname;
                         long held = 0;
-                        if (auto both = same.find(o.cid); both != same.end())
+                        // Sec 36.3: first by its UID -- the one the file
+                        // gave an id is that object.
+                        const std::string uid = uidOfOp(o);
+                        const long byUid = uid.empty() ? 0 : d->history->objectIdOfUid(uid);
+                        // Held as its owner's first (37.10 (b)): the first
+                        // application noted its own UID in the history the
+                        // replay shares, which says nothing of ours.
+                        auto owned = ownedHeld.find(o.cid);
+                        if (owned != ownedHeld.end())
+                            held = owned->second;
+                        else if (byUid)
+                            held = byUid;
+                        else if (auto both = same.find(o.cid); both != same.end())
                             held = both->second;
                         else if (auto brought = ids.find(o.cid); brought != ids.end())
                             held = brought->second;
@@ -13791,6 +15196,13 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                             THROWM(Base::RuntimeError, "cannot create " + o.ctype);
                         if (asId)
                             obj->_Id = asId;
+                        obj->_uid = uid;
+                        // Held as its owner's (37.10 (b)): the one here, UID
+                        // and all
+                        if (owned != ownedHeld.end()) {
+                            if (auto mine = getObjectByID(owned->second))
+                                obj->_uid = mine->getObjectUid();
+                        }
                         replay->addObject(obj, wanted.c_str(), false);
                         ids[o.cid] = obj->getID();
                         const std::string name = obj->getNameInDocument();
@@ -13929,6 +15341,44 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                         if (auto obj = replay->getObjectByID(here(o.cid)))
                             replay->removeObject(obj->getNameInDocument());
                     }
+                    // 6. What it made that its owner says is one of ours
+                    // (37.10 (b)), found now the row has said who owns what.
+                    if (!ownedAgain) {
+                        std::map<DocumentObject*, DocumentObject*> ownerOf;
+                        for (const auto& o : ops) {
+                            if (o.op != "create" || o.ckind != "obj")
+                                continue;
+                            // One of ours by its UID already: paired (the
+                            // history is shared with the replay, and has the
+                            // ids it made too, so it is no test of ours)
+                            auto made = replay->getObjectByID(here(o.cid));
+                            if (!made || getObjectByUid(made->getObjectUid()))
+                                continue;
+                            if (ownerOf.empty()) {
+                                for (auto owner : replay->getObjects()) {
+                                    for (auto obj : owner->getOwnedObjects())
+                                        ownerOf.emplace(obj, owner);
+                                }
+                            }
+                            auto owner = ownerOf.find(made);
+                            if (owner == ownerOf.end())
+                                continue;
+                            auto liveOwner = getObjectByID(owner->second->getID());
+                            if (!liveOwner || liveOwner->getTypeId() != owner->second->getTypeId())
+                                continue;
+                            OwnedPaste how = OwnedPaste::FollowOwner;
+                            auto there = owner->second->getOwnedCounterpart(made, liveOwner, how);
+                            // Ours, unless it is that already; its id free in the
+                            // replay but for the object made, which the second
+                            // pass makes under it
+                            auto taken = there ? replay->getObjectByID(there->getID()) : nullptr;
+                            if (there && there->getDocument() == this
+                                    && there->getTypeId() == made->getTypeId()
+                                    && there->getObjectUid() != made->getObjectUid()
+                                    && (!taken || taken == made))
+                                ownedFound[o.cid] = there->getID();
+                        }
+                    }
                 }
                 catch (...) {
                     replay->_abortTransaction();
@@ -13938,6 +15388,20 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
                     seeded = seededBefore;
                     unpaired = unpairedBefore;
                     throw;
+                }
+                if (!ownedFound.empty()) {
+                    // Applied again, the objects found held (37.10 (b))
+                    replay->_abortTransaction();
+                    names = namesBefore;
+                    ids = idsBefore;
+                    minted = mintedBefore;
+                    seeded = seededBefore;
+                    unpaired = unpairedBefore;
+                    renamed.clear();
+                    home.clear();
+                    ownedHeld = ownedFound;
+                    ownedAgain = true;
+                    goto applyRow;
                 }
 
                 nlohmann::json j;
@@ -14046,6 +15510,9 @@ Document::ImportResult Document::importFork(const std::string& path, const std::
         m["sender"] = sender;
     if (!d->importingRequest.empty())
         m["request"] = d->importingRequest;
+    // Sec 35 Q9: the set it is of.
+    if (auto set = ImportSetRecord::current())
+        m["set"] = {{"id", set->id}, {"name", set->name}};
     if (gap)
         m["state"] = state;
     if (result.stoppedAt) {
@@ -14268,6 +15735,25 @@ Document::ImportResult Document::importSentFile(int64_t seq, const std::string& 
     _releaseSentFiles();
     signalBranchesChanged(*this);
     return result;
+}
+
+bool Document::holdSentFileFor(int64_t seq, const std::string& branch)
+{
+    TransactionLog* log = getTransactionLog();
+    if (!log || log->detached())
+        return false;
+    auto& store = log->store();
+    LogBranch b;
+    if (!store.findBranch(branch, b))
+        return false;
+    for (const auto& f : sentFiles()) {
+        if (f.seq == seq) {
+            store.setHeldFileBranch(seq, b.id);
+            signalBranchesChanged(*this);
+            return true;
+        }
+    }
+    return false;
 }
 
 void Document::_releaseSentFiles()
@@ -14571,6 +16057,12 @@ bool Document::afterRestore(bool checkPartial) {
                 d->undoFloor = log->lastSeq();
         }
     }
+    // The file this document now is, for its saves to compare (sec 29.8):
+    // a document of the file, not a version of it or a copy for a merge.
+    if (d->readStamp.valid() && d->readStamp.path == FileName.getStrValue()
+            && !testStatus(PartialDoc) && !testStatus(VersionDoc) && !testStatus(TempDoc))
+        _noteDiskState(FileName.getStrValue());
+    d->readStamp = DiskStamp();
     return true;
 }
 
@@ -14840,8 +16332,12 @@ void Document::_noteObjectsInHistory() const
     // the file's (item 2) unless it hashed already.
     d->history->noteObjectId(d->lastObjectId);
     d->Hasher = d->history->shareHasher(d->Hasher);
-    for (auto obj : d->objectArray)
+    for (auto obj : d->objectArray) {
         d->history->noteObjectName(obj->getNameInDocument(), obj->getID());
+        d->history->noteObjectUid(obj->getID(), obj->getObjectUid());
+    }
+    if (!d->fileUid.empty())
+        d->history->noteFileUid(d->fileUid);
     for (const auto& g : d->lastGeoIds)
         d->history->noteGeoId(g.first, g.second);
     d->lastGeoIds.clear();
@@ -16089,6 +17585,7 @@ DocumentObject * Document::addObject(const char* sType, const char* pObjectName,
     d->objectMap[ObjectName] = pcObject;
     // generate object id and add to id map;
     pcObject->_Id = d->addObject(pcObject);
+    _giveObjectUid(pcObject, d->freshId, ObjectName);
     d->noteObjectName(ObjectName, pcObject->_Id);
     // cache the pointer to the name string in the Object (for performance of DocumentObject::getNameInDocument())
     pcObject->pcNameInDocument = &(d->objectMap.find(ObjectName)->first);
@@ -16206,6 +17703,7 @@ std::vector<DocumentObject *> Document::addObjects(const char* sType, const std:
         d->objectMap[ObjectName] = pcObject;
         // generate object id and add to id map;
         pcObject->_Id = d->addObject(pcObject);
+        _giveObjectUid(pcObject, d->freshId, ObjectName);
         d->noteObjectName(ObjectName, pcObject->_Id);
         // cache the pointer to the name string in the Object (for performance of DocumentObject::getNameInDocument())
         pcObject->pcNameInDocument = &(d->objectMap.find(ObjectName)->first);
@@ -16276,6 +17774,7 @@ void Document::addObject(DocumentObject* pcObject, const char* pObjectName, bool
     d->objectMap[ObjectName] = pcObject;
     // generate object id and add to id map;
     pcObject->_Id = d->addObject(pcObject);
+    _giveObjectUid(pcObject, d->freshId, ObjectName);
     d->noteObjectName(ObjectName, pcObject->_Id);
     // cache the pointer to the name string in the Object (for performance of DocumentObject::getNameInDocument())
     pcObject->pcNameInDocument = &(d->objectMap.find(ObjectName)->first);
@@ -16300,12 +17799,172 @@ void Document::addObject(DocumentObject* pcObject, const char* pObjectName, bool
     signalActivatedObject(*pcObject);
 }
 
+void Document::_giveObjectUid(DocumentObject* pcObject, bool freshId, const std::string& name)
+{
+    // docs/TransactionLog.md sec 36.3: one UID, one id. An object made
+    // under an id the file knows has that id's UID; under one it does not
+    // know, the UID it carries or was saved with, else -- an object of a
+    // file from before UIDs -- one derived from the file (U3). A new id
+    // takes the UID it was brought with, or its own.
+    std::string uid = std::move(d->restoringUid);
+    d->restoringUid.clear();
+    if (!pcObject->_uid.empty())
+        uid = pcObject->_uid;
+    // What a copy beside its source names the source by (sec 36.7).
+    if (testStatus(Status::Importing) && !uid.empty())
+        d->broughtUids[pcObject->_Id] = uid;
+    const std::string* known =
+        d->history && !freshId ? d->history->objectUidOfId(pcObject->_Id) : nullptr;
+    // From nothing, read: the one it carries as `_ObjectUUID`, read with its
+    // properties, may still be its own (sec 36.7).
+    if (!known && uid.empty() && testStatus(Status::Restoring))
+        d->unsourcedUids.insert(pcObject->_Id);
+    bool derived = false;
+    // The history wins (36.3); a file saved with another UID for the id is
+    // one that grew apart from the history it is read with (a copy saved
+    // over the file while this process held its history), and is said
+    // (sec 37.7 item 11).
+    if (known && !uid.empty() && uid != *known && testStatus(Status::Restoring)
+            && !testStatus(Status::Importing))
+        FC_WARN(getName() << ": " << name << " (id " << pcObject->_Id << ") was saved with UID "
+                          << uid << "; the file's history gives the id " << *known
+                          << ", which it takes");
+    if (known)
+        uid = *known;
+    else if (uid.empty() && !freshId) {
+        uid = _derivedObjectUid(pcObject->_Id, name);
+        derived = true;
+    }
+    // A UID a live object here has, or -- for a new id -- one the file gave
+    // another id: this one is a copy (U2), and is given its own.
+    auto live = uid.empty() ? d->objectUidMap.end() : d->objectUidMap.find(uid);
+    // Brought from another document onto a live object of its type: a
+    // clash, which the import's scope settles once it is all in (36.4).
+    if (live != d->objectUidMap.end() && live->second != pcObject
+            && testStatus(Status::Importing) && !d->importFromHere
+            && live->second->getTypeId() == pcObject->getTypeId())
+        d->importClashes.push_back({pcObject, live->second, false});
+    if (uid.empty() || (live != d->objectUidMap.end() && live->second != pcObject)
+            || (freshId && d->history && d->history->objectIdOfUid(uid)
+                && d->history->objectIdOfUid(uid) != pcObject->_Id))
+        uid = Base::Uuid::createUuid();
+    else if (derived)
+        d->derivedUids.insert(pcObject->_Id);
+    pcObject->_uid = uid;
+    d->objectUidMap[uid] = pcObject;
+    if (d->history)
+        d->history->noteObjectUid(pcObject->_Id, uid);
+}
+
+std::string Document::_derivedObjectUid(long id, const std::string& name) const
+{
+    std::string space = d->fileUid;
+    if (space.empty() && d->history)
+        space = d->history->fileUid();
+    if (space.empty())
+        space = Uid.getValueStr();
+    return Base::Uuid::createUuid(space, "object " + std::to_string(id) + " " + name);
+}
+
+void Document::giveNextObjectUid(const std::string& uid)
+{
+    d->restoringUid = uid;
+}
+
+DocumentObject* Document::getObjectByUid(const std::string& uid) const
+{
+    auto it = d->objectUidMap.find(uid);
+    return it == d->objectUidMap.end() ? nullptr : it->second;
+}
+
+void Document::carryObjectUid(DocumentObject* obj, const std::string& uid)
+{
+    if (!obj || uid.empty())
+        return;
+    if (obj->getDocument() && obj->getDocument() != this) {
+        obj->getDocument()->carryObjectUid(obj, uid);
+        return;
+    }
+    // The document's bookkeeping: no undo step, no row of the log, and a
+    // pinned version takes it. A compatibility name (Property::Legacy) is
+    // in no file of this fork's format and in no row of the log; it marks
+    // nothing modified (NoModify) and touches nothing (Output).
+    Base::FlagToggler<> quiet(d->bookkeeping, false);
+    Property* found = obj->getDynamicPropertyByName("_ObjectUUID");
+    auto prop = Base::freecad_dynamic_cast<PropertyUUID>(found);
+    if (!prop) {
+        if (found)
+            return;
+        prop = static_cast<PropertyUUID*>(obj->addDynamicProperty(
+                "App::PropertyUUID", "_ObjectUUID", nullptr, nullptr,
+                Prop_Output | Prop_Hidden));
+        if (!prop)
+            return;
+    }
+    prop->setStatus(Property::Legacy, true);
+    prop->setStatus(Property::NoModify, true);
+    if (prop->getValueStr() != uid)
+        prop->setValue(uid);
+}
+
+std::string Document::getBroughtObjectUid(const DocumentObject* obj) const
+{
+    if (!obj || !testStatus(Status::Importing))
+        return {};
+    auto it = d->broughtUids.find(obj->getID());
+    return it == d->broughtUids.end() ? std::string() : it->second;
+}
+
+void Document::_adoptCarriedUids(const std::vector<DocumentObject*>& objs)
+{
+    // Sec 36.7: a file of upstream's format written here holds each UID
+    // twice, as the attribute and as `_ObjectUUID`; one upstream wrote
+    // again holds the property alone, and before sec 36 a part or a FEM
+    // analysis held a `Uid` of its own (restoreUidProperty()). Taken where
+    // the object's UID came from nothing, by the rules the attribute is
+    // taken by: not a live object's -- an import's clash -- and not
+    // another id's in the history.
+    const bool importing = testStatus(Status::Importing);
+    for (auto obj : objs) {
+        if (!obj || !obj->isAttachedToDocument())
+            continue;
+        auto prop = Base::freecad_dynamic_cast<PropertyUUID>(
+                obj->getDynamicPropertyByName("_ObjectUUID"));
+        if (!prop)
+            continue;
+        const std::string uid = prop->getValueStr();
+        if (!uid.empty() && uid != obj->_uid && d->unsourcedUids.count(obj->_Id)) {
+            if (importing)
+                d->broughtUids[obj->_Id] = uid;
+            auto live = d->objectUidMap.find(uid);
+            const long known = d->history ? d->history->objectIdOfUid(uid) : 0;
+            if (live != d->objectUidMap.end()) {
+                if (importing && !d->importFromHere
+                        && live->second->getTypeId() == obj->getTypeId())
+                    d->importClashes.push_back({obj, live->second, false});
+            }
+            else if (!known || known == obj->_Id) {
+                d->forgetObjectUid(obj);
+                d->derivedUids.erase(obj->_Id);
+                obj->_uid = uid;
+                d->objectUidMap[uid] = obj;
+                if (d->history)
+                    d->history->renoteObjectUid(obj->_Id, uid);
+            }
+        }
+        // It says the object's UID from here on, as a compatibility name
+        carryObjectUid(obj, obj->_uid);
+    }
+    d->unsourcedUids.clear();
+}
+
 void Document::_addObject(DocumentObject* pcObject, const char* pObjectName)
 {
     std::string ObjectName = getUniqueObjectName(pObjectName, pcObject->getID());
     d->objectMap[ObjectName] = pcObject;
     // generate object id and add to id map;
     pcObject->_Id = d->addObject(pcObject);
+    _giveObjectUid(pcObject, d->freshId, ObjectName);
     d->noteObjectName(ObjectName, pcObject->_Id);
     // cache the pointer to the name string in the Object (for performance of DocumentObject::getNameInDocument())
     pcObject->pcNameInDocument = &(d->objectMap.find(ObjectName)->first);
@@ -16409,6 +18068,7 @@ void Document::removeObject(const char* sName)
 
     // remove the ID before possibly deleting the object
     d->objectIdMap.erase(pos->second->_Id);
+    d->forgetObjectUid(pos->second);
     // Unset the bit to be on the safe side
     pos->second->setStatus(ObjectStatus::Remove, false);
 
@@ -16502,6 +18162,7 @@ void Document::_removeObject(DocumentObject* pcObject)
     // remove from map
     pcObject->setStatus(ObjectStatus::Remove, false); // Unset the bit to be on the safe side
     d->objectIdMap.erase(pcObject->_Id);
+    d->forgetObjectUid(pcObject);
     ++d->revision;
     for (std::vector<DocumentObject*>::iterator it = d->objectArray.begin(); it != d->objectArray.end(); ++it) {
         if (*it == pcObject) {

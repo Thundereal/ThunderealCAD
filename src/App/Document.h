@@ -70,6 +70,42 @@ namespace App
 namespace App
 {
 
+/** While one is open in this thread (docs/TransactionLog.md sec 35 L6, Q3):
+ * a merge writes its row where it could take the other branch's rows as
+ * they are, and a merge or a restore of a version opens its transaction
+ * under the application's active one -- so a set's merge is one undo step
+ * across its documents.
+ */
+class AppExport SetMergeScope
+{
+public:
+    SetMergeScope();
+    ~SetMergeScope();
+    SetMergeScope(const SetMergeScope&) = delete;
+    SetMergeScope& operator=(const SetMergeScope&) = delete;
+    static bool active();
+};
+
+/** While one is open in this thread (docs/TransactionLog.md sec 35 Q9): an
+ * import's record names the set it is of -- its id and name -- so a part
+ * file knows its branch is a set's.
+ */
+class AppExport ImportSetRecord
+{
+public:
+    ImportSetRecord(std::string id, std::string name);
+    ~ImportSetRecord();
+    ImportSetRecord(const ImportSetRecord&) = delete;
+    ImportSetRecord& operator=(const ImportSetRecord&) = delete;
+    /// The innermost one open; null when none is.
+    static const ImportSetRecord* current();
+    const std::string id;
+    const std::string name;
+
+private:
+    ImportSetRecord* _outer;
+};
+
 /// The document class
 class AppExport Document : public App::PropertyContainer
 {
@@ -216,6 +252,10 @@ public:
     /// sec 32.11, 32.27): a value kept or let go, an object kept or no longer.
     /// No row says so, so nothing else does
     fastsignals::signal<void (const App::Document&)> signalLogKeptChanged;
+    /// signal when a save stopped at the merge of what another process saved
+    /// into the file (docs/TransactionLog.md sec 29.8): the branch it came as,
+    /// whose conflicts are for the user to pick
+    fastsignals::signal<void (const App::Document&, const std::string&)> signalSaveMergeConflict;
     /// signal on a frozen version document opened for a pin when the last
     /// link pinned to it lets go (docs/TransactionLog.md sec 27.21 Q5, 27.30):
     /// unpinned, deleted, re-pinned, or its document closed. What becomes of
@@ -248,6 +288,15 @@ public:
     fastsignals::signal<void (const std::vector<App::DocumentObject*>&, Base::Reader&,
                                   const std::map<std::string, std::string>&)> signalImportViewObjects;
     fastsignals::signal<void (const std::vector<App::DocumentObject*>&)> signalFinishImportObjects;
+    /** An import's copies assigned onto live objects that take the look
+     * brought (sec 35.18): (copy, live), before the copies go. The view
+     * provider's look is the Gui's to take; what the object keeps of it
+     * (its Appearances) was taken with its values.
+     */
+    fastsignals::signal<void (const App::Document&,
+                              const std::vector<std::pair<App::DocumentObject*,
+                                                          App::DocumentObject*>>&)>
+        signalAssignLook;
     //signal starting a save action to a file
     fastsignals::signal<void (const App::Document&, const std::string&)> signalStartSave;
     //signal finishing a save action to a file
@@ -326,6 +375,66 @@ public:
     ExportStatus isExporting(const App::DocumentObject *obj) const;
     void exportObjects(const std::vector<App::DocumentObject*>&, std::ostream&);
     void exportGraphviz(std::ostream&) const;
+    /** An object brought into this document -- a paste, a merge, a copy --
+     * whose UID a live object of its type here has (docs/TransactionLog.md
+     * sec 36.4): the copy made, and the object it may be instead.
+     */
+    struct ImportClash
+    {
+        DocumentObject* brought = nullptr;
+        DocumentObject* live = nullptr;
+        bool assign = false;
+    };
+    /// What a paste does with one object it brings (sec 37.9)
+    enum class ImportTake
+    {
+        /// Brought as a new object, beside the live one if there is one
+        Duplicate,
+        /// The live one takes its state, and what was brought refers to it
+        Assign,
+        /// Left out: what was brought refers to the live one, kept as it
+        /// is, or -- where there is none -- to nothing
+        Exclude,
+    };
+    /** How the clashes of an import on this thread are taken: duplicated
+     * (the default, and always for a copy into its own document), assigned,
+     * or as `ask` says -- setting `assign` on each; false cancels the
+     * import, and nothing it brought stays.
+     */
+    class AppExport ImportClashScope
+    {
+    public:
+        enum Mode
+        {
+            Duplicate,
+            Assign,
+            Ask,
+            /// Answered before the import, by the name each object has in
+            /// the stream (`answers`, sec 37.9): nothing is asked
+            Answered,
+        };
+        explicit ImportClashScope(Mode mode,
+                                  std::function<bool(std::vector<ImportClash>&)> ask = {});
+        /// Mode Answered: the stream's object name -> what it takes; one
+        /// not named is duplicated
+        std::map<std::string, ImportTake> answers;
+        ~ImportClashScope();
+        ImportClashScope(const ImportClashScope&) = delete;
+        ImportClashScope& operator=(const ImportClashScope&) = delete;
+        /// The innermost scope of this thread, null if none.
+        static ImportClashScope* current();
+
+        Mode mode;
+        std::function<bool(std::vector<ImportClash>&)> ask;
+        /** Assigned, the live object takes the look brought too (sec 35.18):
+         * the view data the import carries for the copy is read into the live
+         * object's, as one more change of the step. Off, it keeps its own.
+         */
+        bool copyLook = true;
+
+    private:
+        ImportClashScope* _previous;
+    };
     std::vector<App::DocumentObject*> importObjects(Base::XMLReader& reader);
     /** Import any externally linked objects
      *
@@ -381,6 +490,10 @@ public:
      * there is no log or the document is not in a state to snapshot.
      */
     int64_t snapshotToLog();
+    /// Name version `num` of the log (an empty name makes it unnamed), and
+    /// say so: the panels refresh, and with the log embedded the document
+    /// is modified. False without a log or such a version.
+    bool nameLogVersion(int64_t num, const std::string& name);
     /** Save to the log only (docs/TransactionLog.md sec 27.22, 27.28): the
      * log records a version of the document, named `name` so that it is
      * kept, and the file is written again with the new history in it -- its
@@ -400,6 +513,36 @@ public:
      * when there is no log.
      */
     bool restoreVersion(int64_t num);
+    /** As restoreVersion(), and an object the version names as a key of
+     * `names` is made under the name it maps to, what refers to it read
+     * through the same map -- where the name is free once the restore has
+     * removed what goes (docs/TransactionLog.md sec 36 U7): Take theirs
+     * gives their objects the names the import could not.
+     */
+    bool restoreVersion(int64_t num, const std::map<std::string, std::string>& names);
+    /** The names the import of a file onto `branch` could not keep (sec
+     * 30.4 P4): the name an object has here, to the one its file gave it.
+     */
+    std::map<std::string, std::string> importedNames(const std::string& branch) const;
+    /** Note `uid` on `obj` under the name upstream's format keeps an
+     * object's UID by: `_ObjectUUID`, a compatibility name
+     * (Property::Legacy), made if missing -- quietly, no undo step, no row
+     * of the log, no modification (docs/TransactionLog.md sec 36.7). What a
+     * restore of the object takes for its UID where the file gives none.
+     */
+    void carryObjectUid(DocumentObject* obj, const std::string& uid);
+    /// The live object with this UID, null if none (sec 36)
+    DocumentObject* getObjectByUid(const std::string& uid) const;
+    /** The next object added here takes this UID (docs/TransactionLog.md
+     * sec 37.10 (a)), as the rules of 36.3 let it: not one a live object
+     * has, nor one the history gave another id. For an object every copy of
+     * a file makes on its own and must agree on -- an origin's planes, made
+     * when first asked for -- a UID derived from what makes it.
+     */
+    void giveNextObjectUid(const std::string& uid);
+    /// During an import, the UID `obj` was brought with, whatever it was
+    /// given here; empty otherwise (sec 36.7).
+    std::string getBroughtObjectUid(const DocumentObject* obj) const;
     /** Open version `num` of this document's file as a document of its own
      * (docs/TransactionLog.md sec 27.5, 27.7): on the file's one log, at
      * that version, named `<file>@v<num>`, with status VersionDoc. A
@@ -447,21 +590,27 @@ public:
      * `frozen` opens the instance a pin shows (sec 27.22): status
      * FrozenVersion, named `<file>@v<num>`, every change refused; a version
      * has at most one of each.
+     * `objNames`, for a frozen one asked for by links (sec 35 L8): those
+     * objects and their dependencies only, a PartialDoc; none, or a
+     * partial one open when none are named, the whole version.
      */
     static Document* openFileVersion(const std::shared_ptr<FileHistory>& history, int64_t num,
                                      bool createView = true, const Document* from = nullptr,
-                                     bool frozen = false);
+                                     bool frozen = false,
+                                     const std::vector<std::string>& objNames = {});
 
     /** What a name of parseName() opens (docs/TransactionLog.md sec 27.23,
      * 27.24): with no `branch`, the frozen instance of version `num`; with
      * a branch and a version, the editable instance at that version; with a
      * branch and no version, the document holding the branch, or else the
      * branch's head opened as an editable instance. Throws when there is no
-     * such version or branch.
+     * such version or branch. `objNames` as openFileVersion() takes them,
+     * for the frozen instance.
      */
     static Document* openFileBranch(const std::shared_ptr<FileHistory>& history,
                                     const std::string& branch, int64_t num,
-                                    bool createView = true);
+                                    bool createView = true,
+                                    const std::vector<std::string>& objNames = {});
     /** The state at log row `seq` as a document of its own
      * (docs/TransactionLog.md sec 32.33), for what the log no longer holds
      * of that state: a value a recompute wrote is a cache, which a file's
@@ -998,6 +1147,42 @@ public:
     ImportResult importFork(const std::string& path, const std::string& branch = std::string(),
                             const std::string& sender = std::string());
 
+    /** A branch of this file at row `base`, both copies' row, that brings
+     * nothing (docs/TransactionLog.md sec 35.15 G1): made for a file of a set
+     * that brought nothing new but links one that did, so that its links can
+     * name what that one came as -- else a top's branch shows, through it,
+     * ours. Not switched to; named after `file`, its import record says so
+     * (`links_only`). Not continued by a later import of the copy. Returns the
+     * branch's name; throws as importFork() does.
+     */
+    std::string importLinksOnly(int64_t base, const std::string& file);
+
+    /// What a save took of the file as another process left it (sec 29.8).
+    struct SavePull
+    {
+        bool pulled {false};      ///< the file had moved, and was brought in
+        std::string branch;       ///< the branch it came as
+        size_t rows {0};          ///< rows the import brought
+        bool merged {false};      ///< merged; the save then wrote it
+        bool unchanged {false};   ///< the merge changed nothing here
+        /// The conflicts that stopped the save, by key.
+        std::vector<std::string> conflicts;
+        double seconds {0};       ///< the import and the merge
+    };
+    /** The file on disk was written since this document last read or wrote
+     * it (docs/TransactionLog.md sec 29.7, 29.8): by another process, or by
+     * anything else. One stat while the file is as it was left; a file only
+     * touched -- its save id the one this document read or wrote -- is not.
+     */
+    bool isFileChangedElsewhere() const;
+    /// What the last save of this document pulled; `pulled` false when it
+    /// found the file as it had left it.
+    const SavePull& lastSavePull() const;
+    /// The branch whose merge a save stopped at, empty when none waits.
+    std::string pendingSaveMerge() const;
+    /// The other processes the marker beside the file says have it open.
+    std::vector<std::string> fileOpeners() const;
+
     /// An imported branch that waits to be merged (sec 30.20 H1, 30.23).
     struct ImportRequest
     {
@@ -1069,6 +1254,13 @@ public:
      * that has nothing to give is let go at once.
      */
     ImportResult importSentFile(int64_t seq, const std::string& branch = std::string());
+    /** Hold the file of row `seq` for `branch` of this file, as a file
+     * brought in is held for the branch it came to: let go once that branch
+     * is merged into this one or deleted (sec 30.29). A file of a set's
+     * that only links of the branch name (sec 35 L5). False when no file is
+     * held for the row, or there is no such branch.
+     */
+    bool holdSentFileFor(int64_t seq, const std::string& branch);
 
     /** Crash recovery (docs/TransactionLog.md sec 25): make this new, empty
      * document what the session that crashed with transient directory
@@ -1605,6 +1797,13 @@ public:
      * Origin its axes and planes -- must wait for the log to supply them.
      */
     bool isReplaying() const;
+    /** Another copy's rows or state are being written into this document
+     * (a fork's import, a linked set: docs/TransactionLog.md sec 30.13,
+     * 37.10): what they make, they say, and nothing is to be made on the
+     * side -- an origin's lazy features, made when a value of theirs is
+     * read for. Unlike isReplaying(), the rows are recorded.
+     */
+    bool isWritingForeign() const;
     /// \internal add or remove property from a transactional object
     void addOrRemovePropertyOfObject(TransactionalObject*, Property *prop, bool add);
     //@}
@@ -1787,6 +1986,17 @@ protected:
 
     void _removeObject(DocumentObject* pcObject);
     void _addObject(DocumentObject* pcObject, const char* pObjectName);
+    /// The UID of an object just given its id (docs/TransactionLog.md sec 36.3).
+    void _giveObjectUid(DocumentObject* pcObject, bool freshId, const std::string& name);
+    /// The clashes of an import taken as its scope says (sec 36.4); the
+    /// objects brought, an assigned one's copy replaced by the live one.
+    std::vector<DocumentObject*> _settleImportClashes(std::vector<DocumentObject*> objs);
+    std::vector<DocumentObject*> _importObjects(Base::XMLReader& reader);
+    /// What the UID of an object of a file from before UIDs is (sec 36 U3).
+    std::string _derivedObjectUid(long id, const std::string& name) const;
+    /// The objects just read take the UID they carry as `_ObjectUUID`
+    /// where theirs came from nothing (sec 36.7).
+    void _adoptCarriedUids(const std::vector<DocumentObject*>& objs);
     /// checks if a valid transaction is open
     void _checkTransaction(DocumentObject* pcDelObj, const Property *What, int line);
     void breakDependency(DocumentObject* pcObject, bool clear);
@@ -1858,7 +2068,8 @@ protected:
     /// Make this document what `version` (a scratch document holding a
     /// version) is, recorded into the open transaction (sec 24.5); the view
     /// providers too when `views`, or under ViewObjectTransaction.
-    void _applyVersion(Document& version, bool views = false);
+    void _applyVersion(Document& version, bool views = false,
+                       const std::map<std::string, std::string>* names = nullptr);
     /// Version `num` read into a document of its own as openFileVersion()
     /// reads one -- joined to this file's history, blobs by hash, no view,
     /// no log (sec 27.60) -- handed to `fn`, and closed.
@@ -1870,14 +2081,16 @@ protected:
     /// Restore this new document from `dir`, a materialised version of the
     /// file `history` records, as a version document named `fileName`.
     void _restoreAsVersion(const std::shared_ptr<FileHistory>& history, const std::string& dir,
-                           const std::string& fileName);
+                           const std::string& fileName,
+                           const std::vector<std::string>& objNames = {});
     /// Sec 27.7: share `history`, another document's of the same file.
     void _joinHistory(const std::shared_ptr<FileHistory>& history);
     int64_t _snapshotToLog(const char* kind);
     /// openFileVersion() once it is known no open document is the version.
     static Document* _openVersionDocument(const std::shared_ptr<FileHistory>& history,
                                           const LogVersion& version, bool createView,
-                                          const Document* from, bool frozen);
+                                          const Document* from, bool frozen,
+                                          const std::vector<std::string>& objNames = {});
     /// The log's head was moved (sec 30.4 P1, a fast-forward): the
     /// document follows from the state at row `from`, with nothing recorded.
     void _followHead(int64_t from);
@@ -1915,7 +2128,12 @@ protected:
     void _releaseSentFiles();
     ImportResult _importState(const std::string& path, const std::string& file,
                               const std::string& saveId, const std::string& hash,
-                              const std::string& sender);
+                              const std::string& sender, int64_t baseSeq = 0);
+    /// Sec 29.8: the file as this document now leaves it, or reads it.
+    void _noteDiskState(const std::string& file);
+    /// Sec 29.8: the file moved under this document: bring it in and merge
+    /// it, before the save writes. Throws when the merge conflicts.
+    void _pullFromDisk(const std::string& file);
     /// Sec 26: refuse a branch operation in the middle of something else;
     /// an implicit transaction is committed first.
     void _checkBranchable(const char* what);
@@ -1970,6 +2188,12 @@ protected:
     /// destroys an object a queued copy may link to.
     void _deleteTransaction(Transaction* t);
     void _trimHotWindow(std::list<Transaction*>& stack, std::map<int, Transaction*>& map);
+    /// Fold the transaction just committed into the step before it when
+    /// both wrote the one same property by hand, within the coalescing
+    /// window (docs/TransactionLog.md sec 37.4 P4): its rows and its undo
+    /// step become the earlier one's. True when folded; the caller then
+    /// drops `later`.
+    bool _coalesceStep(Transaction* later);
 
     /// refresh the internal dependency graph
     void _rebuildDependencyList(

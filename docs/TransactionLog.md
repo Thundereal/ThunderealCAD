@@ -1,12 +1,64 @@
 # An append-only transaction log, and undo as a forward operation
 
-Status (2026-09-22): **design complete; implementation starts with
-phase 0.** Development is on branch `Transaction`. Sections 1 to 7 are the idea as recorded on 2026-09-18 and
-are kept as written; the design that answers them starts at section 8,
-and section 8.1 is the summary; sections 16 and 17 (versions, branches)
-were decided on 2026-09-22 and section 18 lists what the audit of the
-same day left open. Phase 0 (section 15) is a measurement and comes
-before any store is written.
+Status (2026-10-21): **built and in use on branch `Transaction`**,
+audited whole (sec 37). This document is the design, the rulings and the
+build log in one, written forward: a later section can change what an
+earlier one says, and says so where it does. The newest ruling on a
+question is the one that holds.
+
+## How to read this document
+
+- **The idea and the design** are sections 1-14: 1-7 the idea as the
+  user recorded it (kept as written), 8.1 the design summary, 9 the
+  record model, 10 what is and is not logged, 11-12 pseudo transactions
+  and undo over the log, 13 the store, 14 performance.
+- **The rulings** on each part are the `(user, ...)` and `(rulings ...)`
+  sections: 16 versions, 17 branches, 23 entities, 24 undo, 30 the shared
+  head, 35 linked sets, 36 object UIDs. Section 27, "pinned links", grew
+  into the running ledger of rulings and measurements from 2026-09-25 on
+  (27.1-27.71); grep `### 27.` for a number cited elsewhere.
+- **What is built** is said in the "as built" blocks at the end of each
+  design section and in the audit, sec 37; **what is open** is 37.2
+  (left as found; elaborated in 37.7; built in 37.8-37.12, nothing left), the
+  "Not built" lines of 35.11 and 36.6, and 34 (held).
+- A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
+  found with `grep -n '^### 27.22\|^## 36' docs/TransactionLog.md`.
+
+## Contents
+
+| Sec | What | State |
+|----:|------|-------|
+| 1-7 | The idea: an append-only log, undo as a forward step, the multi-client substrate; open questions; what it is not | as recorded 2026-09-18 |
+| 8 | Design summary (8.1) and the shape of the answer | ruled 2026-09-21 |
+| 9 | The record model: transactions, ops, values by hash | built |
+| 10 | The filter: derived values (Shape) and the cache tier | built; the cache tier's budget built (37.13) |
+| 11 | Pseudo transactions: recompute, save, snapshot rows | built |
+| 12 | Undo over the log: the inverse as a row | built |
+| 13 | The store: SQLite, WAL, one file per history, the embedded copy (13.3) | built; the copy's bound 37.5 P1 |
+| 14 | Performance and migration; the store is versioned (27.55) | built |
+| 15 | Phases 0-8, the order of building | done through 8 |
+| 16 | Versions: snapshots, named versions, retention, trim, squash | ruled; count-only retention, 5 kept (37.5 P6) |
+| 17 | Branches: in place, one document per branch | ruled, built |
+| 18 | Audit rulings of 2026-09-22 | closed |
+| 19 | Survey sources | reference |
+| 20 | Phase 0 results: the measurements the design rests on | measured |
+| 21 | Phase 1 as built: logging, the worker, the Gui panel | built |
+| 22 | The end state, the browser as a development tool | vision |
+| 23 | Entities: composites, parts, deltas, blobs, supersede (23.2) | built |
+| 24 | Phase 3: undo over the log, selective undo, the hot window | built |
+| 25 | Phase 7: crash recovery from the log | built |
+| 26 | Phase 4: branches as built, switching, the tip rule | built |
+| 27 | Phase 5: pinned links -- and the ledger of every later ruling and measurement (27.1-27.71): frozen versions, schema 4/5, trim, squash, the store version, the embed's cost | built; read by number |
+| 28 | Phase 6: merge | built |
+| 29 | Concurrent writers: one connection per file, sessions; two processes on one file (29.7, 29.8) | built; two processes as a pull in every save (29.8) |
+| 30 | A shared head, explicit branches, forks, actors and access | ruled, built |
+| 31 | Phase 8: a value that is many things (survey and questions); what it left, checked and finished (31.34) | built |
+| 32 | A shape diff: what a merge or a pick would take; kept values (32.11) | built |
+| 33 | What the merge into LinkVibe exposed | fixed |
+| 34 | Held: what Scion's design suggests | held |
+| 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
+| 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
+| 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -11737,6 +11789,259 @@ file, are the same mechanism with more under it: a document per client
 (`docs/ThinClient.md` 8.12, `docs/MultiViewEdit.md` sec 10), and the store
 and its allocators shared across processes (27.41 Q6).
 
+### 29.7 Two processes on one file: survey, a probe, questions (2026-10-23)
+
+29.4 Q1 left two processes for later. Surveyed now; not built.
+
+**What happens today.** A process copies the file's history out at open,
+into a transient directory of its own (`<exe>_Doc_<uuid>_<hash>_<pid>`).
+The store, its counters and every allocator belong to that process.
+Nothing notices a second process on the file: there is no lock, and a
+save does not look at the file before writing it. When both save, the
+last save wins, as it always has for an FCStd, and its history wins with
+it. The other process's edits and rows are then in neither the file nor
+its history, only in the transient directory of a process that may have
+closed since.
+
+**The probe** (`~/.cache/lv-merge/probe29/two.py`, four FreeCADCmd
+processes, env `PROBE_ROLE`): a `.TStd` holding a box. A and B both open
+it. A makes the box longer and adds a cylinder. B makes it wider, adds a
+sphere and saves. A then copies the file as it is now on disk, imports the
+copy as a fork (30.13), merges it (28), and saves.
+
+- **With the history in the file it works, by hand.** The import brought
+  B's two rows in 34 ms, the merge was clean in 13 ms, and the save took
+  19 ms. Reopened, the file has the box at 20 x 30 x 10 with the cylinder
+  and the sphere. Its history has A's rows on `main`, B's on a branch,
+  and the merge.
+- **B's rows are named after the copy**: branch `disk-copy`, author
+  `host (disk-copy)`. That is because `openFork` refuses the document's
+  own file, so the import had to read a copy.
+- **Without the history in the file**, the same run brings the file as one
+  row from nothing (30.22). Every property either side changed is then a
+  conflict with no base: here the box's length and its width. That is an
+  `.FCStd`, which saves at schema 4 and carries no history, or any file
+  saved with the mode at 1. The first run of the probe hit this because
+  the user's `user.cfg` has `TransactionLog` at 1.
+- **Two races.** B can save again between A's read of the file and A's
+  write, and that save is lost. And B's document is now behind the file:
+  if B saves again without pulling, A's merge is overwritten. So the pull
+  has to be in every save, on both sides.
+
+**Two shapes.**
+
+- **(a) The file is the meeting point: a pull in every save.**
+  1. A save first looks at the file on disk. If it is no longer the save
+     this document last read or wrote (the save id in `Version`, 16.4),
+     another process has saved it.
+  2. The file's history is then imported as a branch and merged, which is
+     29.2's pull.
+  3. Only a clean merge is written. A conflict stops the save and opens
+     the picker, as in 29.4 Q4.
+
+  The read, merge and write run under a lock file beside the document, so
+  no third save can fall between them. The allocators need nothing,
+  because the replay gives what the other process made new ids here
+  (30.13). This works for two processes on one machine, two machines on a
+  shared folder, and a file synced by a cloud folder. A save that finds
+  the file unmoved costs nothing; one that finds it moved costs an import
+  and a merge, about 50 ms in the probe.
+- **(b) One live store shared by the processes**: 29.2 to the letter, a
+  push after every operation.
+  - The store moves out of the transient directory to a place every
+    process finds (13.3's `local`, `<user-data>/history/<Uid>/`). Each
+    process opens it; SQLite's WAL with the busy timeout (37.7 item 7)
+    takes the connections.
+  - Every allocator reserves blocks from the store (27.41 Q6): seqs,
+    version numbers, object ids and names, geometry ids, string ids.
+  - Every copy the core keeps of the store's state (the next seq, the live
+    values, the anchors, the strings written) is checked against the
+    store's `data_version` before use.
+  - A process learns that the target moved by polling.
+
+  This works on one machine only, since SQLite over a network share is not
+  safe. It means rewriting the core's assumption that it is the only
+  writer, and what it buys is live co-editing between processes. The
+  shared session (ThinClient 8.11) already gives that to anyone who
+  connects to one process.
+
+| | Question | Recommended |
+| --- | --- | --- |
+| Q1 | Which shape | **(a)**. (b) only if live co-editing between processes is ever asked for that a shared session cannot give. |
+| Q2 | When a process pulls | **At every save**, and only then. A process that sees the file change while it is idle (a file watcher) says so in the status line and the panel, and pulls nothing until it saves. A pull is a merge, so it is an undo step, and an automatic one would rewrite the document under the user. |
+| Q3 | A file with no history in it (an `.FCStd` at schema 4, or the mode at 1) | **The process keeps its own base.** The `version` table already records each save's `Document.xml` hash. The file on disk is compared with the save this process last read or wrote and brought as one row against it (30.19). Without this, two processes on a plain `.FCStd` see a conflict wherever both changed anything. |
+| Q4 | What the other process's rows are known by | **A branch named after the session that saved them** (its user, and its host when that is recorded, 30.6), extended by later pulls from the same session. The rows are kept: they are the history, the way an imported fork's are. |
+| Q5 | The lock | **A lock file beside the document, held only through the pull and the write.** A process that finds it waits, as a second SQLite connection does, then pulls. Also written at open, and read only to tell the user: the second process to open the file says "also open in <host> since <time>", and blocks nothing. |
+
+If (a) is ruled, the build order: the save detects a moved file and takes
+the lock; the pull at save, through the fork import of the document's own
+file under the session's name; a conflict stops the save at the picker;
+Q3's base for a file without history; the idle notice. Tests are a Python
+case that drives two FreeCADCmd processes, and a gtest of the lock.
+
+### 29.8 Two processes on one file, as built (2026-10-24)
+
+**Rulings (user, 2026-10-24): Q1-Q5 as recommended**, with one addition: a
+save with no second writer must not be slowed down.
+
+**How a save tells that another process wrote the file.** The document
+keeps a stamp of the file as it last read or wrote it: size, mtime in ns
+and inode (`App::DiskStamp`, `FileElsewhere.h`). That is one `stat`, taken
+as a restore starts and kept once it is done, and taken again after each
+save. A save compares the file with the stamp.
+
+- **Same stamp:** nobody wrote the file, and the save goes on as before.
+- **Different stamp, and the document wrote the history into the file:**
+  the file's `Version` is read. If the save id is still this document's,
+  the file was only touched (a sync tool, a backup, `touch`). That stamp
+  is remembered as a touch and nothing is pulled.
+- **Otherwise another process saved the file.** That stamp is remembered
+  too, so the idle check below reads the archive once, not every time.
+
+A save id counts only when the file carries the history. A save that leaves
+the history out writes whatever `Version` the document had from before, and
+two processes could both write the same stale id.
+`Document::isFileChangedElsewhere()`; Python `isFileChangedElsewhere()`.
+
+**The lock (Q5)**: `.~<name>.lock` beside the file, held from that look to
+the end of the write (`App::SaveLock`). A save that finds it held waits up
+to 60 s, then fails with "being saved by another process (it is open in
+<host> (pid N) since <time>)", nothing written.
+- **It is boost's `file_lock`**, portable code with no platform branch of
+  ours: fcntl on POSIX, `LockFileEx` on Windows. The system lets it go when
+  the process ends, however it ends, so no lock is ever left stale. The
+  lock file is empty and never written; on Windows a held one cannot even
+  be read, so who holds it is told from the marker below.
+- **An fcntl lock is the process's**, not the handle's: a second lock taken
+  in the same process would succeed. So the lock files a `SaveLock` of
+  this process holds are also kept in a set, and a second one here waits
+  as one in another process would. And no other code may open and close
+  the lock file while it is held, since closing any handle of it lets the
+  process's lock go: the file is made, when missing, before the lock.
+- **Not QLockFile.** QLockFile was the first build. Measured here, a lock
+  and unlock took 1.46 ms (median of 400), most likely because it syncs
+  the file to disk. On a 30 ms schema-4 save that read as 2.6 ms slower
+  (the table below). A hand-written `flock`/`LockFileEx` replaced
+  it first, at 1.6 us; boost then replaced that, at 2.0 us, for the
+  portability (`~/.cache/lv-merge/probe29/bench/lockbench.cpp`).
+- **The name is checked after the lock.** The last process to close the
+  document deletes the lock file, and another may have opened the old one
+  in between. The file's stamp (size, time, inode, as below) is taken
+  before the lock and again after; a lock file made anew has another, and
+  the save tries again.
+
+**The marker (Q5)**: `.~<name>.open`, one line per process that has the
+file open (host, pid, time).
+- **When it is written:** at open, and at a save to a new name.
+- **What it tells:** a process that finds others there warns "'X' is also
+  open in <host> (pid N) since <time>". Python `getFileOpeners()`.
+- **When lines go:** this process's line goes at close. Lines of gone
+  processes of this host are dropped whenever the marker is read. The
+  last process to close the file removes the marker and the lock file.
+- It is written whole and renamed into place (QSaveFile), and it blocks
+  nothing.
+
+**The pull (Q1, Q2)**, `Document::_pullFromDisk`, run at the start of
+`save()` under the lock:
+1. **The file is copied** into `<TransientDir>/pull/<n>/`. `openFork`
+   refuses the document's own file, and a history read from a path is the
+   one read from that path, so each pull gets a copy of its own.
+2. **The copy is brought in by `importFork`**, under the name the pull
+   gives it (Q4): `<file> saved elsewhere`, or `<file> saved by <author>`
+   when the file's `LastModifiedBy` names someone. The authors of the rows
+   follow, `host (<file> saved elsewhere)`.
+3. **The branch is merged (28).** If the merge is clean, the save writes.
+4. **If the merge conflicts, the save stops**: nothing written,
+   `signalSaveMergeConflict(doc, branch)`, and a `Base::RuntimeError` that
+   names the branch. The branch is kept as pending, and the next save
+   merges it again with nothing new to bring. A conflict picked in the
+   meantime has already been merged, so that save writes.
+5. **After the write, the branch is closed** (`closed` set); its rows stay.
+
+**What the next pull comes as.** The other process's next rows start from
+the merge this save wrote, so the import never continues the branch. Under
+F7 (30.14) a later import continues a branch only when nothing moved on
+this side since. Each pull after a save here therefore comes as a branch of
+its own: `<file> saved elsewhere`, then `~2`, and so on. That is why a
+finished one is closed: it stays in the history, out of the way. An import
+for a pull also never extends a closed branch.
+
+**A file without history (Q3).** The base is the row the document's log
+was at when it last read or wrote the file. It is kept in memory, with no
+flush and no meta write in the save, and passed to `_importState` as the
+row to start from where the file names no save. The file then comes as one
+row against that state (30.19), so two processes on an `.FCStd` merge by
+what each changed.
+
+Building it showed a gap in `_importReplay` (30.15). A base at the
+`restore` row of an open could not be reached: the version of an open is
+recorded at that row's parent, and moving along a row that carries no ops
+failed. Rows with no ops between the version and the base change nothing,
+so they are no longer moved along.
+
+**Gui.**
+- **The idle notice (Q2).** The log panel stats each open document's file
+  every 3 s (`checkDisks`). It says once, in the status bar and the report
+  view, "<doc> was saved by another process: its changes are merged in at
+  the next save here". Its status line says so too, or "a save waits on
+  the merge of <branch>".
+- **A conflicted save.** `Gui::Document` hands the branch to the panel
+  (`mergeSaved`, queued so it runs once the save has returned). The panel
+  attaches to that document and opens the merge to pick. `Gui::Document`
+  does not show its "Saving document failed" box in that case; the report
+  view has the reason.
+
+**The preference.** `TransactionLogPullOnSave`, default on. Off, a save
+takes no lock, looks at nothing and writes over the file as before.
+
+**What a save with nobody else costs.** Measured with
+`~/.cache/lv-merge/probe29/savetime.py`: 60 boxes, a small edit before each
+save so that it writes, saves alternating with the preference on and off,
+40 of each.
+
+| Mode, schema | File | On, median | Off, median |
+| --- | --- | --- | --- |
+| 2 (embedded), 5 | 90 KB | 46.75 ms | 46.23 ms |
+| 2, 4 | 61 KB | 30.16 ms | 30.26 ms |
+| 1 (session), 5 | 31 KB | 20.61 ms | 20.55 ms |
+| 1, 4 | 61 KB | 31.25 ms | 31.20 ms |
+
+That is with boost's lock. Three medians are within 0.1 ms of the other,
+either way; the first row is 0.5 ms apart, and its minimums go the other
+way (39.38 on, 41.04 off), which shows the scatter. With the hand-written
+lock the same rows were 45.45/47.17, 31.45/31.34, 21.36/21.29 and
+31.24/31.10. The look alone (`isFileChangedElsewhere()` on an unmoved file)
+is 1.5 us. With QLockFile the schema-4 rows were 33.08 against 30.44 ms and
+33.52 against 30.81 ms.
+
+**A pull costs**, in the driven test, 0.18 s for an import and merge of one
+row with a recompute. That is only on the save that finds the file moved.
+
+**Not built.**
+- *A project directory* (a document saved as a folder): the stamp is its
+  `Document.xml`, but a moved one is not pulled. The save warns and writes
+  over it, as before.
+- *Windows* is not run: there is no Windows box here. The lock is boost's
+  there too, a lock file being deleted is waited on, and the lock file is
+  not marked hidden, as the hand-written one was.
+
+**Tests.**
+- gtest `FileElsewhereTest`: the stamp tells a write by rename and one in
+  place; a lock is held against a second lock in this process, and
+  against one in a forked child until the child lets it go; a lock
+  whose holder died (a forked child) is taken; the marker tells another
+  host's line, drops a gone process of this host, and goes with the lock
+  file at the last close.
+- Python `TransactionTwoProcessCases`, the other process a FreeCADCmd run:
+  - a clean merge, then a second pull as a branch of its own with the
+    first closed;
+  - a conflict that writes nothing until picked;
+  - a save with nobody else, and a file only touched, pulls nothing;
+  - an `.FCStd` at schema 4 merges against what this process left.
+- Driven `GuiSaveMergesAnotherProcess`: the idle notice in the status bar
+  and the panel; a clean merge at save; a conflicted save with no error
+  box, the merge opened with the conflict, then written as picked.
+
 ## 30. A shared head, explicit branches, forks (rulings and plan, 2026-10-04)
 
 Section 29 was built and the user then named what 17.5 missed: if every
@@ -17532,6 +17837,44 @@ Nothing to change. Kept as gtest
 `PropertyShapeImmutableTest.DISABLED_aHoldOfAMapByItsDepth`, which also
 asserts what it holds is held and let go of.
 
+### 31.34 What sec 31 left, checked and finished (user: "do sec31", 2026-10-23)
+
+31.20 and 31.22 left five things. Four were written before the look moved
+onto the object (docs/ShapeAppearanceDesign.md sec 14.6: a look is a value
+of the object, `ElementAppearance`, merged by `ElementAppearanceMerge`), so
+each was probed first (`~/.cache/lv-merge/probe31/`); one was still so, and
+is built.
+
+| Left | Probed | Now |
+| --- | --- | --- |
+| An object's own look changed by theirs while ours painted a face: theirs' left out (31.20) | `p1b.py`, and with the Gui up `p1gui.py`: theirs makes a box red, ours paints `Face6` green | **closed by 14.6.** One change, `Box.ElementAppearance` merged; stated and drawn: five faces red, `Face6` green; one undo takes theirs back. The per-face list `updateColors()` wrote is no longer a value of the view provider to tell apart |
+| Faces given a look by number -- a script, an importer -- looked up at merge time (31.17 Q2, `TransactionLogMergeFaceLoss`) | `p12.py`: theirs writes `ShapeAppearance` per face by index, ours drills the cut (six faces become seven) | **closed by 14.6.** A write by number is taken apart when it is written (`writeFaces()`): the face is named then (`Face2`), and after the merge it is `Face6`, the same face. The lookup at merge time, and its threshold, have nothing left to do |
+| A look that names a texture: its claim on the content not carried by a value put back as text | `p3.py`: theirs gives `Face6` a texture whose image is in the file store (`insertTextureFile`), ours paints another face | **holds.** Merged, undone and redone, switched away and back, saved and reopened: the texture's content is there (`getTextureFile`). The value restores its blobs (`restoreBlobsOf`) as it lands |
+| `App::Part`'s and a link's `ColoredElements` by their own rule | -- | **closed by 14.6.10**: a link and a part have an `ElementAppearance`, merged as any object's (`ElementAppearanceLinkMergeTest`) |
+| A reference into a shape with no element map -- an import's -- not followed (31.22: "no name, and nothing is searched for it") | `p5.py`: a `Part::Feature` given a box; theirs attaches a plane to its top, `Face6`; ours replaces the shape with the box drilled through, where the top is `Face3` and `Face6` the drill's bottom | **was so**: the plane was put on the drill's bottom (z 0), nothing asked, nothing failed. **Built**, below |
+
+**Built: an unnamed reference followed by geometry in a merge.** A
+reference with no mapped name never "missed" by name -- ours' shape has a
+`Face6` too -- so the merge's follow (31.22) left it as it was. Now, in
+`followElementReferences`' first pass, a reference the shape names no
+element for is said as missed, as a name missed is
+(`_updateElementReference`, `Following::Names`); where the feature has
+what it was written against (the merge's `writtenAgainst`: theirs' value
+of the shape, else the base's where ours changed it), the second pass
+(`Following::Unnamed`) searches it by geometry in that shape, as a
+missing reference is: found, its number is the one found (`Face6` ->
+`Face3`, with the warning any found reference gives); not found, it is
+marked missing (`?Face6`) rather than left on another face, and the object
+attached to it says it cannot be placed (`failed`). Where neither side
+changed the shape, nothing is searched. The search's own rule stays: a
+shape with one face of the kind wanted gives that one (a sphere is taken
+for a box's top), as for a name.
+
+Test `testAReferenceToAShapeNobodyNamedIsFoundByGeometry`: the drilled
+case on `Face3`, the plane on the top, undone; a short cylinder for a top
+that is nowhere, `?Face6` and the plane failed. On the code before, the
+plane stays on `Face6`.
+
 ## 32. A shape diff: seeing what a merge or a pick would take (plan, 2026-10-06)
 
 **Asked (user):** "also plan for another feature. shape diff tool, so that
@@ -18113,10 +18456,13 @@ pin".
 save writes into the file (`dropTier`, 13.3) leaves out a cache-tier
 value that no kept version's manifest reaches **and that no kept delta
 is based on** -- and a value is stored as a delta on the one after it.
-So a save does not take a run of shapes at once: of a cut made taller
-four times, saved, closed and opened, the first is gone and the other
-three are there; the box's four are all there. Each save and reopen
-takes the oldest again. A trim takes them all.
+(As first built, "kept delta" was read as every delta an op reached,
+which in a chain of reverse deltas is every entity but the oldest: of a
+cut made taller four times, saved, closed and opened, the first was gone
+and the other three were there, and each save took the oldest again.
+Corrected 2026-10-21, sec 37.4: the bases are followed from what is kept,
+so a save takes the whole run but what a kept version lists.) A trim
+takes them all.
 
 **Kept** is the log's word for it; a link is *pinned* to a version
 (27.16), which is another thing. Two tables of the store:
@@ -21151,8 +21497,13 @@ for assemblies -- and first a design that says what is still lacking:
 for example exporting every linked file without history to a folder,
 and partial loading of documents on another branch or a pinned version.
 
-Nothing of this is built. The survey's measurements were run, and
-found one bug, fixed (item 6 c).
+Nothing of this was built at first. The survey's measurements were run,
+and found one bug, fixed (item 6 c). **Built since: L1 (35.7,
+2026-10-19); L8 for frozen versions (35.8, 2026-10-19); L7 in App (35.9,
+2026-10-19); L2 and L3, the set read and paired (35.10, 2026-10-20); L4,
+the set imported as branches linked to each other (35.11, 2026-10-20); L5,
+their files alone held (35.12, 2026-10-20); L6, the set's merge and its
+dialog (35.13, 2026-10-20); Q9, the set's record (35.14, 2026-10-20).**
 
 ### 35.1 The case
 
@@ -21595,3 +21946,2375 @@ action chosen. A library part in two sets is two branches with two set
 names, never one.
 
 Proposed: **(c)**.
+
+### 35.7 L1 built: one file to a branch, with its links (2026-10-19)
+
+Started on the user's say-so ("start sec 35", 2026-10-19), first in the
+build order (35.5). The probe of 35.2 item 6, run again before the work,
+gave what it gave on 10-17: (a) refused, "Owner document not saved", and
+their `Part.FCStd` and `Bolt.FCStd` left open; (b) stopped at row 4, their
+`Bolt.FCStd` looked for in our folder. Four things were lacking:
+
+1. **The import's document had no name.** A file with no history, or
+   none shared, comes on a branch from nothing (30.22), replayed in a new
+   document of this file that had no file name, so a relative link given
+   to it had nothing to resolve against (`DocInfo::getDocPath`). It is
+   now named as a live branch link names a branch's document (27.23),
+   `<our file>@<branch>@` (`_importReplay`); a relative link resolves
+   against our folder, as in any branch's document.
+2. **Their paths are theirs.** A value of theirs names a file relative
+   to their folder. `PropertyXLink::ImportPaths`, a scope `importFork`
+   opens, maps it as the link is restored into the import's document
+   (`into()`; their own file, opened to be read, is not mapped): to ours
+   at the same relative path when our folder has that file -- identity,
+   for one file -- else to their file by its full path. A file only they
+   have is linked where it is until L5 stages it.
+3. **A missing file stopped the import.** A value restored outside a
+   document's restore opens a linked file at once, and a file that is
+   not there threw (`Application::addPendingDocument`). Under the scope a
+   link to a file neither folder has is broken, as at an open
+   (`DocInfo::init`, with `LinkSilentRestore`).
+4. **What the import opened stayed open.** `importFork` notes the open
+   documents first and closes, after, every one it opened that no
+   document staying open links to (`SideDocuments`).
+
+And one in the merge, found by test (a): **a link's stamp is not the
+link.** `stamp` is when the link last saw its file; two copies of one
+file link the same box with stamps of their own, and the merge called
+that a conflict. `sameLinkValue` now compares link values without
+stamps, as it already left out a library link's `file` and `stamp`
+(`LibraryPaths::comparableSaved`).
+
+**Tests** (`Document.py`, `TransactionBranchCases`): the probe as
+`assemblyCopies(log)` -- `Asm` linking `Part`'s box in our folder, a copy
+in theirs whose box is longer and whose `Asm` links a new `Bolt` too --
+and `importedAssembly(log)`, run for (a) with no history
+(`testAFileWithLinksAndNoHistoryComesWithThem`) and (b) with it
+(`testAFileWithLinksAndHistoryComesWithThem`). Each: the import does not
+stop, comes independent for (a) only, leaves the same documents open as
+before it, and merges; then `L` links our `Part`, `L2` their `Bolt`, and
+our box is as it was -- their longer box is in their `Part`, another
+file, which L2 to L5 bring.
+
+**Gates** (2026-10-19): 24 Gui checks clean; Python 3809 OK, freeze on
+and off; gtest 991/991 both ways; driven 293/293. Next in 35.5: L8, then
+L7 (the export, which LibraryPaths step 4 waits for).
+
+### 35.8 L8 built for frozen versions; branch tips moved to L4 (2026-10-19)
+
+**Frozen versions, as a plain file is read for links.** The name a pin
+resolves to, `<file>@v<num>`, went through `parseName` in
+`Application::openDocumentPrivate`, which handed the objects the links
+asked for to nothing: every pin opened its version whole. Now the names
+go through `openFileBranch` and `openFileVersion` to
+`_openVersionDocument` and `_restoreAsVersion`, and the version's
+materialised directory is restored with them -- the restore a plain file
+has (`restore(dir, false, objNames)`): those objects and what they
+depend on, the document `PartialDoc` as well as `FrozenVersion`.
+
+- **Asked for more.** A link wanting an object the version has not read
+  asks for it: at the link's restore (`DocInfo::get`, for a version
+  document read in part -- plain files keep what they had) and through
+  the existing reload of a partial document (`restoreDocument`). The
+  name reaches `openDocumentPrivate`, which returns the open version when
+  it has every object asked for, and else `openFileVersion` reads it
+  again with what it had and what is asked.
+- **Asked for whole.** The version opened by its own name (a main
+  document), or by anything calling `openFileVersion` with no names, is
+  read again whole when only a part of it is open.
+- **The preference.** `NoPartialLoading` reads versions whole, as it
+  reads files.
+
+**Measured** (`~/.cache/lv-merge/probe/l8/measure.py`): a part of 600
+cylinders, an assembly pinning one of them at version 1 and another at
+version 2, opened with partial loading on and off, twice each:
+
+| | open | RSS | objects read |
+| --- | --- | --- | --- |
+| partial | 0.27 s | +36 MB | 1 and 1 |
+| whole | 0.35 to 0.37 s | +83 MB | 600 and 600 |
+
+Both pins resolve either way. What is left of the time is the version's
+materialisation: every entry is still written to the checkout directory
+before the restore reads what it needs. Writing only those is the next
+gain, if a larger part asks for it.
+
+**Branch tips: moved to L4.** A tip opened for a live link is a version
+document that takes its branch with `switchBranch`, which refuses a
+partial document (`_checkBranchable`); a partial tip needs a way to take
+the branch at its head without a switch. Q7 -- the tip read whole when
+the user turns to edit it -- wants a Gui hook at the start of an edit,
+which reloads the document the edit is about to begin in. And nothing
+opens tips through links yet: that is L4's set of branch links, where
+both can be built and measured on the case they serve.
+
+**Test** (`Document.py`, `TransactionBranchCases`):
+`testAPinnedVersionIsReadInPartForItsLinks` -- a part of four objects,
+`Top` depending on `Base`, two assemblies pinning `Top` and `Other` at
+one version, the part moved on: the first assembly opened reads
+`Base` and `Top` only, the second reads the version again with `Other`
+too and both links hold, and the version opened by its name is read
+whole with the pins on it.
+
+**Gates** (2026-10-19): 24 Gui checks clean; Python 3810 OK, freeze on
+and off; gtest 991/991 both ways; driven 293/293. Next in 35.5: L7.
+
+### 35.9 L7 built in App: the set, exported to a folder (2026-10-19)
+
+`App::exportLinkedSet(top, folder, options)` (`src/App/ExportSet.cpp`),
+`Document.exportLinkedSet(folder, withHistory=False, overwrite=False)` in
+Python:
+
+- **The set**: the top and every document its links reach, transitively
+  (`PropertyXLink::getDocumentOutList`). One read in part -- a pinned
+  version (L8), or a plain file opened for links -- is read again whole
+  first: a copy is of the whole file. A document of the set with no file
+  is refused, naming it.
+- **The layout** (Q6): a file inside the top's folder at its path
+  relative to the top; one outside under `_external/`, by its name.
+- **A version or a branch** (Q5) is a file of its own beside its file:
+  `part.v3.FCStd`, `part.side.FCStd`, `part.side.v3.FCStd` for an
+  editable instance at a version. A branch's name is made a file name:
+  what is not a letter, a digit, `-` or `_` becomes `_`. Two that would
+  take one name are told apart by `~2`, `~3`.
+- **The links** (`ExportSetPaths`, read by `PropertyXLink::Save`): while
+  a copy is written, a link of it to a document of the set names that
+  document's copy, relative to its own, and as a plain link -- no
+  `version`, no `branch`, no library -- so the set opens in any FreeCAD,
+  upstream's included.
+- **Each copy** by `saveCopy(path, withHistory)`: without history by
+  default, which keeps a save id of its own (30.19 G2).
+- **The manifest**, `FreeCAD-set.json`: `top`, `history`, and per file
+  `path`, `file` (the file here), `branch`, `version`, `save_id`, `uid`
+  -- what L3 item 3 pairs a file brought back with.
+- **A folder not empty** is refused unless `overwrite`.
+
+Found on the way, a bug of L1's: `SideDocuments` ranged over
+`getDocumentInList(doc)[doc]`, an element of a temporary map, which
+dangles before the loop starts -- the same form here hung the export in
+a loop. Both now hold the map first.
+
+**The Gui** (File > Export with Linked Files..., `Std_ExportLinkedSet`,
+`DlgExportLinkedSet`): the set as `planLinkedSet()` lists it -- each
+document, what it is (the file, a pinned version, a branch, a branch at a
+version) and the name it will be written under -- the folder (beside the
+document, `<name>-set`, by default), and "With history". A folder not
+empty is asked about first. The export runs as a Python command, so a
+macro records it. A document never saved is told to save first: its set
+is laid out relative to its folder.
+
+**Not built yet**: zipped output. LibraryPaths step 4, the export's
+option for library files, is built (2026-10-20, LibraryPaths.md sec 14):
+`keepLibraries` leaves a file only library links reach in its library.
+
+**Test** (`Document.py`, `TransactionBranchCases`):
+`testALinkedSetIsExportedToAFolder` -- an assembly with a plain link, a
+pin, a live link to a branch's document and a link to a file outside its
+folder: exported, the five files named as above, the manifest saying
+what each is of, no `version`/`branch` attribute in the copy; a second
+export into the folder refused, then allowed with `overwrite`; the set
+opened with the log off, every link to its copy with its value. Then the
+assembly reopened, its pin read in part, and exported again: the
+version's copy holds the object the pin had not read. Driven
+(`tests/gui/export-linked-set.py`, `GuiExportLinkedSet_tests_run`): the
+dialog lists the three files of an assembly with a plain link and a pin,
+writes them and the manifest into a new folder, and into the same folder
+again asks first and writes when told to.
+
+**Gates** (2026-10-19): 24 Gui checks clean; Python 3811 OK, freeze on
+and off; gtest 991/991 both ways; driven 293/293 (before the Gui).
+
+**Gates with the Gui** (2026-10-20): 24 Gui checks clean; Python 3811
+OK, freeze on and off; gtest 991/991 both ways; driven 294/294.
+
+### 35.10 L2 and L3 built: their set read and paired, nothing imported (2026-10-20)
+
+The first of 35.5 step 4, on the user's "continue": what an import of a
+set will bring and where, before anything is brought.
+`App::planSetImport(ourTop, theirTop)` (`src/App/ImportSet.cpp`), in
+Python `Document.planLinkedSetImport(path)`.
+
+- **Their set (L2)** is read from their files, none opened: each
+  `Document.xml` read out of its archive and its `<XLink>` elements --
+  every external link is saved as one, alone or in a list -- taken for the
+  files they name: through `lib`/`libfile` when a library of that name is
+  here, else by `file`, relative to the owner's folder. A link to the
+  owner's own file is no file of the set. Their top last, each file after
+  the files it links. A file theirs links that is one of ours -- the same
+  file on disk, a library both use -- is **shared**, nothing to bring, and
+  not read further; one that is not there is **missing**.
+- **Ours** are the documents our top's links reach, by their file; a
+  version's or a branch's document stands for no file of its own.
+- **Paired (L3, Q1)** by the first that answers: (1) a history both hold
+  and (2) a save of ours a copy without history names, both by
+  `forkBranches` -- a branch of theirs that is not independent; which of
+  the two by whether their file carries a history; (3) our manifest beside
+  their top, which names our file for their path; (4) the `Uid` read from
+  both files, never from an open document (35.2 item 8); (5) the same path
+  under the top; else (6) none. Where two of ours answer one signal alike
+  the file is paired with none and marked **ambiguous**, for the user to
+  say -- a weaker signal does not break the tie. The manifest's `branch`
+  and `version` are given whatever paired the file: `Part.v3.FCStd` is our
+  `Part` at v3.
+
+**Found on the way, a loss of history: a file opened for a link.** The
+first test paired our `Part` by its Uid, though both copies held its
+history: our `Part`, opened by the assembly's link, had an empty log. A
+file read for the objects a link asks for (16.1) was never tapped -- a
+partial document is not snapshotted -- and when those objects were all of
+them the document was not partial at all: editable, saved as the file,
+and its save wrote a fresh history over the file's. Measured: a part of 7
+rows opened through an assembly, edited and saved, reopened with 3. The
+tap now runs for such a read too, and what it took is let go only when
+the document is left partial (`Document::restore`); the part keeps its 7
+rows and the edit after them.
+
+**Tests** (`Document.py`, `TransactionBranchCases`):
+`testAFileOpenedForALinkKeepsItsHistory` (the loss above);
+`testASetIsPairedByTheHistoryBothHold` -- 35.2 item 6's copies made in
+transactions (`assemblyCopies(log, rows=True)`): nothing opened, their top
+last, `Asm` and `Part` by the history, their `Bolt` none;
+`testASetWithNoHistoryIsPairedByAGuess` -- with no log, both by the Uid,
+none certain; `testTwoOfOursAlikePairNone` -- `Part2.FCStd` a copy of
+`Part.FCStd`, both linked: their copies of either ambiguous, paired with
+none; `testAnExportedSetComesBackPaired` -- our set exported (L7), their
+`Part` edited with the log off: `Asm` and `Part` by the save each names,
+`Part.v1.FCStd` certain, ours, at version 1.
+
+**Next**: L4, the paired files imported as branches of ours and their
+links to them made branch links; then L5, their files alone held.
+
+### 35.11 L4 built: their set as branches of ours, linked to each other (2026-10-20)
+
+`App::importSet(plan)` (`src/App/ImportSet.cpp`), in Python
+`Document.importLinkedSet(path, pairs=None)`: the plan of 35.10 made, the
+pairs changed by hand where `pairs` says (`App::pairByHand`, pairing
+`user`, certain), and each paired file imported into its document of ours
+by `importFork` -- the files each links first, so a branch is there before
+a link names it. Nothing is merged; a file of theirs alone is not brought
+(L5), and links to it stay theirs, as L1 left them.
+
+- **Their links in the rows brought** (`PropertyXLink::ImportSetLinks`, a
+  scope `ImportPaths::map` reads): a link to a paired file of theirs is
+  restored as a link to ours -- live to the branch that file came to; when
+  it brought nothing new, to what the manifest says it was (a branch, or
+  pinned at the version, so `Part.v1.FCStd` is our `Part` at v1 again);
+  else plain. Whatever pin or branch their link had of theirs is dropped,
+  and its library form with it.
+- **The links the copies had in common.** A link set before the copies
+  parted is in the base, not in a row brought, and stays a plain link to
+  our file: the top's branch then shows our part, not theirs. Found by the
+  first test, whose box came back 10 long, not their 25. After the import,
+  each branch made is opened for editing, every link of it to a file of
+  the set as it is here pointed at what that file came as (keyed by the
+  file and the version or branch it links), and that is one row of the
+  branch, "Link their set" -- what `relinked` counts. A file with no
+  history in common came whole as one row and needs none.
+- **What the import opened** -- branches' documents, tips their links
+  pulled in -- is closed after it, unless a document open before links it.
+
+**Not built yet**:
+
+- a link inside a list (`PropertyXLinkSubList`, a container's links) is
+  left out of the relink row: only a property that is a link is;
+- a file of theirs that brought nothing new but links one that did -- an
+  unchanged sub-assembly over a changed part -- is given no branch, so the
+  top's branch shows our sub-assembly and our part under it;
+- a branch tip read in part for its links (moved here from L8, 35.8): the
+  tips open whole;
+- the set's record (Q9) and its dialog (L6).
+
+### 35.12 L5 built: a file of theirs alone, held (2026-10-20)
+
+The two details Q2 (c) left open were put to the user and agreed ("agree,
+do it", 2026-10-20): the file written to the transient directory lasts the
+session only, so a link to it carries what writes it again; and what holds
+it when the top brings nothing new.
+
+- **Held** (`importSet`, before any file is imported): each file of the
+  plan paired with none -- not one marked ambiguous, which waits for the
+  user -- is kept in our top's log by `keepSentFileAt`, its sender their
+  top's file name, its kind `set` (so the requests list tells it from a
+  file a person sent), and written to `<top's TransientDir>/held/<set
+  id>/<its path in their set>` -- `..` made `_up` -- so links between their
+  files alone hold as they did. The set id is new per import. Never written
+  into our folder.
+- **Linked** (`ImportSetLinks` again): a link in the rows brought to such
+  a file is to the file written, by its full path, and **held**: saved
+  with `held="<the bytes' hash>"` and `heldpath="<set id>/<path>"` beside
+  `file`. At a restore where `file` is not there -- another session, the
+  transient directory gone with the document -- the bytes are written
+  again from the log that holds them, the owner's first and then any open
+  document's, under that document's transient directory, and the link
+  resolves there (`writeHeldFile`, as a snapshot link does, LibraryPaths
+  sec 12). A FreeCAD that does not know the attributes finds the file or
+  not. Set to anything else, a link is no longer held.
+- **For the top's branch** (`Document::holdSentFileFor`): once the top is
+  imported, each held file is held for the top's branch, as a sent file
+  brought in is for its branch (30.29): let go when that branch is merged
+  into ours or deleted. With no branch of the top -- it brought nothing
+  new -- it waits as a sent file does, until dropped.
+
+**Not built yet**: a file of theirs alone that links one of theirs paired
+with ours links their file as it was, not ours (the copy written is
+theirs, untouched); at the merge (L6) it is written where the user says
+and its links made ours.
+
+**Test** (`Document.py`, `TransactionBranchCases`):
+`testTheirFileAloneIsHeldForTheTopsBranch` -- their `Bolt` held, kind
+`set`, for the top's branch, nothing written into our folder; our top
+saved and every document closed, which takes the written file with the
+transient directory; reopened, the top's branch's link to `Cyl` resolves
+to the file written again; the branch deleted, the file is let go.
+`testASetComesAsBranchesLinkedToEachOther` now finds `L2` at the held
+file.
+
+**Tests** (`Document.py`, `TransactionBranchCases`):
+`testASetComesAsBranchesLinkedToEachOther` -- 35.2 item 6's copies with
+rows: `Part` and `Asm` branches, one relink row on `Asm`'s, their `Bolt`
+not brought, the same documents open after as before, ours unchanged;
+their top's branch opened, its link reaches their longer box through our
+`Part`'s branch, and `L2` their `Bolt`. `testAnExportedSetIsBroughtBack` --
+35.5's round trip: our set exported (L7) with a live link and a pin,
+their `Part` changed and their `Asm` given an object with the log off,
+brought back: the top's branch has the object, its live link shows their
+`Part` through its branch, and its pin our `Part` at v1.
+
+### 35.13 L6 built: the set's merge, one undo step, its dialog (2026-10-20)
+
+On the user's "push and continue" (2026-10-20). `App::mergeSet(ourTop,
+files, options)` (`src/App/ImportSet.cpp`), in Python
+`Document.mergeLinkedSet(files, overwrite=False, name=...)`. `files` is
+what `importLinkedSet` returns, which now gives each file its default
+action and, for a file alone, `write_to`.
+
+- **The actions** (Q8): `merge` (`mergeBranch`, with the file's `picks`
+  and `fallback`), `theirs` (Take theirs), `ours` (Keep ours), `write` (a
+  file of theirs alone written where `write_to` says), `drop`. By default:
+  Merge for a file paired with certainty (Q1 items 1 to 3, and by hand),
+  Take theirs for one paired by a guess (Uid, path), Write for a file
+  alone, at its path in their set under our top's folder (Q2).
+- **Nothing moves until all of it can**: a Merge whose preview has a
+  conflict with no pick and no fallback, or a Write to a file that is
+  there without `overwrite`, refuses the whole -- `refused`, the file's
+  `error` saying why.
+- **Then, in order**: the files alone written (`writeSentFile`); each
+  branch given a row, "Link our set", making its links to the set's
+  branches plain links to ours and its held links links to the files
+  written -- by name (`PropertyXLink::setPlainFile`), since an object of
+  theirs is ours only once its file is merged, and before the step, so
+  no row of a branch is in it; and each file merged, taken or kept, the
+  files each links first.
+- **One undo step across the documents (Q3)**: the step is held open as a
+  command holds its own (`AutoTransaction`), and under a `SetMergeScope` a
+  merge and a restore of a version open their transaction under the
+  application's -- or go into the one open already, which a change of a
+  file it links opened in this document -- and a merge writes its row
+  where it could take the other branch's rows as they are (a
+  fast-forward writes none, and would be as many undo steps as rows).
+  Every file's `undo_id` is the step's `transaction`; the Gui undoes and
+  redoes it across the documents as any step with one id.
+- **Take theirs** (Q8): a version taken at the branch's head, and ours
+  restored to it (`restoreVersion`): one row, ours' objects removed and
+  theirs made, ours kept in the history. Then a record with no ops whose
+  second parent is the branch's head takes the branch in, so it is not
+  asked again and what is held for it is let go. **Keep ours** is that
+  record alone.
+
+**Found on the way**: a document commit under the application's active
+transaction closes it -- the branch's relink row did, and the files after
+it got undo steps of their own; the step is held open now, and the rows
+of branches are written before it. A change a file's merge makes to
+another document through a link opens that document's transaction under
+the step's id, and a restore there then refused ("inside a transaction")
+or, opening one more under the id, threw "invalid transaction id"; the
+restore and the merge go into the one open.
+
+**Not built yet**:
+
+- **Their names under Take theirs.** Q8 says theirs are made "under their
+  names -- free once ours are gone". They come under the names the import
+  gave them (P4): their `L`, a name ours had when the branch was made, is
+  `L001` after the take. Giving the names back means renaming in the
+  restore -- the object and every reference to it -- which is not built;
+  a link from outside the set to `Asm#L` breaks where it would have held.
+  **Built since, by sec 36 U7 (2026-10-21).**
+- the Q4 preview (references that will not resolve, on the top's line);
+- the set's record (Q9) -- built since, 35.14;
+- the Import and the Merge are not recorded as a macro: they call App,
+  not a Python command, the plan and the pairs being more than a line.
+
+**The Gui** (File > Import a Linked Set..., `Std_ImportLinkedSet`,
+`DlgImportLinkedSet`), for a document with a file and its history: their
+top chosen and read, each file of theirs listed with what of ours it is
+paired with -- a list of our set's documents and "none", changeable -- how
+(a guess said so, two of ours alike said so), its action and, for one
+alone, where it is written; Import brings them in with the pairing as
+listed, and says per file what it came as (a branch, nothing new, held);
+Merge merges with the actions as listed, and asks before writing over a
+file that is there. Changing a file's pair to one of ours makes it
+Merge by default, to none Write.
+
+**Found on the way, in the Gui**: the documents the import and the merge
+open -- branches' tips -- carry LiveImport while the Gui fills in their
+views, and a change to them inside the command was refused ("still being
+filled in"): the relink row of the top's branch, a shape written in a
+part's. Their objects are read when `openDocument` returns; they are the
+program's to change, as a load's are, and `importSet` and `mergeSet` run
+under `Document::UserEditSuspend`.
+
+**Tests** (`Document.py`, `TransactionBranchCases`):
+`testASetIsMergedAsOneStep` -- 35.2 item 6's copies: the default actions
+Merge, Merge, Write; refused while a file is where `Bolt` would go, our
+`Asm` unchanged; with `overwrite`, both merged under the step's id, their
+`Bolt` written beside our `Asm` and `L2` linked to it, `L` a plain link to
+our `Part` with their longer box, the held file let go.
+`testAStrangersSetIsTakenWhole` -- a set made apart from ours and laid
+out alike: both files Take theirs by default, both under the step's id;
+our `Part` holds their `Cyl` and not our `Box`, and our `Asm`'s one link
+is to it in our `Part`. Driven (`tests/gui/import-linked-set.py`,
+`GuiImportLinkedSet_tests_run`): the dialog lists the three files with
+`Part` and `Asm` paired by the history and merged, `Bolt` written; Import
+says two branches and one held; Merge takes the set in; one Std_Undo
+takes it back in both documents.
+
+### 35.14 Q9 built: the set's record (2026-10-20)
+
+As Q9 (c) proposed: every file's import record names the set, and our
+top's log holds its map.
+
+- **Each file's** `import` record carries `set: {id, name}`
+  (`ImportSetRecord`, a scope `importSet` opens and `importFork` reads):
+  a part file knows its branch is a set's.
+- **The top's map**: once the files are imported, a record of kind `set`
+  in our top's log -- no ops, no undo step -- holds the set's id, its name
+  (their top's file name), their top, and per file what `importLinkedSet`
+  returns: their file and its path in their set, how it was paired, ours,
+  the branch, the held row, the default action and `write_to`, and an
+  error where there was one.
+- **Merged**: `mergeSet` with the set's id (`SetMergeOptions::set`, in
+  Python `mergeLinkedSet(files, set=...)`) writes a second `set` record,
+  `merged`; the set is no longer pending.
+- **Pending** (`App::pendingSets`, in Python
+  `Document.getLinkedSetImports()`): the `set` records of the branch our
+  top is on, imported and not merged, oldest first, each as
+  `importLinkedSet` returned it.
+- **The Gui**: Std_ImportLinkedSet offers the newest set pending first --
+  "The set from ... was imported and is not merged yet. Merge it now?" --
+  and the dialog opens at its merge, the pairing fixed, the actions as the
+  record has them and changeable.
+
+**Found on the way, in the Gui**: inside a command the command's
+transaction is held open until it ends, and a document opened in it takes
+its first change into that transaction. A branch's document opened for
+the relink row had one open, the row went into it, and the merge of the
+branch refused: "branch 'Asm' has a transaction open". The relink lets
+the command's hold go for its document (`AutoTransaction::setEnable`, as
+`setEdit()` does; `AutoTransaction::isEnabled()` new, to put back exactly
+what was there), commits what the document had, then writes and commits
+its row. The dialog pairs a file by hand only where the user changed its
+pair, so the record says how it was paired.
+
+**Tests**: `testASetIsMergedAsOneStep` now finds the set pending with the
+import's branches and actions, the set named in our `Part`'s import
+record, merges from the map the log holds -- as the dialog opened again
+does -- and finds nothing pending after. Driven: the dialog closed after
+Import, the command run again offers the set and opens at its merge; the
+merge takes the set in, nothing more is asked, nothing is pending, and
+one Std_Undo takes it back.
+
+### 35.15 The gaps left, elaborated (user: "elaborate on 2", 2026-10-23)
+
+What 35.11 to 35.13 left not built, each with what the user sees, why,
+and what would close it. From reading the code (`src/App/ImportSet.cpp`);
+nothing here was run, but where it says so.
+
+**G1. A sub-assembly that brought nothing new, over a part that did.**
+Their `Asm` links their `Sub`, which links their `Part`; only `Part` was
+changed. `importFork` of `Sub` writes no row, so `Sub` gets no branch and
+its target is ours as the manifest says it was (a version or a branch).
+The top's branch then links our `Sub`, whose link is to our `Part`: the
+assembly under review shows our part, not theirs -- the wrong picture,
+with no sign of it. The files are imported linked-first, so when `Sub` is
+done it is known which files it links got branches. Closing it: a file
+that brought nothing new but links (directly) a file of the set that got
+a branch is given a branch at the version it was paired with, holding one
+row -- "Link their set" -- made by `relinkBranch` as for any branch; its
+target is then that branch, and the top links it. One level covers any
+depth, since each level is decided after the ones it links. At the merge
+(L6) its "Link our set" row turns the link back plain, so merging it
+changes nothing of ours; its default action can be Keep ours. Cost: small
+-- a branch from a version exists (`Document::createBranch(name,
+version)`), the relink is the existing function. Test: three files, the
+part changed only; the top's branch shows their box length.
+
+Probed (2026-10-23, `~/.cache/lv-merge/probe/g1.py`; the user asked how
+it can be, when a link already notices a change of the file it links by
+its timestamp): `Asm` links `Sub.L`, `Sub.L` links `Part.Box`; theirs
+changed the box to 25 and moved `Asm.S`. Imported: `Part` and `Asm`
+branches, `Sub` none. In the top's branch, `S` is our `Sub.FCStd`, whose
+link is our `Part.FCStd` -- the file, at its head -- and the box reads 10.
+The timestamp does not come into it: our `Part.FCStd` did not change; their
+box is in a branch of its log, which opens as another document
+(`Part.FCStd@Part@`), and only a link rewritten to name that branch reaches
+it -- which the relink row does for the files that got a branch, and
+nothing does for `Sub`. With their `Asm` unchanged too, no file but `Part`
+gets a branch, and there is no top's branch to look at their set from: the
+same fix, carried up, gives the top one.
+
+**G2. A link inside a list is not relinked.** `relinkBranch` changes
+properties that are a `PropertyXLink` (and so `PropertyXLinkSub`); a
+`PropertyXLinkSubList` is not one, and its entries are left pointing at
+our file. The rows brought are fine: a list's entries restore through
+`PropertyXLinkSub::Restore`, which maps them. So the gap is the links the
+copies had in common before they parted. The one user of such a list in
+the tree is `Part::SubShapeBinder::Support` -- a binder of geometry from
+another file, the usual way a PartDesign body refers to another part's
+faces. Seen as: their binder copies our part's face, not theirs. Closing
+it: `relinkBranch` also walks a list's entries, and sets the list whole
+(`setValues`, one undo row); `plainly` for the merge's "Link our set" the
+same way. Cost: small. A Python property of type `App::PropertyXLinkSubList`
+is covered by the same walk.
+
+Not looked at, and alike: an expression that reads another file of the
+set (`Part#Box.Length`) holds its link in the engine's own `_XLinks`, not
+as a property `relinkBranch` walks, and names the document in its text.
+Whether the top's branch reads our `Part` there needs a probe first.
+
+**G3. The branch tips open whole.** The import opens each branch's tip
+(`ourFile@branch@`) to relink it, and those documents' links open what
+they link: every file of the set is loaded in full, shapes and all, for
+a pass that reads and writes only links. On a set of a few files it does
+not show; on a large assembly it is the import's time and memory. Closing
+it: a partial restore that reads the objects' link properties only, and
+writes the relink row from them -- a restore mode the document does not
+have. Cost: large; worth it only once a set that size is a case.
+
+**G4. A file of theirs alone that links a file paired with ours.** Their
+`Bolt`, which we do not have, is held as their bytes untouched (L5), so
+its link to `Part` is to their `Part` by its path in their set -- which
+resolves to their file if their folder is reachable here, and to nothing
+otherwise -- until the merge (L6) writes it where the user says and makes
+its links ours. During review, then, `Bolt` shows their part, or nothing,
+beside a top that shows the branch of ours. Closing it: the staged copy
+(the one written under the transient directory, not the held bytes, whose
+hash the log keeps) has its links to paired files rewritten to their
+targets, as the rows brought are, when it is written. Cost: medium -- the
+staged copy must be opened, relinked and saved, and written again the same
+way when `writeHeldFile` restores it in another session.
+
+**G5. The Q4 preview.** Q4 asked the top's line in the dialog to say
+which references will not resolve after the merge -- a link to an object
+their side removed, a sub-element name that is gone. Not built: the dialog
+says per file what it came as, not what will break. Closing it: after the
+import, each branch's links resolved against the branches they point at
+(the relinked targets), and what fails listed on its file's line. Cost:
+medium, Gui and App.
+
+**G6. No macro.** The Import and the Merge are App calls with a plan and
+pairs, not one Python line, and are not recorded. Cost: small if the
+plan is written as a dict literal; low value.
+
+Recommended order: G1 (a wrong picture, small), G2 (common in PartDesign
+work, small), then G4; G5 when the dialog is next touched; G3 and G6 when
+a case asks for them. The expression case is probed before anything is
+said of it.
+
+### 35.16 G1, G2 and G4 built; the expression case probed (user: "yes, and agree with the rest", 2026-10-23)
+
+**G1.** `importSet`: a file that brought nothing new (`importFork` says
+so, with the row both hold) and links -- directly, by its plan's `links`
+-- a file of the set that came as a branch gets a branch from that row
+(`Document::importLinksOnly`: the import's replay document, forked there,
+no row of theirs, an `import` record with `links_only` and the set, and
+no map kept, so a later import of the copy is a branch of its own). Its
+relink row is made with the others'. The files come after what they link,
+so the rule carries up any depth; a top that brought nothing gets one
+too. `SetImportedFile::linksOnly` (`links_only` in Python and in the
+set's record); default action Keep ours, which the merge's "Link our
+set" row skips, so ours stay as they are. The dialog says "branch X, its
+links only" and sets Keep ours.
+
+**G2.** `relinkBranch`'s walk is `gatherRelinks()`: a link, and each
+entry of a `PropertyXLinkSubList`, whose change is its list's (one undo
+row, as any).
+
+**G4.** A file of theirs alone is held at its turn in the plan -- after
+the files it links -- and the copy held is their file read with its links
+mapped as the rows brought are (`ImportPaths::intoFile`: the restores
+into a document opened from that file), written by `saveCopy` with no
+history under `ExportSetPaths`, which names a file outside the set by
+its full path and keeps a link's branch and held attributes. So its link
+to their `Part` is to our `Part`'s branch, here and when the copy is
+written again from the log in another session. When their file is open
+already it is not read again, and is held as it is. At the set's merge,
+Write reads the held copy written aside, makes its links plain links to
+ours -- the branches' files, the others written -- and writes it with
+`saveCopy` under `ExportSetPaths` mapping the set's documents to their
+files, so those links are relative, as between the files of a set; when
+it cannot be read, the held bytes as before. Found probing it: before,
+the held `Bolt`'s link to `Part.FCStd` was relative to the held copy's
+folder, where there is none, and did not restore at all
+(`~/.cache/lv-merge/probe/g4.py`), not "their file" as 35.15 said.
+
+**The expression case (G7), probed** (`~/.cache/lv-merge/probe/expr.py`;
+reading another document needs `doc.foreign` granted, which the probe
+does): their top's `C.Length = Part#Box.Length`, their box 25. In the
+top's branch, `C` comes with their value, 25, and a recompute makes it
+10: the expression reads the document named `Part`, ours; their part's
+branch is not opened. The engine holds its link to another file in its
+own `_XLinks`, not as a property `gatherRelinks()` walks, and the
+expression names the document in its text. Not built; what would close it
+is the engine's links relinked like a property's, and the expression's
+document name mapped through them as a restore maps it -- to be looked
+into, and put to the user.
+
+Tests (`Document.py`, `TransactionBranchCases`):
+`testASubAssemblyThatBroughtNothingStillShowsTheirPart` (G1, G2; without
+G2 the binder reads our part), `testATopThatBroughtNothingGetsABranchForItsLinks`
+(G1 up to the top, and the set's merge), and
+`testTheirFileAloneLinksWhatTheSetsFilesCameAs` (G4: in review, in another
+session, and written by the merge, `file="Part.FCStd"` with no branch).
+
+### 35.17 G7 and G5 built (user: "do G7 and G5", 2026-10-23)
+
+**G7, an expression that reads another file of the set.** The relink
+(`gatherRelinks`) also looks at each expression container of an object --
+its `ExpressionEngine`, a sheet's cells, any `PropertyXLinkContainer` --
+for what it reads of a file of the set that came as something else, and
+swaps each such object for the one of its name there through
+`CopyOnLinkReplace`, the call a copy-on-change link's swap uses: the
+expression's document name becomes the branch's document's
+(`Part_v2#Box.Length`), and the engine's link to it is live to the
+branch. Saved, the engine's `DocMap` beside that link maps the name to
+whatever the branch's document is called when it is read again, so it
+holds in another session. At the merge, "Link our set" swaps it to ours by
+the same name; an object their file made, which ours has not until its
+merge, is left as it is, with a warning. The written copy of a file of
+theirs alone gets the same.
+
+**G5, what will not resolve, said before the merge (Q4 (b)).**
+`App::previewSetReferences(ourTop, files)`, in Python
+`Document.previewLinkedSet(files)`: for each file to be merged or taken,
+what it will be is made -- `previewMergeResult` for a merge (the branch's
+head for a fast-forward), the branch's head for Take theirs -- and ours as
+it is stands for a file kept. Each of its references to a file of the set
+-- a link, an entry of a list, what an expression reads -- is looked up
+in what that file will be: the object by its name, and an element of it by
+`GeoFeature::resolveElement`, a missing mark, or an index past the shape's
+count. A link that resolves to nothing is looked up by the file and the
+object it names. Each that fails: `L3.LinkedObject -> Part.FCStd#Cyl`,
+`B2.Support -> Part.FCStd#F.Face8`. The merge's report says the same of
+what was merged (`references` per file). The dialog's Merge checks first:
+the count on each file's line, the list in its tooltip, and a question
+listing them, which offers "Merge X too" for the files kept ours that the
+references need -- set to Merge and checked again -- or "Merge as
+listed", or Cancel.
+
+Tests: `testAnExpressionReadsWhatTheSetsFilesCameAs` (G7: in review, in
+another session, merged), `testWhatWillNotResolveIsSaidBeforeTheMerge`
+(G5: a cylinder their Part added and a face of their eight-faced F, kept
+ours; none when merged; the report after), driven
+`GuiImportLinkedSetReferences` (`tests/gui/import-linked-set-references.py`:
+the question, the line, "Merge Part.FCStd too" taken).
+
+### 35.18 A set's files left to be saved; U5; the look under Assign (user: "do 1 and 2", 2026-10-23)
+
+**The files an import gives a branch are modified.** A set's import puts
+each file's branch in that file's own history, which only that file's
+save writes: closed unsaved, the branch was gone, and nothing said so --
+the Gui did not count the import a change of the file (found in 35.16,
+where a test saved the top alone and found no branch of the part). The
+Gui document now marks itself modified when its file's branches change
+(`signalBranchesChanged`: a branch made, switched, renamed, trimmed,
+deleted, an import, a merge, a file kept or let go -- each a change the
+save writes, as `signalLogKeptChanged` already was), not a branch's or a
+version's own document, which is not saved. Driven
+`GuiSetImportMarksModified` (`tests/gui/set-import-marks-modified.py`):
+neither of ours modified before, both after, the branch's document not,
+neither once saved, the branches there when opened again. On the way: a
+save of a part marks the assembly linking it modified (the link's stamp),
+so the part is saved first. The same holds of a branch served to a
+client (sec 32.30): its changes are in the file's history, so the
+desktop's document is modified, and its close asks to save first -- the
+hidden-document check saves it before it closes the window.
+
+**U5, a set's file paired by the objects it shares** (sec 36.2 U5). A
+guess after the one by `Uid`, where that says nothing, and before the one
+by path: `SetPairing::Objects` ("objects"). (Put before the `Uid` first,
+it took over the pairing of `testTwoOfOursAlikePairNone`'s top, which the
+`Uid` answers; the older signal goes first.) Their file's object UIDs are read off
+its `Document.xml` (`uid` on each `<Object>`); it is paired with the one
+of ours whose objects have the most of them, where that is two at least
+-- one is no proof, a pasted copy shares it -- and half of theirs at
+least; two of ours as many is ambiguous, the user says. A guess, not
+certain (Q1), so Take theirs by default: a copy of the objects into a new
+file shares them too. Test `testASetsFileIsPairedByTheObjectsItShares`:
+their `Bracket.FCStd`, another name and `Uid`, no history, made of copies
+of our part's objects, paired with our `Part.FCStd`; a file sharing one
+object, not.
+
+**The look under Assign** (36.6: "the live object keeps its look"; user:
+add an option, on by default). An object assigned takes the look brought
+with its values: the paste dialog (`DlgObjectSelection` in paste mode)
+and the clash dialog (`askImportClashes`, a merge of a project, a drag
+that copies) have a check, "Assigned objects take the look brought too",
+checked, which sets `ImportClashScope::copyLook`. The look is in two
+places. What the object keeps -- a Part feature's or a link's
+`Appearances` group, the element looks and the colours over them -- is
+taken with the values, and left out when the check is off (not the
+physical material, `ShapeMaterial`, which is the design). What the view
+provider keeps -- line width, point size, display mode -- the import read
+into the copy's view provider before the clash was settled:
+`signalAssignLook(copy, live)` is fired then, before the copy goes, and
+the Gui takes each of its properties into the live one's (not
+`Visibility`: a paste hides the copy), as changes of the step, which one
+undo takes back. Driven `GuiPasteAssignLook`
+(`tests/gui/paste-assign-look.py`): a longer, red box with thicker lines
+assigned onto ours -- the check offered and checked; taken, length and
+look; one undo, both back; unchecked, the length and our look.
+
+**The dialog's marks of 36.6 are moot.** "The rows where an assigned
+object will refer to a duplicate": the rule of 37.9 lets an object here
+that an assigned one depends on be only assigned or left out, so none
+does. Closed.
+
+## 36. Object UIDs: an object known by what it is, not its name (2026-10-21)
+
+**Asked (user, 2026-10-21)**, from the Q8 question of 35.13 -- their `L`
+came back as `L001` under Take theirs: "from now on we give each object a
+uid". Then, in three rulings the same day:
+
+- a new UID only when an object is created, or brought into a document
+  where a live object has its UID already;
+- objects are paired in a merge by their UID and their type, the name
+  ignored;
+- a UID is a history link: an object pasted back after it was deleted is
+  the same object, jumped to a new state with the rows between missing;
+  only live objects are checked for a clash, and a clash brought from
+  another document is asked -- a list, each row Assign or Duplicate, with
+  Assign all and Duplicate all;
+- names: **(a)**, the reservation of 27.40 item 3 stays; Take theirs
+  hands a name to their object where ours, which held it, goes in the
+  same row.
+
+### 36.1 Why
+
+An object of another copy of a file was taken for ours by its id and its
+name, the type agreeing (30.19 G7, 30.22, the replay of a branch). That
+is why a name was given to one id for ever (27.40 item 3): it was half of
+an object's identity. A stranger's object of a name ours had could only
+come in under another (P4), and Take theirs, which removes ours, still
+left theirs renamed. With the identity carried by a UID the name is only
+what references use.
+
+### 36.2 The design, as ruled
+
+| | Point | Ruled |
+| --- | --- | --- |
+| U1 | What it is | A random UUID held by the object, not a property: no undo of its own, never edited. Saved as `uid` on the object's entry in `Document.xml`'s `Objects`. Python: `obj.ObjectUid`, read only (`App::Part` and `Fem::FemAnalysis` have a property `Uid` already). |
+| U2 | When an object gets a new one | When it is created. When it is brought into a document -- paste, drag and drop, merge project, `copyObject` -- and a live object there has its UID: always for a copy into its own document (paste, Duplicate selection, Link's copy-on-change), always where the live one is of another type, and otherwise as asked (36.4). Kept through a save, Save As, the set export, a branch, a version, an undo. |
+| U3 | An object of a file from before | Its UID derived from the file's `Uid` as read, its id and its name -- a name-based UUID -- so two copies of one file agree on it. |
+| U4 | The store | A table `objuid` (cid, uid), and the `create` op's `meta` says the UID, so the history knows the UID of every id it has, deleted ones too. `StoreVersion` 2. |
+| U5 | Who reads it | The kinship of an import: the file without a history in common (30.22), the state brought as one row (30.19 G7), the replay of a branch. Pairing a set's files may count UIDs shared (a pasted copy shares one, so one is no proof). |
+| U6 | Pairing | By UID and type; the name ignored. Their `Box001` and our `Box002` of one UID are one object, and references to their name map to ours as an import maps them now. |
+| U7 | Names | 27.40 item 3 kept. Take theirs (Q8): an object of theirs renamed on import (P4) takes its own name back where the object that held it here is removed by the same row. |
+
+### 36.3 One UID, one id
+
+The history gives a UID one object id. An object made under an id the
+file knows -- an undo, a version, a branch, a replay -- has that id's
+UID. An object brought in with a UID the history knows, of the same
+type, comes back under that id and the name the table gives it: the log
+records a create of that id, as an undo of its removal would, with the
+state brought. Only an object made under an id new to the file gets a
+UID of its own (or the one it was brought with).
+
+### 36.4 A clash, brought from another document
+
+Asked once per paste: a list of the objects whose UID a live object has
+-- the one brought, the one here, Assign or Duplicate -- and Assign all,
+Duplicate all, Cancel (nothing is pasted).
+
+- **Assign**: the live object keeps its id and name and takes the state
+  brought; what links to it still does.
+- **Duplicate**: a new object, a new UID, as a paste is today.
+- References among the objects brought follow each choice: a Body
+  assigned whose Pad is duplicated holds the new Pad, and the row says so.
+- One undo step for the paste, as now. Without the Gui, and by default in
+  Python: Duplicate; a keyword asks for Assign.
+
+### 36.5 Order
+
+1. U1 to U4: the UID held, saved, read, derived for an older file, in
+   the store and the history, `obj.ObjectUid`.
+2. U5, U6 and 36.4: kinship by UID, the paste rules, the dialog.
+3. U7: the name handed over at Take theirs; the stranger's test of 35.13
+   finds `L`.
+
+### 36.6 As built (2026-10-21)
+
+**Step 1 (U1 to U4).** `DocumentObject::getObjectUid()`, held by the
+object and given by `Document::_giveObjectUid` as it takes its id: the
+id's UID where the history knows one; else the UID it carries or was saved
+with; else, under an id the file knew, one derived from the file's `Uid`
+as read, its id and its name (`Base::Uuid::createUuid(space, name)`, a
+version 5 UUID); else its own. A UID a live object here has, or one the
+history gives another id, is not taken: the object gets its own. The live
+objects are indexed by UID (`objectUidMap`). Saved as `uid` on the
+object's entry; the history keeps `objuid` (cid, uid) and `FileHistory`
+the pairs, one to one, filled from the table and from the `meta` of the
+`create` and `remove` ops (`{"uid": ...}`, kept by the log's fold), as the
+names are. `StoreVersion` 2. Python `obj.ObjectUid`.
+
+**Step 2 (U5, U6, 36.4).**
+
+- *Kinship.* `_applyForeignState` (30.19, 30.22) takes theirs for the
+  live object of its UID and type, and an object of theirs not here comes
+  with its UID -- under the id and the name the history gives that UID,
+  when it is one of ours removed. The replay of a branch's rows looks up
+  the `create` op's UID first. Two copies' rows are paired by UID before
+  the source name (`sameObjects`, 30.33).
+- *Found while building:* a file written by a build that keeps no UID --
+  an older one, or upstream FreeCAD, which writes its own `Document.xml`
+  -- has its UIDs derived, and a derived UID says nothing of an object
+  this file made since with a UID of its own. Such an object of theirs
+  (`derivedUids`) is still known by its id and name, as before.
+- *The paste.* An export says where it is from (`From`, the source
+  document's transient directory). An object brought onto a live one of
+  its UID and type, from another document, is a clash: made as a copy,
+  then settled by the thread's `Document::ImportClashScope` once the
+  import is in -- Duplicate (the default), Assign, or Ask. Assigned: what
+  the objects brought refer to of the copy is repointed to the live one
+  (`CopyOnLinkReplace`), the live one takes the copy's dynamic properties
+  and values (captured and restored through the copy's name, the label
+  left), and the copy goes. Cancelled: what was brought is removed and the
+  import throws `Base::AbortException`. A UID the history gives an id no
+  live object has comes back under that id and name.
+- *Python:* `doc.copyObject(objs, with_dependencies, return_all,
+  assign=False)`.
+- *Gui:* `Gui::askImportClashes` (`DlgImportClash`), asked by
+  `Gui::ImportClashAsk` around the paste, File > Merge project and a tree
+  drag that copies; the drag's macro line says `assign=True` when all were
+  assigned. The dialog explains how references follow the choices; it
+  does not mark the rows where they do.
+
+**Step 3 (U7).** `Document::importedNames(branch)`: the names an import's
+rows on that branch could not keep. `restoreVersion(num, names)`: where
+the end state has an object of a name in `names` and none of the name it
+maps to, that object is made under the name mapped to, whatever holds the
+name now -- gone at the end -- is removed first (the walk along the log
+otherwise removes last), and every value is read through the same names;
+the version read whole, when the walk cannot be taken, does the same.
+Take theirs restores with the branch's names: their `L` comes back as
+`L`, and our `L` stays in the history under its id.
+
+*Found while building:* the version read whole is not a path for this. A
+link to another file of the set, read in the version's scratch document,
+resolves against the scratch's place and is broken in the value taken
+from it ("File '.../temp/Part.FCStd' does not exist"); the walk takes the
+log's values, which are this file's.
+
+**Not built:** the set's pairing counting UIDs shared (U5); the dialog
+marking the rows where an assigned object will refer to a duplicate; a
+view provider's state under Assign (the live object keeps its look).
+
+**Tests**: `testAnObjectKeepsItsUid`, `testAnOlderFilesObjectsGetUidsOfTheFile`,
+`testAnObjectBroughtBackIsItself`, `testAStrangersObjectOfOurUidIsOurs`,
+`testAStrangersSetIsTakenWhole` (now `L`); gtest
+`aStoreOfLayoutOneGetsObjectUids`; driven `import-clash.py`.
+
+### 36.7 A UID through upstream's format: `_ObjectUUID` (ruled and built 2026-10-21)
+
+36.6 found that a file upstream writes again has lost its `uid`
+attributes, and its objects' UIDs are derived. The ruling: carry the UID in
+a property upstream keeps, the `_ObjectUUID` an export already made (with
+logging on only); and the `Uid` properties of `App::Part` and
+`Fem::FemAnalysis`, which nothing reads, go -- a read-only Python `Uid`
+answers the object's UID for them.
+
+- **Written.** A save below schema 5 (upstream's format, `SaveSchemaVersion`
+  4) and every export (always 4) put `_ObjectUUID` on each object written,
+  made if missing, set to its UID -- besides the `uid` attribute.
+  `Document::carryObjectUid` does it as the document's bookkeeping: no
+  undo step, no row of the log, a pinned version takes it. The property is
+  a compatibility name (`Property::Legacy`): in no file of schema 5, in no
+  row of the log, and a version's restore leaves it (a version never holds
+  it); `NoModify`, so the save that makes it marks nothing modified;
+  `Output | Hidden`.
+- **Read.** After the object data are in (`readObjects`), an object whose
+  UID came from nothing -- no attribute, no history: the derived one, or
+  for an import a new one -- takes the `_ObjectUUID` it carries
+  (`_adoptCarriedUids`), by the attribute's rules: not where a live object
+  has it (an import from another document records the clash, 36.4), not
+  where the history gives it another id. The attribute wins where both
+  are. The object's `_ObjectUUID` is set to its UID either way. An object
+  given its UID so is no longer a derived one, so it pairs by UID.
+- **The old `Uid`.** A part's or an analysis's `Uid` of an older file,
+  unknown to the class now, is read by `handleChangedPropertyName`
+  (`DocumentObject::restoreUidProperty`) into `_ObjectUUID`, and taken as
+  above; a later `_ObjectUUID` of the same object has the last word. Two
+  parts with one `Uid` -- an upstream paste copies it -- the first takes it,
+  the second keeps its derived UID.
+- **Python.** `part.Uid` and `analysis.Uid` read the UID; setting it raises
+  `AttributeError` (`DocumentObject::hasUidAttribute`, answered in
+  `DocumentObjectPy::getCustomAttributes`); a property named `Uid`, a
+  Python feature's own, still answers first.
+
+**`_SourceUUID`.** The import made each object brought with an
+`_ObjectUUID` carry the value as `_SourceUUID` and get a new random
+`_ObjectUUID`. Both users of it matched a copy to its source by it: a
+tracking copy-on-change link, whose new copy replaces the old one in what
+refers to it (`LinkBaseExtension::syncCopyOnChange`), and a copy of a shape
+content, which takes the shape of the content it is a copy of
+(`Part::Feature::restoreShapeContents`). Since the export made the
+`_ObjectUUID` with logging on only, neither matched anything otherwise. A
+reference through the link into the old copy (`(L, ["C002."])`) stayed on
+it, removed as the new copy came; with the copies' `_SourceUUID` taken
+away before the source changes -- that state -- it still does, and with
+them it moves to `C003.`. (A direct link from elsewhere to a copy is not
+moved either way: `tryReplaceLink` moves one only for its owner being the
+link.) Now every export carries `_ObjectUUID`, and the
+import no longer writes `_SourceUUID` on every object brought. Its users
+set it themselves, to the source's UID: the link on each copy as
+`copyObject` returns it (in the order given), and a content's copy from the
+UID it was brought with (`Document::getBroughtObjectUid`, kept for the
+import's length), so that its reopen finds the content again.
+
+**Not covered.** A file of split XML (the directory layout) has its object
+data read after `readObjects`, past the adoption: one upstream wrote again
+keeps derived UIDs -- upstream writes no such layout. A paste of an
+upstream clipboard whose objects carry `_ObjectUUID` alone does not bring
+an object removed here back under its id and name (36.3): the id is given
+before the property is read.
+
+**Tests**: `testUpstreamsFormatKeepsTheUids`, `testAPartsUidIsItsObjectUid`,
+`testATrackingCopyReplacesItsOldOne`, `testACopyOfAShapeContentHasItsShape`.
+
+## 37. Audit of the implementation (2026-10-21)
+
+The user asked for an audit of the whole implementation before the open
+items of sec 35 and 36 go on. Six read-only passes, one per area (the
+record model and values, the store and recovery, undo over the log,
+versions/branches/merge, import/sets/UIDs, the Gui), each reading the
+code against the sections that rule it; every finding was then verified
+against the code, and where it could be, by a probe, before it was fixed.
+What was fixed, by area, then what was left and why.
+
+### 37.1 Fixed
+
+**Store** (`TransactionStoreSQLite.cpp`).
+- The batch writers `addObjectUids`, `addObjectNames`, `addLastGeoIds`,
+  `removeObjectState`, `addStrings`, `removeStrings`, `addStringRefs`
+  stepped their statements raw, discarding the result, with no rollback:
+  a full disk mid-batch left a partial table and "cannot commit - no
+  transaction is active". All go through `step()` (which throws) inside
+  `batch()`, one SQL transaction with the rollback.
+- Every `catch { exec("ROLLBACK"); throw; }` could replace the real error
+  ("database or disk is full") with "cannot rollback - no transaction is
+  active", since SQLite rolls back by itself after SQLITE_FULL/IOERR/NOMEM.
+  `rollback()` rolls back only when a transaction is still open, and never
+  throws.
+- `text()` read TEXT columns as C strings where `bindText` wrote the whole
+  length: a value with an embedded NUL came back cut. Read by length.
+- `dropTier`: the second walk can number nodes the first never reached,
+  and `listed[n]` then read past the vector. Bounds-checked.
+- `anchorVersions` and `removeBranch` ran their several statements with no
+  transaction around them; a crash between left access or open merge
+  requests of a branch that no longer exists. Each is one `batch()`.
+- `find_package(SQLite3 3.38 REQUIRED)`: `json_extract`/`json_valid` (the
+  UID read out of op metadata, sec 36.3) are built in from 3.38 only, and
+  with an older library every log failed to open at `objectUids()`.
+- The guard reads of an embedded copy (`FileHistory.cpp`, `Document.cpp`
+  at `Document::Restore`) opened the blob read-write and relied on the OS
+  refusing writes: as root, or on a filesystem that ignores the mode bit,
+  the open set the journal mode and migrated an older copy in place, and
+  even read-only an open of a WAL-header file made a `-shm` beside the blob
+  which the blob store's recovery then took for a loose blob.
+  `openSQLite(path, readOnly=true)` opens `file:...?immutable=1`
+  read-only: no lock, no `-shm`, nothing written.
+- Crash recovery (`Document::recoverFromLog`): when the replay stopped
+  before an incomplete row (sec 25.2 item 3), the undo stacks were still
+  rebuilt to the crashed head and the `recover` row parented there, so the
+  log said the document was at a state it never reached. The head is moved
+  to `last`, the rows past it (never applied, their values never written)
+  are removed, and the recover row's script lists them as `skipped`.
+
+**Core** (`TransactionLog.cpp`).
+- A capture that failed on the worker (a Save that throws) left the key in
+  `_recorded` while `_hashById` had nothing: the next composing snapshot
+  claimed the value and `putComposite` either threw "claimed but not held"
+  or, with an older value and verify off, silently took the STALE hash --
+  the version recorded the property's previous value as current. The
+  worker now reports such keys (`_unrecorded`, drained on the main thread
+  by `dropUnrecorded()` at every post, flush and before a snapshot's sink
+  is made, which now flushes first), and they leave `_recorded`.
+- A posted job that threw left a row numbered, the head moved, and the row
+  never appended: the next row's parent named a seq that did not exist,
+  and `chain()`, `rowsBackTo`'s store path and undo over the log failed
+  ("a row on the way is gone") while the in-memory `_recent` believed the
+  row was there. The commit job, the version job (`writeVersion`, the body
+  of `postVersion`'s job) and `keepFile` append the row whatever the
+  values or the version did -- short of a value it is the incomplete row
+  recovery stops before; a failed version's row says `{"error":...}` -- and
+  the commit job retires its remaining copies on the way out, so no copy's
+  destructor runs on the worker (sec 25.4).
+- `logged()` admitted a static property marked transient by STATUS
+  (`Property::Transient`, which `PropertyContainer::Save` skips for a
+  non-dynamic property): `Part::Compound2::Shape`, `FeatureWrap::AddSubShape`
+  were logged with their full value at every recompute and written back by
+  a cold undo into a property the file never carries. Excluded, as the
+  ruling at sec 10 says; a dynamic one stays (its name and type are saved).
+- `number()` remembered every row before its kind and script were set, so
+  `rowsBackTo`'s memory path returned record, branch, login, request and
+  snapshot rows with empty kind and script where the store path returned
+  the real ones. Each maker remembers its row once it is filled.
+
+**Document: transactions and undo** (`Document.cpp`).
+- With the log on, a removal with no transaction open (`doc.removeObject`
+  from Python, or any removal outside a command) opened none unless an
+  undo step already named the object (upstream's "Delete" rule), so the
+  object was gone and the log had no `remove` op: a recovery, a branch
+  switch or a selective undo brought it back. Measured with a probe in
+  both undo modes. A removal is an implicit step like a write is when the
+  document has a log. Test `aRemovalWithNothingOpenIsLogged`.
+- `undo(id)` down to another author's step (reachable through
+  `closeActiveTransaction(true, id)` when a task is cancelled under another
+  actor than it was opened under) looped until the actor's run was empty,
+  undoing every step of theirs, then returned false. Refused before
+  anything moves (`undoRefusal` "the step is another's"). Test
+  `undoDownToAnothersStepIsRefused`.
+- `_takeStep` had no unwind protection between making the inverse the
+  active transaction and putting it on the other stack: a throw out of
+  `touched.leave` or `logInverse` left the inverse active, so the next
+  write was recorded into it. Those two are caught and logged; the stacks
+  are kept whatever the log makes of the step.
+
+**Document: versions and branches.**
+- An object recreated by type -- `_applyVersion` step 2, `_moveAlongLog`,
+  `_replayLog`, the cold undo -- lost every Python extension it had, and
+  the version's extension properties (a group's `Group`) were then skipped
+  as static properties the live object did not have. Any Draft/Arch group
+  or FeaturePython that called `addExtension` and was deleted after a
+  version came back bare on a restore or a branch switch. The `create` and
+  `remove` ops carry the Python extension type names in their metadata
+  (`{"uid":..., "ext":[...]}`, sec 9.2's promise), the version path reads
+  them off the version's object, and every recreate site adds them back
+  right after `addObject`. Test `aRecreatedObjectKeepsItsPythonExtensions`
+  (restore and cold undo).
+- `switchBranch` and `createBranch` were not exception safe: a throw out
+  of `_checkoutHead`'s whole-read fallback (a version missing or
+  unreadable) left the cursor on the new branch with the document on the
+  old one, and the next commit wrote a row on the new head with the old
+  branch's values as befores. `switchBranch` also refused a branch open in
+  another document only after the tip snapshot and `clearUndos()`. The
+  holder is checked first; a failed checkout puts the cursor back on the
+  branch left (`createBranch` also removes the branch it made), with the
+  live values forgotten.
+- `restoreVersion` left its "Restore version N" step open when the
+  whole-read path threw; every later edit joined it and branch operations
+  refused "inside a transaction". A scope guard aborts the step on unwind.
+- `restoreContainer`'s removal pass did not consult `keptOnRestore`, so the
+  document's `History`, `Version` and `Branch` were removed by a restore to
+  a version whose Document.xml lacks them (version 1 of an adopted plain
+  file, sec 16.6). Kept, as the intent comment above it says.
+- A dynamic property present in both with another type (a pattern's
+  Offset, a length or an angle) kept the live type and received the
+  version's fragment -- a wrong value under the right name. The version
+  restore and `_moveAlongLog` step 2 now replace it, as the cold undo did.
+- `restoreVersion` and `_checkBranchable` refuse under `Recomputing`: a
+  removal there is deferred (`pendingRemove`) and the object would outlive
+  the checkout.
+- Frozen (pinned) documents, sec 27.22: the refusal covered an object's
+  properties and add/remove of objects but not the document's own
+  properties, add/remove of a dynamic property, freeze/unfreeze, the
+  panel's undo of a row, a snapshot, or keeping and letting go of values.
+  `checkNotFrozen` in `Document::onBeforeChange` (outside bookkeeping),
+  `_addOrRemoveProperty`, `onBeforeChangeFreeze`, `undoLogged`,
+  `snapshotToLog`, `keepLogValue`, `keepLogValuesOf`, `releaseLogValue`.
+
+**Document: import and UIDs.**
+- Assign (sec 36.4) removed each copy after step 1 had pointed its links at
+  the live objects, and a removal's unsetup takes what the object owns:
+  with a Part or a Body pasted again and assigned, removing the copy
+  deleted the LIVE origin and its features (`OriginGroupExtension`), and a
+  Link's live copy-on-change group likewise. Each copy lets go of every
+  link (`breakLink(copy, true)`) before it is removed. Test
+  `testAnAssignedPartKeepsTheLiveOrigin`.
+- Assign copied the copy's `_ObjectUUID` onto the live object as an
+  ordinary dynamic property (the status bits Legacy/NoModify are not
+  carried by `addDynamicProperty`), persisted and logged, and removed the
+  live object's own. The carrier is skipped both ways.
+- `checkUserEdit` refused the carrier's write on a document still being
+  filled (`LiveImport`): Std_Copy and a schema-4 save threw "Stopped at
+  Obj._ObjectUUID" where both were allowed before 36.7. Bookkeeping, and a
+  Legacy or NoModify property, are not edits.
+- `onBeforeChangeProperty` recorded a bookkeeping write into a transaction
+  that happened to be open (`doc.openTransaction(); doc.copyObject()` put
+  the first `_ObjectUUID` into the undo step, against 36.7's "no undo
+  step"). Bookkeeping is skipped as `Document::onBeforeChange` already did.
+- `derivedUids` was never pruned: a TempDoc emptied and refilled kept the
+  earlier content's ids flagged derived, and `_applyForeignState` then
+  paired by id+name+type where it should by UID. Erased with the object,
+  cleared with the map.
+- The Cancel path of a paste removed the brought objects through pointers
+  of a list a removal's unsetup could have freed. By name, checked live.
+- `Part::Feature::restoreShapeContents` cleared the source UID when it
+  equalled the object's own -- exactly the first cross-document paste,
+  where the UID is kept (U2) -- so a shape content pasted alone never found
+  its original. The `obj != this` test already keeps it from matching
+  itself.
+- `openFileVersion` with no view (a branch served, a version read for a
+  link) left the new windowless document as the application's active
+  document: the next paste landed in it, and a later `_openReadVersion`
+  hand-back attached the panel to it. The previous active document is put
+  back.
+- A version is named through `Document::nameLogVersion` (the panel, the
+  Python method, the `log.nameVersion` op): the panels of the file's
+  documents refresh (`signalBranchesChanged`), and with the log embedded
+  the document is marked modified (`signalLogKeptChanged`), where before
+  a name given and the window closed without a save prompt was not in the
+  file.
+
+**Gui.**
+- Both context menus of the log panel read the `QTreeWidgetItem` after
+  `menu.exec()`, and the panel's refresh timer rebuilds the lists inside
+  the menu's event loop on any commit (a client's, the snapshot cadence):
+  a use after free. Everything is read into locals before the menu runs.
+- `Gui::Document::takeSteps` built the run's `TransactionGuard` before
+  `checkTransactionID`, so the grouped-transaction prompt and the other
+  documents' steps ran under it, and a grouped step that goes through the
+  log recomputed with its touches deferred. The check comes first, as
+  upstream orders it.
+- The three paste/merge callers caught `Base::AbortException` alone;
+  `_settleImportClashes` throws `Base::RuntimeError` too, which left the
+  "Paste" transaction open with the copies in it, and
+  `Gui::MergeDocuments::importObjects` leaked its `ZipInputStream` with a
+  dangling pointer. `Base::Exception` is caught (the transaction aborted,
+  the error reported) and the stream is owned.
+- After an Assign the pasted list holds LIVE objects in the copies' place,
+  and the paste moved them into the selected group. Only what was not
+  there before is grouped.
+- The recovery dialog listed a crashed session's `history/log.db` only
+  when the log preference was on at THIS start; otherwise the directory was
+  deleted unlisted, the unsaved tail with it. It is offered whatever the
+  preference says; the recovery itself says the log must be on.
+- A row recovered from the log kept its check box, so Cleanup counted it.
+
+### 37.2 Left as found
+
+Judged real but not fixed now, with the reason; each is a candidate for a
+later pass. Elaborated item by item, re-checked, in 37.7 (some are
+narrower or wider than said here).
+
+- **Core: a dynamic property removed and another of the same name and
+  type added in one transaction** can land on the same address (the
+  removed one is deleted at the next property call, PropertyCleaner), and
+  `onCommit`'s "original is gone" test is a pointer lookup: the row then
+  has two `set`s on one name and no `delprop`. Rare (needs the allocator
+  to reuse the address); the right fix is an explicit removal flag in
+  `TransactionObject::addOrRemoveProperty`, a change to the undo record.
+- **Core: a transaction whose every write turns out `same`** is
+  unnumbered again, but its session ordinal stays incremented (a gap, no
+  collision) and `number()` has already made a detached version document
+  take or create a branch (against 27.5). Needs numbering after the ops
+  are built; low value.
+- **Undo: `closeActiveTransaction(true, id)` holds a `TransactionGuard`
+  across every document's `undo(id)`**, and `_revertStep` refuses under
+  it: a step not at state cannot be taken back by a task cancel. Niche (a
+  client wrote past the user's step before the cancel); the fix is in
+  `AutoTransaction.cpp`, mirroring `takeSteps`.
+- **Undo: an open transaction committed by `undo`/`undoLogged` while the
+  application still owns its id** (`_activeTransactionGuard > 0`) makes
+  the next `_openTransaction(name, tid)` throw "invalid transaction id".
+  Pre-existing shape; `undoLogged` widens the window.
+- **Undo: `undoLogged` clears the actor's redos after making its step**,
+  the order `_openTransaction` avoids. No failure traced.
+- **Store: `recover()` opens the moved database when the `-wal` could not
+  be moved** (the committed, uncheckpointed tail missing) and reports
+  failure with the old directory half emptied. One rename of two in the
+  same directory failing is not a case seen.
+- **Store: `environment()`/`user()` do SELECT-then-INSERT outside a
+  transaction and no busy handler is set**: safe under sec 29's one
+  connection per file; the first second connection (29.1) must add
+  `INSERT OR IGNORE` and `sqlite3_busy_timeout`.
+- **Versions: `_readVersion`'s scratch document is the application's
+  active document while `_applyVersion` writes the live one**; a Python
+  proxy touching `FreeCAD.ActiveDocument` in `onChanged` sees a document
+  deleted a moment later. The comment says it is intentional; left for
+  the reason to be recorded or the order changed.
+- **Versions: `_rollBackUndoneMerge`** has the same shape as the branch
+  switch (forward, moveHead, then a `_followHead` that may throw); not
+  wrapped, since a failed follow leaves rows no head reaches rather than
+  a wrong head.
+- **Import: Assign of a Body whose Origin does not clash** leaves the
+  live Body pointing at the brought Origin and the old live Origin
+  orphaned: a question of what Assign should do with an owned child that
+  was not paired, for the user (36.4).
+- **Import: the file's `uid` attribute is silently overridden by the
+  history's UID for the id** (36.3) -- a copy's save synced over the file
+  with the sidecar history left in place takes the history's. Policy; a
+  warning when they disagree would help.
+- **Import: `nameCopySources` names nothing on a size mismatch**; the
+  copy-on-change sync then builds no replacements. Pre-existing shape.
+- **Gui: the sec 36.4 clash dialog is modal and opens with the "Paste"
+  transaction open**; a served client's commit meanwhile closes it with
+  the half-settled paste in it. Needs the ask before the transaction (the
+  clashing UIDs read off the stream first) or the dispatch held.
+- **Gui: `signalBranchesChanged` reloads the whole list synchronously**
+  (one `ops()` query per row, items inserted at index 0 one by one) inside
+  the App signal: a stall on every switch/branch/merge of a long log.
+  Performance; schedule through the timer and insert in one go.
+- **Gui: activating another document's window rejects an open merge
+  preview silently** (`attach` -> `detach` -> `_mergeDialog->reject()`),
+  against 32.15's intent that the document stays in reach. Bind the
+  preview to its document, not to the active one.
+- **Gui: the log panel acts on a pinned document** with no word; the App
+  entry points now refuse (above), the panel should disable its writing
+  actions and say why.
+
+### 37.3 Found sound
+
+Each pass ended with what it checked and found right; the list is long
+and lives in the session, not here. The parts worth naming: every SQL
+parameter bound and every ordered read with ORDER BY; the migration
+writes `user_version` inside the step's transaction; WAL + synchronous
+NORMAL with values durable before the row that names them (25.4); the
+pending map, the copy cache and share ownership; `_moveAlongLog`'s
+meeting point and tails; object ids file-wide across branches; the
+clash rules of 36.4 and the carrier's Legacy status through undo (probed:
+the undo of a delete re-inserts the same object, the carrier keeps it);
+the panel's connection scoping and re-entrancy guards; the recovery
+dialog preferring the log entry over a recovery file beside it.
+
+### 37.4 Storage growth (measured and audited 2026-10-21)
+
+The user asked, with the audit, how the log's storage grows and what
+could be done about it. One auditor read the store, the encodings, the
+retention and the embed path against secs 10, 13, 14, 16, 23, 27.48-27.71
+and 32.11; two scripted measurements (`~/.cache/lv-merge/storage_measure.py`,
+`storage_measure2.py`) sized the live store per table (`dbstat`), the
+blob store and the file after each phase.
+
+**Measured.** A Part fusion (box + sphere, 13 KB BRep), 500 recomputed
+edits each making a distinct shape, a save every 100:
+- live store: 160 KB -> 2.0 MB, no free pages; `entity` 956 KB (the 1000
+  shape fragments and their attachments as a reverse-delta chain: 357 KB,
+  ~360 bytes a shape), `op` 288 KB, `txn` 152 KB, `ref` + its index
+  368 KB; the pack store 2.0 MB (the current geometry of each object, the
+  superseded ones released);
+- WAL beside it: 4 MB, its high-water mark, from the first hundred edits
+  on;
+- the file with the log embedded: 20 KB -> 343 KB (9 KB with the log
+  off), ~650 bytes an edit, of which the history blob was 338 KB zipped,
+  1.7 MB raw -- 700 KB `entity`, 295 KB `op`, 156 KB `txn`, 303 KB `ref`
+  and its index, 70 KB the other indexes.
+- 300 placement edits with no recompute cost ~400 bytes each; 300
+  recomputes that cycled ten lengths stored ten shapes (hash dedup); a
+  paste of a fusion with its inputs wrote 97 ops (one per persisted
+  property per object, each a durable value).
+
+**Fixed.**
+- *The cache tier travelled.* Inside that file were 1,769 cache-tier
+  entities, 397 KB raw -- 40% of the history -- where 13.3 says the cache
+  tier never travels. `dropTier` kept every entity that any entity an op
+  reaches is delta-based on; a value is stored as a delta on the one after
+  it (23.2), so in a chain of n recomputes that kept n-1 of them, and the
+  measurement at 32.11 ("each save and reopen takes the oldest again")
+  had recorded the symptom as the rule. The bases are now followed from
+  what is kept -- entities of other tiers, and of the dropped tier what a
+  manifest or a kept value lists -- to a fixpoint, so a run of recomputes
+  leaves the file but for what a kept version lists. The unit test's
+  expectations (`dropTierWithEvictionIsTheTwoCalls`) hold under both
+  readings; the measurement is the difference.
+- *The WAL's high-water mark*: `journal_size_limit` 1 MB, truncated past
+  a checkpoint, where 4 MB sat beside every open document.
+- *The embedded copy's indexes* (`txn_ord`, `op_container`,
+  `version_hash`, `ref_target`) are dropped before the copy is vacuumed
+  (27.69 measured them at a tenth of the copy); an adopted copy's open
+  makes them again (`setUp`, `CREATE INDEX IF NOT EXISTS`).
+- *A trim, a squash and a branch deletion vacuum the live store*: they are
+  what shrinks it, and nothing else returned the pages (27.54 F6 measured
+  only the steady state's 6% and rightly left a vacuum at save alone).
+
+The same script after these: the file after the 500 edits 145.6 KB
+(from 343.3; 9.2 plain), the WAL 1.5 MB (from 4.0), the blob store
+0.8 MB (from 2.0 -- the embedded copy is a member of it); the live
+store's tables unchanged, as they should be.
+
+**Where the code and the doc differ** (the auditor's list, verified):
+1. sec 10 / 16.3's eviction budget "count and bytes, weighted by cost":
+   only `TransactionLogKeepVersions` exists, count alone, default 0 = keep
+   every cadence version; the cache tier is never dropped in the live
+   store.
+2. 13.3's op budget for the embedded copy: not built (27.69, ruled "later"
+   in 27.70); every op row ever written travels in every save.
+3. 13.2 / 20.2's 64 KB inline threshold: not built (23.1's note agrees).
+4. 23.2 "named versions are full anchors, always": `writeVersion` ignores
+   `kind`, so a named version's entries are re-encoded as deltas on the
+   next unnamed one, which then travels for it.
+5. 10.1 "shapes made in a source-bearing transaction go to the cache
+   tier": a `create` op's sets are durable whatever the value, so a pasted
+   or imported body's geometry is held by the op forever and in the file.
+6. 27.52 F2 / 27.69 (d) recompute-record compaction: still the verbose
+   JSON, one row per recompute beside the user's row.
+
+**Proposed, for a ruling** (ranked by effect over cost; none built):
+- *P1 -- bound what the embedded copy carries* (13.3's budget): rows older
+  than the oldest named version, or past N rows / M bytes, removed from
+  the copy after `dropTier` (`truncate` collects after it); the trim's
+  bridge semantics (27.71) keep a reopened chain whole. The file's growth
+  is linear in ops otherwise.
+- *P2 -- compact the `op` table*: `vbefore`/`vafter` as 20-byte blobs
+  through `bindHash` (the entity and ref tables already pack them; the
+  collector reads either form), and `ptype`/`prop` interned. 27.69
+  measured 5.2 MB of hex hashes and 3.8 MB of type and property names in
+  13.8 MB of ops; about 60% of the op table and its indexes. A
+  StoreVersion step.
+- *P3 -- compact the recompute record*: no `p`/`q` name arrays (ids or a
+  bitmask), messages on error only, the script compressed past 128 B.
+  2.8 MB of a 3.6 MB `txn` table on the T4 run.
+- *P4 -- coalesce consecutive commits on one property* (a spinbox, a
+  Python loop: two rows, a value, a blob and a delta per step), same
+  session and property within a few seconds and no version between, by
+  `replaceTransactions`. Undo granularity is the trade: the user's call;
+  nothing in the doc rules on it.
+- *P5 -- a scalar as a row*: 1000 Length edits are 1000 raw 60-byte
+  entities under their own 20-byte keys; either delta them under 128 B
+  when the patch is smaller, or inline values under ~48 bytes in the op.
+- *P6 -- `TransactionLogKeepVersions` default* from 0 to a count (20?)
+  so cadence versions do not accumulate forever, and the 16.3 byte budget.
+- *P7 -- named versions as anchors*: skip `supersede` of a named
+  version's entries, or re-encode on `nameVersion`.
+- *P8 -- pack-store write amplification* (I/O, not size): a commit that
+  makes a blob rewrites the append segment whole, up to 64 MB
+  (`FileBlobManager::flushLocked`); a smaller append segment or appending
+  members would cut per-commit writes by orders of magnitude. Belongs to
+  docs/FileBlobsManager.md.
+Rejected before and not re-proposed: a live vacuum at save (27.54 F6),
+content-defined chunking (20.2), another store engine (13.1), filtering
+Shape by name (sec 10).
+
+### 37.5 The storage proposals as built (user: all of P1-P8 yes, 2026-10-21)
+
+Ruled with them: P1 configurable in the file, the defaults mine; P6
+configurable, five unnamed snapshots; P4's undo granularity accepted.
+In the order built:
+
+- **P6 -- built.** `TransactionLogKeepVersions` defaults to 5 (was 0, keep
+  all): when a version is added, the unnamed ones over five go, never a
+  named one and never the newest of a branch.
+- **P7 -- built.** A named version is a full anchor (23.2). The store's
+  `nameVersion` through `store()` re-encodes full every delta the version
+  reaches -- its entry list, each entry, a composite's skeleton and parts,
+  a value's attachments, and a blob, which becomes a file of the blob
+  store again (`restoreBlob`) -- and adds them to an anchor set that
+  `supersede()` leaves alone after, the op path's supersession included.
+  The set is made from the store's named versions on first use; a version
+  unnamed or evicted leaves its entities in it, which costs a missed
+  delta, never a byte read. `createBranch` named its fork on the raw store
+  and now goes through `store()`. Test `aNamedVersionIsAFullAnchor`.
+- **P2 -- built, layout 3.** The op table's `vbefore`/`vafter` are the
+  hash's 20 bytes (`bindHash`), `ctype`, `prop` and `ptype` ids of a new
+  table `name(id, text UNIQUE)`, 0 for none. A column's type cannot change
+  in place, so the migrate step makes the table again
+  (`SQLiteStore::packOps`, with an `fc_packhash` SQL function: `unhex()`
+  is 3.41, the floor 3.38). A row that is still text reads as text. The
+  store keeps the name table in memory both ways and forgets what a
+  rolled-back transaction made. Test `aStoreOfLayoutTwoGetsItsOpsPacked`.
+- **P3 -- built, in the store.** A row's script is written by
+  `bindScript`: a record's per-object `p` and `q` arrays (a recompute's,
+  an undo's, a redo's, a restore's, 27.58, 27.63) as ids of the P2 name
+  table, and any script past 128 bytes zstd-compressed; either way a blob
+  led by a tag (`J` ids, `Z` ids compressed, `z` compressed as it is). A
+  script neither changes stays text. `columnScript` gives back the same
+  JSON, keys in their order, so no reader changed -- `TouchedFold::record`
+  and the Gui read what they read before. Messages were on error only
+  already. Test `aRecordKeepsItsNamesAsIds`.
+- **P1 -- built.** The embedded copy carries each branch's newest
+  version, the newest `snapshots` unnamed versions of each branch and the
+  newest `named` named ones (0 every one), and always a version a branch
+  forked from and a pinned one (the store's `pins` meta). A branch where
+  the bound binds -- its chain lost a version to the copy, or carries the
+  full `snapshots` unnamed ones (the live store evicts past the same count,
+  P6, so the copy itself seldom does) -- is then cut at the oldest version
+  that travels on it, as a trim cuts it with the bridge (16.7, 27.71); one
+  under the bound keeps its rows back to the start. The first
+  build cut every chain, and a file saved once and saved again lost every
+  row before the version its open recorded
+  (`testAFileOpenedForALinkKeepsItsHistory`), with nothing over the bound: `Document::trimBranch`'s core is
+  `App::planTrim`/`applyTrim` now, shared by both. The version a cut keeps
+  is named `trim <branch>` in the copy, as a trim names it, so the file
+  opened elsewhere does not evict what its rows start from. Unlike a trim,
+  the copy keeps that version's own row (a bridge keeps it anyway): a file
+  opened elsewhere records the file as found as a version at the last row
+  the two files share, and when that is the oldest version its copy
+  carries, an import of its fork (30.13) still finds the row it meets ours
+  at -- `aForkIsImportedAsABranch` and
+  `anObjectTheCopyBringsBackIsNotASecondOne` failed on the trim's cut. A
+  fork worked on for more saves than the copy carries has no row in common
+  with ours any more: the bound's price. The numbers
+  are the file's: store meta `keep_named` and `keep_snapshots`, which the
+  copy carries, else the preferences `TransactionLogKeepNamed` (new,
+  default 10) and `TransactionLogKeepVersions` (P6's, at least 1 here).
+  `named` below 0 carries the whole history as before. Python:
+  `Document.getHistoryRetention()`, `setHistoryRetention(named=, snapshots=)`.
+  The live store keeps every row; only the file is bounded. Note the
+  consequence with no named version: once a branch has more than five
+  unnamed versions, the file's history reaches back to the fifth-newest,
+  and an open records one, so about five sessions. Test
+  `TransactionBranchCases.testAFileCarriesItsHistoryFromTheOldestVersionKept`;
+  `testABranchIsMergedAcrossOpensOlderThanTheVersionsKept` needs an
+  open's version gone from the file, and sets the file's `snapshots` to 1,
+  what every file carried before.
+- **P5 -- not built: the cheap variant is a loss.** Measured in the
+  store's own layout (`~/.cache/lv-merge/p5/p5cost.py`, 5000 values of
+  60 bytes, dbstat after a vacuum): a raw value costs 144 bytes; as a
+  delta on the next one it costs 228 with a 12-byte patch and 247 with a
+  30-byte one. The patch saves at most the value's few dozen bytes, and
+  the delta adds the `base` column and a `ref` row with its `ref_target`
+  index entry, about 85 bytes. Only the other variant -- a value under
+  ~48 bytes inline in the op, no entity -- saves, and it changes what
+  `vbefore`/`vafter` mean at some 70 places (Document, the log, the Gui's
+  log view and scene log). Left for a ruling. **Ruled (user, 2026-10-22):
+  no delta for a small value.** P5 is closed as it stands: a value under
+  128 bytes stays a raw entity (`supersede()` returns on `old.size <=
+  128`), and neither variant is built.
+- **P4 -- built.** A commit that writes by hand the one property the
+  step before it wrote, by the same author under the same name, within
+  `TransactionLogCoalesceSeconds` (new, default 3, 0 off) of the last
+  commit, is folded into that step (`Document::_coalesceStep`): one row,
+  one undo step. Between the two may lie only the earlier step's
+  recompute -- its record rows and its implicit steps of derived writes
+  (33.4); anything else (a version, a save, a switch, an undo, another
+  author's step, a step that made or removed an object or changed a
+  freeze, a step of the application's spanning other documents) keeps
+  them apart. The rows: `TransactionLog::coalesceRows` resolves only the
+  pending afters of the rows that go (resolvePending with a row set),
+  then posts a job that rewrites the later row with the earlier befores
+  and whatever only the earlier rows changed, its own ops kept in place so
+  what is still pending on them stays right, and drops the rest through
+  `replaceTransactions` with no collection (a walk of the store per
+  spinbox tick is too much; the next collection takes the values nothing
+  names). The document's row cache is updated to match, not cleared. The
+  undo: `Transaction::absorb` moves into the earlier step what it did not
+  change, the earlier befores kept; the folded steps are deleted.
+  Test `aRunOnOnePropertyFoldsIntoOneStep`; the other cases of the gtest
+  fixture count a row and a step per commit, and run with the window 0.
+  The Gui check `transaction-log-view-check.py` made three `length`
+  commits to undo one by one; they are named apart now.
+- **P8 -- built** (docs/FileBlobsManager.md sec 15.12): a batch adds to
+  the pack store's append segment only while it is under `BlobAppendSize`
+  (new, 1 MB), and `maintain()` merges the small segments size-tiered.
+
+**Measured** with 37.4's script (`storage_measure2.py`: a fusion, 500
+recomputed edits of the box's Length, committed and then recomputed, a
+save every 100), against 37.4's result after its fixes:
+
+| | the file after 500 edits | live `op` table | live `txn` | rows |
+|---|---|---|---|---|
+| 37.4, fixed | 145.6 KB | 288 KB | 152 KB | 1510 |
+| P1-P3, P6-P8, folding off | 75.3 KB | 152 KB | 140 KB | 1510 |
+| the same, folding on (default) | 37.1 KB | 12 KB | -- | 28 |
+
+The plain file is 9.2 KB. Folding off, the file grows until its branch
+has five unnamed versions (52, 77, 96 KB after the first three saves) and
+then holds there, halved by P1 (the five and the rows since the oldest of
+them travel); the op
+table by P2; P3 saved little here, since a one-object record is under
+128 bytes and its names were short already. Folding on, the 500 edits are
+five rows. Seen, not chased: with folding on the WAL beside the live store
+stood at 3.4-3.7 MB after each save where it was 1.5 MB folding off -- a
+rewrite per commit keeps it from checkpointing back under the 1 MB limit
+as often. (Wrong: measured in 37.6, folding makes no difference; the two
+runs read a sawtooth at different points.)
+
+### 37.6 The WAL (measured 2026-10-22)
+
+The user asked to look into the WAL after 37.5's note. Two scripts,
+`~/.cache/lv-merge/wal/walgrowth.py` (the WAL's size after every edit of
+37.4's run, folding off and on) and `walpages.py` / `walbound.py` (the
+WAL's frames parsed after a few edits, each frame's page mapped to its
+table or index through `dbstat`).
+
+**The size is a sawtooth, folding or not.** Both runs climb from 1 MB to
+4 MB and drop back about every 15 edits (33 and 34 drops in 500 edits;
+peak 4.13 and 4.12 MB). The drop is SQLite's automatic checkpoint at
+1000 pages (`wal_autocheckpoint`, the default, 4 MB at 4 KB pages),
+after which the next writer starts the WAL over and `journal_size_limit`
+(37.4) cuts the file to 1 MB. What a save finds depends on where in the
+tooth it lands: folding off read 1.0, 3.6, 2.7, 1.7 and 1.3 MB at its five
+saves, folding on 2.6, 2.6, 2.6, 3.2 and 3.6. 37.5's 1.5 against 3.5 MB
+was two such readings. `journal_size_limit` does what 37.4 meant it to,
+so the file is never above 1 MB at rest after a checkpoint. It cannot
+keep the WAL under 1 MB between checkpoints, since checkpoints come only
+every 1000 pages.
+
+**What fills it: about 55 pages an edit, in 12 SQL transactions.** One
+edit (a commit and its recompute) wrote 52-57 frames, folding off and on
+alike (4 KB each, so about 220 KB written for some 3 KB the store grows
+by), in 12.2-13.2 commits. Each commit writes again the pages it touches,
+and every commit touches the same few hot pages: the last leaf of
+`entity` and of its primary key's index, of `ref` and `ref_target`, of
+`op` and `txn` and their indexes, the `branch` row of the head, and page
+1 (the header SQLite rewrites when the file grows). In the order one
+edit commits them, with the frames each wrote:
+
+| commit (what it is: my reading of the tables) | tables touched | frames |
+|---|---|---|
+| a value (the user's) | entity, its index, page 1 | 4 |
+| three values superseded | entity, index, ref, ref_target | 4, 5, 5 |
+| a value | entity, index | 2 |
+| the user's row | txn, txn_ord, op, its index, op_container, branch | 7 |
+| a recompute value, and its supersession | entity, index (ref, ref_target) | 2, 7 |
+| the string refs | strref | 1 |
+| two shapes and their deltas | entity, index, ref, ref_target, page 1 | 13, 8 |
+| the recompute's row | txn, txn_ord, op, op_container, branch | 6 |
+| the record row | txn, txn_ord, branch | 3 |
+
+The same pages, written once per edit, are 19-25; written once per run of
+five edits, 33 in all, 6.6 an edit. So the WAL is written 2.3 times over
+by committing each job alone, and 8 times over against committing what
+the worker has queued at once.
+
+**Why it does not matter much, and where it would.** With `synchronous
+NORMAL` a WAL commit does not wait on the disk, so the cost is bytes
+written, not latency: about 220 KB an edit, 2 MB a second for a spinbox
+at ten edits a second (P4 folds those rows, not their writes), and the
+checkpoint copying each tooth back into the database. On a desktop SSD
+that is noise. On a phone's flash, or the browser's OPFS (sec 22, the
+WASM tier), it is wear and battery, and the 4 MB beside each open
+document is space.
+
+**Proposed, for a ruling** (none built):
+- *P9 -- one SQL transaction per worker drain.* `TransactionLogCore::run`
+  opens one transaction before it takes the first queued job and commits
+  when the queue is empty, and the store's own `BEGIN`/`COMMIT` (and
+  the single statements that commit on their own) become savepoints
+  inside it. Measured bound: 55 frames an edit to 7-25, depending on how
+  many edits a drain holds. Atomic is stronger than 25.4's order (a value
+  durable before the row naming it): both land in the same commit. The
+  care is the error path. A job's failed savepoint rolls back only its
+  own work, as now; but after a full disk or an I/O error SQLite rolls
+  the WHOLE transaction back, earlier jobs of the drain with it, and those
+  rows are numbered in `_recent` but never appended -- the shape 37.1 fixed
+  for one job. On such an error the drain would have to run its jobs
+  again one by one, or mark the log failed. Some 80 lines in the store
+  and `run()`, and a test that makes a drain fail half way.
+- *P10 -- `wal_autocheckpoint` 256 pages*, to match `journal_size_limit`:
+  the WAL stays near 1 MB instead of climbing to 4 MB. One line. The
+  price is four checkpoints where there was one, and each writes into the
+  database every page the WAL holds once. The hot pages are the same few,
+  so this is likely to write more in total, not less. Worth it only if
+  the 4 MB on disk matters more than the writes, which is the case on the
+  browser tier. Not measured. (Built and measured, 37.8.)
+Neither changes a format.
+
+### 37.7 The items left as found, elaborated (2026-10-22)
+
+The user asked for 37.2's sixteen items in enough detail to rule on.
+Three read-only passes re-read each against the code at 6f5904be1a; what
+each claimed that decides a ruling was checked again by hand. Per item:
+whether it is still real, how it is reached, what the user sees, the fix
+and its size. None changes a format. "Inferred" marks what was reasoned
+and not run.
+
+**1. Core: a dynamic property removed and re-added in one transaction.**
+Real, and likelier than 37.2 says: the change map is keyed by
+`Property::_id`, so the two get two entries, and the removed one is freed
+by the next `PropertyCleaner` (any property write); a same-type
+allocation then often gets the freed address back (glibc's per-size
+cache is last-in first-out; inferred). `onCommit`'s "original is gone"
+test (`TransactionLog.cpp` ~3716) compares name and type through the
+stale pointer, so the removed entry emits a `set` where it should emit a
+`delprop`. Reached from Python: `removeProperty("Foo")`, any write,
+`addProperty(<same type>, "Foo")`, commit. The user sees a row with two
+`set Foo` and an `addprop`, no `delprop`; undo is not affected (it works
+by name), a replay, a cold undo or a merge of that row is (inferred).
+Fix: `|| prop->getID() != kv.first` in that test and in the
+removed-object branch above it -- safe, since it reads the pointer only
+after `getPropertyName` found it live in the container. 3 lines; no
+change to the undo record, which 37.2 thought it needed. A gtest can
+compare the addresses and skip when the allocator did not reuse.
+
+**2. Core: a transaction whose every write is `same`.** Real.
+`number()` runs before the ops are built, and on a detached version
+document it calls `ensureBranch()`: a branch is made or taken, a
+"branch" row written and the version named for it; the empty path then
+restores only `_nextSeq` and the head. Reached by opening a version and
+committing a write of the value it already has (a task panel's OK with
+nothing changed writes every field back; inferred). The user sees a new
+branch `main@vN` in the list, or the version taking an existing branch,
+and the version named and kept from eviction -- against 27.6's "opening
+a version only to look leaves nothing behind". The ordinal gap shows only
+in a row's uid and is harmless. Fix: number after the ops are built (and
+patch the pending ops' `txn`), about 20 lines, medium risk since
+`ensureBranch` flushes and posts mid-commit. A 3-line partial fix undoes
+only the ordinal.
+
+**3. Undo: a task cancel after another writer committed.** Real.
+`closeActiveTransaction(true, id)` with the id already closed holds a
+`TransactionGuard` across every document's `undo(id)`
+(`AutoTransaction.cpp` ~235); a step not at state goes through
+`_revertStep`, which refuses under any guard. Reached with
+`Std_TransformManip`: drag (a step is committed), a served client
+commits, the user presses Cancel (`TaskCSysDragger.cpp` ~313). The user
+sees Cancel do nothing, with no message; Ctrl+Z still takes the step
+back. Fix: as `Gui::Document::takeSteps` does, drop the guard for a
+document whose step needs the log. About 8 lines, low risk. A Python test
+needs no Gui (an application transaction, an actor's commit, the abort).
+
+**4. Undo: an undo inside a command breaks its next write.** Real,
+narrow. `undo`/`undoLogged` commit the open transaction while the
+application still names its id (`_activeTransactionGuard > 0`); when
+the undo did not take that step itself -- `undoLogged`'s first row is
+refused, or the undo is under another actor -- the id stays in
+`mUndoMap`, and the next write's `_checkTransaction` reopens it and
+throws "invalid transaction id". Reached by a command whose Activated
+writes, calls `undoLogged` on a refused row and writes again, or by a
+command running a modal dialog while a served client's undo is
+dispatched (inferred). The user sees the command fail on a property
+write. Fix: in `_checkTransaction`, do not reopen an id `mUndoMap`
+still holds; open an implicit step instead. About 5 lines; a write of
+that command loses its grouping with other documents. A gtest with an
+`App::AutoTransaction`. Seen beside it (inferred): when `undoLogged`
+succeeds, the command's later writes leave its step silently and go into
+an implicit one.
+
+**5. Undo: `undoLogged` clears the redos after making its step.** Real
+as written, no failure found. Deleting a redo step deletes the detached
+objects it owns; anything their teardown writes (a proxy's `__del__`, an
+observer) would be recorded into the "Undo ..." step and undone with it.
+Nothing found that does. Fix: hold the step aside while clearing, about
+4 lines. A test is contrived (`__del__` timing).
+
+**6. Store: crash recovery when the WAL cannot be moved.** Real, and
+worse than 37.2 says. When moving the `-wal` fails, `recover()` opens the
+moved database without it, returns false, and the old `-shm` is already
+deleted. `Application::recoverDocument` then throws "nothing to recover
+in <dir>" and closes the new document, and closing it deletes its history
+directory -- the moved `log.db` with it. The old directory keeps the
+orphaned WAL; a retry finds "no transaction log". The user sees a wrong
+message and loses the crashed session's history. Reached by one rename
+or copy failing (on Windows, a file held by a scanner; on Linux, rare).
+If instead the database fails and the WAL moves, the new store opens
+beside a foreign WAL. Fix: move both or neither -- put the database back
+when the WAL fails, and leave the old directory whole. About 15 lines,
+low risk. A gtest makes `<new>-wal` a directory so the rename and the
+copy fail.
+
+**7. Store: `environment()`/`user()` and a second connection.** Real,
+latent: nothing reaches it while one connection holds a file (29.1).
+Both tables have their UNIQUE constraints already. Fix:
+`INSERT OR IGNORE` then the SELECT, and `sqlite3_busy_timeout` at open
+(harmless now); writers would also want `BEGIN IMMEDIATE` (inferred).
+About 10 lines. Belongs with 29.1 when it is built.
+
+**8. Versions: the scratch document as the active one.** Mostly not
+real. `newDocument` with `tempDoc` hands the previous active document
+back before it returns (`Application.cpp` ~590), so while
+`_applyVersion` writes, `FreeCAD.ActiveDocument` is the caller's. The
+comment at `_readVersion` ("A new document becomes the active one; the
+active one is handed back -- here, or ... by the caller") predates the
+scratch being a temporary document and gives no reason. What is left:
+with NO document active at the call (FreeCADCmd, the active one closed),
+the scratch stays active through the apply and the active document is
+None after. Fix: in that case make the live document active for the
+apply and put None back; correct the comment. 3-5 lines.
+
+**9. Versions: `_rollBackUndoneMerge` not wrapped.** Real, bookkeeping
+only. It forwards the branch in the store and moves the head, then
+`_followHead` may throw (only if the walk refuses AND the whole read
+fails: a version missing or unreadable). The walk's refusal does nothing
+to the document, so the document is at the new head, as 37.2 said. What
+is skipped: the merge rows removed, the undo stacks rebuilt, the panel
+refreshed. The user sees "Merge not rolled back -- the report view says
+why" with the head moved, empty undo and redo until the next branch
+operation, and a retry saying there is no merge undone. Two ways, for a
+ruling: (a) catch, warn, and finish the rollback, the document being
+there already; (b) catch, put the branch and head back, rethrow. 8-12
+lines. A test needs a fault hook (the 37.1 branch-switch fix has none
+either).
+
+**10. Import: Assign of a Body whose Origin is not assigned.** Real. Step
+2 of `_settleImportClashes` writes the copy's values into the live Body
+through the assigned pairs only, so the live Body's `Origin` names the
+brought Origin; the old live Origin and its planes are left with no
+owner. Reached most simply in the dialog: each object is a row of its
+own, so Assign for the Body and Duplicate for its Origin; Python's
+`assign=True` assigns every row and reaches it only if the Origin's UID
+does not match. The user sees a stray Origin, probably at the tree root,
+and live features attached to its planes now out of the Body's scope
+(inferred). A question of what Assign does with an owned child, for the
+user:
+- (A) owned children follow their owner: assigning the Body assigns its
+  Origin and planes, paired by slot and Role even without a UID; the
+  dialog locks those rows;
+- (B) Assign keeps the live Origin: the brought one is removed and links
+  to its planes moved by Role (`OriginGroupExtension::relinkToOrigin`
+  does that already);
+- (C) Assign takes the brought Origin and removes the old one, relinking
+  by Role -- the Origin's identity changes in the history;
+- (D) leave it, with a warning.
+(A) and (B) give the same document; (A) also takes rows off the dialog.
+40-60 lines for A or B. A gtest with an ask callback that assigns the
+Body alone.
+
+**11. Import: the file's `uid` overridden by the history's.** Partly
+real, narrower than 37.2 says. On a plain open the objects are read
+before the embedded history is adopted, and the first pairing is kept,
+so the file's attribute wins. The override happens only when the history
+is joined BEFORE the objects are read: a second document of the file, a
+version or branch read, and -- the case that matters -- a file whose
+history this process already holds (a `file.FCStd@vN` or a pinned link
+open) while another copy was saved over the file. That open joins the
+held history, skips the 16.4 guard, and `_giveObjectUid` replaces each
+object's UID by the history's for its id, with no check of type and no
+word. The two disagree only when file and history diverged: two copies
+of one history each made the next id for a different object. The user
+sees nothing at open; later a merge or import pairs the object with
+another one of the history (inferred). Fix: a warning at the override,
+one line per document with a count, 6-10 lines (to check: a 36.7 renote
+must not trip it). The larger gap behind it: a joined open never runs
+the 16.4 guard.
+
+**12. Import: `nameCopySources` names nothing on a size mismatch.**
+Real in the code, rare in practice, and one consequence 37.2 missed.
+`copyObject` returns its copies in input order only when every object
+was made; a source whose creation fails in the target document is
+dropped ("Cannot create object") and the list comes back in read order.
+`nameCopySources` then names nothing and the sync builds no
+replacements, so references into the old copies break when they go --
+and `syncCopyOnChange` (`Link.cpp` ~674) and `makeCopyOnChange` take
+`back()` as the linked object's copy, which in read order may be a
+dependency's: the link can end up pointing at the wrong copy. Fix
+options: (a) abort the sync on a mismatch, remove what was imported,
+keep the old copies, about 10 lines; (b) make `copyObject` return one
+entry per input (null for a failed one), 20-30 lines, which also fixes
+Python `copyObject` returning another order silently. A test needs a
+type whose creation throws.
+
+**13. Gui: the clash dialog with "Paste" open.** Real, and the effect
+differs from 37.2's. All four callers (paste twice in `MainWindow.cpp`,
+File > Merge project, the tree's copy-drag) open the transaction and
+import inside it; the dialog's `exec()` runs a nested event loop in
+which served requests are dispatched. A client's undo or the browser
+panel's "undo row" commits the open step (`_takeRun`, `undoLogged`): the
+Paste row is closed with the copies in it, and the settling goes into a
+step of its own. If the user then presses Cancel, the abort takes back
+only that later step, so the cancelled paste STAYS in the document
+(inferred from the code, not run). A client's ordinary write meanwhile
+is not closed off but absorbed: it lands in the desktop's Paste step, the
+desktop as its author, and an undo of the paste undoes it. Fixes: (B)
+hold served dispatch while the dialog is up -- a hold counter and a
+queue flushed on release, 40-60 lines in SceneControl and
+SceneServeSource; a held write can time out at the browser (10 s) and
+land later; it covers every modal dialog inside a command. (A) ask
+before the transaction, reading the clashing UIDs off the stream first:
+150-250 lines, and the pre-scan must agree with every clash rule of 36.4
+forever. (C) a stopgap: refuse a client's undo while another author's
+step is open, 10 lines, not the absorb case. B is the recommendation. A
+Gui check would combine `tests/gui/import-clash.py` and the WS client of
+`transaction-log-author-check.py`.
+
+**14. Gui: the log panel reloads in the signal.** Real.
+`signalBranchesChanged` calls `reload()` directly, visible or not, and so
+does `attach()` -- every switch to another document's window. The reload
+reads every transaction, then calls `ops(seq)` per row only to learn if
+it is empty (each decodes every op of the row), inserts the items one by
+one at index 0, and resizes the columns; the refresh after it walks the
+head's chain. Fired by every branch create/switch/rename/trim/delete, a
+squash, a merge (twice when another document holds the branch), a
+rollback, an import, and naming a version, for every document of the
+file. Not measured; a guess is 0.5-2 s at 10^4 rows. Fix: a reload flag
+on the panel's existing 0 ms refresh timer (which already skips a hidden
+panel), the items inserted in one call, and one query
+`SELECT DISTINCT txn FROM op WHERE txn >= ?` in place of the per-row
+ops (a new store method). 40-60 lines, low risk.
+
+**15. Gui: another document made active rejects the merge preview.**
+Real, but it is what 32.15 rules ("another made the active one:
+`detach()` rejects the dialog"), against the same section's aim that the
+document stays in reach. A question for the user, not a defect. It is
+reached by clicking another tab, selecting another document's object in
+the tree, the panel's own "Open version N", or -- the natural case --
+opening the branch in a document of its own to look at it while merging.
+The preview vanishes with no word and the sides picked are lost. If the
+preview should stay: bind it to its document (rejected only when that
+document is deleted), and `askBeside`, the stale-preview checks and the
+merge after the wait use the captured document instead of the active one.
+25-40 lines; `transaction-log-merge-check.py` gets the case.
+
+**16. Gui: the log panel and a pinned document.** Real, and wider than
+37.2 says. The panel never tests `FrozenVersion`. The entry points 37.1
+guarded refuse (switch, branch, merge, apply rows, undo rows, roll back,
+restore, keep and let go, bring in, open branch), but the user sees at
+best "-- the report view says why", and several only an error in the
+report view. Seven entry points have NO frozen check, and they write
+the file's shared history from the pinned view: delete branch, rename
+branch, trim, squash, name or unname a version, reject a request, and
+the access dialog. A trim or squash might remove the very version the pin
+shows (not checked). For the user: should those refuse on a pinned
+document? They change the file's history, not the document's data. The
+fix either way: grey the buttons, the branch box and the writing menu
+entries with a status line ("a pinned version: shown, not changed"),
+40-60 lines; the refusals, if ruled, about 8.
+`transaction-log-frozen-check.py` already makes the pinned document
+active, the place to assert it.
+
+**Ruling questions in short:** 10 (A/B/C/D), 15 (stay or close), 16
+(refuse the seven), 9 (finish or undo the rollback), 13 (fix B). The
+others are fixes with one obvious shape: 1, 3, 4, 6 have effects a user
+meets; 2 and 12 are rarer; 5, 7, 8, 11 are small or latent.
+
+### 37.8 Rulings of 2026-10-22, and what was built
+
+The user ruled on 37.6 and 37.7: "Try P10 first. If not working, try P9
+but group on undo steps. 13, elaborate asking before the steps open. 16
+grey out. 10, if an object is assigned, then its deps in the paste list
+can only be assign or exclude. Does that make sense? 15 stay open. 9
+finished." -- and of the rest, "ok": built as 37.7 proposed.
+
+**P10 -- built; P9 not needed.** `wal_autocheckpoint=256` beside
+`journal_size_limit` (`TransactionStoreSQLite.cpp`). Measured with
+`~/.cache/lv-merge/wal/p10.py` (300 recomputed edits of 37.4's fusion,
+each committed under its own name so none folds) and an `LD_PRELOAD` shim
+counting the bytes the process writes to `log.db` and its WAL
+(`wal/shim/wcount.c`; this kernel has no `/proc/self/io`), two runs each:
+
+| checkpoint at | WAL peak | WAL mean | written to the WAL | written to the database |
+|---|---|---|---|---|
+| 1000 pages (SQLite's) | 3.94 MB | 2.07 MB | 74.1 MB | 5.1 MB |
+| 256 pages (P10) | 1.01 MB | 1.00 MB | 74.0 MB | 13.4 MB |
+
+The WAL stays at its 1 MB; the price is the checkpoints writing 8 MB more
+into the database over the 300 edits, 11% more written in all. P10 works
+for what it is for, so P9 (one SQL transaction per undo step) was not
+tried. It is what would cut the 74 MB -- 250 KB an edit written to the
+WAL whatever the checkpoint -- if that is ever wanted.
+
+**Built, one line each** (tests named; all in the gates):
+- *1.* `onCommit` tells a property added in a removed one's freed address
+  by its id: `delprop`, `addprop`, `set` (gtest
+  `aPropertyAddedInARemovedOnesPlaceIsNotItsSet`, which skips where the
+  allocator does not reuse the address; here it does).
+- *2.* A row is numbered once its ops say there is one: a commit of
+  `same` writes takes no ordinal and puts no version document on a branch
+  (`testAVersionLookedAtWithANoChangeCommitStaysDetached`).
+- *3.* A cancel by id holds no guard around a document with a log; its
+  `undo(id)` holds its own (`testATaskCancelledAfterAnotherWroteTakesItsStepBack`,
+  which fails without the change: 4716 where 4711 was put back).
+- *4.* `_checkTransaction` does not reopen an id a step on the undo stack
+  has; the write is a step of its own (gtest
+  `aWriteAfterAnUndoInsideACommandIsAStepOfItsOwn`).
+- *5.* `undoLogged` clears the redos with its step set aside; what a
+  deleted object's teardown writes is a step of its own.
+- *6.* Recovery moves the database and its WAL both or neither; a failure
+  puts back what moved and leaves the crashed session's directory whole
+  (a rename that will not go back is copied back first). The message is
+  "nothing recovered from <dir>; the report view says why" (gtest
+  `aRecoveryThatCannotTakeTheWalLeavesTheLogWhole`).
+- *7.* `environment()`/`user()` insert OR IGNORE and read back;
+  `sqlite3_busy_timeout` 5 s at open.
+- *8.* `_readVersion` with no document active makes the live one active
+  while it writes it, and puts none back after; the comment corrected.
+- *9.* (ruled: finished) A rollback whose follow fails warns and finishes:
+  rows removed, stacks rebuilt, panel refreshed.
+- *11.* A file read with the history's UID for an id that the file saved
+  with another says so (one warning per object, which takes the history's).
+- *12.* A copy on change that could not copy every object takes none of
+  the copy back: the sync keeps the old copies, a first copy throws.
+- *14.* The panel rebuilds its lists on its refresh timer, not inside
+  `signalBranchesChanged`, reads which rows have ops in one query
+  (`TransactionStore::rowsWithOps`) and puts the rows in in one call.
+  `attach()` and a restore still reload at once.
+- *15.* (ruled: stays open) The preview is of its own document: another
+  made active leaves it open, its answer merges into the document it is of,
+  and it is rejected only when that document is closed
+  (`transaction-log-merge-check.py`, "stays").
+- *16.* (ruled: grey out) On a pinned version the panel greys its writing
+  buttons, the branch box and every writing menu entry, with the reason in
+  the tip, and its status says "a pinned version: shown, not changed"
+  (`transaction-log-frozen-check.py`). The seven App entry points 37.7
+  found unguarded are left as they are: the panel does not reach them, and
+  the ruling was the panel's.
+
+**13 -- asking before the step opens, elaborated.** Today all four callers
+(paste from the clipboard, paste of a file, File > Merge project, the
+tree's copy-drag) open the transaction, import, and only then
+`_settleImportClashes` asks, from a nested event loop, with the copies
+already in the step. To ask first, the clashes have to be known before
+anything is imported. What decides a clash (`_giveObjectUid`): the UID an
+object is brought with -- the `uid` attribute of its `<Object>` entry (37.7
+item 11), else the `_ObjectUUID` carrier read with its properties (36.7),
+else one derived from the source file's UID and the id (U3, a file from
+before UIDs) -- matching a live object's, of the same type, unless the
+stream is from this document (`From`, `importFromHere`). Every piece of
+that is in the stream's `Document.xml`. Three ways:
+
+- *(a) Read the stream twice.* A scan of the stream's `Document.xml`
+  (object entries and their `uid`, the header's `From`, a carrier
+  property where an entry has no `uid`, the file's UID for a derived
+  one) lists the clashes; the dialog asks; then the transaction opens and
+  the import runs with the answers handed in through `ImportClashScope`
+  (a map UID -> assign), asking nothing. Cancel imports nothing at all,
+  where today it imports and removes. To keep the scan and the import
+  agreeing forever, the rule "the UID it is brought with" becomes one
+  function both call. A clash the import finds that the scan did not is
+  duplicated, with a warning. The bytes are read twice, but the scan reads
+  only `Document.xml`, not a shape. What it cannot give is each object's
+  dependencies, which 10's rule needs in the dialog: those are in link
+  properties of every type, and reading them off the XML is a second
+  parser of every link property.
+- *(b) Import into a scratch document first.* The stream is imported into
+  a temporary document with no undo and no log, the clashes found there
+  against the target's UIDs (the same `_giveObjectUid` rule, against
+  another map), the dialog asks with the real objects (labels, types and
+  dependencies all known), and then the transaction opens and the stream
+  is imported again into the target with the answers. Exact by
+  construction, and 10's rule has its dependencies. The cost: everything
+  is read twice, shapes included, and a Python feature's restore runs
+  twice.
+- *(c) (a) as a gate in front of (b).* The scan of (a), cut to the cheap
+  part -- does any `uid` (or carrier, or derivable one) of the stream name
+  a live object here? -- runs first. Nothing: the import runs as now with
+  nothing to ask, the usual paste. Something: (b), and the dialog. Only a
+  paste that clashes pays the second read, and it is exact.
+
+All three change the four callers the same way: the ask moves out of the
+import and in front of `openTransaction("Paste")`. A served client's undo
+then has no step to close, and a client's write made while the dialog is
+up is its own step, not the desktop's Paste. Recommended: (c). Size:
+(a)'s scan about 120 lines in App plus the shared UID rule, (b)'s scratch
+pass about 80 lines in App, the callers about 15 lines each, and the
+dialog takes a list made before import (labels and types, not live
+objects).
+
+**10 -- the rule asked about.** "If an object is assigned, its
+dependencies in the paste list can only be Assign or Exclude." It makes
+sense, and it is what stops 37.7's case: the Body assigned and its Origin
+duplicated is not offered, so the live Body never points at a new Origin
+and the old one is never orphaned. Three things, my reading:
+- *Exclude does not exist yet.* The dialog offers Duplicate and Assign.
+  Exclude would be: the object here is kept as it is, the brought one
+  goes, and what was brought refers to the one here -- 36.4's step 1
+  without step 2. For an owned child that is option B of 37.7 item 10
+  (the live Origin kept).
+- *The other direction needs the same rule.* A Body duplicated with its
+  Origin assigned gives a new Body owning the live Origin, which then has
+  two owners; excluded, the same. So: an object duplicated, its owned
+  children can only be duplicated.
+- *Owned children or every dependency?* For an owned child (linked with
+  child scope: a Body's `Origin` and `Group`, a part's origin features, a
+  link's copy-on-change group) the rule is needed both ways. For a plain
+  dependency (a Pad's sketch outside the Body, a Fusion's inputs)
+  "assigned refers to a duplicated one by its copy" is what the dialog
+  says it does today, and it harms nothing: the live sketch stays and is
+  only no longer used. Restricting those too is simpler to explain but
+  takes away a choice that works.
+Proposed, for a word: the rule both ways for owned children, transitively;
+plain dependencies unrestricted; Exclude added as the third choice. In the
+dialog a locked row shows the choices it still has and why ("owned by
+Body, which is assigned"). With 13's (b) or (c) the dialog knows the
+dependencies before the step opens; with (a) it would not.
+
+### 37.9 A paste asked before its step, in the dependency dialog; owned objects (2026-10-22)
+
+The user ruled on 37.8's two questions: "13 c. 10, extend what [the]
+current paste dialog [does], which offers [a] checkbox for exclusion and
+has special logic for link. Add [an] option for assign when applicable.
+Add special logic for origins. Propose a general way of handling special
+child objects, maybe add an API."
+
+**13 (c) -- built.** `Gui::pasteAsked` (`DlgImportClash.cpp`) is what
+the clipboard paste (both forms), File > Merge project and their like
+call. It reads the stream's `Document.xml` up to the end of its object
+list (`MergeDocuments::scanUids`: the `uid` of each `<Object>` entry, the
+header's `From`). Where none names an object of the document, or the
+stream is from the document itself, nothing is asked and the import runs
+as before. Where one does, the stream is imported into a scratch
+document (no undo, no log, closed after), the dialog asks of what that
+holds, and only then is the transaction opened and the stream imported
+again with the answers, through `ImportClashScope` mode `Answered`
+(answers by each object's name in the stream, which the import now
+records, `broughtNames`; an object another document exports is
+`Name@Document` in the stream, as `copyObject` writes it, and is answered
+by either). Cancel imports nothing and opens no step. The
+tree's copy-drag asks of the dragged objects themselves (they are live),
+before its `AutoTransaction`. An object without a UID (a stream from
+before UIDs) clashes with nothing, since an import gives it its own, so
+the scan skips it. A clash the import finds that nothing answered is
+duplicated, as before.
+
+**10 -- built, in the dependency dialog.** The dialog that asks is the one
+Std_Copy asks with, `DlgObjectSelection`, in a paste mode
+(`setPaste(target, pairs)`), over the objects brought. Its check is the
+exclusion it always was; on a row whose object is in the document already
+(the same UID and type) a second column reads "Assign to <the one here>".
+What each row takes (`getTakes`, `App::Document::ImportTake`):
+- checked, not assigned: *Duplicate*, a new object beside the one here;
+- checked and assigned: *Assign*, the one here takes the state brought,
+  and what was brought refers to it;
+- unchecked: *Exclude*, left out: what was brought refers to the one
+  here, kept as it is -- or, where there is none, to nothing.
+The rules the dialog keeps, to a fixpoint, as the user changes anything:
+- *your rule:* an object an assigned object depends on, that is here
+  too and included, is assigned (Duplicate is not offered; it may still be
+  left out). Assigning `LA`, a link to `Obj`, assigns `Obj`;
+- *an owned object follows its owner* (below): owner duplicated, it is
+  duplicated; owner left out, it is left out; owner assigned or left out
+  with the one here kept, it is the live owner's own -- kept for an
+  origin, assigned with it otherwise. Such a row is not checked by hand,
+  and says why ("X_Axis there, kept (owned by Part)").
+The App side does the same without the dialog: `_settleImportClashes`
+takes Assign, Exclude and Duplicate, pairs what an assigned or kept owner
+owns with the live owner's own, and removes the brought copies of
+everything assigned, kept or left out (links let go first, removed by
+name). So Python's `copyObject(..., assign=True)` keeps a part's live
+origin too.
+
+The "special logic for link" the dialog has (the copy-on-change link's
+call, `ViewProviderLink`, with its excludes) is untouched: paste mode is
+a mode beside it.
+
+**Origins -- built as the first owned objects.** An `App::Part` or a
+body (`OriginGroupExtension`) owns its `Origin`; a coordinate system
+(`LocalCoordinateSystem`, an origin among them) owns its axes, planes and
+point. Pasted onto a live owner, the brought origin stands for the live
+owner's origin (by its slot), each brought axis or plane for the live
+one of its Role (made if the lazy origin had not made it yet), and all of
+them KEEP the live one: an origin's state is fixed, so there is nothing
+to assign, and what was brought (a sketch on the brought XY plane) refers
+to the live one. 37.7 item 10 -- the body assigned, its origin
+duplicated, the live origin orphaned -- cannot be chosen any more.
+
+**The general way: an owned object, as an API (proposed; the C++ half
+built for origins).** Several kinds of child are not children like a
+group's: they are made with their parent, removed with it, never another
+object's, and their state is the parent's business. Each kind is handled
+today by code of its own, wherever it matters -- an origin's unsetup, the
+copy-on-change group a link removes, a sketch's or a page's own -- and
+every generic operation (paste, delete, copy, drag, merge) has to know
+them all or get them wrong. The proposal: one notion, asked of the
+object.
+- `DocumentObject::getOwnedObjects()` -- what this object owns; asks
+  each `DocumentObjectExtension::extensionGetOwnedObjects`, none by
+  default. *Built.*
+- `DocumentObject::getOwnedCounterpart(owned, liveOwner, how)` -- of what
+  this object owns, the object of `liveOwner` (one this object is pasted
+  onto) that `owned` stands for, and `how` (`App::OwnedPaste`):
+  `FollowOwner` (assigned with it) or `KeepLive` (the live one kept, its
+  state being fixed). Asks the extensions likewise. *Built.*
+- Implemented by `OriginGroupExtension` (the Origin, by slot, KeepLive)
+  and `LocalCoordinateSystem` (its features, by Role, KeepLive). *Built.*
+- *Proposed next, by who owns what:* `LinkBaseExtension` -- the
+  copy-on-change group and its copies (FollowOwner, by `_SourceUUID`,
+  36.7); `App::Link`'s element list where `ElementCount` makes them
+  (owned, by index); TechDraw's page and its views (owned, by name);
+  Assembly's joint group (owned). Each a few lines in the class that
+  already knows it owns them.
+- *Python:* a proxy may answer the same two questions
+  (`getOwnedObjects(self, obj)` -> list, `getOwnedCounterpart(self, obj,
+  owned, live)` -> `(object, "keep" | "follow")`), through
+  `FeaturePythonImp` like its other hooks, so a workbench's feature that
+  makes helper objects (Draft's, Arch's, a FEM analysis's) joins in
+  without C++. *Proposed.*
+- *Where else it would serve, once there:* removal (one generic "remove
+  what it owns" in place of each unsetup's), Std_Copy's dependency dialog
+  (an owned object always goes with its owner, not offered apart), the
+  tree's drag (an owned object is not dragged out of its owner), and the
+  pairing of a linked set's or a fork's objects (35, 30.13), where two
+  origins of one body that grew apart are the same origin. *Proposed;
+  only the paste uses it now.*
+
+**And 37.8's item 14, gated.** The deferred reload let the panel's own
+act's message go: a squash said "Squashed ..." and the rebuild after it
+put the plain status back (`transaction-log-squash-check.py` failed).
+A message set after the signal, before the rebuild, now outlives it.
+And `transaction-log-request-check.py` read the panel's list straight
+after a sent file (which signals the branches) with no event let run: it
+settles first now, the panel being up to date once its timer has run.
+
+Tests: gtest `aPasteAnsweredAheadKeepsWhatIsLeftOutAndTheOrigin` (the
+App half: an object left out keeps the live one and is linked to, a part
+assigned keeps its live origin and leaves no second one);
+`tests/gui/import-clash.py`, rewritten for the dialog (assigning a link
+assigns its dependency; left out keeps ours; duplicated; cancelled; beside
+its source nothing asked; a part assigned, its origin's rows kept and not
+checkable, and no second origin).
+
+### 37.10 Owned objects, the follow-up (user: "continue the general approach", 2026-10-22)
+
+Built of 37.9's proposal:
+- *Link* (`LinkBaseExtension`): owns its copy-on-change group, and the
+  elements it removes with itself (`detachElement`'s rule) -- every
+  element in AutoDelete mode (the copy-on-change group is a `LinkGroup` in
+  that mode, so it owns its copies), the elements it made (`_LinkOwner`,
+  an array's) in AutoUnlink. Pasted onto a live link: the group stands for
+  the live link's group, a copy for the live copy of the same source
+  (`_SourceUUID`, 36.7), any other element for the live one at its index
+  if of its type. All follow the link: assigned with it, left out with it.
+- *TechDraw* (`DrawPage`): owns its views and its template (it removes them
+  in `unsetupObject`). The template stands for the live page's, a view for
+  the live page's view of its UID; both follow the page.
+- *Assembly* (user: "it should delete its joints"; my first reading,
+  that the App removal leaves them, missed `ViewProviderAssembly::
+  onDelete`, which deletes the joint, view and BOM groups with their
+  content): `AssemblyObject` owns those three groups (and its origin, as a
+  part), each group owns what it holds. Pasted onto a live assembly, a
+  group stands for the live one's of its type, a joint (a view, a BOM
+  entry) for the live group's member of its UID; all follow the assembly.
+  The simulation and snapshot groups are not deleted with it, and are
+  not owned.
+- *Python*: two Proxy hooks (`FeaturePythonHooks.py`, so a `ProxyExp`
+  element may answer them too): `getOwnedObjects(self, obj)` -> a list,
+  added to what the object's class says; `getOwnedCounterpart(self, obj,
+  owned, liveOwner)` -> an object, or `(object, "keep" | "follow")`, or
+  None for the class to answer. And `DocumentObject.getOwnedObjects()` for
+  any script to ask.
+- *Std_Copy's dependency dialog*, in its ordinary copy mode: an owned
+  object listed goes with its owner -- checked with it, unchecked with it,
+  not checked by hand (its tip says by whom). A body is copied with its
+  origin or not at all.
+
+Not built, and why:
+- *Removal by the owned list* (one generic "remove what it owns" for every
+  unsetup's own): each class's unsetup already does it its own way, with
+  its own order (a page removes views by name because one takes others
+  with it); replacing them changes delete for every one of them. Proposed
+  still, with a test per class, as its own piece of work.
+- *The tree's drag* refusing an owned object out of its owner: today a
+  link group's element may be dragged out, and the user may want that to
+  stay. A question, not built.
+- *The pairing of a linked set's or a fork's objects* (35, 30.13) by the
+  owned counterpart: those pair by UID and name today and have shown no
+  case where an origin does not pair; left until one does.
+
+**Answered and looked into (2026-10-22).**
+- *Removal by the owned list:* ruled "no need". Each class keeps its own.
+- *The drag:* by a link group I meant any `App::LinkGroup` in Auto Delete
+  mode -- one a user sets so, and the copy-on-change group, which is one
+  and holds a link's copy-on-change objects. The tree lets an element be
+  dragged out of any link group (`ViewProviderLink::canDragObject` is true
+  for a group), and the drag is `setLink(i, nullptr)`, which in Auto
+  Delete mode removes the element from the document: probed,
+  `g.setLink({0: None})` on such a group left `['G']` of `['G', 'E']`.
+  The probe ran the drag's App call, not the Gui drag itself. A link's
+  array elements are not draggable already. The question: refuse the
+  drag of an owned element, or make a drag out of an Auto Delete group a
+  move (let go without removing).
+- *Pairing a fork's or a linked set's objects:* not "no case" -- probed
+  (`~/.cache/lv-merge/wal/forkorigin.py`). An origin's axes and planes are
+  made lazily, on first ask, under fresh ids and UIDs, so two copies of a
+  file that each made them hold the same plane under two UIDs
+  (`lazyorigin.py`: every role differs). Ours made them; theirs made them
+  and linked `OnXY` to its XY plane; theirs imported as a branch and
+  merged: three sets of planes after (`XY_Plane`, `XY_Plane001`,
+  `XY_Plane002`, and the same for the rest), the Part's origin now lists
+  theirs (`XY_Plane001`...), ours are left owned by nothing, and the link
+  brought links theirs. Two fixes, either or both, for a ruling:
+  (a) the lazily made features take a UID derived from their origin's
+  UID and their Role, so every copy makes the same one and UID pairing
+  needs nothing more -- the root of it, for origins, and a paste gains
+  the same; files that have diverged already stay diverged;
+  (b) `_applyForeignState` (a fork, a linked set) pairs an object left
+  unpaired by UID through its owner, when the owner is paired, by
+  `getOwnedCounterpart` -- the paste's rule, for every owner; it also
+  mends files that diverged before (a).
+
+Tests: Python `testAScriptedOwnersHelperFollowsIt` (a Proxy owns a helper;
+the owner assigned, a helper brought under another UID is the live
+helper, kept; `getOwnedObjects()` from Python on the proxy object and on a
+Part).
+
+### 37.11 An origin's planes the same in every copy; owned pairing in an import (user: "both", 2026-10-22)
+
+Both of 37.10's fixes, and two faults their tests found on the way.
+
+**(a) A datum's UID from its system and its Role.**
+`LocalCoordinateSystem::createDatum` gives the feature it makes the UID
+`Uuid::createUuid(<the system's UID>, "datum <Role>")`, through
+`Document::giveNextObjectUid` (the next object added takes it, as 36.3's
+rules let it: not a live object's, not another id's in the history). Two
+copies of a file that each made an origin's features now hold the same
+seven objects by UID. A file whose features diverged before this stays
+diverged; (b) is for it. Test `testAnOriginsPlanesAreTheSameInEveryCopy`.
+
+**(b) Pairing through the owner, in both import paths.**
+- *The file as found* (`_applyForeignState`): their objects are taken
+  owners first, and one not paired by its UID (nor, for a file from before
+  UIDs, by its id and name) is the object here that its owner's
+  `getOwnedCounterpart` names, the owner being paired.
+- *Their rows* (`importFork`'s replay): who owns what is known only once
+  a row is applied, so after the row's last step an object it made that
+  is no live object's by UID is asked of its owner; one the owner here
+  names is held, and the row is applied once more with it made under that
+  object's id, name and UID -- as an object paired by UID is. Once only.
+  The replay shares the file's history, which by then has the UID the
+  first application noted: the owner's answer comes before the UID's, and
+  "one of ours" is a live object's UID, not one the history knows.
+Test `testAForkWhoseHelperWasMadeApartPairsByItsOwner` (a Proxy's helper,
+made in each copy apart: one helper after the merge).
+
+**Found: a merge conflict on a value that only reads differently.** Each
+side made the XZ plane; the merge set ours' Placement against theirs' as a
+conflict: `Q0="0.7071067811865475"` against `"...476"`. Theirs came
+through the replay, where a Placement is restored and written again, and
+its quaternion is rebuilt from the axis and angle the text also holds. The
+merge's "same" test now also reads both values back into properties of
+their type and compares those (`sameReadValue`; not a link, not one with
+files), beside `sameLinkValue`.
+
+**Found: a third set of planes, owned by nothing.** The import's replay
+writes a value of `OriginFeatures`; the write reads for the property first,
+and `Origin::getPropertyByName` makes the lazy features right then -- seven
+objects the row then leaves to nothing, as the probe of 37.10 showed. Two
+guards in `LocalCoordinateSystem::initObjects`: no lazy features in a
+version read to be compared or applied (a document both `TempDoc` and
+`VersionDoc`), and none while another copy's rows or state are written in
+(`Document::isWritingForeign()`, a flag the replay and
+`_applyForeignState` set; unlike `isReplaying()` the rows are still
+recorded). Test `testAForkWhoseOriginWasMadeApartMergesOnePlane`: each
+copy made the planes, theirs linked one, imported and merged -- seven
+datum objects, ours, the part's origin still lists them, and the link
+brought links our XY plane.
+
+### 37.12 A drag out of an Auto Delete group is a move (user: "turn into a real move", 2026-10-22)
+
+**The drag.** `ViewProviderLink::dragObject` took an element out of a link
+group by `setLink(i, nullptr)`, which in Auto Delete mode removes it from
+the document (`detachElement`). In that mode the group makes no link for
+what is put in it: the element is the user's object itself, so a drag
+out of the group, meant as a move, removed the object, and the tree's drop
+then found nothing to drop ("Dropping object deleted"). The same held for
+a copy dragged out of a link's copy-on-change group, which is a group in
+that mode, and for a link an Auto Unlink group made.
+
+Built: `LinkBaseExtension::releaseElement(obj)` takes the element out of
+the list and nothing more, whatever the mode; a link the group made
+(`_LinkOwner`) is no longer the group's own. The drag calls it. A removal
+by the API (`setLink(i, None)`, `setLink({i: None})`) keeps removing:
+that is what the mode is for. A copy moved out of the copy-on-change group
+is the user's from then on: the link still links it until its next copy,
+which, not finding it among the old copies, makes a new one and leaves it.
+
+Test `GuiLinkGroupDragOut` (`tests/gui/link-group-drag-out.py`), by the
+calls the tree's drop makes, the old parent's `dragObject()` and the new
+one's `dropObject()` in one transaction: an Auto Delete element moved to a
+plain group, back by one undo; an Auto Unlink group's link moved, its
+`_LinkOwner` cleared; a copy moved out of the copy-on-change group, the
+link still linking it; `setLink({0: None})` still removes. On the old
+`dragObject` the first fails: the object is gone. A drop synthesized onto
+the tree widget itself was refused by the tree's checks before any of
+this code ran, and was not chased.
+
+**A link element paired by its index (user: "yes", 2026-10-22).** Raised
+by the user: pairing through the owner does not suit what an Auto Delete
+group or an assembly holds. Of the pairings 37.10 and 37.11 built, one
+went by position: a link's element with no `_SourceUUID` stood for the
+live link's element at its index if of its type. Joints, assembly views
+and TechDraw views already paired by UID only.
+
+The rule now: an owner pairs a *slot* -- an object whose identity is its
+place in the owner: an origin and its axes and planes (by role), an
+assembly's three groups, a link's copy-on-change group, a copy by its
+source, and an array's element by its index (an `App::Link` with
+`ElementCount` makes its elements per index, so element i of one copy is
+element i of another). What an owner holds as *content* -- a group's
+elements, a joint, a view -- pairs by UID or not at all; the owner only
+decides that it follows (no row of its own in the paste dialog, assigned
+or left out with the owner). Built: a link group's element pairs with the
+live group's element of its UID (`Link.cpp`,
+`extensionGetOwnedCounterpart`).
+
+**Found building it: content never paired by UID in a paste.** A brought
+object that clashes comes in under a UID of its own (36.4), so a UID
+match against what it was brought with finds nothing at
+`_settleImportClashes`: in a paste, the assembly's joints and a page's
+views (37.10) did not follow their owner either, but came in as
+duplicates. The clash list knows the pair: an owned object the owner
+gives no counterpart now follows its owner onto its own clash's live one.
+The paste dialog, which reads the originals (their UIDs intact), takes the
+same fallback from its pairs. In a fork's import the UIDs are kept, and
+the UID match is what pairs.
+
+Tests: `aGroupsElementPastedFollowsItsUidNotItsPlace` (gtest; their group
+[A, B] assigned onto ours, A removed here: our B takes their B's state,
+their A comes in as an object of its own); and
+`testAForkWhoseGroupGotAnElementApartKeepsBoth` (each copy put an object
+of its own first in the same group: two objects after the merge). On the
+index pairing both fail (the merge makes the two one: `['Ours']`).
+
+### 37.13 The cache tier's budget (user: "do cache size limit", 2026-10-23)
+
+Item 1 of 37.4's list: sec 10 puts a derived value -- the shape a
+recompute writes -- in an evictable tier "under the one eviction budget
+of 16.3 (bytes and count, weighted by the cost to regenerate)", and a
+missing value means "recompute". Only the count of unnamed versions was
+built (37.5 P6); nothing ever dropped a cache-tier value from the live
+store, so it grew with every recompute until a trim or a squash.
+
+**The budget.** Two preferences, `TransactionLogCacheSize` (MB, default
+256) and `TransactionLogCacheValues` (default 10000), 0 for no limit.
+What they measure: the values of the cache tier the rows name, and the
+bytes only they hold -- the fragment rows, their attachments and the
+files of the blob store they name, as each lies (a delta's patch, a
+file's size). Over either, values go until both are at three quarters
+(`TransactionStore::evictTier`):
+- of each property, the oldest first. A value is a delta on the one after
+  it (23.2), so the chain is cut from its old end;
+- across properties, by age (how many values of the property came after
+  it) times bytes, over the seconds the object's recomputes took on
+  average (the recompute records' `s`, 27.52): a cheap shape goes before
+  one that took minutes, as 10.1 asked;
+- what stays whatever the budget: the newest value of each property on
+  each branch (what a switch shows), what a version lists, a kept value
+  or object (32.11).
+The ops keep their refs. A value gone is read as one never kept: a cold
+undo onto it skips it and touches the object (24.1), and the recompute
+that follows makes it.
+
+**Found building it: a durable value held the whole chain.** The shape a
+`create` op records is durable (37.4 item 5), and it is stored as a delta
+on the first shape the recompute wrote, that one on the next, and so on to
+the newest. Following the bases from what stays, as `dropTier` does,
+held every attachment of every shape the object ever had: on a box with
+three recomputes, 365 of the tier's 1330 bytes counted as the tier's and
+could go, the rest pinned. Now a delta that stays on a base that goes is
+written full (zstd past 128 bytes) in the same SQL transaction, and the
+measure does not follow a base edge into the tier from what stays. One
+that cannot be read full brings its base back instead.
+
+**When it runs.** On the log's worker, as a job of its own between two
+jobs (every value put is named by a row by then), queued by `post()` when
+the worker has put an eighth of either budget in the cache tier since the
+last look, and once on the first post after open. Under the budget it is
+one read of the graph, as a version's collection is. Python:
+`Document.evictTransactionCache(size=None, values=None)` runs it now
+with the preferences or the numbers given (bytes, values) and returns the
+tier's values and bytes before, the values evicted and the bytes left;
+with both 0 it measures.
+
+**Measured** (`~/.cache/lv-merge/probe37/budget.py`, 37.4's fusion, 300
+recomputed edits of the box's length, folding off):
+
+| budget | tier values | tier bytes | live db used | 300 edits |
+|---|---|---|---|---|
+| none | 607 | 260 KB | 1236 KB | 2.16 s |
+| 50 values | 51 | 37 KB | 532 KB | 2.18 s |
+
+Then 25 undos, five of them past the hot window onto values that went:
+the same length and volume (22.75, 3053.10) both ways.
+
+Not built: 16.3's byte limit on unnamed *versions*. A version holds what
+its manifest lists, and they are bounded by count (five, P6); the bytes a
+version lists in the cache tier stay with it, as they did.
+
+Tests: `theCacheTierIsHeldUnderItsBudget` (gtest, the store: under the
+budget nothing goes; over it the quick object's old values go before the
+slow one's, the newest of each stays, what a version lists stays, a delta
+kept on a value that goes is written full; then by count);
+`TransactionBranchCases.testTheCacheTierIsHeldUnderItsBudget` (a box
+recomputed 24 times, a budget of 4 values: the oldest 22 shapes go, the
+newest stays, and 22 undos back past the hot window give length 12's
+shape after a recompute).

@@ -31,6 +31,7 @@
 #include <Base/MatrixPy.h>
 #include <Base/Tools.h>
 
+#include "DocumentObjectExtension.h"
 #include "FeaturePython.h"
 #include "FeaturePythonPyImp.h"
 
@@ -409,6 +410,74 @@ void FeaturePythonImp::getElementMapVersion(std::string &ver, const App::Propert
             return true;
         },
         ver, prop && prop->hasName() ? prop->getName() : "", restored);
+}
+
+bool FeaturePythonImp::getOwnedObjects(std::vector<App::DocumentObject*>& ret) const
+{
+    // None: the Proxy does not say; a sequence of objects: what it owns
+    // besides what the object's own class says (sec 37.9)
+    return callHook(
+               HookGetOwnedObjects,
+               [&ret](const Py::Object& res) {
+                   if (res.isNone())
+                       return false;
+                   if (!res.isSequence())
+                       throw Py::TypeError("getOwnedObjects expects a list of objects");
+                   Py::Sequence seq(res);
+                   for (Py_ssize_t i = 0; i < seq.length(); ++i) {
+                       Py::Object item(seq.getItem(i));
+                       if (!PyObject_TypeCheck(item.ptr(), &DocumentObjectPy::Type))
+                           throw Py::TypeError("getOwnedObjects expects a list of objects");
+                       ret.push_back(
+                           static_cast<DocumentObjectPy*>(item.ptr())->getDocumentObjectPtr());
+                   }
+                   return true;
+               })
+        == PyHookState::Handled;
+}
+
+bool FeaturePythonImp::getOwnedCounterpart(const App::DocumentObject* owned,
+                                           const App::DocumentObject* liveOwner,
+                                           App::DocumentObject*& ret,
+                                           App::OwnedPaste& how) const
+{
+    // None: the Proxy does not say; an object, or (object, "keep" |
+    // "follow"): the live owner's own that `owned` stands for (sec 37.9)
+    if (!owned || !liveOwner)
+        return false;
+    auto toObject = [](const Py::Object& item) -> App::DocumentObject* {
+        if (item.isNone())
+            return nullptr;
+        if (!PyObject_TypeCheck(item.ptr(), &DocumentObjectPy::Type))
+            throw Py::TypeError(
+                "getOwnedCounterpart expects an object, or (object, 'keep'|'follow')");
+        return static_cast<DocumentObjectPy*>(item.ptr())->getDocumentObjectPtr();
+    };
+    return callHook(
+               HookGetOwnedCounterpart,
+               [&](const Py::Object& res) {
+                   if (res.isNone())
+                       return false;
+                   how = App::OwnedPaste::FollowOwner;
+                   if (res.isTuple()) {
+                       Py::Tuple tup(res);
+                       if (tup.size() != 2 || !tup[1].isString())
+                           throw Py::TypeError(
+                               "getOwnedCounterpart expects (object, 'keep'|'follow')");
+                       const std::string mode = Py::String(tup[1]).as_std_string();
+                       if (mode == "keep")
+                           how = App::OwnedPaste::KeepLive;
+                       else if (mode != "follow")
+                           throw Py::ValueError("getOwnedCounterpart: 'keep' or 'follow'");
+                       ret = toObject(tup[0]);
+                   }
+                   else
+                       ret = toObject(res);
+                   return true;
+               },
+               const_cast<App::DocumentObject*>(owned),
+               const_cast<App::DocumentObject*>(liveOwner))
+        == PyHookState::Handled;
 }
 
 bool FeaturePythonImp::editProperty(const char *name)

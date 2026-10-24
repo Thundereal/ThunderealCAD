@@ -28,7 +28,9 @@
 #include <vector>
 #include <fastsignals/signal.h>
 #include <functional>
+#include <initializer_list>
 #include <memory>
+#include <set>
 #include <QPointer>
 #include <QTimer>
 
@@ -39,6 +41,8 @@ class QDialog;
 class QComboBox;
 class QLabel;
 class QLineEdit;
+class QMenu;
+class QAction;
 class QPlainTextEdit;
 class QPushButton;
 class QStackedWidget;
@@ -108,6 +112,8 @@ private Q_SLOTS:
     void onRequestContextMenu(const QPoint& pos);
     /// Ask the merge's preview of each request how many conflicts it finds.
     void previewRequests();
+    /// Say which open documents' files another process has written.
+    void checkDisks();
     void applyVisibility();
     /// Lay the graph out over the rows shown (docs/TransactionLog.md sec 26).
     void layoutGraph();
@@ -119,6 +125,10 @@ public Q_SLOTS:
     /// (docs/TransactionLog.md sec 28): the preview in a dialog where each
     /// conflict gets a side, then the merge.
     void mergeBranch(const QString& name);
+    /// A save of document `doc` stopped at the merge of what another process
+    /// saved into its file (docs/TransactionLog.md sec 29.8): the panel shows
+    /// that document and puts branch `branch` to mergeBranch().
+    void mergeSaved(const QString& doc, const QString& branch);
     /// Apply log rows to the branch the document is on, as a step of its
     /// own (docs/TransactionLog.md sec 31.12): `seqs` is their numbers,
     /// comma-separated. The preview, a side for each conflict, the pick.
@@ -246,6 +256,11 @@ private:
     /// A merge is being looked at: brought to the front, and said.
     bool mergeIsOpen();
     void updateStatus();
+    /// The document is a pinned version (sec 27.22): the panel shows it and
+    /// changes nothing of it (sec 37.7 item 16).
+    bool pinned() const;
+    /// Grey every entry of `menu` but those in `reading` when pinned.
+    void pinMenu(QMenu& menu, std::initializer_list<QAction*> reading) const;
     /** `f`, what a timer or a signal runs: a log that cannot be read -- a
      * store of another layout, a broken file -- is said in the status line,
      * never left to the event loop. */
@@ -255,6 +270,8 @@ private:
     QString _readError;
     App::TransactionLog* log() const;
     void scheduleRefresh();
+    /// A reload on the refresh timer (sec 37.7 item 14).
+    void scheduleReload();
 
     App::Document* _doc {nullptr};
     int64_t _lastSeq {0};
@@ -279,6 +296,10 @@ private:
     };
     std::map<std::string, Previewed> _previewed;
     QTimer _previewTimer;
+    /// Looks at the files of the open documents (sec 29.8): one written by
+    /// another process is said once, and merged by the next save.
+    QTimer _diskTimer;
+    std::set<std::string> _toldElsewhere;
     bool _fillingBranches {false};
 
     QLabel* _status {nullptr};
@@ -324,6 +345,12 @@ private:
     std::unique_ptr<Whole> _whole;
     /// The merge being looked at, while one is (sec 32.15)
     QPointer<QDialog> _mergeDialog;
+    /// The document the merge looked at is of (sec 37.7 item 15)
+    App::Document* _mergeDoc {nullptr};
+    /// The lists are to be rebuilt whole at the next refresh.
+    bool _reloadWanted {false};
+    /// The status when the reload was asked for (scheduleReload)
+    QString _statusBeforeReload;
 };
 
 } // namespace DockWnd

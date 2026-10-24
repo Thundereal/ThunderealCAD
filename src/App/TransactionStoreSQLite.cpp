@@ -25,8 +25,10 @@
 #ifndef _PreComp_
 # include <algorithm>
 # include <array>
+# include <cstdlib>
 # include <cstring>
 # include <map>
+# include <queue>
 # include <set>
 # include <sstream>
 # include <unordered_map>
@@ -34,6 +36,7 @@
 #endif
 
 #include <sqlite3.h>
+#include <nlohmann/json.hpp>
 
 #ifdef FC_HAVE_ZSTD
 # include <zstd.h>
@@ -59,6 +62,11 @@ namespace {
 #define FC_REF_COLUMNS                                                                 \
     "(entity BLOB, target BLOB, role TEXT, name TEXT, seq INTEGER,"                 \
     " PRIMARY KEY(entity, role, name, target)) WITHOUT ROWID"
+
+#define FC_OP_COLUMNS                                                                  \
+    "(txn INTEGER, idx INTEGER, op TEXT, ckind TEXT,"                                   \
+    " cid INTEGER, cname TEXT, ctype INTEGER, prop INTEGER, ptype INTEGER, meta TEXT,"  \
+    " vbefore BLOB, vafter BLOB, derived INTEGER, touched INTEGER, PRIMARY KEY(txn, idx))"
 
 /// What the `derived` column of an op holds (sec 31.25): who made the
 /// write. One column for the two flags, which are never both set; a row
@@ -103,10 +111,13 @@ bool packHash(const char* hex, size_t n, unsigned char* out)
 /** The store's layout version, PRAGMA user_version (docs/TransactionLog.md
  * sec 27.55: none from 2026-09-28, one again from 2026-10-19 for the release
  * at the end of 2026). 0 is a store from before it; 1 is the layout of
- * 2026-10-19. A change of the layout raises it and adds a step to
- * SQLiteStore::migrate(); a store of a higher number than this is refused.
+ * 2026-10-19; 2 adds the object UIDs (sec 36, 2026-10-21); 3 packs the op
+ * table (sec 37.4 P2): its value hashes as 20 bytes, its type and property
+ * names as ids of the table `name`. A change of the layout raises it and
+ * adds a step to SQLiteStore::migrate(); a store of a higher number than
+ * this is refused.
  */
-constexpr int StoreVersion = 1;
+constexpr int StoreVersion = 3;
 
 /// A table of the layout: its name and its columns, as CREATE TABLE has them.
 struct TableDef
@@ -132,10 +143,10 @@ const TableDef Tables[] = {
      "(id INTEGER PRIMARY KEY, env INTEGER,"
      " user INTEGER, host TEXT, access TEXT, opened REAL, closed REAL,"
      " uuid TEXT)"},
-    {"op",
-     "(txn INTEGER, idx INTEGER, op TEXT, ckind TEXT,"
-     " cid INTEGER, cname TEXT, ctype TEXT, prop TEXT, ptype TEXT, meta TEXT,"
-     " vbefore TEXT, vafter TEXT, derived INTEGER, touched INTEGER, PRIMARY KEY(txn, idx))"},
+    // Sec 37.4 P2: `ctype`, `prop` and `ptype` are ids of `name` (0 for
+    // none), `vbefore` and `vafter` a hash's 20 bytes (bindHash).
+    {"op", FC_OP_COLUMNS},
+    {"name", "(id INTEGER PRIMARY KEY, text TEXT UNIQUE)"},
     // `manifest` names the version's entry list, an entity of kind
     // `manifest` (sec 27.54).
     {"version",
@@ -144,6 +155,8 @@ const TableDef Tables[] = {
      " created REAL, manifest BLOB)"},
     // Sec 27.40 item 3: the file's object names, one to one.
     {"objname", "(cid INTEGER PRIMARY KEY, name TEXT UNIQUE)"},
+    // Sec 36.3: the file's object UIDs, one to one.
+    {"objuid", "(cid INTEGER PRIMARY KEY, uid TEXT UNIQUE)"},
     // Item 4: the last geometry id of each object.
     {"lastgeoid", "(cid INTEGER PRIMARY KEY, id INTEGER)"},
     // Sec 27.50 item 2: the file's string table, kept once for every
@@ -199,6 +212,31 @@ const char* const Indexes[] = {
     "ref_target ON ref(target, role)",
 };
 
+/// `path` as a file: URI (sqlite3_open_v2 with SQLITE_OPEN_URI): the
+/// separators forward, a drive letter behind a slash, and what a URI
+/// reads as syntax escaped.
+std::string fileUri(const std::string& path)
+{
+    std::string uri = "file:";
+    std::string p = path;
+#ifdef FC_OS_WIN32
+    std::replace(p.begin(), p.end(), '\\', '/');
+    if (p.size() > 1 && p[1] == ':')
+        p = "/" + p;
+#endif
+    for (unsigned char c : p) {
+        if (c == '?' || c == '#' || c == '%' || c < 0x20) {
+            char hex[4];
+            std::snprintf(hex, sizeof(hex), "%%%02X", c);
+            uri += hex;
+        }
+        else {
+            uri += static_cast<char>(c);
+        }
+    }
+    return uri;
+}
+
 /** The SQLite log (docs/TransactionLog.md sec 13). One database per
  * document history; every append is one SQL transaction, so atomicity
  * and crash recovery are the database's, not ours.
@@ -206,16 +244,25 @@ const char* const Indexes[] = {
 class SQLiteStore : public TransactionStore
 {
 public:
-    explicit SQLiteStore(const std::string& path)
+    explicit SQLiteStore(const std::string& path, bool readOnly = false)
     {
-        if (sqlite3_open_v2(path.c_str(), &db,
-                            SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, nullptr) != SQLITE_OK) {
+        // Read as it is: immutable says no lock and no -shm, so a blob
+        // nothing writes is read without a file made beside it. The main
+        // file is whole -- a copy is closed before it is one, and a close
+        // folds the WAL in.
+        const int flags = readOnly ? SQLITE_OPEN_READONLY | SQLITE_OPEN_URI
+                                   : SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE;
+        const std::string name = readOnly ? fileUri(path) + "?immutable=1" : path;
+        if (sqlite3_open_v2(name.c_str(), &db, flags, nullptr) != SQLITE_OK) {
             std::string msg = db ? sqlite3_errmsg(db) : "cannot allocate";
             if (db)
                 sqlite3_close(db);
             db = nullptr;
             THROWM(Base::RuntimeError, "Cannot open transaction log " + path + ": " + msg);
         }
+        // A second connection to the file (sec 29.1) waits for a lock
+        // instead of failing at once with SQLITE_BUSY (37.7 item 7).
+        sqlite3_busy_timeout(db, 5000);
         try {
             setUp();
         }
@@ -262,6 +309,15 @@ public:
         else {
             exec("PRAGMA journal_mode=WAL");
             exec("PRAGMA synchronous=NORMAL");
+            // The WAL is reused from its start after a checkpoint but not
+            // shortened: it sat at its high-water mark (4 MB beside every
+            // open document, measured sec 37.4). Truncated to this past a
+            // checkpoint.
+            exec("PRAGMA journal_size_limit=1048576");
+            // And checkpointed at the same 1 MB (256 pages), not SQLite's
+            // 1000: the WAL climbed to 4 MB between checkpoints. Costs
+            // more checkpoint writes into the database (sec 37.8, P10).
+            exec("PRAGMA wal_autocheckpoint=256");
         }
         for (const auto& t : Tables)
             exec(std::string("CREATE TABLE IF NOT EXISTS main.") + t.name + t.columns);
@@ -302,6 +358,11 @@ public:
                          " name=CASE WHEN session.user='' THEN 'host' ELSE session.user END)"
                          " WHERE typeof(user)='text'");
                 }
+                // 2 (2026-10-21, sec 36): the table `objuid`, made above;
+                // the objects before it have none -- the documents derive
+                // theirs from the file (U3).
+                if (from < 3)
+                    packOps();
                 exec(("PRAGMA user_version=" + std::to_string(StoreVersion)).c_str());
                 exec("COMMIT");
             }
@@ -315,6 +376,45 @@ public:
             throw;
         }
         exec("DETACH DATABASE layout");
+    }
+
+    /** Layout 3 (sec 37.4 P2): the op table made again, its names as ids of
+     * `name` and its hashes packed -- a column's type cannot be changed in
+     * place. The indexes on it go with it and are made after the steps.
+     */
+    void packOps()
+    {
+        // A name as its id; an id (an empty table made in this layout) kept.
+#define FC_NAME_ID(c)                                                                  \
+    "CASE WHEN typeof(op." c ")='text' THEN COALESCE((SELECT id FROM name WHERE"       \
+    " text=op." c "),0) ELSE COALESCE(op." c ",0) END"
+        // SQLite has unhex() from 3.41 only; the floor is 3.38.
+        auto pack = [](sqlite3_context* ctx, int, sqlite3_value** argv) {
+            const auto* t = reinterpret_cast<const char*>(sqlite3_value_text(argv[0]));
+            const int n = sqlite3_value_bytes(argv[0]);
+            unsigned char packed[20];
+            if (sqlite3_value_type(argv[0]) == SQLITE_TEXT && t
+                    && packHash(t, static_cast<size_t>(n), packed))
+                sqlite3_result_blob(ctx, packed, 20, SQLITE_TRANSIENT);
+            else
+                sqlite3_result_value(ctx, argv[0]);
+        };
+        if (sqlite3_create_function(db, "fc_packhash", 1, SQLITE_UTF8 | SQLITE_DETERMINISTIC,
+                                    nullptr, pack, nullptr, nullptr) != SQLITE_OK)
+            THROWM(Base::RuntimeError, std::string("Transaction log: ") + sqlite3_errmsg(db));
+        exec("INSERT OR IGNORE INTO name(text)"
+             " SELECT ctype FROM op WHERE typeof(ctype)='text' AND ctype<>''"
+             " UNION SELECT prop FROM op WHERE typeof(prop)='text' AND prop<>''"
+             " UNION SELECT ptype FROM op WHERE typeof(ptype)='text' AND ptype<>''");
+        exec("CREATE TABLE main.op_packed" FC_OP_COLUMNS);
+        exec("INSERT INTO op_packed SELECT txn,idx,op,ckind,cid,cname,"
+             " " FC_NAME_ID("ctype") "," FC_NAME_ID("prop") "," FC_NAME_ID("ptype") ","
+             " meta,fc_packhash(vbefore),fc_packhash(vafter),derived,touched FROM op");
+        exec("DROP TABLE op");
+        exec("ALTER TABLE op_packed RENAME TO op");
+        sqlite3_create_function(db, "fc_packhash", 1, SQLITE_UTF8, nullptr, nullptr, nullptr,
+                                nullptr);
+#undef FC_NAME_ID
     }
 
     /// The columns of `table` the current layout has and the store not.
@@ -521,7 +621,7 @@ public:
             bindText(ins, 5, txn.origin);
             bindText(ins, 6, txn.name);
             sqlite3_bind_double(ins, 7, txn.time);
-            bindText(ins, 8, txn.script);
+            bindScript(ins, 8, txn.script);
             sqlite3_bind_int64(ins, 9, txn.session);
             sqlite3_bind_int64(ins, 10, txn.inverts);
             sqlite3_bind_int64(ins, 11, txn.branch);
@@ -547,12 +647,12 @@ public:
                 bindText(op, 4, o.ckind);
                 sqlite3_bind_int64(op, 5, o.cid);
                 bindText(op, 6, o.cname);
-                bindText(op, 7, o.ctype);
-                bindText(op, 8, o.prop);
-                bindText(op, 9, o.ptype);
+                bindName(op, 7, o.ctype);
+                bindName(op, 8, o.prop);
+                bindName(op, 9, o.ptype);
                 bindText(op, 10, o.meta);
-                bindText(op, 11, o.vbefore);
-                bindText(op, 12, o.vafter);
+                bindHash(op, 11, o.vbefore);
+                bindHash(op, 12, o.vafter);
                 sqlite3_bind_int(op, 13, opWriter(o));
                 if (o.touched < 0)
                     sqlite3_bind_null(op, 14);
@@ -563,7 +663,7 @@ public:
             exec("COMMIT");
         }
         catch (...) {
-            exec("ROLLBACK");
+            rollback();
             throw;
         }
         return txn.seq;
@@ -572,7 +672,7 @@ public:
     void resolveAfter(int64_t txn, int idx, const std::string& hash) override
     {
         auto s = prepare("UPDATE op SET vafter=? WHERE txn=? AND idx=?");
-        bindText(s, 1, hash);
+        bindHash(s, 1, hash);
         sqlite3_bind_int64(s, 2, txn);
         sqlite3_bind_int(s, 3, idx);
         step(s);
@@ -614,7 +714,7 @@ public:
             exec("COMMIT");
         }
         catch (...) {
-            exec("ROLLBACK");
+            rollback();
             throw;
         }
     }
@@ -652,6 +752,20 @@ public:
     {
         exec("BEGIN");
         try {
+            reencodeRow(hash, enc, base, data);
+            exec("COMMIT");
+        }
+        catch (...) {
+            rollback();
+            throw;
+        }
+    }
+
+    /// reencodeEntity() inside the caller's transaction.
+    void reencodeRow(const std::string& hash, const std::string& enc,
+                     const std::string& base, const std::string& data)
+    {
+        {
             // Delete and insert, not update (sec 27.54, F6): a row shrunk
             // in place leaves its leaf page mostly empty, and SQLite merges
             // a leaf only under a third full; the new row goes with the
@@ -660,7 +774,6 @@ public:
             bindHash(s, 1, hash);
             if (sqlite3_step(s) != SQLITE_ROW) {
                 sqlite3_reset(s);
-                exec("COMMIT");
                 return;
             }
             const std::string kind = text(s, 0);
@@ -685,12 +798,26 @@ public:
             step(s);
             if (enc == "delta" && !base.empty())
                 insertRef(hash, LogRef {base, "base", ""}, 1 << 30);
-            exec("COMMIT");
         }
-        catch (...) {
-            exec("ROLLBACK");
-            throw;
+    }
+
+    /// `bytes` as a full entity's row holds them: zstd at level 3 past 128
+    /// bytes where that is smaller, else raw.
+    static void encodeFull(const std::string& bytes, std::string& enc, std::string& data)
+    {
+        enc = "raw";
+        data = bytes;
+#ifdef FC_HAVE_ZSTD
+        if (bytes.size() > 128) {
+            std::string packed(ZSTD_compressBound(bytes.size()), '\0');
+            size_t n = ZSTD_compress(packed.data(), packed.size(), bytes.data(), bytes.size(), 3);
+            if (!ZSTD_isError(n) && n < bytes.size()) {
+                packed.resize(n);
+                data = std::move(packed);
+                enc = "zstd";
+            }
         }
+#endif
     }
 
     void addRef(const std::string& entity, const LogRef& r) override
@@ -726,7 +853,7 @@ public:
         return out;
     }
 
-    static LogTransaction readTransaction(sqlite3_stmt* s)
+    LogTransaction readTransaction(sqlite3_stmt* s)
     {
         LogTransaction t;
         t.seq = sqlite3_column_int64(s, 0);
@@ -736,7 +863,7 @@ public:
         t.origin = text(s, 4);
         t.name = text(s, 5);
         t.time = sqlite3_column_double(s, 6);
-        t.script = text(s, 7);
+        t.script = columnScript(s, 7);
         t.session = sqlite3_column_int64(s, 8);
         t.inverts = sqlite3_column_int64(s, 9);
         t.branch = sqlite3_column_int64(s, 10);
@@ -800,6 +927,17 @@ public:
         return out;
     }
 
+    std::vector<int64_t> rowsWithOps(int64_t from) override
+    {
+        auto s = prepare("SELECT DISTINCT txn FROM op WHERE txn>=? ORDER BY txn");
+        sqlite3_bind_int64(s, 1, from);
+        std::vector<int64_t> out;
+        while (sqlite3_step(s) == SQLITE_ROW)
+            out.push_back(sqlite3_column_int64(s, 0));
+        sqlite3_reset(s);
+        return out;
+    }
+
     std::vector<LogOp> ops(int64_t txn) override
     {
         auto s = prepare("SELECT idx,op,ckind,cid,cname,ctype,prop,ptype,meta,vbefore,vafter,"
@@ -814,12 +952,12 @@ public:
             o.ckind = text(s, 2);
             o.cid = static_cast<long>(sqlite3_column_int64(s, 3));
             o.cname = text(s, 4);
-            o.ctype = text(s, 5);
-            o.prop = text(s, 6);
-            o.ptype = text(s, 7);
+            o.ctype = columnName(s, 5);
+            o.prop = columnName(s, 6);
+            o.ptype = columnName(s, 7);
             o.meta = text(s, 8);
-            o.vbefore = text(s, 9);
-            o.vafter = text(s, 10);
+            o.vbefore = columnHash(s, 9);
+            o.vafter = columnHash(s, 10);
             o.derived = sqlite3_column_int(s, 11) == OpDerived;
             o.followed = sqlite3_column_int(s, 11) == OpFollowed;
             o.touched = sqlite3_column_type(s, 12) == SQLITE_NULL ? -1 : sqlite3_column_int(s, 12);
@@ -832,6 +970,9 @@ public:
     bool lastOpOn(const std::string& ckind, long cid, const std::string& prop, int64_t after,
                   int64_t head, LogOp& o) override
     {
+        int64_t propId = 0;
+        if (!findName(prop, propId))
+            return false;   // no op names it
         sqlite3_stmt* s = nullptr;
         if (head > 0) {
             s = prepare(FC_TXN_CHAIN
@@ -846,7 +987,7 @@ public:
             sqlite3_bind_int64(s, 2, after + 1);
         }
         sqlite3_bind_int64(s, 3, cid);
-        bindText(s, 4, prop);
+        sqlite3_bind_int64(s, 4, propId);
         bindText(s, 5, ckind);
         if (sqlite3_step(s) != SQLITE_ROW) {
             sqlite3_reset(s);
@@ -874,12 +1015,12 @@ public:
         o.ckind = text(s, 1);
         o.cid = static_cast<long>(sqlite3_column_int64(s, 2));
         o.cname = text(s, 3);
-        o.ctype = text(s, 4);
-        o.prop = text(s, 5);
-        o.ptype = text(s, 6);
+        o.ctype = columnName(s, 4);
+        o.prop = columnName(s, 5);
+        o.ptype = columnName(s, 6);
         o.meta = text(s, 7);
-        o.vbefore = text(s, 8);
-        o.vafter = text(s, 9);
+        o.vbefore = columnHash(s, 8);
+        o.vafter = columnHash(s, 9);
         o.derived = sqlite3_column_int(s, 10) == OpDerived;
         o.followed = sqlite3_column_int(s, 10) == OpFollowed;
         o.touched = sqlite3_column_type(s, 11) == SQLITE_NULL ? -1 : sqlite3_column_int(s, 11);
@@ -921,17 +1062,43 @@ public:
         return out;
     }
 
+    std::vector<std::pair<long, std::string>> objectUids() override
+    {
+        std::vector<std::pair<long, std::string>> out;
+        auto read = [&](sqlite3_stmt* s) {
+            while (sqlite3_step(s) == SQLITE_ROW)
+                out.emplace_back(static_cast<long>(sqlite3_column_int64(s, 0)), text(s, 1));
+            sqlite3_reset(s);
+        };
+        read(prepare("SELECT cid, uid FROM objuid"));
+        read(prepare("SELECT cid, json_extract(meta, '$.uid') FROM op WHERE op IN ('create','remove')"
+                     " AND ckind='obj' AND json_valid(meta) AND json_extract(meta, '$.uid')<>''"
+                     " ORDER BY txn DESC, idx DESC"));
+        return out;
+    }
+
+    void addObjectUids(const std::vector<std::pair<long, std::string>>& uids) override
+    {
+        batch([&]() {
+            auto s = prepare("INSERT OR IGNORE INTO objuid(cid, uid) VALUES(?, ?)");
+            for (const auto& u : uids) {
+                sqlite3_bind_int64(s, 1, u.first);
+                bindText(s, 2, u.second);
+                step(s);
+            }
+        });
+    }
+
     void addObjectNames(const std::vector<std::pair<long, std::string>>& names) override
     {
-        exec("BEGIN");
-        auto s = prepare("INSERT OR IGNORE INTO objname(cid, name) VALUES(?, ?)");
-        for (const auto& n : names) {
-            sqlite3_bind_int64(s, 1, n.first);
-            bindText(s, 2, n.second);
-            sqlite3_step(s);
-            sqlite3_reset(s);
-        }
-        exec("COMMIT");
+        batch([&]() {
+            auto s = prepare("INSERT OR IGNORE INTO objname(cid, name) VALUES(?, ?)");
+            for (const auto& n : names) {
+                sqlite3_bind_int64(s, 1, n.first);
+                bindText(s, 2, n.second);
+                step(s);
+            }
+        });
     }
 
     std::vector<std::pair<long, long>> lastGeoIds() override
@@ -947,16 +1114,15 @@ public:
 
     void addLastGeoIds(const std::vector<std::pair<long, long>>& ids) override
     {
-        exec("BEGIN");
-        auto s = prepare("INSERT INTO lastgeoid(cid, id) VALUES(?, ?)"
-                         " ON CONFLICT(cid) DO UPDATE SET id=MAX(id, excluded.id)");
-        for (const auto& n : ids) {
-            sqlite3_bind_int64(s, 1, n.first);
-            sqlite3_bind_int64(s, 2, n.second);
-            sqlite3_step(s);
-            sqlite3_reset(s);
-        }
-        exec("COMMIT");
+        batch([&]() {
+            auto s = prepare("INSERT INTO lastgeoid(cid, id) VALUES(?, ?)"
+                             " ON CONFLICT(cid) DO UPDATE SET id=MAX(id, excluded.id)");
+            for (const auto& n : ids) {
+                sqlite3_bind_int64(s, 1, n.first);
+                sqlite3_bind_int64(s, 2, n.second);
+                step(s);
+            }
+        });
     }
 
     std::vector<long> objectIdsInOps() override
@@ -1133,17 +1299,20 @@ public:
     std::vector<std::pair<int64_t, std::string>> valuesOf(long cid,
                                                           const std::string& prop) override
     {
+        std::vector<std::pair<int64_t, std::string>> out;
+        int64_t propId = 0;
+        if (!findName(prop, propId))
+            return out;
         auto s = prepare("SELECT txn,vafter FROM op WHERE cid=? AND prop=? AND ckind='obj'"
                          " AND op='set' ORDER BY txn, idx");
         sqlite3_bind_int64(s, 1, cid);
-        bindText(s, 2, prop);
-        std::vector<std::pair<int64_t, std::string>> out;
+        sqlite3_bind_int64(s, 2, propId);
         while (sqlite3_step(s) == SQLITE_ROW) {
             const int64_t txn = sqlite3_column_int64(s, 0);
             if (!out.empty() && out.back().first == txn)
-                out.back().second = text(s, 1);
+                out.back().second = columnHash(s, 1);
             else
-                out.emplace_back(txn, text(s, 1));
+                out.emplace_back(txn, columnHash(s, 1));
         }
         sqlite3_reset(s);
         return out;
@@ -1152,50 +1321,51 @@ public:
     std::vector<std::string> derivedPropsOf(long cid) override
     {
         auto s = prepare("SELECT DISTINCT prop FROM op WHERE cid=? AND ckind='obj' AND op='set'"
-                         " AND derived=? ORDER BY prop");
+                         " AND derived=?");
         sqlite3_bind_int64(s, 1, cid);
         sqlite3_bind_int(s, 2, OpDerived);
         std::vector<std::string> out;
         while (sqlite3_step(s) == SQLITE_ROW)
-            out.push_back(text(s, 0));
+            out.push_back(columnName(s, 0));
         sqlite3_reset(s);
+        // By name, as before the names were ids.
+        std::sort(out.begin(), out.end());
         return out;
     }
 
     void removeObjectState(const std::vector<long>& ids) override
     {
-        exec("BEGIN");
-        auto names = prepare("DELETE FROM objname WHERE cid=?");
-        auto geo = prepare("DELETE FROM lastgeoid WHERE cid=?");
-        for (long id : ids) {
-            for (auto s : {names, geo}) {
-                sqlite3_bind_int64(s, 1, id);
-                sqlite3_step(s);
-                sqlite3_reset(s);
+        batch([&]() {
+            auto names = prepare("DELETE FROM objname WHERE cid=?");
+            auto geo = prepare("DELETE FROM lastgeoid WHERE cid=?");
+            auto uids = prepare("DELETE FROM objuid WHERE cid=?");
+            for (long id : ids) {
+                for (auto s : {names, geo, uids}) {
+                    sqlite3_bind_int64(s, 1, id);
+                    step(s);
+                }
             }
-        }
-        exec("COMMIT");
+        });
     }
 
     void addStrings(const std::vector<LogString>& strings) override
     {
         if (strings.empty())
             return;
-        exec("BEGIN");
-        auto s = prepare("INSERT OR IGNORE INTO strtable(id, flags, sids, data, postfix)"
-                         " VALUES(?, ?, ?, ?, ?)");
-        for (const auto& str : strings) {
-            sqlite3_bind_int64(s, 1, str.id);
-            sqlite3_bind_int(s, 2, str.flags);
-            bindText(s, 3, str.sids);
-            sqlite3_bind_blob(s, 4, str.data.data(), static_cast<int>(str.data.size()),
-                              SQLITE_TRANSIENT);
-            sqlite3_bind_blob(s, 5, str.postfix.data(), static_cast<int>(str.postfix.size()),
-                              SQLITE_TRANSIENT);
-            sqlite3_step(s);
-            sqlite3_reset(s);
-        }
-        exec("COMMIT");
+        batch([&]() {
+            auto s = prepare("INSERT OR IGNORE INTO strtable(id, flags, sids, data, postfix)"
+                             " VALUES(?, ?, ?, ?, ?)");
+            for (const auto& str : strings) {
+                sqlite3_bind_int64(s, 1, str.id);
+                sqlite3_bind_int(s, 2, str.flags);
+                bindText(s, 3, str.sids);
+                sqlite3_bind_blob(s, 4, str.data.data(), static_cast<int>(str.data.size()),
+                                  SQLITE_TRANSIENT);
+                sqlite3_bind_blob(s, 5, str.postfix.data(),
+                                  static_cast<int>(str.postfix.size()), SQLITE_TRANSIENT);
+                step(s);
+            }
+        });
     }
 
     std::vector<LogString> strings(const std::vector<long>& ids) override
@@ -1247,19 +1417,26 @@ public:
     {
         if (ids.empty())
             return;
-        exec("BEGIN");
-        auto s = prepare("DELETE FROM strtable WHERE id=?");
-        for (long id : ids) {
-            sqlite3_bind_int64(s, 1, id);
-            sqlite3_step(s);
-            sqlite3_reset(s);
-        }
-        exec("COMMIT");
+        batch([&]() {
+            auto s = prepare("DELETE FROM strtable WHERE id=?");
+            for (long id : ids) {
+                sqlite3_bind_int64(s, 1, id);
+                step(s);
+            }
+        });
     }
 
     void clearStrings() override
     {
         exec("DELETE FROM strtable");
+    }
+
+    void dropIndexes() override
+    {
+        for (const char* index : Indexes) {
+            const std::string def = index;
+            exec("DROP INDEX IF EXISTS " + def.substr(0, def.find(" ON ")));
+        }
     }
 
     void addStringRefs(const std::string& owner,
@@ -1272,8 +1449,7 @@ public:
         auto s = prepare("INSERT OR IGNORE INTO strref(owner, ranges) VALUES(?, ?)");
         bindHash(s, 1, owner);
         sqlite3_bind_blob(s, 2, packed.data(), static_cast<int>(packed.size()), SQLITE_TRANSIENT);
-        sqlite3_step(s);
-        sqlite3_reset(s);
+        step(s);
     }
 
     /// Ranges as unsigned LEB128 pairs: the gap from the previous range's
@@ -1354,7 +1530,7 @@ public:
             exec("COMMIT");
         }
         catch (...) {
-            exec("ROLLBACK");
+            rollback();
             throw;
         }
     }
@@ -1375,13 +1551,13 @@ public:
             exec("COMMIT");
         }
         catch (...) {
-            exec("ROLLBACK");
+            rollback();
             throw;
         }
     }
 
     void replaceTransactions(const LogTransaction& txn, std::vector<LogOp>& ops,
-                             const std::vector<int64_t>& seqs) override
+                             const std::vector<int64_t>& seqs, bool collect) override
     {
         exec("BEGIN");
         try {
@@ -1405,7 +1581,7 @@ public:
             bindText(s, 4, txn.origin);
             bindText(s, 5, txn.name);
             sqlite3_bind_double(s, 6, txn.time);
-            bindText(s, 7, txn.script);
+            bindScript(s, 7, txn.script);
             sqlite3_bind_int64(s, 8, txn.session);
             sqlite3_bind_int64(s, 9, txn.inverts);
             sqlite3_bind_int64(s, 10, txn.branch);
@@ -1426,12 +1602,12 @@ public:
                 bindText(op, 4, o.ckind);
                 sqlite3_bind_int64(op, 5, o.cid);
                 bindText(op, 6, o.cname);
-                bindText(op, 7, o.ctype);
-                bindText(op, 8, o.prop);
-                bindText(op, 9, o.ptype);
+                bindName(op, 7, o.ctype);
+                bindName(op, 8, o.prop);
+                bindName(op, 9, o.ptype);
                 bindText(op, 10, o.meta);
-                bindText(op, 11, o.vbefore);
-                bindText(op, 12, o.vafter);
+                bindHash(op, 11, o.vbefore);
+                bindHash(op, 12, o.vafter);
                 sqlite3_bind_int(op, 13, opWriter(o));
                 if (o.touched < 0)
                     sqlite3_bind_null(op, 14);
@@ -1439,11 +1615,12 @@ public:
                     sqlite3_bind_int(op, 14, o.touched);
                 step(op);
             }
-            collectEntities();
+            if (collect)
+                collectEntities();
             exec("COMMIT");
         }
         catch (...) {
-            exec("ROLLBACK");
+            rollback();
             throw;
         }
     }
@@ -1885,12 +2062,9 @@ public:
             roots.insert(roots.end(), manifests.begin(), manifests.end());
             std::vector<char> listed, all;
             if (walk(g, manifests, nullptr, listed) && walk(g, roots, nullptr, all)) {
-                std::vector<char> based(g.keys.size(), 0);
-                for (size_t n = 0; n < all.size(); ++n) {
-                    if (all[n] && g.base[n] != HeldGraph::none)
-                        based[g.base[n]] = 1;
-                }
-                std::vector<char> gone(g.keys.size(), 0);
+                const size_t count = g.keys.size();
+                auto reached = [&](uint32_t n) { return n < all.size() && all[n]; };
+                std::vector<char> inTier(count, 0);
                 auto s = prepare("SELECT hash FROM entity WHERE tier=?");
                 bindText(s, 1, tier);
                 while (sqlite3_step(s) == SQLITE_ROW) {
@@ -1898,13 +2072,41 @@ public:
                     if (!columnKey(s, 0, key))
                         continue;
                     auto it = g.ids.find(key);
-                    if (it == g.ids.end())
-                        continue;   // reached by nothing: the sweep takes it
-                    const uint32_t n = it->second;
-                    if (all[n] && !listed[n] && !based[n])
-                        gone[n] = 1;
+                    if (it != g.ids.end())
+                        inTier[it->second] = 1;
+                    // else reached by nothing: the sweep takes it
                 }
                 sqlite3_reset(s);
+                // What is kept: every reached entity of another tier, and
+                // of this one what a manifest lists -- and then, to a
+                // fixpoint, the base of every kept delta. Not the base of
+                // every REACHED delta: a value is stored as a delta on the
+                // one after it (23.2), so that kept every entity of a chain
+                // but its oldest, and a save took one shape of a run of
+                // recomputes at a time (sec 37.4).
+                std::vector<char> keep(count, 0);
+                std::vector<uint32_t> work;
+                for (uint32_t n = 0; n < count; ++n) {
+                    const bool isListed = n < listed.size() && listed[n];
+                    if (reached(n) && (!inTier[n] || isListed)) {
+                        keep[n] = 1;
+                        work.push_back(n);
+                    }
+                }
+                while (!work.empty()) {
+                    const uint32_t n = work.back();
+                    work.pop_back();
+                    const uint32_t b = g.base[n];
+                    if (b != HeldGraph::none && b < count && !keep[b]) {
+                        keep[b] = 1;
+                        work.push_back(b);
+                    }
+                }
+                std::vector<char> gone(count, 0);
+                for (uint32_t n = 0; n < count; ++n) {
+                    if (reached(n) && inTier[n] && !keep[n])
+                        gone[n] = 1;
+                }
                 std::vector<char> kept;
                 if (walk(g, roots, &gone, kept))
                     sweep(g, kept);
@@ -1912,9 +2114,294 @@ public:
             exec("COMMIT");
         }
         catch (...) {
-            exec("ROLLBACK");
+            rollback();
             throw;
         }
+    }
+
+    /// The seconds each object's recomputes took, on average, by id: the
+    /// cost to regenerate one of its values (sec 10.1, 27.52), read off the
+    /// recompute records `{"seconds":S,"objects":[{"id":N,"s":x,...}]}`.
+    std::unordered_map<long, double> recomputeSeconds()
+    {
+        std::unordered_map<long, std::pair<double, int>> sum;
+        auto s = prepare("SELECT script FROM txn WHERE kind='recompute'");
+        static const char key[] = "{\"id\":";
+        while (sqlite3_step(s) == SQLITE_ROW) {
+            const std::string j = columnScript(s, 0);
+            for (size_t pos = j.find(key); pos != std::string::npos; pos = j.find(key, pos)) {
+                pos += sizeof(key) - 1;
+                char* end = nullptr;
+                const long id = std::strtol(j.c_str() + pos, &end, 10);
+                // The seconds come right after the id; an object that failed
+                // has none
+                if (std::strncmp(end, ",\"s\":", 5) != 0)
+                    continue;
+                auto& v = sum[id];
+                v.first += std::strtod(end + 5, nullptr);
+                ++v.second;
+            }
+        }
+        sqlite3_reset(s);
+        std::unordered_map<long, double> out;
+        for (const auto& kv : sum)
+            out[kv.first] = kv.second.first / kv.second.second;
+        return out;
+    }
+
+    LogTierEviction evictTier(const std::string& tier, uint64_t maxBytes,
+                              uint64_t maxValues) override
+    {
+        LogTierEviction out;
+        exec("BEGIN");
+        try {
+            HeldGraph g;
+            loadGraph(g);
+            // What stays whatever the budget: what a manifest lists, what is
+            // kept, the files held; and the ops' values of other tiers.
+            std::vector<uint32_t> fixed;
+            addRoots(g, manifestRoots, fixed);
+            addRoots(g, keptValueRoots, fixed);
+            addRoots(g, keptObjectRoots, fixed);
+            addRoots(g, fileRoots, fixed);
+            std::unordered_set<uint32_t> tierSet;
+            {
+                auto s = prepare("SELECT hash FROM entity WHERE tier=?");
+                bindText(s, 1, tier);
+                while (sqlite3_step(s) == SQLITE_ROW) {
+                    HeldKey key;
+                    if (columnKey(s, 0, key))
+                        tierSet.insert(g.id(std::move(key)));
+                }
+                sqlite3_reset(s);
+            }
+            // The values the rows name: each with the newest row naming it,
+            // the after of a row counting past its before, and the property
+            // it was last a value of.
+            struct Value
+            {
+                int64_t newest {-1};
+                std::string chain;
+                bool protect {false};
+                long cid {0};
+            };
+            std::unordered_map<uint32_t, Value> values;
+            // Per branch and property, the value of its newest row: the
+            // state a switch to that branch shows, which stays.
+            std::map<std::pair<int64_t, std::string>, std::pair<int64_t, uint32_t>> newestOn;
+            {
+                auto s = prepare("SELECT o.txn, t.branch, o.ckind, o.cid, o.prop, o.vbefore,"
+                                 " o.vafter FROM op o JOIN txn t ON t.seq=o.txn");
+                while (sqlite3_step(s) == SQLITE_ROW) {
+                    const int64_t seq = sqlite3_column_int64(s, 0);
+                    const int64_t branch = sqlite3_column_int64(s, 1);
+                    const long cid = static_cast<long>(sqlite3_column_int64(s, 3));
+                    std::string chain = text(s, 2);
+                    chain += ' ';
+                    chain += std::to_string(cid);
+                    chain += ' ';
+                    chain += text(s, 4);
+                    for (int col : {5, 6}) {
+                        HeldKey key;
+                        if (sqlite3_column_bytes(s, col) == 0 || !columnKey(s, col, key))
+                            continue;   // none, or one still pending
+                        const uint32_t n = g.id(std::move(key));
+                        if (!tierSet.count(n)) {
+                            fixed.push_back(n);
+                            continue;
+                        }
+                        const int64_t at = seq * 2 + (col == 6 ? 1 : 0);
+                        auto& v = values[n];
+                        if (at > v.newest) {
+                            v.newest = at;
+                            v.chain = chain;
+                            v.cid = cid;
+                        }
+                        auto& top = newestOn[{branch, chain}];
+                        if (at >= top.first)
+                            top = {at, n};
+                    }
+                }
+                sqlite3_reset(s);
+            }
+            for (const auto& kv : newestOn)
+                values[kv.second.second].protect = true;
+
+            std::vector<uint32_t> roots = fixed;
+            for (const auto& kv : values)
+                roots.push_back(kv.first);
+            // What stays does not hold the tier's entities it is a delta
+            // on: those can go, the delta then written full (below).
+            std::vector<std::pair<uint32_t, uint32_t>> cut;
+            for (uint32_t n = 0; n < g.base.size(); ++n) {
+                const uint32_t b = g.base[n];
+                if (b == HeldGraph::none || !tierSet.count(b))
+                    continue;
+                auto& e = g.edges[n];
+                e.erase(std::remove(e.begin(), e.end(), b), e.end());
+                cut.emplace_back(n, b);
+            }
+            std::vector<char> stays, held;
+            const bool read = walk(g, fixed, nullptr, stays);
+            for (const auto& nb : cut)
+                g.edges[nb.first].push_back(nb.second);
+            if (!read || !walk(g, roots, nullptr, held)) {
+                exec("COMMIT");
+                return out;
+            }
+            stays.resize(g.keys.size(), 0);
+            // The bytes each entity takes where it lies: a file's in the
+            // blob store, the rest in its row.
+            std::vector<uint64_t> stored(g.keys.size(), 0);
+            {
+                auto s = prepare("SELECT hash, enc, size, length(data) FROM entity");
+                while (sqlite3_step(s) == SQLITE_ROW) {
+                    HeldKey key;
+                    if (!columnKey(s, 0, key))
+                        continue;
+                    auto it = g.ids.find(key);
+                    if (it == g.ids.end() || it->second >= stored.size())
+                        continue;
+                    stored[it->second] = static_cast<uint64_t>(
+                        text(s, 1) == "file" ? sqlite3_column_int64(s, 2)
+                                             : sqlite3_column_int64(s, 3));
+                }
+                sqlite3_reset(s);
+            }
+            auto onlyTheirs = [&](const std::vector<char>& reached) {
+                uint64_t bytes = 0;
+                for (size_t n = 0; n < reached.size() && n < stored.size(); ++n) {
+                    if (reached[n] && !stays[n])
+                        bytes += stored[n];
+                }
+                return bytes;
+            };
+            // A value a manifest lists or a kept one reaches is not the
+            // tier's to give up, and not counted in it.
+            for (auto it = values.begin(); it != values.end();) {
+                if (stays[it->first])
+                    it = values.erase(it);
+                else
+                    ++it;
+            }
+            out.values = values.size();
+            out.bytes = onlyTheirs(held);
+            out.left = out.bytes;
+            const bool overBytes = maxBytes && out.bytes > maxBytes;
+            const bool overValues = maxValues && out.values > maxValues;
+            if (!overBytes && !overValues) {
+                exec("COMMIT");
+                return out;
+            }
+            const uint64_t toBytes = maxBytes ? maxBytes - maxBytes / 4 : UINT64_MAX;
+            const uint64_t toValues = maxValues ? maxValues - maxValues / 4 : UINT64_MAX;
+
+            // Each property's values oldest first; the age of one is how
+            // many came after it.
+            std::map<std::string, std::vector<uint32_t>> chains;
+            for (const auto& kv : values)
+                chains[kv.second.chain].push_back(kv.first);
+            const auto cost = recomputeSeconds();
+            struct Candidate
+            {
+                double score;
+                std::string chain;
+                size_t at;
+                bool operator<(const Candidate& o) const { return score < o.score; }
+            };
+            auto bytesOf = [&](uint32_t n) {
+                // Its row and what it names directly but its base: the
+                // fragment, the attachments, the files.
+                uint64_t b = stored[n];
+                for (uint32_t t : g.edges[n]) {
+                    if (t != g.base[n] && t < held.size() && held[t] && !stays[t])
+                        b += stored[t];
+                }
+                return b;
+            };
+            std::priority_queue<Candidate> queue;
+            auto offer = [&](const std::string& chain, size_t at) {
+                const auto& list = chains[chain];
+                if (at >= list.size())
+                    return;
+                const Value& v = values[list[at]];
+                if (v.protect)
+                    return;
+                auto c = cost.find(v.cid);
+                const double secs = std::max(c == cost.end() ? 0.0 : c->second, 1e-3);
+                const double age = static_cast<double>(list.size() - at);
+                queue.push({age * static_cast<double>(bytesOf(list[at])) / secs, chain, at});
+            };
+            for (auto& kv : chains) {
+                std::sort(kv.second.begin(), kv.second.end(), [&](uint32_t a, uint32_t b) {
+                    return values[a].newest < values[b].newest;
+                });
+                offer(kv.first, 0);
+            }
+            std::vector<char> gone(g.keys.size(), 0);
+            uint64_t bytes = out.bytes;
+            uint64_t count = out.values;
+            while (!queue.empty() && (bytes > toBytes || count > toValues)) {
+                Candidate c = queue.top();
+                queue.pop();
+                const uint32_t n = chains[c.chain][c.at];
+                gone[n] = 1;
+                const uint64_t b = bytesOf(n);
+                bytes = bytes > b ? bytes - b : 0;
+                --count;
+                offer(c.chain, c.at + 1);
+            }
+            // A delta kept on a base that goes stands on its own: it is
+            // written full. Each value is a delta on the one after it, so
+            // without that the oldest value kept -- the shape a create
+            // wrote, which is durable -- held every one after it through
+            // their bases. One that cannot be read full brings its base
+            // back instead, to a fixpoint.
+            std::vector<char> kept;
+            for (;;) {
+                if (!walk(g, roots, &gone, kept)) {
+                    exec("COMMIT");
+                    return out;
+                }
+                bool back = false;
+                for (size_t n = 0; n < kept.size(); ++n) {
+                    const uint32_t b = n < g.base.size() ? g.base[n] : HeldGraph::none;
+                    if (!kept[n] || b == HeldGraph::none || b >= gone.size() || !gone[b])
+                        continue;
+                    std::string bytes, enc, data;
+                    Decoded decoded;
+                    if (readStored(keyHash(g.keys[n]), bytes, decoded)) {
+                        encodeFull(bytes, enc, data);
+                        reencodeRow(keyHash(g.keys[n]), enc, {}, data);
+                        auto& e = g.edges[n];
+                        e.erase(std::remove(e.begin(), e.end(), b), e.end());
+                        g.base[n] = HeldGraph::none;
+                        if (n < stored.size())
+                            stored[n] = data.size();
+                    }
+                    else {
+                        gone[b] = 0;
+                        back = true;
+                    }
+                }
+                if (!back)
+                    break;
+            }
+            for (const auto& kv : values) {
+                if (kv.first < gone.size() && gone[kv.first])
+                    ++out.evicted;
+            }
+            stored.resize(g.keys.size(), 0);
+            out.left = onlyTheirs(kept);
+            if (out.evicted)
+                sweep(g, kept);
+            exec("COMMIT");
+        }
+        catch (...) {
+            rollback();
+            throw;
+        }
+        return out;
     }
 
     bool nameVersion(int64_t num, const std::string& name) override
@@ -1945,7 +2432,7 @@ public:
             exec("COMMIT");
         }
         catch (...) {
-            exec("ROLLBACK");
+            rollback();
             throw;
         }
     }
@@ -1960,10 +2447,18 @@ public:
             return id;
         }
         sqlite3_reset(s);
-        s = prepare("INSERT INTO environment(json) VALUES(?)");
+        // OR IGNORE and read back: another connection may have added it
+        // between (sec 29.1, 37.7 item 7).
+        s = prepare("INSERT OR IGNORE INTO environment(json) VALUES(?)");
         bindText(s, 1, json);
         step(s);
-        return sqlite3_last_insert_rowid(db);
+        s = prepare("SELECT id FROM environment WHERE json=?");
+        bindText(s, 1, json);
+        int64_t id = 0;
+        if (sqlite3_step(s) == SQLITE_ROW)
+            id = sqlite3_column_int64(s, 0);
+        sqlite3_reset(s);
+        return id;
     }
 
     std::string environmentJson(int64_t id) override
@@ -1988,11 +2483,17 @@ public:
         sqlite3_reset(find);
         if (id)
             return id;
-        auto s = prepare("INSERT INTO user(kind,name) VALUES(?,?)");
+        auto s = prepare("INSERT OR IGNORE INTO user(kind,name) VALUES(?,?)");
         bindText(s, 1, kind);
         bindText(s, 2, name);
         step(s);
-        return sqlite3_last_insert_rowid(db);
+        find = prepare("SELECT id FROM user WHERE kind=? AND name=?");
+        bindText(find, 1, kind);
+        bindText(find, 2, name);
+        if (sqlite3_step(find) == SQLITE_ROW)
+            id = sqlite3_column_int64(find, 0);
+        sqlite3_reset(find);
+        return id;
     }
 
     std::vector<LogUser> users() override
@@ -2120,7 +2621,7 @@ public:
             exec("COMMIT");
         }
         catch (...) {
-            exec("ROLLBACK");
+            rollback();
             throw;
         }
         return v.num;
@@ -2328,37 +2829,43 @@ public:
             return found;
         }
         catch (...) {
-            exec("ROLLBACK");
+            rollback();
             throw;
         }
     }
 
     void anchorVersions(const std::vector<int64_t>& seqs, int64_t to) override
     {
-        for (int64_t seq : seqs) {
-            auto s = prepare("UPDATE version SET seq=? WHERE seq=?");
-            sqlite3_bind_int64(s, 1, to);
-            sqlite3_bind_int64(s, 2, seq);
-            step(s);
-        }
+        batch([&]() {
+            for (int64_t seq : seqs) {
+                auto s = prepare("UPDATE version SET seq=? WHERE seq=?");
+                sqlite3_bind_int64(s, 1, to);
+                sqlite3_bind_int64(s, 2, seq);
+                step(s);
+            }
+        });
     }
 
     bool removeBranch(int64_t id) override
     {
-        auto s = prepare("DELETE FROM branch WHERE id=?");
-        sqlite3_bind_int64(s, 1, id);
-        step(s);
-        const bool found = sqlite3_changes(db) > 0;
-        // What was said of the branch goes with it (sec 32.25): the access
-        // to it, and the requests to merge it or to merge into it that are
-        // still open -- one that ended is kept as what happened
-        s = prepare("DELETE FROM access WHERE branch=?");
-        sqlite3_bind_int64(s, 1, id);
-        step(s);
-        s = prepare("DELETE FROM mergerequest WHERE state='open' AND (source=? OR target=?)");
-        sqlite3_bind_int64(s, 1, id);
-        sqlite3_bind_int64(s, 2, id);
-        step(s);
+        bool found = false;
+        batch([&]() {
+            auto s = prepare("DELETE FROM branch WHERE id=?");
+            sqlite3_bind_int64(s, 1, id);
+            step(s);
+            found = sqlite3_changes(db) > 0;
+            // What was said of the branch goes with it (sec 32.25): the
+            // access to it, and the requests to merge it or to merge into
+            // it that are still open -- one that ended is kept as what
+            // happened
+            s = prepare("DELETE FROM access WHERE branch=?");
+            sqlite3_bind_int64(s, 1, id);
+            step(s);
+            s = prepare("DELETE FROM mergerequest WHERE state='open' AND (source=? OR target=?)");
+            sqlite3_bind_int64(s, 1, id);
+            sqlite3_bind_int64(s, 2, id);
+            step(s);
+        });
         return found;
     }
 
@@ -2423,7 +2930,7 @@ public:
             return held;
         }
         catch (...) {
-            exec("ROLLBACK");
+            rollback();
             throw;
         }
     }
@@ -2441,7 +2948,7 @@ public:
             return gone;
         }
         catch (...) {
-            exec("ROLLBACK");
+            rollback();
             throw;
         }
     }
@@ -2495,6 +3002,33 @@ private:
         }
     }
 
+    /// An error's way out of a BEGIN: after a full disk, an I/O error or
+    /// no memory SQLite has rolled back by itself, and a ROLLBACK that
+    /// throws there would replace the error that matters.
+    void rollback()
+    {
+        // A name made in the transaction is gone with it.
+        nameIds.clear();
+        nameTexts.clear();
+        if (sqlite3_get_autocommit(db) == 0)
+            sqlite3_exec(db, "ROLLBACK", nullptr, nullptr, nullptr);
+    }
+
+    /// A batch of statements as one SQL transaction.
+    template<class F>
+    void batch(F&& body)
+    {
+        exec("BEGIN");
+        try {
+            body();
+            exec("COMMIT");
+        }
+        catch (...) {
+            rollback();
+            throw;
+        }
+    }
+
     sqlite3_stmt* prepare(const char* sql)
     {
         auto it = stmts.find(sql);
@@ -2529,8 +3063,12 @@ private:
 
     static std::string text(sqlite3_stmt* s, int col)
     {
+        // The whole of it, as bindText wrote it: not up to the first NUL.
         const unsigned char* t = sqlite3_column_text(s, col);
-        return t ? reinterpret_cast<const char*>(t) : "";
+        if (!t)
+            return {};
+        return std::string(reinterpret_cast<const char*>(t),
+                           static_cast<size_t>(sqlite3_column_bytes(s, col)));
     }
 
     /// A hash into an `entity` or `ref` column, or a version's manifest
@@ -2542,6 +3080,208 @@ private:
             sqlite3_bind_blob(s, i, packed, 20, SQLITE_TRANSIENT);
         else
             bindText(s, i, v);
+    }
+
+    /** The id of `name` in the table `name` (sec 37.4 P2), made on first use;
+     * 0 for the empty name. Inside the caller's SQL transaction: a rollback
+     * forgets what it made (rollback()).
+     */
+    int64_t nameId(const std::string& name)
+    {
+        if (name.empty())
+            return 0;
+        auto it = nameIds.find(name);
+        if (it != nameIds.end())
+            return it->second;
+        auto s = prepare("INSERT OR IGNORE INTO name(text) VALUES(?)");
+        bindText(s, 1, name);
+        step(s);
+        int64_t id = 0;
+        if (!findName(name, id))
+            THROWM(Base::RuntimeError, "Transaction log: cannot name " + name);
+        return id;
+    }
+
+    /// The id of `name` if the table has it, for a query: false if not.
+    bool findName(const std::string& name, int64_t& id)
+    {
+        if (name.empty()) {
+            id = 0;
+            return true;
+        }
+        auto it = nameIds.find(name);
+        if (it != nameIds.end()) {
+            id = it->second;
+            return true;
+        }
+        auto s = prepare("SELECT id FROM name WHERE text=?");
+        bindText(s, 1, name);
+        const bool found = sqlite3_step(s) == SQLITE_ROW;
+        if (found) {
+            id = sqlite3_column_int64(s, 0);
+            nameIds.emplace(name, id);
+            nameTexts.emplace(id, name);
+        }
+        sqlite3_reset(s);
+        return found;
+    }
+
+    /// A name column as text: an id of `name`, or text as a row written
+    /// before the layout holds it.
+    std::string columnName(sqlite3_stmt* s, int col)
+    {
+        if (sqlite3_column_type(s, col) != SQLITE_INTEGER)
+            return text(s, col);
+        return nameOf(sqlite3_column_int64(s, col));
+    }
+
+    /// The name of id `id` of the table `name`, empty for 0 or none.
+    std::string nameOf(int64_t id)
+    {
+        if (id == 0)
+            return {};
+        auto it = nameTexts.find(id);
+        if (it != nameTexts.end())
+            return it->second;
+        auto q = prepare("SELECT text FROM name WHERE id=?");
+        sqlite3_bind_int64(q, 1, id);
+        std::string out;
+        if (sqlite3_step(q) == SQLITE_ROW) {
+            out = text(q, 0);
+            nameIds.emplace(out, id);
+            nameTexts.emplace(id, out);
+        }
+        sqlite3_reset(q);
+        return out;
+    }
+
+    /** A row's script as the store keeps it (sec 37.4 P3). A record's
+     * per-object property names -- `p` and `q` of a recompute's, an undo's,
+     * a redo's, a restore's (27.58, 27.63) -- go as ids of `name`, and a
+     * script past 128 bytes is compressed. Either way it is a blob led by a
+     * tag: `J` the record with ids, `Z` the same compressed, `z` a script
+     * compressed as it is. A script neither changes is text, as every row
+     * before the layout. columnScript() gives back the same JSON, its keys
+     * in their order.
+     */
+    void bindScript(sqlite3_stmt* s, int i, const std::string& script)
+    {
+        std::string payload;
+        char tag = 0;
+        if (script.size() > 2 && script[0] == '{'
+                && script.find("\"objects\"") != std::string::npos) {
+            auto j = nlohmann::ordered_json::parse(script, nullptr, false);
+            bool named = false;
+            if (j.is_object() && j.contains("objects") && j["objects"].is_array()) {
+                for (auto& e : j["objects"]) {
+                    if (!e.is_object())
+                        continue;
+                    for (const char* key : {"p", "q"}) {
+                        if (!e.contains(key) || !e[key].is_array())
+                            continue;
+                        bool all = true;
+                        for (const auto& n : e[key])
+                            all = all && n.is_string();
+                        if (!all)
+                            continue;
+                        nlohmann::ordered_json ids = nlohmann::ordered_json::array();
+                        for (const auto& n : e[key])
+                            ids.push_back(nameId(n.get<std::string>()));
+                        e[key] = std::move(ids);
+                        named = true;
+                    }
+                }
+            }
+            if (named) {
+                payload = j.dump();
+                tag = 'J';
+            }
+        }
+        if (!tag) {
+            if (script.size() <= 128) {
+                bindText(s, i, script);
+                return;
+            }
+            payload = script;
+        }
+#ifdef FC_HAVE_ZSTD
+        if (payload.size() > 128) {
+            std::string out(ZSTD_compressBound(payload.size()), '\0');
+            const size_t n = ZSTD_compress(out.data(), out.size(), payload.data(), payload.size(), 3);
+            if (!ZSTD_isError(n) && n < payload.size()) {
+                out.resize(n);
+                payload = std::move(out);
+                tag = tag ? 'Z' : 'z';
+            }
+        }
+#endif
+        if (!tag) {
+            bindText(s, i, script);
+            return;
+        }
+        std::string blob(1, tag);
+        blob += payload;
+        sqlite3_bind_blob(s, i, blob.data(), static_cast<int>(blob.size()), SQLITE_TRANSIENT);
+    }
+
+    /// A script column as the row's JSON (bindScript).
+    std::string columnScript(sqlite3_stmt* s, int col)
+    {
+        if (sqlite3_column_type(s, col) != SQLITE_BLOB)
+            return text(s, col);
+        const auto* b = static_cast<const char*>(sqlite3_column_blob(s, col));
+        const int n = sqlite3_column_bytes(s, col);
+        if (!b || n < 1)
+            return {};
+        const char tag = b[0];
+        std::string payload(b + 1, static_cast<size_t>(n - 1));
+        if (tag == 'Z' || tag == 'z') {
+#ifdef FC_HAVE_ZSTD
+            const unsigned long long size =
+                ZSTD_getFrameContentSize(payload.data(), payload.size());
+            if (size == ZSTD_CONTENTSIZE_ERROR || size == ZSTD_CONTENTSIZE_UNKNOWN)
+                THROWM(Base::RuntimeError, "Transaction log: a row's script cannot be read");
+            std::string out(static_cast<size_t>(size), '\0');
+            const size_t got = ZSTD_decompress(out.data(), out.size(), payload.data(),
+                                               payload.size());
+            if (ZSTD_isError(got))
+                THROWM(Base::RuntimeError, "Transaction log: a row's script cannot be read");
+            out.resize(got);
+            payload = std::move(out);
+#else
+            THROWM(Base::RuntimeError,
+                   "Transaction log: a row's script is compressed and this build has no zstd");
+#endif
+        }
+        if (tag == 'z')
+            return payload;
+        if (tag != 'J' && tag != 'Z')
+            THROWM(Base::RuntimeError, "Transaction log: a row's script of an unknown form");
+        auto j = nlohmann::ordered_json::parse(payload, nullptr, false);
+        if (j.is_discarded())
+            THROWM(Base::RuntimeError, "Transaction log: a row's script cannot be read");
+        if (j.is_object() && j.contains("objects") && j["objects"].is_array()) {
+            for (auto& e : j["objects"]) {
+                if (!e.is_object())
+                    continue;
+                for (const char* key : {"p", "q"}) {
+                    if (!e.contains(key) || !e[key].is_array())
+                        continue;
+                    nlohmann::ordered_json names = nlohmann::ordered_json::array();
+                    for (const auto& id : e[key])
+                        names.push_back(id.is_number_integer() ? nameOf(id.get<int64_t>())
+                                                               : std::string());
+                    e[key] = std::move(names);
+                }
+            }
+        }
+        return j.dump();
+    }
+
+    /// Bind a name column: the id of `name`, made if new.
+    void bindName(sqlite3_stmt* s, int i, const std::string& name)
+    {
+        sqlite3_bind_int64(s, i, nameId(name));
     }
 
     static std::string columnHash(sqlite3_stmt* s, int col)
@@ -2560,11 +3300,15 @@ private:
 
     sqlite3* db {nullptr};
     std::map<std::string, sqlite3_stmt*> stmts;
+    /// The table `name` as read and written (nameId, columnName).
+    std::unordered_map<std::string, int64_t> nameIds;
+    std::unordered_map<int64_t, std::string> nameTexts;
 };
 
 } // namespace
 
-std::unique_ptr<TransactionStore> TransactionStore::openSQLite(const std::string& path)
+std::unique_ptr<TransactionStore> TransactionStore::openSQLite(const std::string& path,
+                                                               bool readOnly)
 {
-    return std::make_unique<SQLiteStore>(path);
+    return std::make_unique<SQLiteStore>(path, readOnly);
 }

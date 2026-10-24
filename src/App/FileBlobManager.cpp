@@ -2782,6 +2782,13 @@ uint64_t FileBlobManager::segmentCap() const
     return static_cast<uint64_t>(std::max<long>(DocumentParams::getBlobSegmentSize(), 4)) * 1024u;
 }
 
+uint64_t FileBlobManager::appendCap() const
+{
+    const uint64_t append =
+        static_cast<uint64_t>(std::max<long>(DocumentParams::getBlobAppendSize(), 4)) * 1024u;
+    return std::min(append, segmentCap());
+}
+
 uint64_t FileBlobManager::memberCap() const
 {
     return segmentCap() / 4;
@@ -3036,6 +3043,10 @@ void FileBlobManager::flush()
 void FileBlobManager::flushLocked()
 {
     const uint64_t cap = segmentCap();
+    // Adding to a segment rewrites it whole: past this, the batch starts a
+    // new one rather than copy the old one's members again (sec 37.4 P8 of
+    // docs/TransactionLog.md); maintain() merges the small ones.
+    const uint64_t append = appendCap();
     for (;;) {
         std::vector<std::shared_ptr<const BlobRawMember>> batch;
         std::vector<std::pair<int, std::string>> keep;
@@ -3075,7 +3086,7 @@ void FileBlobManager::flushLocked()
                         used += entries[member.second].compressedSize;
                     }
                 }
-                if (used + live.front()->data.size() > cap
+                if (used + live.front()->data.size() > append
                     || keep.size() >= segmentMaxMembers) {
                     keep.clear();
                     used = 0;
@@ -3183,13 +3194,23 @@ void FileBlobManager::maintain()
     }
 
     // Several small segments are merged into one (sec 15.8): a new number,
-    // higher than theirs, and the handles naming them redirected.
+    // higher than theirs, and the handles naming them redirected. Like
+    // sizes merge, the smallest first: a group goes only when none of it is
+    // more than half of it, so a merged segment is not written again for
+    // every small one a batch leaves after it (sec 37.4 P8 of
+    // docs/TransactionLog.md) -- each byte is merged a logarithmic number of
+    // times.
+    std::stable_sort(small.begin(), small.end(),
+                     [](const Plan* a, const Plan* b) { return a->live < b->live; });
     std::size_t start = 0;
     while (start + 1 < small.size()) {
         std::vector<std::pair<int, std::string>> keep;
         uint64_t live = 0;
         std::size_t end = start;
+        // Ascending: the one added last is the largest, at most what the
+        // group holds already.
         while (end < small.size() && live + small[end]->live <= cap
+               && (end == start || small[end]->live <= live)
                && keep.size() + small[end]->keep.size() < segmentMaxMembers) {
             live += small[end]->live;
             keep.insert(keep.end(), small[end]->keep.begin(), small[end]->keep.end());

@@ -753,6 +753,62 @@ def run():
               seen.get("asked") is False)
         App.closeDocument(ldoc.Name)
         settle()
+
+        # Sec 37.7 item 15 (ruled): another document made the active one
+        # leaves the preview open, and its answer merges into the document
+        # it is of.
+        adoc = App.newDocument("MergeStays")
+        adoc.UndoMode = 1
+        adoc.openTransaction("base")
+        abox = adoc.addObject("App::FeatureTest", "Obj")
+        adoc.commitTransaction()
+        adoc.saveAs(os.path.join(tempfile.mkdtemp(prefix="mergestays-"), "stays.FCStd"))
+        adoc.createTransactionBranch("side")
+        adoc.switchTransactionBranch("side")
+        adoc.openTransaction("theirs")
+        abox.Integer = 77
+        adoc.commitTransaction()
+        adoc.switchTransactionBranch("main")
+        settle()
+        other = App.newDocument("MergeElsewhere")
+        Gui.getDocument(other.Name)
+        App.setActiveDocument(adoc.Name)
+        Gui.setActiveDocument(adoc.Name)
+        settle()
+        adock, _ = panel()
+
+        def elsewhere(seen):
+            dialog = mergeDialog()
+            if dialog is None or dialog.objectName() != "TransactionMergeDialog":
+                seen["found"] = False
+                if dialog is not None:
+                    dialog.reject()
+                return
+            seen["found"] = True
+            App.setActiveDocument(other.Name)
+            Gui.setActiveDocument(other.Name)
+            settle()
+            seen["active"] = App.ActiveDocument.Name
+            seen["open"] = dialog.isVisible()
+            for b in dialog.findChildren(QtWidgets.QPushButton):
+                if b.objectName() == "merge":
+                    b.click()
+                    return
+            dialog.reject()
+
+        seen = {}
+        QtCore.QTimer.singleShot(300, lambda: elsewhere(seen))
+        QtCore.QMetaObject.invokeMethod(adock, "mergeBranch", QtCore.Qt.DirectConnection,
+                                        QtCore.Q_ARG(str, "side"))
+        settle()
+        check("stays: the preview open with another document active (%r)" % (seen,),
+              seen.get("found") is True and seen.get("active") == other.Name
+              and seen.get("open") is True)
+        check("stays: its answer merged into its own document (Integer %d)" % abox.Integer,
+              abox.Integer == 77 and other.getObject("Obj") is None)
+        App.closeDocument(adoc.Name)
+        App.closeDocument(other.Name)
+        settle()
     except Exception:
         lines.append("FAIL exception\n" + traceback.format_exc())
     finally:

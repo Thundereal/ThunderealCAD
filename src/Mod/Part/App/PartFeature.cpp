@@ -2579,18 +2579,34 @@ void Feature::restoreShapeContents() {
     }
     else if (auto ownerProp = get_ShapeContentOwnerProperty()) {
         if (auto owner = Base::freecad_dynamic_cast<Feature>(ownerProp->getValue())) {
+            // A copy of a content takes the shape of the content it is a copy
+            // of, which it names by its UID (docs/TransactionLog.md sec 36.7):
+            // the one it was brought with, kept in _SourceUUID for its reopen
             auto propSource = Base::freecad_dynamic_cast<App::PropertyUUID>(
-                    this->getPropertyByName("_SourceUUID"));
+                    this->getDynamicPropertyByName("_SourceUUID"));
+            // kept or not: a content brought with its UID kept finds the
+            // one it was copied from by it as well (`obj != this` below)
+            std::string source = getDocument()->getBroughtObjectUid(this);
+            if (!source.empty() && !propSource
+                    && !this->getDynamicPropertyByName("_SourceUUID"))
+                propSource = static_cast<App::PropertyUUID*>(addDynamicProperty(
+                        "App::PropertyUUID", "_SourceUUID", nullptr, nullptr,
+                        App::Prop_Output | App::Prop_Hidden));
+            if (propSource) {
+                if (!source.empty())
+                    propSource->setValue(source);
+                source = propSource->getValueStr();
+            }
             auto propContents = owner->getShapeContentsProperty();
-            if (propSource && propContents) {
+            // The owner's shape may be still to come from the file, and its
+            // contents have theirs once it is in
+            if (!source.empty() && propContents)
+                (void)owner->Shape.getShape();
+            if (!source.empty() && propContents) {
                 for (auto obj : propContents->getValues()) {
-                    if (auto propUUID = Base::freecad_dynamic_cast<App::PropertyUUID>(
-                            obj->getPropertyByName("_ObjectUUID")))
-                    {
-                        if (propUUID->getValue() == propSource->getValue()) {
-                            if (auto feat = Base::freecad_dynamic_cast<Feature>(obj)) {
-                                this->Shape.setValue(feat->Shape.getValue());
-                            }
+                    if (obj != this && obj->getObjectUid() == source) {
+                        if (auto feat = Base::freecad_dynamic_cast<Feature>(obj)) {
+                            this->Shape.setValue(feat->Shape.getValue());
                         }
                         break;
                     }

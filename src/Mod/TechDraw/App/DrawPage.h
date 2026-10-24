@@ -115,6 +115,16 @@ public:
 
     bool hasObject(App::DocumentObject* obj);
 
+    /** What a page owns (docs/TransactionLog.md sec 37.9): its views and its
+     * template, which it removes with itself. Pasted onto a live page, the
+     * template stands for the live one's, a view for the live page's view
+     * of its UID; both follow the page.
+     */
+    std::vector<App::DocumentObject*> getOwnedObjects() const override;
+    App::DocumentObject* getOwnedCounterpart(const App::DocumentObject* owned,
+                                             const App::DocumentObject* liveOwner,
+                                             App::OwnedPaste& how) const override;
+
     void translateLabel(std::string context, std::string baseName, std::string uniqueName);
 
 

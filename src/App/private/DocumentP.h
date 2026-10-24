@@ -32,6 +32,7 @@
 #include <App/DocumentObserver.h>
 #include <App/StringHasher.h>
 #include <App/FileBlobManager.h>
+#include <App/FileElsewhere.h>
 #include <App/FileHistory.h>
 #include <App/TransactionLog.h>
 #include <Base/Reader.h>
@@ -83,12 +84,38 @@ struct DocumentP
     bool openVersionPending = false;
     std::unordered_map<std::string, DocumentObject*> objectMap;
     std::unordered_map<long, DocumentObject*> objectIdMap;
+    /// The live objects by their UID (docs/TransactionLog.md sec 36).
+    std::unordered_map<std::string, DocumentObject*> objectUidMap;
     std::unordered_map<std::string, bool> partialLoadObjects;
     std::vector<DocumentObjectT> pendingRemove;
     std::vector<App::DocumentObject*> skippedObjs;
     long lastObjectId;
     /// The id readObjects restores the next object under, 0 for a new one.
     long restoringId = 0;
+    /// The UID the object being restored was saved with (sec 36), and the
+    /// file's `Uid` as read, which an older file's UIDs are derived from.
+    std::string restoringUid;
+    std::string fileUid;
+    /// The objects whose UID was derived (sec 36 U3), by id: their file was
+    /// written by a build that keeps none -- an older one, or upstream's --
+    /// and an import knows them by their id and name as before.
+    std::unordered_set<long> derivedUids;
+    /// The objects of the read under way whose UID came from nothing -- no
+    /// attribute, no history -- by id: one they carry as `_ObjectUUID`, read
+    /// with their properties, may still be theirs (sec 36.7).
+    std::unordered_set<long> unsourcedUids;
+    /// The UID each object of the import under way was brought with, by id,
+    /// whatever it was given here (sec 36.7).
+    std::unordered_map<long, std::string> broughtUids;
+    /// An import's objects by id: the name each had in the stream, which a
+    /// paste's answers name it by (sec 37.9)
+    std::unordered_map<long, std::string> broughtNames;
+    /// The clashes of the import under way (sec 36.4), and whether what it
+    /// brings was copied from this very document, which is never asked.
+    std::vector<Document::ImportClash> importClashes;
+    bool importFromHere = false;
+    /// Whether the last addObject() gave a new id.
+    bool freshId = false;
     /// The last geometry id of each object while the document has no file
     /// history; the history takes them when it comes (sec 27.40 item 4).
     std::unordered_map<long, long> lastGeoIds;
@@ -149,6 +176,11 @@ struct DocumentP
     /// version, and when it was taken (steady clock seconds).
     long commitsSinceVersion {0};
     double lastVersionTime {0};
+    /// The last commit's row and when it was made (steady clock seconds):
+    /// what a commit right after it on the same property folds into (sec
+    /// 37.4 P4).
+    int64_t lastCommitSeq {0};
+    double lastCommitTime {0};
     bool snapshotting {false};
     /// The save in progress writes the string table as a member of its own
     /// (docs/TransactionLog.md sec 27.50 item 1) -- or, snapshotting, names
@@ -159,6 +191,8 @@ struct DocumentP
     std::string tableEntry;
     /// A restoreVersion() in progress: the restore takes no version 1.
     bool checkingOut {false};
+    /// Another copy's rows or state being written in (isWritingForeign)
+    bool writingForeign {false};
     /// The scratch document a restore to a version reads the version into
     /// (docs/TransactionLog.md sec 24.5): it keeps no log of its own.
     bool noLog {false};
@@ -193,6 +227,28 @@ struct DocumentP
     /// for the import's record to name; empty for a file from a path.
     std::string importingRequest;
     std::function<void()> restoreHistory;
+    /// Two processes on one file (docs/TransactionLog.md sec 29.8): the file
+    /// as this document last read or wrote it -- its stamp, the save id its
+    /// `Version` carried, and the row of the log whose state it is -- and
+    /// the stamp taken as a restore starts, kept once the restore is done.
+    DiskStamp diskStamp;
+    std::string diskSaveId;
+    int64_t diskSeq {0};
+    DiskStamp readStamp;
+    /// A stamp seen and found to be only a touch: not asked again.
+    mutable DiskStamp touchedStamp;
+    /// A stamp seen and found to be another's write: not read again.
+    mutable DiskStamp movedStamp;
+    /// The file this process marks itself as having open.
+    std::string openMarker;
+    Document::SavePull lastPull;
+    /// The branch a pull came as and has not been merged: the next save
+    /// merges it again, with nothing new to bring.
+    std::string pullBranch;
+    /// importFork() of the file as another process left it: the name it
+    /// comes under, and the row of a file without history to start from.
+    std::string pullLabel;
+    int64_t pullBase {0};
 #ifdef USE_OLD_DAG
     DependencyList DepList;
     std::map<DocumentObject*, Vertex> VertexObjectList;
@@ -296,9 +352,12 @@ struct DocumentP
         long id = pcObject->getID();
         if (!id)
             id = restoringId;
+        freshId = false;
         for (;;) {
-            if (!id)
+            if (!id) {
                 id = nextObjectId();
+                freshId = true;
+            }
             auto &entry = this->objectIdMap[id];
             if (entry) {
                 id = 0;
@@ -315,6 +374,14 @@ struct DocumentP
 
     /// A new object's id: from the file's counter when the document has a
     /// history (docs/TransactionLog.md sec 27.40 item 1), else its own.
+    /// `obj` is not live here any more: its UID is free again (sec 36).
+    void forgetObjectUid(const DocumentObject* obj) {
+        auto it = objectUidMap.find(obj->getObjectUid());
+        if (it != objectUidMap.end() && it->second == obj)
+            objectUidMap.erase(it);
+        derivedUids.erase(obj->getID());
+    }
+
     long nextObjectId() {
         if (history) {
             history->noteObjectId(lastObjectId);
@@ -389,6 +456,7 @@ struct DocumentP
         decltype(objectMap) map = std::move(objectMap);
         objectMap.clear();
         objectIdMap.clear();
+        objectUidMap.clear();
         for (auto &v : map) {
             v.second->setStatus(ObjectStatus::Destroy, true);
             delete(v.second);

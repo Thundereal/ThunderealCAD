@@ -46,6 +46,20 @@ public:
     ~MergeDocuments() override;
     unsigned int getMemSize () const override;
     std::vector<App::DocumentObject*> importObjects(std::istream&);
+    /// The name each object had in the stream -> its name here, after
+    /// importObjects()
+    const std::map<std::string, std::string>& names() const
+    {
+        return nameMap;
+    }
+    /** The UIDs of the objects of a stream importObjects() takes, read off
+     * its Document.xml alone (docs/TransactionLog.md sec 37.9): whether a
+     * paste may clash, asked before anything is read. `from` is the
+     * document it was copied from (the `From` attribute), empty if none.
+     * An object with no UID (a stream from before UIDs) clashes with
+     * nothing: an import gives it one of its own.
+     */
+    static std::vector<std::string> scanUids(std::istream& input, std::string& from);
     void importObject(const std::vector<App::DocumentObject*>& o, Base::XMLReader & r);
     void exportObject(const std::vector<App::DocumentObject*>& o, Base::Writer & w);
     void Save (Base::Writer & w) const override;

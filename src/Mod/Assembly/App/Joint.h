@@ -111,13 +111,17 @@ public:
     App::PropertyAngle AngleMax;
 
     /** Multiply the joint over the elements of the link array side 1 is on,
-     * each paired with an edge of side 2's component like side 2's (a
-     * circle of its radius in its plane), as Assembly3's multiplied
-     * constraint (docs/AssemblyObjectModel.md sec 7.4)
+     * each paired with an element of side 2's component like side 2's (a
+     * circle of its radius in its plane, or a cylinder of its radius and
+     * length level with it), as Assembly3's multiplied constraint
+     * (docs/AssemblyObjectModel.md sec 7.4)
      */
     App::PropertyBool Multiply;
     /// Grow the array to as many elements as there are such edges
     App::PropertyBool AutoCount;
+    /// The elements of side 2's component to pair with, picked by hand, as
+    /// Assembly3's NoExpand: empty, every one like side 2's
+    App::PropertyStringList Targets;
     /// A multiplied joint's instance joints, one per pair: output
     App::PropertyLinkListHidden _Instances;
     /// An instance joint: the multiplied joint, the array element's index,
@@ -137,8 +141,9 @@ public:
     Joint* getMultiplier() const;
     /// A multiplied joint's instance joints, the pairs it has made
     std::vector<Joint*> getInstances() const;
-    /** Make a multiplied joint's pairs: the elements of the array, the edges
-     * of side 2's component like side 2's, an instance joint each. Pairs
+    /** Make a multiplied joint's pairs: the elements of the array, the
+     * elements of side 2's component like side 2's or in Targets, an
+     * instance joint each. Pairs
      * made before are kept while their element and edge are there; the
      * rest are paired nearest first, as Assembly3 pairs them. With Multiply
      * off, the instance joints go.

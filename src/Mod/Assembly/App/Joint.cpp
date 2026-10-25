@@ -23,12 +23,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <set>
 #include <tuple>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAdaptor_Surface.hxx>
 #include <Precision.hxx>
 #include <gp_Circ.hxx>
+#include <gp_Cylinder.hxx>
 #include <BRepGProp.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
@@ -210,10 +213,15 @@ Joint::Joint()
 
     ADD_PROPERTY_TYPE(Multiply, (false), "Multiply", App::Prop_None,
                       "Multiply the joint over the elements of the link array the first\n"
-                      "side is on, each paired with an edge of the second side's component\n"
-                      "like the second side's: a circle of its radius in its plane");
+                      "side is on, each paired with an element of the second side's\n"
+                      "component like the second side's: a circle of its radius in its\n"
+                      "plane, or a cylinder of its radius and length level with it");
     ADD_PROPERTY_TYPE(AutoCount, (true), "Multiply", App::Prop_None,
-                      "Grow the array to as many elements as there are such edges");
+                      "Grow the array to as many elements as there are targets");
+    ADD_PROPERTY_TYPE(Targets, (), "Multiply", App::Prop_None,
+                      "The elements of the second side's component to pair with, picked\n"
+                      "by hand (Edge5, Face12, or a path below the component); empty,\n"
+                      "every one like the second side's");
     ADD_PROPERTY_TYPE(_Instances, (), "Multiply",
                       App::PropertyType(App::Prop_Hidden | App::Prop_Output | App::Prop_ReadOnly),
                       "The instance joints of a multiplied joint, one per pair");
@@ -476,17 +484,61 @@ App::DocumentObjectExecReturn* Joint::execute()
 
 namespace
 {
-/// The circle an edge is, if it is one
-bool circleOf(const Part::TopoShape& shape, gp_Circ& circle)
+/// What makes a multiplied joint's target like the one picked: a circle's
+/// radius and plane, or a cylinder's radius, axis direction and length,
+/// level with it
+struct Likeness
 {
-    if (shape.isNull() || shape.getShape().ShapeType() != TopAbs_EDGE) {
+    TopAbs_ShapeEnum type = TopAbs_SHAPE;
+    gp_Dir axis;
+    double radius = 0.0;
+    double length = 0.0;
+    /// The frame's origin: a circle's centre, the point of a cylinder's
+    /// axis level with its centre of gravity
+    Base::Vector3d origin;
+
+    bool isLike(const Likeness& other) const
+    {
+        const double tol = Precision::Confusion();
+        if (type != other.type || std::abs(radius - other.radius) > tol
+            || std::abs(length - other.length) > tol
+            || !axis.IsParallel(other.axis, Precision::Angular())) {
+            return false;
+        }
+        const Base::Vector3d n(axis.X(), axis.Y(), axis.Z());
+        return std::abs((other.origin - origin) * n) <= tol;
+    }
+};
+
+/// The likeness of a circular edge or a cylindrical face, if it is one
+bool likenessOf(const Part::TopoShape& shape, Likeness& res)
+{
+    if (shape.isNull()) {
         return false;
     }
-    BRepAdaptor_Curve curve(TopoDS::Edge(shape.getShape()));
-    if (curve.GetType() != GeomAbs_Circle) {
+    const TopoDS_Shape s = Part::singleSubShape(shape.getShape());
+    if (s.ShapeType() == TopAbs_EDGE) {
+        BRepAdaptor_Curve curve(TopoDS::Edge(s));
+        if (curve.GetType() != GeomAbs_Circle) {
+            return false;
+        }
+        res.radius = curve.Circle().Radius();
+        res.axis = curve.Circle().Axis().Direction();
+    }
+    else if (s.ShapeType() == TopAbs_FACE) {
+        BRepAdaptor_Surface surface(TopoDS::Face(s));
+        if (surface.GetType() != GeomAbs_Cylinder) {
+            return false;
+        }
+        res.radius = surface.Cylinder().Radius();
+        res.axis = surface.Cylinder().Axis().Direction();
+        res.length = std::abs(surface.LastVParameter() - surface.FirstVParameter());
+    }
+    else {
         return false;
     }
-    circle = curve.Circle();
+    res.type = s.ShapeType();
+    res.origin = findElementFrame(shape).getPosition();
     return true;
 }
 
@@ -563,29 +615,61 @@ void Joint::updateInstances()
         removeAll();
         FC_THROWM(Base::ValueError, "To multiply, the first side is on an element of a link array");
     }
-    gp_Circ picked;
-    if (!side2.isValid() || !circleOf(side2.shape, picked)) {
+    if (!side2.isValid() || side2.wholeObject) {
         removeAll();
-        FC_THROWM(Base::ValueError, "To multiply, the second side is a circular edge");
+        FC_THROWM(Base::ValueError, "To multiply, the second side is an element");
     }
-
-    // The edges like the one picked: circles of its radius in its plane
-    const auto whole = Part::Feature::getTopoShape(side2.component, "", false);
     const double tol = Precision::Confusion();
-    const gp_Dir normal = picked.Axis().Direction();
+    auto targetShape = [&](const std::string& name) {
+        try {
+            return Part::Feature::getTopoShape(side2.component, name.c_str(), true);
+        }
+        catch (const Base::Exception&) {
+            return Part::TopoShape();
+        }
+    };
+
     std::vector<std::string> targets;
-    const int count = static_cast<int>(whole.countSubShapes(TopAbs_EDGE));
-    for (int i = 1; i <= count; ++i) {
-        gp_Circ circle;
-        if (!circleOf(Part::TopoShape(whole.getSubShape(TopAbs_EDGE, i)), circle)) {
-            continue;
+    if (Targets.getSize()) {
+        // Picked by hand: those that resolve
+        for (const auto& name : Targets.getValues()) {
+            if (!name.empty() && !targetShape(name).isNull()
+                && std::find(targets.begin(), targets.end(), name) == targets.end()) {
+                targets.push_back(name);
+            }
         }
-        if (std::abs(circle.Radius() - picked.Radius()) > tol
-            || !circle.Axis().Direction().IsParallel(normal, Precision::Angular())
-            || std::abs(gp_Vec(picked.Location(), circle.Location()).Dot(gp_Vec(normal))) > tol) {
-            continue;
+    }
+    else {
+        // The elements like the one picked: circles of its radius in its
+        // plane, or cylinders of its radius and length level with it. One
+        // per place, where a circle or a cylinder is split in two.
+        Likeness picked;
+        if (!likenessOf(side2.shape, picked)) {
+            removeAll();
+            FC_THROWM(Base::ValueError,
+                      "To multiply, the second side is a circular edge or a cylindrical face, "
+                      "or the targets are picked");
         }
-        targets.push_back("Edge" + std::to_string(i));
+        const auto whole = Part::Feature::getTopoShape(side2.component, "", false);
+        const TopAbs_ShapeEnum type = picked.type;
+        const char* prefix = type == TopAbs_EDGE ? "Edge" : "Face";
+        std::vector<Base::Vector3d> origins;
+        const int count = static_cast<int>(whole.countSubShapes(type));
+        for (int i = 1; i <= count; ++i) {
+            const std::string name = prefix + std::to_string(i);
+            Likeness like;
+            if (!likenessOf(Part::TopoShape(whole.getSubShape(type, i)), like)
+                || !picked.isLike(like)) {
+                continue;
+            }
+            if (std::any_of(origins.begin(), origins.end(), [&](const Base::Vector3d& o) {
+                    return Base::Distance(o, like.origin) < tol;
+                })) {
+                continue;
+            }
+            origins.push_back(like.origin);
+            targets.push_back(name);
+        }
     }
 
     if (AutoCount.getValue() && array->ElementList.getSize() < static_cast<int>(targets.size())) {
@@ -600,9 +684,12 @@ void Joint::updateInstances()
         return (componentPlacement(elements[i]) * pickedPlc.inverse() * side1.frame).getPosition();
     };
     const Base::Placement pickedFrame = findElementFrame(side2.shape).inverse() * side2.frame;
+    std::map<std::string, Base::Vector3d> targetOrigins;
+    for (const auto& name : targets) {
+        targetOrigins[name] = (findElementFrame(targetShape(name)) * pickedFrame).getPosition();
+    }
     auto targetOrigin = [&](const std::string& name) {
-        auto shape = Part::Feature::getTopoShape(side2.component, name.c_str(), true);
-        return (findElementFrame(shape) * pickedFrame).getPosition();
+        return targetOrigins[name];
     };
 
     // The pairs kept, while their element and edge are there

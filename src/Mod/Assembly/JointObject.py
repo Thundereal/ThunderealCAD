@@ -206,6 +206,21 @@ def recomputeSides(joint):
     joint.recompute()
 
 
+def updateOffset(joint):
+    """Not upstream: Assembly3's AttachmentOffset 'Update element offset'. The
+    second side's offset taken so that its frame is the first side's where
+    the parts are now: a Fixed joint keeps them there"""
+    link = elementLink(joint, 2)
+    if link is None or elementLink(joint, 1) is None:
+        return False
+    link.Offset = link.Offset.multiply(joint.getFrame(2).inverse()).multiply(joint.getFrame(1))
+    recomputeSides(joint)
+    proxy = getattr(joint, "Proxy", None)
+    if hasattr(proxy, "onOffsetChanged"):
+        proxy.onOffsetChanged(joint)
+    return True
+
+
 def syncSides(joint, refs):
     """Make the sides of a C++ joint those the references name, keeping a
     side that already names its reference (and so its element link and
@@ -1521,7 +1536,26 @@ class ViewProviderJoint:
     def setupContextMenu(self, vobj, menu):
         action = menu.addAction(translate("Assembly", "Edit Joint"))
         action.triggered.connect(lambda: self.editJoint(vobj))
+        joint = vobj.Object
+        if isTyped(joint) and joint.JointType == "Fixed":
+            action = menu.addAction(translate("Assembly", "Update Offset"))
+            action.setToolTip(
+                translate(
+                    "Assembly",
+                    "Keep the parts where they are now: the second side's offset\n"
+                    "taken from where the first side is",
+                )
+            )
+            action.triggered.connect(lambda: self.updateOffset(joint))
         return False
+
+    def updateOffset(self, joint):
+        """Not upstream: Assembly3's 'Update element offset'"""
+        App.setActiveTransaction(translate("Assembly", "Update Offset"))
+        try:
+            updateOffset(joint)
+        finally:
+            App.closeActiveTransaction()
 
     def doubleClicked(self, vobj):
         return self.editJoint(vobj)
@@ -2140,9 +2174,11 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         self.multiplyCheckbox.setToolTip(
             translate(
                 "Assembly",
-                "Pair each element of the link array the first side is on with an edge\n"
-                "of the second side's part like the one picked, a circle of its radius\n"
-                "in its plane: one joint for a pattern of pins in holes.",
+                "Pair each element of the link array the first side is on with an\n"
+                "element of the second side's part like the one picked, a circle of\n"
+                "its radius in its plane or a cylinder of its radius and length level\n"
+                "with it: one joint for a pattern of pins in holes. Pick more elements\n"
+                "of that part to pair with those only.",
             )
         )
         self.jForm.layout().addWidget(self.multiplyCheckbox, 13, 0)
@@ -2573,6 +2609,41 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         self.joint.Multiply = bool(on)
         self.joint.recompute()
 
+    def targetPart(self):
+        """Not upstream: the part a multiplied joint's targets are picked on,
+        its second side's, or None while the joint is not multiplied"""
+        if len(self.refs) < 2 or not isTyped(self.joint) or not self.joint.Multiply:
+            return None
+        return self.getMovingPart(self.refs[1])
+
+    def addTarget(self, comp, sub):
+        """Not upstream (sec 7.4): with the joint multiplied, a further pick
+        on the second side's part is a target picked by hand, as Assembly3's
+        NoExpand: the second side's own the first of them"""
+        if not sub or comp is None or comp != self.targetPart():
+            return False
+        own = self.refs[1][1][0]
+        targets = list(self.joint.Targets) or [own]
+        if sub not in targets:
+            targets.append(sub)
+        self.joint.Targets = targets
+        self.joint.recompute()
+        return True
+
+    def removeTarget(self, comp, sub):
+        """A target picked by hand unpicked; the last but the second side's
+        own leaves the targets to be every one like it"""
+        if comp is None or comp != self.targetPart() or sub not in self.joint.Targets:
+            return False
+        if sub == self.refs[1][1][0]:
+            return False  # the second side itself
+        targets = [t for t in self.joint.Targets if t != sub]
+        if targets == [self.refs[1][1][0]]:
+            targets = []
+        self.joint.Targets = targets
+        self.joint.recompute()
+        return True
+
     def editOffset(self, i):
         if isTyped(self.joint):
             # The element link's whole offset, the picked vertex's share in it
@@ -2636,6 +2707,11 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
             self.refs.append(ref2)
             sub2 = UtilsAssembly.addTipNameToSub(ref2)
             Gui.Selection.addSelection(ref2[0].Document.Name, ref2[0].Name, sub2)
+            # Not upstream: a multiplied joint's targets picked by hand
+            part = self.targetPart()
+            for target in getattr(self.joint, "Targets", []) if part is not None else []:
+                if target != ref2[1][0]:
+                    Gui.Selection.addSelection(part.Document.Name, part.Name, target)
 
         self.jForm.angleSpinbox.setProperty("rawValue", self.joint.Angle.Value)
         self.jForm.distanceSpinbox.setProperty("rawValue", self.joint.Distance.Value)
@@ -2831,6 +2907,9 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         # Construct the reference using the Component as the root
         ref = [comp, [new_sub]]
 
+        if self.addTarget(comp, new_sub):
+            return
+
         moving_part = self.getMovingPart(ref)
 
         # Check if the addition is acceptable (we are not doing this in selection gate to let user move objects)
@@ -2886,7 +2965,12 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         rootObj = App.getDocument(doc_name).getObject(obj_name)
 
         comp, new_sub = UtilsAssembly.getComponentReference(self.assembly, rootObj, sub_name)
+        if not comp and self.targetPart() is not None and rootObj == self.targetPart():
+            # A target as updateTaskboxFromJoint selects it, from its part
+            comp, new_sub = rootObj, rootObj.resolveSubElement(sub_name, True)[2]
         if not comp:
+            return
+        if self.removeTarget(comp, new_sub):
             return
 
         for reference in self.refs[:]:

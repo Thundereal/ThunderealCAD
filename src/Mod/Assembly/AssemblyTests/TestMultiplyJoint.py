@@ -199,6 +199,109 @@ class TestMultiplyJoint(unittest.TestCase):
         self.doc.removeObject(joint.Name)
         self.assertEqual([n for n in names if self.doc.getObject(n)], [])
 
+    def cylinderFace(self, shape, x, y):
+        for i, f in enumerate(shape.Faces):
+            s = f.Surface
+            if s.TypeId == "Part::GeomCylinder" and abs(s.Radius - 2) < 1e-9:
+                if App.Vector(s.Center.x, s.Center.y, 0).isEqual(App.Vector(x, y, 0), 1e-6):
+                    return "Face%d" % (i + 1)
+        raise AssertionError("no cylinder at %s, %s" % (x, y))
+
+    def testCylinderFaces(self):
+        """A hole picked by its wall: pins in holes by their walls"""
+        plate = self.plate()
+        array = self.pins(1)
+        pinFace = self.cylinderFace(array.LinkedObject.Shape, 0, 0)
+        joint = self.assembly.makeJoint(
+            "Cylindrical",
+            (array.ElementList[0], pinFace),
+            (plate, self.cylinderFace(plate.Shape, 10, 10)),
+        )
+        joint.Multiply = True
+        self.doc.recompute()
+        self.assertEqual(len(joint._Instances), 4)
+        self.assertEqual(self.assembly.solve(), 0)
+        for element in array.ElementList:
+            p = element.Placement.Base
+            self.assertTrue(
+                any(App.Vector(x, y, 0).isEqual(App.Vector(p.x, p.y, 0), 1e-6) for x, y in HOLES),
+                element.Placement,
+            )
+        places = {(round(e.Placement.Base.x), round(e.Placement.Base.y)) for e in array.ElementList}
+        self.assertEqual(len(places), 4)
+
+    def testASplitHoleCountsOnce(self):
+        """A hole whose wall and rims are each in two halves is one target"""
+        shape = Part.makeBox(60, 60, 5)
+        for x, y in HOLES[:3]:
+            shape = shape.cut(Part.makeCylinder(2, 5, App.Vector(x, y, 0)))
+        x, y = HOLES[3]
+        for angle in (0, 180):
+            half = Part.makeCylinder(2, 5, App.Vector(), App.Vector(0, 0, 1), 180)
+            half.rotate(App.Vector(), App.Vector(0, 0, 1), angle)
+            half.translate(App.Vector(x, y, 0))
+            shape = shape.cut(half)
+        walls = [
+            f for f in shape.Faces if f.Surface.TypeId == "Part::GeomCylinder"
+        ]
+        self.assertEqual(len(walls), 5)  # the halves are kept apart
+        plate = self.assembly.newObject("Part::Feature", "Plate")
+        plate.Shape = shape
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedJoint")
+        JointObject.GroundedJoint(ground, plate)
+        for byFace in (False, True):
+            array = self.pins(1)
+            if byFace:
+                sides = (
+                    (array.ElementList[0], self.cylinderFace(array.LinkedObject.Shape, 0, 0)),
+                    (plate, self.cylinderFace(plate.Shape, 10, 10)),
+                )
+                joint = self.assembly.makeJoint("Cylindrical", *sides)
+            else:
+                hole = circleEdge(plate.Shape, App.Vector(10, 10, 5))
+                joint = self.assembly.makeJoint(
+                    "Revolute", (array.ElementList[0], self.pinEdge), (plate, hole)
+                )
+            joint.Multiply = True
+            self.doc.recompute()
+            self.assertEqual(len(joint._Instances), 4, byFace)
+            self.assertEqual(array.ElementCount, 4, byFace)
+
+    def testTargetsPickedByHand(self):
+        plate = self.plate()
+        array = self.pins(1)
+        targets = [
+            circleEdge(plate.Shape, App.Vector(10, 10, 5)),
+            circleEdge(plate.Shape, App.Vector(50, 50, 5)),
+        ]
+        joint = self.multiplied(plate, array, Targets=targets)
+        self.assertEqual(array.ElementCount, 2)
+        self.assertEqual(sorted(i._Target for i in joint._Instances), sorted(targets))
+        self.assertEqual(self.assembly.solve(), 0)
+        self.assertEqual(self.seated(array), [0, 3])
+        # Back to every one like the second side's
+        joint.Targets = []
+        self.doc.recompute()
+        self.assertEqual(len(joint._Instances), 4)
+        self.assertEqual(self.assembly.solve(), 0)
+        self.assertEqual(self.seated(array)[:2], [0, 3])
+
+    def testUpdateOffset(self):
+        plate = self.plate()
+        block = self.assembly.newObject("Part::Box", "Block")
+        block.Placement = App.Placement(App.Vector(5, 5, 5), App.Rotation())
+        self.doc.recompute()
+        joint = self.assembly.makeJoint("Fixed", (plate, "Face6"), (block, "Face5"))
+        self.doc.recompute()
+        moved = App.Placement(App.Vector(12, 7, 9), App.Rotation(App.Vector(1, 2, 3), 33))
+        block.Placement = moved
+        self.assertEqual(self.assembly.solve(), 0)
+        self.assertFalse(block.Placement.isSame(moved, 1e-6))
+        block.Placement = moved
+        self.assertTrue(JointObject.updateOffset(joint))
+        self.assertEqual(self.assembly.solve(), 0)
+        self.assertTrue(block.Placement.isSame(moved, 1e-6), block.Placement)
+
     def testReopened(self):
         plate = self.plate()
         array = self.pins(1)

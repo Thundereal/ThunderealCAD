@@ -2046,6 +2046,9 @@ bool DocumentObject::redirectSubName(std::ostringstream &, DocumentObject *, Doc
 }
 
 void DocumentObject::onPropertyStatusChanged(const Property &prop, unsigned long oldStatus) {
+    // The status is saved with the property (docs/TransactionLog.md sec 38.14)
+    if (isAttachedToDocument() && getDocument())
+        getDocument()->noteSavedChange(this);
     if(!Document::isAnyRestoring() && isAttachedToDocument() && getDocument()) {
         static const unsigned long inputBit = 1UL << Property::Input;
         bool wasInput = (oldStatus & inputBit) != 0;

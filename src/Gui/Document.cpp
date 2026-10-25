@@ -3075,6 +3075,18 @@ static const char *FC_ATTR_SPLIT_XML = "Split";
 static const char *FC_ATTR_SPLIT_FILES = "SplitFiles";
 static const char *FC_ATTR_TREE_EXPANSION = "HasExpansion";
 
+/// What a view provider's file says outside its properties, which a folder
+/// save compares before it keeps the file (docs/TransactionLog.md sec 38.14).
+static std::string viewHead(const std::string& name, bool expanded, bool extensions)
+{
+    return name + (expanded ? "\n1" : "\n0") + (extensions ? "\n1" : "\n0");
+}
+
+static std::string viewHead(const App::DocumentObject* obj, const ViewProvider* vp)
+{
+    return viewHead(obj->getExportName(), obj->testStatus(App::Expand), vp->canSaveExtension());
+}
+
 namespace {
 
 // The element names of the shared default block, and the attribute on
@@ -3263,7 +3275,22 @@ void Document::RestoreDocFile(Base::Reader &reader)
 
     if(boost::ends_with(reader.getFileName(),FC_XML_GUI_POSTFIX)) {
         xmlReader.readElement("ViewProvider");
+        // What an open of a folder read, for its first save (sec 38.14): the
+        // entry, without the folder's name a folder's reader puts before it.
+        const std::string name = xmlReader.getAttribute("name");
+        const std::string head = viewHead(name,
+                xmlReader.getAttributeAsInteger("expanded", "0") != 0,
+                std::strcmp(xmlReader.getAttribute("Extensions", ""), "True") == 0);
         readObject(xmlReader);
+        auto vp = Base::freecad_dynamic_cast<ViewProviderDocumentObject>(
+                getViewProviderByName(name.c_str()));
+        if (vp && vp->getObject() && d->_pcDocument) {
+            std::string entry = reader.getFileName();
+            const auto slash = entry.find('/');
+            if (!reader.getDirectory().empty() && slash != std::string::npos)
+                entry.erase(0, slash + 1);
+            d->_pcDocument->viewFileRead(vp->getObject(), entry, head);
+        }
         return;
     }
 
@@ -4743,8 +4770,13 @@ void Document::SaveDocFile (Base::Writer &writer) const
                 << "<Document SchemaVersion=\"" << FC_GUI_SCHEMA_VER 
                 << "\" FileVersion=\"" << writer.getFileVersion() 
                 << "\">\n";
+            const std::size_t before = writer.fileCount();
             writeObject(writer,it->first,it->second);
             writer.Stream() << "</Document>\n";
+            // The entries this write made, its own first, for the next save
+            // of a folder to keep (sec 38.14).
+            getDocument()->viewFileWritten(writer, it->first, name,
+                                           viewHead(it->first, it->second), before);
         }
         return;
     }
@@ -4778,6 +4810,9 @@ void Document::SaveDocFile (Base::Writer &writer) const
             const std::string& entry = writer.addFile(
                     std::string(v.first->getNameInDocument())+FC_XML_GUI_POSTFIX,this);
             d->_splitXmlEntries[entry] = v.first;
+            // Kept as the folder has it when nothing changed it since the
+            // folder's last save (sec 38.14).
+            getDocument()->keepViewFile(writer, v.first, entry, viewHead(v.first, v.second));
             writer.Stream() << writer.ind() << "<File obj=\""
                             << encodeAttribute(v.first->getNameInDocument())
                             << "\" name=\"" << encodeAttribute(entry) << "\"/>\n";

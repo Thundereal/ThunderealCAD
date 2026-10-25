@@ -266,6 +266,24 @@ static std::unordered_map<unsigned, ElementMapPtr> _IdToElementMap;
 
 namespace {
 thread_local Data::ElementMapIdScope* idScope = nullptr;
+thread_local std::vector<unsigned>* idCollector = nullptr;
+}
+
+Data::ElementMapIdCollector::ElementMapIdCollector(std::vector<unsigned>& ids)
+    : _outer(idCollector)
+{
+    idCollector = &ids;
+}
+
+Data::ElementMapIdCollector::~ElementMapIdCollector()
+{
+    idCollector = _outer;
+}
+
+void Data::ElementMapIdCollector::note(unsigned id)
+{
+    if (idCollector && !idScope)
+        idCollector->push_back(id);
 }
 
 Data::ElementMapIdScope::ElementMapIdScope()
@@ -302,6 +320,7 @@ static unsigned savedId(const ElementMap* map, unsigned id)
 {
     if (auto scope = Data::ElementMapIdScope::current())
         return scope->idOf(map);
+    Data::ElementMapIdCollector::note(id);
     return id;
 }
 
@@ -490,6 +509,7 @@ public:
         if (!id)
             id = ToId.size();
         this->_id = id;
+        Data::ElementMapIdCollector::note(id);
         
         for (auto & v : this->indexedNames) {
             for (const MappedNameRef & ref : v.second.names) {
@@ -705,6 +725,7 @@ public:
         std::string tmp;
         if (! (s >> id >> tmp >> count) || tmp != "PostfixCount")
             FC_THROWM(Base::RuntimeError, msg);
+        Data::ElementMapIdCollector::note(id);
 
         auto & map = restoredMap(id);
         if (map)
@@ -749,6 +770,7 @@ public:
         unsigned id = 0;
         if (! (s >> tmp >> index >> id >> typeCount) || tmp != "ElementMap")
             FC_THROWM(Base::RuntimeError, msg);
+        Data::ElementMapIdCollector::note(id);
 
         auto & map = restoredMap(id);
         if (map) {

@@ -12880,9 +12880,122 @@ class FolderSaveCases(unittest.TestCase):
             self.assertTrue(last["checked"])
             self.assertEqual(last["kept"], 0)
             self.assertEqual(last["differed"], [])
+            # The first save after an open too (sec 38.14).
+            FreeCAD.closeDocument(doc.Name)
+            doc = self.track(FreeCAD.openDocument(path))
+            self.edit(doc, "wider", lambda d: setattr(d.Box1, "Width", 20))
+            doc.save()
+            last = doc.getLastFolderSave()
+            self.assertTrue(last["checked"])
+            self.assertEqual(last["differed"], [])
         finally:
             if was is None:
                 del os.environ["FC_FOLDER_SAVE_CHECK"]
+
+    def testTheFirstSaveAfterAnOpenKeepsWhatItRead(self):
+        # Sec 38.14: an open of the document's own folder is what its first
+        # save keeps from, as a save of it would be.
+        self.noCheck()
+        doc, path = self.saved("Opened", boxes=4)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        before = {n: self.stamp(os.path.join(path, n)) for n in ("Box1.xml", "Box2.xml")}
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 3), last)
+        for n, st in before.items():
+            self.assertEqual(self.stamp(os.path.join(path, n)), st, n)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(doc.Box0.Length.Value, 20)
+        for o in doc.Objects:
+            self.assertTrue(o.Shape.isValid(), o.Name)
+        # Nothing changed: nothing written.
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 4)
+
+    def testElementMapsNumberedOtherwiseAreWritten(self):
+        # Sec 38.14: a save numbers element maps across all its objects, and
+        # a reader takes a map by its number once, whichever file names it
+        # first. An object nothing changed whose maps this save numbers
+        # otherwise -- an earlier object has more maps now -- is written, or
+        # its file would name a map another file now holds under that number.
+        self.noCheck()
+        import Part
+
+        path = os.path.join(self.dir, "Maps")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("Maps"))
+        doc.UndoMode = 1
+
+        def make(d):
+            d.addObject("Part::Feature", "First").Shape = Part.makeBox(1, 1, 1)
+            a = d.addObject("Part::Box", "A")
+            b = d.addObject("Part::Box", "B")
+            b.Placement.Base = FreeCAD.Vector(5, 5, 5)
+            cut = d.addObject("Part::Cut", "Cut")
+            cut.Base, cut.Tool = a, b
+
+        self.edit(doc, "create", make)
+        doc.saveAs(path)
+        doc.save()
+        names = ("A", "B", "Cut")
+        before = {n: doc.getObject(n).Shape.ElementMap for n in names}
+        self.assertTrue(all(before.values()))
+        # The first object takes a shape with maps of its own and its inputs'.
+        self.edit(doc, "more maps", lambda d: setattr(d.First, "Shape", d.Cut.Shape.copy()))
+        first = doc.First.Shape.ElementMap
+        doc.save()
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        for n in names:
+            self.assertEqual(doc.getObject(n).Shape.ElementMap, before[n], n)
+        self.assertEqual(doc.First.Shape.ElementMap, first)
+
+    def testAChangeTheLogLeavesOutIsWritten(self):
+        # Sec 38.14: a property's status is saved with it and recorded by no
+        # transaction; the object is written all the same.
+        self.noCheck()
+        doc, path = self.saved("Status", boxes=3)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 3)
+        doc.Box1.setEditorMode("Length", 1)
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 2), last)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 3)
+        # The same after an open.
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(doc.Box1.getEditorMode("Length"), ["ReadOnly"])
+        doc.Box2.setEditorMode("Width", 2)
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 2), last)
+
+    def testAFolderOfUnknownOptionsIsWrittenWhole(self):
+        # Sec 38.14: a folder whose Document.xml does not say what wrote it
+        # -- another build, or one before the attribute -- is written whole at
+        # the first save after its open.
+        import re
+
+        self.noCheck()
+        doc, path = self.saved("Unknown", boxes=3)
+        FreeCAD.closeDocument(doc.Name)
+        xml = os.path.join(path, "Document.xml")
+        with open(xml, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn(" FolderOptions=", text)
+        text = re.sub(r' FolderOptions="[^"]*"', "", text)
+        with open(xml, "w", encoding="utf-8") as f:
+            f.write(text)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 0)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 3)
 
     def testADeflatedArchiveExtractedByHandOpensAsAFolder(self):
         # Sec 38.10: with BlobCompression "Deflate" every entry of the archive

@@ -2479,6 +2479,8 @@ PyObject* DocumentPy::getLastFolderSave(PyObject *args)
         Py::Dict d;
         d.setItem("written", Py::Long(info.written));
         d.setItem("kept", Py::Long(info.kept));
+        d.setItem("viewsWritten", Py::Long(info.viewsWritten));
+        d.setItem("viewsKept", Py::Long(info.viewsKept));
         d.setItem("checked", Py::Boolean(info.checked));
         Py::List differed;
         for (const auto& name : info.differed)

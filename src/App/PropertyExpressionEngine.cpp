@@ -895,7 +895,11 @@ void PropertyExpressionEngine::afterRestore()
     DocumentObject * docObj = freecad_dynamic_cast<DocumentObject>(getContainer());
     if(restoredExpressions && docObj) {
         Base::FlagToggler<bool> flag(restoring);
-        AtomicPropertyChange signaller(*this);
+        // Nothing read into an empty engine is no change: a folder's first
+        // save keeps the object's file then (docs/TransactionLog.md sec
+        // 38.14).
+        AtomicPropertyChange signaller(*this,
+                !restoredExpressions->empty() || !expressions.empty());
 
         PropertyExpressionContainer::afterRestore();
         ObjectIdentifier::DocumentMapper mapper(this->_DocMap);

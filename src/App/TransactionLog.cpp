@@ -2320,10 +2320,13 @@ void TransactionLog::forgetValue(const Property& prop)
     _recorded.erase(prop.getID());
 }
 
-bool TransactionLog::objectsChangedSince(int64_t seq, std::set<long>& objects)
+bool TransactionLog::objectsChangedSince(int64_t seq, std::set<long>& objects,
+                                         std::set<long>* views)
 {
     flush();
     objects.clear();
+    if (views)
+        views->clear();
     if (seq == _head)
         return true;
     if (seq <= 0 || !_c._store)
@@ -2338,6 +2341,8 @@ bool TransactionLog::objectsChangedSince(int64_t seq, std::set<long>& objects)
         for (const auto& op : _c._store->ops(t.seq)) {
             if (op.ckind == "obj")
                 objects.insert(op.cid);
+            else if (views && op.ckind == "view")
+                views->insert(op.cid);
         }
     }
     return true;

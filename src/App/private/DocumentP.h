@@ -342,7 +342,9 @@ struct DocumentP
      * `version` the version it recorded, `options` what decides the bytes,
      * `refs` the blobs each object referred to, `files` the entries each
      * object's write made (its own file first), `stamp` the folder as the
-     * commit left it.
+     * commit left it. `views` and `heads` are the same for each object's
+     * view-provider file, and what that file says outside its properties
+     * (sec 38.14).
      */
     struct FolderState
     {
@@ -353,15 +355,64 @@ struct DocumentP
         DiskStamp stamp;
         std::map<long, std::vector<std::string>> refs;
         std::map<long, std::vector<std::string>> files;
+        std::map<long, std::vector<std::string>> views;
+        std::map<long, std::string> heads;
+        /// `refs` are what an open was handed (sec 38.14): only some of
+        /// what a save notes, compared property by property.
+        bool refsRead {false};
+        /// The ids of the element maps each object's file holds, sorted.
+        std::map<long, std::vector<unsigned>> mapIds;
     };
     FolderState folderLast;
     FolderState folderNext;
-    /// The objects of this save the log says nothing changed since folderLast.
+    /// The objects of this save the log says nothing changed since
+    /// folderLast, and those whose view provider it says the same of.
     std::set<long> folderUnchanged;
+    std::set<long> folderViewsUnchanged;
+    /** Sec 38.14: every change to what an object's file or its view
+     * provider's file holds, whether the log records it or not -- a write
+     * the log leaves out (NoModify, a view fitted to the model), one made
+     * while a restore settles, a property's status. By object id, with
+     * the generation it came in; a save of the folder clears what came in
+     * up to its own (folderSaveGen), so that a change made during it stays
+     * for the next.
+     */
+    std::unordered_map<long, uint64_t> folderDirty;
+    std::unordered_map<long, uint64_t> folderDirtyViews;
+    uint64_t folderGen {1};
+    uint64_t folderSaveGen {0};
+    /// A restore is past reading the file: what changes now is no longer
+    /// what the file holds.
+    bool restoreWatch {false};
+    /** What an open of the document's own folder read (sec 38.14), which
+     * becomes folderLast once the read and the restore after it are both
+     * done: the save options Document.xml states, each object's entry by
+     * name, the entries each object and view provider read, the log's
+     * version of the folder as found, and the folder's stamp before the read
+     * when nothing saved it during the read.
+     */
+    struct FolderRead
+    {
+        std::string folder;
+        std::string options;
+        int64_t version {0};
+        DiskStamp stamp;
+        std::map<std::string, long> entries;
+        std::map<long, std::vector<std::string>> files;
+        std::map<long, std::vector<std::string>> views;
+        std::map<long, std::string> heads;
+        std::map<long, std::vector<std::string>> refs;
+        std::map<long, std::vector<unsigned>> mapIds;
+        bool readDone {false};
+        bool afterDone {false};
+    };
+    FolderRead folderRead;
     bool folderKeeping {false};
     bool folderChecking {false};
     std::map<long, std::string> folderEntryOf;
     std::map<long, std::vector<std::string>> folderRefsNow;
+    /// The ids this save numbers each object's element maps with (sec 38.14).
+    std::map<long, std::vector<unsigned>> folderMapIdsNow;
     /// Entries kept this save, for the log's version; and, checking, the
     /// objects that would have been, with their entries.
     std::vector<std::string> folderKept;

@@ -23,6 +23,7 @@
 
 #include "PreCompiled.h"
 
+#include <optional>
 #include <algorithm>
 
 #include <QDir>
@@ -819,8 +820,30 @@ bool PropertyLinkBase::_updateElementReference(DocumentObject *feature,
         }
     }
 
+    // A reference put right with no signal -- a restore's (docs/
+    // TransactionLog.md sec 38.14) -- is still a change to what the file
+    // holds, which a folder's next save must not keep the old file over.
+    struct NoteChange
+    {
+        PropertyLinkBase* prop;
+        const std::string& sub;
+        const ShadowSub& shadow;
+        std::string subWas;
+        ShadowSub shadowWas;
+        ~NoteChange()
+        {
+            if (sub == subWas && shadow == shadowWas)
+                return;
+            auto obj = freecad_dynamic_cast<DocumentObject>(prop->getContainer());
+            if (obj && obj->getDocument())
+                obj->getDocument()->noteSavedChange(obj);
+        }
+    };
+    std::optional<NoteChange> noteChange;
     if(notify)
         aboutToSetValue();
+    else
+        noteChange.emplace(NoteChange {this, sub, shadow, sub, shadow});
 
     auto updateSub = [&](const std::string &newSub) {
         if (sub != newSub) {

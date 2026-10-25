@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save built; Q2, Q5-Q7 open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14 built; Q2, Q5-Q7 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -25233,9 +25233,14 @@ with freeze on and off; driven 301.
   run may set it.
 
 **Not built.**
+- **Not safe as built: element-map numbers.** A save numbers element maps
+  across all its objects, so a kept file could name a map that a rewritten
+  one now numbers otherwise, and the reader would hand it the wrong map.
+  Found and fixed in 38.14.
 - **The first save after an open** writes everything: no state is known
-  for a folder the document only read.
-- **The Gui's split view-provider files** are written as before.
+  for a folder the document only read. Built in 38.14.
+- **The Gui's split view-provider files** are written as before. Built in
+  38.14.
 - **A kept object's preparation** still runs (the second step of 38.11's
   S2b). Where the remaining 120 ms goes is not profiled yet.
 
@@ -25286,3 +25291,133 @@ off; gtest 1014 with freeze on and off; driven 301.
   - both versions are in its history, and no branch is closed (the guard
     held);
   - the second version restores.
+
+### 38.14 View-provider files kept, and the first save after an open (2026-10-25)
+
+**Ruling (user, 2026-10-25):** "agreed. go", on the two items left by
+38.12: the Gui's split view-provider files, and the first save after an
+open of a folder.
+
+**View-provider files.** The log records a view provider's change as an op
+of kind `view`, named by its object's id (24.9). A save of a folder keeps
+an object's view-provider file on the same terms as the object's own file
+(38.12):
+- no `view` op names it since the folder's last save
+  (`objectsChangedSince` now also returns those);
+- nothing outside the log changed it either (below);
+- it is written under the name it was;
+- what the file says outside its properties is the same: the object's
+  name, `expanded`, `Extensions`.
+
+The Gui document asks `App::Document::keepViewFile` as it lists each file
+in `GuiDocument.xml`, and reports what a written file added with
+`viewFileWritten`. Kept files reach the log's version by `keepFrom`, as an
+object's do. `getLastFolderSave()` adds `viewsWritten` and `viewsKept`. A
+colour is the object's appearance (34): changing it writes the object's
+file, not the view provider's.
+
+**Changes the log leaves out.** The log is not a complete record of what a
+file holds:
+- a `NoModify` write, and a view fitted to the model (`DerivedViewWrites`),
+  open no transaction;
+- a property's status (an editor mode) is saved with it and recorded by no
+  transaction;
+- what a restore's afterward (`afterRestore`, `onDocumentRestored`)
+  changes is not recorded at all.
+
+So every such change is noted as well, by object, for objects and view
+providers apart (`Document::noteSavedChange`). The sources are:
+`onBeforeChangeProperty` (except a transient or unsaved property), a
+dynamic property added or removed, and a status change of an object's or
+view provider's property. Each note carries a generation. A save of the
+folder clears the notes up to the point its objects settled (after
+`beforeSave`), so a change made during the save stays for the next. A
+failed save clears nothing.
+
+**The first save after an open.** An open of the document's own folder,
+read whole with no save coming in meanwhile, becomes what the first save
+keeps from (`Document::_takeFolderRead`, once both the read and the
+restore after it are done). Its parts:
+- **The options:** a folder save now states the options that decided its
+  bytes in `Document.xml` (`FolderOptions`). The options now include the
+  build (`ProgramVersion`), so an open keeps only what this same build
+  wrote. A folder without the attribute is written whole once.
+- **The version:** the log's version of the folder as found (16.6), which
+  holds every entry's hash. Kept entries are taken from it.
+- **The entries:** each object's from its `file=` attribute and the data
+  files its properties asked the reader for; each view provider's from the
+  Gui's read (`viewFileRead`) and its properties' data files.
+- **The blobs:** what each property was handed by the restore, by
+  `Object.Property` (`FileBlobManager::takeRestoredReferences`). The save
+  compares property by property: every blob a property was handed must
+  still be what it refers to. A reference the restore did not hand over,
+  such as a stock material card written by its hash, is that property's
+  value, which nothing changed.
+- **The row:** the log's head when the restore is over. What the restore
+  itself changed is in the notes above.
+
+**What the check found** (the Python suite under `FC_FOLDER_SAVE_CHECK`,
+which writes everything and compares what would have been kept):
+- **Element maps numbered otherwise: a fault of 38.12 too.** A save numbers
+  the element maps of all its objects in one sequence (`beforeSave`), so
+  that a map shared by several shapes is written once. A reader takes each
+  number once, from whichever file names it first. An object nothing
+  changed still writes numbers that depend on the objects before it. Give
+  an earlier object more maps and a later one's kept file names numbers that
+  a rewritten file now uses for other maps. On reopen, the kept object has
+  another object's element map. `testElementMapsNumberedOtherwiseAreWritten`
+  reproduces it with the check below bypassed: box `A` reopens with the
+  first object's map.
+
+  Fixed by comparing: `Data::ElementMapIdCollector` gathers the numbers an
+  object's maps get in this save's `beforeSave`, the numbers its write puts
+  in its file, and the numbers an open reads from it. A file is kept only
+  when this save numbers the object's maps as the file does. The cost is
+  that an edit giving an earlier object more or fewer maps rewrites the
+  objects after it. Numbers kept across saves (a map keeps its number, new
+  maps take ones above any used) would avoid that; not built.
+- **A reference put right at reload** (a broken one repaired from its
+  retained generation, `ShapeStorage`) changed the link with no signal.
+  `_updateElementReference` now notes a change of the reference or its
+  shadow when it was asked not to signal.
+- **An empty expression engine** signalled a change in its `afterRestore`.
+  It no longer marks one when nothing was read into an empty engine.
+- **The Touched bit** was saved in a property's status. No file preserves
+  it: the property's own Restore touches it again, and the document purges
+  it after. A file saved before a recompute therefore came back otherwise.
+  The status is now written without that bit (`savedStatus`). No reader
+  sees a difference.
+
+After these, the suite under the check: 3883 tests OK, no file differing.
+
+**Gates** (round s38g): 25 GUI checks (`fo` added); Python 3883 OK with
+freeze on and off; gtest 1014 with freeze on and off; driven 301.
+
+**Measured** (`~/.cache/lv-merge/probe38/opensave.py`, 600 boxes, FreeCADCmd,
+four rounds of open, edit one box, save, edit another, save):
+
+| | Open | First save after it | Second save |
+| --- | --- | --- | --- |
+| written / kept | | 1 / 599 | 1 / 599 |
+| ms | 156-231 | 32-66 | 32-52 |
+
+**Tests.**
+- `FolderSaveCases`:
+  - `testTheFirstSaveAfterAnOpenKeepsWhatItRead`: after an open, one edit
+    writes one object, keeps three, and leaves their files untouched; the
+    folder reopens whole; a save with nothing changed keeps all four.
+  - `testAChangeTheLogLeavesOutIsWritten`: an editor mode changed writes
+    that object, after a save and after an open.
+  - `testAFolderOfUnknownOptionsIsWrittenWhole`: `FolderOptions` removed,
+    the first save writes everything, the next keeps.
+  - `testElementMapsNumberedOtherwiseAreWritten`: an earlier object given
+    more maps; every object reopens with its own.
+  - `testTheCheckFindsWhatWouldHaveBeenKeptAsTheFolderHasIt` now covers an
+    open too.
+- GUI check `transaction-log-folder-check.py` (`fo` in the gates):
+  - view-provider files kept on a second save;
+  - a line width written alone, and an editor mode the same;
+  - after an open, everything kept;
+  - a view and an object changed, each written alone;
+  - a colour writes the object's file;
+  - under the check, nothing differs.

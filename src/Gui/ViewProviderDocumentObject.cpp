@@ -1139,6 +1139,9 @@ void ViewProviderDocumentObject::onPropertyStatusChanged(
         const App::Property &prop, unsigned long oldStatus)
 {
     (void)oldStatus;
+    // The status is saved with the property (docs/TransactionLog.md sec 38.14)
+    if (pcObject && pcObject->getDocument())
+        pcObject->getDocument()->noteSavedChange(this);
     if(!App::Document::isAnyRestoring() && pcObject && pcObject->getDocument())
         pcObject->getDocument()->signalChangePropertyEditor(*pcObject->getDocument(),prop);
 }

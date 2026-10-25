@@ -2292,6 +2292,21 @@ void FileBlobManager::holdFolderBlobs(const std::string& folder)
     restoreFromDirectory(folder + "/" + archivePrefix(), true);
 }
 
+std::map<long, std::vector<std::string>> FileBlobManager::takeRestoredReferences()
+{
+    std::map<long, std::vector<std::string>> out;
+    {
+        std::lock_guard<std::mutex> guard(_mutex);
+        out.swap(_restoredRefs);
+    }
+    for (auto& entry : out) {
+        std::sort(entry.second.begin(), entry.second.end());
+        entry.second.erase(std::unique(entry.second.begin(), entry.second.end()),
+                           entry.second.end());
+    }
+    return out;
+}
+
 std::map<long, std::vector<std::string>> FileBlobManager::referencesByObject() const
 {
     std::map<long, std::vector<std::string>> out;
@@ -2414,6 +2429,19 @@ void FileBlobManager::hold(FileBlobHandle blob)
     slot = std::move(blob);
 }
 
+void FileBlobManager::noteRestored(BlobReferrerProperty* referrer, const FileBlobHandle& blob)
+{
+    auto prop = dynamic_cast<Property*>(referrer);
+    if (auto obj = Base::freecad_dynamic_cast<DocumentObject>(prop ? prop->getContainer()
+                                                                   : nullptr)) {
+        std::string name = obj->getNameInDocument() ? obj->getNameInDocument() : "";
+        name += '.';
+        name += prop->getName() ? prop->getName() : "";
+        std::lock_guard<std::mutex> guard(_mutex);
+        _restoredRefs[obj->getID()].push_back(blob->hash() + " " + name);
+    }
+}
+
 void FileBlobManager::addPendingReferrer(const std::string& hash, BlobReferrerProperty* prop)
 {
     if (hash.empty() || !prop) {
@@ -2424,6 +2452,7 @@ void FileBlobManager::addPendingReferrer(const std::string& hash, BlobReferrerPr
     if (auto blob = find(hash)) {
         FC_TRACE("referrer served at once from " << hash);
         prop->assignRestoredBlob(blob);
+        noteRestored(prop, blob);
         return;
     }
     FC_TRACE("referrer queued for " << hash);
@@ -2521,6 +2550,7 @@ void FileBlobManager::dispatchPending()
         }
         if (blob) {
             entry.second->assignRestoredBlob(blob);
+            noteRestored(entry.second, blob);
         }
         else {
             auto& counts = missing[entry.first];

@@ -286,8 +286,11 @@ public:
     /** The objects an op of a row after `seq` on this branch's chain names
      * (docs/TransactionLog.md sec 38.12): what changed since the save at
      * `seq`. False when `seq` is not on the chain, or no longer stored.
+     * `views`, when given, the objects whose view provider an op names
+     * (sec 38.14).
      */
-    bool objectsChangedSince(int64_t seq, std::set<long>& objects);
+    bool objectsChangedSince(int64_t seq, std::set<long>& objects,
+                             std::set<long>* views = nullptr);
     /// Version `num` is in the store.
     bool hasVersion(int64_t num);
     /// `folder`: the folder the copy is from, when it is a folder's own

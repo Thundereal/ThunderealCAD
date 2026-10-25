@@ -1348,10 +1348,34 @@ public:
     {
         int written {0};
         int kept {0};
+        /// The same for the view-provider files (sec 38.14).
+        int viewsWritten {0};
+        int viewsKept {0};
         bool checked {false};
         std::vector<std::string> differed;
     };
     const FolderSaveInfo& lastFolderSave() const;
+    /** A folder save's view-provider files (docs/TransactionLog.md sec
+     * 38.14), for the Gui document. keepViewFile(): the file of `obj`'s view
+     * provider, named `entry`, `head` what it says outside its properties,
+     * is kept as the folder has it when nothing changed it since the
+     * folder's last save; true when it is. viewFileWritten(): the entries
+     * its write made from the writer's file `before` on, for the next save.
+     * viewFileRead(): what an open of the folder read, for the first save
+     * after it.
+     */
+    bool keepViewFile(Base::Writer& writer, const DocumentObject* obj, const std::string& entry,
+                      const std::string& head) const;
+    void viewFileWritten(Base::Writer& writer, const DocumentObject* obj,
+                         const std::string& entry, const std::string& head,
+                         std::size_t before) const;
+    void viewFileRead(const DocumentObject* obj, const std::string& entry,
+                      const std::string& head);
+    /** A change to what `who`'s file holds -- an object, or a view provider
+     * for its object (sec 38.14) -- that the next save of a folder must not
+     * keep the old file over, whether the log records it or not.
+     */
+    void noteSavedChange(const TransactionalObject* who);
     /// Schema version this document asks to be written with -- the user's
     /// cap, validated against the writable list.
     long getSaveSchemaVersion() const;
@@ -2250,6 +2274,10 @@ protected:
     /// Document.xml, the History element at [hFrom, hTo).
     void _saveFolderHistory(const std::string& file, std::string xml, const std::string& saveId,
                             const std::string& saveDate, size_t hFrom, size_t hTo);
+    /// What an open of the document's own folder read becomes what its
+    /// first save keeps from, once the read and the restore after it are
+    /// both done (sec 38.14).
+    void _takeFolderRead();
     /// Continue the log from the History property's copy when the guard
     /// agrees that the file is the save that wrote it.
     bool adoptEmbeddedHistory();

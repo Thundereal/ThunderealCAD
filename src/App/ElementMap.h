@@ -38,6 +38,7 @@
 #include <map>
 #include <memory>
 #include <unordered_map>
+#include <vector>
 
 
 namespace Data
@@ -99,6 +100,28 @@ private:
     std::unordered_map<const ElementMap*, unsigned> _toId;
     std::unordered_map<unsigned, ElementMapPtr> _fromId;
     ElementMapIdScope* _outer;
+};
+
+/** The ids of the element maps a save numbers (beforeSave), writes, or a
+ * restore reads on this thread while one of these lives, into `ids`
+ * (docs/TransactionLog.md sec 38.14). A document's save numbers its maps
+ * across all its objects, so what an object's file says of them depends on
+ * the others: a folder save keeps the file only if this save numbers the
+ * object's maps as the file does. Not inside an ElementMapIdScope, whose
+ * ids are its own.
+ */
+class AppExport ElementMapIdCollector
+{
+public:
+    explicit ElementMapIdCollector(std::vector<unsigned>& ids);
+    ~ElementMapIdCollector();
+    ElementMapIdCollector(const ElementMapIdCollector&) = delete;
+    ElementMapIdCollector& operator=(const ElementMapIdCollector&) = delete;
+    /// Record `id`, when one lives on this thread.
+    static void note(unsigned id);
+
+private:
+    std::vector<unsigned>* _outer;
 };
 
 }// namespace Data

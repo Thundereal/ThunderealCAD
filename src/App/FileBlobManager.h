@@ -671,6 +671,13 @@ public:
      * (docs/TransactionLog.md sec 38.12).
      */
     std::map<long, std::vector<std::string>> referencesByObject() const;
+    /** The blobs each object's properties were handed by the restores
+     * since the last call, by id, as referencesByObject() lists them (hash,
+     * then `Object.Property`), sorted; and the lists taken away. What an
+     * open of a folder read, for its first save to compare with
+     * (docs/TransactionLog.md sec 38.14).
+     */
+    std::map<long, std::vector<std::string>> takeRestoredReferences();
     /** @name Blobs read where they are (docs/TransactionLog.md sec 38.9)
      *
      * A document saved as a folder keeps its blobs as files under `blobs/`.
@@ -908,6 +915,9 @@ private:
     mutable std::unordered_map<std::string, FileBlobHandle> _saveSet;
     /// Who refers to each of them, which is what names the file it goes to.
     std::unordered_map<std::string, std::vector<BlobReferrer>> _saveRefs;
+    /// takeRestoredReferences(), under _mutex.
+    std::map<long, std::vector<std::string>> _restoredRefs;
+    void noteRestored(BlobReferrerProperty* referrer, const FileBlobHandle& blob);
     /// What each of them is, for the ones nothing gets to name: the
     /// extension of the first referrer that offered one. A file named by
     /// its hash still has to say what it holds -- a stored environment

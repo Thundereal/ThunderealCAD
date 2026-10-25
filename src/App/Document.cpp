@@ -111,6 +111,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 
 #include "Document.h"
 #include "Actor.h"
+#include "ElementMap.h"
 #include "ElementNamingUtils.h"
 #include "private/DocumentP.h"
 #include "Application.h"
@@ -1642,6 +1643,7 @@ void Document::_addOrRemoveProperty(TransactionalObject* obj, Property *prop, bo
 {
     if (d->bookkeeping)
         return;
+    noteSavedChange(obj);
     checkNotFrozen(add ? "add a property" : "remove a property");
     // A property never saved -- a cache like Part's shape cache, added when
     // a command's isActive() builds a link's shape -- is no change to the
@@ -2549,6 +2551,10 @@ void Document::onBeforeChangeProperty(const TransactionalObject *Who, const Prop
         if (obj && obj->testStatus(ObjectStatus::Restore))
             return;
     }
+    // A value the file does not hold changes nothing in it (sec 38.14).
+    if (!(What->getType() & (Prop_Transient | Prop_NoPersist))
+            && !What->testStatus(Property::Transient) && !What->testStatus(Property::PropNoPersist))
+        noteSavedChange(Who);
     // Bookkeeping -- a compatibility name put on an object (sec 36.7) --
     // is no step and in no step that is open.
     if(!d->rollback && !d->bookkeeping) {
@@ -2930,6 +2936,11 @@ void Document::Save (Base::Writer &writer) const
     // know whether the element is there before it can read past it.
     if (getFileBlobManager().hasInlineBlobs())
         writer.Stream() << " Blobs=\"1\"";
+    // What decides the bytes of a save to a folder (sec 38.14): an open of
+    // the folder compares it with what its first save would use.
+    if (!d->folderNext.folder.empty())
+        writer.Stream() << " FolderOptions=\""
+                        << Property::encodeAttribute(d->folderNext.options) << '"';
     writer.Stream() << ">\n";
 
     writer.incInd();
@@ -2963,17 +2974,36 @@ void Document::Save (Base::Writer &writer) const
         for (auto o : d->objectArray)
             const_cast<Document*>(this)->carryObjectUid(o, o->getObjectUid());
     }
+    // The element maps each object's are numbered with, for a folder save
+    // to compare with what its file holds (sec 38.14).
+    const bool folderIds = d->folderKeeping || !d->folderNext.folder.empty();
+    d->folderMapIdsNow.clear();
     for (auto o : d->objectArray) {
         if (d->saveSeq) {
             d->saveSeq->next();
         }
-        o->beforeSave(writer);
+        if (!folderIds) {
+            o->beforeSave(writer);
+            continue;
+        }
+        std::vector<unsigned> ids;
+        {
+            Data::ElementMapIdCollector collect(ids);
+            o->beforeSave(writer);
+        }
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        if (!ids.empty())
+            d->folderMapIdsNow[o->getID()] = std::move(ids);
     }
     beforeSave(writer);
     // What each object refers to now, for the objects kept below (sec 38.12).
     if (d->folderKeeping || !d->folderNext.folder.empty()) {
         d->folderRefsNow = getFileBlobManager().referencesByObject();
         d->folderNext.refs = d->folderRefsNow;
+        // A change from here on is not in what this save writes for sure,
+        // and stays for the next (sec 38.14).
+        d->folderSaveGen = d->folderGen++;
     }
     const double tBefore = saveSplit();
 
@@ -3016,6 +3046,8 @@ void Document::Restore(Base::XMLReader &reader)
     long scheme = reader.getAttributeAsInteger("SchemaVersion");
     reader.DocumentSchema = scheme;
     d->fileSchema = scheme;
+    // What decided the bytes of the folder's save (sec 38.14).
+    d->folderRead.options = reader.getAttribute("FolderOptions", "");
     if (reader.hasAttribute("ProgramVersion")) {
         reader.ProgramVersion = reader.getAttribute("ProgramVersion");
     } else {
@@ -3217,6 +3249,116 @@ const char* Document::stringTableName()
 const Document::FolderSaveInfo& Document::lastFolderSave() const
 {
     return d->folderInfo;
+}
+
+bool Document::keepViewFile(Base::Writer& writer, const DocumentObject* obj,
+                            const std::string& entry, const std::string& head) const
+{
+    // As an object's own file is kept (sec 38.12, Document::Save): nothing
+    // changed its view provider since the folder's last save, the file says
+    // the same outside its properties, and it is written under the name it
+    // was, with the data files its write added (sec 38.14).
+    if (!obj || !d->folderKeeping || d->folderNext.folder.empty())
+        return false;
+    const long id = obj->getID();
+    if (!d->folderViewsUnchanged.count(id) || d->folderDirtyViews.count(id))
+        return false;
+    auto files = d->folderLast.views.find(id);
+    auto was = d->folderLast.heads.find(id);
+    auto* folder = dynamic_cast<Base::FileWriter*>(&writer);
+    if (!folder || files == d->folderLast.views.end() || files->second.empty()
+            || files->second.front() != entry || was == d->folderLast.heads.end()
+            || was->second != head)
+        return false;
+    d->folderNext.views[id] = files->second;
+    d->folderNext.heads[id] = head;
+    if (d->folderChecking) {
+        d->folderWouldKeep.emplace_back(std::string(obj->getNameInDocument()) + " (view)",
+                                        files->second);
+        return false;
+    }
+    for (const auto& kept : files->second) {
+        folder->keepFile(kept);
+        d->folderKept.push_back(kept);
+    }
+    ++d->folderInfo.viewsKept;
+    return true;
+}
+
+void Document::viewFileWritten(Base::Writer& writer, const DocumentObject* obj,
+                               const std::string& entry, const std::string& head,
+                               std::size_t before) const
+{
+    if (!obj || d->folderNext.folder.empty())
+        return;
+    std::vector<std::string> files {entry};
+    for (std::size_t i = before; i < writer.fileCount(); ++i)
+        files.push_back(writer.fileNameAt(i));
+    d->folderNext.views[obj->getID()] = std::move(files);
+    d->folderNext.heads[obj->getID()] = head;
+    ++d->folderInfo.viewsWritten;
+}
+
+void Document::viewFileRead(const DocumentObject* obj, const std::string& entry,
+                            const std::string& head)
+{
+    // Only while an open of a folder gathers what it reads.
+    if (!obj || d->folderRead.entries.empty() || d->restoreWatch)
+        return;
+    d->folderRead.views[obj->getID()] = {entry};
+    d->folderRead.heads[obj->getID()] = head;
+}
+
+void Document::noteSavedChange(const TransactionalObject* who)
+{
+    if (!who)
+        return;
+    auto obj = Base::freecad_dynamic_cast<const DocumentObject>(who);
+    const bool view = !obj;
+    if (view)
+        obj = who->getTransactionOwner();
+    if (!obj || obj->getDocument() != this)
+        return;
+    // What a restore reads is what the file holds: an object being read, or
+    // any of it before the read is done.
+    if (obj->testStatus(ObjectStatus::Restore) || (testStatus(Restoring) && !d->restoreWatch))
+        return;
+    (view ? d->folderDirtyViews : d->folderDirty)[obj->getID()] = d->folderGen;
+}
+
+void Document::_takeFolderRead()
+{
+    auto& fr = d->folderRead;
+    if (!fr.readDone || !fr.afterDone)
+        return;
+    DocumentP::FolderRead read = std::move(fr);
+    fr = DocumentP::FolderRead();
+    // The folder read here as its own save left it, its version in the log,
+    // and a document of the file, whole (sec 38.14).
+    TransactionLog* log = getTransactionLog();
+    if (read.folder.empty() || !read.version || read.options.empty() || !log
+            || !log->hasVersion(read.version) || testStatus(PartialDoc)
+            || testStatus(VersionDoc) || testStatus(TempDoc) || testStatus(RestoreError)) {
+        FC_LOG("open " << getName() << ": nothing to keep from, folder '" << read.folder
+               << "', version " << read.version << ", options '" << read.options << "'");
+        return;
+    }
+    DocumentP::FolderState last;
+    last.folder = std::move(read.folder);
+    last.seq = log->head();
+    last.version = read.version;
+    last.options = std::move(read.options);
+    last.stamp = read.stamp;
+    last.refs = std::move(read.refs);
+    last.refsRead = true;
+    last.mapIds = std::move(read.mapIds);
+    last.files = std::move(read.files);
+    last.views = std::move(read.views);
+    last.heads = std::move(read.heads);
+    FC_LOG("open " << getName() << ": " << last.files.size() << " object files, "
+           << last.views.size() << " view files, " << d->folderDirty.size() << " objects and "
+           << d->folderDirtyViews.size() << " view providers changed by the restore");
+    d->folderLast = std::move(last);
 }
 
 const char* Document::historyFileName()
@@ -4109,17 +4251,51 @@ void Document::writeObjects(const std::vector<App::DocumentObject*>& obj,
             // the folder has it, with the data files its write added.
             const long id = (*it)->getID();
             d->folderEntryOf[id] = entry;
-            if (d->folderKeeping && d->folderUnchanged.count(id)) {
+            if (d->folderKeeping && d->folderUnchanged.count(id) && !d->folderDirty.count(id)) {
                 auto files = d->folderLast.files.find(id);
                 auto was = d->folderLast.refs.find(id);
                 auto now = d->folderRefsNow.find(id);
-                const bool sameRefs = (was == d->folderLast.refs.end()
-                                       ? now == d->folderRefsNow.end()
-                                       : now != d->folderRefsNow.end() && was->second == now->second);
+                bool sameRefs = (was == d->folderLast.refs.end()
+                                 ? now == d->folderRefsNow.end()
+                                 : now != d->folderRefsNow.end() && was->second == now->second);
+                // After an open (sec 38.14): every blob a property was handed
+                // from the folder is the one it refers to now. One it was not
+                // handed -- a stock material card, written by its hash -- is
+                // the property's value, which nothing changed.
+                if (d->folderLast.refsRead) {
+                    std::map<std::string, std::string> nowByName;
+                    if (now != d->folderRefsNow.end()) {
+                        for (const auto& ref : now->second) {
+                            const auto space = ref.find(' ');
+                            nowByName[ref.substr(space + 1)] = ref.substr(0, space);
+                        }
+                    }
+                    sameRefs = true;
+                    if (was != d->folderLast.refs.end()) {
+                        for (const auto& ref : was->second) {
+                            const auto space = ref.find(' ');
+                            auto it = nowByName.find(ref.substr(space + 1));
+                            if (it == nowByName.end() || it->second != ref.substr(0, space)) {
+                                sameRefs = false;
+                                break;
+                            }
+                        }
+                    }
+                }
+                // Its element maps numbered as its file has them: a save
+                // numbers them across every object (sec 38.14).
+                auto idsWas = d->folderLast.mapIds.find(id);
+                auto idsNow = d->folderMapIdsNow.find(id);
+                const bool sameIds = (idsWas == d->folderLast.mapIds.end()
+                                      ? idsNow == d->folderMapIdsNow.end()
+                                      : idsNow != d->folderMapIdsNow.end()
+                                            && idsWas->second == idsNow->second);
                 auto* folder = dynamic_cast<Base::FileWriter*>(&writer);
-                if (folder && sameRefs && files != d->folderLast.files.end()
+                if (folder && sameRefs && sameIds && files != d->folderLast.files.end()
                         && !files->second.empty() && files->second.front() == entry) {
                     d->folderNext.files[id] = files->second;
+                    if (idsWas != d->folderLast.mapIds.end())
+                        d->folderNext.mapIds[id] = idsWas->second;
                     if (d->folderChecking) {
                         d->folderWouldKeep.emplace_back((*it)->getNameInDocument(), files->second);
                     }
@@ -4254,8 +4430,18 @@ void Document::SaveDocFile(Base::Writer &writer) const {
                         << "\" FileVersion=\"" << writer.getFileVersion()
                         << "\">\n";
         const std::size_t before = writer.fileCount();
-        writeObject(writer,obj);
+        std::vector<unsigned> ids;
+        {
+            Data::ElementMapIdCollector collect(ids);
+            writeObject(writer,obj);
+        }
         writer.Stream() << "</Document>\n";
+        if (!d->folderNext.folder.empty()) {
+            std::sort(ids.begin(), ids.end());
+            ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+            if (!ids.empty())
+                d->folderNext.mapIds[obj->getID()] = std::move(ids);
+        }
         // The entries this object's write made, its own first, for the next
         // save of the folder to keep (sec 38.12).
         if (!d->folderNext.folder.empty()) {
@@ -4281,7 +4467,21 @@ void Document::RestoreDocFile(Base::Reader &reader) {
     if(!xmlReader.FileVersion)
         xmlReader.FileVersion = reader.getFileVersion();
     xmlReader.readElement("Object");
-    readObject(xmlReader);
+    // What element maps the object's file holds, for an open of a folder
+    // (sec 38.14).
+    const bool gather = !d->folderRead.entries.empty() && !d->restoreWatch;
+    DocumentObject* obj =
+        gather ? getObject(xmlReader.getName(xmlReader.getAttribute("name"))) : nullptr;
+    std::vector<unsigned> ids;
+    {
+        Data::ElementMapIdCollector collect(ids);
+        readObject(xmlReader);
+    }
+    if (obj && !ids.empty()) {
+        std::sort(ids.begin(), ids.end());
+        ids.erase(std::unique(ids.begin(), ids.end()), ids.end());
+        d->folderRead.mapIds[obj->getID()] = std::move(ids);
+    }
 }
 
 void Document::readObject(Base::XMLReader &reader) {
@@ -4542,8 +4742,11 @@ Document::readObjects(Base::XMLReader& reader)
             }
 
             const char *file = reader.getAttribute("file","");
-            if(file && file[0])
+            if(file && file[0]) {
                 reader.addFile(file, this);
+                if (obj && !testStatus(Status::Importing))
+                    d->folderRead.entries[file] = obj->getID();
+            }
         }
         catch (const Base::Exception& e) {
             Base::Console().Error("Cannot create object '%s': (%s)\n", name.c_str(), e.what());
@@ -5942,6 +6145,17 @@ bool Document::saveToFile(const char* filename) const
         d->folderLast = archive ? DocumentP::FolderState() : d->folderNext;
         if (!d->folderLast.folder.empty())
             d->folderLast.stamp = DiskStamp::of(d->folderLast.folder);
+        // What changed before this save is in it (sec 38.14).
+        if (d->folderSaveGen) {
+            for (auto* dirty : {&d->folderDirty, &d->folderDirtyViews}) {
+                for (auto it = dirty->begin(); it != dirty->end();) {
+                    if (it->second <= d->folderSaveGen)
+                        it = dirty->erase(it);
+                    else
+                        ++it;
+                }
+            }
+        }
     }
 
     signalFinishSave(*this, filename);
@@ -6092,6 +6306,8 @@ void Document::save(Base::Writer &writer, bool archive) const {
     // changed since -- decided object by object in Document::Save.
     d->folderNext = DocumentP::FolderState();
     d->folderUnchanged.clear();
+    d->folderViewsUnchanged.clear();
+    d->folderSaveGen = 0;
     d->folderKeeping = false;
     d->folderChecking = false;
     d->folderEntryOf.clear();
@@ -6102,26 +6318,39 @@ void Document::save(Base::Writer &writer, bool archive) const {
     auto* folderWriter = archive ? nullptr : dynamic_cast<Base::FileWriter*>(&writer);
     if (log && folderWriter && writer.isSplitXML() && !folderWriter->getStageDir().empty()) {
         std::ostringstream options;
+        // The build too (sec 38.14): an open keeps from a folder only what
+        // this same build wrote.
         options << writer.getSchemaVersion() << ' ' << writer.getFileVersion() << ' '
                 << writer.isForceXML() << ' ' << PreferBinary.getValue() << ' '
-                << writer.getMode("BinaryBrep");
+                << writer.getMode("BinaryBrep") << ' ' << programVersionAttribute();
         d->folderNext.folder = FileHistory::canonicalPath(folderWriter->getDirName());
         d->folderNext.seq = log->head();
         d->folderNext.options = options.str();
         const auto& last = d->folderLast;
         std::set<long> changed;
+        std::set<long> changedViews;
         if (last.folder == d->folderNext.folder && last.options == d->folderNext.options
                 && last.stamp.valid() && DiskStamp::of(last.folder).sameAs(last.stamp)
-                && log->hasVersion(last.version) && log->objectsChangedSince(last.seq, changed)) {
+                && log->hasVersion(last.version)
+                && log->objectsChangedSince(last.seq, changed, &changedViews)) {
             for (auto obj : d->objectArray) {
                 if (!changed.count(obj->getID()))
                     d->folderUnchanged.insert(obj->getID());
+                if (!changedViews.count(obj->getID()))
+                    d->folderViewsUnchanged.insert(obj->getID());
             }
             d->folderKeeping = true;
             // Everything written anyway, and what would have been kept
             // compared with the folder's file (sec 38.12): the gates' check.
             d->folderChecking = std::getenv("FC_FOLDER_SAVE_CHECK") != nullptr;
             d->folderInfo.checked = d->folderChecking;
+        }
+        else if (!last.folder.empty()) {
+            FC_LOG("save " << getName() << ": nothing kept, folder "
+                   << (last.folder == d->folderNext.folder) << ", options "
+                   << (last.options == d->folderNext.options) << ", stamp "
+                   << (last.stamp.valid() && DiskStamp::of(last.folder).sameAs(last.stamp))
+                   << ", version " << log->hasVersion(last.version));
         }
     }
 
@@ -6382,6 +6611,14 @@ void Document::restore (const char *filename,
         FC_WARN("'" << filename << "' was saved by another process while it was read: "
                 "what is open may be some of each save. Close it and open it again.");
     }
+    // The document's own folder, read whole and undisturbed, is what its
+    // first save keeps from (sec 38.14).
+    else if (folder && readStart.valid() && inPlaceGuard.blobs) {
+        d->folderRead.folder = FileHistory::canonicalPath(filename);
+        d->folderRead.stamp = readStart;
+        d->folderRead.readDone = true;
+        _takeFolderRead();
+    }
 
     // The index holds the file open, and on Windows an open file cannot be
     // renamed or deleted -- not by the user, and not by the recovery dialog
@@ -6588,6 +6825,14 @@ void Document::restore(Base::XMLReader &reader,
 
     clearUndos();
     d->files.clear();
+    // What a save of a folder keeps from is of the content this replaces
+    // (sec 38.14); what this read finds is gathered afresh.
+    d->folderLast = DocumentP::FolderState();
+    d->folderRead = DocumentP::FolderRead();
+    d->folderDirty.clear();
+    d->folderDirtyViews.clear();
+    d->restoreWatch = false;
+    getFileBlobManager().takeRestoredReferences();
     // Stale parked entries must never resolve against the new objects
     // (same names, different content). The archive index itself is
     // managed by the caller that installed it.
@@ -6671,6 +6916,35 @@ void Document::restore(Base::XMLReader &reader,
     // -- take theirs straight from the store, which holds it until
     // afterRestore() lets go.
     getFileBlobManager().dispatchPending();
+    // The file is read: what changes from here on is not what it holds
+    // (sec 38.14).
+    d->restoreWatch = true;
+
+    // The entries each object and view provider read (sec 38.14): its own
+    // first, then the data files its properties asked for.
+    if (!d->folderRead.entries.empty()) {
+        auto& fr = d->folderRead;
+        for (const auto& e : reader.getFileList()) {
+            auto it = e.Object == this ? fr.entries.find(e.FileName) : fr.entries.end();
+            if (it != fr.entries.end())
+                fr.files[it->second].insert(fr.files[it->second].begin(), e.FileName);
+        }
+        for (const auto& e : reader.getFileList()) {
+            auto prop = dynamic_cast<Property*>(e.Object);
+            auto container = prop ? prop->getContainer() : nullptr;
+            if (auto obj = Base::freecad_dynamic_cast<DocumentObject>(container)) {
+                auto files = fr.files.find(obj->getID());
+                if (files != fr.files.end())
+                    files->second.push_back(e.FileName);
+            }
+            else if (auto view = dynamic_cast<TransactionalObject*>(container)) {
+                auto owner = view->getTransactionOwner();
+                auto files = owner ? fr.views.find(owner->getID()) : fr.views.end();
+                if (files != fr.views.end())
+                    files->second.push_back(e.FileName);
+            }
+        }
+    }
 
     // The default stand-ins have served their purpose and nothing points at
     // them any more -- including the reader, which has just drained whatever
@@ -6726,8 +7000,13 @@ void Document::restore(Base::XMLReader &reader,
             TransactionLog::Blobs blobs =
                 TransactionLog::versionBlobs(entries, getFileBlobManager().restoredEntries());
             addUntappedMembers(FileName.getValue(), entries);
-            if (log->onRestore(FileName.getValue(), entries, blobs, reader.DocumentSchema))
+            const int64_t version =
+                log->onRestore(FileName.getValue(), entries, blobs, reader.DocumentSchema);
+            if (version) {
                 noteVersionTaken();
+                // The folder as found, which its first save keeps from.
+                d->folderRead.version = version;
+            }
         }
     }
     // Undo reaches back to here and no further, whatever branch the
@@ -16471,6 +16750,10 @@ bool Document::afterRestore(bool checkPartial) {
             && !testStatus(PartialDoc) && !testStatus(VersionDoc) && !testStatus(TempDoc))
         _noteDiskState(FileName.getStrValue());
     d->readStamp = DiskStamp();
+    // The blobs each object was handed, now that every referrer has turned up.
+    d->folderRead.refs = getFileBlobManager().takeRestoredReferences();
+    d->folderRead.afterDone = true;
+    _takeFolderRead();
     return true;
 }
 

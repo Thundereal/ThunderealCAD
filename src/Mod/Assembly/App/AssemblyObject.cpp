@@ -42,6 +42,7 @@
 #include <App/Document.h>
 #include <App/DocumentObjectGroup.h>
 #include <App/FeaturePythonPyImp.h>
+#include <App/GeoFeatureGroupExtension.h>
 #include <App/ElementNamingUtils.h>
 #include <App/Link.h>
 #include <App/PropertyPythonObject.h>
@@ -54,6 +55,7 @@
 #include <Mod/Part/App/TopoShape.h>
 #include <Mod/Part/App/AttachExtension.h>
 #include <Mod/Part/App/DatumFeature.h>
+#include <Mod/Part/App/FeatureElement.h>
 #include <Mod/Part/App/PartFeature.h>
 
 #include "AssemblyLink.h"
@@ -1575,6 +1577,18 @@ bool AssemblyObject::isAuxGroupAllowed(const App::AuxGroup* group,
     if (role == AssemblyGroup::ViewsRole) {
         return obj->isDerivedFrom<ExplodedView>()
             || proxyClassIn(obj, "CommandCreateView", {"ExplodedView"});
+    }
+    if (role == App::Part::PartsRole) {
+        // The components only: not a joint's element link, nor what a group
+        // of its own holds (a simulation's motion, a view's step, a snapshot
+        // in upstream's group), nor upstream's groups
+        if (obj->isDerivedFrom<::Part::ElementLink>() || obj->isDerivedFrom<::Part::Element>()
+            || App::GeoFeatureGroupExtension::isNonGeoGroup(obj)
+            || App::GroupExtension::getGroupOfObject(obj)
+            || (!obj->isDerivedFrom<App::GeoFeature>()
+                && !obj->hasExtension(App::LinkBaseExtension::getExtensionClassTypeId()))) {
+            return false;
+        }
     }
     return App::Part::isAuxGroupAllowed(group, obj);
 }

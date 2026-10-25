@@ -232,17 +232,22 @@ Built as step 4e (2026-10-25), for Joints, Simulations and Views:
   `JointGroup` of copied joints until C++ joints work in sub-assemblies;
   the Snapshots and Bills of Materials groups stay upstream's, the plan
   naming only these three.
+- **An assembly's Parts group takes the components only** (sec 3.1): not
+  a joint's element link, nor what a group of its own holds (a motion, a
+  step, a snapshot), nor upstream's groups, nor what is neither a
+  geometry feature nor a link.
 - **Auto is the assembly's group mode** (sec 2): an object in another
   geometry group, in another document, or a component already, is added as
   an owned link. A file that saved another mode restores it.
 - Checked in the GUI: an assembly made by the commands shows Origin,
   Elements, Joints (a grounding and a joint, its element links under it),
   Simulations, Exploded Views, then the components.
-- Tests: `AssemblyTests/TestAssemblyGroups.py` (8): the group and its
+- Tests: `AssemblyTests/TestAssemblyGroups.py` (9): the group and its
   owner, the workbench's objects by role and the components and element
   links not, an upstream joint given its proxy after, a solve and a
   simulation through the groups, deleting a group, upstream's three
-  groups converted on open in their order with the label, and Auto. The
+  groups converted on open in their order with the label, the Parts
+  group's components, and Auto. The
   existing tests make upstream's `JointGroup` and keep that path tested.
 
 ### 3.1 The Parts group, and a frozen assembly

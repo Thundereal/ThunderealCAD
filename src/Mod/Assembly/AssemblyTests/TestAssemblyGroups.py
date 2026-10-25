@@ -178,6 +178,35 @@ class TestAssemblyGroups(JointTestBase):
         self.assertEqual(self.assembly.getGroup("Views").Role, "Views")
         self.solve()
 
+    def testThePartsGroupTakesTheComponentsOnly(self):
+        """Not what is the joints', a simulation's, a view's, or another group's"""
+        import CommandCreateSimulation
+        import CommandCreateView
+
+        a, b = self.pair()
+        joint = self.assembly.makeJoint("Revolute", (a, "Face6"), (b, "Face5"))
+        sim = UtilsAssembly.getSimulationGroup(self.assembly).newObject(
+            "Assembly::SimulationPython", "Simulation"
+        )
+        CommandCreateSimulation.Simulation(sim)
+        motion = self.assembly.newObject("Assembly::MotionPython", "Motion")
+        CommandCreateSimulation.Motion(motion, "Angular", joint, "36*time")
+        sim.Group = [motion]
+        view = UtilsAssembly.getViewGroup(self.assembly).newObject(
+            "Assembly::ExplodedViewPython", "Exploded View"
+        )
+        CommandCreateView.ExplodedView(view)
+        step = self.assembly.newObject("Assembly::ExplodedViewStepPython", "Move")
+        CommandCreateView.ExplodedViewStep(step, 0)
+        view.Group = [step]
+        self.assembly.newObject("Assembly::SnapshotGroup", "Snapshots")
+        # As the assembly's context menu makes it (Gui::ViewProviderPart)
+        parts = self.doc.addObject("App::PartAuxGroup", "Parts")
+        parts.Role = "Parts"
+        self.assembly.Group = self.assembly.Group + [parts]
+        parts._Owner = self.assembly
+        self.assertEqual(parts.Group, [a, b])
+
     def testAutoGroupMode(self):
         """A body in another part is added as an owned link, not taken"""
         self.assertEqual(self.assembly.GroupMode, "Auto")

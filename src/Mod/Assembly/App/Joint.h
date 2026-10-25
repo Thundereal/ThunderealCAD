@@ -86,17 +86,14 @@ public:
 
     /// The same enumeration, in the same order, as JointObject.JointTypes
     App::PropertyEnumeration JointType;
-    /// The element link of each side, a child of the assembly
+    /// The element link of each side, a child of the assembly. Its Offset
+    /// is the side's offset: the picked vertex and the user's offset in one
     App::PropertyLink ElementLink1;
     App::PropertyLink ElementLink2;
     /// The joint coordinate systems relative to each side's component, as
     /// the Python joint's are relative to their object; output, for display
     App::PropertyPlacement Placement1;
     App::PropertyPlacement Placement2;
-    /// Upstream's offsets of the two joint coordinate systems, set by the
-    /// user, applied after the element link's own Offset (the picked vertex)
-    App::PropertyPlacement Offset1;
-    App::PropertyPlacement Offset2;
 
     App::PropertyAngle Angle;
     App::PropertyLength Distance;

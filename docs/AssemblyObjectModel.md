@@ -743,14 +743,14 @@ links store `$$Elements.` and `$PinEnd.` instead.
   systems relative to each side's component, as the Python joint's are
   relative to their object, output only (the markers draw them; nothing
   reads them back). `ElementLink1` / `ElementLink2`
-  replace `Reference1/2` and `Detach1/2`: each is a `PropertyLink` to a
-  `Part::ElementLink`, whose own `Offset` is the picked vertex (sec 4.2).
-  `Offset1` / `Offset2` stay, as upstream's: the user's offsets of the two
-  frames, applied after the element link's, so the joint task's offset and
-  rotation keep their meaning and an upstream joint's offsets carry over as
-  they are (step 4c). The frame of a side is the element's frame, then the
-  offsets of the elements down the chain (the deepest first), then the
-  element link's `Offset`, then the joint's.
+  replace `Reference1/2`, `Offset1/2` and `Detach1/2`: each is a
+  `PropertyLink` to a `Part::ElementLink`, whose own `Offset` is the
+  side's whole offset (user, 2026-10-25): the picked vertex (sec 4.2) and
+  the user's offset folded into one placement. The joint task's offset and
+  rotation edit it (step 4b); an upstream joint converts to the vertex's
+  offset times its `OffsetN` (step 4c). The frame of a side is the
+  element's frame, then the offsets of the elements down the chain (the
+  deepest first), then the element link's `Offset`.
 - **Ownership: flat, as everything in the container** (sec 3). The element
   links are direct children of the assembly, so they are in its coordinate
   system and link to their siblings, with no special case in
@@ -829,8 +829,8 @@ Built as step 4a (2026-10-25):
   axis roles).
 - Tests: `AssemblyTests/TestElementJoint.py` (15): the sides for plain
   parts and for a part that declares elements, reuse of an element, the
-  frames of a face, a circle and a cylinder, a vertex as the offset, the
-  joint's offset after it; Fixed, Revolute (the same pose as the Python
+  frames of a face, a circle and a cylinder, a vertex as the offset and
+  a user's offset composed with it; Fixed, Revolute (the same pose as the Python
   joint from the same start) and Distance solved; malformed when both
   sides are one part; the sides from Python; deleting the joint deletes
   its element links and an unused convenience element; saved and
@@ -844,6 +844,24 @@ Built as step 4a (2026-10-25):
   holds the geometry plus an ElementLink with the vertex as its `Offset`
   (sec 4.2). This is the importer of `docs/AssemblyFromAsm3.md` B pointed at
   upstream's files; Assembly3 files map 1:1 onto these objects.
+  - **A side converts to one offset** (user, 2026-10-25: the joint's
+    offsets fold into the element link's). Upstream's side is a
+    reference `[component, [element, vertex]]`, `PlacementN` (the frame
+    relative to the referenced object, `findPlacement`'s or, with
+    `DetachN`, the user's own) and `OffsetN`. The converter takes upstream's
+    frame as it is, `G = global(referenced object) * PlacementN *
+    OffsetN`, makes the element link from `(component, element)` without
+    the vertex, and sets its `Offset = F^-1 * G`, with `F` the element's
+    frame (`findElementFrame`) in the same coordinate system. So every
+    joint keeps its frames exactly, whatever upstream's rules, the
+    vertex, the offsets and the detaching made them, and a re-solve moves
+    nothing.
+  - What does not carry over: upstream's vertex is a live reference, so
+    its point follows a change of the part; here it is fixed in the
+    element's frame. A detached side (`DetachN`) is fixed on upstream's
+    side too, and stays so relative to the element.
+  - Distance and cam joints ignore the vertex upstream (`ignoreVertex`),
+    and their `PlacementN` says so; the rule above needs no case for them.
 - **Opening Assembly3 files** (user, 2026-10-25): Assembly3's own code is
   carried in the tree to do the migration, so the add-on need not be
   installed, and it loads lazily.

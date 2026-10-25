@@ -240,13 +240,17 @@ class TestElementJoint(JointTestBase):
         self.assertIn("A", targets)
         self.assertNotIn("B", targets)
 
-    def testJointOffsetAppliesAfterTheElementLinks(self):
+    def testElementLinkOffsetIsTheSidesOffset(self):
         a = self.box("A")
         b = self.box("B", plc(30, 0, 0))
         self.doc.recompute()
-        joint = self.assembly.makeJoint("Fixed", (a, "Face6"), (b, "Face5"))
-        joint.Offset1 = plc(0, 0, 3)
-        self.assertVecClose(joint.getFrame(1).Base, App.Vector(5, 5, 13))
+        joint = self.assembly.makeJoint("Fixed", (a, "Face6", "Vertex2"), (b, "Face5"))
+        self.assertFalse(hasattr(joint, "Offset1"))
+        # The user's offset composes with the picked vertex's, in the frame
+        link = joint.ElementLink1
+        vertex = joint.getFrame(1).Base
+        link.Offset = link.Offset.multiply(plc(0, 0, 3))
+        self.assertVecClose(joint.getFrame(1).Base, vertex + App.Vector(0, 0, 3))
 
     def testSaveAndRestore(self):
         a = self.box("A")

@@ -299,11 +299,6 @@ Joint::Joint()
                       App::PropertyType(App::Prop_Output | App::Prop_ReadOnly),
                       "The second joint coordinate system, relative to the side's component");
 
-    ADD_PROPERTY_TYPE(Offset1, (Base::Placement()), "Joint Connector 1", App::Prop_None,
-                      "This is the attachment offset of the first connector of the joint");
-    ADD_PROPERTY_TYPE(Offset2, (Base::Placement()), "Joint Connector 2", App::Prop_None,
-                      "This is the attachment offset of the second connector of the joint");
-
     ADD_PROPERTY_TYPE(Angle, (0.0), "Joint", App::Prop_None,
                       "The angle of the joint. It is used only by the Angle joint.");
     ADD_PROPERTY_TYPE(Distance, (0.0), "Joint", App::Prop_None,
@@ -433,15 +428,13 @@ JointSide Joint::getSide(int side) const
     for (auto it = offsets.rbegin(); it != offsets.rend(); ++it) {
         res.frame = res.frame * *it;
     }
-    res.frame = res.frame * res.link->Offset.getValue()
-        * (side == 1 ? Offset1 : Offset2).getValue();
+    res.frame = res.frame * res.link->Offset.getValue();
     return res;
 }
 
 short Joint::mustExecute() const
 {
-    if (ElementLink1.isTouched() || ElementLink2.isTouched() || Offset1.isTouched()
-        || Offset2.isTouched()) {
+    if (ElementLink1.isTouched() || ElementLink2.isTouched()) {
         return 1;
     }
     return App::DocumentObject::mustExecute();

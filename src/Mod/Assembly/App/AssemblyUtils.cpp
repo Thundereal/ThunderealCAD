@@ -111,9 +111,6 @@ void swapJCS(const App::DocumentObject* joint)
         auto* link1 = j->ElementLink1.getValue();
         j->ElementLink1.setValue(j->ElementLink2.getValue());
         j->ElementLink2.setValue(link1);
-        const auto offset1 = j->Offset1.getValue();
-        j->Offset1.setValue(j->Offset2.getValue());
-        j->Offset2.setValue(offset1);
         return;
     }
 

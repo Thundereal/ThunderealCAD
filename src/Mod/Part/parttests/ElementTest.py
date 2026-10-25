@@ -221,3 +221,59 @@ class ElementTest(unittest.TestCase):
         link = Part.makeElementLink(part, part.Elements, "$Top.")
         self.assertFalse(element.Visibility)
         self.assertFalse(link.Visibility)
+
+    def topVertex(self, box):
+        """The name of a vertex of the box's top face, and the vertex"""
+        for i, v in enumerate(box.Shape.Vertexes):
+            if abs(v.Point.z - box.Height.Value) < 1e-9 and v.Point.x < 1e-9 and v.Point.y < 1e-9:
+                return "Vertex%d" % (i + 1), v
+        self.fail("no top vertex")
+
+    def testElementLinkVertexDrivesTheOffset(self):
+        part, box = self.makePart("Part")
+        Part.makeElement(part, box, "Face6", "Top")
+        link = Part.makeElementLink(part, part.Elements, "$Top.")
+        self.doc.recompute()
+        # The top face's frame is at its centre, z up; the vertex at (0, 0, 10)
+        name, _ = self.topVertex(box)
+        link.Vertex = (box, [name])
+        self.doc.recompute()
+        self.assertTrue(link.VertexPosition.isEqual(FreeCAD.Vector(-5, -5, 0), 1e-9))
+        self.assertTrue(link.Offset.Base.isEqual(FreeCAD.Vector(-5, -5, 0), 1e-9))
+
+        # The user's share of the offset stays as the vertex moves
+        link.Offset = link.Offset.multiply(FreeCAD.Placement(FreeCAD.Vector(0, 0, 3), FreeCAD.Rotation()))
+        box.Length = 20
+        self.doc.recompute()
+        self.assertTrue(link.VertexPosition.isEqual(FreeCAD.Vector(-10, -5, 0), 1e-9))
+        self.assertTrue(link.Offset.Base.isEqual(FreeCAD.Vector(-10, -5, 3), 1e-9))
+
+        # No vertex: its share is taken back out
+        link.Vertex = None
+        self.doc.recompute()
+        self.assertTrue(link.Offset.Base.isEqual(FreeCAD.Vector(0, 0, 3), 1e-9))
+        self.assertTrue(link.VertexPosition.isEqual(FreeCAD.Vector(), 1e-9))
+
+    def testCopiesFollowThroughAPart(self):
+        # The parts and groups between a link and its geometry do not change
+        # when the geometry does: the copies still follow it
+        part, box = self.makePart("Part")
+        outer = self.doc.addObject("App::Part", "Outer")
+        outer.addObject(part)
+        Part.makeElement(part, box, "Face6", "Top")
+        through = Part.makeElement(outer, part, "%s.Face6" % box.Name, "Through")
+        reexport = Part.makeElement(outer, part, "$$Elements.$Top.", "Again")
+        link = Part.makeElementLink(outer, outer.Elements, "$Through.")
+        self.doc.recompute()
+        box.Length = 20
+        self.doc.recompute()
+        for obj in (through, reexport, link):
+            self.assertSameFace(obj.Shape, box.Shape.Face6)
+
+    def testElementLinkVertexMustBeAVertex(self):
+        part, box = self.makePart("Part")
+        Part.makeElement(part, box, "Face6", "Top")
+        link = Part.makeElementLink(part, part.Elements, "$Top.")
+        link.Vertex = (box, ["Edge1"])
+        self.doc.recompute()
+        self.assertIn("Invalid", link.State)

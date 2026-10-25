@@ -65,140 +65,6 @@ using namespace Assembly;
 namespace
 {
 
-Base::Rotation rotationOf(const gp_Ax2& ax)
-{
-    gp_Trsf trsf;
-    trsf.SetTransformation(gp_Ax3(ax), gp_Ax3());
-    const auto q = trsf.GetRotation();
-    return Base::Rotation(q.X(), q.Y(), q.Z(), q.W());
-}
-
-Base::Vector3d toVector(const gp_XYZ& p)
-{
-    return Base::Vector3d(p.X(), p.Y(), p.Z());
-}
-
-double round10(double v)
-{
-    return std::round(v * 1e10) / 1e10;
-}
-
-/// The rotation Part.Plane(origin, normal) has: the one OCCT picks for an
-/// axis with only its direction given. The direction is rounded first, as
-/// UtilsAssembly.round_vector does, so that a direction a hair off an axis
-/// gets the axis' frame.
-Base::Rotation rotationOfNormal(const gp_Dir& dir)
-{
-    gp_Dir rounded(round10(dir.X()), round10(dir.Y()), round10(dir.Z()));
-    return rotationOf(gp_Ax3(gp_Pnt(), rounded).Ax2());
-}
-
-/// A shape of one sub-shape is that sub-shape
-TopoDS_Shape unwrap(TopoDS_Shape shape)
-{
-    while (!shape.IsNull() && shape.ShapeType() == TopAbs_COMPOUND) {
-        TopoDS_Iterator it(shape);
-        if (!it.More()) {
-            break;
-        }
-        TopoDS_Shape child = it.Value();
-        it.Next();
-        if (it.More()) {
-            break;
-        }
-        child.Move(shape.Location());
-        shape = child;
-    }
-    return shape;
-}
-
-Base::Placement edgeFrame(const TopoDS_Edge& edge)
-{
-    Base::Placement plc;
-    const auto curve = analyzeEdge(edge);
-
-    // The origin
-    if (curve.type == GeomAbs_Circle && !curve.curve.IsNull()) {
-        auto circle = Handle(Geom_Circle)::DownCast(curve.curve);
-        plc.setPosition(toVector(circle->Location().XYZ()));
-    }
-    else if (curve.type == GeomAbs_Line) {
-        TopoDS_Vertex v1, v2;
-        TopExp::Vertices(edge, v1, v2);
-        if (!v1.IsNull() && !v2.IsNull()) {
-            plc.setPosition(
-                (toVector(BRep_Tool::Pnt(v1).XYZ()) + toVector(BRep_Tool::Pnt(v2).XYZ())) * 0.5
-            );
-        }
-    }
-    else {
-        gp_Pln pln;
-        if (Part::TopoShape(edge).findPlane(pln)) {
-            // Another planar curve, at its centre of mass, which is in its plane
-            GProp_GProps props;
-            BRepGProp::LinearProperties(edge, props);
-            plc.setPosition(toVector(props.CentreOfMass().XYZ()));
-        }
-    }
-
-    // The rotation
-    if (curve.type == GeomAbs_Circle && !curve.curve.IsNull()) {
-        auto circle = Handle(Geom_Circle)::DownCast(curve.curve);
-        plc.setRotation(rotationOf(circle->Position()));
-    }
-    else if (curve.type == GeomAbs_Line) {
-        BRepAdaptor_Curve adaptor(edge);
-        plc.setRotation(rotationOfNormal(adaptor.Line().Direction()));
-    }
-    else {
-        gp_Pln pln;
-        if (Part::TopoShape(edge).findPlane(pln)) {
-            plc.setRotation(rotationOf(pln.Position().Ax2()));
-        }
-    }
-    return plc;
-}
-
-Base::Placement faceFrame(const TopoDS_Face& face)
-{
-    Base::Placement plc;
-    const auto analyzed = analyzeFace(face);
-    auto surface = Handle(Geom_ElementarySurface)::DownCast(analyzed.surface);
-
-    GProp_GProps props;
-    BRepGProp::SurfaceProperties(face, props);
-    const Base::Vector3d cog = toVector(props.CentreOfMass().XYZ());
-
-    // The origin
-    if (analyzed.type == GeomAbs_Cylinder && !surface.IsNull()) {
-        // The point of the axis level with the centre of gravity
-        const auto& pos = surface->Position();
-        const Base::Vector3d center = toVector(pos.Location().XYZ());
-        const Base::Vector3d axis = toVector(pos.Direction().XYZ());
-        const Base::Vector3d rel = cog - center;
-        plc.setPosition(center + axis * ((rel * axis) / axis.Sqr()));
-    }
-    else if ((analyzed.type == GeomAbs_Sphere || analyzed.type == GeomAbs_Torus)
-             && !surface.IsNull()) {
-        plc.setPosition(toVector(surface->Position().Location().XYZ()));
-    }
-    else if (analyzed.type == GeomAbs_Cone && !surface.IsNull()) {
-        auto cone = Handle(Geom_ConicalSurface)::DownCast(surface);
-        if (!cone.IsNull()) {
-            plc.setPosition(toVector(cone->Apex().XYZ()));
-        }
-    }
-    else {
-        plc.setPosition(cog);
-    }
-
-    // The rotation: the surface's own frame, when it has one
-    if (!surface.IsNull()) {
-        plc.setRotation(rotationOf(surface->Position().Ax2()));
-    }
-    return plc;
-}
-
 /// The direct child of the assembly an object is, or null
 App::DocumentObject* directChild(const AssemblyObject* assembly, App::DocumentObject* obj)
 {
@@ -226,32 +92,12 @@ const char* sideName(int side)
 
 // ------------------------------------------------------------------------
 
-Base::Placement Assembly::findElementFrame(const Part::TopoShape& shape)
-{
-    if (shape.isNull()) {
-        return {};
-    }
-    const TopoDS_Shape s = unwrap(shape.getShape());
-    switch (s.ShapeType()) {
-        case TopAbs_VERTEX:
-            return Base::Placement(toVector(BRep_Tool::Pnt(TopoDS::Vertex(s)).XYZ()),
-                                   Base::Rotation());
-        case TopAbs_EDGE:
-            return edgeFrame(TopoDS::Edge(s));
-        case TopAbs_FACE:
-            return faceFrame(TopoDS::Face(s));
-        default:
-            // A whole object (a datum, a body): its own frame
-            return shape.getPlacement();
-    }
-}
-
 std::string JointSide::elementType() const
 {
     if (shape.isNull()) {
         return {};
     }
-    switch (unwrap(shape.getShape()).ShapeType()) {
+    switch (Part::singleSubShape(shape.getShape()).ShapeType()) {
         case TopAbs_VERTEX:
             return "Vertex";
         case TopAbs_EDGE:
@@ -714,18 +560,11 @@ Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
     }
 
     if (vertex && *vertex) {
-        // The vertex places the origin on the element, in the element's
-        // frame. The geometry is the pick's: the new element has no copy yet.
-        auto shape = Part::Feature::getTopoShape(component, sub.c_str(), true);
-        auto point = Part::Feature::getTopoShape(component, vertex, true);
-        const TopoDS_Shape v = point.isNull() ? TopoDS_Shape() : unwrap(point.getShape());
-        if (!shape.isNull() && !v.IsNull() && v.ShapeType() == TopAbs_VERTEX) {
-            const auto frame = findElementFrame(shape);
-            const Base::Vector3d pos = toVector(BRep_Tool::Pnt(TopoDS::Vertex(v)).XYZ());
-            Base::Vector3d local = pos - frame.getPosition();
-            frame.getRotation().inverse().multVec(local, local);
-            link->Offset.setValue(Base::Placement(local, Base::Rotation()));
-        }
+        // The vertex places the origin on the element: the element link
+        // keeps it, and its Offset follows it. Followed now on the pick's
+        // geometry: the new element has no copy yet.
+        link->Vertex.setValue(component, std::vector<std::string> {vertex});
+        link->updateVertexOffset(Part::Feature::getTopoShape(component, sub.c_str(), true));
     }
     return link;
 }

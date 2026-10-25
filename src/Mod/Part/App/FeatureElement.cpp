@@ -25,6 +25,10 @@
 
 #include <algorithm>
 
+#include <BRep_Tool.hxx>
+#include <TopoDS.hxx>
+#include <gp_Pnt.hxx>
+
 #include <App/Application.h>
 #include <App/AuxGroup.h>
 #include <App/Document.h>
@@ -33,6 +37,7 @@
 #include <Base/Tools.h>
 
 #include "FeatureElement.h"
+#include "ElementGeometry.h"
 
 using namespace Part;
 
@@ -46,6 +51,34 @@ static TopoShape linkedShape(const App::PropertyLinkSub &prop)
     const auto &subs = prop.getSubValues();
     const char *sub = subs.empty() ? "" : subs.front().c_str();
     return Feature::getTopoShape(obj, sub, true);
+}
+
+/// The object a link's subname resolves to, when not the linked object
+static App::DocumentObject *resolvedObject(const App::PropertyLinkSub &prop)
+{
+    auto obj = prop.getValue();
+    if (!obj || !obj->isAttachedToDocument())
+        return nullptr;
+    const auto &subs = prop.getSubValues();
+    if (subs.empty() || subs.front().empty())
+        return nullptr;
+    auto sobj = obj->getSubObject(subs.front().c_str());
+    return sobj && sobj != obj ? sobj : nullptr;
+}
+
+/// Keep \a resolved on what \a prop resolves to
+static void syncResolved(App::PropertyXLink &resolved, const App::PropertyLinkSub &prop)
+{
+    auto obj = resolvedObject(prop);
+    if (resolved.getValue() != obj)
+        resolved.setValue(obj);
+}
+
+static bool isEditing(const App::DocumentObject *obj)
+{
+    auto doc = obj->getDocument();
+    return doc && !obj->isRestoring() && !obj->isRemoving()
+        && !doc->testStatus(App::Document::Restoring) && !doc->isPerformingTransaction();
 }
 
 /// Keep \a shape as the copy, where it is: a feature's Placement is its
@@ -67,6 +100,10 @@ Element::Element()
             "for every user of the element");
     ADD_PROPERTY_TYPE(Detach, (false), "Element", App::Prop_None,
             "Keep the copy of the geometry and stop following the target");
+    ADD_PROPERTY_TYPE(_Resolved, (nullptr), "Element",
+            (App::PropertyType)(App::Prop_Hidden|App::Prop_Output),
+            "What Target resolves to, the dependency on the geometry itself");
+    _Resolved.setScope(App::LinkScope::Global);
     // The link copies geometry and places nothing: Global scope keeps it out
     // of the coordinate-system checks and of what moves with what
     Target.setScope(App::LinkScope::Global);
@@ -78,6 +115,7 @@ App::DocumentObjectExecReturn *Element::execute()
         return App::DocumentObject::StdReturn;
     if (!Target.getValue())
         return new App::DocumentObjectExecReturn("No target");
+    syncResolved(_Resolved, Target);
     auto shape = linkedShape(Target);
     if (shape.isNull())
         return new App::DocumentObjectExecReturn("Target not found");
@@ -89,14 +127,35 @@ void Element::onChanged(const App::Property *prop)
 {
     // What the target is may decide where the element is shown: a body
     // shows it under the solid body of its target feature
-    auto doc = getDocument();
-    if (prop == &Target && doc && !isRestoring() && !isRemoving()
-            && !doc->testStatus(App::Document::Restoring)
-            && !doc->isPerformingTransaction()) {
+    if (prop == &Target && isEditing(this)) {
+        syncResolved(_Resolved, Target);
         if (auto owner = dynamic_cast<App::AuxGroupOwner*>(getContainer()))
             owner->onElementsChanged();
     }
+    if (prop == &Shape && !isRestoring())
+        touchGroups();
     inherited::onChanged(prop);
+}
+
+void Element::touchGroups()
+{
+    // What reads the copy through the group, or through the container's
+    // "$$Elements." -- a link's shape -- may hold a cached shape: the
+    // group, then the container, say that a child changed, as a group's
+    // _GroupTouched does
+    auto group = getElementsGroup();
+    if (!group)
+        return;
+    group->_GroupTouched.touch();
+    auto container = group->getOwner();
+    auto touched = container ? Base::freecad_dynamic_cast<App::PropertyBool>(
+            container->getPropertyByName("_GroupTouched")) : nullptr;
+    if (touched && touched->getContainer() == container) {
+        // As an output, so that the container is not marked for recompute
+        Base::ObjectStatusLocker<App::Property::Status, App::Property> guard(
+                App::Property::Output, touched);
+        touched->touch();
+    }
 }
 
 App::AuxGroup *Element::getElementsGroup() const
@@ -182,6 +241,15 @@ ElementLink::ElementLink()
             "elements, or the container's own Elements group and an element");
     ADD_PROPERTY_TYPE(Offset, (Base::Placement()), "Element", App::Prop_None,
             "A placement of the frame relative to the element's, for this use only");
+    ADD_PROPERTY_TYPE(Vertex, (nullptr), "Element", App::Prop_None,
+            "A vertex placing the frame's origin on the element; Offset follows it");
+    ADD_PROPERTY_TYPE(VertexPosition, (Base::Vector3d()), "Element", App::Prop_Hidden,
+            "Where Vertex was in the element's frame when Offset last followed it");
+    ADD_PROPERTY_TYPE(_Resolved, (nullptr), "Element",
+            (App::PropertyType)(App::Prop_Hidden|App::Prop_Output),
+            "What Element resolves to, the dependency on the geometry itself");
+    _Resolved.setScope(App::LinkScope::Global);
+    Vertex.setScope(App::LinkScope::Global);
     // As Element::Target: a copy of geometry, out of the coordinate-system
     // checks
     Element.setScope(App::LinkScope::Global);
@@ -212,9 +280,53 @@ App::DocumentObjectExecReturn *ElementLink::execute()
 {
     if (!Element.getValue())
         return new App::DocumentObjectExecReturn("No element");
+    syncResolved(_Resolved, Element);
     auto shape = linkedShape(Element);
     if (shape.isNull())
         return new App::DocumentObjectExecReturn("Element not found");
     setCopy(this, shape);
+    if (!updateVertexOffset(shape))
+        return new App::DocumentObjectExecReturn("Vertex not found");
     return App::DocumentObject::StdReturn;
+}
+
+void ElementLink::onChanged(const App::Property *prop)
+{
+    if (prop == &Element && isEditing(this))
+        syncResolved(_Resolved, Element);
+    inherited::onChanged(prop);
+}
+
+bool ElementLink::getVertexPoint(Base::Vector3d &point) const
+{
+    if (!Vertex.getValue())
+        return false;
+    auto shape = linkedShape(Vertex);
+    if (shape.isNull())
+        return false;
+    const TopoDS_Shape s = singleSubShape(shape.getShape());
+    if (s.IsNull() || s.ShapeType() != TopAbs_VERTEX)
+        return false;
+    const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(s));
+    point = Base::Vector3d(p.X(), p.Y(), p.Z());
+    return true;
+}
+
+bool ElementLink::updateVertexOffset(const TopoShape &element)
+{
+    // The vertex in the element's frame; none is the frame's own origin
+    Base::Vector3d pos;
+    if (Vertex.getValue()) {
+        Base::Vector3d point;
+        if (element.isNull() || !getVertexPoint(point))
+            return false;
+        findElementFrame(element).inverse().multVec(point, pos);
+    }
+    const Base::Vector3d old = VertexPosition.getValue();
+    if (pos.IsEqual(old, 1e-12))
+        return true;
+    // Offset = T(pos) * T(old)^-1 * Offset: only the vertex's share moves
+    Offset.setValue(Base::Placement(pos - old, Base::Rotation()) * Offset.getValue());
+    VertexPosition.setValue(pos);
+    return true;
 }

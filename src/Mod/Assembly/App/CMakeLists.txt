@@ -103,7 +103,6 @@ SET(Assembly_SRCS
     BomObject.h
     CamJoint.cpp
     CamJoint.h
-    ElementGeometry.cpp
     ElementGeometry.h
     Groups.cpp
     Groups.h

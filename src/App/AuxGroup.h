@@ -107,6 +107,12 @@ public:
     PropertyLinkList Group;
     /// The kind of children shown; empty for a curated group
     PropertyString Role;
+    /** Touched when a child of an owning group changes, as a group's
+     * _GroupTouched and a link's _LinkTouched are: an output, so the group
+     * is not marked for recompute, but what caches through it (the shape
+     * cache of a subname into the group) is told
+     */
+    PropertyBool _GroupTouched;
 
     const char* getViewProviderName() const override {
         return "Gui::ViewProviderAuxGroup";

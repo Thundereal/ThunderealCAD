@@ -40,6 +40,8 @@
 
 #include <Mod/Assembly/AssemblyGlobal.h>
 
+#include "ElementGeometry.h"
+
 namespace Part
 {
 class ElementLink;
@@ -50,11 +52,6 @@ namespace Assembly
 
 class AssemblyObject;
 
-/// The frame a joint puts on an element: a vertex, an edge or a face, or a
-/// whole object's shape. UtilsAssembly.findPlacement's rules, on a shape in
-/// one coordinate system (the assembly's) and without the second, vertex,
-/// sub-element: a picked vertex is the element link's Offset instead.
-AssemblyExport Base::Placement findElementFrame(const Part::TopoShape& shape);
 
 /// What one side of a joint resolves to
 struct AssemblyExport JointSide

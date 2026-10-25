@@ -26,6 +26,9 @@
 
 #include "ViewProvider.h"
 
+class SoCoordinate3;
+class SoSwitch;
+
 namespace PartGui
 {
 
@@ -70,9 +73,19 @@ class PartGuiExport ViewProviderElementLink : public ViewProviderElement
 
 public:
     ViewProviderElementLink();
+    ~ViewProviderElementLink() override;
+
+    void attach(App::DocumentObject *obj) override;
+    void updateData(const App::Property *prop) override;
 
 protected:
     App::Color defaultColor() const override;
+
+private:
+    /// The link's Vertex, a bigger point in its own color, in every mode
+    void updateVertexMark();
+    SoSwitch *pcVertexMark;
+    SoCoordinate3 *pcVertexCoord;
 };
 
 }  // namespace PartGui

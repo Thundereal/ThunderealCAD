@@ -136,11 +136,22 @@ class TestElementJoint(JointTestBase):
         b = self.box("B", plc(30, 0, 0))
         # A pick is made on shapes that are there
         self.doc.recompute()
-        joint = self.assembly.makeJoint("Fixed", (a, "Face6", "Vertex2"), (b, "Face5"))
+        top = next(
+            "Vertex%d" % (i + 1)
+            for i, v in enumerate(a.Shape.Vertexes)
+            if abs(v.Point.z - 10) < 1e-9 and v.Point.x < 1e-9 and v.Point.y < 1e-9
+        )
+        joint = self.assembly.makeJoint("Fixed", (a, "Face6", top), (b, "Face5"))
         p1, _ = self.frames(joint, a, b)
-        self.assertVecClose(p1.Base, a.Shape.Vertex2.Point)
+        self.assertVecClose(p1.Base, a.getSubObject(top).Point)
         self.assertVecClose(zaxis(p1), Z)
         self.assertFalse(joint.ElementLink1.Offset.isIdentity())
+        # The element link keeps the vertex, and its Offset follows it
+        self.assertEqual(joint.ElementLink1.Vertex[0], a)
+        self.assertEqual(joint.ElementLink1.Vertex[1], [top])
+        a.Length = 20
+        p1, _ = self.frames(joint, a, b)
+        self.assertVecClose(p1.Base, a.getSubObject(top).Point)
 
     # ------------------------------------------------------------ solving
 

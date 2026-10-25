@@ -31,9 +31,18 @@
 #include <App/Application.h>
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
+#include <Inventor/nodes/SoCoordinate3.h>
+#include <Inventor/nodes/SoDrawStyle.h>
+#include <Inventor/nodes/SoLightModel.h>
+#include <Inventor/nodes/SoMaterial.h>
+#include <Inventor/nodes/SoPointSet.h>
+#include <Inventor/nodes/SoSeparator.h>
+#include <Inventor/nodes/SoSwitch.h>
+
 #include <Gui/ActionFunction.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
+#include <Mod/Part/App/ElementGeometry.h>
 #include <Mod/Part/App/FeatureElement.h>
 
 #include "ViewProviderElement.h"
@@ -113,6 +122,66 @@ PROPERTY_SOURCE(PartGui::ViewProviderElementLink, PartGui::ViewProviderElement)
 ViewProviderElementLink::ViewProviderElementLink()
 {
     applyStyle();
+
+    pcVertexMark = new SoSwitch;
+    pcVertexMark->ref();
+    pcVertexMark->whichChild = SO_SWITCH_NONE;
+    auto sep = new SoSeparator;
+    auto light = new SoLightModel;
+    light->model = SoLightModel::BASE_COLOR;
+    sep->addChild(light);
+    auto material = new SoMaterial;
+    // Yellow, opaque, against the link's half transparent red
+    material->diffuseColor.setValue(1.0f, 1.0f, 0.0f);
+    material->transparency = 0.0f;
+    sep->addChild(material);
+    auto style = new SoDrawStyle;
+    style->pointSize = 10.0f;
+    sep->addChild(style);
+    pcVertexCoord = new SoCoordinate3;
+    sep->addChild(pcVertexCoord);
+    sep->addChild(new SoPointSet);
+    pcVertexMark->addChild(sep);
+}
+
+ViewProviderElementLink::~ViewProviderElementLink()
+{
+    pcVertexMark->unref();
+}
+
+void ViewProviderElementLink::attach(App::DocumentObject *obj)
+{
+    inherited::attach(obj);
+    for (SoGroup *root : {pFaceEdgeRoot.get(), pFaceRoot.get(), pEdgeRoot.get(), pVertexRoot.get()}) {
+        if (root)
+            root->addChild(pcVertexMark);
+    }
+    updateVertexMark();
+}
+
+void ViewProviderElementLink::updateData(const App::Property *prop)
+{
+    inherited::updateData(prop);
+    auto link = Base::freecad_dynamic_cast<Part::ElementLink>(getObject());
+    if (link && (prop == &link->Shape || prop == &link->Vertex || prop == &link->VertexPosition))
+        updateVertexMark();
+}
+
+void ViewProviderElementLink::updateVertexMark()
+{
+    auto link = Base::freecad_dynamic_cast<Part::ElementLink>(getObject());
+    if (!link || !link->Vertex.getValue() || link->Shape.getShape().isNull()) {
+        pcVertexMark->whichChild = SO_SWITCH_NONE;
+        return;
+    }
+    // Where the frame's origin is put: VertexPosition in the element's frame,
+    // drawn under the link's own placement
+    const Base::Placement frame = Part::findElementFrame(link->Shape.getShape());
+    Base::Vector3d point;
+    frame.multVec(link->VertexPosition.getValue(), point);
+    link->Placement.getValue().inverse().multVec(point, point);
+    pcVertexCoord->point.setValue(float(point.x), float(point.y), float(point.z));
+    pcVertexMark->whichChild = 0;
 }
 
 App::Color ViewProviderElementLink::defaultColor() const

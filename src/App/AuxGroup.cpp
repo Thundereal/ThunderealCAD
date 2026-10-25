@@ -71,6 +71,9 @@ AuxGroup::AuxGroup()
     ADD_PROPERTY_TYPE(Role, (""), "Base",
             (App::PropertyType)(App::Prop_Hidden|App::Prop_ReadOnly),
             "The kind of children shown; empty for a group the user fills");
+    ADD_PROPERTY_TYPE(_GroupTouched, (false), "Base",
+            (App::PropertyType)(App::Prop_Hidden|App::Prop_Output|App::Prop_Transient),
+            "Touched when a child of an owning group changes");
 }
 
 AuxGroup::~AuxGroup() = default;

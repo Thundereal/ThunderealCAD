@@ -65,6 +65,12 @@ public:
     App::PropertyPlacement Offset;
     /// Keep the copy and stop following the target
     App::PropertyBool Detach;
+    /** What Target resolves to, when not the target itself: hidden, kept
+     * in step. A change reaches a dependent only through objects that
+     * change, and those between (a part, an Elements group, a link) do not:
+     * this is the dependency on the geometry itself.
+     */
+    App::PropertyXLink _Resolved;
 
     App::DocumentObjectExecReturn *execute() override;
     void onChanged(const App::Property *prop) override;
@@ -103,6 +109,9 @@ public:
      */
     static bool autoVisibility();
     static void setAutoVisibility(bool on);
+
+private:
+    void touchGroups();
 };
 
 /** How a container uses an element, for a joint of its own
@@ -125,8 +134,35 @@ public:
     App::PropertyLinkSub Element;
     /// A placement of the frame relative to the element's, for this use only
     App::PropertyPlacement Offset;
+    /// A vertex placing the frame's origin on the element: a direct child of
+    /// the container and the subname to the vertex. Offset follows it.
+    App::PropertyLinkSub Vertex;
+    /// Where Vertex was in the element's frame when Offset last followed it
+    App::PropertyVector VertexPosition;
+    /** What Element resolves to, when not the target itself: hidden, kept
+     * in step. A change reaches a dependent only through objects that
+     * change, and those between (a part, an Elements group, a link) do not:
+     * this is the dependency on the geometry itself.
+     */
+    App::PropertyXLink _Resolved;
 
     App::DocumentObjectExecReturn *execute() override;
+
+    /** Make Offset follow Vertex
+     *
+     * @param element: the element's geometry in the container's coordinate
+     *                 system
+     *
+     * The vertex's move in the element's frame since VertexPosition moves
+     * Offset's origin by as much; the rest of Offset, the user's, stays.
+     * With no Vertex, the last position is taken back out.
+     *
+     * @return false when Vertex is set and is not a vertex now
+     */
+    bool updateVertexOffset(const TopoShape &element);
+    /// The vertex in the container's coordinate system, when Vertex is one
+    bool getVertexPoint(Base::Vector3d &point) const;
+
     const char *getViewProviderName() const override {
         return "PartGui::ViewProviderElementLink";
     }
@@ -141,6 +177,9 @@ public:
     static ElementLink *create(App::DocumentObject *container,
                                App::DocumentObject *obj,
                                const char *subname);
+
+protected:
+    void onChanged(const App::Property *prop) override;
 };
 
 }  // namespace Part

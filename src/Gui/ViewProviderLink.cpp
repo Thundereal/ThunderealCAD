@@ -1402,6 +1402,15 @@ void LinkView::setChildren(const std::vector<App::DocumentObject*> &children,
                         auto &info = *nodeArray[idx];
                         info.groupIndex = -1;
                         info.link(obj);
+                        if (!info.isLinked()) {
+                            // No view provider to show: the full rebuild
+                            // below skips it, as it skips any such child
+                            nodeArray.erase(nodeArray.begin()+idx);
+                            idx = -1;
+                        }
+                    }
+                    if (idx >= 0) {
+                        auto &info = *nodeArray[idx];
                         auto node = info.getTopNode();
                         for (auto it = nodeArray.begin()+idx; it != nodeArray.end(); ++it) {
                             auto n = (*it)->getTopNode();

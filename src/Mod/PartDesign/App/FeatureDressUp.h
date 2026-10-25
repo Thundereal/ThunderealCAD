@@ -104,6 +104,18 @@ protected:
     /// The faces of \a names' dress-ups not made in this session, found in
     /// the result about to be replaced (docs/HandsOnQueue.md entry 160)
     void seedMadeFaces(const std::vector<std::string> &names);
+    /** Where the dress-up failed on some edges (\a failed, indices into
+     * \a edges): the slivers at them -- faces narrower than \a maxWidth, see
+     * Part::TopoShape::makESliverFree -- taken out of \a baseShape, and
+     * \a edges and \a extra replaced by what they are after it (an entry of
+     * \a extra null where its shape went). \a removed gets the slivers'
+     * names in the old \a baseShape. False, nothing changed, when none is
+     * taken out or an edge does not come through whole.
+     */
+    bool removeSlivers(TopoShape &baseShape, std::vector<TopoShape> &edges,
+                       const std::vector<int> &failed, double maxWidth,
+                       std::vector<TopoDS_Shape> &extra,
+                       std::vector<std::string> &removed) const;
 public:
     /** The faces \a edge's dress-up had when last made in this session, or
      * as the file's result had them for an edge missing since the open;

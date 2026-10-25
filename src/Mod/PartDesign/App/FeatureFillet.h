@@ -43,6 +43,7 @@ public:
     Part::PropertyFilletSegments Segments;
     Part::PropertyFilletCorners Corners;
     App::PropertyBool UseAllEdges;
+    App::PropertyBool RemoveSlivers;
     /// 1 from the first: a fillet's end that would cut into the body past
     /// its vertex is flat (Part::FilletFlatEnd); 0, a file's from before
     App::PropertyInteger _Version;

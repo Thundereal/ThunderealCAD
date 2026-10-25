@@ -47,6 +47,8 @@
 #include "FeatureChamfer.h"
 
 
+FC_LOG_LEVEL_INIT("PartDesign",true,true)
+
 using namespace PartDesign;
 
 
@@ -79,6 +81,12 @@ Chamfer::Chamfer()
     ADD_PROPERTY_TYPE(UseAllEdges, (false), "Chamfer", App::Prop_None,
              "Chamfer all edges if true, else use only those edges in Base property.\n"
              "If true, then this overrides any edge changes made to the Base property or in the dialog.\n");
+
+    ADD_PROPERTY_TYPE(RemoveSlivers, (true), "Chamfer", App::Prop_None,
+             "Where the chamfer of an edge fails: take out the faces narrower than a quarter of\n"
+             "its size at its ends -- most often a step left between two features meant to\n"
+             "meet -- their neighbours extended over them, and chamfer again. Kept only when\n"
+             "fewer chamfers fail; the faces taken out are reported.");
 
     ADD_PROPERTY(ChamferInfo,());
     ChamferInfo.connectLinkProperty(Base);
@@ -174,13 +182,43 @@ App::DocumentObjectExecReturn *Chamfer::execute()
         if (shape.isNull())
             return new App::DocumentObjectExecReturn(QT_TRANSLATE_NOOP("Exception", "Failed to create chamfer"));
 
+        // A chamfer that failed at a sliver: tried again with the slivers
+        // taken out, kept when fewer fail (as Fillet::execute())
+        TopoShape usedBase = baseShape;
+        if (!partial.failed.empty() && RemoveSlivers.getValue()) {
+            TopoShape freedBase = baseShape;
+            auto freedEdges = edges;
+            std::vector<TopoDS_Shape> extra;
+            std::vector<std::string> slivers;
+            if (removeSlivers(freedBase, freedEdges, partial.failed, size / 4.0, extra, slivers)) {
+                try {
+                    TopoShape retry(0, getDocument()->getStringHasher());
+                    Part::TopoShape::FilletPartial retryPartial;
+                    retry.makEChamfer(freedBase, freedEdges, chamferInfo, nullptr, &retryPartial);
+                    if (!retry.isNull() && retryPartial.failed.size() < partial.failed.size()) {
+                        std::string names;
+                        for (const auto &name : slivers)
+                            names += " " + name;
+                        FC_WARN(getFullName() << ": sliver faces taken out to chamfer:" << names);
+                        shape = retry;
+                        partial = retryPartial;
+                        usedBase = freedBase;
+                    }
+                }
+                catch (Base::Exception &) {
+                }
+                catch (Standard_Failure &) {
+                }
+            }
+        }
+
         // The faces of each edge's chamfer, kept for when it fails later; the
         // failed ones' as last made
         std::vector<std::string> failedNames;
         setFailedEdges(baseShape, edges, partial, missing, failedNames);
 
         TopTools_ListOfShape aLarg;
-        aLarg.Append(baseShape.getShape());
+        aLarg.Append(usedBase.getShape());
         bool failed = false;
         // Checked as it will be kept: a run on copies puts back what it did
         // not change (as Fillet::execute(), entry 160)

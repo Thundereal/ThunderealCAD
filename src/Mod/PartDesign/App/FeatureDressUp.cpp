@@ -34,6 +34,8 @@
 
 
 #include <boost/algorithm/string/predicate.hpp>
+#include <BRepTools_History.hxx>
+#include <TopTools_ListOfShape.hxx>
 
 #include "FeatureDressUp.h"
 #include <Base/Console.h>
@@ -184,6 +186,53 @@ void DressUp::setFailedEdges(const TopoShape &baseShape, const std::vector<TopoS
             madeFaces[name] = partial.faces[k];
     }
     setFailedEdges(failedNames);
+}
+
+bool DressUp::removeSlivers(TopoShape &baseShape, std::vector<TopoShape> &edges,
+                            const std::vector<int> &failed, double maxWidth,
+                            std::vector<TopoDS_Shape> &extra,
+                            std::vector<std::string> &removed) const
+{
+    std::vector<TopoShape> at;
+    for (int i : failed) {
+        if (i >= 0 && i < static_cast<int>(edges.size()))
+            at.push_back(edges[i]);
+    }
+    TopoShape freed(0, getDocument()->getStringHasher());
+    Handle(BRepTools_History) history;
+    std::vector<TopoShape> slivers;
+    if (!freed.makESliverFree(baseShape, at, maxWidth, &history, &slivers) || history.IsNull())
+        return false;
+
+    // A sub-shape of the old base as it is in the new one: itself where the
+    // removal left it, null where it went or was split
+    auto mapped = [&](const TopoDS_Shape &s) {
+        if (s.IsNull() || history->IsRemoved(s))
+            return TopoDS_Shape();
+        const TopTools_ListOfShape &modified = history->Modified(s);
+        if (modified.IsEmpty())
+            return s;
+        return modified.Extent() == 1 ? modified.First() : TopoDS_Shape();
+    };
+    std::vector<TopoShape> freedEdges;
+    for (const auto &e : edges) {
+        TopoDS_Shape edge = mapped(e.getShape());
+        if (edge.IsNull() || !freed.findShape(edge))
+            return false;
+        freedEdges.emplace_back(edge);
+    }
+    for (auto &s : extra) {
+        s = mapped(s);
+        if (!s.IsNull() && !freed.findShape(s))
+            s.Nullify();
+    }
+
+    removed.clear();
+    for (const auto &face : slivers)
+        removed.push_back("Face" + std::to_string(baseShape.findShape(face.getShape())));
+    edges = std::move(freedEdges);
+    baseShape = freed;
+    return true;
 }
 
 App::DocumentObjectExecReturn *DressUp::failedEdgesError(const char *what,

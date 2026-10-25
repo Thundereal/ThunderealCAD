@@ -45,6 +45,7 @@ public:
     App::PropertyAngle Angle;
     App::PropertyBool FlipDirection;
     App::PropertyBool UseAllEdges;
+    App::PropertyBool RemoveSlivers;
 
     Part::PropertyChamferEdges ChamferInfo;
 

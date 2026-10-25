@@ -295,6 +295,130 @@ def _toOldCorners(name, old, vertex):
             zout.writestr(item, data)
 
 
+def _stepBlock(step=0.05):
+    """A block, 5 deep, with a slope at 45 deg down its inner side that stops
+    `step` short of the wall below it: a face `step` wide between them,
+    facing down, as two features that were meant to meet leave one
+    (realthunder/FreeCAD#962's ring)"""
+    V = FreeCAD.Vector
+    pts = [(0.5, 10), (0.5, 4.2), (1.7, 3.0), (1.7 + step, 3.0), (1.7 + step, 0), (10, 0),
+           (10, 10), (0.5, 10)]
+    wire = Part.makePolygon([V(x, 0, z) for x, z in pts])
+    return Part.Face(wire).extrude(V(0, 5, 0))
+
+
+def _edgeIndex(shape, a, b):
+    """The 1-based index of the edge of shape from a to b"""
+    want = sorted([tuple(round(c, 6) for c in a), tuple(round(c, 6) for c in b)])
+    for i, e in enumerate(shape.Edges, 1):
+        if sorted(tuple(round(c, 6) for c in v.Point) for v in e.Vertexes) == want:
+            return i
+    raise ValueError("no edge from %s to %s" % (a, b))
+
+
+class TestFilletSlivers(unittest.TestCase):
+    """A fillet or chamfer that fails at a sliver face is tried again with
+    the sliver taken out (RemoveSlivers, TopoShape.makESliverFree)"""
+
+    def setUp(self):
+        self.Doc = FreeCAD.newDocument("PartDesignTestFilletSlivers")
+        self.Body = self.Doc.addObject('PartDesign::Body', 'Body')
+        self.Base = self.Doc.addObject('Part::Feature', 'StepBlock')
+        self.Base.Shape = _stepBlock()
+        self.Body.BaseFeature = self.Base
+        self.Doc.recompute()
+        # the slope's edge on the end face y=0, its lower end at the step
+        self.Slope = 'Edge%d' % _edgeIndex(self.Base.Shape, (0.5, 0, 4.2), (1.7, 0, 3.0))
+
+    def tearDown(self):
+        FreeCAD.closeDocument(self.Doc.Name)
+
+    def expected(self, size, chamfer=False):
+        """The volume made on the block with the step taken out, by Part"""
+        shape = self.Base.Shape
+        slivers = [f for f in shape.Faces
+                   if 2 * f.Area / sum(e.Length for e in f.Edges) < size / 4]
+        self.assertEqual(len(slivers), 1)
+        freed = shape.defeaturing(slivers)
+        edge = freed.Edges[_edgeIndex(freed, (0.5, 0, 4.2), (1.75, 0, 2.95)) - 1]
+        made = freed.makeChamfer(size, [edge]) if chamfer else freed.makeFillet(size, [edge])
+        self.assertTrue(made.isValid())
+        return made.Volume
+
+    def testFilletPlain(self):
+        # the plain block, the slope running down to the wall: no sliver
+        # and nothing to take out
+        self.Base.Shape = _stepBlock(0.0)
+        self.Doc.recompute()
+        slope = 'Edge%d' % _edgeIndex(self.Base.Shape, (0.5, 0, 4.2), (1.7, 0, 3.0))
+        fillet = self.Body.newObject('PartDesign::Fillet', 'Fillet')
+        fillet.Base = (self.Base, [slope])
+        fillet.Radius = 0.3
+        self.Doc.recompute()
+        self.assertTrue(fillet.isValid())
+        made = self.Base.Shape.makeFillet(0.3, [self.Base.Shape.getElement(slope)])
+        self.assertAlmostEqual(fillet.Shape.Volume, made.Volume, places=6)
+
+    def testFilletTakesOutTheStep(self):
+        # refused on the block as it is
+        with self.assertRaises(Part.OCCError):
+            self.Base.Shape.makeFillet(0.3, [self.Base.Shape.getElement(self.Slope)])
+        fillet = self.Body.newObject('PartDesign::Fillet', 'Fillet')
+        fillet.Base = (self.Base, [self.Slope])
+        for r in (0.3, 0.8):
+            fillet.Radius = r
+            self.Doc.recompute()
+            self.assertTrue(fillet.isValid(), r)
+            self.assertEqual(list(fillet.FailedEdges), [])
+            self.assertTrue(fillet.Shape.isValid())
+            self.assertEqual(len(fillet.Shape.Solids), 1)
+            self.assertAlmostEqual(fillet.Shape.Volume, self.expected(r), places=6)
+            # the step is gone: no face of the result is that narrow
+            self.assertFalse([f for f in fillet.Shape.Faces
+                              if 2 * f.Area / sum(e.Length for e in f.Edges) < 0.06])
+
+    def testFilletLeftOutWithoutRemoval(self):
+        fillet = self.Body.newObject('PartDesign::Fillet', 'Fillet')
+        fillet.Base = (self.Base, [self.Slope])
+        fillet.Radius = 0.3
+        fillet.RemoveSlivers = False
+        self.Doc.recompute()
+        self.assertFalse(fillet.isValid())
+        self.assertEqual(list(fillet.FailedEdges), [self.Slope])
+        # the step stays: the shape as it was
+        self.assertAlmostEqual(fillet.Shape.Volume, self.Base.Shape.Volume, places=6)
+
+    def testWiderThanAQuarterKept(self):
+        # at 0.15 the step is a third of the radius: not a sliver, the fillet
+        # fails and the step stays
+        fillet = self.Body.newObject('PartDesign::Fillet', 'Fillet')
+        fillet.Base = (self.Base, [self.Slope])
+        fillet.Radius = 0.15
+        self.Doc.recompute()
+        if fillet.isValid():
+            self.skipTest("the fillet is made at 0.15: nothing to test")
+        self.assertEqual(list(fillet.FailedEdges), [self.Slope])
+        self.assertAlmostEqual(fillet.Shape.Volume, self.Base.Shape.Volume, places=6)
+
+    def testChamferTakesOutTheStep(self):
+        chamfer = self.Body.newObject('PartDesign::Chamfer', 'Chamfer')
+        chamfer.Base = (self.Base, [self.Slope])
+        chamfer.Size = 0.3
+        self.Doc.recompute()
+        try:
+            self.Base.Shape.makeChamfer(0.3, [self.Base.Shape.getElement(self.Slope)])
+            self.skipTest("the chamfer is made with the step: nothing to test")
+        except Part.OCCError:
+            pass
+        self.assertTrue(chamfer.isValid())
+        self.assertEqual(list(chamfer.FailedEdges), [])
+        self.assertAlmostEqual(chamfer.Shape.Volume, self.expected(0.3, True), places=6)
+
+        chamfer.RemoveSlivers = False
+        self.Doc.recompute()
+        self.assertFalse(chamfer.isValid())
+
+
 class TestFilletCorners(unittest.TestCase):
     """The Corners of a fillet: its setback corners (docs/CornerBlending.md)"""
 

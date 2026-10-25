@@ -4076,10 +4076,20 @@ static void _loadDeps(const std::string &name,
         if(it->second.canLoadPartial == 1) {
             // canLoadPartial==1 means all its children will be created but not
             // restored, i.e. exists as if newly created object, and therefore no
-            // need to load dependency of the children
-            for(auto &dep : it->second.deps)
-                objs.emplace(dep,false);
-            objs.emplace(name,true);
+            // need to load dependency of the children. A child answering 1
+            // itself is restored the same way: it is what keeps the object's
+            // state, such as a frozen assembly's stored shape, while the
+            // children of a flat container are only created.
+            objs[name] = true;
+            for(auto &dep : it->second.deps) {
+                auto itDep = deps.find(dep);
+                if(itDep != deps.end() && itDep->second.canLoadPartial == 1) {
+                    auto itObj = objs.find(dep);
+                    if(itObj == objs.end() || !itObj->second)
+                        _loadDeps(dep,objs,deps);
+                } else
+                    objs.emplace(dep,false);
+            }
         }else
             objs.emplace(name,false);
         return;
@@ -14531,8 +14541,9 @@ bool Document::afterRestore(bool checkPartial) {
     // The last point a referrer can turn up: the Gui document replays its
     // embedded view documents from this signal. Whatever is still unclaimed
     // belongs to nothing and goes. Deliberately not reached on the partial
-    // reload path above, which still has a restore ahead of it.
-    getFileBlobManager().endRestore();
+    // reload path above, which still has a restore ahead of it. A partial
+    // document keeps it: what it restored may borrow from it.
+    getFileBlobManager().endRestore(testStatus(Document::PartialDoc));
     // The version of a file in an older format (sec 27.62): the document as
     // it was read, view providers included, at the current schema. Undo
     // reaches back to it and no further, as to the version of any open.

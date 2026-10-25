@@ -95,6 +95,10 @@ protected:
     App::AuxGroup *getAuxGroup() const;
     /// The view provider of the group's owner
     ViewProvider *getOwnerViewProvider() const;
+    /// The node of the "Group" display mode, which a derived view may draw in
+    SoGroup *getGroupNode() const {
+        return pcChildren;
+    }
 
 private:
     SoGroup *pcChildren;

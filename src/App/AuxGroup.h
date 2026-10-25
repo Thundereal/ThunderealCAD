@@ -122,6 +122,10 @@ public:
     void onChanged(const Property* prop) override;
     void unsetupObject() override;
     bool allowDuplicateLabel() const override;
+    /** As the owner: a group of an owner whose children need not be
+     * restored is restored with it, its own children created only
+     */
+    int canLoadPartial() const override;
 
     /** The role of this group; empty for a curated group
      *

@@ -81,6 +81,10 @@ public:
         return true;
     }
     void onBeforeChangeLabel(std::string &newLabel) override;
+    /** As its Elements group: the element keeps its copy where the
+     * container's children need not be restored, as a frozen assembly's
+     */
+    int canLoadPartial() const override;
 
     /// The Elements group holding this element, or null
     App::AuxGroup *getElementsGroup() const;

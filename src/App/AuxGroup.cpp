@@ -215,6 +215,12 @@ bool AuxGroup::allowDuplicateLabel() const
     return !getNameInDocument() || !isCurated();
 }
 
+int AuxGroup::canLoadPartial() const
+{
+    auto owner = getOwner();
+    return owner && owner != this && owner->canLoadPartial() == 1 ? 1 : 0;
+}
+
 bool AuxGroup::isObjectAllowed(const DocumentObject *obj) const
 {
     if (!obj)

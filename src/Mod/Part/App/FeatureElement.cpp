@@ -203,6 +203,12 @@ App::DocumentObject *Element::getContainer() const
     return group ? group->getOwner() : nullptr;
 }
 
+int Element::canLoadPartial() const
+{
+    auto group = getElementsGroup();
+    return group ? group->canLoadPartial() : 0;
+}
+
 void Element::onBeforeChangeLabel(std::string &newLabel)
 {
     // Unique among the siblings: the Elements group is the namespace

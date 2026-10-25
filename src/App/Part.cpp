@@ -278,6 +278,34 @@ AuxGroup *Part::getAuxGroup(const char *role) const
     return nullptr;
 }
 
+AuxGroup *Part::addPartsGroup()
+{
+    if (auto group = getAuxGroup(PartsRole))
+        return group;
+    auto doc = getDocument();
+    if (!doc)
+        return nullptr;
+    auto group = static_cast<AuxGroup*>(doc->addObject(getPartsGroupType(), "Parts"));
+    // The role first: a group with none is a user's, whose label is unique
+    group->Role.setValue(PartsRole);
+    group->Label.setValue("Parts");
+    // A group the part makes is its own child, whatever its GroupMode
+    auto children = Group.getValues();
+    children.push_back(group);
+    Group.setValues(children);
+    group->setOwner(this);
+    return group;
+}
+
+void Part::removePartsGroup()
+{
+    auto group = getAuxGroup(PartsRole);
+    if (!group)
+        return;
+    group->setOwner(nullptr);
+    getDocument()->removeObject(group->getNameInDocument());
+}
+
 AuxGroup *Part::getElementsGroup(bool create)
 {
     auto group = Base::freecad_dynamic_cast<AuxGroup>(Elements.getValue());

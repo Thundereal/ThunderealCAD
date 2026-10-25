@@ -140,6 +140,14 @@ public:
     bool isAuxGroupAllowed(const AuxGroup *group, const DocumentObject *obj) const override;
     /// The aux group of the given role, or null
     AuxGroup *getAuxGroup(const char *role) const;
+    /** Add the Parts group, or return the one there is
+     *
+     * The group is optional (docs/AssemblyObjectModel.md sec 3.1): its
+     * presence is the setting.
+     */
+    virtual AuxGroup *addPartsGroup();
+    /// Remove the Parts group, if any; throws when this part needs it
+    virtual void removePartsGroup();
     AuxGroup *getElementsGroup(bool create = false) override;
     /** Where a group of this role is listed among the groups
      *
@@ -153,6 +161,10 @@ public:
 protected:
     void onChanged(const Property *prop) override;
     void onDocumentRestored() override;
+    /// The type of the Parts group addPartsGroup() makes
+    virtual const char *getPartsGroupType() const {
+        return "App::PartAuxGroup";
+    }
 
 private:
     /// The names over the looks are being given what the store has

@@ -400,8 +400,14 @@ public:
      * This is also the deadline every restoring tier answers to: anything
      * still to be restored after it cannot be served, so it must not be
      * deferred past it.
+     *
+     * @param keepUnclaimed: keep what is unclaimed instead, until the next
+     * restore. A partially loaded document needs it: a shape it restored may
+     * borrow sub-shapes from the file of an object it did not restore
+     * (docs/SharedShapeStorage.md sec 11.6), and that file is read when the
+     * shape is, after this.
      */
-    void endRestore();
+    void endRestore(bool keepUnclaimed = false);
     //@}
 
     /// Directory holding the stored files, created on demand.
@@ -600,6 +606,8 @@ private:
     bool _restoreClosed {false};
     /// Keeps restored content alive until every referrer has been served.
     std::unordered_map<std::string, FileBlobHandle> _restoreHold;
+    /// What a partial restore left unclaimed, see endRestore()
+    std::unordered_map<std::string, FileBlobHandle> _keptUnclaimed;
     /// The entry name each piece of content was last restored under, by hash.
     std::unordered_map<std::string, std::string> _restoreNames;
     std::unordered_map<std::string, std::weak_ptr<FileBlob>> _blobs;

@@ -138,6 +138,10 @@
           "CMAKE_LINK_DEPENDS_NO_SHARED": {
             "type": "BOOL",
             "value": "ON"
+          },
+          "CMAKE_LINKER_TYPE": {
+            "type": "STRING",
+            "value": "LLD"
           }
         }
       },

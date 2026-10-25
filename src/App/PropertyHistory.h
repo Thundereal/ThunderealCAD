@@ -68,12 +68,24 @@ public:
     /// Set the database blob and the blobs the retained manifests name.
     void setValue(const FileBlobHandle& db, const std::vector<FileBlobHandle>& blobs,
                   const std::vector<std::string>& exts);
+    /** A document saved as a folder keeps its database as a file of its
+     * own beside Document.xml, `name`, brought up to date at each save
+     * rather than written anew (docs/TransactionLog.md sec 38.9); `dir` is
+     * the folder. The blobs are as setValue() has them.
+     */
+    void setFile(const std::string& name, const std::string& dir,
+                 const std::vector<FileBlobHandle>& blobs, const std::vector<std::string>& exts);
     const FileBlobHandle& getDatabase() const { return _db; }
+    /// The database's file name in its folder, empty when it is a blob.
+    const std::string& getFile() const { return _file; }
+    /// Where the database is to be read: the blob's path, or the file in
+    /// its folder. Empty when there is none.
+    std::string databasePath() const;
     const std::vector<FileBlobHandle>& getBlobs() const { return _blobs; }
     /// The hashes this property was restored with, database first;
     /// what it holds may be fewer if the archive lacked some.
     const std::vector<Entry>& getEntries() const { return _entries; }
-    bool isEmpty() const { return !_db; }
+    bool isEmpty() const { return !_db && _file.empty(); }
 
     /** @name Blob referrer */
     //@{
@@ -99,6 +111,9 @@ private:
     FileBlobManager& blobManager() const;
 
     FileBlobHandle _db;
+    /// The folder form (setFile()): the file's name, and the folder.
+    std::string _file;
+    std::string _dir;
     std::vector<FileBlobHandle> _blobs;
     /// Database first, then the blobs, in manifest order.
     std::vector<Entry> _entries;

@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8) | S1 built; S2, S3 and Q2-Q7 open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a) as built: the history brought up to date at a save (38.9) | S1, S3 (a) built; S2 and Q2, Q3, Q5-Q7 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -24743,3 +24743,99 @@ again by itself.
   - one with its record, half moved in already, opens as the new save
     with its history;
   - a save-as over the folder finishes the stage first.
+
+### 38.9 S3 (a) as built, saved blobs read in place, a read-only folder (2026-10-25)
+
+**Rulings (user, 2026-10-25):** "Agree with your recommendations", given on
+the question of whether a folder document still needs a transient
+directory. So:
+- **Q4 is (a).** The history is brought up to date at a save. (b), the
+  store living in the folder, is a later opt-in for a folder on a local
+  disk, never the default.
+- **Saved blobs are read from the folder**, not copied into the transient
+  store at open.
+- **A folder on a read-only medium**: "implement such that it works opening
+  a folder on readonly medium in which case changes still go the
+  transient directory route as usual."
+
+What the transient directory still holds for a folder document: the
+commits since the last save (`history/log.db`), the blobs made since then,
+and the session's scratch (`pull/`, `history/checkout`, `held/`,
+`requests/`). It is also still what a crash leaves for recovery (25).
+
+**The history: `History.db` beside `Document.xml`.**
+- A folder save keeps the database as a file of its own, not a blob.
+  `<History file="History.db" count="N">` names it; the blobs that named
+  versions hold are listed as before. An archive keeps `db="<hash>"`, a
+  blob, unchanged. `PropertyHistory::setFile`, `databasePath()`.
+- **What changed is recorded.** SQLite's session extension records every
+  change to the live store but the string table, which the file carries as
+  a member of its own (27.50 item 2). The record starts when a folder's copy
+  is adopted at open (`adoptEmbedded(path, folder)`, before the session
+  row the open writes) or when a save to the folder takes the changes.
+  `TransactionStore::beginChanges`, `takeChanges`, `applyChanges`.
+- **At a save** (`TransactionLogCore::embedFolder`):
+  1. the folder's `History.db` is copied into the stage, a plain file
+     copy;
+  2. it is opened as a copy (`openSQLiteCopy`: journal in memory, no WAL
+     made or left, no indexes) and checked to be of the save the record
+     started from (`save_id`);
+  3. the changes are played into it. A row changed or removed that the copy
+     no longer has is left out: retention took it out. A row added that it
+     has is replaced. Anything else (a unique name taken) aborts it;
+  4. retention, the closing of sessions and the guard's meta run on it as
+     on a copy made whole (`finishEmbed`, shared with `embed`);
+  5. it is vacuumed only once a quarter of it is free pages.
+
+  S1's commit then moves it in with the rest, so the history and
+  `Document.xml` go in together or not at all. No append in place, no
+  journal in the folder, and no tail ahead of `Document.xml` to explain
+  at open (38.5 had planned one).
+- **Copied whole instead** whenever the record cannot be trusted. That is:
+  - the first save to a folder, or a save-as;
+  - a store closed and reopened meanwhile (its record goes with it);
+  - the folder's copy of another save, because another process saved it
+    or it was replaced by hand;
+  - a change that does not apply;
+  - a build whose SQLite lacks the extension. CMake checks for
+    `sqlite3session_create`; conda-forge's has it on Linux and Windows.
+
+  Either way the record starts again at the take.
+- **Nothing recorded for nothing.** A save to an archive, or one without
+  the history, stops the record (`untrackFolder`), so it never grows
+  unread.
+- **A save without the history** removes a `History.db` an earlier save
+  left. A `blobs/History.db` from before is pruned by the blob index, as
+  any blob no longer named.
+- **The readers.** `FileHistory::openFile`, `savedAs`, `readTable`, the
+  pull's import and the guard on open read the `file` form. A version's
+  entries leave `History.db` out, as they leave the blobs out.
+- **The check.** With `FC_TXNLOG_CHECK_FOLDER` set, a copy brought up to date
+  is compared table by table with one made whole at the same moment
+  (`TransactionStore::differences`; a session's closing time and the string
+  table are not compared). Any difference goes to the report view. A trim
+  is not covered: a copy trimmed save after save squashes rows otherwise
+  than one trimmed once. Python `getLastSaveHistory()`: `updated`,
+  `changes`, `seconds`, `checked`, `differences`.
+
+**Measured** (`~/.cache/lv-merge/probe38/embed.py`, 600 boxes, mode 2, one
+box's length changed before each save, the history 1.8-2.0 MB):
+
+| Part of the history's copy | Copied whole | Brought up to date |
+| --- | ---: | ---: |
+| State and flush (the live store's own) | 36-49 ms | 27-34 ms |
+| Copy | 15-19 ms | 2.4-2.5 ms |
+| Retention | 54-59 ms | 21-24 ms |
+| Vacuum | 8-9 ms | 0.1-0.2 ms |
+| The save | 339-376 ms | 297-307 ms |
+
+- The changes of a one-box edit are 78 KB. Most of it is the previous
+  save's version and its manifest, which the live store writes after the
+  copy is taken.
+- What is left is retention over the whole copy, and the live store's
+  file-scope state (names, UIDs, strings), both written whatever the
+  change.
+
+**Older builds of this fork** know only `db=`. Their restore returns
+before the `<Blob>` children when it is missing, so they should read the
+folder as one with no history; not tried. These builds are not released.

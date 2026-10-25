@@ -327,6 +327,13 @@ public:
     }
     void copyTo(const std::string& path) override { inner().copyTo(path); }
     void vacuum() override { inner().vacuum(); }
+    double freeShare() override { return inner().freeShare(); }
+    bool beginChanges() override { return inner().beginChanges(); }
+    bool takeChanges(std::string& changes) override { return inner().takeChanges(changes); }
+    void endChanges() override { inner().endChanges(); }
+    void applyChanges(const std::string& changes) override { inner().applyChanges(changes); }
+    std::vector<std::string> differences(const std::string& path) override
+    { return inner().differences(path); }
     void dropTier(const std::string& tier, const std::vector<int64_t>& evict) override
     {
         inner().dropTier(tier, evict);
@@ -926,7 +933,7 @@ void TransactionLogCore::flush()
     releaseRetired();
 }
 
-bool TransactionLogCore::adoptEmbedded(const std::string& path)
+bool TransactionLogCore::adoptEmbedded(const std::string& path, const std::string& folder)
 {
     flush();
     if (_nextSeq != 0 || _nextVersion != 0) {
@@ -947,6 +954,14 @@ bool TransactionLogCore::adoptEmbedded(const std::string& path)
     // copy of a file takes that with it: the log writes to its own.
     Base::FileInfo(_path).setPermissions(Base::FileInfo::ReadWrite);
     openStore();
+    // A folder's own copy (sec 38.9): what changes from here is what its
+    // next save plays into it, so the record starts before anything else
+    // is written -- the session opened below is the first of it.
+    _folderTrack = FolderTrack();
+    if (!folder.empty() && _store->beginChanges()) {
+        _folderTrack.folder = folder;
+        _folderTrack.saveId = _store->getMeta("save_id");
+    }
     // The copy's blobs came with the file, restored into the file's blob
     // store for the History property; the log holds them from here.
     _blobs.clear();
@@ -1298,24 +1313,12 @@ TransactionStore& TransactionLogCore::store()
     return *_reader;
 }
 
-TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, int64_t branch,
-                                                  const std::string& saveId)
+TransactionLog::Embedded TransactionLogCore::beginEmbed(int64_t branch, const std::string& saveId)
 {
-    auto clock = std::chrono::steady_clock::now();
-    auto split = [&clock]() {
-        auto now = std::chrono::steady_clock::now();
-        double secs = std::chrono::duration<double>(now - clock).count();
-        clock = now;
-        return secs;
-    };
     flush();
     TransactionLog::Embedded out;
     out.saveId = saveId.empty() ? Base::Uuid::createUuid() : saveId;
     out.version = _nextVersion + 1;
-    const std::string dir = _history.directory() + "/history";
-    Base::FileInfo(dir).createDirectories();
-    out.path = dir + "/embed-" + out.saveId + ".db";
-    Base::FileInfo(out.path).deleteFile();
     // The file-scope state (sec 27.40), into the store itself, so that the
     // copy carries it and a recovery after a crash has it as of this save.
     // The strings too (sec 27.50 item 2), which the copy then leaves out:
@@ -1339,10 +1342,155 @@ TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, 
     _store->addObjectNames(names);
     _store->addObjectUids({_history.objectUids().begin(), _history.objectUids().end()});
     _store->addLastGeoIds({_history.lastGeoIds().begin(), _history.lastGeoIds().end()});
+    return out;
+}
+
+TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, int64_t branch,
+                                                  const std::string& saveId)
+{
+    auto clock = std::chrono::steady_clock::now();
+    auto split = [&clock]() {
+        auto now = std::chrono::steady_clock::now();
+        double secs = std::chrono::duration<double>(now - clock).count();
+        clock = now;
+        return secs;
+    };
+    TransactionLog::Embedded out = beginEmbed(branch, saveId);
+    const std::string dir = _history.directory() + "/history";
+    Base::FileInfo(dir).createDirectories();
+    out.path = dir + "/embed-" + out.saveId + ".db";
+    Base::FileInfo(out.path).deleteFile();
     const double tState = split();
     _store->copyTo(out.path);
     auto copy = TransactionStore::openSQLite(out.path);
     const double tCopy = split();
+    finishEmbed(*copy, out, saveDate, branch);
+    // The copy was the whole store; what retention took out is free pages,
+    // which would travel in the file and come back as the live store when
+    // it is opened elsewhere (sec 27.53).
+    const double tRetain = split();
+    copy->vacuum();
+    copy.reset();
+    const double tVacuum = split();
+    out.seconds = tState + tCopy + tRetain + tVacuum;
+    FC_LOG("embed: state and flush " << tState << "s, copy " << tCopy << "s, retention "
+           << tRetain << "s, vacuum " << tVacuum << "s");
+    return out;
+}
+
+TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& saveDate,
+                                                        int64_t branch, const std::string& folder,
+                                                        const std::string& target,
+                                                        const std::string& previous)
+{
+    auto clock = std::chrono::steady_clock::now();
+    auto split = [&clock]() {
+        auto now = std::chrono::steady_clock::now();
+        double secs = std::chrono::duration<double>(now - clock).count();
+        clock = now;
+        return secs;
+    };
+    TransactionLog::Embedded out = beginEmbed(branch, std::string());
+    out.path = target;
+    Base::FileInfo(target).deleteFile();
+    const double tState = split();
+    // What changed since the folder's last save, if that is what was
+    // recorded, and the record starts again here either way: the copy
+    // written below is the store as it is now, whichever way it is made.
+    std::string changes;
+    const bool recorded = _store->takeChanges(changes);
+    if (!recorded)
+        _store->beginChanges();
+    const FolderTrack was = _folderTrack;
+    _folderTrack.folder = folder;
+    _folderTrack.saveId.clear();
+    _folderTrack.pending = out.saveId;
+    std::unique_ptr<TransactionStore> copy;
+    if (recorded && !was.saveId.empty() && was.folder == folder && !previous.empty()
+            && Base::FileInfo(previous).exists()) {
+        try {
+            if (!Base::FileInfo(previous).copyTo(target.c_str()))
+                THROWM(Base::FileException, "cannot copy", previous.c_str())
+            Base::FileInfo(target).setPermissions(Base::FileInfo::ReadWrite);
+            copy = TransactionStore::openSQLiteCopy(target);
+            // Another process may have saved the folder since: its copy is
+            // then of a save this store did not record from.
+            if (copy->getMeta("save_id") != was.saveId)
+                THROWM(Base::RuntimeError, "the folder's history is of another save")
+            copy->applyChanges(changes);
+            out.updated = true;
+        }
+        catch (const Base::Exception& e) {
+            FC_LOG("embed " << folder << ": copied whole, " << e.what());
+            copy.reset();
+            Base::FileInfo(target).deleteFile();
+        }
+    }
+    if (!copy) {
+        _store->copyTo(target);
+        copy = TransactionStore::openSQLiteCopy(target);
+    }
+    const double tCopy = split();
+    finishEmbed(*copy, out, saveDate, branch);
+    const double tRetain = split();
+    // The check (sec 38.9): the same copy made whole, here and now, holds
+    // the same rows. Not where retention trimmed rows: a copy trimmed save
+    // after save squashes them otherwise than one trimmed once.
+    if (out.updated && std::getenv("FC_TXNLOG_CHECK_FOLDER")) {
+        const std::string check = target + ".check";
+        Base::FileInfo(check).deleteFile();
+        try {
+            _store->copyTo(check);
+            auto whole = TransactionStore::openSQLiteCopy(check);
+            TransactionLog::Embedded same = out;
+            finishEmbed(*whole, same, saveDate, branch);
+            whole.reset();
+            out.checked = true;
+            out.differences = copy->differences(check);
+            for (const auto& d : out.differences)
+                FC_ERR("embed " << folder << ": the copy brought up to date differs from one made"
+                       " whole, " << d);
+        }
+        catch (const Base::Exception& e) {
+            FC_ERR("embed " << folder << ": the check failed, " << e.what());
+        }
+        Base::FileInfo(check).deleteFile();
+    }
+    // A copy made whole carries the free pages retention made; one brought
+    // up to date reuses them, and is rewritten only once they are a quarter
+    // of it.
+    if (!out.updated || copy->freeShare() > 0.25)
+        copy->vacuum();
+    copy.reset();
+    out.changes = changes.size();
+    const double tVacuum = split();
+    out.seconds = tState + tCopy + tRetain + tVacuum;
+    FC_LOG("embed " << folder << (out.updated ? ": updated" : ": whole") << ", "
+           << changes.size() << " bytes of changes; state and flush " << tState << "s, copy "
+           << tCopy << "s, retention " << tRetain << "s, vacuum " << tVacuum << "s");
+    return out;
+}
+
+void TransactionLogCore::folderSaved(const std::string& folder, const std::string& saveId)
+{
+    if (_folderTrack.folder == folder && _folderTrack.pending == saveId) {
+        _folderTrack.saveId = saveId;
+        _folderTrack.pending.clear();
+    }
+}
+
+void TransactionLogCore::untrackFolder()
+{
+    flush();
+    if (_store)
+        _store->endChanges();
+    _folderTrack = FolderTrack();
+}
+
+void TransactionLogCore::finishEmbed(TransactionStore& copyRef, TransactionLog::Embedded& out,
+                                     const std::string& saveDate, int64_t branch)
+{
+    TransactionStore* copy = &copyRef;
     // Retention (16.4, 13.3, 37.4 P1): the versions that travel, and the
     // cache tier does not. Each branch's newest travels (sec 26.2 item 5),
     // so a switch in the file opened elsewhere checks out its own tip, with
@@ -1427,15 +1575,6 @@ TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, 
     // version document saved as the file never sets it.
     if (branch)
         copy->setMeta("branch", std::to_string(branch));
-    // The copy was the whole store; what retention took out is free pages,
-    // which would travel in the file and come back as the live store when
-    // it is opened elsewhere (sec 27.53).
-    const double tRetain = split();
-    copy->vacuum();
-    copy.reset();
-    FC_LOG("embed: state and flush " << tState << "s, copy " << tCopy << "s, retention "
-           << tRetain << "s, vacuum " << split() << "s");
-    return out;
 }
 
 size_t TransactionLogCore::trimCopy(TransactionStore& copy, const std::set<int64_t>& travel,
@@ -2055,7 +2194,27 @@ bool TransactionLog::readRevert(int64_t seq, Revert& out)
 
 TransactionLog::Embedded TransactionLog::embed(const std::string& saveDate)
 {
-    return _c.embed(saveDate, _branch);
+    _lastEmbed = _c.embed(saveDate, _branch);
+    return _lastEmbed;
+}
+
+TransactionLog::Embedded TransactionLog::embedFolder(const std::string& saveDate,
+                                                    const std::string& folder,
+                                                    const std::string& target,
+                                                    const std::string& previous)
+{
+    _lastEmbed = _c.embedFolder(saveDate, _branch, folder, target, previous);
+    return _lastEmbed;
+}
+
+void TransactionLog::folderSaved(const std::string& folder, const std::string& saveId)
+{
+    _c.folderSaved(folder, saveId);
+}
+
+void TransactionLog::untrackFolder()
+{
+    _c.untrackFolder();
 }
 
 TransactionLog::Embedded TransactionLog::embedForFile(const std::string& saveDate,
@@ -2125,18 +2284,18 @@ void TransactionLog::forgetValue(const Property& prop)
     _recorded.erase(prop.getID());
 }
 
-bool TransactionLog::adoptStore(const std::string& path)
+bool TransactionLog::adoptStore(const std::string& path, const std::string& folder)
 {
-    if (!_c.adoptEmbedded(path))
+    if (!_c.adoptEmbedded(path, folder))
         return false;
     pickBranch();
     _adopted = true;
     return true;
 }
 
-bool TransactionLog::adoptClosed(const std::string& path)
+bool TransactionLog::adoptClosed(const std::string& path, const std::string& folder)
 {
-    if (!adoptStore(path))
+    if (!adoptStore(path, folder))
         return false;
     return setBranch(_c.closeAdopted());
 }
@@ -2144,6 +2303,9 @@ bool TransactionLog::adoptClosed(const std::string& path)
 void TransactionLog::closeStore()
 {
     flush();
+    // What it recorded goes with it (sec 38.9): a folder's next save
+    // copies the store whole.
+    _c._folderTrack = TransactionLogCore::FolderTrack();
     _c._store.reset();
 }
 

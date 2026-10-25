@@ -227,6 +227,9 @@ struct DocumentP
     /// for the import's record to name; empty for a file from a path.
     std::string importingRequest;
     std::function<void()> restoreHistory;
+    /// The save id of a save to a folder whose history went into its stage
+    /// (docs/TransactionLog.md sec 38.9), told to the log once it is in.
+    std::string folderSaveId;
     /// Two processes on one file (docs/TransactionLog.md sec 29.8): the file
     /// as this document last read or wrote it -- its stamp, the save id its
     /// `Version` carried, and the row of the log whose state it is -- and

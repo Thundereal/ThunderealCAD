@@ -2447,6 +2447,29 @@ PyObject* DocumentPy::getLastSavePull(PyObject *args)
     } PY_CATCH;
 }
 
+PyObject* DocumentPy::getLastSaveHistory(PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        Py::Dict d;
+        TransactionLog* log = getDocumentPtr()->getTransactionLog();
+        if (!log || log->lastEmbed().saveId.empty())
+            return Py::new_reference_to(d);
+        const auto& last = log->lastEmbed();
+        d.setItem("updated", Py::Boolean(last.updated));
+        d.setItem("changes", Py::Long(static_cast<long long>(last.changes)));
+        d.setItem("seconds", Py::Float(last.seconds));
+        d.setItem("rowsLeftOut", Py::Long(static_cast<long long>(last.rowsLeftOut)));
+        d.setItem("checked", Py::Boolean(last.checked));
+        Py::List differences;
+        for (const auto& line : last.differences)
+            differences.append(Py::String(line));
+        d.setItem("differences", differences);
+        return Py::new_reference_to(d);
+    } PY_CATCH;
+}
+
 PyObject* DocumentPy::getFileOpeners(PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))

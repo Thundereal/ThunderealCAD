@@ -3201,6 +3201,11 @@ const char* Document::stringTableName()
     return "StringTable.txt";
 }
 
+const char* Document::historyFileName()
+{
+    return "History.db";
+}
+
 namespace {
 
 /// The bytes of the file's string table, as the writer asks for the member
@@ -5790,8 +5795,16 @@ bool Document::saveToFile(const char* filename) const
 
         save(*_writer, archive);
         fileNames = _writer->getFilenames();
-        if (folderWriter)
+        if (folderWriter) {
             removals = folderWriter->removals();
+            // The history, brought up to date in the stage beside the
+            // writer's entries (sec 38.9); one left from an earlier save
+            // that carried it goes when this one carries none.
+            if (Base::FileInfo(stage + "/" + historyFileName()).exists())
+                fileNames.push_back(historyFileName());
+            else if (Base::FileInfo(nativePath + "/" + historyFileName()).exists())
+                removals.push_back(historyFileName());
+        }
         // Known once the save has resolved the schema; written when the zip closes
         if (archive) {
             static_cast<Base::ZipWriter*>(_writer.get())
@@ -5812,6 +5825,11 @@ bool Document::saveToFile(const char* filename) const
         }
         FolderSave::commit(nativePath, removals);
         stageGuard.done = true;
+        if (!d->folderSaveId.empty()) {
+            if (TransactionLog* log = getTransactionLog())
+                log->folderSaved(FileHistory::canonicalPath(nativePath), d->folderSaveId);
+            d->folderSaveId.clear();
+        }
     }
 
     if (policy) {
@@ -5928,7 +5946,8 @@ void Document::save(Base::Writer &writer, bool archive) const {
     // Wherever the blobs go as entries -- an archive, or a folder (sec 29.8):
     // the history's database is one more of them.
     const_cast<Document*>(this)->embedHistory(
-        getFileBlobManager().blobFormat() == FileBlobManager::BlobFormat::Entries);
+        getFileBlobManager().blobFormat() == FileBlobManager::BlobFormat::Entries,
+        archive ? nullptr : dynamic_cast<Base::FileWriter*>(&writer));
     collectFileBlobs();
     const double tCollect = phaseSplit();
 
@@ -6052,20 +6071,37 @@ void Document::restore (const char *filename,
     // under its lock so that no live save of it is taken for either.
     if (folder && FolderSave::pending(filename)) {
         std::unique_ptr<SaveLock> lock;
+        bool held = false;
         if (!SaveLock::heldHere(filename)) {
             lock = std::make_unique<SaveLock>(filename);
             std::string holder;
-            if (!lock->lock(60000, &holder))
+            if (!lock->lock(60000, &holder)) {
+                held = true;
                 FC_WARN("'" << filename << "' is being saved by " << holder
                         << "; read as it is");
+            }
         }
         if (!lock || lock->isLocked()) {
-            int settled = FolderSave::recover(filename);
+            int settled = 0;
+            try {
+                settled = FolderSave::recover(filename);
+            }
+            catch (const Base::Exception& e) {
+                FC_WARN("'" << filename << "': a save cut short cannot be settled ("
+                        << e.what() << "); read as it is");
+            }
             if (settled > 0)
                 FC_WARN("'" << filename << "': a save cut short, whole, finished");
             else if (settled < 0)
                 FC_WARN("'" << filename << "': a save cut short before it was whole, "
                         "thrown away; the folder is the save before it");
+        }
+        else if (!held) {
+            // No lock can be made beside it: read-only (docs/TransactionLog.md
+            // sec 38.9). The stage cannot be settled here, so what is read may
+            // be the save before it, or some of each when its record is there.
+            FC_WARN("'" << filename << "': a save of it was cut short and cannot be finished"
+                    " here (read-only?); read as it is");
         }
     }
     // The file as it is before a byte of it is read (docs/TransactionLog.md
@@ -6558,7 +6594,7 @@ void Document::restore(Base::XMLReader &reader,
             << ", total " << (dXml + rt.files + dAfter).count() << 's');
 }
 
-void Document::embedHistory(bool archive)
+void Document::embedHistory(bool archive, Base::FileWriter* folder)
 {
     // Two document-level dynamic properties, NoModify so that setting them
     // here opens no transaction and touches nothing (sec 16.4): `History`
@@ -6575,6 +6611,14 @@ void Document::embedHistory(bool archive)
     TransactionLog* log = archive && !d->savingWithoutHistory ? getTransactionLog() : nullptr;
     if (log && DocumentParams::getTransactionLog() != 2 && !isPinned())
         log = nullptr;
+    // What changed is recorded for a folder's next save with its history
+    // (sec 38.9), and for nothing else.
+    d->folderSaveId.clear();
+    const bool toFolder = log && folder && !folder->getStageDir().empty();
+    if (!toFolder) {
+        if (TransactionLog* mine = getTransactionLog())
+            mine->untrackFolder();
+    }
     if (!log) {
         // Not embedding: a property left from an earlier embedded save is
         // emptied rather than carried on with stale content. For a copy
@@ -6582,16 +6626,10 @@ void Document::embedHistory(bool archive)
         // document keeps what it had.
         if (history && !history->isEmpty()) {
             if (d->savingWithoutHistory) {
-                FileBlobHandle db = history->getDatabase();
-                std::vector<FileBlobHandle> blobs = history->getBlobs();
-                std::vector<std::string> exts;
-                for (const auto& e : history->getEntries()) {
-                    if (e.ext != ".db")
-                        exts.push_back(e.ext);
-                }
+                std::shared_ptr<Property> was(history->Copy());
                 history->setValue({}, {}, {});
-                d->restoreHistory = [history, db, blobs, exts]() {
-                    history->setValue(db, blobs, exts);
+                d->restoreHistory = [history, was]() {
+                    history->Paste(*was);
                 };
             }
             else {
@@ -6626,9 +6664,22 @@ void Document::embedHistory(bool archive)
         return;
     }
     try {
-        TransactionLog::Embedded copy = log->embed(LastModifiedDate.getValue());
+        // A folder keeps its copy as a file of its own beside Document.xml,
+        // brought up to date in the save's stage rather than written anew
+        // (sec 38.9); an archive carries it as a blob.
+        TransactionLog::Embedded copy;
+        if (toFolder) {
+            const std::string name = historyFileName();
+            const std::string dir = folder->getDirName();
+            copy = log->embedFolder(LastModifiedDate.getValue(), FileHistory::canonicalPath(dir),
+                                    folder->getStageDir() + "/" + name, dir + "/" + name);
+            d->folderSaveId = copy.saveId;
+        }
+        else {
+            copy = log->embed(LastModifiedDate.getValue());
+        }
         auto& manager = getFileBlobManager();
-        FileBlobHandle db = manager.adoptFile(copy.path.c_str(), "db");
+        FileBlobHandle db = toFolder ? FileBlobHandle() : manager.adoptFile(copy.path.c_str(), "db");
         std::vector<FileBlobHandle> blobs;
         std::vector<std::string> exts;
         for (const auto& b : copy.blobs) {
@@ -6671,7 +6722,10 @@ void Document::embedHistory(bool archive)
         }
         if (!history || !version || !branch)
             THROWM(Base::RuntimeError, "cannot add the history properties");
-        history->setValue(db, blobs, exts);
+        if (toFolder)
+            history->setFile(historyFileName(), folder->getDirName(), blobs, exts);
+        else
+            history->setValue(db, blobs, exts);
         version->setValue(std::to_string(copy.version) + " " + copy.saveId);
         LogBranch current;
         if (log->store().getBranch(log->branch(), current))
@@ -6706,8 +6760,12 @@ bool Document::adoptEmbeddedHistory()
         int64_t num = 0;
         in >> num >> saveId;
     }
+    const std::string path = history->databasePath();
+    // A folder's own copy (sec 38.9): its next save brings it up to date.
+    const std::string folder = history->getFile().empty()
+        ? std::string() : FileHistory::canonicalPath(FileName.getValue());
     try {
-        auto copy = TransactionStore::openSQLite(history->getDatabase()->path(), true);
+        auto copy = TransactionStore::openSQLite(path, true);
         const std::string id = copy->getMeta("save_id");
         const std::string date = copy->getMeta("save_date");
         copy.reset();
@@ -6717,9 +6775,9 @@ bool Document::adoptEmbeddedHistory()
             // file as found, numbered on.
             FC_WARN("the embedded history of " << getName()
                     << " is not the file's (edited elsewhere?): kept as closed branches");
-            return log->adoptClosed(history->getDatabase()->path());
+            return log->adoptClosed(path, folder);
         }
-        return log->adoptStore(history->getDatabase()->path());
+        return log->adoptStore(path, folder);
     }
     catch (Base::Exception& e) {
         FC_ERR("embedded history of " << getName() << ": " << e.what());

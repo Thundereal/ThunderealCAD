@@ -582,7 +582,10 @@ std::string FolderSave::freshStage(const std::string& folder)
     recover(folder);
     const std::string stage = stagePath(folder);
     if (!QDir().mkpath(QString::fromStdString(stage))) {
-        THROWM(Base::FileException, "cannot make the stage to save the folder in",
+        // A folder on a medium that takes no files (sec 38.9): it opens and
+        // is edited as any other, and is saved elsewhere.
+        THROWM(Base::FileException, "cannot make the stage to save the folder in"
+               " (read-only?); nothing was written",
                Base::FileInfo(stage));
     }
     return stage;

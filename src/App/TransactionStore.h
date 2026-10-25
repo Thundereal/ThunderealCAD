@@ -595,6 +595,35 @@ public:
     /// Rewrite the store without its free pages (SQLite's VACUUM): what
     /// the embedded copy does once retention has emptied them (sec 27.53).
     virtual void vacuum() = 0;
+    /// The share of the store's pages that are free, 0 to 1.
+    virtual double freeShare() = 0;
+    /** @name What changed since a save (docs/TransactionLog.md sec 38.9)
+     *
+     * The history a folder holds is this store as the folder's last save
+     * left it, less what retention took out of it. The next save brings a
+     * copy of it up to date by what changed here since, instead of copying
+     * the whole store again. beginChanges() starts the record, of every
+     * table but the string table, which a file carries as a member of its
+     * own (sec 27.50 item 2); takeChanges() hands what was recorded over and
+     * records again from there; applyChanges() plays it into another store.
+     * The first two answer false where this build's SQLite has no session
+     * extension: the caller copies the store whole then.
+     */
+    //@{
+    virtual bool beginChanges() = 0;
+    virtual bool takeChanges(std::string& changes) = 0;
+    virtual void endChanges() = 0;
+    /// In one transaction. A row changed or removed there that this store
+    /// does not have -- retention took it out -- is left out; a row added
+    /// there that this store has is replaced. Any other disagreement
+    /// throws, with nothing applied.
+    virtual void applyChanges(const std::string& changes) = 0;
+    /// What this store and the one at `path` disagree on, table by table:
+    /// one line per table that differs, empty when none does. A session's
+    /// closing time and the string table are not compared (the check of
+    /// sec 38.9: a copy brought up to date against one made whole).
+    virtual std::vector<std::string> differences(const std::string& path) = 0;
+    //@}
     /** @name Kept values (docs/TransactionLog.md sec 32.11)
      *
      * A derived value -- a shape -- is of the cache tier, which the copy
@@ -653,6 +682,10 @@ public:
     /// Throws Base::RuntimeError on failure.
     static std::unique_ptr<TransactionStore> openSQLite(const std::string& path,
                                                         bool readOnly = false);
+    /// Open the copy of the store that travels in a file, to bring it up to
+    /// date (sec 38.9): a rollback journal held in memory, so no WAL is made
+    /// and none is left in the file, and no index is made.
+    static std::unique_ptr<TransactionStore> openSQLiteCopy(const std::string& path);
 };
 
 } // namespace App

@@ -94,6 +94,23 @@ find_package(SQLite3 3.38 REQUIRED)
 include_directories(${SQLite3_INCLUDE_DIRS})
 list(APPEND FreeCADApp_LIBS ${SQLite3_LIBRARIES})
 
+# The history a folder holds is brought up to date at a save by what changed
+# since the last one (docs/TransactionLog.md sec 38.9), which SQLite's
+# session extension records. A library built without it -- conda-forge's
+# has it on Linux and Windows -- makes every save copy the history whole.
+include(CheckSymbolExists)
+set(CMAKE_REQUIRED_INCLUDES ${SQLite3_INCLUDE_DIRS})
+set(CMAKE_REQUIRED_LIBRARIES ${SQLite3_LIBRARIES})
+set(CMAKE_REQUIRED_DEFINITIONS -DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK)
+check_symbol_exists(sqlite3session_create "sqlite3.h" FC_SQLITE_HAS_SESSION)
+unset(CMAKE_REQUIRED_INCLUDES)
+unset(CMAKE_REQUIRED_LIBRARIES)
+unset(CMAKE_REQUIRED_DEFINITIONS)
+if(FC_SQLITE_HAS_SESSION)
+    set_property(SOURCE TransactionStoreSQLite.cpp APPEND PROPERTY COMPILE_DEFINITIONS
+                 FC_SQLITE_SESSION SQLITE_ENABLE_SESSION SQLITE_ENABLE_PREUPDATE_HOOK)
+endif()
+
 # zstd is optional and only used by the transaction-log measurement
 # (TransactionMeasure.cpp, docs/TransactionLog.md sec 15 phase 0), which
 # compares it against zlib. Nothing is stored with it yet.

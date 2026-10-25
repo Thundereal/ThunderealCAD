@@ -220,8 +220,35 @@ public:
         int64_t version {0};
         /// Rows the copy left out, older than what it carries (sec 37.4 P1).
         size_t rowsLeftOut {0};
+        /// The folder's own copy brought up to date (sec 38.9), not the
+        /// store copied whole; the bytes of changes played into it.
+        bool updated {false};
+        size_t changes {0};
+        /// Seconds the copy took, from the store's state to its close.
+        double seconds {0};
+        /// FC_TXNLOG_CHECK_FOLDER (sec 38.9): the copy brought up to date
+        /// was compared with one made whole, and the tables that differ.
+        bool checked {false};
+        std::vector<std::string> differences;
     };
+    /// The copy the last save of this document carried (embed(),
+    /// embedFolder()).
+    const Embedded& lastEmbed() const { return _lastEmbed; }
     Embedded embed(const std::string& saveDate);
+    /** The copy a save to a folder carries (docs/TransactionLog.md sec 38.9),
+     * written to `target`, a file in the save's stage: the folder's own copy
+     * `previous` brought up to date by what changed here since its save,
+     * where the store recorded that; otherwise the store copied whole, as
+     * embed() copies it. `folder` is the folder, the canonical path.
+     */
+    Embedded embedFolder(const std::string& saveDate, const std::string& folder,
+                         const std::string& target, const std::string& previous);
+    /// The save embedFolder() wrote for is in the folder: the next save
+    /// of it plays what changed since (sec 38.9).
+    void folderSaved(const std::string& folder, const std::string& saveId);
+    /// Nothing is recorded for a folder any more: the document is saved
+    /// elsewhere, or without its history.
+    void untrackFolder();
     /** The copy a save to the log only puts into the file (sec 27.28): the
      * file's document is not written, so the copy carries the file's own
      * save id and date -- the guard on open then still matches -- and
@@ -249,13 +276,15 @@ public:
      * are in the document's blob store by then (PropertyHistory restored
      * them); the log takes a handle on each.
      */
-    bool adoptStore(const std::string& path);
+    /// `folder`: the folder the copy is from, when it is a folder's own
+    /// (sec 38.9), whose next save then plays what changed since.
+    bool adoptStore(const std::string& path, const std::string& folder = std::string());
     /** The embedded copy of a file edited elsewhere (sec 16.6, 26.2 item
      * 7): adopted as adoptStore() does, every branch of it closed and its
      * `main` renamed `main@<save date>`, and a new, empty `main` opened, so
      * the file as found becomes its first version, numbered on.
      */
-    bool adoptClosed(const std::string& path);
+    bool adoptClosed(const std::string& path, const std::string& folder = std::string());
 
     /// What recover() found.
     struct RecoverInfo
@@ -660,6 +689,7 @@ private:
     bool _haveVersionStrings {false};
     /// What a capture on the worker needs of the document.
     CaptureConfig _config;
+    Embedded _lastEmbed;
     friend class TransactionLogCore;
 };
 
@@ -684,7 +714,7 @@ public:
      * for a store with no history of its own yet. The copy's blobs are in
      * the file's blob store by then; the log takes a handle on each.
      */
-    bool adoptEmbedded(const std::string& path);
+    bool adoptEmbedded(const std::string& path, const std::string& folder = std::string());
     /// Sec 16.6, 26.2 item 7: every branch of the copy just adopted closed,
     /// its `main` renamed, a new `main` made current; returns its id.
     int64_t closeAdopted();
@@ -728,6 +758,31 @@ public:
     /// (sec 27.16); 0 leaves the store's.
     TransactionLog::Embedded embed(const std::string& saveDate, int64_t branch = 0,
                                    const std::string& saveId = std::string());
+    /// What every copy starts with: the file-scope state into the store,
+    /// the save recorded under its id (made when `saveId` is empty).
+    TransactionLog::Embedded beginEmbed(int64_t branch, const std::string& saveId);
+    /// What every copy ends with: retention, the blobs it holds as files,
+    /// its sessions closed, the guard's meta.
+    void finishEmbed(TransactionStore& copy, TransactionLog::Embedded& out,
+                     const std::string& saveDate, int64_t branch);
+    /// TransactionLog::embedFolder().
+    TransactionLog::Embedded embedFolder(const std::string& saveDate, int64_t branch,
+                                         const std::string& folder, const std::string& target,
+                                         const std::string& previous);
+    /** What a folder's own copy of the store lacks is recorded (sec 38.9):
+     * `folder` the folder, `saveId` the save its copy is of -- the store
+     * as it is now, less retention -- and `pending` the save being written
+     * that will be, once folderSaved() says it is in.
+     */
+    struct FolderTrack
+    {
+        std::string folder;
+        std::string saveId;
+        std::string pending;
+    };
+    FolderTrack _folderTrack;
+    void folderSaved(const std::string& folder, const std::string& saveId);
+    void untrackFolder();
     /// The embedded copy `copy` cut to the versions `travel` (sec 37.4 P1):
     /// each branch trimmed at the oldest of them on it where the bound
     /// binds -- a version older on its chain left out (`evictedAt` their

@@ -116,6 +116,33 @@ protected:
                        const std::vector<int> &failed, double maxWidth,
                        std::vector<TopoDS_Shape> &extra,
                        std::vector<std::string> &removed) const;
+    /** As removeSlivers(), with the features near the failed edges -- a
+     * pocket or a boss the dress-up runs into, see
+     * Part::TopoShape::makEFeatureFree -- each face within \a reach of one
+     * bringing in its feature. \a pockets and \a bosses get what the
+     * features took away and added, for putBackFeatures().
+     */
+    bool removeFeatures(TopoShape &baseShape, std::vector<TopoShape> &edges,
+                        const std::vector<int> &failed, double reach,
+                        std::vector<TopoDS_Shape> &extra,
+                        std::vector<std::string> &removed,
+                        TopoShape &pockets, TopoShape &bosses) const;
+    /** \a shape with the features removeFeatures() took out put back:
+     * \a pockets cut from it, \a bosses fused to it. Null when that fails,
+     * changes its number of solids, or is not valid and clean by BOP's check.
+     */
+    TopoShape putBackFeatures(const TopoShape &shape, const TopoShape &pockets,
+                              const TopoShape &bosses) const;
+private:
+    /// A removal adopted: \a edges and \a extra found in \a freed through
+    /// \a history, \a removed named, \a baseShape replaced. False, nothing
+    /// changed, when an edge does not come through whole.
+    static bool adoptRemoval(TopoShape &baseShape, std::vector<TopoShape> &edges,
+                             std::vector<TopoDS_Shape> &extra,
+                             std::vector<std::string> &removed, const TopoShape &freed,
+                             const opencascade::handle<BRepTools_History> &history,
+                             const std::vector<TopoShape> &faces);
+protected:
 public:
     /** The faces \a edge's dress-up had when last made in this session, or
      * as the file's result had them for an edge missing since the open;

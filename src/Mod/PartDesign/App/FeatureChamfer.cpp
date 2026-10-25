@@ -88,6 +88,12 @@ Chamfer::Chamfer()
              "meet -- their neighbours extended over them, and chamfer again. Kept only when\n"
              "fewer chamfers fail; the faces taken out are reported.");
 
+    ADD_PROPERTY_TYPE(PastFeatures, (true), "Chamfer", App::Prop_None,
+             "Where the chamfer of an edge fails, and RemoveSlivers did not help: take out\n"
+             "the features near it -- a pocket or a boss within its size of the edge, that\n"
+             "its chamfer runs into -- chamfer, and put them back, a pocket then cutting into\n"
+             "the chamfer. Kept only when fewer chamfers fail; the faces taken out are reported.");
+
     ADD_PROPERTY(ChamferInfo,());
     ChamferInfo.connectLinkProperty(Base);
 
@@ -182,33 +188,51 @@ App::DocumentObjectExecReturn *Chamfer::execute()
         if (shape.isNull())
             return new App::DocumentObjectExecReturn(QT_TRANSLATE_NOOP("Exception", "Failed to create chamfer"));
 
-        // A chamfer that failed at a sliver: tried again with the slivers
-        // taken out, kept when fewer fail (as Fillet::execute())
+        // Where some fail, tried again with the slivers at them taken out,
+        // then with the features near them taken out and put back; each kept
+        // when fewer fail (as Fillet::execute())
         TopoShape usedBase = baseShape;
-        if (!partial.failed.empty() && RemoveSlivers.getValue()) {
-            TopoShape freedBase = baseShape;
-            auto freedEdges = edges;
+        auto usedEdges = edges;
+        for (int pass = 0; pass < 2 && !partial.failed.empty(); ++pass) {
+            const bool features = pass == 1;
+            if (!(features ? PastFeatures.getValue() : RemoveSlivers.getValue()))
+                continue;
+            TopoShape freedBase = usedBase;
+            auto freedEdges = usedEdges;
             std::vector<TopoDS_Shape> extra;
-            std::vector<std::string> slivers;
-            if (removeSlivers(freedBase, freedEdges, partial.failed, size / 4.0, extra, slivers)) {
-                try {
-                    TopoShape retry(0, getDocument()->getStringHasher());
-                    Part::TopoShape::FilletPartial retryPartial;
-                    retry.makEChamfer(freedBase, freedEdges, chamferInfo, nullptr, &retryPartial);
-                    if (!retry.isNull() && retryPartial.failed.size() < partial.failed.size()) {
-                        std::string names;
-                        for (const auto &name : slivers)
-                            names += " " + name;
+            std::vector<std::string> taken;
+            TopoShape pockets, bosses;
+            if (features ? !removeFeatures(freedBase, freedEdges, partial.failed, size, extra,
+                                           taken, pockets, bosses)
+                         : !removeSlivers(freedBase, freedEdges, partial.failed, size / 4.0,
+                                          extra, taken))
+                continue;
+            try {
+                TopoShape retry(0, getDocument()->getStringHasher());
+                Part::TopoShape::FilletPartial retryPartial;
+                retry.makEChamfer(freedBase, freedEdges, chamferInfo, nullptr, &retryPartial);
+                if (features && !retry.isNull())
+                    retry = putBackFeatures(retry, pockets, bosses);
+                if (!retry.isNull() && retryPartial.failed.size() < partial.failed.size()) {
+                    std::string names;
+                    for (const auto &name : taken)
+                        names += " " + name;
+                    if (features)
+                        FC_WARN(getFullName() << ": features taken out to chamfer, and put back:"
+                                << names);
+                    else
                         FC_WARN(getFullName() << ": sliver faces taken out to chamfer:" << names);
-                        shape = retry;
-                        partial = retryPartial;
+                    shape = retry;
+                    partial = retryPartial;
+                    if (!features) {
                         usedBase = freedBase;
+                        usedEdges = freedEdges;
                     }
                 }
-                catch (Base::Exception &) {
-                }
-                catch (Standard_Failure &) {
-                }
+            }
+            catch (Base::Exception &) {
+            }
+            catch (Standard_Failure &) {
             }
         }
 

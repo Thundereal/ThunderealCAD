@@ -36,10 +36,15 @@
 #include <boost/algorithm/string/predicate.hpp>
 #include <BRepTools_History.hxx>
 #include <TopTools_ListOfShape.hxx>
+#include <BRepAdaptor_Curve.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <Precision.hxx>
 
 #include "FeatureDressUp.h"
 #include "Body.h"
 #include "FeatureBase.h"
+#include <Mod/Part/App/TopoShapeOpCode.h>
 #include <Base/Console.h>
 #include <App/Document.h>
 #include <Base/Exception.h>
@@ -205,7 +210,64 @@ bool DressUp::removeSlivers(TopoShape &baseShape, std::vector<TopoShape> &edges,
     std::vector<TopoShape> slivers;
     if (!freed.makESliverFree(baseShape, at, maxWidth, &history, &slivers) || history.IsNull())
         return false;
+    return adoptRemoval(baseShape, edges, extra, removed, freed, history, slivers);
+}
 
+bool DressUp::removeFeatures(TopoShape &baseShape, std::vector<TopoShape> &edges,
+                             const std::vector<int> &failed, double reach,
+                             std::vector<TopoDS_Shape> &extra,
+                             std::vector<std::string> &removed,
+                             TopoShape &pockets, TopoShape &bosses) const
+{
+    std::vector<TopoShape> at;
+    for (int i : failed) {
+        if (i >= 0 && i < static_cast<int>(edges.size()))
+            at.push_back(edges[i]);
+    }
+    auto hasher = getDocument()->getStringHasher();
+    TopoShape freed(0, hasher);
+    Handle(BRepTools_History) history;
+    std::vector<TopoShape> features;
+    TopoShape cutBack(0, hasher), fuseBack(0, hasher);
+    if (!freed.makEFeatureFree(baseShape, at, reach, &history, &features, &cutBack, &fuseBack)
+            || history.IsNull())
+        return false;
+    if (!adoptRemoval(baseShape, edges, extra, removed, freed, history, features))
+        return false;
+    pockets = cutBack;
+    bosses = fuseBack;
+    return true;
+}
+
+TopoShape DressUp::putBackFeatures(const TopoShape &shape, const TopoShape &pockets,
+                                   const TopoShape &bosses) const
+{
+    auto hasher = getDocument()->getStringHasher();
+    TopoShape result = shape;
+    try {
+        if (!pockets.isNull() && pockets.hasSubShape(TopAbs_SOLID))
+            result = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Cut, {result, pockets});
+        if (!bosses.isNull() && bosses.hasSubShape(TopAbs_SOLID))
+            result = TopoShape(0, hasher).makEBoolean(Part::OpCodes::Fuse, {result, bosses});
+    }
+    catch (Base::Exception &) {
+        return TopoShape();
+    }
+    catch (Standard_Failure &) {
+        return TopoShape();
+    }
+    if (result.isNull() || result.countSubShapes(TopAbs_SOLID) != shape.countSubShapes(TopAbs_SOLID)
+            || !TopoShape::isMadeClean(result.getShape(), shape.getShape()))
+        return TopoShape();
+    return result;
+}
+
+bool DressUp::adoptRemoval(TopoShape &baseShape, std::vector<TopoShape> &edges,
+                           std::vector<TopoDS_Shape> &extra,
+                           std::vector<std::string> &removed, const TopoShape &freed,
+                           const Handle(BRepTools_History) &history,
+                           const std::vector<TopoShape> &faces)
+{
     // A sub-shape of the old base as it is in the new one: itself where the
     // removal left it, null where it went or was split
     auto mapped = [&](const TopoDS_Shape &s) {
@@ -219,6 +281,27 @@ bool DressUp::removeSlivers(TopoShape &baseShape, std::vector<TopoShape> &edges,
     std::vector<TopoShape> freedEdges;
     for (const auto &e : edges) {
         TopoDS_Shape edge = mapped(e.getShape());
+        if (edge.IsNull() && !history->IsRemoved(e.getShape())) {
+            // Split in pieces -- a removal that rebuilds the edge's face can
+            // cut it where the faces taken out met it: the piece through its
+            // middle. The pieces run on into each other, and a fillet on one
+            // takes them all (its contour follows them)
+            BRepAdaptor_Curve curve(TopoDS::Edge(e.getShape()));
+            BRepBuilderAPI_MakeVertex middle(
+                curve.Value(0.5 * (curve.FirstParameter() + curve.LastParameter())));
+            double best = Precision::Infinite();
+            for (const auto &piece : history->Modified(e.getShape())) {
+                if (piece.ShapeType() != TopAbs_EDGE)
+                    continue;
+                BRepExtrema_DistShapeShape dist(piece, middle.Shape());
+                if (dist.IsDone() && dist.Value() < best) {
+                    best = dist.Value();
+                    edge = piece;
+                }
+            }
+            if (best > Precision::Confusion())
+                edge.Nullify();
+        }
         if (edge.IsNull() || !freed.findShape(edge))
             return false;
         freedEdges.emplace_back(edge);
@@ -230,7 +313,7 @@ bool DressUp::removeSlivers(TopoShape &baseShape, std::vector<TopoShape> &edges,
     }
 
     removed.clear();
-    for (const auto &face : slivers)
+    for (const auto &face : faces)
         removed.push_back("Face" + std::to_string(baseShape.findShape(face.getShape())));
     edges = std::move(freedEdges);
     baseShape = freed;

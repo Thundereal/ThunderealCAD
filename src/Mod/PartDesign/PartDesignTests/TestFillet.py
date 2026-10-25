@@ -440,6 +440,68 @@ class TestFilletSlivers(unittest.TestCase):
         self.assertFalse(chamfer.isValid())
 
 
+class TestFilletPastFeatures(unittest.TestCase):
+    """A fillet that fails running into a pocket or a boss near its edge is
+    made with the feature taken out and put back (PastFeatures,
+    TopoShape.makEFeatureFree)"""
+
+    def setUp(self):
+        self.Doc = FreeCAD.newDocument("PartDesignTestFilletPastFeatures")
+        self.Body = self.Doc.addObject('PartDesign::Body', 'Body')
+
+    def tearDown(self):
+        FreeCAD.closeDocument(self.Doc.Name)
+
+    def block(self, feature):
+        """A 20x20x10 block, `feature` (a pocket or a boss on its top, 1 from
+        its front top edge) cut from it or fused to it, as the body's base"""
+        V = FreeCAD.Vector
+        plain = Part.makeBox(20, 20, 10)
+        kind, tool = feature
+        shape = (plain.cut(tool) if kind == 'pocket' else plain.fuse(tool)).removeSplitter()
+        base = self.Doc.addObject('Part::Feature', 'Block')
+        base.Shape = shape
+        self.Body.BaseFeature = base
+        self.Doc.recompute()
+        edge = 'Edge%d' % _edgeIndex(shape, (0, 0, 10), (20, 0, 10))
+        front = plain.Edges[_edgeIndex(plain, (0, 0, 10), (20, 0, 10)) - 1]
+        return base, shape, edge, plain, front
+
+    def check(self, feature, r, expected):
+        base, shape, edge, plain, front = self.block(feature)
+        try:
+            shape.makeFillet(r, [shape.getElement(edge)])
+            self.skipTest("the fillet is made directly: nothing to test")
+        except Part.OCCError:
+            pass
+        fillet = self.Body.newObject('PartDesign::Fillet', 'Fillet')
+        fillet.Base = (base, [edge])
+        fillet.Radius = r
+        self.Doc.recompute()
+        self.assertTrue(fillet.isValid())
+        self.assertEqual(list(fillet.FailedEdges), [])
+        self.assertTrue(fillet.Shape.isValid())
+        self.assertEqual(len(fillet.Shape.Solids), 1)
+        self.assertAlmostEqual(fillet.Shape.Volume, expected(plain.makeFillet(r, [front])).Volume,
+                               places=6)
+        fillet.PastFeatures = False
+        self.Doc.recompute()
+        self.assertFalse(fillet.isValid())
+        self.assertEqual(list(fillet.FailedEdges), [edge])
+
+    def testPocket(self):
+        # a pocket 4x4, 1 deep, 1 from the edge: at 2 the fillet's line on the
+        # top runs into it; made as the fillet first and the pocket after
+        pocket = Part.makeBox(4, 4, 1, FreeCAD.Vector(8, 1, 9))
+        self.check(('pocket', pocket), 2.0, lambda made: made.cut(pocket))
+
+    def testBoss(self):
+        # a boss, a cylinder of radius 1 and 1 high, 2 from the edge: the
+        # fillet at 2 runs under it; made, the boss fused back on
+        boss = Part.makeCylinder(1, 1, FreeCAD.Vector(10, 2, 10))
+        self.check(('boss', boss), 2.0, lambda made: made.fuse(boss))
+
+
 class TestFilletCorners(unittest.TestCase):
     """The Corners of a fillet: its setback corners (docs/CornerBlending.md)"""
 

@@ -89,6 +89,11 @@ JointTypes = [
 # that the proxy, the view provider and the task below need not ask which.
 
 
+# Not upstream: the types a joint can be multiplied over a link array, those
+# of Assembly3's constraints that multiply (docs/AssemblyObjectModel.md sec 7.4)
+JointMultipliable = ("Fixed", "Revolute", "Cylindrical", "Slider")
+
+
 def isTyped(joint):
     """Whether the joint is the C++ one, its sides element links"""
     return joint is not None and joint.isDerivedFrom("Assembly::Joint")
@@ -1342,7 +1347,7 @@ class ViewProviderJoint:
             return
 
         if isTyped(joint):
-            if prop in ("Placement1", "Placement2", "ElementLink1", "ElementLink2"):
+            if prop in ("Placement1", "Placement2", "ElementLink1", "ElementLink2", "_Instances"):
                 self.redrawJointPlacements(joint)
             return
 
@@ -1366,6 +1371,7 @@ class ViewProviderJoint:
                 else:
                     jcs.whichChild = coin.SO_SWITCH_ALL
                     jcs.set_marker_placement(joint.getFrame(i), None)
+            self.redrawInstanceMarkers(joint)
             return
 
         if not hasattr(joint, "Reference1") or not hasattr(joint, "Reference2"):
@@ -1373,6 +1379,28 @@ class ViewProviderJoint:
 
         self.redrawJointPlacement(self.switch_JCS1, joint.Placement1, joint.Reference1)
         self.redrawJointPlacement(self.switch_JCS2, joint.Placement2, joint.Reference2)
+
+    def redrawInstanceMarkers(self, joint):
+        """Not upstream: a multiplied joint's pairs, a marker each side, where
+        its instance joints put them (docs/AssemblyObjectModel.md sec 7.4)"""
+        instances = list(getattr(joint, "_Instances", []))
+        markers = getattr(self, "instanceMarkers", [])
+        while len(markers) < 2 * len(instances):
+            marker = SoSwitchMarker(joint.ViewObject)
+            self.display_mode.addChild(marker)
+            markers.append(marker)
+        for k, marker in enumerate(markers):
+            if k < 2 * len(instances):
+                try:
+                    plc = instances[k // 2].getFrame(k % 2 + 1)
+                except Exception:
+                    marker.whichChild = coin.SO_SWITCH_NONE
+                    continue
+                marker.whichChild = coin.SO_SWITCH_ALL
+                marker.set_marker_placement(plc, None)
+            else:
+                marker.whichChild = coin.SO_SWITCH_NONE
+        self.instanceMarkers = markers
 
     def redrawJointPlacement(self, jcs, plc, ref):
         if ref:
@@ -1411,11 +1439,13 @@ class ViewProviderJoint:
         return modes
 
     def claimChildren(self):
-        """A C++ joint holds its element links"""
+        """A C++ joint holds its element links, and a multiplied one its
+        instance joints, as a link array shows its elements"""
         joint = self.app_obj if hasattr(self, "app_obj") else None
         if joint is None or not isTyped(joint):
             return []
-        return [link for link in (joint.ElementLink1, joint.ElementLink2) if link is not None]
+        links = [link for link in (joint.ElementLink1, joint.ElementLink2) if link is not None]
+        return links + list(joint._Instances)
 
     def getDefaultDisplayMode(self):
         """Return the name of the default display mode. It must be defined in getDisplayModes."""
@@ -2102,6 +2132,23 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
 
         self.jForm.advancedOffsetCheckbox.stateChanged.connect(self.advancedOffsetToggled)
 
+        # Not upstream: multiply the joint over the link array its first side
+        # is on (docs/AssemblyObjectModel.md sec 7.4)
+        self.multiplyCheckbox = QtWidgets.QCheckBox(
+            translate("Assembly", "Multiply over the link array")
+        )
+        self.multiplyCheckbox.setToolTip(
+            translate(
+                "Assembly",
+                "Pair each element of the link array the first side is on with an edge\n"
+                "of the second side's part like the one picked, a circle of its radius\n"
+                "in its plane: one joint for a pattern of pins in holes.",
+            )
+        )
+        self.jForm.layout().addWidget(self.multiplyCheckbox, 13, 0)
+        self.multiplyCheckbox.setChecked(bool(getattr(self.joint, "Multiply", False)))
+        self.multiplyCheckbox.stateChanged.connect(self.multiplyToggled)
+
         self.jForm.offset1Button.clicked.connect(self.onOffset1Clicked)
         self.jForm.offset2Button.clicked.connect(self.onOffset2Clicked)
         self.jForm.PushButtonReverse.clicked.connect(self.onReverseClicked)
@@ -2452,6 +2499,12 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
         self.jForm.rotationSpinbox.setVisible(not advancedOffset and needRotation)
 
         self.jForm.PushButtonReverse.setVisible(jType in JointUsingReverse)
+
+        if hasattr(self, "multiplyCheckbox"):
+            canMultiply = self.canMultiply()
+            self.multiplyCheckbox.setVisible(canMultiply)
+            if not canMultiply and getattr(self.joint, "Multiply", False):
+                self.multiplyCheckbox.setChecked(False)
         self.jForm.PushButtonRotate90.setVisible(jType in JointUsingReverse)
 
         needLengthLimits = jType in JointUsingLimitLength
@@ -2506,6 +2559,19 @@ class TaskAssemblyCreateJoint(QtCore.QObject):
     def advancedOffsetToggled(self, on):
         self.adaptUi()
         self.updateOffsetWidgets()
+
+    def canMultiply(self):
+        """Not upstream: whether the joint can be multiplied, a C++ joint of a
+        type Assembly3 multiplies whose first side is on an element of a link
+        array"""
+        if not isTyped(self.joint) or self.jType not in JointMultipliable:
+            return False
+        part = sideMovingPart(self.joint, 1)
+        return part is not None and part.isDerivedFrom("App::LinkElement")
+
+    def multiplyToggled(self, on):
+        self.joint.Multiply = bool(on)
+        self.joint.recompute()
 
     def editOffset(self, i):
         if isTyped(self.joint):

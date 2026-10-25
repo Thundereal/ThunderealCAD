@@ -28,6 +28,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <App/DocumentObject.h>
 #include <App/FeaturePython.h>
@@ -109,11 +110,45 @@ public:
     App::PropertyAngle AngleMin;
     App::PropertyAngle AngleMax;
 
+    /** Multiply the joint over the elements of the link array side 1 is on,
+     * each paired with an edge of side 2's component like side 2's (a
+     * circle of its radius in its plane), as Assembly3's multiplied
+     * constraint (docs/AssemblyObjectModel.md sec 7.4)
+     */
+    App::PropertyBool Multiply;
+    /// Grow the array to as many elements as there are such edges
+    App::PropertyBool AutoCount;
+    /// A multiplied joint's instance joints, one per pair: output
+    App::PropertyLinkListHidden _Instances;
+    /// An instance joint: the multiplied joint, the array element's index,
+    /// and the paired edge of side 2's component
+    App::PropertyLink _Multiplier;
+    App::PropertyInteger _Instance;
+    App::PropertyString _Target;
+
     static const char* JointTypeEnums[];
+
+    /// Whether this is an instance joint of a multiplied joint
+    bool isInstance() const
+    {
+        return _Multiplier.getValue() != nullptr;
+    }
+    /// The multiplied joint of an instance joint, or null
+    Joint* getMultiplier() const;
+    /// A multiplied joint's instance joints, the pairs it has made
+    std::vector<Joint*> getInstances() const;
+    /** Make a multiplied joint's pairs: the elements of the array, the edges
+     * of side 2's component like side 2's, an instance joint each. Pairs
+     * made before are kept while their element and edge are there; the
+     * rest are paired nearest first, as Assembly3 pairs them. With Multiply
+     * off, the instance joints go.
+     */
+    void updateInstances();
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
     void unsetupObject() override;
+    void onChanged(const App::Property* prop) override;
     PyObject* getPyObject() override;
     /// One that draws nothing: the markers come with JointPython's Python
     /// view provider. A joint the assembly claims must have one.

@@ -1351,10 +1351,18 @@ void AssemblyObject::setNewPlacements(
 void AssemblyObject::redrawJointPlacements(std::vector<App::DocumentObject*> joints)
 {
     // Notify the joint objects that the transform of the coin object changed.
+    // An instance joint has no markers: its multiplied joint draws them, once
+    std::vector<App::DocumentObject*> done;
     for (auto* joint : joints) {
-        if (!joint) {
+        if (auto typed = freecad_cast<Joint*>(joint)) {
+            if (auto multiplier = typed->getMultiplier()) {
+                joint = multiplier;
+            }
+        }
+        if (!joint || std::find(done.begin(), done.end(), joint) != done.end()) {
             continue;
         }
+        done.push_back(joint);
         redrawJointPlacement(joint);
     }
 }
@@ -1566,7 +1574,11 @@ bool AssemblyObject::isAuxGroupAllowed(const App::AuxGroup* group,
     }
     const auto& role = group->getRole();
     if (role == AssemblyGroup::JointsRole) {
-        return obj->isDerivedFrom<Joint>() || obj->isDerivedFrom<GroundedJoint>()
+        // Not a multiplied joint's instance joints: the joint stands for them
+        if (auto joint = freecad_cast<const Joint*>(obj)) {
+            return !joint->isInstance();
+        }
+        return obj->isDerivedFrom<GroundedJoint>()
             || obj->isDerivedFrom<RigidGroup>()
             || proxyClassIn(obj, "JointObject", {"Joint", "GroundedJoint", "RigidGroupJoint"});
     }
@@ -1648,7 +1660,22 @@ std::vector<App::DocumentObject*> AssemblyObject::getJointGroupMembers() const
 {
     auto group = getJointGroup();
     auto prop = group ? group->getPropertyByName<App::PropertyLinkList>("Group") : nullptr;
-    return prop ? prop->getValues() : std::vector<App::DocumentObject*>();
+    std::vector<App::DocumentObject*> members;
+    if (!prop) {
+        return members;
+    }
+    for (auto obj : prop->getValues()) {
+        // A multiplied joint is its instance joints, one per pair
+        auto joint = freecad_cast<Joint*>(obj);
+        auto instances = joint ? joint->getInstances() : std::vector<Joint*>();
+        if (instances.empty()) {
+            members.push_back(obj);
+        }
+        else {
+            members.insert(members.end(), instances.begin(), instances.end());
+        }
+    }
+    return members;
 }
 
 App::DocumentObject* AssemblyObject::getExplodedViewGroup() const

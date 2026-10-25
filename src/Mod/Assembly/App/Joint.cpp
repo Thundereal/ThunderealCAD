@@ -21,9 +21,14 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <algorithm>
 #include <cmath>
+#include <set>
+#include <tuple>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <Precision.hxx>
+#include <gp_Circ.hxx>
 #include <BRepGProp.hxx>
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
@@ -49,6 +54,7 @@
 #include <App/GeoFeature.h>
 #include <App/GeoFeatureGroupExtension.h>
 #include <App/GroupExtension.h>
+#include <App/Link.h>
 #include <Base/Console.h>
 #include <Base/Tools.h>
 #include <Mod/Part/App/FeatureElement.h>
@@ -56,6 +62,7 @@
 
 #include "AssemblyGroup.h"
 #include "AssemblyObject.h"
+#include "AssemblyUtils.h"
 #include "ElementGeometry.h"
 #include "Groups.h"
 #include "Joint.h"
@@ -73,6 +80,31 @@ App::DocumentObject* directChild(const AssemblyObject* assembly, App::DocumentOb
         return nullptr;
     }
     return assembly->Group.find(obj->getNameInDocument()) == obj ? obj : nullptr;
+}
+
+/** The component (object, subname) is on: the direct child of the assembly
+ * it starts with, or, through a link group whose elements are each a
+ * component (an expanded link array, isElementLinkGroup()), the element the
+ * path steps into. Null when obj is not a direct child.
+ */
+App::DocumentObject* componentOf(const AssemblyObject* assembly,
+                                 App::DocumentObject* obj,
+                                 const std::string& sub)
+{
+    auto child = directChild(assembly, obj);
+    if (!child || !isElementLinkGroup(child)) {
+        return child;
+    }
+    auto dot = sub.find('.');
+    if (dot == std::string::npos) {
+        return child;
+    }
+    auto element = child->getSubObject(sub.substr(0, dot + 1).c_str(), nullptr, nullptr, false);
+    auto group = static_cast<App::Link*>(child);
+    if (element && element != child && group->ElementList.find(element->getNameInDocument()) == element) {
+        return element;
+    }
+    return child;
 }
 
 /// The element an element link's (object, subname) resolves to, or null
@@ -176,6 +208,25 @@ Joint::Joint()
                       "The maximum limit for the angle between both coordinate systems\n"
                       "(between their x-axis)");
 
+    ADD_PROPERTY_TYPE(Multiply, (false), "Multiply", App::Prop_None,
+                      "Multiply the joint over the elements of the link array the first\n"
+                      "side is on, each paired with an edge of the second side's component\n"
+                      "like the second side's: a circle of its radius in its plane");
+    ADD_PROPERTY_TYPE(AutoCount, (true), "Multiply", App::Prop_None,
+                      "Grow the array to as many elements as there are such edges");
+    ADD_PROPERTY_TYPE(_Instances, (), "Multiply",
+                      App::PropertyType(App::Prop_Hidden | App::Prop_Output | App::Prop_ReadOnly),
+                      "The instance joints of a multiplied joint, one per pair");
+    ADD_PROPERTY_TYPE(_Multiplier, (nullptr), "Multiply",
+                      App::PropertyType(App::Prop_Hidden | App::Prop_ReadOnly),
+                      "The multiplied joint this is an instance of");
+    ADD_PROPERTY_TYPE(_Instance, (-1), "Multiply",
+                      App::PropertyType(App::Prop_Hidden | App::Prop_ReadOnly),
+                      "The index of the array element of this instance");
+    ADD_PROPERTY_TYPE(_Target, (""), "Multiply",
+                      App::PropertyType(App::Prop_Hidden | App::Prop_ReadOnly),
+                      "The edge of the second side's component this instance is paired with");
+
     // As the Python joint sets them
     for (auto prop : {&Distance, &Distance2, &LengthMin, &LengthMax}) {
         prop->enableNegative(true);
@@ -197,26 +248,114 @@ AssemblyObject* Joint::getAssembly() const
     );
 }
 
+namespace
+{
+/// The placement of a component in the assembly: a link group's element is
+/// placed in its group
+Base::Placement componentPlacement(App::DocumentObject* obj)
+{
+    Base::Placement plc = App::GeoFeature::getPlacementFromProp(obj, "Placement");
+    App::Link* group = nullptr;
+    if (linkElementIndex(obj, &group) >= 0 && group) {
+        plc = App::GeoFeature::getPlacementFromProp(group, "Placement") * plc;
+    }
+    return plc;
+}
+
+/// The element of a multiplied joint's array an instance is on, or null
+App::DocumentObject* arrayElement(App::DocumentObject* picked, int index)
+{
+    App::Link* array = nullptr;
+    if (!picked || linkElementIndex(picked, &array) < 0 || !array) {
+        return nullptr;
+    }
+    const auto& elements = array->ElementList.getValues();
+    return index >= 0 && index < static_cast<int>(elements.size()) ? elements[index] : nullptr;
+}
+}  // namespace
+
+Joint* Joint::getMultiplier() const
+{
+    return Base::freecad_dynamic_cast<Joint>(_Multiplier.getValue());
+}
+
+std::vector<Joint*> Joint::getInstances() const
+{
+    std::vector<Joint*> res;
+    for (auto obj : _Instances.getValues()) {
+        auto joint = Base::freecad_dynamic_cast<Joint>(obj);
+        if (joint && !joint->isRemoving() && joint->getMultiplier() == this) {
+            res.push_back(joint);
+        }
+    }
+    return res;
+}
+
 App::DocumentObject* Joint::getComponent(int side) const
 {
+    if (auto multiplier = getMultiplier()) {
+        // The multiplied joint's, on side 1 the instance's array element
+        auto component = multiplier->getComponent(side);
+        return side == 1 ? arrayElement(component, _Instance.getValue()) : component;
+    }
     auto link = getElementLink(side);
     if (!link) {
         return nullptr;
     }
     auto assembly = getAssembly();
     auto obj = link->Element.getValue();
-    if (auto child = directChild(assembly, obj)) {
+    const auto& subs = link->Element.getSubValues();
+    const std::string sub = subs.empty() ? std::string() : subs.front();
+    if (auto child = componentOf(assembly, obj, sub)) {
         return child;
     }
     // A convenience element in the assembly's own Elements group: its
     // target is the component
-    const auto& subs = link->Element.getSubValues();
-    auto element = resolveElement(obj, subs.empty() ? std::string() : subs.front());
-    return element ? directChild(assembly, element->Target.getValue()) : nullptr;
+    auto element = resolveElement(obj, sub);
+    if (!element) {
+        return nullptr;
+    }
+    const auto& tsubs = element->Target.getSubValues();
+    return componentOf(assembly,
+                       element->Target.getValue(),
+                       tsubs.empty() ? std::string() : tsubs.front());
 }
 
 JointSide Joint::getSide(int side) const
 {
+    if (auto multiplier = getMultiplier()) {
+        // The multiplied joint's side, carried: on side 1 from the element
+        // picked to this instance's, on side 2 from the edge picked to this
+        // instance's edge, the offsets kept
+        JointSide res = multiplier->getSide(side);
+        if (!res.isValid() || res.wholeObject) {
+            return JointSide();
+        }
+        if (side == 1) {
+            auto element = arrayElement(res.component, _Instance.getValue());
+            if (!element) {
+                return JointSide();
+            }
+            const Base::Placement move
+                = componentPlacement(element) * componentPlacement(res.component).inverse();
+            res.component = element;
+            res.frame = move * res.frame;
+            res.shape.transformShape(move.toMatrix(), false);
+            return res;
+        }
+        Part::TopoShape target;
+        try {
+            target = Part::Feature::getTopoShape(res.component, _Target.getValue(), true);
+        }
+        catch (const Base::Exception&) {
+        }
+        if (target.isNull()) {
+            return JointSide();
+        }
+        res.frame = findElementFrame(target) * findElementFrame(res.shape).inverse() * res.frame;
+        res.shape = target;
+        return res;
+    }
     JointSide res;
     res.link = getElementLink(side);
     if (!res.link) {
@@ -241,6 +380,16 @@ JointSide Joint::getSide(int side) const
             geomObj = element->Target.getValue();
             const auto& tsubs = element->Target.getSubValues();
             geomSub = tsubs.empty() ? std::string() : tsubs.front();
+        }
+    }
+    // An element of an array (componentOf()) through the element itself: the
+    // array's shape caches its elements where they were, which a solve, that
+    // moves an element without a recompute, makes stale
+    if (res.component && res.component != geomObj && directChild(getAssembly(), geomObj)) {
+        auto dot = geomSub.find('.');
+        if (dot != std::string::npos) {
+            geomObj = res.component;
+            geomSub = geomSub.substr(dot + 1);
         }
     }
     try {
@@ -314,7 +463,233 @@ App::DocumentObjectExecReturn* Joint::execute()
             plc.setValue(local);
         }
     }
+    if (!isInstance() && (Multiply.getValue() || _Instances.getSize())) {
+        try {
+            updateInstances();
+        }
+        catch (const Base::Exception& e) {
+            return new App::DocumentObjectExecReturn(e.what());
+        }
+    }
     return App::DocumentObject::StdReturn;
+}
+
+namespace
+{
+/// The circle an edge is, if it is one
+bool circleOf(const Part::TopoShape& shape, gp_Circ& circle)
+{
+    if (shape.isNull() || shape.getShape().ShapeType() != TopAbs_EDGE) {
+        return false;
+    }
+    BRepAdaptor_Curve curve(TopoDS::Edge(shape.getShape()));
+    if (curve.GetType() != GeomAbs_Circle) {
+        return false;
+    }
+    circle = curve.Circle();
+    return true;
+}
+
+/// The properties an instance joint takes from its multiplied joint
+const char* const instanceProperties[] = {"JointType",
+                                          "Angle",
+                                          "Distance",
+                                          "Distance2",
+                                          "EnableLengthMin",
+                                          "EnableLengthMax",
+                                          "EnableAngleMin",
+                                          "EnableAngleMax",
+                                          "LengthMin",
+                                          "LengthMax",
+                                          "AngleMin",
+                                          "AngleMax",
+                                          "Suppressed"};
+
+void syncInstance(const Joint* multiplier, Joint* instance)
+{
+    for (const char* name : instanceProperties) {
+        auto from = multiplier->getPropertyByName(name);
+        auto to = instance->getPropertyByName(name);
+        if (from && to && !from->isSame(*to)) {
+            to->Paste(*from);
+        }
+    }
+}
+}  // namespace
+
+void Joint::onChanged(const App::Property* prop)
+{
+    App::DocumentObject::onChanged(prop);
+    if (isRestoring() || isInstance() || !_Instances.getSize()) {
+        return;
+    }
+    const char* name = prop->getName();
+    if (!name) {
+        return;
+    }
+    for (const char* synced : instanceProperties) {
+        if (strcmp(name, synced) == 0) {
+            for (auto instance : getInstances()) {
+                syncInstance(this, instance);
+            }
+            return;
+        }
+    }
+}
+
+void Joint::updateInstances()
+{
+    auto doc = getDocument();
+    auto assembly = getAssembly();
+    auto current = getInstances();
+    auto removeAll = [&]() {
+        _Instances.setValues({});
+        for (auto instance : current) {
+            if (!instance->isRemoving()) {
+                doc->removeObject(instance->getNameInDocument());
+            }
+        }
+    };
+    if (!Multiply.getValue() || !assembly) {
+        removeAll();
+        return;
+    }
+
+    // The array and the element picked
+    const auto side1 = getSide(1);
+    const auto side2 = getSide(2);
+    App::Link* array = nullptr;
+    if (!side1.isValid() || linkElementIndex(side1.component, &array) < 0 || !array) {
+        removeAll();
+        FC_THROWM(Base::ValueError, "To multiply, the first side is on an element of a link array");
+    }
+    gp_Circ picked;
+    if (!side2.isValid() || !circleOf(side2.shape, picked)) {
+        removeAll();
+        FC_THROWM(Base::ValueError, "To multiply, the second side is a circular edge");
+    }
+
+    // The edges like the one picked: circles of its radius in its plane
+    const auto whole = Part::Feature::getTopoShape(side2.component, "", false);
+    const double tol = Precision::Confusion();
+    const gp_Dir normal = picked.Axis().Direction();
+    std::vector<std::string> targets;
+    const int count = static_cast<int>(whole.countSubShapes(TopAbs_EDGE));
+    for (int i = 1; i <= count; ++i) {
+        gp_Circ circle;
+        if (!circleOf(Part::TopoShape(whole.getSubShape(TopAbs_EDGE, i)), circle)) {
+            continue;
+        }
+        if (std::abs(circle.Radius() - picked.Radius()) > tol
+            || !circle.Axis().Direction().IsParallel(normal, Precision::Angular())
+            || std::abs(gp_Vec(picked.Location(), circle.Location()).Dot(gp_Vec(normal))) > tol) {
+            continue;
+        }
+        targets.push_back("Edge" + std::to_string(i));
+    }
+
+    if (AutoCount.getValue() && array->ElementList.getSize() < static_cast<int>(targets.size())) {
+        array->ElementCount.setValue(static_cast<long>(targets.size()));
+    }
+    const auto& elements = array->ElementList.getValues();
+    const std::size_t pairs = std::min(elements.size(), targets.size());
+
+    // Where each element's and each edge's frame is, for pairing
+    const Base::Placement pickedPlc = componentPlacement(side1.component);
+    auto elementOrigin = [&](std::size_t i) {
+        return (componentPlacement(elements[i]) * pickedPlc.inverse() * side1.frame).getPosition();
+    };
+    const Base::Placement pickedFrame = findElementFrame(side2.shape).inverse() * side2.frame;
+    auto targetOrigin = [&](const std::string& name) {
+        auto shape = Part::Feature::getTopoShape(side2.component, name.c_str(), true);
+        return (findElementFrame(shape) * pickedFrame).getPosition();
+    };
+
+    // The pairs kept, while their element and edge are there
+    std::vector<std::pair<int, std::string>> made;
+    std::vector<bool> elementUsed(elements.size(), false);
+    std::set<std::string> targetUsed;
+    std::vector<Joint*> kept;
+    for (auto instance : current) {
+        const int i = instance->_Instance.getValue();
+        const std::string t = instance->_Target.getValue();
+        if (made.size() >= pairs || i < 0 || i >= static_cast<int>(elements.size())
+            || elementUsed[i] || targetUsed.count(t)
+            || std::find(targets.begin(), targets.end(), t) == targets.end()) {
+            continue;
+        }
+        elementUsed[i] = true;
+        targetUsed.insert(t);
+        made.emplace_back(i, t);
+        kept.push_back(instance);
+    }
+    std::vector<std::pair<int, std::string>> added;
+    // The element and the edge picked, together
+    const int pickedIndex = linkElementIndex(side1.component);
+    if (pickedIndex >= 0 && !elementUsed[pickedIndex] && made.size() < pairs) {
+        for (const auto& t : targets) {
+            if (!targetUsed.count(t)
+                && Base::Distance(targetOrigin(t), side2.frame.getPosition()) < tol) {
+                elementUsed[pickedIndex] = true;
+                targetUsed.insert(t);
+                added.emplace_back(pickedIndex, t);
+                break;
+            }
+        }
+    }
+    // The rest, nearest first
+    std::vector<std::tuple<double, int, std::string>> distances;
+    for (std::size_t i = 0; i < elements.size(); ++i) {
+        if (elementUsed[i]) {
+            continue;
+        }
+        const auto origin = elementOrigin(i);
+        for (const auto& t : targets) {
+            if (!targetUsed.count(t)) {
+                distances.emplace_back(Base::Distance(origin, targetOrigin(t)), static_cast<int>(i), t);
+            }
+        }
+    }
+    std::sort(distances.begin(), distances.end());
+    for (const auto& [distance, i, t] : distances) {
+        if (made.size() + added.size() >= pairs) {
+            break;
+        }
+        if (elementUsed[i] || targetUsed.count(t)) {
+            continue;
+        }
+        elementUsed[i] = true;
+        targetUsed.insert(t);
+        added.emplace_back(i, t);
+    }
+
+    // The instance joints: the kept, and one for each new pair
+    std::vector<App::DocumentObject*> instances(kept.begin(), kept.end());
+    for (auto instance : current) {
+        if (std::find(kept.begin(), kept.end(), instance) == kept.end() && !instance->isRemoving()) {
+            doc->removeObject(instance->getNameInDocument());
+        }
+    }
+    for (const auto& [i, t] : added) {
+        auto instance = static_cast<Joint*>(
+            doc->addObject("Assembly::Joint", (std::string(getNameInDocument()) + "_Instance").c_str())
+        );
+        // An instance before the assembly takes it: its Joints group shows
+        // the joints, not their instances
+        instance->_Multiplier.setValue(this);
+        instance->_Instance.setValue(i);
+        instance->_Target.setValue(t);
+        instance->Label.setValue(std::string(Label.getValue()) + "_" + std::to_string(i));
+        // The assembly's child, as the joint is, whatever its GroupMode
+        auto children = assembly->Group.getValues();
+        children.push_back(instance);
+        assembly->Group.setValues(children);
+        instances.push_back(instance);
+    }
+    _Instances.setValues(instances);
+    for (auto instance : getInstances()) {
+        syncInstance(this, instance);
+    }
 }
 
 namespace
@@ -398,6 +773,12 @@ PyObject* Joint::getPyObject()
 
 void Joint::unsetupObject()
 {
+    // A multiplied joint's instance joints go with it
+    for (auto instance : getInstances()) {
+        if (!instance->isRemoving() && instance->getDocument()) {
+            instance->getDocument()->removeObject(instance->getNameInDocument());
+        }
+    }
     // The joint holds its element links: they go with it, unless another
     // joint uses one too
     auto assembly = getAssembly();
@@ -441,16 +822,25 @@ void Joint::relocateCopies(AssemblyObject* assembly,
             continue;
         }
         auto obj = link->Element.getValue();
-        if (obj == component) {
-            move(link);
-            continue;
-        }
-        if (directChild(assembly, obj)) {
-            continue;
-        }
         const auto& subs = link->Element.getSubValues();
-        auto element = resolveElement(obj, subs.empty() ? std::string() : subs.front());
-        if (!element || element->Target.getValue() != component || element->Detach.getValue()) {
+        const std::string sub = subs.empty() ? std::string() : subs.front();
+        if (directChild(assembly, obj)) {
+            // An element the component declares, or one of an array's
+            // elements through the array
+            if (componentOf(assembly, obj, sub) == component) {
+                move(link);
+            }
+            continue;
+        }
+        auto element = resolveElement(obj, sub);
+        if (!element || element->Detach.getValue()) {
+            continue;
+        }
+        const auto& tsubs = element->Target.getSubValues();
+        if (componentOf(assembly,
+                        element->Target.getValue(),
+                        tsubs.empty() ? std::string() : tsubs.front())
+            != component) {
             continue;
         }
         move(link);
@@ -519,11 +909,29 @@ Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
     if (!assembly || !component) {
         THROWM(Base::ValueError, "No assembly or component");
     }
+    std::string sub = subname ? subname : "";
+    std::string vertexSub = vertex ? vertex : "";
+    // An element of a link array whose elements are each a component is
+    // taken through the array, which is the assembly's child
+    App::Link* array = nullptr;
+    if (linkElementIndex(component, &array) >= 0 && array && directChild(assembly, array)
+        && isElementLinkGroup(array)) {
+        const std::string step = std::string(component->getNameInDocument()) + ".";
+        sub = step + sub;
+        if (!vertexSub.empty()) {
+            vertexSub = step + vertexSub;
+        }
+        component = array;
+    }
     if (!directChild(assembly, component)) {
         FC_THROWM(Base::ValueError,
                   component->getFullName() << " is not a component of " << assembly->getFullName());
     }
-    const std::string sub = subname ? subname : "";
+    // The path names the element of the array: what declares elements is
+    // what every element links to, so the element is the assembly's own
+    if (isElementLinkGroup(component)) {
+        local = true;
+    }
 
     Part::ElementLink* link = nullptr;
     // The component declares elements: the element goes in its Elements
@@ -567,11 +975,11 @@ Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
         );
     }
 
-    if (vertex && *vertex) {
+    if (!vertexSub.empty()) {
         // The vertex places the origin on the element: the element link
         // keeps it, and its Offset follows it. Followed now on the pick's
         // geometry: the new element has no copy yet.
-        link->Vertex.setValue(component, std::vector<std::string> {vertex});
+        link->Vertex.setValue(component, std::vector<std::string> {vertexSub});
         link->updateVertexOffset(Part::Feature::getTopoShape(component, sub.c_str(), true));
     }
     return link;

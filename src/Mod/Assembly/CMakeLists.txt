@@ -29,6 +29,7 @@ set(Assembly_Scripts
     CommandCreateSimulation.py
     CommandCreateSnapshot.py
     CommandExportASMT.py
+    CommandConvertAsm3.py
     TestAssemblyWorkbench.py
     JointObject.py
     JointCam.py
@@ -36,6 +37,7 @@ set(Assembly_Scripts
     AssemblyImport.py
     AssemblyAsm3Bundle.py
     AssemblyMigrate.py
+    AssemblyImportAsm3.py
     SoSwitchMarker.py
     UtilsAssembly.py
 )
@@ -73,6 +75,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestMigrateJoints.py
     AssemblyTests/TestMigrateTwins.py
     AssemblyTests/TestAssemblyGroups.py
+    AssemblyTests/TestImportAsm3.py
     AssemblyTests/mocks/__init__.py
     AssemblyTests/mocks/MockGui.py
 )

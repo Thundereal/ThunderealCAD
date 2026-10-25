@@ -60,6 +60,7 @@ from AssemblyTests.TestElementJoint import TestElementJoint
 from AssemblyTests.TestMigrateJoints import TestMigrateJoints
 from AssemblyTests.TestMigrateTwins import TestMigrateTwins
 from AssemblyTests.TestAssemblyGroups import TestAssemblyGroups
+from AssemblyTests.TestImportAsm3 import TestImportAsm3
 
 # Use the modules so that code checkers don't complain (flake8)
 True if TestCore else False
@@ -97,6 +98,7 @@ True if TestElementJoint else False
 True if TestMigrateJoints else False
 True if TestMigrateTwins else False
 True if TestAssemblyGroups else False
+True if TestImportAsm3 else False
 
 # The gate once more per registered backend other than OndselSolver
 # (TestSolverGateJointsReference, ...), compared with OndselSolver's records.

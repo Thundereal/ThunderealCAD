@@ -506,6 +506,13 @@ Of these, upstream has flip (`flipOnePart`) and joint visuals. Worth taking:
 
 ## B. Importing Assembly3 documents
 
+Built 2026-10-25 against the C++ object model, not upstream's joints:
+`docs/AssemblyObjectModel.md` sec 8 (step 4f). It reads the document
+through the bundled Assembly3 code instead of the structural classifier
+of B.1, and maps elements to `Part::Element`s and constraints to joints
+whose element links carry the offsets; what follows is the plan it
+started from.
+
 ### B.1 Loading without Assembly3 installed
 
 Without Assembly3 installed, an Assembly3 document opens with every object

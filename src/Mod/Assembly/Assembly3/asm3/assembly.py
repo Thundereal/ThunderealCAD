@@ -464,7 +464,8 @@ class AsmPartGroup(AsmGroup):
         obj = parent.Document.addObject("Part::FeaturePython",name,
                     AsmPartGroup(parent),None,True)
         obj.setPropertyStatus('Placement',('Output','Hidden'))
-        ViewProviderAsmPartGroup(obj.ViewObject)
+        if obj.ViewObject:  # bundled: None without the GUI
+            ViewProviderAsmPartGroup(obj.ViewObject)
         obj.purgeTouched()
         return obj
 
@@ -1057,7 +1058,8 @@ class AsmElement(AsmBase):
             raise RuntimeError('Cannot create new element in frozen assembly')
         element = elements.Document.addObject("Part::FeaturePython",
                                 name,cls(elements),None,True)
-        ViewProviderAsmElement(element.ViewObject)
+        if element.ViewObject:  # bundled: None without the GUI
+            ViewProviderAsmElement(element.ViewObject)
         return element
 
     def autoLabel(self):
@@ -1627,7 +1629,8 @@ class AsmElementSketch(AsmElement):
     def create(cls,name,parent):
         element = parent.Document.addObject("Part::FeaturePython", name)
         cls(element,parent)
-        ViewProviderAsmElementSketch(element.ViewObject)
+        if element.ViewObject:  # bundled: None without the GUI
+            ViewProviderAsmElementSketch(element.ViewObject)
         return element
 
     def execute(self,obj):
@@ -2273,7 +2276,8 @@ class AsmElementLink(AsmBase):
     def make(info,name='ElementLink'):
         link = info.Constraint.Document.addObject("App::FeaturePython",
                     name,AsmElementLink(info.Constraint),None,True)
-        ViewProviderAsmElementLink(link.ViewObject)
+        if link.ViewObject:  # bundled: None without the GUI
+            ViewProviderAsmElementLink(link.ViewObject)
         info.Constraint.setLink({-1:link})
         link.Proxy.setLink(info.Owner,info.Subname)
         if gui.AsmCmdManager.AutoElementVis:
@@ -2972,7 +2976,8 @@ class AsmConstraint(AsmGroup):
             constraints = assembly.getConstraintGroup()
             cstr = constraints.Document.addObject("App::FeaturePython",
                     name,AsmConstraint(constraints),None,True)
-            ViewProviderAsmConstraint(cstr.ViewObject)
+            if cstr.ViewObject:  # bundled: None without the GUI
+                ViewProviderAsmConstraint(cstr.ViewObject)
             constraints.setLink({-1:cstr})
             Constraint.setTypeID(cstr,typeid)
             cstr.Label = Constraint.getTypeName(cstr)
@@ -3271,7 +3276,8 @@ class AsmConstraintGroup(AsmGroup):
     def make(parent,name='Constraints'):
         obj = parent.Document.addObject("App::FeaturePython",name,
                 AsmConstraintGroup(parent),None,True)
-        ViewProviderAsmConstraintGroup(obj.ViewObject)
+        if obj.ViewObject:  # bundled: None without the GUI
+            ViewProviderAsmConstraintGroup(obj.ViewObject)
         obj.purgeTouched()
         return obj
 
@@ -3344,7 +3350,8 @@ class AsmElementGroup(AsmGroup):
     def make(parent,name='Elements'):
         obj = parent.Document.addObject("App::FeaturePython",name,
                         AsmElementGroup(parent),None,True)
-        ViewProviderAsmElementGroup(obj.ViewObject)
+        if obj.ViewObject:  # bundled: None without the GUI
+            ViewProviderAsmElementGroup(obj.ViewObject)
         obj.purgeTouched()
         return obj
 
@@ -3573,7 +3580,8 @@ class AsmRelationGroup(AsmBase):
     def make(parent,name='Relations'):
         obj = parent.Document.addObject("App::FeaturePython",name,
                     AsmRelationGroup(parent),None,True)
-        ViewProviderAsmRelationGroup(obj.ViewObject)
+        if obj.ViewObject:  # bundled: None without the GUI
+            ViewProviderAsmRelationGroup(obj.ViewObject)
         obj.Label = name
         obj.purgeTouched()
         return obj
@@ -3857,7 +3865,8 @@ class AsmRelation(AsmBase):
     def make(parent,part,name='Relation'):
         obj = parent.Document.addObject("App::FeaturePython",name,
                     AsmRelation(parent),None,True)
-        ViewProviderAsmRelation(obj.ViewObject)
+        if obj.ViewObject:  # bundled: None without the GUI
+            ViewProviderAsmRelation(obj.ViewObject)
         if isinstance(part,tuple):
             obj.setLink(part[0])
             obj.Index = part[1]
@@ -3953,7 +3962,8 @@ class Assembly(AsmGroup):
 
         self.buildShape()
         System.touch(obj)
-        obj.ViewObject.Proxy.onExecute()
+        if obj.ViewObject:  # bundled: None without the GUI
+            obj.ViewObject.Proxy.onExecute()
 
         # collect the part objects of this assembly
         for cstr in self.getConstraints():
@@ -4472,7 +4482,8 @@ class Assembly(AsmGroup):
         try:
             obj = doc.addObject("Part::FeaturePython",name,Assembly(),None,True)
             obj.setPropertyStatus('Shape','Transient')
-            ViewProviderAssembly(obj.ViewObject)
+            if obj.ViewObject:  # bundled: None without the GUI
+                ViewProviderAssembly(obj.ViewObject)
             obj.Visibility = True
             if gui.AsmCmdManager.AddOrigin:
                 Assembly.addOrigin(obj.Proxy.getPartGroup())
@@ -5015,7 +5026,8 @@ class AsmWorkPlane(object):
                     name = 'Workplane'
                     obj = doc.addObject('Part::FeaturePython',name)
                     AsmWorkPlane(obj)
-                    ViewProviderAsmWorkPlane(obj.ViewObject)
+                    if obj.ViewObject:  # bundled: None without the GUI
+                        ViewProviderAsmWorkPlane(obj.ViewObject)
                     if utils.isVertex(info.Shape):
                         obj.Length = obj.Width = 0
                     elif utils.isLinearEdge(info.Shape):
@@ -5224,7 +5236,8 @@ class AsmPlainGroup(object):
                 name = 'Group'
             obj = doc.addObject('App::DocumentObjectGroupPython',name)
             AsmPlainGroup(obj,info.Parent)
-            ViewProviderAsmPlainGroup(obj.ViewObject)
+            if obj.ViewObject:  # bundled: None without the GUI
+                ViewProviderAsmPlainGroup(obj.ViewObject)
             group = info.Group.Group
             indices = [ group.index(o) for o in info.Objects ]
             indices.sort()

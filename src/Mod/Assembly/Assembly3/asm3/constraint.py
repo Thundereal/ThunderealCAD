@@ -482,7 +482,7 @@ class Constraint(ProxyType):
 
     @classmethod
     def onChanged(mcs,obj,prop):
-        if prop == mcs._disabled:
+        if prop == mcs._disabled and obj.ViewObject:  # bundled: None without the GUI
             obj.ViewObject.signalChangeIcon()
         if super(Constraint,mcs).onChanged(obj,prop):
             try:

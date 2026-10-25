@@ -16,6 +16,14 @@ solver with pip), `translations/`.
 
 Changed:
 - `asm3/system.py`, `System.unknownType`: no prompt to install a solver.
+- `asm3/assembly.py`: a view provider is attached only when the object has
+  a view object, as it has none without the GUI. Restoring an Assembly3
+  document migrates its oldest element links by making local elements,
+  which failed headless.
+- `asm3/assembly.py`, `Assembly.execute`: the view provider is told of the
+  recompute only when there is one.
+- `asm3/constraint.py`, `Constraint.onChanged`: the icon of a constraint
+  disabled or enabled changes only when it has a view provider.
 - Two icons: a degree sign in their description metadata is written `deg`.
 
 The code is under the license in `LICENSE` (GPL-3.0), as in the add-on.

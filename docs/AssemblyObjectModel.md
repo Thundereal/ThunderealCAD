@@ -1169,6 +1169,73 @@ Built as step 4b (2026-10-25), the joints the task makes:
     `getElementSubname`, `getInfo` and the rest. The converter reads them
     through that API rather than re-deriving them from raw properties.
   - The code is GPL-3.0, as the add-on is (`Assembly3/LICENSE`).
+  - Built as step 4f (2026-10-25), the converter
+    (`AssemblyImportAsm3.convert(doc)`, and the command
+    Assembly_ConvertAssembly3 in the Assembly menu, active when the
+    document has Assembly3 assemblies). It works on the open document, in
+    place, as one transaction, as `docs/AssemblyFromAsm3.md` B.5 has it,
+    but onto these objects rather than upstream's joints:
+    - **Read first, through Assembly3**: every assembly, children first,
+      its parts, elements and constraints, and for each element link
+      Assembly3's own `getInfo()`: the part, the path below it, and the
+      frame Assembly3 puts on the element, offsets applied. Nothing is
+      changed until all is read, as a parent's references go into its
+      children.
+    - **An assembly** becomes an AssemblyObject with its label and
+      placement, its parts moved in (a folder's parts directly, reported).
+      A child inside a parent's parts stays a direct component of it, and
+      a link to a child links to the new one: rigid, as Assembly3's are.
+    - **An element** becomes a `Part::Element` of the same label in the
+      Elements group; through a child assembly, Assembly3's element group
+      (`1.`) is the child's Elements group (`$$Elements.`, sec 6.3), so a
+      parent's references into a child keep naming its elements by label.
+    - **A constraint** becomes joints, N-1 for N elements, paired as
+      Assembly3 pairs them (Cascade or from the first), a pair on one part
+      skipped as Assembly3 skips it. Each side is an element link to the
+      element, with `Offset = F^-1 * G` (G Assembly3's frame, F ours), and
+      side 2's frame made to satisfy the joint at the saved poses where
+      the type ties the two: a revolute's and a ball's origin on side 1's,
+      a slider's rotation, Z senses matched where Assembly3 accepts either.
+      That folds Assembly3's own offsets in. Disabled is Suppressed.
+    - **The types** (`CONSTRAINTS`): PlaneCoincident is Revolute, or Fixed
+      with LockAngle; AxialAlignment Cylindrical, or Slider; Colinear
+      Cylindrical; Attachment(Offset) Fixed; PointsCoincident Ball;
+      PointInPlane, PointOnLine, the point distances and PlaneAlignment
+      Distance; Angle, Perpendicular, MultiParallel and (approximate)
+      SameOrientation as theirs. The rest -- the sketch and draft-wire
+      families, Symmetric, the measures -- are dropped and reported, as are
+      expressions on a constraint and an element of a link array.
+    - **Locks**: on a face or a curved edge, the part is grounded; on a
+      vertex or a straight edge, a ball or revolute joint to a grounded
+      datum there, as Assembly3 leaves the part turning about it. An
+      assembly with no lock grounds the first part of its first
+      constraint, as Assembly3 does.
+    - **A distance or an angle** is Assembly3's value; where a solve moves
+      the parts, the other sense or the supplement is tried, keeping what
+      moves the least (the conventions differ in sign).
+    - **Where Assembly3's shape is not the element's geometry** (a sketch
+      element's is a solid, so its frame is the part's), our frame is used
+      for that side, and it is reported.
+    - **Only what it makes is recomputed**: a document recompute would
+      recompute the parts too, in their own files; the joints resolve
+      their sides live for the verifying solve.
+    - Found on the way, in the bundled code (`Assembly3/README.md`):
+      without the GUI, a view provider was attached to a missing view
+      object when restoring migrated the oldest element links (so they
+      did not resolve), when an assembly recomputed, and when a constraint
+      was disabled.
+    - Checked on the sample of `docs/AssemblyFromAsm3.md` B.6 (essais_asm3,
+      a copy converted in place): two assemblies, 12 joints from 12
+      constraints, nothing broken; the conversion moves no part, touches
+      no part file, and a solve moves nothing; saved and opened again in a
+      new session it needs no Assembly3 code, every object is valid, and a
+      solve moves nothing.
+    - Tests: `AssemblyTests/TestImportAsm3.py` (13), building Assembly3
+      assemblies with the bundled code: each mapped family, Multi and
+      Cascade, the locks, the implicit ground, Disabled, an approximate
+      type reported, a child used directly and through a link, a round
+      trip in a fresh session; `testSample` converts the sample when
+      `ASM3_SAMPLE_DIR` names its folder.
 - **Saving for upstream** needs an exporter, built only if wanted.
 - **Upstream's later Assembly commits** are read and ported by hand for the
   converted objects. Task panels and commands that stay Python can still be
@@ -1201,7 +1268,8 @@ Built as step 4b (2026-10-25), the joints the task makes:
      aux groups of the assembly in place of `JointGroup`, `SimulationGroup`
      and `ViewGroup`. Built (2026-10-25, sec 3), after grounding and rigid
      groups became C++ (sec 7.3), which a group sorting by type needed.
-   - 4f. The Assembly3 converter, on the bundled Assembly3 code.
+   - 4f. The Assembly3 converter, on the bundled Assembly3 code. Built
+     (2026-10-25, sec 8).
    Physics items come with the dynamics phase (`docs/AssemblyDynamics.md`),
    none exist yet.
 5. Partial loading through element links (sec 4.4), Freeze with the Parts

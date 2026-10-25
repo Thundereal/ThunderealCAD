@@ -72,6 +72,7 @@ class AssemblyWorkbench(Workbench):
         import CommandCreateSimulation
         import CommandCreateSnapshot
         import CommandCreateBom
+        import CommandConvertAsm3
         import Preferences
 
         FreeCADGui.addLanguagePath(":/translations")
@@ -96,6 +97,7 @@ class AssemblyWorkbench(Workbench):
         cmdListMenuOnly = [
             "Assembly_LinkSelectLinked",
             "Assembly_ExportASMT",
+            "Assembly_ConvertAssembly3",
             "Assembly_SelectJointsOfComponent",
         ]
 

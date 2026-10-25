@@ -27,6 +27,16 @@ set(AttachmentEditor_Scripts
     AttachmentEditor/TaskAttachmentEditor.ui
 )
 
+set(PartElements_Scripts
+    PartElements/__init__.py
+)
+
+if(BUILD_GUI)
+    list (APPEND PartElements_Scripts
+          PartElements/TaskElements.py
+    )
+endif(BUILD_GUI)
+
 set(BasicShapes_Scripts
     BasicShapes/__init__.py
     BasicShapes/Shapes.py
@@ -76,6 +86,7 @@ set(Part_tests
     parttests/ElementAppearanceTest.py
     parttests/ElementNameTest.py
     parttests/ElementTest.py
+    parttests/ElementsPanelTest.py
     parttests/HLRProjectionTest.py
     parttests/PrimitiveNamesTest.py
     parttests/TestLinkArray.py
@@ -86,6 +97,7 @@ set(Part_tests
 add_custom_target(PartScripts ALL SOURCES
     ${Part_Scripts}
     ${AttachmentEditor_Scripts}
+    ${PartElements_Scripts}
     ${BasicShapes_Scripts}
     ${BOPTools_Scripts}
     ${CompoundTools_Scripts}
@@ -97,6 +109,7 @@ fc_target_copy_resource(PartScripts
     ${CMAKE_BINARY_DIR}/Mod/Part
     ${Part_Scripts}
     ${AttachmentEditor_Scripts}
+    ${PartElements_Scripts}
     ${BasicShapes_Scripts}
     ${BOPTools_Scripts}
     ${CompoundTools_Scripts}
@@ -122,6 +135,13 @@ INSTALL(
         ${BasicShapes_Scripts}
     DESTINATION
         Mod/Part/BasicShapes
+)
+
+INSTALL(
+    FILES
+        ${PartElements_Scripts}
+    DESTINATION
+        Mod/Part/PartElements
 )
 
 INSTALL(

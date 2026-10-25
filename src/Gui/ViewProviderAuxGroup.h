@@ -63,6 +63,18 @@ public:
 
     std::vector<App::DocumentObject*> claimChildren() const override;
 
+    /** @name Editing an owning group
+     *
+     * A module registers the command that edits the owning groups of a role
+     * (Part: Part_EditElements for "Elements"). It runs on a double-click of
+     * the group, with the group selected, and is offered in its context menu.
+     */
+    //@{
+    static void setEditCommand(const char *role, const char *command);
+    bool doubleClicked() override;
+    void setupContextMenu(QMenu *menu, QObject *receiver, const char *member) override;
+    //@}
+
     /** @name 3D, of an owning group only
      *
      * The children of an owning group (the elements of an Elements group)

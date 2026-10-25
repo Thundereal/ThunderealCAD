@@ -32,6 +32,8 @@
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
 #include <Gui/ActionFunction.h>
+#include <Gui/Application.h>
+#include <Gui/Command.h>
 #include <Mod/Part/App/FeatureElement.h>
 
 #include "ViewProviderElement.h"
@@ -67,6 +69,11 @@ void ViewProviderElement::applyStyle()
 
 void ViewProviderElement::setupContextMenu(QMenu *menu, QObject *receiver, const char *member)
 {
+    if (getObject()->isDerivedFrom<Part::Element>()) {
+        if (auto cmd = Gui::Application::Instance->commandManager().getCommandByName(
+                "Part_EditElements"))
+            cmd->addTo(menu);
+    }
     auto func = new Gui::ActionFunction(menu);
     QAction *act = menu->addAction(QObject::tr("Auto element visibility"));
     act->setCheckable(true);

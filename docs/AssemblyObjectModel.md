@@ -397,6 +397,30 @@ Built as step 3a (2026-10-24), `Part/App/FeatureElement.{h,cpp}`:
     command does.
   - Not yet: Assembly3's "Show element coordinate system" (a coordinate
     cross at the element's frame), and the pick commands.
+- **The Elements task panel** (user, 2026-10-25), `Part_EditElements`,
+  `Part/PartElements/TaskElements.py`. Tree and 3D selection are kept in
+  step, so re-pointing an element by drag and drop means scrolling the tree
+  back and forth; the panel lists the container's elements instead, and
+  takes the 3D selection as it is:
+  - Add declares an element on each selected geometry, Replace gives the
+    element selected in the list the selected geometry, Remove deletes the
+    selected ones; a label is edited in place (made unique among the
+    siblings). One transaction: Cancel undoes it all.
+  - A pick is stored as an element stores it: the last direct child of
+    the container on the path (a body's feature, also when picked through
+    a solid body) and the rest of the path, with the element's plain name
+    (a selection's mapped name is the shape's it was picked on, the body's
+    for a pick on the body's own shape). A pick of a child's element is
+    stored whole, `$$Elements.$Label.`.
+  - Opened from the command, from an element's context menu, and by a
+    double-click or the context menu of the Elements group: core
+    `Gui::ViewProviderAuxGroup` runs the command a module registered for
+    the group's role (`setEditCommand`), so Gui names no Part command.
+  - Tests: `parttests/ElementsPanelTest.py` (7, GUI, in `TestPartGui`):
+    add, replace and remove, rename, Cancel and OK, a body's feature and
+    its own shape, a child's element, the command from the group. The
+    double-click and the context menus are not reachable from Python and
+    were not exercised.
   - Verified: the look, the hidden default, both scene paths. The on-top
     drawing of a hidden selection is the core's and is read from the code:
     the render manager's on-top state is not reachable from Python, and a

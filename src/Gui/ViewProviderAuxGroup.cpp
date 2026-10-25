@@ -23,6 +23,10 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <map>
+#include <string>
+
+#include <QMenu>
 
 #include <App/AuxGroup.h>
 #include <App/Document.h>
@@ -30,6 +34,7 @@
 
 #include "ViewProviderAuxGroup.h"
 #include "Application.h"
+#include "Command.h"
 #include "Document.h"
 #include "Selection.h"
 #include "SoFCUnifiedSelection.h"
@@ -48,6 +53,49 @@ ViewProviderAuxGroup::ViewProviderAuxGroup()
 ViewProviderAuxGroup::~ViewProviderAuxGroup()
 {
     pcChildren->unref();
+}
+
+namespace {
+std::map<std::string, std::string> &editCommands()
+{
+    static std::map<std::string, std::string> commands;
+    return commands;
+}
+
+Gui::Command *editCommandOf(const App::AuxGroup *group)
+{
+    if (!group || !group->isOwning())
+        return nullptr;
+    auto it = editCommands().find(group->getRole());
+    if (it == editCommands().end())
+        return nullptr;
+    return Application::Instance->commandManager().getCommandByName(it->second.c_str());
+}
+}
+
+void ViewProviderAuxGroup::setEditCommand(const char *role, const char *command)
+{
+    if (role)
+        editCommands()[role] = command ? command : "";
+}
+
+bool ViewProviderAuxGroup::doubleClicked()
+{
+    auto cmd = editCommandOf(getAuxGroup());
+    if (!cmd)
+        return inherited::doubleClicked();
+    Selection().clearSelection();
+    Selection().addSelection(getObject()->getDocument()->getName(),
+                             getObject()->getNameInDocument());
+    cmd->invoke(0);
+    return true;
+}
+
+void ViewProviderAuxGroup::setupContextMenu(QMenu *menu, QObject *receiver, const char *member)
+{
+    if (auto cmd = editCommandOf(getAuxGroup()))
+        cmd->addTo(menu);
+    inherited::setupContextMenu(menu, receiver, member);
 }
 
 void ViewProviderAuxGroup::attach(App::DocumentObject *obj)

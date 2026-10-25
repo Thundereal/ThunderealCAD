@@ -54,9 +54,12 @@
 #include <Gui/View3DInventorViewer.h>
 #include <Gui/WaitCursor.h>
 #include <Gui/SelectionView.h>
+#include <Gui/ViewProviderAuxGroup.h>
 
 #include <Mod/Part/App/AttachExtension.h>
+#include <App/AuxGroup.h>
 #include <Mod/Part/App/BodyBase.h>
+#include <Mod/Part/App/FeatureElement.h>
 #include <Mod/Part/App/Part2DObject.h>
 #include <Mod/Part/App/SubShapeBinder.h>
 #include "BoxSelection.h"
@@ -2425,6 +2428,58 @@ void CmdPartPreselMeasure::activated(int iMsg)
 }
 
 //===========================================================================
+// Part_EditElements
+//===========================================================================
+
+namespace {
+/// The container whose Elements group the selection is, or holds: an
+/// element, the group, or a container that declares elements
+App::DocumentObject *selectedElementsContainer()
+{
+    auto sels = Gui::Selection().getSelection("", Gui::ResolveMode::NoResolve, true);
+    if (sels.size() != 1)
+        return nullptr;
+    auto obj = sels[0].pObject;
+    if (auto element = Base::freecad_dynamic_cast<Part::Element>(obj))
+        return element->getContainer();
+    if (auto group = Base::freecad_dynamic_cast<App::AuxGroup>(obj))
+        return group->isOwning() ? group->getOwner() : nullptr;
+    if (dynamic_cast<App::AuxGroupOwner*>(obj) && obj->getPropertyByName("Elements"))
+        return obj;
+    return nullptr;
+}
+}
+
+DEF_STD_CMD_A(CmdPartEditElements)
+
+CmdPartEditElements::CmdPartEditElements()
+  :Command("Part_EditElements")
+{
+    sAppModule    = "Part";
+    sGroup        = QT_TR_NOOP("Part");
+    sMenuText     = QT_TR_NOOP("Edit elements...");
+    sToolTipText  = QT_TR_NOOP("Add, replace and remove the elements a part, body or\n"
+                               "assembly declares, from the geometry selected in the 3D view");
+    sWhatsThis    = "Part_EditElements";
+    sStatusTip    = sToolTipText;
+}
+
+void CmdPartEditElements::activated(int)
+{
+    auto container = selectedElementsContainer();
+    if (!container)
+        return;
+    doCommand(Gui, "import PartElements.TaskElements");
+    doCommand(Gui, "PartElements.TaskElements.edit(App.getDocument('%s').getObject('%s'))",
+              container->getDocument()->getName(), container->getNameInDocument());
+}
+
+bool CmdPartEditElements::isActive()
+{
+    return selectedElementsContainer() != nullptr;
+}
+
+//===========================================================================
 // Part_EditAttachment
 //===========================================================================
 
@@ -2537,6 +2592,9 @@ void CreatePartCommands()
     rcCmdMgr.addCommand(new CmdPartGeometryDerived());
 
     rcCmdMgr.addCommand(new CmdPartEditAttachment());
+    rcCmdMgr.addCommand(new CmdPartEditElements());
+    // The Elements group opens its task on a double-click
+    Gui::ViewProviderAuxGroup::setEditCommand(App::AuxGroup::ElementsRole, "Part_EditElements");
 
     rcCmdMgr.addCommand(new CmdPartPreselInfo());
     rcCmdMgr.addCommand(new CmdPartPreselMeasure());

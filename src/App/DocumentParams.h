@@ -182,6 +182,22 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter BlobCompression
+    ///
+    /// How new documents compress the content their file carries --
+    /// shapes, included files, the history: 0 zstd, 1 deflate. Any zip
+    /// tool extracts deflate, and the extracted folder opens as the
+    /// document; zstd reads back about twice as fast. Has no effect on a
+    /// document saved as a directory.
+    static const long & getBlobCompression();
+    static const long & defaultBlobCompression();
+    static void removeBlobCompression();
+    static void setBlobCompression(const long &v);
+    static const char *docBlobCompression();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter SplitXML
     ///
     /// Give each object an XML file of its own in new documents saved as a

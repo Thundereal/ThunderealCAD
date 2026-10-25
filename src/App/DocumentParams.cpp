@@ -54,6 +54,7 @@ public:
         signalParamChanged("CompressionLevel");
         signalParamChanged("CheckExtension");
         signalParamChanged("ForceXML");
+        signalParamChanged("BlobCompression");
         signalParamChanged("SplitXML");
         signalParamChanged("PreferBinary");
         signalParamChanged("InlineListSize");
@@ -131,6 +132,7 @@ public:
     long CompressionLevel;
     bool CheckExtension;
     long ForceXML;
+    long BlobCompression;
     bool SplitXML;
     bool PreferBinary;
     long InlineListSize;
@@ -219,6 +221,8 @@ public:
         funcs["CheckExtension"] = &DocumentParamsP::updateCheckExtension;
         ForceXML = this->handle->GetInt("ForceXML", 3);
         funcs["ForceXML"] = &DocumentParamsP::updateForceXML;
+        BlobCompression = this->handle->GetInt("BlobCompression", 0);
+        funcs["BlobCompression"] = &DocumentParamsP::updateBlobCompression;
         SplitXML = this->handle->GetBool("SplitXML", true);
         funcs["SplitXML"] = &DocumentParamsP::updateSplitXML;
         PreferBinary = this->handle->GetBool("PreferBinary", false);
@@ -399,6 +403,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateForceXML(DocumentParamsP *self) {
         self->ForceXML = self->handle->GetInt("ForceXML", 3);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateBlobCompression(DocumentParamsP *self) {
+        self->BlobCompression = self->handle->GetInt("BlobCompression", 0);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateSplitXML(DocumentParamsP *self) {
@@ -713,6 +721,13 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
         .setDoc("How much object data new documents keep inside the XML when saved\n"
 "as a directory. 0 none, 1 lists, 2 also meshes, points and text\n"
 "shapes, 3 also binary shapes, 4 and up also included files."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "BlobCompression", "BlobCompression", App::ParamInfo::Int, 0)
+        .setTitle("Content compression")
+        .setDoc("How new documents compress the content their file carries --\n"
+"shapes, included files, the history: 0 zstd, 1 deflate. Any zip\n"
+"tool extracts deflate, and the extracted folder opens as the\n"
+"document; zstd reads back about twice as fast. Has no effect on a\n"
+"document saved as a directory."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "SplitXML", "SplitXML", App::ParamInfo::Bool, true)
         .setTitle("Split XML")
         .setDoc("Give each object an XML file of its own in new documents saved as a\n"
@@ -1311,6 +1326,38 @@ void DocumentParams::setForceXML(const long &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void DocumentParams::removeForceXML() {
     instance()->handle->RemoveInt("ForceXML");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docBlobCompression() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"How new documents compress the content their file carries --\n"
+"shapes, included files, the history: 0 zstd, 1 deflate. Any zip\n"
+"tool extracts deflate, and the extracted folder opens as the\n"
+"document; zstd reads back about twice as fast. Has no effect on a\n"
+"document saved as a directory.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getBlobCompression() {
+    return instance()->BlobCompression;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultBlobCompression() {
+    const static long def = 0;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setBlobCompression(const long &v) {
+    instance()->handle->SetInt("BlobCompression",v);
+    instance()->BlobCompression = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeBlobCompression() {
+    instance()->handle->RemoveInt("BlobCompression");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

@@ -2712,6 +2712,14 @@ Document::Document(const char* documentName)
             "Save object data in separate XML file.\n"
             "Only effective when saving document in directory.");
     SplitXML.setValue(DocumentParams::getSplitXML());
+    static const char* blobCompressions[] = {"Zstd", "Deflate", nullptr};
+    BlobCompression.setEnums(blobCompressions);
+    ADD_PROPERTY_TYPE(BlobCompression,(0L),"Format",Prop_None,
+            "How the content the file carries -- shapes, included files, the\n"
+            "history -- is compressed. Deflate: any zip tool extracts it, and the\n"
+            "extracted folder opens as the document. Zstd reads back about twice\n"
+            "as fast. Has no effect on a document saved as a directory.");
+    BlobCompression.setValue(std::clamp<long>(DocumentParams::getBlobCompression(), 0, 1));
     ADD_PROPERTY_TYPE(PreferBinary,(false),"Format",Prop_None,
             "Prefer binary format when saving object data.\n"
             "This can result in smaller file but bad for version control.");
@@ -5943,6 +5951,9 @@ void Document::save(Base::Writer &writer, bool archive) const {
         phaseClock = now;
         return secs;
     };
+    // Content in the store keeps the compression it was taken in with, so
+    // the store's is the document's from here (sec 38.10).
+    getFileBlobManager().setDeflate(BlobCompression.getValue() == 1);
     getFileBlobManager().beginSave(writer);
     const double tBegin = phaseSplit();
     // The embedded history (sec 16.4) is a blob like the others and has to
@@ -6528,6 +6539,9 @@ void Document::restore(Base::XMLReader &reader,
     FC_TIME_INIT(tFiles);
     reader.readFiles();
     FC_DURATION_PLUS(d->restoreTiming.files, tFiles);
+
+    // What is taken in from here is compressed as the file asks (sec 38.10).
+    getFileBlobManager().setDeflate(BlobCompression.getValue() == 1);
 
     // Hand the restored content to the properties waiting for it. Referrers
     // that appear later -- a view document replayed from its embedded string

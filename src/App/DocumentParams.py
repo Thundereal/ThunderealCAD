@@ -72,6 +72,13 @@ Params = [
         doc = "How much object data new documents keep inside the XML when saved\n"
               "as a directory. 0 none, 1 lists, 2 also meshes, points and text\n"
               "shapes, 3 also binary shapes, 4 and up also included files."),
+    ParamInt('BlobCompression', 0,
+        title = 'Content compression',
+        doc = "How new documents compress the content their file carries --\n"
+              "shapes, included files, the history: 0 zstd, 1 deflate. Any zip\n"
+              "tool extracts deflate, and the extracted folder opens as the\n"
+              "document; zstd reads back about twice as fast. Has no effect on a\n"
+              "document saved as a directory."),
     ParamBool('SplitXML', True,
         title = 'Split XML',
         doc = "Give each object an XML file of its own in new documents saved as a\n"

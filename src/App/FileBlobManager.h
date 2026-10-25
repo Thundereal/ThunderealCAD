@@ -657,6 +657,14 @@ public:
      * and named as the archive named them, until endRestore().
      */
     bool splitArchive(const std::string& archive);
+    /** Content taken in from here, and an archive written, carry deflate
+     * at its fastest level instead of zstd (docs/TransactionLog.md sec 38.10):
+     * any zip tool extracts it, and the folder extracted opens as the
+     * document. The document's `BlobCompression`, set before each save and
+     * after each restore.
+     */
+    void setDeflate(bool on);
+    bool deflates() const;
     /** @name Blobs read where they are (docs/TransactionLog.md sec 38.9)
      *
      * A document saved as a folder keeps its blobs as files under `blobs/`.
@@ -943,6 +951,8 @@ private:
     bool _workerStop {false};
     /// Saves writing blobs now: the worker waits for them (sec 15.8).
     std::atomic<int> _saving {0};
+    /// setDeflate().
+    std::atomic<bool> _deflate {false};
 };
 
 }  // namespace App

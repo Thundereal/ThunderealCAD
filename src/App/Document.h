@@ -194,6 +194,11 @@ public:
     PropertyInteger ForceXML;
     /// Whether to split object content into separated XML files
     PropertyBool SplitXML;
+    /** How the content a file carries is compressed (docs/TransactionLog.md
+     * sec 38.10): Zstd, or Deflate, which any zip tool extracts so that the
+     * extracted folder opens as the document.
+     */
+    PropertyEnumeration BlobCompression;
     /// Prefer binary format when saving
     PropertyBool PreferBinary;
     /** Document schema version to write.

@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9) | S1, S3 (a), blobs in place built; S2 and Q2, Q3, Q5-Q7 open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10) | S1, S3 (a), blobs in place, `BlobCompression` built; S2 and Q2, Q3, Q5-Q7 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -24966,3 +24966,81 @@ and off; driven 301. No check reported a difference.
 skips unchanged objects. Then the history-only save of a folder (27.29),
 now a save whose stage holds `History.db` alone. Q2, Q3 and Q5-Q7 are not
 ruled.
+
+### 38.10 An archive extracted by hand opens as a folder (2026-10-25)
+
+**The question (user, 2026-10-25):** "can we use the same layout in archive
+and folder? additionally, can the user just archive the folder by himself
+and expecting it works the same?" Then, relaxed: "allow hand decompressed
+archive to be able to read as folder. no need the other way round." And
+the ruling: "make deflate level 1 a setting on saved format. default to
+zstd."
+
+**What differs** between the two layouts (`~/.cache/lv-merge/probe38/swap*.py`):
+
+| | Archive | Folder |
+| --- | --- | --- |
+| Objects | All in `Document.xml`, with the per-class defaults block | One `<Name>.xml` each (`SplitXML`), no block |
+| Small property data | `.bin` entries at the root | Inline XML (`ForceXML` 3, file version 2) |
+| History | `blobs/History.db`, a blob named by hash | `History.db` beside `Document.xml` (38.9) |
+| Blob entries | zstd (zip method 93), copied raw from the pack store | Plain files |
+
+**What was found:**
+- **An archive extracted by hand opens as a folder, whole.** Its objects,
+  shapes, included file and history all come back. The first save turns it
+  into a folder layout: one file per object, `History.db` beside
+  `Document.xml`, and the archive's entries the folder does not write
+  removed. The reopen after that has the history and the new row.
+- **Hand extraction does not work with common tools.** Every blob entry
+  (shapes, included files, the history) is zstd. Info-ZIP `unzip` skips
+  them and Python's `zipfile` refuses them. The probe could only extract
+  them by piping each entry through the `zstd` tool.
+- **The other way, not asked for:** a folder zipped by hand opens only with
+  `Document.xml` as the first entry, and it does so without its history:
+  `file="History.db"` has no folder to be read from inside a zip.
+
+**Built: `BlobCompression`, a Format property of the document** (beside
+`ForceXML` and `SplitXML`), `Zstd` or `Deflate`. Its default for new
+documents is the preference `BlobCompression` (0 zstd), so the default
+stays zstd.
+- **With `Deflate`**, content is taken into the pack store as deflate at
+  level 1 (`encodeMember(..., portable)`), and an archive copies it raw as
+  before. Every entry is then deflate, which any zip tool extracts.
+- **Content taken in as zstd** before the document asked is decoded and
+  compressed again as the archive is written. The store learns the
+  property at a save or a restore, so a new document's first save is one
+  such: what it took in before is zstd.
+- `FileBlobManager::setDeflate` is set from the property before each save
+  and after each restore. A folder save writes plain files either way.
+- **Existing archives** read as before: each entry records its own method.
+
+**Measured** (`codec.py`, 40 files of 2 MB that compress as BRep text does,
+two runs each; with the content taken in, saved as an archive, saved again
+unchanged, opened, and read back whole):
+
+| | zstd | deflate 1 | deflate 3 | deflate default (6) |
+| --- | ---: | ---: | ---: | ---: |
+| Take in 80 MB | 628 ms | 801-805 ms | 2084-2093 ms | 4098-4186 ms |
+| First save | 201-206 ms | 408-411 ms | 357-359 ms | 365-384 ms |
+| Save, nothing changed | 36-37 ms | 37 ms | 39-40 ms | 37-39 ms |
+| Open | 208-211 ms | 399-412 ms | 356-357 ms | 376-378 ms |
+| Read it all back | 104-106 ms | 289-290 ms | 240-245 ms | 267 ms |
+| Archive | 40.0 MB | 42.1 MB | 40.4 MB | 39.4 MB |
+
+Level 1 is the one close to zstd where it matters most, taking content in.
+Reading back is two to three times slower, and the archive is 5% larger.
+That is why zstd stays the default.
+
+**Test.** `FolderSaveCases.testADeflatedArchiveExtractedByHandOpensAsAFolder`:
+content taken in as zstd, the property set to `Deflate` before a save as
+an archive; every entry is deflate; Python's `zipfile` extracts it; the
+folder opens with its shape, its included file, the history's row, and
+the property.
+
+**Gates** (round s38c): 24 GUI checks; Python 3874 OK with freeze on and
+off; gtest 1014 with freeze on and off; driven 301.
+
+**Not built.** The layouts are not made one, and a folder zipped by hand is
+not read (not asked for). If wanted later: find `Document.xml` through the
+zip's central directory rather than first, accept one top-level folder in
+the zip, and read `file="History.db"` as an entry.

@@ -411,8 +411,10 @@ bool decodeMember(const BlobRawMember& member, std::string& bytes)
 }
 
 /// Compress content into a member named \a name: zstd at level 3 where the
-/// build has it (sec 15.7), else deflate.
-std::shared_ptr<BlobRawMember> encodeMember(const std::string& bytes, const std::string& name)
+/// build has it (sec 15.7), else deflate. `portable`: deflate at its fastest
+/// level, which any zip tool reads (docs/TransactionLog.md sec 38.10).
+std::shared_ptr<BlobRawMember> encodeMember(const std::string& bytes, const std::string& name,
+                                            bool portable = false)
 {
     auto member = std::make_shared<BlobRawMember>();
     member->name = name;
@@ -420,19 +422,24 @@ std::shared_ptr<BlobRawMember> encodeMember(const std::string& bytes, const std:
     member->crc = static_cast<uint32_t>(
         crc32(0L, reinterpret_cast<const Bytef*>(bytes.data()), static_cast<uInt>(bytes.size())));
 #ifdef FC_HAVE_ZSTD
-    member->data.resize(ZSTD_compressBound(bytes.size()));
-    const size_t n = ZSTD_compress(member->data.data(), member->data.size(), bytes.data(),
-                                   bytes.size(), 3);
-    if (!ZSTD_isError(n)) {
-        member->data.resize(n);
-        member->method = zipZstd;
-        return member;
+    if (!portable) {
+        member->data.resize(ZSTD_compressBound(bytes.size()));
+        const size_t n = ZSTD_compress(member->data.data(), member->data.size(), bytes.data(),
+                                       bytes.size(), 3);
+        if (!ZSTD_isError(n)) {
+            member->data.resize(n);
+            member->method = zipZstd;
+            return member;
+        }
     }
 #endif
     uLongf bound = compressBound(static_cast<uLong>(bytes.size()));
     member->data.resize(bound);
     z_stream stream {};
-    deflateInit2(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8, Z_DEFAULT_STRATEGY);
+    // Level 1 when asked for: 5 times faster to take in than the default and
+    // 5% larger, close to zstd's speed (sec 38.10).
+    deflateInit2(&stream, portable ? Z_BEST_SPEED : Z_DEFAULT_COMPRESSION, Z_DEFLATED, -MAX_WBITS,
+                 8, Z_DEFAULT_STRATEGY);
     stream.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(bytes.data()));
     stream.avail_in = static_cast<uInt>(bytes.size());
     stream.next_out = reinterpret_cast<Bytef*>(member->data.data());
@@ -1692,12 +1699,20 @@ void FileBlobManager::writeBlobs(Base::Writer& writer)
             // The member as the pack store holds it, compressed once in its
             // life: an archive takes it raw (sec 15.7), and only a writer
             // that cannot -- a project directory -- is handed it decoded.
-            auto member = readMember(*entry.blob);
+            std::shared_ptr<const BlobRawMember> member = readMember(*entry.blob);
             if (!member) {
                 std::stringstream str;
                 str << "FileBlobManager::writeBlobs(): content " << entry.blob->hash()
                     << " cannot be read back out of the document's blob store.";
                 THROWM(Base::FileSystemError, str.str())
+            }
+            // An archive asked to carry deflate (sec 38.10) gets content taken
+            // in as zstd -- before the document asked -- compressed again.
+            if (!fileWriter && deflates() && member->method != zipDeflate) {
+                std::string bytes;
+                if (decodeMember(*member, bytes)) {
+                    member = encodeMember(bytes, member->name, true);
+                }
             }
             Base::Writer::RawEntry raw;
             raw.method = member->method;
@@ -1736,7 +1751,7 @@ void FileBlobManager::writeBlobs(Base::Writer& writer)
             std::string bytes(static_cast<std::size_t>(entry.blob->size()), '\0');
             if (from.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))
                 && from.peek() == std::char_traits<char>::eof()) {
-                auto member = encodeMember(bytes, entry.name);
+                auto member = encodeMember(bytes, entry.name, deflates());
                 Base::Writer::RawEntry raw;
                 raw.method = member->method;
                 raw.crc = member->crc;
@@ -2254,6 +2269,16 @@ FileBlobHandle FileBlobManager::adoptInPlace(const std::string& path, const std:
 void FileBlobManager::holdFolderBlobs(const std::string& folder)
 {
     restoreFromDirectory(folder + "/" + archivePrefix(), true);
+}
+
+void FileBlobManager::setDeflate(bool on)
+{
+    _deflate.store(on, std::memory_order_relaxed);
+}
+
+bool FileBlobManager::deflates() const
+{
+    return _deflate.load(std::memory_order_relaxed);
 }
 
 void FileBlobManager::readInPlace(const std::string& dir)
@@ -2811,7 +2836,7 @@ FileBlobHandle FileBlobManager::adoptMember(const std::string& hash,
     }
     // Compressed outside the lock, once in the content's life (sec 15.7).
     if (!member) {
-        member = encodeMember(bytes, hash + (ext.empty() ? "" : "." + ext));
+        member = encodeMember(bytes, hash + (ext.empty() ? "" : "." + ext), deflates());
     }
     FileBlobHandle blob;
     bool full = false;

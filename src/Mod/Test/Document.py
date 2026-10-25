@@ -12762,6 +12762,43 @@ class FolderSaveCases(unittest.TestCase):
             self.assertGreater(o.Shape.Volume, 0, o.Name)
         self.assertFalse(os.path.exists(dirs[0]))
 
+    def testADeflatedArchiveExtractedByHandOpensAsAFolder(self):
+        # Sec 38.10: with BlobCompression "Deflate" every entry of the archive
+        # is one any zip tool extracts, and the folder extracted opens as the
+        # document, history and all. The content was taken in as zstd, before
+        # the document asked: the save compresses it again.
+        import zipfile
+
+        doc = self.track(FreeCAD.newDocument("Deflated"))
+        doc.UndoMode = 1
+        self.assertEqual(doc.BlobCompression, "Zstd")
+        src = os.path.join(self.dir, "payload.src")
+        with open(src, "wb") as f:
+            f.write(b"payload")
+
+        def make(d):
+            d.addObject("Part::Box", "Box")
+            d.addObject("App::DocumentObjectFileIncluded", "F").File = src
+
+        self.edit(doc, "create", make)
+        self.edit(doc, "longer", lambda d: setattr(d.Box, "Length", 20))
+        doc.BlobCompression = "Deflate"
+        arch = os.path.join(self.dir, "Deflated.FCStd")
+        doc.saveAs(arch)
+        FreeCAD.closeDocument(doc.Name)
+        z = zipfile.ZipFile(arch)
+        blobs = [i for i in z.infolist() if i.filename.startswith("blobs/")]
+        self.assertTrue(blobs)
+        self.assertEqual({i.compress_type for i in z.infolist()}, {zipfile.ZIP_DEFLATED})
+        there = os.path.join(self.dir, "DeflatedByHand")
+        z.extractall(there)
+        doc = self.track(FreeCAD.openDocument(there))
+        self.assertEqual(doc.BlobCompression, "Deflate")
+        self.assertEqual(doc.Box.Length.Value, 20)
+        self.assertTrue(doc.Box.Shape.isValid())
+        self.assertEqual(open(doc.F.File, "rb").read(), b"payload")
+        self.assertIn("longer", [t["name"] for t in doc.getTransactionLog()])
+
     def readOnly(self, top, on):
         # Every directory and file under `top`, and `top` itself, made to
         # take no writes (on) or to take them again.

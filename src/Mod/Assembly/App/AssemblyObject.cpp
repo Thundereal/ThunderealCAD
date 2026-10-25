@@ -62,8 +62,11 @@
 #include "AssemblyUtils.h"
 #include "CamJoint.h"
 #include "Groups.h"
+#include "AssemblyGroup.h"
+#include "Grounding.h"
 #include "Joint.h"
 #include "Simulation.h"
+#include "Views.h"
 #include "Solver/Backend.h"
 #include "Solver/ReferenceBackend.h"
 #include "Solver/Registry.h"
@@ -288,6 +291,12 @@ AssemblyObject::AssemblyObject()
     // object was created, so set it here. Restoring a document still overwrites
     // it with the saved value, so old files are unaffected.
     Type.setValue("Assembly");
+
+    // Not upstream: an object already in another geometry group, in another
+    // document or already a component is added as an owned link
+    // (docs/AssemblyObjectModel.md sec 2). A file that saved another mode
+    // restores it
+    GroupMode.setValue(GroupModeAuto);
 
     lastDoF = numberOfComponents() * 6;
     signalSolverUpdate();
@@ -1512,38 +1521,134 @@ T* AssemblyObject::getGroup()
     return nullptr;
 }
 
-JointGroup* AssemblyObject::getJointGroup() const
+// Not upstream: whether an object's proxy is of one of the classes, in the
+// module: upstream's Python objects, in a file not converted or made by a
+// script, take their role from it
+static bool proxyClassIn(const App::DocumentObject* obj,
+                         const char* module,
+                         std::initializer_list<const char*> classes)
 {
-    return Assembly::getJointGroup(this);
-}
-
-ViewGroup* AssemblyObject::getExplodedViewGroup() const
-{
-    App::Document* doc = getDocument();
-
-    std::vector<DocumentObject*> viewGroups = doc->getObjectsOfType(ViewGroup::getClassTypeId());
-    if (viewGroups.empty()) {
-        return nullptr;
+    auto* proxy = dynamic_cast<App::PropertyPythonObject*>(obj->getPropertyByName("Proxy"));
+    if (!proxy) {
+        return false;
     }
-    for (auto viewGroup : viewGroups) {
-        if (hasObject(viewGroup)) {
-            return freecad_cast<ViewGroup*>(viewGroup);
+    Base::PyGILStateLocker lock;
+    try {
+        Py::Object value = proxy->getValue();
+        if (value.isNone()) {
+            return false;
+        }
+        const Py::Object type = value.type();
+        if (!type.hasAttr("__module__")
+            || Py::String(type.getAttr("__module__")).as_std_string() != module) {
+            return false;
+        }
+        const std::string name = Py::String(type.getAttr("__name__")).as_std_string();
+        for (const char* cls : classes) {
+            if (name == cls) {
+                return true;
+            }
         }
     }
-    return nullptr;
+    catch (Py::Exception&) {
+        Base::PyException e;  // clears the Python error
+    }
+    return false;
+}
+
+bool AssemblyObject::isAuxGroupAllowed(const App::AuxGroup* group,
+                                       const App::DocumentObject* obj) const
+{
+    if (!group || !obj || obj->isDerivedFrom<App::AuxGroup>()) {
+        return false;
+    }
+    const auto& role = group->getRole();
+    if (role == AssemblyGroup::JointsRole) {
+        return obj->isDerivedFrom<Joint>() || obj->isDerivedFrom<GroundedJoint>()
+            || obj->isDerivedFrom<RigidGroup>()
+            || proxyClassIn(obj, "JointObject", {"Joint", "GroundedJoint", "RigidGroupJoint"});
+    }
+    if (role == AssemblyGroup::SimulationsRole) {
+        return obj->isDerivedFrom<Simulation>()
+            || proxyClassIn(obj, "CommandCreateSimulation", {"Simulation"});
+    }
+    if (role == AssemblyGroup::ViewsRole) {
+        return obj->isDerivedFrom<ExplodedView>()
+            || proxyClassIn(obj, "CommandCreateView", {"ExplodedView"});
+    }
+    return App::Part::isAuxGroupAllowed(group, obj);
+}
+
+App::DocumentObject* AssemblyObject::getAssemblyGroup(const char* role, bool create)
+{
+    if (!role) {
+        return nullptr;
+    }
+    if (auto group = getAuxGroup(role)) {
+        return group;
+    }
+    // Upstream's, in a file not converted
+    Base::Type legacy;
+    const char* label = nullptr;
+    if (strcmp(role, AssemblyGroup::JointsRole) == 0) {
+        legacy = JointGroup::getClassTypeId();
+        label = "Joints";
+    }
+    else if (strcmp(role, AssemblyGroup::SimulationsRole) == 0) {
+        legacy = SimulationGroup::getClassTypeId();
+        label = "Simulations";
+    }
+    else if (strcmp(role, AssemblyGroup::ViewsRole) == 0) {
+        legacy = ViewGroup::getClassTypeId();
+        label = "Exploded Views";
+    }
+    else {
+        return nullptr;
+    }
+    for (auto child : Group.getValues()) {
+        if (child && child->getTypeId() == legacy) {
+            return child;
+        }
+    }
+    if (!create || !getDocument()) {
+        return nullptr;
+    }
+    auto group = static_cast<AssemblyGroup*>(getDocument()->addObject("Assembly::AssemblyGroup", label));
+    group->Label.setValue(label);
+    group->Role.setValue(role);
+    // A group the assembly makes is its own child, whatever its GroupMode
+    auto children = Group.getValues();
+    children.push_back(group);
+    Group.setValues(children);
+    group->setOwner(this);
+    return group;
+}
+
+App::DocumentObject* AssemblyObject::getJointGroup() const
+{
+    return const_cast<AssemblyObject*>(this)->getAssemblyGroup(AssemblyGroup::JointsRole);
+}
+
+std::vector<App::DocumentObject*> AssemblyObject::getJointGroupMembers() const
+{
+    auto group = getJointGroup();
+    auto prop = group ? group->getPropertyByName<App::PropertyLinkList>("Group") : nullptr;
+    return prop ? prop->getValues() : std::vector<App::DocumentObject*>();
+}
+
+App::DocumentObject* AssemblyObject::getExplodedViewGroup() const
+{
+    return const_cast<AssemblyObject*>(this)->getAssemblyGroup(AssemblyGroup::ViewsRole);
 }
 
 std::vector<App::DocumentObject*> AssemblyObject::getJoints(bool delBadJoints, bool subJoints)
 {
     std::vector<App::DocumentObject*> joints = {};
 
-    JointGroup* jointGroup = getJointGroup();
-    if (!jointGroup) {
-        return {};
-    }
+    const auto jointGroupMembers = getJointGroupMembers();
 
     Base::PyGILStateLocker lock;
-    for (auto joint : jointGroup->getObjects()) {
+    for (auto joint : jointGroupMembers) {
         if (!joint) {
             continue;
         }
@@ -1598,13 +1703,10 @@ void AssemblyObject::collectMalformedJoints()
     // sub-element that no longer resolves.
     lastMalformedJoints.clear();
 
-    JointGroup* jointGroup = getJointGroup();
-    if (!jointGroup) {
-        return;
-    }
+    const auto jointGroupMembers = getJointGroupMembers();
 
     Base::PyGILStateLocker lock;
-    for (auto* joint : jointGroup->getObjects()) {
+    for (auto* joint : jointGroupMembers) {
         const bool typed = joint && joint->isDerivedFrom<Joint>();
         if (!joint || (!typed && !joint->getPropertyByName("Reference1"))) {
             continue;
@@ -1661,13 +1763,10 @@ std::vector<App::DocumentObject*> AssemblyObject::getGroundedJoints()
 {
     std::vector<App::DocumentObject*> joints = {};
 
-    JointGroup* jointGroup = getJointGroup();
-    if (!jointGroup) {
-        return {};
-    }
+    const auto jointGroupMembers = getJointGroupMembers();
 
     Base::PyGILStateLocker lock;
-    for (auto obj : jointGroup->getObjects()) {
+    for (auto obj : jointGroupMembers) {
         if (!obj) {
             continue;
         }
@@ -1686,13 +1785,10 @@ std::vector<App::DocumentObject*> AssemblyObject::getRigidGroups()
 {
     std::vector<App::DocumentObject*> rigid_groups {};
 
-    JointGroup* jointGroup = getJointGroup();
-    if (!jointGroup) {
-        return {};
-    }
+    const auto jointGroupMembers = getJointGroupMembers();
 
     Base::PyGILStateLocker lock;
-    for (auto const obj : jointGroup->getObjects()) {
+    for (auto const obj : jointGroupMembers) {
         if (!obj || obj->isError()) {
             continue;
         }

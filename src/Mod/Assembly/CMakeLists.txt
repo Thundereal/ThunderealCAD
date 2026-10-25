@@ -72,6 +72,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestElementJoint.py
     AssemblyTests/TestMigrateJoints.py
     AssemblyTests/TestMigrateTwins.py
+    AssemblyTests/TestAssemblyGroups.py
     AssemblyTests/mocks/__init__.py
     AssemblyTests/mocks/MockGui.py
 )

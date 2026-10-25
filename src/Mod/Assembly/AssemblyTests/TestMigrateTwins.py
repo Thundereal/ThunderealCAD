@@ -63,7 +63,7 @@ class TestMigrateTwins(JointTestBase):
         App.closeDocument(self.doc.Name)
         self.doc = App.openDocument(path)
         self.assembly = self.doc.getObject("Assembly")
-        self.jointgroup = self.doc.getObject("Joints")
+        self.jointgroup = UtilsAssembly.getJointGroup(self.assembly)
 
     def mechanism(self):
         """A grounded box and one turning on it by a revolute joint"""

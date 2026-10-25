@@ -749,6 +749,11 @@ def getBomGroup(assembly):
 
 
 def getJointGroup(assembly):
+    # Not upstream: the assembly's aux group (docs/AssemblyObjectModel.md
+    # sec 3), or upstream's group in a file not converted
+    if hasattr(assembly, "getGroup"):
+        return assembly.getGroup("Joints", True)
+
     joint_group = None
 
     for obj in assembly.OutList:
@@ -763,6 +768,10 @@ def getJointGroup(assembly):
 
 
 def getViewGroup(assembly):
+    # Not upstream: as getJointGroup()
+    if hasattr(assembly, "getGroup"):
+        return assembly.getGroup("Views", True)
+
     view_group = None
 
     for obj in assembly.OutList:
@@ -777,6 +786,10 @@ def getViewGroup(assembly):
 
 
 def getSimulationGroup(assembly):
+    # Not upstream: as getJointGroup()
+    if hasattr(assembly, "getGroup"):
+        return assembly.getGroup("Simulations", True)
+
     sim_group = None
 
     for obj in assembly.OutList:

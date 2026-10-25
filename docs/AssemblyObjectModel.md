@@ -196,6 +196,55 @@ Hidden links and no cross-document links are needed in joints or elements.
   `Elements` link list (`docs/AssemblyDynamics.md` sec 5.1, which this
   changes only in that Physics becomes an aux view).
 
+Built as step 4e (2026-10-25), for Joints, Simulations and Views:
+
+- **`Assembly::AssemblyGroup`** (`App/AssemblyGroup.h`), an
+  `App::PartAuxGroup` with `Role` Joints, Simulations or Views. Its
+  `newObject()` and `addObject()` give the object to the assembly, which
+  is what upstream's groups' are to the workbench and to scripts; its view
+  provider (`AssemblyGui::ViewProviderAssemblyGroup`) has upstream's
+  group's icon and rules: no drag and drop, deleted only when empty.
+  Deleting the assembly deletes what its groups show, as upstream's groups'
+  content went with it (upstream left the Simulations group's).
+- **The roles, by type** (`AssemblyObject::isAuxGroupAllowed`): Joints
+  takes `Assembly::Joint`, `GroundedJoint` and `RigidGroup` (sec 7.1,
+  sec 7.3), Simulations `Assembly::Simulation`, Views
+  `Assembly::ExplodedView` (sec 7.2). An upstream Python object takes its
+  role from its proxy's class, so one a file keeps (inside a sub-assembly,
+  or with the preference off) or a script makes is shown too. A script
+  makes the object first and gives it its proxy after, so the group
+  refreshes when a child's proxy is set, not only when the assembly's
+  `Group` changes. A motion is its simulation's and a step its view's:
+  neither is a role of the assembly's.
+- **`AssemblyObject.getGroup(role, create)`**: the aux group, else
+  upstream's group of the role in a file not converted, else with create
+  a new one. `UtilsAssembly.getJointGroup()`, `getSimulationGroup()` and
+  `getViewGroup()` call it, so every command and task works on either; the
+  builder reads the members of either (`getJointGroupMembers()`). Create
+  Assembly makes the Joints group.
+- **Upstream's groups convert on open** (`AssemblyMigrate.convertGroups`),
+  before the joints and the rest: their members are the assembly's
+  children already, and an aux group shows them in the assembly's order,
+  so the group's order is carried into the assembly's `Group` (the slots
+  its members hold, filled in its order). The label goes over; a member
+  of no role is reported and stays a direct child.
+- **Kept**: `AssemblyLink` (a flexible sub-assembly) keeps its
+  `JointGroup` of copied joints until C++ joints work in sub-assemblies;
+  the Snapshots and Bills of Materials groups stay upstream's, the plan
+  naming only these three.
+- **Auto is the assembly's group mode** (sec 2): an object in another
+  geometry group, in another document, or a component already, is added as
+  an owned link. A file that saved another mode restores it.
+- Checked in the GUI: an assembly made by the commands shows Origin,
+  Elements, Joints (a grounding and a joint, its element links under it),
+  Simulations, Exploded Views, then the components.
+- Tests: `AssemblyTests/TestAssemblyGroups.py` (8): the group and its
+  owner, the workbench's objects by role and the components and element
+  links not, an upstream joint given its proxy after, a solve and a
+  simulation through the groups, deleting a group, upstream's three
+  groups converted on open in their order with the label, and Auto. The
+  existing tests make upstream's `JointGroup` and keep that path tested.
+
 ### 3.1 The Parts group, and a frozen assembly
 
 - **Optional, off by default** (decision 13). Components sit directly under
@@ -1145,7 +1194,8 @@ Built as step 4b (2026-10-25), the joints the task makes:
      with the same converter. Built (2026-10-25, sec 7.2).
    - 4e. Auto as Assembly's group mode; Joints, Simulations and Views as
      aux groups of the assembly in place of `JointGroup`, `SimulationGroup`
-     and `ViewGroup`.
+     and `ViewGroup`. Built (2026-10-25, sec 3), after grounding and rigid
+     groups became C++ (sec 7.3), which a group sorting by type needed.
    - 4f. The Assembly3 converter, on the bundled Assembly3 code.
    Physics items come with the dynamics phase (`docs/AssemblyDynamics.md`),
    none exist yet.

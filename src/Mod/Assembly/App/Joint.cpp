@@ -54,6 +54,7 @@
 #include <Mod/Part/App/FeatureElement.h>
 #include <Mod/Part/App/PartFeature.h>
 
+#include "AssemblyGroup.h"
 #include "AssemblyObject.h"
 #include "ElementGeometry.h"
 #include "Groups.h"
@@ -588,17 +589,17 @@ Joint* Joint::make(AssemblyObject* assembly,
     if (!assembly || !assembly->isAttachedToDocument()) {
         THROWM(Base::ValueError, "No assembly");
     }
-    auto group = assembly->getJointGroup();
-    if (!group) {
-        group = static_cast<JointGroup*>(
-            assembly->getDocument()->addObject("Assembly::JointGroup", "Joints")
-        );
-        assembly->getExtensionByType<App::GroupExtension>()->addObject(group);
-    }
+    auto group = assembly->getAssemblyGroup(AssemblyGroup::JointsRole, true);
     // The Python-extensible one, as the joint task makes, so that a Python
     // view provider can draw its markers
     auto joint = static_cast<Joint*>(assembly->getDocument()->addObject("Assembly::JointPython", type));
-    group->addObject(joint);
+    if (auto aux = freecad_cast<AssemblyGroup*>(group)) {
+        aux->addObject(joint);
+    }
+    else if (auto ext = group->getExtensionByType<App::GroupExtension>(true)) {
+        // Upstream's JointGroup, in a file not converted
+        ext->addObject(joint);
+    }
     joint->JointType.setValue(type);
     joint->ElementLink1.setValue(makeSide(assembly, component1, subname1, vertex1));
     joint->ElementLink2.setValue(makeSide(assembly, component2, subname2, vertex2));

@@ -179,6 +179,24 @@ PyObject* AssemblyObjectPy::clearUndo(PyObject* args) const
     Py_Return;
 }
 
+PyObject* AssemblyObjectPy::getGroup(PyObject* args)
+{
+    const char* role = nullptr;
+    PyObject* create = Py_False;
+    if (!PyArg_ParseTuple(args, "s|O!", &role, &PyBool_Type, &create)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto group = getAssemblyObjectPtr()->getAssemblyGroup(role, PyObject_IsTrue(create) != 0);
+        if (!group) {
+            Py_Return;
+        }
+        return group->getPyObject();
+    }
+    PY_CATCH;
+}
+
 PyObject* AssemblyObjectPy::isPartConnected(PyObject* args) const
 {
     PyObject* pyobj;

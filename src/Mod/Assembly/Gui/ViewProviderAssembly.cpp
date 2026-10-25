@@ -75,6 +75,7 @@
 #include <Gui/ViewParams.h>
 #include <Gui/SoFCSelectionAction.h>
 
+#include <Mod/Assembly/App/AssemblyGroup.h>
 #include <Mod/Assembly/App/AssemblyLink.h>
 #include <Mod/Assembly/App/AssemblyObject.h>
 #include <Mod/Assembly/App/AssemblyUtils.h>
@@ -200,7 +201,7 @@ bool ViewProviderAssembly::doubleClicked()
 bool ViewProviderAssembly::canDragObject(App::DocumentObject* obj) const
 {
     // The user should not be able to drag the joint group out of the assembly
-    return obj && !obj->is<Assembly::JointGroup>();
+    return obj && !obj->is<Assembly::JointGroup>() && !obj->is<Assembly::AssemblyGroup>();
 }
 
 bool ViewProviderAssembly::canDragObjectToTarget(App::DocumentObject* obj, App::DocumentObject* target) const
@@ -1378,6 +1379,23 @@ bool ViewProviderAssembly::onDelete(const std::vector<std::string>& subNames)
 {
     // Delete the assembly groups when assembly is deleted
     for (auto obj : getObject()->getOutList()) {
+        // Not upstream: an aux group shows the assembly's own children
+        // (docs/AssemblyObjectModel.md sec 3); what it shows goes with it
+        if (obj->is<Assembly::AssemblyGroup>()) {
+            Gui::Command::doCommand(
+                Gui::Command::Doc,
+                "doc = App.getDocument(\"%s\")\n"
+                "group = doc.getObject(\"%s\")\n"
+                "for member in group.Group:\n"
+                "    if hasattr(member, 'removeObjectsFromDocument'):\n"
+                "        member.removeObjectsFromDocument()\n"
+                "    doc.removeObject(member.Name)\n"
+                "doc.removeObject(group.Name)\n",
+                obj->getDocument()->getName(),
+                obj->getNameInDocument()
+            );
+            continue;
+        }
         if (obj->is<Assembly::JointGroup>() || obj->is<Assembly::ViewGroup>()
             || obj->is<Assembly::BomGroup>()) {
 

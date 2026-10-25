@@ -25,6 +25,7 @@
 
 #include <Mod/Assembly/AssemblyGlobal.h>
 
+#include <Gui/ViewProviderAuxGroup.h>
 #include <Gui/ViewProviderDocumentObjectGroup.h>
 
 
@@ -52,6 +53,34 @@ public:
     {
         return false;
     };
+};
+
+/// The assembly's Joints, Simulations or Views group (Assembly::AssemblyGroup):
+/// upstream's group's icon and its rules -- no drag and drop, and deleted
+/// only when empty
+class AssemblyGuiExport ViewProviderAssemblyGroup: public Gui::ViewProviderAuxGroup
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(AssemblyGui::ViewProviderAssemblyGroup);
+
+public:
+    ViewProviderAssemblyGroup() = default;
+    ~ViewProviderAssemblyGroup() override = default;
+
+    QIcon getIcon() const override;
+
+    bool canDragObjects() const override
+    {
+        return false;
+    }
+    bool canDropObjects() const override
+    {
+        return false;
+    }
+    bool canDragAndDropObject(App::DocumentObject*) const override
+    {
+        return false;
+    }
+    bool onDelete(const std::vector<std::string>&) override;
 };
 
 class AssemblyGuiExport ViewProviderBomGroup: public ViewProviderGroupBase

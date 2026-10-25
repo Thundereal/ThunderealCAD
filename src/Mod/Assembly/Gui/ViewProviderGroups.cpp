@@ -25,6 +25,7 @@
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 
+#include <Mod/Assembly/App/AssemblyGroup.h>
 #include <Mod/Assembly/App/Groups.h>
 
 #include "ViewProviderGroups.h"
@@ -32,6 +33,7 @@
 using namespace AssemblyGui;
 
 PROPERTY_SOURCE(AssemblyGui::ViewProviderGroupBase, Gui::ViewProviderDocumentObjectGroup)
+PROPERTY_SOURCE(AssemblyGui::ViewProviderAssemblyGroup, Gui::ViewProviderAuxGroup)
 PROPERTY_SOURCE(AssemblyGui::ViewProviderBomGroup, AssemblyGui::ViewProviderGroupBase)
 PROPERTY_SOURCE(AssemblyGui::ViewProviderJointGroup, AssemblyGui::ViewProviderGroupBase)
 PROPERTY_SOURCE(AssemblyGui::ViewProviderSimulationGroup, AssemblyGui::ViewProviderGroupBase)
@@ -61,6 +63,29 @@ QIcon ViewProviderSnapshotGroup::getIcon() const
 QIcon ViewProviderViewGroup::getIcon() const
 {
     return Gui::BitmapFactory().pixmap("Assembly_ExplodedViewGroup.svg");
+}
+
+QIcon ViewProviderAssemblyGroup::getIcon() const
+{
+    auto group = getObject<Assembly::AssemblyGroup>();
+    const auto role = group ? group->getRole() : std::string();
+    if (role == Assembly::AssemblyGroup::JointsRole) {
+        return Gui::BitmapFactory().pixmap("Assembly_JointGroup.svg");
+    }
+    if (role == Assembly::AssemblyGroup::SimulationsRole) {
+        return Gui::BitmapFactory().pixmap("Assembly_SimulationGroup.svg");
+    }
+    if (role == Assembly::AssemblyGroup::ViewsRole) {
+        return Gui::BitmapFactory().pixmap("Assembly_ExplodedViewGroup.svg");
+    }
+    return Gui::ViewProviderAuxGroup::getIcon();
+}
+
+bool ViewProviderAssemblyGroup::onDelete(const std::vector<std::string>&)
+{
+    auto group = getObject<Assembly::AssemblyGroup>();
+    // As upstream's: if empty or orphaned ok to delete
+    return group && (group->Group.getValues().empty() || !group->getOwner());
 }
 
 bool ViewProviderJointGroup::onDelete(const std::vector<std::string>&)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Final
+from typing import Any, Final, Optional
 
 from Base.Metadata import constmethod, export
 
@@ -107,6 +107,16 @@ class AssemblyObject(Part):
     def clearUndo(self) -> None:
         """
         Clear the registered undo positions.
+        """
+        ...
+
+    def getGroup(self, role: str, create: bool = False, /) -> Optional[DocumentObject]:
+        """
+        The assembly's group of a role, "Joints", "Simulations" or "Views":
+        its aux group (Assembly::AssemblyGroup), else upstream's group of the
+        role in a file not converted, else with create a new aux group.
+
+        Returns: the group, or None.
         """
         ...
 

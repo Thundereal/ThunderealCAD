@@ -183,8 +183,21 @@ public:
     int slidingPartIndex(App::DocumentObject* joint);
 
     void jointParts(std::vector<App::DocumentObject*> joints);
-    JointGroup* getJointGroup() const;
-    ViewGroup* getExplodedViewGroup() const;
+    /** The assembly's group of a role (AssemblyGroup::JointsRole, ...):
+     * its aux group (docs/AssemblyObjectModel.md sec 3), else upstream's
+     * group of that role (JointGroup, SimulationGroup, ViewGroup) in a file
+     * not converted, else with create a new aux group
+     */
+    App::DocumentObject* getAssemblyGroup(const char* role, bool create = false);
+    /// The joint group, either kind, or null
+    App::DocumentObject* getJointGroup() const;
+    /// What the joint group lists, either kind
+    std::vector<App::DocumentObject*> getJointGroupMembers() const;
+    App::DocumentObject* getExplodedViewGroup() const;
+
+    /// The roles of the assembly's aux groups: joints, grounding and rigid
+    /// groups in Joints, simulations in Simulations, exploded views in Views
+    bool isAuxGroupAllowed(const App::AuxGroup* group, const App::DocumentObject* obj) const override;
     template<typename T>
     T* getGroup();
 

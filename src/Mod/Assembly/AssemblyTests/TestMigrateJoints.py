@@ -35,6 +35,7 @@ import tempfile
 import FreeCAD as App
 
 import JointObject
+import UtilsAssembly
 
 from AssemblyTests.TestJoints import JointTestBase, Z, plc
 
@@ -75,7 +76,7 @@ class TestMigrateJoints(JointTestBase):
         App.closeDocument(self.doc.Name)
         self.doc = App.openDocument(path)
         self.assembly = self.doc.getObject("Assembly")
-        self.jointgroup = self.doc.getObject("Joints")
+        self.jointgroup = UtilsAssembly.getJointGroup(self.assembly)
 
     def joints(self):
         return [o for o in self.jointgroup.Group if o.isDerivedFrom("Assembly::Joint")]

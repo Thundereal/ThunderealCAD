@@ -179,9 +179,7 @@ def convertJoint(assembly, joint):
     doc.removeObject(joint.Name)
     new.Label = label
     if index >= 0:
-        members = [o for o in group.Group if o != new]
-        members.insert(min(index, len(members)), new)
-        group.Group = members
+        _placeAt(assembly, group, new, index)
     if lost:
         return new, "the expressions on %s are not carried over" % ", ".join(lost)
     return new, ""
@@ -276,6 +274,68 @@ def _members(assembly):
     return seen
 
 
+def _placeAt(assembly, group, obj, index):
+    """obj at index among the group's members: in the group's own list, or
+    for an aux group, which shows them in the assembly's order, in the
+    assembly's"""
+    members = [o for o in group.Group if o != obj]
+    index = min(index, len(members))
+    if not group.isDerivedFrom("App::AuxGroup"):
+        members.insert(index, obj)
+        group.Group = members
+        return
+    children = [o for o in assembly.Group if o != obj]
+    if index < len(members) and members[index] in children:
+        pos = children.index(members[index])
+    elif members and members[-1] in children:
+        pos = children.index(members[-1]) + 1
+    else:
+        pos = len(children)
+    children.insert(pos, obj)
+    assembly.Group = children
+
+
+# Upstream's groups of an assembly that become its aux groups (sec 3), by
+# type: the role
+LEGACY_GROUPS = {
+    "Assembly::JointGroup": "Joints",
+    "Assembly::SimulationGroup": "Simulations",
+    "Assembly::ViewGroup": "Views",
+}
+
+
+def convertGroups(assembly):
+    """Upstream's JointGroup, SimulationGroup and ViewGroup of an assembly to
+    its aux groups. Their members are the assembly's children already; an aux
+    group shows them in the assembly's order, so theirs is carried into it.
+    Returns a list of (label, new group or None, note)"""
+    report = []
+    doc = assembly.Document
+    for old in [o for o in assembly.Group if o.TypeId in LEGACY_GROUPS]:
+        role = LEGACY_GROUPS[old.TypeId]
+        label = old.Label
+        if assembly.getGroup(role) not in (None, old):
+            report.append((label, None, "the assembly has a %s group already" % role))
+            continue
+        members = [o for o in old.Group if o in assembly.Group]
+        # The slots the members hold in the assembly, filled in their order
+        children = list(assembly.Group)
+        slots = sorted(children.index(o) for o in members)
+        for slot, obj in zip(slots, members):
+            children[slot] = obj
+        old.Group = []
+        assembly.Group = [o for o in children if o != old]
+        doc.removeObject(old.Name)
+        new = assembly.getGroup(role, True)
+        new.Label = label
+        left = [o.Label for o in members if o not in new.Group]
+        note = ""
+        if left:
+            note = "%s not of the role, now directly in the assembly" % ", ".join(left)
+        report.append((label, new, note))
+    return report
+
+
 def _plainGroupOf(obj, assembly):
     """The group that lists obj, other than the assembly itself, or None"""
     for parent in obj.InList:
@@ -351,9 +411,7 @@ def convertTwin(assembly, old, entry, converted, members=None):
     if hasattr(new.Proxy, "onDocumentRestored"):
         new.Proxy.onDocumentRestored(new)
     if parent is not None and index >= 0 and twinOf(parent) is None:
-        siblings = [o for o in parent.Group if o != new]
-        siblings.insert(min(index, len(siblings)), new)
-        parent.Group = siblings
+        _placeAt(assembly, parent, new, index)
     return new
 
 
@@ -416,7 +474,12 @@ def convertDocument(doc, force=False):
     report = []
     others = []
     for assembly in [o for o in doc.Objects if o.isDerivedFrom("Assembly::AssemblyObject")]:
-        group = UtilsAssembly.getJointGroup(assembly)
+        # First: the joints and the rest are made in the new groups
+        groups = convertGroups(assembly)
+        for label, new, note in groups:
+            if note:
+                App.Console.PrintWarning("%s: group %s: %s\n" % (doc.Label, label, note))
+        group = assembly.getGroup("Joints")
         if group is not None:
             for joint in [o for o in group.Group if isPythonJoint(o)]:
                 label = joint.Label

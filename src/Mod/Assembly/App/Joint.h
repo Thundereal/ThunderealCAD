@@ -66,9 +66,13 @@ struct AssemblyExport JointSide
     /// the offsets applied
     Base::Placement frame;
 
+    /// A whole object with no shape (an empty link, a datum, an LCS): the
+    /// frame is its placement
+    bool wholeObject = false;
+
     bool isValid() const
     {
-        return link && component && !shape.isNull();
+        return link && component && (wholeObject || !shape.isNull());
     }
     /// "Vertex", "Edge" or "Face" when the element is one, else empty
     std::string elementType() const;
@@ -111,6 +115,12 @@ public:
     short mustExecute() const override;
     void unsetupObject() override;
     PyObject* getPyObject() override;
+    /// One that draws nothing: the markers come with JointPython's Python
+    /// view provider. A joint the assembly claims must have one.
+    const char* getViewProviderName() const override
+    {
+        return "Gui::ViewProviderDocumentObject";
+    }
 
     /// The element link of side 1 or 2
     Part::ElementLink* getElementLink(int side) const;

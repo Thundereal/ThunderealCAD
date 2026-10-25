@@ -49,6 +49,7 @@
 #include "AssemblyUtils.h"
 #include "CamJoint.h"
 #include "ElementGeometry.h"
+#include "Joint.h"
 
 using namespace Assembly;
 
@@ -209,7 +210,8 @@ private:
 // "the edge Edge3 of Cam".
 std::string elementPhrase(const App::DocumentObject* joint, const char* prop)
 {
-    const std::string name = getElementFromProp(joint, prop);
+    std::string name, label;
+    describeJointSide(joint, prop, name, label);
     std::string res = "the element " + name;
     const std::string type = getElementTypeFromProp(joint, prop);
     if (type == "Edge") {
@@ -221,15 +223,18 @@ std::string elementPhrase(const App::DocumentObject* joint, const char* prop)
     else if (type == "Face") {
         res = "the face " + name;
     }
-    if (auto* obj = getObjFromJointRef(const_cast<App::DocumentObject*>(joint), prop)) {
+    if (!label.empty()) {
         res += " of ";
-        res += obj->Label.getValue();
+        res += label;
     }
     return res;
 }
 
 bool hasPick(const App::DocumentObject* joint, const char* prop)
 {
+    if (int side = typedJointSide(joint, prop)) {
+        return static_cast<const Joint*>(joint)->getElementLink(side) != nullptr;
+    }
     const auto* ref = joint->getPropertyByName<App::PropertyXLinkSub>(prop);
     return ref && ref->getValue() && !ref->getSubValues().empty();
 }
@@ -239,6 +244,22 @@ bool hasPick(const App::DocumentObject* joint, const char* prop)
 // AssemblyObject::handleOneSideOfJoint takes a JCS into the part's frame).
 TopoDS_Edge camEdge(const App::DocumentObject* joint, Base::Placement* partGlobal = nullptr)
 {
+    if (auto typed = dynamic_cast<const Joint*>(joint)) {
+        // The side's edge in the assembly's coordinate system, and the cam
+        // part's placement in it (docs/AssemblyObjectModel.md sec 7.1)
+        const auto side = typed->getSide(1);
+        if (!side.isValid()) {
+            return {};
+        }
+        const TopoDS_Shape s = Part::singleSubShape(side.shape.getShape());
+        if (s.IsNull() || s.ShapeType() != TopAbs_EDGE) {
+            return {};
+        }
+        if (partGlobal) {
+            *partGlobal = App::GeoFeature::getPlacementFromProp(side.component, "Placement");
+        }
+        return TopoDS::Edge(s);
+    }
     auto* ref = joint->getPropertyByName<App::PropertyXLinkSub>("Reference1");
     if (!ref || !ref->getValue() || ref->getSubValues().empty()) {
         return {};

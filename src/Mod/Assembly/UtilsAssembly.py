@@ -1327,8 +1327,10 @@ def getAssemblyShapes(assembly):
 
 
 def getJointDistance(joint):
-    plc1 = getJcsGlobalPlc(joint.Placement1, joint.Reference1)
-    plc2 = getJcsGlobalPlc(joint.Placement2, joint.Reference2)
+    import JointObject
+
+    plc1 = JointObject.sideJcsGlobal(joint, 1)
+    plc2 = JointObject.sideJcsGlobal(joint, 2)
 
     # Find the sign
     sign = 1
@@ -1340,8 +1342,10 @@ def getJointDistance(joint):
 
 
 def getJointXYAngle(joint):
-    plc1 = getJcsGlobalPlc(joint.Placement1, joint.Reference1)
-    plc2 = getJcsGlobalPlc(joint.Placement2, joint.Reference2)
+    import JointObject
+
+    plc1 = JointObject.sideJcsGlobal(joint, 1)
+    plc2 = JointObject.sideJcsGlobal(joint, 2)
 
     plc3 = plc1.inverse() * plc2  # plc3 is plc2 relative to plc1
     x_axis = plc3.Rotation.multVec(App.Vector(1, 0, 0))
@@ -1532,6 +1536,10 @@ def generatePropertySettings(documentObject):
     if hasattr(documentObject, "Name"):
         commands.append(f'obj = App.ActiveDocument.getObject("{documentObject.Name}")')
     for propertyName in documentObject.PropertiesList:
+        # Not what is computed (a C++ joint's Placement1/2)
+        status = documentObject.getPropertyStatus(propertyName)
+        if "ReadOnly" in status or "Output" in status:
+            continue
         propertyValue = documentObject.getPropertyByName(propertyName)
         propertyType = documentObject.getTypeIdOfProperty(propertyName)
         # Note: OpenCascade precision is 1e-07, angular precision is 1e-05.  For purposes of creating a Macro,

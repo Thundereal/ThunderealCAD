@@ -32,6 +32,7 @@
 #include <App/Application.h>
 #include <App/AuxGroup.h>
 #include <App/Document.h>
+#include <App/ElementNamingUtils.h>
 #include <App/GroupExtension.h>
 #include <Base/Exception.h>
 #include <Base/Tools.h>
@@ -109,6 +110,36 @@ Element::Element()
     Target.setScope(App::LinkScope::Global);
 }
 
+bool Element::getWholeObjectPlacement(App::DocumentObject *obj,
+                                      const char *subname,
+                                      Base::Placement &placement)
+{
+    if (!obj || !obj->isAttachedToDocument())
+        return false;
+    if (!subname)
+        subname = "";
+    if (*Data::findElementName(subname))
+        return false;
+    Base::Matrix4D mat;
+    if (!obj->getSubObject(subname, nullptr, &mat, true))
+        return false;
+    placement.fromMatrix(mat);
+    return true;
+}
+
+/// A link to a whole object with no shape: its placement, and no copy
+static bool takeWholeObject(Part::Feature *feature, const App::PropertyLinkSub &prop)
+{
+    const auto &subs = prop.getSubValues();
+    Base::Placement plc;
+    if (!Element::getWholeObjectPlacement(prop.getValue(),
+                                          subs.empty() ? "" : subs.front().c_str(), plc))
+        return false;
+    feature->Shape.setValue(TopoShape());
+    feature->Placement.setValue(plc);
+    return true;
+}
+
 App::DocumentObjectExecReturn *Element::execute()
 {
     if (Detach.getValue())
@@ -117,8 +148,11 @@ App::DocumentObjectExecReturn *Element::execute()
         return new App::DocumentObjectExecReturn("No target");
     syncResolved(_Resolved, Target);
     auto shape = linkedShape(Target);
-    if (shape.isNull())
+    if (shape.isNull()) {
+        if (takeWholeObject(this, Target))
+            return App::DocumentObject::StdReturn;
         return new App::DocumentObjectExecReturn("Target not found");
+    }
     setCopy(this, shape);
     return App::DocumentObject::StdReturn;
 }
@@ -282,8 +316,11 @@ App::DocumentObjectExecReturn *ElementLink::execute()
         return new App::DocumentObjectExecReturn("No element");
     syncResolved(_Resolved, Element);
     auto shape = linkedShape(Element);
-    if (shape.isNull())
+    if (shape.isNull()) {
+        if (takeWholeObject(this, Element))
+            return App::DocumentObject::StdReturn;
         return new App::DocumentObjectExecReturn("Element not found");
+    }
     setCopy(this, shape);
     if (!updateVertexOffset(shape))
         return new App::DocumentObjectExecReturn("Vertex not found");

@@ -66,7 +66,7 @@ class TestElementJoint(JointTestBase):
         a = self.box("A")
         b = self.box("B", plc(30, 5, 0))
         joint = self.assembly.makeJoint("Fixed", (a, "Face6"), (b, "Face5"))
-        self.assertEqual(joint.TypeId, "Assembly::Joint")
+        self.assertTrue(joint.isDerivedFrom("Assembly::Joint"))
         self.assertEqual(joint.JointType, "Fixed")
         elements = self.assembly.Elements
         self.assertIsNotNone(elements)
@@ -130,6 +130,18 @@ class TestElementJoint(JointTestBase):
         self.assertVecClose(p2.Base, App.Vector(5, 0, 5))
         self.assertVecClose(zaxis(p1), Z)
         self.assertLess(abs(abs(zaxis(p2).dot(Z)) - 1), 1e-9)
+
+    def testWholeObjectWithoutAShape(self):
+        # An empty link, as Insert New Part picks it before it links the
+        # part: a whole object is its own frame, shape or not
+        link = self.assembly.newObject("App::Link", "Link")
+        link.Placement = plc(3, 4, 5, Z, 30)
+        b = self.box("B", plc(30, 0, 0))
+        self.doc.recompute()
+        joint = self.assembly.makeJoint("Fixed", (link, ""), (b, "Face5"))
+        self.doc.recompute()
+        self.assertNotIn("Invalid", joint.State)
+        self.assertTrue(joint.getFrame(1).isSame(link.Placement, 1e-9))
 
     def testVertexBecomesTheOffset(self):
         a = self.box("A")
@@ -276,7 +288,7 @@ class TestElementJoint(JointTestBase):
         self.doc = App.openDocument(path)
         self.assembly = self.doc.getObject("Assembly")
         joint = self.doc.getObject(name)
-        self.assertEqual(joint.TypeId, "Assembly::Joint")
+        self.assertTrue(joint.isDerivedFrom("Assembly::Joint"))
         a = self.doc.getObject("A")
         b = self.doc.getObject("B")
         b.Placement = plc(30, 5, 2, Z, 20)

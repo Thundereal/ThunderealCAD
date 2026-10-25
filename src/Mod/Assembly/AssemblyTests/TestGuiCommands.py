@@ -231,8 +231,10 @@ class TestGuiCommands(unittest.TestCase):
         made = self.joints(jtype)
         self.assertEqual(len(made), 1, "no %s joint was made" % jtype)
         j = made[0]
-        self.assertEqual(UtilsAssembly.getObject(j.Reference1), self.cyl1)
-        self.assertEqual(UtilsAssembly.getObject(j.Reference2), self.cyl2)
+        # A joint made in an assembly is the C++ one, its sides element links
+        self.assertTrue(JointObject.isTyped(j))
+        self.assertEqual(UtilsAssembly.getObject(JointObject.sideRef(j, 1)), self.cyl1)
+        self.assertEqual(UtilsAssembly.getObject(JointObject.sideRef(j, 2)), self.cyl2)
         return j
 
     # ------------------------------------------------------------ assembly
@@ -397,7 +399,7 @@ class TestGuiCommands(unittest.TestCase):
         _process()
         self.assertEqual(len(task.refs), 1, "the refused pick was taken")
         self.assertRefusal(task)
-        self.assertEqual(task.joint.Reference2, None)
+        self.assertEqual(JointObject.sideRef(task.joint, 2), None)
         self.select(self.cyl1, "Face1")  # PlaneCylinder
         _process()
         self.assertEqual(len(task.refs), 2)

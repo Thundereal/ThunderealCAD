@@ -110,6 +110,18 @@ public:
     static bool autoVisibility();
     static void setAutoVisibility(bool on);
 
+    /** The placement of a whole object a subname names, in the coordinate
+     * system of \a obj's container
+     *
+     * @return false when the subname names geometry (an element), or does
+     *         not resolve. A whole object -- a link, a datum, an LCS, a body
+     *         -- is the frame of its users whether it has a shape or not, as
+     *         upstream's joint takes it.
+     */
+    static bool getWholeObjectPlacement(App::DocumentObject *obj,
+                                        const char *subname,
+                                        Base::Placement &placement);
+
 private:
     void touchGroups();
 };

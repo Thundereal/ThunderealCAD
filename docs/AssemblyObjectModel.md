@@ -888,6 +888,60 @@ Built as step 4a (2026-10-25):
   its element links and an unused convenience element; saved and
   restored.
 
+Built as step 4b (2026-10-25), the joints the task makes:
+
+- **In an assembly the joint task makes `Assembly::JointPython`**, with the
+  Python proxy (`JointObject.Joint`) and view provider
+  (`JointObject.ViewProviderJoint`) attached as before. The task's "Part"
+  mode, a joint in a plain `App::Part`, keeps the Python joint: a C++
+  joint's sides need an assembly.
+- **One set of side helpers answers for both kinds** (`JointObject.py`):
+  `sideRef` (a C++ joint's side rebuilt as upstream's reference
+  `[component, [element, vertex]]` from its element link), `sideMovingPart`,
+  `sideJcsGlobal`, `jointOffset` / `setJointOffset`, `syncSides` (the
+  task's picks to element links, keeping a side whose pick did not
+  change, so editing a joint keeps its element links and offsets) and
+  `recomputeSides` (the joint, its element links and their elements; not
+  the components, which the task may be setting up). The proxy's
+  pre-solve, flip, parallel check and connector swap, the view provider's
+  markers and overlay, the task, `JointCam.pickRefusal` and
+  `UtilsAssembly.getJointDistance` / `getJointXYAngle` use them. A C++
+  joint's proxy `execute` returns False, so the C++ `execute` keeps
+  `Placement1/2`.
+- **Offsets.** The task's offset and rotation edit the user's share of
+  the element link's `Offset`: `Offset = T(VertexPosition) * user's`, so
+  the user's is `(Offset.Base - VertexPosition, Offset.Rotation)`. The
+  advanced offset buttons open the placement dialog on the element link's
+  whole `Offset`. Not yet: an expression on those two spin boxes, which
+  the Python joint binds to `Offset2`.
+- **Markers** are the frames in the assembly's coordinate system
+  (`Joint.getFrame`), under the assembly's transform, as the Python
+  joint's are once made relative to it.
+- **The view provider claims the element links**, and the assembly's
+  exported children leave out what a child claims through a non-Global
+  link (`ViewProviderGroupExtension::buildExport`), so they show under
+  their joint only.
+- **A whole object is a side** (an empty link, as Insert New Part picks
+  it before it links the part; a datum; an LCS): an element or element
+  link whose subname names no geometry takes the object's placement as
+  its frame and keeps an empty copy (`Part::Element::getWholeObjectPlacement`),
+  as upstream's joint takes such a reference.
+- **C++ branches**: the cam (`hasPick`, `camEdge`), dragging along a
+  joint (`ViewProviderAssembly`), and the messages, which name what the
+  user picked ("the face Face1 of Free"), not the element link's copy
+  (`describeJointSide`).
+- Found on the way: a document object with no view provider, claimed in
+  3D, crashed the 3D claim's incremental update (`LinkView::setChildren`
+  added a null node; the full rebuild skipped such a child). Guarded; and
+  `Assembly::Joint` names `Gui::ViewProviderDocumentObject`, and
+  `makeJoint` makes `JointPython`.
+- Not yet from the plan: grounding and rigid groups as C++ objects; they
+  stay Python, naming whole components.
+- Tests: the Assembly suite in the GUI, 289 run, all pass (2 skipped):
+  `TestGuiCommands` (37) now makes every joint type through its command
+  as a C++ joint. Headless as before, and `TestElementJoint` (16, with a
+  whole object without a shape).
+
 ## 8. Upstream files and commits
 
 - **Opening upstream 1.0 and 1.1 files**: a converter runs on restore and

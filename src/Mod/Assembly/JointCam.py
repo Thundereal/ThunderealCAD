@@ -45,9 +45,14 @@ def pickRefusal(joint, refs):
     if not refs:
         return ""
     import AssemblyApp
+    import JointObject
 
-    joint.Reference1 = refs[0]
-    joint.Reference2 = refs[1] if len(refs) > 1 else None
+    if JointObject.isTyped(joint):
+        JointObject.syncSides(joint, refs)
+        JointObject.recomputeSides(joint)
+    else:
+        joint.Reference1 = refs[0]
+        joint.Reference2 = refs[1] if len(refs) > 1 else None
     return AssemblyApp.getCamRefusal(joint)
 
 

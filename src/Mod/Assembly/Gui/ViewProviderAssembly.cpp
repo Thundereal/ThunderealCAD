@@ -79,6 +79,7 @@
 #include <Mod/Assembly/App/AssemblyObject.h>
 #include <Mod/Assembly/App/AssemblyUtils.h>
 #include <Mod/Assembly/App/Groups.h>
+#include <Mod/Assembly/App/Joint.h>
 #include <Mod/PartDesign/App/Body.h>
 
 #include "TaskAssemblyMessages.h"
@@ -1035,7 +1036,11 @@ ViewProviderAssembly::DragMode ViewProviderAssembly::findDragMode()
             }
 
             auto* pPlc = upPart->getPlacementProperty();
-            if (pPlc) {
+            if (pPlc && movingJoint->isDerivedFrom<Assembly::Joint>()) {
+                // A C++ joint's side is a component of the assembly
+                docsToMove.emplace_back(upPart, pPlc->getValue(), upPart, "");
+            }
+            else if (pPlc) {
                 auto* ref = dynamic_cast<App::PropertyXLinkSub*>(
                     movingJoint->getPropertyByName(pName.c_str())
                 );
@@ -1057,17 +1062,25 @@ ViewProviderAssembly::DragMode ViewProviderAssembly::findDragMode()
 
         const char* plcPropName = (pName == "Reference1") ? "Placement1" : "Placement2";
 
-        // jcsPlc is relative to the Object
-        jcsPlc = App::GeoFeature::getPlacementFromProp(movingJoint, plcPropName);
-
-        // Make jcsGlobalPlc relative to the origin of the doc
-        auto* ref = dynamic_cast<App::PropertyXLinkSub*>(movingJoint->getPropertyByName(pName.c_str()));
-        if (!ref) {
-            return DragMode::Translation;
+        if (int side = Assembly::typedJointSide(movingJoint, pName.c_str())) {
+            // A C++ joint's frame is in the assembly's coordinate system
+            Base::Placement asmPlc = App::GeoFeature::getGlobalPlacement(getObject<AssemblyObject>());
+            jcsGlobalPlc = asmPlc * static_cast<Assembly::Joint*>(movingJoint)->getSide(side).frame;
+            jcsPlc = jcsGlobalPlc;
         }
-        Base::Placement asmPlc = App::GeoFeature::getGlobalPlacement(getObject<AssemblyObject>());
-        Base::Placement global_plc = asmPlc * App::GeoFeature::getGlobalPlacement(nullptr, ref);
-        jcsGlobalPlc = global_plc * jcsPlc;
+        else {
+            // jcsPlc is relative to the Object
+            jcsPlc = App::GeoFeature::getPlacementFromProp(movingJoint, plcPropName);
+
+            // Make jcsGlobalPlc relative to the origin of the doc
+            auto* ref = dynamic_cast<App::PropertyXLinkSub*>(movingJoint->getPropertyByName(pName.c_str()));
+            if (!ref) {
+                return DragMode::Translation;
+            }
+            Base::Placement asmPlc = App::GeoFeature::getGlobalPlacement(getObject<AssemblyObject>());
+            Base::Placement global_plc = asmPlc * App::GeoFeature::getGlobalPlacement(nullptr, ref);
+            jcsGlobalPlc = global_plc * jcsPlc;
+        }
 
         if (!ungroundedJointDrag) {
             // Add downstream parts so that they move together

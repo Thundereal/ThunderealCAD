@@ -42,6 +42,7 @@
 #include <App/Application.h>
 #include <App/Datums.h>
 #include <App/Document.h>
+#include <App/ElementNamingUtils.h>
 #include <App/DocumentObject.h>
 #include <App/PropertyStandard.h>
 #include <App/Link.h>
@@ -446,11 +447,12 @@ bool isElementType(const std::string& t)
 // "the face Face3 of Cone" (the label of the picked component).
 std::string elementPhrase(App::DocumentObject* joint, const char* prop, const char* kind)
 {
-    std::string name = getElementFromProp(joint, prop);
+    std::string name, label;
+    describeJointSide(joint, prop, name, label);
     std::string res = std::string("the ") + kind + " " + name;
-    if (auto* obj = getObjFromJointRef(joint, prop)) {
+    if (!label.empty()) {
         res += " of ";
-        res += obj->Label.getValue();
+        res += label;
     }
     return res;
 }
@@ -995,6 +997,52 @@ App::DocumentObject* getMovingPartFromRef(App::DocumentObject* joint, const char
 
     auto* prop = joint->getPropertyByName<App::PropertyXLinkSub>(pName);
     return getMovingPartFromRef(prop);
+}
+
+void describeJointSide(
+    const App::DocumentObject* joint,
+    const char* refName,
+    std::string& element,
+    std::string& label
+)
+{
+    element = getElementFromProp(joint, refName);
+    label.clear();
+    int side = typedJointSide(joint, refName);
+    if (!side) {
+        if (auto* obj = getObjFromJointRef(joint, refName)) {
+            label = obj->Label.getValue();
+        }
+        return;
+    }
+    auto* link = static_cast<const Joint*>(joint)->getElementLink(side);
+    if (!link) {
+        return;
+    }
+    // Down the elements to the geometry they name
+    App::DocumentObject* obj = link->Element.getValue();
+    const auto& subs = link->Element.getSubValues();
+    std::string sub = subs.empty() ? std::string() : subs.front();
+    for (int depth = 0; obj && depth < 16; ++depth) {
+        auto* target = Base::freecad_dynamic_cast<Part::Element>(obj->getSubObject(sub.c_str()));
+        if (!target || !target->Target.getValue()) {
+            break;
+        }
+        obj = target->Target.getValue();
+        const auto& tsubs = target->Target.getSubValues();
+        sub = tsubs.empty() ? std::string() : tsubs.front();
+    }
+    if (!obj) {
+        return;
+    }
+    // The object the element is of, at the end of the path
+    std::string path = sub.substr(0, Data::findElementName(sub.c_str()) - sub.c_str());
+    auto* owner = path.empty() ? obj : obj->getSubObject(path.c_str());
+    label = (owner ? owner : obj)->Label.getValue();
+    const std::string name = Data::oldElementName(Data::findElementName(sub.c_str()));
+    if (!name.empty()) {
+        element = name;
+    }
 }
 
 int typedJointSide(const App::DocumentObject* joint, const char* refName)

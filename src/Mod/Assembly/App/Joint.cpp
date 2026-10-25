@@ -253,7 +253,12 @@ JointSide Joint::getSide(int side) const
         // copy the element link keeps
         res.shape = res.link->Shape.getShape();
     }
-    if (res.shape.isNull()) {
+    Base::Placement wholePlacement;
+    if (res.shape.isNull()
+        && Part::Element::getWholeObjectPlacement(geomObj, geomSub.c_str(), wholePlacement)) {
+        res.wholeObject = true;
+    }
+    if (res.shape.isNull() && !res.wholeObject) {
         return res;
     }
 
@@ -270,7 +275,7 @@ JointSide Joint::getSide(int side) const
         element = resolveElement(element->Target.getValue(),
                                  tsubs.empty() ? std::string() : tsubs.front());
     }
-    res.frame = findElementFrame(res.shape);
+    res.frame = res.wholeObject ? wholePlacement : findElementFrame(res.shape);
     for (auto it = offsets.rbegin(); it != offsets.rend(); ++it) {
         res.frame = res.frame * *it;
     }
@@ -588,7 +593,9 @@ Joint* Joint::make(AssemblyObject* assembly,
         );
         assembly->getExtensionByType<App::GroupExtension>()->addObject(group);
     }
-    auto joint = static_cast<Joint*>(assembly->getDocument()->addObject("Assembly::Joint", type));
+    // The Python-extensible one, as the joint task makes, so that a Python
+    // view provider can draw its markers
+    auto joint = static_cast<Joint*>(assembly->getDocument()->addObject("Assembly::JointPython", type));
     group->addObject(joint);
     joint->JointType.setValue(type);
     joint->ElementLink1.setValue(makeSide(assembly, component1, subname1, vertex1));

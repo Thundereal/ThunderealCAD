@@ -21,6 +21,10 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <cstring>
+
+#include <Base/Reader.h>
+
 #include "Simulation.h"
 
 using namespace Assembly;
@@ -33,13 +37,40 @@ Simulation::Simulation()
     GroupExtension::initExtension(this);
 
     // Upstream's defaults (CommandCreateSimulation.Simulation)
-    ADD_PROPERTY_TYPE(aTimeStart, (0.0), "Simulation", App::Prop_None, "Simulation start time.");
-    ADD_PROPERTY_TYPE(bTimeEnd, (1.0), "Simulation", App::Prop_None, "Simulation end time.");
-    ADD_PROPERTY_TYPE(cTimeStepOutput, (1.0e-2), "Simulation", App::Prop_None,
+    ADD_PROPERTY_TYPE(TimeStart, (0.0), "Simulation", App::Prop_None, "Simulation start time.");
+    ADD_PROPERTY_TYPE(TimeEnd, (1.0), "Simulation", App::Prop_None, "Simulation end time.");
+    ADD_PROPERTY_TYPE(TimeStepOutput, (1.0e-2), "Simulation", App::Prop_None,
                       "Simulation time step for output.");
-    ADD_PROPERTY_TYPE(fGlobalErrorTolerance, (1.0e-6), "Simulation", App::Prop_None,
+    ADD_PROPERTY_TYPE(GlobalErrorTolerance, (1.0e-6), "Simulation", App::Prop_None,
                       "Integration global error tolerance.");
-    ADD_PROPERTY_TYPE(jFramesPerSecond, (30), "Simulation", App::Prop_None, "Frames Per Second.");
+    ADD_PROPERTY_TYPE(FramesPerSecond, (30), "Simulation", App::Prop_None, "Frames Per Second.");
+}
+
+const std::map<std::string, std::string>& Simulation::upstreamNames()
+{
+    static const std::map<std::string, std::string> names {
+        {"aTimeStart", "TimeStart"},
+        {"bTimeEnd", "TimeEnd"},
+        {"cTimeStepOutput", "TimeStepOutput"},
+        {"fGlobalErrorTolerance", "GlobalErrorTolerance"},
+        {"jFramesPerSecond", "FramesPerSecond"},
+    };
+    return names;
+}
+
+void Simulation::handleChangedPropertyName(Base::XMLReader& reader,
+                                           const char* typeName,
+                                           const char* propName)
+{
+    auto it = upstreamNames().find(propName);
+    if (it != upstreamNames().end()) {
+        auto* prop = getPropertyByName(it->second.c_str());
+        if (prop && strcmp(prop->getTypeId().getName(), typeName) == 0) {
+            prop->Restore(reader);
+            return;
+        }
+    }
+    DocumentObject::handleChangedPropertyName(reader, typeName, propName);
 }
 
 

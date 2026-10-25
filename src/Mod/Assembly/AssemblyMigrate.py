@@ -187,10 +187,10 @@ def convertJoint(assembly, joint):
     return new, ""
 
 
-# Upstream's other Python objects that have a C++ twin with the same
-# properties (sec 7.2), by the class of their proxy: (module, C++ type, the
-# properties copied). Containers come last, so their members are converted
-# when their group is made
+# Upstream's other Python objects that have a C++ twin (sec 7.2), by the
+# class of their proxy: (module, C++ type, the properties copied, a name or
+# (upstream's name, the twin's name)). Containers come last, so their
+# members are converted when their group is made
 TWINS = (
     (
         "Motion",
@@ -215,11 +215,11 @@ TWINS = (
         "CommandCreateSimulation",
         "Assembly::SimulationPython",
         (
-            "aTimeStart",
-            "bTimeEnd",
-            "cTimeStepOutput",
-            "fGlobalErrorTolerance",
-            "jFramesPerSecond",
+            ("aTimeStart", "TimeStart"),
+            ("bTimeEnd", "TimeEnd"),
+            ("cTimeStepOutput", "TimeStepOutput"),
+            ("fGlobalErrorTolerance", "GlobalErrorTolerance"),
+            ("jFramesPerSecond", "FramesPerSecond"),
             "Label2",
         ),
     ),
@@ -295,17 +295,19 @@ def convertTwin(assembly, old, entry, converted, members=None):
     # set defaults (and a snapshot capture the state now)
     cls = getattr(module, name)
     new.Proxy = cls.__new__(cls)
-    for prop in props:
-        if hasattr(old, prop) and hasattr(new, prop):
+    renames = dict(p if isinstance(p, tuple) else (p, p) for p in props)
+    for prop, newProp in renames.items():
+        if hasattr(old, prop) and hasattr(new, newProp):
             try:
-                setattr(new, prop, getattr(old, prop))
+                setattr(new, newProp, getattr(old, prop))
             except Exception:
                 pass
     if name == "Motion":
         new.Joint = _motionJoint(old)
     for path, expr in old.ExpressionEngine:
-        if path.split(".")[0] in props:
-            new.setExpression(path, expr)
+        prop, dot, rest = path.partition(".")
+        if prop in renames:
+            new.setExpression(renames[prop] + dot + rest, expr)
     if hasattr(new, "Group"):
         if members is None:
             members = [o.Name for o in old.Group]
@@ -322,6 +324,11 @@ def convertTwin(assembly, old, entry, converted, members=None):
     import AssemblyApp
 
     AssemblyApp.replaceObjectLinks(old, new)
+    # What named a property renamed: the other objects' expressions, and the
+    # new object's own, which say old's name when they named its properties
+    renamed = {p: n for p, n in renames.items() if p != n}
+    if renamed:
+        AssemblyApp.renamePropertyReferences(new, renamed)
     label = old.Label
     doc.removeObject(old.Name)
     new.Label = label

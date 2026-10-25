@@ -26,10 +26,12 @@
 #include <Base/Tools.h>
 
 #include <cstring>
+#include <map>
 #include <memory>
 
 #include <App/Document.h>
 #include <App/DocumentObjectPy.h>
+#include <App/ObjectIdentifier.h>
 #include <App/PropertyLinks.h>
 #include <Mod/Part/App/Geometry.h>
 #include <Mod/Part/App/TopoShapePy.h>
@@ -126,6 +128,14 @@ public:
             "expressions of every other object of the document -- as a link's\n"
             "replacement does; not the groups that list 'old' (its removal takes\n"
             "it out of those). Returns how many properties changed."
+        );
+        add_varargs_method(
+            "renamePropertyReferences",
+            &Module::renamePropertyReferences,
+            "renamePropertyReferences(obj, {old: new}) -> None\n\n"
+            "Re-points the expressions of every object of obj's document that\n"
+            "name obj's property 'old' at its property 'new', as for a property\n"
+            "renamed. The bindings of obj's own expressions are not moved."
         );
         add_varargs_method(
             "getElementGeometryConversions",
@@ -229,6 +239,30 @@ private:
             change.first->Paste(*change.second);
         }
         return Py::Long(static_cast<long>(changes.size()));
+    }
+
+    Py::Object renamePropertyReferences(const Py::Tuple& args)
+    {
+        PyObject *pyObj = nullptr, *pyNames = nullptr;
+        if (!PyArg_ParseTuple(
+                args.ptr(), "O!O!", &App::DocumentObjectPy::Type, &pyObj, &PyDict_Type, &pyNames)) {
+            throw Py::Exception();
+        }
+        auto* obj = static_cast<App::DocumentObjectPy*>(pyObj)->getDocumentObjectPtr();
+        if (!obj->getDocument()) {
+            throw Py::ValueError("the object is not in a document");
+        }
+        std::map<App::ObjectIdentifier, App::ObjectIdentifier> paths;
+        for (const auto& item : Py::Dict(pyNames)) {
+            std::string from = Py::String(item.first).as_std_string();
+            std::string to = Py::String(item.second).as_std_string();
+            paths.emplace(
+                App::ObjectIdentifier(obj, from.c_str()),
+                App::ObjectIdentifier(obj, to.c_str())
+            );
+        }
+        obj->getDocument()->renameObjectIdentifiers(paths);
+        return Py::None();
     }
 
     Py::Object getCamRefusal(const Py::Tuple& args)

@@ -128,9 +128,12 @@ class TestMigrateTwins(JointTestBase):
         self.assertEqual(sim.TypeId, "Assembly::SimulationPython")
         self.assertEqual(type(sim.Proxy).__name__, "Simulation")
         self.assertEqual(sim.Label, "Turn")
-        self.assertAlmostEqual(sim.bTimeEnd.Value, 2.0)
-        self.assertAlmostEqual(sim.cTimeStepOutput.Value, 0.1)
-        self.assertIn(("jFramesPerSecond", "24"), sim.ExpressionEngine)
+        # Under the C++ simulation's names
+        self.assertFalse(hasattr(sim, "bTimeEnd"))
+        self.assertAlmostEqual(sim.TimeEnd.Value, 2.0)
+        self.assertAlmostEqual(sim.TimeStepOutput.Value, 0.1)
+        self.assertIn(("FramesPerSecond", "24"), sim.ExpressionEngine)
+        self.assertEqual(sim.FramesPerSecond, 24)
         self.assertEqual(len(sim.Group), 1)
         motion = sim.Group[0]
         self.assertEqual(motion.TypeId, "Assembly::MotionPython")
@@ -234,6 +237,67 @@ class TestMigrateTwins(JointTestBase):
         motion = UtilsAssembly.getSimulationGroup(self.assembly).Group[0].Group[0]
         self.assertEqual(motion.TypeId, "Assembly::MotionPython")
         self.assertEqual(self.doc.getObject("Other").Driver, motion)
+
+    def testExpressionsNamingARenamedProperty(self):
+        """Another object's expression on upstream's name of a simulation's
+        property names the C++ one's after, and the simulation's own"""
+        _a, _b, rev = self.mechanism()
+        sim = self.simulation([(rev, "Angular", "36*time")])
+        sim.bTimeEnd = 2.0
+        sim.setExpression("cTimeStepOutput", "bTimeEnd / 20")
+        other = self.doc.addObject("App::FeaturePython", "Other")
+        other.addProperty("App::PropertyFloat", "Twice", "Test")
+        other.setExpression("Twice", "%s.bTimeEnd * 2" % sim.Name)
+        self.doc.recompute()
+        self.assertAlmostEqual(other.Twice, 4.0)
+
+        self.reopen()
+        sim = UtilsAssembly.getSimulationGroup(self.assembly).Group[0]
+        other = self.doc.getObject("Other")
+        sim.TimeEnd = 3.0
+        self.doc.recompute()
+        self.assertAlmostEqual(other.Twice, 6.0)
+        self.assertAlmostEqual(sim.TimeStepOutput.Value, 0.15)
+        self.assertIn(sim.Name + ".TimeEnd", dict(other.ExpressionEngine)["Twice"])
+
+    def testUpstreamNamesRestoreIntoTheCppSimulation(self):
+        """A file whose C++ simulation has upstream's names restores them"""
+        import zipfile
+
+        group = UtilsAssembly.getSimulationGroup(self.assembly)
+        sim = group.newObject("Assembly::SimulationPython", "Simulation")
+        CommandCreateSimulation.Simulation(sim)
+        sim.TimeEnd = 2.5
+        sim.FramesPerSecond = 12
+        name = sim.Name
+        path = os.path.join(tempfile.mkdtemp(), "UpstreamNames.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+
+        # Each property as the build before the rename wrote it. Python's
+        # zipfile reads no zstd, which the blob history is in; the file
+        # opens without it
+        edited = path + ".edited"
+        with zipfile.ZipFile(path) as src, zipfile.ZipFile(edited, "w") as dst:
+            for item in src.infolist():
+                try:
+                    data = src.read(item.filename)
+                except NotImplementedError:
+                    continue
+                if item.filename == "Document.xml":
+                    for new, old in CommandCreateSimulation.SIMULATION_NAMES.items():
+                        data = data.replace(
+                            b'name="%s"' % new.encode(), b'name="%s"' % old.encode()
+                        )
+                    self.assertIn(b'name="bTimeEnd"', data)
+                dst.writestr(item, data)
+        os.replace(edited, path)
+
+        self.doc = App.openDocument(path)
+        sim = self.doc.getObject(name)
+        self.assertAlmostEqual(sim.TimeEnd.Value, 2.5)
+        self.assertEqual(sim.FramesPerSecond, 12)
+        self.assertFalse(hasattr(sim, "bTimeEnd"))
 
     def testPreferenceOff(self):
         _a, _b, rev = self.mechanism()

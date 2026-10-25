@@ -103,14 +103,47 @@ class CommandCreateSimulation:
             dialog.setDocumentName(App.ActiveDocument.Name)
 
 
+# Not upstream: the C++ simulation's property names, and upstream's
+# (letter prefixes ordered them in its property editor, which sorts by name)
+SIMULATION_NAMES = {
+    "TimeStart": "aTimeStart",
+    "TimeEnd": "bTimeEnd",
+    "TimeStepOutput": "cTimeStepOutput",
+    "GlobalErrorTolerance": "fGlobalErrorTolerance",
+    "FramesPerSecond": "jFramesPerSecond",
+}
+
+
+class SimulationValues:
+    """Not upstream: a simulation's values by the C++ simulation's names, on
+    it or on upstream's Python simulation, not converted"""
+
+    def __init__(self, sim):
+        object.__setattr__(self, "sim", sim)
+
+    def _name(self, name):
+        if self.sim.isDerivedFrom("Assembly::Simulation"):
+            return name
+        return SIMULATION_NAMES[name]
+
+    def __getattr__(self, name):
+        return getattr(self.sim, self._name(name))
+
+    def __setattr__(self, name, value):
+        setattr(self.sim, self._name(name), value)
+
+
 ######### Simulation Object ###########
 class Simulation:
     def __init__(self, feaPy):
         feaPy.Proxy = self
+        self.motionsChangedCallback = None
         # Not upstream: the C++ simulation (Assembly::SimulationPython) has
-        # its group and its properties
-        if not feaPy.isDerivedFrom("Assembly::Simulation"):
-            feaPy.addExtension("App::GroupExtensionPython")
+        # its group and its properties, under SIMULATION_NAMES' names, with
+        # these defaults
+        if feaPy.isDerivedFrom("Assembly::Simulation"):
+            return
+        feaPy.addExtension("App::GroupExtensionPython")
 
         if not hasattr(feaPy, "aTimeStart"):
             feaPy.addProperty(
@@ -867,16 +900,21 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.startTime = time.time()
         self.index = 0
 
+    @property
+    def simValues(self):
+        """Not upstream: the simulation's values by the C++ one's names"""
+        return SimulationValues(self.simFeaturePy)
+
     def setUiInitialValues(self):
-        self.form.TimeStartSpinBox.setProperty("rawValue", self.simFeaturePy.aTimeStart.Value)
-        self.form.TimeEndSpinBox.setProperty("rawValue", self.simFeaturePy.bTimeEnd.Value)
+        self.form.TimeStartSpinBox.setProperty("rawValue", self.simValues.TimeStart.Value)
+        self.form.TimeEndSpinBox.setProperty("rawValue", self.simValues.TimeEnd.Value)
         self.form.TimeStepOutputSpinBox.setProperty(
-            "rawValue", self.simFeaturePy.cTimeStepOutput.Value
+            "rawValue", self.simValues.TimeStepOutput.Value
         )
         self.form.GlobalErrorToleranceSpinBox.setProperty(
-            "rawValue", self.simFeaturePy.fGlobalErrorTolerance
+            "rawValue", self.simValues.GlobalErrorTolerance
         )
-        self.form.FramesPerSecondSpinBox.setValue(self.simFeaturePy.jFramesPerSecond)
+        self.form.FramesPerSecondSpinBox.setValue(self.simValues.FramesPerSecond)
 
     def setSpinboxPrecision(self, spinbox, precision, unit=App.Units.TimeSpan):
         q = App.Units.Quantity()
@@ -902,16 +940,16 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             Gui.Control.closeDialog()
 
     def onTimeStartChanged(self, quantity):
-        self.simFeaturePy.aTimeStart = self.form.TimeStartSpinBox.property("rawValue")
+        self.simValues.TimeStart = self.form.TimeStartSpinBox.property("rawValue")
 
     def onTimeEndChanged(self, quantity):
-        self.simFeaturePy.bTimeEnd = self.form.TimeEndSpinBox.property("rawValue")
+        self.simValues.TimeEnd = self.form.TimeEndSpinBox.property("rawValue")
 
     def onTimeStepOutputChanged(self, quantity):
-        self.simFeaturePy.cTimeStepOutput = self.form.TimeStepOutputSpinBox.property("rawValue")
+        self.simValues.TimeStepOutput = self.form.TimeStepOutputSpinBox.property("rawValue")
 
     def onGlobalErrorToleranceChanged(self, quantity):
-        self.simFeaturePy.fGlobalErrorTolerance = self.form.GlobalErrorToleranceSpinBox.property(
+        self.simValues.GlobalErrorTolerance = self.form.GlobalErrorToleranceSpinBox.property(
             "rawValue"
         )
 
@@ -954,11 +992,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def onFrameChanged(self, val):
         self.assembly.updateForFrame(val)
         self.form.FrameLabel.setText(translate("Assembly", "Frame" + " " + str(val)))
-        time = float(val * self.simFeaturePy.cTimeStepOutput)
+        time = float(val * self.simValues.TimeStepOutput)
         self.form.FrameTimeLabel.setText(f"{time:.2f} s")
 
     def onFramesPerSecondChanged(self):
-        self.simFeaturePy.jFramesPerSecond = self.form.FramesPerSecondSpinBox.value()
+        self.simValues.FramesPerSecond = self.form.FramesPerSecondSpinBox.value()
 
     def playBackward(self):
         pass
@@ -979,7 +1017,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         if self.startFrm >= self.endFrm:
             return
 
-        self.fps = self.simFeaturePy.jFramesPerSecond
+        self.fps = self.simValues.FramesPerSecond
         self.deltaTime = 1.0 / self.fps
         self.startTime = time.time()
         self.index = self.currentFrm

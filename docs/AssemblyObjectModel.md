@@ -951,12 +951,25 @@ Built as step 4b (2026-10-25), the joints the task makes:
 
   | C++ object | Python feature | properties | owns |
   |---|---|---|---|
-  | `Assembly::Simulation` | `SimulationPython` | `aTimeStart`, `bTimeEnd`, `cTimeStepOutput`, `fGlobalErrorTolerance`, `jFramesPerSecond` (upstream's letter prefixes kept: files and scripts use them) | its motions (`App::GroupExtension`) |
+  | `Assembly::Simulation` | `SimulationPython` | `TimeStart`, `TimeEnd`, `TimeStepOutput`, `GlobalErrorTolerance`, `FramesPerSecond` (upstream's `aTimeStart`, `bTimeEnd`, `cTimeStepOutput`, `fGlobalErrorTolerance`, `jFramesPerSecond`) | its motions (`App::GroupExtension`) |
   | `Assembly::Motion` | `MotionPython` | `Joint`, `MotionType` {Angular, Linear}, `Formula` | |
   | `Assembly::ExplodedView` | `ExplodedViewPython` | | its steps (`App::GroupExtension`) |
   | `Assembly::ExplodedViewStep` | `ExplodedViewStepPython` | `References`, `MovementTransform`, `MoveType` {Normal, Radial} | |
   | `Assembly::Snapshot` | `SnapshotPython` | `Components`, `Placements`, `Visibilities`, `SolveOnActivation` | |
 
+- **The simulation's properties lose upstream's letter prefixes** (user,
+  2026-10-25). Upstream's property editor sorts by name, so the prefixes
+  ordered a Python object's dynamic properties; this fork's lists a
+  container's properties in their order (static ones as declared, dynamic
+  ones as created), and the C++ simulation's are static. Upstream's names
+  still restore: the values through `handleChangedPropertyName`
+  (`Simulation::upstreamNames()`), and on conversion the values, the
+  simulation's own expressions and the other objects' expressions that
+  named them (`AssemblyApp.renamePropertyReferences`). Not kept for
+  scripts: a script setting `sim.bTimeEnd` on the C++ simulation fails.
+  The task panel reads either through
+  `CommandCreateSimulation.SimulationValues`, as a Python simulation that
+  was not converted still has upstream's names.
 - **A motion's `Joint` is a plain link** (sec 7), where upstream's is a
   hidden link with subnames. The Python code reads it through
   `CommandCreateSimulation.motionJoint`, which takes either.
@@ -979,16 +992,26 @@ Built as step 4b (2026-10-25), the joints the task makes:
   class without `__init__`, so nothing is reset and a snapshot does not
   capture the state again. A motion is converted after the joints, so it
   drives the joint's C++ twin.
+- Found on the way: a link's replacement did not re-point expressions
+  (`App/ExpressionDocumentOps.cpp`, `VariableExpression::_renameObjectIdentifier`):
+  the pass that replaces the object also serves a property's rename, and
+  for that it put back the object as the expression named it, which undid
+  the replacement. So `replaceObjectLinks` (sec 8) left every expression on
+  the old object: what 4c said it re-pointed, it did not. The name is now
+  kept only when the path stays on the same object. Tests:
+  `tests/src/App/Expression.cpp`, `ExpressionReplaceObject` (2).
 - Found on the way: `CommandCreateSimulation` and `CommandCreateView` did
   not import without a GUI (their task panels subclass `QtCore.QObject`,
   imported only with one), so an upstream file opened headless could not
   restore their proxies, and the suite had its one headless error. They
   import `QtCore` always now.
-- Tests: `AssemblyTests/TestMigrateTwins.py` (6): a simulation with its
+- Tests: `AssemblyTests/TestMigrateTwins.py` (8): a simulation with its
   motion, which plays the same number of frames after; two motions on one
   joint, the last frame the same; an exploded view with two steps, which
   moves the parts to the same placements; a snapshot, restored after; a
-  link to a motion re-pointed; the preference off.
+  link to a motion re-pointed; expressions naming upstream's simulation
+  names, the simulation's own and another object's, on the new names; a
+  file with upstream's names on the C++ simulation; the preference off.
 
 ## 8. Upstream files and commits
 
@@ -1032,7 +1055,9 @@ Built as step 4b (2026-10-25), the joints the task makes:
       `Joint`, expressions -- is re-pointed at the new one
       (`AssemblyApp.replaceObjectLinks`, a link's replacement:
       `CopyOnLinkReplace` on every other object, not on the groups that list
-      the old joint). An expression on an offset is reported as not carried.
+      the old joint). Expressions only since the fix found in step 4d
+      (sec 7.2): before it, a link's replacement left them on the old
+      object. An expression on an offset is reported as not carried.
     - **What stays Python**, reported: a joint with a side on a component
       that is not a direct child of the assembly (inside a sub-assembly),
       or with a side not set; grounding and rigid groups.

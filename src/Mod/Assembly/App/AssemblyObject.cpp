@@ -2132,12 +2132,12 @@ void Assembly::AssemblyObject::create_mbdSimulationParameters(App::DocumentObjec
         return;
     }
     if (auto* typed = freecad_cast<Simulation*>(sim)) {
-        mbdSim->tStart = typed->aTimeStart.getValue();
-        mbdSim->tEnd = typed->bTimeEnd.getValue();
-        mbdSim->tOutput = typed->cTimeStepOutput.getValue();
+        mbdSim->tStart = typed->TimeStart.getValue();
+        mbdSim->tEnd = typed->TimeEnd.getValue();
+        mbdSim->tOutput = typed->TimeStepOutput.getValue();
         mbdSim->hMin = 1.0e-9;
         mbdSim->hMax = 1.0;
-        mbdSim->errorTolerance = typed->fGlobalErrorTolerance.getValue();
+        mbdSim->errorTolerance = typed->GlobalErrorTolerance.getValue();
         simulationSpec = std::move(mbdSim);
         return;
     }

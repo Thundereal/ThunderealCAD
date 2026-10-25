@@ -997,7 +997,7 @@ actually touch.
 |---|---|---|
 | start, end, output step (existing a, b, c) | 0, 1 s, 0.01 s | output sampling |
 | `MaxStep` | the output step (Adams' HMAX) | the fixed step h; output steps are integer multiples of h, so h is rounded down to divide the output step |
-| `Accuracy` (existing `fGlobalErrorTolerance`, renamed only in the UI) | 1e-6 | Newton relative tolerance; absolute tolerances from it times the characteristic length (Creo's rule: the mean bounding-box diagonal) |
+| `Accuracy` (existing `GlobalErrorTolerance`, upstream's `fGlobalErrorTolerance`, renamed only in the UI) | 1e-6 | Newton relative tolerance; absolute tolerances from it times the characteristic length (Creo's rule: the mean bounding-box diagonal) |
 | `Integrator` | Auto | Auto: HHT (alpha -0.2) with a direct sparse solver when the contact method is Impact or there is no contact; `EULER_IMPLICIT_LINEARIZED` with the ADMM VI solver (SparseQR inside) for Restitution |
 | `ContactMethod` | Impact | `ChSystemSMC` + our impact algorithm / `ChSystemNSC` |
 

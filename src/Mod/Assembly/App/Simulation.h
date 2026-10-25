@@ -22,11 +22,15 @@
  ***************************************************************************/
 
 // The study objects as C++ objects (docs/AssemblyObjectModel.md sec 7.2):
-// the data upstream's Python Simulation and Motion carry, typed, under the
-// same names, so that their Python proxies, view providers and task panel
-// attach to SimulationPython and MotionPython unchanged.
+// the data upstream's Python Simulation and Motion carry, typed, so that
+// their Python proxies, view providers and task panel attach to
+// SimulationPython and MotionPython. The motion's names are upstream's; the
+// simulation's lose upstream's letter prefixes (upstreamNames()).
 
 #pragma once
+
+#include <map>
+#include <string>
 
 #include <App/DocumentObject.h>
 #include <App/FeaturePython.h>
@@ -48,18 +52,28 @@ class AssemblyExport Simulation: public App::DocumentObject, public App::GroupEx
 public:
     Simulation();
 
-    // Upstream's names, letter prefixes and all: they order the property
-    // editor, and files and scripts use them
-    App::PropertyTime aTimeStart;
-    App::PropertyTime bTimeEnd;
-    App::PropertyTime cTimeStepOutput;
-    App::PropertyFloat fGlobalErrorTolerance;
-    App::PropertyInteger jFramesPerSecond;
+    // Upstream's aTimeStart, bTimeEnd, ...: the letter prefixes order them
+    // in upstream's property editor, which sorts by name. This fork's shows
+    // them in the order declared here
+    App::PropertyTime TimeStart;
+    App::PropertyTime TimeEnd;
+    App::PropertyTime TimeStepOutput;
+    App::PropertyFloat GlobalErrorTolerance;
+    App::PropertyInteger FramesPerSecond;
+
+    /// Upstream's name of each property above, and the property's name
+    static const std::map<std::string, std::string>& upstreamNames();
 
     const char* getViewProviderName() const override
     {
         return "Gui::ViewProviderDocumentObjectGroup";
     }
+
+protected:
+    /// Upstream's names restore into the properties above
+    void handleChangedPropertyName(Base::XMLReader& reader,
+                                   const char* typeName,
+                                   const char* propName) override;
 };
 
 using SimulationPython = App::FeaturePythonT<Simulation>;

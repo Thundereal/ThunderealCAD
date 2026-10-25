@@ -31,6 +31,7 @@ class BRepBuilderAPI_MakeShape;
 #include <vector>
 
 #include "TopoShape.h"
+#include "ShapeCongruence.h"
 #include <TopAbs_ShapeEnum.hxx>
 
 #include <App/FileBlobManager.h>
@@ -317,6 +318,15 @@ private:
      * the XML, so nothing on the reading side has to know about any of it.
      */
     mutable TopLoc_Location _blobMotion;
+    /** The shape's congruence invariants (CongruenceIndex::find), and the
+     * shape they were taken of: kept from one save to the next while the
+     * shape is the same, which is most of what a save of unchanged shapes
+     * used to compute (docs/TransactionLog.md sec 38.11).
+     */
+    mutable TopoDS_Shape _congruentFor;
+    mutable CongruenceIndex::Invariants _congruentInvariants;
+    /// And the match the last save made for it.
+    mutable CongruenceIndex::Match _congruentMatch;
     /** Whether this property's file is offered for other files to borrow
      * from (ShapeRefSet::publish). Off for a retained generation
      * (Feature::materializeShapeVersions): it may borrow, but nothing

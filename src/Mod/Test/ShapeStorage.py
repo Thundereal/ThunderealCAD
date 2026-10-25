@@ -991,6 +991,51 @@ class ShapeCongruenceCases(ShapeTestCase):
                 "%s came back in the wrong place" % name,
             )
 
+    def testSaveAfterSaveFollowsWhatChanged(self):
+        """A shape keeps what its last save learned of it -- its invariants
+        and the match it made (docs/TransactionLog.md sec 38.11) -- only while
+        it and the shape it matched are the ones they were. Saved again after
+        each change, the files and the shapes read back follow."""
+        group = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        previous = group.GetBool("DedupCongruentShapes", True)
+        group.SetBool("DedupCongruentShapes", True)
+        try:
+            doc = self.newDocument("CongAgain")
+            first, second, third, other = self.congruentDocument(doc)
+            project = self.directoryPath("CongAgain_dir")
+            doc.saveAs(project)
+            self.assertEqual(len(self.blobNames(project)), 3)
+            doc.save()
+            self.assertEqual(len(self.blobNames(project)), 3)
+
+            # Third its own part: nothing left to share with Second.
+            kept = third.Shape.copy()
+            third.Shape = Part.makeBox(5, 5, 5)
+            doc.save()
+            self.assertEqual(len(self.blobNames(project)), 4)
+            # Back to the instance, a new shape: shared again.
+            third.Shape = kept
+            doc.save()
+            self.assertEqual(len(self.blobNames(project)), 3)
+            # The shape Third matched changes; Third, unchanged, matches no more.
+            second.Shape = Part.makeBox(7, 7, 7)
+            doc.save()
+            self.assertEqual(len(self.blobNames(project)), 4)
+
+            shapes = (first, second, third, other)
+            volumes = [o.Shape.Volume for o in shapes]
+            centres = [self.centre(o.Shape) for o in shapes]
+            FreeCAD.closeDocument(doc.Name)
+            self.docs.remove("CongAgain")
+            back = self.openDocument(project)
+            for i, name in enumerate(("First", "Second", "Third", "Other")):
+                shape = back.getObject(name).Shape
+                self.assertAlmostEqual(shape.Volume, volumes[i], delta=abs(volumes[i]) * 1e-9,
+                                       msg=name)
+                self.assertLess((self.centre(shape) - centres[i]).Length, 1e-8, name)
+        finally:
+            group.SetBool("DedupCongruentShapes", previous)
+
     def testMovedInstancesShareTheirFaces(self):
         """The motion goes one level down: two instances of one part come back
         with every face the same TShape, and so with one mesh between them

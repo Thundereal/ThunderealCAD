@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10) | S1, S3 (a), blobs in place, `BlobCompression` built; S2 and Q2, Q3, Q5-Q7 open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11) | S1, S3 (a), blobs in place, `BlobCompression`, S2a built; S2b and Q2, Q3, Q5-Q7 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -25044,3 +25044,113 @@ off; gtest 1014 with freeze on and off; driven 301.
 not read (not asked for). If wanted later: find `Document.xml` through the
 zip's central directory rather than first, accept one top-level folder in
 the zip, and read `file="History.db"` as an entry.
+
+### 38.11 S2's survey: what a save does per object (2026-10-25)
+
+**The ruling (user, 2026-10-25):** "go", on the next item of 38.7: S2's
+survey of `beforeSave`, then S2.
+
+**What `beforeSave` does, by kind.** `Document::Save` runs it over every
+object, then the document's own properties (`PropertyContainer::beforeSave`,
+then each property's).
+- **Getting the object's own write ready.** Its persistent properties are
+  collected into the map `Save` walks (`PropertyContainer::beforeSave`); a
+  shape parked by the deferred read is pulled in (`ensureRestored`). This
+  goes with the write: a skipped object needs none of it.
+- **What it lends the whole document.** A skipped object must still do
+  these, or do them from what its last save recorded:
+  - **String-id marks.** Link shadows (`PropertyLinkSub`, `...SubList`,
+    `PropertyXLink`, `PropertyXLinkSubList`), expressions' element paths,
+    a sheet's cells, a shape's element map (`ComplexGeoData::beforeSave`) and
+    dynamic properties' ids each mark the ids they use. Compaction keeps a
+    string while memory holds it, so the marks are not what keeps the table
+    whole. They are the ids this save's version uses (`markedIDs` ->
+    `noteVersionStrings`, 27.50 item 4). A version recorded without a
+    skipped object's ids would lose them to a later compaction, once memory
+    lets go of them.
+  - **Blob notes.** A shape notes its file into the save set (`noteBlob`),
+    as the collect pass notes every other blob referrer. A blob noted by
+    nobody is pruned by the save (38.9).
+  - **Hasher indexes.** A shape with a hasher of its own takes an index from
+    `Document::addStringHasher` in visiting order, and its file writes it.
+  - **Shape sharing** (`docs/SharedShapeStorage.md`). Each shape's file is
+    planned against the files before it in the same save: the owner table
+    (what sub-shapes earlier files hold, to borrow), and the congruence
+    index (an earlier part this one is the same as, moved). Both are built
+    afresh at each save (`saveOwnerTable`, `CongruenceIndex::forSave`).
+  - **Shape versions.** `Part::Feature::reconcileShapeVersions` keeps a
+    retained generation only while some referrer needs it.
+
+**Where the time goes** (`~/.cache/lv-merge/probe38/prof.py` under perf
+with DWARF call graphs, 600 boxes in a folder, ten saves each after one
+box's edit; shares of all samples):
+- `Document::save` 55%, of which `Document::Save` 33%.
+- `PropertyPartShape::beforeSave` 32%, nearly all of it `makeBlob`:
+  - `CongruenceIndex::find` 24% (`areaOf` 12%, `volumeOf` 8%, motion
+    recovery 3%);
+  - `ShapeRefSet::build` 7%.
+- Writing the objects (`writeObject`, `PropertyContainer::Save`) 10%.
+- The history's copy (`embedFolder`, 38.9) 6%.
+
+The same, by switching the sharing off (`share.py`, medians of ten saves,
+two runs each):
+
+| Setting | Save |
+| --- | ---: |
+| As shipped | 286-291 ms |
+| `DedupCongruentShapes` off | 191-196 ms |
+| `ShareStoredSubShapes` off (the congruence index rides on it) | 191-193 ms |
+
+So a third of a save of 600 unchanged boxes is the congruence search. The
+boxes are equal, so every one finds the first as a candidate, and computes
+its own length, area and volume to compare, at every save. Those numbers
+change only when the shape does. The per-object serialisation that S2 was
+proposed for is the smaller part.
+
+**Proposed S2, in two steps:**
+1. **S2a: what a shape's sharing analysis learns, kept while the shape
+   is unchanged.** First the congruence invariants (length, area, volume):
+   `CongruenceIndex::find` takes the caller's, and `PropertyPartShape` keeps
+   them with the shape they were taken of. Archives gain as much as folders.
+   No format change and no ruling needed.
+2. **S2b: an unchanged object is not written.** Its `Save` and its file are
+   skipped, and the stage keeps the folder's file. Its contributions to the
+   whole document come from what its last save recorded: its marked ids
+   (a recorder around its `beforeSave`, as `BlobRecorder` is for blobs), its
+   blob notes, its hasher index, and its place in the owner table. The
+   sharing tables are the involved part, because a later shape may borrow
+   from an unchanged one. A first cut keeps running the analysis (cheap
+   after S2a) and skips only the write. "Unchanged" is Q3: the log's ops
+   since the version of this folder's last save, the stamp, the options;
+   with a check mode in the gates that writes every object anyway and
+   compares the bytes.
+
+**S2a as built (2026-10-25).**
+- `CongruenceIndex::find(shape, match, own, last)`. `own` holds the
+  shape's invariants from one find to the next. `last` is the previous
+  find's match: if the shape it matched is stored again (`IsEqual`), its
+  motion is reused, with no recovery. `Match::with` is the stored shape
+  matched.
+- `PropertyPartShape` keeps both with the root they were taken of
+  (`_congruentFor`, `_congruentInvariants`, `_congruentMatch`). They are
+  dropped when the root is no longer that shape, and when the value changes
+  to a shape that is no partner of it (`dropBlob`), so no old shape is
+  held for them.
+- **Measured** (`share.py`, as above, two runs each): a save of 600 boxes
+  takes 212-225 ms, from 286-291 ms. With the congruence search off it is
+  203-215 ms, so what is left of the search is the key and the lookups.
+  Reusing the motion adds little beyond the invariants (222 ms with them
+  alone); it is kept because it costs nothing.
+- **Test.** `ShapeStorage.ShapeCongruenceCases.testSaveAfterSaveFollowsWhatChanged`:
+  a folder saved after each change. Unchanged: three files twice. One
+  instance made its own part: four. Made the instance again, a new shape:
+  three. The shape it matched changed while it did not: four. The reopen
+  gives every volume and every centre as left.
+
+- **Gates** (round s38d): 24 GUI checks; Python 3875 OK with freeze on and
+  off; gtest 1014 with freeze on and off; driven 301.
+
+**Left for S2b and Q3:** writing the objects (10% of the samples before
+S2a), the per-object preparation that remains (`ShapeRefSet::build` 7%
+before S2a), and the stage's comparison of every file. Not profiled again
+after S2a.

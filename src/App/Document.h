@@ -2246,6 +2246,10 @@ protected:
     /// writer of a save to a folder, whose stage gets the folder's own copy
     /// of the history (sec 38.9).
     void embedHistory(bool archive, Base::FileWriter* folder = nullptr);
+    /// saveToLog() of a document saved as a folder (sec 38.13): `xml` its
+    /// Document.xml, the History element at [hFrom, hTo).
+    void _saveFolderHistory(const std::string& file, std::string xml, const std::string& saveId,
+                            const std::string& saveDate, size_t hFrom, size_t hTo);
     /// Continue the log from the History property's copy when the guard
     /// agrees that the file is the save that wrote it.
     bool adoptEmbeddedHistory();

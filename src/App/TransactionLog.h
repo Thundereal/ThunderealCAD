@@ -243,6 +243,13 @@ public:
      */
     Embedded embedFolder(const std::string& saveDate, const std::string& folder,
                          const std::string& target, const std::string& previous);
+    /** The folder's copy for a save to the log only (sec 27.28, 38.13): as
+     * embedFolder() makes it, carrying the file's own save id and date, as
+     * embedForFile() does, so the guard on open still matches.
+     */
+    Embedded embedFolderForFile(const std::string& saveDate, const std::string& saveId,
+                                const std::string& folder, const std::string& target,
+                                const std::string& previous);
     /// The save embedFolder() wrote for is in the folder: the next save
     /// of it plays what changed since (sec 38.9).
     void folderSaved(const std::string& folder, const std::string& saveId);
@@ -775,7 +782,8 @@ public:
     /// TransactionLog::embedFolder().
     TransactionLog::Embedded embedFolder(const std::string& saveDate, int64_t branch,
                                          const std::string& folder, const std::string& target,
-                                         const std::string& previous);
+                                         const std::string& previous,
+                                         const std::string& saveId = std::string());
     /** What a folder's own copy of the store lacks is recorded (sec 38.9):
      * `folder` the folder, `saveId` the save its copy is of -- the store
      * as it is now, less retention -- and `pending` the save being written

@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression` built; Q2, Q5-Q7 open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save built; Q2, Q5-Q7 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -12049,7 +12049,7 @@ documents saved as folder"; the history in it, user: "go", the same day).
   without it; it failed before with "no such file".
 - *Not built:* the save of the history alone (27.29), which rewrites the
   archive in place, still refuses a folder ("has no file to save its
-  history into").
+  history into"). Built in 38.13.
 - *Not safe against a crash* (until 38.8): a folder save killed part way
   could leave a folder that does not open, or one that opens as a mix of
   two saves with no word. Sec 38 measured it; 38.8 builds the fix.
@@ -25238,3 +25238,51 @@ with freeze on and off; driven 301.
 - **The Gui's split view-provider files** are written as before.
 - **A kept object's preparation** still runs (the second step of 38.11's
   S2b). Where the remaining 120 ms goes is not profiled yet.
+
+### 38.13 The history saved alone into a folder (2026-10-25)
+
+**Ruling (user, 2026-10-25):** "push and continue", on 38.12's next item:
+the history-only save (27.28) for a folder, which refused one ("has no
+file to save its history into") since 29.8.
+
+**As built.** `Document::saveToLog` takes a folder. After the snapshot and
+its name, as for an archive, `_saveFolderHistory` writes through the
+folder's stage, under its lock, and commits as a save does (38.8). Only
+four kinds of file change:
+- **`History.db`:** brought up to date in the stage (38.9), carrying the
+  file's own save id and date (`TransactionLog::embedFolderForFile`), so
+  the guard on open still matches and no new save is recorded. The record
+  of what changes starts again from it (`folderSaved` with that id), so
+  the next save brings it up to date again.
+- **`Document.xml`:** only its History element is replaced, since the blobs
+  the history keeps can change. The model's part is byte for byte as it
+  was. Its stamp moves; the next save takes that as a touch, its save id
+  being the document's own (29.8), and S2b's state takes the new stamp.
+- **`blobs/`:** by the folder's index (`archiveBlobIndex` now reads a
+  folder), as an archive's members are handled. A file only the old history
+  named goes unless the new one keeps it, copied in first if this process
+  reads it in place. What the new history keeps that the folder lacks is
+  added, by hash. The index is written again. While another process has
+  the folder open, nothing goes (38.9).
+- **Nothing else:** no object's file is touched.
+
+A folder that still keeps its history as a blob (saved before 38.9) is
+refused: "the folder keeps its history as a blob: save it once first".
+
+**Gates** (round s38f): 24 GUI checks; Python 3879 OK with freeze on and
+off; gtest 1014 with freeze on and off; driven 301.
+
+**Test.** `FolderSaveCases.testTheHistoryAloneIsSavedIntoTheFolder`:
+- **After an edit, saved to the history:**
+  - the model part of `Document.xml` and the objects' files are as they
+    were, and `History.db` moved;
+  - no stage is left;
+  - the version is named "Saved to history", and the live value is the
+    edited one.
+- **A normal save after it:** the history is brought up to date, not
+  copied, and the unchanged object is kept.
+- **Saved to the history again, then reopened:**
+  - the folder is the last normal save;
+  - both versions are in its history, and no branch is closed (the guard
+    held);
+  - the second version restores.

@@ -1397,7 +1397,8 @@ TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, 
 TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& saveDate,
                                                         int64_t branch, const std::string& folder,
                                                         const std::string& target,
-                                                        const std::string& previous)
+                                                        const std::string& previous,
+                                                        const std::string& saveId)
 {
     auto clock = std::chrono::steady_clock::now();
     auto split = [&clock]() {
@@ -1406,7 +1407,7 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
         clock = now;
         return secs;
     };
-    TransactionLog::Embedded out = beginEmbed(branch, std::string());
+    TransactionLog::Embedded out = beginEmbed(branch, saveId);
     out.path = target;
     Base::FileInfo(target).deleteFile();
     const double tState = split();
@@ -2227,6 +2228,18 @@ TransactionLog::Embedded TransactionLog::embedFolder(const std::string& saveDate
                                                     const std::string& previous)
 {
     _lastEmbed = _c.embedFolder(saveDate, _branch, folder, target, previous);
+    return _lastEmbed;
+}
+
+TransactionLog::Embedded TransactionLog::embedFolderForFile(const std::string& saveDate,
+                                                           const std::string& saveId,
+                                                           const std::string& folder,
+                                                           const std::string& target,
+                                                           const std::string& previous)
+{
+    // Branch 0: the branch the file reopens on stays the store's, as
+    // embedForFile() leaves it.
+    _lastEmbed = _c.embedFolder(saveDate, 0, folder, target, previous, saveId);
     return _lastEmbed;
 }
 

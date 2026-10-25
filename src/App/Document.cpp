@@ -8177,6 +8177,136 @@ bool findHistoryElement(const std::string& xml, size_t& from, size_t& to)
 
 } // namespace
 
+void Document::_saveFolderHistory(const std::string& file, std::string xml,
+                                  const std::string& saveId, const std::string& saveDate,
+                                  size_t hFrom, size_t hTo)
+{
+    // docs/TransactionLog.md sec 38.13: the history of a folder saved alone.
+    // What changes is History.db, the History element of Document.xml (the
+    // blobs the history keeps), the blob index, and the blob files the
+    // history now keeps or no longer does; all of it staged and committed
+    // as a save of the folder is (38.8), under its lock.
+    TransactionLog* log = getTransactionLog();
+    std::unique_ptr<SaveLock> lock;
+    if (!SaveLock::heldHere(file)) {
+        lock = std::make_unique<SaveLock>(file);
+        std::string holder;
+        if (!lock->lock(60000, &holder))
+            THROWM(Base::FileException, ("'" + file + "' is being saved by " + holder
+                                         + "; nothing was written").c_str(),
+                   Base::FileInfo(file));
+    }
+    const std::string native = FileHistory::canonicalPath(file);
+    const std::string stage = FolderSave::freshStage(native);
+    struct StageGuard
+    {
+        std::string folder;
+        bool done {false};
+        ~StageGuard()
+        {
+            if (done)
+                return;
+            try {
+                FolderSave::recover(folder);
+            }
+            catch (...) {
+            }
+        }
+    } stageGuard {native};
+
+    const std::string name = historyFileName();
+    TransactionLog::Embedded copy = log->embedFolderForFile(saveDate, saveId, native,
+                                                            stage + "/" + name,
+                                                            native + "/" + name);
+    auto& manager = getFileBlobManager();
+    std::ostringstream element;
+    element << "<History file=\"" << Property::encodeAttribute(name) << "\" count=\""
+            << copy.blobs.size() << "\">\n";
+    std::vector<FileBlobHandle> blobs;
+    for (const auto& b : copy.blobs) {
+        auto blob = manager.find(b.first);
+        if (!blob) {
+            FC_WARN("history of " << getName() << ": blob " << b.first << " is not in the store");
+            continue;
+        }
+        blobs.push_back(blob);
+        element << "  <Blob hash=\"" << b.first << "\" ext=\"" << Property::encodeAttribute(b.second)
+                << "\"/>\n";
+    }
+    element << "</History>";
+    const std::string oldElement = xml.substr(hFrom, hTo - hFrom);
+    const std::string outside = xml.substr(0, hFrom) + xml.substr(hTo);
+    xml.replace(hFrom, hTo - hFrom, element.str());
+
+    // The blob files, by the folder's index, as the archive's members are
+    // (saveToLog): a file only the old history named goes unless the new one
+    // keeps it, and what the new one keeps that the folder lacks is added.
+    // Not while another process has the folder open, which may read any of
+    // them where it is (38.9): they stay, listed.
+    bool hasIndex = false;
+    std::map<std::string, BlobIndexEntry> members = FileBlobManager::archiveBlobIndex(native, &hasIndex);
+    std::string gui;
+    FileBlobManager::readArchiveMember(native, "GuiDocument.xml", gui);
+    for (auto& m : members) {
+        const std::string& hash = m.second.hash;
+        if (m.second.referrers.empty() && oldElement.find(hash) != std::string::npos
+                && outside.find(hash) == std::string::npos && gui.find(hash) == std::string::npos)
+            m.second.referrers.push_back(FileBlobManager::historyReferrer());
+    }
+    std::set<std::string> kept;
+    for (const auto& blob : blobs)
+        kept.insert(blob->hash());
+    const bool alone = FileOpeners::others(native).empty();
+    const std::string& historyRef = FileBlobManager::historyReferrer();
+    const std::string prefix = FileBlobManager::archivePrefix();
+    std::vector<std::string> removals;
+    std::set<std::string> held;
+    for (auto it = members.begin(); it != members.end();) {
+        const auto& refs = it->second.referrers;
+        const bool onlyHistory = !refs.empty()
+            && std::all_of(refs.begin(), refs.end(),
+                           [&historyRef](const std::string& r) { return r == historyRef; });
+        if (alone && onlyHistory && !kept.count(it->second.hash)) {
+            manager.copyIn(native + "/" + prefix + it->first);
+            removals.push_back(prefix + it->first);
+            it = members.erase(it);
+            continue;
+        }
+        held.insert(it->second.hash);
+        ++it;
+    }
+    auto put = [&stage](const std::string& rel, const std::string& bytes) {
+        Base::FileInfo fi(stage + "/" + rel);
+        Base::FileInfo(fi.dirPath()).createDirectories();
+        Base::ofstream out(fi, std::ios::out | std::ios::binary | std::ios::trunc);
+        out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+        if (!out)
+            THROWM(Base::FileException, "cannot write", fi);
+    };
+    for (const auto& blob : blobs) {
+        if (!held.insert(blob->hash()).second)
+            continue;
+        std::string bytes;
+        if (!blob->read(bytes))
+            THROWM(Base::FileException, ("cannot read blob " + blob->hash()).c_str());
+        const std::string ext = blob->extension();
+        const std::string member = blob->hash() + (ext.empty() ? "" : "." + ext);
+        members[member] = BlobIndexEntry {blob->hash(), {historyRef}};
+        put(prefix + member, bytes);
+    }
+    put("Document.xml", xml);
+    if (hasIndex)
+        put(prefix + FileBlobManager::indexName(), FileBlobManager::indexText(members));
+
+    FolderSave::commit(native, removals);
+    stageGuard.done = true;
+    log->folderSaved(native, saveId);
+    // The folder as this commit left it is still the one the next save of it
+    // keeps unchanged objects from (38.12).
+    if (d->folderLast.folder == native)
+        d->folderLast.stamp = DiskStamp::of(native);
+}
+
 int64_t Document::saveToLog(const char* name)
 {
     // docs/TransactionLog.md sec 27.22, 27.28.
@@ -8187,7 +8317,10 @@ int64_t Document::saveToLog(const char* name)
     std::string file = FileName.getStrValue();
     FileHistory::splitVersion(file);
     Base::FileInfo fi(file);
-    if (file.empty() || !fi.isFile())
+    // A folder takes the history alone too (sec 38.13): its History.db and
+    // what Document.xml says of it, through the folder's stage.
+    const bool folder = !file.empty() && fi.isDir();
+    if (file.empty() || (!fi.isFile() && !folder))
         THROWM(Base::RuntimeError,
                "'" + Label.getStrValue() + "' has no file to save its history into");
     if (DocumentParams::getTransactionLog() != 2 && log->store().getMeta("pins").empty()
@@ -8210,6 +8343,10 @@ int64_t Document::saveToLog(const char* name)
     size_t hFrom = 0, hTo = 0;
     if (saveId.empty() || !findHistoryElement(xml, hFrom, hTo))
         THROWM(Base::RuntimeError, "the file carries no history: save it with its history first");
+    // A folder saved before its history was a file of its own (38.9)
+    // carries it as a blob: a save of the folder makes it one.
+    if (folder && xml.substr(hFrom, hTo - hFrom).find(" file=\"") == std::string::npos)
+        THROWM(Base::RuntimeError, "the folder keeps its history as a blob: save it once first");
 
     // Nothing of any document of the file may still be parked in the
     // archive being replaced (as for a save, saveToFile()).
@@ -8224,6 +8361,16 @@ int64_t Document::saveToLog(const char* name)
         THROWM(Base::RuntimeError, "'" + Label.getStrValue() + "' cannot be saved to the log now");
     // Kept: a version the file does not hold must travel in its history.
     log->store().nameVersion(num, name && name[0] ? name : "Saved to history");
+
+    if (folder) {
+        _saveFolderHistory(file, xml, saveId, saveDate, hFrom, hTo);
+        noteVersionTaken();
+        if (testStatus(VersionDoc)) {
+            d->versionTail = num;
+            refreshVersionNames();
+        }
+        return num;
+    }
 
     FC_TIME_INIT(tEmbed);
     // The history, as the file will carry it.

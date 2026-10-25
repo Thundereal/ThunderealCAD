@@ -2028,6 +2028,27 @@ bool FileBlobManager::readArchiveMember(const std::string& path, const std::stri
 std::map<std::string, BlobIndexEntry> FileBlobManager::archiveBlobIndex(const std::string& path,
                                                                       bool* hasIndex)
 {
+    // A document saved as a folder (docs/TransactionLog.md sec 38.13): its
+    // blobs are files, named as the members would be.
+    if (Base::FileInfo(path).isDir()) {
+        const std::string dir = path + "/" + archivePrefix();
+        const auto listed = readIndex(dir + indexName());
+        if (hasIndex)
+            *hasIndex = Base::FileInfo(dir + indexName()).exists();
+        std::map<std::string, BlobIndexEntry> out;
+        QDir source(QString::fromUtf8(dir.c_str()));
+        for (const QFileInfo& info : source.entryInfoList(QDir::Files)) {
+            const std::string member = info.fileName().toUtf8().constData();
+            if (member == indexName())
+                continue;
+            auto it = listed.find(member);
+            if (it != listed.end() && !it->second.hash.empty())
+                out[member] = it->second;
+            else
+                out[member].hash = hashFile(info.absoluteFilePath().toUtf8().constData());
+        }
+        return out;
+    }
     BlobArchive archive(path, false);
     const std::string prefix = archivePrefix();
     const std::string index = prefix + indexName();

@@ -12762,6 +12762,50 @@ class FolderSaveCases(unittest.TestCase):
             self.assertGreater(o.Shape.Volume, 0, o.Name)
         self.assertFalse(os.path.exists(dirs[0]))
 
+    def testTheHistoryAloneIsSavedIntoTheFolder(self):
+        # Sec 27.28 for a folder (38.13): the history saved alone, the
+        # document's own files as they were, the folder opening as it did,
+        # with the version restorable; the next save carries on from it.
+        import re
+
+        def model(path):
+            xml = open(os.path.join(path, "Document.xml")).read()
+            return re.sub(r"<History[^>]*/>|<History .*?</History>", "", xml, flags=re.S)
+
+        self.noCheck()
+        doc, path = self.saved("LogOnly")
+        before = model(path)
+        boxes = {n: self.stamp(os.path.join(path, n)) for n in ("Box0.xml", "Box1.xml")}
+        history = self.stamp(os.path.join(path, "History.db"))
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        num = doc.saveToLog()
+        self.assertEqual(model(path), before)
+        for n, st in boxes.items():
+            self.assertEqual(self.stamp(os.path.join(path, n)), st, n)
+        self.assertNotEqual(self.stamp(os.path.join(path, "History.db")), history)
+        self.assertFalse(os.path.exists(self.stage(path)))
+        saved = {v["num"]: v for v in doc.getTransactionVersions()}
+        self.assertEqual(saved[num]["name"], "Saved to history")
+        self.assertEqual(doc.Box0.Length.Value, 20)
+        # A save after it: the folder's history brought up to date from
+        # there, the unchanged objects kept.
+        self.edit(doc, "wider", lambda d: setattr(d.Box1, "Width", 30))
+        doc.save()
+        self.assertTrue(doc.getLastSaveHistory()["updated"])
+        self.assertEqual(doc.getLastFolderSave()["kept"], 1)
+        self.edit(doc, "back", lambda d: setattr(d.Box1, "Width", 10))
+        num2 = doc.saveToLog("again")
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        self.assertEqual((doc.Box0.Length.Value, doc.Box1.Width.Value), (20, 30))
+        versions = [v["num"] for v in doc.getTransactionVersions()]
+        self.assertIn(num, versions)
+        self.assertIn(num2, versions)
+        self.assertFalse([b for b in doc.getTransactionBranches() if b["closed"]])
+        doc.restoreTransactionVersion(num2)
+        self.assertEqual(doc.Box1.Width.Value, 10)
+
     def noCheck(self):
         # FC_FOLDER_SAVE_CHECK off for this case, as the gates may set it.
         was = os.environ.pop("FC_FOLDER_SAVE_CHECK", None)

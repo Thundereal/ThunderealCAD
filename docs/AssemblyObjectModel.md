@@ -1108,7 +1108,17 @@ Built as step 4b (2026-10-25), the joints the task makes:
   Revolute, Cylindrical or Slider joint whose first side is on an element
   of a link array. Its pairs are the array's elements and the edges of the
   second side's component like the one picked: circles of its radius in
-  its plane. `AutoCount` (on) grows the array to their number.
+  its plane, or (2026-10-25, ours: Assembly3 takes edges only) cylinders
+  of its radius and length, axis parallel, level with it, so a hole is
+  picked by its wall as well as by its rim. A circle or a cylinder split
+  in two is one target. `AutoCount` (on) grows the array to their number.
+  - **Targets picked by hand** (2026-10-25), as Assembly3's NoExpand:
+    `Targets`, names below side 2's component (`Edge5`, `Face12`, or a
+    path), the only ones paired when set, of any kind, each taking side
+    2's frame as the one picked does. In the joint task, once multiplied,
+    a further pick on side 2's part adds one (the first adding side 2's
+    own), and unpicking the last but that one goes back to every one like
+    it.
   - **The pairs are stored** (user's choice, against Assembly3's pairing at
     every solve): `updateInstances()`, on the joint's recompute, keeps a
     pair while its element and edge are there, pairs the element and edge
@@ -1126,11 +1136,13 @@ Built as step 4b (2026-10-25), the joints the task makes:
     out, the tree shows them under the joint as an array's elements, its
     markers are drawn at every pair, and the joint task has "Multiply over
     the link array" when it can.
-- Tests: `AssemblyTests/TestMultiplyJoint.py` (7): an element as a
+- Tests: `AssemblyTests/TestMultiplyJoint.py` (11): an element as a
   component, picked either way; pins in holes, the array grown; the pairs
   kept from a scattered start; without AutoCount; the values followed;
-  Multiply off and deleting; reopened. In `TestImportAsm3`, an element of
-  an array and a multiplied constraint.
+  Multiply off and deleting; reopened; cylinder faces as targets, a
+  split one counted once; targets picked by hand; Update Offset. In
+  `TestImportAsm3`, an element of an array, a multiplied constraint, one
+  with NoExpand targets, and AttachmentOffset's offset updated.
 
 ## 8. Upstream files and commits
 
@@ -1255,7 +1267,14 @@ Built as step 4b (2026-10-25), the joints the task makes:
       part's edges like the one picked, that its first side's element sits
       by, as Assembly3 pairs them by position (its offset taken), not on
       the edge picked: so the saved pose pairs every element as Assembly3
-      had it. A count other than Assembly3's (its NoExpand) is reported.
+      had it. Its NoExpand element links, the targets picked by hand, are
+      the joint's Targets, by their names in the part (found by where they
+      are); one on another part than the first is dropped and reported. A
+      count other than Assembly3's is reported.
+    - **AttachmentOffset** (2026-10-25) is a Fixed joint, side 2's frame
+      side 1's, as Attachment. Its "Update element offset" is the Fixed
+      joint's "Update Offset" (`JointObject.updateOffset`): side 2's offset
+      taken so that its frame is side 1's where the parts are now.
     - **Locks**: on a face or a curved edge, the part is grounded; on a
       vertex or a straight edge, a ball or revolute joint to a grounded
       datum there, as Assembly3 leaves the part turning about it. An
@@ -1281,11 +1300,13 @@ Built as step 4b (2026-10-25), the joints the task makes:
       no part file, and a solve moves nothing; saved and opened again in a
       new session it needs no Assembly3 code, every object is valid, and a
       solve moves nothing.
-    - Tests: `AssemblyTests/TestImportAsm3.py` (13), building Assembly3
+    - Tests: `AssemblyTests/TestImportAsm3.py` (17), building Assembly3
       assemblies with the bundled code: each mapped family, Multi and
       Cascade, the locks, the implicit ground, Disabled, an approximate
-      type reported, a child used directly and through a link, a round
-      trip in a fresh session; `testSample` converts the sample when
+      type reported, a child used directly and through a link, an array
+      element, a multiplied constraint with and without NoExpand,
+      AttachmentOffset and its offset updated, a round trip in a fresh
+      session; `testSample` converts the sample when
       `ASM3_SAMPLE_DIR` names its folder.
 - **Saving for upstream** needs an exporter, built only if wanted.
 - **Upstream's later Assembly commits** are read and ported by hand for the

@@ -402,6 +402,63 @@ class TestImportAsm3(unittest.TestCase):
         for element, (x, y) in zip(pins.ElementList, self.holes):
             self.assertTrue(element.Placement.Base.isEqual(App.Vector(x, y, 5), 1e-6), element.Name)
 
+    def testMultipliedOverTargetsPickedByHand(self):
+        """NoExpand: the holes picked are the joint's Targets"""
+        a = self.asm3()
+        plate, pins = self.pinsAndPlate(a)
+        pins.ElementCount = 2
+        pins.recompute()
+        self.constraint(a, 0, "Plate.Face1")
+        picked = (self.holeEdge(50, 10), self.holeEdge(10, 50))
+        cstr = self.constraint(
+            a, 35, "Pins.0.%s" % self.pinEdge, "Plate.%s" % picked[0], "Plate.%s" % picked[1]
+        )
+        first = cstr.Group[0]
+        first.addProperty("App::PropertyInteger", "Count", "", "")
+        first.addProperty("App::PropertyPlacementList", "PlacementList", "", "")
+        first.Count = 2
+        cstr.Multiply = True
+        group = a.Proxy.getPartGroup()
+        cstr.Group[1].Proxy.setLink(group, "Plate.%s" % picked[0], multiply=True)
+        cstr.Group[1].NoExpand = True
+        cstr.Group[2].Proxy.setLink(group, "Plate.%s" % picked[1], multiply=True)
+        self.assertTrue(cstr.Group[2].NoExpand)
+        self.doc.recompute()
+        for element, (x, y) in zip(pins.ElementList, ((50, 10), (10, 50))):
+            element.Placement = plc(x, y, 5)
+        self.convert()
+        joints = [j for j in self.joints() if getattr(j, "JointType", "") == "Revolute"]
+        self.assertEqual(len(joints), 1)
+        joint = joints[0]
+        self.assertEqual(list(joint.Targets), list(picked))
+        pairs = sorted((i._Instance, i._Target) for i in joint._Instances)
+        self.assertEqual(pairs, [(0, picked[0]), (1, picked[1])])
+        self.solveAll()
+        self.assertNotMoved()
+
+    def testAttachmentOffset(self):
+        """A Fixed joint keeping the saved relative placement; its Update
+        Offset keeps a new one"""
+        import JointObject
+
+        a = self.asm3()
+        self.part(a, "Part::Box", "A")
+        b = self.part(a, "Part::Box", "B", plc(3, 4, 12, App.Vector(1, 1, 0), 25))
+        self.constraint(a, 0, "A.Face1")
+        self.constraint(a, 46, "A.Face6", "B.Face5")
+        self.convert()
+        joint = [j for j in self.joints() if getattr(j, "JointType", "") == "Fixed"][0]
+        self.solveAll()
+        self.assertNotMoved()
+        moved = plc(-5, 8, 20, Z, 70)
+        b.Placement = moved
+        self.solveAll()
+        self.assertFalse(b.Placement.isSame(moved, 1e-6))
+        b.Placement = moved
+        self.assertTrue(JointObject.updateOffset(joint))
+        self.solveAll()
+        self.assertTrue(b.Placement.isSame(moved, 1e-6), b.Placement)
+
     def testRoundTrip(self):
         """Saved and opened again in a fresh process: no Assembly3 code is
         needed, and a solve moves nothing"""

@@ -50,7 +50,10 @@ What each becomes:
 - an element of a link array: a component of its own (sec 7.4), the array
   shown expanded where Assembly3 had it collapsed;
 - a multiplied constraint: one multiplied joint (sec 7.4), its second side
-  on the edge its first side's element is paired with.
+  on the edge its first side's element is paired with; the elements picked
+  by hand (NoExpand) its Targets;
+- AttachmentOffset: a Fixed joint, as Attachment; its "Update element
+  offset" is the Fixed joint's "Update Offset".
 
 What is not converted is reported: the constraint types with no
 counterpart (the sketch and draft-wire families, Symmetric, the measures),
@@ -214,11 +217,25 @@ def _read(a, report):
                     "kind": _kind(info.Shape),
                     "shapeType": info.Shape.ShapeType,
                 }
-                if multiply and n == 1 and sides:
-                    _pairedEdge(cstr, sides[0], info, side)
                 if multiply and n == 0:
                     side["autoCount"] = getattr(link, "AutoCount", True)
                     side["count"] = getattr(link, "Count", 0)
+                if multiply and n >= 1 and getattr(link, "NoExpand", False):
+                    # The targets picked by hand: this element and those of
+                    # the element links after it, on the part of the first
+                    side["noExpand"] = [info]
+                    if n >= 2 and len(sides) == 2 and sides[1].get("noExpand"):
+                        if _partOf(info) == _partOf(sides[1]["noExpand"][0]):
+                            sides[1]["noExpand"].append(info)
+                        else:
+                            report.add(
+                                a.Label,
+                                "constraint %s: target %s on another part, dropped"
+                                % (cstr.Label, link.Label),
+                            )
+                        continue
+                if multiply and n == 1:
+                    side["info"] = info
                 sides.append(side)
             except Exception as e:
                 report.add(
@@ -231,6 +248,8 @@ def _read(a, report):
                 "constraint %s: multiplied over its second element's edges only" % cstr.Label,
             )
             del sides[2:]
+        if len(sides) >= 2 and "info" in sides[1]:
+            _pairedEdge(cstr, sides[0], sides[1].pop("info"), sides[1])
         props = {"Multiply": multiply}
         for name in (
             "Offset",
@@ -261,19 +280,51 @@ def _read(a, report):
     return data
 
 
+def _partOf(info):
+    """The part an Assembly3 element info is on"""
+    return info.Part[2] if isinstance(info.Part, tuple) else info.Part
+
+
+def _sameGeometry(a, b):
+    tol = 1e-7
+    if a.ShapeType == "Vertex":
+        return (a.Point - b.Point).Length < tol
+    if a.ShapeType == "Edge":
+        size = abs(a.Length - b.Length)
+    else:
+        size = abs(a.Area - b.Area)
+    return size < tol and (a.CenterOfMass - b.CenterOfMass).Length < tol
+
+
+def _wholeName(whole, shape):
+    """The name in a part's whole shape of the geometry of an Assembly3
+    element (an edge, a face or a vertex), found by where it is"""
+    while shape.ShapeType == "Compound" and len(shape.SubShapes) == 1:
+        shape = shape.SubShapes[0]
+    kind = shape.ShapeType
+    pool = {"Edge": whole.Edges, "Face": whole.Faces, "Vertex": whole.Vertexes}.get(kind)
+    if pool is None:
+        return None
+    for i, s in enumerate(pool):
+        if s.isSame(shape):
+            return "%s%d" % (kind, i + 1)
+    for i, s in enumerate(pool):
+        if _sameGeometry(s, shape):
+            return "%s%d" % (kind, i + 1)
+    return None
+
+
 def _pairedEdge(cstr, first, info, side):
-    """A multiplied constraint's second side: the edge of its part like the
-    one picked (a circle of its radius in its plane) that the first side's
-    array element is paired with, as Assembly3 pairs them by position, its
-    offset taken. Looked for in the part's whole shape, whether or not
-    Assembly3 gathered the edges into its element. The side goes on that
-    edge, by its name in its part"""
+    """A multiplied constraint's second side: the element of its part the
+    first side's array element is paired with, as Assembly3 pairs them by
+    position, its offset taken. The candidates are the edges like the one
+    picked (a circle of its radius in its plane), looked for in the part's
+    whole shape whether or not Assembly3 gathered them into its element; or,
+    with NoExpand, the elements picked by hand, which become the joint's
+    Targets. The side goes on the element, by its name in its part"""
     import Part
 
     _asm, utils = _asm3()
-    picked = info.Shape.Edges[0] if info.Shape.Edges else None
-    if picked is None or not hasattr(picked.Curve, "Radius"):
-        return
 
     def value(name):
         v = getattr(cstr, name, 0)
@@ -281,30 +332,48 @@ def _pairedEdge(cstr, first, info, side):
 
     offset = App.Vector(value("OffsetX"), value("OffsetY"), value("Offset"))
     target = first["frame"].Base - first["frame"].Rotation.multVec(offset)
-    part = info.Part[2] if isinstance(info.Part, tuple) else info.Part
+    part = _partOf(info)
     whole = Part.getShape(part, "", transform=False)
-    normal = picked.Curve.Axis
+    candidates = []
+    if side.get("noExpand"):
+        names = []
+        for picked in side.pop("noExpand"):
+            name = _wholeName(whole, picked.Shape)
+            if name is None:
+                side.setdefault("lostTargets", []).append(picked.Subname)
+            elif name not in names:
+                names.append(name)
+                candidates.append((name, whole.getElement(name)))
+        side["targets"] = names
+    else:
+        picked = info.Shape.Edges[0] if info.Shape.Edges else None
+        if picked is None or not hasattr(picked.Curve, "Radius"):
+            return
+        normal = picked.Curve.Axis
+        for i, edge in enumerate(whole.Edges):
+            curve = edge.Curve
+            if not hasattr(curve, "Radius") or not hasattr(curve, "Axis"):
+                continue
+            if abs(curve.Radius - picked.Curve.Radius) > 1e-7:
+                continue
+            if abs(abs(curve.Axis.dot(normal)) - 1) > 1e-9:
+                continue
+            if abs((curve.Center - picked.Curve.Center).dot(normal)) > 1e-7:
+                continue
+            candidates.append(("Edge%d" % (i + 1), edge))
     best = None
-    for i, edge in enumerate(whole.Edges):
-        curve = edge.Curve
-        if not hasattr(curve, "Radius") or not hasattr(curve, "Axis"):
-            continue
-        if abs(curve.Radius - picked.Curve.Radius) > 1e-7:
-            continue
-        if abs(abs(curve.Axis.dot(normal)) - 1) > 1e-9:
-            continue
-        if abs((curve.Center - picked.Curve.Center).dot(normal)) > 1e-7:
-            continue
-        d = (info.Placement.multVec(curve.Center) - target).Length
+    for name, shape in candidates:
+        origin = utils.getElementPlacement(shape).Base
+        d = (info.Placement.multVec(origin) - target).Length
         if best is None or d < best[0]:
-            best = (d, i, edge)
+            best = (d, name, shape)
     if best is None:
         return
-    _d, i, edge = best
-    side["direct"] = (part, "Edge%d" % (i + 1))
-    side["frame"] = info.Placement.multiply(utils.getElementPlacement(edge))
-    side["kind"] = "Edge"
-    side["shapeType"] = "Edge"
+    _d, name, shape = best
+    side["direct"] = (part, name)
+    side["frame"] = info.Placement.multiply(utils.getElementPlacement(shape))
+    side["kind"] = _kind(shape)
+    side["shapeType"] = shape.ShapeType
 
 
 def _splitSubname(sub):
@@ -568,7 +637,7 @@ def _build(data, converted, report):
                     setattr(joint, prop, value)
                     pending.append((joint, prop, value))
                 if c["props"].get("Multiply"):
-                    _multiply(joint, label, c, pair[0], report)
+                    _multiply(joint, label, c, pair, report)
                 made.append(joint)
         for joint in made:
             if c["props"].get("Disabled") and hasattr(joint, "Suppressed"):
@@ -589,10 +658,16 @@ def _build(data, converted, report):
     return new, pending
 
 
-def _multiply(joint, key, c, first, report):
+def _multiply(joint, key, c, pair, report):
     """A multiplied constraint as one multiplied joint (sec 7.4): its pairs
-    as Assembly3 has them, the solved pose putting each element by its edge"""
+    as Assembly3 has them, the solved pose putting each element by its edge.
+    Assembly3's NoExpand targets are the joint's Targets"""
+    first, second = pair
+    for lost in second.get("lostTargets", []):
+        report.add(key, "constraint %s: target %s not found, dropped" % (c["label"], lost))
     joint.AutoCount = bool(first.get("autoCount", True))
+    if second.get("targets"):
+        joint.Targets = second["targets"]
     joint.Multiply = True
     joint.recompute()
     count = len(joint._Instances)

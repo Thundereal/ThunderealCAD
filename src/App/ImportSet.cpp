@@ -72,8 +72,7 @@ std::string ss(const QString& s)
     return s.toUtf8().constData();
 }
 
-/// A full path, cleaned, the one key of a file here: the history's key, so
-/// a Windows short name and the long one are one file.
+/// A full path, cleaned, the one key of a file here: the history's key.
 std::string keyOf(const std::string& path)
 {
     return FileHistory::canonicalPath(path);

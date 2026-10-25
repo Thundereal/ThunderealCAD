@@ -173,8 +173,9 @@ void ViewProviderPart::togglePartsGroup()
         }
         auto doc = part->getDocument();
         auto group = static_cast<App::AuxGroup*>(doc->addObject("App::PartAuxGroup", "Parts"));
-        group->Label.setValue("Parts");
+        // The role first: a group with none is a user's, whose label is unique
         group->Role.setValue(App::Part::PartsRole);
+        group->Label.setValue("Parts");
         // A group the part makes is its own child, whatever its GroupMode
         auto children = part->Group.getValues();
         children.push_back(group);

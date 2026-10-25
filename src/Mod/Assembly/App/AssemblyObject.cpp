@@ -1628,8 +1628,9 @@ App::DocumentObject* AssemblyObject::getAssemblyGroup(const char* role, bool cre
         return nullptr;
     }
     auto group = static_cast<AssemblyGroup*>(getDocument()->addObject("Assembly::AssemblyGroup", label));
-    group->Label.setValue(label);
+    // The role first: a group with none is a user's, whose label is unique
     group->Role.setValue(role);
+    group->Label.setValue(label);
     // A group the assembly makes is its own child, whatever its GroupMode
     auto children = Group.getValues();
     children.push_back(group);

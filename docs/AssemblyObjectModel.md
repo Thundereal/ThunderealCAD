@@ -942,6 +942,54 @@ Built as step 4b (2026-10-25), the joints the task makes:
   as a C++ joint. Headless as before, and `TestElementJoint` (16, with a
   whole object without a shape).
 
+### 7.2 Simulations, motions, exploded views, snapshots (step 4d)
+
+- Built 2026-10-25, as the joint was: each is a C++ object with upstream's
+  properties under upstream's names, typed, and a `...Python` feature
+  that upstream's Python proxy, view provider and task panel attach to
+  unchanged (`App/Simulation.h`, `App/Views.h`):
+
+  | C++ object | Python feature | properties | owns |
+  |---|---|---|---|
+  | `Assembly::Simulation` | `SimulationPython` | `aTimeStart`, `bTimeEnd`, `cTimeStepOutput`, `fGlobalErrorTolerance`, `jFramesPerSecond` (upstream's letter prefixes kept: files and scripts use them) | its motions (`App::GroupExtension`) |
+  | `Assembly::Motion` | `MotionPython` | `Joint`, `MotionType` {Angular, Linear}, `Formula` | |
+  | `Assembly::ExplodedView` | `ExplodedViewPython` | | its steps (`App::GroupExtension`) |
+  | `Assembly::ExplodedViewStep` | `ExplodedViewStepPython` | `References`, `MovementTransform`, `MoveType` {Normal, Radial} | |
+  | `Assembly::Snapshot` | `SnapshotPython` | `Components`, `Placements`, `Visibilities`, `SolveOnActivation` | |
+
+- **A motion's `Joint` is a plain link** (sec 7), where upstream's is a
+  hidden link with subnames. The Python code reads it through
+  `CommandCreateSimulation.motionJoint`, which takes either.
+- **A step's `References` stays upstream's hidden link with subnames**,
+  not the plain link list sec 7 planned: a step moves parts inside a
+  sub-assembly, which only a subname from a selection root can name, and
+  that root can be an ancestor of the assembly that owns the step, which a
+  dependency link would make a cycle of.
+- **The commands make the C++ objects** (Create Simulation and its
+  motions, Create Exploded View and its steps, Snapshot).
+- **The solver builder reads them typed** (`AssemblyObject`'s
+  `create_mbdSimulationParameters`, `getMotionsFromSimulation`, and the
+  motions of a joint through one `readMotion`), and still by name for an
+  upstream object that was not converted.
+- **Converted on open** with the joints (sec 8, `AssemblyMigrate.TWINS`),
+  by the class of their proxy: the members first, so a container's new
+  group lists their twins; values, expressions, label, visibility, the
+  place in their group, and what linked to the old object
+  (`replaceObjectLinks`). The proxy is set as a file restores one, by its
+  class without `__init__`, so nothing is reset and a snapshot does not
+  capture the state again. A motion is converted after the joints, so it
+  drives the joint's C++ twin.
+- Found on the way: `CommandCreateSimulation` and `CommandCreateView` did
+  not import without a GUI (their task panels subclass `QtCore.QObject`,
+  imported only with one), so an upstream file opened headless could not
+  restore their proxies, and the suite had its one headless error. They
+  import `QtCore` always now.
+- Tests: `AssemblyTests/TestMigrateTwins.py` (6): a simulation with its
+  motion, which plays the same number of frames after; two motions on one
+  joint, the last frame the same; an exploded view with two steps, which
+  moves the parts to the same placements; a snapshot, restored after; a
+  link to a motion re-pointed; the preference off.
+
 ## 8. Upstream files and commits
 
 - **Opening upstream 1.0 and 1.1 files**: a converter runs on restore and
@@ -1047,7 +1095,7 @@ Built as step 4b (2026-10-25), the joints the task makes:
      (2026-10-25); the builder keeps its reads for the joints that stay
      Python (inside a sub-assembly) and for grounding and rigid groups.
    - 4d. Simulation, motion, exploded view and snapshot as C++ objects,
-     with the same converter.
+     with the same converter. Built (2026-10-25, sec 7.2).
    - 4e. Auto as Assembly's group mode; Joints, Simulations and Views as
      aux groups of the assembly in place of `JointGroup`, `SimulationGroup`
      and `ViewGroup`.

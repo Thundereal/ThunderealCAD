@@ -25,9 +25,10 @@
 
 docs/AssemblyObjectModel.md sec 8. The Assembly module calls
 convertDocument() for each document a file open restored, once the open is
-over (App/AppAssembly.cpp). For now it converts upstream's joints
-(JointObject.Joint, a Python feature) to Assembly::JointPython; grounding
-and rigid groups stay as they are.
+over (App/AppAssembly.cpp). It converts upstream's joints
+(JointObject.Joint, a Python feature) to Assembly::JointPython, and its
+simulations, motions, exploded views, steps and snapshots to their C++
+twins (TWINS); grounding and rigid groups stay as they are.
 
 A side converts to one element link, with Offset = F^-1 * G: G upstream's
 frame as it is (its PlacementN on the referenced object, which carries its
@@ -186,30 +187,206 @@ def convertJoint(assembly, joint):
     return new, ""
 
 
+# Upstream's other Python objects that have a C++ twin with the same
+# properties (sec 7.2), by the class of their proxy: (module, C++ type, the
+# properties copied). Containers come last, so their members are converted
+# when their group is made
+TWINS = (
+    (
+        "Motion",
+        "CommandCreateSimulation",
+        "Assembly::MotionPython",
+        ("MotionType", "Formula", "Label2"),
+    ),
+    (
+        "ExplodedViewStep",
+        "CommandCreateView",
+        "Assembly::ExplodedViewStepPython",
+        ("References", "MovementTransform", "MoveType", "Label2"),
+    ),
+    (
+        "Snapshot",
+        "CommandCreateSnapshot",
+        "Assembly::SnapshotPython",
+        ("Components", "Placements", "Visibilities", "SolveOnActivation", "Label2"),
+    ),
+    (
+        "Simulation",
+        "CommandCreateSimulation",
+        "Assembly::SimulationPython",
+        (
+            "aTimeStart",
+            "bTimeEnd",
+            "cTimeStepOutput",
+            "fGlobalErrorTolerance",
+            "jFramesPerSecond",
+            "Label2",
+        ),
+    ),
+    ("ExplodedView", "CommandCreateView", "Assembly::ExplodedViewPython", ("Label2",)),
+)
+
+# The view provider class of each, in the same module
+VIEW_PROVIDERS = {
+    "Motion": "ViewProviderMotion",
+    "ExplodedViewStep": "ViewProviderExplodedViewStep",
+    "Snapshot": "ViewProviderSnapshot",
+    "Simulation": "ViewProviderSimulation",
+    "ExplodedView": "ViewProviderExplodedView",
+}
+
+
+def twinOf(obj):
+    """The TWINS entry of one of upstream's Python objects, or None"""
+    if obj.TypeId != "App::FeaturePython":
+        return None
+    proxy = getattr(obj, "Proxy", None)
+    cls = type(proxy)
+    for entry in TWINS:
+        if cls.__name__ == entry[0] and cls.__module__ == entry[1]:
+            return entry
+    return None
+
+
+def _members(assembly):
+    """Every object the assembly holds, its groups' members included"""
+    seen = []
+    todo = list(assembly.Group)
+    while todo:
+        obj = todo.pop(0)
+        if obj in seen:
+            continue
+        seen.append(obj)
+        if not obj.isDerivedFrom("Assembly::AssemblyObject") and hasattr(obj, "Group"):
+            todo += [o for o in obj.Group if o not in seen]
+    return seen
+
+
+def _plainGroupOf(obj, assembly):
+    """The group that lists obj, other than the assembly itself, or None"""
+    for parent in obj.InList:
+        if parent != assembly and obj in getattr(parent, "Group", []):
+            if not parent.hasExtension("App::GeoFeatureGroupExtension"):
+                return parent
+    return None
+
+
+def convertTwin(assembly, old, entry, converted, members=None):
+    """Convert one of upstream's objects in TWINS to its C++ twin; converted
+    maps the names of the members already converted to their twins, and
+    members is a container's Group by name as it was before them (deleting
+    one takes it out). Returns the new object"""
+    import importlib
+
+    name, moduleName, typeName, props = entry
+    module = importlib.import_module(moduleName)
+    doc = old.Document
+
+    parent = _plainGroupOf(old, assembly)
+    siblings = list(parent.Group) if parent is not None else []
+    index = siblings.index(old) if old in siblings else -1
+    if parent is not None and twinOf(parent) is None:
+        new = parent.newObject(typeName, old.Name)
+    else:
+        # In a container that is converted after it, which lists it then
+        new = assembly.newObject(typeName, old.Name)
+
+    # As a file restores a proxy: the class, not its __init__, which would
+    # set defaults (and a snapshot capture the state now)
+    cls = getattr(module, name)
+    new.Proxy = cls.__new__(cls)
+    for prop in props:
+        if hasattr(old, prop) and hasattr(new, prop):
+            try:
+                setattr(new, prop, getattr(old, prop))
+            except Exception:
+                pass
+    if name == "Motion":
+        new.Joint = _motionJoint(old)
+    for path, expr in old.ExpressionEngine:
+        if path.split(".")[0] in props:
+            new.setExpression(path, expr)
+    if hasattr(new, "Group"):
+        if members is None:
+            members = [o.Name for o in old.Group]
+        group = [converted.get(n) or doc.getObject(n) for n in members]
+        group = [o for o in group if o is not None]
+        old.Group = []
+        new.Group = group
+    new.Visibility = old.Visibility
+    if App.GuiUp and new.ViewObject is not None:
+        vp = getattr(module, VIEW_PROVIDERS[name], None)
+        if vp is not None:
+            vp(new.ViewObject)
+
+    import AssemblyApp
+
+    AssemblyApp.replaceObjectLinks(old, new)
+    label = old.Label
+    doc.removeObject(old.Name)
+    new.Label = label
+    if parent is not None and index >= 0 and twinOf(parent) is None:
+        siblings = [o for o in parent.Group if o != new]
+        siblings.insert(min(index, len(siblings)), new)
+        parent.Group = siblings
+    return new
+
+
+def _motionJoint(motion):
+    joint = motion.Joint
+    if isinstance(joint, tuple):
+        return joint[0] if joint else None
+    return joint
+
+
+def convertTwins(assembly):
+    """Convert upstream's simulations, motions, exploded views, steps and
+    snapshots in an assembly. Returns a list of (label, new or None, note)"""
+    report = []
+    converted = {}
+    # Sorted out before any is converted: a converted one is deleted
+    todo = [(o, twinOf(o)) for o in _members(assembly)]
+    # By name: an object deleted is no key to look up
+    groups = {
+        o.Name: [m.Name for m in o.Group] for o, e in todo if e is not None and hasattr(o, "Group")
+    }
+    for entry in TWINS:
+        for old in [o for o, e in todo if e is entry]:
+            label, name = old.Label, old.Name
+            try:
+                new = convertTwin(assembly, old, entry, converted, groups.get(name))
+                converted[name] = new
+                report.append((label, new, ""))
+            except Exception as e:
+                report.append((label, None, str(e)))
+    return report
+
+
 def convertDocument(doc, force=False):
-    """Convert upstream's joints in every assembly of a document.
+    """Convert upstream's joints, simulations, motions, exploded views, steps
+    and snapshots in every assembly of a document.
 
     Off when the Assembly preference ConvertJointsOnOpen is (unless force).
-    Returns a list of (label, new joint or None, note).
+    Returns a list of (label, new object or None, note).
     """
     if not force and not App.ParamGet(PARAM).GetBool("ConvertJointsOnOpen", True):
         return []
     import UtilsAssembly
 
     report = []
-    for assembly in doc.Objects:
-        if not assembly.isDerivedFrom("Assembly::AssemblyObject"):
-            continue
+    others = []
+    for assembly in [o for o in doc.Objects if o.isDerivedFrom("Assembly::AssemblyObject")]:
         group = UtilsAssembly.getJointGroup(assembly)
-        if group is None:
-            continue
-        for joint in [o for o in group.Group if isPythonJoint(o)]:
-            label = joint.Label
-            try:
-                new, note = convertJoint(assembly, joint)
-            except Exception as e:
-                new, note = None, str(e)
-            report.append((label, new, note))
+        if group is not None:
+            for joint in [o for o in group.Group if isPythonJoint(o)]:
+                label = joint.Label
+                try:
+                    new, note = convertJoint(assembly, joint)
+                except Exception as e:
+                    new, note = None, str(e)
+                report.append((label, new, note))
+        # After the joints: a motion's joint is the converted one by then
+        others += convertTwins(assembly)
     converted = [r for r in report if r[1] is not None]
     if converted:
         App.Console.PrintMessage(
@@ -222,4 +399,13 @@ def convertDocument(doc, force=False):
             )
         elif note:
             App.Console.PrintWarning("%s: joint %s: %s\n" % (doc.Label, label, note))
-    return report
+    converted = [r for r in others if r[1] is not None]
+    if converted:
+        App.Console.PrintMessage(
+            "%s: %d simulation, motion, view or snapshot object(s) converted to C++\n"
+            % (doc.Label, len(converted))
+        )
+    for label, new, note in others:
+        if new is None:
+            App.Console.PrintWarning("%s: %s kept as it is: %s\n" % (doc.Label, label, note))
+    return report + others

@@ -530,12 +530,14 @@ class TestGuiCommands(unittest.TestCase):
         self.accept_task()
         views = self.proxies("ExplodedView")
         self.assertEqual(len(views), 1)
+        self.assertEqual(views[0].TypeId, "Assembly::ExplodedViewPython")
         self.assertClean()
 
     def test_create_snapshot(self):
         self.run_command("Assembly_CreateSnapshot")
         snaps = self.proxies("Snapshot")
         self.assertEqual(len(snaps), 1)
+        self.assertEqual(snaps[0].TypeId, "Assembly::SnapshotPython")
         self.assertClean()
 
     def test_create_bom(self):
@@ -551,6 +553,7 @@ class TestGuiCommands(unittest.TestCase):
         self.accept_task()
         sims = self.proxies("Simulation")
         self.assertEqual(len(sims), 1)
+        self.assertEqual(sims[0].TypeId, "Assembly::SimulationPython")
         self.assertClean()
 
     def test_export_asmt(self):

@@ -33,6 +33,8 @@
 #include "BomObject.h"
 #include "Groups.h"
 #include "Joint.h"
+#include "Simulation.h"
+#include "Views.h"
 #include "Solver/OndselBackend.h"
 #include "Solver/ReferenceBackend.h"
 #ifdef ASSEMBLY_WITH_CHRONO
@@ -107,6 +109,16 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::SnapshotGroup::init();
     Assembly::Joint::init();
     Assembly::JointPython::init();
+    Assembly::Simulation::init();
+    Assembly::SimulationPython::init();
+    Assembly::Motion::init();
+    Assembly::MotionPython::init();
+    Assembly::ExplodedView::init();
+    Assembly::ExplodedViewPython::init();
+    Assembly::ExplodedViewStep::init();
+    Assembly::ExplodedViewStepPython::init();
+    Assembly::Snapshot::init();
+    Assembly::SnapshotPython::init();
 
     // The solver backends (docs/AssemblySolverInterface.md sec 4.3).
     Assembly::Solver::Registry::instance().add(std::make_unique<Assembly::Solver::OndselBackend>());

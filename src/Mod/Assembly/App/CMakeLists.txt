@@ -108,6 +108,10 @@ SET(Assembly_SRCS
     Groups.h
     Joint.cpp
     Joint.h
+    Simulation.cpp
+    Simulation.h
+    Views.cpp
+    Views.h
     ${Module_SRCS}
     ${Solver_SRCS}
     ${Python_SRCS}

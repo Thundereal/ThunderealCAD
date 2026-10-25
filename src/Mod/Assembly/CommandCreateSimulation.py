@@ -34,6 +34,10 @@ from Part import LineSegment, Compound
 
 from PySide.QtCore import QT_TRANSLATE_NOOP
 
+# Not upstream: the task panel's base class is QtCore.QObject, so the module
+# imports without a GUI too (an upstream file's proxies restore from it)
+from PySide import QtCore
+
 if App.GuiUp:
     import FreeCADGui as Gui
     from PySide import QtCore, QtGui, QtWidgets
@@ -103,7 +107,10 @@ class CommandCreateSimulation:
 class Simulation:
     def __init__(self, feaPy):
         feaPy.Proxy = self
-        feaPy.addExtension("App::GroupExtensionPython")
+        # Not upstream: the C++ simulation (Assembly::SimulationPython) has
+        # its group and its properties
+        if not feaPy.isDerivedFrom("Assembly::Simulation"):
+            feaPy.addExtension("App::GroupExtensionPython")
 
         if not hasattr(feaPy, "aTimeStart"):
             feaPy.addProperty(
@@ -192,7 +199,9 @@ class Simulation:
         pass
 
     def getAssembly(self, feaPy):
-        assert feaPy.isDerivedFrom("App::FeaturePython"), "Type error"
+        assert feaPy.isDerivedFrom("App::FeaturePython") or feaPy.isDerivedFrom(
+            "Assembly::Simulation"
+        ), "Type error"
         for obj in feaPy.InList:
             if obj.isDerivedFrom("Assembly::AssemblyObject"):
                 return obj
@@ -293,13 +302,24 @@ MotionTypes = [
 ]
 
 
+def motionJoint(motion):
+    """Not upstream: the joint a motion drives, or None. The C++ motion's
+    Joint is a plain link, upstream's a link with subnames"""
+    joint = motion.Joint
+    if isinstance(joint, tuple):
+        return joint[0] if joint else None
+    return joint
+
+
 class Motion:
     def __init__(self, feaPy, motionType=MotionTypes[0], joint=None, formula=""):
         feaPy.Proxy = self
 
         self.createProperties(feaPy)
 
-        feaPy.MotionType = MotionTypes  # sets the list
+        # Not upstream: the C++ motion (Assembly::MotionPython) has the list
+        if not feaPy.isDerivedFrom("Assembly::Motion"):
+            feaPy.MotionType = MotionTypes  # sets the list
         feaPy.MotionType = motionType  # set the initial value
         feaPy.Joint = joint
         feaPy.Formula = formula
@@ -421,9 +441,7 @@ class ViewProviderMotion:
         if assembly is None:
             return False
 
-        joint = None
-        if self.app_obj.Joint is not None:
-            joint = self.app_obj.Joint[0]
+        joint = motionJoint(self.app_obj)
 
         dialog = MotionEditDialog(assembly, self.app_obj.MotionType, joint, self.app_obj.Formula)
         if dialog.exec_():
@@ -434,13 +452,14 @@ class ViewProviderMotion:
             self.updateLabel()
 
     def updateLabel(self):
-        if self.app_obj.Joint is None:
+        joint = motionJoint(self.app_obj)
+        if joint is None:
             return
 
         typeStr = "Linear" if self.app_obj.MotionType == "Linear" else "Angular"
 
         self.app_obj.Label = "{label} ({type_})".format(
-            label=self.app_obj.Joint[0].Label, type_=translate("Assembly", typeStr)
+            label=joint.Label, type_=translate("Assembly", typeStr)
         )
 
     def getAssembly(self):
@@ -905,12 +924,13 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
     def createSimulationObject(self):
         sim_group = UtilsAssembly.getSimulationGroup(self.assembly)
-        self.simFeaturePy = sim_group.newObject("App::FeaturePython", "Simulation")
+        # Not upstream: the C++ simulation (docs/AssemblyObjectModel.md sec 7.2)
+        self.simFeaturePy = sim_group.newObject("Assembly::SimulationPython", "Simulation")
         Simulation(self.simFeaturePy)
         ViewProviderSimulation(self.simFeaturePy.ViewObject)
 
     def createMotionObject(self, motionType, joint, formula):
-        motion = self.assembly.newObject("App::FeaturePython", "Motion")
+        motion = self.assembly.newObject("Assembly::MotionPython", "Motion")
         Motion(motion, motionType, joint, formula)
         ViewProviderMotion(motion.ViewObject)
 

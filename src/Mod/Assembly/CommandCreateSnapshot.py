@@ -71,7 +71,8 @@ class CommandCreateSnapshot:
 
         snapshot_group = UtilsAssembly.getSnapshotGroup(assembly)
 
-        snapshot_obj = snapshot_group.newObject("App::FeaturePython", "Snapshot")
+        # Not upstream: the C++ snapshot (docs/AssemblyObjectModel.md sec 7.2)
+        snapshot_obj = snapshot_group.newObject("Assembly::SnapshotPython", "Snapshot")
         Snapshot(snapshot_obj)
         ViewProviderSnapshot(snapshot_obj.ViewObject)
         snapshot_group.purgeTouched()

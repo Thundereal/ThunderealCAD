@@ -63,6 +63,7 @@
 #include "CamJoint.h"
 #include "Groups.h"
 #include "Joint.h"
+#include "Simulation.h"
 #include "Solver/Backend.h"
 #include "Solver/ReferenceBackend.h"
 #include "Solver/Registry.h"
@@ -602,6 +603,9 @@ static bool isMotionObject(App::DocumentObject* obj)
     if (!obj) {
         return false;
     }
+    if (obj->isDerivedFrom<Motion>()) {
+        return true;
+    }
     if (auto* proxy = dynamic_cast<App::PropertyPythonObject*>(obj->getPropertyByName("Proxy"))) {
         Base::PyGILStateLocker lock;
         try {
@@ -627,7 +631,9 @@ std::vector<App::DocumentObject*> AssemblyObject::getMotionsFromSimulation(App::
         return {};
     }
 
-    auto* prop = dynamic_cast<App::PropertyLinkList*>(sim->getPropertyByName("Group"));
+    auto* prop = sim->isDerivedFrom<Simulation>()
+        ? &static_cast<Simulation*>(sim)->Group
+        : dynamic_cast<App::PropertyLinkList*>(sim->getPropertyByName("Group"));
     if (!prop) {
         return {};
     }
@@ -2125,6 +2131,17 @@ void Assembly::AssemblyObject::create_mbdSimulationParameters(App::DocumentObjec
     if (!sim) {
         return;
     }
+    if (auto* typed = freecad_cast<Simulation*>(sim)) {
+        mbdSim->tStart = typed->aTimeStart.getValue();
+        mbdSim->tEnd = typed->bTimeEnd.getValue();
+        mbdSim->tOutput = typed->cTimeStepOutput.getValue();
+        mbdSim->hMin = 1.0e-9;
+        mbdSim->hMax = 1.0;
+        mbdSim->errorTolerance = typed->fGlobalErrorTolerance.getValue();
+        simulationSpec = std::move(mbdSim);
+        return;
+    }
+    // Upstream's Python simulation, by its property names
     auto valueOf = [](DocumentObject* docObj, const char* propName) {
         auto* prop = dynamic_cast<App::PropertyFloat*>(docObj->getPropertyByName(propName));
         if (!prop) {
@@ -2673,6 +2690,33 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
     }
     std::vector<App::DocumentObject*> done;
 
+    // A motion's joint, type and formula: typed on the C++ motion, by name
+    // on upstream's Python one. False when it is not a motion or has none
+    struct MotionData
+    {
+        App::DocumentObject* joint = nullptr;
+        std::string type;
+        std::string formula;
+    };
+    auto readMotion = [](App::DocumentObject* motion, MotionData& data) {
+        if (auto* typed = freecad_cast<Motion*>(motion)) {
+            data.joint = typed->Joint.getValue();
+            data.type = typed->MotionType.getValueAsString();
+            data.formula = typed->Formula.getValue();
+            return true;
+        }
+        auto* pJoint = dynamic_cast<App::PropertyXLinkSub*>(motion->getPropertyByName("Joint"));
+        auto* pType = dynamic_cast<App::PropertyEnumeration*>(motion->getPropertyByName("MotionType"));
+        auto* pFormula = dynamic_cast<App::PropertyString*>(motion->getPropertyByName("Formula"));
+        if (!pJoint || !pType || !pFormula) {
+            return false;
+        }
+        data.joint = pJoint->getValue();
+        data.type = pType->getValueAsString();
+        data.formula = pFormula->getValue();
+        return true;
+    };
+
     auto replaceInitialValue =
         [](std::string& form, App::DocumentObject* jnt, const std::string& mType) {
             if (form.find("initialValue") != std::string::npos) {
@@ -2714,25 +2758,12 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
             continue;  // don't process twice (can happen in case of cylindrical)
         }
 
-        auto* pJoint = dynamic_cast<App::PropertyXLinkSub*>(motion->getPropertyByName("Joint"));
-        if (!pJoint) {
+        MotionData data;
+        if (!readMotion(motion, data) || data.joint != joint || data.formula.empty()) {
             continue;
         }
-        App::DocumentObject* motionJoint = pJoint->getValue();
-        if (joint != motionJoint) {
-            continue;
-        }
-
-        auto* pType = dynamic_cast<App::PropertyEnumeration*>(motion->getPropertyByName("MotionType"));
-        auto* pFormula = dynamic_cast<App::PropertyString*>(motion->getPropertyByName("Formula"));
-        if (!pType || !pFormula) {
-            continue;
-        }
-        std::string formula = pFormula->getValue();
-        if (formula == "") {
-            continue;
-        }
-        std::string motionType = pType->getValueAsString();
+        std::string formula = data.formula;
+        std::string motionType = data.type;
 
         replaceInitialValue(formula, joint, motionType);
         Solver::Formula parsed;
@@ -2741,27 +2772,13 @@ std::vector<std::shared_ptr<Solver::Joint>> AssemblyObject::makeMbdJoint(App::Do
         // check if there is a second motion as cylindrical can have both,
         // in which case the solver needs a general motion.
         for (auto* motion2 : motions) {
-            pJoint = dynamic_cast<App::PropertyXLinkSub*>(motion2->getPropertyByName("Joint"));
-            if (!pJoint) {
+            MotionData data2;
+            if (motion2 == motion || !readMotion(motion2, data2) || data2.joint != joint
+                || data2.formula.empty()) {
                 continue;
             }
-            motionJoint = pJoint->getValue();
-            if (joint != motionJoint || motion2 == motion) {
-                continue;
-            }
-
-            auto* pType2 = dynamic_cast<App::PropertyEnumeration*>(
-                motion2->getPropertyByName("MotionType")
-            );
-            auto* pFormula2 = dynamic_cast<App::PropertyString*>(motion2->getPropertyByName("Formula"));
-            if (!pType2 || !pFormula2) {
-                continue;
-            }
-            std::string formula2 = pFormula2->getValue();
-            if (formula2 == "") {
-                continue;
-            }
-            std::string motionType2 = pType2->getValueAsString();
+            std::string formula2 = data2.formula;
+            std::string motionType2 = data2.type;
             if (motionType2 == motionType) {
                 continue;  // only if both motions are different. ie one angular and one linear.
             }

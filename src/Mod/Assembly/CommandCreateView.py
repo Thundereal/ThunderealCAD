@@ -31,6 +31,10 @@ from Part import LineSegment, Compound, Precision
 
 from PySide.QtCore import QT_TRANSLATE_NOOP
 
+# Not upstream: the task panel's base class is QtCore.QObject, so the module
+# imports without a GUI too (an upstream file's proxies restore from it)
+from PySide import QtCore
+
 if App.GuiUp:
     import FreeCADGui as Gui
     from PySide import QtCore, QtGui, QtWidgets
@@ -85,7 +89,10 @@ class CommandCreateView:
 class ExplodedView:
     def __init__(self, expView):
         expView.Proxy = self
-        expView.addExtension("App::GroupExtensionPython")
+        # Not upstream: the C++ exploded view (Assembly::ExplodedViewPython)
+        # has its group
+        if not expView.isDerivedFrom("Assembly::ExplodedView"):
+            expView.addExtension("App::GroupExtensionPython")
 
         self.stepsChangedCallback = None
 
@@ -510,7 +517,10 @@ class ExplodedViewStep:
 
         self.createProperties(evStep)
 
-        evStep.MoveType = ExplodedViewStepTypes  # sets the list
+        # Not upstream: the C++ step (Assembly::ExplodedViewStepPython) has
+        # the list
+        if not evStep.isDerivedFrom("Assembly::ExplodedViewStep"):
+            evStep.MoveType = ExplodedViewStepTypes  # sets the list
         evStep.MoveType = ExplodedViewStepTypes[type_index]  # set the initial value
 
     def onDocumentRestored(self, evStep):
@@ -1221,7 +1231,7 @@ class TaskAssemblyCreateView(QtCore.QObject):
         commands = (
             f'assembly = App.ActiveDocument.getObject("{self.assembly.Name}")\n'
             "view_group = UtilsAssembly.getViewGroup(assembly)\n"
-            'viewObj = view_group.newObject("App::FeaturePython", "Exploded View")\n'
+            'viewObj = view_group.newObject("Assembly::ExplodedViewPython", "Exploded View")\n'
             "CommandCreateView.ExplodedView(viewObj)"
         )
         Gui.doCommand(commands)
@@ -1236,7 +1246,7 @@ class TaskAssemblyCreateView(QtCore.QObject):
 
         commands = (
             f'assembly = App.ActiveDocument.getObject("{self.assembly.Name}")\n'
-            'currentStep = assembly.newObject("App::FeaturePython", "Move")\n'
+            'currentStep = assembly.newObject("Assembly::ExplodedViewStepPython", "Move")\n'
             f"CommandCreateView.ExplodedViewStep(currentStep, {moveType_index})"
         )
         Gui.doCommand(commands)

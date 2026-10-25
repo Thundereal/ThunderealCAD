@@ -81,14 +81,17 @@ PyObject* JointPy::setSide(PyObject* args)
     PyObject* pyobj = nullptr;
     const char* subname = "";
     const char* vertex = "";
-    if (!PyArg_ParseTuple(args, "iO!s|s", &side, &(App::DocumentObjectPy::Type), &pyobj, &subname, &vertex)
+    PyObject* local = Py_False;
+    if (!PyArg_ParseTuple(args, "iO!s|sO!", &side, &(App::DocumentObjectPy::Type), &pyobj, &subname, &vertex,
+                          &PyBool_Type, &local)
         || !checkSide(side)) {
         return nullptr;
     }
     auto component = static_cast<App::DocumentObjectPy*>(pyobj)->getDocumentObjectPtr();
     PY_TRY
     {
-        auto link = getJointPtr()->setSide(side, component, subname, vertex);
+        auto link = getJointPtr()->setSide(side, component, subname, vertex,
+                                           PyObject_IsTrue(local) != 0);
         return link->getPyObject();
     }
     PY_CATCH;

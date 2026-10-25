@@ -127,6 +127,16 @@ Params = [
         "checked: the part is made in a document of its own and linked into\n"
         "the assembly. Stored when the dialogue closes.",
     ),
+    ParamBool(
+        "ConvertJointsOnOpen",
+        True,
+        title="Convert joints when a file is opened",
+        doc="Converts the joints of upstream's assemblies (Python features with\n"
+        "Reference1/2) to this version's joints, whose sides are element links,\n"
+        "when a file is opened; their frames are kept exactly. A joint that\n"
+        "cannot be converted is kept as it is, and reported. Takes effect at\n"
+        "the next open.",
+    ),
 ]
 
 register(sys.modules[__name__])

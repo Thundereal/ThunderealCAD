@@ -25,7 +25,12 @@
 #include <Base/Interpreter.h>
 #include <Base/Tools.h>
 
+#include <cstring>
+#include <memory>
+
+#include <App/Document.h>
 #include <App/DocumentObjectPy.h>
+#include <App/PropertyLinks.h>
 #include <Mod/Part/App/Geometry.h>
 #include <Mod/Part/App/TopoShapePy.h>
 
@@ -114,6 +119,15 @@ public:
             "Drops the cached recognitions and zeroes getElementGeometryConversions()."
         );
         add_varargs_method(
+            "replaceObjectLinks",
+            &Module::replaceObjectLinks,
+            "replaceObjectLinks(old, new) -> int\n\n"
+            "Re-points what links to 'old' at 'new' -- link properties and\n"
+            "expressions of every other object of the document -- as a link's\n"
+            "replacement does; not the groups that list 'old' (its removal takes\n"
+            "it out of those). Returns how many properties changed."
+        );
+        add_varargs_method(
             "getElementGeometryConversions",
             &Module::getElementGeometryConversions,
             "getElementGeometryConversions() -> int\n\n"
@@ -171,6 +185,50 @@ private:
     {
         auto* joint = jointArg(args);
         return Py::String(Assembly::distanceJointRefusal(joint, Assembly::getDistanceType(joint)));
+    }
+
+    Py::Object replaceObjectLinks(const Py::Tuple& args)
+    {
+        PyObject *pyOld = nullptr, *pyNew = nullptr;
+        if (!PyArg_ParseTuple(
+                args.ptr(), "O!O!", &App::DocumentObjectPy::Type, &pyOld,
+                &App::DocumentObjectPy::Type, &pyNew)) {
+            throw Py::Exception();
+        }
+        auto* oldObj = static_cast<App::DocumentObjectPy*>(pyOld)->getDocumentObjectPtr();
+        auto* newObj = static_cast<App::DocumentObjectPy*>(pyNew)->getDocumentObjectPtr();
+        if (!oldObj->getDocument() || oldObj->getDocument() != newObj->getDocument()) {
+            throw Py::ValueError("both objects must be in one document");
+        }
+        std::vector<std::pair<App::Property*, std::unique_ptr<App::Property>>> changes;
+        std::vector<App::Property*> props;
+        for (auto* obj : oldObj->getDocument()->getObjects()) {
+            if (obj == oldObj || obj == newObj) {
+                continue;
+            }
+            props.clear();
+            obj->getPropertyList(props);
+            for (auto* prop : props) {
+                auto* link = Base::freecad_dynamic_cast<App::PropertyLinkBase>(prop);
+                if (!link || prop->getContainer() != obj) {
+                    continue;
+                }
+                // A group drops the old object when it is removed; replacing
+                // it there would list the new one twice
+                const char* name = prop->getName();
+                if (name && (std::strcmp(name, "Group") == 0 || name[0] == '_')) {
+                    continue;
+                }
+                std::unique_ptr<App::Property> copy(link->CopyOnLinkReplace(obj, oldObj, newObj));
+                if (copy) {
+                    changes.emplace_back(prop, std::move(copy));
+                }
+            }
+        }
+        for (auto& change : changes) {
+            change.first->Paste(*change.second);
+        }
+        return Py::Long(static_cast<long>(changes.size()));
     }
 
     Py::Object getCamRefusal(const Py::Tuple& args)

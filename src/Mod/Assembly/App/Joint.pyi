@@ -40,13 +40,22 @@ class Joint(DocumentObject):
         ...
 
     def setSide(
-        self, side: int, component: DocumentObject, subname: str, vertex: str = "", /
+        self,
+        side: int,
+        component: DocumentObject,
+        subname: str,
+        vertex: str = "",
+        local: bool = False,
+        /,
     ) -> DocumentObject:
         """
         Make side 1 or 2 from a pick: a direct child of the assembly, the
         element in it as a selection gives it, and optionally a vertex placing
-        the origin on the element (AssemblyObject.makeJoint). The side's old
-        element link is deleted unless another joint uses it.
+        the origin on the element (AssemblyObject.makeJoint). With local, the
+        element is a convenience element of the assembly even when the
+        component declares elements: a migration does not edit the
+        components. The side's old element link is deleted unless another
+        joint uses it.
 
         Returns: the new element link.
         """

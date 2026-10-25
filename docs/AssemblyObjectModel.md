@@ -968,6 +968,35 @@ Built as step 4b (2026-10-25), the joints the task makes:
     fixed on upstream's side too, and so relative to the element here),
     and a pick whose vertex is the element itself (a vertex, or a circle's
     centre).
+  - Built as step 4c (2026-10-25), for the joints (`AssemblyMigrate.py`):
+    - **When.** The Assembly module notes each document a file open
+      restores (`signalFinishRestoreDocument`) and converts it when the
+      whole open is over (`signalFinishOpenDocument`), when the documents
+      its parts link to are in and, in the GUI, the view providers. Off with
+      the Assembly preference `ConvertJointsOnOpen` (on by default).
+    - **A migration edits nothing but the assembly's document.** A side
+      is made with `local`: a convenience element of the assembly even on a
+      component that declares elements, such as a body in another file,
+      which a pick would declare its element in (sec 4.1).
+    - **What goes over**: the type, the distances, the angle, the limits,
+      `Suppressed`, `Label2` and the expressions on them; the label and the
+      place among the joints. What linked to the old joint -- a motion's
+      `Joint`, expressions -- is re-pointed at the new one
+      (`AssemblyApp.replaceObjectLinks`, a link's replacement:
+      `CopyOnLinkReplace` on every other object, not on the groups that list
+      the old joint). An expression on an offset is reported as not carried.
+    - **What stays Python**, reported: a joint with a side on a component
+      that is not a direct child of the assembly (inside a sub-assembly),
+      or with a side not set; grounding and rigid groups.
+    - Checked against the staged older build: an assembly it made, with a
+      body in another file linked in, a vertex pick and an offset, converts
+      on open with frames within 2e-15 of that build's, the vertex live, two
+      convenience elements in the assembly, the part file untouched, and a
+      re-solve that moves nothing (2e-15).
+    - Tests: `AssemblyTests/TestMigrateJoints.py` (6): a revolute with a
+      vertex and an offset, the vertex live after the part changes, a
+      detached side, a distance with its expression, a motion re-pointed,
+      the preference off.
 - **Opening Assembly3 files** (user, 2026-10-25): Assembly3's own code is
   carried in the tree to do the migration, so the add-on need not be
   installed, and it loads lazily.
@@ -1014,7 +1043,9 @@ Built as step 4b (2026-10-25), the joints the task makes:
    - 4b. The joint task panel and commands making C++ joints from picks,
      with the markers on them; grounding and rigid groups as C++ objects.
    - 4c. The upstream converter on restore (sec 8), which retires the
-     Python joint and the builder's property reads.
+     Python joint and the builder's property reads. Built for the joints
+     (2026-10-25); the builder keeps its reads for the joints that stay
+     Python (inside a sub-assembly) and for grounding and rigid groups.
    - 4d. Simulation, motion, exploded view and snapshot as C++ objects,
      with the same converter.
    - 4e. Auto as Assembly's group mode; Joints, Simulations and Views as

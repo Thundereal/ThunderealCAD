@@ -364,13 +364,14 @@ void removeElementLink(AssemblyObject* assembly, Part::ElementLink* link)
 Part::ElementLink* Joint::setSide(int side,
                                   App::DocumentObject* component,
                                   const char* subname,
-                                  const char* vertex)
+                                  const char* vertex,
+                                  bool local)
 {
     auto assembly = getAssembly();
     if (!assembly) {
         FC_THROWM(Base::RuntimeError, getFullName() << " is in no assembly");
     }
-    auto link = makeSide(assembly, component, subname, vertex);
+    auto link = makeSide(assembly, component, subname, vertex, local);
     clearSide(side);
     (side == 1 ? ElementLink1 : ElementLink2).setValue(link);
     return link;
@@ -511,7 +512,8 @@ Part::Element* declare(App::DocumentObject* container,
 Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
                                    App::DocumentObject* component,
                                    const char* subname,
-                                   const char* vertex)
+                                   const char* vertex,
+                                   bool local)
 {
     if (!assembly || !component) {
         THROWM(Base::ValueError, "No assembly or component");
@@ -525,7 +527,7 @@ Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
     Part::ElementLink* link = nullptr;
     // The component declares elements: the element goes in its Elements
     // group, as a direct child of it plus the rest of the path
-    if (auto owner = elementsOwner(component)) {
+    if (auto owner = local ? nullptr : elementsOwner(component)) {
         auto container = component->getLinkedObject(true);
         App::DocumentObject* target = nullptr;
         std::string rest;

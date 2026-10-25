@@ -138,7 +138,8 @@ public:
     Part::ElementLink* setSide(int side,
                                App::DocumentObject* component,
                                const char* subname,
-                               const char* vertex = nullptr);
+                               const char* vertex = nullptr,
+                               bool local = false);
     /// Unset side 1 or 2, deleting its element link unless another joint
     /// uses it
     void clearSide(int side);
@@ -154,13 +155,16 @@ public:
      *
      * The element is declared in the component when it declares elements (an
      * App::Part, a Body, an assembly, or a link to one), reusing one that
-     * names the same geometry; otherwise it is a convenience element in the
-     * assembly's own Elements group.
+     * names the same geometry; otherwise, or with \a local, it is a
+     * convenience element in the assembly's own Elements group. A migration
+     * passes \a local: it does not edit the components, which may be other
+     * documents.
      */
     static Part::ElementLink* makeSide(AssemblyObject* assembly,
                                        App::DocumentObject* component,
                                        const char* subname,
-                                       const char* vertex = nullptr);
+                                       const char* vertex = nullptr,
+                                       bool local = false);
 
     /// Move the copies that follow a component in the assembly's coordinate
     /// system by \a delta, as a solve moved the component: its element links

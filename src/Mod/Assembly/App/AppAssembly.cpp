@@ -22,6 +22,8 @@
  ***************************************************************************/
 
 
+#include <App/Application.h>
+#include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Base/PyObjectBase.h>
@@ -59,6 +61,35 @@ PyMOD_INIT_FUNC(AssemblyApp)
 
     PyObject* mod = Assembly::initModule();
     Base::Console().log("Loading Assembly module... done\n");
+
+    // Upstream's Python joints become C++ ones when a file is opened
+    // (docs/AssemblyObjectModel.md sec 8): each document restored is noted,
+    // and converted once the whole open is over -- the external documents
+    // its parts link to are in then, and in the GUI the view providers.
+    static std::vector<std::string> restored;
+    App::GetApplication().signalFinishRestoreDocument.connect([](const App::Document& doc) {
+        restored.emplace_back(doc.getName());
+    });
+    App::GetApplication().signalFinishOpenDocument.connect([]() {
+        auto names = std::move(restored);
+        restored.clear();
+        for (const auto& name : names) {
+            auto* doc = App::GetApplication().getDocument(name.c_str());
+            if (!doc || doc->getObjectsOfType(Assembly::AssemblyObject::getClassTypeId()).empty()) {
+                continue;
+            }
+            try {
+                Base::PyGILStateLocker lock;
+                Base::Interpreter().runString(
+                    ("import AssemblyMigrate\nAssemblyMigrate.convertDocument("
+                     "App.getDocument('" + name + "'))").c_str()
+                );
+            }
+            catch (const Base::Exception& e) {
+                e.ReportException();
+            }
+        }
+    });
 
 
     // NOTE: To finish the initialization of our own type objects we must

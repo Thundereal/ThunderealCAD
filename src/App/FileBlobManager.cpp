@@ -1892,10 +1892,31 @@ void FileBlobManager::readBlobEntry(const std::string& name, Base::Reader& entry
     hold(std::move(blob));
 }
 
+bool FileBlobManager::splitArchive(const std::string& archive)
+{
+    // A document saved as a folder keeps its blobs as files (sec 29.8).
+    if (Base::FileInfo(archive).isDir()) {
+        restoreFromDirectory(archive + "/" + archivePrefix());
+        return true;
+    }
+    return restoreFromArchive(archive);
+}
+
 bool FileBlobManager::readArchiveMember(const std::string& path, const std::string& name,
                                         std::string& bytes)
 {
     bytes.clear();
+    // A document saved as a folder: the member is a file in it (sec 29.8).
+    if (Base::FileInfo(path).isDir()) {
+        Base::FileInfo fi(path + "/" + name);
+        if (!fi.isFile())
+            return false;
+        Base::ifstream in(fi, std::ios::in | std::ios::binary);
+        if (!in)
+            return false;
+        bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        return true;
+    }
     BlobArchive archive(path, false);
     const auto& entries = archive.entries();
     for (std::size_t i = 0; i < entries.size(); ++i) {

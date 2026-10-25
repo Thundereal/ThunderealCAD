@@ -32,7 +32,14 @@
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QDir>
+#include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
+
+#ifdef _WIN32
+# include <windows.h>
+#endif
 
 #include <zipios++/zipios-config.h>
 #include <zipios++/zipfile.h>
@@ -191,22 +198,32 @@ bool FileHistory::savedAs(const std::string& path, Saved& saved, std::string* re
         return false;
     };
     Base::FileInfo fi(path);
-    if (!fi.exists() || fi.isDir())
+    if (!fi.exists())
         return fail("no such file");
     std::string docXml;
-    try {
-        zipios::ZipFile zip(path);
-        if (!zip.isValid())
-            return fail("not a document archive");
-        std::unique_ptr<std::istream> in(zip.getInputStream("Document.xml"));
-        if (!in)
+    if (fi.isDir()) {
+        // A document saved as a folder (sec 29.8): its Document.xml is a
+        // file there. Such a save never carries the history.
+        QFile in(QString::fromStdString(path + "/Document.xml"));
+        if (!in.open(QIODevice::ReadOnly))
             return fail("no Document.xml");
-        std::ostringstream buffer;
-        buffer << in->rdbuf();
-        docXml = buffer.str();
+        docXml = in.readAll().toStdString();
     }
-    catch (const std::exception& e) {
-        return fail(std::string("cannot read the archive: ") + e.what());
+    else {
+        try {
+            zipios::ZipFile zip(path);
+            if (!zip.isValid())
+                return fail("not a document archive");
+            std::unique_ptr<std::istream> in(zip.getInputStream("Document.xml"));
+            if (!in)
+                return fail("no Document.xml");
+            std::ostringstream buffer;
+            buffer << in->rdbuf();
+            docXml = buffer.str();
+        }
+        catch (const std::exception& e) {
+            return fail(std::string("cannot read the archive: ") + e.what());
+        }
     }
     FileFacts facts;
     if (!readFacts(docXml, facts))
@@ -230,19 +247,42 @@ std::shared_ptr<FileHistory> FileHistory::openFile(const std::string& path, std:
     if (auto open = find(path))
         return open;
     Base::FileInfo fi(path);
-    if (!fi.exists() || fi.isDir())
+    if (!fi.exists())
         return fail("no such file");
 
     // Document.xml, and the other XML entries a version of it holds (split
     // object files, GuiDocument.xml): the file as found, for its version.
+    // A document saved as a folder holds them as files (sec 29.8).
     TransactionLog::Entries entries;
     FileFacts facts;
     try {
-        zipios::ZipFile zip(path);
-        if (!zip.isValid())
-            return fail("not a document archive");
-        auto read = [&zip](const std::string& name, std::string& out) {
-            std::unique_ptr<std::istream> in(zip.getInputStream(name));
+        std::unique_ptr<zipios::ZipFile> zip;
+        std::vector<std::string> names;
+        if (fi.isDir()) {
+            const QDir root(QString::fromStdString(path));
+            QDirIterator it(root.path(), QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot,
+                            QDirIterator::Subdirectories);
+            while (it.hasNext())
+                names.push_back(root.relativeFilePath(it.next()).toStdString());
+        }
+        else {
+            zip = std::make_unique<zipios::ZipFile>(path);
+            if (!zip->isValid())
+                return fail("not a document archive");
+            for (const auto& entry : zip->entries()) {
+                if (!entry->isDirectory())
+                    names.push_back(entry->getName());
+            }
+        }
+        auto read = [&zip, &path](const std::string& name, std::string& out) {
+            if (!zip) {
+                QFile in(QString::fromStdString(path + "/" + name));
+                if (!in.open(QIODevice::ReadOnly))
+                    return false;
+                out = in.readAll().toStdString();
+                return true;
+            }
+            std::unique_ptr<std::istream> in(zip->getInputStream(name));
             if (!in)
                 return false;
             std::ostringstream buffer;
@@ -259,13 +299,12 @@ std::shared_ptr<FileHistory> FileHistory::openFile(const std::string& path, std:
             return fail("the file carries no history");
         entries.emplace_back("Document.xml", std::move(docXml));
         const std::string prefix = FileBlobManager::archivePrefix();
-        for (const auto& entry : zip.entries()) {
-            const std::string name = entry->getName();
+        for (const auto& name : names) {
             // The string table is the file's, not a version's (sec 27.50):
             // read into the history's hasher below.
             if (name == "Document.xml" || name == Document::stringTableName()
                     || name.compare(0, prefix.size(), prefix) == 0
-                    || name.compare(0, 11, "thumbnails/") == 0 || entry->isDirectory())
+                    || name.compare(0, 11, "thumbnails/") == 0)
                 continue;
             std::string bytes;
             if (read(name, bytes))
@@ -340,17 +379,26 @@ std::shared_ptr<FileHistory> FileHistory::openFile(const std::string& path, std:
 bool FileHistory::readTable(const std::string& path)
 {
     std::string bytes;
-    try {
-        Base::ZipFileReader zip(path);
-        if (!zip.hasEntry(Document::stringTableName()))
+    if (Base::FileInfo(path).isDir()) {
+        // A document saved as a folder (sec 29.8).
+        QFile in(QString::fromStdString(path + "/" + Document::stringTableName()));
+        if (!in.open(QIODevice::ReadOnly))
             return false;
-        auto in = zip.openEntry(Document::stringTableName());
-        if (!in)
-            return false;
-        bytes.assign(std::istreambuf_iterator<char>(*in), std::istreambuf_iterator<char>());
+        bytes = in.readAll().toStdString();
     }
-    catch (...) {
-        return false;
+    else {
+        try {
+            Base::ZipFileReader zip(path);
+            if (!zip.hasEntry(Document::stringTableName()))
+                return false;
+            auto in = zip.openEntry(Document::stringTableName());
+            if (!in)
+                return false;
+            bytes.assign(std::istreambuf_iterator<char>(*in), std::istreambuf_iterator<char>());
+        }
+        catch (...) {
+            return false;
+        }
     }
     StringHasherRef table(new StringHasher);
     try {
@@ -404,6 +452,37 @@ FileBlobManager& FileHistory::blobs()
     return *_blobs;
 }
 
+#ifdef _WIN32
+namespace
+{
+/// The long form of a path: QFileInfo::canonicalFilePath keeps an 8.3 short
+/// name (C:/Users/LEI~1.ZHE/...), so the same file reached by its long name
+/// had another key. A file that is not there yet: its folder expanded, its
+/// name kept.
+QString longName(const QString& path)
+{
+    const std::wstring native = QDir::toNativeSeparators(path).toStdWString();
+    DWORD n = GetLongPathNameW(native.c_str(), nullptr, 0);
+    if (n) {
+        std::wstring out(n, L'\0');
+        n = GetLongPathNameW(native.c_str(), out.data(), n);
+        if (n) {
+            out.resize(n);
+            return QDir::fromNativeSeparators(QString::fromStdWString(out));
+        }
+    }
+    const QFileInfo info(path);
+    const QString parent = info.absolutePath();
+    if (parent == path || parent.isEmpty())
+        return path;
+    QString head = longName(parent);
+    if (!head.endsWith(QLatin1Char('/')))
+        head += QLatin1Char('/');
+    return head + info.fileName();
+}
+}   // namespace
+#endif
+
 std::string FileHistory::canonicalPath(const std::string& path)
 {
     if (path.empty())
@@ -411,7 +490,10 @@ std::string FileHistory::canonicalPath(const std::string& path)
     QFileInfo info(QString::fromUtf8(path.c_str()));
     QString canonical = info.canonicalFilePath();
     if (canonical.isEmpty())
-        canonical = info.absoluteFilePath();
+        canonical = QDir::cleanPath(info.absoluteFilePath());
+#ifdef _WIN32
+    canonical = longName(canonical);
+#endif
     return canonical.toUtf8().constData();
 }
 

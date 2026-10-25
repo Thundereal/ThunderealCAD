@@ -86,6 +86,9 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include <unordered_set>
 
 #include <QMap>
+#include <QDir>
+#include <QDirIterator>
+#include <QFile>
 #include <QFileInfo>
 #include <QCoreApplication>
 #include <QCryptographicHash>
@@ -5252,7 +5255,7 @@ bool Document::isFileChangedElsewhere() const
     if (d->movedStamp.valid() && now.sameAs(d->movedStamp))
         return true;
     // Touched and not written: the save id is still the one left here.
-    if (!d->diskSaveId.empty() && !Base::FileInfo(file).isDir()) {
+    if (!d->diskSaveId.empty()) {
         FileHistory::Saved saved;
         if (FileHistory::savedAs(file, saved) && saved.history && saved.saveId == d->diskSaveId) {
             d->touchedStamp = now;
@@ -5286,22 +5289,30 @@ std::vector<std::string> Document::fileOpeners() const
 void Document::_pullFromDisk(const std::string& file)
 {
     const auto start = std::chrono::steady_clock::now();
-    if (Base::FileInfo(file).isDir()) {
-        // Not built for a project directory: written over, as before.
-        FC_WARN("'" << Label.getValue() << "': its directory was written by another process "
-                    "since it was read here, and is written over");
-        return;
-    }
     // A copy of the file as it is: the import reads the document's own file
     // as that document's, and refuses it. A copy of its own each time, as
-    // a history read from a path is the one read from that path.
+    // a history read from a path is the one read from that path. A document
+    // saved as a folder is copied whole.
     static int pulls = 0;
     Base::FileInfo fi(file);
     const std::string dir =
         TransientDir.getStrValue() + "/pull/" + std::to_string(++pulls);
     const std::string copy = dir + "/" + fi.fileName();
     Base::FileInfo(dir).createDirectories();
-    if (!fi.copyTo(copy.c_str()))
+    auto copyFolder = [](const QString& from, const QString& to) {
+        QDirIterator it(from, QDir::Files | QDir::Hidden | QDir::NoDotAndDotDot,
+                        QDirIterator::Subdirectories);
+        const QDir source(from);
+        while (it.hasNext()) {
+            const QString path = it.next();
+            const QString target = to + QLatin1Char('/') + source.relativeFilePath(path);
+            if (!QDir().mkpath(QFileInfo(target).absolutePath()) || !QFile::copy(path, target))
+                return false;
+        }
+        return true;
+    };
+    if (fi.isDir() ? !copyFolder(QString::fromStdString(file), QString::fromStdString(copy))
+                   : !fi.copyTo(copy.c_str()))
         THROWM(Base::FileException, ("cannot copy '" + file + "' to bring in what another "
                                      "process saved; nothing was written").c_str(), fi);
     struct Cleanup
@@ -5333,6 +5344,8 @@ void Document::_pullFromDisk(const std::string& file)
     if (imported.stoppedAt)
         FC_WARN("'" << Label.getValue() << "': what another process saved came only in part: "
                     << imported.reason);
+    else if (!imported.rows)
+        FC_LOG("'" << getName() << "': nothing to bring from " << file << ": " << imported.reason);
     if (!d->pullBranch.empty()) {
         const MergeResult merged = mergeBranch(d->pullBranch);
         d->lastPull.seconds =
@@ -5929,7 +5942,10 @@ void Document::save(Base::Writer &writer, bool archive) const {
     // be in place before the collect pass notes what the archive carries.
     // Below schema 5 there is no blob store to carry it (PropertyHistory
     // writes an empty element), so no copy is made (sec 27.56).
-    const_cast<Document*>(this)->embedHistory(archive && writer.getSchemaVersion() >= 5);
+    // Wherever the blobs go as entries -- an archive, or a folder (sec 29.8):
+    // the history's database is one more of them.
+    const_cast<Document*>(this)->embedHistory(
+        getFileBlobManager().blobFormat() == FileBlobManager::BlobFormat::Entries);
     collectFileBlobs();
     const double tCollect = phaseSplit();
 
@@ -14415,6 +14431,13 @@ Document::ImportResult Document::_importState(const std::string& path, const std
             && kept.value("state", std::string()) == hash) {
         result.reason = "nothing new";
         return result;
+    }
+    // A pull's branch is closed once its save is written (sec 29.8), and the
+    // next pull starts from that save: a branch of its own, as F7 has it
+    // for a file with history.
+    if (mine.id && mine.closed && !d->pullLabel.empty()) {
+        mine = LogBranch();
+        kept = nlohmann::json();
     }
     result.extended = mine.id != 0;
     // Brought before: one more row on the branch it made, whatever that

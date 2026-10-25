@@ -895,6 +895,11 @@ Document *Application::getDocumentByPath(const char *path, PathMatchMode checkCa
 
     std::string filepath = FileInfo(path).filePath();
     QString canonicalPath = QFileInfo(QString::fromUtf8(path)).canonicalFilePath();
+    // A file that is not there has no canonical path, and neither has an open
+    // document whose file was deleted: "" matched "", and a link to a missing
+    // file was given that document.
+    if (canonicalPath.isEmpty())
+        return nullptr;
     for (const auto &v : DocMap) {
         QFileInfo fi(QString::fromUtf8(v.second->FileName.getValue()));
         if (canonicalPath == fi.canonicalFilePath()) {

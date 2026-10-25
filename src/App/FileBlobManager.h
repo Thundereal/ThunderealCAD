@@ -150,6 +150,13 @@ public:
     /// whether or not it also has a file.
     bool inPack() const;
 
+    /** Whether the file is the document's folder's, read where it is
+     * (docs/TransactionLog.md sec 38.9): the store never deletes it or
+     * changes its permissions, and copies it in before a save takes it
+     * away or the document leaves the folder.
+     */
+    bool inPlace() const;
+
     /// Whether the content is stored under this extension. Never writes a file.
     bool hasExtension(const char* ext) const;
     /// The extension the content is stored under, without the dot, empty
@@ -186,6 +193,9 @@ private:
     /// Whether the content is a pack store member. Set before the blob is
     /// published and never cleared.
     bool _packed {false};
+    /// Read where it is (inPlace()); cleared, under the manager's lock and
+    /// after _path, when the file is copied in.
+    std::atomic<bool> _inPlace {false};
     /** The logical segment holding the member, 0 while it is only in memory.
      *
      * Logical: a merge sends the segments it empties to the one it wrote
@@ -647,6 +657,35 @@ public:
      * and named as the archive named them, until endRestore().
      */
     bool splitArchive(const std::string& archive);
+    /** @name Blobs read where they are (docs/TransactionLog.md sec 38.9)
+     *
+     * A document saved as a folder keeps its blobs as files under `blobs/`.
+     * Its open reads them there, named by the hash the folder's index gives
+     * them, instead of copying each into the store: inPlace() blobs. A
+     * blob made since is the store's own, as before. A save of the folder
+     * never puts other bytes under a name a blob is read from: this process
+     * copies such a file in first (copyIn()), and while another process has
+     * the folder open the save leaves every name it found alone.
+     */
+    //@{
+    /// The next restore of the folder `dir` (its canonical path) reads its
+    /// blobs in place; empty: copied, as from anywhere else.
+    void readInPlace(const std::string& dir);
+    /// Every blob read in place from the file `path` copied in: a save is
+    /// about to replace or remove it.
+    void copyIn(const std::string& path);
+    /** The document's file is `folder` now, empty for an archive: a blob
+     * read in place from another folder is pointed at the file of the same
+     * content there, or copied in where it has none.
+     */
+    void settleInPlace(const std::string& folder);
+    /// How many live blobs are read in place.
+    size_t inPlaceCount() const;
+    /// Every blob of the folder `folder` read in place and held as a
+    /// restore holds what it reads, until endRestore(): what a recovery of
+    /// the folder's document takes its saved blobs from.
+    void holdFolderBlobs(const std::string& folder);
+    //@}
     /** Note that a property refers to this content.
      *
      * The property is handed its blob as soon as the content is available:
@@ -739,7 +778,8 @@ private:
      * pins names that are still current -- see the implementation for why a
      * name has to be pinned rather than simply re-derived.
      */
-    std::vector<SaveEntry> planSave(const std::map<std::string, BlobIndexEntry>& previous) const;
+    std::vector<SaveEntry> planSave(const std::map<std::string, BlobIndexEntry>& previous,
+                                    const std::set<std::string>& avoid = {}) const;
     /// Parse a content index, or nothing if it is absent or unreadable.
     static std::map<std::string, BlobIndexEntry> readIndex(const std::string& path);
     static std::map<std::string, BlobIndexEntry> readIndex(std::istream& from,
@@ -749,19 +789,32 @@ private:
                                const std::string& hash,
                                const std::vector<std::string>& referrers);
     /// Write the content index as the first entry of the blob directory.
-    static void writeIndex(Base::Writer& writer, const std::vector<SaveEntry>& entries);
-    /// Remove the files the previous index listed and this save did not write,
-    /// through the writer: a staged save removes them once it is in.
-    static void prune(Base::FileWriter& writer, const std::string& dir,
-                      const std::map<std::string, BlobIndexEntry>& previous,
-                      const std::set<std::string>& kept);
+    /// `carried`: files the save leaves in place and still lists (sec 38.9).
+    static void writeIndex(Base::Writer& writer, const std::vector<SaveEntry>& entries,
+                           const std::map<std::string, BlobIndexEntry>& carried = {});
+    /** The files of the blob directory `dir` this save does not write: what
+     * the previous index listed, and files named by their content hash (a
+     * save from before the index); never what a user put there. None while
+     * another process has the folder open (`alone` false), which may read
+     * them where they are (sec 38.9). The save removes them through the
+     * writer: a staged save once it is in.
+     */
+    static std::vector<std::string> pruned(const std::string& dir,
+                                           const std::map<std::string, BlobIndexEntry>& previous,
+                                           const std::set<std::string>& kept, bool alone);
+    /// Copy in the blobs read in place from `dir` + each of `names`.
+    void copyInNames(const std::string& dir, const std::vector<std::string>& names);
     /// Called from ~FileBlob: drop the map entry and unlink the file.
     void release(FileBlob* blob);
     /// Stream one archive entry into the store, keyed by what it contains.
     /// The entry name is trusted for nothing but the extension.
     void readBlobEntry(const std::string& name, Base::Reader& entry);
-    /// Take copies of the content of an unpacked project's blob directory.
-    void restoreFromDirectory(const std::string& dir);
+    /// Take copies of the content of an unpacked project's blob directory,
+    /// or with `inPlace` read it where it is (sec 38.9).
+    void restoreFromDirectory(const std::string& dir, bool inPlace = false);
+    /// A blob of the file `path`, read where it is (sec 38.9); a live blob
+    /// of the content is shared instead.
+    FileBlobHandle adoptInPlace(const std::string& path, const std::string& hash, uint64_t size);
     /// Keep restored content alive until its referrers have been served.
     void hold(FileBlobHandle blob);
     /// Remember the entry name restored content arrived under, see
@@ -830,6 +883,8 @@ private:
     //@}
 
     FileHistory* _history {nullptr};
+    /// The folder whose next restore reads its blobs in place (sec 38.9).
+    std::string _inPlaceDir;
     mutable std::mutex _mutex;
     /// Format the save in progress writes its content in, see beginSave().
     BlobFormat _format {BlobFormat::None};

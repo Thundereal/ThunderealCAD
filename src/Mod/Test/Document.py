@@ -12612,6 +12612,156 @@ class FolderSaveCases(unittest.TestCase):
         for n in ("longer", "wider", "higher", "again"):
             self.assertIn(n, names)
 
+    def withFile(self, name, content=b"one"):
+        # A folder saved with a file-included object: its blob is a file of
+        # the folder's blobs/.
+        path = os.path.join(self.dir, name)
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument(name))
+        doc.UndoMode = 1
+        src = os.path.join(self.dir, name + ".src")
+        with open(src, "wb") as f:
+            f.write(content)
+        self.edit(doc, "create", lambda d: setattr(d.addObject(
+            "App::DocumentObjectFileIncluded", "F"), "File", src))
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        return doc, path
+
+    def setFile(self, doc, content, name="next.src"):
+        src = os.path.join(self.dir, name)
+        with open(src, "wb") as f:
+            f.write(content)
+        self.edit(doc, "file", lambda d: setattr(d.F, "File", src))
+
+    def blobFiles(self, path):
+        return sorted(n for n in os.listdir(os.path.join(path, "blobs")) if n != "Content.xml")
+
+    def testSavedBlobsAreReadWhereTheyAre(self):
+        # Sec 38.9: an open of a folder reads its blobs in the folder, not as
+        # copies in the transient directory.
+        doc, path = self.withFile("InPlace")
+        blobs = os.path.realpath(os.path.join(path, "blobs"))
+        self.assertTrue(os.path.realpath(doc.F.File).startswith(blobs + os.sep), doc.F.File)
+        self.assertEqual(open(doc.F.File, "rb").read(), b"one")
+        # Its permissions are the folder's, not the store's read-only.
+        self.assertTrue(os.access(doc.F.File, os.W_OK))
+        store = os.path.join(doc.TransientDir, "blobs")
+        copies = [n for n in os.listdir(store)] if os.path.isdir(store) else []
+        self.assertEqual(copies, [])
+
+    def testASaveCopiesInWhatItTakesAway(self):
+        # Sec 38.9: the save takes the old content's file away; the undo still
+        # holds that content, which was copied in first.
+        # The history keeps the old content too, as a blob named by its hash;
+        # the name the object's blob had is given the new content.
+        doc, path = self.withFile("TakeAway")
+        (name,) = self.blobFiles(path)
+        self.setFile(doc, b"two")
+        doc.save()
+        self.assertEqual(open(os.path.join(path, "blobs", name), "rb").read(), b"two")
+        doc.undo()
+        self.assertEqual(open(doc.F.File, "rb").read(), b"one")
+        self.assertTrue(
+            os.path.realpath(doc.F.File).startswith(os.path.realpath(doc.TransientDir) + os.sep),
+            doc.F.File)
+
+    def testAnotherOpenerKeepsTheNamesItMayRead(self):
+        # Sec 38.9: while another process has the folder open, a save gives
+        # no name it found other content, and takes none away; a save made
+        # alone sweeps what was left.
+        doc, path = self.withFile("Shared")
+        old = self.blobFiles(path)
+        marker = os.path.join(self.dir, ".~Shared.open")
+        lines = open(marker).read()
+        with open(marker, "w") as f:
+            f.write(lines + "elsewhere 4242 1\n")
+        self.setFile(doc, b"two")
+        doc.save()
+        now = self.blobFiles(path)
+        for n in old:
+            self.assertIn(n, now)
+            self.assertEqual(open(os.path.join(path, "blobs", n), "rb").read(), b"one")
+        contents = [open(os.path.join(path, "blobs", n), "rb").read() for n in now]
+        self.assertIn(b"two", contents)
+        with open(marker, "w") as f:
+            f.write(lines)
+        self.setFile(doc, b"three", "third.src")
+        doc.save()
+        # Alone: what the index does not name goes, and the name left with
+        # "one" -- which this process read in place, and undo holds -- was
+        # copied in before it was given other content.
+        index = open(os.path.join(path, "blobs", "Content.xml")).read()
+        for n in self.blobFiles(path):
+            self.assertIn('n="%s"' % n, index)
+        doc.undo()
+        doc.undo()
+        self.assertEqual(open(doc.F.File, "rb").read(), b"one")
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(open(doc.F.File, "rb").read(), b"three")
+
+    def testASaveAsTakesTheBlobsReadInPlaceAlong(self):
+        # Sec 38.9: blobs read in place belong to the document's folder. A
+        # save-as to a folder points them at its files; one to an archive
+        # copies them in; a copy saved elsewhere leaves them be.
+        doc, path = self.withFile("Along")
+        copyPath = os.path.join(self.dir, "AlongCopy.FCStd")
+        doc.saveCopy(copyPath)
+        blobs = os.path.realpath(os.path.join(path, "blobs"))
+        self.assertTrue(os.path.realpath(doc.F.File).startswith(blobs + os.sep))
+        there = os.path.join(self.dir, "AlongThere")
+        os.makedirs(there)
+        doc.saveAs(there)
+        blobs = os.path.realpath(os.path.join(there, "blobs"))
+        self.assertTrue(os.path.realpath(doc.F.File).startswith(blobs + os.sep), doc.F.File)
+        archive = os.path.join(self.dir, "Along.FCStd")
+        doc.saveAs(archive)
+        self.assertTrue(
+            os.path.realpath(doc.F.File).startswith(os.path.realpath(doc.TransientDir) + os.sep),
+            doc.F.File)
+        self.assertEqual(open(doc.F.File, "rb").read(), b"one")
+
+    def testAKilledSessionOfAFolderIsRecoveredWithItsBlobs(self):
+        # Sec 25 for a folder (38.7 step 4, 38.9): the store a killed process
+        # left lacks the blobs it read in place; recovery reads them from the
+        # folder again.
+        import subprocess
+
+        exe = consoleExe()
+        if not exe:
+            self.skipTest("no FreeCADCmd beside this build")
+        doc, path = self.saved("Killed")
+        FreeCAD.closeDocument(doc.Name)
+        script = os.path.join(self.dir, "killed.py")
+        with open(script, "w") as f:
+            f.write(
+                "import os, FreeCAD\n"
+                "p = FreeCAD.ParamGet('User parameter:BaseApp/Preferences/Document')\n"
+                "p.SetInt('TransactionLog', 2)\n"
+                "doc = FreeCAD.openDocument(%r)\n"
+                "doc.UndoMode = 1\n"
+                "doc.openTransaction('longer')\n"
+                "doc.Box0.Length = 20\n"
+                "doc.recompute()\n"
+                "doc.commitTransaction()\n"
+                "doc.getTransactionLog()\n"
+                "print('dir', doc.TransientDir, flush=True)\n"
+                "os._exit(0)\n" % path
+            )
+        out = subprocess.run([exe, script], capture_output=True, timeout=300)
+        text = out.stdout.decode("utf-8", "replace")
+        dirs = [l[4:].strip() for l in text.splitlines() if l.startswith("dir ")]
+        self.assertTrue(dirs, text + out.stderr.decode("utf-8", "replace"))
+        doc = self.track(FreeCAD.recoverDocument(dirs[0]))
+        self.assertEqual(doc.Box0.Length.Value, 20)
+        for o in doc.Objects:
+            self.assertTrue(o.Shape.isValid(), o.Name)
+            self.assertGreater(o.Shape.Volume, 0, o.Name)
+        self.assertFalse(os.path.exists(dirs[0]))
+
     def readOnly(self, top, on):
         # Every directory and file under `top`, and `top` itself, made to
         # take no writes (on) or to take them again.
@@ -12646,6 +12796,8 @@ class FolderSaveCases(unittest.TestCase):
             doc = self.track(FreeCAD.openDocument(path))
             self.assertEqual(doc.Box0.Length.Value, 20)
             self.assertIn("longer", [t["name"] for t in doc.getTransactionLog()])
+            for o in doc.Objects:
+                self.assertTrue(o.Shape.isValid(), o.Name)
             doc.UndoMode = 1
             self.edit(doc, "wider", lambda d: setattr(d.Box0, "Width", 30))
             self.assertTrue(

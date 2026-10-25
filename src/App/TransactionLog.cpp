@@ -1772,6 +1772,13 @@ bool TransactionLog::recover(const std::string& oldDir, RecoverInfo& info)
     manager.recoverStore();
 
     openStore();
+    // A document saved as a folder read its saved blobs where they are, so
+    // the store left behind does not have them (docs/TransactionLog.md sec
+    // 38.9): they are read from the folder again. Its name is the log's, the
+    // recovered document having none yet.
+    const std::string file = _c._store->getMeta("file");
+    if (!file.empty() && Base::FileInfo(file).isDir())
+        manager.holdFolderBlobs(file);
     _c._blobs.clear();
     _c._sourced.clear();
     size_t missing = 0;

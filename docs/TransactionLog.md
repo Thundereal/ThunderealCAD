@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a) as built: the history brought up to date at a save (38.9) | S1, S3 (a) built; S2 and Q2, Q3, Q5-Q7 open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9) | S1, S3 (a), blobs in place built; S2 and Q2, Q3, Q5-Q7 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -24839,3 +24839,130 @@ box's length changed before each save, the history 1.8-2.0 MB):
 **Older builds of this fork** know only `db=`. Their restore returns
 before the `<Blob>` children when it is missing, so they should read the
 folder as one with no history; not tried. These builds are not released.
+
+**Saved blobs, read in place.**
+- **At open.** A document opened from its own folder reads `blobs/`
+  where it is. Each file becomes a blob of the store with the folder's
+  file as its path (`FileBlob::inPlace()`), under the hash the folder's
+  index gives it. Nothing is read or copied; a file the index does not
+  name is hashed where it is. `FileBlobManager::readInPlace` (set by
+  `Document::restore` for the document's own folder only),
+  `restoreFromDirectory(dir, true)`, `adoptInPlace`.
+- **Only there.** Any other folder is copied as before, because it goes
+  away: a version checked out, an anchor recovered, a pull's copy, a
+  `FileHistory` of another file.
+- **The store never writes such a file.** It is not made read-only, never
+  deleted when the blob goes (`release`), and never moved with the
+  transient directory (`relocate`).
+- **Not as proposed: no hash in the names.** The goal was that no save
+  ever puts other bytes under a name someone reads in place. Readable,
+  stable names are what `docs/FileBlobsManager.md` builds on (a name
+  follows its referrer, so a git diff of a folder reads), and `FileBlobs.py`
+  tests them. So the names stay, and the guarantee comes another way:
+  - **This process.** Before a save replaces a name's content or prunes a
+    file, every blob read in place from that file is copied into the store
+    (`copyIn`): the undo, the log and named versions still hold the old
+    content.
+  - **Another process** that has the folder open (a line in
+    `.~<name>.open` that is not this process) may read any blob file
+    there. While one does, a save gives no name it found other content
+    (`planSave` avoids them; the new content takes a numbered name), and
+    prunes nothing. What it leaves stays listed in the index it writes
+    (`writeIndex`'s `carried`), so the next save made alone prunes it.
+    What a user put in `blobs/` is never pruned, as before
+    (`testStrayFileIsNotTouched`).
+  - **Any name about to be written** whose file there is not known to
+    hold that content is copied in first, whether or not the previous
+    index listed it: a name freed while another process read the folder
+    is not in it.
+  - **The marker goes up before the read** for a folder, not after it as
+    29.8 wrote it, so a save in another process sees the reader from its
+    first byte.
+- **The document moves.** Blobs read in place belong to the document's
+  folder (`settleInPlace`, at the end of a save of the document's own
+  file):
+  - a save-as to another folder points them at that folder's files of the
+    same content, which that save wrote;
+  - a save-as to an archive copies them in, since the old folder may be
+    deleted next;
+  - a copy saved elsewhere (`saveCopy`) changes nothing.
+- **Recovery (25) of a folder document.** The store a killed process left
+  lacks the blobs it read in place. `TransactionLog::recover` reads them
+  from the folder again (`holdFolderBlobs`) before the log takes its
+  handles. This is 38.7's step 4, run here.
+- **Measured** (`~/.cache/lv-merge/probe38/opentime.py`, six opens each,
+  alternating with `FC_FOLDER_BLOBS_COPY`, which copies as before):
+
+  | Folder | Blobs | Open, in place | Open, copied | Transient store after |
+  | --- | ---: | ---: | ---: | ---: |
+  | 40 included files of 4 MB | 160 MB | 16.3 ms | 464.1 ms | 0 against 160 MB |
+  | 600 boxes | 28 KB | 120.8 ms | 131.0 ms | 0 against 1 KB |
+
+- **What it leaves open.**
+  - A folder moved or deleted by hand while its document is open loses
+    what it held in place. So does a removable medium taken out. The open
+    reads nothing more, so the next read of such a blob fails.
+  - A file in `blobs/` edited by hand under the same name is read as it
+    now is: the index is trusted, as git trusts its objects.
+
+**A read-only folder.** Nothing is made beside it or in it at open:
+- `SaveLock` cannot make its lock file and stands aside, as it already did
+  for a folder that takes no files;
+- the marker is not written;
+- a stage cut short beside it cannot be settled, and the report view says
+  so ("cannot be finished here (read-only?); read as it is").
+
+Its history is adopted into the transient directory, its blobs are read in
+place, and edits go to the transient store. A save of it fails at its
+stage ("cannot make the stage to save the folder in (read-only?); nothing
+was written"), and a save-as elsewhere works as from any folder.
+
+**Tests.**
+- gtest `TransactionLogTest.aCopyBroughtUpToDateHoldsWhatACopyMadeWholeDoes`:
+  a copy made at one point and brought up to date by the changes since
+  holds what a copy made whole then holds (`differences` empty); a row the
+  copy lost meanwhile is left out of the next changes; no WAL beside the
+  copy.
+- Python `FolderSaveCases`:
+  - **The history.**
+    - The first save copies whole and the next ones bring it up to date,
+      the check finding no difference; `History.db` is beside
+      `Document.xml` with no `-journal`/`-wal`, not under `blobs/`; a
+      reopen has every row, and a save after it brings it up to date
+      again.
+    - It is copied whole after a save-as elsewhere and back, and when the
+      folder's copy is replaced behind its back.
+    - A save without the history removes the old `History.db`.
+  - **The blobs.**
+    - They are read in the folder, with the folder's permissions, and
+      nothing goes into the transient store.
+    - A save that gives a name new content copies in the old first: the
+      undo brings it back from the store.
+    - With another opener in the marker, every old name keeps its bytes
+      and the new content goes elsewhere. The save made alone after it
+      leaves nothing the index does not name, and two undos still read
+      the old content.
+    - A save-as to a folder points them at its files, one to an archive
+      copies them in, and a `saveCopy` leaves them be.
+  - **Recovery.** A session of a folder killed in another process
+    (`os._exit` after an edit) is recovered: the edit is there, every
+    shape is valid, and the old directory goes.
+  - **Read-only.** A folder in a directory that takes no writes opens with
+    its history and its shapes, edits go to the transient store, a save
+    fails with nothing made beside it, and a save-as elsewhere carries
+    both rows. Skipped where the file system takes writes whatever the
+    mode (root, Windows).
+- `FileBlobs.py`: `testDirectorySharedContentIsOneFile` now expects no copy
+  in the store and one file in the folder for both referrers.
+- `Document.py`: `testAPinnedFolderKeepsItsVersion` and
+  `testAFolderCarriesItsHistory` look for `History.db` beside
+  `Document.xml`.
+
+**Gates** (round s38b, `FC_TXNLOG_CHECK_FOLDER` set for the whole round): 24
+GUI checks; Python 3873 OK with freeze on and off; gtest 1014 with freeze on
+and off; driven 301. No check reported a difference.
+
+**Next, per 38.7:** S2's survey of `beforeSave`, then S2, the save that
+skips unchanged objects. Then the history-only save of a folder (27.29),
+now a save whose stage holds `History.db` alone. Q2, Q3 and Q5-Q7 are not
+ruled.

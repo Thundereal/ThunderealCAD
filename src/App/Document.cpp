@@ -5856,6 +5856,12 @@ bool Document::saveToFile(const char* filename) const
         policy.apply(fn, nativePath);
     }
 
+    // Blobs read in place belong to the document's folder (sec 38.9): a save
+    // that makes the document another file points them at its folder, or
+    // copies them in for an archive. A copy saved elsewhere changes nothing.
+    if (FileHistory::canonicalPath(FileName.getStrValue()) == FileHistory::canonicalPath(nativePath))
+        getFileBlobManager().settleInPlace(archive ? std::string() : nativePath);
+
     signalFinishSave(*this, filename);
 
     // A file written below the current schema -- for upstream, the user's
@@ -6102,6 +6108,35 @@ void Document::restore (const char *filename,
             // be the save before it, or some of each when its record is there.
             FC_WARN("'" << filename << "': a save of it was cut short and cannot be finished"
                     " here (read-only?); read as it is");
+        }
+    }
+    // The document's own folder has its blobs read where they are, not
+    // copied (docs/TransactionLog.md sec 38.9). Its open marker goes up
+    // before a byte is read, so that a save in another process from here on
+    // leaves every blob file it finds alone.
+    struct InPlaceGuard
+    {
+        FileBlobManager* blobs {nullptr};
+        ~InPlaceGuard()
+        {
+            if (blobs)
+                blobs->readInPlace(std::string());
+        }
+    } inPlaceGuard;
+    if (folder && FileHistory::canonicalPath(filename)
+                      == FileHistory::canonicalPath(FileName.getStrValue())) {
+        // FC_FOLDER_BLOBS_COPY copies them as before, for measuring.
+        inPlaceGuard.blobs = &getFileBlobManager();
+        if (!std::getenv("FC_FOLDER_BLOBS_COPY"))
+            inPlaceGuard.blobs->readInPlace(FileHistory::canonicalPath(filename));
+        const std::string file = FileName.getStrValue();
+        if (d->openMarker != file) {
+            if (!d->openMarker.empty())
+                FileOpeners::remove(d->openMarker);
+            d->openMarker = file;
+            for (const auto& other : FileOpeners::add(file))
+                Base::Console().Warning("'%s' is also open in %s\n", Label.getValue(),
+                                        FileOpeners::describe(other).c_str());
         }
     }
     // The file as it is before a byte of it is read (docs/TransactionLog.md

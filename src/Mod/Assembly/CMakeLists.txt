@@ -78,6 +78,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestImportAsm3.py
     AssemblyTests/TestMultiplyJoint.py
     AssemblyTests/TestFreeze.py
+    AssemblyTests/TestAssemblyExport.py
     AssemblyTests/mocks/__init__.py
     AssemblyTests/mocks/MockGui.py
 )

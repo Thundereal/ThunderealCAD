@@ -63,6 +63,7 @@ from AssemblyTests.TestAssemblyGroups import TestAssemblyGroups
 from AssemblyTests.TestImportAsm3 import TestImportAsm3
 from AssemblyTests.TestMultiplyJoint import TestMultiplyJoint
 from AssemblyTests.TestFreeze import TestFreeze
+from AssemblyTests.TestAssemblyExport import TestAssemblyExport
 
 # Use the modules so that code checkers don't complain (flake8)
 True if TestCore else False
@@ -103,6 +104,7 @@ True if TestAssemblyGroups else False
 True if TestImportAsm3 else False
 True if TestMultiplyJoint else False
 True if TestFreeze else False
+True if TestAssemblyExport else False
 
 # The gate once more per registered backend other than OndselSolver
 # (TestSolverGateJointsReference, ...), compared with OndselSolver's records.

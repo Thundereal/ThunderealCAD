@@ -333,13 +333,35 @@ Freeze built (2026-10-25, step 5):
   creates the components and joints only, and still solves its own joint
   on the element; and over a child not frozen, which loads in full. A GUI
   probe checked the drawing, undo and redo, and the link in the parent.
-- **Found, not fixed:** an assembly's shape (`Part.getShape`, export)
-  misses components. The export list leaves out a child another child
-  refers to, and here the Parts group lists the components, a grounded
-  joint names its part, and a joint holds its element links
-  (`GeoFeatureGroupExtension::buildExport`, and
-  `ViewProviderGroupExtension::buildExport` with a view). An assembly
-  should export its components and nothing else.
+
+Export fixed (2026-10-26). An assembly's shape (`Part.getShape`, a link
+to it, STEP export) missed components and took in element links: the
+export list (`_ExportChildren`) leaves out a child another child refers
+to, and here the Parts group lists the components, a grounded joint names
+its part, and a joint holds its element links
+(`GeoFeatureGroupExtension::buildExport`, and
+`ViewProviderGroupExtension::buildExport` with a view).
+
+- **The rule.** `AssemblyObject::getChildDefaultExport` answers, for the
+  shape (`GS_DEFAULT`), a component as the Parts group takes it (a
+  geometry feature or a link, not an element or element link, not in a
+  plain group), and the user's plain group holding one at any depth (not
+  upstream's assembly groups). The same test now backs the Parts role of
+  `isAuxGroupAllowed`. `_ExportChildren` is left alone: it is also the
+  tree's children, where element links show under their joint only.
+  This is how PartDesign's `Body` overrides the default too.
+- **Customizing.** The assembly's `ExportMode` stays the user's. "By
+  Visibility", the default, takes the visible components. "Child Query"
+  ("Toggle export" on a child) gives each child a `Group_EnableExport`
+  that starts from the rule, so a component can be left out, or anything
+  else put in.
+- **Not told apart:** a component another one takes in (a cut's base). It
+  is normally hidden, and the shape follows visibility; under "Child
+  Query" it starts exported.
+- **Tests.** `TestAssemblyExport` (6): the components through the
+  grounding and a joint, a hidden one left out, a plain group, "Child
+  Query" defaults and the user's choice, a link to the assembly, and a
+  STEP file read back.
 
 ## 4. Elements and ElementLinks
 

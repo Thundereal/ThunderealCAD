@@ -221,6 +221,14 @@ public:
     /// Frozen, the shape is the Parts group's
     std::vector<std::string> getSubObjects(int reason = GS_DEFAULT) const override;
     //@}
+
+    /** The shape and the export are the components, and the user's plain
+     * groups of them, whatever else refers to them: a joint, its element
+     * links and the groups name the components without taking their place.
+     * The tree's children stay as the view claims them. 'Toggle export' on a
+     * child (ExportMode "Child Query") starts from this.
+     */
+    bool getChildDefaultExport(App::DocumentObject* obj, int reason) const override;
     template<typename T>
     T* getGroup();
 

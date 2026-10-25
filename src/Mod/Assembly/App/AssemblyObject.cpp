@@ -444,6 +444,61 @@ std::vector<std::string> AssemblyObject::getSubObjects(int reason) const
     return App::Part::getSubObjects(reason);
 }
 
+namespace
+{
+// A component as the Parts group takes it: not a joint's element link, nor a
+// group, nor anything without a place of its own
+bool isComponentObject(const App::DocumentObject* obj)
+{
+    return obj && !obj->isDerivedFrom<::Part::ElementLink>()
+        && !obj->isDerivedFrom<::Part::Element>()
+        && !App::GeoFeatureGroupExtension::isNonGeoGroup(obj)
+        && (obj->isDerivedFrom<App::GeoFeature>()
+            || obj->hasExtension(App::LinkBaseExtension::getExtensionClassTypeId()));
+}
+
+// A plain group holding a component at any depth, other than upstream's
+// groups of an assembly
+bool holdsComponents(const App::DocumentObject* obj)
+{
+    if (obj->isDerivedFrom<BomGroup>() || obj->isDerivedFrom<JointGroup>()
+        || obj->isDerivedFrom<SimulationGroup>() || obj->isDerivedFrom<SnapshotGroup>()
+        || obj->isDerivedFrom<ViewGroup>()) {
+        return false;
+    }
+    auto group = App::GeoFeatureGroupExtension::getNonGeoGroup(obj);
+    if (!group) {
+        return false;
+    }
+    for (auto child : group->Group.getValues()) {
+        if (child && (isComponentObject(child) || holdsComponents(child))) {
+            return true;
+        }
+    }
+    return false;
+}
+}  // namespace
+
+bool AssemblyObject::getChildDefaultExport(App::DocumentObject* obj, int reason) const
+{
+    if (reason != GS_DEFAULT) {
+        return App::Part::getChildDefaultExport(obj, reason);
+    }
+    if (!obj || !obj->isAttachedToDocument() || !Group.find(obj->getNameInDocument())) {
+        return false;
+    }
+    // One in a plain group goes with the group
+    if (App::GroupExtension::getGroupOfObject(obj)) {
+        return false;
+    }
+    if (App::GeoFeatureGroupExtension::isNonGeoGroup(obj)) {
+        return holdsComponents(obj);
+    }
+    // A feature taking another in (a cut's base) is not told apart: the one
+    // taken in is normally hidden, and the shape follows visibility
+    return isComponentObject(obj);
+}
+
 int AssemblyObject::solve(bool enableRedo)
 {
     if (isFrozen()) {
@@ -1683,11 +1738,7 @@ bool AssemblyObject::isAuxGroupAllowed(const App::AuxGroup* group,
         // The components only: not a joint's element link, nor what a group
         // of its own holds (a simulation's motion, a view's step, a snapshot
         // in upstream's group), nor upstream's groups
-        if (obj->isDerivedFrom<::Part::ElementLink>() || obj->isDerivedFrom<::Part::Element>()
-            || App::GeoFeatureGroupExtension::isNonGeoGroup(obj)
-            || App::GroupExtension::getGroupOfObject(obj)
-            || (!obj->isDerivedFrom<App::GeoFeature>()
-                && !obj->hasExtension(App::LinkBaseExtension::getExtensionClassTypeId()))) {
+        if (!isComponentObject(obj) || App::GroupExtension::getGroupOfObject(obj)) {
             return false;
         }
     }

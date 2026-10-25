@@ -303,6 +303,11 @@ at display or solve time.
   What the X adds -- another document, relative paths, the modification
   stamp, `AllowPartial`, version pinning -- belongs to the owned
   `App::Link`, and subnames resolve through it.
+- **Global scope** (user, 2026-10-25). `Target` and `Element` copy geometry
+  and place nothing, so neither is a coordinate-system link: with Global
+  scope the link-scope check and the walks of what moves with what
+  (`getCSOutList`, `getCSInList`, `getCSRelevantLinks`) never follow them,
+  whatever the element links to.
 - **Copies follow their source.** A copy is taken as its source resolves in
   the element's container and is retaken whenever the source recomputes.
   That includes a component that deforms under motion: assembly solving
@@ -354,10 +359,13 @@ Built as step 3a (2026-10-24), `Part/App/FeatureElement.{h,cpp}`:
 - **Coordinate system.** The group and its elements are in their
   container's, as an origin and its features are:
   `GeoFeatureGroupExtension::getGroupOfObject` answers the container for
-  them, and the coordinate-system link walk (`getCSOutList`,
-  `getCSInList`) leaves them out, so an element's target link is in scope,
-  an element is never dragged into the container's `Group` with what it
-  links to, and a child moved out does not take its elements along.
+  them, and `OriginGroupExtension::hasObject` counts them as the
+  container's, which the Child-scope `Elements` property needs to pass the
+  link-scope check (as `Origin` passes it). Their links are Global (sec
+  4.3), so an element is never dragged into the container's `Group` with
+  what it links to, and a child moved out does not take its elements
+  along. (Until 2026-10-25 the links were Local and the coordinate-system
+  walks carried exclusions for elements instead.)
 - **Tree.** `ViewProviderOriginGroupExtension::extensionClaimChildren` puts
   the Elements group right after the origin, for a part and a body alike.
   `OriginGroupExtension::extensionGetSubObject` resolves the group by its

@@ -67,6 +67,9 @@ Element::Element()
             "for every user of the element");
     ADD_PROPERTY_TYPE(Detach, (false), "Element", App::Prop_None,
             "Keep the copy of the geometry and stop following the target");
+    // The link copies geometry and places nothing: Global scope keeps it out
+    // of the coordinate-system checks and of what moves with what
+    Target.setScope(App::LinkScope::Global);
 }
 
 App::DocumentObjectExecReturn *Element::execute()
@@ -179,6 +182,9 @@ ElementLink::ElementLink()
             "elements, or the container's own Elements group and an element");
     ADD_PROPERTY_TYPE(Offset, (Base::Placement()), "Element", App::Prop_None,
             "A placement of the frame relative to the element's, for this use only");
+    // As Element::Target: a copy of geometry, out of the coordinate-system
+    // checks
+    Element.setScope(App::LinkScope::Global);
 }
 
 ElementLink *ElementLink::create(App::DocumentObject *container,

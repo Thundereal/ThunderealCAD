@@ -406,7 +406,7 @@ goes instead:
 |---|---|
 | showing the referenced geometry in place (`ViewProviderLinkPython`, `asm3/assembly.py:250`) | a part view provider showing the copy, at the component's current placement |
 | link navigation ("Select linked", "Select final"): `getLinkedViewProvider` (`Gui/CommandLink.cpp:923`) | the element view providers override `getLinkedViewProvider` to step to the target. `getLinkedObject` is NOT overridden: `Part::Feature::getTopoShape` follows it (`Part/App/PartFeature.cpp:1235`) and would bypass the copy, which `asm3/assembly.py:598` warns of too |
-| a link-array ElementLink for constraint multiplication (`Count`, `PlacementList`, `ShowElement`; `asm3/assembly.py:1898-1903`, `:2210-2248`, `:2541`) | one joint per array instance, each with its own ElementLinks; per-instance offsets then need no second "expand" step |
+| a link-array ElementLink for constraint multiplication (`Count`, `PlacementList`, `ShowElement`; `asm3/assembly.py:1898-1903`, `:2210-2248`, `:2541`) | the multiplied joint (sec 7.4): one joint, an instance joint per pair, each side derived from the joint's |
 | re-pointing by drag and drop | the view providers' own drop handlers, as Assembly3's are (`:2363`) |
 
 Not tied to the extension, so kept as they are: `$Label` references and
@@ -1089,6 +1089,49 @@ Built as step 4b (2026-10-25), the joints the task makes:
 - Tests: `TestMigrateTwins.testGroundingAndRigidGroup`; `TestGuiCommands`
   checks the types Toggle Grounded and Create Rigid Group make.
 
+### 7.4 Link arrays, and the multiplied joint
+
+- **An element of an expanded link array is a component** (user,
+  2026-10-25), as the solver already took it
+  (`collectComponentsRecursively`). A side whose path steps from the array
+  into one of its elements (`Pins.Pins_i1.Face2`, or `Pins.1.Face2`) has
+  that element as its component (`componentOf()`, `Joint.cpp`), and its
+  geometry is taken through the element itself, not the array: the
+  array's shape caches its elements where they were, which a solve, that
+  moves an element without a recompute, makes stale (that put an element
+  28 mm off). A pick on an element is a convenience element of the
+  assembly: what declares elements is what every element links to, so the
+  element path would lose which. The joint task's picks and makeJoint take
+  either the array with the path or the element.
+- **The multiplied joint** (user, 2026-10-25), as Assembly3's multiplied
+  constraint and in place of one joint per pair: `Multiply` on a Fixed,
+  Revolute, Cylindrical or Slider joint whose first side is on an element
+  of a link array. Its pairs are the array's elements and the edges of the
+  second side's component like the one picked: circles of its radius in
+  its plane. `AutoCount` (on) grows the array to their number.
+  - **The pairs are stored** (user's choice, against Assembly3's pairing at
+    every solve): `updateInstances()`, on the joint's recompute, keeps a
+    pair while its element and edge are there, pairs the element and edge
+    picked together, and the rest nearest first, as Assembly3 does. So a
+    solve from anywhere puts each element back by its own edge.
+  - **An instance joint per pair**: an `Assembly::Joint` with `_Multiplier`,
+    `_Instance` (the element's index) and `_Target` (the edge's name), no
+    element links of its own; its sides are the joint's carried, side 1
+    from the element picked to its element, side 2 from the edge picked to
+    its edge, the offsets kept. The builder takes the instance joints for
+    the joint (`getJointGroupMembers`), so every one of its uses of a joint
+    holds unchanged. They take the joint's type, values, limits and
+    Suppressed, and go with it.
+  - The user sees one joint: the Joints group leaves the instance joints
+    out, the tree shows them under the joint as an array's elements, its
+    markers are drawn at every pair, and the joint task has "Multiply over
+    the link array" when it can.
+- Tests: `AssemblyTests/TestMultiplyJoint.py` (7): an element as a
+  component, picked either way; pins in holes, the array grown; the pairs
+  kept from a scattered start; without AutoCount; the values followed;
+  Multiply off and deleting; reopened. In `TestImportAsm3`, an element of
+  an array and a multiplied constraint.
+
 ## 8. Upstream files and commits
 
 - **Opening upstream 1.0 and 1.1 files**: a converter runs on restore and
@@ -1204,7 +1247,15 @@ Built as step 4b (2026-10-25), the joints the task makes:
       Distance; Angle, Perpendicular, MultiParallel and (approximate)
       SameOrientation as theirs. The rest -- the sketch and draft-wire
       families, Symmetric, the measures -- are dropped and reported, as are
-      expressions on a constraint and an element of a link array.
+      expressions on a constraint.
+    - **Link arrays** (2026-10-25, sec 7.4): an element of an array is a
+      component, the array expanded where Assembly3 had it collapsed
+      (reported). A multiplied constraint is one multiplied joint, with
+      Assembly3's AutoCount. Its second side goes on the edge, among the
+      part's edges like the one picked, that its first side's element sits
+      by, as Assembly3 pairs them by position (its offset taken), not on
+      the edge picked: so the saved pose pairs every element as Assembly3
+      had it. A count other than Assembly3's (its NoExpand) is reported.
     - **Locks**: on a face or a curved edge, the part is grounded; on a
       vertex or a straight edge, a ball or revolute joint to a grounded
       datum there, as Assembly3 leaves the part turning about it. An

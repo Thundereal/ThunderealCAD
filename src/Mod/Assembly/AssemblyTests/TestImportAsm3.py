@@ -308,6 +308,100 @@ class TestImportAsm3(unittest.TestCase):
         self.solveAll()
         self.assertNotMoved()
 
+    def pinsAndPlate(self, a):
+        """A plate with four holes and a link array of four pins, each in its
+        hole: Assembly3 moves the array's elements one by one"""
+        import Part
+
+        holes = ((10, 10), (50, 10), (10, 50), (50, 50))
+        shape = Part.makeBox(60, 60, 5)
+        for x, y in holes:
+            shape = shape.cut(Part.makeCylinder(2, 5, App.Vector(x, y, 0)))
+        plate = self.part(a, "Part::Feature", "Plate", Shape=shape)
+        pin = self.doc.addObject("Part::Cylinder", "Pin")
+        pin.Radius = 2
+        pin.Height = 15
+        pin.recompute()
+        pins = self.doc.addObject("App::Link", "Pins")
+        pins.LinkedObject = pin
+        pins.ElementCount = 4
+        pins.ShowElement = True
+        pins.recompute()
+        for element, (x, y) in zip(pins.ElementList, holes):
+            element.Placement = plc(x, y, 5)
+        group = a.Proxy.getPartGroup()
+        group.Group = group.Group + [pins]
+
+        def circle(shape, x, y, z):
+            for i, e in enumerate(shape.Edges):
+                if e.Curve.TypeId == "Part::GeomCircle" and e.Curve.Center.isEqual(
+                    App.Vector(x, y, z), 1e-6
+                ):
+                    return "Edge%d" % (i + 1)
+
+        self.holeEdge = lambda x, y: circle(plate.Shape, x, y, 5)
+        self.pinEdge = circle(pin.Shape, 0, 0, 0)
+        self.holes = holes
+        return plate, pins
+
+    def testAnArrayElement(self):
+        a = self.asm3()
+        plate, pins = self.pinsAndPlate(a)
+        self.constraint(a, 0, "Plate.Face1")
+        self.constraint(a, 35, "Pins.1.%s" % self.pinEdge, "Plate.%s" % self.holeEdge(50, 10))
+        self.convert()
+        joint = [j for j in self.joints() if getattr(j, "JointType", "") == "Revolute"][0]
+        self.assertEqual(joint.getComponent(1), pins.ElementList[1])
+        self.solveAll()
+        self.assertNotMoved()
+        # It holds that element, not the others
+        pins.ElementList[1].Placement = plc(7, 7, 30)
+        pins.ElementList[2].Placement = plc(7, 7, 30)
+        self.solveAll()
+        self.assertTrue(pins.ElementList[1].Placement.Base.isEqual(App.Vector(50, 10, 5), 1e-6))
+        self.assertTrue(pins.ElementList[2].Placement.Base.isEqual(App.Vector(7, 7, 30), 1e-6))
+
+    def testMultipliedIsOneMultipliedJoint(self):
+        a = self.asm3()
+        plate, pins = self.pinsAndPlate(a)
+        self.constraint(a, 0, "Plate.Face1")
+        # The hole picked is not the one the first pin is in: Assembly3
+        # pairs them by position
+        cstr = self.constraint(
+            a, 35, "Pins.0.%s" % self.pinEdge, "Plate.%s" % self.holeEdge(50, 10)
+        )
+        # As Assembly3's multiply command leaves the first element link
+        first = cstr.Group[0]
+        first.addProperty("App::PropertyInteger", "Count", "", "")
+        first.addProperty("App::PropertyPlacementList", "PlacementList", "", "")
+        first.Count = 4
+        cstr.Multiply = True
+        # The target made again multiplied, so that Assembly3 gathers the
+        # holes like it into its element, as its command does
+        group = a.Proxy.getPartGroup()
+        cstr.Group[1].Proxy.setLink(group, "Plate.%s" % self.holeEdge(50, 10), multiply=True)
+        self.doc.recompute()
+        # Solved, as a saved file is: each pin in its hole
+        for element, (x, y) in zip(pins.ElementList, self.holes):
+            element.Placement = plc(x, y, 5)
+        self.convert()
+        joints = [j for j in self.joints() if getattr(j, "JointType", "") == "Revolute"]
+        self.assertEqual(len(joints), 1)
+        joint = joints[0]
+        self.assertTrue(joint.Multiply)
+        self.assertEqual(len(joint._Instances), 4)
+        # Each pin with the hole it is in, though the hole picked is another
+        pairs = sorted((i._Instance, i._Target) for i in joint._Instances)
+        self.assertEqual(pairs, [(i, self.holeEdge(x, y)) for i, (x, y) in enumerate(self.holes)])
+        self.solveAll()
+        self.assertNotMoved()
+        # Each pin back in its own hole
+        for i, element in enumerate(pins.ElementList):
+            element.Placement = plc(100 + 20 * i, 0, 40)
+        self.solveAll()
+        for element, (x, y) in zip(pins.ElementList, self.holes):
+            self.assertTrue(element.Placement.Base.isEqual(App.Vector(x, y, 5), 1e-6), element.Name)
+
     def testRoundTrip(self):
         """Saved and opened again in a fresh process: no Assembly3 code is
         needed, and a solve moves nothing"""

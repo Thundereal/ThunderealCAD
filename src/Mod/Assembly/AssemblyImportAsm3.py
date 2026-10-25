@@ -46,11 +46,15 @@ What each becomes:
 - Locked: grounding of the part on a face or a curved edge; on a vertex or
   a straight edge, a ball or revolute joint to a grounded datum there, as
   Assembly3 leaves the part free to turn about it. An assembly with no
-  lock grounds the first part of its first constraint, as Assembly3 does.
+  lock grounds the first part of its first constraint, as Assembly3 does;
+- an element of a link array: a component of its own (sec 7.4), the array
+  shown expanded where Assembly3 had it collapsed;
+- a multiplied constraint: one multiplied joint (sec 7.4), its second side
+  on the edge its first side's element is paired with.
 
 What is not converted is reported: the constraint types with no
 counterpart (the sketch and draft-wire families, Symmetric, the measures),
-link arrays as parts, and anything that does not resolve.
+and anything that does not resolve.
 
 convert(doc) works headless and is one transaction; the GUI command is
 Assembly_ConvertAssembly3 (CommandConvertAsm3.py).
@@ -195,30 +199,39 @@ def _read(a, report):
             continue
         sides = []
         broken = False
-        for link in asm.flattenGroup(cstr):
+        multiply = bool(getattr(cstr, "Multiply", False))
+        links = asm.flattenGroup(cstr)
+        for n, link in enumerate(links):
             try:
                 info = link.Proxy.getInfo()
                 linked = link.LinkedObject
                 if isinstance(linked, tuple):
                     linked = linked[0].getSubObject(linked[1], 1)
-                if isinstance(info.Part, tuple):
-                    raise RuntimeError("an element of a link array")
-                frame = info.Placement.multiply(utils.getElementPlacement(info.Shape))
-                sides.append(
-                    {
-                        "element": linked,
-                        "part": info.Part,
-                        "frame": frame,
-                        "kind": _kind(info.Shape),
-                        "shapeType": info.Shape.ShapeType,
-                    }
-                )
+                side = {
+                    "element": linked,
+                    "part": info.Part,
+                    "frame": info.Placement.multiply(utils.getElementPlacement(info.Shape)),
+                    "kind": _kind(info.Shape),
+                    "shapeType": info.Shape.ShapeType,
+                }
+                if multiply and n == 1 and sides:
+                    _pairedEdge(cstr, sides[0], info, side)
+                if multiply and n == 0:
+                    side["autoCount"] = getattr(link, "AutoCount", True)
+                    side["count"] = getattr(link, "Count", 0)
+                sides.append(side)
             except Exception as e:
                 report.add(
                     a.Label, "constraint %s: element %s broken (%s)" % (cstr.Label, link.Label, e)
                 )
                 broken = True
-        props = {}
+        if multiply and len(sides) > 2:
+            report.add(
+                a.Label,
+                "constraint %s: multiplied over its second element's edges only" % cstr.Label,
+            )
+            del sides[2:]
+        props = {"Multiply": multiply}
         for name in (
             "Offset",
             "OffsetX",
@@ -246,6 +259,52 @@ def _read(a, report):
             }
         )
     return data
+
+
+def _pairedEdge(cstr, first, info, side):
+    """A multiplied constraint's second side: the edge of its part like the
+    one picked (a circle of its radius in its plane) that the first side's
+    array element is paired with, as Assembly3 pairs them by position, its
+    offset taken. Looked for in the part's whole shape, whether or not
+    Assembly3 gathered the edges into its element. The side goes on that
+    edge, by its name in its part"""
+    import Part
+
+    _asm, utils = _asm3()
+    picked = info.Shape.Edges[0] if info.Shape.Edges else None
+    if picked is None or not hasattr(picked.Curve, "Radius"):
+        return
+
+    def value(name):
+        v = getattr(cstr, name, 0)
+        return getattr(v, "Value", v)
+
+    offset = App.Vector(value("OffsetX"), value("OffsetY"), value("Offset"))
+    target = first["frame"].Base - first["frame"].Rotation.multVec(offset)
+    part = info.Part[2] if isinstance(info.Part, tuple) else info.Part
+    whole = Part.getShape(part, "", transform=False)
+    normal = picked.Curve.Axis
+    best = None
+    for i, edge in enumerate(whole.Edges):
+        curve = edge.Curve
+        if not hasattr(curve, "Radius") or not hasattr(curve, "Axis"):
+            continue
+        if abs(curve.Radius - picked.Curve.Radius) > 1e-7:
+            continue
+        if abs(abs(curve.Axis.dot(normal)) - 1) > 1e-9:
+            continue
+        if abs((curve.Center - picked.Curve.Center).dot(normal)) > 1e-7:
+            continue
+        d = (info.Placement.multVec(curve.Center) - target).Length
+        if best is None or d < best[0]:
+            best = (d, i, edge)
+    if best is None:
+        return
+    _d, i, edge = best
+    side["direct"] = (part, "Edge%d" % (i + 1))
+    side["frame"] = info.Placement.multiply(utils.getElementPlacement(edge))
+    side["kind"] = "Edge"
+    side["shapeType"] = "Edge"
 
 
 def _splitSubname(sub):
@@ -351,6 +410,9 @@ def _makeJoint(assembly, key, jtype, label, pair, elements, report):
         JointObject.ViewProviderJoint(joint.ViewObject)
     _label(joint, label)
     for i, side in enumerate(pair, 1):
+        if "direct" in side and side["element"] not in elements:
+            component, sub = side["direct"]
+            elements[side["element"]] = Part.makeElement(assembly, component, sub, "_Element")
         element = elements[side["element"]]
         link = Part.makeElementLink(assembly, assembly.Elements, "$%s." % element.Label)
         setattr(joint, "ElementLink%d" % i, link)
@@ -428,6 +490,18 @@ def _build(data, converted, report):
     partGroup.Group = []
     new.Group = new.Group + parts
     new.getGroup("Joints", True)
+    # A link array whose elements Assembly3 moves one by one: each a
+    # component, its element shown
+    for part in parts:
+        if (
+            part.isDerivedFrom("App::Link")
+            and getattr(part, "ElementCount", 0)
+            and not getattr(part, "ShowElement", True)
+        ):
+            part.ShowElement = True
+            report.add(
+                label, "link array %s: its elements are shown, each a component" % part.Label
+            )
 
     # The elements, by label
     elements = {}
@@ -457,8 +531,12 @@ def _build(data, converted, report):
     for c in data["constraints"]:
         tid = c["type"]
         jtype = _jointType(c)
-        sides = [s for s in c["sides"] if s["element"] in elements]
-        if firstPart is None and sides:
+        for s in c["sides"]:
+            if "direct" in s:
+                # On its own edge, not the Assembly3 element's: a key of its own
+                s["element"] = ("direct",) + tuple(s["direct"])
+        sides = [s for s in c["sides"] if s["element"] in elements or "direct" in s]
+        if firstPart is None and sides and sides[0]["element"] in elements:
             firstPart = elements[sides[0]["element"]]
         if c["broken"] or len(sides) != len(c["sides"]):
             report.add(label, "constraint %s: not converted, an element is broken" % c["label"])
@@ -478,6 +556,8 @@ def _build(data, converted, report):
                 made += _lock(new, label, c, side, elements, report)
         else:
             pairs = _pairs(sides, c["props"].get("Cascade"))
+            if c["props"].get("Multiply"):
+                pairs = pairs[:1]
             for n, pair in enumerate(pairs):
                 if pair[0]["part"] == pair[1]["part"]:
                     continue  # as Assembly3 skips them
@@ -487,6 +567,8 @@ def _build(data, converted, report):
                 if prop:
                     setattr(joint, prop, value)
                     pending.append((joint, prop, value))
+                if c["props"].get("Multiply"):
+                    _multiply(joint, label, c, pair[0], report)
                 made.append(joint)
         for joint in made:
             if c["props"].get("Disabled") and hasattr(joint, "Suppressed"):
@@ -507,11 +589,36 @@ def _build(data, converted, report):
     return new, pending
 
 
+def _multiply(joint, key, c, first, report):
+    """A multiplied constraint as one multiplied joint (sec 7.4): its pairs
+    as Assembly3 has them, the solved pose putting each element by its edge"""
+    joint.AutoCount = bool(first.get("autoCount", True))
+    joint.Multiply = True
+    joint.recompute()
+    count = len(joint._Instances)
+    if not count:
+        report.add(key, "constraint %s: not multiplied: %s" % (c["label"], joint.State))
+    elif first.get("count") and count != first["count"]:
+        report.add(
+            key,
+            "constraint %s: %d pairs, where Assembly3 has %d" % (c["label"], count, first["count"]),
+        )
+
+
 def _componentOf(element, assembly):
-    target = element.Target
+    """The component an element is on: a direct child of the assembly, or the
+    element of a link array its path steps into, as a joint takes it"""
+    target, sub = element.Target, ""
     if isinstance(target, tuple):
-        target = target[0]
-    return target if target in assembly.Group else None
+        target, subs = target
+        sub = subs[0] if subs else ""
+    if target not in assembly.Group:
+        return None
+    if target.isDerivedFrom("App::Link") and getattr(target, "ElementCount", 0) and "." in sub:
+        child = target.getSubObject(sub.split(".")[0] + ".", retType=1)
+        if child is not None and child in target.ElementList:
+            return child
+    return target
 
 
 def _lock(assembly, key, c, side, elements, report):

@@ -729,6 +729,29 @@ links store `$$Elements.` and `$PinEnd.` instead.
   holds the geometry plus an ElementLink with the vertex as its `Offset`
   (sec 4.2). This is the importer of `docs/AssemblyFromAsm3.md` B pointed at
   upstream's files; Assembly3 files map 1:1 onto these objects.
+- **Opening Assembly3 files** (user, 2026-10-25): Assembly3's own code is
+  carried in the tree to do the migration, so the add-on need not be
+  installed, and it loads lazily.
+  - `src/Mod/Assembly/Assembly3/asm3` is the add-on's `freecad.asm3` at
+    `773b977`, without its workbench (`init_gui.py`), its pip prompt and
+    its translations. `Assembly3/README.md` lists the few changes: no
+    solver prompt, no auto-solve, and the module-level GUI calls guarded
+    so that it imports without a GUI.
+  - It is on no search path, so FreeCAD's startup scan of the `freecad`
+    namespace does not see it. `AssemblyAsm3Bundle.install()`, from the
+    module's `Init.py`, appends a finder to the end of `sys.meta_path`
+    that answers `import freecad.asm3` with the copy. An installed
+    Assembly3 is found by the normal finders first and wins.
+  - So nothing of it is imported until a document restores an Assembly3
+    proxy. The copy is under a Mod directory, which is what the proxy
+    restore checks before importing a module a document names
+    (`App/PropertyPythonObject.cpp`, `proxyModuleAllowed`).
+  - Its value to the migration: Assembly3's restore code runs, so the
+    three generations of element references (`docs/AssemblyFromAsm3.md`
+    B.4) are already normalized by Assembly3 itself, and its objects answer
+    `getElementSubname`, `getInfo` and the rest. The converter reads them
+    through that API rather than re-deriving them from raw properties.
+  - The code is GPL-3.0, as the add-on is (`Assembly3/LICENSE`).
 - **Saving for upstream** needs an exporter, built only if wanted.
 - **Upstream's later Assembly commits** are read and ported by hand for the
   converted objects. Task panels and commands that stay Python can still be

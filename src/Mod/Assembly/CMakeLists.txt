@@ -34,6 +34,7 @@ set(Assembly_Scripts
     JointCam.py
     Preferences.py
     AssemblyImport.py
+    AssemblyAsm3Bundle.py
     SoSwitchMarker.py
     UtilsAssembly.py
 )
@@ -66,14 +67,20 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestCamJoint.py
     AssemblyTests/SolverGateReference.json
     AssemblyTests/TestGuiCommands.py
+    AssemblyTests/TestAsm3Bundle.py
     AssemblyTests/mocks/__init__.py
     AssemblyTests/mocks/MockGui.py
 )
 
 
+# Assembly3, bundled to migrate its documents (AssemblyAsm3Bundle.py)
+file(GLOB_RECURSE Assembly3_SRCS RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
+    Assembly3/*.py Assembly3/*.svg Assembly3/*.md Assembly3/LICENSE)
+
 SET(all_files
     ${AssemblyTests_SRCS}
     ${AssemblyScripts_SRCS}
+    ${Assembly3_SRCS}
 )
 
 ADD_CUSTOM_TARGET(AssemblyScripts ALL
@@ -111,4 +118,10 @@ INSTALL(
         ${AssemblyScripts_SRCS}
     DESTINATION
         Mod/Assembly/Assembly
+)
+INSTALL(
+    DIRECTORY
+        Assembly3
+    DESTINATION
+        Mod/Assembly
 )

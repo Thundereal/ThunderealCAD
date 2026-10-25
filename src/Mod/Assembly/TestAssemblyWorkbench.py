@@ -55,6 +55,7 @@ from AssemblyTests.TestSolverGate import (
 )
 from AssemblyTests.TestCamJoint import TestCamJoint, TestSimulationMotions
 from AssemblyTests.TestGuiCommands import TestGuiCommands
+from AssemblyTests.TestAsm3Bundle import TestAsm3Bundle
 
 # Use the modules so that code checkers don't complain (flake8)
 True if TestCore else False
@@ -87,6 +88,7 @@ True if TestSolverGateCam else False
 True if TestCamJoint else False
 True if TestSimulationMotions else False
 True if TestGuiCommands else False
+True if TestAsm3Bundle else False
 
 # The gate once more per registered backend other than OndselSolver
 # (TestSolverGateJointsReference, ...), compared with OndselSolver's records.

@@ -1042,6 +1042,17 @@ False when the store was copied whole. With FC_TXNLOG_CHECK_FOLDER set,
 lists the tables that disagree. Empty when no save carried one.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="getLastFolderSave">
+      <Documentation>
+        <UserDocu>getLastFolderSave() -> dict
+What the last save to a folder wrote and kept (sec 38.12): {'written',
+'kept', 'checked', 'differed'}. 'kept' counts the objects nothing changed
+since the folder's last save, left as the folder has them. With
+FC_FOLDER_SAVE_CHECK set everything is written, 'checked' is True, and
+'differed' names the objects that would have been kept whose file came out
+otherwise.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="getFileOpeners">
       <Documentation>
         <UserDocu>getFileOpeners() -> list

@@ -87,6 +87,11 @@ struct BaseExport EntryCapture
         std::string elide;
     };
     std::vector<Segment> segments;
+    /** Not written by this save: the entry is the one version `keepFrom` of
+     * the transaction log has under the same name (docs/TransactionLog.md
+     * sec 38.12, an unchanged object of a folder save). 0 for a written one.
+     */
+    int64_t keepFrom {0};
 
     EntryCapture() = default;
     /// A capture of plain bytes, one Text segment.
@@ -265,6 +270,16 @@ public:
     virtual bool supportsSharedStore() const { return false; }
     /// get all registered file names
     const std::vector<std::string>& getFilenames() const;
+    /// How many entries were added (addFile()), for telling which an
+    /// entry's own writing added.
+    std::size_t fileCount() const
+    {
+        return FileList.size();
+    }
+    const std::string& fileNameAt(std::size_t index) const
+    {
+        return FileList[index].FileName;
+    }
     /// Set mode
     void setMode(const std::string& mode);
     /// Set modes
@@ -618,6 +633,17 @@ public:
         return Removals;
     }
 
+    /** A file of the directory this save keeps as it is: not written, and
+     * still one of the save's files, so nothing removes it
+     * (docs/TransactionLog.md sec 38.12). Registered by addFile() or not --
+     * a data file the unwritten object's last write added.
+     */
+    void keepFile(const std::string& name);
+    bool isKept(const std::string& name) const
+    {
+        return Kept.count(name) != 0;
+    }
+
     FileWriter(const FileWriter&) = delete;
     FileWriter(FileWriter&&) = delete;
     FileWriter& operator=(const FileWriter&) = delete;
@@ -628,6 +654,7 @@ protected:
     std::string DirName;
     std::string StageDir;
     std::vector<std::string> Removals;
+    std::set<std::string> Kept;
     /// Base::ofstream, not std::ofstream: on Windows the narrow overload
     /// converts the path with the ANSI code page, so a UTF-8 entry name
     /// lands on disk as mojibake, and a path past MAX_PATH is not opened

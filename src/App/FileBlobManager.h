@@ -665,6 +665,12 @@ public:
      */
     void setDeflate(bool on);
     bool deflates() const;
+    /** What each object refers to in the save in progress, by its id: the
+     * hash and the referrer's name of every blob it noted, sorted. An object
+     * whose list is what it was at the last save names the same files
+     * (docs/TransactionLog.md sec 38.12).
+     */
+    std::map<long, std::vector<std::string>> referencesByObject() const;
     /** @name Blobs read where they are (docs/TransactionLog.md sec 38.9)
      *
      * A document saved as a folder keeps its blobs as files under `blobs/`.

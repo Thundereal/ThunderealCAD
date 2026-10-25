@@ -2271,6 +2271,21 @@ void FileBlobManager::holdFolderBlobs(const std::string& folder)
     restoreFromDirectory(folder + "/" + archivePrefix(), true);
 }
 
+std::map<long, std::vector<std::string>> FileBlobManager::referencesByObject() const
+{
+    std::map<long, std::vector<std::string>> out;
+    std::lock_guard<std::mutex> guard(_mutex);
+    for (const auto& entry : _saveRefs) {
+        for (const auto& referrer : entry.second) {
+            out[referrer.id].push_back(entry.first + " " + referrer.name);
+        }
+    }
+    for (auto& entry : out) {
+        std::sort(entry.second.begin(), entry.second.end());
+    }
+    return out;
+}
+
 void FileBlobManager::setDeflate(bool on)
 {
     _deflate.store(on, std::memory_order_relaxed);

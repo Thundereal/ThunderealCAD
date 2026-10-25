@@ -1339,6 +1339,19 @@ public:
     /// The file a document saved as a folder keeps its history in, beside
     /// Document.xml (docs/TransactionLog.md sec 38.9).
     static const char* historyFileName();
+    /** What the last save to a folder wrote and kept (docs/TransactionLog.md
+     * sec 38.12): objects written, objects kept as the folder had them, and,
+     * with FC_FOLDER_SAVE_CHECK set, the objects that would have been kept
+     * whose file came out otherwise.
+     */
+    struct FolderSaveInfo
+    {
+        int written {0};
+        int kept {0};
+        bool checked {false};
+        std::vector<std::string> differed;
+    };
+    const FolderSaveInfo& lastFolderSave() const;
     /// Schema version this document asks to be written with -- the user's
     /// cap, validated against the writable list.
     long getSaveSchemaVersion() const;

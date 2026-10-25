@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11) | S1, S3 (a), blobs in place, `BlobCompression`, S2a built; S2b and Q2, Q3, Q5-Q7 open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression` built; Q2, Q5-Q7 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -25154,3 +25154,87 @@ proposed for is the smaller part.
 S2a), the per-object preparation that remains (`ShapeRefSet::build` 7%
 before S2a), and the stage's comparison of every file. Not profiled again
 after S2a.
+
+### 38.12 S2b as built: an unchanged object is not written (2026-10-25)
+
+**Ruling (user, 2026-10-25):** "agree", on 38.11's Q3 recommendation:
+"unchanged" is what the log says, with the stamp and the options; a check
+mode runs in the gates; the first cut skips the write only.
+
+**When a save keeps an object's file.** Each save to a folder records its
+state (`DocumentP::FolderState`):
+- the folder, its canonical path;
+- the log's row the save was of (`head`), and the version it recorded;
+- the options that decide the bytes (schema, file version, `ForceXML`,
+  `PreferBinary`, binary BRep);
+- the stamp of the folder as the commit left it;
+- per object, the blobs it referred to (`FileBlobManager::referencesByObject`)
+  and the entries its write made, its own file first.
+
+It is kept only after a save of the document's own file (`saveCopy` keeps
+nothing), and cleared by a save to an archive. The next save keeps an
+object's file when all of these hold:
+- **The save is the same:** the same folder, the same options, the folder's
+  stamp what the last save left (no other process saved it, nothing
+  touched it), and the last save's version still in the log.
+- **Nothing changed it:** no op of a row after the recorded one on this
+  branch's chain names the object (`TransactionLog::objectsChangedSince`).
+  A row trimmed away, or a branch switched, means nothing is kept.
+- **It refers to the same blobs.** This catches what no op of the object
+  records: a shape whose file it borrowed from changed (38.11's test case).
+- **It is written under the name it was.**
+
+**What keeping means.**
+- **Its preparation still runs**, as it did. That keeps the string-id marks,
+  the blob notes, the hasher indexes and the sharing tables as before; the
+  first cut skips the write only.
+- **Its entry is registered**, so `Document.xml` names its file as before.
+- **Not written:** `FileWriter::keepFile` marks the entry, and the data
+  files its last write added, as the save's files. Nothing is staged for
+  them, nothing removes them, and the folder's files stay as they are.
+- **The log's version** of the save takes the kept entries from the last
+  save's version, by name (`EntryCapture::keepFrom`, read in
+  `writeVersion`). A kept entry missing there fails the version's write,
+  and the next save, finding no such version, keeps nothing.
+- **Python `getLastFolderSave()`**: `written`, `kept`, `checked`, `differed`.
+
+**The check.** With `FC_FOLDER_SAVE_CHECK` set, everything is written. Each
+object that would have been kept is compared, staged against the folder's
+file, before the commit; a difference goes to the report view and to
+`differed`. The whole Python suite was run with it on, 3878 tests: no
+object that would have been kept came out otherwise.
+
+**Measured** (`share.py`, 600 boxes, one box changed before each save,
+medians of ten saves, two runs each):
+
+| Build | Save |
+| --- | ---: |
+| Before S2 | 286-291 ms |
+| S2a (38.11) | 212-225 ms |
+| S2b | 119-121 ms |
+| S2b with the check (everything written) | 220-222 ms |
+
+**Gates** (round s38e, the keeping active in every folder save of the
+suites): 24 GUI checks; Python 3878 OK with freeze on and off; gtest 1014
+with freeze on and off; driven 301.
+
+**Tests** (`FolderSaveCases`):
+- **An unchanged object is kept as the folder has it.** A save with
+  nothing changed keeps all four boxes. After one box is changed and one
+  added, two are written and three kept, and the kept files keep their
+  stamps. The log's version of that save opens with every object and the
+  changed length. A removed object's file goes. A reopen reads every
+  shape.
+- **Nothing is kept after another save or other options:** a `ForceXML`
+  change writes everything, the next save keeps again, and a
+  `Document.xml` touched behind its back writes everything.
+- **The check:** everything written, `differed` empty.
+- Both keeping cases clear `FC_FOLDER_SAVE_CHECK` for themselves, since a
+  run may set it.
+
+**Not built.**
+- **The first save after an open** writes everything: no state is known
+  for a folder the document only read.
+- **The Gui's split view-provider files** are written as before.
+- **A kept object's preparation** still runs (the second step of 38.11's
+  S2b). Where the remaining 120 ms goes is not profiled yet.

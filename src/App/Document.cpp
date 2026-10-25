@@ -2970,6 +2970,11 @@ void Document::Save (Base::Writer &writer) const
         o->beforeSave(writer);
     }
     beforeSave(writer);
+    // What each object refers to now, for the objects kept below (sec 38.12).
+    if (d->folderKeeping || !d->folderNext.folder.empty()) {
+        d->folderRefsNow = getFileBlobManager().referencesByObject();
+        d->folderNext.refs = d->folderRefsNow;
+    }
     const double tBefore = saveSplit();
 
     if (d->tableAsMember)
@@ -3207,6 +3212,11 @@ void Document::Restore(Base::XMLReader &reader)
 const char* Document::stringTableName()
 {
     return "StringTable.txt";
+}
+
+const Document::FolderSaveInfo& Document::lastFolderSave() const
+{
+    return d->folderInfo;
 }
 
 const char* Document::historyFileName()
@@ -4093,6 +4103,35 @@ void Document::writeObjects(const std::vector<App::DocumentObject*>& obj,
             // of it was what left a long-named object writing nothing.
             const std::string& entry = writer.addFile(name+".xml",this);
             d->splitXmlEntries[Base::FileInfo(entry).fileNamePure()] = *it;
+            // S2b (docs/TransactionLog.md sec 38.12): an object nothing
+            // changed since the folder's last save, which refers to the
+            // blobs it did and is written under the name it was, is kept as
+            // the folder has it, with the data files its write added.
+            const long id = (*it)->getID();
+            d->folderEntryOf[id] = entry;
+            if (d->folderKeeping && d->folderUnchanged.count(id)) {
+                auto files = d->folderLast.files.find(id);
+                auto was = d->folderLast.refs.find(id);
+                auto now = d->folderRefsNow.find(id);
+                const bool sameRefs = (was == d->folderLast.refs.end()
+                                       ? now == d->folderRefsNow.end()
+                                       : now != d->folderRefsNow.end() && was->second == now->second);
+                auto* folder = dynamic_cast<Base::FileWriter*>(&writer);
+                if (folder && sameRefs && files != d->folderLast.files.end()
+                        && !files->second.empty() && files->second.front() == entry) {
+                    d->folderNext.files[id] = files->second;
+                    if (d->folderChecking) {
+                        d->folderWouldKeep.emplace_back((*it)->getNameInDocument(), files->second);
+                    }
+                    else {
+                        for (const auto& kept : files->second) {
+                            folder->keepFile(kept);
+                            d->folderKept.push_back(kept);
+                        }
+                        ++d->folderInfo.kept;
+                    }
+                }
+            }
             writer.Stream() << "file=\"" << entry << "\" ";
         }
 
@@ -4214,8 +4253,21 @@ void Document::SaveDocFile(Base::Writer &writer) const {
                         << "<Document SchemaVersion=\"" << writer.getSchemaVersion()
                         << "\" FileVersion=\"" << writer.getFileVersion()
                         << "\">\n";
+        const std::size_t before = writer.fileCount();
         writeObject(writer,obj);
         writer.Stream() << "</Document>\n";
+        // The entries this object's write made, its own first, for the next
+        // save of the folder to keep (sec 38.12).
+        if (!d->folderNext.folder.empty()) {
+            auto entry = d->folderEntryOf.find(obj->getID());
+            if (entry != d->folderEntryOf.end()) {
+                std::vector<std::string> files {entry->second};
+                for (std::size_t i = before; i < writer.fileCount(); ++i)
+                    files.push_back(writer.fileNameAt(i));
+                d->folderNext.files[obj->getID()] = std::move(files);
+                ++d->folderInfo.written;
+            }
+        }
     }
 }
 
@@ -5831,6 +5883,23 @@ bool Document::saveToFile(const char* filename) const
                     removals.push_back(f);
             }
         }
+        // The check (sec 38.12): what would have been kept came out as the
+        // folder has it.
+        for (const auto& would : d->folderWouldKeep) {
+            for (const auto& file : would.second) {
+                auto read = [](const std::string& path) {
+                    QFile f(QString::fromStdString(path));
+                    return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+                };
+                if (read(stage + "/" + file) != read(nativePath + "/" + file)) {
+                    FC_ERR("save of " << getName() << ": " << would.first
+                           << " would have been kept, but its " << file
+                           << " came out otherwise");
+                    d->folderInfo.differed.push_back(would.first);
+                    break;
+                }
+            }
+        }
         FolderSave::commit(nativePath, removals);
         stageGuard.done = true;
         if (!d->folderSaveId.empty()) {
@@ -5867,8 +5936,13 @@ bool Document::saveToFile(const char* filename) const
     // Blobs read in place belong to the document's folder (sec 38.9): a save
     // that makes the document another file points them at its folder, or
     // copies them in for an archive. A copy saved elsewhere changes nothing.
-    if (FileHistory::canonicalPath(FileName.getStrValue()) == FileHistory::canonicalPath(nativePath))
+    if (FileHistory::canonicalPath(FileName.getStrValue()) == FileHistory::canonicalPath(nativePath)) {
         getFileBlobManager().settleInPlace(archive ? std::string() : nativePath);
+        // What the next save of the folder keeps from (sec 38.12).
+        d->folderLast = archive ? DocumentP::FolderState() : d->folderNext;
+        if (!d->folderLast.folder.empty())
+            d->folderLast.stamp = DiskStamp::of(d->folderLast.folder);
+    }
 
     signalFinishSave(*this, filename);
 
@@ -6012,6 +6086,45 @@ void Document::save(Base::Writer &writer, bool archive) const {
         writer.beginCapture();
     }
 
+    // S2b (docs/TransactionLog.md sec 38.12): a save to the folder this
+    // document saved last, with the same options and no other save of it
+    // in between, keeps the files of the objects the log says nothing
+    // changed since -- decided object by object in Document::Save.
+    d->folderNext = DocumentP::FolderState();
+    d->folderUnchanged.clear();
+    d->folderKeeping = false;
+    d->folderChecking = false;
+    d->folderEntryOf.clear();
+    d->folderRefsNow.clear();
+    d->folderKept.clear();
+    d->folderWouldKeep.clear();
+    d->folderInfo = FolderSaveInfo();
+    auto* folderWriter = archive ? nullptr : dynamic_cast<Base::FileWriter*>(&writer);
+    if (log && folderWriter && writer.isSplitXML() && !folderWriter->getStageDir().empty()) {
+        std::ostringstream options;
+        options << writer.getSchemaVersion() << ' ' << writer.getFileVersion() << ' '
+                << writer.isForceXML() << ' ' << PreferBinary.getValue() << ' '
+                << writer.getMode("BinaryBrep");
+        d->folderNext.folder = FileHistory::canonicalPath(folderWriter->getDirName());
+        d->folderNext.seq = log->head();
+        d->folderNext.options = options.str();
+        const auto& last = d->folderLast;
+        std::set<long> changed;
+        if (last.folder == d->folderNext.folder && last.options == d->folderNext.options
+                && last.stamp.valid() && DiskStamp::of(last.folder).sameAs(last.stamp)
+                && log->hasVersion(last.version) && log->objectsChangedSince(last.seq, changed)) {
+            for (auto obj : d->objectArray) {
+                if (!changed.count(obj->getID()))
+                    d->folderUnchanged.insert(obj->getID());
+            }
+            d->folderKeeping = true;
+            // Everything written anyway, and what would have been kept
+            // compared with the folder's file (sec 38.12): the gates' check.
+            d->folderChecking = std::getenv("FC_FOLDER_SAVE_CHECK") != nullptr;
+            d->folderInfo.checked = d->folderChecking;
+        }
+    }
+
     writer.Stream() << "<?xml version='1.0' encoding='utf-8'?>\n"
                     << "<!--\n"
                     << documentBanner(writer.getSchemaVersion())
@@ -6055,8 +6168,18 @@ void Document::save(Base::Writer &writer, bool archive) const {
         TransactionLog::Blobs blobs = getFileBlobManager().versionEntries();
         TransactionLog::Captures entries = std::move(d->captures);
         d->captures.clear();
-        if (log->onSave(FileName.getValue(), entries, blobs, writer.getSchemaVersion()))
+        // The entries kept as the folder has them (sec 38.12): as the last
+        // save's version has them.
+        for (const auto& name : d->folderKept) {
+            Base::EntryCapture kept;
+            kept.keepFrom = d->folderLast.version;
+            entries.emplace_back(name, std::move(kept));
+        }
+        const int64_t version =
+            log->onSave(FileName.getValue(), entries, blobs, writer.getSchemaVersion());
+        if (version)
             const_cast<Document*>(this)->noteVersionTaken();
+        d->folderNext.version = version;
     }
 
     if (d->restoreHistory) {

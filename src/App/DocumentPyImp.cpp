@@ -2470,6 +2470,24 @@ PyObject* DocumentPy::getLastSaveHistory(PyObject *args)
     } PY_CATCH;
 }
 
+PyObject* DocumentPy::getLastFolderSave(PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+    PY_TRY {
+        const auto& info = getDocumentPtr()->lastFolderSave();
+        Py::Dict d;
+        d.setItem("written", Py::Long(info.written));
+        d.setItem("kept", Py::Long(info.kept));
+        d.setItem("checked", Py::Boolean(info.checked));
+        Py::List differed;
+        for (const auto& name : info.differed)
+            differed.append(Py::String(name));
+        d.setItem("differed", differed);
+        return Py::new_reference_to(d);
+    } PY_CATCH;
+}
+
 PyObject* DocumentPy::getFileOpeners(PyObject *args)
 {
     if (!PyArg_ParseTuple(args, ""))

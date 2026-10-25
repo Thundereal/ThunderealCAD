@@ -1106,7 +1106,23 @@ void TransactionLogCore::writeVersion(LogVersion& v, LogTransaction& t,
             }
             std::vector<LogManifestEntry> manifest;
             std::string docHash;
+            // Entries the save did not write (sec 38.12): as the version it
+            // names has them.
+            std::map<int64_t, std::map<std::string, std::string>> keptFrom;
             for (const auto& e : entries) {
+                if (e.second.keepFrom > 0) {
+                    auto& kept = keptFrom[e.second.keepFrom];
+                    if (kept.empty()) {
+                        for (const auto& m : _store->manifest(e.second.keepFrom))
+                            kept[m.entry] = m.hash;
+                    }
+                    auto k = kept.find(e.first);
+                    if (k == kept.end())
+                        THROWM(Base::RuntimeError, "entry " + e.first + " kept from version "
+                               + std::to_string(e.second.keepFrom) + " is not in it")
+                    manifest.push_back({e.first, k->second});
+                    continue;
+                }
                 auto it = previous.find(e.first);
                 std::string full;
                 const std::string hash = putComposite(
@@ -2289,6 +2305,36 @@ void TransactionLog::forgetLiveValues()
 void TransactionLog::forgetValue(const Property& prop)
 {
     _recorded.erase(prop.getID());
+}
+
+bool TransactionLog::objectsChangedSince(int64_t seq, std::set<long>& objects)
+{
+    flush();
+    objects.clear();
+    if (seq == _head)
+        return true;
+    if (seq <= 0 || !_c._store)
+        return false;
+    const auto rows = _c._store->chain(_head, seq);
+    // Not this branch's row, or trimmed: nothing can be said since it.
+    if (rows.empty() || rows.front().seq != seq)
+        return false;
+    for (const auto& t : rows) {
+        if (t.seq == seq)
+            continue;
+        for (const auto& op : _c._store->ops(t.seq)) {
+            if (op.ckind == "obj")
+                objects.insert(op.cid);
+        }
+    }
+    return true;
+}
+
+bool TransactionLog::hasVersion(int64_t num)
+{
+    flush();
+    LogVersion v;
+    return num > 0 && _c._store && _c._store->getVersion(num, v);
 }
 
 bool TransactionLog::adoptStore(const std::string& path, const std::string& folder)

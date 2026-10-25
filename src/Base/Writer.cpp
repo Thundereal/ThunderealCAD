@@ -852,6 +852,13 @@ void FileWriter::dropFile(const std::string& name)
     }
 }
 
+void FileWriter::keepFile(const std::string& name)
+{
+    Kept.insert(name);
+    if (FileNameSet.insert(name).second)
+        FileNames.push_back(name);
+}
+
 bool FileWriter::shouldWrite(const std::string& /*name*/, const Base::Persistence* /*obj*/) const
 {
     return true;
@@ -868,7 +875,7 @@ void FileWriter::writeFiles()
         stepProgress(base, FileList.size());
         FileEntry entry = FileList[index];
 
-        if (shouldWrite(entry.FileName, entry.Object)) {
+        if (!Kept.count(entry.FileName) && shouldWrite(entry.FileName, entry.Object)) {
             std::string filePath = entry.FileName;
             std::string::size_type pos = 0;
             const std::string& root = StageDir.empty() ? DirName : StageDir;

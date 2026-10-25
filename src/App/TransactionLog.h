@@ -276,6 +276,13 @@ public:
      * are in the document's blob store by then (PropertyHistory restored
      * them); the log takes a handle on each.
      */
+    /** The objects an op of a row after `seq` on this branch's chain names
+     * (docs/TransactionLog.md sec 38.12): what changed since the save at
+     * `seq`. False when `seq` is not on the chain, or no longer stored.
+     */
+    bool objectsChangedSince(int64_t seq, std::set<long>& objects);
+    /// Version `num` is in the store.
+    bool hasVersion(int64_t num);
     /// `folder`: the folder the copy is from, when it is a folder's own
     /// (sec 38.9), whose next save then plays what changed since.
     bool adoptStore(const std::string& path, const std::string& folder = std::string());

@@ -12762,6 +12762,84 @@ class FolderSaveCases(unittest.TestCase):
             self.assertGreater(o.Shape.Volume, 0, o.Name)
         self.assertFalse(os.path.exists(dirs[0]))
 
+    def noCheck(self):
+        # FC_FOLDER_SAVE_CHECK off for this case, as the gates may set it.
+        was = os.environ.pop("FC_FOLDER_SAVE_CHECK", None)
+        if was is not None:
+            self.addCleanup(os.environ.__setitem__, "FC_FOLDER_SAVE_CHECK", was)
+
+    def testAnUnchangedObjectIsKeptAsTheFolderHasIt(self):
+        # Sec 38.12 (S2b): the second save of a folder writes the objects the
+        # log says changed and keeps the others' files; the log's version of
+        # it still holds every object. Not under the check, which keeps none.
+        self.noCheck()
+        doc, path = self.saved("Kept", boxes=4)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 4)
+        before = {n: self.stamp(os.path.join(path, n)) for n in ("Box1.xml", "Box2.xml")}
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        self.edit(doc, "added", lambda d: d.addObject("Part::Box", "Box9"))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (2, 3), last)
+        for n, st in before.items():
+            self.assertEqual(self.stamp(os.path.join(path, n)), st, n)
+        num = doc.getTransactionVersions()[-1]["num"]
+        # Moved on from it, so that it is a document of its own.
+        self.edit(doc, "wider", lambda d: setattr(d.Box1, "Width", 30))
+        version = self.track(doc.openTransactionVersion(num))
+        self.assertNotEqual(version.Name, doc.Name)
+        self.assertEqual(sorted(o.Name for o in version.Objects),
+                         ["Box0", "Box1", "Box2", "Box3", "Box9"])
+        self.assertEqual(version.Box0.Length.Value, 20)
+        self.assertEqual(version.Box1.Width.Value, 10)
+        FreeCAD.closeDocument(version.Name)
+        # Removed, it goes; the rest is kept.
+        self.edit(doc, "remove", lambda d: d.removeObject("Box3"))
+        doc.save()
+        self.assertFalse(os.path.exists(os.path.join(path, "Box3.xml")))
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(sorted(o.Name for o in doc.Objects), ["Box0", "Box1", "Box2", "Box9"])
+        self.assertEqual(doc.Box0.Length.Value, 20)
+        for o in doc.Objects:
+            self.assertTrue(o.Shape.isValid(), o.Name)
+
+    def testNothingIsKeptAfterAnotherSaveOrOtherOptions(self):
+        # Sec 38.12: the folder as another save left it, or written with
+        # other options, is written whole.
+        self.noCheck()
+        doc, path = self.saved("Whole")
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 3)
+        doc.ForceXML = 2
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 0)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 3)
+        # Touched behind its back: the stamp moved.
+        os.utime(os.path.join(path, "Document.xml"), (1, 1))
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 0)
+
+    def testTheCheckFindsWhatWouldHaveBeenKeptAsTheFolderHasIt(self):
+        # Sec 38.12: with FC_FOLDER_SAVE_CHECK everything is written, and an
+        # object that would have been kept came out as its file.
+        was = os.environ.get("FC_FOLDER_SAVE_CHECK")
+        os.environ["FC_FOLDER_SAVE_CHECK"] = "1"
+        try:
+            doc, path = self.saved("Checked")
+            doc.save()
+            self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+            doc.save()
+            last = doc.getLastFolderSave()
+            self.assertTrue(last["checked"])
+            self.assertEqual(last["kept"], 0)
+            self.assertEqual(last["differed"], [])
+        finally:
+            if was is None:
+                del os.environ["FC_FOLDER_SAVE_CHECK"]
+
     def testADeflatedArchiveExtractedByHandOpensAsAFolder(self):
         # Sec 38.10: with BlobCompression "Deflate" every entry of the archive
         # is one any zip tool extracts, and the folder extracted opens as the

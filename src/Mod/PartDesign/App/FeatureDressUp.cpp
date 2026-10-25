@@ -38,6 +38,8 @@
 #include <TopTools_ListOfShape.hxx>
 
 #include "FeatureDressUp.h"
+#include "Body.h"
+#include "FeatureBase.h"
 #include <Base/Console.h>
 #include <App/Document.h>
 #include <Base/Exception.h>
@@ -408,9 +410,26 @@ void DressUp::onChanged(const App::Property* prop)
             Base.setValue (BaseFeature.getValue(),std::move(subs),std::move(shadows));
         }
     } else if (prop == &Base) {
-        // track the vice-versa changes
-        if (BaseFeature.getValue() && Base.getValue() != BaseFeature.getValue()) {
-            BaseFeature.setValue (Base.getValue());
+        // track the vice-versa changes, within the body: a Base outside it
+        // made the BaseFeature, the body's chain then running out of it --
+        // removing this feature made the outside object the body's Tip, and
+        // the next recompute crashed. The body's own base object, picked
+        // outside, stands for the FeatureBase that holds it inside.
+        auto base = Base.getValue();
+        if (BaseFeature.getValue() && base && base != BaseFeature.getValue()) {
+            auto body = Body::findBodyOf(this);
+            if (!body || body->hasObject(base)) {
+                BaseFeature.setValue(base);
+            }
+            else if (base == body->BaseFeature.getValue()) {
+                auto first = body->Group.getValues().empty()
+                    ? nullptr : body->Group.getValues().front();
+                auto holder = Base::freecad_dynamic_cast<FeatureBase>(first);
+                if (holder && holder->BaseFeature.getValue() == base) {
+                    // the same sub-elements: the FeatureBase has the base's shape
+                    Base.setValue(holder, Base.getSubValues(false));
+                }
+            }
         }
     } else if (prop == &Shape || prop == &SupportTransform) {
         if (!getDocument()->testStatus(App::Document::Restoring) &&

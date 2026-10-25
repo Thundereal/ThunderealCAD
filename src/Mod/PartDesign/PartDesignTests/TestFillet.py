@@ -400,6 +400,27 @@ class TestFilletSlivers(unittest.TestCase):
         self.assertEqual(list(fillet.FailedEdges), [self.Slope])
         self.assertAlmostEqual(fillet.Shape.Volume, self.Base.Shape.Volume, places=6)
 
+    def testBaseOutsideTheBody(self):
+        # The body's base object is outside it, held by a FeatureBase inside.
+        # A dress-up given the outside object links the FeatureBase: taking
+        # the outside one for its BaseFeature ran the body's chain out of it,
+        # and removing the dress-up made the outside object the body's Tip;
+        # the third time round the recompute crashed
+        holder = self.Body.Group[0]
+        self.assertEqual(holder.TypeId, 'PartDesign::FeatureBase')
+        for k in range(3):
+            fillet = self.Body.newObject('PartDesign::Fillet', 'Fillet')
+            fillet.Base = (self.Base, ['Edge1'])
+            fillet.Radius = 0.5
+            self.Doc.recompute()
+            self.assertEqual(fillet.Base[0], holder, k)
+            self.assertEqual(fillet.BaseFeature, holder, k)
+            self.assertTrue(fillet.isValid(), k)
+            self.Body.removeObject(fillet)
+            self.Doc.removeObject(fillet.Name)
+            self.assertEqual(self.Body.Tip, holder, k)
+            self.assertFalse([o for o in self.Body.Group if o.TypeId == 'PartDesign::SolidBody'])
+
     def testChamferTakesOutTheStep(self):
         chamfer = self.Body.newObject('PartDesign::Chamfer', 'Chamfer')
         chamfer.Base = (self.Base, [self.Slope])

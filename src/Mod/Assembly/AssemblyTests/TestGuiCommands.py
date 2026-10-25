@@ -266,6 +266,7 @@ class TestGuiCommands(unittest.TestCase):
         grounded = [j for j in self.jointgroup.Group if hasattr(j, "ObjectToGround")]
         self.assertEqual(len(grounded), 1)
         self.assertEqual(grounded[0].ObjectToGround, self.box)
+        self.assertEqual(grounded[0].TypeId, "Assembly::GroundedJointPython")
         # and back
         self.select(self.box, "Face1")
         self.run_command("Assembly_ToggleGrounded")
@@ -279,6 +280,8 @@ class TestGuiCommands(unittest.TestCase):
         self.run_command("Assembly_CreateJointRigidGroup")
         groups = [j for j in self.jointgroup.Group if j.Name.startswith("RigidGroupJoint")]
         self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0].TypeId, "Assembly::RigidGroupPython")
+        self.assertEqual(set(groups[0].ObjectsToRigidGroup), {self.cyl1, self.cyl2})
         self.assertClean()
 
     def test_joint_fixed(self):

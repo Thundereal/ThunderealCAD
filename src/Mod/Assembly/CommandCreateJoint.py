@@ -415,7 +415,8 @@ def createJointRigidGroupJoint(objs):
 
     assembly = UtilsAssembly.activeAssembly()
     joint_group = UtilsAssembly.getJointGroup(assembly)
-    rg = joint_group.newObject("App::FeaturePython", "RigidGroupJoint")
+    # Not upstream: the C++ rigid group (docs/AssemblyObjectModel.md sec 7.3)
+    rg = joint_group.newObject("Assembly::RigidGroupPython", "RigidGroupJoint")
 
     JointObject.RigidGroupJoint(rg, objs)
     JointObject.ViewProviderRigidGroupJoint(rg.ViewObject)
@@ -434,7 +435,7 @@ def createGroundedJoint(obj):
         f'obj = App.ActiveDocument.getObject("{obj.Name}")\n'
         "assembly = UtilsAssembly.activeAssembly()\n"
         "joint_group = UtilsAssembly.getJointGroup(assembly)\n"
-        'ground = joint_group.newObject("App::FeaturePython", "GroundedJoint")\n'
+        'ground = joint_group.newObject("Assembly::GroundedJointPython", "GroundedJoint")\n'
         "JointObject.GroundedJoint(ground, obj)"
     )
     Gui.doCommand(commands)

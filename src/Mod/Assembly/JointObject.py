@@ -1529,24 +1529,29 @@ class RigidGroupJoint:
         joint.Proxy = self
         self.joint = joint
 
-        joint.addExtension("App::SuppressibleExtensionPython")
+        # Not upstream: the C++ rigid group (Assembly::RigidGroupPython) has
+        # its extension and properties
+        if not joint.isDerivedFrom("Assembly::RigidGroup"):
+            joint.addExtension("App::SuppressibleExtensionPython")
 
-        joint.addProperty(
-            "App::PropertyLinkList",
-            "ObjectsToRigidGroup",
-            "RigidGroup",
-            QT_TRANSLATE_NOOP("App::Property", "List of references to compnents to group together"),
-        )
+            joint.addProperty(
+                "App::PropertyLinkList",
+                "ObjectsToRigidGroup",
+                "RigidGroup",
+                QT_TRANSLATE_NOOP(
+                    "App::Property", "List of references to compnents to group together"
+                ),
+            )
 
-        # Before the members are set: onChanged() of ObjectsToRigidGroup writes it
-        joint.addProperty(
-            "App::PropertyPlacementList",
-            "RigidPlacements",
-            "RigidGroup",
-            "Relative placements for restore",
-        )
-        joint.setPropertyStatus("RigidPlacements", "Hidden")
-        joint.setPropertyStatus("RigidPlacements", "ReadOnly")
+            # Before the members are set: onChanged() of ObjectsToRigidGroup writes it
+            joint.addProperty(
+                "App::PropertyPlacementList",
+                "RigidPlacements",
+                "RigidGroup",
+                "Relative placements for restore",
+            )
+            joint.setPropertyStatus("RigidPlacements", "Hidden")
+            joint.setPropertyStatus("RigidPlacements", "ReadOnly")
 
         joint.ObjectsToRigidGroup = objects_to_rigid_group
 
@@ -1692,13 +1697,15 @@ class GroundedJoint:
         self.createObjectToGroundProperty(joint, obj_to_ground)
 
     def createObjectToGroundProperty(self, joint, obj_to_ground):
-        joint.addProperty(
-            "App::PropertyLinkGlobal",
-            "ObjectToGround",
-            "Ground",
-            QT_TRANSLATE_NOOP("App::Property", "The object to ground"),
-            locked=True,
-        )
+        # Not upstream: the C++ grounding (Assembly::GroundedJointPython) has it
+        if not joint.isDerivedFrom("Assembly::GroundedJoint"):
+            joint.addProperty(
+                "App::PropertyLinkGlobal",
+                "ObjectToGround",
+                "Ground",
+                QT_TRANSLATE_NOOP("App::Property", "The object to ground"),
+                locked=True,
+            )
         joint.ObjectToGround = obj_to_ground
         self.setReadOnly(joint, True)
 

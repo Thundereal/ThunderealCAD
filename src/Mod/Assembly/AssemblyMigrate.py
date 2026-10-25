@@ -193,6 +193,18 @@ def convertJoint(assembly, joint):
 # members are converted when their group is made
 TWINS = (
     (
+        "GroundedJoint",
+        "JointObject",
+        "Assembly::GroundedJointPython",
+        ("ObjectToGround", "Label2"),
+    ),
+    (
+        "RigidGroupJoint",
+        "JointObject",
+        "Assembly::RigidGroupPython",
+        ("ObjectsToRigidGroup", "RigidPlacements", "Suppressed", "Label2"),
+    ),
+    (
         "Motion",
         "CommandCreateSimulation",
         "Assembly::MotionPython",
@@ -228,6 +240,8 @@ TWINS = (
 
 # The view provider class of each, in the same module
 VIEW_PROVIDERS = {
+    "GroundedJoint": "ViewProviderGroundedJoint",
+    "RigidGroupJoint": "ViewProviderRigidGroupJoint",
     "Motion": "ViewProviderMotion",
     "ExplodedViewStep": "ViewProviderExplodedViewStep",
     "Snapshot": "ViewProviderSnapshot",
@@ -291,17 +305,16 @@ def convertTwin(assembly, old, entry, converted, members=None):
         # In a container that is converted after it, which lists it then
         new = assembly.newObject(typeName, old.Name)
 
-    # As a file restores a proxy: the class, not its __init__, which would
-    # set defaults (and a snapshot capture the state now)
-    cls = getattr(module, name)
-    new.Proxy = cls.__new__(cls)
     renames = dict(p if isinstance(p, tuple) else (p, p) for p in props)
     for prop, newProp in renames.items():
         if hasattr(old, prop) and hasattr(new, newProp):
-            try:
-                setattr(new, newProp, getattr(old, prop))
-            except Exception:
-                pass
+            _copyValue(old, prop, new, newProp)
+    # As a file restores a proxy: the class, not its __init__, which would
+    # set defaults (and a snapshot capture the state now). After the values:
+    # a rigid group's proxy stores its members' positions when they are set,
+    # and moves them and solves when it is unsuppressed
+    cls = getattr(module, name)
+    new.Proxy = cls.__new__(cls)
     if name == "Motion":
         new.Joint = _motionJoint(old)
     for path, expr in old.ExpressionEngine:
@@ -332,11 +345,31 @@ def convertTwin(assembly, old, entry, converted, members=None):
     label = old.Label
     doc.removeObject(old.Name)
     new.Label = label
+    # And what a restore runs once the proxy is in, after the old object is
+    # gone: deleting a grounding frees its part's placement, which the new
+    # one locks again (else syncGroundedJoints() takes it for released)
+    if hasattr(new.Proxy, "onDocumentRestored"):
+        new.Proxy.onDocumentRestored(new)
     if parent is not None and index >= 0 and twinOf(parent) is None:
         siblings = [o for o in parent.Group if o != new]
         siblings.insert(min(index, len(siblings)), new)
         parent.Group = siblings
     return new
+
+
+def _copyValue(old, prop, new, newProp):
+    """A value from one object to the other, read-only as it may be (a rigid
+    group's RigidPlacements)"""
+    readOnly = "ReadOnly" in new.getPropertyStatus(newProp)
+    if readOnly:
+        new.setPropertyStatus(newProp, "-ReadOnly")
+    try:
+        setattr(new, newProp, getattr(old, prop))
+    except Exception:
+        pass
+    finally:
+        if readOnly:
+            new.setPropertyStatus(newProp, "ReadOnly")
 
 
 def _motionJoint(motion):

@@ -936,7 +936,7 @@ Built as step 4b (2026-10-25), the joints the task makes:
   `Assembly::Joint` names `Gui::ViewProviderDocumentObject`, and
   `makeJoint` makes `JointPython`.
 - Not yet from the plan: grounding and rigid groups as C++ objects; they
-  stay Python, naming whole components.
+  stay Python, naming whole components. Built later (sec 7.3).
 - Tests: the Assembly suite in the GUI, 289 run, all pass (2 skipped):
   `TestGuiCommands` (37) now makes every joint type through its command
   as a C++ joint. Headless as before, and `TestElementJoint` (16, with a
@@ -1012,6 +1012,28 @@ Built as step 4b (2026-10-25), the joints the task makes:
   link to a motion re-pointed; expressions naming upstream's simulation
   names, the simulation's own and another object's, on the new names; a
   file with upstream's names on the C++ simulation; the preference off.
+
+### 7.3 Grounding and rigid groups (the rest of step 4b)
+
+- Built 2026-10-25, as the simulation was (sec 7.2): `Assembly::GroundedJoint`
+  (`ObjectToGround`, a global link as upstream's) and `Assembly::RigidGroup`
+  (`App::SuppressibleExtension`; `ObjectsToRigidGroup`, `RigidPlacements`
+  hidden and read-only), each with a `...Python` feature that upstream's
+  `JointObject.GroundedJoint` and `RigidGroupJoint` proxies and their view
+  providers attach to (`App/Grounding.h`). Upstream's names: the builder,
+  `AssemblyLink` and the Gui read them by name, and need no change.
+- Done first in step 4e: a Joints group that sorts by C++ type needs every
+  object the workbench makes there to be one.
+- Toggle Grounded and Create Rigid Group make the C++ objects; upstream's
+  convert on open (`AssemblyMigrate.TWINS`).
+- The converter now sets a twin's proxy after its values, and calls its
+  `onDocumentRestored` after the old object is gone, as a restore does: a
+  rigid group's proxy stores its members' positions when they are set and
+  moves them (and solves) when it is unsuppressed, and deleting the old
+  grounding unlocked its part's placement, which `syncGroundedJoints` then
+  took for a released grounding and deleted the new one.
+- Tests: `TestMigrateTwins.testGroundingAndRigidGroup`; `TestGuiCommands`
+  checks the types Toggle Grounded and Create Rigid Group make.
 
 ## 8. Upstream files and commits
 

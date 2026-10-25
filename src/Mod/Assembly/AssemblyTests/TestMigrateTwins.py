@@ -21,8 +21,8 @@
 # *                                                                         *
 # ***************************************************************************
 
-"""Upstream's simulations, motions, exploded views, steps and snapshots
-converted to their C++ twins when a file is opened.
+"""Upstream's groundings, rigid groups, simulations, motions, exploded views,
+steps and snapshots converted to their C++ twins when a file is opened.
 
 See AssemblyMigrate.py (TWINS) and docs/AssemblyObjectModel.md sec 7.2. Each
 test builds upstream's Python objects as its commands make them, saves, and
@@ -38,6 +38,7 @@ import FreeCAD as App
 import CommandCreateSimulation
 import CommandCreateSnapshot
 import CommandCreateView
+import JointObject
 import UtilsAssembly
 
 from AssemblyTests.TestJoints import JointTestBase, Z, plc
@@ -298,6 +299,44 @@ class TestMigrateTwins(JointTestBase):
         self.assertAlmostEqual(sim.TimeEnd.Value, 2.5)
         self.assertEqual(sim.FramesPerSecond, 12)
         self.assertFalse(hasattr(sim, "bTimeEnd"))
+
+    def testGroundingAndRigidGroup(self):
+        a, b, _rev = self.mechanism()
+        c = self.box("C", plc(30, 20, 0))
+        rg = self.jointgroup.newObject("App::FeaturePython", "RigidGroupJoint")
+        JointObject.RigidGroupJoint(rg, [b, c])
+        rg.Label = "Pair"
+        self.solve()
+        stored = list(rg.RigidPlacements)
+        poses = {o.Name: o.Placement for o in (a, b, c)}
+
+        self.reopen()
+        grounded = [o for o in self.jointgroup.Group if hasattr(o, "ObjectToGround")]
+        self.assertEqual([o.TypeId for o in grounded], ["Assembly::GroundedJointPython"])
+        self.assertEqual(type(grounded[0].Proxy).__name__, "GroundedJoint")
+        self.assertEqual(grounded[0].ObjectToGround, self.doc.getObject("A"))
+        groups = [o for o in self.jointgroup.Group if hasattr(o, "ObjectsToRigidGroup")]
+        self.assertEqual([o.TypeId for o in groups], ["Assembly::RigidGroupPython"])
+        rg = groups[0]
+        self.assertEqual(rg.Label, "Pair")
+        self.assertEqual([o.Name for o in rg.ObjectsToRigidGroup], ["B", "C"])
+        self.assertFalse(rg.Suppressed)
+        self.assertEqual(len(rg.RigidPlacements), len(stored))
+        for got, want in zip(rg.RigidPlacements, stored):
+            self.assertTrue(got.isSame(want, 1e-12))
+        self.assertEqual(
+            [o.TypeId for o in self.jointgroup.Group if o.TypeId == "App::FeaturePython"], []
+        )
+        self.solve()
+        for name, p in poses.items():
+            self.assertTrue(self.doc.getObject(name).Placement.isSame(p, 1e-6), name)
+        # Its part's placement locked again: a solve keeps the grounding
+        # (syncGroundedJoints deletes one whose part is free)
+        self.assertIn("ReadOnly", self.doc.getObject("A").getPropertyStatus("Placement"))
+        self.assertEqual(
+            [o.Name for o in self.jointgroup.Group if hasattr(o, "ObjectToGround")],
+            [grounded[0].Name],
+        )
 
     def testPreferenceOff(self):
         _a, _b, rev = self.mechanism()

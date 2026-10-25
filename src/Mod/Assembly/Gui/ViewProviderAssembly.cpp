@@ -58,6 +58,8 @@
 
 #include <Base/Tools.h>
 
+#include <App/AutoTransaction.h>
+#include <Base/Exception.h>
 #include <Gui/ActionFunction.h>
 #include <App/DocumentObserver.h>
 #include <Gui/Application.h>
@@ -157,6 +159,10 @@ ViewProviderAssembly::~ViewProviderAssembly()
 
 QIcon ViewProviderAssembly::getIcon() const
 {
+    auto* assembly = getObject<Assembly::AssemblyObject>();
+    if (assembly && assembly->isFrozen()) {
+        return Gui::BitmapFactory().pixmap("Assembly_Frozen.svg");
+    }
     return Gui::BitmapFactory().pixmap("Geoassembly.svg");
 }
 
@@ -169,7 +175,66 @@ void ViewProviderAssembly::setupContextMenu(QMenu* menu, QObject* receiver, cons
     act->setChecked(isActivePart(ASSEMBLYKEY));
     func->trigger(act, [this]() { this->doubleClicked(); });
 
+    if (auto* assembly = getObject<Assembly::AssemblyObject>()) {
+        bool frozen = assembly->isFrozen();
+        act = menu->addAction(QObject::tr("Freeze"));
+        act->setCheckable(true);
+        act->setChecked(frozen);
+        act->setToolTip(
+            QObject::tr(
+                "Keep the components as one shape: the assembly is not solved, and a "
+                "document linking to it loads that shape in place of the components"
+            )
+        );
+        func->trigger(act, [this]() { this->toggleFreeze(); });
+        if (frozen) {
+            act = menu->addAction(QObject::tr("Refresh frozen shape"));
+            act->setToolTip(QObject::tr("Take the shape of the components again"));
+            func->trigger(act, [this]() { this->refreshFrozenShape(); });
+        }
+        act = menu->addAction(QObject::tr("Parts group"));
+        act->setCheckable(true);
+        act->setChecked(assembly->getAuxGroup(App::Part::PartsRole) != nullptr);
+        // A frozen assembly keeps it
+        act->setEnabled(!frozen);
+        act->setToolTip(QObject::tr("Show the components in a group of their own"));
+        func->trigger(act, [this]() { this->togglePartsGroup(); });
+    }
+
     ViewProviderDragger::setupContextMenu(menu, receiver, member);  // NOLINT
+}
+
+void ViewProviderAssembly::toggleFreeze()
+{
+    auto* assembly = getObject<Assembly::AssemblyObject>();
+    if (!assembly) {
+        return;
+    }
+    bool freeze = !assembly->isFrozen();
+    App::AutoTransaction committer(freeze ? "Freeze assembly" : "Unfreeze assembly");
+    try {
+        assembly->Freeze.setValue(freeze);
+    }
+    catch (Base::Exception& e) {
+        e.ReportException();
+        committer.close(true);
+    }
+}
+
+void ViewProviderAssembly::refreshFrozenShape()
+{
+    auto* assembly = getObject<Assembly::AssemblyObject>();
+    if (!assembly) {
+        return;
+    }
+    App::AutoTransaction committer("Refresh frozen shape");
+    try {
+        assembly->refreshFrozenShape();
+    }
+    catch (Base::Exception& e) {
+        e.ReportException();
+        committer.close(true);
+    }
 }
 
 bool ViewProviderAssembly::doubleClicked()
@@ -296,8 +361,34 @@ void ViewProviderAssembly::updateData(const App::Property* prop)
         });
     }
     else {
+        if (prop == &obj->Freeze) {
+            signalChangeIcon();
+        }
         Gui::ViewProviderPart::updateData(prop);
     }
+}
+
+std::vector<App::DocumentObject*> ViewProviderAssembly::claimChildren3D() const
+{
+    auto children = Gui::ViewProviderPart::claimChildren3D();
+    auto* assembly = getObject<Assembly::AssemblyObject>();
+    auto* parts = assembly && assembly->isFrozen()
+        ? assembly->getAuxGroup(App::Part::PartsRole)
+        : nullptr;
+    if (!parts || !parts->isDerivedFrom<Assembly::PartsGroup>()) {
+        return children;
+    }
+    const auto& components = parts->Group.getValues();
+    std::set<App::DocumentObject*> frozen(components.begin(), components.end());
+    children.erase(
+        std::remove_if(
+            children.begin(),
+            children.end(),
+            [&frozen](App::DocumentObject* obj) { return frozen.count(obj) > 0; }
+        ),
+        children.end()
+    );
+    return children;
 }
 
 bool ViewProviderAssembly::setEdit(int mode)

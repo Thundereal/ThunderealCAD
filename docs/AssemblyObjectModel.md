@@ -286,6 +286,61 @@ it. Checked in the GUI: Origin, Views, a user's group, Parts, in that
 order whatever the order in `Group`; the components under Parts; a link
 Auto mode adds goes to Parts.
 
+Freeze built (2026-10-25, step 5):
+- **The objects.** `AssemblyObject::Freeze` (`Prop_NoRecompute`, and
+  `PartialTrigger` as Assembly3's). Freezing calls `refreshFrozenShape()`:
+  - it makes the Parts group if there is none, an `Assembly::PartsGroup`
+    (`App::Part::addPartsGroup()` takes the type from
+    `getPartsGroupType()`), replacing a plain one;
+  - it stores the compound of the visible components it lists, at their
+    placements, in the group's `Shape`.
+  Unfreezing clears the shape and leaves the group. Refresh is
+  `refreshFrozenShape()` from Python, or "Refresh frozen shape" in the
+  menu. `removePartsGroup()` throws while frozen.
+- **Frozen behaviour.** `solve()` returns at once. `getSubObjects()`
+  answers the Parts group alone, whose `getSubObject()` serves the stored
+  shape and its elements. Freezing purges the touched flags of the
+  assembly and the group: a frozen assembly saved touched would make a
+  partial load reload in full.
+- **Partial loading.** The assembly answers `canLoadPartial` 1; an aux
+  group (`AuxGroup::canLoadPartial`) and a `Part::Element` answer what
+  their owner does. That needed one change to the core rule
+  (`_loadDeps`, `App/Document.cpp`): under an object answering 1, a
+  dependency that answers 1 itself is restored the same way, where it used
+  to be only created. A flat container needs it: the assembly's `Group`
+  holds every component and joint, so its groups and elements are
+  dependencies of the same object as the components.
+- **A borrowed shape needs its source.** The stored compound and the
+  elements' copies borrow sub-shapes from the components' files
+  (`docs/SharedShapeStorage.md` sec 12.7). A partial load released the
+  files of objects it did not restore at `endRestore()`, before the lazy
+  parse asked for them, so every restored shape came back null ("Cannot
+  resolve"). A partially loaded document now keeps that content
+  (`FileBlobManager::endRestore(keepUnclaimed)`), until its next restore.
+  Reviewed with the session that owns the blob store; `importObjects()`
+  has the same shape of problem and is not changed.
+- **GUI.** `AssemblyGui::ViewProviderPartsGroup` draws `Shape` through a
+  secondary `PartGui::ViewProviderPart`. While frozen, the components are
+  claimed in 3D by the Parts group, under an `SoSwitch` that draws nothing.
+  Merely leaving them out of the assembly's claim does not hide them: an
+  unclaimed child is drawn at the top of the scene. The assembly's menu has
+  "Freeze", "Refresh frozen shape" and "Parts group" (disabled while
+  frozen), and its icon is Assembly3's frozen one.
+- **Tests.** `TestFreeze` (8): the compound of the visible components; no
+  solve; refresh only on demand; unfreeze; a plain Parts group replaced;
+  saved and reopened; a parent reopened over a frozen child, which
+  restores the assembly, its groups and elements with their shapes,
+  creates the components and joints only, and still solves its own joint
+  on the element; and over a child not frozen, which loads in full. A GUI
+  probe checked the drawing, undo and redo, and the link in the parent.
+- **Found, not fixed:** an assembly's shape (`Part.getShape`, export)
+  misses components. The export list leaves out a child another child
+  refers to, and here the Parts group lists the components, a grounded
+  joint names its part, and a joint holds its element links
+  (`GeoFeatureGroupExtension::buildExport`, and
+  `ViewProviderGroupExtension::buildExport` with a view). An assembly
+  should export its components and nothing else.
+
 ## 4. Elements and ElementLinks
 
 ### 4.1 What they are
@@ -1345,7 +1400,8 @@ Built as step 4b (2026-10-25), the joints the task makes:
    Physics items come with the dynamics phase (`docs/AssemblyDynamics.md`),
    none exist yet.
 5. Partial loading through element links (sec 4.4), Freeze with the Parts
-   group's compound (sec 3.1), and repair (sec 4.5).
+   group's compound (sec 3.1), and repair (sec 4.5). Freeze, with the
+   partial loading of a frozen assembly, built (2026-10-25, sec 3.1).
 
 ## 10. Open questions
 

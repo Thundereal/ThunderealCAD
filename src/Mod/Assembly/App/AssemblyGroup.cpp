@@ -21,10 +21,14 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <cstring>
+
 #include <App/Document.h>
+#include <App/ElementNamingUtils.h>
 #include <App/GroupExtension.h>
 #include <App/PropertyPythonObject.h>
 #include <Base/Exception.h>
+#include <Mod/Part/App/PartPyCXX.h>
 
 #include "AssemblyGroup.h"
 #include "AssemblyGroupPy.h"
@@ -87,4 +91,47 @@ void AssemblyGroup::onSettingDocument()
             }
         }
     );
+}
+
+
+PROPERTY_SOURCE(Assembly::PartsGroup, App::PartAuxGroup)
+
+PartsGroup::PartsGroup()
+{
+    ADD_PROPERTY_TYPE(
+        Shape,
+        (Part::TopoShape()),
+        "Base",
+        App::Prop_Output,
+        "The components at their placements, kept while the assembly is frozen"
+    );
+}
+
+App::DocumentObject* PartsGroup::getSubObject(
+    const char* subname,
+    PyObject** pyObj,
+    Base::Matrix4D* mat,
+    bool transform,
+    int depth
+) const
+{
+    while (subname && *subname == '.') {
+        ++subname;
+    }
+    auto shape = Shape.getShape();
+    // A name through a component goes to it
+    if (shape.isNull()
+        || (subname && !Data::isMappedElement(subname) && std::strchr(subname, '.'))) {
+        return PartAuxGroup::getSubObject(subname, pyObj, mat, transform, depth);
+    }
+    if (pyObj) {
+        if (subname && *subname) {
+            shape = shape.getSubTopoShape(subname, true);
+        }
+        if (mat && !shape.isNull()) {
+            shape.transformShape(*mat, false, true);
+        }
+        *pyObj = Py::new_reference_to(Part::shape2pyshape(shape));
+    }
+    return const_cast<PartsGroup*>(this);
 }

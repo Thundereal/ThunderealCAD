@@ -284,6 +284,16 @@ AssemblyObject::AssemblyObject()
         "The solver backend this assembly is solved with, by name\n"
         "(AssemblyApp.getAvailableSolvers()). Empty: the one the preferences name."
     );
+    ADD_PROPERTY_TYPE(
+        Freeze,
+        (false),
+        "Assembly",
+        App::Prop_NoRecompute,
+        "Keep the components as one shape: the assembly is not solved, and a\n"
+        "document linking to it loads that shape in place of the components."
+    );
+    // As Assembly3's: the one change a partially loaded document takes
+    Freeze.setStatus(App::Property::PartialTrigger, true);
 
     // The workbench's Python decides "is this container a real assembly?" by
     // testing Type == "Assembly" (six sites in JointObject.py). Upstream stamps
@@ -356,11 +366,90 @@ void AssemblyObject::onChanged(const App::Property* prop)
         }
         updateSolveStatus();
     }
+    else if (prop == &Freeze && !isRestoring() && getDocument()
+             && !getDocument()->isPerformingTransaction()) {
+        if (getDocument()->testStatus(App::Document::PartialDoc)) {
+            FC_WARN(
+                getFullName() << ": the document is partially loaded, open it on its own "
+                                 "to take or drop the frozen shape"
+            );
+        }
+        else if (Freeze.getValue()) {
+            refreshFrozenShape();
+            App::Part::onChanged(prop);
+            // Nothing to recompute in a frozen assembly: saved touched, a
+            // document linking to it would load it in full
+            purgeTouched();
+            return;
+        }
+        else if (auto parts = freecad_cast<PartsGroup*>(getAuxGroup(PartsRole))) {
+            // Left for the user to remove, without the shape that is no
+            // longer kept in step
+            parts->Shape.setValue(::Part::TopoShape());
+        }
+    }
     App::Part::onChanged(prop);
+}
+
+void AssemblyObject::removePartsGroup()
+{
+    if (isFrozen()) {
+        THROWM(Base::RuntimeError, "A frozen assembly keeps its Parts group");
+    }
+    App::Part::removePartsGroup();
+}
+
+void AssemblyObject::refreshFrozenShape()
+{
+    auto group = getAuxGroup(PartsRole);
+    if (group && !group->isDerivedFrom<PartsGroup>()) {
+        // A plain one, made before the assembly had a kind of its own
+        App::Part::removePartsGroup();
+        group = nullptr;
+    }
+    auto parts = static_cast<PartsGroup*>(group ? group : addPartsGroup());
+    if (!parts) {
+        return;
+    }
+    std::vector<::Part::TopoShape> shapes;
+    for (auto obj : parts->Group.getValues()) {
+        if (!obj || !obj->Visibility.getValue()) {
+            continue;
+        }
+        auto shape = ::Part::Feature::getTopoShape(obj);
+        if (!shape.isNull()) {
+            shapes.push_back(shape);
+        }
+    }
+    ::Part::TopoShape compound;
+    if (!shapes.empty()) {
+        compound.makECompound(shapes);
+    }
+    parts->Shape.setValue(compound);
+    parts->purgeTouched();
+}
+
+int AssemblyObject::canLoadPartial() const
+{
+    return isFrozen() ? 1 : 0;
+}
+
+std::vector<std::string> AssemblyObject::getSubObjects(int reason) const
+{
+    if (reason == GS_DEFAULT && isFrozen()) {
+        if (auto parts = freecad_cast<PartsGroup*>(getAuxGroup(PartsRole))) {
+            return {std::string(parts->getNameInDocument()) + "."};
+        }
+    }
+    return App::Part::getSubObjects(reason);
 }
 
 int AssemblyObject::solve(bool enableRedo)
 {
+    if (isFrozen()) {
+        // Nothing moves in a frozen assembly
+        return 0;
+    }
     // updateSolveStatus() solves on demand; suppress that while a solve is running.
     Base::StateLocker lock(solveInProgress);
 

@@ -87,6 +87,11 @@ public:
     // The solver backend this assembly asks for by name (Solver::Registry);
     // empty: the preference Mod/Assembly/SolverBackend decides.
     App::PropertyString SolverBackend;
+    /** Frozen (docs/AssemblyObjectModel.md sec 3.1): the components are kept
+     * as one shape in the Parts group, the assembly is not solved, and a
+     * document linking to it restores that shape and its elements only
+     */
+    App::PropertyBool Freeze;
 
     /// returns the type name of the ViewProvider
     const char* getViewProviderName() const override
@@ -198,6 +203,24 @@ public:
     /// The roles of the assembly's aux groups: joints, grounding and rigid
     /// groups in Joints, simulations in Simulations, exploded views in Views
     bool isAuxGroupAllowed(const App::AuxGroup* group, const App::DocumentObject* obj) const override;
+    /// A frozen assembly keeps its Parts group
+    void removePartsGroup() override;
+
+    /** @name Freeze */
+    //@{
+    bool isFrozen() const
+    {
+        return Freeze.getValue();
+    }
+    /// Take the compound of the components again, into the Parts group
+    /// (made if there is none)
+    void refreshFrozenShape();
+    /// A frozen assembly is restored with its groups and elements, its
+    /// components and joints created only
+    int canLoadPartial() const override;
+    /// Frozen, the shape is the Parts group's
+    std::vector<std::string> getSubObjects(int reason = GS_DEFAULT) const override;
+    //@}
     template<typename T>
     T* getGroup();
 
@@ -306,6 +329,12 @@ public:
     // nothing was solved.
     std::vector<std::pair<std::string, double>> getSolverResiduals() const;
     fastsignals::signal<void()> signalSolverUpdate;
+
+protected:
+    const char* getPartsGroupType() const override
+    {
+        return "Assembly::PartsGroup";
+    }
 
 private:
     void rebuildRigidClusters();

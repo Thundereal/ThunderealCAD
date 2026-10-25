@@ -116,10 +116,16 @@ public:
 
     bool doubleClicked() override;
     void setupContextMenu(QMenu* menu, QObject* receiver, const char* member) override;
+    /// Freeze or unfreeze the assembly, in a transaction
+    void toggleFreeze();
+    /// Take the frozen shape again, in a transaction
+    void refreshFrozenShape();
     bool onDelete(const std::vector<std::string>& subNames) override;
     bool canDelete(App::DocumentObject* obj) const override;
 
     void updateData(const App::Property*) override;
+    /// Frozen, the Parts group draws the components' shape in their place
+    std::vector<App::DocumentObject*> claimChildren3D() const override;
 
     /** @name enter/exit edit mode */
     //@{

@@ -32,6 +32,7 @@
 #include <fastsignals/signal.h>
 
 #include <Mod/Assembly/AssemblyGlobal.h>
+#include <Mod/Part/App/PropertyTopoShape.h>
 
 namespace Assembly
 {
@@ -67,6 +68,37 @@ private:
     /// A child's proxy set after the child was added -- an upstream joint
     /// is made, then given its proxy -- changes the role it has
     fastsignals::scoped_connection connProxy;
+};
+
+/** The Parts group of an assembly (docs/AssemblyObjectModel.md sec 3.1)
+ *
+ * A Parts group with a shape: the compound of the components at their
+ * placements, which a frozen assembly keeps and shows in their place, and
+ * which a document linking to the assembly loads without them.
+ */
+class AssemblyExport PartsGroup: public App::PartAuxGroup
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::PartsGroup);
+
+public:
+    PartsGroup();
+
+    /// The components at their placements, taken when the assembly
+    /// freezes; empty when it is not frozen
+    Part::PropertyPartShape Shape;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderPartsGroup";
+    }
+    /// The stored shape, or an element of it, while there is one
+    App::DocumentObject* getSubObject(
+        const char* subname,
+        PyObject** pyObj,
+        Base::Matrix4D* mat,
+        bool transform,
+        int depth
+    ) const override;
 };
 
 }  // namespace Assembly

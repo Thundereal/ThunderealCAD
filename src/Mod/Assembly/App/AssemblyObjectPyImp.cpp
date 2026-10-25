@@ -126,6 +126,19 @@ PyObject* AssemblyObjectPy::ensureIdentityPlacements(PyObject* args) const
     Py_Return;
 }
 
+PyObject* AssemblyObjectPy::refreshFrozenShape(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        this->getAssemblyObjectPtr()->refreshFrozenShape();
+        Py_Return;
+    }
+    PY_CATCH
+}
+
 PyObject* AssemblyObjectPy::updateForFrame(PyObject* args) const
 {
     unsigned long index {};

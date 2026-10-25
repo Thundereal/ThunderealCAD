@@ -112,6 +112,7 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::Joint::init();
     Assembly::JointPython::init();
     Assembly::AssemblyGroup::init();
+    Assembly::PartsGroup::init();
     Assembly::GroundedJoint::init();
     Assembly::GroundedJointPython::init();
     Assembly::RigidGroup::init();

@@ -104,6 +104,14 @@ class AssemblyObject(Part):
         ...
 
     @constmethod
+    def refreshFrozenShape(self) -> None:
+        """
+        Take the compound of the visible components again, into the Parts
+        group, which is made if there is none. Freezing takes it once.
+        """
+        ...
+
+    @constmethod
     def clearUndo(self) -> None:
         """
         Clear the registered undo positions.

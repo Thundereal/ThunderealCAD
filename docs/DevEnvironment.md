@@ -546,6 +546,40 @@ Sources still carry `OCC_VERSION_HEX` guards (features that need the 8.0.1 fork
 change to a guarded path is not compile-checked here. `Mod/Part` could not build
 on 7.7.2 even before the prefixes were deleted.
 
+### Linking: an edited .cpp relinks one library (2026-10-25)
+
+`CMAKE_LINK_DEPENDS_NO_SHARED=ON` is in the tracked `conda-linux` preset, so
+every Linux conda preset inherits it. By default a target that links a shared
+library is relinked whenever that library is: editing one `.cpp` of
+`FreeCADApp` relinked 84 targets, of `FreeCADBase` 105, of `FreeCADGui` 39, of
+`Part` 40. On ELF the consumers resolve those symbols when they are loaded, not
+when they are linked, so the relink bought nothing. What does need a consumer
+rebuilt -- a changed declaration -- is a header change, which recompiles the
+consumer's objects and relinks it from those. The one thing it no longer
+catches at build time is a symbol removed from a library's `.cpp` while a
+consumer still calls it: that now shows as an `undefined symbol` when the
+consumer is loaded (`-z now`, so at load, not at first call).
+
+Measured on `build/conda-relwithdebinfo-801` (touch one `.cpp`, so ccache
+serves the compile and the time is the link work; `ninja` of the whole tree):
+
+| edited file | relink consumers | no relink |
+|---|---|---|
+| `src/App/DocumentObserver.cpp` | 35.5 s, 84 links | 4.0 s, 1 link |
+| `src/Gui/DocumentObserver.cpp` | 31.2 s, 39 links | 11.1 s, 1 link |
+| `src/Mod/Part/App/FeatureMirroring.cpp` | 24.5 s, 40 links | 4.5 s, 1 link |
+
+The Gui edit also recompiles 44 other `FreeCADGui` objects: any change in the
+target re-runs AUTOUIC, which rewrites the `ui_*.h` headers and so dirties
+every `.cpp` that includes one. ccache serves them (same content), so it costs
+seconds, not minutes.
+
+Changing the setting changes `build.ninja`, so after pulling it run the preset
+once (`cmake --preset conda-relwithdebinfo-801` on this box) -- see the
+preset/cache note in CLAUDE.md. The macOS and Windows presets do not carry it:
+neither was measured there, and MSVC already relinks a DLL's consumers only
+when its import library changes.
+
 ### A corrupt ninja deps log makes every build a near-full one
 
 **Symptom** (found 2026-09-23, `build/conda-relwithdebinfo-801`): `ninja

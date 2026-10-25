@@ -134,6 +134,10 @@
           "OCC_INCLUDE_DIR": {
             "type": "FILEPATH",
             "value": "${sourceDir}/.conda/freecad/include/opencascade"
+          },
+          "CMAKE_LINK_DEPENDS_NO_SHARED": {
+            "type": "BOOL",
+            "value": "ON"
           }
         }
       },

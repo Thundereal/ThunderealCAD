@@ -11266,7 +11266,7 @@ class TransactionBranchCases(unittest.TestCase):
         merged = doc.mergeLinkedSet(res["files"])
         self.assertEqual(merged["refused"], False, merged)
         ourPart = [d for d in FreeCAD.listDocuments().values()
-                   if d.FileName == os.path.join(ours, "Part.FCStd")][0]
+                   if samePath(d.FileName, os.path.join(ours, "Part.FCStd"))][0]
         self.assertEqual(doc.C.ExpressionEngine, [("Length", ourPart.Name + "#Box.Length")])
         allow(doc)
         self.assertEqual(doc.C.Length.Value, 25)
@@ -13104,7 +13104,7 @@ class TransactionTwoProcessCases(unittest.TestCase):
         FreeCAD.closeDocument(doc.Name)
         doc = self.track(FreeCAD.openDocument(path))
         doc.UndoMode = 1
-        self.assertEqual(doc.FileName, path)
+        self.assertTrue(samePath(doc.FileName, path), (doc.FileName, path))
         self.assertTrue(os.path.exists(os.path.join(self.dir, ".~Folder.open")))
         self.other(path, "doc.Box.Width = 30")
         self.assertTrue(doc.isFileChangedElsewhere())

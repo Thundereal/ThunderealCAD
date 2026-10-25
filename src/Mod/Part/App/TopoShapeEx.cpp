@@ -175,6 +175,12 @@
 # include <BRepLProp_SLProps.hxx>
 # include <BRepGProp_Face.hxx>
 #endif
+
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <Message_ProgressIndicator.hxx>
+#include <Message_ProgressScope.hxx>
+#include <chrono>
 #include <ShapeAnalysis_FreeBoundsProperties.hxx>
 #include <ShapeAnalysis_FreeBoundData.hxx>
 #include <ShapeAnalysis_FreeBounds.hxx>
@@ -5860,6 +5866,88 @@ TopoShape &TopoShape::makEDefeaturing(const TopoShape &shape,
     return makEShape(mkDefeaturing,shape,op);
 }
 
+namespace {
+// A progress indicator that breaks off what it is given after a time: a
+// fallback's defeaturing of B-spline faces, or its check, can run minutes to
+// no end (#273's Fillet001, two faces 0.3 wide at an edge: 130 s, nothing
+// taken out), and a fillet that fails is not to take minutes failing
+class Deadline : public Message_ProgressIndicator
+{
+public:
+    explicit Deadline(double seconds)
+        : end(std::chrono::steady_clock::now()
+              + std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                    std::chrono::duration<double>(seconds)))
+    {}
+    bool UserBreak() override
+    {
+        return std::chrono::steady_clock::now() > end;
+    }
+    void Show(const Message_ProgressScope &, const bool) override
+    {}
+private:
+    std::chrono::steady_clock::time_point end;
+};
+// what one defeaturing or check of a fallback may take
+const double FallbackSeconds = 3.0;
+
+bool isElementary(const TopoDS_Shape &face)
+{
+    switch (BRepAdaptor_Surface(TopoDS::Face(face), false).GetType()) {
+    case GeomAbs_Plane:
+    case GeomAbs_Cylinder:
+    case GeomAbs_Cone:
+    case GeomAbs_Sphere:
+    case GeomAbs_Torus:
+        return true;
+    default:
+        return false;
+    }
+}
+
+// Whether a face and the faces beside it (across its edges) are all planes,
+// cylinders, cones, spheres or tori: what a fallback may take out. Taking a
+// face out extends its neighbours over it, and with B-splines there the
+// boolean doing it can run minutes on one pair of an edge and a face --
+// past any time limit (#273's Fillet001, two faces 0.3 wide: 130 s)
+bool isElementaryAround(const TopoDS_Shape &face,
+                        const TopTools_IndexedDataMapOfShapeListOfShape &edgeFaces)
+{
+    if (!isElementary(face))
+        return false;
+    for (TopExp_Explorer xp(face, TopAbs_EDGE); xp.More(); xp.Next()) {
+        const int k = edgeFaces.FindIndex(xp.Current());
+        if (!k)
+            continue;
+        for (const auto &other : edgeFaces(k)) {
+            if (!other.IsSame(face) && !isElementary(other))
+                return false;
+        }
+    }
+    return true;
+}
+} // anonymous namespace
+
+bool TopoShape::isMadeClean(const TopoDS_Shape &shape, const TopoDS_Shape &source)
+{
+    if (shape.IsNull() || !BRepCheck_Analyzer(shape).IsValid())
+        return false;
+    TopTools_IndexedMapOfShape old;
+    TopExp::MapShapes(source, TopAbs_FACE, old);
+    std::vector<TopoDS_Shape> made;
+    for (TopExp_Explorer xp(shape, TopAbs_FACE); xp.More(); xp.Next()) {
+        if (!old.Contains(xp.Current()))
+            made.push_back(xp.Current());
+    }
+    try {
+        Handle(Deadline) deadline = new Deadline(FallbackSeconds);
+        return made.empty() || Part::RegionBooleanCheck(shape, made, deadline->Start()).empty();
+    }
+    catch (Standard_Failure &) {
+        return false;
+    }
+}
+
 bool TopoShape::makESliverFree(const TopoShape &shape,
                                const std::vector<TopoShape> &edges,
                                double maxWidth,
@@ -5885,6 +5973,8 @@ bool TopoShape::makESliverFree(const TopoShape &shape,
     double bound = 0.0;
     TopTools_IndexedMapOfShape faces;
     TopExp::MapShapes(shape.getShape(), TopAbs_FACE, faces);
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(shape.getShape(), TopAbs_EDGE, TopAbs_FACE, edgeFaces);
     for (int i = 1; i <= faces.Extent(); ++i) {
         const TopoDS_Shape &face = faces(i);
         bool touches = false, holds = false;
@@ -5900,7 +5990,7 @@ bool TopoShape::makESliverFree(const TopoShape &shape,
         if (perimeter.Mass() <= Precision::Confusion())
             continue;
         double width = 2.0 * area.Mass() / perimeter.Mass();
-        if (width >= maxWidth)
+        if (width >= maxWidth || !isElementaryAround(face, edgeFaces))
             continue;
         slivers.push_back(face);
         bound += width * area.Mass();
@@ -5915,7 +6005,8 @@ bool TopoShape::makESliverFree(const TopoShape &shape,
     for (const auto &face : slivers)
         mkDefeaturing.AddFaceToRemove(face);
     try {
-        mkDefeaturing.Build();
+        Handle(Deadline) deadline = new Deadline(FallbackSeconds);
+        mkDefeaturing.Build(deadline->Start());
     }
     catch (Standard_Failure &) {
         return false;
@@ -5927,8 +6018,7 @@ bool TopoShape::makESliverFree(const TopoShape &shape,
             return false;
     }
     TopoShape result(mkDefeaturing.Shape());
-    std::ostringstream ss;
-    if (!result.analyze(true, ss))
+    if (!isMadeClean(result.getShape(), shape.getShape()))
         return false;
     if (shape.hasSubShape(TopAbs_SOLID)) {
         GProp_GProps before, after;
@@ -5946,6 +6036,171 @@ bool TopoShape::makESliverFree(const TopoShape &shape,
     if (history)
         *history = mkDefeaturing.History();
     makEShape(mkDefeaturing,shape,op);
+    return true;
+}
+
+bool TopoShape::makEFeatureFree(const TopoShape &shape,
+                                const std::vector<TopoShape> &edges,
+                                double reach,
+                                Handle(BRepTools_History) *history,
+                                std::vector<TopoShape> *removed,
+                                TopoShape *pockets,
+                                TopoShape *bosses,
+                                const char *op)
+{
+    if(!op) op = Part::OpCodes::Defeaturing;
+    if (shape.isNull() || edges.empty() || reach <= 0.0)
+        return false;
+    // at most this many faces to a feature, all within this many reaches
+    const int maxFaces = 12;
+    const double farFactor = 4.0;
+
+    TopTools_IndexedMapOfShape vertices, edgeMap;
+    BRep_Builder builder;
+    TopoDS_Compound edgeComp;
+    builder.MakeCompound(edgeComp);
+    for (const auto &e : edges) {
+        if (e.isNull())
+            continue;
+        edgeMap.Add(e.getShape());
+        TopExp::MapShapes(e.getShape(), TopAbs_VERTEX, vertices);
+        builder.Add(edgeComp, e.getShape());
+    }
+    if (edgeMap.IsEmpty())
+        return false;
+
+    TopTools_IndexedMapOfShape faces;
+    TopExp::MapShapes(shape.getShape(), TopAbs_FACE, faces);
+    const int n = faces.Extent();
+    // the faces that hold an edge or touch one of its vertices: no feature's
+    std::vector<bool> excluded(n + 1, false);
+    for (int i = 1; i <= n; ++i) {
+        for (TopExp_Explorer xp(faces(i), TopAbs_EDGE); xp.More() && !excluded[i]; xp.Next())
+            excluded[i] = edgeMap.Contains(xp.Current());
+        for (TopExp_Explorer xp(faces(i), TopAbs_VERTEX); xp.More() && !excluded[i]; xp.Next())
+            excluded[i] = vertices.Contains(xp.Current());
+    }
+    // The distance of a face from the edges: past four reaches by their
+    // boxes, the boxes' gap does -- an exact distance to a B-spline face can
+    // take seconds, and all the faces are asked
+    Bnd_Box edgeBox;
+    BRepBndLib::Add(edgeComp, edgeBox);
+    std::vector<double> distance(n + 1, -1.0);
+    auto distanceOf = [&](int i) {
+        if (distance[i] < 0.0) {
+            Bnd_Box faceBox;
+            BRepBndLib::Add(faces(i), faceBox);
+            const double gap = faceBox.Distance(edgeBox);
+            if (gap > farFactor * reach) {
+                distance[i] = gap;
+            }
+            else {
+                BRepExtrema_DistShapeShape dist(faces(i), edgeComp);
+                distance[i] = dist.IsDone() ? dist.Value() : Precision::Infinite();
+            }
+        }
+        return distance[i];
+    };
+    // the faces beside each face, across its edges
+    TopTools_IndexedDataMapOfShapeListOfShape edgeFaces;
+    TopExp::MapShapesAndAncestors(shape.getShape(), TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+
+    // The features: each face within reach grown over its neighbours, the
+    // excluded faces its border
+    std::vector<bool> seen(n + 1, false);
+    std::vector<std::vector<int>> features;
+    for (int seed = 1; seed <= n; ++seed) {
+        if (seen[seed] || excluded[seed] || distanceOf(seed) >= reach)
+            continue;
+        std::vector<int> feature, stack{seed};
+        bool small = true;
+        while (!stack.empty()) {
+            int i = stack.back();
+            stack.pop_back();
+            if (seen[i])
+                continue;
+            seen[i] = true;
+            feature.push_back(i);
+            if (static_cast<int>(feature.size()) > maxFaces || distanceOf(i) > farFactor * reach
+                    || !isElementaryAround(faces(i), edgeFaces))
+                small = false;
+            for (TopExp_Explorer xp(faces(i), TopAbs_EDGE); xp.More(); xp.Next()) {
+                const int k = edgeFaces.FindIndex(xp.Current());
+                if (!k)
+                    continue;
+                for (const auto &other : edgeFaces(k)) {
+                    const int j = faces.FindIndex(other);
+                    if (j && !seen[j] && !excluded[j])
+                        stack.push_back(j);
+                }
+            }
+        }
+        if (small)
+            features.push_back(std::move(feature));
+    }
+    if (features.empty())
+        return false;
+
+    auto takeOut = [&](const std::vector<int> &which, BRepAlgoAPI_Defeaturing &mk) {
+        mk.SetRunParallel(true);
+        mk.SetToFillHistory(true);
+        mk.SetShape(shape.getShape());
+        for (int i : which)
+            mk.AddFaceToRemove(faces(i));
+        try {
+            Handle(Deadline) deadline = new Deadline(FallbackSeconds);
+            mk.Build(deadline->Start());
+        }
+        catch (Standard_Failure &) {
+            return false;
+        }
+        if (!mk.IsDone() || mk.Shape().IsNull())
+            return false;
+        for (int i : which) {
+            if (!mk.IsDeleted(faces(i)))
+                return false;
+        }
+        return isMadeClean(mk.Shape(), shape.getShape());
+    };
+    // each by itself, then those that come out clean together
+    std::vector<int> kept;
+    for (const auto &feature : features) {
+        BRepAlgoAPI_Defeaturing mk;
+        if (takeOut(feature, mk))
+            kept.insert(kept.end(), feature.begin(), feature.end());
+    }
+    if (kept.empty())
+        return false;
+    BRepAlgoAPI_Defeaturing mkDefeaturing;
+    if (!takeOut(kept, mkDefeaturing))
+        return false;
+
+    TopoShape freed(0, Hasher);
+    freed.makEShape(mkDefeaturing, shape, op);
+    if (pockets || bosses) {
+        // what the features took away and added: the shape without them
+        // and the shape, the one less the other
+        try {
+            if (pockets)
+                pockets->makEBoolean(Part::OpCodes::Cut, {freed, shape});
+            if (bosses)
+                bosses->makEBoolean(Part::OpCodes::Cut, {shape, freed});
+        }
+        catch (Base::Exception &) {
+            return false;
+        }
+        catch (Standard_Failure &) {
+            return false;
+        }
+    }
+    if (removed) {
+        removed->clear();
+        for (int i : kept)
+            removed->push_back(TopoShape(faces(i)));
+    }
+    if (history)
+        *history = mkDefeaturing.History();
+    *this = freed;
     return true;
 }
 

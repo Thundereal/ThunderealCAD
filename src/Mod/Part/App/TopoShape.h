@@ -2426,6 +2426,34 @@ public:
         return TopoShape(0,Hasher).makEDefeaturing(*this,faces,op);
     }
 
+    /* Take out the sliver faces at the given edges, for a fillet or chamfer
+     * that failed there to be tried again
+     *
+     * A sliver is a face narrower than maxWidth -- its width taken as twice
+     * its area over its perimeter -- that touches a vertex of one of the
+     * edges and holds none of them: most often a step left between two
+     * features that were meant to meet. The slivers are removed
+     * (BRepAlgoAPI_Defeaturing, their neighbours extended over them), and
+     * the removal is kept only when every sliver went, the result passes
+     * BRepCheck and BOP's check, and its volume moved no more than the
+     * slivers' width times their area.
+     *
+     * @param source: the source shape
+     * @param edges: the edges of the source the slivers are looked for at
+     * @param maxWidth: the width a sliver is narrower than
+     * @param history: when given, the removal's history, to find a
+     *                 sub-shape of the source in the result
+     * @param removed: when given, the slivers removed, faces of the source
+     * @param op: optional string to be encoded into topo naming for
+     *            indicating the operation
+     *
+     * @return Whether slivers were removed. If so, this TopoShape is replaced
+     *         with the result; if not, it is left as it was.
+     */
+    bool makESliverFree(const TopoShape &source, const std::vector<TopoShape> &edges,
+                        double maxWidth, opencascade::handle<BRepTools_History> *history=nullptr,
+                        std::vector<TopoShape> *removed=nullptr, const char *op=nullptr);
+
     /* Make a shell using this shape
      * @param silent: whether to throw exception on failure
      * @param op: optional string to be encoded into topo naming for indicating

@@ -721,6 +721,113 @@ links store `$$Elements.` and `$PinEnd.` instead.
   `getPropertyByName("...")` calls, which is how an object with a motion's
   property names came to be taken for a motion.
 
+### 7.1 The joint (step 4a)
+
+- **`Assembly::Joint`**, an `App::DocumentObject` with
+  `App::SuppressibleExtension` (`Suppressed`, as the Python joint has).
+  `Assembly::JointPython` lets a Python view provider and task panel attach
+  to it, so the joint's markers (`JointObject.ViewProviderJoint`) keep
+  working while the data is C++.
+- **Properties, upstream's names where the meaning is upstream's**:
+  `JointType` (the same enumeration and order as `JointObject.JointTypes`),
+  `Distance`, `Distance2`, `Angle`, the limits (`EnableLengthMin` ...
+  `AngleMax`), and `Placement1` / `Placement2`, the two joint coordinate
+  systems relative to each side's component, as the Python joint's are
+  relative to their object, output only (the markers draw them; nothing
+  reads them back). `ElementLink1` / `ElementLink2`
+  replace `Reference1/2` and `Detach1/2`: each is a `PropertyLink` to a
+  `Part::ElementLink`, whose own `Offset` is the picked vertex (sec 4.2).
+  `Offset1` / `Offset2` stay, as upstream's: the user's offsets of the two
+  frames, applied after the element link's, so the joint task's offset and
+  rotation keep their meaning and an upstream joint's offsets carry over as
+  they are (step 4c). The frame of a side is the element's frame, then the
+  offsets of the elements down the chain (the deepest first), then the
+  element link's `Offset`, then the joint's.
+- **Ownership: flat, as everything in the container** (sec 3). The element
+  links are direct children of the assembly, so they are in its coordinate
+  system and link to their siblings, with no special case in
+  `GeoFeatureGroupExtension` (an object in a plain group inside a Part is a
+  direct child of the Part too, which is what makes that work). The joint
+  holds them: it deletes them when it is deleted, its view provider claims
+  them, and the assembly's tree leaves out the element links a joint holds.
+- **A side resolves to** (`Assembly::JointSide`): the moving component (a
+  direct child of the assembly: the element link's `Element` object, or,
+  for a convenience element in the assembly's own Elements group, that
+  element's `Target` object); the element's shape in the assembly's
+  coordinate system (resolved live through the component, the element
+  link's stored copy when that fails, sec 4.4); and the frame on it.
+- **The frame** is `UtilsAssembly.findPlacement`'s, ported to C++ on a
+  shape (`Assembly::findElementFrame`): the same rules for a vertex, a
+  line, a circle, another planar curve, a plane, a cylinder, a cone, a
+  sphere, a torus, and a whole object. The vertex upstream picks with a face
+  becomes the element link's `Offset` (sec 4.2), so the frame needs no
+  second sub-element.
+- **The builder reads sides, not properties.** `AssemblyObject` asks
+  `JointSide` for a joint's component, element and frame. A Python joint
+  answers from `Reference1/2` and `Placement1/2` as today, so both kinds
+  solve side by side until the converter (step 4c) retires the Python one.
+- **Making one from picks** (`AssemblyObject.makeJoint(type, pick1,
+  pick2)`, a pick being `(component, subname)` as a selection gives it):
+  - the component declares elements (an `App::Part`, a Body, an assembly,
+    or a link to one): the element is found or made in its Elements group
+    and the link goes `(component, "$$Elements.$Label.")`;
+  - otherwise a convenience element `_Element` is made in the assembly's
+    own Elements group and the link goes `(Elements, "$_Element.")`;
+  - a second sub-element in the pick (upstream's face plus vertex) becomes
+    the element link's `Offset`.
+  Grounding and rigid groups stay as they are in this step: they name whole
+  components, not geometry.
+
+Built as step 4a (2026-10-25):
+
+- `Assembly::Joint` and `Assembly::JointPython` (`App/Joint.h`), with
+  `Assembly::findElementFrame` and `Assembly::JointSide`;
+  `AssemblyObject.makeJoint(type, pick1, pick2)` in Python, and on the
+  joint `getComponent(side)`, `getFrame(side)` (the frame in the
+  assembly's coordinate system, resolved now), `setSide(side, component,
+  subname, vertex)` and `clearSide(side)`. An element link a side lets go of
+  is deleted unless another joint uses it, and with it the convenience
+  element it used when no other element link does.
+- **The reference helpers answer for both kinds** of joint. They keep the
+  Python joint's property names ("Reference1", "Reference2") as the names
+  of the sides (`typedJointSide`): `getMovingPartFromRef` gives the side's
+  component, `getObjFromJointRef` and `getLinkedObjFromRef` its element
+  link, `getElementFromProp` names the element link's copy ("Face1"), so
+  the Distance classification, the radii and the refusals read the copy.
+  Branches of their own: the side placement, the marker
+  (`handleOneSideOfJoint`), rack and pinion, `swapJCS`, the current value,
+  and the joint lists (`getJoints`, the malformed check, `JointGroup`). The
+  by-name readers of the type, the distances, the angle, the limits and
+  `Suppressed` read the C++ joint's properties unchanged.
+- **A copy goes stale when a solve moves its component.** A solve writes
+  placements and purges the touch (`setNewPlacements`), so nothing
+  recomputes after it. Two things follow:
+  - a side is resolved through a convenience element's target, not
+    through the element's copy, which is where the component was;
+  - the copies that follow a component in the assembly's coordinate
+    system (its element links, the convenience elements on it) are moved
+    with it where the solve writes its placement
+    (`Joint::relocateCopies`): a relocation of the same shape, as sec 4.3
+    has it. `Placement1/2` are relative to the components for the same
+    reason.
+- Found on the way: an Elements group made the part's link-scope check
+  warn ("Link(s) to object(s) 'Elements' go out of the allowed scope") on
+  every recompute, for a plain `App::Part` too, since step 3.
+  `OriginGroupExtension::hasObject` now counts the Elements group and its
+  elements as the container's, as it counts the origin.
+- Not yet: cam joints (`CamJoint.cpp` reads `Reference1`), C++ joints in a
+  flexible sub-assembly (`AssemblyLink` mirrors joints by property name),
+  the markers (4b), and a whole-object side on `App::Line` (upstream's
+  axis roles).
+- Tests: `AssemblyTests/TestElementJoint.py` (15): the sides for plain
+  parts and for a part that declares elements, reuse of an element, the
+  frames of a face, a circle and a cylinder, a vertex as the offset, the
+  joint's offset after it; Fixed, Revolute (the same pose as the Python
+  joint from the same start) and Distance solved; malformed when both
+  sides are one part; the sides from Python; deleting the joint deletes
+  its element links and an unused convenience element; saved and
+  restored.
+
 ## 8. Upstream files and commits
 
 - **Opening upstream 1.0 and 1.1 files**: a converter runs on restore and
@@ -768,8 +875,22 @@ links store `$$Elements.` and `$PinEnd.` instead.
 3. `Part::Element` and `Part::ElementLink`, the Owning aux group, and
    Elements on `App::Part` and Body (done 2026-10-24, sec 4.3), with the
    SolidBody views (done 2026-10-24, sec 5.3).
-4. The C++ assembly objects (joint, simulation, motion, Physics items,
-   exploded view), the solver builder on them, and the upstream converter.
+4. The C++ assembly objects, the solver builder on them, and the
+   converters. In parts, each kept green against the existing suites:
+   - 4a. `Assembly::Joint` and the builder reading joint sides (sec 7.1),
+     with the Python joint still solving beside it.
+   - 4b. The joint task panel and commands making C++ joints from picks,
+     with the markers on them; grounding and rigid groups as C++ objects.
+   - 4c. The upstream converter on restore (sec 8), which retires the
+     Python joint and the builder's property reads.
+   - 4d. Simulation, motion, exploded view and snapshot as C++ objects,
+     with the same converter.
+   - 4e. Auto as Assembly's group mode; Joints, Simulations and Views as
+     aux groups of the assembly in place of `JointGroup`, `SimulationGroup`
+     and `ViewGroup`.
+   - 4f. The Assembly3 converter, on the bundled Assembly3 code.
+   Physics items come with the dynamics phase (`docs/AssemblyDynamics.md`),
+   none exist yet.
 5. Partial loading through element links (sec 4.4), Freeze with the Parts
    group's compound (sec 3.1), and repair (sec 4.5).
 

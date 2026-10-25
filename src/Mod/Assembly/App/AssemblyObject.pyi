@@ -254,5 +254,26 @@ class AssemblyObject(Part):
         Returns: a dict {joint name: error}; empty when nothing was solved.
         """
         ...
+    def makeJoint(self, jointType: str, pick1: tuple, pick2: tuple, /) -> DocumentObject:
+        """
+        Make a C++ joint (Assembly::Joint) in the assembly's joint group, its
+        two sides element links made from picks (docs/AssemblyObjectModel.md
+        sec 7.1).
+
+        Args:
+        jointType: a name of JointObject.JointTypes ("Fixed", "Revolute", ...).
+        pick1, pick2: (component, subname) or (component, subname, vertex):
+            a direct child of the assembly, the element in it as a selection
+            gives it ("Face6", "Pad.Face6"), and optionally a vertex placing
+            the joint's origin on the element, as upstream picks it.
+
+        The element is declared in the component when it declares elements
+        (an App::Part, a Body, an assembly, or a link to one), reusing one
+        that names the same geometry; otherwise it is a convenience element
+        in the assembly's own Elements group.
+
+        Returns: the joint.
+        """
+        ...
     Joints: Final[list]
     """A list of all joints this assembly has."""

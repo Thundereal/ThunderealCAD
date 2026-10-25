@@ -29,6 +29,7 @@
 #include <Base/Tools.h>
 
 #include "Groups.h"
+#include "Joint.h"
 #include "BomGroupPy.h"
 #include "JointGroupPy.h"
 #include "SimulationGroupPy.h"
@@ -80,6 +81,10 @@ std::vector<App::DocumentObject*> JointGroup::getJoints()
             continue;
         }
 
+        if (joint->isDerivedFrom<Joint>()) {
+            joints.push_back(joint);
+            continue;
+        }
         auto proxy = dynamic_cast<App::PropertyPythonObject*>(joint->getPropertyByName("Proxy"));
         if (proxy) {
             if (proxy->getValue().hasAttr("setJointConnectors")) {

@@ -62,6 +62,7 @@
 #include "AssemblyUtils.h"
 #include "CamJoint.h"
 #include "Groups.h"
+#include "Joint.h"
 #include "Solver/Backend.h"
 #include "Solver/ReferenceBackend.h"
 #include "Solver/Registry.h"
@@ -91,6 +92,14 @@ Base::Placement getJointSideGlobalPlacement(
 {
     if (!joint) {
         return {};
+    }
+
+    if (int side = typedJointSide(joint, refName)) {
+        // A C++ joint's frame is in its assembly's coordinate system
+        auto* typed = static_cast<Joint*>(joint);
+        auto* assembly = typed->getAssembly();
+        return (assembly ? assembly->globalPlacement() : Base::Placement())
+            * typed->getSide(side).frame;
     }
 
     auto* ref = joint->getPropertyByName<App::PropertyXLinkSub>(refName);
@@ -481,7 +490,8 @@ std::string AssemblyObject::jointNameOf(Solver::Id joint) const
     App::DocumentObject* docObj = getDocument()->getObject(name.c_str());
 
     // Only objects that are actual joints in the document.
-    if (!docObj || !docObj->getPropertyByName("Reference1")) {
+    if (!docObj
+        || (!docObj->getPropertyByName("Reference1") && !docObj->isDerivedFrom<Joint>())) {
         return {};
     }
     return docObj->getNameInDocument();
@@ -1313,8 +1323,10 @@ void AssemblyObject::setNewPlacements(
             continue;
         }
         if (!propPlacement->getValue().isSame(newPlacement)) {
+            const Base::Placement delta = newPlacement * propPlacement->getValue().inverse();
             propPlacement->setValue(newPlacement);
             obj->purgeTouched();
+            Joint::relocateCopies(this, obj, delta);
         }
     }
 }
@@ -1547,6 +1559,10 @@ std::vector<App::DocumentObject*> AssemblyObject::getJoints(bool delBadJoints, b
             continue;
         }
 
+        if (joint->isDerivedFrom<Joint>()) {
+            joints.push_back(joint);
+            continue;
+        }
         auto proxy = dynamic_cast<App::PropertyPythonObject*>(joint->getPropertyByName("Proxy"));
         if (proxy) {
             if (proxy->getValue().hasAttr("setJointConnectors")) {
@@ -1583,7 +1599,8 @@ void AssemblyObject::collectMalformedJoints()
 
     Base::PyGILStateLocker lock;
     for (auto* joint : jointGroup->getObjects()) {
-        if (!joint || !joint->getPropertyByName("Reference1")) {
+        const bool typed = joint && joint->isDerivedFrom<Joint>();
+        if (!joint || (!typed && !joint->getPropertyByName("Reference1"))) {
             continue;
         }
         auto* suppressed = dynamic_cast<App::PropertyBool*>(joint->getPropertyByName("Suppressed"));
@@ -1591,7 +1608,7 @@ void AssemblyObject::collectMalformedJoints()
             continue;
         }
         auto* proxy = dynamic_cast<App::PropertyPythonObject*>(joint->getPropertyByName("Proxy"));
-        if (!proxy || !proxy->getValue().hasAttr("setJointConnectors")) {
+        if (!typed && (!proxy || !proxy->getValue().hasAttr("setJointConnectors"))) {
             continue;
         }
 
@@ -1610,6 +1627,10 @@ void AssemblyObject::collectMalformedJoints()
 
 bool AssemblyObject::isJointRefUsable(App::DocumentObject* joint, const char* propName)
 {
+    if (int side = typedJointSide(joint, propName)) {
+        // The element must resolve, or the element link keep a copy of it
+        return static_cast<Joint*>(joint)->getSide(side).isValid();
+    }
     if (!getObjFromJointRef(joint, propName)) {
         return false;
     }
@@ -2007,16 +2028,17 @@ std::vector<ObjRef> AssemblyObject::getConnectedParts(
             continue;
         }
 
+        const bool typed = joint->isDerivedFrom<Joint>();
         if (obj1 == part) {
             auto* ref = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference2"));
-            if (!ref) {
+            if (!ref && !typed) {
                 continue;
             }
             connectedParts.push_back({obj2, ref});
         }
         else if (obj2 == part) {
             auto* ref = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference1"));
-            if (!ref) {
+            if (!ref && !typed) {
                 continue;
             }
             connectedParts.push_back({obj1, ref});
@@ -2790,6 +2812,30 @@ Solver::Id AssemblyObject::handleOneSideOfJoint(
     const std::string& markerName
 )
 {
+    if (int side = typedJointSide(joint, propRefName)) {
+        // A C++ joint: the frame is in the assembly's coordinate system, and
+        // the component a direct child of it
+        const auto jointSide = static_cast<Joint*>(joint)->getSide(side);
+        if (!jointSide.isValid()) {
+            Base::Console().Warning(
+                "The %s side of Joint %s is bad.\n",
+                side == 1 ? "first" : "second",
+                joint->getFullName()
+            );
+            return Solver::NoId;
+        }
+        MbDPartData data = getMbDData(jointSide.component);
+        Base::Placement plc
+            = getPlacementFromProp(jointSide.component, "Placement").inverse() * jointSide.frame;
+        if (!data.offsetPlc.isIdentity()) {
+            plc = data.offsetPlc * plc;
+        }
+        std::string markerNameCopy = markerName.empty() ? joint->getFullName() : markerName;
+        auto mbdMarker = makeMbdMarker(markerNameCopy, plc);
+        mbdMarker.body = data.body;
+        return solverModel->addFrame(mbdMarker);
+    }
+
     App::DocumentObject* part = getMovingPartFromRef(joint, propRefName);
     App::DocumentObject* obj = getObjFromJointRef(joint, propRefName);
 
@@ -2870,13 +2916,24 @@ void AssemblyObject::getRackPinionMarkers(
     // make the pinion plc relative to the rack placement.
     auto* ref1 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName(jcsRef(1)));
     auto* ref2 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName(jcsRef(2)));
-    if (!ref1 || !ref2) {
-        return;
+    // A C++ joint: both frames are in the assembly's coordinate system, which
+    // plays the part of the rack object's below
+    const bool typed = joint->isDerivedFrom<Joint>();
+    Base::Placement rack_global_plc;
+    if (typed) {
+        auto* typedJoint = static_cast<Joint*>(joint);
+        plc1 = typedJoint->getSide(typedJointSide(joint, jcsRef(1))).frame;
+        plc2 = typedJoint->getSide(typedJointSide(joint, jcsRef(2))).frame;
     }
-    Base::Placement pinion_global_plc = getGlobalPlacement(obj2, ref2);
-    plc2 = pinion_global_plc * plc2;
-    Base::Placement rack_global_plc = getGlobalPlacement(obj1, ref1);
-    plc2 = rack_global_plc.inverse() * plc2;
+    else {
+        if (!ref1 || !ref2) {
+            return;
+        }
+        Base::Placement pinion_global_plc = getGlobalPlacement(obj2, ref2);
+        plc2 = pinion_global_plc * plc2;
+        rack_global_plc = getGlobalPlacement(obj1, ref1);
+        plc2 = rack_global_plc.inverse() * plc2;
+    }
 
     // The rot of the rack placement should be the same as the pinion, but with X axis along the
     // slider axis.
@@ -2905,7 +2962,10 @@ void AssemblyObject::getRackPinionMarkers(
     // Then end of processing similar to handleOneSideOfJoint :
     MbDPartData data1 = getMbDData(part1);
     Solver::Id mbdPart = data1.body;
-    if (obj1->getNameInDocument() != part1->getNameInDocument()) {
+    if (typed) {
+        plc1 = getPlacementFromProp(part1, "Placement").inverse() * plc1;
+    }
+    else if (obj1->getNameInDocument() != part1->getNameInDocument()) {
         plc1 = rack_global_plc * plc1;
 
         Base::Placement part_global_plc = getGlobalPlacement(part1, ref1);

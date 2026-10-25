@@ -26,7 +26,46 @@
 #include "AssemblyObjectPy.h"
 #include "AssemblyObjectPy.cpp"
 
+#include "Joint.h"
+
 using namespace Assembly;
+
+namespace
+{
+// A pick: (component, subname) or (component, subname, vertex)
+bool parsePick(PyObject* pick, App::DocumentObject*& obj, const char*& sub, const char*& vertex)
+{
+    PyObject* pyobj = nullptr;
+    sub = "";
+    vertex = nullptr;
+    if (!PyArg_ParseTuple(pick, "O!|ss", &(App::DocumentObjectPy::Type), &pyobj, &sub, &vertex)) {
+        return false;
+    }
+    obj = static_cast<App::DocumentObjectPy*>(pyobj)->getDocumentObjectPtr();
+    return true;
+}
+}  // namespace
+
+PyObject* AssemblyObjectPy::makeJoint(PyObject* args)
+{
+    const char* type = nullptr;
+    PyObject* pick1 = nullptr;
+    PyObject* pick2 = nullptr;
+    if (!PyArg_ParseTuple(args, "sO!O!", &type, &PyTuple_Type, &pick1, &PyTuple_Type, &pick2)) {
+        return nullptr;
+    }
+    App::DocumentObject *obj1 = nullptr, *obj2 = nullptr;
+    const char *sub1 = nullptr, *sub2 = nullptr, *vertex1 = nullptr, *vertex2 = nullptr;
+    if (!parsePick(pick1, obj1, sub1, vertex1) || !parsePick(pick2, obj2, sub2, vertex2)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto joint = Joint::make(getAssemblyObjectPtr(), type, obj1, sub1, vertex1, obj2, sub2, vertex2);
+        return joint->getPyObject();
+    }
+    PY_CATCH;
+}
 
 // returns a string which represents the object e.g. when printed in python
 std::string AssemblyObjectPy::representation() const

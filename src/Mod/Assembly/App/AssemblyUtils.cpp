@@ -22,6 +22,7 @@
  ***************************************************************************/
 
 #include <algorithm>
+#include <cstring>
 #include <iterator>
 
 #include <BRepAdaptor_Curve.hxx>
@@ -58,6 +59,8 @@
 #include "ElementGeometry.h"
 #include "AssemblyObject.h"
 #include "AssemblyLink.h"
+#include "Joint.h"
+#include <Mod/Part/App/FeatureElement.h>
 
 #include "Groups.h"
 
@@ -101,6 +104,16 @@ bool isSuppressedLinkElement(const App::DocumentObject* obj)
 void swapJCS(const App::DocumentObject* joint)
 {
     if (!joint) {
+        return;
+    }
+    if (auto typed = dynamic_cast<const Joint*>(joint)) {
+        auto* j = const_cast<Joint*>(typed);
+        auto* link1 = j->ElementLink1.getValue();
+        j->ElementLink1.setValue(j->ElementLink2.getValue());
+        j->ElementLink2.setValue(link1);
+        const auto offset1 = j->Offset1.getValue();
+        j->Offset1.setValue(j->Offset2.getValue());
+        j->Offset2.setValue(offset1);
         return;
     }
 
@@ -716,6 +729,18 @@ std::string getElementFromProp(const App::DocumentObject* obj, const char* pName
     if (!obj) {
         return "";
     }
+    if (int side = typedJointSide(obj, pName)) {
+        // The element link's copy is the element alone: its one vertex, edge
+        // or face, named as the copy names it
+        auto* link = static_cast<const Joint*>(obj)->getElementLink(side);
+        if (!link) {
+            return "";
+        }
+        JointSide jointSide;
+        jointSide.shape = link->Shape.getShape();
+        const auto type = jointSide.elementType();
+        return type.empty() ? std::string() : type + "1";
+    }
 
     const auto names = getSubAsList(obj, pName);
     if (names.empty()) {
@@ -875,6 +900,10 @@ App::DocumentObject* getObjFromJointRef(const App::DocumentObject* joint, const 
     if (!joint) {
         return nullptr;
     }
+    if (int side = typedJointSide(joint, pName)) {
+        // The object holding the element's geometry
+        return static_cast<const Joint*>(joint)->getElementLink(side);
+    }
 
     const auto* prop = joint->getPropertyByName<App::PropertyXLinkSub>(pName);
     return getObjFromRef(prop);
@@ -963,9 +992,26 @@ App::DocumentObject* getMovingPartFromRef(App::DocumentObject* joint, const char
     if (!joint) {
         return nullptr;
     }
+    if (int side = typedJointSide(joint, pName)) {
+        return static_cast<const Joint*>(joint)->getComponent(side);
+    }
 
     auto* prop = joint->getPropertyByName<App::PropertyXLinkSub>(pName);
     return getMovingPartFromRef(prop);
+}
+
+int typedJointSide(const App::DocumentObject* joint, const char* refName)
+{
+    if (!refName || !dynamic_cast<const Joint*>(joint)) {
+        return 0;
+    }
+    if (std::strcmp(refName, "Reference1") == 0) {
+        return 1;
+    }
+    if (std::strcmp(refName, "Reference2") == 0) {
+        return 2;
+    }
+    return 0;
 }
 
 void syncPlacements(App::DocumentObject* src, App::DocumentObject* to)
@@ -1062,16 +1108,23 @@ double getJointCurrentValue(App::DocumentObject* joint, bool isAngle)
     Base::Placement plc1 = App::GeoFeature::getPlacementFromProp(joint, "Placement1");
     Base::Placement plc2 = App::GeoFeature::getPlacementFromProp(joint, "Placement2");
 
-    auto* ref1 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference1"));
-    auto* ref2 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference2"));
-    if (!ref1 || !ref2) {
-        return 0.0;
+    if (auto typed = dynamic_cast<const Joint*>(joint)) {
+        // Both frames in the assembly's coordinate system
+        plc1 = typed->getSide(1).frame;
+        plc2 = typed->getSide(2).frame;
     }
-    Base::Placement obj_global_plc1 = App::GeoFeature::getGlobalPlacement(nullptr, ref1);
-    Base::Placement obj_global_plc2 = App::GeoFeature::getGlobalPlacement(nullptr, ref2);
+    else {
+        auto* ref1 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference1"));
+        auto* ref2 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference2"));
+        if (!ref1 || !ref2) {
+            return 0.0;
+        }
+        Base::Placement obj_global_plc1 = App::GeoFeature::getGlobalPlacement(nullptr, ref1);
+        Base::Placement obj_global_plc2 = App::GeoFeature::getGlobalPlacement(nullptr, ref2);
 
-    plc1 = obj_global_plc1 * plc1;
-    plc2 = obj_global_plc2 * plc2;
+        plc1 = obj_global_plc1 * plc1;
+        plc2 = obj_global_plc2 * plc2;
+    }
 
     Base::Placement plc3 = plc1.inverse() * plc2;
 

@@ -228,6 +228,12 @@ AssemblyExport std::vector<std::string> getSubAsList(
     const char* propName
 );
 AssemblyExport void syncPlacements(App::DocumentObject* src, App::DocumentObject* to);
+// Which side of a C++ joint (Assembly::Joint) the Python joint's property
+// name stands for: 1 for "Reference1", 2 for "Reference2"; 0 for anything
+// else, or when the joint is not a C++ one. The reference helpers above take
+// the property names for both kinds of joint, and answer for a C++ joint
+// from its element links (docs/AssemblyObjectModel.md sec 7.1).
+AssemblyExport int typedJointSide(const App::DocumentObject* joint, const char* refName);
 AssemblyExport double getJointCurrentValue(App::DocumentObject* joint, bool isAngle);
 
 }  // namespace Assembly

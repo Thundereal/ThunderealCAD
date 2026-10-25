@@ -303,6 +303,14 @@ bool OriginGroupExtension::hasObject(const DocumentObject* obj, bool recursive) 
     if(Origin.getValue() && (obj == getOrigin() || getOrigin()->hasObject(obj)))
         return true;
 
+    // The Elements group, held by a property as the origin is, and its
+    // elements are the container's too
+    auto aux = Base::freecad_dynamic_cast<const AuxGroup>(obj);
+    if (!aux)
+        aux = AuxGroup::getOwningGroupOf(obj);
+    if (aux && aux->isOwning() && aux->getOwner() == getExtendedObject())
+        return true;
+
     return App::GroupExtension::hasObject(obj, recursive);
 }
 

@@ -68,6 +68,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/SolverGateReference.json
     AssemblyTests/TestGuiCommands.py
     AssemblyTests/TestAsm3Bundle.py
+    AssemblyTests/TestElementJoint.py
     AssemblyTests/mocks/__init__.py
     AssemblyTests/mocks/MockGui.py
 )

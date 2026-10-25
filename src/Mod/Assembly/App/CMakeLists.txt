@@ -31,6 +31,7 @@ generate_from_py(JointGroup)
 generate_from_py(ViewGroup)
 generate_from_py(SimulationGroup)
 generate_from_py(SnapshotGroup)
+generate_from_py(Joint)
 
 
 SET(Python_SRCS
@@ -50,6 +51,8 @@ SET(Python_SRCS
     SimulationGroupPyImp.cpp
     SnapshotGroup.pyi
     SnapshotGroupPyImp.cpp
+    Joint.pyi
+    JointPyImp.cpp
 )
 SOURCE_GROUP("Python" FILES ${Python_SRCS})
 
@@ -104,6 +107,8 @@ SET(Assembly_SRCS
     ElementGeometry.h
     Groups.cpp
     Groups.h
+    Joint.cpp
+    Joint.h
     ${Module_SRCS}
     ${Solver_SRCS}
     ${Python_SRCS}

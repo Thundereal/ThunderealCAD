@@ -1044,6 +1044,29 @@ it. 'conflicts' are the keys of the conflicts that stopped the save, and
 none waits.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="getLastSaveHistory">
+      <Documentation>
+        <UserDocu>getLastSaveHistory() -> dict
+The copy of the history the last save of this document carried (sec 16.4,
+38.9): {'updated', 'changes', 'seconds', 'rowsLeftOut', 'checked',
+'differences'}. 'updated' is True when a folder's own copy was brought up to
+date by what changed since its last save -- 'changes' bytes of them -- and
+False when the store was copied whole. With FC_TXNLOG_CHECK_FOLDER set,
+'checked' says the copy was compared with one made whole and 'differences'
+lists the tables that disagree. Empty when no save carried one.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getLastFolderSave">
+      <Documentation>
+        <UserDocu>getLastFolderSave() -> dict
+What the last save to a folder wrote and kept (sec 38.12): {'written',
+'kept', 'checked', 'differed'}. 'kept' counts the objects nothing changed
+since the folder's last save, left as the folder has them. With
+FC_FOLDER_SAVE_CHECK set everything is written, 'checked' is True, and
+'differed' names the objects that would have been kept whose file came out
+otherwise.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="getFileOpeners">
       <Documentation>
         <UserDocu>getFileOpeners() -> list

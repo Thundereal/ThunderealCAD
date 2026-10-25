@@ -676,7 +676,13 @@ class BlobSaveOptionCases(BlobTestCase):
         reopened = self.openDocument(project)
         self.assertContent(reopened.getObject("File1"), b"shared")
         self.assertContent(reopened.getObject("File2"), b"shared")
-        self.assertEqual(len(self.storedBlobs(reopened)), 1)
+        # Read in the folder, not copied into the store (TransactionLog.md
+        # sec 38.9): one file for both.
+        self.assertEqual(self.storedBlobs(reopened), [])
+        self.assertEqual(reopened.getObject("File1").File, reopened.getObject("File2").File)
+        self.assertTrue(
+            os.path.realpath(reopened.getObject("File1").File).startswith(
+                os.path.realpath(project) + os.sep))
 
     def testDirectoryResaveKeepsStoredContent(self):
         """The index is what proves an existing file still holds what this

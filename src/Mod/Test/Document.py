@@ -3500,7 +3500,8 @@ class TransactionBranchCases(unittest.TestCase):
         part.commitTransaction()
         part.save()
         self.param.SetInt("TransactionLog", 2)
-        self.assertTrue(os.path.isfile(os.path.join(partPath, "blobs", "History.db")))
+        # Sec 38.9: a folder keeps it beside Document.xml, not as a blob.
+        self.assertTrue(os.path.isfile(os.path.join(partPath, "History.db")))
         self.assertEqual(link.LinkedObject.Integer, 1)
 
         asm.save()
@@ -12444,6 +12445,540 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(doc.Box.Height.Value, 10)
 
 
+class FolderSaveCases(unittest.TestCase):
+    # A document saved as a folder goes in whole (docs/TransactionLog.md sec
+    # 38): the save writes into a stage beside the folder, `.~<name>.save`,
+    # then moves in what changed, Document.xml last. A stage left by a save
+    # cut short is thrown away at the next open without its record, and
+    # moved in with it.
+
+    def setUp(self):
+        self.param = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        self.mode = self.param.GetInt("TransactionLog", 2)
+        self.param.SetInt("TransactionLog", 2)
+        self.dir = tempfile.mkdtemp(prefix="fc-folder-")
+        self.docs = []
+
+    def tearDown(self):
+        import shutil
+
+        for name in self.docs:
+            if name in FreeCAD.listDocuments():
+                FreeCAD.closeDocument(name)
+        self.param.SetInt("TransactionLog", self.mode)
+        shutil.rmtree(self.dir, True)
+
+    def track(self, doc):
+        self.docs.append(doc.Name)
+        return doc
+
+    def edit(self, doc, name, change):
+        doc.openTransaction(name)
+        change(doc)
+        doc.recompute()
+        doc.commitTransaction()
+
+    def saved(self, name, boxes=3):
+        path = os.path.join(self.dir, name)
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument(name))
+        doc.UndoMode = 1
+
+        def make(d):
+            for i in range(boxes):
+                d.addObject("Part::Box", "Box%d" % i)
+
+        self.edit(doc, "create", make)
+        doc.saveAs(path)
+        return doc, path
+
+    def stage(self, path):
+        return os.path.join(os.path.dirname(path), ".~%s.save" % os.path.basename(path))
+
+    def stamp(self, path):
+        st = os.stat(path)
+        return (st.st_ino, st.st_mtime_ns, st.st_size)
+
+    def testASaveMovesInOnlyWhatChanged(self):
+        doc, path = self.saved("Only")
+        before = {n: self.stamp(os.path.join(path, n)) for n in ("Box1.xml", "Box2.xml")}
+        box0 = open(os.path.join(path, "Box0.xml")).read()
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        doc.save()
+        self.assertFalse(os.path.exists(self.stage(path)))
+        for n, s in before.items():
+            self.assertEqual(self.stamp(os.path.join(path, n)), s, n)
+        self.assertNotEqual(open(os.path.join(path, "Box0.xml")).read(), box0)
+        # A file the save no longer has goes once it is in.
+        self.edit(doc, "remove", lambda d: d.removeObject("Box2"))
+        doc.save()
+        self.assertFalse(os.path.exists(os.path.join(path, "Box2.xml")))
+        self.assertTrue(os.path.exists(os.path.join(path, "Box1.xml")))
+
+    def cutShort(self, name, record, halfMoved=False):
+        # A folder saved at Length 10, then at 20; the second save's files
+        # made into a stage beside the first's, as a save cut short leaves.
+        import shutil
+
+        doc, path = self.saved(name)
+        old = os.path.join(self.dir, name + "-old")
+        shutil.copytree(path, old)
+        self.edit(doc, "longer", lambda d: [setattr(o, "Length", 20) for o in d.Objects])
+        doc.save()
+        FreeCAD.closeDocument(doc.Name)
+        stage = self.stage(path)
+        os.rename(path, stage)
+        os.rename(old, path)
+        if record:
+            with open(os.path.join(stage, ".~commit"), "w") as f:
+                f.write("FreeCAD folder save 1\n")
+        if halfMoved:
+            # Moved in before it was cut short: some of the objects' files.
+            for n in ("Box0.xml", "Box1.xml"):
+                os.replace(os.path.join(stage, n), os.path.join(path, n))
+        return path, stage
+
+    def testASaveCutShortBeforeItIsWholeIsThrownAway(self):
+        path, stage = self.cutShort("Short", record=False)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertFalse(os.path.exists(stage))
+        self.assertEqual([o.Length.Value for o in doc.Objects], [10, 10, 10])
+        names = [t["name"] for t in doc.getTransactionLog()]
+        self.assertIn("create", names)
+        self.assertNotIn("longer", names)
+
+    def testASaveCutShortWhenWholeIsFinishedAtOpen(self):
+        path, stage = self.cutShort("Whole", record=True, halfMoved=True)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertFalse(os.path.exists(stage))
+        self.assertEqual([o.Length.Value for o in doc.Objects], [20, 20, 20])
+        # Its history is the save's: the version it opens is "longer".
+        names = [t["name"] for t in doc.getTransactionLog()]
+        self.assertIn("longer", names)
+
+    def testASaveFinishesAStageCutShortFirst(self):
+        # A save of the folder meets a stage another save left whole: moved
+        # in first, then this save is written over it.
+        path, stage = self.cutShort("Again", record=True)
+        doc = self.track(FreeCAD.newDocument("Again2"))
+        doc.UndoMode = 1
+        self.edit(doc, "create", lambda d: d.addObject("Part::Box", "Box0"))
+        doc.saveAs(path)
+        self.assertFalse(os.path.exists(stage))
+        xml = open(os.path.join(path, "Document.xml")).read()
+        self.assertIn('name="Box0"', xml)
+        self.assertNotIn('name="Box1"', xml)
+
+    def testTheHistoryIsBroughtUpToDateNotCopied(self):
+        # Sec 38.9: a folder keeps its history as History.db beside
+        # Document.xml. The first save copies the store whole; the next ones
+        # bring that copy up to date by what changed since, and the check
+        # finds it holding what a copy made whole would.
+        os.environ["FC_TXNLOG_CHECK_FOLDER"] = "1"
+        try:
+            doc, path = self.saved("Hist")
+            self.assertFalse(doc.getLastSaveHistory()["updated"])
+            for i in range(3):
+                self.edit(doc, "longer%d" % i, lambda d: setattr(d.Box0, "Length", 20 + i))
+                doc.save()
+                last = doc.getLastSaveHistory()
+                self.assertTrue(last["updated"], last)
+                self.assertGreater(last["changes"], 0)
+                self.assertTrue(last["checked"], last)
+                self.assertEqual(last["differences"], [])
+            names = [t["name"] for t in doc.getTransactionLog()]
+            for n in os.listdir(path):
+                self.assertFalse(n.startswith("History.db-"), n)
+            self.assertTrue(os.path.isfile(os.path.join(path, "History.db")))
+            self.assertFalse(os.path.exists(os.path.join(path, "blobs", "History.db")))
+            FreeCAD.closeDocument(doc.Name)
+            doc = self.track(FreeCAD.openDocument(path))
+            reopened = [t["name"] for t in doc.getTransactionLog()]
+            for n in ("create", "longer0", "longer1", "longer2"):
+                self.assertIn(n, reopened)
+            self.assertEqual(doc.Box0.Length.Value, 22)
+            # What an open adopted is followed from there.
+            doc.UndoMode = 1
+            self.edit(doc, "wider", lambda d: setattr(d.Box1, "Width", 30))
+            doc.save()
+            last = doc.getLastSaveHistory()
+            self.assertTrue(last["updated"], last)
+            self.assertEqual(last["differences"], [])
+        finally:
+            del os.environ["FC_TXNLOG_CHECK_FOLDER"]
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertIn("wider", [t["name"] for t in doc.getTransactionLog()])
+        self.assertEqual(doc.Box1.Width.Value, 30)
+
+    def testAHistoryOfAnotherSaveIsCopiedWhole(self):
+        # Sec 38.9: the folder's history is of a save this process did not
+        # record from -- another process saved, or it was saved elsewhere
+        # first -- so the save copies the store whole and carries on from
+        # there.
+        import shutil
+
+        doc, path = self.saved("Other")
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        doc.save()
+        self.assertTrue(doc.getLastSaveHistory()["updated"])
+        # Elsewhere, then back: the folder's copy is still of the last save
+        # here, but a save-as elsewhere started the record again.
+        there = os.path.join(self.dir, "OtherThere")
+        os.makedirs(there)
+        doc.saveAs(there)
+        self.assertFalse(doc.getLastSaveHistory()["updated"])
+        self.edit(doc, "wider", lambda d: setattr(d.Box0, "Width", 30))
+        doc.saveAs(path)
+        self.assertFalse(doc.getLastSaveHistory()["updated"])
+        self.edit(doc, "higher", lambda d: setattr(d.Box0, "Height", 40))
+        doc.save()
+        self.assertTrue(doc.getLastSaveHistory()["updated"])
+        # The folder's copy replaced behind its back: copied whole.
+        shutil.copyfile(os.path.join(there, "History.db"), os.path.join(path, "History.db"))
+        self.edit(doc, "again", lambda d: setattr(d.Box0, "Height", 50))
+        doc.save()
+        self.assertFalse(doc.getLastSaveHistory()["updated"])
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        names = [t["name"] for t in doc.getTransactionLog()]
+        for n in ("longer", "wider", "higher", "again"):
+            self.assertIn(n, names)
+
+    def withFile(self, name, content=b"one"):
+        # A folder saved with a file-included object: its blob is a file of
+        # the folder's blobs/.
+        path = os.path.join(self.dir, name)
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument(name))
+        doc.UndoMode = 1
+        src = os.path.join(self.dir, name + ".src")
+        with open(src, "wb") as f:
+            f.write(content)
+        self.edit(doc, "create", lambda d: setattr(d.addObject(
+            "App::DocumentObjectFileIncluded", "F"), "File", src))
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        return doc, path
+
+    def setFile(self, doc, content, name="next.src"):
+        src = os.path.join(self.dir, name)
+        with open(src, "wb") as f:
+            f.write(content)
+        self.edit(doc, "file", lambda d: setattr(d.F, "File", src))
+
+    def blobFiles(self, path):
+        return sorted(n for n in os.listdir(os.path.join(path, "blobs")) if n != "Content.xml")
+
+    def testSavedBlobsAreReadWhereTheyAre(self):
+        # Sec 38.9: an open of a folder reads its blobs in the folder, not as
+        # copies in the transient directory.
+        doc, path = self.withFile("InPlace")
+        blobs = os.path.realpath(os.path.join(path, "blobs"))
+        self.assertTrue(os.path.realpath(doc.F.File).startswith(blobs + os.sep), doc.F.File)
+        self.assertEqual(open(doc.F.File, "rb").read(), b"one")
+        # Its permissions are the folder's, not the store's read-only.
+        self.assertTrue(os.access(doc.F.File, os.W_OK))
+        store = os.path.join(doc.TransientDir, "blobs")
+        copies = [n for n in os.listdir(store)] if os.path.isdir(store) else []
+        self.assertEqual(copies, [])
+
+    def testASaveCopiesInWhatItTakesAway(self):
+        # Sec 38.9: the save takes the old content's file away; the undo still
+        # holds that content, which was copied in first.
+        # The history keeps the old content too, as a blob named by its hash;
+        # the name the object's blob had is given the new content.
+        doc, path = self.withFile("TakeAway")
+        (name,) = self.blobFiles(path)
+        self.setFile(doc, b"two")
+        doc.save()
+        self.assertEqual(open(os.path.join(path, "blobs", name), "rb").read(), b"two")
+        doc.undo()
+        self.assertEqual(open(doc.F.File, "rb").read(), b"one")
+        self.assertTrue(
+            os.path.realpath(doc.F.File).startswith(os.path.realpath(doc.TransientDir) + os.sep),
+            doc.F.File)
+
+    def testAnotherOpenerKeepsTheNamesItMayRead(self):
+        # Sec 38.9: while another process has the folder open, a save gives
+        # no name it found other content, and takes none away; a save made
+        # alone sweeps what was left.
+        doc, path = self.withFile("Shared")
+        old = self.blobFiles(path)
+        marker = os.path.join(self.dir, ".~Shared.open")
+        lines = open(marker).read()
+        with open(marker, "w") as f:
+            f.write(lines + "elsewhere 4242 1\n")
+        self.setFile(doc, b"two")
+        doc.save()
+        now = self.blobFiles(path)
+        for n in old:
+            self.assertIn(n, now)
+            self.assertEqual(open(os.path.join(path, "blobs", n), "rb").read(), b"one")
+        contents = [open(os.path.join(path, "blobs", n), "rb").read() for n in now]
+        self.assertIn(b"two", contents)
+        with open(marker, "w") as f:
+            f.write(lines)
+        self.setFile(doc, b"three", "third.src")
+        doc.save()
+        # Alone: what the index does not name goes, and the name left with
+        # "one" -- which this process read in place, and undo holds -- was
+        # copied in before it was given other content.
+        index = open(os.path.join(path, "blobs", "Content.xml")).read()
+        for n in self.blobFiles(path):
+            self.assertIn('n="%s"' % n, index)
+        doc.undo()
+        doc.undo()
+        self.assertEqual(open(doc.F.File, "rb").read(), b"one")
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(open(doc.F.File, "rb").read(), b"three")
+
+    def testASaveAsTakesTheBlobsReadInPlaceAlong(self):
+        # Sec 38.9: blobs read in place belong to the document's folder. A
+        # save-as to a folder points them at its files; one to an archive
+        # copies them in; a copy saved elsewhere leaves them be.
+        doc, path = self.withFile("Along")
+        copyPath = os.path.join(self.dir, "AlongCopy.FCStd")
+        doc.saveCopy(copyPath)
+        blobs = os.path.realpath(os.path.join(path, "blobs"))
+        self.assertTrue(os.path.realpath(doc.F.File).startswith(blobs + os.sep))
+        there = os.path.join(self.dir, "AlongThere")
+        os.makedirs(there)
+        doc.saveAs(there)
+        blobs = os.path.realpath(os.path.join(there, "blobs"))
+        self.assertTrue(os.path.realpath(doc.F.File).startswith(blobs + os.sep), doc.F.File)
+        archive = os.path.join(self.dir, "Along.FCStd")
+        doc.saveAs(archive)
+        self.assertTrue(
+            os.path.realpath(doc.F.File).startswith(os.path.realpath(doc.TransientDir) + os.sep),
+            doc.F.File)
+        self.assertEqual(open(doc.F.File, "rb").read(), b"one")
+
+    def testAKilledSessionOfAFolderIsRecoveredWithItsBlobs(self):
+        # Sec 25 for a folder (38.7 step 4, 38.9): the store a killed process
+        # left lacks the blobs it read in place; recovery reads them from the
+        # folder again.
+        import subprocess
+
+        exe = consoleExe()
+        if not exe:
+            self.skipTest("no FreeCADCmd beside this build")
+        doc, path = self.saved("Killed")
+        FreeCAD.closeDocument(doc.Name)
+        script = os.path.join(self.dir, "killed.py")
+        with open(script, "w") as f:
+            f.write(
+                "import os, FreeCAD\n"
+                "p = FreeCAD.ParamGet('User parameter:BaseApp/Preferences/Document')\n"
+                "p.SetInt('TransactionLog', 2)\n"
+                "doc = FreeCAD.openDocument(%r)\n"
+                "doc.UndoMode = 1\n"
+                "doc.openTransaction('longer')\n"
+                "doc.Box0.Length = 20\n"
+                "doc.recompute()\n"
+                "doc.commitTransaction()\n"
+                "doc.getTransactionLog()\n"
+                "print('dir', doc.TransientDir, flush=True)\n"
+                "os._exit(0)\n" % path
+            )
+        out = subprocess.run([exe, script], capture_output=True, timeout=300)
+        text = out.stdout.decode("utf-8", "replace")
+        dirs = [l[4:].strip() for l in text.splitlines() if l.startswith("dir ")]
+        self.assertTrue(dirs, text + out.stderr.decode("utf-8", "replace"))
+        doc = self.track(FreeCAD.recoverDocument(dirs[0]))
+        self.assertEqual(doc.Box0.Length.Value, 20)
+        for o in doc.Objects:
+            self.assertTrue(o.Shape.isValid(), o.Name)
+            self.assertGreater(o.Shape.Volume, 0, o.Name)
+        self.assertFalse(os.path.exists(dirs[0]))
+
+    def noCheck(self):
+        # FC_FOLDER_SAVE_CHECK off for this case, as the gates may set it.
+        was = os.environ.pop("FC_FOLDER_SAVE_CHECK", None)
+        if was is not None:
+            self.addCleanup(os.environ.__setitem__, "FC_FOLDER_SAVE_CHECK", was)
+
+    def testAnUnchangedObjectIsKeptAsTheFolderHasIt(self):
+        # Sec 38.12 (S2b): the second save of a folder writes the objects the
+        # log says changed and keeps the others' files; the log's version of
+        # it still holds every object. Not under the check, which keeps none.
+        self.noCheck()
+        doc, path = self.saved("Kept", boxes=4)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 4)
+        before = {n: self.stamp(os.path.join(path, n)) for n in ("Box1.xml", "Box2.xml")}
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        self.edit(doc, "added", lambda d: d.addObject("Part::Box", "Box9"))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (2, 3), last)
+        for n, st in before.items():
+            self.assertEqual(self.stamp(os.path.join(path, n)), st, n)
+        num = doc.getTransactionVersions()[-1]["num"]
+        # Moved on from it, so that it is a document of its own.
+        self.edit(doc, "wider", lambda d: setattr(d.Box1, "Width", 30))
+        version = self.track(doc.openTransactionVersion(num))
+        self.assertNotEqual(version.Name, doc.Name)
+        self.assertEqual(sorted(o.Name for o in version.Objects),
+                         ["Box0", "Box1", "Box2", "Box3", "Box9"])
+        self.assertEqual(version.Box0.Length.Value, 20)
+        self.assertEqual(version.Box1.Width.Value, 10)
+        FreeCAD.closeDocument(version.Name)
+        # Removed, it goes; the rest is kept.
+        self.edit(doc, "remove", lambda d: d.removeObject("Box3"))
+        doc.save()
+        self.assertFalse(os.path.exists(os.path.join(path, "Box3.xml")))
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(sorted(o.Name for o in doc.Objects), ["Box0", "Box1", "Box2", "Box9"])
+        self.assertEqual(doc.Box0.Length.Value, 20)
+        for o in doc.Objects:
+            self.assertTrue(o.Shape.isValid(), o.Name)
+
+    def testNothingIsKeptAfterAnotherSaveOrOtherOptions(self):
+        # Sec 38.12: the folder as another save left it, or written with
+        # other options, is written whole.
+        self.noCheck()
+        doc, path = self.saved("Whole")
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 3)
+        doc.ForceXML = 2
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 0)
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 3)
+        # Touched behind its back: the stamp moved.
+        os.utime(os.path.join(path, "Document.xml"), (1, 1))
+        doc.save()
+        self.assertEqual(doc.getLastFolderSave()["kept"], 0)
+
+    def testTheCheckFindsWhatWouldHaveBeenKeptAsTheFolderHasIt(self):
+        # Sec 38.12: with FC_FOLDER_SAVE_CHECK everything is written, and an
+        # object that would have been kept came out as its file.
+        was = os.environ.get("FC_FOLDER_SAVE_CHECK")
+        os.environ["FC_FOLDER_SAVE_CHECK"] = "1"
+        try:
+            doc, path = self.saved("Checked")
+            doc.save()
+            self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+            doc.save()
+            last = doc.getLastFolderSave()
+            self.assertTrue(last["checked"])
+            self.assertEqual(last["kept"], 0)
+            self.assertEqual(last["differed"], [])
+        finally:
+            if was is None:
+                del os.environ["FC_FOLDER_SAVE_CHECK"]
+
+    def testADeflatedArchiveExtractedByHandOpensAsAFolder(self):
+        # Sec 38.10: with BlobCompression "Deflate" every entry of the archive
+        # is one any zip tool extracts, and the folder extracted opens as the
+        # document, history and all. The content was taken in as zstd, before
+        # the document asked: the save compresses it again.
+        import zipfile
+
+        doc = self.track(FreeCAD.newDocument("Deflated"))
+        doc.UndoMode = 1
+        self.assertEqual(doc.BlobCompression, "Zstd")
+        src = os.path.join(self.dir, "payload.src")
+        with open(src, "wb") as f:
+            f.write(b"payload")
+
+        def make(d):
+            d.addObject("Part::Box", "Box")
+            d.addObject("App::DocumentObjectFileIncluded", "F").File = src
+
+        self.edit(doc, "create", make)
+        self.edit(doc, "longer", lambda d: setattr(d.Box, "Length", 20))
+        doc.BlobCompression = "Deflate"
+        arch = os.path.join(self.dir, "Deflated.FCStd")
+        doc.saveAs(arch)
+        FreeCAD.closeDocument(doc.Name)
+        z = zipfile.ZipFile(arch)
+        blobs = [i for i in z.infolist() if i.filename.startswith("blobs/")]
+        self.assertTrue(blobs)
+        self.assertEqual({i.compress_type for i in z.infolist()}, {zipfile.ZIP_DEFLATED})
+        there = os.path.join(self.dir, "DeflatedByHand")
+        z.extractall(there)
+        doc = self.track(FreeCAD.openDocument(there))
+        self.assertEqual(doc.BlobCompression, "Deflate")
+        self.assertEqual(doc.Box.Length.Value, 20)
+        self.assertTrue(doc.Box.Shape.isValid())
+        self.assertEqual(open(doc.F.File, "rb").read(), b"payload")
+        self.assertIn("longer", [t["name"] for t in doc.getTransactionLog()])
+
+    def readOnly(self, top, on):
+        # Every directory and file under `top`, and `top` itself, made to
+        # take no writes (on) or to take them again.
+        for root, dirs, files in os.walk(top):
+            for n in files:
+                os.chmod(os.path.join(root, n), 0o444 if on else 0o644)
+            for n in dirs:
+                os.chmod(os.path.join(root, n), 0o555 if on else 0o755)
+        os.chmod(top, 0o555 if on else 0o755)
+
+    def testAReadOnlyFolderOpensAndIsSavedElsewhere(self):
+        # Sec 38.9: a folder on a medium that takes no files opens as any
+        # other; its history is adopted into the transient directory, edits
+        # go there, and a save of it fails with nothing written. Nothing is
+        # made beside it: no lock, no marker, no stage.
+        doc, path = self.saved("Fixed")
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        doc.save()
+        FreeCAD.closeDocument(doc.Name)
+        top = os.path.join(self.dir, "ro")
+        os.makedirs(top)
+        os.rename(path, os.path.join(top, "Fixed"))
+        path = os.path.join(top, "Fixed")
+        self.readOnly(top, True)
+        try:
+            try:
+                open(os.path.join(top, "probe"), "w").close()
+                self.skipTest("the file system takes writes here whatever the mode")
+            except OSError:
+                pass
+            before = sorted(os.listdir(top)), self.stamp(os.path.join(path, "Document.xml"))
+            doc = self.track(FreeCAD.openDocument(path))
+            self.assertEqual(doc.Box0.Length.Value, 20)
+            self.assertIn("longer", [t["name"] for t in doc.getTransactionLog()])
+            for o in doc.Objects:
+                self.assertTrue(o.Shape.isValid(), o.Name)
+            doc.UndoMode = 1
+            self.edit(doc, "wider", lambda d: setattr(d.Box0, "Width", 30))
+            self.assertTrue(
+                os.path.isfile(os.path.join(doc.TransientDir, "history", "log.db")))
+            with self.assertRaises(Exception):
+                doc.save()
+            self.assertEqual(
+                (sorted(os.listdir(top)), self.stamp(os.path.join(path, "Document.xml"))),
+                before)
+            there = os.path.join(self.dir, "Moved")
+            os.makedirs(there)
+            doc.saveAs(there)
+        finally:
+            self.readOnly(top, False)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(there))
+        self.assertEqual((doc.Box0.Length.Value, doc.Box0.Width.Value), (20, 30))
+        names = [t["name"] for t in doc.getTransactionLog()]
+        self.assertIn("longer", names)
+        self.assertIn("wider", names)
+
+    def testAFolderSavedWithoutItsHistoryDropsTheOldOne(self):
+        # Sec 38.9: a save that carries no history (the log in session mode)
+        # takes away the History.db an earlier save left.
+        doc, path = self.saved("Drop")
+        self.assertTrue(os.path.isfile(os.path.join(path, "History.db")))
+        self.param.SetInt("TransactionLog", 1)
+        self.edit(doc, "longer", lambda d: setattr(d.Box0, "Length", 20))
+        doc.save()
+        self.assertFalse(os.path.exists(os.path.join(path, "History.db")))
+        self.assertNotIn("<History file", open(os.path.join(path, "Document.xml")).read())
+
+
 class TransactionTwoProcessCases(unittest.TestCase):
     # Two processes on one file (docs/TransactionLog.md sec 29.7, 29.8): a
     # save first brings in and merges what another process saved into the
@@ -12666,8 +13201,9 @@ class TransactionTwoProcessCases(unittest.TestCase):
         )
 
     def testAFolderCarriesItsHistory(self):
-        # Sec 29.8: a folder save embeds the history as an archive does, as
-        # blobs/History.db, and a reopen continues from it.
+        # Sec 29.8: a folder save embeds the history as an archive does, and
+        # a reopen continues from it; sec 38.9: as History.db beside
+        # Document.xml, not a blob.
         path = os.path.join(self.dir, "Kept")
         os.makedirs(path)
         doc = self.track(FreeCAD.newDocument("Kept"))
@@ -12676,7 +13212,8 @@ class TransactionTwoProcessCases(unittest.TestCase):
         doc.saveAs(path)
         self.edit(doc, "longer", lambda d: setattr(d.Box, "Length", 20))
         doc.save()
-        self.assertTrue(os.path.isfile(os.path.join(path, "blobs", "History.db")))
+        self.assertTrue(os.path.isfile(os.path.join(path, "History.db")))
+        self.assertFalse(os.path.exists(os.path.join(path, "blobs", "History.db")))
         self.assertTrue(doc.Version)
         FreeCAD.closeDocument(doc.Name)
         doc = self.track(FreeCAD.openDocument(path))

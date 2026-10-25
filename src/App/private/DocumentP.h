@@ -43,6 +43,8 @@
 #include <boost/bimap.hpp>
 #include <chrono>
 #include <functional>
+#include <map>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -227,6 +229,9 @@ struct DocumentP
     /// for the import's record to name; empty for a file from a path.
     std::string importingRequest;
     std::function<void()> restoreHistory;
+    /// The save id of a save to a folder whose history went into its stage
+    /// (docs/TransactionLog.md sec 38.9), told to the log once it is in.
+    std::string folderSaveId;
     /// Two processes on one file (docs/TransactionLog.md sec 29.8): the file
     /// as this document last read or wrote it -- its stamp, the save id its
     /// `Version` carried, and the row of the log whose state it is -- and
@@ -333,6 +338,37 @@ struct DocumentP
      * are, and stale only between the two.
      */
     std::map<std::string, App::DocumentObject*> splitXmlEntries;
+    /** S2b (docs/TransactionLog.md sec 38.12): what a save to a folder
+     * wrote, so that the next save of it keeps the files of the objects
+     * nothing changed since. `seq` is the log's row the save was of,
+     * `version` the version it recorded, `options` what decides the bytes,
+     * `refs` the blobs each object referred to, `files` the entries each
+     * object's write made (its own file first), `stamp` the folder as the
+     * commit left it.
+     */
+    struct FolderState
+    {
+        std::string folder;
+        int64_t seq {0};
+        int64_t version {0};
+        std::string options;
+        DiskStamp stamp;
+        std::map<long, std::vector<std::string>> refs;
+        std::map<long, std::vector<std::string>> files;
+    };
+    FolderState folderLast;
+    FolderState folderNext;
+    /// The objects of this save the log says nothing changed since folderLast.
+    std::set<long> folderUnchanged;
+    bool folderKeeping {false};
+    bool folderChecking {false};
+    std::map<long, std::string> folderEntryOf;
+    std::map<long, std::vector<std::string>> folderRefsNow;
+    /// Entries kept this save, for the log's version; and, checking, the
+    /// objects that would have been, with their entries.
+    std::vector<std::string> folderKept;
+    std::vector<std::pair<std::string, std::vector<std::string>>> folderWouldKeep;
+    Document::FolderSaveInfo folderInfo;
     /// The serve phase's progress: alive across serve slices so the
     /// indicator shows shapes-served over the whole backlog, with the
     /// per-shape import indicators nested beneath it.

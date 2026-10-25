@@ -244,7 +244,8 @@ std::string fileUri(const std::string& path)
 class SQLiteStore : public TransactionStore
 {
 public:
-    explicit SQLiteStore(const std::string& path, bool readOnly = false)
+    explicit SQLiteStore(const std::string& path, bool readOnly = false, bool copy = false)
+        : copy(copy)
     {
         // Read as it is: immutable says no lock and no -shm, so a blob
         // nothing writes is read without a file made beside it. The main
@@ -306,6 +307,15 @@ public:
                 return;
             copyToMemory();
         }
+        else if (copy) {
+            // The copy a file carries (sec 38.9): no WAL file beside it, in
+            // a folder others may read, and none left set in its header. A
+            // journal is still needed, for applyChanges() to roll back; in
+            // memory, since a copy whose writer dies is thrown away whole.
+            exec("PRAGMA journal_mode=DELETE");
+            exec("PRAGMA journal_mode=MEMORY");
+            exec("PRAGMA synchronous=OFF");
+        }
         else {
             exec("PRAGMA journal_mode=WAL");
             exec("PRAGMA synchronous=NORMAL");
@@ -323,8 +333,11 @@ public:
             exec(std::string("CREATE TABLE IF NOT EXISTS main.") + t.name + t.columns);
         if (version < StoreVersion)
             migrate(version);
-        for (const char* index : Indexes)
-            exec(std::string("CREATE INDEX IF NOT EXISTS ") + index);
+        // A copy travels without them (dropIndexes()).
+        for (const char* index : Indexes) {
+            if (!copy)
+                exec(std::string("CREATE INDEX IF NOT EXISTS ") + index);
+        }
         if (!hasRow("SELECT 1 FROM branch WHERE id=1"))
             exec("INSERT INTO branch(id,name,from_version,from_seq,head_seq,id_base,created,"
                  "closed) VALUES(1,'main',0,0,(SELECT COALESCE(MAX(seq),0) FROM txn),0,"
@@ -597,6 +610,7 @@ public:
 
     ~SQLiteStore() override
     {
+        endChanges();
         for (auto& s : stmts)
             sqlite3_finalize(s.second);
         if (db)
@@ -2034,6 +2048,130 @@ public:
         exec("VACUUM");
     }
 
+    std::vector<std::string> differences(const std::string& path) override
+    {
+        std::vector<std::string> out;
+        auto attach = prepare("ATTACH DATABASE ? AS other");
+        bindText(attach, 1, path);
+        step(attach);
+        try {
+            auto count = [this](const std::string& sql) {
+                Statement s(db, sql);
+                return sqlite3_step(s.stmt) == SQLITE_ROW ? sqlite3_column_int64(s.stmt, 0) : 0;
+            };
+            for (const auto& t : Tables) {
+                const std::string name = t.name;
+                if (name == "strtable" || name == "strref")
+                    continue;
+                // A session's closing time is the copy's own: when it was made.
+                const std::string cols = name == "session"
+                    ? "id,env,user,host,access,opened,uuid" : "*";
+                const std::string a = "SELECT " + cols + " FROM main." + name;
+                const std::string b = "SELECT " + cols + " FROM other." + name;
+                const auto here = count("SELECT COUNT(*) FROM (" + a + " EXCEPT " + b + ")");
+                const auto there = count("SELECT COUNT(*) FROM (" + b + " EXCEPT " + a + ")");
+                if (here || there)
+                    out.push_back(name + ": " + std::to_string(here) + " rows only here, "
+                                  + std::to_string(there) + " only there");
+            }
+        }
+        catch (...) {
+            sqlite3_exec(db, "DETACH DATABASE other", nullptr, nullptr, nullptr);
+            throw;
+        }
+        exec("DETACH DATABASE other");
+        return out;
+    }
+
+    double freeShare() override
+    {
+        const int pages = pragmaInt("PRAGMA page_count");
+        return pages > 0 ? static_cast<double>(pragmaInt("PRAGMA freelist_count")) / pages : 0.0;
+    }
+
+    bool beginChanges() override
+    {
+#ifdef FC_SQLITE_SESSION
+        endChanges();
+        if (sqlite3session_create(db, "main", &session) != SQLITE_OK) {
+            session = nullptr;
+            return false;
+        }
+        for (const auto& t : Tables) {
+            // The file's string table travels as a member of its own.
+            if (std::strcmp(t.name, "strtable") == 0 || std::strcmp(t.name, "strref") == 0)
+                continue;
+            if (sqlite3session_attach(session, t.name) != SQLITE_OK) {
+                endChanges();
+                return false;
+            }
+        }
+        return true;
+#else
+        return false;
+#endif
+    }
+
+    bool takeChanges(std::string& changes) override
+    {
+        changes.clear();
+#ifdef FC_SQLITE_SESSION
+        if (!session)
+            return false;
+        int size = 0;
+        void* data = nullptr;
+        const int rc = sqlite3session_changeset(session, &size, &data);
+        if (rc == SQLITE_OK && data)
+            changes.assign(static_cast<const char*>(data), static_cast<size_t>(size));
+        sqlite3_free(data);
+        // Recorded again from here whatever came of it: the caller that
+        // could not have the changes copies the store whole, which is this
+        // point too.
+        const bool restarted = beginChanges();
+        return rc == SQLITE_OK && restarted;
+#else
+        return false;
+#endif
+    }
+
+    void endChanges() override
+    {
+#ifdef FC_SQLITE_SESSION
+        if (session)
+            sqlite3session_delete(session);
+        session = nullptr;
+#endif
+    }
+
+    void applyChanges(const std::string& changes) override
+    {
+#ifdef FC_SQLITE_SESSION
+        if (changes.empty())
+            return;
+        auto onConflict = [](void*, int kind, sqlite3_changeset_iter*) -> int {
+            switch (kind) {
+                case SQLITE_CHANGESET_NOTFOUND:
+                    return SQLITE_CHANGESET_OMIT;
+                case SQLITE_CHANGESET_DATA:
+                case SQLITE_CHANGESET_CONFLICT:
+                    return SQLITE_CHANGESET_REPLACE;
+                default:
+                    return SQLITE_CHANGESET_ABORT;
+            }
+        };
+        const int rc = sqlite3changeset_apply(
+            db, static_cast<int>(changes.size()), const_cast<char*>(changes.data()), nullptr,
+            onConflict, nullptr);
+        if (rc != SQLITE_OK)
+            THROWM(Base::RuntimeError, std::string("Transaction log: the changes since the last save"
+                                                   " do not apply: ")
+                                       + sqlite3_errstr(rc));
+#else
+        (void)changes;
+        THROWM(Base::RuntimeError, "Transaction log: this build records no changes");
+#endif
+    }
+
     void dropTier(const std::string& tier, const std::vector<int64_t>& evict) override
     {
         exec("BEGIN");
@@ -3299,6 +3437,12 @@ private:
     }
 
     sqlite3* db {nullptr};
+    /// The copy a file carries, brought up to date (openSQLiteCopy()).
+    bool copy {false};
+#ifdef FC_SQLITE_SESSION
+    /// What changed since beginChanges().
+    sqlite3_session* session {nullptr};
+#endif
     std::map<std::string, sqlite3_stmt*> stmts;
     /// The table `name` as read and written (nameId, columnName).
     std::unordered_map<std::string, int64_t> nameIds;
@@ -3311,4 +3455,9 @@ std::unique_ptr<TransactionStore> TransactionStore::openSQLite(const std::string
                                                                bool readOnly)
 {
     return std::make_unique<SQLiteStore>(path, readOnly);
+}
+
+std::unique_ptr<TransactionStore> TransactionStore::openSQLiteCopy(const std::string& path)
+{
+    return std::make_unique<SQLiteStore>(path, false, true);
 }

@@ -20,8 +20,8 @@ question is the one that holds.
 - **What is built** is said in the "as built" blocks at the end of each
   design section and in the audit, sec 37; **what is open** is 37.2
   (left as found; elaborated in 37.7; built in 37.8-37.12, nothing left), the
-  "Not built" lines of 35.11 and 36.6, 34 (held), and 38 (a survey with
-  questions, nothing built).
+  "Not built" lines of 35.11 and 36.6, 34 (held), and 38 (S1 built in
+  38.8; S2, S3 and the questions open).
 - A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
   found with `grep -n '^### 27.22\|^## 36' docs/TransactionLog.md`.
 
@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6) | survey; nothing built |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression` built; Q2, Q5-Q7 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -12050,9 +12050,9 @@ documents saved as folder"; the history in it, user: "go", the same day).
 - *Not built:* the save of the history alone (27.29), which rewrites the
   archive in place, still refuses a folder ("has no file to save its
   history into").
-- *Not safe against a crash:* a folder save killed part way can leave a
-  folder that does not open, or one that opens as a mix of two saves with
-  no word. Sec 38 measures it and proposes the fix.
+- *Not safe against a crash* (until 38.8): a folder save killed part way
+  could leave a folder that does not open, or one that opens as a mix of
+  two saves with no word. Sec 38 measured it; 38.8 builds the fix.
 
 **The second pull of a file without history** extended the first pull's
 branch, which is closed once its save is written, and failed with "branch
@@ -24668,3 +24668,591 @@ process.
    gates. `cost.py` again.
 3. **S3 (a).** Then the history-only save of a folder (27.29).
 4. **Crash recovery (25) of a folder document,** run once S3 is in.
+
+### 38.8 S1 as built: the folder save goes in whole (2026-10-25)
+
+**Ruling (user, 2026-10-25):** "Continue stage 1", so Q1 is yes. Q2-Q7 are
+not ruled; what is built follows their recommendations where it touches
+them (no fsync, no backup, the reader unchanged).
+
+**Not as proposed: no new names.** 38.5's S1 gave every file but
+`Document.xml` a name of its own bytes. Building it showed why that does
+not hold. A property can add a data file of its own from inside its
+object's file (`writer.addFile` in `PropertyTopoShape` at schema 4, in
+`MeshProperties`, in `PropertyTopoShapeList`). An object's file then names
+a file that is written after it, so a name by hash would have to be
+patched into the files that name it, down a chain. Instead, every file
+keeps its name, and the save goes in through a stage:
+
+1. **The stage.** A folder save writes every entry into `.~<name>.save`,
+   beside the folder and laid out as it is (`Base::FileWriter::setStageDir`).
+   The stage is beside the folder, not in it, so nothing that reads the
+   folder (an open, a pull's copy, `FileHistory::openFile`) ever sees it.
+2. **Unchanged files stay.** When the save is whole, every staged file
+   whose bytes the folder has already is dropped from the stage. Such a
+   file is not moved and not touched: its time and inode are as they
+   were.
+3. **The record.** `.~commit` in the stage, written through a rename
+   (`QSaveFile`), lists what to delete: what the blob index no longer has
+   (`FileBlobManager::prune`, through `FileWriter::dropFile`, where it used
+   to delete during the save), and the files the last save wrote and this
+   one did not (`AutoRemoveFile`). Writing the record is the commit.
+4. **The move.** The rest is renamed into the folder (`std::filesystem::rename`,
+   retried 50 x 10 ms for Windows), `Document.xml` last. Then the deletions
+   run, and the stage goes.
+
+`App::FolderSave` in `FileElsewhere.cpp`: `freshStage`, `commit`, `recover`,
+`pending`, `stagePath`.
+
+**A save cut short.** Whatever finds a stage beside a folder settles it
+first: an open (`Document::restore`), a save (`save()` under its lock,
+before the look of 29.8), and a save-as (`freshStage`).
+- **A stage with a record** is moved in. The move is idempotent: a file
+  already moved is not in the stage any more.
+- **A stage without a record** is deleted, and the folder is the save
+  before it.
+- **The report view** says which it was.
+- **It runs under the folder's `SaveLock`**, so a live save's stage is
+  never taken for a dead one: a folder save now always holds the lock.
+  `save()` holds it already when it pulls; `saveToFile` takes it when this
+  process does not (`SaveLock::heldHere`), which covers a save-as and a
+  save with the pull off.
+
+**A read during another's save.** An open takes no lock. It stamps
+`Document.xml` before the read and again after it. A commit moves
+`Document.xml` in last, so a save that came in during the read changed the
+stamp, and the report view says so ("was saved by another process while
+it was read: ... Close it and open it again"). Not built: opening it
+again by itself.
+
+**Measured** (38.4's probes again, on the build):
+- **Killed at random**, 40 rounds (`crashrun.py`, `crashrun2.txt`; the span
+  is now measured right, so every kill lands in the save). In every round
+  the folder opened whole.
+  - **39** left a stage with no record. Each was thrown away, and the
+    folder opened as the save before.
+  - **1** came after the record (round 13). It was moved in at the open,
+    and the folder opened as the new save.
+  - **None** left a folder that does not open, or a mix.
+- **The cost of a save** (`cost.py`, `cost2.txt`):
+
+  | Objects, history | Folder before | Folder now | Archive (same run) |
+  | --- | ---: | ---: | ---: |
+  | 600, in it | 349.5 ms | 362.6 ms | 288.7 ms |
+  | 600, none | 260.2 ms | 276.3 ms | 220.4 ms |
+  | 60, in it | 50.4 ms | 53.1 ms | 44.3 ms |
+
+  - A one-box edit now touches 6 of 616 files (606 before).
+  - The time is within the run's noise: the archive rows moved 9-18 ms
+    the same way. The stage is written whole and compared, so this is no
+    faster; S2 is what makes it so.
+
+**Tests.**
+- gtest `FileElsewhereTest`:
+  - `aFolderSaveMovesInOnlyWhatChanged`: the unchanged file keeps its
+    stamp, a removal goes, the stage goes;
+  - `aStageWithoutItsRecordIsThrownAway`;
+  - `aRecordedStageIsMovedInEvenHalfMovedAlready`.
+- Python `FolderSaveCases`, with the stages built by hand from two whole
+  saves:
+  - a save moves in only what changed, and a removed object's file goes;
+  - a stage cut short before its record opens as the old save, without
+    the second save's row;
+  - one with its record, half moved in already, opens as the new save
+    with its history;
+  - a save-as over the folder finishes the stage first.
+
+### 38.9 S3 (a) as built, saved blobs read in place, a read-only folder (2026-10-25)
+
+**Rulings (user, 2026-10-25):** "Agree with your recommendations", given on
+the question of whether a folder document still needs a transient
+directory. So:
+- **Q4 is (a).** The history is brought up to date at a save. (b), the
+  store living in the folder, is a later opt-in for a folder on a local
+  disk, never the default.
+- **Saved blobs are read from the folder**, not copied into the transient
+  store at open.
+- **A folder on a read-only medium**: "implement such that it works opening
+  a folder on readonly medium in which case changes still go the
+  transient directory route as usual."
+
+What the transient directory still holds for a folder document: the
+commits since the last save (`history/log.db`), the blobs made since then,
+and the session's scratch (`pull/`, `history/checkout`, `held/`,
+`requests/`). It is also still what a crash leaves for recovery (25).
+
+**The history: `History.db` beside `Document.xml`.**
+- A folder save keeps the database as a file of its own, not a blob.
+  `<History file="History.db" count="N">` names it; the blobs that named
+  versions hold are listed as before. An archive keeps `db="<hash>"`, a
+  blob, unchanged. `PropertyHistory::setFile`, `databasePath()`.
+- **What changed is recorded.** SQLite's session extension records every
+  change to the live store but the string table, which the file carries as
+  a member of its own (27.50 item 2). The record starts when a folder's copy
+  is adopted at open (`adoptEmbedded(path, folder)`, before the session
+  row the open writes) or when a save to the folder takes the changes.
+  `TransactionStore::beginChanges`, `takeChanges`, `applyChanges`.
+- **At a save** (`TransactionLogCore::embedFolder`):
+  1. the folder's `History.db` is copied into the stage, a plain file
+     copy;
+  2. it is opened as a copy (`openSQLiteCopy`: journal in memory, no WAL
+     made or left, no indexes) and checked to be of the save the record
+     started from (`save_id`);
+  3. the changes are played into it. A row changed or removed that the copy
+     no longer has is left out: retention took it out. A row added that it
+     has is replaced. Anything else (a unique name taken) aborts it;
+  4. retention, the closing of sessions and the guard's meta run on it as
+     on a copy made whole (`finishEmbed`, shared with `embed`);
+  5. it is vacuumed only once a quarter of it is free pages.
+
+  S1's commit then moves it in with the rest, so the history and
+  `Document.xml` go in together or not at all. No append in place, no
+  journal in the folder, and no tail ahead of `Document.xml` to explain
+  at open (38.5 had planned one).
+- **Copied whole instead** whenever the record cannot be trusted. That is:
+  - the first save to a folder, or a save-as;
+  - a store closed and reopened meanwhile (its record goes with it);
+  - the folder's copy of another save, because another process saved it
+    or it was replaced by hand;
+  - a change that does not apply;
+  - a build whose SQLite lacks the extension. CMake checks for
+    `sqlite3session_create`; conda-forge's has it on Linux and Windows.
+
+  Either way the record starts again at the take.
+- **Nothing recorded for nothing.** A save to an archive, or one without
+  the history, stops the record (`untrackFolder`), so it never grows
+  unread.
+- **A save without the history** removes a `History.db` an earlier save
+  left. A `blobs/History.db` from before is pruned by the blob index, as
+  any blob no longer named.
+- **The readers.** `FileHistory::openFile`, `savedAs`, `readTable`, the
+  pull's import and the guard on open read the `file` form. A version's
+  entries leave `History.db` out, as they leave the blobs out.
+- **The check.** With `FC_TXNLOG_CHECK_FOLDER` set, a copy brought up to date
+  is compared table by table with one made whole at the same moment
+  (`TransactionStore::differences`; a session's closing time and the string
+  table are not compared). Any difference goes to the report view. A trim
+  is not covered: a copy trimmed save after save squashes rows otherwise
+  than one trimmed once. Python `getLastSaveHistory()`: `updated`,
+  `changes`, `seconds`, `checked`, `differences`.
+
+**Measured** (`~/.cache/lv-merge/probe38/embed.py`, 600 boxes, mode 2, one
+box's length changed before each save, the history 1.8-2.0 MB):
+
+| Part of the history's copy | Copied whole | Brought up to date |
+| --- | ---: | ---: |
+| State and flush (the live store's own) | 36-49 ms | 27-34 ms |
+| Copy | 15-19 ms | 2.4-2.5 ms |
+| Retention | 54-59 ms | 21-24 ms |
+| Vacuum | 8-9 ms | 0.1-0.2 ms |
+| The save | 339-376 ms | 297-307 ms |
+
+- The changes of a one-box edit are 78 KB. Most of it is the previous
+  save's version and its manifest, which the live store writes after the
+  copy is taken.
+- What is left is retention over the whole copy, and the live store's
+  file-scope state (names, UIDs, strings), both written whatever the
+  change.
+
+**Older builds of this fork** know only `db=`. Their restore returns
+before the `<Blob>` children when it is missing, so they should read the
+folder as one with no history; not tried. These builds are not released.
+
+**Saved blobs, read in place.**
+- **At open.** A document opened from its own folder reads `blobs/`
+  where it is. Each file becomes a blob of the store with the folder's
+  file as its path (`FileBlob::inPlace()`), under the hash the folder's
+  index gives it. Nothing is read or copied; a file the index does not
+  name is hashed where it is. `FileBlobManager::readInPlace` (set by
+  `Document::restore` for the document's own folder only),
+  `restoreFromDirectory(dir, true)`, `adoptInPlace`.
+- **Only there.** Any other folder is copied as before, because it goes
+  away: a version checked out, an anchor recovered, a pull's copy, a
+  `FileHistory` of another file.
+- **The store never writes such a file.** It is not made read-only, never
+  deleted when the blob goes (`release`), and never moved with the
+  transient directory (`relocate`).
+- **Not as proposed: no hash in the names.** The goal was that no save
+  ever puts other bytes under a name someone reads in place. Readable,
+  stable names are what `docs/FileBlobsManager.md` builds on (a name
+  follows its referrer, so a git diff of a folder reads), and `FileBlobs.py`
+  tests them. So the names stay, and the guarantee comes another way:
+  - **This process.** Before a save replaces a name's content or prunes a
+    file, every blob read in place from that file is copied into the store
+    (`copyIn`): the undo, the log and named versions still hold the old
+    content.
+  - **Another process** that has the folder open (a line in
+    `.~<name>.open` that is not this process) may read any blob file
+    there. While one does, a save gives no name it found other content
+    (`planSave` avoids them; the new content takes a numbered name), and
+    prunes nothing. What it leaves stays listed in the index it writes
+    (`writeIndex`'s `carried`), so the next save made alone prunes it.
+    What a user put in `blobs/` is never pruned, as before
+    (`testStrayFileIsNotTouched`).
+  - **Any name about to be written** whose file there is not known to
+    hold that content is copied in first, whether or not the previous
+    index listed it: a name freed while another process read the folder
+    is not in it.
+  - **The marker goes up before the read** for a folder, not after it as
+    29.8 wrote it, so a save in another process sees the reader from its
+    first byte.
+- **The document moves.** Blobs read in place belong to the document's
+  folder (`settleInPlace`, at the end of a save of the document's own
+  file):
+  - a save-as to another folder points them at that folder's files of the
+    same content, which that save wrote;
+  - a save-as to an archive copies them in, since the old folder may be
+    deleted next;
+  - a copy saved elsewhere (`saveCopy`) changes nothing.
+- **Recovery (25) of a folder document.** The store a killed process left
+  lacks the blobs it read in place. `TransactionLog::recover` reads them
+  from the folder again (`holdFolderBlobs`) before the log takes its
+  handles. This is 38.7's step 4, run here.
+- **Measured** (`~/.cache/lv-merge/probe38/opentime.py`, six opens each,
+  alternating with `FC_FOLDER_BLOBS_COPY`, which copies as before):
+
+  | Folder | Blobs | Open, in place | Open, copied | Transient store after |
+  | --- | ---: | ---: | ---: | ---: |
+  | 40 included files of 4 MB | 160 MB | 16.3 ms | 464.1 ms | 0 against 160 MB |
+  | 600 boxes | 28 KB | 120.8 ms | 131.0 ms | 0 against 1 KB |
+
+- **What it leaves open.**
+  - A folder moved or deleted by hand while its document is open loses
+    what it held in place. So does a removable medium taken out. The open
+    reads nothing more, so the next read of such a blob fails.
+  - A file in `blobs/` edited by hand under the same name is read as it
+    now is: the index is trusted, as git trusts its objects.
+
+**A read-only folder.** Nothing is made beside it or in it at open:
+- `SaveLock` cannot make its lock file and stands aside, as it already did
+  for a folder that takes no files;
+- the marker is not written;
+- a stage cut short beside it cannot be settled, and the report view says
+  so ("cannot be finished here (read-only?); read as it is").
+
+Its history is adopted into the transient directory, its blobs are read in
+place, and edits go to the transient store. A save of it fails at its
+stage ("cannot make the stage to save the folder in (read-only?); nothing
+was written"), and a save-as elsewhere works as from any folder.
+
+**Tests.**
+- gtest `TransactionLogTest.aCopyBroughtUpToDateHoldsWhatACopyMadeWholeDoes`:
+  a copy made at one point and brought up to date by the changes since
+  holds what a copy made whole then holds (`differences` empty); a row the
+  copy lost meanwhile is left out of the next changes; no WAL beside the
+  copy.
+- Python `FolderSaveCases`:
+  - **The history.**
+    - The first save copies whole and the next ones bring it up to date,
+      the check finding no difference; `History.db` is beside
+      `Document.xml` with no `-journal`/`-wal`, not under `blobs/`; a
+      reopen has every row, and a save after it brings it up to date
+      again.
+    - It is copied whole after a save-as elsewhere and back, and when the
+      folder's copy is replaced behind its back.
+    - A save without the history removes the old `History.db`.
+  - **The blobs.**
+    - They are read in the folder, with the folder's permissions, and
+      nothing goes into the transient store.
+    - A save that gives a name new content copies in the old first: the
+      undo brings it back from the store.
+    - With another opener in the marker, every old name keeps its bytes
+      and the new content goes elsewhere. The save made alone after it
+      leaves nothing the index does not name, and two undos still read
+      the old content.
+    - A save-as to a folder points them at its files, one to an archive
+      copies them in, and a `saveCopy` leaves them be.
+  - **Recovery.** A session of a folder killed in another process
+    (`os._exit` after an edit) is recovered: the edit is there, every
+    shape is valid, and the old directory goes.
+  - **Read-only.** A folder in a directory that takes no writes opens with
+    its history and its shapes, edits go to the transient store, a save
+    fails with nothing made beside it, and a save-as elsewhere carries
+    both rows. Skipped where the file system takes writes whatever the
+    mode (root, Windows).
+- `FileBlobs.py`: `testDirectorySharedContentIsOneFile` now expects no copy
+  in the store and one file in the folder for both referrers.
+- `Document.py`: `testAPinnedFolderKeepsItsVersion` and
+  `testAFolderCarriesItsHistory` look for `History.db` beside
+  `Document.xml`.
+
+**Gates** (round s38b, `FC_TXNLOG_CHECK_FOLDER` set for the whole round): 24
+GUI checks; Python 3873 OK with freeze on and off; gtest 1014 with freeze on
+and off; driven 301. No check reported a difference.
+
+**Next, per 38.7:** S2's survey of `beforeSave`, then S2, the save that
+skips unchanged objects. Then the history-only save of a folder (27.29),
+now a save whose stage holds `History.db` alone. Q2, Q3 and Q5-Q7 are not
+ruled.
+
+### 38.10 An archive extracted by hand opens as a folder (2026-10-25)
+
+**The question (user, 2026-10-25):** "can we use the same layout in archive
+and folder? additionally, can the user just archive the folder by himself
+and expecting it works the same?" Then, relaxed: "allow hand decompressed
+archive to be able to read as folder. no need the other way round." And
+the ruling: "make deflate level 1 a setting on saved format. default to
+zstd."
+
+**What differs** between the two layouts (`~/.cache/lv-merge/probe38/swap*.py`):
+
+| | Archive | Folder |
+| --- | --- | --- |
+| Objects | All in `Document.xml`, with the per-class defaults block | One `<Name>.xml` each (`SplitXML`), no block |
+| Small property data | `.bin` entries at the root | Inline XML (`ForceXML` 3, file version 2) |
+| History | `blobs/History.db`, a blob named by hash | `History.db` beside `Document.xml` (38.9) |
+| Blob entries | zstd (zip method 93), copied raw from the pack store | Plain files |
+
+**What was found:**
+- **An archive extracted by hand opens as a folder, whole.** Its objects,
+  shapes, included file and history all come back. The first save turns it
+  into a folder layout: one file per object, `History.db` beside
+  `Document.xml`, and the archive's entries the folder does not write
+  removed. The reopen after that has the history and the new row.
+- **Hand extraction does not work with common tools.** Every blob entry
+  (shapes, included files, the history) is zstd. Info-ZIP `unzip` skips
+  them and Python's `zipfile` refuses them. The probe could only extract
+  them by piping each entry through the `zstd` tool.
+- **The other way, not asked for:** a folder zipped by hand opens only with
+  `Document.xml` as the first entry, and it does so without its history:
+  `file="History.db"` has no folder to be read from inside a zip.
+
+**Built: `BlobCompression`, a Format property of the document** (beside
+`ForceXML` and `SplitXML`), `Zstd` or `Deflate`. Its default for new
+documents is the preference `BlobCompression` (0 zstd), so the default
+stays zstd.
+- **With `Deflate`**, content is taken into the pack store as deflate at
+  level 1 (`encodeMember(..., portable)`), and an archive copies it raw as
+  before. Every entry is then deflate, which any zip tool extracts.
+- **Content taken in as zstd** before the document asked is decoded and
+  compressed again as the archive is written. The store learns the
+  property at a save or a restore, so a new document's first save is one
+  such: what it took in before is zstd.
+- `FileBlobManager::setDeflate` is set from the property before each save
+  and after each restore. A folder save writes plain files either way.
+- **Existing archives** read as before: each entry records its own method.
+
+**Measured** (`codec.py`, 40 files of 2 MB that compress as BRep text does,
+two runs each; with the content taken in, saved as an archive, saved again
+unchanged, opened, and read back whole):
+
+| | zstd | deflate 1 | deflate 3 | deflate default (6) |
+| --- | ---: | ---: | ---: | ---: |
+| Take in 80 MB | 628 ms | 801-805 ms | 2084-2093 ms | 4098-4186 ms |
+| First save | 201-206 ms | 408-411 ms | 357-359 ms | 365-384 ms |
+| Save, nothing changed | 36-37 ms | 37 ms | 39-40 ms | 37-39 ms |
+| Open | 208-211 ms | 399-412 ms | 356-357 ms | 376-378 ms |
+| Read it all back | 104-106 ms | 289-290 ms | 240-245 ms | 267 ms |
+| Archive | 40.0 MB | 42.1 MB | 40.4 MB | 39.4 MB |
+
+Level 1 is the one close to zstd where it matters most, taking content in.
+Reading back is two to three times slower, and the archive is 5% larger.
+That is why zstd stays the default.
+
+**Test.** `FolderSaveCases.testADeflatedArchiveExtractedByHandOpensAsAFolder`:
+content taken in as zstd, the property set to `Deflate` before a save as
+an archive; every entry is deflate; Python's `zipfile` extracts it; the
+folder opens with its shape, its included file, the history's row, and
+the property.
+
+**Gates** (round s38c): 24 GUI checks; Python 3874 OK with freeze on and
+off; gtest 1014 with freeze on and off; driven 301.
+
+**Not built.** The layouts are not made one, and a folder zipped by hand is
+not read (not asked for). If wanted later: find `Document.xml` through the
+zip's central directory rather than first, accept one top-level folder in
+the zip, and read `file="History.db"` as an entry.
+
+### 38.11 S2's survey: what a save does per object (2026-10-25)
+
+**The ruling (user, 2026-10-25):** "go", on the next item of 38.7: S2's
+survey of `beforeSave`, then S2.
+
+**What `beforeSave` does, by kind.** `Document::Save` runs it over every
+object, then the document's own properties (`PropertyContainer::beforeSave`,
+then each property's).
+- **Getting the object's own write ready.** Its persistent properties are
+  collected into the map `Save` walks (`PropertyContainer::beforeSave`); a
+  shape parked by the deferred read is pulled in (`ensureRestored`). This
+  goes with the write: a skipped object needs none of it.
+- **What it lends the whole document.** A skipped object must still do
+  these, or do them from what its last save recorded:
+  - **String-id marks.** Link shadows (`PropertyLinkSub`, `...SubList`,
+    `PropertyXLink`, `PropertyXLinkSubList`), expressions' element paths,
+    a sheet's cells, a shape's element map (`ComplexGeoData::beforeSave`) and
+    dynamic properties' ids each mark the ids they use. Compaction keeps a
+    string while memory holds it, so the marks are not what keeps the table
+    whole. They are the ids this save's version uses (`markedIDs` ->
+    `noteVersionStrings`, 27.50 item 4). A version recorded without a
+    skipped object's ids would lose them to a later compaction, once memory
+    lets go of them.
+  - **Blob notes.** A shape notes its file into the save set (`noteBlob`),
+    as the collect pass notes every other blob referrer. A blob noted by
+    nobody is pruned by the save (38.9).
+  - **Hasher indexes.** A shape with a hasher of its own takes an index from
+    `Document::addStringHasher` in visiting order, and its file writes it.
+  - **Shape sharing** (`docs/SharedShapeStorage.md`). Each shape's file is
+    planned against the files before it in the same save: the owner table
+    (what sub-shapes earlier files hold, to borrow), and the congruence
+    index (an earlier part this one is the same as, moved). Both are built
+    afresh at each save (`saveOwnerTable`, `CongruenceIndex::forSave`).
+  - **Shape versions.** `Part::Feature::reconcileShapeVersions` keeps a
+    retained generation only while some referrer needs it.
+
+**Where the time goes** (`~/.cache/lv-merge/probe38/prof.py` under perf
+with DWARF call graphs, 600 boxes in a folder, ten saves each after one
+box's edit; shares of all samples):
+- `Document::save` 55%, of which `Document::Save` 33%.
+- `PropertyPartShape::beforeSave` 32%, nearly all of it `makeBlob`:
+  - `CongruenceIndex::find` 24% (`areaOf` 12%, `volumeOf` 8%, motion
+    recovery 3%);
+  - `ShapeRefSet::build` 7%.
+- Writing the objects (`writeObject`, `PropertyContainer::Save`) 10%.
+- The history's copy (`embedFolder`, 38.9) 6%.
+
+The same, by switching the sharing off (`share.py`, medians of ten saves,
+two runs each):
+
+| Setting | Save |
+| --- | ---: |
+| As shipped | 286-291 ms |
+| `DedupCongruentShapes` off | 191-196 ms |
+| `ShareStoredSubShapes` off (the congruence index rides on it) | 191-193 ms |
+
+So a third of a save of 600 unchanged boxes is the congruence search. The
+boxes are equal, so every one finds the first as a candidate, and computes
+its own length, area and volume to compare, at every save. Those numbers
+change only when the shape does. The per-object serialisation that S2 was
+proposed for is the smaller part.
+
+**Proposed S2, in two steps:**
+1. **S2a: what a shape's sharing analysis learns, kept while the shape
+   is unchanged.** First the congruence invariants (length, area, volume):
+   `CongruenceIndex::find` takes the caller's, and `PropertyPartShape` keeps
+   them with the shape they were taken of. Archives gain as much as folders.
+   No format change and no ruling needed.
+2. **S2b: an unchanged object is not written.** Its `Save` and its file are
+   skipped, and the stage keeps the folder's file. Its contributions to the
+   whole document come from what its last save recorded: its marked ids
+   (a recorder around its `beforeSave`, as `BlobRecorder` is for blobs), its
+   blob notes, its hasher index, and its place in the owner table. The
+   sharing tables are the involved part, because a later shape may borrow
+   from an unchanged one. A first cut keeps running the analysis (cheap
+   after S2a) and skips only the write. "Unchanged" is Q3: the log's ops
+   since the version of this folder's last save, the stamp, the options;
+   with a check mode in the gates that writes every object anyway and
+   compares the bytes.
+
+**S2a as built (2026-10-25).**
+- `CongruenceIndex::find(shape, match, own, last)`. `own` holds the
+  shape's invariants from one find to the next. `last` is the previous
+  find's match: if the shape it matched is stored again (`IsEqual`), its
+  motion is reused, with no recovery. `Match::with` is the stored shape
+  matched.
+- `PropertyPartShape` keeps both with the root they were taken of
+  (`_congruentFor`, `_congruentInvariants`, `_congruentMatch`). They are
+  dropped when the root is no longer that shape, and when the value changes
+  to a shape that is no partner of it (`dropBlob`), so no old shape is
+  held for them.
+- **Measured** (`share.py`, as above, two runs each): a save of 600 boxes
+  takes 212-225 ms, from 286-291 ms. With the congruence search off it is
+  203-215 ms, so what is left of the search is the key and the lookups.
+  Reusing the motion adds little beyond the invariants (222 ms with them
+  alone); it is kept because it costs nothing.
+- **Test.** `ShapeStorage.ShapeCongruenceCases.testSaveAfterSaveFollowsWhatChanged`:
+  a folder saved after each change. Unchanged: three files twice. One
+  instance made its own part: four. Made the instance again, a new shape:
+  three. The shape it matched changed while it did not: four. The reopen
+  gives every volume and every centre as left.
+
+- **Gates** (round s38d): 24 GUI checks; Python 3875 OK with freeze on and
+  off; gtest 1014 with freeze on and off; driven 301.
+
+**Left for S2b and Q3:** writing the objects (10% of the samples before
+S2a), the per-object preparation that remains (`ShapeRefSet::build` 7%
+before S2a), and the stage's comparison of every file. Not profiled again
+after S2a.
+
+### 38.12 S2b as built: an unchanged object is not written (2026-10-25)
+
+**Ruling (user, 2026-10-25):** "agree", on 38.11's Q3 recommendation:
+"unchanged" is what the log says, with the stamp and the options; a check
+mode runs in the gates; the first cut skips the write only.
+
+**When a save keeps an object's file.** Each save to a folder records its
+state (`DocumentP::FolderState`):
+- the folder, its canonical path;
+- the log's row the save was of (`head`), and the version it recorded;
+- the options that decide the bytes (schema, file version, `ForceXML`,
+  `PreferBinary`, binary BRep);
+- the stamp of the folder as the commit left it;
+- per object, the blobs it referred to (`FileBlobManager::referencesByObject`)
+  and the entries its write made, its own file first.
+
+It is kept only after a save of the document's own file (`saveCopy` keeps
+nothing), and cleared by a save to an archive. The next save keeps an
+object's file when all of these hold:
+- **The save is the same:** the same folder, the same options, the folder's
+  stamp what the last save left (no other process saved it, nothing
+  touched it), and the last save's version still in the log.
+- **Nothing changed it:** no op of a row after the recorded one on this
+  branch's chain names the object (`TransactionLog::objectsChangedSince`).
+  A row trimmed away, or a branch switched, means nothing is kept.
+- **It refers to the same blobs.** This catches what no op of the object
+  records: a shape whose file it borrowed from changed (38.11's test case).
+- **It is written under the name it was.**
+
+**What keeping means.**
+- **Its preparation still runs**, as it did. That keeps the string-id marks,
+  the blob notes, the hasher indexes and the sharing tables as before; the
+  first cut skips the write only.
+- **Its entry is registered**, so `Document.xml` names its file as before.
+- **Not written:** `FileWriter::keepFile` marks the entry, and the data
+  files its last write added, as the save's files. Nothing is staged for
+  them, nothing removes them, and the folder's files stay as they are.
+- **The log's version** of the save takes the kept entries from the last
+  save's version, by name (`EntryCapture::keepFrom`, read in
+  `writeVersion`). A kept entry missing there fails the version's write,
+  and the next save, finding no such version, keeps nothing.
+- **Python `getLastFolderSave()`**: `written`, `kept`, `checked`, `differed`.
+
+**The check.** With `FC_FOLDER_SAVE_CHECK` set, everything is written. Each
+object that would have been kept is compared, staged against the folder's
+file, before the commit; a difference goes to the report view and to
+`differed`. The whole Python suite was run with it on, 3878 tests: no
+object that would have been kept came out otherwise.
+
+**Measured** (`share.py`, 600 boxes, one box changed before each save,
+medians of ten saves, two runs each):
+
+| Build | Save |
+| --- | ---: |
+| Before S2 | 286-291 ms |
+| S2a (38.11) | 212-225 ms |
+| S2b | 119-121 ms |
+| S2b with the check (everything written) | 220-222 ms |
+
+**Gates** (round s38e, the keeping active in every folder save of the
+suites): 24 GUI checks; Python 3878 OK with freeze on and off; gtest 1014
+with freeze on and off; driven 301.
+
+**Tests** (`FolderSaveCases`):
+- **An unchanged object is kept as the folder has it.** A save with
+  nothing changed keeps all four boxes. After one box is changed and one
+  added, two are written and three kept, and the kept files keep their
+  stamps. The log's version of that save opens with every object and the
+  changed length. A removed object's file goes. A reopen reads every
+  shape.
+- **Nothing is kept after another save or other options:** a `ForceXML`
+  change writes everything, the next save keeps again, and a
+  `Document.xml` touched behind its back writes everything.
+- **The check:** everything written, `differed` empty.
+- Both keeping cases clear `FC_FOLDER_SAVE_CHECK` for themselves, since a
+  run may set it.
+
+**Not built.**
+- **The first save after an open** writes everything: no state is known
+  for a folder the document only read.
+- **The Gui's split view-provider files** are written as before.
+- **A kept object's preparation** still runs (the second step of 38.11's
+  S2b). Where the remaining 120 ms goes is not profiled yet.

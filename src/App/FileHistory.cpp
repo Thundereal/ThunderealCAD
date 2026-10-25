@@ -100,6 +100,8 @@ struct FileFacts
     std::string lastModified;
     std::string lastModifiedBy;
     std::string historyDb;
+    /// A folder's history, a file beside Document.xml (sec 38.9).
+    std::string historyFile;
 };
 
 std::string unescapeXml(const std::string& s)
@@ -178,8 +180,12 @@ bool readFacts(const std::string& xml, FileFacts& facts)
     if (history != std::string::npos) {
         const size_t end = xml.find("</Property>", history);
         const size_t element = xml.find("<History", history);
-        if (element != std::string::npos && element < end)
-            facts.historyDb = attributeAfter(xml, element, xml.find('>', element), "db");
+        if (element != std::string::npos && element < end) {
+            const size_t close = xml.find('>', element);
+            facts.historyDb = attributeAfter(xml, element, close, "db");
+            if (facts.historyDb.empty())
+                facts.historyFile = attributeAfter(xml, element, close, "file");
+        }
     }
     return true;
 }
@@ -199,7 +205,7 @@ bool FileHistory::savedAs(const std::string& path, Saved& saved, std::string* re
     std::string docXml;
     if (fi.isDir()) {
         // A document saved as a folder (sec 29.8): its Document.xml is a
-        // file there. Such a save never carries the history.
+        // file there.
         QFile in(QString::fromStdString(path + "/Document.xml"));
         if (!in.open(QIODevice::ReadOnly))
             return fail("no Document.xml");
@@ -229,7 +235,7 @@ bool FileHistory::savedAs(const std::string& path, Saved& saved, std::string* re
     version >> saved.version >> saved.saveId;
     saved.modifiedBy = facts.lastModifiedBy;
     saved.hash = FileBlobManager::hashBytes(docXml);
-    saved.history = !facts.historyDb.empty();
+    saved.history = !facts.historyDb.empty() || !facts.historyFile.empty();
     return true;
 }
 
@@ -291,7 +297,7 @@ std::shared_ptr<FileHistory> FileHistory::openFile(const std::string& path, std:
             return fail("no Document.xml");
         if (!readFacts(docXml, facts))
             return fail("Document.xml cannot be read");
-        if (facts.historyDb.empty())
+        if (facts.historyDb.empty() && (facts.historyFile.empty() || !fi.isDir()))
             return fail("the file carries no history");
         entries.emplace_back("Document.xml", std::move(docXml));
         const std::string prefix = FileBlobManager::archivePrefix();
@@ -299,6 +305,8 @@ std::shared_ptr<FileHistory> FileHistory::openFile(const std::string& path, std:
             // The string table is the file's, not a version's (sec 27.50):
             // read into the history's hasher below.
             if (name == "Document.xml" || name == Document::stringTableName()
+                    || (!facts.historyFile.empty()
+                        && name.compare(0, facts.historyFile.size(), facts.historyFile) == 0)
                     || name.compare(0, prefix.size(), prefix) == 0
                     || name.compare(0, 11, "thumbnails/") == 0)
                 continue;
@@ -333,9 +341,20 @@ std::shared_ptr<FileHistory> FileHistory::openFile(const std::string& path, std:
         FileBlobManager& blobs;
         ~EndRestore() { blobs.endRestore(); }
     } ending {blobs};
-    FileBlobHandle db = blobs.find(facts.historyDb);
-    if (!db)
-        return fail("the history's database is not in the archive");
+    // A folder's history is a file of its own (sec 38.9), an archive's a
+    // blob.
+    std::string dbPath;
+    if (!facts.historyDb.empty()) {
+        FileBlobHandle db = blobs.find(facts.historyDb);
+        if (!db)
+            return fail("the history's database is not in the archive");
+        dbPath = db->path();
+    }
+    else {
+        dbPath = path + "/" + facts.historyFile;
+        if (!Base::FileInfo(dbPath).exists())
+            return fail("the history's database is not in the folder");
+    }
 
     // The guard of 16.4: the save that wrote the copy is the save the file
     // is from. When it is not, the copy's branches are kept closed and the
@@ -348,7 +367,7 @@ std::shared_ptr<FileHistory> FileHistory::openFile(const std::string& path, std:
             int64_t num = 0;
             in >> num >> saveId;
         }
-        auto copy = TransactionStore::openSQLite(db->path(), true);
+        auto copy = TransactionStore::openSQLite(dbPath, true);
         const std::string id = copy->getMeta("save_id");
         matches = !id.empty() && id == saveId && copy->getMeta("save_date") == facts.lastModified;
     }
@@ -359,7 +378,7 @@ std::shared_ptr<FileHistory> FileHistory::openFile(const std::string& path, std:
     // version carries none (sec 27.50 item 2).
     history->readTable(path);
     auto& core = TransactionLogCore::of(*history);
-    if (!core.adoptEmbedded(db->path()))
+    if (!core.adoptEmbedded(dbPath))
         return fail("the history cannot be adopted");
     if (!matches) {
         FC_WARN("the embedded history of " << path

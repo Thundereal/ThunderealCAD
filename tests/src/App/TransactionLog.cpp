@@ -7507,3 +7507,72 @@ TEST_F(TransactionLogTest, aRecreatedObjectKeepsItsPythonExtensions)
     ASSERT_TRUE(back);
     EXPECT_TRUE(back->hasExtension(App::GroupExtension::getExtensionClassTypeId()));
 }
+
+TEST_F(TransactionLogTest, aCopyBroughtUpToDateHoldsWhatACopyMadeWholeDoes)
+{
+    // docs/TransactionLog.md sec 38.9: a folder's copy of the store, copied
+    // at one save, is brought up to date at the next by what changed since.
+    // It then holds the rows a copy made whole then holds. A row the copy no
+    // longer has -- retention took it out -- is left out of the changes to
+    // it, not refused.
+    const std::string live = Base::FileInfo::getTempFileName("txnlog-live") + ".db";
+    const std::string kept = Base::FileInfo::getTempFileName("txnlog-kept") + ".db";
+    const std::string whole = Base::FileInfo::getTempFileName("txnlog-whole") + ".db";
+    {
+        auto store = App::TransactionStore::openSQLite(live);
+        auto row = [&store](const char* name, int64_t parent) {
+            App::LogTransaction t;
+            t.parent = parent;
+            t.branch = 1;
+            t.kind = "user";
+            t.name = name;
+            std::vector<App::LogOp> ops(1);
+            ops[0].op = "set";
+            ops[0].ckind = "obj";
+            ops[0].cid = 1;
+            ops[0].prop = "Length";
+            return store->append(t, ops);
+        };
+        const int64_t one = row("one", 0);
+        const int64_t two = row("two", one);
+        store->setMeta("save_id", "first");
+        store->copyTo(kept);
+        if (!store->beginChanges())
+            GTEST_SKIP() << "this build's SQLite records no changes";
+
+        const int64_t three = row("three", two);
+        store->setMeta("save_id", "second");
+        App::LogBranch side;
+        side.name = "side";
+        side.fromSeq = three;
+        store->addBranch(side);
+        store->removeTransactions({one});
+        std::string changes;
+        ASSERT_TRUE(store->takeChanges(changes));
+        EXPECT_FALSE(changes.empty());
+        store->copyTo(whole);
+
+        auto copy = App::TransactionStore::openSQLiteCopy(kept);
+        copy->applyChanges(changes);
+        EXPECT_EQ(copy->getMeta("save_id"), "second");
+        EXPECT_EQ(copy->differences(whole), std::vector<std::string>());
+
+        // Recorded again from the take: only what follows it.
+        row("four", three);
+        ASSERT_TRUE(store->takeChanges(changes));
+        // The copy lost row two meanwhile, as a trim of it would.
+        copy->removeTransactions({two});
+        copy->applyChanges(changes);
+        std::vector<std::string> names;
+        for (const auto& t : copy->transactions(0, 100))
+            names.push_back(t.name);
+        EXPECT_EQ(names, std::vector<std::string>({"three", "four"}));
+    }
+    // The copy carries no WAL beside it.
+    EXPECT_FALSE(Base::FileInfo(kept + "-wal").exists());
+    for (const auto& p : {live, kept, whole}) {
+        Base::FileInfo(p).deleteFile();
+        Base::FileInfo(p + "-wal").deleteFile();
+        Base::FileInfo(p + "-shm").deleteFile();
+    }
+}

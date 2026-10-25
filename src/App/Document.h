@@ -45,6 +45,7 @@ class QByteArray;
 
 namespace Base {
     class Writer;
+    class FileWriter;
 }
 
 namespace App
@@ -193,6 +194,11 @@ public:
     PropertyInteger ForceXML;
     /// Whether to split object content into separated XML files
     PropertyBool SplitXML;
+    /** How the content a file carries is compressed (docs/TransactionLog.md
+     * sec 38.10): Zstd, or Deflate, which any zip tool extracts so that the
+     * extracted folder opens as the document.
+     */
+    PropertyEnumeration BlobCompression;
     /// Prefer binary format when saving
     PropertyBool PreferBinary;
     /** Document schema version to write.
@@ -1330,6 +1336,22 @@ public:
      * (docs/TransactionLog.md sec 27.50 item 1), read before the objects.
      */
     static const char* stringTableName();
+    /// The file a document saved as a folder keeps its history in, beside
+    /// Document.xml (docs/TransactionLog.md sec 38.9).
+    static const char* historyFileName();
+    /** What the last save to a folder wrote and kept (docs/TransactionLog.md
+     * sec 38.12): objects written, objects kept as the folder had them, and,
+     * with FC_FOLDER_SAVE_CHECK set, the objects that would have been kept
+     * whose file came out otherwise.
+     */
+    struct FolderSaveInfo
+    {
+        int written {0};
+        int kept {0};
+        bool checked {false};
+        std::vector<std::string> differed;
+    };
+    const FolderSaveInfo& lastFolderSave() const;
     /// Schema version this document asks to be written with -- the user's
     /// cap, validated against the writable list.
     long getSaveSchemaVersion() const;
@@ -2225,8 +2247,10 @@ protected:
     /// A version was taken: the snapshot cadence starts over.
     void noteVersionTaken();
     /// Set (or clear) the History and Version properties for a save
-    /// (docs/TransactionLog.md sec 16.4, embedded mode).
-    void embedHistory(bool archive);
+    /// (docs/TransactionLog.md sec 16.4, embedded mode). `folder`: the
+    /// writer of a save to a folder, whose stage gets the folder's own copy
+    /// of the history (sec 38.9).
+    void embedHistory(bool archive, Base::FileWriter* folder = nullptr);
     /// Continue the log from the History property's copy when the guard
     /// agrees that the file is the save that wrote it.
     bool adoptEmbeddedHistory();

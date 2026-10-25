@@ -782,7 +782,15 @@ void PropertyPartShape::makeBlob(Base::Writer& writer) const
     // elsewhere is a different TShape holding different numbers.
     if (owners && congruent && !root.IsNull()) {
         CongruenceIndex::Match match;
-        if (congruent->find(root, match)) {
+        // What the last save took of this shape, while it is the same one
+        // (docs/TransactionLog.md sec 38.11).
+        if (!_congruentFor.IsEqual(root)) {
+            _congruentFor = root;
+            _congruentInvariants = CongruenceIndex::Invariants();
+            _congruentMatch = CongruenceIndex::Match();
+        }
+        if (congruent->find(root, match, &_congruentInvariants, &_congruentMatch)) {
+            _congruentMatch = match;
             if (App::FileBlobHandle shared = manager.find(owners->file(match.slot).hash)) {
                 _blob = shared;
                 _blobPlan = owners->file(match.slot).plan;
@@ -865,6 +873,12 @@ void PropertyPartShape::noteBlob(Base::Writer& writer) const
 
 void PropertyPartShape::dropBlob(const TopoDS_Shape& next)
 {
+    // Nor the old shape held for its invariants (sec 38.11).
+    if (!_congruentFor.IsNull() && !_congruentFor.IsPartner(next)) {
+        _congruentFor.Nullify();
+        _congruentInvariants = CongruenceIndex::Invariants();
+        _congruentMatch = CongruenceIndex::Match();
+    }
     if (!_blob)
         return;
     const TopoDS_Shape& current = _Shape.getShape();

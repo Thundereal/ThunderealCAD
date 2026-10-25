@@ -803,7 +803,9 @@ private:
 // The boolean argument check's self-intersection and curve-on-surface tests
 // (BOPAlgo_ArgumentAnalyzer) of the given faces against a region of a shape,
 // without checking the rest of the region against itself.
-std::string regionCheck(const TopoDS_Shape& shape, const std::vector<TopoDS_Shape>& faces)
+std::string regionCheck(const TopoDS_Shape& shape,
+                        const std::vector<TopoDS_Shape>& faces,
+                        const Message_ProgressRange& range = Message_ProgressRange())
 {
     BRepBuilderAPI_Copy copy(shape, true, false);
     TopTools_MapOfShape region;
@@ -825,7 +827,7 @@ std::string regionCheck(const TopoDS_Shape& shape, const std::vector<TopoDS_Shap
     checker.SetArguments(args);
     checker.SetNonDestructive(true);
     checker.SetRunParallel(true);
-    checker.Perform();
+    checker.Perform(range);
     bool selfInter = false;
     if (checker.HasErrors()) {
         return "the result fails the boolean check (other)";
@@ -1161,6 +1163,13 @@ using ShapeIntMap = NCollection_DataMap<TopoDS_Shape, int, TopTools_ShapeMapHash
 
 namespace Part
 {
+
+std::string RegionBooleanCheck(const TopoDS_Shape& shape,
+                               const std::vector<TopoDS_Shape>& faces,
+                               const Message_ProgressRange& range)
+{
+    return regionCheck(shape, faces, range);
+}
 
 // One drafted face (with the faces coplanar to it) on one solid.
 class CellDraftOne

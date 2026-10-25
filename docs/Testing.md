@@ -1518,7 +1518,8 @@ and says what it needs. On the fork nothing skips this way.
 
 The probe is the one FreeCAD itself uses to find the fork at run time: a C
 function of the fork's toolkits, looked up by name (`lookUpOCCT()` in C++,
-`Part.hasOCCTFunction(toolkit, name)` in Python).
+`src/Mod/Part/App/OCCTFork.h`; `Part.hasOCCTFunction(toolkit, name)` in
+Python).
 
 - A test of one of the fork's functions asks for that function:
   `TopoDS_LockedShape_Raised` for the frozen shapes (`Document.py`'s two

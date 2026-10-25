@@ -234,7 +234,7 @@ Each one names the vertex, so FreeCAD can point at it.
   `makeElementShape` path, so a later feature can reference the corner face
   stably.
 - The fork's OCCT is the only one with `SetSetback`. Like the plate
-  fallback (`AppPartPy setOCCTPlateG0FallbackRatio`, dlsym), resolve it at run
+  fallback (`OCCTFork.cpp setOCCTPlateG0FallbackRatio`, dlsym), resolve it at run
   time. On another OCCT, a setback corner is an error: "corner setback
   needs the fork's OCCT". It must not silently build a different shape.
 
@@ -493,9 +493,10 @@ As 4.1 planned, with these settled:
 - **Run-time lookup.** A member function has no portable name to look up,
   so the fork exports `BRepFilletAPI_SetSetback(maker, V, E, D)` with C
   linkage (null E: every contour at V), as it does the fallback settings.
-  FreeCAD finds it through `lookUpTKFillet`, exported from `AppPartPy.cpp`
-  for this. Without it a corner throws "fillet corner setback needs the
-  OCCT fork".
+  FreeCAD finds it through `setOCCTFilletSetback` in `OCCTFork.h`, the one
+  place for every run-time lookup of the fork's (since 2026-10-21; it was
+  `lookUpTKFillet` in `AppPartPy.cpp`). Without it a corner throws "fillet
+  corner setback needs the OCCT fork".
 - **Checked before OCCT sees it**, since `SetSetback` ignores what it
   cannot place: the vertex belongs to the shape and some contour ends
   there ("no fillet ends at corner VertexN"); each edge is filleted

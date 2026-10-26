@@ -2373,6 +2373,7 @@ void Application::refreshLiveLoad(const App::Document* starting)
         }
         if (auto doc = App::GetApplication().getDocument(name.c_str())) {
             doc->setStatus(App::Document::LiveImport, false);
+            doc->setStatus(App::Document::LiveLoad, false);
         }
     }
     for (auto it = loading.begin(); it != loading.end();) {
@@ -2389,6 +2390,9 @@ void Application::refreshLiveLoad(const App::Document* starting)
             continue;
         }
         doc->setStatus(App::Document::LiveImport, true);
+        // Said to be the load's: its LiveImport gates commands, and is no
+        // importer writing (the label setter)
+        doc->setStatus(App::Document::LiveLoad, true);
         ++it;
     }
     live.claimed = std::move(loading);

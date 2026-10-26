@@ -503,12 +503,7 @@ Element *Element::create(App::DocumentObject *container,
     auto children = group->Group.getValues();
     children.push_back(element);
     group->Group.setValues(children);
-    // Made unique here as well: a label set while the GUI still fills the
-    // document in after an open (Document::LiveImport, as the converters on
-    // open do) is not given to onBeforeChangeLabel()
-    std::string name = label && *label ? label : "Element";
-    element->onBeforeChangeLabel(name);
-    element->Label.setValue(name);
+    element->Label.setValue(label && *label ? label : "Element");
     std::vector<std::string> subs;
     if (subname && *subname)
         subs.emplace_back(subname);

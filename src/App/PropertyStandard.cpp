@@ -1685,8 +1685,12 @@ void PropertyString::setValue(const char* newLabel)
        (!obj->getDocument()->testStatus(App::Document::Restoring)||
         obj->getDocument()->testStatus(App::Document::Importing)) &&
        // a progressive import keeps duplicate labels exactly like the
-       // synchronous importer's Restoring-guarded object creation does
-       !obj->getDocument()->testStatus(App::Document::LiveImport) &&
+       // synchronous importer's Restoring-guarded object creation does; a
+       // load the GUI is finishing is no import: its restore is over, and
+       // what sets a label then -- a script after the open, a converter
+       // on open -- is an edit like any other
+       (!obj->getDocument()->testStatus(App::Document::LiveImport) ||
+        obj->getDocument()->testStatus(App::Document::LiveLoad)) &&
        !obj->getDocument()->isPerformingTransaction())
     {
         // Special handling on importing. If the imported label starts with the

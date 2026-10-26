@@ -541,12 +541,12 @@ Built as step 3a (2026-10-24), `Part/App/FeatureElement.{h,cpp}`:
   subname, label)`) makes the container's Elements group if missing,
   puts the element in it first and then labels it, so the label is made
   unique among its siblings (`onBeforeChangeLabel`) and no wider: it allows
-  duplicate labels in the document. `create()` asks
-  `onBeforeChangeLabel` itself as well (2026-10-26): the label setter does
-  not while the document has `LiveImport`, which the GUI keeps on after an
-  open until its view providers are made, and the converters on open made
-  two `_Element` there, joining both sides of a joint to one. A new
-  element is hidden; its geometry is the target's. `Part.makeElementLink(container, obj,
+  duplicate labels in the document. (Until 2026-10-26 the label setter
+  skipped `onBeforeChangeLabel` while the GUI finished a load, which it
+  marks `LiveImport` as an import, and the converters on open made two
+  `_Element` there, joining both sides of a joint to one; a load is marked
+  `LiveLoad` too now, and its labels are made unique.) A new element is
+  hidden; its geometry is the target's. `Part.makeElementLink(container, obj,
   subname)` adds an ElementLink to the container's `Group` directly,
   whatever its GroupMode (a joint owns them from step 4).
 - The Elements group is an `App::AuxGroup` of role "Elements", which makes

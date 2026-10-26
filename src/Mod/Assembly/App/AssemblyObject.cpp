@@ -2152,13 +2152,22 @@ std::unordered_set<App::DocumentObject*> AssemblyObject::fixGroundedParts()
 {
     auto groundedParts = getGroundedParts();
 
+    // By name, not in the set's order, which follows the objects' addresses:
+    // the order the solver's bodies are made in is the order of its
+    // columns, and a solve whose columns came in another order could end
+    // in other last bits from one run to the next.
+    std::vector<std::pair<std::string, App::DocumentObject*>> ordered;
     for (auto obj : groundedParts) {
-        if (!obj) {
-            continue;
+        if (obj) {
+            ordered.emplace_back(obj->getFullName(), obj);
         }
-
+    }
+    std::sort(ordered.begin(), ordered.end(), [](const auto& a, const auto& b) {
+        return a.first < b.first;
+    });
+    for (auto& [name, obj] : ordered) {
         Base::Placement plc = getPlacementFromProp(obj, "Placement");
-        std::string str = obj->getFullName();
+        std::string str = name;
         fixGroundedPart(obj, plc, str);
     }
     return groundedParts;

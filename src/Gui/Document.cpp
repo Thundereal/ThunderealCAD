@@ -3100,7 +3100,12 @@ static std::string viewHead(const std::string& name, bool expanded, bool extensi
 
 static std::string viewHead(const App::DocumentObject* obj, const ViewProvider* vp)
 {
-    return viewHead(obj->getExportName(), obj->testStatus(App::Expand), vp->canSaveExtension());
+    // With what its Python proxies save as, which is no property and is in
+    // no row of the log (TransactionLog sec 38.21 F1): a view file is kept
+    // only while that is the same. A head read from a file has none, so a
+    // view provider with a proxy is written by the first save after an open.
+    return viewHead(obj->getExportName(), obj->testStatus(App::Expand), vp->canSaveExtension())
+        + App::PropertyPythonObject::stateOf(*vp);
 }
 
 namespace {

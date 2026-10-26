@@ -139,6 +139,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include "TransactionMeasure.h"
 #include "PropertyElementAppearance.h"
 #include "PropertyHistory.h"
+#include "PropertyPythonObject.h"
 #include "TransactionLog.h"
 
 #include <nlohmann/json.hpp>
@@ -3394,6 +3395,16 @@ void Document::_takeFolderRead()
     last.files = std::move(read.files);
     last.views = std::move(read.views);
     last.heads = std::move(read.heads);
+    // What each object's proxies saved as, read back (sec 38.21 F1): the
+    // restore gave them what the file holds. One whose dumps() does not give
+    // back what its loads() took is written by the first save.
+    for (auto obj : d->objectArray) {
+        if (!last.files.count(obj->getID()))
+            continue;
+        std::string proxy = PropertyPythonObject::stateOf(*obj);
+        if (!proxy.empty())
+            last.proxies[obj->getID()] = std::move(proxy);
+    }
     FC_LOG("open " << getName() << ": " << last.files.size() << " object files, "
            << last.views.size() << " view files, " << d->folderDirty.size() << " objects and "
            << d->folderDirtyViews.size() << " view providers changed by the restore");
@@ -4290,6 +4301,16 @@ void Document::writeObjects(const std::vector<App::DocumentObject*>& obj,
             // the folder has it, with the data files its write added.
             const long id = (*it)->getID();
             d->folderEntryOf[id] = entry;
+            // A proxy's own state is no property and goes in no row of the
+            // log, as it never went into undo (user, 2026-10-26); it is in
+            // the file, so its file is kept only while it is what it was
+            // (sec 38.21 F1).
+            std::string proxy;
+            if (!d->folderNext.folder.empty()) {
+                proxy = PropertyPythonObject::stateOf(**it);
+                if (!proxy.empty())
+                    d->folderNext.proxies[id] = proxy;
+            }
             if (d->folderKeeping && d->folderUnchanged.count(id) && !d->folderDirty.count(id)) {
                 auto files = d->folderLast.files.find(id);
                 auto was = d->folderLast.refs.find(id);
@@ -4329,8 +4350,12 @@ void Document::writeObjects(const std::vector<App::DocumentObject*>& obj,
                                       ? idsNow == d->folderMapIdsNow.end()
                                       : idsNow != d->folderMapIdsNow.end()
                                             && idsWas->second == idsNow->second);
+                auto proxyWas = d->folderLast.proxies.find(id);
+                const bool sameProxy = proxyWas == d->folderLast.proxies.end()
+                    ? proxy.empty()
+                    : proxyWas->second == proxy;
                 auto* folder = dynamic_cast<Base::FileWriter*>(&writer);
-                if (folder && sameRefs && sameIds && files != d->folderLast.files.end()
+                if (folder && sameRefs && sameIds && sameProxy && files != d->folderLast.files.end()
                         && !files->second.empty() && files->second.front() == entry) {
                     d->folderNext.files[id] = files->second;
                     if (idsWas != d->folderLast.mapIds.end())
@@ -4351,6 +4376,7 @@ void Document::writeObjects(const std::vector<App::DocumentObject*>& obj,
                                    << (!folder           ? "not a folder"
                                        : !sameRefs       ? "blobs differ"
                                        : !sameIds        ? "element map ids differ"
+                                       : !sameProxy      ? "its proxy's state differs"
                                                          : "entry differs"));
                 }
             }
@@ -5436,9 +5462,12 @@ bool Document::save ()
         // since this document read or wrote it is brought in and merged
         // first. The file as it was left costs one stat.
         const std::string file = FileName.getStrValue();
+        // The lock is taken whether or not this save pulls (sec 38.21 F8): a
+        // lock is advisory, and one save without it writes between another
+        // save's look and its write.
         const bool pulling = DocumentParams::getTransactionLogPullOnSave() && getTransactionLog();
         std::unique_ptr<SaveLock> lock;
-        if (pulling) {
+        if (!SaveLock::heldHere(file)) {
             lock = std::make_unique<SaveLock>(file);
             std::string holder;
             if (!lock->lock(60000, &holder))
@@ -5451,6 +5480,18 @@ bool Document::save ()
         if (pulling && Base::FileInfo(file).isDir())
             FolderSave::recover(file);
         d->lastPull = SavePull();
+        // A pull left to merge is that file's: a save to another, or to it
+        // gone since, has no other save to take in, and lets the merge go
+        // (sec 38.21 F7). The branch stays in the log, to merge by hand; a
+        // save-as away from a conflict is not held by it.
+        if (!d->pullBranch.empty()
+                && (d->pullFile != file || !Base::FileInfo(file).exists())) {
+            FC_WARN("'" << Label.getValue() << "': branch '" << d->pullBranch << "', what "
+                    << d->pullFile << " brought, is left to merge by hand: this save is not "
+                    "to that file");
+            d->pullBranch.clear();
+            d->pullFile.clear();
+        }
         if (pulling && (!d->pullBranch.empty() || isFileChangedElsewhere()))
             _pullFromDisk(file);
         {
@@ -5624,8 +5665,10 @@ void Document::_pullFromDisk(const std::string& file)
     const ImportResult imported = importFork(copy);
     d->lastPull.pulled = true;
     d->lastPull.rows = imported.rows;
-    if (!imported.branch.empty() && (imported.rows || imported.stoppedAt))
+    if (!imported.branch.empty() && (imported.rows || imported.stoppedAt)) {
         d->pullBranch = imported.branch;
+        d->pullFile = file;
+    }
     d->lastPull.branch = d->pullBranch;
     if (imported.stoppedAt)
         FC_WARN("'" << Label.getValue() << "': what another process saved came only in part: "
@@ -5649,6 +5692,7 @@ void Document::_pullFromDisk(const std::string& file)
         d->lastPull.merged = true;
         d->lastPull.unchanged = merged.unchanged;
         d->pullBranch.clear();
+        d->pullFile.clear();
     }
     d->lastPull.seconds =
         std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
@@ -8607,7 +8651,8 @@ void Document::_saveFolderHistory(const std::string& file, std::string xml,
     const std::string name = historyFileName();
     TransactionLog::Embedded copy = log->embedFolderForFile(saveDate, saveId, native,
                                                             stage + "/" + name,
-                                                            native + "/" + name);
+                                                            native + "/" + name,
+                                                            SaveTrigger::current());
     auto& manager = getFileBlobManager();
     std::ostringstream element;
     element << "<History file=\"" << Property::encodeAttribute(name) << "\" count=\""
@@ -8688,12 +8733,17 @@ void Document::_saveFolderHistory(const std::string& file, std::string xml,
     if (hasIndex)
         put(prefix + FileBlobManager::indexName(), FileBlobManager::indexText(members));
 
+    // Only a folder this document last wrote stays one it keeps from: one
+    // another process saved since is not, whatever this commit does to it
+    // (sec 38.21 F5).
+    const bool ours = d->folderLast.folder == native && d->folderLast.stamp.valid()
+        && DiskStamp::of(native).sameAs(d->folderLast.stamp);
     FolderSave::commit(native, removals);
     stageGuard.done = true;
     log->folderSaved(native, saveId);
     // The folder as this commit left it is still the one the next save of it
     // keeps unchanged objects from (38.12).
-    if (d->folderLast.folder == native)
+    if (ours)
         d->folderLast.stamp = DiskStamp::of(native);
 }
 
@@ -8717,6 +8767,23 @@ int64_t Document::saveToLog(const char* name)
             && PropertyXLink::getPinsTo(file).empty())
         THROWM(Base::RuntimeError,
                "the file does not carry its history: saving to the history alone would lose it");
+
+    // From the read of the file to its rewrite under the save lock, as a
+    // save is (sec 38.21 F5): another process's save in between would be
+    // written over, and a folder's Document.xml read before it would name
+    // files that save removed. A folder's save cut short is settled first,
+    // so the read is of the folder as it is.
+    std::unique_ptr<SaveLock> lock;
+    if (!SaveLock::heldHere(file)) {
+        lock = std::make_unique<SaveLock>(file);
+        std::string holder;
+        if (!lock->lock(60000, &holder))
+            THROWM(Base::FileException, ("'" + file + "' is being saved by " + holder
+                                         + "; nothing was written").c_str(),
+                   Base::FileInfo(file));
+    }
+    if (folder)
+        FolderSave::recover(file);
 
     // The file's own guard, which it keeps: the save id and the date its
     // document says it was saved with (sec 16.4).
@@ -8764,7 +8831,7 @@ int64_t Document::saveToLog(const char* name)
 
     FC_TIME_INIT(tEmbed);
     // The history, as the file will carry it.
-    TransactionLog::Embedded copy = log->embedForFile(saveDate, saveId);
+    TransactionLog::Embedded copy = log->embedForFile(saveDate, saveId, SaveTrigger::current());
     auto& manager = getFileBlobManager();
     FileBlobHandle db = manager.adoptFile(copy.path.c_str(), "db");
     if (!db)

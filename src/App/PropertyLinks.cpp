@@ -4574,7 +4574,13 @@ public:
         // time stamp changed, touch the linking document.
         std::set<Document*> docs;
         for(auto link : links) {
-            auto linkdoc = static_cast<DocumentObject*>(link->getContainer())->getDocument();
+            auto owner = static_cast<DocumentObject*>(link->getContainer());
+            auto linkdoc = owner->getDocument();
+            // What the link saves -- the file's path and stamp -- moved
+            // with no change of its own: a folder save writes the owner
+            // again rather than keep its file (TransactionLog sec 38.21 F2).
+            if (linkdoc)
+                linkdoc->noteSavedChange(owner);
             auto ret = docs.insert(linkdoc);
             if(ret.second) {
                 // This will signal the Gui::Document to call setModified();

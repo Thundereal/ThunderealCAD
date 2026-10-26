@@ -90,6 +90,26 @@ void PropertyPythonObject::setPyObject(PyObject * obj)
     hasSetValue();
 }
 
+std::string PropertyPythonObject::stateOf(const PropertyContainer& container)
+{
+    std::string state;
+    std::vector<Property*> props;
+    container.getPropertyList(props);
+    for (auto prop : props) {
+        auto py = freecad_dynamic_cast<PropertyPythonObject>(prop);
+        // Only what Save writes (PropertyContainer::Save): ViewObject, on
+        // every object, is not.
+        if (!py || !py->getName() || py->testStatus(Property::Transient)
+                || py->testStatus(Property::PropNoPersist) || (py->getType() & Prop_Transient))
+            continue;
+        state += py->getName();
+        state += '\n';
+        state += py->toString();
+        state += '\n';
+    }
+    return state;
+}
+
 std::string PropertyPythonObject::toString() const
 {
     std::string repr;

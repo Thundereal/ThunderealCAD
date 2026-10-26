@@ -13289,6 +13289,108 @@ class FolderSaveCases(unittest.TestCase):
         self.assertNotIn("<History file", open(os.path.join(path, "Document.xml")).read())
 
 
+    def testAProxysOwnStateIsWrittenNotKept(self):
+        # Sec 38.21 F1: a proxy's state is no property and goes in no row of
+        # the log (it never went into undo), but the file holds it: an object
+        # whose proxy changed is written, not kept, and kept again once it
+        # stays the same.
+        self.noCheck()
+        path = os.path.join(self.dir, "ProxyState")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("ProxyState"))
+        doc.UndoMode = 1
+
+        def make(d):
+            Proxy(d.addObject("App::FeaturePython", "Scripted"))
+            d.addObject("Part::Box", "Box")
+
+        self.edit(doc, "create", make)
+        doc.saveAs(path)
+        doc.Scripted.Proxy.Dictionary["n"] = 7
+        self.edit(doc, "longer", lambda d: setattr(d.Box, "Length", 20))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (2, 0), last)
+        self.edit(doc, "longer again", lambda d: setattr(d.Box, "Length", 30))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 1), last)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(doc.Scripted.Proxy.Dictionary, {"n": 7})
+
+    def testALinkIsWrittenWhenTheFileItLinksIntoMoves(self):
+        # Sec 38.21 F2: a save of the linked document elsewhere moves the
+        # path the link saves, with no change of the link's own: the linking
+        # object is written, not kept with the old path.
+        paths = {}
+        for name in ("LinkedB", "LinkedB2", "Linking"):
+            paths[name] = os.path.join(self.dir, name)
+            os.makedirs(paths[name])
+        target = self.track(FreeCAD.newDocument("LinkedB"))
+        target.addObject("Part::Box", "Target")
+        target.recompute()
+        target.saveAs(paths["LinkedB"])
+        doc = self.track(FreeCAD.newDocument("Linking"))
+        doc.UndoMode = 1
+
+        def make(d):
+            d.addObject("App::Link", "L").LinkedObject = target.Target
+            d.addObject("Part::Box", "Filler")
+
+        self.edit(doc, "create", make)
+        doc.saveAs(paths["Linking"])
+        target.saveAs(paths["LinkedB2"])
+        self.edit(doc, "longer", lambda d: setattr(d.Filler, "Length", 20))
+        doc.save()
+        with open(os.path.join(paths["Linking"], "L.xml")) as f:
+            self.assertIn("LinkedB2", f.read())
+
+    def testAVersionThatTravelsAgainComesBackIntoTheFolder(self):
+        # Sec 38.21 F3: retention left versions out of the folder's history at
+        # earlier saves; a limit raised since makes them travel again, and
+        # the folder's copy, brought up to date only by what changed, would
+        # never have them back: it is made whole.
+        import sqlite3
+
+        doc, path = self.saved("Travels", boxes=1)
+        doc.setHistoryRetention(snapshots=1)
+        for i in range(4):
+            self.edit(doc, "edit", lambda d, i=i: setattr(d.Box0, "Length", 20 + i))
+            doc.save()
+        doc.setHistoryRetention(snapshots=10)
+        self.edit(doc, "edit", lambda d: setattr(d.Box0, "Length", 40))
+        doc.save()
+        self.assertFalse(doc.getLastSaveHistory()["updated"])
+        con = sqlite3.connect("file:%s?mode=ro" % os.path.join(path, "History.db"), uri=True)
+        try:
+            held = con.execute("SELECT count(*) FROM version").fetchone()[0]
+        finally:
+            con.close()
+        self.assertEqual(held, len(doc.getTransactionVersions()))
+
+    def testASaveRecordNamingAFileOutsideIsThrownAway(self):
+        # Sec 38.21 F4: a record beside a folder is moved in at the next open,
+        # its removals with it; one naming anything outside the folder was
+        # not written by a save, and the stage is thrown away instead.
+        import shutil
+
+        doc, path = self.saved("Outside")
+        FreeCAD.closeDocument(doc.Name)
+        victim = os.path.join(self.dir, "victim.txt")
+        with open(victim, "w") as f:
+            f.write("keep me")
+        stage = self.stage(path)
+        shutil.copytree(path, stage)
+        with open(os.path.join(stage, ".~commit"), "w") as f:
+            f.write("FreeCAD folder save 1\n")
+            f.write("remove ../victim.txt\n")
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertTrue(os.path.exists(victim))
+        self.assertFalse(os.path.exists(stage))
+        self.assertEqual(len(doc.Objects), 3)
+
+
 class TransactionTwoProcessCases(unittest.TestCase):
     # Two processes on one file (docs/TransactionLog.md sec 29.7, 29.8): a
     # save first brings in and merges what another process saved into the
@@ -13625,6 +13727,62 @@ class TransactionTwoProcessCases(unittest.TestCase):
         self.assertEqual(doc.getLastSavePull()["pending"], "")
         FreeCAD.closeDocument(doc.Name)
         doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual(doc.Box.Length.Value, 20)
+
+    def testAFolderSavedToItsHistoryElsewhereIsCopiedWhole(self):
+        # Sec 38.21 F6: another process saves the folder to its history alone,
+        # which keeps the save id; the copy this process would bring up to
+        # date is then not the one it recorded from, and is made whole.
+        path = os.path.join(self.dir, "HistoryElsewhere")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("HistoryElsewhere"))
+        doc.UndoMode = 1
+        self.edit(doc, "create", lambda d: d.addObject("Part::Box", "Box"))
+        doc.saveAs(path)
+        self.edit(doc, "longer", lambda d: setattr(d.Box, "Length", 20))
+        doc.save()
+        self.assertTrue(doc.getLastSaveHistory()["updated"])
+        self.other(
+            path,
+            "doc.Box.Width = 30\n"
+            "doc.recompute()\n"
+            "doc.commitTransaction()\n"
+            "doc.saveToLog('theirs')\n"
+            "print('saved', flush=True)\n"
+            "import os\n"
+            "os._exit(0)",
+        )
+        self.edit(doc, "higher", lambda d: setattr(d.Box, "Height", 5))
+        doc.save()
+        self.assertFalse(doc.getLastSaveHistory()["updated"])
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        names = [t["name"] for t in doc.getTransactionLog()]
+        self.assertIn("higher", names)
+
+    def testASaveAsAwayFromAPullConflictIsNotHeldByIt(self):
+        # Sec 38.21 F7: a pull that met a conflict is that file's; a save-as
+        # to another lets it go, the branch left in the log to merge by hand.
+        path = os.path.join(self.dir, "Held")
+        os.makedirs(path)
+        doc = self.track(FreeCAD.newDocument("Held"))
+        doc.UndoMode = 1
+        self.edit(doc, "create", lambda d: d.addObject("Part::Box", "Box"))
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        doc.UndoMode = 1
+        self.other(path, "doc.Box.Length = 30", mode=1)
+        self.edit(doc, "ours", lambda d: setattr(d.Box, "Length", 20))
+        with self.assertRaises(Exception):
+            doc.save()
+        self.assertTrue(doc.getLastSavePull()["pending"])
+        away = os.path.join(self.dir, "Away")
+        os.makedirs(away)
+        doc.saveAs(away)
+        self.assertEqual(doc.getLastSavePull()["pending"], "")
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(away))
         self.assertEqual(doc.Box.Length.Value, 20)
 
     # The processes above run one after the other. Below they overlap: the

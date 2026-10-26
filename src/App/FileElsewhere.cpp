@@ -60,11 +60,15 @@
 #include <QSaveFile>
 #include <QSysInfo>
 
+#include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/FileInfo.h>
 
 #include "DocumentParams.h"
 #include "FileElsewhere.h"
+#include "FileHistory.h"
+
+FC_LOG_LEVEL_INIT("App", true, true)
 
 using namespace App;
 
@@ -73,7 +77,10 @@ namespace
 
 std::string beside(const std::string& file, const char* suffix)
 {
-    QFileInfo fi(QString::fromStdString(file));
+    // Beside the file however it is spelled (sec 38.21 P): through a link,
+    // or with a slash after a folder's name, every process names the same
+    // lock, marker and stage.
+    QFileInfo fi(QString::fromStdString(FileHistory::canonicalPath(file)));
     return QDir(fi.absolutePath())
         .filePath(QStringLiteral(".~") + fi.fileName() + QString::fromLatin1(suffix))
         .toStdString();
@@ -586,8 +593,22 @@ bool rollForward(const QString& folder, const QString& stage, bool sync)
                 return false;
             continue;
         }
-        if (line.startsWith(QLatin1String("remove ")))
-            removals.push_back(line.mid(7));
+        if (line.startsWith(QLatin1String("remove "))) {
+            // A name in the folder, as commit() writes it (sec 38.21 F4): a
+            // record naming anything outside it was not written by a save,
+            // and is taken for no record, so the stage is thrown away.
+            const QString rel = line.mid(7);
+            const QString clean = QDir::cleanPath(rel);
+            if (rel.isEmpty() || QDir::isAbsolutePath(rel) || clean == QLatin1String("..")
+                    || clean.startsWith(QLatin1String("../")) || rel.contains(QLatin1Char('\\'))
+                    || rel.contains(QLatin1Char(':'))) {
+                FC_WARN("the save record beside '" << folder.toStdString()
+                        << "' names a file outside it, '" << rel.toStdString()
+                        << "'; the stage is thrown away");
+                return false;
+            }
+            removals.push_back(rel);
+        }
     }
     record.close();
 

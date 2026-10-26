@@ -250,6 +250,9 @@ struct DocumentP
     /// The branch a pull came as and has not been merged: the next save
     /// merges it again, with nothing new to bring.
     std::string pullBranch;
+    /// The file that branch was pulled from: a save to another, or with it
+    /// gone, merges the branch without reading it again (sec 38.21 F7).
+    std::string pullFile;
     /// importFork() of the file as another process left it: the name it
     /// comes under, and the row of a file without history to start from.
     std::string pullLabel;
@@ -364,6 +367,9 @@ struct DocumentP
         bool refsRead {false};
         /// The ids of the element maps each object's file holds, sorted.
         std::map<long, std::vector<unsigned>> mapIds;
+        /// What each object's Python proxies saved as (sec 38.21 F1), for
+        /// the objects that have one.
+        std::map<long, std::string> proxies;
     };
     FolderState folderLast;
     FolderState folderNext;

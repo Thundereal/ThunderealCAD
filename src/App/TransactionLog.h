@@ -807,6 +807,12 @@ public:
         std::string folder;
         std::string saveId;
         std::string pending;
+        /// The copy's own token, `copy_id` in its meta, and the one the
+        /// pending save's copy carries (sec 38.21 F6): a save to the history
+        /// alone keeps the file's save id, so the save id alone does not
+        /// tell one copy of a save from another.
+        std::string copyId;
+        std::string pendingCopy;
     };
     FolderTrack _folderTrack;
     void folderSaved(const std::string& folder, const std::string& saveId);

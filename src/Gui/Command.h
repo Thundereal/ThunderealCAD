@@ -968,6 +968,8 @@ public:
 
     void addCommandMode(const char* sContext, const char* sName);
     void updateCommands(const char* sContext, int mode);
+    /// The mode updateCommands() last set for the context, -1 if it never did
+    int getCommandMode(const char* sContext) const;
 
     void refreshIcons();
 

@@ -33,6 +33,7 @@
 # include <QImageReader>
 # include <QPainter>
 # include <QPalette>
+# include <QRegularExpression>
 # include <QString>
 # include <QSvgRenderer>
 # include <QStyleOption>
@@ -154,6 +155,15 @@ public:
     // The xpmCache above cannot serve these because it is not size aware.
     using SvgKey = std::tuple<std::string, qreal, qreal, std::map<unsigned long, unsigned long>>;
     std::map<SvgKey, QPixmap> svgCache;
+
+    // Icons drawn with some colours substituted, by setIconColorMapping(); the
+    // pixmap is drawn on first use.
+    struct ColoredIcon
+    {
+        std::map<unsigned long, unsigned long> mapping;
+        QPixmap pixmap;
+    };
+    std::map<std::string, ColoredIcon> coloredIcons;
 };
 }
 
@@ -287,6 +297,79 @@ void BitmapFactoryInst::addPixmapToCache(const char* name,
     }
 }
 
+void BitmapFactoryInst::setIconColorMapping(
+    const char* name,
+    const std::map<unsigned long, unsigned long>& colorMapping)
+{
+    if (!name || *name == '\0') {
+        return;
+    }
+    std::string _name;
+    adjustIconName(_name, name);
+    if (colorMapping.empty()) {
+        d->coloredIcons.erase(name);
+        return;
+    }
+    auto& entry = d->coloredIcons[name];
+    if (entry.mapping != colorMapping) {
+        entry.mapping = colorMapping;
+        entry.pixmap = QPixmap();
+    }
+}
+
+bool BitmapFactoryInst::findColoredIcon(const char* name, QPixmap& icon) const
+{
+    if (d->coloredIcons.empty()) {
+        return false;
+    }
+    auto it = d->coloredIcons.find(name);
+    if (it == d->coloredIcons.end()) {
+        return false;
+    }
+    auto& entry = it->second;
+    if (entry.pixmap.isNull()) {
+        // the SVG, by the lookup pixmap() uses
+        QString fn = QString::fromUtf8(name);
+        QString path;
+        for (const QString& candidate : {fn,
+                                         QStringLiteral("icons:") + fn,
+                                         QStringLiteral("icons:") + fn + QStringLiteral(".svg")}) {
+            QFileInfo fi(candidate);
+            if (fi.exists() && fi.isFile()
+                && fi.suffix().compare(QStringLiteral("svg"), Qt::CaseInsensitive) == 0) {
+                path = fi.filePath();
+                break;
+            }
+        }
+        QFile file(path);
+        if (path.isEmpty() || !file.open(QFile::ReadOnly | QFile::Text)) {
+            return false;
+        }
+        // Every #rrggbb, not only the ':#rrggbb;' that pixmapFromSvg()'s mapping
+        // replaces: a colour ending a style, or in an attribute, would stay as it was.
+        QString contents = QString::fromUtf8(file.readAll());
+        static const QRegularExpression hex(QStringLiteral("#([0-9a-fA-F]{6})(?![0-9a-fA-F])"));
+        QString out;
+        out.reserve(contents.size());
+        qsizetype last = 0;
+        auto matches = hex.globalMatch(contents);
+        while (matches.hasNext()) {
+            auto match = matches.next();
+            auto found = entry.mapping.find(match.captured(1).toULong(nullptr, 16));
+            if (found == entry.mapping.end()) {
+                continue;
+            }
+            out.append(QStringView(contents).mid(last, match.capturedStart() - last));
+            out.append(QStringLiteral("#%1").arg(found->second, 6, 16, QChar::fromLatin1('0')));
+            last = match.capturedEnd();
+        }
+        out.append(QStringView(contents).mid(last));
+        entry.pixmap = pixmapFromSvg(out.toUtf8(), QSizeF(64, 64));
+    }
+    icon = entry.pixmap;
+    return !icon.isNull();
+}
+
 const char *BitmapFactoryInst::getIconPath(const char *name) const
 {
     std::string _name;
@@ -381,6 +464,11 @@ QIcon BitmapFactoryInst::iconFromTheme(const char* name, bool silent, const QIco
 
     std::string _name;
     adjustIconName(_name, name);
+
+    QPixmap colored;
+    if (findColoredIcon(name, colored)) {
+        return colored;
+    }
 
     bool searched = false;
     auto it = d->xpmCache.find(name);
@@ -501,6 +589,9 @@ QPixmap BitmapFactoryInst::pixmap(const char* name,
     adjustIconName(_name, name);
 
     QPixmap icon;
+    if (findColoredIcon(name, icon)) {
+        return icon;
+    }
     if (findPixmapInCache(name, icon, original, iconpath))
         return icon;
 

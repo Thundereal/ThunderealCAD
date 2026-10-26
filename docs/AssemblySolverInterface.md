@@ -3252,6 +3252,128 @@ velocity solves keep `GESpMatParPvPrecise`; past about 1000 parts in a
 chain the equilibrated pivots reach the 1e-12 tolerance and steps go to
 the old elimination again.
 
+Sec 6.20 took the replay out again: with OndselSolver's steps held to
+reducing the constraints' error no solve wanders off, and none replays.
+
+### 6.20 As built: what a solve weighs, and steps that keep to the constraints (2026-10-27)
+
+Sec 6.19 left an ordinary edit wandering: on the bench chain (boxes, Fixed
+and Revolute joints alternating) turning the middle joint's offset 5 degrees
+sent OndselSolver's steps metres away from 50 parts up; it then set aside
+equations of joints that were not redundant and returned with joints
+0.07-0.15 off and rc 0. Chrono gave up on the same edit, and the Reference
+solved it slowly at 100 parts and gave up at 200. Four causes, found in turn:
+
+1. **Where the distance is measured.** Every backend solves for the pose
+   closest to the start, and measured the distance at the body's frame --
+   the part's placement, here the box's corner. A revolute leaves its part
+   free to turn about the joint axis, and that turn moved the corner; so the
+   closest pose had every free part downstream of the edit turned to keep its
+   corner near where it was, a large turn per part, where the plain answer
+   tilts the chain and turns nothing.
+2. **What a turn weighs.** Against a millimetre, a turn of a radian weighed
+   1/4 (the Reference's and Chrono's metric) or, in OndselSolver, whatever
+   `Part::fillqsuWeights` made of the inertias after normalising them to the
+   largest -- with the unit inertias every body has, the same 1/4. A part's
+   size never entered: a step that a small translation could make was made
+   by turning bodies through radians, where the linearisation is worthless.
+3. **The multipliers' curvature.** OndselSolver's Newton step is the KKT
+   step of the closest pose, the Hessian including the multipliers times the
+   constraints' second derivatives. Far from a solution the multipliers come
+   to the weights (up to 1e6) times the distance times the lever arms --
+   1e10 on the edit -- and those terms decide the step.
+4. **When to stop.** OndselSolver's convergence test took the RMS of the
+   whole step, multipliers included; with multipliers of 1e10 their rounding
+   never fell below the test's thresholds, which are those of positions.
+
+**The metric** (`Solver::centredOnJoints`, `Backend.{h,cpp}`; AssemblyObject
+wraps every backend's session in it). Before the model reaches the backend,
+each body that is not grounded and has a joint frame gets a frame at the
+centre of the box of its joint frames' origins (the body's axes kept) and an
+inertia of 4 r^2, r half that box's diagonal (at least 1 mm): a turn then
+weighs as much as moving the box's corner along its arc (Euler parameters
+move by half the angle). Poses come out in, and drag targets go in from, the
+body's own frame; a pose the solve left where it started comes out as the
+start exactly. `Solver::jointMetric(model)` computes the centre and the
+inertia; the Python `AssemblyObject.getSolverMetric()` gives them per object
+(the point in the object's frame, the inertia, the solver body), and the
+gate measures with it. All three backends weigh a turn by the body's
+inertia:
+- OndselSolver: `Part::fillqsuWeights` normalises the inertias by the
+  largest mass, not the largest inertia, so aJ / m stays a length squared;
+  the drag weights scale the body's inertia, not a unit one;
+- the Reference: the rotation weights times the inertia;
+- Chrono: the bodies' inertia times it (the restoration keeps its lever arm
+  weights, which the centring makes smaller).
+
+**OndselSolver's steps** (`PosICNewtonRaphson::calcDXNormImproveRootCalcYNorm`,
+the submodule). The Jacobian rows of the constraints g are their exact first
+derivatives, so the Newton step is a descent direction for |g|^2; the rows of
+the minimum movement hold the multipliers' terms, which are not all there,
+so the whole residual is no such measure (backtracking on it failed at a
+step factor of 3e-8). A Newton step is taken while it reduces |g|^2
+(Armijo, below 1e-18 taken as it is). The first that does not ends the
+search for the closest pose: from there each step restores the constraints
+only -- the same system with the multipliers at zero, which drops their
+terms, and nothing pulling back to the start: the step of least movement
+onto the linearised constraints, in the metric above -- cut back by halves
+until it reduces |g|^2. The step norm of the convergence test is the
+positions' alone (`AnyPosICNewtonRaphson::calcdxNorm`). A solve whose Newton
+steps all reduce |g|^2 is solved as before. The replay of sec 6.19
+(`legacyElimination`, `canReplay`, the wandering test) never fired any more
+and is gone; the guard against a singular matrix that sets nothing new
+aside stays.
+
+The four changes were tried apart: the centring alone solved the edit and
+broke the first solve of `test_same_start_same_solution_bit_for_bit` (twelve
+boxes from a jittered start: eight joints reported conflicting), whose
+Newton steps had converged by luck; backtracking on |g| alone then crawled
+(steps cut to 1/32, 60 iterations, 0.06 off), because the restoring steps
+turned bodies through radians; with the inertia from the joints' spread the
+restoration takes full steps and converges quadratically. The positions'
+step norm alone, without the centring, ended the edit with 12 joints
+reported redundant.
+
+**Results.** The edit (headless, `asm.solve()` after the offset change;
+moved: the largest displacement of a part):
+
+| parts | OndselSolver | Chrono | Reference |
+|---|---|---|---|
+| 50 | 0.20 s | 0.41 s | 1.2 s |
+| 100 | 0.56 s | 4.8 s | 20 s |
+| 200 | 1.0 s | fails | 104-130 s |
+
+All three move the parts the same 20.942 mm at 50, 42.749 mm at 100 and
+86.367 mm at 200, every joint within 1e-11 by the neutral checker, nothing
+reported redundant. Before, OndselSolver returned wrong answers (128 s at
+100 parts), Chrono failed from 50 parts and the Reference from 200. The
+bench's later phases at 200 parts on OndselSolver: a touched leaf 1.0 s, a
+joint added 1.2 + 0.8 s, preDrag 2.1 s, ten drag steps turning the dragged
+part 30 degrees 4.1 s (Chrono 2.9 s at 100, the Reference 19 s at 100).
+
+**Gate.** Taken again whole: the model text of every case changed (the
+centred frames and the inertias are in it), and with it every digest; the
+placements of the cases with freedom left moved (another metric, another
+closest pose); those with none moved by at most 9e-16. Three statuses
+changed, each a solve that had wandered off: PointPoint d=0 now solves
+(ret -1 before), `test_drag_bundles_fixed` has DoF 1 and nothing redundant
+(DoF 8, two joints conflicting before), LineTorus DoF 45 and nothing
+conflicting (49 and one before). Those were the three entries of
+`BACKEND_DIFFERENCES`, where both backends disagreed with OndselSolver; all
+three backends agree now and the entries are gone. The backends' check of
+"no farther from the start than OndselSolver" measures in the new metric
+(`getSolverMetric`, each solver body once); OndselSolver's solutions are
+within 0.2 % of the backends' closest (LineSphere), the rest equal.
+
+**Tests.** The Assembly suite 371 run, 59 skipped, no failures; ctest
+1000/1000.
+
+**Not done:** Chrono still fails the edit at 200 parts ("Chrono's assembly
+did not converge"), and its drag there turns nothing. A
+solve that falls back to restoring ends on the constraints near the start,
+not at the closest pose (within 0.2 % of it in the gate). The Reference is
+dense, so at 200 parts it takes minutes.
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a

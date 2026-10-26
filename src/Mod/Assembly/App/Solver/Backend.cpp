@@ -21,8 +21,13 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <memory>
+#include <utility>
+
+#include <Base/BoundBox.h>
 
 #include "Backend.h"
 
@@ -55,7 +60,184 @@ bool hold(Formula& formula, double time)
     return true;
 }
 
+class CentredSession: public Session
+{
+public:
+    explicit CentredSession(std::unique_ptr<Session> session)
+        : inner(std::move(session))
+    {}
+
+    Status load(const Model& model) override
+    {
+        return inner->load(centred(model));
+    }
+    Status update(const Model& model) override
+    {
+        return inner->update(centred(model));
+    }
+    Result solve(const SolveOptions& options) override
+    {
+        return back(inner->solve(options));
+    }
+    Status beginDrag(const std::vector<Id>& bodies, const DragOptions& options) override
+    {
+        return inner->beginDrag(bodies, options);
+    }
+    Result dragStep(const std::vector<BodyPose>& targets) override
+    {
+        std::vector<BodyPose> centredTargets = targets;
+        for (auto& target : centredTargets) {
+            if (target.body < centres.size()) {
+                target.placement = target.placement * centres[target.body];
+            }
+        }
+        return back(inner->dragStep(centredTargets));
+    }
+    Result endDrag() override
+    {
+        return back(inner->endDrag());
+    }
+    std::vector<BodyPose> poses() const override
+    {
+        std::vector<BodyPose> out = inner->poses();
+        for (auto& pose : out) {
+            pose.placement = back(pose);
+        }
+        return out;
+    }
+    Diagnostics analyse() override
+    {
+        return inner->analyse();
+    }
+    Status simulate(const SimulationSpec& spec, TrajectorySink& sink) override
+    {
+        struct Back: TrajectorySink
+        {
+            const CentredSession& session;
+            TrajectorySink& sink;
+            Back(const CentredSession& session, TrajectorySink& sink)
+                : session(session)
+                , sink(sink)
+            {}
+            bool frame(double time, const std::vector<BodyPose>& poses) override
+            {
+                std::vector<BodyPose> out = poses;
+                for (auto& pose : out) {
+                    pose.placement = session.back(pose);
+                }
+                return sink.frame(time, out);
+            }
+        } backSink(*this, sink);
+        return inner->simulate(spec, backSink);
+    }
+    Status exportNative(const std::string& path) override
+    {
+        return inner->exportNative(path);
+    }
+
+private:
+    Model centred(const Model& model)
+    {
+        const std::size_t n = model.bodies.size();
+        const std::vector<BodyMetric> metric = jointMetric(model);
+        Model out = model;
+        centres.assign(n, Base::Placement());
+        shifted.assign(n, false);
+        starts.assign(n, {});
+        for (std::size_t b = 0; b < n; ++b) {
+            Body& body = out.bodies[b];
+            if (!metric[b].sized) {
+                continue;
+            }
+            const double inertia = metric[b].inertia;
+            body.mass.principal = {inertia, inertia, inertia};
+            const Base::Vector3d& centre = metric[b].centre;
+            if (centre == Base::Vector3d()) {
+                continue;
+            }
+            centres[b] = Base::Placement(centre, Base::Rotation());
+            shifted[b] = true;
+            body.placement = body.placement * centres[b];
+            starts[b] = {body.placement, model.bodies[b].placement};
+        }
+        for (auto& frame : out.frames) {
+            if (frame.body < n && shifted[frame.body]) {
+                frame.local = centres[frame.body].inverse() * frame.local;
+            }
+        }
+        return out;
+    }
+
+    // A pose back in the body's own frame; the start itself exactly, so that
+    // a body the solve did not move is not moved by the rounding of the way
+    // there and back.
+    Base::Placement back(const BodyPose& pose) const
+    {
+        if (pose.body >= shifted.size() || !shifted[pose.body]) {
+            return pose.placement;
+        }
+        const auto& [centred, own] = starts[pose.body];
+        if (pose.placement.isSame(centred)) {
+            return own;
+        }
+        return pose.placement * centres[pose.body].inverse();
+    }
+
+    Result back(Result result) const
+    {
+        for (auto& pose : result.moved) {
+            pose.placement = back(pose);
+        }
+        return result;
+    }
+
+    std::unique_ptr<Session> inner;
+    std::vector<Base::Placement> centres;  // per body: its centre in its own frame
+    std::vector<bool> shifted;
+    std::vector<std::pair<Base::Placement, Base::Placement>> starts;  // centred, own
+};
+
 }  // namespace
+
+std::vector<BodyMetric> Assembly::Solver::jointMetric(const Model& model)
+{
+    const std::size_t n = model.bodies.size();
+    std::vector<Base::BoundBox3d> boxes(n);
+    auto add = [&](Id frame) {
+        if (frame >= model.frames.size()) {
+            return;
+        }
+        const Frame& f = model.frames[frame];
+        if (f.body < n) {
+            boxes[f.body].Add(f.local.getPosition());
+        }
+    };
+    for (const auto& joint : model.joints) {
+        add(joint.frameI);
+        add(joint.frameJ);
+        add(joint.frameK);
+    }
+    std::vector<BodyMetric> metric(n);
+    for (std::size_t b = 0; b < n; ++b) {
+        const Base::BoundBox3d& box = boxes[b];
+        if (model.bodies[b].grounded || !box.IsValid()) {
+            continue;
+        }
+        // A turn weighs as much as moving the box's corner along its arc
+        // (Euler parameters move by half the angle, so 4 r^2), r at least 1 mm.
+        const double r = std::max(0.5 * box.CalcDiagonalLength(), 1.0);
+        metric[b] = {true, box.GetCenter(), 4.0 * r * r};
+    }
+    return metric;
+}
+
+std::unique_ptr<Session> Assembly::Solver::centredOnJoints(std::unique_ptr<Session> session)
+{
+    if (!session) {
+        return session;
+    }
+    return std::make_unique<CentredSession>(std::move(session));
+}
 
 Status Assembly::Solver::simulateByPositionSolves(
     Session& session,

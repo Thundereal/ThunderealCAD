@@ -391,9 +391,17 @@ def run_drag(topo, N, doc, asm, links, joints, prof_here):
     # preDrag / doDragStep / postDrag are bound to Python since 2026-10-23;
     # before that this script called the exported C++ members through ctypes.
 
-    # GUI drag init hides every joint but the moving one (tryInitMove).
-    moving = joints[-1]
-    part = links[-1]
+    # GUI drag init hides every joint but the moving one (tryInitMove). A
+    # part held by a Fixed joint is not dragged itself: the GUI drags the part
+    # upstream of it (getUpstreamMovingPart), whose body the Fixed joints bundle
+    # it into; preDrag takes only that part, the bundle's representative. So
+    # the last part held by a joint that is not Fixed (joints[k] holds
+    # links[k + 1]).
+    k = len(joints) - 1
+    while k > 0 and joints[k].JointType == "Fixed":
+        k -= 1
+    moving = joints[k]
+    part = links[k + 1]
 
     def hide_joints():
         for j in joints:

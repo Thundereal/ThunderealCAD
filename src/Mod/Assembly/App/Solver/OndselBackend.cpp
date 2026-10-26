@@ -667,7 +667,7 @@ Status OndselSession::beginDrag(const std::vector<Id>& bodies, const DragOptions
     // solve does. During the drag steps the heavier weights of the dragged
     // bodies are what make them follow the mouse and the others give way:
     // PosICDragNewtonRaphson's weights come from Part::fillqsuWeights, which
-    // scales them by m / max(m) and aJ / max(aJ). So the weights go on the MbD
+    // scales them by m / max(m) and aJ / max(m). So the weights go on the MbD
     // bodies the drag steps solve, after the pre-drag solve built them, and the
     // ASMT model keeps mass 1.
     if (!current.assembly || !current.assembly->mbdSystem) {
@@ -686,8 +686,13 @@ Status OndselSession::beginDrag(const std::vector<Id>& bodies, const DragOptions
             continue;
         }
         mbdPart->m = weight;
-        // The base inertia is unit, so a heavier body is heavier in rotation too.
-        mbdPart->aJ = std::make_shared<MbD::DiagonalMatrix<double>>(3, weight);
+        // A heavier body is heavier in rotation too.
+        const auto& principal = model.bodies[body].mass.principal;
+        auto aJ = std::make_shared<MbD::DiagonalMatrix<double>>(3);
+        for (std::size_t k = 0; k < 3; ++k) {
+            aJ->at(k) = weight * principal[k];
+        }
+        mbdPart->aJ = aJ;
     }
     return Status::Ok;
 }

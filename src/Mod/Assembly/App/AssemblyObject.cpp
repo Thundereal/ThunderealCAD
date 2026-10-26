@@ -682,6 +682,30 @@ std::vector<std::pair<std::string, double>> AssemblyObject::getSolverResiduals()
     return out;
 }
 
+std::vector<std::tuple<std::string, Base::Vector3d, double, int>> AssemblyObject::getSolverMetric() const
+{
+    std::vector<std::tuple<std::string, Base::Vector3d, double, int>> out;
+    if (!solverModel) {
+        return out;
+    }
+    const std::vector<Solver::BodyMetric> metric = Solver::jointMetric(*solverModel);
+    for (const auto& [obj, data] : objectPartMap) {
+        if (!obj || !obj->isAttachedToDocument() || data.body >= metric.size()) {
+            continue;
+        }
+        // The object is the body times its offset: the body's centre in the
+        // object's frame
+        const Solver::BodyMetric& m = metric[data.body];
+        Base::Vector3d centre;
+        data.offsetPlc.inverse().multVec(m.centre, centre);
+        out.emplace_back(obj->getNameInDocument(), centre, m.inertia, static_cast<int>(data.body));
+    }
+    std::ranges::sort(out, [](const auto& a, const auto& b) {
+        return std::get<0>(a) < std::get<0>(b);
+    });
+    return out;
+}
+
 int AssemblyObject::generateSimulation(App::DocumentObject* sim)
 {
     solverModel = makeMbdAssembly();
@@ -1591,7 +1615,7 @@ void AssemblyObject::makeMbdModel()
 {
     loadedBodies = 0;
     Solver::Backend* backend = Solver::Registry::instance().select(this);
-    session = backend ? backend->createSession() : nullptr;
+    session = backend ? Solver::centredOnJoints(backend->createSession()) : nullptr;
     if (!session) {
         FC_ERR("Assembly: no solver backend is registered");
         return;

@@ -671,6 +671,17 @@ the parts metres away before a redundancy search sets equations aside, and
 costs at chain 200 what it did before (a minute and more), the replay
 being the old elimination and the search being slow either way.
 
+F1, second step (2026-10-27, sec 6.20): the edit no longer wanders. Every
+backend measured the distance from the start at the part's placement and
+weighed a turn without the part's size, so the closest pose turned free
+parts through radians; OndselSolver's Newton steps, carrying the
+multipliers' curvature, then went metres away. Bodies are now centred on
+their joints and given an inertia from the joints' spread before any backend
+sees them, and OndselSolver takes a Newton step only while it reduces the
+constraints' error, restoring the constraints otherwise. The edit at chain
+200 takes 1.0 s (all three backends agree on the answer where they solve
+it); a touched leaf 1.0 s, ten drag steps 4.1 s.
+
 **Phase 3 -- from Assembly3, and its importer** (`docs/AssemblyFromAsm3.md`).
 Its behaviours, not its objects -- Element objects would put a second
 object model beside upstream's, at a merge cost on every pick:

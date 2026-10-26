@@ -28,6 +28,8 @@
 
 #include "Joint.h"
 
+#include <Base/GeometryPyCXX.h>
+
 using namespace Assembly;
 
 namespace
@@ -380,6 +382,19 @@ PyObject* AssemblyObjectPy::getSolverResiduals(PyObject* args) const
     Py::Dict ret;
     for (const auto& [name, error] : getAssemblyObjectPtr()->getSolverResiduals()) {
         ret.setItem(name, Py::Float(error));
+    }
+    return Py::new_reference_to(ret);
+}
+
+PyObject* AssemblyObjectPy::getSolverMetric(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+
+    Py::Dict ret;
+    for (const auto& [name, centre, inertia, body] : getAssemblyObjectPtr()->getSolverMetric()) {
+        ret.setItem(name, Py::TupleN(Py::Vector(centre), Py::Float(inertia), Py::Long(body)));
     }
     return Py::new_reference_to(ret);
 }

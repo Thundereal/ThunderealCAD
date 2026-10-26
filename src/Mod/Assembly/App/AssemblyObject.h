@@ -27,6 +27,7 @@
 #include <fastsignals/signal.h>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -336,6 +337,10 @@ public:
     // largest over the model joints a document joint became. Empty when
     // nothing was solved.
     std::vector<std::pair<std::string, double>> getSolverResiduals() const;
+    // Per object of the last model: the point of it whose movement a solve
+    // weighs, in its own frame, the inertia a turn is weighed by (sec 6.20),
+    // and its solver body (objects bundled into one share it).
+    std::vector<std::tuple<std::string, Base::Vector3d, double, int>> getSolverMetric() const;
     fastsignals::signal<void()> signalSolverUpdate;
 
 protected:

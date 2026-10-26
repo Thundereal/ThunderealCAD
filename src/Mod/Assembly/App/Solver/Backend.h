@@ -201,6 +201,34 @@ public:
     virtual std::unique_ptr<Session> createSession() = 0;
 };
 
+// A session on another whose bodies are moved, in the model it is given, to a
+// frame at the centre of their joints (sec 6.20): the centre of the box of the
+// origins of the joint frames on the body, the body's axes kept; and whose
+// bodies are given a size, an inertia of 4 r^2 for r half that box's diagonal
+// (at least 1 mm). Every backend solves for the pose closest to the start;
+// the distance is measured at the body's frame, and a turn is weighed by the
+// inertia, so that turning a body costs as much as moving its joints along
+// their arcs. Measured at a frame far from where the body is held, a turn
+// about a free joint axis moved that frame, and the solve traded such turns
+// against the distance -- in a chain of revolutes held at their parts'
+// centres, a small edit had every part turn to keep its corner near; and
+// weighed without a size, a turn of a radian cost what moving half a
+// millimetre does, so the steps turned bodies through radians. Poses come
+// out, and drag targets go in, in the bodies' own frames; grounded bodies and
+// bodies without a joint frame are left as they are.
+AssemblyExport std::unique_ptr<Session> centredOnJoints(std::unique_ptr<Session> session);
+
+// What centredOnJoints gives each body: the centre of its joints in the
+// body's frame, and its inertia. 'sized' is false for a grounded body and a
+// body without a joint frame, which keep their frame and an inertia of 1.
+struct BodyMetric
+{
+    bool sized = false;
+    Base::Vector3d centre;
+    double inertia = 1.0;
+};
+AssemblyExport std::vector<BodyMetric> jointMetric(const Model& model);
+
 // The kinematic run of sec 4.6 on any session that solves positions: at each
 // output time tStart + k * tOutput, every driver is held at its formula's value
 // (a constant formula, printed to round-trip), the model is loaded and solved,

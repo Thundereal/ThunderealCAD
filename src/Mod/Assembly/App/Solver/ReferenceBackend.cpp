@@ -843,14 +843,18 @@ struct ReferenceSession::Impl
         return select;
     }
 
+    // A turn weighed by the body's inertia (1 unless centredOnJoints gave it
+    // a size, sec 6.20), as OndselSolver weighs it against the mass.
     VecX weights(const std::vector<double>& bodyWeight) const
     {
         VecX W(static_cast<Eigen::Index>(6 * poses.size()));
         for (std::size_t b = 0; b < poses.size(); ++b) {
             const double w = b < bodyWeight.size() && bodyWeight[b] > 0.0 ? bodyWeight[b] : 1.0;
             for (int k = 0; k < 3; ++k) {
+                const double inertia =
+                    b < model.bodies.size() ? model.bodies[b].mass.principal[k] : 1.0;
                 W[static_cast<Eigen::Index>(6 * b + k)] = w;
-                W[static_cast<Eigen::Index>(6 * b + 3 + k)] = w * rotationWeight;
+                W[static_cast<Eigen::Index>(6 * b + 3 + k)] = w * rotationWeight * inertia;
             }
         }
         return W;

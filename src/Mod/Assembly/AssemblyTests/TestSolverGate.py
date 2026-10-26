@@ -47,9 +47,16 @@ Since sec 6.19 OndselSolver's Newton steps are solved by a sparse LU instead
 of its row scaled Gaussian elimination. Results move by rounding, within the
 tolerance; what moved more is the digest of the model handed to a drag,
 which carries the solve before it, and those digests alone were taken again
-(six drag cases). A solve whose iteration wanders far from its start is
-solved again from there by the elimination (test_drag_bundles_fixed, the
-distance cases), so it ends as its record does, bit for bit.
+(six drag cases).
+
+Since sec 6.20 every solve is measured differently, and the records were
+taken again whole (2026-10-27): each body's frame is moved to the centre of
+its joints and given an inertia from their spread before the backend sees
+it, so the model text changed in every case, and so did the placements of
+the cases with freedom left; OndselSolver's steps are held to reducing the
+constraints' error, so the three solves that wandered off before
+(PointPoint d=0, test_drag_bundles_fixed, LineTorus) now solve as the other
+backends do. Placements with no freedom left stayed within the tolerance.
 
 Every other registered backend (AssemblyApp.getAvailableSolvers(); since sec
 6.13 the Reference backend) runs the same cases through the assembly's
@@ -62,7 +69,7 @@ BACKEND_DIFFERENCES with their diagnosis (asserted as they are, so a fix on
 either side shows); placements within 1e-7 when OndselSolver's DoF is 0, and
 otherwise every joint satisfied to 1e-9 by the neutral checker
 (getSolverResiduals) with the solution no farther from the start, in the
-Reference's metric, than OndselSolver's; drag steps that OndselSolver took,
+solvers' metric (sec 6.20), than OndselSolver's; drag steps that OndselSolver took,
 taken, each leaving every joint satisfied; simulation frames within 1e-7
 (BACKEND_SIMULATION has the cases where OndselSolver's recorded frames are
 wrong; there the frames are checked against OndselSolver run again with an
@@ -129,60 +136,12 @@ BACKEND_SIMULATION = {}
 # Empty since sec 6.17.
 BACKEND_REFUSED = {}
 
-BACKEND_DIFFERENCES.update(
-    {
-        ("Reference", "TestSolverGateDistance.test_distance_subtypes[PointPoint d=0]"): (
-            {"ret": 0},
-            "the builder makes a Spherical joint of it; OndselSolver does not converge "
-            "from this start (the box 50 mm from the point) and leaves the box where it "
-            "was, the Reference puts the vertices together",
-        ),
-        ("Reference", "TestSolverGateRigid.test_drag_bundles_fixed"): (
-            {"DoF": 1, "Conflicting": [], "Redundant": [], "PartiallyRedundant": []},
-            "C starts 50 mm from where the Fixed joint puts it; OndselSolver sets "
-            "equations of the Fixed and the Revolute aside as redundant (it removes "
-            "them at the first singular matrix it meets on the way) and solves without "
-            "them, leaving the Revolute 0.80 and the Fixed 0.92 off (the neutral "
-            "checker) and both reported conflicting. Nothing is redundant in a "
-            "revolute with a part fixed to its arm: the Reference satisfies both and "
-            "counts DoF 1",
-        ),
-        ("Reference", "TestSolverGateRoleMappings.test_distance_subtypes[LineTorus]"): (
-            {"DoF": 45, "Conflicting": [], "Redundant": [], "PartiallyRedundant": []},
-            "OndselSolver leaves the box where it was, the distance 0.73 mm off (the "
-            "neutral checker), and reports it conflicting; the Reference satisfies the "
-            "LineLineDistance and counts DoF 45, as both count for the other "
-            "LineLineDistance role mappings (LineCone, ConeCone, ConeTorus)",
-        ),
-    }
-)
+# Until sec 6.20 both backends disagreed with OndselSolver on three cases
+# here, each a solve whose Newton steps wandered off and set aside equations
+# that were not redundant (PointPoint d=0 left unsolved; test_drag_bundles_fixed
+# and LineTorus reported conflicting, DoF 8 and 49). With its steps held to
+# reducing the constraints' error OndselSolver solves all three as they do.
 
-
-BACKEND_DIFFERENCES.update(
-    {
-        ("Chrono", "TestSolverGateDistance.test_distance_subtypes[PointPoint d=0]"): (
-            {"ret": 0},
-            "the builder makes a Spherical joint of it; OndselSolver does not converge "
-            "from this start (the box 50 mm from the point) and leaves the box where it "
-            "was, Chrono's ChLinkMateSpherical puts the vertices together",
-        ),
-        ("Chrono", "TestSolverGateRigid.test_drag_bundles_fixed"): (
-            {"DoF": 1, "Conflicting": [], "Redundant": [], "PartiallyRedundant": []},
-            "as the Reference: C starts 50 mm from where the Fixed joint puts it; "
-            "OndselSolver sets equations of the Fixed and the Revolute aside on the way "
-            "and leaves both unsatisfied and conflicting; Chrono's Newton iteration "
-            "satisfies both (ChLinkMateFix, ChLinkMateRevolute) and its Jacobian's rank "
-            "gives DoF 1, nothing redundant",
-        ),
-        ("Chrono", "TestSolverGateRoleMappings.test_distance_subtypes[LineTorus]"): (
-            {"DoF": 45, "Conflicting": [], "Redundant": [], "PartiallyRedundant": []},
-            "as the Reference (the same equations, sec 6.17): OndselSolver leaves the box "
-            "where it was, the distance 0.73 mm off, and reports it conflicting; Chrono's "
-            "NeutralLink satisfies the LineLineDistance and counts DoF 45, as both count for "
-            "LineCone, ConeCone and ConeTorus",
-        ),
-    }
-)
 
 # The Chrono backend refused 31 cases while it had no link for some joint
 # kinds (sec 6.15); since sec 6.17 a link of its own holds the neutral
@@ -626,15 +585,27 @@ class SolverGateBase(JointTestBase):
         self.assertEqual(joints_before, self.joint_state(), "the solver wrote a joint")
         return json.loads(json.dumps(result))
 
-    @staticmethod
-    def moves(start, placements):
-        """sum |dx|^2 + |dtheta|^2 / 4 over the objects: the Reference's metric."""
+    def moves(self, start, placements):
+        """The solvers' metric (sec 6.20): sum |dc|^2 + inertia |dtheta|^2 / 4
+        over the solver bodies, c the point whose movement counts; a body
+        bundling several objects is counted once."""
+        metric = self.assembly.getSolverMetric()
         total = 0.0
-        for name, before in start.items():
+        counted = set()
+        for name, before in sorted(start.items()):
             if name not in placements:
                 continue
-            distance, angle = placement_deviation(before, placements[name])
-            total += distance * distance + 0.25 * angle * angle
+            centre, inertia, body = metric.get(name, (App.Vector(), 1.0, None))
+            if body is not None:
+                if body in counted:
+                    continue
+                counted.add(body)
+            after = placements[name]
+            b = App.Placement(App.Vector(*before[:3]), App.Rotation(*before[3:]))
+            a = App.Placement(App.Vector(*after[:3]), App.Rotation(*after[3:]))
+            distance = (a.multVec(centre) - b.multVec(centre)).Length
+            angle = placement_deviation(before, after)[1]
+            total += distance * distance + 0.25 * inertia * angle * angle
         return total
 
     def gate_backend(self, key, drag=None, sim=None, frame_order=None):
@@ -672,7 +643,7 @@ class SolverGateBase(JointTestBase):
                 self.assertEqual(got.get(field), want.get(field), "%s: %s" % (where, field))
 
         # Placements: equal when nothing is free; otherwise as close to the
-        # start as OndselSolver's, in the Reference's metric.
+        # start as OndselSolver's, in the solvers' metric.
         if exp_solve["ret"] == 0 and act_solve["ret"] == 0:
             if exp_solve["status"].get("DoF") == 0:
                 dev = 0.0

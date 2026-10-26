@@ -1415,6 +1415,13 @@ struct ChronoSession::Impl
         return bodies[b]->GetMass();
     }
 
+    // The body's inertia: 1 unless centredOnJoints gave it a size (sec 6.20);
+    // a turn weighs rotationWeight times that, as in the Reference.
+    double inertiaOf(std::size_t b) const
+    {
+        return b < model.bodies.size() ? model.bodies[b].mass.principal[0] : 1.0;
+    }
+
     void setWeights(const std::vector<double>& w)
     {
         weights.assign(bodies.size(), 1.0);
@@ -1434,8 +1441,8 @@ struct ChronoSession::Impl
     {
         for (std::size_t b = 0; b < bodies.size(); ++b) {
             const double w = b < weights.size() ? weights[b] : 1.0;
-            const double i =
-                w * (restoring ? std::max(rotationWeight, lever[b] * lever[b]) : rotationWeight);
+            const double turn = rotationWeight * inertiaOf(b);
+            const double i = w * (restoring ? std::max(turn, lever[b] * lever[b]) : turn);
             bodies[b]->SetMass(w);
             bodies[b]->SetInertiaXX(ch::ChVector3d(i, i, i));
         }
@@ -1463,7 +1470,7 @@ struct ChronoSession::Impl
             }
             const ch::ChVector3d dp = target[b].p - bodies[b]->GetPos();
             const ch::ChVector3d dw = rotationFrom(bodies[b]->GetRot(), target[b].q);
-            sum += weightOf(b) * (dp.Length2() + rotationWeight * dw.Length2());
+            sum += weightOf(b) * (dp.Length2() + rotationWeight * inertiaOf(b) * dw.Length2());
         }
         return sum;
     }

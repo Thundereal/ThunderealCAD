@@ -167,11 +167,13 @@ New files beside the 2D ones, in the same library (`SketcherExport`):
    removes k DOF must contribute k independent equations. The naive 3D forms
    are not: `d1 x d2 = 0` (parallel) is three equations of rank two, and the
    diagnosis would call the constraint partly redundant with itself. So:
-   - a parallel-type condition uses two components of the cross product,
-     the pair chosen from the largest component of the reference direction
-     when the system is built (and re-chosen if that direction turns), which
-     keeps exact polynomial derivatives -- the same idea as SolveSpace's
-     (gk: from memory of its source, not checked, and only the idea is used);
+   - a parallel-type condition is `d2 - s d1 = 0` with the ratio s an extra
+     unknown: three equations for one more parameter, removing exactly two DOF
+     whatever the directions' orientation (s < 0 is antiparallel). Changed in
+     S1 from two cross product components picked by the directions as the
+     system was built: S1's arc bend has a line swing from Y to Z in one
+     solve, the picked pair lost rank there, and the solver collapsed the
+     line (test `parallelSwingsOntoAnotherAxis`);
    - a point-on-curve or point-on-face condition takes the curve or surface
      parameter as an extra unknown: `P - C(t) = 0` is three equations for
      one more parameter, removing exactly two DOF, with plain derivatives
@@ -210,7 +212,7 @@ Constraints, first set (v1) and second (v2). "DOF" is what each removes.
 | Point on face (any) | 1 | P - F(u, v) = 0, u and v unknown, F from OCCT | v2 |
 | Along X / Y / Z (the sketch frame's axes) | 2 | the other two components of d = 0 | v1 |
 | Horizontal / Vertical / Normal to a workplane | 2 | d.v = 0, d.n = 0 (and so on) | v2 |
-| Parallel line-line | 2 | two components of d1 x d2 (4.3) | v1 |
+| Parallel line-line | 2 | d2 - s d1 = 0, s unknown (4.3) | v1 |
 | Parallel to plane | 1 | d.n = 0 | v1 |
 | Perpendicular | 1 | d1 . d2 = 0 | v1 |
 | Collinear | 4 | both ends of L2 on L1 | v1 |
@@ -439,6 +441,61 @@ All 141 Sketcher C++ tests pass.
 Not in S0: workplane-local constraints, point on face, G1 / G2 to model edges,
 coaxial and symmetric (all v2); periodic splines.
 
+**S1 done 2026-10-26.**
+- `Sketcher::Sketch3DObject` (`App/Sketch3DObject.{h,cpp}`):
+  - It is a `Part::Feature` with `AttachExtension` (the 3D attach engine).
+  - Properties: `Geometry`, `Constraints` (the 2D sketch's
+    `PropertyConstraintList`), `ExternalGeometry` (links), and a hidden
+    `ExternalGeo` holding the references as geometry in the sketch's frame, kept
+    in the file so a document opens with valid constraints before a recompute.
+  - Geometry ids: -1, -2, -3 are the frame's X, Y, Z axes (-1 start is the
+    origin), -4, -5, -6 its XY, YZ, ZX planes, and -7 down the external
+    references.
+  - The output shape names each edge `g<geometry id>` and its ends
+    `g<id>v1` / `v2`, as the 2D sketch does.
+  - The shape always takes `Placement` (`shouldApplyPlacement`). Outside a
+    recompute, `Part::Feature` otherwise takes the placement from the shape,
+    and a Python solve reset the sketch's frame.
+  - A solution whose geometry cannot be built (a collapsed line) is not
+    applied, as the 2D sketch undoes an invalid one.
+- `Sketcher::Sketch3DSolver` (`App/Sketch3DSolver.{h,cpp}`) maps the
+  constraints. Coincident, PointOnObject (line, circle, arc, spline, plane,
+  external curve), AlongX / Y / Z (new types), Parallel and Perpendicular
+  (lines, line and plane), Tangent (two lines: collinear; end to end), Equal,
+  Symmetric about a point (midpoint), Distance (line, two points, point to
+  line or plane), DistanceX / Y / Z (DistanceZ new), Angle, Radius, Diameter,
+  Block, and the B-spline control and knot point alignments. Anything else is
+  reported in `Malformed`, and the solve returns -5. Spline weights and knots
+  are kept, poles solved; periodic splines are not solvable yet.
+- The 2D sketch refuses the four new types: `addConstraint` raises
+  ValueError, and the 2D solver treats one from a file as malformed.
+- The Python API is `Sketch3DObjectPy`:
+  - methods: `solve`, `addGeometry`, `delGeometry`, `addConstraint`,
+    `delConstraint`, `setDatum` / `getDatum` (index or name), `setDriving`,
+    `setConstruction`, `addExternal`, `delExternal`, `movePoint`;
+  - attributes: `DoF`, `Conflicting`, `Redundant`, `PartiallyRedundant`,
+    `Malformed` (0-based constraint indices).
+- A PartDesign Body accepts the type (by name; PartDesign does not link
+  Sketcher).
+- Tests: `SketcherTests/TestSketch3D.py`, 15 cases:
+  - a constrained path solves to 0 DOF;
+  - the diagnosis (DOF, redundant, conflicting, malformed);
+  - a rectangle on a tilted workplane;
+  - an arc tangent bend;
+  - a Part Sweep, and a PartDesign AdditivePipe in a Body, along the path;
+  - an edge reference following its geometry through a dimension change and
+    through a lead-in that comes first in the wire;
+  - an expression driving a named dimension;
+  - a reference dimension;
+  - save and reopen;
+  - an external edge followed through a cut that renumbers the edges;
+  - a datum plane and the frame's plane with the sketch moved;
+  - a drag;
+  - a spline through its knot points;
+  - the 2D sketch refusing the new types.
+- Regression: Sketcher C++ 142/142 (one more, the parallel swing),
+  TestSketcherApp 161 OK, TestPartDesignApp 481 OK.
+
 ## 11. Risks
 
 - **Solve stability in 3D** [S 15]: answered by rank-exact equations,
@@ -460,11 +517,14 @@ coaxial and symmetric (all v2); periodic splines.
   already is. Its time grows faster than the cube of the size here (300 ->
   1000 lines: 74 times in 3D, 98 times in 2D), and 3D has 1.5 times the
   unknowns per entity.
-- **Parallel's component choice** is made from the geometry when the system
-  is built. A direction that swings onto the dropped axis during one solve
-  loses rank for that solve. The facade rebuilds the system per solve, as the
-  2D sketch does, which bounds it; a drag that rotates a line through 90 deg
-  in one step would show it.
+- **The diagnosis is local.** The QR diagnosis is taken at the current
+  shape, before the solve, as in 2D. Constraints added all at once to a shape
+  far from their solution can be reported conflicting there: S1's arc bend,
+  added in one call to an arc drawn a quarter turn from where it ends, is;
+  added one at a time, as the editor adds them, it solves to 0 DOF. The 2D
+  sketch shares this. Related: AlongX / Y / Z equate two of a line's end
+  coordinates, so a line drawn across the axis starts the solve at zero
+  length, where a length has no gradient.
 - **Shared enum**: appending 3D types to `Sketcher::ConstraintType` touches
   code that switches over it, in a file shared with upstream. A separate
   enum avoids it at the cost of re-doing the naming and datum plumbing

@@ -954,8 +954,8 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
         .setTitle("Transaction Log Pull On Save")
         .setDoc("A save first brings in what another process saved into the file\n"
 "since it was read here, and merges it (docs/TransactionLog.md sec\n"
-"29.8); a conflict stops the save at the merge. Off, the save takes\n"
-"no lock and writes over the file as before."),
+"29.8); a conflict stops the save at the merge. Off, the save\n"
+"writes over the file as before. The save lock is taken either way."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCoalesceSeconds", "TransactionLogCoalesceSeconds", App::ParamInfo::Int, 3)
         .setTitle("Transaction Log Coalesce Seconds")
         .setDoc("A commit that writes by hand the one property the commit before\n"
@@ -2618,8 +2618,8 @@ const char *DocumentParams::docTransactionLogPullOnSave() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "A save first brings in what another process saved into the file\n"
 "since it was read here, and merges it (docs/TransactionLog.md sec\n"
-"29.8); a conflict stops the save at the merge. Off, the save takes\n"
-"no lock and writes over the file as before.");
+"29.8); a conflict stops the save at the merge. Off, the save\n"
+"writes over the file as before. The save lock is taken either way.");
 }
 
 // Auto generated code (Tools/params_utils.py:405)

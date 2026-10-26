@@ -785,8 +785,8 @@ public:
     ///
     /// A save first brings in what another process saved into the file
     /// since it was read here, and merges it (docs/TransactionLog.md sec
-    /// 29.8); a conflict stops the save at the merge. Off, the save takes
-    /// no lock and writes over the file as before.
+    /// 29.8); a conflict stops the save at the merge. Off, the save
+    /// writes over the file as before. The save lock is taken either way.
     static const bool & getTransactionLogPullOnSave();
     static const bool & defaultTransactionLogPullOnSave();
     static void removeTransactionLogPullOnSave();

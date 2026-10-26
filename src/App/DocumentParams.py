@@ -359,8 +359,8 @@ Params = [
     ParamBool('TransactionLogPullOnSave', True,
         doc='A save first brings in what another process saved into the file\n'
             'since it was read here, and merges it (docs/TransactionLog.md sec\n'
-            '29.8); a conflict stops the save at the merge. Off, the save takes\n'
-            'no lock and writes over the file as before.'),
+            '29.8); a conflict stops the save at the merge. Off, the save\n'
+            'writes over the file as before. The save lock is taken either way.'),
     ParamInt('TransactionLogCoalesceSeconds', 3,
         doc='A commit that writes by hand the one property the commit before\n'
             'it wrote, by the same author under the same name and within this\n'

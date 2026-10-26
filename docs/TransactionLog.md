@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18), B: a frozen edge's pcurve test answered once (38.19), the save measured again with B and the freeze on (38.20), an audit of the folder and two-process code (38.21) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5, B built; Q2, Q6, Q7, A ruled (Q7, A: nothing built) |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18), B: a frozen edge's pcurve test answered once (38.19), the save measured again with B and the freeze on (38.20), an audit of the folder and two-process code (38.21), its fixes and the merge's GUI failures (38.22) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5, B built; Q2, Q6, Q7, A ruled (Q7, A: nothing built) |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -26164,3 +26164,76 @@ this branch changed (beyond LinkVibe, the merged tree adds only App code,
   laid-over bars, hidden after a moment, would explain.
 Not chased: they look like LinkVibe's on this box, unconfirmed by a
 LinkVibe build.
+
+### 38.22 38.21's fixes as built; the merge's three GUI failures chased (2026-10-26)
+
+**Ruling (user, 2026-10-26):** "Push. Go ahead for the fix then chase the
+failed test". On F1, before it: "those changes are never undo/redoable in
+the past. so it is correct for us to not record it in transaction log".
+Nothing of a proxy goes into the log; F1's check is at the save only.
+
+**As built:**
+
+| | Where | What |
+| --- | --- | --- |
+| F1 | `PropertyPythonObject::stateOf`, `Document` (the keep decision, `_takeFolderRead`), Gui `viewHead` | An object's Python objects as Save writes them (`dumps()`, else `__getstate__()`, else `__dict__`; what Save skips is skipped, so `ViewObject`, on every object, is not in it). An object is kept only while that is what it last wrote (`FolderState::proxies`); after an open, what the restore gave back is taken for it. A view provider's goes into its head, so a view file is kept the same way; a head read from a file has none, so a view provider with a proxy is written by the first save after an open. Logged as "its proxy's state differs". |
+| F2 | `PropertyLinks.cpp`, `DocInfo::slotSaveDocument` | A save of the linked document notes each linking object changed (`noteSavedChange`): the path and stamp it saves moved. |
+| F3 | `TransactionLog.cpp`, `travelling()` (out of `finishEmbed`) and `embedFolder` | After the record is applied to the folder's copy: every version that travels by the live store's rule must be in the copy, a value kept since must have its entity, and no object may have been kept since. Otherwise the copy is made whole (the existing fallback). |
+| F4 | `FileElsewhere.cpp`, `rollForward` | A `remove` line that is absolute, leaves the folder (`..`), or holds `\` or `:` makes the record no record: the stage is thrown away, with a warning. |
+| F5 | `Document::saveToLog`, `_saveFolderHistory` | The save lock from before the read to after the rewrite; a folder's cut-short save settled first. The folder's stamp is taken again after the commit only when it was still the one this document last wrote. |
+| F6 | `TransactionLog` (`FolderTrack::copyId`, `pendingCopy`) | Each folder copy carries `copy_id` in its meta, a new uuid per copy; it is taken over at `folderSaved`, read back at an open, and compared by the guard besides the save id. A copy without one (an older folder) is made whole once. The check's whole copy gets the same token. |
+| F7 | `Document::save`, `DocumentP::pullFile` | A pending pull remembers its file. A save to another file, or with that file gone, lets it go with a warning: the branch stays in the log, to merge by hand. |
+| F8 | `Document::save` | The save lock is taken on every save; only the pull depends on `TransactionLogPullOnSave`. |
+| F9 | `Document::saveToLog`, `_saveFolderHistory` | Both history-only saves pass `SaveTrigger::current()`. |
+| P | `FileHistory::canonicalPath`, `beside()` | A path is cleaned first (a trailing slash dropped); one not there yet has its existing folder resolved. The lock, the open marker and the stage are named beside the canonical path. |
+
+**Tests** (each new one fails without its fix where shown; `FolderSaveCases`
+28 of 28 with `FC_FOLDER_SAVE_CHECK` on and off,
+`TransactionTwoProcessCases` 11 of 11):
+- F1 `testAProxysOwnStateIsWrittenNotKept`: the proxy's state set by
+  attribute, a box edited, saved: both written; edited again: the scripted
+  object kept; reopened with the state. The probe before the fix: 0 for 7.
+- F2 `testALinkIsWrittenWhenTheFileItLinksIntoMoves`: the linking file names
+  the folder the linked one was saved as. The probe before: the old one.
+- F3 `testAVersionThatTravelsAgainComesBackIntoTheFolder`: keep 1 for four
+  saves, then 10: the folder's history holds every version the store has,
+  and the copy was made whole. The probe before: 3 of 6.
+- F4 `testASaveRecordNamingAFileOutsideIsThrownAway`: a record naming
+  `../victim.txt`: the file stays, the stage goes, the folder opens.
+- F6 `testAFolderSavedToItsHistoryElsewhereIsCopiedWhole` (two processes):
+  the other saves to its history alone; this one's next save makes its copy
+  whole and reopens.
+- F7 `testASaveAsAwayFromAPullConflictIsNotHeldByIt` (two processes): after
+  a conflict, a save-as to another folder goes through and reopens with ours.
+- F5, F8, F9 and P have no test of their own: F5 and F8 need two saves
+  racing for the lock, and P a symlinked path. The gates run them.
+- Not shown failing without the fix: the tests of F4, F6 and F7 (the probe
+  covered F1-F3 only).
+
+**The three GUI failures of the merge (38.21).** None was this branch's.
+8d69a9e4aa ("every driven GUI test run starts from a fresh profile", come
+with the merge) clears a test's profile before each run; before, its work
+directory kept the `user.cfg` its earlier runs left. What that profile
+held when they passed for their authors is not known here. With defaults, `UseViewArea` is on:
+- `GuiSpreadsheetScrollBarsBesideOverlay`: **a defect of a19fb686e7.** In a
+  view area the sheet's viewport begins below the docks' top, so a side
+  dock reached its top edge and was taken for a dock at the top too
+  (`OverlayScrollBars::place`); with the bottom dock that left the bars no
+  room, and they went back to the area's edges, under the docks. A cover at
+  a corner is now on the side it runs more of the area along. 8 of 8; the
+  bars stand at x 1120 beside the right dock at 1130, and at y 743 above
+  the bottom one at 753.
+- `GuiTechDrawTreePickSwitchesPage`: the test's premise. In a view area the
+  second page's view takes the first one's cell (the reuse step,
+  `ViewPlacement.cpp`, ruled 2026-08-28), so the first is closed, not
+  behind. The test now turns `UseViewArea` off for its run and puts it
+  back. 7 of 7.
+- `GuiViewCellDragCancelAndLook`: the test's premise. Its scroll scenario
+  needed a sheet bar standing in a cell's corner; since a19fb686e7 a sheet's
+  (and a drawing page's) bars are laid over and hidden until used. The
+  precondition is now a note, and the scenario checks that the zones keep
+  their corners. 93 checks, none failing.
+
+**Gates** (round s38l): 25 GUI checks; Python 3911 OK and C++ 1018/1018
+with freeze on and off; driven 329/329; the suite with
+`FC_FOLDER_SAVE_CHECK=1` 3911 OK.

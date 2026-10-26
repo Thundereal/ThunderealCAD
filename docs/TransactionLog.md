@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, then withdrawn for the file creates an archive would need (38.17) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6 ruled; Q7c-Q7e open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6, Q7 ruled (Q7: nothing built) |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -25752,6 +25752,24 @@ What it says:
 | | Question | Recommended |
 | --- | --- | --- |
 | Q7e | Read a version from the store with nothing materialised | **R1 first**: recover from the document's own file when it is a version of the branch, then replay; R2 only for what R1 leaves. |
+
+**Ruling (user, 2026-10-26): Q7 closed, nothing built.** "Looks complicated
+and risky. Maybe we just stick to old transient directory for archive
+file." An archive document keeps the transient directory as it is. A folder
+document keeps what 38.9 built, which already keeps the folder's content
+out of the transient directory:
+- **Its blobs** are read in place from the folder at open, never copied
+  (38.9). Blobs made since the save go to the transient store.
+- **Its XML entries** are read from the folder. Their bytes also go into
+  the log's database as the version the open found (16.6): rows, not files.
+- **Its `History.db`** is the one thing copied: to
+  `<TransientDir>/history/log.db` at open (`adoptEmbedded`), where every
+  commit then streams. A save rebuilds the folder's copy in its stage from
+  that copy and the changes since (38.9).
+- **Recovery** materialises the anchor's XML entries, a file per object
+  for a folder document. That is the one per-object cost, paid only after
+  a crash, and it stays: R1 and R2 are not built. The phase line
+  `recoverFromLog` now logs stays, for measuring it again on Windows.
 
 **Tests** (`FolderSaveCases`):
 - `testAnObjectGainingMapsLeavesTheFilesAfterIt` (was the first half of

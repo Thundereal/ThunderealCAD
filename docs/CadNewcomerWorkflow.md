@@ -83,7 +83,7 @@ Fusion "only to describe compatibility" [1].
 - docs/TransactionLog.md: an append-only log of document transactions, with
   versions and branches, Onshape as the blueprint (its sec 8.1, 16). Its own
   survey notes: "Fusion's timeline is the feature list, not an undo log"
-  (sec 19). This matters for proposal 7 below.
+  (sec 19). See section 6 item 7.
 - docs/ThinClient.md sec 5: a browser design (not built) for a tool rail, a
   selection-contextual action bar "populated from selection type + an
   operation catalog the backend advertises", and a radial menu.
@@ -276,7 +276,7 @@ Fusion "only to describe compatibility" [1].
 | Dimension | FreeCAD (this fork) | Fusion | SOLIDWORKS | Onshape | Solid Edge |
 |---|---|---|---|---|---|
 | Mode model | workbenches, each a whole UI; auto-switch to PartDesign on a Body, to Sketcher in a sketch | workspaces; Design holds parts AND assemblies; tabs per data type; contextual environments [4] | one document per part / assembly / drawing; CommandManager tabs by document type [16] | tabs in a document: Part Studio, Assembly, Drawing; toolbars follow the tab [29] | environments (Part, Assembly, Draft); Ordered and Synchronous in one part [34] |
-| History | per Body: `Group` order + Tip; Set tip; tree drag reorders | one timeline per design, bottom; marker; edit rolls back [6]; history can be turned off [7] | FeatureManager tree + rollback bar [17] | Feature list + rollback bar per Part Studio [28]; version graph | PathFinder; ordered section rolls back on edit [34] |
+| History | per Body: `Group` order + Tip; showing a feature rewinds to it, no recompute; Set tip; tree drag reorders | one timeline per design, bottom; marker; edit rolls back [6]; history can be turned off [7] | FeatureManager tree + rollback bar [17] | Feature list + rollback bar per Part Studio [28]; version graph | PathFinder; ordered section rolls back on edit [34] |
 | Container of a part | Body (single solid by default, `SingleSolid`) inside an App::Part | body inside a component | the part file (multibody allowed) | a part, many per Part Studio | the part file |
 | Sketch entry | Create sketch -> attach dialog or the selected face; workbench switches | Create Sketch -> pick plane; contextual tab [12] | pick plane -> Sketch (gk) | sketch feature, pick plane (gk) | (gk) sketch on a plane |
 | Sketch exit | Close / Leave sketch (task panel) | Finish Sketch [12] | Confirmation Corner, double-click empty [19] | checkmark (gk) | (gk) Close Sketch |
@@ -411,11 +411,15 @@ fork to do the same:
    Boss and Cut tools [24] and is the nearest to us. A Fusion user looks for
    the Cut toggle in the Pad panel and does not find it; changing a Pad into
    a Pocket is delete and redo.
-4. **The UI changes wholesale at a sketch.** Editing a sketch switches the
-   workbench (`EditingWorkbench`), so every toolbar and menu changes, then
-   changes back. Fusion's sketch is a contextual tab inside the same
-   workspace [12]; SOLIDWORKS swaps a CommandManager tab (gk). Same intent;
-   ours moves more of the screen.
+4. **Not a gap at a sketch; a gap elsewhere.** (Corrected 2026-10-26 by the
+   user; the first draft called this a cost.) Editing a sketch brings up the
+   Sketcher's tools from whatever workbench is active and gives the previous
+   set back on leaving (section 2: `EditingWorkbench` through TempoVis, the
+   edit-mode toolbars forced available in `Sketcher/Gui/Workbench.cpp`). That
+   is Fusion's contextual Sketch tab [12] and SOLIDWORKS' CommandManager swap
+   in effect. The gap is that other editing contexts do not follow the
+   pattern: a TechDraw page, an assembly, a spreadsheet still need the user to
+   switch workbench by hand -- proposal 7.5.
 5. **Assembly is another workbench.** Fusion places joints in the same
    Design workspace as features [3][10]; here Insert, Joint and Ground are in
    the Assembly workbench, and a part is edited in PartDesign. A switch per
@@ -427,12 +431,18 @@ fork to do the same:
    Fusion and Onshape simply act on what is selected. The Tip is the
    rollback bar, but it is a property set from a context menu ("Set tip"), not
    a thing one drags.
-7. **History is a tree, not a strip.** The tree shows the Body's features in
-   order, mixed with documents, links, groups and everything else in the
-   document. Fusion's timeline is one line of icons in time order [6];
-   SOLIDWORKS and Onshape have the history as the tree too, with a rollback
-   bar in it [17][28]. So the gap to SOLIDWORKS/Onshape users is the bar, and
-   to Fusion users the strip.
+7. **History: not a gap.** (Corrected 2026-10-26 by the user.) A Body's
+   PartDesign features ARE the history steps of Fusion's timeline [6] and of
+   the SOLIDWORKS / Onshape feature tree [17][28]: each feature is one step,
+   in order, and each holds its own result shape. Rewinding is done by
+   visibility -- show an earlier feature and that is the part at that step --
+   which is faster than a rollback, because nothing is recomputed; Set tip
+   is there when later features should really be ignored. None of this is the
+   undo/redo transaction history (docs/TransactionLog.md), which Fusion has
+   too and which is a different thing. What a Fusion user lacks is only the
+   word: they look for "timeline" and "rollback", which proposal 7.1's
+   aliases and 7.2's "coming from" help can point at the Body tree and at
+   showing a feature.
 8. **Mouse.** The default CAD style (MMB pan, MMB+LMB rotate) matches none of
    the four; every one of them is one setting away (section 2), but only if
    the user knows the setting exists and which style is "theirs". The names do
@@ -577,15 +587,17 @@ merge risk against FreeCAD `main`.
 ### 7.5 Fewer whole-UI switches for part modelling -- value high, size M
 
 - What. Two steps, separable:
-  1. **Sketch as a contextual set, not a workbench switch.** Entering a
-     sketch from PartDesign shows the Sketcher's edit-mode toolbars (already
-     `DefaultVisibility::Unavailable`, already forced available by name in
-     `SketcherGui::Workbench::enterEditMode`) INSIDE PartDesign, hiding
-     PartDesign's modelling bars, with menus unchanged. Mechanically: the
-     PartDesign workbench declares the same-named Unavailable toolbars, and
-     new sketches get `EditingWorkbench` empty (the property exists; an
-     empty value already means "do not switch", by the TempoVis code).
-     Fusion's contextual Sketch tab [12] is the pattern; the look stays ours.
+  1. **Other editing contexts follow the sketch's pattern, TechDraw first.**
+     (Rewritten 2026-10-26: the first draft proposed changing the sketch,
+     which already does this -- section 6 item 4.) Activating a TechDraw
+     page's view brings up TechDraw's tools from whatever workbench is
+     active, and leaving it (another view activated, the page closed) gives
+     the previous set back, the way entering and leaving a sketch does. Then
+     the same for an assembly in edit and a spreadsheet's view. The sketch's
+     two pieces are the template: a TempoVis-held workbench switch that the
+     exit restores, and edit-only toolbars forced available by name. A page
+     is not an edit-mode object but an MDI view, so the trigger is the view's
+     activation rather than `setEdit`.
   2. **One "Part modelling" set.** PartDesign's bars plus what a part
      modeller reaches for across workbenches today: the Boolean, Measure,
      Std_LinkActions, Insert Component and the basic joints (Fixed,
@@ -595,18 +607,16 @@ merge risk against FreeCAD `main`.
      NX's Essentials role [35] is the precedent for a smaller set by
      intent; Fusion's single Design workspace [4] for one place to model
      parts and joints.
-- Where. `src/Mod/PartDesign/Gui/Workbench.cpp` (or a manipulator),
-  `src/Mod/Sketcher/Gui/Workbench.cpp` (`enterEditMode`/`leaveEditMode`
-  must not assume the Sketcher workbench is active: today `leaveEditMode`
-  saves state only when it is, 216-235), `ViewProviderSketch.cpp`
-  (`EditingWorkbench` default for new sketches), `ToolBarManager`.
-- Risks. The highest of the list for regressions: toolbar state save and
-  restore across workbenches is fiddly (the comment at Sketcher
-  `Workbench::activated` admits losses already), users' customised
-  toolbars, Python workbenches that rely on the switch. Upstream: medium,
-  both workbench files are upstream's -- manipulators keep it smaller.
-  Existing documents keep `EditingWorkbench = SketcherWorkbench` and behave
-  as now; only new sketches (or a preference) get the contextual set.
+- Where. Step 1: `src/Mod/TechDraw/Gui/MDIViewPage.cpp` (its activation and
+  close), the sketch's template in `ViewProviderSketch.cpp` (9485-9505) and
+  `src/Mod/Sketcher/Gui/Workbench.cpp` (105-235). Step 2:
+  `src/Mod/PartDesign/Gui/Workbench.cpp` or a manipulator, `ToolBarManager`.
+- Risks. Toolbar state save and restore across workbenches is fiddly (the
+  comment at Sketcher `Workbench::activated` admits losses already), and a
+  page switching the workbench whenever its tab is clicked must not fight a
+  user who switched on purpose while it was open (TempoVis's mild restore
+  already declines to restore a value the user changed). Upstream: low for
+  step 1 (one file per module), medium for step 2.
 
 ### 7.6 A selection-contextual mini bar on the desktop -- value medium, size M
 
@@ -625,36 +635,15 @@ merge risk against FreeCAD `main`.
   the pick. Upstream: none (new files). It overlaps 7.3's toolbox; together
   they are SOLIDWORKS' pair (S bar + context bar [14][15]).
 
-### 7.7 A Body history timeline -- value medium-high for Fusion users, size M to L
+### 7.7 A Body history timeline -- WITHDRAWN 2026-10-26
 
-- What. A strip along the bottom of the 3D view (an overlay panel, like the
-  task panel's) showing the ACTIVE Body's features in order -- sketches,
-  datums, features -- as icons with labels on hover, the Tip as a marker:
-  - drag the marker = Set tip (`PartDesign_MoveTip`); right-click "Roll to
-    here", "Roll to end" (Onshape [28], SOLIDWORKS [17]);
-  - double-click = edit, as in the tree;
-  - drag an icon = reorder, through the tree's existing move-feature path;
-  - suppress = `Suppress` (exists);
-  - failed features marked as in the tree;
-  - the same strip shown in the tree as a rollback BAR between rows, for
-    SOLIDWORKS and Onshape users, who look for the bar in the tree.
-- What it is NOT: the transaction log. Fusion's timeline is the feature
-  order, not edit history (TransactionLog.md sec 19 says the same). A Body
-  timeline needs nothing from TransactionLog. The log is Onshape's OTHER
-  history, the version graph; if a "history" panel of edits and versions is
-  wanted it is a second, separate view over TransactionLog.md sec 16 and 17,
-  and the two should not share a widget or a word: "Timeline" for features,
-  "History" or "Versions" for the log.
-- Scope choice. Fusion has ONE timeline per design, spanning components and
-  joints [6]. FreeCAD's document is a DAG, not a line; a document-wide strip
-  would need a linearisation (creation order is not dependency order). The
-  per-Body strip is honest and cheap; a document strip is an open question.
-- Where. New `src/Mod/PartDesign/Gui/TaskBodyTimeline.*` or a `Gui::` overlay
-  widget with a model over `Body::Group` + `Tip`; the browser gets it as data
-  through the scene control channel like the omni catalog.
-- Risks. Upstream: none. Users: none (new, toggled). Cost is in polish:
-  drag-reorder validity (a feature cannot move before what it references),
-  and keeping the strip in step with tree edits and undo.
+The first draft proposed a Fusion-style strip of the Body's features with a
+draggable rollback marker. Withdrawn on the user's correction: the Body's
+features already are that history, and visibility already rewinds it,
+faster than a rollback because nothing recomputes (section 6 item 7). A
+second widget over the same list adds nothing; the words "timeline" and
+"rollback" go into 7.1's aliases instead. The undo/redo transaction history
+stays a separate thing (docs/TransactionLog.md).
 
 ### 7.8 Extrude-with-operation as a panel switch -- value medium, size M, later
 
@@ -684,9 +673,9 @@ merge risk against FreeCAD `main`.
 ### 7.10 Order, if all were wanted
 
 7.1 (aliases) -> 7.2 (coming from, with navigation only) -> 7.3 (S toolbox)
--> 7.4 (selection follows body) -> 7.5 step 1 (contextual sketch) -> 7.7
-(timeline) -> 7.6 (context bar, with ThinClient's catalog) -> 7.5 step 2 ->
-7.8. The first three are a week together and touch almost nothing upstream.
+-> 7.4 (selection follows body) -> 7.5 step 1 (TechDraw follows the
+sketch's pattern) -> 7.6 (context bar, with ThinClient's catalog) -> 7.5
+step 2 -> 7.8. The first three are a week together and touch almost nothing upstream.
 
 ## 8. Open questions for the user
 
@@ -705,13 +694,12 @@ e. Fusion-like single keys as an opt-in set: wanted at all? If so, does
    the Sketcher's set swap (C circle instead of coincident) while it is on?
 f. Selection in another body: activate that body (with a note) by default,
    or keep refusing by default and make activating a preference?
-g. Contextual sketch (7.5.1): for new sketches only, or a preference that
-   overrides `EditingWorkbench` for old ones too?
+g. TechDraw following the sketch's pattern (7.5.1): switch on the page
+   view's activation, or only on an explicit "edit page"? Which contexts
+   after TechDraw -- assembly in edit, spreadsheet?
 h. The "Part modelling" set (7.5.2): a manipulator over PartDesign, or a new
    workbench with its own name? Should Assembly's joints appear there?
-i. Timeline: per active Body only, or attempt a document-wide strip? Bottom
-   of the 3D view, or a mode of the tree? And is "Timeline" the word (with
-   "History" kept for the transaction log)?
+i. (Withdrawn with 7.7.)
 j. Extrude-with-operation (7.8): worth the document-model change, or do
    aliases suffice?
 k. Should the browser viewer follow the same "coming from" preset for its

@@ -418,8 +418,8 @@ fork to do the same:
    edit-mode toolbars forced available in `Sketcher/Gui/Workbench.cpp`). That
    is Fusion's contextual Sketch tab [12] and SOLIDWORKS' CommandManager swap
    in effect. The gap is that other editing contexts do not follow the
-   pattern: a TechDraw page, an assembly, a spreadsheet still need the user to
-   switch workbench by hand -- proposal 7.5.
+   pattern: a TechDraw page and an assembly still need the user to switch
+   workbench by hand -- proposal 7.5 (the spreadsheet deliberately not).
 5. **Assembly is another workbench.** Fusion places joints in the same
    Design workspace as features [3][10]; here Insert, Joint and Ground are in
    the Assembly workbench, and a part is edited in PartDesign. A switch per
@@ -587,17 +587,46 @@ merge risk against FreeCAD `main`.
 ### 7.5 Fewer whole-UI switches for part modelling -- value high, size M
 
 - What. Two steps, separable:
-  1. **Other editing contexts follow the sketch's pattern, TechDraw first.**
+  1. **TechDraw follows the sketch's pattern, without the flicker.**
      (Rewritten 2026-10-26: the first draft proposed changing the sketch,
-     which already does this -- section 6 item 4.) Activating a TechDraw
-     page's view brings up TechDraw's tools from whatever workbench is
-     active, and leaving it (another view activated, the page closed) gives
-     the previous set back, the way entering and leaving a sketch does. Then
-     the same for an assembly in edit and a spreadsheet's view. The sketch's
-     two pieces are the template: a TempoVis-held workbench switch that the
-     exit restores, and edit-only toolbars forced available by name. A page
-     is not an edit-mode object but an MDI view, so the trigger is the view's
-     activation rather than `setEdit`.
+     which already does this -- section 6 item 4.) A TechDraw page's tools
+     come up when its view is active, from whatever workbench, and go when
+     another view is. Assembly in edit may follow later. **The spreadsheet
+     does not** (user, 2026-10-26): not until its switch can be subtler than
+     a toolbar change.
+
+     The constraint is the split view (docs/SplitViews.md): a page and a 3D
+     view now sit side by side in cells, and clicking between them is
+     frequent. Copying the sketch's mechanism -- a global workbench switch
+     on each activation -- would swap the global toolbars on every click,
+     and that flicker is already annoying where it happens today. A switch
+     reuses the toolbars (`ToolBarManager::setup` shows and hides them, it
+     does not rebuild them), so the visible cost is most likely layout: the
+     two sets have different widths, the toolbar rows reflow, a row
+     appears or goes, and every view under them resizes and redraws. Not
+     measured yet; the first step is to record a switch and confirm that.
+
+     Design, in order of preference:
+     a. **The page owns its tools (recommended).** The page's cell carries
+        TechDraw's toolbar in its own header strip, the way every Blender
+        area has its own header with that editor's tools (SplitViews.md
+        sec 1 takes Blender as the reference already). Activating a cell
+        then changes nothing global: no workbench switch, no toolbar
+        reflow, no menu rebuild. The global toolbars stay those of the
+        workbench the user chose for modelling. The commands are the same
+        `Gui::Command`s; a click on a cell's strip activates that cell
+        first, so a command finds its page as the active view as now. A
+        page opened as a plain tab shows the same strip. What still needs
+        the TechDraw workbench (its menus, the preferences page) keeps it.
+     b. **If a global switch stays, make it layout-stable.** Only the
+        context's own toolbars are swapped, into a reserved slot whose size
+        does not change (one "context" toolbar position, as the sketch's
+        edit bars could also use); the shared ones are never touched; the
+        main window paints once at the end (`setUpdatesEnabled` across the
+        switch); and the switch waits for intent -- an activation by a
+        click inside the page, not by focus passing through it.
+     The sketch keeps its global switch: an edit is a mode the user enters
+     on purpose and stays in, not a view clicked past.
   2. **One "Part modelling" set.** PartDesign's bars plus what a part
      modeller reaches for across workbenches today: the Boolean, Measure,
      Std_LinkActions, Insert Component and the basic joints (Fixed,
@@ -607,16 +636,17 @@ merge risk against FreeCAD `main`.
      NX's Essentials role [35] is the precedent for a smaller set by
      intent; Fusion's single Design workspace [4] for one place to model
      parts and joints.
-- Where. Step 1: `src/Mod/TechDraw/Gui/MDIViewPage.cpp` (its activation and
-  close), the sketch's template in `ViewProviderSketch.cpp` (9485-9505) and
-  `src/Mod/Sketcher/Gui/Workbench.cpp` (105-235). Step 2:
+- Where. Step 1a: `src/Mod/TechDraw/Gui/MDIViewPage.cpp` (a header strip
+  built from TechDraw's toolbar items), `src/Gui/ViewArea.cpp` (a cell's
+  header for the hosted view's tools). Step 1b: `ToolBarManager::setup`,
+  `MainWindow::onWindowActivated`. Step 2:
   `src/Mod/PartDesign/Gui/Workbench.cpp` or a manipulator, `ToolBarManager`.
-- Risks. Toolbar state save and restore across workbenches is fiddly (the
-  comment at Sketcher `Workbench::activated` admits losses already), and a
-  page switching the workbench whenever its tab is clicked must not fight a
-  user who switched on purpose while it was open (TempoVis's mild restore
-  already declines to restore a value the user changed). Upstream: low for
-  step 1 (one file per module), medium for step 2.
+- Risks. 1a: a page in a narrow cell has little room for a strip (it can
+  fold into a menu button, as Blender's headers do); users' toolbar
+  customisations of TechDraw must reach the strip. 1b: toolbar state save
+  and restore across workbenches is fiddly (the comment at Sketcher
+  `Workbench::activated` admits losses already). Upstream: low for step 1,
+  medium for step 2.
 
 ### 7.6 A selection-contextual mini bar on the desktop -- value medium, size M
 
@@ -694,9 +724,9 @@ e. Fusion-like single keys as an opt-in set: wanted at all? If so, does
    the Sketcher's set swap (C circle instead of coincident) while it is on?
 f. Selection in another body: activate that body (with a note) by default,
    or keep refusing by default and make activating a preference?
-g. TechDraw following the sketch's pattern (7.5.1): switch on the page
-   view's activation, or only on an explicit "edit page"? Which contexts
-   after TechDraw -- assembly in edit, spreadsheet?
+g. TechDraw (7.5.1): the page's own tool strip (a), or a layout-stable
+   global switch (b)? Does anything of TechDraw's need the global menus
+   while a page is active?
 h. The "Part modelling" set (7.5.2): a manipulator over PartDesign, or a new
    workbench with its own name? Should Assembly's joints appear there?
 i. (Withdrawn with 7.7.)

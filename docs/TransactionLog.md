@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18), B: a frozen edge's pcurve test answered once (38.19), the save measured again with B and the freeze on (38.20) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5, B built; Q2, Q6, Q7, A ruled (Q7, A: nothing built) |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18), B: a frozen edge's pcurve test answered once (38.19), the save measured again with B and the freeze on (38.20), an audit of the folder and two-process code (38.21) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5, B built; Q2, Q6, Q7, A ruled (Q7, A: nothing built) |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -26042,3 +26042,125 @@ the store for at most 20 ms. Revisit with a real model's profile.
 
 **Ruling (user, 2026-10-26):** "stop here". E, F and G are not built; the
 folder save's cost work ends with this section.
+
+### 38.21 Audit of the folder and two-process code (2026-10-26)
+
+**Asked (user, 2026-10-26):** "merge with LinkVibe and main, build, and
+continue with the audit's 'left as found'". 37.2's list is closed: every
+item was built or ruled in 37.8-37.12. So the audit continues over what
+came after it: 29.8 (two processes on one file) and 38.8-38.16 (the
+folder), about 5500 lines in 20 commits. Three read-only passes, one per
+area. Each finding below was traced again here before it went in.
+
+**The merge.** `thundereal/LinkVibe` (660e124d2b) and `thundereal/main`
+(9e197d5b66) into Transaction:
+- One conflict. LinkVibe's 96cf8eaf74 gave `embedFolder` a `trigger`
+  (who asked for the save), and 38.13 gave it a `saveId`. Both are kept.
+  The auto-merge had passed the trigger into the `saveId` slot of
+  `TransactionLog::embedFolder`; corrected.
+- main links with lld (`CMAKE_LINKER_TYPE=LLD`) and relinks only the edited
+  library (`CMAKE_LINK_DEPENDS_NO_SHARED`). lld 23.1.0 went into the env:
+  the doc names 22.1.8, but this env's libLLVM is 23, and 23.1.0 is one
+  package with the pins unchanged. The tree was reconfigured with
+  `conda-linux-801-relwithdebinfo`.
+
+**Shown by a probe** (`~/.cache/lv-merge/probe38/audit38.py`, on the
+merged build):
+
+| | What | Probe result |
+| --- | --- | --- |
+| F1 | **A Python proxy's state is lost.** "Unchanged" is read from the log's ops. `obj.Proxy.x = 1` makes no op, so the object's file is kept and `dumps()` is never called. Before 38.12 every save called it. | `counter` set to 7, saved, reopened: 0 |
+| F2 | **A link into another file keeps a stale path and stamp.** A save of the linked document re-points `PropertyXLink::filePath` and touches only the linking document's `Comment` (`DocInfo::slotSaveDocument`). The linking object is not noted, so its file is kept. | B saved elsewhere, A saved: `L.xml` still names B's old folder |
+| F3 | **A version retention dropped from the folder's history never comes back.** The updated copy (38.9) only replays rows that changed in the live store. A raised limit, a pin, an unnamed or deleted newer version, a `keepValue`, or a branch from an old version all make a dropped version travel again without touching its rows. | keep 1 for four saves, then keep 10: 3 versions in the folder against 6 that should travel |
+
+**Confirmed by reading the code path:**
+
+| | What | Effect |
+| --- | --- | --- |
+| F4 | **A commit record's `remove` lines are not confined to the folder** (`rollForward`). An absolute or `../` line deletes outside it, and `restore()` runs `recover()` when a stage with a record sits beside the folder. | Opening a folder that came with a crafted `.~X.save` deletes any file the user can |
+| F5 | **`saveToLog` (a history-only save) takes no save lock.** The archive form reads, rewrites into a temp file, deletes the file and renames over it. The folder form reads `Document.xml` before `_saveFolderHistory` takes the lock. | Another process's full save made in between is overwritten (archive), or the folder is left with an old `Document.xml` over new object files |
+| F6 | **A history-only save into a folder keeps the file's save id** (`embedFolderForFile`, as 27.28 does for an archive). Another process with the folder open takes it as touched, not rewritten, and its next save applies its recorded changes on top of the other history: the guard compares the same save id. | Two histories that grew from one state merged row by row: colliding `txn.seq`, `version.num`, ops under the wrong transaction. In an archive the same case loses the history-only save but stays consistent. |
+| F7 | **After a pull conflict, every save re-copies the file until a pull completes** (`d->pullBranch` is cleared only on success). A save-as to a new name, or a file moved away meanwhile, makes `_pullFromDisk` copy a path that is not there, and it throws. | The document cannot be saved anywhere, not even under another name |
+| F8 | **An archive save takes the lock only when the pull is on and the document has a log** (`save()`). A folder save always locks (`saveToFile`). | A process with the pull off, or no log, writes between another's look and write |
+| F9 | **A history-only save into a folder names no trigger** (left from this merge): `_saveFolderHistory` passes none, and `finishEmbed` writes `save_trigger` only when it has one. | The folder's history names the previous save's trigger |
+
+**Reported, plausible, narrower** (not probed):
+- *Path identity* (one fix covers all three):
+  - The lock and open-marker names are built from the path as given
+    (`beside()`), while the stage and the write use the canonical path.
+    A document whose own last path part is a symlink, opened through it
+    by one process and by the target by another, gets two locks and one
+    stage.
+  - `FileHistory::canonicalPath` of a file not yet there (a save-as
+    target) does not resolve a symlinked parent. The history is keyed by
+    that and is missed once the file exists. On macOS this is any save
+    under `/tmp` or `/var/folders`.
+  - A trailing slash on a folder path puts the lock inside the folder.
+- *Map numbering:* `Document::Save` now resets the process-wide numbering
+  (38.15) unconditionally. A save started inside another's progress
+  pump (the autosaver, with the log off) resets it mid-save. A nesting
+  depth fixes it.
+- *VRML resources:* `VRMLObject` registers its files with
+  `addFile(name, this)` with the object, not a property, as owner, and the
+  first save after an open does not attribute them. The object is kept
+  and its resources removed. Rare type; the general fix is "do not keep an
+  object one of whose read entries was not attributed".
+- *The open marker* is written without the lock after a 10 s wait. It now
+  decides whether a save may remove blob files another process reads in
+  place.
+- *A kept file is trusted on `Document.xml`'s stamp alone*: an object file
+  restored or deleted by another tool (a VCS checkout, a sync client) is
+  kept as the tool left it.
+- *`FileBlob::_path`* is rewritten on a materialized blob (`copyIn`,
+  `settleInPlace`) while the header says it is read without the lock.
+- *`syncFiles`* terminates the process if a thread cannot be created
+  part way. macOS `fsync` is not durable without `F_FULLFSYNC`.
+- *Windows*: a reader holding `Document.xml` open fails the commit's last
+  rename. `DiskStamp` has no file id. Case-only spellings may be two
+  documents.
+- *`HasherIndex`* is not in the keep comparison.
+- *The check* (`FC_TXNLOG_CHECK_FOLDER`) does not compare `sqlite_sequence`
+  or `session.closed`. 38.9's "a trim is not covered" invites reading F3's
+  difference as trim noise.
+
+**Found sound:** the commit order and the crash recovery at every step;
+every lock's release on an exception; the conflict dialog runs off the
+lock (queued); the lock's create/delete race; the change record's
+all-or-nothing apply, every table keyed; `FolderTrack` after a failed or
+abandoned save (the next save copies whole); map-id uniqueness within a
+save; the congruence cache's reuse (both shapes `IsEqual`); the merged
+signatures.
+
+**Proposed fixes** (none built):
+
+| | Fix | Size |
+| --- | --- | --- |
+| F1 | Keep an object or view provider with a Python proxy only when its serialised proxy (`dumps()`, else `__getstate__()`, else `__dict__`, as `PropertyPythonObject::toString` writes it) is what the kept file holds: compared at the save, the call every save made before 38.12. Nothing goes into the log: a proxy's attribute was never undoable, and stays unrecorded (user, 2026-10-26) | small |
+| F2 | `slotSaveDocument`: note each linking object changed (`noteSavedChange`) when the path or stamp it saves moved | small |
+| F3 | After an updated copy's retention, work out what travels against the live store; when the copy lacks any of it, make the copy whole | small |
+| F4 | `rollForward` refuses a record line that is absolute or whose clean path leaves the folder, and the record with it | small |
+| F5 | `saveToLog` takes the save lock before it reads, for both forms | small |
+| F6 | Each copy carries its own `copy_id`; the folder guard compares it, not the save id | moderate |
+| F7 | Keep the path a pending pull came from; a save to another path, or with the file gone, merges the branch without copying | small |
+| F8 | `save()` always takes the lock; only the pull depends on the preference | small |
+| F9 | `_saveFolderHistory` passes `SaveTrigger::current()` | one line |
+| P | The path identity group: lock and marker names from the canonical path, `canonicalPath` resolving the nearest existing parent, `cleanPath` in `beside()` | small |
+
+**Recommended:** F1-F9 and P now, each with a test that fails without it
+(the probe's three cases become `FolderSaveCases` tests). The others stay
+recorded here until a case shows.
+
+**Gates** (round merge, on the merged tree, before any fix): 25 GUI
+checks; Python 3905 OK and C++ 1018/1018 with freeze on and off; driven 326
+of 329. The three failures repeat when run alone, and none touches code
+this branch changed (beyond LinkVibe, the merged tree adds only App code,
+38.14's view-provider files and the lld preset):
+- `GuiTechDrawTreePickSwitchesPage` (new from LinkVibe, 9a464c8819): after
+  PageA's and PageB's views are opened, only PageB's is open.
+- `GuiSpreadsheetScrollBarsBesideOverlay` (new, a19fb686e7): the laid-over
+  scroll bars stand under the overlaid docks.
+- `GuiViewCellDragCancelAndLook` (passed in s38k): "a scroll bar of the
+  sheet runs through a corner" finds no bars, which a19fb686e7's
+  laid-over bars, hidden after a moment, would explain.
+Not chased: they look like LinkVibe's on this box, unconfirmed by a
+LinkVibe build.

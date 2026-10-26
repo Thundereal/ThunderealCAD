@@ -966,35 +966,87 @@ App::AuxGroupOwner* elementsOwner(App::DocumentObject* component)
     return owner;
 }
 
-/// An element of the group with this target, or null
-Part::Element* findElement(App::AuxGroup* group, App::DocumentObject* target, const std::string& sub)
+/// Whether a link property holds this object and subname
+bool holds(const App::PropertyLinkSub& prop, App::DocumentObject* obj, const std::string& sub)
+{
+    if (prop.getValue() != obj) {
+        return false;
+    }
+    const auto& subs = prop.getSubValues();
+    return (subs.empty() && sub.empty()) || (!subs.empty() && subs.front() == sub);
+}
+
+/// An element of the group with this target and vertex, or null
+Part::Element* findElement(App::AuxGroup* group,
+                           App::DocumentObject* target,
+                           const std::string& sub,
+                           App::DocumentObject* vertex,
+                           const std::string& vertexSub)
 {
     if (!group) {
         return nullptr;
     }
     for (auto child : group->Group.getValues()) {
         auto element = Base::freecad_dynamic_cast<Part::Element>(child);
-        if (!element || element->Target.getValue() != target) {
-            continue;
-        }
-        const auto& subs = element->Target.getSubValues();
-        if ((subs.empty() && sub.empty()) || (!subs.empty() && subs.front() == sub)) {
+        if (element && holds(element->Target, target, sub)
+            && holds(element->Vertex, vertex, vertex ? vertexSub : std::string())) {
             return element;
         }
     }
     return nullptr;
 }
 
+/** An element of the container on this target, made if there is none
+ *
+ * A vertex picked with the geometry places the frame's origin: the element
+ * keeps it, and its Offset follows it, so that an element link refers to an
+ * element only (docs/AssemblyObjectModel.md sec 4.3). An element with
+ * another vertex, or none, is another element.
+ */
 Part::Element* declare(App::DocumentObject* container,
                        App::DocumentObject* target,
                        const std::string& sub,
+                       App::DocumentObject* vertex,
+                       const std::string& vertexSub,
                        const char* label)
 {
     auto owner = dynamic_cast<App::AuxGroupOwner*>(container);
-    if (auto element = findElement(owner ? owner->getElementsGroup(false) : nullptr, target, sub)) {
+    if (auto element = findElement(owner ? owner->getElementsGroup(false) : nullptr,
+                                   target,
+                                   sub,
+                                   vertex,
+                                   vertexSub)) {
         return element;
     }
-    return Part::Element::create(container, target, sub.c_str(), label);
+    auto element = Part::Element::create(container, target, sub.c_str(), label);
+    if (vertex) {
+        element->Vertex.setValue(vertex, std::vector<std::string> {vertexSub});
+        // Followed now on the pick's geometry: the new element has no copy yet
+        element->updateVertexOffset(Part::Feature::getTopoShape(target, sub.c_str(), true));
+    }
+    return element;
+}
+
+/** The direct child of a container a path from it starts with, and the rest
+ * of the path: a body's own shape is its tip's
+ */
+App::DocumentObject* childOf(App::DocumentObject* container, const std::string& sub, std::string& rest)
+{
+    auto dot = sub.find('.');
+    if (dot != std::string::npos) {
+        const std::string name = sub.substr(0, dot);
+        auto child = container->getDocument()->getObject(name.c_str());
+        auto group = container->getExtensionByType<App::GroupExtension>(true);
+        if (child && group && group->Group.find(name.c_str()) == child) {
+            rest = sub.substr(dot + 1);
+            return child;
+        }
+    }
+    else if (auto tip = container->getPropertyByName<App::PropertyLink>("Tip")) {
+        rest = sub;
+        return tip->getValue();
+    }
+    return nullptr;
 }
 
 }  // namespace
@@ -1034,29 +1086,16 @@ Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
 
     Part::ElementLink* link = nullptr;
     // The component declares elements: the element goes in its Elements
-    // group, as a direct child of it plus the rest of the path
-    if (auto owner = local ? nullptr : elementsOwner(component)) {
+    // group, as a direct child of it plus the rest of the path, and so does
+    // its vertex
+    if (local ? nullptr : elementsOwner(component)) {
         auto container = component->getLinkedObject(true);
-        App::DocumentObject* target = nullptr;
         std::string rest;
-        auto dot = sub.find('.');
-        if (dot != std::string::npos) {
-            const std::string name = sub.substr(0, dot);
-            auto child = container->getDocument()->getObject(name.c_str());
-            auto group = container->getExtensionByType<App::GroupExtension>(true);
-            if (child && group && group->Group.find(name.c_str()) == child) {
-                target = child;
-                rest = sub.substr(dot + 1);
-            }
-        }
-        else if (auto tip = container->getPropertyByName<App::PropertyLink>("Tip")) {
-            // A body's own shape is its tip's
-            target = tip->getValue();
-            rest = sub;
-        }
-        if (target) {
-            auto element = declare(container, target, rest, nullptr);
-            (void)owner;
+        std::string vertexRest;
+        auto target = childOf(container, sub, rest);
+        auto vertex = vertexSub.empty() ? nullptr : childOf(container, vertexSub, vertexRest);
+        if (target && (vertex || vertexSub.empty())) {
+            auto element = declare(container, target, rest, vertex, vertexRest, nullptr);
             link = Part::ElementLink::create(
                 assembly,
                 component,
@@ -1066,20 +1105,17 @@ Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
     }
     if (!link) {
         // A convenience element in the assembly's own Elements group
-        auto element = declare(assembly, component, sub, "_Element");
+        auto element = declare(assembly,
+                               component,
+                               sub,
+                               vertexSub.empty() ? nullptr : component,
+                               vertexSub,
+                               "_Element");
         link = Part::ElementLink::create(
             assembly,
             assembly->getElementsGroup(false),
             (std::string("$") + element->Label.getValue() + ".").c_str()
         );
-    }
-
-    if (!vertexSub.empty()) {
-        // The vertex places the origin on the element: the element link
-        // keeps it, and its Offset follows it. Followed now on the pick's
-        // geometry: the new element has no copy yet.
-        link->Vertex.setValue(component, std::vector<std::string> {vertexSub});
-        link->updateVertexOffset(Part::Feature::getTopoShape(component, sub.c_str(), true));
     }
     return link;
 }

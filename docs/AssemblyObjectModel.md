@@ -434,10 +434,13 @@ The Assembly3 concept, unchanged (wiki, Concepts / Element):
 
 Upstream picks two sub-elements for one side of a joint, a face and a vertex
 (`[Component, ["Body.Face6", "Body.Vertex3"]]`); the vertex only places the
-origin on the face. Here one side is one ElementLink to the face's element,
-and the vertex is the ElementLink's `Vertex`: a live link, which the
-`Offset` follows (user, 2026-10-25). A pick that already gives a frame (a
-circular edge, a datum, an LCS) needs no vertex.
+origin on the face. Here one side is one ElementLink to an element of the
+face, and the vertex is that element's `Vertex`: a live link, which the
+element's `Offset` follows. An element link refers to an element only, so
+that a reference into geometry is repaired in one place, the element (user,
+2026-10-26; until then the vertex was the element link's own, user,
+2026-10-25). A pick that already gives a frame (a circular edge, a datum,
+an LCS) needs no vertex.
 
 ### 4.3 Classes
 
@@ -448,21 +451,28 @@ at display or solve time.
 
 - `Part::Element`: `Target` (an `App::PropertyLinkSub`: a direct child of
   its own container, plus a subname into it), `Offset`, `Detach`, `Shape`
-  (the copy),
-  `Placement`.
+  (the copy), `Placement`, and `Vertex` (user, 2026-10-26):
+  - `Vertex` (a Global `PropertyLinkSub` to a vertex, a direct child of the
+    container plus a subname) places the frame's origin on the geometry.
+    `Offset` follows it: on each recompute the vertex's move in the
+    geometry's frame since `VertexPosition` (hidden) moves `Offset`'s origin
+    by as much, `Offset = T(v) * T(v_old)^-1 * Offset`, and the rest of
+    `Offset`, the user's, stays. Clearing `Vertex` takes its share back out.
+    A `Vertex` that is not a vertex is an error of the element. It is
+    repaired as `Target` is (sec 4.5).
+  - An element with a vertex is another element than one on the same
+    geometry with another vertex, or none: a pick finds or makes the one
+    with both.
+  - The view provider shows the vertex as a yellow point, 10 px, over the
+    element's half transparent cyan, and an element link's over its red, at
+    its element's vertex (`ElementLink::getVertexElement()`: the first
+    element down the chain with one).
 - `Part::ElementLink`: `Element` (an `App::PropertyLinkSub`: a direct child
   of its container and the subname to an element in that child's Elements
   group, or the container's own Elements group and a convenience element),
-  `Offset`, `Shape` (sec 4.4), and `Vertex` (user, 2026-10-25):
-  - `Vertex` (a Global `PropertyLinkSub` to a vertex, a direct child of the
-    container plus a subname) places the frame's origin on the element.
-    `Offset` follows it: on each recompute the vertex's move in the
-    element's frame since `VertexPosition` (hidden) moves `Offset`'s origin
-    by as much, `Offset = T(v) * T(v_old)^-1 * Offset`, and the rest of
-    `Offset`, the user's, stays. Clearing `Vertex` takes its share back out.
-    A `Vertex` that is not a vertex is an error of the element link.
-  - The view provider shows the vertex as a yellow point, 10 px, over the
-    link's half transparent red (`PartGui::ViewProviderElementLink`).
+  `Offset` (the user's, for this use), `Shape` (sec 4.4). No vertex of its
+  own: from 2026-10-25 to 2026-10-26 it kept one, and a file of then loses
+  it on open, with a warning to pick the side again.
 - **The element frame** (`Part::findElementFrame`, `Part/App/ElementGeometry`,
   with the curve and surface recognition it reads) is Part's: `Offset` is
   relative to it, and the element link computes it. It was Assembly's
@@ -531,8 +541,12 @@ Built as step 3a (2026-10-24), `Part/App/FeatureElement.{h,cpp}`:
   subname, label)`) makes the container's Elements group if missing,
   puts the element in it first and then labels it, so the label is made
   unique among its siblings (`onBeforeChangeLabel`) and no wider: it allows
-  duplicate labels in the document. A new element is hidden; its
-  geometry is the target's. `Part.makeElementLink(container, obj,
+  duplicate labels in the document. `create()` asks
+  `onBeforeChangeLabel` itself as well (2026-10-26): the label setter does
+  not while the document has `LiveImport`, which the GUI keeps on after an
+  open until its view providers are made, and the converters on open made
+  two `_Element` there, joining both sides of a joint to one. A new
+  element is hidden; its geometry is the target's. `Part.makeElementLink(container, obj,
   subname)` adds an ElementLink to the container's `Group` directly,
   whatever its GroupMode (a joint owns them from step 4).
 - The Elements group is an `App::AuxGroup` of role "Elements", which makes
@@ -741,11 +755,14 @@ Built (2026-10-26, step 5), `Part::Element::repair()` in
 - **Replacing a component** needs nothing more: set the link's
   `LinkedObject`. The element links follow the labels, and the joints solve
   on the new geometry.
-- **Not repaired:** an element link's `Vertex`, which is a direct reference
-  into a child's geometry.
-- **Tests.** `parttests/ElementTest.py` (3): labelled elements followed
-  through a replacement, a replacement searched for the copy, a replacement
-  without it keeping the name. `PartDesignTests/TestBodyElement.py` (2): the
+- **The vertex** (`Element::Vertex`, sec 4.3) is repaired the same way,
+  its copy being the point `VertexPosition` gives in the old copy's frame:
+  where its name names nothing now, and once when the component it is on,
+  the target's, is replaced. An element link has no reference into
+  geometry, so nothing else is to repair.
+- **Tests.** `parttests/ElementTest.py` (4): labelled elements followed
+  through a replacement, a replacement searched for the copy and for the
+  vertex, a replacement without the copy keeping the name. `PartDesignTests/TestBodyElement.py` (2): the
   naming history after a fillet, and a face gone an error of the element
   with its element link keeping the copy. `TestReplaceComponent` (1): the
   joint solved on the replacement.
@@ -1030,9 +1047,9 @@ links store `$$Elements.` and `$PinEnd.` instead.
   reads them back). `ElementLink1` / `ElementLink2`
   replace `Reference1/2`, `Offset1/2` and `Detach1/2`: each is a
   `PropertyLink` to a `Part::ElementLink`, whose own `Offset` is the
-  side's whole offset (user, 2026-10-25): the picked vertex's share (the
-  link's `Vertex`, which it follows, sec 4.3) and the user's offset in one
-  placement. The joint task's offset and rotation edit it (step 4b); an
+  side's offset (user, 2026-10-25). The picked vertex's share is the
+  element's (its `Vertex`, which its `Offset` follows, sec 4.3; the element
+  link's until 2026-10-26). The joint task's offset and rotation edit it (step 4b); an
   upstream joint converts as sec 8 says. The frame of a side is the
   element's frame, then the offsets of the elements down the chain (the
   deepest first), then the element link's `Offset`.
@@ -1053,7 +1070,7 @@ links store `$$Elements.` and `$PinEnd.` instead.
   shape (`Assembly::findElementFrame`): the same rules for a vertex, a
   line, a circle, another planar curve, a plane, a cylinder, a cone, a
   sphere, a torus, and a whole object. The vertex upstream picks with a face
-  is the element link's `Vertex` (sec 4.2), so the frame needs no second
+  is the element's `Vertex` (sec 4.2), so the frame needs no second
   sub-element. (`Part::findElementFrame` since the vertex; sec 4.3.)
 - **The builder reads sides, not properties.** `AssemblyObject` asks
   `JointSide` for a joint's component, element and frame. A Python joint
@@ -1067,7 +1084,8 @@ links store `$$Elements.` and `$PinEnd.` instead.
   - otherwise a convenience element `_Element` is made in the assembly's
     own Elements group and the link goes `(Elements, "$_Element.")`;
   - a second sub-element in the pick (upstream's face plus vertex) becomes
-    the element link's `Vertex`, and its `Offset` follows it.
+    the element's `Vertex`, and the element's `Offset` follows it: the
+    element is found or made with both (2026-10-26).
   Grounding and rigid groups stay as they are in this step: they name whole
   components, not geometry.
 
@@ -1141,10 +1159,10 @@ Built as step 4b (2026-10-25), the joints the task makes:
   `UtilsAssembly.getJointDistance` / `getJointXYAngle` use them. A C++
   joint's proxy `execute` returns False, so the C++ `execute` keeps
   `Placement1/2`.
-- **Offsets.** The task's offset and rotation edit the user's share of
-  the element link's `Offset`: `Offset = T(VertexPosition) * user's`, so
-  the user's is `(Offset.Base - VertexPosition, Offset.Rotation)`. The
-  advanced offset buttons open the placement dialog on the element link's
+- **Offsets.** The task's offset and rotation edit the element link's
+  `Offset`, which is the user's whole: the vertex's share is the element's
+  (until 2026-10-26 the link held both, `Offset = T(VertexPosition) *
+  user's`). The advanced offset buttons open the placement dialog on the element link's
   whole `Offset`. Not yet: an expression on those two spin boxes, which
   the Python joint binds to `Offset2`.
 - **Markers** are the frames in the assembly's coordinate system
@@ -1337,10 +1355,11 @@ Built as step 4b (2026-10-25), the joints the task makes:
     relative to the referenced object, `findPlacement`'s or, with
     `DetachN`, the user's own) and `OffsetN`. The converter takes upstream's
     frame as it is, `G = global(referenced object) * PlacementN *
-    OffsetN`, makes the element link from `(component, element)`, sets its
-    `Vertex` to upstream's vertex, `VertexPosition = F^-1 * vertex`, and
-    `Offset = F^-1 * G`, with `F` the element's frame (`findElementFrame`)
-    in the same coordinate system. So every joint keeps its frames
+    OffsetN`, makes the element link from `(component, element, vertex)`,
+    which makes the element with upstream's vertex as its `Vertex` and the
+    vertex's share in its `Offset`, and sets the link's `Offset = F^-1 *
+    G`, with `F` the element's frame (`findElementFrame`, then the
+    element's `Offset`) in the same coordinate system. So every joint keeps its frames
     exactly, whatever upstream's rules, the offsets and the detaching made
     them, a re-solve moves nothing, and the vertex stays live: when the
     part changes the origin follows it, as upstream's does.

@@ -75,6 +75,11 @@ public:
     /// The target is not loaded now (a link to a closed or missing
     /// document): the copy is kept, and serves its users until it is back
     App::PropertyBool Unresolved;
+    /// A vertex placing the frame's origin on the geometry: a direct child of
+    /// the container and the subname to the vertex. Offset follows it.
+    App::PropertyLinkSub Vertex;
+    /// Where Vertex was in the geometry's frame when Offset last followed it
+    App::PropertyVector VertexPosition;
 
     App::DocumentObjectExecReturn *execute() override;
     void onChanged(const App::Property *prop) override;
@@ -142,16 +147,34 @@ public:
      */
     static bool stopsUnloaded(const App::PropertyLinkSub &prop);
 
+    /** Make Offset follow Vertex
+     *
+     * @param geometry: the target's geometry in the container's coordinate
+     *                  system
+     *
+     * The vertex's move in the geometry's frame since VertexPosition moves
+     * Offset's origin by as much; the rest of Offset, the user's, stays.
+     * With no Vertex, the last position is taken back out.
+     *
+     * @return false when Vertex is set and is not a vertex now
+     */
+    bool updateVertexOffset(const TopoShape &geometry);
+    /// The vertex in the container's coordinate system, when Vertex is one
+    bool getVertexPoint(Base::Vector3d &point) const;
+
 private:
     void touchGroups();
-    /** Find the target's geometry again (docs/AssemblyObjectModel.md sec
-     * 4.5): where its name names nothing now, by the naming history, then
-     * by a search for the copy; where the component is replaced, by the
-     * search alone. A path through labels is the link's own.
+    /** Find the geometry of Target or Vertex again
+     * (docs/AssemblyObjectModel.md sec 4.5): where its name names nothing
+     * now, by the naming history, then by a search for its copy; where the
+     * component is replaced, by the search alone. A path through labels is
+     * the link's own.
      *
-     * @return true when Target was changed
+     * @return true when the link was changed
      */
-    bool repair(bool replaced);
+    bool repair(App::PropertyLinkSub &prop, const TopoShape &copy, bool replaced);
+    /// The vertex where the copy says it was, or null
+    TopoShape vertexCopyShape() const;
 };
 
 /** How a container uses an element, for a joint of its own
@@ -174,11 +197,6 @@ public:
     App::PropertyLinkSub Element;
     /// A placement of the frame relative to the element's, for this use only
     App::PropertyPlacement Offset;
-    /// A vertex placing the frame's origin on the element: a direct child of
-    /// the container and the subname to the vertex. Offset follows it.
-    App::PropertyLinkSub Vertex;
-    /// Where Vertex was in the element's frame when Offset last followed it
-    App::PropertyVector VertexPosition;
     /** What Element resolves to, when not the target itself: hidden, kept
      * in step. A change reaches a dependent only through objects that
      * change, and those between (a part, an Elements group, a link) do not:
@@ -191,20 +209,12 @@ public:
 
     App::DocumentObjectExecReturn *execute() override;
 
-    /** Make Offset follow Vertex
-     *
-     * @param element: the element's geometry in the container's coordinate
-     *                 system
-     *
-     * The vertex's move in the element's frame since VertexPosition moves
-     * Offset's origin by as much; the rest of Offset, the user's, stays.
-     * With no Vertex, the last position is taken back out.
-     *
-     * @return false when Vertex is set and is not a vertex now
+    /** The element whose vertex places this link's origin: the first down
+     * the chain of elements (the one linked, what it re-exports) that has a
+     * Vertex, or null. The link has no vertex of its own, so that what it
+     * refers to is always an element, repaired in one place.
      */
-    bool updateVertexOffset(const TopoShape &element);
-    /// The vertex in the container's coordinate system, when Vertex is one
-    bool getVertexPoint(Base::Vector3d &point) const;
+    const Part::Element *getVertexElement() const;
 
     const char *getViewProviderName() const override {
         return "PartGui::ViewProviderElementLink";
@@ -224,6 +234,9 @@ public:
 protected:
     void onChanged(const App::Property *prop) override;
     void onDocumentRestored() override;
+    void handleChangedPropertyName(Base::XMLReader &reader,
+                                   const char *typeName,
+                                   const char *propName) override;
 };
 
 }  // namespace Part

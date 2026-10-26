@@ -48,7 +48,10 @@ class PartGuiExport ViewProviderElement : public ViewProviderPart
 
 public:
     ViewProviderElement();
+    ~ViewProviderElement() override;
 
+    void attach(App::DocumentObject *obj) override;
+    void updateData(const App::Property *prop) override;
     void setupContextMenu(QMenu*, QObject*, const char*) override;
 
     /** Turn auto element visibility on or off
@@ -63,6 +66,19 @@ protected:
     /// The color of the copy
     virtual App::Color defaultColor() const;
     void applyStyle();
+    /** Where the frame's origin is put by a vertex, in the object's own
+     * coordinates: the element's Vertex, or an element link's element's
+     *
+     * @return false when there is none
+     */
+    virtual bool getVertexMark(Base::Vector3d &point) const;
+    /// Show the vertex mark where getVertexMark() says
+    void updateVertexMark();
+
+private:
+    /// The vertex, a bigger point in its own color, in every mode
+    SoSwitch *pcVertexMark;
+    SoCoordinate3 *pcVertexCoord;
 };
 
 /// The view provider of a Part::ElementLink: the same, in red
@@ -73,19 +89,10 @@ class PartGuiExport ViewProviderElementLink : public ViewProviderElement
 
 public:
     ViewProviderElementLink();
-    ~ViewProviderElementLink() override;
-
-    void attach(App::DocumentObject *obj) override;
-    void updateData(const App::Property *prop) override;
 
 protected:
     App::Color defaultColor() const override;
-
-private:
-    /// The link's Vertex, a bigger point in its own color, in every mode
-    void updateVertexMark();
-    SoSwitch *pcVertexMark;
-    SoCoordinate3 *pcVertexCoord;
+    bool getVertexMark(Base::Vector3d &point) const override;
 };
 
 }  // namespace PartGui

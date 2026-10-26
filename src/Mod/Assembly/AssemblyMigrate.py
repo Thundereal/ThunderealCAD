@@ -34,10 +34,10 @@ A side converts to one element link, with Offset = F^-1 * G: G upstream's
 frame as it is (its PlacementN on the referenced object, which carries its
 OffsetN, or the user's own when DetachN), F the element's frame. So a joint
 keeps its frames exactly and a re-solve moves nothing. The vertex upstream
-picks with the element is the element link's Vertex, kept live, with
-VertexPosition where it is in F -- except where upstream does not take the
-frame from it: a Distance or Cam joint, a detached side, a vertex that is
-the element itself.
+picks with the element is the element's Vertex, kept live, its share in the
+element's Offset, so F includes it -- except where upstream does not take
+the frame from it: a Distance or Cam joint, a detached side, a vertex that
+is the element itself, or no vertex.
 
 A joint that cannot be converted stays a Python joint, which still solves,
 and is reported: a side on a component that is not a direct child of the
@@ -133,24 +133,25 @@ def convertJoint(assembly, joint):
     ignoreVertex = jtype in ("Distance", "Cam")
     toAssembly = assembly.getGlobalPlacement().inverse()
     for i, (comp, element, vertex, frame, detached) in enumerate(sides, 1):
+        live = ""
+        if not (ignoreVertex or detached or _plain(vertex) == _plain(element)):
+            try:
+                if Part.getShape(comp, vertex, needSubElement=True).ShapeType == "Vertex":
+                    live = vertex
+            except Exception:
+                pass
         try:
             # Local: a migration does not edit the components, which may be
             # other documents
-            link = new.setSide(i, comp, element, "", True)
+            link = new.setSide(i, comp, element, live, True)
         except Exception as e:
             doc.removeObject(new.Name)
             return None, "side %d: %s" % (i, e)
         JointObject.recomputeSides(new)
+        # The element's frame, with the vertex's share: the element link's
+        # Offset is still none
         F = new.getFrame(i)
         G = toAssembly * frame
-        if not (ignoreVertex or detached or _plain(vertex) == _plain(element)):
-            try:
-                point = Part.getShape(comp, vertex, needSubElement=True)
-                if point.ShapeType == "Vertex":
-                    link.Vertex = (comp, [vertex])
-                    link.VertexPosition = F.inverse().multVec(point.Point)
-            except Exception:
-                pass
         link.Offset = F.inverse().multiply(G)
 
     for prop in COPIED:

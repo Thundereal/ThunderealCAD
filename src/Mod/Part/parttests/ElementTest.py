@@ -229,30 +229,35 @@ class ElementTest(unittest.TestCase):
                 return "Vertex%d" % (i + 1), v
         self.fail("no top vertex")
 
-    def testElementLinkVertexDrivesTheOffset(self):
+    def testElementVertexDrivesTheOffset(self):
         part, box = self.makePart("Part")
-        Part.makeElement(part, box, "Face6", "Top")
+        element = Part.makeElement(part, box, "Face6", "Top")
         link = Part.makeElementLink(part, part.Elements, "$Top.")
         self.doc.recompute()
         # The top face's frame is at its centre, z up; the vertex at (0, 0, 10)
         name, _ = self.topVertex(box)
-        link.Vertex = (box, [name])
+        element.Vertex = (box, [name])
         self.doc.recompute()
-        self.assertTrue(link.VertexPosition.isEqual(FreeCAD.Vector(-5, -5, 0), 1e-9))
-        self.assertTrue(link.Offset.Base.isEqual(FreeCAD.Vector(-5, -5, 0), 1e-9))
+        self.assertTrue(element.VertexPosition.isEqual(FreeCAD.Vector(-5, -5, 0), 1e-9))
+        self.assertTrue(element.Offset.Base.isEqual(FreeCAD.Vector(-5, -5, 0), 1e-9))
+        # The element link refers to the element only, and keeps no vertex
+        self.assertFalse(hasattr(link, "Vertex"))
+        self.assertTrue(link.Offset.isIdentity())
 
         # The user's share of the offset stays as the vertex moves
-        link.Offset = link.Offset.multiply(FreeCAD.Placement(FreeCAD.Vector(0, 0, 3), FreeCAD.Rotation()))
+        element.Offset = element.Offset.multiply(
+            FreeCAD.Placement(FreeCAD.Vector(0, 0, 3), FreeCAD.Rotation())
+        )
         box.Length = 20
         self.doc.recompute()
-        self.assertTrue(link.VertexPosition.isEqual(FreeCAD.Vector(-10, -5, 0), 1e-9))
-        self.assertTrue(link.Offset.Base.isEqual(FreeCAD.Vector(-10, -5, 3), 1e-9))
+        self.assertTrue(element.VertexPosition.isEqual(FreeCAD.Vector(-10, -5, 0), 1e-9))
+        self.assertTrue(element.Offset.Base.isEqual(FreeCAD.Vector(-10, -5, 3), 1e-9))
 
         # No vertex: its share is taken back out
-        link.Vertex = None
+        element.Vertex = None
         self.doc.recompute()
-        self.assertTrue(link.Offset.Base.isEqual(FreeCAD.Vector(0, 0, 3), 1e-9))
-        self.assertTrue(link.VertexPosition.isEqual(FreeCAD.Vector(), 1e-9))
+        self.assertTrue(element.Offset.Base.isEqual(FreeCAD.Vector(0, 0, 3), 1e-9))
+        self.assertTrue(element.VertexPosition.isEqual(FreeCAD.Vector(), 1e-9))
 
     def testCopiesFollowThroughAPart(self):
         # The parts and groups between a link and its geometry do not change
@@ -270,13 +275,12 @@ class ElementTest(unittest.TestCase):
         for obj in (through, reexport, link):
             self.assertSameFace(obj.Shape, box.Shape.Face6)
 
-    def testElementLinkVertexMustBeAVertex(self):
+    def testElementVertexMustBeAVertex(self):
         part, box = self.makePart("Part")
-        Part.makeElement(part, box, "Face6", "Top")
-        link = Part.makeElementLink(part, part.Elements, "$Top.")
-        link.Vertex = (box, ["Edge1"])
+        element = Part.makeElement(part, box, "Face6", "Top")
+        element.Vertex = (box, ["Edge1"])
         self.doc.recompute()
-        self.assertIn("Invalid", link.State)
+        self.assertIn("Invalid", element.State)
 
     def testReplacedComponentKeepsItsLabelledElements(self):
         # Replacing a component: its element links follow the labels the
@@ -329,3 +333,26 @@ class ElementTest(unittest.TestCase):
         self.assertEqual(element.Target[1], ["Face1"])
         self.assertNotIn("Invalid", element.State)
         self.assertSameFace(element.Shape, taller.Shape.Face1)
+
+    def testReplacedComponentIsSearchedForTheVertex(self):
+        # The vertex is repaired with the face: the same corner, at another
+        # index of the new component
+        outer, link, element = self.makeReplaceable()
+        corner = FreeCAD.Vector(0, 10, 10)
+        name = next(
+            "Vertex%d" % (i + 1)
+            for i, v in enumerate(link.Shape.Vertexes)
+            if v.Point.isEqual(corner, 1e-9)
+        )
+        element.Vertex = (link, [name])
+        self.doc.recompute()
+        position = FreeCAD.Vector(element.VertexPosition)
+        feature = self.doc.addObject("Part::Feature", "Reordered")
+        box = Part.makeBox(10, 10, 10)
+        feature.Shape = Part.Solid(Part.Shell(list(reversed(box.Faces))))
+        link.LinkedObject = feature
+        self.doc.recompute()
+        self.assertNotIn("Invalid", element.State)
+        vertex = link.getSubObject(element.Vertex[1][0])
+        self.assertTrue(vertex.Point.isEqual(corner, 1e-9), element.Vertex)
+        self.assertTrue(element.VertexPosition.isEqual(position, 1e-9))

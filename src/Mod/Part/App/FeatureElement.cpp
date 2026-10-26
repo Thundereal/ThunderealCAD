@@ -24,9 +24,12 @@
 #include "PreCompiled.h"
 
 #include <algorithm>
+#include <cstring>
 
+#include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRep_Tool.hxx>
 #include <TopoDS.hxx>
+#include <TopoDS_Vertex.hxx>
 #include <gp_Pnt.hxx>
 
 #include <App/Application.h>
@@ -163,9 +166,14 @@ Element::Element()
             (App::PropertyType)(App::Prop_ReadOnly|App::Prop_Output),
             "The target is not loaded now (a link to a closed or missing\n"
             "document): the copy is kept until it is back");
-    // The link copies geometry and places nothing: Global scope keeps it out
+    ADD_PROPERTY_TYPE(Vertex, (nullptr), "Element", App::Prop_None,
+            "A vertex placing the frame's origin on the geometry; Offset follows it");
+    ADD_PROPERTY_TYPE(VertexPosition, (Base::Vector3d()), "Element", App::Prop_Hidden,
+            "Where Vertex was in the geometry's frame when Offset last followed it");
+    // The links copy geometry and place nothing: Global scope keeps them out
     // of the coordinate-system checks and of what moves with what
     Target.setScope(App::LinkScope::Global);
+    Vertex.setScope(App::LinkScope::Global);
 }
 
 bool Element::isUnloaded(const App::DocumentObject *obj)
@@ -251,7 +259,9 @@ App::DocumentObjectExecReturn *Element::execute()
     // replaced. An edit of Target itself keeps _Resolved in step (onChanged).
     auto resolved = resolvedObject(Target);
     bool replaced = resolved && _Resolved.getValue() && resolved != _Resolved.getValue();
-    if ((shape.isNull() || replaced) && repair(replaced))
+    // The vertex where it was, before the copy is taken again
+    const TopoShape vertexCopy = vertexCopyShape();
+    if ((shape.isNull() || replaced) && repair(Target, Shape.getShape(), replaced))
         shape = linkedShape(Target);
     syncResolved(_Resolved, Target);
     if (shape.isNull()) {
@@ -260,13 +270,74 @@ App::DocumentObjectExecReturn *Element::execute()
         return new App::DocumentObjectExecReturn("Target not found");
     }
     setCopy(this, shape);
+    // The vertex is repaired as the target is: where its name names nothing
+    // now, or where the component it is on is replaced
+    const bool vertexReplaced = replaced && Vertex.getValue() == Target.getValue();
+    Base::Vector3d point;
+    if (Vertex.getValue() && !vertexCopy.isNull()
+        && (vertexReplaced || !getVertexPoint(point))) {
+        const auto &vsubs = Vertex.getSubValues();
+        if (vertexReplaced
+            || (!vsubs.empty() && Data::hasMissingElement(vsubs.front().c_str())))
+            repair(Vertex, vertexCopy, vertexReplaced);
+    }
+    if (!updateVertexOffset(shape))
+        return new App::DocumentObjectExecReturn("Vertex not found");
     return App::DocumentObject::StdReturn;
 }
 
-bool Element::repair(bool replaced)
+TopoShape Element::vertexCopyShape() const
 {
-    auto obj = Target.getValue();
-    const auto &subs = Target.getSubValues();
+    if (!Vertex.getValue())
+        return TopoShape();
+    const TopoShape copy = Shape.getShape();
+    if (copy.isNull())
+        return TopoShape();
+    Base::Vector3d point;
+    findElementFrame(copy).multVec(VertexPosition.getValue(), point);
+    const TopoDS_Shape vertex =
+        BRepBuilderAPI_MakeVertex(gp_Pnt(point.x, point.y, point.z)).Vertex();
+    return TopoShape(vertex);
+}
+
+bool Element::getVertexPoint(Base::Vector3d &point) const
+{
+    if (!Vertex.getValue())
+        return false;
+    auto shape = linkedShape(Vertex);
+    if (shape.isNull())
+        return false;
+    const TopoDS_Shape s = singleSubShape(shape.getShape());
+    if (s.IsNull() || s.ShapeType() != TopAbs_VERTEX)
+        return false;
+    const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(s));
+    point = Base::Vector3d(p.X(), p.Y(), p.Z());
+    return true;
+}
+
+bool Element::updateVertexOffset(const TopoShape &geometry)
+{
+    // The vertex in the geometry's frame; none is the frame's own origin
+    Base::Vector3d pos;
+    if (Vertex.getValue()) {
+        Base::Vector3d point;
+        if (geometry.isNull() || !getVertexPoint(point))
+            return false;
+        findElementFrame(geometry).inverse().multVec(point, pos);
+    }
+    const Base::Vector3d old = VertexPosition.getValue();
+    if (pos.IsEqual(old, 1e-12))
+        return true;
+    // Offset = T(pos) * T(old)^-1 * Offset: only the vertex's share moves
+    Offset.setValue(Base::Placement(pos - old, Base::Rotation()) * Offset.getValue());
+    VertexPosition.setValue(pos);
+    return true;
+}
+
+bool Element::repair(App::PropertyLinkSub &prop, const TopoShape &copyShape, bool replaced)
+{
+    auto obj = prop.getValue();
+    const auto &subs = prop.getSubValues();
     if (!obj || subs.empty())
         return false;
     const std::string sub = subs.front();
@@ -281,7 +352,7 @@ bool Element::repair(bool replaced)
     std::string found;
     const char *how = nullptr;
     // The naming history: what the element the name had became
-    const auto &shadows = Target.getShadowSubs();
+    const auto &shadows = prop.getShadowSubs();
     const char *mapped = shadows.empty() ? nullptr
         : Data::findElementName(shadows.front().first.c_str());
     if (missing && mapped && Data::isMappedElement(mapped)) {
@@ -296,7 +367,7 @@ bool Element::repair(bool replaced)
     }
     // The geometry: where the copy is, in what the target is now
     if (found.empty()) {
-        const TopoDS_Shape copy = singleSubShape(Shape.getShape().getShape());
+        const TopoDS_Shape copy = singleSubShape(copyShape.getShape());
         std::vector<std::string> names;
         if (!copy.IsNull())
             Feature::getTopoShape(obj, prefix.c_str(), false).searchSubShape(TopoShape(copy),
@@ -308,14 +379,15 @@ bool Element::repair(bool replaced)
     }
     if (found.empty() || (!missing && found == element)) {
         if (replaced && found.empty())
-            Base::Console().Warning("%s: %s is replaced, and the element's geometry is not in "
-                                    "it: kept as %s\n", getFullName().c_str(),
-                                    obj->getFullName().c_str(), sub.c_str());
+            Base::Console().Warning("%s.%s: %s is replaced, and the element's geometry is "
+                                    "not in it: kept as %s\n", getFullName().c_str(),
+                                    prop.getName(), obj->getFullName().c_str(), sub.c_str());
         return false;
     }
-    Base::Console().Warning("%s: %s.%s found by %s as %s\n", getFullName().c_str(),
-                            obj->getFullName().c_str(), sub.c_str(), how, found.c_str());
-    Target.setValue(obj, std::vector<std::string>{prefix + found});
+    Base::Console().Warning("%s.%s: %s.%s found by %s as %s\n", getFullName().c_str(),
+                            prop.getName(), obj->getFullName().c_str(), sub.c_str(), how,
+                            found.c_str());
+    prop.setValue(obj, std::vector<std::string>{prefix + found});
     return true;
 }
 
@@ -431,7 +503,12 @@ Element *Element::create(App::DocumentObject *container,
     auto children = group->Group.getValues();
     children.push_back(element);
     group->Group.setValues(children);
-    element->Label.setValue(label && *label ? label : "Element");
+    // Made unique here as well: a label set while the GUI still fills the
+    // document in after an open (Document::LiveImport, as the converters on
+    // open do) is not given to onBeforeChangeLabel()
+    std::string name = label && *label ? label : "Element";
+    element->onBeforeChangeLabel(name);
+    element->Label.setValue(name);
     std::vector<std::string> subs;
     if (subname && *subname)
         subs.emplace_back(subname);
@@ -453,10 +530,6 @@ ElementLink::ElementLink()
             "elements, or the container's own Elements group and an element");
     ADD_PROPERTY_TYPE(Offset, (Base::Placement()), "Element", App::Prop_None,
             "A placement of the frame relative to the element's, for this use only");
-    ADD_PROPERTY_TYPE(Vertex, (nullptr), "Element", App::Prop_None,
-            "A vertex placing the frame's origin on the element; Offset follows it");
-    ADD_PROPERTY_TYPE(VertexPosition, (Base::Vector3d()), "Element", App::Prop_Hidden,
-            "Where Vertex was in the element's frame when Offset last followed it");
     ADD_PROPERTY_TYPE(_Resolved, (nullptr), "Element",
             (App::PropertyType)(App::Prop_Hidden|App::Prop_Output),
             "What Element resolves to, the dependency on the geometry itself");
@@ -466,7 +539,6 @@ ElementLink::ElementLink()
             (App::PropertyType)(App::Prop_ReadOnly|App::Prop_Output),
             "The element is not loaded now (a link to a closed or missing\n"
             "document): the copy is kept, and the joint is solved on it");
-    Vertex.setScope(App::LinkScope::Global);
     // As Element::Target: a copy of geometry, out of the coordinate-system
     // checks
     Element.setScope(App::LinkScope::Global);
@@ -509,8 +581,6 @@ App::DocumentObjectExecReturn *ElementLink::execute()
         return new App::DocumentObjectExecReturn("Element not found");
     }
     setCopy(this, shape);
-    if (!updateVertexOffset(shape))
-        return new App::DocumentObjectExecReturn("Vertex not found");
     return App::DocumentObject::StdReturn;
 }
 
@@ -531,36 +601,39 @@ void ElementLink::onDocumentRestored()
         Unresolved.setValue(true);
 }
 
-bool ElementLink::getVertexPoint(Base::Vector3d &point) const
+const Element *ElementLink::getVertexElement() const
 {
-    if (!Vertex.getValue())
-        return false;
-    auto shape = linkedShape(Vertex);
-    if (shape.isNull())
-        return false;
-    const TopoDS_Shape s = singleSubShape(shape.getShape());
-    if (s.IsNull() || s.ShapeType() != TopAbs_VERTEX)
-        return false;
-    const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(s));
-    point = Base::Vector3d(p.X(), p.Y(), p.Z());
-    return true;
+    // Down the chain of elements: this one's, then what it re-exports
+    std::vector<const App::DocumentObject *> visited;
+    auto obj = Element.getValue();
+    const auto *subs = &Element.getSubValues();
+    while (obj && obj->isAttachedToDocument()) {
+        auto sobj = obj->getSubObject(subs->empty() ? "" : subs->front().c_str());
+        auto element = Base::freecad_dynamic_cast<Part::Element>(sobj);
+        if (!element || std::find(visited.begin(), visited.end(), element) != visited.end())
+            return nullptr;
+        if (element->Vertex.getValue())
+            return element;
+        visited.push_back(element);
+        obj = element->Target.getValue();
+        subs = &element->Target.getSubValues();
+    }
+    return nullptr;
 }
 
-bool ElementLink::updateVertexOffset(const TopoShape &element)
+void ElementLink::handleChangedPropertyName(Base::XMLReader &reader,
+                                            const char *typeName,
+                                            const char *propName)
 {
-    // The vertex in the element's frame; none is the frame's own origin
-    Base::Vector3d pos;
-    if (Vertex.getValue()) {
-        Base::Vector3d point;
-        if (element.isNull() || !getVertexPoint(point))
-            return false;
-        findElementFrame(element).inverse().multVec(point, pos);
+    // An element link of a build before 2026-10-26 kept a vertex of its own;
+    // the element keeps it now (docs/AssemblyObjectModel.md sec 4.3)
+    if (strcmp(propName, "Vertex") == 0) {
+        Base::Console().Warning("%s: its vertex is not kept; an element keeps it now. "
+                                "Pick the joint's side again for it.\n",
+                                getFullName().c_str());
+        return;
     }
-    const Base::Vector3d old = VertexPosition.getValue();
-    if (pos.IsEqual(old, 1e-12))
-        return true;
-    // Offset = T(pos) * T(old)^-1 * Offset: only the vertex's share moves
-    Offset.setValue(Base::Placement(pos - old, Base::Rotation()) * Offset.getValue());
-    VertexPosition.setValue(pos);
-    return true;
+    if (strcmp(propName, "VertexPosition") == 0)
+        return;
+    inherited::handleChangedPropertyName(reader, typeName, propName);
 }

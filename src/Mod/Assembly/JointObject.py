@@ -118,8 +118,8 @@ def sideRef(joint, i):
     [component, [element, vertex]], or None while it is not set.
 
     For a C++ joint it is rebuilt from the element link: the path from the
-    component to the element's geometry, and the link's Vertex (the element
-    again when there is none, as upstream repeats it).
+    component to the element's geometry, and the element's Vertex (the
+    element again when there is none, as upstream repeats it).
     """
     if not isTyped(joint):
         return joint.Reference1 if i == 1 else joint.Reference2
@@ -137,8 +137,9 @@ def sideRef(joint, i):
     # convenience element on the component itself
     esub = target.Name + "." + tsub if obj == comp else tsub
     vsub = esub
-    if link.Vertex is not None and link.Vertex[0] is not None and link.Vertex[1]:
-        vsub = link.Vertex[1][0]
+    if element.Vertex is not None and element.Vertex[0] is not None and element.Vertex[1]:
+        vobj, vsubs = element.Vertex
+        vsub = vobj.Name + "." + vsubs[0] if obj == comp else vsubs[0]
     return [comp, [esub, vsub]]
 
 
@@ -168,16 +169,15 @@ def sideJcsGlobal(joint, i):
 def jointOffset(joint, i):
     """Upstream's OffsetN: the user's offset of side i.
 
-    A C++ joint's element link holds it with the picked vertex's share,
-    Offset = T(VertexPosition) * user's (Part::ElementLink::Vertex).
+    A C++ joint's element link holds it. The picked vertex's share is the
+    element's (Part::Element::Vertex), in the element's Offset.
     """
     if not isTyped(joint):
         return joint.Offset1 if i == 1 else joint.Offset2
     link = elementLink(joint, i)
     if link is None:
         return App.Placement()
-    off = link.Offset
-    return App.Placement(off.Base - link.VertexPosition, off.Rotation)
+    return link.Offset
 
 
 def setJointOffset(joint, i, plc):
@@ -187,7 +187,7 @@ def setJointOffset(joint, i, plc):
         return
     link = elementLink(joint, i)
     if link is not None:
-        link.Offset = App.Placement(plc.Base + link.VertexPosition, plc.Rotation)
+        link.Offset = plc
 
 
 def recomputeSides(joint):

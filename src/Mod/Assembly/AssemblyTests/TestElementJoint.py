@@ -157,10 +157,15 @@ class TestElementJoint(JointTestBase):
         p1, _ = self.frames(joint, a, b)
         self.assertVecClose(p1.Base, a.getSubObject(top).Point)
         self.assertVecClose(zaxis(p1), Z)
-        self.assertFalse(joint.ElementLink1.Offset.isIdentity())
-        # The element link keeps the vertex, and its Offset follows it
-        self.assertEqual(joint.ElementLink1.Vertex[0], a)
-        self.assertEqual(joint.ElementLink1.Vertex[1], [top])
+        # The element keeps the vertex, and its Offset follows it; the
+        # element link refers to the element only
+        link = joint.ElementLink1
+        element = link.Element[0].getSubObject(link.Element[1][0], retType=1)
+        self.assertEqual(element.Vertex[0], a)
+        self.assertEqual(element.Vertex[1], [top])
+        self.assertFalse(element.Offset.isIdentity())
+        self.assertTrue(link.Offset.isIdentity())
+        self.assertFalse(hasattr(link, "Vertex"))
         a.Length = 20
         p1, _ = self.frames(joint, a, b)
         self.assertVecClose(p1.Base, a.getSubObject(top).Point)

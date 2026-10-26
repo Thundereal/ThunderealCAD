@@ -72,6 +72,11 @@ internal alignments.</UserDocu>
         <UserDocu>setDriving(index, bool): a driving dimension, or a reference that measures.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="renameConstraint">
+      <Documentation>
+        <UserDocu>renameConstraint(index, name): a name an expression can use; '' unnames it</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="setConstruction">
       <Documentation>
         <UserDocu>setConstruction(index, bool)</UserDocu>

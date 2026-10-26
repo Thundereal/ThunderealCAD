@@ -25,8 +25,14 @@
 #include "PreCompiled.h"
 
 #include <cmath>
+#include <map>
 #include <numbers>
 
+#include <boost/uuid/uuid.hpp>
+
+#include <QApplication>
+#include <QDateTime>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QVBoxLayout>
 
@@ -62,6 +68,7 @@
 
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
+#include <App/Expression.h>
 #include <App/GeoFeatureGroupExtension.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Base/Console.h>
@@ -73,7 +80,10 @@
 #include <Gui/Control.h>
 #include <Gui/Document.h>
 #include <Gui/Inventor/MarkerBitmaps.h>
+#include <Gui/DatumValueEditor.h>
+#include <Gui/InventorBase.h>
 #include <Gui/MainWindow.h>
+#include <Gui/SoDatumLabel.h>
 #include <Gui/Selection.h>
 #include <Gui/SoFCCSysDragger.h>
 #include <Gui/ToolBarManager.h>
@@ -204,6 +214,35 @@ constexpr float AxisDeadPixels = 24.f;
 
 }  // namespace
 
+// Delete in the edit: Std_Delete's shortcut would take the key before the view sees
+// it, as for the 2D sketch (ShortcutListener).
+class Sketch3DDeleteFilter: public QObject
+{
+public:
+    explicit Sketch3DDeleteFilter(ViewProviderSketch3D* vp)
+        : vp(vp)
+    {}
+
+protected:
+    bool eventFilter(QObject* obj, QEvent* event) override
+    {
+        if (event->type() == QEvent::ShortcutOverride) {
+            auto key = static_cast<QKeyEvent*>(event);
+            if (key->key() == Qt::Key_Delete && !vp->isEditingDatum()
+                && (!vp->selectedElements().empty() || !vp->selectedConstraints().empty())
+                && vp->activeTool() == ViewProviderSketch3D::Tool::None) {
+                key->accept();
+                vp->deleteSelection();
+                return true;
+            }
+        }
+        return QObject::eventFilter(obj, event);
+    }
+
+private:
+    ViewProviderSketch3D* vp;
+};
+
 // Where a placed point came from, and so which constraint ties it there.
 struct ViewProviderSketch3D::Snap
 {
@@ -278,6 +317,19 @@ struct ViewProviderSketch3D::EditData
     SoMarkerSet* cursorMarker {nullptr};
     SoMaterial* cursorMaterial {nullptr};
 
+    // The edit's selection, the dimension labels by constraint, a double click's
+    // first press, and the value edit in progress.
+    std::vector<Element> selection;
+    std::vector<int> selectedConstraints;
+    SoSeparator* labelRoot {nullptr};
+    std::map<int, SoSeparator*> labelNodes;
+    std::map<int, Gui::SoDatumLabel*> labels;
+    std::map<int, Base::Placement> labelPlanes;  // each label's plane, in the sketch's frame
+    int lastLabelPress {-1};
+    qint64 lastLabelTime {0};
+    class Datum3DSession* datum {nullptr};
+    std::unique_ptr<QObject> deleteFilter;
+
     EditData()
     {
         content = new SoSeparator();
@@ -311,6 +363,10 @@ struct ViewProviderSketch3D::EditData
         pts->addChild(pointCoords);
         pts->addChild(points);
         content->addChild(pts);
+
+        labelRoot = new SoSeparator();
+        labelRoot->setName("Sketch3DLabels");
+        content->addChild(labelRoot);
 
         buildManipulator();
         buildPreview();
@@ -862,6 +918,11 @@ bool ViewProviderSketch3D::press(const SbVec2s& pos)
         return false;
     }
     edit->lastPos = pos;
+    // A press anywhere while a value is typed takes what is typed.
+    if (edit->datum) {
+        finishDatumEdit(true);
+        return true;
+    }
     int handle = planeHandleAt(pos);
     if (handle >= 0) {
         edit->plane = static_cast<Plane>(handle);
@@ -879,14 +940,44 @@ bool ViewProviderSketch3D::press(const SbVec2s& pos)
         }
         return true;
     }
-    // A sketch point: the manipulator goes there (section 7, decision k).
+    // A dimension's label: selected; a second press on it soon after, its value
+    // edited.
+    int label = pp ? labelOnPath(pp->getPath()) : -1;
+    if (label >= 0) {
+        qint64 now = QDateTime::currentMSecsSinceEpoch();
+        bool twice = label == edit->lastLabelPress
+            && now - edit->lastLabelTime < QApplication::doubleClickInterval();
+        edit->lastLabelPress = label;
+        edit->lastLabelTime = now;
+        if (twice) {
+            editDatum(label);
+        }
+        else {
+            selectConstraint(label);
+        }
+        return true;
+    }
+    // A sketch point: selected, and the manipulator goes there (section 7,
+    // decision k).
     int near = pointNear(pos);
     if (near >= 0) {
         const SbVec3f& p = edit->pointCoords->point[near];
         edit->origin = Base::Vector3d(p[0], p[1], p[2]);
         updateManipulator();
+        select({edit->pointRefs[near].first, edit->pointRefs[near].second});
         return true;
     }
+    // A curve: selected.
+    if (pp && pp->getPath()->getTail() == edit->curveLines) {
+        auto detail = dynamic_cast<const SoLineDetail*>(pp->getDetail());
+        int part = detail ? detail->getPartIndex() : -1;
+        if (part >= 0 && part < int(edit->curveRefs.size())) {
+            select({edit->curveRefs[part], Sketcher::PointPos::none});
+            return true;
+        }
+    }
+    // Nothing of the sketch: the selection goes, and the view has the press.
+    clearSelection();
     return false;
 }
 
@@ -918,6 +1009,13 @@ bool ViewProviderSketch3D::keyPressed(bool pressed, int key)
         // Escape keeps what is placed (memory: Escape means leave, not undo).
         if (pressed) {
             finishTool();
+        }
+        return true;
+    }
+    if (edit && edit->tool == Tool::None && key == SoKeyboardEvent::DELETE
+        && (!edit->selection.empty() || !edit->selectedConstraints.empty())) {
+        if (pressed) {
+            deleteSelection();
         }
         return true;
     }
@@ -1468,6 +1566,1017 @@ void ViewProviderSketch3D::updatePreview()
     }
 }
 
+// ---------------------------------------------------------------------------------
+// Selection, constraints from it, dimension labels and their values
+
+namespace
+{
+// A Python string literal for a recorded command.
+std::string pyQuote(const std::string& text)
+{
+    std::string out = "u'";
+    for (char ch : text) {
+        if (ch == '\\' || ch == '\'') {
+            out += '\\';
+        }
+        if (ch == '\n') {
+            out += "\\n";
+            continue;
+        }
+        out += ch;
+    }
+    return out + "'";
+}
+}  // namespace
+
+namespace SketcherGui
+{
+
+/** A dimension's value edited in place, as the 2D sketch's DatumEditSession does it
+ * (docs/SketcherPort.md "One editor for a constraint's value"), on the same editor:
+ * Enter applies, Escape too unless DatumEscapeTakesBack, Tab applies and moves to the
+ * next dimension, a press elsewhere applies. What is applied is one undo step.
+ */
+class Datum3DSession: public QObject
+{
+public:
+    Datum3DSession(ViewProviderSketch3D* vp, Gui::ViewerContext* viewer, int index)
+        : vp(vp)
+        , viewer(viewer)
+    {
+        // The command that made the dimension stays open until its value is in:
+        // the two are one undo step, as in the 2D sketch. Otherwise the entry is a
+        // step of its own.
+        App::AutoTransaction::setEnable(false);
+        if (!App::GetApplication().getActiveTransaction()) {
+            Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Edit 3D sketch datum"));
+        }
+        show(index);
+    }
+
+    void show(int index)
+    {
+        auto sketch = vp->getSketch3DObject();
+        const Sketcher::Constraint* c = sketch->Constraints[index];
+        Base::Placement plane =
+            Base::Placement(vp->editingTransform()) * vp->edit->labelPlanes[index];
+        editor = std::make_unique<Gui::DatumValueEditor>(viewer, plane);
+        editor->setDrivingIcons(
+            Gui::BitmapFactory().iconFromTheme("Sketcher_Toggle_Constraint_Driving"),
+            Gui::BitmapFactory().iconFromTheme("Sketcher_Toggle_Constraint_Driven"));
+        Gui::DatumValueEditor::Target target;
+        target.label = vp->edit->labels[index];
+        target.value = c->getValue();
+        target.unit = Base::Unit::Length;
+        if (c->Type == Sketcher::Angle) {
+            target.value = Base::toDegrees<double>(target.value);
+            target.unit = Base::Unit::Angle;
+        }
+        target.path = sketch->Constraints.createPath(index);
+        if (auto info = sketch->getExpression(target.path); info.expression) {
+            target.expression = QString::fromStdString(info.expression->toString());
+        }
+        target.driving = c->isDriving ? 1 : 0;
+        target.nameShown = true;
+        target.name = QString::fromStdString(c->Name);
+        tag = c->getTag();
+        editor->installKeyFilter(this);
+        editor->edit(target);
+    }
+
+    int current() const
+    {
+        const auto& all = vp->getSketch3DObject()->Constraints.getValues();
+        for (std::size_t i = 0; i < all.size(); ++i) {
+            if (all[i]->getTag() == tag) {
+                return int(i);
+            }
+        }
+        return -1;
+    }
+
+    bool apply()
+    {
+        auto sketch = vp->getSketch3DObject();
+        int index = current();
+        if (index < 0) {
+            return false;
+        }
+        if (!editor->isModified()) {
+            return true;
+        }
+        Gui::DatumValueEditor::Entry entry;
+        QString why;
+        if (!editor->read(entry, &why) && entry.driving != 0) {
+            editor->showError(why);
+            return false;
+        }
+        const Sketcher::Constraint* c = sketch->Constraints[index];
+        try {
+            const std::string obj = Gui::Command::getObjectCmd(sketch);
+            bool driving = entry.driving != 0;
+            if (driving != c->isDriving) {
+                Gui::Command::doCommand(Gui::Command::Doc,
+                                        "%s.setDriving(%d, %s)",
+                                        obj.c_str(),
+                                        index,
+                                        driving ? "True" : "False");
+            }
+            if (driving) {
+                std::string path = sketch->Constraints.createPath(index).toString();
+                bool bound =
+                    bool(sketch->getExpression(sketch->Constraints.createPath(index)).expression);
+                if (entry.isExpression) {
+                    std::string expr = entry.expression->toString();
+                    Gui::Command::doCommand(Gui::Command::Doc,
+                                            "%s.setExpression('%s', %s)",
+                                            obj.c_str(),
+                                            path.c_str(),
+                                            pyQuote(expr).c_str());
+                }
+                else {
+                    if (bound) {
+                        Gui::Command::doCommand(Gui::Command::Doc,
+                                                "%s.setExpression('%s', None)",
+                                                obj.c_str(),
+                                                path.c_str());
+                    }
+                    Gui::Command::doCommand(Gui::Command::Doc,
+                                            "%s.setDatum(%d, App.Units.Quantity('%.15g %s'))",
+                                            obj.c_str(),
+                                            index,
+                                            entry.value.getValue(),
+                                            entry.value.getUnit().getString().c_str());
+                }
+                if (entry.isExpression) {
+                    sketch->getDocument()->recomputeFeature(sketch);
+                }
+            }
+            std::string name = entry.name.toStdString();
+            if (name != sketch->Constraints[index]->Name) {
+                Gui::Command::doCommand(Gui::Command::Doc,
+                                        "%s.renameConstraint(%d, %s)",
+                                        obj.c_str(),
+                                        index,
+                                        pyQuote(name).c_str());
+            }
+            applied = true;
+            show(index);
+            return true;
+        }
+        catch (const Base::Exception& e) {
+            editor->showError(QString::fromUtf8(e.what()));
+            return false;
+        }
+    }
+
+    void move(int step)
+    {
+        auto sketch = vp->getSketch3DObject();
+        int n = sketch->Constraints.getSize();
+        int index = current();
+        for (int k = 1; k <= n; ++k) {
+            int next = ((index + step * k) % n + n) % n;
+            if (vp->edit->labels.count(next)) {
+                show(next);
+                return;
+            }
+        }
+    }
+
+    void finish(bool accept)
+    {
+        if (ended) {
+            return;
+        }
+        ended = true;
+        if (accept) {
+            apply();
+        }
+        if (editor) {
+            editor->close();
+        }
+        if (accept) {
+            Gui::Command::commitCommand();
+        }
+        else {
+            Gui::Command::abortCommand();
+        }
+        vp->edit->datum = nullptr;
+        deleteLater();
+    }
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override
+    {
+        if (ended || event->type() != QEvent::KeyPress) {
+            return QObject::eventFilter(watched, event);
+        }
+        auto key = static_cast<QKeyEvent*>(event);
+        if (editor->isCompleting()) {
+            return false;
+        }
+        switch (key->key()) {
+            case Qt::Key_Escape:
+                if (App::GetApplication()
+                        .GetParameterGroupByPath(
+                            "User parameter:BaseApp/Preferences/Mod/Sketcher/General")
+                        ->GetBool("DatumEscapeTakesBack",
+                                  Sketcher::SketcherParams::defaultDatumEscapeTakesBack())) {
+                    finish(false);
+                    return true;
+                }
+                [[fallthrough]];
+            case Qt::Key_Return:
+            case Qt::Key_Enter:
+                if (apply()) {
+                    finish(true);  // applied: the step is committed
+                }
+                return true;
+            case Qt::Key_Tab:
+            case Qt::Key_Backtab:
+                if (apply()) {
+                    move(key->key() == Qt::Key_Tab && !(key->modifiers() & Qt::ShiftModifier) ? 1
+                                                                                              : -1);
+                }
+                return true;
+            default:
+                return false;
+        }
+    }
+
+private:
+    ViewProviderSketch3D* vp;
+    Gui::ViewerContext* viewer;
+    std::unique_ptr<Gui::DatumValueEditor> editor;
+    boost::uuids::uuid tag {};
+    bool applied {false};
+    bool ended {false};
+};
+
+}  // namespace SketcherGui
+
+const std::vector<ViewProviderSketch3D::Element>& ViewProviderSketch3D::selectedElements() const
+{
+    static const std::vector<Element> none;
+    return edit ? edit->selection : none;
+}
+
+const std::vector<int>& ViewProviderSketch3D::selectedConstraints() const
+{
+    static const std::vector<int> none;
+    return edit ? edit->selectedConstraints : none;
+}
+
+void ViewProviderSketch3D::select(const Element& element, bool toggle)
+{
+    if (!edit) {
+        return;
+    }
+    auto it = std::find(edit->selection.begin(), edit->selection.end(), element);
+    if (it != edit->selection.end()) {
+        if (toggle) {
+            edit->selection.erase(it);
+        }
+    }
+    else {
+        edit->selection.push_back(element);
+    }
+    draw();
+}
+
+void ViewProviderSketch3D::selectConstraint(int index, bool toggle)
+{
+    if (!edit) {
+        return;
+    }
+    auto it = std::find(edit->selectedConstraints.begin(), edit->selectedConstraints.end(), index);
+    if (it != edit->selectedConstraints.end()) {
+        if (toggle) {
+            edit->selectedConstraints.erase(it);
+        }
+    }
+    else {
+        edit->selectedConstraints.push_back(index);
+    }
+    draw();
+}
+
+void ViewProviderSketch3D::clearSelection()
+{
+    if (edit && (!edit->selection.empty() || !edit->selectedConstraints.empty())) {
+        edit->selection.clear();
+        edit->selectedConstraints.clear();
+        draw();
+    }
+}
+
+bool ViewProviderSketch3D::pointOf(int geoId, Sketcher::PointPos pos, Base::Vector3d& point) const
+{
+    auto geo = getSketch3DObject()->getGeometry(geoId);
+    if (!geo) {
+        return false;
+    }
+    using Sketcher::PointPos;
+    if (auto pt = Base::freecad_dynamic_cast<Part::GeomPoint>(geo)) {
+        point = pt->getPoint();
+        return pos == PointPos::start || pos == PointPos::mid;
+    }
+    if (pos == PointPos::mid) {
+        if (auto conic = Base::freecad_dynamic_cast<Part::GeomConic>(geo)) {
+            point = conic->getCenter();
+            return true;
+        }
+        if (auto arc = Base::freecad_dynamic_cast<Part::GeomArcOfConic>(geo)) {
+            point = arc->getCenter();
+            return true;
+        }
+        return false;
+    }
+    if (auto bounded = Base::freecad_dynamic_cast<Part::GeomBoundedCurve>(geo)) {
+        if (pos == PointPos::start) {
+            point = bounded->getStartPoint();
+            return true;
+        }
+        if (pos == PointPos::end) {
+            point = bounded->getEndPoint();
+            return true;
+        }
+    }
+    return false;
+}
+
+namespace
+{
+// What a curve of the 3D sketch is, for the constraint commands.
+enum class CurveKind
+{
+    Line,
+    Circle,
+    Arc,
+    Plane,
+    Other
+};
+CurveKind kindOf(const Part::Geometry* geo)
+{
+    if (!geo) {
+        return CurveKind::Other;
+    }
+    if (geo->isDerivedFrom<Part::GeomLineSegment>()) {
+        return CurveKind::Line;
+    }
+    if (geo->isDerivedFrom<Part::GeomCircle>()) {
+        return CurveKind::Circle;
+    }
+    if (geo->isDerivedFrom<Part::GeomArcOfCircle>()) {
+        return CurveKind::Arc;
+    }
+    if (geo->isDerivedFrom<Part::GeomPlane>()) {
+        return CurveKind::Plane;
+    }
+    return CurveKind::Other;
+}
+
+Base::Vector3d planeNormal(const Part::Geometry* geo, Base::Vector3d& origin)
+{
+    auto pln = Handle(Geom_Plane)::DownCast(geo->handle());
+    const gp_Ax3& ax = pln->Position();
+    origin = Base::Vector3d(ax.Location().X(), ax.Location().Y(), ax.Location().Z());
+    return Base::Vector3d(ax.Direction().X(), ax.Direction().Y(), ax.Direction().Z());
+}
+}  // namespace
+
+bool ViewProviderSketch3D::constrainSelection(Sketcher::ConstraintType type, QString* why)
+{
+    using Sketcher::PointPos;
+    auto fail = [&](const QString& text) {
+        if (why) {
+            *why = text;
+        }
+        return false;
+    };
+    if (!edit) {
+        return fail(QObject::tr("No 3D sketch in edit"));
+    }
+    auto sketch = getSketch3DObject();
+    std::vector<Element> points, curves;
+    for (const auto& e : edit->selection) {
+        (e.pos == PointPos::none ? curves : points).push_back(e);
+    }
+    auto kind = [&](const Element& e) {
+        return kindOf(sketch->getGeometry(e.geoId));
+    };
+    auto pt = [&](const Element& e) {
+        Base::Vector3d p;
+        pointOf(e.geoId, e.pos, p);
+        return p;
+    };
+    auto line = [&](const Element& e, Base::Vector3d& a, Base::Vector3d& b) {
+        auto seg = Base::freecad_dynamic_cast<Part::GeomLineSegment>(sketch->getGeometry(e.geoId));
+        if (!seg) {
+            return false;
+        }
+        a = seg->getStartPoint();
+        b = seg->getEndPoint();
+        return true;
+    };
+
+    // Each constraint as a recorded command, the dimensions with what the geometry
+    // measures now, so nothing moves until the value is changed.
+    std::vector<std::string> made;
+    auto con = [&](const std::string& args) {
+        made.push_back("Sketcher.Constraint(" + args + ")");
+    };
+    auto num = [](double v) {
+        char buf[64];
+        snprintf(buf, sizeof(buf), "%.15g", v);
+        return std::string(buf);
+    };
+    auto id = [](const Element& e) {
+        return std::to_string(e.geoId);
+    };
+    auto pp = [](const Element& e) {
+        return std::to_string(e.geoId) + ", " + std::to_string(int(e.pos));
+    };
+    auto quoted = [](const char* t) {
+        return std::string("'") + t + "'";
+    };
+    bool dimension = false;
+
+    switch (type) {
+        case Sketcher::Coincident:
+        case Sketcher::PointOnObject:
+            if (type == Sketcher::Coincident && points.size() >= 2 && curves.empty()) {
+                for (std::size_t i = 1; i < points.size(); ++i) {
+                    con(quoted("Coincident") + ", " + pp(points[0]) + ", " + pp(points[i]));
+                }
+            }
+            else if (!points.empty() && curves.size() == 1) {
+                for (const auto& p : points) {
+                    con(quoted("PointOnObject") + ", " + pp(p) + ", " + id(curves[0]));
+                }
+            }
+            else {
+                return fail(
+                    QObject::tr("Select two or more points, or points and one curve or plane"));
+            }
+            break;
+        case Sketcher::AlongX:
+        case Sketcher::AlongY:
+        case Sketcher::AlongZ: {
+            const char* name = type == Sketcher::AlongX
+                ? "AlongX"
+                : (type == Sketcher::AlongY ? "AlongY" : "AlongZ");
+            if (points.size() == 2 && curves.empty()) {
+                con(quoted(name) + ", " + pp(points[0]) + ", " + pp(points[1]));
+            }
+            else if (points.empty() && !curves.empty()) {
+                for (const auto& c : curves) {
+                    if (kind(c) != CurveKind::Line) {
+                        return fail(QObject::tr("Select lines, or two points"));
+                    }
+                    con(quoted(name) + ", " + id(c));
+                }
+            }
+            else {
+                return fail(QObject::tr("Select lines, or two points"));
+            }
+            break;
+        }
+        case Sketcher::Parallel:
+        case Sketcher::Perpendicular: {
+            const char* name = type == Sketcher::Parallel ? "Parallel" : "Perpendicular";
+            if (points.empty() && curves.size() == 2
+                && (kind(curves[0]) == CurveKind::Line || kind(curves[1]) == CurveKind::Line)
+                && (kind(curves[0]) == CurveKind::Line || kind(curves[0]) == CurveKind::Plane)
+                && (kind(curves[1]) == CurveKind::Line || kind(curves[1]) == CurveKind::Plane)) {
+                con(quoted(name) + ", " + id(curves[0]) + ", " + id(curves[1]));
+            }
+            else {
+                return fail(QObject::tr("Select two lines, or a line and a plane"));
+            }
+            break;
+        }
+        case Sketcher::Tangent:
+            if (points.empty() && curves.size() == 2 && kind(curves[0]) == CurveKind::Line
+                && kind(curves[1]) == CurveKind::Line) {
+                con(quoted("Tangent") + ", " + id(curves[0]) + ", " + id(curves[1]));
+            }
+            else if (curves.empty() && points.size() == 2 && points[0].geoId != points[1].geoId) {
+                con(quoted("Tangent") + ", " + pp(points[0]) + ", " + pp(points[1]));
+            }
+            else {
+                return fail(QObject::tr("Select two lines, or an end of each of two curves"));
+            }
+            break;
+        case Sketcher::Equal:
+            if (points.empty() && curves.size() >= 2) {
+                for (std::size_t i = 1; i < curves.size(); ++i) {
+                    con(quoted("Equal") + ", " + id(curves[0]) + ", " + id(curves[i]));
+                }
+            }
+            else {
+                return fail(QObject::tr("Select two or more lines, or circles and arcs"));
+            }
+            break;
+        case Sketcher::Symmetric:
+            if (curves.empty() && points.size() == 3) {
+                con(quoted("Symmetric") + ", " + pp(points[0]) + ", " + pp(points[1]) + ", "
+                    + pp(points[2]));
+            }
+            else {
+                return fail(QObject::tr("Select two points and the point between them"));
+            }
+            break;
+        case Sketcher::Distance: {
+            dimension = true;
+            Base::Vector3d a, b;
+            if (points.empty() && curves.size() == 1 && line(curves[0], a, b)) {
+                con(quoted("Distance") + ", " + id(curves[0]) + ", " + num((b - a).Length()));
+            }
+            else if (curves.empty() && points.size() == 2) {
+                con(quoted("Distance") + ", " + pp(points[0]) + ", " + pp(points[1]) + ", "
+                    + num((pt(points[1]) - pt(points[0])).Length()));
+            }
+            else if (points.size() == 1 && curves.size() == 1 && line(curves[0], a, b)) {
+                Base::Vector3d p = pt(points[0]), d = b - a;
+                double v = ((p - a) % d).Length() / d.Length();
+                con(quoted("Distance") + ", " + pp(points[0]) + ", " + id(curves[0]) + ", "
+                    + num(v));
+            }
+            else if (points.size() == 1 && curves.size() == 1
+                     && kind(curves[0]) == CurveKind::Plane) {
+                Base::Vector3d o, n = planeNormal(sketch->getGeometry(curves[0].geoId), o);
+                con(quoted("Distance") + ", " + pp(points[0]) + ", " + id(curves[0]) + ", "
+                    + num((pt(points[0]) - o) * n));
+            }
+            else {
+                return fail(
+                    QObject::tr("Select a line, two points, or a point and a line or plane"));
+            }
+            break;
+        }
+        case Sketcher::DistanceX:
+        case Sketcher::DistanceY:
+        case Sketcher::DistanceZ: {
+            dimension = true;
+            const char* name = type == Sketcher::DistanceX
+                ? "DistanceX"
+                : (type == Sketcher::DistanceY ? "DistanceY" : "DistanceZ");
+            int axis = type == Sketcher::DistanceX ? 0 : (type == Sketcher::DistanceY ? 1 : 2);
+            auto comp = [axis](const Base::Vector3d& v) {
+                return axis == 0 ? v.x : (axis == 1 ? v.y : v.z);
+            };
+            Base::Vector3d a, b;
+            if (points.empty() && curves.size() == 1 && line(curves[0], a, b)) {
+                con(quoted(name) + ", " + id(curves[0]) + ", " + num(comp(b - a)));
+            }
+            else if (curves.empty() && points.size() == 2) {
+                con(quoted(name) + ", " + pp(points[0]) + ", " + pp(points[1]) + ", "
+                    + num(comp(pt(points[1]) - pt(points[0]))));
+            }
+            else if (curves.empty() && points.size() == 1) {
+                con(quoted(name) + ", " + pp(points[0]) + ", " + num(comp(pt(points[0]))));
+            }
+            else {
+                return fail(QObject::tr("Select a line, two points or a point"));
+            }
+            break;
+        }
+        case Sketcher::Angle: {
+            dimension = true;
+            Base::Vector3d a1, b1, a2, b2;
+            if (points.empty() && curves.size() == 2 && line(curves[0], a1, b1)
+                && line(curves[1], a2, b2)) {
+                double v = (b1 - a1).GetAngle(b2 - a2);
+                con(quoted("Angle") + ", " + id(curves[0]) + ", " + id(curves[1]) + ", " + num(v));
+            }
+            else {
+                return fail(QObject::tr("Select two lines"));
+            }
+            break;
+        }
+        case Sketcher::Radius:
+        case Sketcher::Diameter: {
+            dimension = true;
+            if (!points.empty() || curves.empty()) {
+                return fail(QObject::tr("Select circles or arcs"));
+            }
+            for (const auto& c : curves) {
+                auto geo = sketch->getGeometry(c.geoId);
+                double r;
+                if (auto circle = Base::freecad_dynamic_cast<Part::GeomCircle>(geo)) {
+                    r = circle->getRadius();
+                }
+                else if (auto arc = Base::freecad_dynamic_cast<Part::GeomArcOfCircle>(geo)) {
+                    r = arc->getRadius();
+                }
+                else {
+                    return fail(QObject::tr("Select circles or arcs"));
+                }
+                bool diameter = type == Sketcher::Diameter;
+                con(quoted(diameter ? "Diameter" : "Radius") + ", " + id(c) + ", "
+                    + num(diameter ? 2 * r : r));
+            }
+            break;
+        }
+        case Sketcher::Block:
+            if (!points.empty() || curves.empty()) {
+                return fail(QObject::tr("Select the geometry to block"));
+            }
+            for (const auto& c : curves) {
+                con(quoted("Block") + ", " + id(c));
+            }
+            break;
+        case Sketcher::Horizontal:
+        case Sketcher::Vertical:
+            return fail(QObject::tr(
+                "A 3D sketch has no horizontal or vertical without a plane: use Along X, "
+                "Along Y or Along Z"));
+        default:
+            return fail(QObject::tr("Not a constraint the 3D sketch has"));
+    }
+
+    const std::string obj = Gui::Command::getObjectCmd(sketch);
+    int first = sketch->Constraints.getSize();
+    Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Add 3D sketch constraint"));
+    for (const auto& c : made) {
+        Gui::Command::doCommand(Gui::Command::Doc, "%s.addConstraint(%s)", obj.c_str(), c.c_str());
+    }
+    clearSelection();
+    // A new dimension's value is typed next, as the 2D sketch's commands do it, in
+    // the same undo step.
+    if (dimension && made.size() == 1 && edit->viewer && editDatum(first)) {
+        return true;
+    }
+    Gui::Command::commitCommand();
+    return true;
+}
+
+bool ViewProviderSketch3D::lockSelection(QString* why)
+{
+    if (!edit || edit->selection.size() != 1
+        || edit->selection[0].pos == Sketcher::PointPos::none) {
+        if (why) {
+            *why = QObject::tr("Select one point to lock");
+        }
+        return false;
+    }
+    const Element e = edit->selection[0];
+    Base::Vector3d p;
+    pointOf(e.geoId, e.pos, p);
+    auto sketch = getSketch3DObject();
+    const std::string obj = Gui::Command::getObjectCmd(sketch);
+    Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Lock 3D sketch point"));
+    const char* names[3] = {"DistanceX", "DistanceY", "DistanceZ"};
+    const double values[3] = {p.x, p.y, p.z};
+    for (int k = 0; k < 3; ++k) {
+        Gui::Command::doCommand(Gui::Command::Doc,
+                                "%s.addConstraint(Sketcher.Constraint('%s', %d, %d, %.15g))",
+                                obj.c_str(),
+                                names[k],
+                                e.geoId,
+                                int(e.pos),
+                                values[k]);
+    }
+    Gui::Command::commitCommand();
+    clearSelection();
+    return true;
+}
+
+void ViewProviderSketch3D::deleteSelection()
+{
+    if (!edit) {
+        return;
+    }
+    auto sketch = getSketch3DObject();
+    const std::string obj = Gui::Command::getObjectCmd(sketch);
+    if (!edit->selectedConstraints.empty()) {
+        std::vector<int> cons = edit->selectedConstraints;
+        std::sort(cons.rbegin(), cons.rend());
+        Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Delete 3D sketch constraints"));
+        for (int i : cons) {
+            Gui::Command::doCommand(Gui::Command::Doc, "%s.delConstraint(%d)", obj.c_str(), i);
+        }
+        Gui::Command::commitCommand();
+    }
+    else {
+        std::vector<int> geos;
+        for (const auto& e : edit->selection) {
+            if (e.geoId >= 0 && std::find(geos.begin(), geos.end(), e.geoId) == geos.end()) {
+                geos.push_back(e.geoId);
+            }
+        }
+        if (geos.empty()) {
+            return;
+        }
+        std::sort(geos.rbegin(), geos.rend());
+        Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Delete 3D sketch geometry"));
+        for (int g : geos) {
+            Gui::Command::doCommand(Gui::Command::Doc, "%s.delGeometry(%d)", obj.c_str(), g);
+        }
+        Gui::Command::commitCommand();
+    }
+    edit->selection.clear();
+    edit->selectedConstraints.clear();
+    draw();
+}
+
+bool ViewProviderSketch3D::editDatum(int index)
+{
+    if (!edit || !edit->viewer || !edit->labels.count(index)) {
+        return false;
+    }
+    if (edit->datum) {
+        edit->datum->finish(true);
+    }
+    edit->datum = new Datum3DSession(this, edit->viewer, index);
+    return true;
+}
+
+bool ViewProviderSketch3D::isEditingDatum() const
+{
+    return edit && edit->datum;
+}
+
+void ViewProviderSketch3D::finishDatumEdit(bool accept)
+{
+    if (edit && edit->datum) {
+        edit->datum->finish(accept);
+    }
+}
+
+std::map<int, std::string> ViewProviderSketch3D::labelTexts() const
+{
+    std::map<int, std::string> res;
+    if (edit) {
+        for (const auto& [index, label] : edit->labels) {
+            res[index] = label->string.getNum() ? label->string[0].getString() : "";
+        }
+    }
+    return res;
+}
+
+int ViewProviderSketch3D::labelOnPath(SoPath* path) const
+{
+    if (!edit || !path) {
+        return -1;
+    }
+    for (const auto& [index, node] : edit->labelNodes) {
+        if (path->containsNode(node)) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+void ViewProviderSketch3D::drawLabels()
+{
+    // Each dimension in a plane through what it measures, facing the camera as it
+    // was at the draw: SoDatumLabel draws in its XY (docs/Sketch3D.md section 7).
+    if (!edit) {
+        return;
+    }
+    using Sketcher::PointPos;
+    auto sketch = getSketch3DObject();
+    Gui::coinRemoveAllChildren(edit->labelRoot);
+    edit->labelNodes.clear();
+    edit->labels.clear();
+    edit->labelPlanes.clear();
+
+    // The view direction in the sketch's frame, for the label planes.
+    Base::Vector3d toEye(0, 0, 1);
+    if (edit->viewer) {
+        SbVec3f v = edit->viewer->getViewDirection();
+        Base::Matrix4D inv = editingTransform();
+        inv.inverseGauss();
+        Base::Vector3d o, d;
+        inv.multVec(Base::Vector3d(0, 0, 0), o);
+        inv.multVec(Base::Vector3d(-v[0], -v[1], -v[2]), d);
+        toEye = (d - o).Normalize();
+    }
+    auto planeAlong = [&](const Base::Vector3d& origin, Base::Vector3d x) {
+        x.Normalize();
+        Base::Vector3d n = toEye - x * (toEye * x);
+        if (n.Length() < 1e-6) {
+            n = std::fabs(x.z) < 0.9 ? Base::Vector3d(0, 0, 1) : Base::Vector3d(1, 0, 0);
+            n = n - x * (n * x);
+        }
+        n.Normalize();
+        return Base::Placement(origin, Base::Rotation::makeRotationByAxes(x, n % x, n));
+    };
+
+    using Params = Sketcher::SketcherParams;
+    const SbColor drivingColor =
+        editColor("ConstrainedDimColor", Params::defaultConstrainedDimColor());
+    const SbColor referenceColor =
+        editColor("NonDrivingConstrDimColor", Params::defaultNonDrivingConstrDimColor());
+    const SbColor expressionColor =
+        editColor("ExprBasedConstrDimColor", Params::defaultExprBasedConstrDimColor());
+    SbColor selectColor;
+    float transparency;
+    selectColor.setPackedValue(uint32_t(Gui::ViewParams::getSelectionColor()), transparency);
+    auto viewGrp =
+        App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/View");
+    long px = viewGrp->GetInt("EditSketcherFontSize", Params::defaultEditSketcherFontSize());
+    if (px <= 0) {
+        px = 17;
+    }
+    double dpr = edit->viewer ? edit->viewer->devicePixelRatio() : 1.;
+    double dpi = edit->viewer ? edit->viewer->logicalDotsPerInchX() : 96.;
+    if (dpi <= 0.) {
+        dpi = 96.;
+    }
+    const int fontSize = int(std::lround(px * dpr * 72. / dpi));
+
+    const auto& cons = sketch->Constraints.getValues();
+    for (std::size_t i = 0; i < cons.size(); ++i) {
+        const Sketcher::Constraint* c = cons[i];
+        if (!c->isDimensional() || !c->isActive) {
+            continue;
+        }
+        Base::Vector3d p, q;
+        Base::Placement plane;
+        int datumType = Gui::SoDatumLabel::DISTANCE;
+        float param2 = 0.f, param3 = 0.f;
+        bool ok = false;
+        auto geo = sketch->getGeometry(c->First);
+        switch (c->Type) {
+            case Sketcher::Distance:
+            case Sketcher::DistanceX:
+            case Sketcher::DistanceY:
+            case Sketcher::DistanceZ: {
+                int axis = c->Type == Sketcher::DistanceX ? 0
+                    : c->Type == Sketcher::DistanceY      ? 1
+                    : c->Type == Sketcher::DistanceZ      ? 2
+                                                          : -1;
+                Base::Vector3d dir(axis == 0, axis == 1, axis == 2);
+                if (c->Second == Sketcher::GeoEnum::GeoUndef && c->FirstPos == PointPos::none) {
+                    ok = pointOf(c->First, PointPos::start, p)
+                        && pointOf(c->First, PointPos::end, q);
+                }
+                else if (c->Second == Sketcher::GeoEnum::GeoUndef) {
+                    ok = pointOf(c->First, c->FirstPos, q);  // a coordinate: from the frame's plane
+                    p = q - dir * (q * dir);
+                }
+                else if (c->SecondPos != PointPos::none) {
+                    ok = pointOf(c->First, c->FirstPos, p) && pointOf(c->Second, c->SecondPos, q);
+                }
+                else if (pointOf(c->First, c->FirstPos, p)) {
+                    auto other = sketch->getGeometry(c->Second);
+                    if (auto seg = Base::freecad_dynamic_cast<Part::GeomLineSegment>(other)) {
+                        Base::Vector3d a = seg->getStartPoint(), d = seg->getEndPoint() - a;
+                        q = a + d * (((p - a) * d) / d.Sqr());
+                        ok = true;
+                    }
+                    else if (other && kindOf(other) == CurveKind::Plane) {
+                        Base::Vector3d o, n = planeNormal(other, o);
+                        q = p - n * ((p - o) * n);
+                        ok = true;
+                    }
+                }
+                if (ok && axis >= 0) {
+                    q = p + dir * ((q - p) * dir);  // along the axis only
+                }
+                ok = ok && (q - p).Length() > 1e-9;
+                if (ok) {
+                    plane = planeAlong(p, q - p);
+                }
+                break;
+            }
+            case Sketcher::Radius:
+            case Sketcher::Diameter: {
+                Base::Vector3d c0, n, s0;
+                if (auto circle = Base::freecad_dynamic_cast<Part::GeomCircle>(geo)) {
+                    c0 = circle->getCenter();
+                    n = circle->getAxisDirection();
+                    auto h = Handle(Geom_Circle)::DownCast(circle->handle());
+                    gp_Pnt s = h->Value(0.);
+                    s0 = Base::Vector3d(s.X(), s.Y(), s.Z());
+                    ok = true;
+                }
+                else if (auto arc = Base::freecad_dynamic_cast<Part::GeomArcOfCircle>(geo)) {
+                    c0 = arc->getCenter();
+                    n = arc->getAxisDirection();
+                    double u0, u1;
+                    arc->getRange(u0, u1, false);
+                    s0 = arc->pointAtParameter((u0 + u1) / 2);
+                    ok = true;
+                }
+                if (ok) {
+                    Base::Vector3d x = (s0 - c0).Normalize();
+                    plane = Base::Placement(c0, Base::Rotation::makeRotationByAxes(x, n % x, n));
+                    double r = (s0 - c0).Length();
+                    p = c0;
+                    q = s0;
+                    if (c->Type == Sketcher::Diameter) {
+                        datumType = Gui::SoDatumLabel::DIAMETER;
+                        p = c0 - (s0 - c0);
+                    }
+                    else {
+                        datumType = Gui::SoDatumLabel::RADIUS;
+                    }
+                    (void)r;
+                }
+                break;
+            }
+            case Sketcher::Angle: {
+                auto l1 = Base::freecad_dynamic_cast<Part::GeomLineSegment>(geo);
+                auto l2 = Base::freecad_dynamic_cast<Part::GeomLineSegment>(
+                    sketch->getGeometry(c->Second));
+                if (l1 && l2) {
+                    Base::Vector3d a1 = l1->getStartPoint(), d1 = l1->getEndPoint() - a1;
+                    Base::Vector3d a2 = l2->getStartPoint(), d2 = l2->getEndPoint() - a2;
+                    Base::Vector3d n = d1 % d2;
+                    if (n.Length() > 1e-9) {
+                        // where the lines come nearest
+                        Base::Vector3d w = a1 - a2;
+                        double A = d1 * d1, B = d1 * d2, C = d2 * d2, D = d1 * w, E = d2 * w;
+                        double den = A * C - B * B;
+                        double s1 = (B * E - C * D) / den, s2 = (A * E - B * D) / den;
+                        Base::Vector3d vertex = ((a1 + d1 * s1) + (a2 + d2 * s2)) / 2;
+                        Base::Vector3d x = Base::Vector3d(d1).Normalize();
+                        n.Normalize();
+                        plane = Base::Placement(vertex,
+                                                Base::Rotation::makeRotationByAxes(x, n % x, n));
+                        datumType = Gui::SoDatumLabel::ANGLE;
+                        p = vertex;
+                        param2 = 0.f;
+                        param3 = float(d1.GetAngle(d2));
+                        ok = true;
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+        if (!ok) {
+            continue;
+        }
+
+        // The points in the label's own plane.
+        Base::Placement inv = plane.inverse();
+        Base::Vector3d lp, lq;
+        inv.multVec(p, lp);
+        inv.multVec(q, lq);
+
+        auto node = new SoSeparator();
+        auto xform = new SoTransform();
+        double q0, q1, q2, q3;
+        plane.getRotation().getValue(q0, q1, q2, q3);
+        const Base::Vector3d& t = plane.getPosition();
+        xform->translation.setValue(float(t.x), float(t.y), float(t.z));
+        xform->rotation.setValue(float(q0), float(q1), float(q2), float(q3));
+        auto label = new Gui::SoDatumLabel();
+        label->datumtype = datumType;
+        label->norm.setValue(SbVec3f(0, 0, 1));
+        label->size = fontSize;
+        label->lineWidth = float(2. * dpr);
+        bool selected =
+            std::find(edit->selectedConstraints.begin(), edit->selectedConstraints.end(), int(i))
+            != edit->selectedConstraints.end();
+        bool hasExpression =
+            bool(sketch->getExpression(sketch->Constraints.createPath(int(i))).expression);
+        label->textColor = selected ? selectColor
+            : !c->isDriving         ? referenceColor
+            : hasExpression         ? expressionColor
+                                    : drivingColor;
+        Base::Quantity value(c->getValue(), Base::Unit::Length);
+        if (c->Type == Sketcher::Angle) {
+            value = Base::Quantity(Base::toDegrees<double>(c->getValue()), Base::Unit::Angle);
+        }
+        std::string text = value.getUserString();
+        if (!c->isDriving) {
+            text = "(" + text + ")";
+        }
+        label->string = SbString(text.c_str());
+        if (datumType == Gui::SoDatumLabel::ANGLE) {
+            label->pnts.setNum(1);
+            label->pnts.set1Value(0, SbVec3f(0, 0, 0));
+            label->param1 = c->LabelDistance;
+            label->param2 = param2;
+            label->param3 = param3;
+        }
+        else {
+            label->pnts.setNum(2);
+            label->pnts.set1Value(0, SbVec3f(float(lp.x), float(lp.y), float(lp.z)));
+            label->pnts.set1Value(1, SbVec3f(float(lq.x), float(lq.y), float(lq.z)));
+            label->param1 = c->LabelDistance;
+            label->param2 = c->LabelPosition;
+        }
+        node->addChild(xform);
+        node->addChild(label);
+        if (auto image = label->getImageNode()) {
+            node->addChild(image);
+        }
+        edit->labelRoot->addChild(node);
+        edit->labelNodes[int(i)] = node;
+        edit->labels[int(i)] = label;
+        edit->labelPlanes[int(i)] = plane;
+    }
+}
+
 ViewProviderSketch3D* SketcherGui::activeSketch3DInEdit()
 {
     auto doc = Gui::Application::Instance->activeDocument();
@@ -1546,6 +2655,9 @@ bool ViewProviderSketch3D::setEdit(int ModNum)
     edit->dragger->addMotionCallback(&ViewProviderSketch3D::draggerChanged, this);
     edit->dragger->addFinishCallback(&ViewProviderSketch3D::draggerChanged, this);
 
+    edit->deleteFilter = std::make_unique<Sketch3DDeleteFilter>(this);
+    Gui::getMainWindow()->installEventFilter(edit->deleteFilter.get());
+
     Workbench::enterEditMode();
     Gui::ToolBarManager::getInstance()->setState(sketch3DToolbars(),
                                                  Gui::ToolBarManager::State::ForceAvailable);
@@ -1560,12 +2672,14 @@ void ViewProviderSketch3D::unsetEdit(int ModNum)
         PartGui::ViewProviderPart::unsetEdit(ModNum);
         return;
     }
+    finishDatumEdit(true);  // leaving is a press elsewhere
     Workbench::leaveEditMode();
     Gui::getMainWindow()->showMessage(QString());
     Gui::ToolBarManager::getInstance()->setState(sketch3DToolbars(),
                                                  Gui::ToolBarManager::State::RestoreDefault);
 
     if (edit) {
+        Gui::getMainWindow()->removeEventFilter(edit->deleteFilter.get());
         int index = pcRoot->findChild(edit->content);
         if (index >= 0) {
             pcRoot->removeChild(index);
@@ -1656,19 +2770,28 @@ void ViewProviderSketch3D::draw()
 
     edit->curveRefs.clear();
     edit->pointRefs.clear();
+    SbColor selectColor;
+    {
+        float transparency;
+        selectColor.setPackedValue(uint32_t(Gui::ViewParams::getSelectionColor()), transparency);
+    }
+    auto selected = [&](int geoId, Sketcher::PointPos pos) {
+        const auto& sel = edit->selection;
+        return std::find(sel.begin(), sel.end(), Element {geoId, pos}) != sel.end();
+    };
     auto addCurve = [&](const Part::Geometry* geo, const SbColor& color, int geoId) {
         std::size_t before = coords.size();
         sample(geo, coords);
         if (coords.size() > before) {
             counts.push_back(int32_t(coords.size() - before));
-            colors.push_back(color);
+            colors.push_back(selected(geoId, Sketcher::PointPos::none) ? selectColor : color);
             edit->curveRefs.push_back(geoId);
         }
     };
     auto addPoint =
         [&](const Base::Vector3d& v, const SbColor& color, int geoId, Sketcher::PointPos pos) {
             pts.emplace_back(float(v.x), float(v.y), float(v.z));
-            ptColors.push_back(color);
+            ptColors.push_back(selected(geoId, pos) ? selectColor : color);
             edit->pointRefs.emplace_back(geoId, pos);
         };
     using Sketcher::PointPos;
@@ -1739,6 +2862,26 @@ void ViewProviderSketch3D::draw()
     edit->pointMaterial->diffuseColor.setNum(int(ptColors.size()));
     edit->pointStyle->pointSize = 8.f * scale;
     edit->points->markerIndex = Gui::Inventor::MarkerBitmaps::getMarkerIndex("CIRCLE_FILLED", 7);
+    // The geometry moved: drop selected ids it no longer has.
+    {
+        auto& sel = edit->selection;
+        int n = sketch->Geometry.getSize();
+        sel.erase(std::remove_if(sel.begin(),
+                                 sel.end(),
+                                 [n](const Element& e) {
+                                     return e.geoId >= n;
+                                 }),
+                  sel.end());
+        auto& cs = edit->selectedConstraints;
+        int m = sketch->Constraints.getSize();
+        cs.erase(std::remove_if(cs.begin(),
+                                cs.end(),
+                                [m](int i) {
+                                    return i >= m;
+                                }),
+                 cs.end());
+    }
+    drawLabels();
 
     if (edit->dialog) {
         QString text;

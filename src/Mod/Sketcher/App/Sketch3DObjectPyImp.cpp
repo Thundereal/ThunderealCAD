@@ -249,6 +249,22 @@ PyObject* Sketch3DObjectPy::setDriving(PyObject* args)
     PY_CATCH
 }
 
+PyObject* Sketch3DObjectPy::renameConstraint(PyObject* args)
+{
+    PyObject* key;
+    const char* name;
+    if (!PyArg_ParseTuple(args, "Os", &key, &name)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        auto sketch = getSketch3DObjectPtr();
+        sketch->renameConstraint(constraintIndex(sketch, key), name);
+        Py_Return;
+    }
+    PY_CATCH
+}
+
 PyObject* Sketch3DObjectPy::setConstruction(PyObject* args)
 {
     int index;

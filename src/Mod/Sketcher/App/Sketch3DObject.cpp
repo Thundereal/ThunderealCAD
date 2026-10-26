@@ -23,6 +23,7 @@
  ***************************************************************************/
 
 #include <algorithm>
+#include <cctype>
 #include <sstream>
 
 #include <BRepAdaptor_Surface.hxx>
@@ -290,6 +291,33 @@ void Sketch3DObject::setDriving(int index, bool driving)
     copy->isDriving = driving;
     Constraints.set1Value(index, copy.get());
     solve();
+}
+
+void Sketch3DObject::renameConstraint(int index, const std::string& name)
+{
+    if (index < 0 || index >= Constraints.getSize()) {
+        FC_THROWM(Base::IndexError, "No constraint " << index);
+    }
+    if (!name.empty()) {
+        // letters, digits and underscores, not starting with a digit: what an
+        // expression can refer to
+        bool ok = !std::isdigit(static_cast<unsigned char>(name[0]));
+        for (char ch : name) {
+            ok = ok && (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_');
+        }
+        if (!ok) {
+            FC_THROWM(Base::ValueError, "'" << name << "' is not a name an expression can use");
+        }
+        for (int i = 0; i < Constraints.getSize(); ++i) {
+            if (i != index && Constraints[i]->Name == name) {
+                FC_THROWM(Base::NameError,
+                          "Constraint " << i << " is named '" << name << "' already");
+            }
+        }
+    }
+    std::unique_ptr<Constraint> copy(Constraints[index]->clone());
+    copy->Name = name;
+    Constraints.set1Value(index, copy.get());
 }
 
 void Sketch3DObject::setConstruction(int geoId, bool construction)

@@ -92,6 +92,8 @@ public:
     void setDatum(int index, double value);
     double getDatum(int index) const;
     void setDriving(int index, bool driving);
+    /// Names a constraint, so an expression can use it; empty unnames it.
+    void renameConstraint(int index, const std::string& name);
     void setConstruction(int geoId, bool construction);
 
     /// Adds a reference to a model vertex, edge, planar face or datum; returns its

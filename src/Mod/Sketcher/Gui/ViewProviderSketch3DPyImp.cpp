@@ -277,6 +277,124 @@ PyObject* ViewProviderSketch3DPy::constructionMode(PyObject* args) const
     return Py::new_reference_to(Py::Boolean(getViewProviderSketch3DPtr()->constructionMode()));
 }
 
+PyObject* ViewProviderSketch3DPy::select(PyObject* args)
+{
+    int geoId, pos = 0;
+    PyObject* toggle = Py_True;
+    if (!PyArg_ParseTuple(args, "i|iO!", &geoId, &pos, &PyBool_Type, &toggle)) {
+        return nullptr;
+    }
+    getViewProviderSketch3DPtr()->select({geoId, static_cast<Sketcher::PointPos>(pos)},
+                                         PyObject_IsTrue(toggle));
+    Py_Return;
+}
+
+PyObject* ViewProviderSketch3DPy::selectConstraint(PyObject* args)
+{
+    int index;
+    PyObject* toggle = Py_True;
+    if (!PyArg_ParseTuple(args, "i|O!", &index, &PyBool_Type, &toggle)) {
+        return nullptr;
+    }
+    getViewProviderSketch3DPtr()->selectConstraint(index, PyObject_IsTrue(toggle));
+    Py_Return;
+}
+
+PyObject* ViewProviderSketch3DPy::clearSelection(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    getViewProviderSketch3DPtr()->clearSelection();
+    Py_Return;
+}
+
+PyObject* ViewProviderSketch3DPy::getSelection(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    auto vp = getViewProviderSketch3DPtr();
+    Py::List elements, constraints;
+    for (const auto& e : vp->selectedElements()) {
+        elements.append(Py::TupleN(Py::Long(e.geoId), Py::Long(int(e.pos))));
+    }
+    for (int i : vp->selectedConstraints()) {
+        constraints.append(Py::Long(i));
+    }
+    return Py::new_reference_to(Py::TupleN(elements, constraints));
+}
+
+PyObject* ViewProviderSketch3DPy::constrain(PyObject* args)
+{
+    const char* name;
+    if (!PyArg_ParseTuple(args, "s", &name)) {
+        return nullptr;
+    }
+    Sketcher::ConstraintType type = Sketcher::None;
+    for (int t = 1; t < Sketcher::NumConstraintTypes; ++t) {
+        if (Sketcher::Constraint::typeToString(static_cast<Sketcher::ConstraintType>(t)) == name) {
+            type = static_cast<Sketcher::ConstraintType>(t);
+        }
+    }
+    QString why;
+    if (type == Sketcher::None || !getViewProviderSketch3DPtr()->constrainSelection(type, &why)) {
+        PyErr_SetString(PyExc_ValueError,
+                        type == Sketcher::None ? "unknown constraint type"
+                                               : why.toUtf8().constData());
+        return nullptr;
+    }
+    return Py::new_reference_to(Py::True());
+}
+
+PyObject* ViewProviderSketch3DPy::deleteSelection(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    getViewProviderSketch3DPtr()->deleteSelection();
+    Py_Return;
+}
+
+PyObject* ViewProviderSketch3DPy::editDatum(PyObject* args)
+{
+    int index;
+    if (!PyArg_ParseTuple(args, "i", &index)) {
+        return nullptr;
+    }
+    return Py::new_reference_to(Py::Boolean(getViewProviderSketch3DPtr()->editDatum(index)));
+}
+
+PyObject* ViewProviderSketch3DPy::isEditingDatum(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    return Py::new_reference_to(Py::Boolean(getViewProviderSketch3DPtr()->isEditingDatum()));
+}
+
+PyObject* ViewProviderSketch3DPy::finishDatumEdit(PyObject* args)
+{
+    PyObject* accept = Py_True;
+    if (!PyArg_ParseTuple(args, "|O!", &PyBool_Type, &accept)) {
+        return nullptr;
+    }
+    getViewProviderSketch3DPtr()->finishDatumEdit(PyObject_IsTrue(accept));
+    Py_Return;
+}
+
+PyObject* ViewProviderSketch3DPy::getLabels(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    Py::Dict d;
+    for (const auto& [index, text] : getViewProviderSketch3DPtr()->labelTexts()) {
+        d.setItem(Py::Long(index), Py::String(text));
+    }
+    return Py::new_reference_to(d);
+}
+
 PyObject* ViewProviderSketch3DPy::getCustomAttributes(const char* /*attr*/) const
 {
     return nullptr;

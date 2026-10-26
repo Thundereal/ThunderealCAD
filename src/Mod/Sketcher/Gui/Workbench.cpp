@@ -124,7 +124,12 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
     *sketch3D << "Sketcher_Sketch3DCyclePlane"
               << "Sketcher_Sketch3DLockHeight"
               << "Sketcher_Sketch3DResetManipulator"
-              << "Sketcher_Sketch3DRotationHandles";
+              << "Sketcher_Sketch3DRotationHandles"
+              << "Separator"
+              << "Sketcher_Constrain3DAlongX"
+              << "Sketcher_Constrain3DAlongY"
+              << "Sketcher_Constrain3DAlongZ"
+              << "Sketcher_ConstrainDistanceZ";
 
     Gui::ToolBarItem* geom =
         new Gui::ToolBarItem(root, Gui::ToolBarItem::DefaultVisibility::Unavailable);

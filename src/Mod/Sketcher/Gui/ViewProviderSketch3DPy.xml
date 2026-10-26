@@ -111,5 +111,56 @@ whether the edit took it</UserDocu>
         <UserDocu>constructionMode() -> bool</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="select">
+      <Documentation>
+        <UserDocu>select(geoId, pos=0, toggle=True): a point (pos 1 start, 2 end, 3 centre) or a curve (pos 0)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="selectConstraint">
+      <Documentation>
+        <UserDocu>selectConstraint(index, toggle=True)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="clearSelection">
+      <Documentation>
+        <UserDocu>clearSelection()</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getSelection" Const="true">
+      <Documentation>
+        <UserDocu>getSelection() -> ([(geoId, pos)], [constraint index])</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="constrain">
+      <Documentation>
+        <UserDocu>constrain(type) -> bool: a constraint of type ('Coincident', 'Distance', 'AlongZ', ...)
+made from the selection, as the Sketcher's command does it; ValueError says why not</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="deleteSelection">
+      <Documentation>
+        <UserDocu>deleteSelection(): the selected constraints, else the selected geometry</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="editDatum">
+      <Documentation>
+        <UserDocu>editDatum(index) -> bool: the in-view editor on a dimension</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="isEditingDatum" Const="true">
+      <Documentation>
+        <UserDocu>isEditingDatum() -> bool</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="finishDatumEdit">
+      <Documentation>
+        <UserDocu>finishDatumEdit(accept=True)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getLabels" Const="true">
+      <Documentation>
+        <UserDocu>getLabels() -> {constraint index: text}: the dimension labels drawn</UserDocu>
+      </Documentation>
+    </Methode>
   </PythonExport>
 </GenerateModel>

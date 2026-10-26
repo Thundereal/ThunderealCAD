@@ -30,7 +30,12 @@
 // edit-mode toolbars from whatever workbench is active, and places points Fusion's
 // way: a manipulator at the last point, its active plane where a click lands.
 
+#include <map>
 #include <memory>
+#include <string>
+#include <vector>
+
+#include <QString>
 
 #include <Inventor/SbVec2s.h>
 
@@ -38,6 +43,7 @@
 #include <App/PropertyStandard.h>
 #include <Base/Placement.h>
 #include <Mod/Part/Gui/ViewProvider.h>
+#include <Mod/Sketcher/App/Constraint.h>
 #include <Mod/Sketcher/SketcherGlobal.h>
 
 class SoSeparator;
@@ -147,6 +153,45 @@ public:
     void setConstructionMode(bool construction);
     //@}
 
+    /** @name Selection and constraints (section 7)
+     * The edit's own selection: points (a geometry id and a position) and curves
+     * (PointPos::none), and constraints by their labels. The Sketcher's constraint
+     * commands make their 3D constraint of it; Delete removes it.
+     */
+    //@{
+    struct Element
+    {
+        int geoId;
+        Sketcher::PointPos pos;
+        bool operator==(const Element& other) const
+        {
+            return geoId == other.geoId && pos == other.pos;
+        }
+    };
+    const std::vector<Element>& selectedElements() const;
+    const std::vector<int>& selectedConstraints() const;
+    void select(const Element& element, bool toggle = true);
+    void selectConstraint(int index, bool toggle = true);
+    void clearSelection();
+    /** A constraint of type made from the selection, its value what the geometry
+     * measures now: false, with why, when the selection does not fit the type.
+     * AlongX/Y/Z and DistanceX/Y/Z have no 2D commands to come from; the 3D
+     * toolbar's commands call this with them.
+     */
+    bool constrainSelection(Sketcher::ConstraintType type, QString* why = nullptr);
+    /// Lock: a point's three coordinates.
+    bool lockSelection(QString* why = nullptr);
+    /// The selected constraints, else the selected geometry.
+    void deleteSelection();
+    /// The in-view editor on a dimension (a double click on its label does it).
+    bool editDatum(int index);
+    bool isEditingDatum() const;
+    /// Ends the value edit, taking what is typed when accept.
+    void finishDatumEdit(bool accept);
+    /// The dimension labels drawn: constraint index -> text.
+    std::map<int, std::string> labelTexts() const;
+    //@}
+
     /** @name Input, in view coordinates (Coin's: origin bottom left)
      * The mouse handlers and the Python binding come through these, so a test drives
      * what a click does.
@@ -195,6 +240,13 @@ private:
     /// The constraint that ties (geoId, pos) where the snap put it.
     void constrainTo(const Snap& snap, int geoId, int pos);
     void makeSpline();
+    /// A sketch point's position in the sketch's frame.
+    bool pointOf(int geoId, Sketcher::PointPos pos, Base::Vector3d& point) const;
+    /// Labels for the dimensions, part of draw().
+    void drawLabels();
+    /// The constraint whose label the pick path runs through, or -1.
+    int labelOnPath(class SoPath* path) const;
+    friend class Datum3DSession;
     void updatePreview();
     void showToolStatus();
     static void draggerChanged(void* data, SoDragger* dragger);
@@ -204,5 +256,9 @@ private:
 SketcherGuiExport bool isSketch3DInEdit(Gui::Document* doc);
 /// The 3D sketch view provider in edit in the active document, or null.
 SketcherGuiExport ViewProviderSketch3D* activeSketch3DInEdit();
+/** A Sketcher constraint command run while a 3D sketch is in edit: its constraint of
+ * the edit's selection. False when no 3D sketch is in edit, and the 2D command goes on.
+ */
+SketcherGuiExport bool runSketch3DConstraint(const char* commandName);
 
 }  // namespace SketcherGui

@@ -104,6 +104,10 @@ fc_add_gui_test(GuiSketch3DManipulator_tests_run sketch3d-manipulator.py
 # snapping with the constraints it implies, splines, construction, undo.
 fc_add_gui_test(GuiSketch3DTools_tests_run sketch3d-tools.py
                 --timeout 180)
+# Its constraints from the selection (S2d): the Sketcher's constraint
+# commands, the dimension labels and their in-view values, Delete.
+fc_add_gui_test(GuiSketch3DConstraints_tests_run sketch3d-constraints.py
+                --timeout 180)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

@@ -1339,6 +1339,16 @@ class ViewProviderJoint:
         """Setup the scene sub-graph of the view provider, this method is mandatory"""
         self.app_obj = vobj.Object
 
+        # A C++ joint's view provider draws the markers itself
+        # (AssemblyGui::ViewProviderJoint): none here, but the joint task's
+        # preview, made when it is first shown. One a file of before it
+        # states as the generic Python feature's draws them here.
+        self.cppMarkers = vobj.TypeId == "AssemblyGui::ViewProviderJointPython"
+        if self.cppMarkers:
+            if not vobj.hasExtension("Gui::ViewProviderSuppressibleExtensionPython"):
+                vobj.addExtension("Gui::ViewProviderSuppressibleExtensionPython")
+            return
+
         # Not upstream: migrationScript5's half for a joint from before the
         # Suppressed property (the view provider did not exist yet when it ran).
         if not vobj.hasExtension("Gui::ViewProviderSuppressibleExtensionPython"):
@@ -1373,6 +1383,9 @@ class ViewProviderJoint:
             self.redrawJointPlacement(self.switch_JCS2, joint.Placement2, joint.Reference2)
 
     def redrawJointPlacements(self, joint):
+        if getattr(self, "cppMarkers", False):
+            joint.redrawMarkers()
+            return
         # Called from AssemblyObject::solve(), which can run before attach() has
         # created the JCS switches (e.g. right after a document restore).
         if not hasattr(self, "switch_JCS1"):
@@ -1425,6 +1438,12 @@ class ViewProviderJoint:
             jcs.whichChild = coin.SO_SWITCH_NONE
 
     def showPreviewJCS(self, visible, placement=None, ref=None):
+        if not hasattr(self, "switch_JCS_preview"):
+            if not visible:
+                return
+            # The C++ view provider's: the preview is made when first shown
+            self.switch_JCS_preview = SoSwitchMarker(self.app_obj.ViewObject)
+            self.app_obj.ViewObject.RootNode.addChild(self.switch_JCS_preview)
         if visible:
             self.switch_JCS_preview.whichChild = coin.SO_SWITCH_ALL
             self.setJCSPosition(self.switch_JCS_preview, placement, ref)
@@ -1443,12 +1462,26 @@ class ViewProviderJoint:
 
     def setPickableState(self, state: bool):
         """Set JCS selectable or unselectable in 3D view"""
+        if getattr(self, "cppMarkers", False):
+            # The C++ markers' pick style, and the preview's, under the view
+            sa = coin.SoSearchAction()
+            sa.setType(coin.SoPickStyle.getClassTypeId())
+            sa.setInterest(coin.SoSearchAction.ALL)
+            sa.setSearchingAll(True)
+            sa.apply(self.app_obj.ViewObject.RootNode)
+            style = coin.SoPickStyle.SHAPE_ON_TOP if state else coin.SoPickStyle.UNPICKABLE
+            for i in range(sa.getPaths().getLength()):
+                sa.getPaths()[i].getTail().style.setValue(style)
+            return
         self.switch_JCS1.setPickableState(state)
         self.switch_JCS2.setPickableState(state)
         self.switch_JCS_preview.setPickableState(state)
 
     def getDisplayModes(self, obj):
         """Return a list of display modes."""
+        if getattr(self, "cppMarkers", False):
+            # The C++ view provider's own
+            return []
         modes = []
         modes.append("Wireframe")
         return modes
@@ -1469,6 +1502,8 @@ class ViewProviderJoint:
     def onChanged(self, vp, prop):
         """Here we can do something when a single property got changed"""
         # App.Console.PrintMessage("Change property: " + str(prop) + "\n")
+        if not hasattr(self, "switch_JCS1"):
+            return
         if prop == "color_X_axis" or prop == "color_Y_axis" or prop == "color_Z_axis":
             self.switch_JCS1.onChanged(vp, prop)
             self.switch_JCS2.onChanged(vp, prop)

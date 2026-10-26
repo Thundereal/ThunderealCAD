@@ -203,6 +203,12 @@ public:
     Base::Placement getFrame(int side) const;
     /// The assembly holding the joint
     AssemblyObject* getAssembly() const;
+
+    /** The joint's frames moved without a change of the joint: a solve moved
+     * its components (AssemblyObject::redrawJointPlacements()). Its view
+     * draws its markers again.
+     */
+    fastsignals::signal<void()> signalFramesMoved;
     /** The component an element link of \a assembly is on (JointSide::component)
      *
      * @param placement: optionally, the component's placement in the

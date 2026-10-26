@@ -23,13 +23,22 @@
 
 #pragma once
 
+#include <string>
 #include <vector>
 
+#include <fastsignals/signal.h>
+
+#include <Base/Placement.h>
 #include <Mod/Assembly/AssemblyGlobal.h>
 
 #include <Gui/ViewProviderDocumentObject.h>
 #include <Gui/ViewProviderFeaturePython.h>
 
+
+class SoGroup;
+class SoPickStyle;
+class SoSwitch;
+class SoTransform;
 
 namespace AssemblyGui
 {
@@ -45,6 +54,15 @@ namespace AssemblyGui
  * the Python view provider of Assembly::JointPython, the proxy of
  * ViewProviderJointPython, whose claimChildren is not asked here; it claims
  * the same for a joint whose file states the generic Python view provider.
+ *
+ * It draws the markers too, a joint coordinate system at each side's frame
+ * and at each pair of a multiplied joint's instances, in the display mode
+ * "Wireframe". The Python view provider made three Coin subgraphs of its own
+ * per joint, at every joint made and every document opened, and redrew them
+ * through a Python call per joint each solve and drag step
+ * (docs/AssemblyAudit.md, F5 and F8). Here every marker of every joint shares
+ * one geometry, and a solve says it moved the frames by the joint's
+ * signalFramesMoved.
  */
 class AssemblyGuiExport ViewProviderJoint: public Gui::ViewProviderDocumentObject
 {
@@ -52,8 +70,32 @@ class AssemblyGuiExport ViewProviderJoint: public Gui::ViewProviderDocumentObjec
 
 public:
     ViewProviderJoint();
+    ~ViewProviderJoint() override;
 
     std::vector<App::DocumentObject*> claimChildren() const override;
+
+    void attach(App::DocumentObject* obj) override;
+    void updateData(const App::Property* prop) override;
+    std::vector<std::string> getDisplayModes() const override;
+    const char* getDefaultDisplayMode() const override;
+    void setDisplayMode(const char* mode) override;
+
+    /// Draw the markers where the joint's frames are now
+    void redrawMarkers();
+    /// Whether the markers can be picked, as the joint task sets it while it
+    /// picks
+    void setMarkersPickable(bool pickable);
+
+private:
+    /// One marker: a switch over the transform and the shared geometry
+    SoSwitch* makeMarker();
+    static void placeMarker(SoSwitch* marker, const Base::Placement* placement);
+
+    SoGroup* pcMarkers = nullptr;
+    SoPickStyle* pcPick = nullptr;
+    /// The two sides, then each instance's two
+    std::vector<SoSwitch*> markers;
+    fastsignals::scoped_connection connFramesMoved;
 };
 
 using ViewProviderJointPython = Gui::ViewProviderFeaturePythonT<ViewProviderJoint>;

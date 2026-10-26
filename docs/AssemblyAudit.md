@@ -634,13 +634,21 @@ Then, the cost of building joints, which grew with the joints there are:
   one left, when all are checked as before
   (`tests/src/App/PartGroupMode.cpp`, both cases).
 
-Chain 100 builds in 3.1 s (5 s before these, 1.5 s with Python joints),
-chain 200 in 9.8 s (13 s; 6.3 to 8.2 s with Python joints in sec 4.2).
-Left: each change of the assembly's `Group` still rebuilds its tree export
+- F5 and F8: the joint's view provider draws the markers in C++, every
+  marker of every joint sharing one geometry, and a solve tells a C++
+  joint's view it moved its frames by a signal (`Joint::signalFramesMoved`,
+  `Joint.redrawMarkers()` from Python), not by a Python call per joint. The
+  Python view provider makes the joint task's preview when first shown, and
+  sets the markers' pick style through the scene; it still draws all for a
+  joint whose file states the generic view provider.
+
+Chain 50 builds in 0.71 s (Python joints 0.67 s), chain 100 in 2.15 s
+(1.5 s), chain 200 in 7.9 s (6.3 to 8.2 s in sec 4.2); redrawing every
+joint's markers after a solve, 70 ms at chain 100, is 4.5 ms. Left: each
+change of the assembly's `Group` still rebuilds its tree export
 (O(children)), and the joint task asks `isPartConnected` per joint made;
-the Python view provider's markers (F8); and the solver itself (F1), which
-is what a solve, a recompute and a drag at chain 100 spend their time in,
-Python joints and C++ alike.
+and the solver itself (F1), which is what a solve, a recompute and a drag at
+chain 100 spend their time in, Python joints and C++ alike.
 
 **Phase 3 -- from Assembly3, and its importer** (`docs/AssemblyFromAsm3.md`).
 Its behaviours, not its objects -- Element objects would put a second

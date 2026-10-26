@@ -75,6 +75,19 @@ PyObject* JointPy::getFrame(PyObject* args) const
     PY_CATCH;
 }
 
+PyObject* JointPy::redrawMarkers(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        getJointPtr()->signalFramesMoved();
+        Py_Return;
+    }
+    PY_CATCH;
+}
+
 PyObject* JointPy::setSide(PyObject* args)
 {
     int side = 0;

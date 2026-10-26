@@ -1536,6 +1536,12 @@ void AssemblyObject::redrawJointPlacement(App::DocumentObject* joint)
     if (!joint) {
         return;
     }
+    // A C++ joint's view draws its markers in C++: told by a signal, not a
+    // Python call per joint each solve and drag step
+    if (auto typed = freecad_cast<Joint*>(joint)) {
+        typed->signalFramesMoved();
+        return;
+    }
 
     Base::PyGILStateLocker lock;
 

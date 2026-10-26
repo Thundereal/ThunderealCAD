@@ -61,6 +61,13 @@ class Joint(DocumentObject):
         """
         ...
 
+    def redrawMarkers(self) -> None:
+        """
+        Have the joint's view draw its markers where its frames are now: a
+        solve moves the components without a recompute.
+        """
+        ...
+
     def clearSide(self, side: int, /) -> None:
         """
         Unset side 1 or 2, deleting its element link unless another joint

@@ -23,8 +23,18 @@
 
 #include "PreCompiled.h"
 #ifndef _PreComp_
+# include <BRepAdaptor_Surface.hxx>
 # include <BRepAlgo.hxx>
+# include <BRepBuilderAPI_MakeVertex.hxx>
+# include <BRepExtrema_DistShapeShape.hxx>
 # include <BRepFilletAPI_MakeFillet.hxx>
+# include <BRepGProp.hxx>
+# include <BRepLProp_SLProps.hxx>
+# include <BRep_Tool.hxx>
+# include <GeomAPI_ProjectPointOnSurf.hxx>
+# include <GProp_GProps.hxx>
+# include <TopExp.hxx>
+# include <TopExp_Explorer.hxx>
 # include <TopoDS.hxx>
 # include <TopoDS_Edge.hxx>
 # include <TopTools_ListOfShape.hxx>
@@ -88,8 +98,140 @@ Fillet::Fillet()
       "fillet runs into -- fillet, and put them back, a pocket then cutting into the\n"
       "fillet. Kept only when fewer fillets fail; the faces taken out are reported.");
 
+    ADD_PROPERTY_TYPE(FullRound, (false), "Fillet", App::Prop_None,
+      "Each face selected rounded whole: its two sides filleted so that their lines meet along\n"
+      "the middle of the face, which goes (a full round). The face is a strip of one width\n"
+      "between two side faces; Radius is not used for it. Edges selected are filleted as before.\n"
+      "Needs the OCCT fork.");
+
     ADD_PROPERTY_TYPE(_Version, (0), "Part Design", App::Prop_Hidden, 0);
 }
+
+namespace {
+
+// A full round of <face>: its two sides -- of its edges, the longest pair
+// that share no vertex -- and the radius of each that puts the fillet's
+// line on the face along its middle: half the face's width times tan(a / 2),
+// a the angle of the solid between the face and the side's other face.
+// Empty, with the reason, where the face is no strip of one width between
+// two convex edges.
+std::vector<std::pair<TopoDS_Edge, double>> fullRoundEdges(const Part::TopoShape &shape,
+                                                           const TopoDS_Face &face,
+                                                           std::string &reason)
+{
+    std::vector<std::pair<TopoDS_Edge, double>> ret;
+    std::vector<TopoDS_Edge> edges;
+    for (TopExp_Explorer ex(face, TopAbs_EDGE); ex.More(); ex.Next()) {
+        const TopoDS_Edge &e = TopoDS::Edge(ex.Current());
+        if (BRep_Tool::Degenerated(e))
+            continue;
+        if (std::none_of(edges.begin(), edges.end(),
+                         [&](const TopoDS_Edge &o) { return o.IsSame(e); }))
+            edges.push_back(e);
+    }
+    auto length = [](const TopoDS_Edge &e) {
+        GProp_GProps props;
+        BRepGProp::LinearProperties(e, props);
+        return props.Mass();
+    };
+    auto shareVertex = [](const TopoDS_Edge &a, const TopoDS_Edge &b) {
+        TopoDS_Vertex a1, a2, b1, b2;
+        TopExp::Vertices(a, a1, a2);
+        TopExp::Vertices(b, b1, b2);
+        return a1.IsSame(b1) || a1.IsSame(b2) || a2.IsSame(b1) || a2.IsSame(b2);
+    };
+    int ia = -1, ib = -1;
+    double best = 0.0;
+    for (int i = 0; i < (int)edges.size(); ++i) {
+        for (int j = i + 1; j < (int)edges.size(); ++j) {
+            if (shareVertex(edges[i], edges[j]))
+                continue;
+            double l = std::min(length(edges[i]), length(edges[j]));
+            if (l > best) {
+                best = l;
+                ia = i;
+                ib = j;
+            }
+        }
+    }
+    if (ia < 0) {
+        reason = "no two sides apart";
+        return ret;
+    }
+    // the width along the sides, and at each the way into the face
+    double wMin = DBL_MAX, wMax = 0.0;
+    gp_Vec inward[2];
+    for (int k = 0; k < 2; ++k) {
+        const TopoDS_Edge &side = edges[k == 0 ? ia : ib];
+        const TopoDS_Edge &other = edges[k == 0 ? ib : ia];
+        double f, l;
+        Handle(Geom_Curve) c = BRep_Tool::Curve(side, f, l);
+        if (c.IsNull()) {
+            reason = "a side with no curve";
+            return ret;
+        }
+        for (int i = 0; i <= 4; ++i) {
+            gp_Pnt p = c->Value(f + (l - f) * i / 4.0);
+            BRepExtrema_DistShapeShape dist(BRepBuilderAPI_MakeVertex(p).Vertex(), other);
+            if (!dist.IsDone() || dist.NbSolution() == 0) {
+                reason = "no width";
+                return ret;
+            }
+            wMin = std::min(wMin, dist.Value());
+            wMax = std::max(wMax, dist.Value());
+            if (i == 2)
+                inward[k] = gp_Vec(p, dist.PointOnShape2(1));
+        }
+    }
+    if (wMax <= Precision::Confusion() || wMax - wMin > 1e-6 * std::max(1.0, wMax)) {
+        reason = "not of one width";
+        return ret;
+    }
+    const double width = 0.5 * (wMin + wMax);
+    // the outward normal of a face at a point on it
+    auto normal = [](const TopoDS_Face &f, const gp_Pnt &p, gp_Vec &n) {
+        GeomAPI_ProjectPointOnSurf proj(p, BRep_Tool::Surface(f));
+        if (proj.NbPoints() == 0)
+            return false;
+        double u, v;
+        proj.LowerDistanceParameters(u, v);
+        BRepAdaptor_Surface s(f);
+        BRepLProp_SLProps props(s, u, v, 1, Precision::Confusion());
+        if (!props.IsNormalDefined())
+            return false;
+        n = props.Normal();
+        if (f.Orientation() == TopAbs_REVERSED)
+            n.Reverse();
+        return true;
+    };
+    for (int k = 0; k < 2; ++k) {
+        const TopoDS_Edge &side = edges[k == 0 ? ia : ib];
+        TopoDS_Face neighbour;
+        for (const auto &f : shape.findAncestorsShapes(side, TopAbs_FACE)) {
+            if (!f.IsSame(face))
+                neighbour = TopoDS::Face(f);
+        }
+        double f, l;
+        Handle(Geom_Curve) c = BRep_Tool::Curve(side, f, l);
+        gp_Pnt mid = c->Value(0.5 * (f + l));
+        gp_Vec nFace, nSide;
+        if (neighbour.IsNull() || !normal(face, mid, nFace) || !normal(neighbour, mid, nSide)) {
+            reason = "a side with no face beyond";
+            return ret;
+        }
+        // convex: the side face turns away from the way into the face
+        if (nSide.Dot(inward[k]) >= 0.0) {
+            reason = "a concave side";
+            return ret;
+        }
+        const double a = M_PI - nFace.Angle(nSide);
+        ret.emplace_back(side, 0.5 * width * std::tan(0.5 * a));
+    }
+    return ret;
+}
+
+} // namespace
+
 
 void Fillet::setupObject()
 {
@@ -129,9 +271,44 @@ App::DocumentObjectExecReturn *Fillet::execute()
         return new App::DocumentObjectExecReturn(QT_TRANSLATE_NOOP("Exception", "Fillet not possible on selected shapes"));
     }
 
+    // Full rounds (FullRound): each face selected stands for its two sides,
+    // their radii its own
+    std::vector<std::pair<TopoDS_Edge, double>> rounds;
+    if (FullRound.getValue() && !UseAllEdges.getValue()) {
+        std::vector<TopoDS_Shape> roundFaces;
+        for (const auto &v : Base.getShadowSubs()) {
+            const auto &ref = v.first.size() ? v.first : v.second;
+            TopoDS_Shape sub = baseShape.getSubShape(ref.c_str(), true);
+            if (sub.IsNull() || sub.ShapeType() != TopAbs_FACE)
+                continue;
+            std::string reason;
+            auto sides = fullRoundEdges(baseShape, TopoDS::Face(sub), reason);
+            if (sides.empty())
+                return new App::DocumentObjectExecReturn(
+                    "Full round not possible on " + v.second + ": " + reason);
+            roundFaces.push_back(sub);
+            rounds.insert(rounds.end(), sides.begin(), sides.end());
+        }
+        // the faces' own edges out, their sides in
+        edges.erase(std::remove_if(edges.begin(), edges.end(), [&](const TopoShape &e) {
+            for (const auto &f : roundFaces) {
+                for (TopExp_Explorer ex(f, TopAbs_EDGE); ex.More(); ex.Next()) {
+                    if (ex.Current().IsSame(e.getShape()))
+                        return true;
+                }
+            }
+            return false;
+        }), edges.end());
+        for (const auto &r : rounds) {
+            if (std::none_of(edges.begin(), edges.end(),
+                             [&](const TopoShape &e) { return e.getShape().IsSame(r.first); }))
+                edges.emplace_back(r.first);
+        }
+    }
+
     double radius = Radius.getValue();
 
-    if(radius <= 0)
+    if(radius <= 0 && rounds.empty())
         return new App::DocumentObjectExecReturn(QT_TRANSLATE_NOOP("Exception", "Fillet radius must be greater than zero"));
 
     this->positionByBaseFeature();
@@ -147,6 +324,15 @@ App::DocumentObjectExecReturn *Fillet::execute()
             auto &conf = segmentList.back();
             if (index == 0)
                 continue;
+            // a full round's side, its own radius
+            auto round = std::find_if(rounds.begin(), rounds.end(),
+                                      [&](const std::pair<TopoDS_Edge, double> &r) {
+                                          return r.first.IsSame(e.getShape());
+                                      });
+            if (round != rounds.end()) {
+                conf.emplace_back(0.0, round->second);
+                continue;
+            }
             sub = "Edge";
             sub += std::to_string(index);
             const auto &segments = Segments.getValue(sub);

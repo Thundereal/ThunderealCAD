@@ -82,6 +82,7 @@ public:
 private Q_SLOTS:
     void onAddAllEdges();
     void onCheckBoxUseAllEdgesToggled(bool checked);
+    void onCheckBoxFullRoundToggled(bool checked);
     void onLengthChanged(double);
 
 protected:

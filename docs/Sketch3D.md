@@ -211,7 +211,8 @@ Constraints, first set (v1) and second (v2). "DOF" is what each removes.
 | Point on plane (workplane, datum, planar face) | 1 | (P - O).n = 0 | v1 |
 | Point on face (any) | 1 | P - F(u, v) = 0, u and v unknown, F from OCCT | v2 |
 | Along X / Y / Z (the sketch frame's axes) | 2 | the other two components of d = 0 | v1 |
-| Horizontal / Vertical / Normal to a workplane | 2 | d.v = 0, d.n = 0 (and so on) | v2 |
+| Horizontal / Vertical on a workplane | 1 | as seen on it: d.v = 0 (d.u = 0) -- see S3b | v2 |
+| Normal to a workplane | 2 | d parallel to n | v2 |
 | Parallel line-line | 2 | d2 - s d1 = 0, s unknown (4.3) | v1 |
 | Parallel to plane | 1 | d.n = 0 | v1 |
 | Perpendicular | 1 | d1 . d2 = 0 | v1 |
@@ -599,6 +600,53 @@ Not in S2, left for later:
   - `tests/gui/sketch3d-arcs.py`, 48 checks;
   - `Constraints3DSolve.parallelFromPerpendicular`, which fails with the old
     start.
+
+Found on the way: a click on the working plane went through the viewer's float
+ray-plane hit and landed up to 1e-6 off the plane, so a drag on XY now and then
+left z = 1.7e-6 (the drag-plane test failed one run in three). It is computed
+in doubles now and projected onto the plane, as the axis lock was.
+
+S3b, workplanes solved for (2026-10-27):
+- A workplane is a frame of 6 DOF: origin, and orientation as a unit
+  quaternion. It is solved for unless it carries a Block, which is the v1
+  plane: Keep Plane now adds that Block (section 6, "v1's plane is a v2 plane
+  carrying a Fix"). Its X and Y axes are what Horizontal and Vertical on it
+  mean.
+- What places a free plane: its origin (geometry position 3) coincident with
+  a point; point on it; Distance from a point; Parallel or Perpendicular to a
+  line, circle, arc or another plane; Angle to another plane, circle or arc
+  (between their normals).
+- Being a frame, a plane through three points keeps 3 DOF -- its slide in
+  itself and its spin -- until its origin and one axis are tied: the origin
+  coincident with a point, and Horizontal of a fixed line on it. That follows
+  from the ruled 6-DOF frame; a plane as a bare surface (3 DOF) would have no
+  axes for Horizontal and Vertical.
+- Horizontal / Vertical on a workplane are one equation, as seen on the
+  plane (SolveSpace's projected form [S 50]): the line has no run along the
+  plane's Y (X). The table had two (d.v = 0 and d.n = 0), but a line whose
+  ends are held on the plane already has d.n = 0, so every Horizontal on a
+  rectangle drawn on a kept plane would have been redundant. Stored as
+  `Constraint('Horizontal', line, plane)`; the 2D sketch refuses that form.
+- In the edit:
+  - Horizontal / Vertical take the plane selected with the lines, else the
+    active kept plane; with neither they say so;
+  - Block on blocked geometry frees it, so a kept plane is made
+    constrainable by selecting it and pressing Block;
+  - Symmetric of two points and a plane mirrors them in it;
+  - Angle of two planes, circles or arcs is a dimension of their normals,
+    with its label;
+  - a free plane drags; an active kept plane moved by a solve keeps the
+    manipulator on it.
+- The dot products these use have no gradient where the answer is a quarter
+  turn away with nothing else free to move (a blocked line, a plane that must
+  spin 90 deg). There the local diagnosis reads it as conflicting. A plane
+  started near its answer, as one drawn is, solves.
+- Tests:
+  - `tests/gui/sketch3d-workplanes.py`, 22 checks;
+  - four Python cases: a free plane following its constraints, symmetric
+    about a plane, a rectangle horizontal and vertical on a tilted plane with
+    nothing redundant, two planes at an angle;
+  - the 2D sketch refusing the workplane Horizontal.
 
 ## 11. Risks
 

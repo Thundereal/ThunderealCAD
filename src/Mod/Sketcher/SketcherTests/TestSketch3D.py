@@ -88,10 +88,12 @@ class TestSketch3D(unittest.TestCase):
 
     def testWorkplaneRectangle(self):
         # A rectangle on a fixed workplane tilted 30 deg: 5 DOF; a fourth right angle
-        # is implied and so redundant (docs/Sketch3D.md section 6).
+        # is implied and so redundant (docs/Sketch3D.md section 6). Fixed: blocked, as
+        # Keep Plane makes it; a workplane without is solved for.
         sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
         pln = Part.Plane(V(0, 0, 40), V(0, -math.sin(math.pi / 6), math.cos(math.pi / 6)))
         wp = sk.addGeometry(pln)
+        sk.addConstraint(Sketcher.Constraint("Block", wp))
         pts = [V(0, 0, 40), V(20, 0, 40), V(20, 8.7, 45), V(0, 8.7, 45)]
         lines = [sk.addGeometry(Part.LineSegment(pts[i], pts[(i + 1) % 4])) for i in range(4)]
         for i in range(4):
@@ -259,6 +261,7 @@ class TestSketch3D(unittest.TestCase):
         plm = App.Placement(V(1, 2, 3), App.Rotation(V(1, 1, 0), 40))
         pl.transform(plm.toMatrix())
         wp = sk.addGeometry(pl)
+        sk.addConstraint(Sketcher.Constraint("Block", wp))  # kept where it is
         line = sk.addGeometry(Part.LineSegment(V(0, 0, 0), V(5, 5, 5)))
         sk.addConstraint(Sketcher.Constraint("PointOnObject", line, 2, wp))
         self.assertEqual(sk.solve(), 0)
@@ -364,8 +367,129 @@ class TestSketch3D(unittest.TestCase):
     def test2DSketchRefuses3DTypes(self):
         sk = self.doc.addObject("Sketcher::SketchObject", "S2")
         sk.addGeometry(Part.LineSegment(V(0, 0, 0), V(10, 1, 0)))
+        sk.addGeometry(Part.LineSegment(V(0, 5, 0), V(10, 6, 0)))
         with self.assertRaises(ValueError):
             sk.addConstraint(Sketcher.Constraint("AlongX", 0))
+        # Horizontal in its form on a 3D sketch's workplane: a line and a plane
+        with self.assertRaises(ValueError):
+            sk.addConstraint(Sketcher.Constraint("Horizontal", 0, 1))
+
+    # -- S3b: workplanes solved for (docs/Sketch3D.md section 6, v2) -------------------
+
+    def planeOf(self, sk, wp):
+        g = sk.Geometry[wp]
+        return g.Position, g.Axis
+
+    def testFreeWorkplaneFollowsItsConstraints(self):
+        # A workplane without a Block is a frame of 6 DOF: put through a point whose
+        # height is a dimension (3), its normal along a guide line (2), its X along the
+        # frame's X (Horizontal of that axis on it, 1). It moves with the height and
+        # carries a line held on it.
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        wp = sk.addGeometry(Part.Plane())
+        p = sk.addGeometry(Part.Point(V(0, 0, 10)))
+        guide = sk.addGeometry(Part.LineSegment(V(0, 0, 0), V(0, -1, 1)))
+        line = sk.addGeometry(Part.LineSegment(V(2, 1, 8), V(9, 3, 6)))
+        sk.addConstraint(Sketcher.Constraint("Block", guide))
+        sk.addConstraint(Sketcher.Constraint("DistanceX", p, 1, 0.0))
+        sk.addConstraint(Sketcher.Constraint("DistanceY", p, 1, 0.0))
+        h = sk.addConstraint(Sketcher.Constraint("DistanceZ", p, 1, 10.0))
+        for c in [
+            Sketcher.Constraint("Coincident", wp, 3, p, 1),
+            Sketcher.Constraint("Perpendicular", guide, wp),
+            Sketcher.Constraint("Horizontal", -1, wp),
+            Sketcher.Constraint("PointOnObject", line, 1, wp),
+            Sketcher.Constraint("PointOnObject", line, 2, wp),
+        ]:
+            sk.addConstraint(c)
+            self.assertEqual(sk.Conflicting, [])
+        self.assertEqual(sk.Redundant, [])
+        self.assertEqual(sk.Malformed, [])
+        self.assertEqual(sk.DoF, 4)  # the line: its ends slide on the plane
+        o, n = self.planeOf(sk, wp)
+        self.assertVector(o, V(0, 0, 10))
+        self.assertLess(n.cross(V(0, -1, 1)).Length, 1e-7)
+        g = sk.Geometry[line]
+        for q in (g.StartPoint, g.EndPoint):
+            self.assertAlmostEqual((q - o).dot(n), 0, 7)
+        # the height moves the plane, and the line with it
+        sk.setDatum(h, 25.0)
+        o, n = self.planeOf(sk, wp)
+        self.assertVector(o, V(0, 0, 25))
+        g = sk.Geometry[line]
+        for q in (g.StartPoint, g.EndPoint):
+            self.assertAlmostEqual((q - o).dot(n), 0, 7)
+        self.assertLess(abs(sk.Geometry[wp].value(1, 0).sub(o).dot(V(0, 1, 0))), 1e-7)
+
+    def testSymmetricAboutAPlane(self):
+        # Mirrored in a plane: the midpoint on it and the two along its normal, 3 DOF.
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        wp = sk.addGeometry(Part.Plane(V(0, 0, 5), V(0, 0, 1)))
+        sk.addConstraint(Sketcher.Constraint("Block", wp))
+        a = sk.addGeometry(Part.Point(V(1, 2, 9)))
+        b = sk.addGeometry(Part.Point(V(4, 1, 0)))
+        sk.addConstraint(Sketcher.Constraint("DistanceX", a, 1, 1.0))
+        sk.addConstraint(Sketcher.Constraint("DistanceY", a, 1, 2.0))
+        sk.addConstraint(Sketcher.Constraint("DistanceZ", a, 1, 9.0))
+        self.assertEqual(sk.DoF, 3)
+        sk.addConstraint(Sketcher.Constraint("Symmetric", a, 1, b, 1, wp))
+        self.assertEqual(sk.DoF, 0)
+        self.assertEqual(sk.Redundant, [])
+        g = sk.Geometry[b]
+        self.assertVector(V(g.X, g.Y, g.Z), V(1, 2, 1))
+
+    def testHorizontalVerticalOnAWorkplane(self):
+        # A rectangle on a tilted kept plane, its sides horizontal and vertical as seen
+        # on the plane: one equation each, so with its corners held on the plane
+        # nothing is redundant, and 4 DOF are left, as for a 2D rectangle.
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        plm = App.Placement(V(0, 0, 10), App.Rotation(V(1, 0, 0), 30))
+        pl = Part.Plane()
+        pl.transform(plm.toMatrix())
+        wp = sk.addGeometry(pl)
+        sk.addConstraint(Sketcher.Constraint("Block", wp))
+        corners = [plm.multVec(V(x, y, 0)) for x, y in ((0, 0), (20, 1), (21, 9), (1, 8))]
+        lines = [
+            sk.addGeometry(Part.LineSegment(corners[i], corners[(i + 1) % 4])) for i in range(4)
+        ]
+        for i in range(4):
+            sk.addConstraint(Sketcher.Constraint("Coincident", lines[i], 2, lines[(i + 1) % 4], 1))
+            sk.addConstraint(Sketcher.Constraint("PointOnObject", lines[i], 1, wp))
+        for i, kind in enumerate(("Horizontal", "Vertical", "Horizontal", "Vertical")):
+            sk.addConstraint(Sketcher.Constraint(kind, lines[i], wp))
+            self.assertEqual(sk.Redundant, [])
+        self.assertEqual(sk.Malformed, [])
+        self.assertEqual(sk.DoF, 4)
+        x, y = plm.Rotation.multVec(V(1, 0, 0)), plm.Rotation.multVec(V(0, 1, 0))
+        for i, axis in enumerate((x, y, x, y)):
+            g = sk.Geometry[lines[i]]
+            d = g.EndPoint - g.StartPoint
+            self.assertLess(d.cross(axis).Length, 1e-7 * d.Length, (i, d))
+
+    def testAngleBetweenWorkplanes(self):
+        # A plane at 30 deg to a kept one, hinged on the frame's X: the angle of the
+        # normals, and X along the plane (Parallel) and across none of it (Horizontal).
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        base = sk.addGeometry(Part.Plane())
+        sk.addConstraint(Sketcher.Constraint("Block", base))
+        # Started near, its X along the hinge: the dot products these use have no
+        # gradient where the plane would have to turn a quarter round its normal.
+        pl = Part.Plane()
+        pl.transform(App.Placement(V(0, 0, 0), App.Rotation(V(1, 0, 0), 10)).toMatrix())
+        wp = sk.addGeometry(pl)
+        for c in [
+            Sketcher.Constraint("Coincident", wp, 3, -1, 1),
+            Sketcher.Constraint("Parallel", -1, wp),
+            Sketcher.Constraint("Horizontal", -1, wp),
+            Sketcher.Constraint("Angle", base, wp, math.radians(30)),
+        ]:
+            sk.addConstraint(c)
+            self.assertEqual(sk.Conflicting, [])
+        self.assertEqual(sk.Redundant, [])
+        self.assertEqual(sk.DoF, 0)
+        o, n = self.planeOf(sk, wp)
+        self.assertAlmostEqual(math.degrees(n.getAngle(V(0, 0, 1))), 30, 6)
+        self.assertAlmostEqual(n.dot(V(1, 0, 0)), 0, 7)
 
 
 if __name__ == "__main__":

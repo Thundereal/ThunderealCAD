@@ -44,6 +44,7 @@ namespace GCS
 /// - diff(a, b):       b - a (a line, or a centre-to-point radius)
 /// - crossDiff(n,a,b): n x (b - a) (an arc's tangent at b, a = centre)
 /// - planeNormal(pl):  a workplane's normal, from its quaternion
+/// - planeAxis(pl, k): its X (0), Y (1) or Z (2) axis
 class SketcherExport Dir3
 {
 public:
@@ -52,15 +53,17 @@ public:
         Vector,
         Diff,
         CrossDiff,
-        QuatNormal
+        QuatAxis
     };
 
     static Dir3 vector(const Point3& v);
     static Dir3 diff(const Point3& a, const Point3& b);
     static Dir3 crossDiff(const Point3& n, const Point3& a, const Point3& b);
     static Dir3 planeNormal(const Plane3& pl);
+    static Dir3 planeAxis(const Plane3& pl, int axis);
 
     Kind kind {Kind::Vector};
+    int axis {2};  // QuatAxis
     VEC_pD params;
 
     /// Its current value, without derivatives.

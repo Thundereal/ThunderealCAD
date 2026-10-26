@@ -98,17 +98,43 @@ double DeriVector3::component(int i, double& dc) const
 
 DeriVector3 quaternionNormal(const VEC_pD& pvec, std::size_t i, const double* derivparam)
 {
+    return quaternionAxis(pvec, i, 2, derivparam);
+}
+
+DeriVector3 quaternionAxis(const VEC_pD& pvec, std::size_t i, int axis, const double* derivparam)
+{
     double w = *pvec[i], x = *pvec[i + 1], y = *pvec[i + 2], z = *pvec[i + 3];
     double dw = dvar(pvec[i], derivparam), dx = dvar(pvec[i + 1], derivparam),
            dy = dvar(pvec[i + 2], derivparam), dz = dvar(pvec[i + 3], derivparam);
 
-    // R(q) applied to (0, 0, 1), unnormalised, and |q|^2.
-    double nx = 2 * (x * z + w * y);
-    double ny = 2 * (y * z - w * x);
-    double nz = w * w - x * x - y * y + z * z;
-    double dnx = 2 * (dx * z + x * dz + dw * y + w * dy);
-    double dny = 2 * (dy * z + y * dz - dw * x - w * dx);
-    double dnz = 2 * (w * dw - x * dx - y * dy + z * dz);
+    // Column axis of R(q), unnormalised, and |q|^2.
+    double nx, ny, nz, dnx, dny, dnz;
+    switch (axis) {
+        case 0:
+            nx = w * w + x * x - y * y - z * z;
+            ny = 2 * (x * y + w * z);
+            nz = 2 * (x * z - w * y);
+            dnx = 2 * (w * dw + x * dx - y * dy - z * dz);
+            dny = 2 * (dx * y + x * dy + dw * z + w * dz);
+            dnz = 2 * (dx * z + x * dz - dw * y - w * dy);
+            break;
+        case 1:
+            nx = 2 * (x * y - w * z);
+            ny = w * w - x * x + y * y - z * z;
+            nz = 2 * (y * z + w * x);
+            dnx = 2 * (dx * y + x * dy - dw * z - w * dz);
+            dny = 2 * (w * dw - x * dx + y * dy - z * dz);
+            dnz = 2 * (dy * z + y * dz + dw * x + w * dx);
+            break;
+        default:
+            nx = 2 * (x * z + w * y);
+            ny = 2 * (y * z - w * x);
+            nz = w * w - x * x - y * y + z * z;
+            dnx = 2 * (dx * z + x * dz + dw * y + w * dy);
+            dny = 2 * (dy * z + y * dz - dw * x - w * dx);
+            dnz = 2 * (w * dw - x * dx - y * dy + z * dz);
+            break;
+    }
     double s = w * w + x * x + y * y + z * z;
     double ds = 2 * (w * dw + x * dx + y * dy + z * dz);
     if (s == 0.) {

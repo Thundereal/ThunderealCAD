@@ -154,10 +154,14 @@ public:
             || Type == Weight;
     }
 
-    /// A type only the 3D sketch (Sketch3DObject) solves; the 2D sketch refuses it.
+    /// A type only the 3D sketch (Sketch3DObject) solves, or Horizontal / Vertical in its
+    /// form on a workplane (a line and a plane, no point positions); the 2D sketch
+    /// refuses it.
     inline bool isSketch3DOnly() const
     {
-        return Type == AlongX || Type == AlongY || Type == AlongZ || Type == DistanceZ;
+        return Type == AlongX || Type == AlongY || Type == AlongZ || Type == DistanceZ
+            || ((Type == Horizontal || Type == Vertical) && Second != GeoEnum::GeoUndef
+                && FirstPos == PointPos::none && SecondPos == PointPos::none);
     }
 
     /// utility function to swap the index in elements of the provided constraint from the

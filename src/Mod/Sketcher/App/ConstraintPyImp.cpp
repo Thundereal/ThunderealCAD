@@ -262,6 +262,15 @@ int ConstraintPy::PyInit(PyObject* args, PyObject* /*kwd*/)
                 constraint->Type = Equal;
                 valid = true;
             }
+            else if (strcmp("Horizontal", ConstraintType) == 0) {
+                // a line on a 3D sketch's workplane
+                constraint->Type = Horizontal;
+                valid = true;
+            }
+            else if (strcmp("Vertical", ConstraintType) == 0) {
+                constraint->Type = Vertical;
+                valid = true;
+            }
             else if (strstr(ConstraintType, "InternalAlignment")) {
                 constraint->Type = InternalAlignment;
 

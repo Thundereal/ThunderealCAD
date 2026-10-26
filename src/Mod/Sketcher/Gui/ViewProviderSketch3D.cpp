@@ -1092,8 +1092,14 @@ bool ViewProviderSketch3D::press(const SbVec2s& pos, bool ctrl)
         if (part >= 0 && part < int(edit->curveRefs.size())) {
             Element e {edit->curveRefs[part], Sketcher::PointPos::none};
             select(e);
-            auto geo = getSketch3DObject()->getGeometry(e.geoId);
-            if (e.geoId >= 0 && geo && !geo->isDerivedFrom<Part::GeomPlane>()) {
+            auto sketch = getSketch3DObject();
+            auto geo = sketch->getGeometry(e.geoId);
+            // a workplane moves when it is not blocked (section 6)
+            bool blocked = false;
+            for (auto c : sketch->Constraints.getValues()) {
+                blocked = blocked || (c->Type == Sketcher::Block && c->First == e.geoId);
+            }
+            if (e.geoId >= 0 && geo && !(geo->isDerivedFrom<Part::GeomPlane>() && blocked)) {
                 // a curve is dragged by where it was taken, on the working plane
                 // through that point
                 SbVec3f w = pp->getPoint();
@@ -1189,21 +1195,23 @@ int ViewProviderSketch3D::keepPlane()
     const Base::Vector3d& o = plane.getPosition();
     int id = sketch->Geometry.getSize();
     Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Keep 3D sketch plane"));
-    Gui::Command::doCommand(Gui::Command::Doc,
-                            "_p = Part.Plane()\n"
-                            "_p.transform(App.Placement(App.Vector(%.17g, %.17g, %.17g), "
-                            "App.Rotation(%.17g, %.17g, %.17g, "
-                            "%.17g)).toMatrix())\n"
-                            "%s.addGeometry(_p, True)\n"
-                            "del _p",
-                            o.x,
-                            o.y,
-                            o.z,
-                            q0,
-                            q1,
-                            q2,
-                            q3,
-                            Gui::Command::getObjectCmd(sketch).c_str());
+    Gui::Command::doCommand(
+        Gui::Command::Doc,
+        "_p = Part.Plane()\n"
+        "_p.transform(App.Placement(App.Vector(%.17g, %.17g, %.17g), "
+        "App.Rotation(%.17g, %.17g, %.17g, "
+        "%.17g)).toMatrix())\n"
+        "%s.addConstraint(Sketcher.Constraint('Block', %s.addGeometry(_p, True)))\n"
+        "del _p",
+        o.x,
+        o.y,
+        o.z,
+        q0,
+        q1,
+        q2,
+        q3,
+        Gui::Command::getObjectCmd(sketch).c_str(),
+        Gui::Command::getObjectCmd(sketch).c_str());
     Gui::Command::commitCommand();
     activateKeptPlane(id);
     return id;
@@ -2543,6 +2551,37 @@ Base::Vector3d planeNormal(const Part::Geometry* geo, Base::Vector3d& origin)
     origin = Base::Vector3d(ax.Location().X(), ax.Location().Y(), ax.Location().Z());
     return Base::Vector3d(ax.Direction().X(), ax.Direction().Y(), ax.Direction().Z());
 }
+
+// What an angle is measured from: a line's start and direction, or a plane's,
+// circle's or arc's centre and normal.
+bool axisOf(const Part::Geometry* geo, Base::Vector3d& base, Base::Vector3d& dir)
+{
+    switch (kindOf(geo)) {
+        case CurveKind::Line: {
+            auto seg = static_cast<const Part::GeomLineSegment*>(geo);
+            base = seg->getStartPoint();
+            dir = seg->getEndPoint() - base;
+            return dir.Length() > 0.;
+        }
+        case CurveKind::Plane:
+            dir = planeNormal(geo, base);
+            return true;
+        case CurveKind::Circle: {
+            auto c = static_cast<const Part::GeomCircle*>(geo);
+            base = c->getCenter();
+            dir = c->getAxisDirection();
+            return true;
+        }
+        case CurveKind::Arc: {
+            auto a = static_cast<const Part::GeomArcOfCircle*>(geo);
+            base = a->getCenter();
+            dir = a->getAxisDirection();
+            return true;
+        }
+        default:
+            return false;
+    }
+}
 }  // namespace
 
 bool ViewProviderSketch3D::constrainSelection(Sketcher::ConstraintType type, QString* why)
@@ -2586,6 +2625,7 @@ bool ViewProviderSketch3D::constrainSelection(Sketcher::ConstraintType type, QSt
     // Each constraint as a recorded command, the dimensions with what the geometry
     // measures now, so nothing moves until the value is changed.
     std::vector<std::string> made;
+    std::vector<int> removed;  // Block toggled off
     auto con = [&](const std::string& args) {
         made.push_back("Sketcher.Constraint(" + args + ")");
     };
@@ -2697,8 +2737,15 @@ bool ViewProviderSketch3D::constrainSelection(Sketcher::ConstraintType type, QSt
                 con(quoted("Symmetric") + ", " + pp(points[0]) + ", " + pp(points[1]) + ", "
                     + pp(points[2]));
             }
+            else if (points.size() == 2 && curves.size() == 1
+                     && kind(curves[0]) == CurveKind::Plane) {
+                // mirrored in the plane
+                con(quoted("Symmetric") + ", " + pp(points[0]) + ", " + pp(points[1]) + ", "
+                    + id(curves[0]));
+            }
             else {
-                return fail(QObject::tr("Select two points and the point between them"));
+                return fail(
+                    QObject::tr("Select two points and the point between them, or a plane"));
             }
             break;
         case Sketcher::Distance: {
@@ -2758,14 +2805,16 @@ bool ViewProviderSketch3D::constrainSelection(Sketcher::ConstraintType type, QSt
         }
         case Sketcher::Angle: {
             dimension = true;
-            Base::Vector3d a1, b1, a2, b2;
-            if (points.empty() && curves.size() == 2 && line(curves[0], a1, b1)
-                && line(curves[1], a2, b2)) {
-                double v = (b1 - a1).GetAngle(b2 - a2);
+            Base::Vector3d a1, d1, a2, d2;
+            if (points.empty() && curves.size() == 2
+                && axisOf(sketch->getGeometry(curves[0].geoId), a1, d1)
+                && axisOf(sketch->getGeometry(curves[1].geoId), a2, d2)
+                && (kind(curves[0]) == CurveKind::Line) == (kind(curves[1]) == CurveKind::Line)) {
+                double v = d1.GetAngle(d2);
                 con(quoted("Angle") + ", " + id(curves[0]) + ", " + id(curves[1]) + ", " + num(v));
             }
             else {
-                return fail(QObject::tr("Select two lines"));
+                return fail(QObject::tr("Select two lines, or two of planes, circles and arcs"));
             }
             break;
         }
@@ -2793,25 +2842,85 @@ bool ViewProviderSketch3D::constrainSelection(Sketcher::ConstraintType type, QSt
             }
             break;
         }
-        case Sketcher::Block:
+        case Sketcher::Block: {
+            // A toggle: what is all blocked already is freed (a kept plane made
+            // constrainable, section 6), otherwise the rest is blocked.
             if (!points.empty() || curves.empty()) {
                 return fail(QObject::tr("Select the geometry to block"));
             }
+            const auto& all = sketch->Constraints.getValues();
+            auto blockOf = [&](int geoId) {
+                for (std::size_t i = 0; i < all.size(); ++i) {
+                    if (all[i]->Type == Sketcher::Block && all[i]->First == geoId) {
+                        return int(i);
+                    }
+                }
+                return -1;
+            };
+            bool allBlocked = std::all_of(curves.begin(), curves.end(), [&](const Element& c) {
+                return blockOf(c.geoId) >= 0;
+            });
             for (const auto& c : curves) {
-                con(quoted("Block") + ", " + id(c));
+                if (allBlocked) {
+                    removed.push_back(blockOf(c.geoId));
+                }
+                else if (blockOf(c.geoId) < 0) {
+                    con(quoted("Block") + ", " + id(c));
+                }
             }
             break;
+        }
         case Sketcher::Horizontal:
-        case Sketcher::Vertical:
-            return fail(QObject::tr(
-                "A 3D sketch has no horizontal or vertical without a plane: use Along X, "
-                "Along Y or Along Z"));
+        case Sketcher::Vertical: {
+            // Along the X or Y axis of a workplane: the one selected with the lines,
+            // else the active kept plane (section 4.4, workplane-local).
+            int plane = -1;
+            std::vector<Element> lines;
+            for (const auto& c : curves) {
+                if (kind(c) == CurveKind::Plane && plane < 0) {
+                    plane = c.geoId;
+                }
+                else if (kind(c) == CurveKind::Line) {
+                    lines.push_back(c);
+                }
+                else {
+                    lines.clear();
+                    break;
+                }
+            }
+            if (plane < 0) {
+                plane = edit->keptPlane;
+            }
+            if (plane < 0) {
+                return fail(QObject::tr(
+                    "A 3D sketch has no horizontal or vertical without a plane: select one "
+                    "with the lines, make a kept plane active, or use Along X, Y or Z"));
+            }
+            if (!points.empty() || lines.empty()) {
+                return fail(QObject::tr("Select lines, and a plane unless one is active"));
+            }
+            const char* name = type == Sketcher::Horizontal ? "Horizontal" : "Vertical";
+            for (const auto& l : lines) {
+                con(quoted(name) + ", " + id(l) + ", " + std::to_string(plane));
+            }
+            break;
+        }
         default:
             return fail(QObject::tr("Not a constraint the 3D sketch has"));
     }
 
     const std::string obj = Gui::Command::getObjectCmd(sketch);
     int first = sketch->Constraints.getSize();
+    if (!removed.empty()) {
+        std::sort(removed.rbegin(), removed.rend());
+        Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Free 3D sketch geometry"));
+        for (int i : removed) {
+            Gui::Command::doCommand(Gui::Command::Doc, "%s.delConstraint(%d)", obj.c_str(), i);
+        }
+        clearSelection();
+        Gui::Command::commitCommand();
+        return true;
+    }
     Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Add 3D sketch constraint"));
     for (const auto& c : made) {
         Gui::Command::doCommand(Gui::Command::Doc, "%s.addConstraint(%s)", obj.c_str(), c.c_str());
@@ -3094,12 +3203,10 @@ void ViewProviderSketch3D::drawLabels()
                 break;
             }
             case Sketcher::Angle: {
-                auto l1 = Base::freecad_dynamic_cast<Part::GeomLineSegment>(geo);
-                auto l2 = Base::freecad_dynamic_cast<Part::GeomLineSegment>(
-                    sketch->getGeometry(c->Second));
-                if (l1 && l2) {
-                    Base::Vector3d a1 = l1->getStartPoint(), d1 = l1->getEndPoint() - a1;
-                    Base::Vector3d a2 = l2->getStartPoint(), d2 = l2->getEndPoint() - a2;
+                // between lines, or the normals of planes, circles and arcs, from where
+                // the two come nearest
+                Base::Vector3d a1, d1, a2, d2;
+                if (axisOf(geo, a1, d1) && axisOf(sketch->getGeometry(c->Second), a2, d2)) {
                     Base::Vector3d n = d1 % d2;
                     if (n.Length() > 1e-9) {
                         // where the lines come nearest
@@ -3382,6 +3489,29 @@ void ViewProviderSketch3D::draw()
     std::vector<SbColor> colors;
     std::vector<SbVec3f> pts;
     std::vector<SbColor> ptColors;
+
+    // The active kept plane moved with a solve (a constrained one, section 6): the
+    // manipulator turns with it and stays on it.
+    if (edit->keptPlane >= 0) {
+        auto kept = sketch->getGeometry(edit->keptPlane);
+        if (kept && kept->isDerivedFrom<Part::GeomPlane>()) {
+            auto pln = Handle(Geom_Plane)::DownCast(kept->handle());
+            const gp_Ax3& ax = pln->Position();
+            auto v = [](const gp_XYZ& x) {
+                return Base::Vector3d(x.X(), x.Y(), x.Z());
+            };
+            Base::Vector3d o = v(ax.Location().XYZ()), n = v(ax.Direction().XYZ());
+            edit->origin = edit->origin - n * ((edit->origin - o) * n);
+            edit->rotation = Base::Rotation::makeRotationByAxes(v(ax.XDirection().XYZ()),
+                                                                v(ax.YDirection().XYZ()),
+                                                                n);
+            edit->plane = Plane::XY;
+            updateManipulator();
+        }
+        else {
+            edit->keptPlane = -1;
+        }
+    }
 
     edit->curveRefs.clear();
     edit->pointRefs.clear();

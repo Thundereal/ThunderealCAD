@@ -33,6 +33,7 @@
 #include <Geom_Plane.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <gp_Ax2.hxx>
+#include <gp_Ax3.hxx>
 #include <gp_Mat.hxx>
 #include <gp_Quaternion.hxx>
 
@@ -155,19 +156,23 @@ void Sketch3DSolver::addEntity(const Part::Geometry* geo, bool external, bool bl
         e.end = e.bsp.poles.back();
     }
     else if (auto plane = freecad_cast<const Part::GeomPlane*>(geo)) {
-        // Fixed in v1 (docs/Sketch3D.md section 6).
+        // A frame, solved for unless blocked (docs/Sketch3D.md section 6): Keep Plane
+        // makes it blocked, which is the v1 plane.
         e.kind = Kind::Plane;
         auto pln = Handle(Geom_Plane)::DownCast(plane->handle());
         const gp_Ax3& pos = pln->Position();
         gp_Mat m(pos.XDirection().XYZ(), pos.YDirection().XYZ(), pos.Direction().XYZ());
         gp_Quaternion q(m);
         const gp_Pnt& o = pos.Location();
-        e.mid = point(Base::Vector3d(o.X(), o.Y(), o.Z()), false);
+        e.mid = point(Base::Vector3d(o.X(), o.Y(), o.Z()), unknown);
         e.plane.origin = e.mid;
-        e.plane.qw = param(q.W(), false);
-        e.plane.qx = param(q.X(), false);
-        e.plane.qy = param(q.Y(), false);
-        e.plane.qz = param(q.Z(), false);
+        e.plane.qw = param(q.W(), unknown);
+        e.plane.qx = param(q.X(), unknown);
+        e.plane.qy = param(q.Y(), unknown);
+        e.plane.qz = param(q.Z(), unknown);
+        if (unknown) {
+            GCS::addConstraintPlane3Rules(sys, e.plane);
+        }
     }
     else if (auto curve = freecad_cast<const Part::GeomCurve*>(geo); curve && external) {
         e.kind = Kind::Curve;
@@ -428,8 +433,7 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
                 Entity* a = entity(c.First);
                 Entity* b = entity(c.Second);
                 GCS::Dir3 n1, n2;
-                if (!a || !b || !normalOf(a, n1) || !normalOf(b, n2)
-                    || (a->kind == Kind::Plane && b->kind == Kind::Plane)) {
+                if (!a || !b || !normalOf(a, n1) || !normalOf(b, n2)) {
                     return false;
                 }
                 if (c.Type == Parallel) {
@@ -578,11 +582,48 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
             }
             return false;
         }
+        case Horizontal:
+        case Vertical: {
+            // On a workplane (Second), as seen on it (SolveSpace's projected form, section
+            // 4.4): no run along the plane's Y axis (horizontal) or X axis (vertical), 1
+            // DOF. A line held on the plane is then along its X or Y; not counting the
+            // plane's normal too keeps that from being redundant. Without a plane a 3D
+            // sketch has no horizontal (Along X / Y / Z instead).
+            if (!is(c.First, Kind::Line) || !is(c.Second, Kind::Plane)) {
+                return false;
+            }
+            Entity* l = entity(c.First);
+            auto d = GCS::Dir3::diff(l->start, l->end);
+            auto across =
+                GCS::Dir3::planeAxis(entity(c.Second)->plane, c.Type == Horizontal ? 1 : 0);
+            GCS::addConstraintPerpendicular3(sys, d, across, tag, driving);
+            return true;
+        }
         case Symmetric: {
-            // About a point: the midpoint. About a line or a plane is v2.
             auto p = pt(c.First, c.FirstPos), q = pt(c.Second, c.SecondPos);
+            if (!p || !q) {
+                return false;
+            }
+            if (c.ThirdPos == PointPos::none && is(c.Third, Kind::Plane)) {
+                // About a plane: the midpoint on it, and P - Q along its normal (3).
+                // The midpoint is an unknown of its own, held there by three equations.
+                Entity* pl = entity(c.Third);
+                GCS::Point3 mid = point((vec(*p) + vec(*q)) / 2, true);
+                GCS::addConstraintP3Midpoint(sys, mid, *p, *q, tag, driving);
+                GCS::addConstraintP3OnPlane(sys, mid, pl->plane, tag, driving);
+                auto n = GCS::Dir3::planeNormal(pl->plane);
+                auto d = GCS::Dir3::diff(*q, *p);
+                GCS::addConstraintParallel3(sys,
+                                            n,
+                                            d,
+                                            param(GCS::initialParallelRatio(n, d), true),
+                                            tag,
+                                            driving);
+                return true;
+            }
+            // About a point: the midpoint. About a line is not in 3D (section 4.4).
             auto m = pt(c.Third, c.ThirdPos);
-            if (!p || !q || !m || c.ThirdPos == PointPos::none) {
+            if (!m || c.ThirdPos == PointPos::none) {
                 return false;
             }
             GCS::addConstraintP3Midpoint(sys, *m, *p, *q, tag, driving);
@@ -658,6 +699,27 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
             return true;
         }
         case Angle: {
+            // Between two workplanes, circles or arcs: the angle of their normals.
+            {
+                Entity* a = entity(c.First);
+                Entity* b = entity(c.Second);
+                auto normalOf = [](Entity* e, GCS::Dir3& n) {
+                    if (e && (e->kind == Kind::Circle || e->kind == Kind::Arc)) {
+                        n = GCS::Dir3::vector(e->normal);
+                        return true;
+                    }
+                    if (e && e->kind == Kind::Plane) {
+                        n = GCS::Dir3::planeNormal(e->plane);
+                        return true;
+                    }
+                    return false;
+                };
+                GCS::Dir3 n1, n2;
+                if (normalOf(a, n1) && normalOf(b, n2)) {
+                    GCS::addConstraintAngle3(sys, n1, n2, value(), tag, driving);
+                    return true;
+                }
+            }
             if (!is(c.First, Kind::Line) || !is(c.Second, Kind::Line)) {
                 return false;
             }
@@ -920,7 +982,20 @@ std::vector<std::unique_ptr<Part::Geometry>> Sketch3DSolver::extractGeometry() c
                 bsp->setPoles(poles, weights);
                 break;
             }
-            case Kind::Plane:
+            case Kind::Plane: {
+                double w = *e.plane.qw, x = *e.plane.qx, y = *e.plane.qy, z = *e.plane.qz;
+                double l = std::sqrt(w * w + x * x + y * y + z * z);
+                if (l <= 0.) {
+                    break;
+                }
+                gp_Quaternion q(x / l, y / l, z / l, w / l);
+                Base::Vector3d o = vec(e.mid);
+                gp_Ax3 ax(gp_Pnt(o.x, o.y, o.z),
+                          gp_Dir(q.Multiply(gp_Vec(0, 0, 1))),
+                          gp_Dir(q.Multiply(gp_Vec(1, 0, 0))));
+                static_cast<Part::GeomPlane*>(geo.get())->setHandle(new Geom_Plane(ax));
+                break;
+            }
             case Kind::Curve:
                 break;
         }

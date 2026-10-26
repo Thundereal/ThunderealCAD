@@ -90,8 +90,14 @@ Dir3 Dir3::crossDiff(const Point3& n, const Point3& a, const Point3& b)
 
 Dir3 Dir3::planeNormal(const Plane3& pl)
 {
+    return planeAxis(pl, 2);
+}
+
+Dir3 Dir3::planeAxis(const Plane3& pl, int axis)
+{
     Dir3 d;
-    d.kind = Kind::QuatNormal;
+    d.kind = Kind::QuatAxis;
+    d.axis = axis;
     d.params = {pl.qw, pl.qx, pl.qy, pl.qz};
     return d;
 }
@@ -109,8 +115,8 @@ DeriVector3 Dir3::eval(const VEC_pD& pvec, std::size_t i, const double* derivpar
                 DeriVector3(pvec, i + 6, derivparam).subtr(DeriVector3(pvec, i + 3, derivparam));
             return n.cross(r);
         }
-        case Kind::QuatNormal:
-            return quaternionNormal(pvec, i, derivparam);
+        case Kind::QuatAxis:
+            return quaternionAxis(pvec, i, axis, derivparam);
     }
     return {};
 }

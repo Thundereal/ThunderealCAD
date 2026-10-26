@@ -120,6 +120,11 @@ fc_add_gui_test(GuiSketch3DIcons_tests_run sketch3d-icons.py
 # points in their own plane, on a kept plane; coaxial, a line along an axis.
 fc_add_gui_test(GuiSketch3DArcs_tests_run sketch3d-arcs.py
                 --timeout 180)
+# Its workplanes solved for (S3b): Keep Plane blocked, Horizontal and Vertical
+# on a plane, Block freeing a plane, a free plane carrying its geometry,
+# symmetric about a plane, the angle of two planes.
+fc_add_gui_test(GuiSketch3DWorkplanes_tests_run sketch3d-workplanes.py
+                --timeout 180)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

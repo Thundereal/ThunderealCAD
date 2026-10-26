@@ -127,10 +127,16 @@ public:
 SketcherExport DeriVector3 quaternionNormal(const VEC_pD& pvec,
                                             std::size_t i,
                                             const double* derivparam);
+/// The frame's axis 0, 1 or 2 (X, Y, Z) the same way: R(q) e_axis / |q|^2.
+SketcherExport DeriVector3 quaternionAxis(const VEC_pD& pvec,
+                                          std::size_t i,
+                                          int axis,
+                                          const double* derivparam);
 
-/// A workplane: an origin and an orientation as a quaternion. Its normal is the
-/// orientation's Z axis (quaternionNormal). Fixed in v1 (its parameters are not
-/// declared unknown), constrainable in v2 (docs/Sketch3D.md section 6).
+/// A workplane: an origin and an orientation as a quaternion, a frame. Its normal is
+/// the orientation's Z axis (quaternionNormal), and its X and Y axes are what
+/// horizontal and vertical on it mean. Solved for unless blocked (docs/Sketch3D.md
+/// section 6): 6 DOF, |q| = 1 its internal equation (addConstraintPlane3Rules).
 class SketcherExport Plane3
 {
 public:

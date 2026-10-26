@@ -12,6 +12,8 @@
 #include <sstream>
 #include <vector>
 
+#include <QCoreApplication>
+
 #include "App/Application.h"
 #include "App/Document.h"
 #include "App/DocumentObject.h"
@@ -96,7 +98,12 @@ protected:
         _docName = App::GetApplication().getUniqueDocumentName("txnmeasure");
         _doc = App::GetApplication().newDocument(_docName.c_str(), "testUser");
         _doc->setUndoMode(1);
-        _csv = Base::FileInfo::getTempFileName("txnmeasure", nullptr) + ".csv";
+        // A name of this process and test: getTempFileName() frees the file
+        // it makes, and ctest runs these tests in processes side by side,
+        // which got the same name and wrote into one file
+        _csv = Base::FileInfo::getTempPath() + "txnmeasure-"
+            + std::to_string(QCoreApplication::applicationPid()) + "-"
+            + ::testing::UnitTest::GetInstance()->current_test_info()->name() + ".csv";
         ASSERT_TRUE(App::TransactionMeasure::start(_csv.c_str()));
     }
 

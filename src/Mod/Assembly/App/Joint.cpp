@@ -410,6 +410,7 @@ JointSide Joint::getSide(int side) const
         // Not resolved now (a component not loaded, a broken reference): the
         // copy the element link keeps
         res.shape = res.link->Shape.getShape();
+        res.stored = !res.shape.isNull();
     }
     Base::Placement wholePlacement;
     if (res.shape.isNull()
@@ -438,6 +439,17 @@ JointSide Joint::getSide(int side) const
         res.frame = res.frame * *it;
     }
     res.frame = res.frame * res.link->Offset.getValue();
+    if (res.stored && res.component) {
+        // The copy is where the component was when it was taken, which a
+        // solve since makes stale: the frame is the last one the geometry
+        // gave, relative to the component as execute() keeps it, and the
+        // copy goes with it
+        const auto& local = side == 1 ? Placement1 : Placement2;
+        const Base::Placement now
+            = App::GeoFeature::getPlacementFromProp(res.component, "Placement") * local.getValue();
+        res.shape.transformShape((now * res.frame.inverse()).toMatrix(), false);
+        res.frame = now;
+    }
     return res;
 }
 

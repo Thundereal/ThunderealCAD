@@ -71,9 +71,13 @@ public:
      * this is the dependency on the geometry itself.
      */
     App::PropertyXLink _Resolved;
+    /// The target is not loaded now (a link to a closed or missing
+    /// document): the copy is kept, and serves its users until it is back
+    App::PropertyBool Unresolved;
 
     App::DocumentObjectExecReturn *execute() override;
     void onChanged(const App::Property *prop) override;
+    void onDocumentRestored() override;
     const char *getViewProviderName() const override {
         return "PartGui::ViewProviderElement";
     }
@@ -126,6 +130,17 @@ public:
                                         const char *subname,
                                         Base::Placement &placement);
 
+    /** Whether an object stands for one not loaded now: a link to an object
+     * of a document that is closed or missing, or an object a partially
+     * loaded document created without restoring it
+     */
+    static bool isUnloaded(const App::DocumentObject *obj);
+    /** Whether a link property's path stops at an object not loaded now
+     * (isUnloaded()), where it would otherwise go on: the geometry is not
+     * gone, only not here
+     */
+    static bool stopsUnloaded(const App::PropertyLinkSub &prop);
+
 private:
     void touchGroups();
 };
@@ -161,6 +176,9 @@ public:
      * this is the dependency on the geometry itself.
      */
     App::PropertyXLink _Resolved;
+    /// The element is not loaded now (a link to a closed or missing
+    /// document): the copy is kept, and the joint is solved on it
+    App::PropertyBool Unresolved;
 
     App::DocumentObjectExecReturn *execute() override;
 
@@ -196,6 +214,7 @@ public:
 
 protected:
     void onChanged(const App::Property *prop) override;
+    void onDocumentRestored() override;
 };
 
 }  // namespace Part

@@ -70,6 +70,10 @@ struct AssemblyExport JointSide
     /// A whole object with no shape (an empty link, a datum, an LCS): the
     /// frame is its placement
     bool wholeObject = false;
+    /// The geometry does not resolve now (a component not loaded): the
+    /// shape is the element link's copy, and the frame the joint's last,
+    /// relative to the component
+    bool stored = false;
 
     bool isValid() const
     {

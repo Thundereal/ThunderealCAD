@@ -1117,6 +1117,12 @@ void collectComponentsRecursively(
             continue;
         }
         else if (auto* link = freecad_cast<App::Link*>(obj)) {
+            // A link to what is not loaded now (a closed or missing document)
+            // keeps its place, and is solved on its element links' copies
+            if (Part::Element::isUnloaded(link)) {
+                results.push_back(link);
+                continue;
+            }
             obj = link->getLinkedObject();
             if (!obj) {
                 continue;

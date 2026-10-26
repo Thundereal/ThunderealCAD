@@ -34,6 +34,8 @@
 #include <App/Document.h>
 #include <App/ElementNamingUtils.h>
 #include <App/GroupExtension.h>
+#include <App/Link.h>
+#include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/Tools.h>
 
@@ -75,11 +77,58 @@ static void syncResolved(App::PropertyXLink &resolved, const App::PropertyLinkSu
         resolved.setValue(obj);
 }
 
+/** Keep the copy of what is not loaded now, and say so: not an error, the
+ * copy serves until the geometry is back. The dependency on the geometry
+ * is kept as well, so that it is followed again once loaded.
+ *
+ * @return true when the link stops at an object not loaded
+ */
+static bool keepUnresolved(Part::Feature *feature,
+                           const App::PropertyLinkSub &prop,
+                           App::PropertyBool &unresolved)
+{
+    if (!Element::stopsUnloaded(prop)) {
+        if (unresolved.getValue())
+            unresolved.setValue(false);
+        return false;
+    }
+    if (!unresolved.getValue()) {
+        unresolved.setValue(true);
+        Base::Console().Warning("%s keeps its copy: %s is not loaded\n",
+                                feature->getFullName().c_str(),
+                                prop.getValue()->getFullName().c_str());
+    }
+    return true;
+}
+
 static bool isEditing(const App::DocumentObject *obj)
 {
     auto doc = obj->getDocument();
     return doc && !obj->isRestoring() && !obj->isRemoving()
         && !doc->testStatus(App::Document::Restoring) && !doc->isPerformingTransaction();
+}
+
+/** Follow the document of the geometry closing and coming back
+ *
+ * Closed, the link on the geometry keeps the object's name, and the copy
+ * serves. Back, the link is attached again, and the copy is taken again if
+ * that document changed since: the link keeps the touch then, and purges it
+ * when not (PropertyXLink::restoreLink()).
+ */
+static void followResolved(Part::Feature *feature,
+                           const App::PropertyXLink &resolved,
+                           App::PropertyBool &unresolved)
+{
+    if (resolved.getValue()) {
+        if (unresolved.getValue()) {
+            unresolved.setValue(false);
+            feature->touch();
+        }
+        return;
+    }
+    const char *name = resolved.getObjectName();
+    if (name && *name && !unresolved.getValue())
+        unresolved.setValue(true);
 }
 
 /// Keep \a shape as the copy, where it is: a feature's Placement is its
@@ -105,9 +154,53 @@ Element::Element()
             (App::PropertyType)(App::Prop_Hidden|App::Prop_Output),
             "What Target resolves to, the dependency on the geometry itself");
     _Resolved.setScope(App::LinkScope::Global);
+    // Its document may be closed, or missing: not an error of the element
+    _Resolved.setAllowPartial(true);
+    ADD_PROPERTY_TYPE(Unresolved, (false), "Element",
+            (App::PropertyType)(App::Prop_ReadOnly|App::Prop_Output),
+            "The target is not loaded now (a link to a closed or missing\n"
+            "document): the copy is kept until it is back");
     // The link copies geometry and places nothing: Global scope keeps it out
     // of the coordinate-system checks and of what moves with what
     Target.setScope(App::LinkScope::Global);
+}
+
+bool Element::isUnloaded(const App::DocumentObject *obj)
+{
+    if (!obj || !obj->isAttachedToDocument())
+        return false;
+    if (obj->testStatus(App::PartialObject))
+        return true;
+    auto ext = obj->getExtensionByType<App::LinkBaseExtension>(true);
+    auto xlink = ext ? Base::freecad_dynamic_cast<App::PropertyXLink>(
+            ext->getLinkedObjectProperty()) : nullptr;
+    if (!xlink || xlink->getValue())
+        return false;
+    const char *name = xlink->getObjectName();
+    return name && *name;
+}
+
+bool Element::stopsUnloaded(const App::PropertyLinkSub &prop)
+{
+    auto obj = prop.getValue();
+    if (!obj || !obj->isAttachedToDocument())
+        return false;
+    if (isUnloaded(obj))
+        return true;
+    const auto &subs = prop.getSubValues();
+    if (subs.empty())
+        return false;
+    // Each step of the path, as the selection makes them, up to the first
+    // that does not resolve
+    const std::string &sub = subs.front();
+    for (auto pos = sub.find('.'); pos != std::string::npos; pos = sub.find('.', pos + 1)) {
+        auto sobj = obj->getSubObject(sub.substr(0, pos + 1).c_str());
+        if (!sobj)
+            return false;
+        if (isUnloaded(sobj))
+            return true;
+    }
+    return false;
 }
 
 bool Element::getWholeObjectPlacement(App::DocumentObject *obj,
@@ -146,8 +239,12 @@ App::DocumentObjectExecReturn *Element::execute()
         return App::DocumentObject::StdReturn;
     if (!Target.getValue())
         return new App::DocumentObjectExecReturn("No target");
-    syncResolved(_Resolved, Target);
     auto shape = linkedShape(Target);
+    if (shape.isNull() && keepUnresolved(this, Target, Unresolved))
+        return App::DocumentObject::StdReturn;
+    if (!shape.isNull() && Unresolved.getValue())
+        Unresolved.setValue(false);
+    syncResolved(_Resolved, Target);
     if (shape.isNull()) {
         if (takeWholeObject(this, Target))
             return App::DocumentObject::StdReturn;
@@ -166,9 +263,19 @@ void Element::onChanged(const App::Property *prop)
         if (auto owner = dynamic_cast<App::AuxGroupOwner*>(getContainer()))
             owner->onElementsChanged();
     }
+    if (prop == &_Resolved && isEditing(this))
+        followResolved(this, _Resolved, Unresolved);
     if (prop == &Shape && !isRestoring())
         touchGroups();
     inherited::onChanged(prop);
+}
+
+void Element::onDocumentRestored()
+{
+    inherited::onDocumentRestored();
+    // Restored with the document of the geometry missing
+    if (!_Resolved.getValue() && *_Resolved.getObjectName() && !Unresolved.getValue())
+        Unresolved.setValue(true);
 }
 
 void Element::touchGroups()
@@ -289,6 +396,11 @@ ElementLink::ElementLink()
             (App::PropertyType)(App::Prop_Hidden|App::Prop_Output),
             "What Element resolves to, the dependency on the geometry itself");
     _Resolved.setScope(App::LinkScope::Global);
+    _Resolved.setAllowPartial(true);
+    ADD_PROPERTY_TYPE(Unresolved, (false), "Element",
+            (App::PropertyType)(App::Prop_ReadOnly|App::Prop_Output),
+            "The element is not loaded now (a link to a closed or missing\n"
+            "document): the copy is kept, and the joint is solved on it");
     Vertex.setScope(App::LinkScope::Global);
     // As Element::Target: a copy of geometry, out of the coordinate-system
     // checks
@@ -320,8 +432,12 @@ App::DocumentObjectExecReturn *ElementLink::execute()
 {
     if (!Element.getValue())
         return new App::DocumentObjectExecReturn("No element");
-    syncResolved(_Resolved, Element);
     auto shape = linkedShape(Element);
+    if (shape.isNull() && keepUnresolved(this, Element, Unresolved))
+        return App::DocumentObject::StdReturn;
+    if (!shape.isNull() && Unresolved.getValue())
+        Unresolved.setValue(false);
+    syncResolved(_Resolved, Element);
     if (shape.isNull()) {
         if (takeWholeObject(this, Element))
             return App::DocumentObject::StdReturn;
@@ -335,9 +451,19 @@ App::DocumentObjectExecReturn *ElementLink::execute()
 
 void ElementLink::onChanged(const App::Property *prop)
 {
+    if (prop == &_Resolved && isEditing(this))
+        followResolved(this, _Resolved, Unresolved);
     if (prop == &Element && isEditing(this))
         syncResolved(_Resolved, Element);
     inherited::onChanged(prop);
+}
+
+void ElementLink::onDocumentRestored()
+{
+    inherited::onDocumentRestored();
+    // Restored with the document of the geometry missing
+    if (!_Resolved.getValue() && *_Resolved.getObjectName() && !Unresolved.getValue())
+        Unresolved.setValue(true);
 }
 
 bool ElementLink::getVertexPoint(Base::Vector3d &point) const

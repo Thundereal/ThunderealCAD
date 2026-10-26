@@ -636,6 +636,42 @@ Here the ElementLink also stores the shape:
   touches the linking object when it differs (`App/PropertyLinks.cpp:4507`,
   `:5100`).
 
+Built (2026-10-26, step 5), for a child whose document is closed or
+missing; a frozen child loaded partially is sec 3.1's:
+
+- **The element link keeps its copy** (`Part/App/FeatureElement.cpp`).
+  When its path stops at an object not loaded now
+  (`Element::isUnloaded`: a link whose `PropertyXLink` keeps an object
+  name but has no object, or an object a partial load created only), it
+  keeps the copy, sets `Unresolved` (read-only, saved) and warns once, with
+  no error. An element whose path stops on something loaded is still an
+  error ("Element not found"). `Part::Element` does the same for its
+  target.
+- **It follows the document closing and coming back.** `_Resolved` allows
+  partial, so a missing document is not a restore error; when it detaches
+  `Unresolved` is set, and when it attaches again the flag is cleared and
+  the object touched. `PropertyXLink::restoreLink()` purges that touch when
+  the document is unchanged since, which is right: the copy is current.
+  Restored with the document missing sets the flag too.
+- **The link to the child is still a component**
+  (`collectComponentsRecursively`), with the placement it has.
+- **The joint keeps its frame relative to the component.** The copy is
+  where the component was when it was taken, which a solve since makes
+  stale; a side taken from the copy (`JointSide::stored`) is placed at the
+  component's placement times the joint's own `Placement1`/`Placement2`,
+  the frame its geometry last gave, and the copy moves with it. An
+  `Offset` changed while unresolved waits for the geometry.
+- **Not needed: `canLoadPartial` on joints and element links.** A
+  document is loaded partially for what another document links to, and
+  nothing links to a joint or an element link from outside; a frozen
+  child's joints are rightly created only.
+- **The link itself still reports "Link broken!"** on recompute, App::Link's
+  own message for a missing document.
+- **Tests.** `TestUnloadedChild` (3): the child's file missing (the
+  element link keeps its copy, unresolved and no error, and the joint
+  solves the link back to its place), the child closed and opened again in
+  session, and an element that is not there still an error.
+
 ### 4.5 Repair and replacement
 
 - **The repair order**, per element: the `$Label` path, then the
@@ -1423,7 +1459,8 @@ Built as step 4b (2026-10-25), the joints the task makes:
    none exist yet.
 5. Partial loading through element links (sec 4.4), Freeze with the Parts
    group's compound (sec 3.1), and repair (sec 4.5). Freeze, with the
-   partial loading of a frozen assembly, built (2026-10-25, sec 3.1).
+   partial loading of a frozen assembly, built (2026-10-25, sec 3.1); a
+   joint on a child not loaded, built (2026-10-26, sec 4.4).
 
 ## 10. Open questions
 

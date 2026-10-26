@@ -515,6 +515,37 @@ JointSide Joint::getSide(int side) const
     return res;
 }
 
+bool Joint::getStoredSide(int side,
+                          App::DocumentObject*& component,
+                          Base::Placement& placement,
+                          Base::Placement& local) const
+{
+    if (isTouched() || isError() || getMultiplier() || mustExecute()) {
+        return false;
+    }
+    auto link = getElementLink(side);
+    if (!link || link->isTouched()) {
+        return false;
+    }
+    component = componentOfLink(getContainer(), link, &placement);
+    if (!component) {
+        return false;
+    }
+    local = (side == 1 ? Placement1 : Placement2).getValue();
+    return true;
+}
+
+Base::Placement Joint::getFrame(int side) const
+{
+    App::DocumentObject* component = nullptr;
+    Base::Placement placement;
+    Base::Placement local;
+    if (getStoredSide(side, component, placement, local)) {
+        return placement * local;
+    }
+    return getSide(side).frame;
+}
+
 short Joint::mustExecute() const
 {
     if (ElementLink1.isTouched() || ElementLink2.isTouched()) {

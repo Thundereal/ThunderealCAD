@@ -70,7 +70,7 @@ PyObject* JointPy::getFrame(PyObject* args) const
     }
     PY_TRY
     {
-        return new Base::PlacementPy(getJointPtr()->getSide(side).frame);
+        return new Base::PlacementPy(getJointPtr()->getFrame(side));
     }
     PY_CATCH;
 }

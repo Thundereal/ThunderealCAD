@@ -25,6 +25,7 @@
 #include <boost/core/ignore_unused.hpp>
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <cstring>
 #include <numbers>
 #include <algorithm>
@@ -106,7 +107,7 @@ Base::Placement getJointSideGlobalPlacement(
         auto* typed = static_cast<Joint*>(joint);
         auto* container = typed->getContainer();
         return (container ? container->globalPlacement() : Base::Placement())
-            * typed->getSide(side).frame;
+            * typed->getFrame(side);
     }
 
     auto* ref = joint->getPropertyByName<App::PropertyXLinkSub>(refName);
@@ -1862,7 +1863,7 @@ std::vector<App::DocumentObject*> AssemblyObject::getJoints(bool delBadJoints, b
 
         auto* part1 = getMovingPartFromRef(joint, "Reference1");
         auto* part2 = getMovingPartFromRef(joint, "Reference2");
-        if (!part1 || !part2 || part1->getFullName() == part2->getFullName()) {
+        if (!part1 || !part2 || part1 == part2) {
             // Remove incomplete joints. Left-over when the user deletes a part.
             // Remove incoherent joints (self-pointing joints)
             if (delBadJoints) {
@@ -1937,8 +1938,14 @@ void AssemblyObject::collectMalformedJoints()
 bool AssemblyObject::isJointRefUsable(App::DocumentObject* joint, const char* propName)
 {
     if (int side = typedJointSide(joint, propName)) {
-        // The element must resolve, or the element link keep a copy of it
-        return static_cast<Joint*>(joint)->getSide(side).isValid();
+        // Up to date, or the element must resolve, or the element link keep
+        // a copy of it
+        auto* typed = static_cast<Joint*>(joint);
+        App::DocumentObject* component = nullptr;
+        Base::Placement placement;
+        Base::Placement local;
+        return typed->getStoredSide(side, component, placement, local)
+            || typed->getSide(side).isValid();
     }
     if (!getObjFromJointRef(joint, propName)) {
         return false;
@@ -2179,6 +2186,140 @@ void AssemblyObject::fixGroundedPart(App::DocumentObject* obj, Base::Placement& 
     solverModel->addGround(mbdJoint);
 }
 
+namespace
+{
+/** Who is joined to whom, built once per query from the joints' sides.
+ *
+ * The walks it serves were a scan of every joint, resolving both sides of
+ * each, per part visited, with a linear search of the parts reached, and
+ * answered "connected without this joint" by writing Suppressed on joints
+ * and back (docs/AssemblyAudit.md sec 4.3, F3): O(P*J) a query, and a joint
+ * built O(N) queries. Here: each joint's sides once, then a walk of the
+ * parts reached, leaving out the joints asked to.
+ */
+class Connectivity
+{
+public:
+    using RigidMembers
+        = std::function<const std::vector<App::DocumentObject*>*(App::DocumentObject*)>;
+
+    struct Edge
+    {
+        App::DocumentObject* other;
+        App::DocumentObject* joint;
+        App::PropertyXLinkSub* ref;
+    };
+
+    Connectivity(AssemblyObject* assembly,
+                 const std::vector<App::DocumentObject*>& joints,
+                 RigidMembers rigidMembers)
+        : rigidMembers(std::move(rigidMembers))
+    {
+        for (auto* joint : joints) {
+            if (!joint) {
+                continue;
+            }
+            auto* obj1 = getMovingPartFromRef(joint, "Reference1");
+            auto* obj2 = getMovingPartFromRef(joint, "Reference2");
+            parts[joint] = {obj1, obj2};
+            if (!obj1 || !obj2 || !assembly->isJointTypeConnecting(joint)) {
+                continue;
+            }
+            const bool typed = joint->isDerivedFrom<Joint>();
+            auto* ref1 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference1"));
+            auto* ref2 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference2"));
+            if (typed || ref2) {
+                edges[obj1].push_back({obj2, joint, ref2});
+            }
+            if (typed || ref1) {
+                edges[obj2].push_back({obj1, joint, ref1});
+            }
+        }
+    }
+
+    /// The two parts a joint moves, as getMovingPartFromRef() gives them
+    std::pair<App::DocumentObject*, App::DocumentObject*> partsOf(App::DocumentObject* joint) const
+    {
+        auto it = parts.find(joint);
+        return it == parts.end()
+            ? std::pair<App::DocumentObject*, App::DocumentObject*>(nullptr, nullptr)
+            : it->second;
+    }
+
+    /// The connecting joints of a part
+    std::vector<App::DocumentObject*> jointsOf(App::DocumentObject* part) const
+    {
+        std::vector<App::DocumentObject*> res;
+        auto it = edges.find(part);
+        if (it != edges.end()) {
+            for (const auto& edge : it->second) {
+                res.push_back(edge.joint);
+            }
+        }
+        return res;
+    }
+
+    /** What the seeds reach, through the joints but the excluded, and the
+     * rigid groups: the seeds first, then in the order reached, each with
+     * the reference it was reached by
+     */
+    std::vector<ObjRef> reach(const std::vector<ObjRef>& seeds,
+                              const std::unordered_set<App::DocumentObject*>& excluded = {}) const
+    {
+        std::vector<ObjRef> res;
+        std::unordered_set<App::DocumentObject*> seen;
+        for (const auto& seed : seeds) {
+            if (seed.obj && seen.insert(seed.obj).second) {
+                res.push_back(seed);
+            }
+        }
+        for (size_t i = 0; i < res.size(); ++i) {
+            auto* part = res[i].obj;
+            auto it = edges.find(part);
+            if (it != edges.end()) {
+                for (const auto& edge : it->second) {
+                    if (!excluded.count(edge.joint) && seen.insert(edge.other).second) {
+                        res.push_back({edge.other, edge.ref});
+                    }
+                }
+            }
+            if (const auto* members = rigidMembers ? rigidMembers(part) : nullptr) {
+                for (auto* member : *members) {
+                    if (member && seen.insert(member).second) {
+                        res.push_back({member, nullptr});
+                    }
+                }
+            }
+        }
+        return res;
+    }
+
+    /// What the seeds reach, as a set
+    std::unordered_set<App::DocumentObject*>
+    reachSet(const std::unordered_set<App::DocumentObject*>& seeds,
+             const std::unordered_set<App::DocumentObject*>& excluded = {}) const
+    {
+        std::vector<ObjRef> start;
+        start.reserve(seeds.size());
+        for (auto* seed : seeds) {
+            start.push_back({seed, nullptr});
+        }
+        std::unordered_set<App::DocumentObject*> res;
+        for (const auto& ref : reach(start, excluded)) {
+            res.insert(ref.obj);
+        }
+        return res;
+    }
+
+private:
+    RigidMembers rigidMembers;
+    std::unordered_map<App::DocumentObject*, std::vector<Edge>> edges;
+    std::unordered_map<App::DocumentObject*,
+                       std::pair<App::DocumentObject*, App::DocumentObject*>>
+        parts;
+};
+}  // namespace
+
 bool AssemblyObject::isJointConnectingPartToGround(App::DocumentObject* joint, const char* propname)
 {
     if (!joint || !isJointTypeConnecting(joint)) {
@@ -2190,44 +2331,25 @@ bool AssemblyObject::isJointConnectingPartToGround(App::DocumentObject* joint, c
         return false;
     }
 
-    // Check if the part is grounded.
-    bool isGrounded = isPartGrounded(part);
-    if (isGrounded) {
+    // Not grounded itself, connected, and still connected with the part's
+    // other joints left out: this joint takes it to ground
+    auto grounded = getGroundedParts();
+    if (grounded.count(part)) {
         return false;
     }
-
-    // Check if the part is disconnected even with the joint
-    bool isConnected = isPartConnected(part);
-    if (!isConnected) {
+    const Connectivity index(this, getJoints(), [this](App::DocumentObject* obj) {
+        return getRigidMembers(obj);
+    });
+    if (!index.reachSet(grounded).count(part)) {
         return false;
     }
-
-    // to know if a joint is connecting to ground we disable all the other joints
-    std::vector<App::DocumentObject*> jointsOfPart = getJointsOfPart(part);
-    std::vector<bool> activatedStates;
-
-    for (auto jointi : jointsOfPart) {
-        if (jointi->getFullName() == joint->getFullName()) {
-            continue;
+    std::unordered_set<App::DocumentObject*> others;
+    for (auto* jointi : index.jointsOf(part)) {
+        if (jointi != joint) {
+            others.insert(jointi);
         }
-
-        activatedStates.push_back(getJointActivated(jointi));
-        setJointActivated(jointi, false);
     }
-
-    isConnected = isPartConnected(part);
-
-    // restore activation states
-    for (auto jointi : jointsOfPart) {
-        if (jointi->getFullName() == joint->getFullName() || activatedStates.empty()) {
-            continue;
-        }
-
-        setJointActivated(jointi, activatedStates[0]);
-        activatedStates.erase(activatedStates.begin());
-    }
-
-    return isConnected;
+    return index.reachSet(grounded, others).count(part) > 0;
 }
 
 bool AssemblyObject::isJointTypeConnecting(App::DocumentObject* joint)
@@ -2261,30 +2383,17 @@ void AssemblyObject::removeUnconnectedJoints(
     std::unordered_set<App::DocumentObject*> groundedObjs
 )
 {
-    std::vector<ObjRef> connectedParts;
-
-    // Initialize connectedParts with groundedObjs
-    for (auto* groundedObj : groundedObjs) {
-        connectedParts.push_back({groundedObj, nullptr});
-    }
-
-    // Perform a traversal from each grounded object
-    for (auto* groundedObj : groundedObjs) {
-        traverseAndMarkConnectedParts(groundedObj, connectedParts, joints);
-    }
-
-    // Filter out unconnected joints
+    const Connectivity index(this, joints, [this](App::DocumentObject* obj) {
+        return getRigidMembers(obj);
+    });
+    const auto connected = index.reachSet(groundedObjs);
     joints.erase(
         std::remove_if(
             joints.begin(),
             joints.end(),
             [&](App::DocumentObject* joint) {
-                App::DocumentObject* obj1 = getMovingPartFromRef(joint, "Reference1");
-                App::DocumentObject* obj2 = getMovingPartFromRef(joint, "Reference2");
-                return (
-                    !isObjInSetOfObjRefs(obj1, connectedParts)
-                    || !isObjInSetOfObjRefs(obj2, connectedParts)
-                );
+                auto [obj1, obj2] = index.partsOf(joint);
+                return !connected.count(obj1) || !connected.count(obj2);
             }
         ),
         joints.end()
@@ -2297,13 +2406,16 @@ void AssemblyObject::traverseAndMarkConnectedParts(
     const std::vector<App::DocumentObject*>& joints
 )
 {
-    // getConnectedParts returns the objs connected to the currentObj by any joint
-    auto connectedObjs = getConnectedParts(currentObj, joints);
-    for (auto& nextObjRef : connectedObjs) {
-        if (!isObjInSetOfObjRefs(nextObjRef.obj, connectedParts)) {
-            // Create a new ObjRef with the nextObj and a nullptr for PropertyXLinkSub*
-            connectedParts.push_back(nextObjRef);
-            traverseAndMarkConnectedParts(nextObjRef.obj, connectedParts, joints);
+    const Connectivity index(this, joints, [this](App::DocumentObject* obj) {
+        return getRigidMembers(obj);
+    });
+    std::unordered_set<App::DocumentObject*> known;
+    for (const auto& ref : connectedParts) {
+        known.insert(ref.obj);
+    }
+    for (const auto& ref : index.reach({{currentObj, nullptr}})) {
+        if (known.insert(ref.obj).second) {
+            connectedParts.push_back(ref);
         }
     }
 }
@@ -2367,15 +2479,7 @@ bool AssemblyObject::isPartGrounded(App::DocumentObject* obj)
         return false;
     }
 
-    auto groundedObjs = getGroundedParts();
-
-    for (auto* groundedObj : groundedObjs) {
-        if (groundedObj->getFullName() == obj->getFullName()) {
-            return true;
-        }
-    }
-
-    return false;
+    return getGroundedParts().count(obj) > 0;
 }
 
 bool AssemblyObject::isPartConnected(App::DocumentObject* obj)
@@ -2384,28 +2488,14 @@ bool AssemblyObject::isPartConnected(App::DocumentObject* obj)
         return false;
     }
 
-    auto groundedObjs = getGroundedParts();
-    std::vector<App::DocumentObject*> joints = getJoints();
-
-    std::vector<ObjRef> connectedParts;
-
-    // Initialize connectedParts with groundedObjs
-    for (auto* groundedObj : groundedObjs) {
-        connectedParts.push_back({groundedObj, nullptr});
+    const auto grounded = getGroundedParts();
+    if (grounded.count(obj)) {
+        return true;
     }
-
-    // Perform a traversal from each grounded object
-    for (auto* groundedObj : groundedObjs) {
-        traverseAndMarkConnectedParts(groundedObj, connectedParts, joints);
-    }
-
-    for (auto& objRef : connectedParts) {
-        if (obj == objRef.obj) {
-            return true;
-        }
-    }
-
-    return false;
+    const Connectivity index(this, getJoints(), [this](App::DocumentObject* part) {
+        return getRigidMembers(part);
+    });
+    return index.reachSet(grounded).count(obj) > 0;
 }
 
 void AssemblyObject::jointParts(std::vector<App::DocumentObject*> joints)
@@ -3127,19 +3217,27 @@ Solver::Id AssemblyObject::handleOneSideOfJoint(
 )
 {
     if (int side = typedJointSide(joint, propRefName)) {
-        // A C++ joint: the frame is in the assembly's coordinate system, and
-        // the component a direct child of it
-        const auto jointSide = static_cast<Joint*>(joint)->getSide(side);
-        if (!jointSide.isValid()) {
-            Base::Console().Warning(
-                "The %s side of Joint %s is bad.\n",
-                side == 1 ? "first" : "second",
-                joint->getFullName()
-            );
-            return Solver::NoId;
+        // A C++ joint: the frame relative to its component, as the joint
+        // kept it on its last recompute; resolved from the geometry only when
+        // the joint is not up to date
+        auto* typed = static_cast<Joint*>(joint);
+        App::DocumentObject* component = nullptr;
+        Base::Placement componentPlacement;
+        Base::Placement plc;
+        if (!typed->getStoredSide(side, component, componentPlacement, plc)) {
+            const auto jointSide = typed->getSide(side);
+            if (!jointSide.isValid()) {
+                Base::Console().Warning(
+                    "The %s side of Joint %s is bad.\n",
+                    side == 1 ? "first" : "second",
+                    joint->getFullName()
+                );
+                return Solver::NoId;
+            }
+            component = jointSide.component;
+            plc = jointSide.placement.inverse() * jointSide.frame;
         }
-        MbDPartData data = getMbDData(jointSide.component);
-        Base::Placement plc = jointSide.placement.inverse() * jointSide.frame;
+        MbDPartData data = getMbDData(component);
         if (!data.offsetPlc.isIdentity()) {
             plc = data.offsetPlc * plc;
         }
@@ -3495,29 +3593,22 @@ std::vector<ObjRef> AssemblyObject::getDownstreamParts(
         return {};
     }
 
-    // First we deactivate the joint
-    bool state = false;
+    // What the part reaches without the joint, and is not connected to
+    // ground without it: the joint is left out of the walks, not suppressed
+    const Connectivity index(this, getJoints(), [this](App::DocumentObject* obj) {
+        return getRigidMembers(obj);
+    });
+    std::unordered_set<App::DocumentObject*> excluded;
     if (joint) {
-        state = getJointActivated(joint);
-        setJointActivated(joint, false);
+        excluded.insert(joint);
     }
-
-    std::vector<App::DocumentObject*> joints = getJoints();
-
-    std::vector<ObjRef> connectedParts = {{part, nullptr}};
-    traverseAndMarkConnectedParts(part, connectedParts, joints);
-
+    const auto connected = index.reachSet(getGroundedParts(), excluded);
     std::vector<ObjRef> downstreamParts;
-    for (auto& parti : connectedParts) {
-        if (!isPartConnected(parti.obj) && (parti.obj != part)) {
-            downstreamParts.push_back(parti);
+    for (const auto& ref : index.reach({{part, nullptr}}, excluded)) {
+        if (ref.obj != part && !connected.count(ref.obj)) {
+            downstreamParts.push_back(ref);
         }
     }
-
-    if (joint) {
-        setJointActivated(joint, state);
-    }
-
     return downstreamParts;
 }
 

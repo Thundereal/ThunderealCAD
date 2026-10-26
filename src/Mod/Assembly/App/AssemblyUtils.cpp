@@ -1166,8 +1166,8 @@ double getJointCurrentValue(App::DocumentObject* joint, bool isAngle)
 
     if (auto typed = dynamic_cast<const Joint*>(joint)) {
         // Both frames in the assembly's coordinate system
-        plc1 = typed->getSide(1).frame;
-        plc2 = typed->getSide(2).frame;
+        plc1 = typed->getFrame(1);
+        plc2 = typed->getFrame(2);
     }
     else {
         auto* ref1 = dynamic_cast<App::PropertyXLinkSub*>(joint->getPropertyByName("Reference1"));

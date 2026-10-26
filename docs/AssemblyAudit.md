@@ -585,6 +585,49 @@ decision 7 came after step 7 (`e320accd94`, `85a4379a0b`;
    the fast path, and solve once per transaction so the solver's writes
    land in the user's undo step.
 
+**Phase 2 started 2026-10-26, with the C++ joints** (the joint task makes
+them since 2026-10-25). `scripts/assembly-bench` builds them by default now
+(`joint_kind`, "python" for upstream's). Measured on chain 50 and 100 they
+were slower than upstream's Python joints, by what the C++ joint did for
+each side and by its objects being the assembly's children, not by the
+solver; fixed:
+
+- the solver and the markers took a side's frame by resolving its
+  geometry (`getTopoShape` through the component) each solve and drag
+  step; the joint keeps it relative to the component on recompute
+  (`Placement1/2`), and a solve moves components, not what is on them:
+  `Joint::getStoredSide()` / `getFrame()` read that, and resolve only a
+  joint not up to date. Solves are the Python joint's again (chain 50,
+  0.5 s);
+- the DoF counted the element links as parts (fixed with the C++ joint
+  work, `docs/AssemblyObjectModel.md` sec 7.1);
+- F3 and F4: `isPartConnected`, `getDownstreamParts`,
+  `isJointConnectingPartToGround` and `removeUnconnectedJoints` walk a
+  connectivity index built once per query (each joint's sides resolved
+  once, a breadth-first walk over a hash set), and leave joints out of the
+  walk instead of writing `Suppressed` and back. `isPartConnected` 20 ms to
+  1.4 ms, `getDownstreamParts` 98 ms to 1.2 ms at chain 50;
+- an Assembly aux group refreshed (O(J)) on every change of any Python
+  object property of the assembly's children, which every view provider
+  property change is (the object's `ViewObject` mirror): on `Proxy` only;
+- a Part feature's recompute said its appearance changed three times
+  through `ViewObject` (re-applying the colours held to the new visual,
+  which changes no view of the object's), to every observer of the
+  document: not said now (`HostOnlyView` around the re-touch). The
+  `ViewObject` touch is the expression binding of view properties
+  (`17300660d8`) and what a served document publishes on (`7532b0b528`);
+  both see every real change as before;
+- a group's tree export (`buildExport`, O(children) with a Python
+  `claimChildren` per joint) was rebuilt for any property change of a child
+  in a geo group: on a link property's only, and not for `_GroupTouched`.
+
+Left: building a joint is still about 3x the Python joint's (chain 100,
+5 s against 1.5 s), each change of the assembly's `Group` -- every element
+link and joint added -- rebuilding its export with a Python
+`claimChildren` per joint; the Python view provider's markers (F8); and the
+solver itself (F1), which is what a solve, a recompute and a drag at chain
+100 spend their time in, Python joints and C++ alike.
+
 **Phase 3 -- from Assembly3, and its importer** (`docs/AssemblyFromAsm3.md`).
 Its behaviours, not its objects -- Element objects would put a second
 object model beside upstream's, at a merge cost on every pick:

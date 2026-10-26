@@ -184,6 +184,22 @@ public:
     /// What side 1 or 2 resolves to now: the element through its component
     /// when that resolves, the element link's stored copy when not
     JointSide getSide(int side) const;
+    /** Side 1 or 2 without its geometry: the component, its placement in
+     * the container, and the frame relative to it that execute() kept
+     * (Placement1/2). A solve moves components and not what is on them, so
+     * this is the side as it is now, with no shape resolved -- what the
+     * solver and the markers ask for each solve and drag step.
+     *
+     * @return false when the joint is not up to date (touched, in error, a
+     *         multiplied joint's instance): getSide() answers then
+     */
+    bool getStoredSide(int side,
+                       App::DocumentObject*& component,
+                       Base::Placement& placement,
+                       Base::Placement& local) const;
+    /// The frame of side 1 or 2 in the container now: getStoredSide()'s
+    /// when the joint is up to date, getSide()'s when not
+    Base::Placement getFrame(int side) const;
     /// The assembly holding the joint
     AssemblyObject* getAssembly() const;
     /** The component an element link of \a assembly is on (JointSide::component)

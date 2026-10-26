@@ -496,6 +496,58 @@ coaxial and symmetric (all v2); periodic splines.
 - Regression: Sketcher C++ 142/142 (one more, the parallel swing),
   TestSketcherApp 161 OK, TestPartDesignApp 481 OK.
 
+**S2 done 2026-10-26** (the GUI's first version), in five steps:
+`ViewProviderSketch3D` and its Python binding, `CommandSketch3D.cpp`, and a
+one-line branch in each Sketcher creation and constraint command.
+- S2a, edit mode. The Sketcher workbench and its edit toolbars come up through
+  TempoVis, as for a 2D sketch. Geometry is drawn in the 2D sketch's edit colours
+  (the same View preferences). The task panel shows the solver's state. There is
+  a Create 3D Sketch command, into the active Body.
+- S2b, the manipulator:
+  - axes, three plane handles, and the CSys dragger's rotation rings, about
+    70 px;
+  - a click lands on the active plane, on an axis when the pointer runs along
+    it, or on the normal with the height locked. Those points are computed in
+    doubles: the viewer's getPointOnLine was 0.16 mm off its line;
+  - commands on a Sketcher 3D toolbar shown in this edit only: Cycle Working
+    Plane (Shift+Space), Lock Height (Up), Reset, Rotation Handles, Keep Plane,
+    Along X/Y/Z, Distance Z.
+- S2c, tools. Point, Line, Polyline, and the B-spline by poles and through
+  points, started by the Sketcher's own commands; Toggle Construction.
+  - Snapping implies a constraint: sketch points first, by screen distance;
+    sketch curves; and the model element the view preselected, made an
+    external reference.
+  - Along X/Y/Z goes on a segment drawn within 2 deg of an axis.
+  - Escape or a right click finishes what is placed, and every addition is one
+    undo step.
+- S2d, constraints.
+  - Selection in the edit (points, curves, labels); the Sketcher's constraint
+    commands make their 3D constraint of it; Delete removes it.
+  - Dimension labels are SoDatumLabel in a plane through what each measures.
+  - Values are edited in place on Gui::DatumValueEditor, as the 2D sketch does:
+    Enter, Tab, a press elsewhere, expressions, reference, name. A new
+    dimension and its value are one undo step.
+  - Found and fixed on the way: a bare number typed into that editor gave
+    -2147483647, in the 2D sketch too (1d761d7459).
+- S2e, drag and planes:
+  - points and curves dragged through the solver;
+  - Keep Plane, a fixed workplane (section 6, v1) that holds points placed
+    while it is active;
+  - Ctrl+press on a kept plane, a planar face or a datum plane;
+  - the panel's constraint numbers select the constraints.
+- Tests: five GUI tests, `tests/gui/sketch3d-{edit,manipulator,tools,constraints,
+  drag-plane}.py`, 112 checks. They drive the view provider's input entry
+  points (press, dragTo, pointAt, toView, startTool), which the mouse handlers
+  call, so no synthetic Qt event is needed.
+
+Not in S2, left for later:
+- typed values while placing (length, coordinate offsets) and a dimension's kind
+  picked in its entry;
+- typed angles for the manipulator;
+- icons for the non-dimensional constraints;
+- labels re-facing the camera when it turns (they face it as it was at the draw);
+- the browser (S4).
+
 ## 11. Risks
 
 - **Solve stability in 3D** [S 15]: answered by rank-exact equations,

@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenerateModel xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="generateMetaModel_Module.xsd">
+  <PythonExport
+    Father="ViewProviderPartExtPy"
+    Name="ViewProviderSketch3DPy"
+    Twin="ViewProviderSketch3D"
+    TwinPointer="ViewProviderSketch3D"
+    Include="Mod/Sketcher/Gui/ViewProviderSketch3D.h"
+    Namespace="SketcherGui"
+    FatherInclude="Mod/Part/Gui/ViewProviderPartExtPy.h"
+    FatherNamespace="PartGui">
+    <Documentation>
+      <Author Licence="LGPL" Name="Zheng Lei" EMail="realthunder.dev@gmail.com" />
+      <UserDocu>The 3D sketch's view provider. In its edit, the manipulator and the input
+the mouse goes through, in view coordinates (Coin's: origin bottom left).</UserDocu>
+    </Documentation>
+    <Methode Name="getManipulator" Const="true">
+      <Documentation>
+        <UserDocu>getManipulator() -> dict: Origin, Rotation, Plane ('XY', 'YZ', 'ZX'),
+HeightLock, HeightBase, RotationHandles, WorkingPlane (a Placement in the sketch's frame).
+None outside an edit.</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setManipulator">
+      <Documentation>
+        <UserDocu>setManipulator(origin: Vector, rotation: Rotation)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="cycleWorkingPlane">
+      <Documentation>
+        <UserDocu>cycleWorkingPlane(): XY -> YZ -> ZX</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="toggleHeightLock">
+      <Documentation>
+        <UserDocu>toggleHeightLock(): keep the in-plane position under the pointer, move
+along the plane's normal</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="resetManipulator">
+      <Documentation>
+        <UserDocu>resetManipulator(): the sketch frame's orientation, plane XY</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setRotationHandles">
+      <Documentation>
+        <UserDocu>setRotationHandles(shown: bool)</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="pointAt" Const="true">
+      <Documentation>
+        <UserDocu>pointAt(x, y) -> Vector or None: where a click there lands, in the
+sketch's frame</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="toView" Const="true">
+      <Documentation>
+        <UserDocu>toView(point: Vector) -> (x, y) or None: a point of the sketch's frame
+in view coordinates</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="press">
+      <Documentation>
+        <UserDocu>press(x, y) -> bool: a left press there, as the mouse gives it;
+whether the edit took it</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="move">
+      <Documentation>
+        <UserDocu>move(x, y) -> bool: the pointer moved there</UserDocu>
+      </Documentation>
+    </Methode>
+  </PythonExport>
+</GenerateModel>

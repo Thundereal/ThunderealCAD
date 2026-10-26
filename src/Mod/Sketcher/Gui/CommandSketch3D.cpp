@@ -73,8 +73,127 @@ bool CmdSketcherNewSketch3D::isActive()
     return doc && !doc->getInEdit();
 }
 
+// The manipulator's switches (section 7, decision j): commands, so Tools > Customize
+// rebinds them, active only while a 3D sketch is in edit.
+
+namespace
+{
+bool manipulatorActive()
+{
+    return activeSketch3DInEdit() != nullptr;
+}
+}  // namespace
+
+DEF_STD_CMD_A(CmdSketcherSketch3DCyclePlane)
+
+CmdSketcherSketch3DCyclePlane::CmdSketcherSketch3DCyclePlane()
+    : Command("Sketcher_Sketch3DCyclePlane")
+{
+    sAppModule = "Sketcher";
+    sGroup = "Sketcher";
+    sMenuText = QT_TR_NOOP("Cycle Working Plane");
+    sToolTipText = QT_TR_NOOP("Switches the 3D sketch manipulator's active plane: XY, YZ, ZX");
+    sWhatsThis = "Sketcher_Sketch3DCyclePlane";
+    sStatusTip = sToolTipText;
+    // Inventor's key for it; Fusion's Alt cannot be a shortcut on its own.
+    sAccel = "Shift+Space";
+}
+
+void CmdSketcherSketch3DCyclePlane::activated(int /*iMsg*/)
+{
+    if (auto vp = activeSketch3DInEdit()) {
+        vp->cycleWorkingPlane();
+    }
+}
+
+bool CmdSketcherSketch3DCyclePlane::isActive()
+{
+    return manipulatorActive();
+}
+
+DEF_STD_CMD_A(CmdSketcherSketch3DLockHeight)
+
+CmdSketcherSketch3DLockHeight::CmdSketcherSketch3DLockHeight()
+    : Command("Sketcher_Sketch3DLockHeight")
+{
+    sAppModule = "Sketcher";
+    sGroup = "Sketcher";
+    sMenuText = QT_TR_NOOP("Lock Height");
+    sToolTipText = QT_TR_NOOP(
+        "Keeps the position on the working plane and moves along its normal; again to release");
+    sWhatsThis = "Sketcher_Sketch3DLockHeight";
+    sStatusTip = sToolTipText;
+    sAccel = "Up";  // Fusion's
+}
+
+void CmdSketcherSketch3DLockHeight::activated(int /*iMsg*/)
+{
+    if (auto vp = activeSketch3DInEdit()) {
+        vp->toggleHeightLock();
+    }
+}
+
+bool CmdSketcherSketch3DLockHeight::isActive()
+{
+    return manipulatorActive();
+}
+
+DEF_STD_CMD_A(CmdSketcherSketch3DResetManipulator)
+
+CmdSketcherSketch3DResetManipulator::CmdSketcherSketch3DResetManipulator()
+    : Command("Sketcher_Sketch3DResetManipulator")
+{
+    sAppModule = "Sketcher";
+    sGroup = "Sketcher";
+    sMenuText = QT_TR_NOOP("Reset Manipulator");
+    sToolTipText = QT_TR_NOOP("Turns the 3D sketch manipulator back to the sketch's frame");
+    sWhatsThis = "Sketcher_Sketch3DResetManipulator";
+    sStatusTip = sToolTipText;
+}
+
+void CmdSketcherSketch3DResetManipulator::activated(int /*iMsg*/)
+{
+    if (auto vp = activeSketch3DInEdit()) {
+        vp->resetManipulator();
+    }
+}
+
+bool CmdSketcherSketch3DResetManipulator::isActive()
+{
+    return manipulatorActive();
+}
+
+DEF_STD_CMD_A(CmdSketcherSketch3DRotationHandles)
+
+CmdSketcherSketch3DRotationHandles::CmdSketcherSketch3DRotationHandles()
+    : Command("Sketcher_Sketch3DRotationHandles")
+{
+    sAppModule = "Sketcher";
+    sGroup = "Sketcher";
+    sMenuText = QT_TR_NOOP("Manipulator Rotation Handles");
+    sToolTipText = QT_TR_NOOP("Shows or hides the rings that tilt the 3D sketch manipulator");
+    sWhatsThis = "Sketcher_Sketch3DRotationHandles";
+    sStatusTip = sToolTipText;
+}
+
+void CmdSketcherSketch3DRotationHandles::activated(int /*iMsg*/)
+{
+    if (auto vp = activeSketch3DInEdit()) {
+        vp->setRotationHandlesShown(!vp->rotationHandlesShown());
+    }
+}
+
+bool CmdSketcherSketch3DRotationHandles::isActive()
+{
+    return manipulatorActive();
+}
+
 void CreateSketcherCommandsSketch3D()
 {
     Gui::CommandManager& rcCmdMgr = Gui::Application::Instance->commandManager();
     rcCmdMgr.addCommand(new CmdSketcherNewSketch3D());
+    rcCmdMgr.addCommand(new CmdSketcherSketch3DCyclePlane());
+    rcCmdMgr.addCommand(new CmdSketcherSketch3DLockHeight());
+    rcCmdMgr.addCommand(new CmdSketcherSketch3DResetManipulator());
+    rcCmdMgr.addCommand(new CmdSketcherSketch3DRotationHandles());
 }

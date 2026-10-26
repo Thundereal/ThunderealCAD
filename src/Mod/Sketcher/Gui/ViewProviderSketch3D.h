@@ -26,17 +26,22 @@
 
 // The 3D sketch's view provider and edit mode (docs/Sketch3D.md section 7). Outside
 // an edit it shows the sketch's wire as any Part shape; in an edit it draws the
-// geometry as the 2D sketch draws its edit geometry, and brings up the Sketcher's
-// edit-mode toolbars from whatever workbench is active, as the 2D sketch does.
+// geometry as the 2D sketch draws its edit geometry, brings up the Sketcher's
+// edit-mode toolbars from whatever workbench is active, and places points Fusion's
+// way: a manipulator at the last point, its active plane where a click lands.
 
 #include <memory>
 
+#include <Inventor/SbVec2s.h>
+
 #include <App/PropertyPythonObject.h>
 #include <App/PropertyStandard.h>
+#include <Base/Placement.h>
 #include <Mod/Part/Gui/ViewProvider.h>
 #include <Mod/Sketcher/SketcherGlobal.h>
 
 class SoSeparator;
+class SoDragger;
 
 namespace Gui
 {
@@ -67,6 +72,7 @@ public:
     App::PropertyPythonObject TempoVis;
 
     Sketcher::Sketch3DObject* getSketch3DObject() const;
+    PyObject* getPyObject() override;
 
     bool doubleClicked() override;
     void updateData(const App::Property* prop) override;
@@ -80,18 +86,74 @@ public:
     /// The edit scene's root, for tests and the tools: null outside an edit.
     SoSeparator* getEditRoot() const;
 
+    /** @name The manipulator (docs/Sketch3D.md section 7)
+     * Its frame is in the sketch's frame. The active plane is its XY, YZ or ZX; a
+     * click lands there, on one of its axes when the pointer runs along it, or on the
+     * plane's normal through a point when the height is locked.
+     */
+    //@{
+    enum class Plane
+    {
+        XY,
+        YZ,
+        ZX
+    };
+    Base::Vector3d manipulatorOrigin() const;
+    Base::Rotation manipulatorRotation() const;
+    Plane activePlane() const;
+    void setManipulator(const Base::Vector3d& origin, const Base::Rotation& rotation);
+    /// XY -> YZ -> ZX (Sketcher_Sketch3DCyclePlane).
+    void cycleWorkingPlane();
+    /// Back to the sketch frame's orientation (Sketcher_Sketch3DResetManipulator).
+    void resetManipulator();
+    /// Keep the in-plane position, move along the normal (Sketcher_Sketch3DLockHeight).
+    void toggleHeightLock();
+    bool heightLocked() const;
+    /// The point the height lock keeps the in-plane position of.
+    Base::Vector3d heightBase() const;
+    void setRotationHandlesShown(bool shown);
+    bool rotationHandlesShown() const;
+    /// The active plane as a placement in the sketch's frame (its XY is the plane).
+    Base::Placement workingPlane() const;
+    //@}
+
+    /** @name Input, in view coordinates (Coin's: origin bottom left)
+     * The mouse handlers and the Python binding come through these, so a test drives
+     * what a click does.
+     */
+    //@{
+    /// Where a click at pos lands, in the sketch's frame.
+    bool pointAt(const SbVec2s& pos, Base::Vector3d& point) const;
+    /// A point of the sketch's frame in view coordinates.
+    bool toView(const Base::Vector3d& point, SbVec2s& pos) const;
+    /// A left press: picks a plane handle, or moves the manipulator to a sketch point.
+    bool press(const SbVec2s& pos);
+    bool move(const SbVec2s& pos);
+    //@}
+
 protected:
     bool setEdit(int ModNum) override;
     void unsetEdit(int ModNum) override;
     void setEditViewer(Gui::ViewerContext* viewer, int ModNum) override;
     void unsetEditViewer(Gui::ViewerContext* viewer) override;
+    bool mouseMove(const SbVec2s& cursorPos, Gui::ViewerContext* viewer) override;
+    bool mouseButtonPressed(int button,
+                            bool pressed,
+                            const SbVec2s& cursorPos,
+                            const Gui::ViewerContext* viewer) override;
 
 private:
     struct EditData;
     std::unique_ptr<EditData> edit;
+
+    Base::Matrix4D editingTransform() const;
+    void updateManipulator();
+    static void draggerChanged(void* data, SoDragger* dragger);
 };
 
 /// A 3D sketch is in edit in the document (not moving in Transform).
 SketcherGuiExport bool isSketch3DInEdit(Gui::Document* doc);
+/// The 3D sketch view provider in edit in the active document, or null.
+SketcherGuiExport ViewProviderSketch3D* activeSketch3DInEdit();
 
 }  // namespace SketcherGui

@@ -26,6 +26,7 @@ qt_create_resource_file(${Sketcher_TR_QRC} ${QM_SRCS})
 qt_add_resources(SketcherGui_SRCS Resources/Sketcher.qrc ${Sketcher_TR_QRC})
 
 generate_from_xml(ViewProviderSketchGeometryExtensionPy)
+generate_from_xml(ViewProviderSketch3DPy)
 
 set(SketcherGui_UIC_SRCS
     TaskSketcherConstraints.ui
@@ -148,6 +149,8 @@ SET(SketcherGui_SRCS
     ViewProviderSketch3D.cpp
     ViewProviderSketch3D.h
     CommandSketch3D.cpp
+    ViewProviderSketch3DPy.xml
+    ViewProviderSketch3DPyImp.cpp
     ViewProviderSketch.h
     DrawSketchHandler.cpp
     DrawSketchHandler.h

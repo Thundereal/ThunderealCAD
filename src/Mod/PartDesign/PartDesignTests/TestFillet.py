@@ -356,13 +356,18 @@ class TestFilletSlivers(unittest.TestCase):
         fillet.Radius = 0.3
         self.Doc.recompute()
         self.assertTrue(fillet.isValid())
-        made = self.Base.Shape.makeFillet(0.3, [self.Base.Shape.getElement(slope)])
+        # on a copy: a feature's Shape is frozen (docs/TransactionLog.md sec
+        # 27.82), and a fillet that writes into its input raises on it
+        shape = self.Base.Shape.copy()
+        made = shape.makeFillet(0.3, [shape.getElement(slope)])
         self.assertAlmostEqual(fillet.Shape.Volume, made.Volume, places=6)
 
     def testFilletTakesOutTheStep(self):
-        # refused on the block as it is
+        # refused on the block as it is (a copy: a frozen Shape could raise
+        # for that alone)
+        shape = self.Base.Shape.copy()
         with self.assertRaises(Part.OCCError):
-            self.Base.Shape.makeFillet(0.3, [self.Base.Shape.getElement(self.Slope)])
+            shape.makeFillet(0.3, [shape.getElement(self.Slope)])
         fillet = self.Body.newObject('PartDesign::Fillet', 'Fillet')
         fillet.Base = (self.Base, [self.Slope])
         for r in (0.3, 0.8):
@@ -426,8 +431,9 @@ class TestFilletSlivers(unittest.TestCase):
         chamfer.Base = (self.Base, [self.Slope])
         chamfer.Size = 0.3
         self.Doc.recompute()
+        shape = self.Base.Shape.copy()   # a frozen Shape could raise for that alone
         try:
-            self.Base.Shape.makeChamfer(0.3, [self.Base.Shape.getElement(self.Slope)])
+            shape.makeChamfer(0.3, [shape.getElement(self.Slope)])
             self.skipTest("the chamfer is made with the step: nothing to test")
         except Part.OCCError:
             pass

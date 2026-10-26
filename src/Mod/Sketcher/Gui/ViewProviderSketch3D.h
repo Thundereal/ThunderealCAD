@@ -131,12 +131,18 @@ public:
     int activeKeptPlane() const;
     //@}
 
-    /** @name Drawing tools (section 7: point, line, polyline, the two splines)
+    /** @name Drawing tools (section 7: point, line, polyline, the two splines; S3:
+     * circles and arcs)
      * Started by the Sketcher's own commands when a 3D sketch is in edit. A click
      * places a point where pointAt() lands it, or snapped: to a sketch point
      * (coincident), a sketch curve (point on object), or the model element under the
      * pointer (made an external reference, then coincident or point on object). Escape
      * or a right click finishes what is placed; with nothing placed, it ends the tool.
+     *
+     * A circle or arc from its centre lies in the working plane: the centre, then the
+     * rim (a circle) or the start and the end (an arc, running the way the pointer
+     * swept). From three points it lies in the plane they span: a circle through them,
+     * or an arc from the first to the second through the third.
      */
     //@{
     enum class Tool
@@ -146,7 +152,11 @@ public:
         Line,
         Polyline,
         BSplineThrough,
-        BSplineControl
+        BSplineControl,
+        Circle,
+        Circle3Point,
+        Arc,
+        Arc3Point
     };
     void startTool(Tool tool);
     Tool activeTool() const;
@@ -253,9 +263,17 @@ private:
     /// plane.
     bool takePlaneAt(const SbVec2s& pos, class SoPickedPoint* pp);
     void addPlaced(const Placed& placed);
-    /// The constraint that ties (geoId, pos) where the snap put it.
-    void constrainTo(const Snap& snap, int geoId, int pos);
+    /// The constraint that ties (geoId, pos) where the snap put it; with nothing
+    /// snapped, onKeptPlane holds it on the kept plane.
+    void constrainTo(const Snap& snap, int geoId, int pos, bool onKeptPlane = true);
+    /// The constraint that puts the snapped point on the curve geoId.
+    void constrainOn(const Snap& snap, int geoId);
     void makeSpline();
+    bool makeCircular();
+    struct Circular;
+    /// The circle or arc the circular tools make of the points placed and, when given,
+    /// the one under the pointer.
+    bool circular(const Base::Vector3d* under, Circular& out) const;
     /// A sketch point's position in the sketch's frame.
     bool pointOf(int geoId, Sketcher::PointPos pos, Base::Vector3d& point) const;
     /// Labels for the dimensions, part of draw().

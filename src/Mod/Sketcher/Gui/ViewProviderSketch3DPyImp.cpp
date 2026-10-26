@@ -247,6 +247,10 @@ const std::pair<const char*, Tool> toolNames[] = {
     {"Polyline", Tool::Polyline},
     {"BSplineThrough", Tool::BSplineThrough},
     {"BSplineControl", Tool::BSplineControl},
+    {"Circle", Tool::Circle},
+    {"Circle3Point", Tool::Circle3Point},
+    {"Arc", Tool::Arc},
+    {"Arc3Point", Tool::Arc3Point},
 };
 }  // namespace
 

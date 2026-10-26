@@ -567,6 +567,39 @@ Not in S2, left for later:
 - labels re-facing the camera when it turns (they face it as it was at the draw);
 - the browser (S4).
 
+**S3 is done in steps.** S3a, circles and arcs (2026-10-27):
+- Four tools, started by the Sketcher's own commands:
+  - Circle From Center: the centre, then the rim, in the working plane;
+  - Arc From Center: the centre and the start in the working plane, then the
+    end. The arc runs the way the pointer swept round from the start, as the 2D
+    arc does;
+  - Circle From 3 Points, Arc From 3 Points (start, end, a point on it): in the
+    plane the three points span, so a tilted circle needs no working plane.
+- Their snaps tie them as a line's ends are tied: a centre, start or end
+  clicked on a sketch point is coincident with it, and a point a curve was
+  drawn through lies on it.
+- On a kept plane, a circle or arc held by no snap is put in the plane: its
+  centre on the plane and the curve parallel to it, 3 of its DOF.
+- While a rim, a start or an end is picked, the manipulator's axis along the
+  curve's normal does not lock. That point is taken into the curve's plane, and
+  the lock put it back on the centre: in the isometric view, an end straight
+  below the start on screen is on the Z axis.
+- A circle or arc stands for its plane in Parallel and Perpendicular, as a
+  workplane does:
+  - a line parallel to it lies along that plane;
+  - a line perpendicular to it runs along its axis;
+  - two of them compare normals.
+- Coincident of two circles or arcs makes them coaxial (4.4): the centres
+  coincident and the two parallel.
+- Parallel's ratio s starts at |d2| / |d1|, signed by d1 . d2. It started at
+  the projection d1 . d2 / |d1|^2, which is 0 for directions square to each
+  other. There d2 - s d1 has no gradient to turn d2, and a unit normal cannot
+  shrink, so making two square circles coaxial stalled.
+- Tests:
+  - `tests/gui/sketch3d-arcs.py`, 48 checks;
+  - `Constraints3DSolve.parallelFromPerpendicular`, which fails with the old
+    start.
+
 ## 11. Risks
 
 - **Solve stability in 3D** [S 15]: answered by rank-exact equations,

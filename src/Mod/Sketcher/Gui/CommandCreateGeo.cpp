@@ -355,12 +355,16 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreateArc, "Sketcher_CreateArc")
 void CmdSketcherCreateArc::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Arc);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(), new DrawSketchHandlerArc());
 }
 
 bool CmdSketcherCreateArc::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 
@@ -387,6 +391,10 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreate3PointArc, "Sketcher_Create3PointArc
 void CmdSketcherCreate3PointArc::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Arc3Point);
+        return;
+    }
     ActivateHandler(
         getActiveGuiDocument(),
         new DrawSketchHandlerArc(ConstructionMethods::CircleEllipseConstructionMethod::ThreeRim));
@@ -394,7 +402,7 @@ void CmdSketcherCreate3PointArc::activated(int iMsg)
 
 bool CmdSketcherCreate3PointArc::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 DEF_STD_CMD_AU(CmdSketcherCreateArcOfEllipse)
@@ -530,12 +538,16 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreateCircle, "Sketcher_CreateCircle")
 void CmdSketcherCreateCircle::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Circle);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(), new DrawSketchHandlerCircle());
 }
 
 bool CmdSketcherCreateCircle::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 // ======================================================================================
@@ -561,6 +573,10 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreate3PointCircle, "Sketcher_Create3Point
 void CmdSketcherCreate3PointCircle::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Circle3Point);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(),
                     new DrawSketchHandlerCircle(
                         ConstructionMethods::CircleEllipseConstructionMethod::ThreeRim));
@@ -568,7 +584,7 @@ void CmdSketcherCreate3PointCircle::activated(int iMsg)
 
 bool CmdSketcherCreate3PointCircle::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 

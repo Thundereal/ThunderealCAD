@@ -103,7 +103,8 @@ active kept plane; its geometry id</UserDocu>
     </Methode>
     <Methode Name="startTool">
       <Documentation>
-        <UserDocu>startTool(name): 'Point', 'Line', 'Polyline', 'BSplineThrough', 'BSplineControl'
+        <UserDocu>startTool(name): 'Point', 'Line', 'Polyline', 'BSplineThrough', 'BSplineControl',
+'Circle', 'Circle3Point', 'Arc', 'Arc3Point'
 -- what the Sketcher's creation commands start in a 3D sketch's edit</UserDocu>
       </Documentation>
     </Methode>

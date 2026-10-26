@@ -279,6 +279,24 @@ struct ViewProviderSketch3D::Placed
     Snap snap;
 };
 
+// A circle or arc the circular tools make: an arc runs sweep radians (negative:
+// clockwise) about normal from centre + radius * xdir; a circle has closed set.
+struct ViewProviderSketch3D::Circular
+{
+    Base::Vector3d centre;
+    Base::Vector3d normal;
+    Base::Vector3d xdir;
+    double radius {0.};
+    double sweep {0.};
+    bool closed {false};
+
+    Base::Vector3d at(double t) const
+    {
+        Base::Vector3d y = normal % xdir;
+        return centre + (xdir * std::cos(t) + y * std::sin(t)) * radius;
+    }
+};
+
 struct ViewProviderSketch3D::EditData
 {
     SoSeparator* content {nullptr};  // what the edit draws, in the sketch's frame
@@ -321,6 +339,11 @@ struct ViewProviderSketch3D::EditData
     std::vector<Placed> placed;
     int chainFirst {-1};
     int chainLast {-1};
+    // An arc from its centre: its normal, taken at the start, and the angle the
+    // pointer swept from the start since, which says which way it runs.
+    Base::Vector3d arcNormal;
+    double arcSweep {0.};
+    double arcLast {0.};
     SoCoordinate3* previewCoords {nullptr};
     SoLineSet* previewLines {nullptr};
     SoCoordinate3* cursorCoords {nullptr};
@@ -348,6 +371,33 @@ struct ViewProviderSketch3D::EditData
     // The kept plane points are put on (section 6), or -1.
     int keptPlane {-1};
     std::unique_ptr<QObject> deleteFilter;
+
+    /// The pointer at p while an arc's end is picked: the sweep follows it round.
+    void trackSweep(const Base::Vector3d& p)
+    {
+        if (placed.size() != 2) {
+            return;
+        }
+        const Base::Vector3d& c = placed[0].point;
+        const Base::Vector3d& n = arcNormal;
+        Base::Vector3d x = placed[1].point - c, v = p - c;
+        x = x - n * (x * n);
+        v = v - n * (v * n);
+        if (x.Length() < Precision::Confusion() || v.Length() < Precision::Confusion()) {
+            return;
+        }
+        Base::Vector3d y = n % x;
+        double a = std::atan2(v * y, v * x);
+        double d = a - arcLast;
+        while (d > std::numbers::pi) {
+            d -= 2 * std::numbers::pi;
+        }
+        while (d < -std::numbers::pi) {
+            d += 2 * std::numbers::pi;
+        }
+        arcSweep += d;
+        arcLast = a;
+    }
 
     EditData()
     {
@@ -817,6 +867,18 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
     // Along an axis of the manipulator, beyond the gizmo: that axis. The axis is
     // projected over ten gizmo lengths, so its direction on screen is not a few
     // rounded pixels.
+    // A circle's rim, an arc's start and end are taken into its plane: the axis along
+    // its normal would put them back on the centre, so it does not lock.
+    Base::Vector3d normal;
+    if ((edit->tool == Tool::Circle || edit->tool == Tool::Arc) && !edit->placed.empty()) {
+        normal = Base::Vector3d(0, 0, 1);
+        if (edit->tool == Tool::Arc && edit->placed.size() >= 2) {
+            normal = edit->arcNormal;
+        }
+        else {
+            plane.getRotation().multVec(normal, normal);
+        }
+    }
     SbVec2s o;
     if (toView(edit->origin, o)) {
         float dpr = float(edit->viewer->devicePixelRatio());
@@ -826,6 +888,9 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
         for (int k = 0; k < 3; ++k) {
             Base::Vector3d axis(k == 0, k == 1, k == 2);
             edit->rotation.multVec(axis, axis);
+            if (std::fabs(axis * normal) > 0.999) {
+                continue;
+            }
             SbVec2s e;
             if (!toView(edit->origin + axis * reach, e)) {
                 continue;
@@ -1390,6 +1455,24 @@ void ViewProviderSketch3D::showToolStatus()
             text = QObject::tr(
                 "3D spline by control points: click the poles; Escape or a right click makes it");
             break;
+        case Tool::Circle:
+            text = edit->placed.empty()
+                ? QObject::tr("3D circle: click the centre; Escape ends")
+                : QObject::tr("3D circle: click a point on the rim, in the working plane");
+            break;
+        case Tool::Circle3Point:
+            text = QObject::tr("3D circle by three points: click three points on it; Escape ends");
+            break;
+        case Tool::Arc:
+            text = edit->placed.empty() ? QObject::tr("3D arc: click the centre; Escape ends")
+                : edit->placed.size() == 1
+                ? QObject::tr("3D arc: click the start, in the working plane")
+                : QObject::tr("3D arc: click the end; it runs the way the pointer turns");
+            break;
+        case Tool::Arc3Point:
+            text = QObject::tr(
+                "3D arc by three points: click the start, the end, then a point on the arc");
+            break;
         case Tool::None:
             break;
     }
@@ -1521,7 +1604,7 @@ bool ViewProviderSketch3D::place(const SbVec2s& pos, Placed& placed) const
     return pointAt(pos, placed.point);
 }
 
-void ViewProviderSketch3D::constrainTo(const Snap& snap, int geoId, int pos)
+void ViewProviderSketch3D::constrainTo(const Snap& snap, int geoId, int pos, bool onKeptPlane)
 {
     auto sketch = getSketch3DObject();
     const std::string obj = Gui::Command::getObjectCmd(sketch);
@@ -1597,7 +1680,7 @@ void ViewProviderSketch3D::constrainTo(const Snap& snap, int geoId, int pos)
         case Snap::Kind::Model:
         case Snap::Kind::None:
             // On the kept plane, held there (section 6).
-            if (edit && edit->keptPlane >= 0) {
+            if (onKeptPlane && edit && edit->keptPlane >= 0) {
                 snprintf(buf,
                          sizeof(buf),
                          "%s.addConstraint(Sketcher.Constraint('PointOnObject', %d, %d, %d))",
@@ -1609,6 +1692,49 @@ void ViewProviderSketch3D::constrainTo(const Snap& snap, int geoId, int pos)
             }
             break;
     }
+}
+
+void ViewProviderSketch3D::constrainOn(const Snap& snap, int geoId)
+{
+    // A rim point the circle or arc goes through: the point it was snapped to lies on
+    // it. A model vertex becomes a reference first, as in constrainTo.
+    auto sketch = getSketch3DObject();
+    const std::string obj = Gui::Command::getObjectCmd(sketch);
+    int point = Sketcher::GeoEnum::GeoUndef;
+    int pos = 1;
+    if (snap.kind == Snap::Kind::SketchPoint) {
+        point = snap.geoId;
+        pos = int(snap.pos);
+    }
+    else if (snap.kind == Snap::Kind::ModelVertex) {
+        const auto& objs = sketch->ExternalGeometry.getValues();
+        const auto& subs = sketch->ExternalGeometry.getSubValues();
+        for (std::size_t i = 0; i < objs.size(); ++i) {
+            if (objs[i] == snap.obj && i < subs.size() && subs[i] == snap.sub) {
+                point = Sketcher::Sketch3DObject::RefExt - int(i);
+            }
+        }
+        if (point == Sketcher::GeoEnum::GeoUndef) {
+            int before = sketch->ExternalGeo.getSize();
+            Gui::Command::doCommand(Gui::Command::Doc,
+                                    "%s.addExternal(%s, '%s')",
+                                    obj.c_str(),
+                                    Gui::Command::getObjectCmd(snap.obj).c_str(),
+                                    snap.sub.c_str());
+            if (sketch->ExternalGeo.getSize() > before) {
+                point = Sketcher::Sketch3DObject::RefExt - (sketch->ExternalGeo.getSize() - 1);
+            }
+        }
+    }
+    if (point == Sketcher::GeoEnum::GeoUndef) {
+        return;
+    }
+    Gui::Command::doCommand(Gui::Command::Doc,
+                            "%s.addConstraint(Sketcher.Constraint('PointOnObject', %d, %d, %d))",
+                            obj.c_str(),
+                            point,
+                            pos,
+                            geoId);
 }
 
 void ViewProviderSketch3D::addPlaced(const Placed& placed)
@@ -1700,6 +1826,36 @@ void ViewProviderSketch3D::addPlaced(const Placed& placed)
                 edit->placed.push_back(placed);
             }
             break;
+        case Tool::Circle:
+        case Tool::Circle3Point:
+        case Tool::Arc:
+        case Tool::Arc3Point: {
+            if (!edit->placed.empty()
+                && (placed.point - edit->placed.back().point).Length() < Precision::Confusion()) {
+                break;  // the same point again
+            }
+            if (edit->tool == Tool::Arc) {
+                edit->trackSweep(placed.point);
+            }
+            edit->placed.push_back(placed);
+            if (edit->tool == Tool::Arc && edit->placed.size() == 2) {
+                // the arc lies in the working plane as it is at its start
+                Base::Vector3d n(0, 0, 1);
+                workingPlane().getRotation().multVec(n, n);
+                edit->arcNormal = n;
+                edit->arcSweep = edit->arcLast = 0.;
+            }
+            std::size_t need = edit->tool == Tool::Circle ? 2 : 3;
+            if (edit->placed.size() >= need) {
+                if (makeCircular()) {
+                    edit->placed.clear();
+                }
+                else {
+                    edit->placed.pop_back();  // click the last point again
+                }
+            }
+            break;
+        }
         case Tool::None:
             return;
     }
@@ -1759,6 +1915,180 @@ void ViewProviderSketch3D::makeSpline()
     Gui::Command::commitCommand();
 }
 
+bool ViewProviderSketch3D::circular(const Base::Vector3d* under, Circular& out) const
+{
+    if (!edit) {
+        return false;
+    }
+    std::vector<Base::Vector3d> pts;
+    for (const auto& p : edit->placed) {
+        pts.push_back(p.point);
+    }
+    if (under) {
+        pts.push_back(*under);
+    }
+    const double eps = Precision::Confusion();
+    const double full = 2 * std::numbers::pi;
+    switch (edit->tool) {
+        case Tool::Circle:
+        case Tool::Arc: {
+            if (pts.size() < 2) {
+                return false;
+            }
+            Base::Vector3d n(0, 0, 1);
+            if (edit->tool == Tool::Arc && edit->placed.size() >= 2) {
+                n = edit->arcNormal;
+            }
+            else {
+                workingPlane().getRotation().multVec(n, n);
+            }
+            const Base::Vector3d& c = pts[0];
+            Base::Vector3d r = pts[1] - c;
+            r = r - n * (r * n);
+            double len = r.Length();
+            if (len < eps) {
+                return false;
+            }
+            out.centre = c;
+            out.normal = n;
+            out.xdir = r / len;
+            out.radius = len;
+            // a circle, or the arc's circle while its start is picked
+            out.closed = edit->tool == Tool::Circle || pts.size() < 3;
+            if (out.closed) {
+                out.sweep = full;
+                return true;
+            }
+            Base::Vector3d e = pts[2] - c;
+            e = e - n * (e * n);
+            if (e.Length() < eps) {
+                return false;
+            }
+            Base::Vector3d y = n % out.xdir;
+            double a = std::atan2(e * y, e * out.xdir);
+            if (edit->arcSweep >= 0.) {
+                if (a <= 0.) {
+                    a += full;
+                }
+            }
+            else if (a >= 0.) {
+                a -= full;
+            }
+            out.sweep = a;
+            return std::fabs(a) > 1e-6 && std::fabs(a) < full - 1e-6;
+        }
+        case Tool::Circle3Point:
+        case Tool::Arc3Point: {
+            if (pts.size() < 3) {
+                return false;
+            }
+            // The circle through a, b and m; an arc from a to b through m.
+            const Base::Vector3d &a = pts[0], &b = pts[1], &m = pts[2];
+            Base::Vector3d ab = b - a, am = m - a, w = ab % am;
+            if (w.Length() < 1e-9 * ab.Length() * am.Length() || w.Length() < eps * eps) {
+                return false;  // in a line
+            }
+            out.centre = a + (w % ab * am.Sqr() + am % w * ab.Sqr()) / (2 * w.Sqr());
+            out.radius = (a - out.centre).Length();
+            out.xdir = (a - out.centre) / out.radius;
+            out.closed = edit->tool == Tool::Circle3Point;
+            if (out.closed) {
+                out.normal = Base::Vector3d(w).Normalize();
+                out.sweep = full;
+                return true;
+            }
+            // counterclockwise about am x ab, a reaches m before b
+            out.normal = (am % ab).Normalize();
+            Base::Vector3d y = out.normal % out.xdir, e = b - out.centre;
+            double angle = std::atan2(e * y, e * out.xdir);
+            out.sweep = angle <= 0. ? angle + full : angle;
+            return true;
+        }
+        default:
+            return false;
+    }
+}
+
+bool ViewProviderSketch3D::makeCircular()
+{
+    Circular cir;
+    if (!circular(nullptr, cir)) {
+        Gui::getMainWindow()->showMessage(
+            QObject::tr("No circle through these points: they are in a line"),
+            5000);
+        return false;
+    }
+    auto sketch = getSketch3DObject();
+    const std::string obj = Gui::Command::getObjectCmd(sketch);
+    const char* cons = construction ? "True" : "False";
+    const auto& placed = edit->placed;
+    int id = sketch->Geometry.getSize();
+    char radius[64];
+    snprintf(radius, sizeof(radius), "%.17g", cir.radius);
+    std::string geo;
+    if (cir.closed) {
+        geo = "Part.Circle(" + pyVec(cir.centre) + ", " + pyVec(cir.normal) + ", " + radius + ")";
+    }
+    else if (edit->tool == Tool::Arc3Point) {
+        // through the points as clicked: from the first to the second by the third
+        geo = "Part.ArcOfCircle(" + pyVec(placed[0].point) + ", " + pyVec(placed[2].point) + ", "
+            + pyVec(placed[1].point) + ")";
+    }
+    else {
+        geo = "Part.ArcOfCircle(" + pyVec(cir.at(0.)) + ", " + pyVec(cir.at(cir.sweep / 2)) + ", "
+            + pyVec(cir.at(cir.sweep)) + ")";
+    }
+    Gui::Command::openCommand(cir.closed ? QT_TRANSLATE_NOOP("Command", "Add 3D sketch circle")
+                                         : QT_TRANSLATE_NOOP("Command", "Add 3D sketch arc"));
+    Gui::Command::doCommand(Gui::Command::Doc,
+                            "%s.addGeometry(%s, %s)",
+                            obj.c_str(),
+                            geo.c_str(),
+                            cons);
+    // The snaps: a centre, start and end tie as a line's ends do; a point the curve
+    // was drawn through lies on it.
+    switch (edit->tool) {
+        case Tool::Circle:
+            constrainTo(placed[0].snap, id, 3, false);
+            constrainOn(placed[1].snap, id);
+            break;
+        case Tool::Arc:
+            constrainTo(placed[0].snap, id, 3, false);
+            constrainTo(placed[1].snap, id, 1, false);
+            constrainTo(placed[2].snap, id, 2, false);
+            break;
+        case Tool::Arc3Point:
+            constrainTo(placed[0].snap, id, 1, false);
+            constrainTo(placed[1].snap, id, 2, false);
+            constrainOn(placed[2].snap, id);
+            break;
+        default:
+            for (const auto& p : placed) {
+                constrainOn(p.snap, id);
+            }
+            break;
+    }
+    // On a kept plane, and held by nothing else: in it, by its centre on the plane and
+    // its axis along the plane's normal (section 4.4, arc / circle in a plane).
+    bool held = std::any_of(placed.begin(), placed.end(), [](const Placed& p) {
+        return p.snap.kind != Snap::Kind::None && p.snap.kind != Snap::Kind::Model;
+    });
+    if (edit->keptPlane >= 0 && !held) {
+        Gui::Command::doCommand(
+            Gui::Command::Doc,
+            "%s.addConstraint(Sketcher.Constraint('PointOnObject', %d, 3, %d))\n"
+            "%s.addConstraint(Sketcher.Constraint('Parallel', %d, %d))",
+            obj.c_str(),
+            id,
+            edit->keptPlane,
+            obj.c_str(),
+            id,
+            edit->keptPlane);
+    }
+    Gui::Command::commitCommand();
+    return true;
+}
+
 void ViewProviderSketch3D::updatePreview()
 {
     if (!edit) {
@@ -1767,11 +2097,30 @@ void ViewProviderSketch3D::updatePreview()
     std::vector<SbVec3f> pts;
     Placed under;
     bool have = edit->tool != Tool::None && edit->viewer && place(edit->lastPos, under);
-    for (const auto& p : edit->placed) {
-        pts.emplace_back(float(p.point.x), float(p.point.y), float(p.point.z));
+    auto add = [&](const Base::Vector3d& v) {
+        pts.emplace_back(float(v.x), float(v.y), float(v.z));
+    };
+    Circular cir;
+    if (have && edit->tool == Tool::Arc) {
+        edit->trackSweep(under.point);
     }
-    if (have && !pts.empty()) {
-        pts.emplace_back(float(under.point.x), float(under.point.y), float(under.point.z));
+    if (have && circular(&under.point, cir)) {
+        // from the centre out to the start and round, or round through the points
+        if (edit->tool == Tool::Circle || edit->tool == Tool::Arc) {
+            add(cir.centre);
+        }
+        int n = std::max(8, int(std::ceil(std::fabs(cir.sweep) / (2 * std::numbers::pi) * 64)));
+        for (int i = 0; i <= n; ++i) {
+            add(cir.at(cir.sweep * i / n));
+        }
+    }
+    else {
+        for (const auto& p : edit->placed) {
+            add(p.point);
+        }
+        if (have && !pts.empty()) {
+            add(under.point);
+        }
     }
     edit->previewCoords->point.setValues(0, int(pts.size()), pts.data());
     edit->previewCoords->point.setNum(int(pts.size()));
@@ -2194,6 +2543,9 @@ bool ViewProviderSketch3D::constrainSelection(Sketcher::ConstraintType type, QSt
     auto kind = [&](const Element& e) {
         return kindOf(sketch->getGeometry(e.geoId));
     };
+    auto round = [&](const Element& e) {
+        return kind(e) == CurveKind::Circle || kind(e) == CurveKind::Arc;
+    };
     auto pt = [&](const Element& e) {
         Base::Vector3d p;
         pointOf(e.geoId, e.pos, p);
@@ -2234,7 +2586,14 @@ bool ViewProviderSketch3D::constrainSelection(Sketcher::ConstraintType type, QSt
     switch (type) {
         case Sketcher::Coincident:
         case Sketcher::PointOnObject:
-            if (type == Sketcher::Coincident && points.size() >= 2 && curves.empty()) {
+            if (type == Sketcher::Coincident && points.empty() && curves.size() == 2
+                && round(curves[0]) && round(curves[1])) {
+                // Two circles or arcs: coaxial, the 3D concentric (section 4.4) --
+                // centres together and normals parallel.
+                con(quoted("Coincident") + ", " + id(curves[0]) + ", 3, " + id(curves[1]) + ", 3");
+                con(quoted("Parallel") + ", " + id(curves[0]) + ", " + id(curves[1]));
+            }
+            else if (type == Sketcher::Coincident && points.size() >= 2 && curves.empty()) {
                 for (std::size_t i = 1; i < points.size(); ++i) {
                     con(quoted("Coincident") + ", " + pp(points[0]) + ", " + pp(points[i]));
                 }
@@ -2245,8 +2604,8 @@ bool ViewProviderSketch3D::constrainSelection(Sketcher::ConstraintType type, QSt
                 }
             }
             else {
-                return fail(
-                    QObject::tr("Select two or more points, or points and one curve or plane"));
+                return fail(QObject::tr("Select two or more points, points and one curve or "
+                                        "plane, or two circles or arcs"));
             }
             break;
         case Sketcher::AlongX:
@@ -2273,15 +2632,19 @@ bool ViewProviderSketch3D::constrainSelection(Sketcher::ConstraintType type, QSt
         }
         case Sketcher::Parallel:
         case Sketcher::Perpendicular: {
+            // A circle or arc stands for its plane: a line parallel to it lies along
+            // that plane, perpendicular runs along its axis; two of them compare normals.
             const char* name = type == Sketcher::Parallel ? "Parallel" : "Perpendicular";
-            if (points.empty() && curves.size() == 2
-                && (kind(curves[0]) == CurveKind::Line || kind(curves[1]) == CurveKind::Line)
-                && (kind(curves[0]) == CurveKind::Line || kind(curves[0]) == CurveKind::Plane)
-                && (kind(curves[1]) == CurveKind::Line || kind(curves[1]) == CurveKind::Plane)) {
+            auto fits = [&](const Element& e) {
+                return kind(e) == CurveKind::Line || kind(e) == CurveKind::Plane || round(e);
+            };
+            if (points.empty() && curves.size() == 2 && fits(curves[0]) && fits(curves[1])
+                && !(kind(curves[0]) == CurveKind::Plane && kind(curves[1]) == CurveKind::Plane)) {
                 con(quoted(name) + ", " + id(curves[0]) + ", " + id(curves[1]));
             }
             else {
-                return fail(QObject::tr("Select two lines, or a line and a plane"));
+                return fail(
+                    QObject::tr("Select two of lines, circles, arcs and planes, not two planes"));
             }
             break;
         }

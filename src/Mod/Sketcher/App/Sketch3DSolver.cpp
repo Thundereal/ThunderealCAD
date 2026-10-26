@@ -406,12 +406,44 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
         }
         case Parallel:
         case Perpendicular: {
+            // A circle or arc stands for its plane, as a workplane does: a line parallel
+            // to it lies along that plane, a line perpendicular to it runs along its
+            // axis, and two of them are parallel when their normals are.
+            auto normalOf = [](Entity* e, GCS::Dir3& n) {
+                if (e->kind == Kind::Circle || e->kind == Kind::Arc) {
+                    n = GCS::Dir3::vector(e->normal);
+                    return true;
+                }
+                if (e->kind == Kind::Plane) {
+                    n = GCS::Dir3::planeNormal(e->plane);
+                    return true;
+                }
+                return false;
+            };
             int line = c.First, other = c.Second;
-            if (is(line, Kind::Plane)) {
+            if (!is(line, Kind::Line)) {
                 std::swap(line, other);
             }
             if (!is(line, Kind::Line)) {
-                return false;
+                Entity* a = entity(c.First);
+                Entity* b = entity(c.Second);
+                GCS::Dir3 n1, n2;
+                if (!a || !b || !normalOf(a, n1) || !normalOf(b, n2)
+                    || (a->kind == Kind::Plane && b->kind == Kind::Plane)) {
+                    return false;
+                }
+                if (c.Type == Parallel) {
+                    GCS::addConstraintParallel3(sys,
+                                                n1,
+                                                n2,
+                                                param(GCS::initialParallelRatio(n1, n2), true),
+                                                tag,
+                                                driving);
+                }
+                else {
+                    GCS::addConstraintPerpendicular3(sys, n1, n2, tag, driving);
+                }
+                return true;
             }
             Entity* l = entity(line);
             Entity* o = entity(other);
@@ -419,6 +451,21 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
                 return false;
             }
             auto d = GCS::Dir3::diff(l->start, l->end);
+            if (o->kind == Kind::Circle || o->kind == Kind::Arc) {
+                auto n = GCS::Dir3::vector(o->normal);
+                if (c.Type == Parallel) {
+                    GCS::addConstraintPerpendicular3(sys, d, n, tag, driving);
+                }
+                else {
+                    GCS::addConstraintParallel3(sys,
+                                                d,
+                                                n,
+                                                param(GCS::initialParallelRatio(d, n), true),
+                                                tag,
+                                                driving);
+                }
+                return true;
+            }
             if (o->kind == Kind::Line) {
                 auto d2 = GCS::Dir3::diff(o->start, o->end);
                 if (c.Type == Parallel) {

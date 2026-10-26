@@ -116,6 +116,10 @@ fc_add_gui_test(GuiSketch3DDragPlane_tests_run sketch3d-drag-plane.py
 # edit, back to red on leaving.
 fc_add_gui_test(GuiSketch3DIcons_tests_run sketch3d-icons.py
                 --timeout 180)
+# Its circles and arcs (S3a): from the centre in the working plane, from three
+# points in their own plane, on a kept plane; coaxial, a line along an axis.
+fc_add_gui_test(GuiSketch3DArcs_tests_run sketch3d-arcs.py
+                --timeout 180)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

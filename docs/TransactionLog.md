@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18), B: a frozen edge's pcurve test answered once (38.19) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6, Q7 ruled (Q7: nothing built) |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18), B: a frozen edge's pcurve test answered once (38.19), the save measured again with B and the freeze on (38.20) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5, B built; Q2, Q6, Q7, A ruled (Q7, A: nothing built) |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -25966,3 +25966,61 @@ off for itself (`noCheck()`, as the other count tests do), and
 | | Question | Recommended |
 | --- | --- | --- |
 | A | Retention that floats ("keep N" becomes N to N+7, the walk about every eighth save), or a sweep deferred while the version rule stays exact, for about 13-25 ms a save at 600 objects | **Neither for now.** The gain is about half B's, and either way changes what a rule or a test promises. Revisit if a real model's history makes the walk large. |
+
+**Ruling (user, 2026-10-26):** "2 agree": A is not built, either way.
+
+### 38.20 The save measured again, with B and the freeze on (2026-10-26)
+
+**Asked (user, 2026-10-26):** "build occt. what's next". OCCT built at
+`473e9f6224` (B, on the fork's fillet work since `3eb5a7ff9b`), FreeCAD
+rebuilt on it; gates s38k green (25 GUI checks; Python 3885 OK and C++
+1014/1014 with freeze on and off; driven 301/301). The real `user.cfg`'s
+`ImmutableShapeValues=0` is removed (ruled), so the freeze is on by
+default here again. Nothing built in this section.
+
+**Where a save goes now** (the probe of 38.18, freeze on, 8 saves each).
+38.18's numbers ran with the freeze off (38.19); these have it on and B:
+
+| | Boxes, first edited | Boxes, last edited | Cuts, first edited | Cuts, last edited |
+| --- | ---: | ---: | ---: | ---: |
+| Save, whole (38.18) | 112-128 ms | 98-113 ms | 126-147 ms | 110-129 ms |
+| Save, whole (now) | 90-112 ms | 75-99 ms | 101-124 ms | 91-114 ms |
+| Every object's `beforeSave` (38.18) | 49-50 | 37-40 | 60-64 | 49 |
+| Every object's `beforeSave` (now) | 32-35 | 20-25 | 37-44 | 27-31 |
+| The history into the folder ("collect", now) | 26-49 | 26-49 | 27-52 | 26-49 |
+| of it, retention on the copy | 20-39 | 19-38 | 20-40 | 20-38 |
+
+**Inside, by perf** (40 saves of 600 boxes, first edited, DWARF call
+graphs; percent of the save's samples; `~/.cache/lv-merge/probe38/perf2`):
+- **The history step, 30%**: almost all of it the collector on the copy
+  (`collectEntities`, 26%), which loads the copy's whole held graph each
+  save: SQLite reads and zstd decoding of the composites, then a walk and a
+  sweep. This is the cost A aimed at, and A is ruled out.
+- **Each shape's `makeBlob`, 41%** (53% in 38.18):
+  - **The congruence search, 22%.** `recoverShapeMotion` is 14%, and 40%
+    of that is `BRepTools::UVBounds` of each face. The congruence key and
+    the area and volume it is made from are 6-7%. In this probe every box
+    matches anew each save (the box all match is the one edited), so it is
+    the worst case.
+  - **`ShapeRefSet::build`, 16%**, most of it each shape's own-geometry
+    walk (`OwnGeometry::Add`: explorers over the sub-shapes).
+    `IsPCurveOmittable` is under 1% now (B).
+- Element-map numbering and string marks stay under 0.3%.
+
+**What is left, and what each would take:**
+
+| | What | Gain at 600 objects | Risk |
+| --- | --- | --- | --- |
+| E | **The retention overlapped with the objects' preparation**, on a thread, on the save's own copy (the sweep touches only the copy). The rule stays exact. But the copy's blob list is needed by the collect pass, which runs before every `beforeSave`: either the save is reordered, or collect takes the list before retention and keeps an evicted version's blobs one save longer | up to the retention's 20 ms | Moderate. A thread on the save path, the save's order changed, and the second form is A's objection again in small. |
+| F | **A frozen shape's congruence inputs computed once**, as B did for the pcurve test: its key (area, volume, length) and each face's `UVBounds`, kept with the frozen shape | about 10 ms where every shape matches anew, less otherwise | Low. Each is a function of the frozen shape alone, as B's is. `UVBounds` would live in the OCCT fork, beside B's answer. |
+| G | **An incremental collector**: each entity's holders counted in the store, so an eviction visits only what the evicted version held | most of the 26% | High. A store layout change (a `StoreVersion` step and a migration), and every writer keeps the counts. |
+| C, D | As 38.18 | as 38.18 | as 38.18: D does not help this probe's worst case, where the matched shape is the one edited. |
+
+**Recommended:** stop here. A folder save of 600 objects now takes
+75-124 ms, of which about 20 ms is the retention the rule asks for and
+about 35 ms is each shape's blob decision, which kept files need (38.11).
+F is the one cheap step left, for about 10 ms; E and G change the save or
+the store for at most 20 ms. Revisit with a real model's profile.
+
+**Ruling (user, 2026-10-26):** "stop here". E, F and G are not built; the
+folder save's cost work ends with this section.

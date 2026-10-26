@@ -309,11 +309,11 @@ DlgSettingsUI::DlgSettingsUI(QWidget* parent)
 
     // Auto generated code (Tools/params_utils.py:492)
     layoutTreeview->addLayout(layoutRow);
-    HideScrollBar = new Gui::PrefCheckBox(this);
-    layoutRow->addWidget(HideScrollBar);
-    HideScrollBar->setChecked(Gui::TreeParams::defaultHideScrollBar());
-    HideScrollBar->setEntryName("HideScrollBar");
-    HideScrollBar->setParamGrpPath("TreeView");
+    HideScrollBarInOverlay = new Gui::PrefCheckBox(this);
+    layoutRow->addWidget(HideScrollBarInOverlay);
+    HideScrollBarInOverlay->setChecked(Gui::TreeParams::defaultHideScrollBarInOverlay());
+    HideScrollBarInOverlay->setEntryName("HideScrollBarInOverlay");
+    HideScrollBarInOverlay->setParamGrpPath("TreeView");
 
     // Auto generated code (Tools/params_utils.py:486)
     layoutRow = new QHBoxLayout();
@@ -1020,7 +1020,7 @@ void DlgSettingsUI::saveSettings()
     ResizableColumn->onSave();
     CheckBoxesSelection->onSave();
     HideColumn->onSave();
-    HideScrollBar->onSave();
+    HideScrollBarInOverlay->onSave();
     HideHeaderView->onSave();
     TreeToolTipIcon->onSave();
     AutoHideEditorIcon->onSave();
@@ -1083,7 +1083,7 @@ void DlgSettingsUI::loadSettings()
     ResizableColumn->onRestore();
     CheckBoxesSelection->onRestore();
     HideColumn->onRestore();
-    HideScrollBar->onRestore();
+    HideScrollBarInOverlay->onRestore();
     HideHeaderView->onRestore();
     TreeToolTipIcon->onRestore();
     AutoHideEditorIcon->onRestore();
@@ -1188,8 +1188,8 @@ void DlgSettingsUI::retranslateUi()
     CheckBoxesSelection->setText(QObject::tr("Add checkboxes for selection in document tree"));
     HideColumn->setToolTip(QApplication::translate("TreeParams", Gui::TreeParams::docHideColumn()));
     HideColumn->setText(QObject::tr("Hide extra column"));
-    HideScrollBar->setToolTip(QApplication::translate("TreeParams", Gui::TreeParams::docHideScrollBar()));
-    HideScrollBar->setText(QObject::tr("Hide scroll bar"));
+    HideScrollBarInOverlay->setToolTip(QApplication::translate("TreeParams", Gui::TreeParams::docHideScrollBarInOverlay()));
+    HideScrollBarInOverlay->setText(QObject::tr("Hide scroll bar"));
     HideHeaderView->setToolTip(QApplication::translate("TreeParams", Gui::TreeParams::docHideHeaderView()));
     HideHeaderView->setText(QObject::tr("Hide header"));
     TreeToolTipIcon->setToolTip(QApplication::translate("TreeParams", Gui::TreeParams::docTreeToolTipIcon()));

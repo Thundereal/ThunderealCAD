@@ -26,6 +26,8 @@
 
 #ifndef _PreComp_
 # include <QAction>
+# include <QMenu>
+# include <QTimer>
 #endif
 
 #include <Base/Interpreter.h>
@@ -34,6 +36,7 @@
 #include <Base/Console.h>
 #include <Base/Tools.h>
 #include <Gui/Command.h>
+#include <Gui/OnViewValue.h>
 #include <Gui/Selection.h>
 #include <Gui/ViewProvider.h>
 #include <Gui/Inventor/Draggers/SoRotationDragger.h>
@@ -101,7 +104,47 @@ TaskDraftParameters::TaskDraftParameters(ViewProviderDressUp *DressUpView,QWidge
 
     setup(ui->message, ui->treeWidgetReferences, ui->buttonRefAdd, touched);
 
+    // The angle in the view (docs/OnViewValueEditing.md 3.4, entry 170): its
+    // label always at the top middle, typed once its handle is made active by
+    // a click or Tab
+    onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    onViewValues->addValue(ui->draftAngle, tr("Angle"), Gui::OnViewValueSet::Place::TopMiddle);
+    onViewValues->setMenu(0, [this](QMenu& menu, Gui::Gizmo*) {
+        fillAngleMenu(menu);
+    });
+    // a right click on a drafted face: the angle's menu (entry 202)
+    onViewValues->setHoverHandleProvider([this]() {
+        return getHoverHandle();
+    });
     setupGizmos(DressUpView);
+    attachOnViewValues();
+    // The view is told of the edit after the panel is made
+    QTimer::singleShot(0, this, [this]() {
+        attachOnViewValues();
+    });
+}
+
+void TaskDraftParameters::attachOnViewValues()
+{
+    if (onViewValues) {
+        onViewValues->attachToEdit(getDressUpView(), gizmoContainer.get());
+    }
+}
+
+void TaskDraftParameters::fillAngleMenu(QMenu& menu)
+{
+    // The feature's own operations (docs/OnViewValueEditing.md 3.4)
+    QAction* reversed = menu.addAction(tr("Reverse pull direction"));
+    reversed->setCheckable(true);
+    reversed->setChecked(ui->checkReverse->isChecked());
+    connect(reversed, &QAction::triggered, this, [this](bool checked) {
+        // after the menu: the recompute moves the handle
+        QTimer::singleShot(0, this, [this, checked]() {
+            ui->checkReverse->setChecked(checked);
+        });
+    });
+    // the face the handle stands on
+    addRemoveFirstFaceAction(menu);
 }
 
 void TaskDraftParameters::setupGizmos(ViewProvider* vp)
@@ -111,6 +154,18 @@ void TaskDraftParameters::setupGizmos(ViewProvider* vp)
     }
 
     angleGizmo = new Gui::RotationGizmo(ui->draftAngle);
+    // Dragged back past the start, the angle turns the draft (entry 170,
+    // 12:10: "support auto reverse on drag beyond")
+    angleGizmo->setReverseCallback(
+        [this]() {
+            ui->checkReverse->setChecked(!ui->checkReverse->isChecked());
+            return true;
+        },
+        [this]() {
+            setGizmoPositions();
+        });
+    // before the container makes it: its menu and its tool tip
+    onViewValues->addHandle(0, angleGizmo);
 
     gizmoContainer = GizmoContainer::create({angleGizmo}, vp);
 
@@ -120,7 +175,9 @@ void TaskDraftParameters::setupGizmos(ViewProvider* vp)
 
 void TaskDraftParameters::setGizmoPositions()
 {
-    if (!gizmoContainer) {
+    // left where it is while a drag has turned the draft: placed again when
+    // it ends
+    if (!gizmoContainer || angleGizmo->isTurnedInDrag()) {
         return;
     }
     gizmoContainer->visible = false;
@@ -171,12 +228,23 @@ void TaskDraftParameters::setGizmoPositions()
         angleGizmo->automaticOrientation = true;
     }
     gizmoContainer->visible = true;
+    if (onViewValues) {
+        onViewValues->placeAnchors(gizmoContainer->getWorldMatrix());
+    }
 }
 
 void TaskDraftParameters::finishedRecomputeFeature()
 {
     TaskDressUpParameters::finishedRecomputeFeature();
     setGizmoPositions();
+    if (onViewValues) {
+        onViewValues->refresh();
+    }
+}
+
+Gui::Gizmo* TaskDraftParameters::itemHandle(QTreeWidgetItem* item) const
+{
+    return item ? angleGizmo : nullptr;
 }
 
 void TaskDraftParameters::refresh() {

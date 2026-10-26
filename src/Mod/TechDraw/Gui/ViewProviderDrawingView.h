@@ -71,7 +71,17 @@ public:
 
     QGIView* getQView();
     MDIViewPage* getMDIViewPage() const;
+    /** Its page's view: on several pages, the one in front if it shows it,
+     * else the first page's (entry 217)
+     */
     Gui::MDIView *getMDIView() const override;
+    /// Its page's view, opened if closed -- not show(), which would make a
+    /// hidden view visible (entry 217)
+    Gui::MDIView *getOrCreateMDIView() override;
+    bool hasOwnView() const override
+    {
+        return true;
+    }
     ViewProviderPage* getViewProviderPage() const;
 
     /** @name Restoring view provider from document load */
@@ -81,6 +91,9 @@ public:
     //@}
 
     virtual TechDraw::DrawView* getViewObject() const;
+    /// A warning the view's workers left (DrawView::reportLateWarning), ahead
+    /// of the usual tool tip (docs/TechDrawErrors.md 3.1)
+    QString getToolTip(const QByteArray& iconTag) const override;
     void showProgressMessage(const std::string featureName, const std::string text) const;
 
     void onGuiRepaint(const TechDraw::DrawView* dv);

@@ -3,13 +3,14 @@
   <title>Thundereal</title>
   <desc>Thundereal application mark: the T-strike. A bar seen a little from below,
   struck through by a two-pointed bolt. Written by src/Tools/thundereal-icons.py.</desc>
-  <rect width="64" height="64" rx="14" fill="#1B2744"/>
-  <path id="strikeSide" fill="#C26F00" d="M37.18 9.58L34.33 32.74L40.88 32.74L42.36 33.63L27.56 52.87L26.08 51.98L28.82 41.03L20.9 41.03L19.42 40.14L35.7 8.69L37.18 9.58Z"/>
-  <path id="strike" fill="#FFB21E" d="M35.7 8.69L32.74 32.74L40.88 32.74L26.08 51.98L29.04 40.14L19.42 40.14L35.7 8.69Z"/>
-  <path id="barBottom" fill="#9CC0FF" d="M15.72 22.38L43.84 22.38L47.54 24.6L19.42 24.6L15.72 22.38Z"/>
-  <path id="barSide" fill="#2552C4" d="M43.84 13.5L47.54 15.72L47.54 24.6L43.84 22.38L43.84 13.5Z"/>
-  <path id="barFront" fill="#4F86F0" d="M15.72 13.5L43.84 13.5L43.84 22.38L15.72 22.38L15.72 13.5Z"/>
-  <path id="hole" fill="#0F1730" d="M27.19 22.82L35.11 22.82L37.33 24.16L29.41 24.16L27.19 22.82Z"/>
-  <path id="lowSide" fill="#C26F00" d="M35.41 23.93L34.33 32.74L40.88 32.74L42.36 33.63L27.56 52.87L26.08 51.98L28.82 41.03L20.9 41.03L19.42 40.14L28.27 23.05L33.93 23.05L35.41 23.93Z"/>
-  <path id="lowStrike" fill="#FFB21E" d="M33.93 23.05L32.74 32.74L40.88 32.74L26.08 51.98L29.04 40.14L19.42 40.14L28.27 23.05L33.93 23.05Z"/>
+  <defs><radialGradient id="lit" gradientUnits="userSpaceOnUse" cx="32.41" cy="21.89" r="36.94"><stop offset="0" stop-color="#FFC85A"/><stop offset="0.3" stop-color="#FFD98C"/><stop offset="0.62" stop-color="#EEF0F8"/><stop offset="1" stop-color="#9CC0FF"/></radialGradient></defs>
+  <path id="edge" fill="#16203A" stroke="#16203A" stroke-width="2.74" stroke-linejoin="round" d="M40.31 2.6L39.51 8.04L56.12 8.04L61.25 11.12L61.25 23.43L37.24 23.43L35.57 34.72L46.88 34.72L48.93 35.95L24.3 62.63L22.25 61.4L26.81 46.21L13.22 46.21L11.17 44.98L24.55 23.43L7.88 23.43L2.75 20.35L2.75 8.04L34.12 8.04L38.26 1.37L40.31 2.6Z"/>
+  <path id="strikeSide" fill="#C26F00" d="M40.31 2.6L35.57 34.72L46.88 34.72L48.93 35.95L24.3 62.63L22.25 61.4L26.81 46.21L13.22 46.21L11.17 44.98L38.26 1.37L40.31 2.6Z"/>
+  <path id="strike" fill="#FFB21E" d="M38.26 1.37L33.33 34.72L46.88 34.72L22.25 61.4L27.18 44.98L11.17 44.98L38.26 1.37Z"/>
+  <path id="barBottom" fill="url(#lit)" d="M2.75 20.35L56.12 20.35L61.25 23.43L7.88 23.43L2.75 20.35Z"/>
+  <path id="barSide" fill="#2552C4" d="M56.12 8.04L61.25 11.12L61.25 23.43L56.12 20.35L56.12 8.04Z"/>
+  <path id="barFront" fill="#4F86F0" d="M2.75 8.04L56.12 8.04L56.12 20.35L2.75 20.35L2.75 8.04Z"/>
+  <path id="hole" fill="#0F1730" d="M24.1 20.97L37.27 20.97L40.97 22.82L27.79 22.82L24.1 20.97Z"/>
+  <path id="lowSide" fill="#C26F00" d="M37.37 22.51L35.57 34.72L46.88 34.72L48.93 35.95L24.3 62.63L22.25 61.4L26.81 46.21L13.22 46.21L11.17 44.98L25.89 21.28L35.32 21.28L37.37 22.51Z"/>
+  <path id="lowStrike" fill="#FFB21E" d="M35.32 21.28L33.33 34.72L46.88 34.72L22.25 61.4L27.18 44.98L11.17 44.98L25.89 21.28L35.32 21.28Z"/>
 </svg>

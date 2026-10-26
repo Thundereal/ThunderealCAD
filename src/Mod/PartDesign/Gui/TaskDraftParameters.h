@@ -31,6 +31,11 @@
 #include "ViewProviderDraft.h"
 
 class Ui_TaskDraftParameters;
+class QMenu;
+
+namespace Gui {
+class OnViewValueSet;
+}
 
 namespace PartDesignGui {
 
@@ -66,14 +71,22 @@ protected:
     void onButton(selectionModes mode, bool checked);
     void onClear(selectionModes mode);
     void finishedRecomputeFeature() override;
+    /// Every drafted face's: the angle's handle
+    Gui::Gizmo* itemHandle(QTreeWidgetItem* item) const override;
 
 private:
     std::unique_ptr<Ui_TaskDraftParameters> ui;
 
     std::unique_ptr<Gui::GizmoContainer> gizmoContainer;
+    /// The angle in the view (docs/OnViewValueEditing.md 3.4, entry 170).
+    /// After gizmoContainer, so that it goes before the handles it holds.
+    std::unique_ptr<Gui::OnViewValueSet> onViewValues;
     Gui::RotationGizmo* angleGizmo = nullptr;
     void setupGizmos(ViewProvider* vp);
     void setGizmoPositions();
+    /// Show the values in the view the edit runs in, and restate them
+    void attachOnViewValues();
+    void fillAngleMenu(QMenu& menu);
 };
 
 /// simulation dialog for the TaskView

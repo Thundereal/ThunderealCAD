@@ -28,13 +28,22 @@
 # include <QApplication>
 # include <QAction>
 # include <QKeyEvent>
+# include <QMenu>
+# include <QMouseEvent>
 # include <QPushButton>
+# include <QTimer>
 # include <QCheckBox>
 # include <QColor>
+# include <QColorDialog>
+# include <QHeaderView>
 # include <QIcon>
 # include <QPixmap>
+# include <QPointer>
+# include <QTreeWidget>
 # include <cmath>
 #endif
+
+#include <algorithm>
 
 #include <boost/algorithm/string/predicate.hpp>
 
@@ -43,12 +52,17 @@
 #include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <App/ElementNamingUtils.h>
 #include <App/MappedElement.h>
+#include <App/PropertyStandard.h>
+#include <Base/AutoColor.h>
+#include <Base/ServiceProvider.h>
 #include <Base/Tools.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/Document.h>
 #include <Gui/Command.h>
+#include <Gui/Inventor/Draggers/GizmoStyleParameters.h>
 #include <Gui/MainWindow.h>
 #include <Gui/ViewParams.h>
 #include <Gui/View3DInventor.h>
@@ -67,6 +81,75 @@ FC_LOG_LEVEL_INIT("PartDesign",true,true)
 
 using namespace PartDesignGui;
 using namespace Gui;
+
+namespace {
+// A row's place in the feature's order, in its element column
+constexpr int RowOrderRole = Qt::UserRole + 2;
+
+// "Edge2" before "Edge10": a run of digits compared as a number
+int naturalCompare(const QString &a, const QString &b)
+{
+    int i = 0;
+    int j = 0;
+    while (i < a.size() && j < b.size()) {
+        if (a[i].isDigit() && b[j].isDigit()) {
+            int si = i;
+            int sj = j;
+            while (si < a.size() && a[si] == QLatin1Char('0'))
+                ++si;
+            while (sj < b.size() && b[sj] == QLatin1Char('0'))
+                ++sj;
+            int ei = si;
+            int ej = sj;
+            while (ei < a.size() && a[ei].isDigit())
+                ++ei;
+            while (ej < b.size() && b[ej].isDigit())
+                ++ej;
+            if (ei - si != ej - sj)
+                return ei - si < ej - sj ? -1 : 1;
+            int c = QStringView(a).mid(si, ei - si).compare(QStringView(b).mid(sj, ej - sj));
+            if (c != 0)
+                return c < 0 ? -1 : 1;
+            i = ei;
+            j = ej;
+            continue;
+        }
+        int c = QString::compare(a.mid(i, 1), b.mid(j, 1), Qt::CaseInsensitive);
+        if (c != 0)
+            return c < 0 ? -1 : 1;
+        ++i;
+        ++j;
+    }
+    if (a.size() - i != b.size() - j)
+        return a.size() - i < b.size() - j ? -1 : 1;
+    return 0;
+}
+
+// Numbers as numbers, the rest as text
+int compareSortValues(const QVariant &a, const QVariant &b)
+{
+    auto isNumber = [](const QVariant &v) {
+        switch (v.typeId()) {
+        case QMetaType::Double:
+        case QMetaType::Float:
+        case QMetaType::Int:
+        case QMetaType::UInt:
+        case QMetaType::LongLong:
+        case QMetaType::ULongLong:
+        case QMetaType::Bool:
+            return true;
+        default:
+            return false;
+        }
+    };
+    if (isNumber(a) && isNumber(b)) {
+        double x = a.toDouble();
+        double y = b.toDouble();
+        return x < y ? -1 : (y < x ? 1 : 0);
+    }
+    return naturalCompare(a.toString(), b.toString());
+}
+}
 
 
 /* TRANSLATOR PartDesignGui::TaskDressUpParameters */
@@ -145,11 +228,22 @@ void TaskDressUpParameters::setup(QLabel *label, QTreeWidget *widget, QCheckBox 
     treeWidget->setSelectionMode(QAbstractItemView::ExtendedSelection);
     treeWidget->setMouseTracking(true);
     treeWidget->installEventFilter(this);
+    // its double clicks (eventFilter())
+    treeWidget->viewport()->installEventFilter(this);
 
     connect(treeWidget, SIGNAL(itemSelectionChanged()),
         this, SLOT(onItemSelectionChanged()));
     connect(treeWidget, SIGNAL(itemEntered(QTreeWidgetItem*,int)),
         this, SLOT(onItemEntered(QTreeWidgetItem*,int)));
+
+    // A click on a column's title sorts the rows by it, a second the other
+    // way, a third puts them back in the feature's order (sortRows())
+    auto header = treeWidget->header();
+    header->setSectionsClickable(true);
+    header->setSortIndicatorShown(true);
+    header->setSortIndicatorClearable(true);
+    header->setSortIndicator(-1, Qt::AscendingOrder);
+    connect(header, &QHeaderView::sortIndicatorChanged, this, [this]() { sortRows(); });
 
     if(!deleteAction) {
         // Create context menu
@@ -189,7 +283,89 @@ bool TaskDressUpParameters::populate(bool refresh)
         setupTransaction();
     bool touched = PartDesignGui::populateGeometryReferences(treeWidget, pcDressUp->Base, refresh);
     populateOtherItems();
+    for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i)
+        treeWidget->topLevelItem(i)->setData(0, RowOrderRole, i);
+    sortRows();
     return touched;
+}
+
+std::vector<QTreeWidgetItem*> TaskDressUpParameters::rowsInOrder() const
+{
+    std::vector<QTreeWidgetItem*> rows;
+    if (!treeWidget)
+        return rows;
+    for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i)
+        rows.push_back(treeWidget->topLevelItem(i));
+    // a row added since the list was filled has no place yet: after the
+    // others, as it is listed
+    std::stable_sort(rows.begin(), rows.end(), [](QTreeWidgetItem *a, QTreeWidgetItem *b) {
+        QVariant x = a->data(0, RowOrderRole);
+        QVariant y = b->data(0, RowOrderRole);
+        if (!y.isValid())
+            return x.isValid();
+        return x.isValid() && x.toInt() < y.toInt();
+    });
+    return rows;
+}
+
+QVariant TaskDressUpParameters::sortValue(QTreeWidgetItem *item, int column) const
+{
+    QString text = item->text(column);
+    if (text.isEmpty())
+        return {};
+    if (column > 0) {
+        bool ok = false;
+        double value = item->data(column, Qt::UserRole).toDouble(&ok);
+        if (ok)
+            return value;
+    }
+    return text;
+}
+
+void TaskDressUpParameters::sortRows()
+{
+    if (!treeWidget)
+        return;
+    auto header = treeWidget->header();
+    const int column = header->sortIndicatorSection();
+    const Qt::SortOrder order = header->sortIndicatorOrder();
+    std::vector<QTreeWidgetItem*> rows = rowsInOrder();
+    if (column >= 0 && column != sortKeyColumn && column < treeWidget->columnCount()) {
+        std::vector<std::pair<QVariant, QTreeWidgetItem*>> keyed;
+        for (auto row : rows)
+            keyed.emplace_back(sortValue(row, column), row);
+        std::stable_sort(keyed.begin(), keyed.end(), [order](const auto &a, const auto &b) {
+            // an empty cell last, either way
+            if (!a.first.isValid() || !b.first.isValid())
+                return a.first.isValid() && !b.first.isValid();
+            int c = compareSortValues(a.first, b.first);
+            return order == Qt::AscendingOrder ? c < 0 : c > 0;
+        });
+        for (std::size_t i = 0; i < rows.size(); ++i)
+            rows[i] = keyed[i].second;
+    }
+    else {
+        // the feature's order, which the list may well be in already: no
+        // column added before a sort is asked for
+        bool same = true;
+        for (int i = 0, count = static_cast<int>(rows.size()); i < count && same; ++i)
+            same = treeWidget->topLevelItem(i) == rows[i];
+        if (same)
+            return;
+    }
+
+    // The rows put in that order by a hidden column of their places. A sort
+    // of the model's, it keeps the selection, the open editors and the rows
+    // under each (a fillet's points, whose order is the feature's).
+    QSignalBlocker blocker(treeWidget);
+    if (sortKeyColumn < 0) {
+        sortKeyColumn = treeWidget->columnCount();
+        treeWidget->setColumnCount(sortKeyColumn + 1);
+        header->hideSection(sortKeyColumn);
+    }
+    for (int i = 0, count = static_cast<int>(rows.size()); i < count; ++i)
+        rows[i]->setData(sortKeyColumn, Qt::DisplayRole, i);
+    treeWidget->invisibleRootItem()->sortChildren(sortKeyColumn, Qt::AscendingOrder);
 }
 
 bool TaskDressUpParameters::showOnTop(bool enable,
@@ -236,6 +412,35 @@ bool TaskDressUpParameters::showOnTop(bool enable,
     return true;
 }
 
+QTreeWidgetItem *TaskDressUpParameters::getFirstFaceItem() const
+{
+    for (auto item : rowsInOrder()) {
+        if (getGeometryItemText(item).startsWith("Face"))
+            return item;
+    }
+    return nullptr;
+}
+
+void TaskDressUpParameters::addRemoveFirstFaceAction(QMenu &menu)
+{
+    QTreeWidgetItem *item = getFirstFaceItem();
+    if (!item)
+        return;
+    menu.addSeparator();
+    QAction *remove = menu.addAction(
+        tr("Remove %1").arg(QString::fromLatin1(getGeometryItemText(item))));
+    connect(remove, &QAction::triggered, this, [this]() {
+        // after the menu: the removal recomputes and moves the handle
+        QTimer::singleShot(0, this, [this]() {
+            if (QTreeWidgetItem *item = getFirstFaceItem()) {
+                treeWidget->clearSelection();
+                item->setSelected(true);
+                onRefDeleted();
+            }
+        });
+    });
+}
+
 void TaskDressUpParameters::addAllEdges()
 {
     auto DressUpView = getDressUpView();
@@ -259,7 +464,7 @@ void TaskDressUpParameters::addAllEdges()
     if (subValues.size() == len)
         return;
     try {
-        setupTransaction();
+        setupTransaction(tr("add all edges"));
         pcDressUp->Base.setValue(base, subValues);
         recompute();
         populate(true);
@@ -292,11 +497,24 @@ void TaskDressUpParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
         onPreselectChanged(msg);
         return;
     }
+    if (msg.Type == Gui::SelectionChanges::AddSelection
+            || msg.Type == Gui::SelectionChanges::RmvSelection
+            || msg.Type == Gui::SelectionChanges::ClrSelection
+            || msg.Type == Gui::SelectionChanges::SetSelection) {
+        syncPreviewSelection();
+    }
 
     bool addSel = false;
     switch(msg.Type) {
     case Gui::SelectionChanges::ClrSelection: {
         showMessage();
+        // A click clears the selection before it adds its pick: a missing
+        // row selected until then is kept for that pick, and forgotten once
+        // the click is over
+        if (QTreeWidgetItem *item = getSoleMissingRow()) {
+            missingPick = getGeometryItemText(item).constData();
+            QTimer::singleShot(0, this, [this]() { missingPick.clear(); });
+        }
         Base::StateLocker guard(busy);
         treeWidget->selectionModel()->clearSelection();
         break;
@@ -373,6 +591,8 @@ void TaskDressUpParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
             }
 
             if(onTopObjs.empty()) {
+                if (sels.size() && replaceMissing(sels.back().getOldElementName()))
+                    return;
                 // If no on top display at the moment, just sync the reference
                 // selection.
                 syncItems(sels);
@@ -400,6 +620,8 @@ void TaskDressUpParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
 
     bool check = true;
     auto items = treeWidget->findItems(QString::fromUtf8(msg.pSubName), Qt::MatchExactly);
+    if (items.empty() && addSel && msg.pSubName && replaceMissing(msg.pSubName))
+        return;
     if(items.size()) {
         Base::StateLocker guard(busy);
         if(selectionMode == refToggle && addSel) {
@@ -415,10 +637,23 @@ void TaskDressUpParameters::onSelectionChanged(const Gui::SelectionChanges& msg)
     }
 
     if(addSel) {
+        // In the add mode every click toggles: the pick is let go of, as a
+        // pick of the preview is, or the next click on it deselects it, which
+        // toggles nothing -- a corner's vertex, picked on the base, could be
+        // added and never taken away (docs/HandsOnQueue.md entry 202 (a))
+        const Gui::SelectionChanges &orig = msg.pOriginalMsg ? *msg.pOriginalMsg : msg;
+        const std::string docName(orig.pDocName ? orig.pDocName : "");
+        const std::string objName(orig.pObjectName ? orig.pObjectName : "");
+        const std::string subName(orig.pSubName ? orig.pSubName : "");
         if(check)
             syncItems(Gui::Selection().getSelectionT());
         else
             syncItems();
+        if (selectionMode == refToggle) {
+            bool blocked = blockSelection(true);
+            Gui::Selection().rmvSelection(docName.c_str(), objName.c_str(), subName.c_str());
+            blockSelection(blocked);
+        }
     }
 }
 
@@ -481,6 +716,134 @@ bool TaskDressUpParameters::onPreviewSelected(const Gui::SelectionChanges& msg)
     return true;
 }
 
+QTreeWidgetItem *TaskDressUpParameters::getSoleMissingRow() const
+{
+    if (!treeWidget)
+        return nullptr;
+    QTreeWidgetItem *found = nullptr;
+    for (auto item : treeWidget->selectedItems()) {
+        if (auto parent = item->parent())
+            item = parent;
+        if (found && found != item)
+            return nullptr;
+        found = item;
+    }
+    if (!found || !isBaseItem(found) || getGeometryItemReference(found).isEmpty())
+        return nullptr;
+    return found;
+}
+
+bool TaskDressUpParameters::replaceMissing(const std::string &picked)
+{
+    // "when one missing (not failed) preview shape is selected, clicking
+    // another edge (not already filleted) on base feature shall change the
+    // edge reference inside the failed one. apply this to all other dressup
+    // features" (docs/HandsOnQueue.md entry 188)
+    std::string old;
+    old.swap(missingPick);
+    auto DressUpView = getDressUpView();
+    if (!treeWidget || !DressUpView || selectionMode == refToggle)
+        return false;
+    // the element by its old style name, as the rows have it
+    std::string element = picked;
+    auto dot = element.rfind('.');
+    if (dot != std::string::npos)
+        element.erase(0, dot + 1);
+    if (element.empty())
+        return false;
+
+    QTreeWidgetItem *item = nullptr;
+    if (!old.empty()) {
+        for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i) {
+            auto row = treeWidget->topLevelItem(i);
+            if (getGeometryItemText(row) == old.c_str()) {
+                item = row;
+                break;
+            }
+        }
+        if (item && (!isBaseItem(item) || getGeometryItemReference(item).isEmpty()))
+            item = nullptr;
+    }
+    else
+        item = getSoleMissingRow();
+    if (!item)
+        return false;
+    old = getGeometryItemText(item).constData();
+
+    // an element of the kind the missing one was, and not one in use
+    auto kind = [](const std::string &name) {
+        std::size_t start = name.find_first_not_of(Data::missingPrefix());
+        std::size_t end = name.find_first_of("0123456789", start);
+        return start == std::string::npos ? std::string() : name.substr(start, end - start);
+    };
+    if (kind(old) != kind(element)
+            || !treeWidget->findItems(QString::fromUtf8(element.c_str()), Qt::MatchExactly).empty())
+        return false;
+
+    auto* pcDressUp = static_cast<PartDesign::DressUp*>(DressUpView->getObject());
+    App::DocumentObject* base = pcDressUp->Base.getValue();
+    if (!base)
+        return false;
+
+    std::vector<std::string> subs;
+    {
+        Base::StateLocker guard(busy);
+        // in its place in the list, with its values (a fillet's points and
+        // group, a chamfer's sizes) under the new name
+        item->setText(0, QString::fromUtf8(element.c_str()));
+        setGeometryItemText(item, element);
+        setGeometryItemReference(item, std::string());
+        item->setForeground(0, QBrush());
+        std::set<std::string> subset;
+        for (auto row : rowsInOrder()) {
+            std::string s = row->text(0).toStdString();
+            if (subset.insert(s).second && isBaseItem(row))
+                subs.push_back(std::move(s));
+        }
+        treeWidget->clearSelection();
+        item->setSelected(true);
+    }
+
+    try {
+        setupTransaction(tr("%1 in place of %2").arg(QString::fromStdString(element),
+                                                     QString::fromStdString(old)));
+        // what the values are kept under follows the reference, as when the
+        // element map renames it
+        pcDressUp->Base.signalUpdateElementReference(old, element);
+        pcDressUp->Base.setValue(base, subs);
+        recompute();
+    }
+    catch (Base::Exception &e) {
+        e.ReportException();
+    }
+
+    // the new edge the selection, and its row, once the recompute has
+    // refilled the list
+    std::string sub;
+    if (auto obj = getInEdit(sub)) {
+        sub += element;
+        App::SubObjectT sel(obj, sub.c_str());
+        QTimer::singleShot(0, this, [this, sel, element]() {
+            if (!treeWidget)
+                return;
+            {
+                Base::StateLocker guard(busy);
+                treeWidget->clearSelection();
+                for (auto row : treeWidget->findItems(QString::fromUtf8(element.c_str()),
+                                                      Qt::MatchExactly))
+                    row->setSelected(true);
+            }
+            bool blocked = blockSelection(true);
+            Gui::Selection().clearSelection();
+            Gui::Selection().addSelection(sel.getDocumentName().c_str(),
+                                          sel.getObjectName().c_str(),
+                                          sel.getSubName().c_str());
+            blockSelection(blocked);
+        });
+    }
+    return true;
+}
+
 void TaskDressUpParameters::onPreselectChanged(const Gui::SelectionChanges& msg)
 {
     // "Hover face should resolve the edge name too, which should trigger
@@ -523,6 +886,20 @@ void TaskDressUpParameters::onPreselectChanged(const Gui::SelectionChanges& msg)
         lightPreviewFace(subname);
     else
         lightPreviewFace(std::string());
+}
+
+Gui::Gizmo* TaskDressUpParameters::getHoverHandle() const
+{
+    if (!treeWidget || !hoverItem || hoverFromList) {
+        return nullptr;
+    }
+    // still a row of the list
+    for (int i = 0, count = treeWidget->topLevelItemCount(); i < count; ++i) {
+        if (treeWidget->topLevelItem(i) == hoverItem) {
+            return itemHandle(hoverItem);
+        }
+    }
+    return nullptr;
 }
 
 void TaskDressUpParameters::setHoverItem(QTreeWidgetItem *item)
@@ -739,8 +1116,8 @@ bool TaskDressUpParameters::syncItems(const std::vector<App::SubObjectT> &sels) 
 
     std::set<std::string> subset;
     std::vector<std::string> subs;
-    for(int i=0, count=treeWidget->topLevelItemCount();i<count;++i) {
-        auto item = treeWidget->topLevelItem(i);
+    // the feature's order, not the list's sort
+    for(auto item : rowsInOrder()) {
         std::string s = item->text(0).toStdString();
         if(subset.insert(s).second && isBaseItem(item))
             subs.push_back(std::move(s));
@@ -775,11 +1152,28 @@ bool TaskDressUpParameters::syncItems(const std::vector<App::SubObjectT> &sels) 
     }
 
     syncOtherItems();
-    if(subs == pcDressUp->Base.getSubValues())
+    const auto before = pcDressUp->Base.getSubValues();
+    if(subs == before)
         return false;
 
     try {
-        setupTransaction();
+        // what was added, what removed
+        QStringList added;
+        QStringList removed;
+        for (const auto& s : subs) {
+            if (std::find(before.begin(), before.end(), s) == before.end())
+                added << QString::fromStdString(s);
+        }
+        for (const auto& s : before) {
+            if (std::find(subs.begin(), subs.end(), s) == subs.end())
+                removed << QString::fromStdString(s);
+        }
+        QStringList what;
+        if (!added.isEmpty())
+            what << tr("add %1").arg(added.join(QStringLiteral(", ")));
+        if (!removed.isEmpty())
+            what << tr("remove %1").arg(removed.join(QStringLiteral(", ")));
+        setupTransaction(what.join(QStringLiteral("; ")));
         pcDressUp->Base.setValue(base, subs);
         recompute();
     } catch (Base::Exception &e) {
@@ -814,29 +1208,201 @@ void TaskDressUpParameters::createAddAllEdgesAction(QTreeWidget* parentList)
     parentList->setContextMenuPolicy(Qt::ActionsContextMenu);
 }
 
-Base::Color TaskDressUpParameters::groupColor(int group)
+Base::Color TaskDressUpParameters::autoGroupColor(int group) const
 {
-    // A hue stepped by the golden ratio from the id -- the same id keeps its
-    // colour from session to session -- passing over the hues of the default
-    // handles (the theme's red) and of the highlight (yellow)
-    double hue = std::fmod(0.08 + group * 0.618033988749895, 1.0);
-    auto near = [&hue](double other) {
-        double d = std::fabs(hue - other);
-        return std::min(d, 1.0 - d) < 0.07;
+    // The hues a handle already wears: plain, dragged, selected and under the
+    // pointer. A group's own colour keeps clear of them all, or a handle of
+    // it reads as lit (docs/HandsOnQueue.md entries 196 and 202).
+    std::vector<float> taken;
+    auto take = [&taken](const QColor& color) {
+        // a grey has no hue to keep clear of
+        if (color.hsvSaturationF() > 0.25F) {
+            taken.push_back(color.hsvHueF());
+        }
     };
-    for (int i = 0; i < 4 && (near(0.0) || near(0.15)); ++i) {
-        hue = std::fmod(hue + 0.11, 1.0);
+    auto fromBase = [](const Base::Color& c) {
+        return QColor::fromRgbF(c.r, c.g, c.b);
+    };
+    // packed 0xRRGGBBAA, as the view's colours are kept
+    auto fromPacked = [](unsigned long packed) {
+        return QColor(int((packed >> 24) & 0xff), int((packed >> 16) & 0xff),
+                      int((packed >> 8) & 0xff));
+    };
+    if (auto* styles = Base::provideService<Gui::StyleParameters::ParameterManager>()) {
+        take(fromBase(styles->resolve(Gui::StyleParameters::LinearGizmoBaseColor)));
+        take(fromBase(styles->resolve(Gui::StyleParameters::LinearGizmoActiveColor)));
     }
-    QColor color = QColor::fromHsvF(float(hue), 0.75F, 0.95F);
+    take(fromPacked(Gui::ViewParams::getSelectionColor()));
+    take(fromPacked(Gui::ViewParams::getHighlightColor()));
+
+    // A colour the user picked for another group is taken too
+    for (int id : groupIds()) {
+        if (id != group) {
+            if (auto picked = pickedGroupColor(id)) {
+                take(*picked);
+            }
+        }
+    }
+
+    // The ids in turn from 1, each the hue farthest from every hue taken so
+    // far -- the handle's, the picked ones, and the ids' before it
+    // (Base::spreadHues): two groups close in id stay apart (the user, entry
+    // 209: "group 2 and 3 has very similar color"). By the id alone, every id
+    // before it counted whether it is a group now or not: counted among the
+    // groups there are, a group that emptied moved every later one onto the
+    // hue of the one before it -- an edge that joined group 3 from group 1
+    // took nothing, group 3 took group 1's colour (entry 226). Past 64 ids
+    // the spread comes round again.
+    constexpr int Spread = 64;
+    const int place = group > 0 ? (group - 1) % Spread + 1 : 1;
+    const auto hues = Base::spreadHues(taken, place);
+    QColor color = QColor::fromHsvF(hues.back(), 0.75F, 0.95F);
     return Base::Color(float(color.redF()), float(color.greenF()), float(color.blueF()));
 }
 
-QIcon TaskDressUpParameters::groupIcon(int group)
+App::PropertyMap* TaskDressUpParameters::getGroupColors() const
+{
+    auto vp = getDressUpView();
+    auto obj = vp ? vp->getObject() : nullptr;
+    return obj ? dynamic_cast<App::PropertyMap*>(obj->getPropertyByName("GroupColors"))
+               : nullptr;
+}
+
+std::optional<QColor> TaskDressUpParameters::pickedGroupColor(int group) const
+{
+    if (auto colors = getGroupColors()) {
+        const auto& values = colors->getValues();
+        auto it = values.find(std::to_string(group));
+        if (it != values.end()) {
+            QColor color(QString::fromStdString(it->second));
+            if (color.isValid()) {
+                return color;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+Base::Color TaskDressUpParameters::groupColor(int group) const
+{
+    if (auto color = pickedGroupColor(group)) {
+        return Base::Color(float(color->redF()), float(color->greenF()), float(color->blueF()));
+    }
+    return autoGroupColor(group);
+}
+
+QIcon TaskDressUpParameters::groupIcon(int group) const
 {
     const Base::Color color = groupColor(group);
     QPixmap pixmap(12, 12);
     pixmap.fill(QColor::fromRgbF(color.r, color.g, color.b));
     return QIcon(pixmap);
+}
+
+void TaskDressUpParameters::setGroupColor(int group, const std::optional<QColor>& color)
+{
+    auto colors = getGroupColors();
+    if (!colors || group <= 0) {
+        return;
+    }
+    const std::string key = std::to_string(group);
+    if (color) {
+        colors->setValue(key, color->name().toStdString());
+    }
+    else if (colors->getValues().count(key)) {
+        auto values = colors->getValues();
+        values.erase(key);
+        colors->setValues(values);
+    }
+    else {
+        return;
+    }
+    // the rows may be made again: the current one stays current, not
+    // selected anew (a selection reaches the view)
+    const QString current = treeWidget && treeWidget->currentItem()
+        ? treeWidget->currentItem()->text(0) : QString();
+    groupColorsChanged();
+    if (treeWidget && !current.isEmpty()) {
+        const auto found = treeWidget->findItems(current, Qt::MatchExactly);
+        if (!found.isEmpty() && treeWidget->currentItem() != found.front()) {
+            Base::StateLocker guard(busy);
+            treeWidget->setCurrentItem(found.front(), 0, QItemSelectionModel::NoUpdate);
+        }
+    }
+    Q_EMIT groupColorsUpdated();
+}
+
+void TaskDressUpParameters::addGroupColorActions(QMenu& menu, int group)
+{
+    if (group <= 0 || !getGroupColors()) {
+        return;
+    }
+    QAction* pick = menu.addAction(groupIcon(group), tr("Group colour..."));
+    connect(pick, &QAction::triggered, this, [this, group]() {
+        // after the menu: the dialog runs a loop of its own
+        QTimer::singleShot(0, this, [this, group]() {
+            pickGroupColor(group);
+        });
+    });
+    QAction* automatic = menu.addAction(tr("Automatic group colour"));
+    automatic->setEnabled(pickedGroupColor(group).has_value());
+    connect(automatic, &QAction::triggered, this, [this, group]() {
+        QTimer::singleShot(0, this, [this, group]() {
+            setupTransaction(tr("group %1 colour automatic").arg(group));
+            setGroupColor(group, std::nullopt);
+        });
+    });
+}
+
+void TaskDressUpParameters::pickGroupColor(int group)
+{
+    const Base::Color current = groupColor(group);
+    QColor color = QColorDialog::getColor(QColor::fromRgbF(current.r, current.g, current.b),
+                                          Gui::getMainWindow(),
+                                          tr("The colour of group %1").arg(group));
+    if (color.isValid()) {
+        setupTransaction(tr("group %1 colour").arg(group));
+        setGroupColor(group, color);
+    }
+}
+
+void TaskDressUpParameters::createGroupColorActions(QTreeWidget* parentList)
+{
+    // the list's own menu: the current row's group, its colour picked or
+    // made automatic again
+    auto pick = new QAction(tr("Group colour..."), this);
+    auto automatic = new QAction(tr("Automatic group colour"), this);
+    parentList->addAction(pick);
+    parentList->addAction(automatic);
+    auto update = [this, parentList, pick, automatic]() {
+        QTreeWidgetItem* item = parentList->currentItem();
+        const int group = item ? itemGroup(item) : 0;
+        pick->setEnabled(group > 0);
+        pick->setIcon(group > 0 ? groupIcon(group) : QIcon());
+        automatic->setEnabled(group > 0 && pickedGroupColor(group).has_value());
+    };
+    update();
+    connect(parentList, &QTreeWidget::currentItemChanged, this, update);
+    connect(this, &TaskDressUpParameters::groupColorsUpdated, this, update);
+    connect(pick, &QAction::triggered, this, [this, parentList]() {
+        if (QTreeWidgetItem* item = parentList->currentItem()) {
+            const int group = itemGroup(item);
+            if (group > 0) {
+                QTimer::singleShot(0, this, [this, group]() {
+                    pickGroupColor(group);
+                });
+            }
+        }
+    });
+    connect(automatic, &QAction::triggered, this, [this, parentList]() {
+        if (QTreeWidgetItem* item = parentList->currentItem()) {
+            const int group = itemGroup(item);
+            if (group > 0) {
+                setupTransaction(tr("group %1 colour automatic").arg(group));
+                setGroupColor(group, std::nullopt);
+            }
+        }
+    });
 }
 
 void TaskDressUpParameters::showMessage(const char *msg) {
@@ -873,12 +1439,22 @@ void TaskDressUpParameters::onItemSelectionChanged()
 
     std::set<QTreeWidgetItem*> itemSet;
     std::vector<std::string> subs;
+    const std::string &prefix = PartDesign::FeatureAddSub::addsubElementPrefix();
     for(auto item : treeWidget->selectedItems()) {
         if (auto parent = item->parent())
             item = parent;
         if (itemSet.insert(item).second) {
-            if (getGeometryItemReference(item).isEmpty())
+            if (getGeometryItemReference(item).isEmpty()) {
                 subs.push_back(subname + getGeometryItemText(item).constData());
+                continue;
+            }
+            // A missing edge has nothing in the base to select: its preview
+            // face stands for it, as a click on that face selects its row --
+            // which also makes the next plain click in the view replace this
+            // one, not add to it (docs/HandsOnQueue.md entry 194)
+            std::string face;
+            if (getItemElement(item, face) && face.find(prefix) != std::string::npos)
+                subs.push_back(face);
         }
     }
 
@@ -887,6 +1463,49 @@ void TaskDressUpParameters::onItemSelectionChanged()
     Gui::Selection().addSelections(obj->getDocument()->getName(),
             obj->getNameInDocument(), subs);
     blockSelection(blocked);
+    // the panel heard none of it: the preview's faces in the selection colour
+    syncPreviewSelection();
+}
+
+void TaskDressUpParameters::onActiveHandleChanged(Gui::Gizmo *handle)
+{
+    if (!treeWidget)
+        return;
+    // let go: the selection stays, the next handle made active selects again
+    if (!handle) {
+        activeHandleEdge.clear();
+        return;
+    }
+    // a missing edge's name as its row and its handle may give it
+    auto plain = [](std::string name) {
+        if (boost::starts_with(name, Data::missingPrefix()))
+            name.erase(0, Data::missingPrefix().size());
+        return name;
+    };
+    const std::string edge = plain(handleEdge(handle));
+    // the same edge's handle made anew by a recompute, and active again
+    if (edge.empty() || edge == activeHandleEdge)
+        return;
+    activeHandleEdge = edge;
+    // After the click: the view takes its release as a pick of nothing
+    // selectable and clears the selection, the row's with it
+    QPointer<TaskDressUpParameters> self(this);
+    QTimer::singleShot(0, this, [self, edge, plain]() {
+        if (!self || !self->treeWidget || self->activeHandleEdge != edge)
+            return;
+        for (auto row : self->rowsInOrder()) {
+            if (plain(getGeometryItemText(row).constData()) != edge)
+                continue;
+            {
+                QSignalBlocker blocker(self->treeWidget);
+                self->treeWidget->clearSelection();
+                row->setSelected(true);
+            }
+            self->treeWidget->scrollToItem(row);
+            self->onItemSelectionChanged();
+            return;
+        }
+    });
 }
 
 App::SubObjectT TaskDressUpParameters::getInEdit(App::DocumentObject *base, const char *sub) {
@@ -1118,6 +1737,93 @@ void TaskDressUpParameters::onTimer() {
     }
 }
 
+void TaskDressUpParameters::syncPreviewSelection()
+{
+    // A selection that names the preview's face itself -- a failed or
+    // missing edge's, which a click on it or its row selects (a working
+    // edge's face selects the base's edge instead) -- shows the face in the
+    // selection colour (the reporter 2026-10-19 13:49, entry 182)
+    auto view = getDressUpView();
+    auto obj = view ? view->getObject() : nullptr;
+    if (!obj || !obj->isAttachedToDocument())
+        return;
+    const std::string &prefix = PartDesign::FeatureAddSub::addsubElementPrefix();
+    const std::string owner = std::string(obj->getNameInDocument()) + ".";
+    std::vector<int> faces;
+    for (const auto &sel : Gui::Selection().getCompleteSelection(Gui::ResolveMode::NoResolve)) {
+        if (!sel.pObject || sel.pObject->getDocument() != obj->getDocument() || !sel.SubName)
+            continue;
+        const std::string subname(sel.SubName);
+        auto pos = subname.rfind(prefix);
+        if (pos == std::string::npos)
+            continue;
+        // the preview of this feature: its name ends the path before the prefix,
+        // or the feature is the selected object itself
+        const bool own = sel.pObject == obj
+            || (pos >= owner.size() && subname.compare(pos - owner.size(), owner.size(), owner) == 0);
+        if (!own)
+            continue;
+        const char *element = subname.c_str() + pos + prefix.size();
+        int face = 0;
+        if (boost::starts_with(element, "Face"))
+            face = std::atoi(element + 4);
+        else if (QTreeWidgetItem *item = getPreviewItem(element)) {
+            // an edge of a missing edge's face, which a thin face is picked
+            // by within the pick radius -- a browser's, mostly (entry 189):
+            // it selects that row as the face does, and shows it as the face
+            if (!getGeometryItemReference(item).isEmpty())
+                face = previewFaceOf(getGeometryItemText(item).constData());
+        }
+        if (face > 0 && std::find(faces.begin(), faces.end(), face) == faces.end())
+            faces.push_back(face);
+    }
+    // A failed edge that is still there: a click on its face selects the
+    // base's edge (ViewProviderDressUp::redirectEditingPick), but the red
+    // face is what stands for it, so that face shows selected with it (the
+    // reporter's PrismLocker in scanner, 2026-10-19 15:16)
+    auto dressUp = Base::freecad_dynamic_cast<PartDesign::DressUp>(obj);
+    App::DocumentObject *base = dressUp ? dressUp->getBaseObject(true) : nullptr;
+    const auto &failed = dressUp ? dressUp->FailedEdges.getValues() : std::vector<std::string>();
+    if (base && !failed.empty()) {
+        for (const auto &sel : Gui::Selection().getSelectionEx(
+                 obj->getDocument()->getName(), App::DocumentObject::getClassTypeId(),
+                 Gui::ResolveMode::OldStyleElement)) {
+            if (sel.getObject() != base)
+                continue;
+            for (const auto &name : sel.getSubNames()) {
+                if (std::find(failed.begin(), failed.end(), name) == failed.end())
+                    continue;
+                const int face = previewFaceOf(name);
+                if (face > 0 && std::find(faces.begin(), faces.end(), face) == faces.end())
+                    faces.push_back(face);
+            }
+        }
+    }
+    view->selectPreviewFaces(faces);
+}
+
+int TaskDressUpParameters::previewFaceOf(const std::string &edge) const
+{
+    // the face of the preview the feature keeps for \a edge, as last made:
+    // by partner with the faces getMadeFaces() names (as getItemElement())
+    auto view = getDressUpView();
+    auto dressUp = view ? Base::freecad_dynamic_cast<PartDesign::DressUp>(view->getObject()) : nullptr;
+    if (!dressUp)
+        return 0;
+    TopoDS_Shape made = dressUp->getMadeFaces(edge);
+    auto preview = dressUp->DressUpShape.getShape();
+    if (made.IsNull() || preview.isNull())
+        return 0;
+    for (int i = 1, c = preview.countSubShapes(TopAbs_FACE); i <= c; ++i) {
+        const TopoDS_Shape face = preview.getSubShape(TopAbs_FACE, i);
+        for (TopExp_Explorer exp(made, TopAbs_FACE); exp.More(); exp.Next()) {
+            if (face.IsPartner(exp.Current()))
+                return i;
+        }
+    }
+    return 0;
+}
+
 void TaskDressUpParameters::lightPreviewFace(const std::string &subname)
 {
     // A face of the preview, named behind the add/sub prefix: lit by its
@@ -1213,6 +1919,20 @@ bool TaskDressUpParameters::event(QEvent *e)
 
 bool TaskDressUpParameters::eventFilter(QObject *o, QEvent *e)
 {
+    // A double click on a value's cell edits it (entry 202 (f): "Double click
+    // the group column shall allow editting the group"). Asked for here: in
+    // fillet-groups-and-preview-menu.py the view's own trigger opened no
+    // editor on the cell (editable, the trigger on, nothing being edited),
+    // while the same cell asked for directly did -- why, not found.
+    if (treeWidget && o == treeWidget->viewport() && e->type() == QEvent::MouseButtonDblClick) {
+        auto me = static_cast<QMouseEvent*>(e);
+        const QModelIndex index = treeWidget->indexAt(me->position().toPoint());
+        if (me->button() == Qt::LeftButton && index.isValid() && index.column() != 0
+                && (index.flags() & Qt::ItemIsEditable)) {
+            treeWidget->edit(index);
+            return true;
+        }
+    }
     if(treeWidget && o == treeWidget) {
         switch(e->type()) {
         case QEvent::Leave:
@@ -1227,6 +1947,43 @@ bool TaskDressUpParameters::eventFilter(QObject *o, QEvent *e)
     }
     // the base's: a panel box holding an undo step while it has the focus
     return TaskFeatureParameters::eventFilter(o,e);
+}
+
+void TaskDressUpParameters::heldStepBegun()
+{
+    failedAtStepStart.clear();
+    errorAtStepStart.clear();
+    auto dressUp = vp ? Base::freecad_dynamic_cast<PartDesign::DressUp>(vp->getObject()) : nullptr;
+    if (!dressUp || !dressUp->isError())
+        return;
+    failedAtStepStart = dressUp->FailedEdges.getValues();
+    if (const char *error = dressUp->getStatusString())
+        errorAtStepStart = error;
+}
+
+std::vector<std::string> TaskDressUpParameters::failedSinceStepBegun(bool &whole) const
+{
+    whole = false;
+    std::vector<std::string> fresh;
+    auto dressUp = vp ? Base::freecad_dynamic_cast<PartDesign::DressUp>(vp->getObject()) : nullptr;
+    if (!dressUp || !dressUp->isError())
+        return fresh;
+    const auto &failed = dressUp->FailedEdges.getValues();
+    // Nothing named: the feature as a whole failed
+    if (failed.empty()) {
+        whole = true;
+        return fresh;
+    }
+    for (const auto &edge : failed) {
+        if (std::find(failedAtStepStart.begin(), failedAtStepStart.end(), edge)
+                == failedAtStepStart.end())
+            fresh.push_back(edge);
+    }
+    // The same edges, and another error: the result itself
+    const char *error = dressUp->getStatusString();
+    if (fresh.empty() && errorAtStepStart != (error ? error : ""))
+        whole = true;
+    return fresh;
 }
 
 //**************************************************************************

@@ -1329,7 +1329,8 @@ TransactionStore& TransactionLogCore::store()
     return *_reader;
 }
 
-TransactionLog::Embedded TransactionLogCore::beginEmbed(int64_t branch, const std::string& saveId)
+TransactionLog::Embedded TransactionLogCore::beginEmbed(int64_t branch, const std::string& saveId,
+                                                       const std::string& trigger)
 {
     flush();
     TransactionLog::Embedded out;
@@ -1347,8 +1348,11 @@ TransactionLog::Embedded TransactionLogCore::beginEmbed(int64_t branch, const st
     if (branch) {
         LogBranch saving;
         if (_store->getBranch(branch, saving))
+            // ... and who asked for it, after the two numbers (entry 167): a
+            // reader of the numbers alone stops there.
             _store->setMeta("save:" + out.saveId,
-                            std::to_string(out.version) + " " + std::to_string(saving.head));
+                            std::to_string(out.version) + " " + std::to_string(saving.head)
+                                + (trigger.empty() ? std::string() : " " + trigger));
     }
     _store->setMeta("last_object_id", std::to_string(_history.lastObjectId()));
     std::vector<std::pair<long, std::string>> names;
@@ -1362,7 +1366,8 @@ TransactionLog::Embedded TransactionLogCore::beginEmbed(int64_t branch, const st
 }
 
 TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, int64_t branch,
-                                                  const std::string& saveId)
+                                                  const std::string& saveId,
+                                                  const std::string& trigger)
 {
     auto clock = std::chrono::steady_clock::now();
     auto split = [&clock]() {
@@ -1371,7 +1376,7 @@ TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, 
         clock = now;
         return secs;
     };
-    TransactionLog::Embedded out = beginEmbed(branch, saveId);
+    TransactionLog::Embedded out = beginEmbed(branch, saveId, trigger);
     const std::string dir = _history.directory() + "/history";
     Base::FileInfo(dir).createDirectories();
     out.path = dir + "/embed-" + out.saveId + ".db";
@@ -1380,7 +1385,7 @@ TransactionLog::Embedded TransactionLogCore::embed(const std::string& saveDate, 
     _store->copyTo(out.path);
     auto copy = TransactionStore::openSQLite(out.path);
     const double tCopy = split();
-    finishEmbed(*copy, out, saveDate, branch);
+    finishEmbed(*copy, out, saveDate, branch, trigger);
     // The copy was the whole store; what retention took out is free pages,
     // which would travel in the file and come back as the live store when
     // it is opened elsewhere (sec 27.53).
@@ -1398,7 +1403,8 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
                                                         int64_t branch, const std::string& folder,
                                                         const std::string& target,
                                                         const std::string& previous,
-                                                        const std::string& saveId)
+                                                        const std::string& saveId,
+                                                        const std::string& trigger)
 {
     auto clock = std::chrono::steady_clock::now();
     auto split = [&clock]() {
@@ -1407,7 +1413,7 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
         clock = now;
         return secs;
     };
-    TransactionLog::Embedded out = beginEmbed(branch, saveId);
+    TransactionLog::Embedded out = beginEmbed(branch, saveId, trigger);
     out.path = target;
     Base::FileInfo(target).deleteFile();
     const double tState = split();
@@ -1448,7 +1454,7 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
         copy = TransactionStore::openSQLiteCopy(target);
     }
     const double tCopy = split();
-    finishEmbed(*copy, out, saveDate, branch);
+    finishEmbed(*copy, out, saveDate, branch, trigger);
     const double tRetain = split();
     // The check (sec 38.9): the same copy made whole, here and now, holds
     // the same rows. Not where retention trimmed rows: a copy trimmed save
@@ -1460,7 +1466,7 @@ TransactionLog::Embedded TransactionLogCore::embedFolder(const std::string& save
             _store->copyTo(check);
             auto whole = TransactionStore::openSQLiteCopy(check);
             TransactionLog::Embedded same = out;
-            finishEmbed(*whole, same, saveDate, branch);
+            finishEmbed(*whole, same, saveDate, branch, trigger);
             whole.reset();
             out.checked = true;
             out.differences = copy->differences(check);
@@ -1505,7 +1511,8 @@ void TransactionLogCore::untrackFolder()
 }
 
 void TransactionLogCore::finishEmbed(TransactionStore& copyRef, TransactionLog::Embedded& out,
-                                     const std::string& saveDate, int64_t branch)
+                                     const std::string& saveDate, int64_t branch,
+                                     const std::string& trigger)
 {
     TransactionStore* copy = &copyRef;
     // Retention (16.4, 13.3, 37.4 P1): the versions that travel, and the
@@ -1586,6 +1593,8 @@ void TransactionLogCore::finishEmbed(TransactionStore& copyRef, TransactionLog::
     }
     copy->setMeta("save_id", out.saveId);
     copy->setMeta("save_date", saveDate);
+    if (!trigger.empty())
+        copy->setMeta("save_trigger", trigger);
     copy->setMeta("version_counter", std::to_string(out.version));
     // The branch the file reopens on is the saving document's (sec 27.16):
     // the store's names whichever document of the file last switched, and a
@@ -2216,18 +2225,21 @@ bool TransactionLog::readRevert(int64_t seq, Revert& out)
     return _c.readRevert(seq, out);
 }
 
-TransactionLog::Embedded TransactionLog::embed(const std::string& saveDate)
+TransactionLog::Embedded TransactionLog::embed(const std::string& saveDate,
+                                               const std::string& trigger)
 {
-    _lastEmbed = _c.embed(saveDate, _branch);
+    _lastEmbed = _c.embed(saveDate, _branch, std::string(), trigger);
     return _lastEmbed;
 }
 
 TransactionLog::Embedded TransactionLog::embedFolder(const std::string& saveDate,
                                                     const std::string& folder,
                                                     const std::string& target,
-                                                    const std::string& previous)
+                                                    const std::string& previous,
+                                                    const std::string& trigger)
 {
-    _lastEmbed = _c.embedFolder(saveDate, _branch, folder, target, previous);
+    _lastEmbed = _c.embedFolder(saveDate, _branch, folder, target, previous, std::string(),
+                                trigger);
     return _lastEmbed;
 }
 
@@ -2235,11 +2247,12 @@ TransactionLog::Embedded TransactionLog::embedFolderForFile(const std::string& s
                                                            const std::string& saveId,
                                                            const std::string& folder,
                                                            const std::string& target,
-                                                           const std::string& previous)
+                                                           const std::string& previous,
+                                                           const std::string& trigger)
 {
     // Branch 0: the branch the file reopens on stays the store's, as
     // embedForFile() leaves it.
-    _lastEmbed = _c.embedFolder(saveDate, 0, folder, target, previous, saveId);
+    _lastEmbed = _c.embedFolder(saveDate, 0, folder, target, previous, saveId, trigger);
     return _lastEmbed;
 }
 
@@ -2254,22 +2267,24 @@ void TransactionLog::untrackFolder()
 }
 
 TransactionLog::Embedded TransactionLog::embedForFile(const std::string& saveDate,
-                                                      const std::string& saveId)
+                                                      const std::string& saveId,
+                                                      const std::string& trigger)
 {
-    return _c.embed(saveDate, 0, saveId);
+    return _c.embed(saveDate, 0, saveId, trigger);
 }
 
-std::string TransactionLog::noteSave()
+std::string TransactionLog::noteSave(const std::string& trigger)
 {
     flush();
     const std::string id = Base::Uuid::createUuid();
     const std::string num = std::to_string(_c._store->lastVersion());
-    _c._store->setMeta("save:" + id, num + " " + std::to_string(_head));
+    _c._store->setMeta("save:" + id, num + " " + std::to_string(_head)
+                                         + (trigger.empty() ? std::string() : " " + trigger));
     return num + " " + id;
 }
 
 bool TransactionLog::savedAt(TransactionStore& store, const std::string& saveId,
-                             int64_t& version, int64_t& seq)
+                             int64_t& version, int64_t& seq, std::string* trigger)
 {
     version = 0;
     seq = 0;
@@ -2280,6 +2295,14 @@ bool TransactionLog::savedAt(TransactionStore& store, const std::string& saveId,
         return false;
     std::istringstream in(meta);
     in >> version >> seq;
+    if (trigger) {
+        // The rest of the line, which may hold spaces; none for a save
+        // recorded before triggers were (entry 167)
+        std::string rest;
+        std::getline(in, rest);
+        const auto start = rest.find_first_not_of(' ');
+        *trigger = start == std::string::npos ? std::string("unknown") : rest.substr(start);
+    }
     return seq > 0;
 }
 

@@ -81,6 +81,7 @@
 #include <GProp_GProps.hxx>
 #include <Geom_Plane.hxx>
 #include <HLRAlgo_Projector.hxx>
+#include <QCoreApplication>
 #include <QFuture>
 #include <QFutureWatcher>
 #include <QtConcurrentRun>
@@ -165,7 +166,13 @@ Part::TopoShape DrawComplexSection::makeCuttingTool(double dMax)
     //    Base::Console().Message("DCS::makeCuttingTool()\n");
     Part::TopoShape profileShape = makeProfileShape();
     if (profileShape.isNull()) {
-        THROWM(Base::RuntimeError, "Can not make wire from cutting tool (1)")
+        // said with the profile it is about (docs/TechDrawErrors.md 3.2)
+        App::DocumentObject* profile = CuttingToolWireObject.getValue();
+        THROWM(Base::RuntimeError,
+               QCoreApplication::translate("TechDraw",
+                                           "the cutting profile %1 gives no wire to cut with")
+                   .arg(QString::fromUtf8(profile ? profile->Label.getValue() : "(none)"))
+                   .toStdString())
     }
     TopoDS_Wire profileWire = TopoDS::Wire(profileShape.getShape());
 
@@ -179,8 +186,10 @@ Part::TopoShape DrawComplexSection::makeCuttingTool(double dMax)
     bool isPositionOK = validateProfilePosition(profileWire, sectionCS, gClosestBasis);
     if (!isPositionOK) {
         //profile is not in a good position.  Result might not be right.
-        Base::Console().Warning("DCS::makeCuttingTool - %s - profile is outside shape box\n",
-                                getNameInDocument());
+        reportLateWarning(QCoreApplication::translate(
+            "TechDraw", "The cutting profile is outside the part, so the section may not be "
+                        "right")
+            .toStdString());
     }
 
     //move the profile wire to one side of the shape
@@ -329,13 +338,22 @@ void DrawComplexSection::makeSectionCut(const Part::TopoShape& baseShape)
         ComplexParams params;
         params.sectionCS = getSectionCS();
         if (!canBuild(params.sectionCS, CuttingToolWireObject.getValue())) {
-            THROWM(Base::RuntimeError, "Profile is parallel to Section Normal")
+            THROWM(Base::RuntimeError,
+                   QCoreApplication::translate("TechDraw",
+                                               "the cutting profile is parallel to the section "
+                                               "normal")
+                       .toStdString())
         }
 
         //get a vector that describes the profile's orientation
         params.profileWire = makeProfileWire();
         if (params.profileWire.IsNull()) {
-            THROWM(Base::RuntimeError, "Can not make wire from cutting tool (2)")
+            App::DocumentObject* profile = CuttingToolWireObject.getValue();
+            THROWM(Base::RuntimeError,
+                   QCoreApplication::translate("TechDraw",
+                                               "the cutting profile %1 gives no wire to cut with")
+                       .arg(QString::fromUtf8(profile ? profile->Label.getValue() : "(none)"))
+                       .toStdString())
         }
 
         m_alignWatcher.reset(new QFutureWatcher<void>());
@@ -348,13 +366,22 @@ void DrawComplexSection::makeSectionCut(const Part::TopoShape& baseShape)
         m_progress = progress;
         params.progress = progress;
 
+        // the worker's failure, the view's recompute error once it is back
+        // on this thread (docs/TechDrawErrors.md 3.1)
+        auto failure = std::make_shared<std::string>();
         m_alignWatcher.reset(new QFutureWatcher<void>());
         QObject::connect(m_alignWatcher.get(), &QFutureWatcherBase::finished, m_alignWatcher.get(),
             [=] {
-                if (m_progress && !m_progress->wasCanceled())
+                if (m_progress && !m_progress->wasCanceled()) {
                     onMakeAlignedPiecedFinished(output);
-                else
-                    abortMakeAlignedPieces();
+                    return;
+                }
+                abortMakeAlignedPieces();
+                if (!failure->empty()) {
+                    reportLateError(QCoreApplication::translate(
+                        "TechDraw", "The aligned complex section failed: %1")
+                        .arg(QString::fromStdString(*failure)).toStdString());
+                }
             });
 
         params.featureName = getFullName();
@@ -374,7 +401,7 @@ void DrawComplexSection::makeSectionCut(const Part::TopoShape& baseShape)
 
         waitingForAlign(true);
         m_alignWatcher->setFuture(QtConcurrent::run(
-            [params] {
+            [params, failure] {
                 try {
                     makeAlignedPieces(params);
                     return;
@@ -382,15 +409,35 @@ void DrawComplexSection::makeSectionCut(const Part::TopoShape& baseShape)
                     e.ReportException();
                     Base::Console().Error("DVP::%s - complex section failed - %s **\n",
                                         params.featureName.c_str(), e.what());
+                    *failure = e.what();
                 } catch (Standard_Failure &e) {
                     Base::Console().Error("DVP::%s - complex section failed - %s **\n",
                                         params.featureName.c_str(), e.GetMessageString());
+                    *failure = e.GetMessageString() ? e.GetMessageString() : "";
+                    if (failure->empty()) {
+                        *failure = "an OpenCASCADE failure with no message";
+                    }
                 }
                 params.progress->setCanceled(true);
             }));
     }
+    // What was thrown above says why ("Profile is parallel to Section
+    // Normal"); a catch-all that only logged lost it (docs/TechDrawErrors.md)
+    catch (Base::Exception& e) {
+        reportLateError(QCoreApplication::translate(
+            "TechDraw", "The aligned complex section could not be made: %1")
+            .arg(QString::fromUtf8(e.what())).toStdString());
+        return;
+    }
+    catch (Standard_Failure& e) {
+        reportLateError(QCoreApplication::translate(
+            "TechDraw", "The aligned complex section could not be made: %1")
+            .arg(QString::fromUtf8(e.GetMessageString() ? e.GetMessageString() : "")).toStdString());
+        return;
+    }
     catch (...) {
-        Base::Console().Message("DCS::makeSectionCut - failed to make alignedPieces");
+        reportLateError(QCoreApplication::translate(
+            "TechDraw", "The aligned complex section could not be made").toStdString());
         return;
     }
 }

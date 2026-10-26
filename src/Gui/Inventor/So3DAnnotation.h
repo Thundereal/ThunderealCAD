@@ -24,6 +24,7 @@
 #pragma once
 
 #include <Inventor/actions/SoGLRenderAction.h>
+#include <Inventor/fields/SoSFInt32.h>
 #include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/elements/SoElement.h>
 #include <Inventor/elements/SoSubElement.h>
@@ -110,6 +111,15 @@ public:
     static bool render;
 
     So3DAnnotation();
+
+    /** Where it draws among the delayed annotations, lower first, as
+     * SoFCPathAnnotation::priority; the render cache raises its order by the
+     * same rule (SoFCRenderCache::increaseRenderingOrder). 0, the default,
+     * leaves it as it was. A gizmo container's is -1: over a dress-up's
+     * preview (-2), under the on-view labels (1) (docs/HandsOnQueue.md
+     * entry 185)
+     */
+    SoSFInt32 priority;
 
     So3DAnnotation(const So3DAnnotation& other) = delete;
     So3DAnnotation(So3DAnnotation&& other) noexcept = delete;

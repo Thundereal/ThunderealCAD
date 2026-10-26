@@ -703,10 +703,14 @@ visible in the preset.
 
 ### Cycles (path-traced renderer)
 
-**Cycles is OFF unless you ask for it.** `BUILD_CYCLES` defaults OFF and neither
-preset sets it, so a plain `cmake --preset conda-linux-801-relwithdebinfo` gives a tree with
-no path tracer in it. There is deliberately no Cycles preset: the OptiX and CUDA
-prefixes are machine-specific, so the flags are stated on the command line.
+**Cycles is ON by default** (user, 2026-10-19: the path tracer is part of the
+product). `BUILD_CYCLES` defaults ON and no preset sets it, so a fresh configure
+builds it -- and needs its dependencies (below): without OpenImageIO the configure
+stops and says so, and `-DBUILD_CYCLES=OFF` is the way out. A clone without the
+`src/3rdParty/cycles` submodule builds without it, with a warning. A tree that
+already has a cache keeps the value it has: the default reaches only a fresh one.
+The OptiX and CUDA prefixes are machine-specific, so those flags are stated on the
+command line, not in a preset.
 
 Why the integration looks the way it does -- why Blender's precompiled bundle is
 refused, which feature options are on, what works on which GPU -- is
@@ -746,13 +750,13 @@ Configure and build:
 ```sh
 RUN=~/works/sw/fcad/.conda/run.sh
 cd ~/works/sw/fcad
-$RUN cmake --preset conda-linux-801-relwithdebinfo -DBUILD_CYCLES=ON \
+$RUN cmake --preset conda-linux-801-relwithdebinfo \
     -DOPTIX_ROOT_DIR=$HOME/works/sw/optix-dev \
     -DCYCLES_RUNTIME_OPTIX_ROOT_DIR=$HOME/works/sw/optix-dev
 $RUN cmake --build build/conda-relwithdebinfo-801
 ```
 
-(Cycles is a heavy build; that is why it does not default on.)
+(Cycles is a heavy build: a first build of it takes a while.)
 
 #### CUDA_BIN_PATH is a RUN-time variable, and forgetting it looks like a bug
 
@@ -2719,7 +2723,7 @@ WSL2 exposes no AMD userspace at all -- are reachable from the Windows side of
 it. Sec 4.2 says as much: testing AMD "needs a native Windows build (the
 Adrenalin driver carries the HIP runtime)". This is that build.
 
-`BUILD_CYCLES` defaults OFF here too and no preset sets it. The flags live in
+`BUILD_CYCLES` defaults ON here too (since 2026-10-19) and no preset sets it. The flags live in
 `..\tools\build-fcad-cycles.cmd`; drive it from a `.cmd` rather than
 the shell, because PowerShell mangles a dotted `-D` value.
 
@@ -3251,8 +3255,10 @@ scripts in `D:\works\sw\abi-upstream\tools` (the OCCT fork's
 
 - **No FreeCAD binary imports an OCCT symbol that only the fork exports.**
   What FreeCAD needs of the fork it reaches through a C function looked up by
-  name at run time (`Part::lookUpOCCT` in `AppPartPy.cpp`, the wrappers
-  beside it in `PartPyCXX.h`), and does without where it is not found.
+  name at run time (`Part::lookUpOCCT` and every typed wrapper over it in
+  `src/Mod/Part/App/OCCTFork.h` / `OCCTFork.cpp`, since 2026-10-21; they
+  were in `AppPartPy.cpp` and `PartPyCXX.h`), and does without where it is
+  not found.
   `win_forkonly.py <upstream bin> <build>` lists the imports that break this;
   it is to print none, the test binaries included. The last one was
   `TopoDS_LockedShape`'s counter, imported by whatever called an inline

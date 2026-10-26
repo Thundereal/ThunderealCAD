@@ -2192,14 +2192,37 @@ flipping one knob at a time and measuring black-edge pixels at t=0.0 and t=1.0:
 Exact-up-front removes the WINDOW, not the end state -- both reach
 `line=12 point=8` eventually.
 
-**Still open.** The coarse rung's vertex caches DO carry the edge data:
+The coarse rung's vertex caches DO carry the edge data:
 `line=24 point=8` captured per box, emitted with `ctxok=1`, and present in the
 depth-0 map handed over (`tri=8 line=8 point=8`). So this is not "the coarse
 mesh has no edges" -- it is edge data that exists in the published map and does
 not reach the DrawCall list. For a box, coarse and exact tessellation are
 identical anyway (planar faces, twelve straight edges), so suppressing its
-edges buys nothing. The next instrument belongs on the renderer's INGESTION,
-where a vcachemap becomes DrawCalls.
+edges buys nothing.
+
+**Found 2026-10-20: it is the element contract, on purpose.**
+`gatedByContract` in `BGFXFrame.cpp` holds an object's attached line set while
+ANY of its face meshes is a coarse rung (`levelError > 0`; `99aafd6d5c`, "lines
+wait for their own faces": the frame a load's gate lifted drew 5909 edge sets
+over a model 61% coarse). The exact rung is asked for only by the level plan,
+which fires ~300 ms after the camera settles (`MeshLevelPlanner`), so every
+fresh or edited coarse-first shape is drawn without edges for that window plus
+the exact tessellation's time. On screen that is the design; the gate stays.
+
+**What was wrong was the capture.** `View.saveImage()` waits for a complete
+frame (sec 4.2), and the plan's "a refine was just asked" (`frameOwes`) never
+reached the verdict: the plan runs from its timer between frames and the next
+frame's start clears the flag. So a capture inside the window was judged
+complete and kept faces without edges -- the OCCT fillet pictures on the mac,
+2026-10-19, from a script that set `View/RenderCache` 0 believing it drew with
+Coin; since `4cb1ee6ad1` that setting is read only under render type "Legacy".
+Now a frame with a waiting capture asks `planMeshRefines` itself at the last
+plan's tolerance, holds the dump while anything on screen would still refine,
+and hurries a due plan (`MeshLevelPlanner::hurry`); the hold lasts at most
+`captureRefineWaitMs` (10 s) from the request, after which the capture takes
+the frame as it stands. Only while a capture waits -- no cost on an ordinary
+frame. Gate: `tests/gui/capture-waits-for-exact-edges.py`, 13 PASS 5 FAIL
+before, 18 PASS after.
 
 ### 8.2 The cavity effect supplies a convincing substitute
 

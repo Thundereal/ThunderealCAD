@@ -13615,6 +13615,24 @@ its file as one.
 
 **G1-G8 (user, 2026-10-05): as proposed.**
 
+**Who asked for the save (docs/HandsOnQueue.md entry 167; user,
+2026-10-21: all three).** After the two numbers, `save:<save id>` carries
+the save's trigger, the rest of the line: the scopes open on the saving
+thread (`App::SaveTrigger`), outermost first, joined by `/` -- the
+command and the view its Save message went to
+(`Std_Save/Save@TechDrawGui::MDIViewPage`), `python:<file>:<line>` for a
+save asked from Python with nothing outside Python named, `mcp:<client>`
+for one run by the MCP console (the block itself is in that console's
+log), `close-confirm`, `close-all-confirm`, `schema-upgrade-box`. The embedded copy
+carries it as `save_trigger`. A reader of the numbers alone stops at
+them, so an old file and an old reader are untouched; a record without
+one reads as `unknown` (`TransactionLog::savedAt`, `doc.
+getTransactionSave()`). Every write of the project file also says so on
+the console, at Log level: `Saved <file> (schema N) by <trigger>`, which
+the MCP console's log then carries beside the line it writes for each
+block it runs (when, for which client, the block's first line and
+length -- not the code).
+
 **The save, by its id (G1).** `TransactionLogCore::embed` writes `meta`
 `save:<save id>` = the version number the save becomes and the row its
 state is at -- the head of the saving document's branch -- before the

@@ -637,6 +637,25 @@ TEST(SceneDump, theOnTopOrderCrossesTheWire)
     EXPECT_EQ(loaded.scene[1].material.ontoplayer, 0);
 }
 
+/// Whether a draw is under an Unpickable selection root crosses the wire
+/// (v88). A browser that picks an edit's geometry for a finger took a
+/// fillet's see-through preview outline for a sketch line.
+TEST(SceneDump, theUnpickableFlagCrossesTheWire)
+{
+    Render::SceneSnapshot snap = makeScene();
+    ASSERT_GT(snap.scene.size(), 1u);
+    snap.scene[0].material.unpickable = true;
+
+    std::vector<uint8_t> payload;
+    ASSERT_TRUE(Render::saveSceneSnapshot(payload, snap));
+    Render::SceneSnapshot loaded;
+    ASSERT_TRUE(
+        Render::loadSceneSnapshot(payload.data(), payload.size(), loaded));
+    ASSERT_GT(loaded.scene.size(), 1u);
+    EXPECT_TRUE(loaded.scene[0].material.unpickable);
+    EXPECT_FALSE(loaded.scene[1].material.unpickable);
+}
+
 TEST(SceneDump, manifestRoundTrip)
 {
     BlobStore store;

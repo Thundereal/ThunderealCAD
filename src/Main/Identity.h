@@ -42,16 +42,27 @@
 // <url>", App/BrandText.h)
 #define FREECAD_PROGRAM_URL "https://github.com/Thundereal/ThunderealCAD"
 // The Help menu's sites (Gui/CommandStd.cpp, helpSiteUrl): the website, the
-// repository's discussions and wiki, and the website's page on supporting the
-// work, which lists the ways to donate.
+// repository's discussions, the help site's pages -- named as FreeCAD's wiki
+// names them -- and the website's page on supporting the work, which lists the
+// ways to donate. HelpWikiUrl is where the Help module (src/Mod/Help) finds a
+// page by its wiki name, for F1 and What's This; UrlRetired lists what these
+// keys used to open, so that a preference holding one of those follows the
+// new default rather than passing for the user's own choice.
 #define FREECAD_HELP_SITES                                                                         \
     {"UrlWebPage", "https://thundereal.org"},                                                      \
         {"UrlUserForum", "https://github.com/Thundereal/ThunderealCAD/discussions"},               \
-        {"UrlOnlineHelp", "https://github.com/Thundereal/ThunderealCAD/wiki"},                     \
-        {"UrlDocumentation", "https://github.com/Thundereal/ThunderealCAD/wiki"},                  \
-        {"UrlPowerUsers", "https://github.com/Thundereal/ThunderealCAD/wiki/Python-scripting"},    \
-        {"UrlFAQ", "https://github.com/Thundereal/ThunderealCAD/wiki/FAQ"},                        \
-        {"UrlDonatePage", "https://thundereal.org/#support"}
+        {"UrlOnlineHelp", "https://wiki.thundereal.org/Online_Help_Toc"},                          \
+        {"UrlDocumentation", "https://wiki.thundereal.org/User_hub"},                              \
+        {"UrlPowerUsers", "https://wiki.thundereal.org/Power_users_hub"},                          \
+        {"UrlFAQ", "https://wiki.thundereal.org/Frequently_asked_questions"},                      \
+        {"UrlDonatePage", "https://thundereal.org/#support"},                                      \
+        {"HelpWikiUrl", "https://wiki.thundereal.org"},                                            \
+        {"UrlRetired", "https://github.com/Thundereal/ThunderealCAD/wiki\n"                        \
+                       "https://github.com/Thundereal/ThunderealCAD/wiki/Python-scripting\n"       \
+                       "https://github.com/Thundereal/ThunderealCAD/wiki/FAQ\n"                    \
+                       "https://github.com/Thundereal/Thundereal/wiki\n"                           \
+                       "https://github.com/Thundereal/Thundereal/wiki/Python-scripting\n"          \
+                       "https://github.com/Thundereal/Thundereal/wiki/FAQ"}
 // The splash picture carries the wordmark, so Gui writes only the version, under it
 #define FREECAD_SPLASH_INFO_EXE_NAME ""
 #define FREECAD_SPLASH_INFO_POSITION "20,78"

@@ -156,9 +156,8 @@ SoGroup* SoPlanarDragger::buildGeometry()
     pickStyle->setOverride(TRUE);
     root->addChild(pickStyle);
 
-    auto lightModel = new SoLightModel();
-    lightModel->model = SoLightModel::BASE_COLOR;
-    root->addChild(lightModel);
+    // No light model of its own: lit as the view draws, its draw style
+    // included (docs/HandsOnQueue.md entry 196)
 
     auto cube = new SoCube();
     cube->width.setValue(cubeWidthHeight);

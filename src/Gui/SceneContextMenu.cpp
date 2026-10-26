@@ -21,15 +21,22 @@
 #include "PreCompiled.h"
 
 #include <cctype>
+#include <cmath>
 #include <cstring>
 #include <functional>
 #include <map>
 
 #include <QAction>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QKeySequence>
+#include <QLabel>
 #include <QMenu>
+#include <QSpinBox>
+#include <QWidgetAction>
 
 #include <Inventor/SbVec3f.h>
 
@@ -44,6 +51,8 @@
 #include "Document.h"
 #include "Fw/FwImage.h"
 #include "MenuManager.h"
+#include "MirrorViewer.h"
+#include "OnViewValue.h"
 #include "SceneContextMenu.h"
 #include "SceneControl.h"
 #include "SceneControlP.h"
@@ -109,6 +118,8 @@ const char* kindName(SceneContextMenu::Kind kind)
             return "local";
         case SceneContextMenu::Kind::Pick:
             return "pick";
+        case SceneContextMenu::Kind::OnView:
+            return "onView";
         default:
             return "action";
     }
@@ -219,6 +230,16 @@ QJsonArray SceneContextMenu::build(Render::ClientAccess access)
 
     _menu = std::make_unique<QMenu>();
     _entries.clear();
+
+    // A click on a handle of an edit's values in this client's view: the
+    // handle's menu, ahead of all, as the view widget's filter takes the
+    // desktop's right click on one (docs/OnViewValueEditing.md sec 9.2 #4)
+    if (OnViewValueSet::buildViewerMenu(viewer, *_menu, _onViewButton)) {
+        _onView = true;
+        return describe(access);
+    }
+    if (_onViewButton)
+        return {};
 
     // An edit mode with a right click of its own -- the sketcher's -- has
     // it first, as on the desktop the view's popup is then never reached;
@@ -373,7 +394,57 @@ QJsonObject SceneContextMenu::describeEntry(QAction* action, int id, Render::Cli
     auto owner = qobject_cast<Action*>(action->parent());
     Command* cmd = owner ? owner->command() : nullptr;
     const QVariant pick = action->property("fcPickIndex");
-    if (action == _finishEdit) {
+    auto widgetAction = qobject_cast<QWidgetAction*>(action);
+    QWidget* row = widgetAction ? widgetAction->defaultWidget() : nullptr;
+    if (row) {
+        // A settings row of a handle's menu (OnViewValueSet::addSettingsMenu):
+        // described as the control it holds, set to what the client sends
+        entry.kind = Kind::OnView;
+        QJsonObject widget;
+        auto label = row->findChild<QLabel*>();
+        if (auto box = row->findChild<QCheckBox*>()) {
+            entry.widget = box;
+            item[QLatin1String("text")] = plainText(box->text());
+            item[QLatin1String("checkable")] = true;
+            item[QLatin1String("checked")] = box->isChecked();
+            widget[QLatin1String("type")] = QLatin1String("check");
+        }
+        else if (auto combo = row->findChild<QComboBox*>()) {
+            entry.widget = combo;
+            QJsonArray options;
+            for (int i = 0; i < combo->count(); ++i)
+                options.append(combo->itemText(i));
+            widget[QLatin1String("type")] = QLatin1String("choice");
+            widget[QLatin1String("options")] = options;
+            widget[QLatin1String("current")] = combo->currentIndex();
+        }
+        else if (auto spin = row->findChild<QSpinBox*>()) {
+            entry.widget = spin;
+            widget[QLatin1String("type")] = QLatin1String("number");
+            widget[QLatin1String("value")] = spin->value();
+            widget[QLatin1String("min")] = spin->minimum();
+            widget[QLatin1String("max")] = spin->maximum();
+            widget[QLatin1String("step")] = spin->singleStep();
+            widget[QLatin1String("decimals")] = 0;
+        }
+        else if (auto spin = row->findChild<QDoubleSpinBox*>()) {
+            entry.widget = spin;
+            widget[QLatin1String("type")] = QLatin1String("number");
+            widget[QLatin1String("value")] = spin->value();
+            widget[QLatin1String("min")] = spin->minimum();
+            widget[QLatin1String("max")] = spin->maximum();
+            widget[QLatin1String("step")] = spin->singleStep();
+            widget[QLatin1String("decimals")] = spin->decimals();
+        }
+        if (label && item.value(QLatin1String("text")).toString().isEmpty())
+            item[QLatin1String("text")] = plainText(label->text());
+        if (entry.widget && !entry.widget->toolTip().isEmpty())
+            item[QLatin1String("tip")] = entry.widget->toolTip();
+        if (!widget.isEmpty())
+            item[QLatin1String("widget")] = widget;
+        enabled = entry.widget && entry.widget->isEnabled();
+    }
+    else if (action == _finishEdit) {
         entry.kind = Kind::FinishEdit;
     }
     else if (pick.isValid()) {
@@ -422,6 +493,10 @@ QJsonObject SceneContextMenu::describeEntry(QAction* action, int id, Render::Cli
         // An entry that says all it does is enter its edit mode
         entry.kind = Kind::Edit;
         entry.direct = true;
+    }
+    else if (_onView) {
+        // A handle's menu's own entry: the edit's code, none of it modal
+        entry.kind = Kind::OnView;
     }
     else {
         // Qt answers no question about a connection's receiver, but a
@@ -475,6 +550,10 @@ bool SceneContextMenu::allowed(Kind kind,
         case Kind::Pick:
             // What a pick admits
             return true;
+        case Kind::OnView:
+            // The edit's own values and the view's handles: what an editor
+            // does with the handles themselves
+            return true;
         case Kind::Command:
             if (isBrowserSafeCommand(command))
                 return true;
@@ -502,8 +581,14 @@ QString SceneContextMenu::localAction(const QString& command)
     return it == actions.end() ? QString() : it->second;
 }
 
+bool SceneContextMenu::staysOpen(int item) const
+{
+    auto it = _entries.find(item);
+    return it != _entries.end() && it.value().kind == Kind::OnView && it.value().widget;
+}
+
 const char* SceneContextMenu::trigger(int item, Render::ClientAccess access, QString& message,
-                                      bool extend)
+                                      bool extend, const QJsonValue& value)
 {
     auto it = _entries.find(item);
     if (it == _entries.end()) {
@@ -565,6 +650,38 @@ const char* SceneContextMenu::trigger(int item, Render::ClientAccess access, QSt
         if (gdoc->getInEdit()) {
             if (SceneServeSource* source = SceneServeSource::sourceFor(doc))
                 source->schedulePublish();
+        }
+        return nullptr;
+    }
+
+    if (entry.kind == Kind::OnView && entry.widget) {
+        // A settings row: its control set to the client's value, which
+        // writes its preference as the desktop's widget does on a change
+        ViewerScope scope(viewer);
+        if (auto box = qobject_cast<QCheckBox*>(entry.widget)) {
+            box->setChecked(value.isBool() ? value.toBool() : !box->isChecked());
+        }
+        else if (auto combo = qobject_cast<QComboBox*>(entry.widget)) {
+            const int index = value.toInt(-1);
+            if (index < 0 || index >= combo->count()) {
+                message = QStringLiteral("no such choice");
+                return "BadValue";
+            }
+            combo->setCurrentIndex(index);
+        }
+        else if (auto spin = qobject_cast<QSpinBox*>(entry.widget)) {
+            if (!value.isDouble()) {
+                message = QStringLiteral("a number is expected");
+                return "BadValue";
+            }
+            spin->setValue(int(std::lround(value.toDouble())));
+        }
+        else if (auto spin = qobject_cast<QDoubleSpinBox*>(entry.widget)) {
+            if (!value.isDouble()) {
+                message = QStringLiteral("a number is expected");
+                return "BadValue";
+            }
+            spin->setValue(value.toDouble());
         }
         return nullptr;
     }
@@ -702,20 +819,26 @@ void Gui::installSceneContextMenuOps()
             return sceneControlError(id, "NotServed", QString::fromUtf8(doc->getName()));
         if (!source->viewerFor(client))
             return sceneControlError(id, "NoView", QStringLiteral("state a camera first"));
-        const QJsonArray ray = req.value(QLatin1String("ray")).toArray();
-        if (ray.size() != 6)
-            return sceneControlError(id, "BadRequest", QStringLiteral("ray: [ox,oy,oz,dx,dy,dz]"));
-        const SbVec3f origin(float(ray[0].toDouble()), float(ray[1].toDouble()),
-                             float(ray[2].toDouble()));
-        const SbVec3f dir(float(ray[3].toDouble()), float(ray[4].toDouble()),
-                          float(ray[5].toDouble()));
-
+        // The page's menu button of an edit's values (entry 173, sec 9.2
+        // #9): the edit's menu, no ray
+        const bool onViewButton = req.value(QLatin1String("onViewButton")).toBool(false);
         App::SubObjectT target;
-        source->pickSubObject(origin, dir, client, target);
-        // The desktop offers "Pick geometry" when the click hit anything
         std::vector<App::SubObjectT> picks;
-        if (!target.getObjectName().empty())
-            picks = source->pickAllSubObjects(origin, dir, client);
+        if (!onViewButton) {
+            const QJsonArray ray = req.value(QLatin1String("ray")).toArray();
+            if (ray.size() != 6)
+                return sceneControlError(id, "BadRequest",
+                                         QStringLiteral("ray: [ox,oy,oz,dx,dy,dz]"));
+            const SbVec3f origin(float(ray[0].toDouble()), float(ray[1].toDouble()),
+                                 float(ray[2].toDouble()));
+            const SbVec3f dir(float(ray[3].toDouble()), float(ray[4].toDouble()),
+                              float(ray[5].toDouble()));
+
+            source->pickSubObject(origin, dir, client, target);
+            // The desktop offers "Pick geometry" when the click hit anything
+            if (!target.getObjectName().empty())
+                picks = source->pickAllSubObjects(origin, dir, client);
+        }
 
         auto& menus = openMenus();
         auto previous = menus.find(client);
@@ -725,6 +848,7 @@ void Gui::installSceneContextMenuOps()
         }
         auto menu = std::make_unique<SceneContextMenu>(client, doc->getName(), target,
                                                        std::move(picks));
+        menu->setOnViewButton(onViewButton);
         QJsonArray items;
         try {
             items = menu->build(sceneControlAccess());
@@ -766,10 +890,12 @@ void Gui::installSceneContextMenuOps()
             return sceneControlError(id, "Stale", QStringLiteral("no such menu open"));
         QString message;
         const bool extend = req.value(QLatin1String("extend")).toBool(false);
-        const char* error = it->second->trigger(item, sceneControlAccess(), message, extend);
+        const char* error = it->second->trigger(item, sceneControlAccess(), message, extend,
+                                                req.value(QLatin1String("value")));
         // A popup is gone once an entry is chosen; one refused stays open
-        // for another try
-        if (!error || std::strcmp(error, "Stale") == 0) {
+        // for another try, and so does one whose settings widget was set
+        const bool keep = !error && it->second && it->second->staysOpen(item);
+        if (!keep && (!error || std::strcmp(error, "Stale") == 0)) {
             auto found = menus.find(client);
             if (found != menus.end() && found->second && found->second->token() == token) {
                 release(std::move(found->second));
@@ -803,6 +929,39 @@ void Gui::installSceneContextMenuOps()
         reply[QLatin1String("id")] = id;
         reply[QLatin1String("ok")] = true;
         reply[QLatin1String("item")] = item;
+        return reply;
+    });
+
+    // What the client's own interface covers of its view -- its tool bars --
+    // so that what the host places on the view goes clear of it: the
+    // on-view labels' top-middle column (docs/OnViewValueEditing.md sec
+    // 9.5a). Not a write: the client's own layout.
+    registerSceneControlOp(QStringLiteral("view.covered"), false,
+                           [](const QJsonObject& req, const std::string& boundDoc, uint64_t client) {
+        const QJsonValue id = req.value(QLatin1String("id"));
+        App::Document* doc = sceneControlDocument(req, boundDoc);
+        auto mirror = dynamic_cast<MirrorViewer*>(clientViewer(doc, client));
+        if (!mirror)
+            return sceneControlError(id, "NoView", QStringLiteral("state a camera first"));
+        std::vector<std::array<int, 4>> rects;
+        for (const QJsonValue& v : req.value(QLatin1String("rects")).toArray()) {
+            const QJsonArray r = v.toArray();
+            if (r.size() != 4)
+                return sceneControlError(id, "BadRequest", QStringLiteral("rects: [[x,y,w,h],...]"));
+            rects.push_back({int(r[0].toDouble()), int(r[1].toDouble()),
+                             int(r[2].toDouble()), int(r[3].toDouble())});
+        }
+        mirror->setCoveredRects(std::move(rects));
+        QJsonObject reply;
+        reply[QLatin1String("id")] = id;
+        reply[QLatin1String("ok")] = true;
+        // Where the edit's menu button goes (entry 173): the page draws it
+        // there, and asks for the menu with `contextMenu` {onViewButton}
+        std::array<int, 3> place {};
+        if (OnViewValueSet::viewerMenuButton(mirror, place))
+            reply[QLatin1String("menuButton")] = QJsonArray {place[0], place[1], place[2]};
+        else
+            reply[QLatin1String("menuButton")] = QJsonValue::Null;
         return reply;
     });
 

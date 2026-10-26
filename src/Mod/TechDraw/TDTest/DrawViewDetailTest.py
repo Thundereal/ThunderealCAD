@@ -73,5 +73,38 @@ class DrawViewDetailTest(unittest.TestCase):
         self.assertEqual(len(edges), 4, "DrawViewDetail has wrong number of edges")
         self.assertTrue("Up-to-date" in detail.State, "DrawViewDetail is not Up-to-date")
 
+    def testFailedDetailSaysWhy(self):
+        """A detail whose cut fails in its worker thread is in error, and says
+        why: the cut runs after execute() has returned, so the failure used to
+        be a console line and an empty view (docs/TechDrawErrors.md 3.1).
+        A radius of 0 makes the cutting tool fail."""
+        detail = FreeCAD.ActiveDocument.addObject("TechDraw::DrawViewDetail", "Detail001")
+        detail.BaseView = self.view
+        detail.Direction = self.view.Direction
+        detail.XDirection = self.view.XDirection
+        detail.Radius = 0
+        self.page.addView(detail)
+        FreeCAD.ActiveDocument.recompute()
+
+        loop = QtCore.QEventLoop()
+        timer = QtCore.QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(loop.quit)
+        timer.start(3000)
+        loop.exec_()
+
+        self.assertTrue("Invalid" in detail.State, detail.State)
+        why = detail.getStatusString()
+        self.assertIn("detail could not be made", why)
+
+    def testADetailWithNoBaseViewSaysWhy(self):
+        """A detail with no base view has nothing to show: in error, and says
+        so. It used to succeed and stay empty (docs/TechDrawErrors.md 3.2)"""
+        detail = FreeCAD.ActiveDocument.addObject("TechDraw::DrawViewDetail", "Detail001")
+        self.page.addView(detail)
+        FreeCAD.ActiveDocument.recompute()
+        self.assertTrue("Invalid" in detail.State, detail.State)
+        self.assertIn("no base view", detail.getStatusString())
+
 if __name__ == "__main__":
     unittest.main()

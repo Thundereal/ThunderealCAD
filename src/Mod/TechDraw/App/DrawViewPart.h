@@ -289,11 +289,15 @@ public:
 
     virtual void postHlrTasks();
     virtual void postFaceExtractionTasks();
+    void checkHatchFaces(App::DocumentObject* hatch, const std::vector<std::string>& subNames);
     bool waitingForFaces() const { return m_waitingForFaces; }
     bool waitingForHlr() const { return m_waitingForHlr; }
     virtual bool waitingForResult() const;
 
 protected:
+    //! the error of a view whose sources give no shape: none linked, or none
+    //! with a shape (docs/TechDrawErrors.md 3.2)
+    App::DocumentObjectExecReturn* nothingToDraw(bool noSources);
     void onHlrFinished(GeometryObjectPtr result);
     void onFacesFinished(std::shared_ptr<std::vector<FacePtr>> faces);
     void abortMakeGeometry();

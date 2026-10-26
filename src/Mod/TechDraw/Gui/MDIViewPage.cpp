@@ -1136,6 +1136,12 @@ void MDIViewPage::setTreeToSceneSelect()
 
     blockSceneSelection(false);
     blockSelection(saveBlock);
+    // The frames shown for a selection (QGIView::getFrameState) were drawn
+    // as the scene's items changed, while Gui::Selection still held what
+    // they had before; the change made here was blocked from
+    // onSelectionChanged, which redraws them. "make deselection work
+    // properly" (docs/HandsOnQueue.md entry 192, the reporter 2026-10-20).
+    refreshSelectedFrames();
 }
 
 bool MDIViewPage::compareSelections(std::vector<Gui::SelectionObject> treeSel,

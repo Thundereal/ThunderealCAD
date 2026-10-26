@@ -34,15 +34,41 @@
 #include <Base/Exception.h>
 
 #include <App/Document.h>
+#include "OCCTFork.h"
 #include "TopoShapeOpCode.h"
 #include "FeatureFillet.h"
 
 
 using namespace Part;
 
+// -1 without the fork (OCCTFork.h): nothing set, nothing to put back
+FilletFlatEnd::FilletFlatEnd(bool enable)
+    : previous(setOCCTFlatEndAtVertex(enable ? 1 : 0))
+{}
+
+FilletFlatEnd::~FilletFlatEnd()
+{
+    if (previous >= 0)
+        setOCCTFlatEndAtVertex(previous);
+}
+
+bool FilletFlatEnd::isAvailable()
+{
+    return lookUpTKFillet("ChFi3d_SetFlatEndAtVertex") != nullptr;
+}
+
 PROPERTY_SOURCE(Part::Fillet, Part::FilletBase)
 
-Fillet::Fillet() = default;
+Fillet::Fillet()
+{
+    ADD_PROPERTY_TYPE(_Version, (0), "Base", App::Prop_Hidden, "");
+}
+
+void Fillet::setupObject()
+{
+    FilletBase::setupObject();
+    _Version.setValue(1);
+}
 
 App::DocumentObjectExecReturn *Fillet::execute()
 {
@@ -59,6 +85,7 @@ App::DocumentObjectExecReturn *Fillet::execute()
         TopoShape baseTopoShape = Feature::getTopoShape(link);
         auto baseShape = baseTopoShape.getShape();
         BRepFilletAPI_MakeFillet mkFillet(baseShape);
+        FilletFlatEnd flatEnd(_Version.getValue() >= 1);
 
 #ifdef FC_NO_ELEMENT_MAP
         TopTools_IndexedMapOfShape mapOfShape;

@@ -196,6 +196,18 @@ public:
      * goes into that cell.
      */
     virtual MDIView *getOrCreateMDIView();
+    /** Whether the object is shown in a view of its own rather than in the
+     * 3D views -- a TechDraw page and what is on it. Bringing the object's
+     * view to the front (Document::setActiveView(): the tree's sync, its
+     * double click) opens that view with getOrCreateMDIView() when it is
+     * closed, where it fell back to a 3D view (docs/HandsOnQueue.md entry
+     * 217). False by default: getOrCreateMDIView() would show() an object
+     * of the 3D views that was hidden.
+     */
+    virtual bool hasOwnView() const
+    {
+        return false;
+    }
     /// Is called by the tree if the user double clicks on the object. It returns the string
     /// for the transaction that will be shown in the undo/redo dialog.
     /// If null is returned then no transaction will be opened.

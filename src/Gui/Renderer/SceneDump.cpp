@@ -380,7 +380,13 @@ const uint32_t kMagic = 0x46435344;  // 'FCSD'
 // 87: MatcapConfig carries stripes after tint: the stripe count of the
 //     zebra preset. An older snapshot has none, which reads as the
 //     default count.
-const uint32_t kVersion = 87;
+// 88: a material carries unpickable after ontoplayer: the draw is under
+//     an Unpickable selection root, which a click goes past on the
+//     desktop. A browser that picks an edit's geometry for itself
+//     (a finger on a handle or a sketch line) skips it. An older
+//     snapshot has none, which reads as pickable. The material chunk
+//     carries it, so kChunkVersion moves with it.
+const uint32_t kVersion = 88;
 
 /// Layout revision of the out-of-band chunks (mesh, material, shader,
 /// group manifest). Written as the first field of each chunk, so it is
@@ -440,7 +446,10 @@ const uint32_t kVersion = 87;
 /// 23: a material chunk carries ontoplayer (v86) after perfacepbr.
 ///     Appended, so nothing moved -- but an older cached chunk would
 ///     answer "plain annotation" forever.
-const uint32_t kChunkVersion = 23;
+/// 24: a material chunk carries unpickable (v88) after ontoplayer.
+///     Appended; the bump retires older cached chunks, which would
+///     answer "pickable" forever.
+const uint32_t kChunkVersion = 24;
 
 /// Bytes per vertex of MeshData::materials, whose layout Renderer.h
 /// documents. Named here because the stride is what a reader of an
@@ -1889,6 +1898,8 @@ void writeMaterial(Writer &w, const Material &m, const RefWriter &refs)
     w.b(m.perfacepbr);
     // v86: the rendering order of an on-top draw.
     w.i32(m.ontoplayer);
+    // v88: under an Unpickable selection root.
+    w.b(m.unpickable);
 }
 
 void readMaterial(Reader &r, Material &m, const RefReader &refs,
@@ -2125,6 +2136,9 @@ void readMaterial(Reader &r, Material &m, const RefReader &refs,
     // v86: the on-top rendering order. Absent means a plain annotation.
     if (version >= 86)
         m.ontoplayer = int16_t(r.i32());
+    // v88: unpickable. Absent means pickable.
+    if (version >= 88)
+        m.unpickable = r.b();
 }
 
 //////////////////////////////////////////////////////////////////////

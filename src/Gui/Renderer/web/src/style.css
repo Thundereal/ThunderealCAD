@@ -1496,30 +1496,144 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
  * the NaviCube's corner; the panels anchored to the top edge move down
  * by its height (--fc-top, set on #fc-ui while it is shown). Narrow: one
  * row along the bottom, above the launcher, that scrolls sideways. */
-.fc-toolbars {
+/* Entry 190: every bar in one card that floats over the view, dragged by
+ * its grip, collapsible into a button that is dragged the same. On a phone
+ * the open card is bounded and its bars scroll up and down. */
+/* No fill of its own: the bars keep their own look over the view (the
+ * user, 2026-10-19: a fill under them made them "all dull looking"); the
+ * grip alone has a ground. */
+.fc-tbcard {
+  position: fixed;
+  z-index: 20;
   pointer-events: none;
-  position: absolute;
-  top: 6px;
-  left: calc(6px + env(safe-area-inset-left));
-  right: 150px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-width: min(780px, calc(100vw - 12px));
+  touch-action: none;
+}
+.fc-tbcard > * { pointer-events: auto; }
+.fc-tbcard-side { flex-direction: row; }
+.fc-tbcard-narrow:not(.fc-tbcard-collapsed) {
+  width: calc(100vw - 12px);
+  max-height: 45vh;
+}
+/* the grip along the short side: across the top, or down the left edge
+   (fc-tbcard-side), the collapse toggle at its start */
+.fc-tbcard-grip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 30px;
+  padding: 0 1px;
+  background: rgba(28, 30, 34, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 6px;
+  cursor: grab;
+  touch-action: none;
+}
+.fc-tbcard-side .fc-tbcard-grip {
+  flex-direction: column;
+  height: auto;
+  width: 30px;
+  padding: 1px 0;
+  align-self: stretch;
+}
+.fc-tbcard-grip:active { cursor: grabbing; }
+.fc-tbcard-dots {
+  flex: 1;
+  align-self: stretch;
+  margin: 5px 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.5) 1px, transparent 1.5px);
+  background-size: 6px 6px;
+  background-position: center;
+}
+.fc-tbcard-side .fc-tbcard-dots { margin: 0 5px; }
+.fc-tbcard-button {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  background: rgba(40, 40, 44, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 6px;
+  cursor: grab;
+  touch-action: none;
+}
+.fc-tbcard-button span {
+  display: block;
+  width: 20px;
+  height: 4px;
+  background: #7fb2ff;
+  border-radius: 1px;
+}
+.fc-toolbars {
+  flex: 1 1 auto;
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 4px;
+  min-width: 0;
+  min-height: 0;
 }
-.fc-toolbars-narrow {
-  top: auto;
-  right: 0;
-  left: 0;
-  bottom: calc(108px + env(safe-area-inset-bottom));
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  padding: 0 6px;
-  scrollbar-width: none;
+.fc-tbcard-narrow .fc-toolbars {
+  overflow-x: hidden;
+  overflow-y: auto;
+  touch-action: pan-y;
+}
+/* the grip's ends (the user, 2026-10-19): the collapse button, drawn as
+   the collapsed button is, and the picker of the bars the card shows */
+.fc-tbcard-collapse {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  gap: 3px;
+  border-radius: 4px;
+}
+.fc-tbcard-collapse span { width: 14px; height: 3px; }
+.fc-tbcard-pick {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.fc-tbcard-pick span {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #e8e8e8;
+}
+.fc-tbcard-pick:hover, .fc-tbcard-collapse:hover { background: rgba(70, 70, 76, 0.95); }
+.fc-tbcard-picker {
+  position: fixed;
+  bottom: auto;
+  z-index: 42;
+  width: 240px;
+  max-height: calc(100vh - 16px);
+  overflow-y: auto;
   pointer-events: auto;
-  touch-action: pan-x;
 }
-.fc-toolbars-narrow::-webkit-scrollbar { display: none; }
+/* a bar wider than the phone wraps inside itself: every tool reached by
+   scrolling up and down alone */
+.fc-tbcard-narrow .fc-tb-bar {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
 
 .fc-tb-bar {
   pointer-events: auto;
@@ -1553,7 +1667,7 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
   font-size: 12px;
   cursor: pointer;
 }
-.fc-toolbars-narrow .fc-tb-btn { min-width: 40px; min-height: 40px; }
+.fc-tbcard-narrow .fc-tb-btn { min-width: 40px; min-height: 40px; }
 .fc-tb-caret { min-width: 12px; padding: 0 1px; color: #9aa0a6; }
 .fc-tb-btn:hover:not(:disabled), .fc-tb-caret:hover {
   background: rgba(255, 255, 255, 0.1);
@@ -1628,7 +1742,7 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
   color: #ffb4ab;
   font-size: 12px;
 }
-.fc-toolbars-narrow .fc-tb-error {
+.fc-tbcard-narrow .fc-tb-error {
   position: fixed;
   left: 8px;
   right: 8px;
@@ -2222,6 +2336,58 @@ select.fc-log-act option { color: #e8e8ea; background: rgb(34, 36, 41); }
 .fc-ctx-icon img { width: 18px; height: 18px; }
 .fc-ctx-text { overflow: hidden; text-overflow: ellipsis; }
 .fc-ctx-more, .fc-ctx-shortcut { margin-left: auto; opacity: 0.6; }
+.fc-ctx-shortcut + .fc-ctx-more { margin-left: 6px; }
+/* the edit's menu button (entry 173): three strips in a square block, as
+   the desktop's */
+.fc-onview-menubtn {
+  position: fixed;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  background: rgba(40, 40, 44, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.fc-onview-menubtn span {
+  display: block;
+  width: 55%;
+  height: 3px;
+  background: #e8e8e8;
+}
+.fc-onview-menubtn:hover { background: rgba(70, 70, 76, 0.95); }
+/* a handle's hint (docs/OnViewValueEditing.md sec 9.2 #6): a tool tip at
+   the pointer, which it must never take */
+.fc-hint {
+  position: fixed;
+  z-index: 60;
+  max-width: 320px;
+  padding: 3px 7px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #f0f0f0;
+  background: rgba(30, 30, 34, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 3px;
+  pointer-events: none;
+  white-space: pre-line;
+}
+/* a settings row's number (docs/OnViewValueEditing.md sec 9.2 #5) */
+.fc-ctx-number {
+  margin-left: auto;
+  width: 64px;
+  font: inherit;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 4px;
+  padding: 2px 4px;
+}
 .fc-ctx-error {
   padding: 6px 10px;
   color: #f28b82;

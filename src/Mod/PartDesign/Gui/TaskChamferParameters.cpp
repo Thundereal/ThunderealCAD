@@ -86,9 +86,10 @@ ChamferInfoDelegate::ChamferInfoDelegate(QObject *parent) : QItemDelegate(parent
 QWidget *ChamferInfoDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &/* option */,
                                              const QModelIndex & index) const
 {
-    // a customised edge's group: a number, joined by typing another's
+    // an edge's group: a number, joined by typing another's; an edge on the
+    // defaults joins one too, or starts it (entry 202)
     if (index.column() == GroupColumn) {
-        if (index.model()->data(index, Qt::UserRole).toInt() <= 0)
+        if (index.parent().isValid())
             return nullptr;
         auto editor = new QSpinBox(parent);
         editor->setRange(1, 9999);
@@ -169,8 +170,12 @@ void ChamferInfoDelegate::setModelData(QWidget *editor, QAbstractItemModel *mode
 {
     if (auto groupBox = qobject_cast<QSpinBox*>(editor)) {
         groupBox->interpretText();
-        model->setData(index, QString::number(groupBox->value()), Qt::DisplayRole);
-        model->setData(index, groupBox->value(), Qt::UserRole);
+        // The number first: a change of the cell's text has the view load
+        // the editor again from the number, and the old group came back (as
+        // the fillet's, entry 214)
+        const int group = groupBox->value();
+        model->setData(index, group, Qt::UserRole);
+        model->setData(index, QString::number(group), Qt::DisplayRole);
         return;
     }
     if (index.column() == 4) {
@@ -230,6 +235,20 @@ TaskChamferParameters::TaskChamferParameters(ViewProviderDressUp *DressUpView,QW
 "The group of an edge with values of its own. A change to the sizes\n"
 "or the angle of one edge of a group is made to every edge of it;\n"
 "its flip stays its own. Type another group's number to join it."));
+    // shown second, after the element (entry 202); the column keeps its
+    // index, the code and the saved widths with it
+    ui->treeWidgetReferences->header()->moveSection(
+        ui->treeWidgetReferences->header()->visualIndex(GroupColumn), 1);
+    // what each mode of a row is, in short (entry 202); a row's own tool
+    // tip names its mode (setItem())
+    ui->treeWidgetReferences->header()->setToolTip(tr(
+"An edge's mode, set from its handle's menu or here:\n"
+"  Default size -- takes the values above.\n"
+"  Own size -- a size of its own, the same on both faces.\n"
+"  Own two sizes -- a size on each of its faces.\n"
+"  Own size and angle -- a size on one face, at an angle to it.\n"
+"Flip swaps which face takes the first size.\n"
+"Group: edges of one number share their values; double-click to change."));
 
     Base::connect(ui->btnClear, &QPushButton::clicked,
             this, &TaskChamferParameters::clearItems);
@@ -259,6 +278,7 @@ TaskChamferParameters::TaskChamferParameters(ViewProviderDressUp *DressUpView,QW
 
     createAddAllEdgesAction(ui->treeWidgetReferences);
     Base::connect(addAllEdgesAction, &QAction::triggered, this, &TaskChamferParameters::onAddAllEdges);
+    createGroupColorActions(ui->treeWidgetReferences);
     ui->chamferSize->selectAll();
 
     // The values in the view (docs/OnViewValueEditing.md 3.4): the defaults'
@@ -266,7 +286,33 @@ TaskChamferParameters::TaskChamferParameters(ViewProviderDressUp *DressUpView,QW
     // takes the defaults drives them, a customised one its own values, whose
     // labels show beside the handle while it is active
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a handle made active selects its edge (entry 213)
+    connect(onViewValues.get(), &Gui::OnViewValueSet::activeHandleChanged, this,
+            [this](Gui::Gizmo* handle) { onActiveHandleChanged(handle); });
+    // a right click on an edge's preview face, or the edge: its handle's menu
+    onViewValues->setHoverHandleProvider([this]() {
+        return getHoverHandle();
+    });
     setupGizmos(DressUpView);
+
+    // Every operation an undo step of its own, as the fillet's (entry 136):
+    // the chamfer's edit was one step, every change of the panel in it -- an
+    // edge joining a group shared the step of the change before it, one undo
+    // took both back (docs/HandsOnQueue.md entry 215). A drag or a label
+    // open for typing one step, a cancelled drag rolled back, a default
+    // value's box one step while it has the focus.
+    fineUndo = true;
+    onViewValues->setCancelWritesBack(false);
+    connect(onViewValues.get(), &Gui::OnViewValueSet::stepBegun, this, [this]() {
+        beginHeldStep();
+    });
+    connect(onViewValues.get(), &Gui::OnViewValueSet::stepEnded, this, [this](bool abort) {
+        endHeldStep(abort);
+    });
+    holdStepWhileFocused(ui->chamferSize);
+    holdStepWhileFocused(ui->chamferSize2);
+    holdStepWhileFocused(ui->chamferAngle);
+
     connRecomputed = pcChamfer->getDocument()->signalRecomputedObject.connect(
         [this, self = QPointer<TaskChamferParameters>(this)](const App::DocumentObject& obj) {
             if (&obj != getChamfer()) {
@@ -346,6 +392,9 @@ void TaskChamferParameters::setGizmoPositions()
     // Not hidden when the chamfer fails: a reference that is gone fails it,
     // and the handles of the edges that are there stay (entry 135)
     gizmoContainer->visible = !edgeHandles.empty();
+    // a red cross where a failed or missing edge's handle would be (entry
+    // 180); a chamfer's handles stand at the edge's middle
+    showFailureMarks(gizmoContainer.get(), getChamfer());
 }
 
 namespace {
@@ -570,6 +619,9 @@ void TaskChamferParameters::updateEdgeHandles()
                 else {
                     handle.gizmo = new Gui::LinearGizmo(box);
                 }
+                // its group's colour, picked or automatic -- an automatic
+                // one kept clear of the lit and dragged colours, or it reads
+                // as lit (docs/HandsOnQueue.md entries 196 and 202)
                 handle.gizmo->setColor(groupColor(group));
                 // The group, then which value: "2  S", "2  S1" ...
                 const int index = onViewValues->addValue(
@@ -719,10 +771,14 @@ bool TaskChamferParameters::isDragFailing() const
     auto chamfer = getChamfer();
     if (!chamfer || !chamfer->isError())
         return false;
-    const auto& failed = chamfer->FailedEdges.getValues();
-    // Nothing named: the chamfer as a whole failed
-    if (failed.empty())
+    // Only what failed since the drag began: an edge missing or failing
+    // before it is no failure of the drag
+    bool whole = false;
+    const auto failed = failedSinceStepBegun(whole);
+    if (whole)
         return true;
+    if (failed.empty())
+        return false;
     auto isFailed = [&failed](const std::string& edge) {
         return std::find(failed.begin(), failed.end(), edge) != failed.end();
     };
@@ -838,6 +894,9 @@ void TaskChamferParameters::fillEdgeMenu(QMenu& menu, Gui::Gizmo* gizmo)
                 setEdgeGroup(edge, 0);
             });
         });
+        // its colour, picked or automatic (entry 202)
+        groups->addSeparator();
+        addGroupColorActions(*groups, group);
     }
     menu.addSeparator();
     QAction* remove = menu.addAction(tr("Remove"));
@@ -863,7 +922,10 @@ void TaskChamferParameters::setEdgeMode(const std::string& edge, Mode mode)
     }
     // From what the edge has now, own or default
     const Part::TopoShape::ChamferInfo current = edgeInfo(edge);
-    setupTransaction();
+    const QString modes[] = {tr("default size"), tr("one size"), tr("two sizes"),
+                             tr("size and angle")};
+    setupTransaction(tr("%1 to %2").arg(QString::fromStdString(edge),
+                                        modes[std::clamp(int(mode), 0, 3)]));
     if (mode == DefaultMode) {
         chamfer->ChamferInfo.removeValue(edge);
     }
@@ -902,7 +964,9 @@ void TaskChamferParameters::setEdgeValue(const std::string& edge, Field field, d
         return;
     }
     target = value;
-    setupTransaction();
+    const QString what = field == AngleField ? tr("angle")
+                         : field == Size2Field ? tr("second size") : tr("size");
+    setupTransaction(tr("%1 %2").arg(QString::fromStdString(edge), what));
     chamfer->ChamferInfo.setValue(edge, info);
     refresh();
     recompute();
@@ -914,7 +978,7 @@ void TaskChamferParameters::setEdgeFlip(const std::string& edge, bool flip)
     if (!chamfer || edgeInfo(edge).flip == flip) {
         return;
     }
-    setupTransaction();
+    setupTransaction(tr("%1 flipped").arg(QString::fromStdString(edge)));
     Part::TopoShape::ChamferInfo info;
     if (chamfer->ChamferInfo.getValue(edge, info)) {
         // its own: not mirrored to its group
@@ -953,14 +1017,129 @@ QString TaskChamferParameters::groupSummary(const Part::TopoShape::ChamferInfo& 
 void TaskChamferParameters::setEdgeGroup(const std::string& edge, int group)
 {
     auto chamfer = getChamfer();
-    if (!chamfer || chamfer->ChamferInfo.getGroup(edge) == 0) {
+    if (!chamfer) {
         return;
     }
-    setupTransaction();
+    const bool own = chamfer->ChamferInfo.getGroup(edge) != 0;
+    if (!own && group <= 0) {
+        return;
+    }
+    setupTransaction(group > 0 ? tr("%1 to group %2").arg(QString::fromStdString(edge)).arg(group)
+                               : tr("%1 to a new group").arg(QString::fromStdString(edge)));
+    // An edge on the defaults takes them as values of its own first, which
+    // changes nothing of the chamfer; then it joins the group, its values
+    // taken from there, or starts the group if none has that id
+    if (!own) {
+        chamfer->ChamferInfo.setValue(edge, edgeInfo(edge));
+    }
     // 0: a group of its own, by the lowest free id
     chamfer->ChamferInfo.setGroup(edge, group > 0 ? group : chamfer->ChamferInfo.newGroup());
-    refresh();
+    // Only the edge's own entry changes (its group, its values from the
+    // group's): its row in place, not the list filled anew (entry 214)
+    Part::TopoShape::ChamferInfo info;
+    for (int i = 0; i < ui->treeWidgetReferences->topLevelItemCount(); ++i) {
+        auto item = ui->treeWidgetReferences->topLevelItem(i);
+        if (edge == getGeometryItemText(item).constData()) {
+            if (chamfer->ChamferInfo.getValue(edge, info))
+                setItem(item, info);
+            break;
+        }
+    }
+    sortRows();
+    if (gizmoContainer) {
+        setGizmoPositions();
+    }
+    if (onViewValues) {
+        onViewValues->refresh();
+    }
     recompute();
+}
+
+QString TaskChamferParameters::edgeModeTip(Mode mode, int group)
+{
+    QString tip;
+    switch (mode) {
+        case DefaultMode:
+            tip = tr("Default size: takes the values above.");
+            break;
+        case SizeMode:
+            tip = tr("Own size: a size of its own, the same on both faces.");
+            break;
+        case TwoSizesMode:
+            tip = tr("Own two sizes: a size on each of its faces.");
+            break;
+        case SizeAngleMode:
+            tip = tr("Own size and angle: a size on one face, at an angle to it.");
+            break;
+    }
+    if (group > 0) {
+        tip += QLatin1Char('\n')
+            + tr("Group %1: its values are shared with every edge of the group.").arg(group);
+    }
+    return tip;
+}
+
+std::vector<int> TaskChamferParameters::groupIds() const
+{
+    auto vp = getDressUpView();
+    auto chamfer = vp ? dynamic_cast<PartDesign::Chamfer*>(vp->getObject()) : nullptr;
+    return chamfer ? chamfer->ChamferInfo.getGroups() : std::vector<int>();
+}
+
+std::string TaskChamferParameters::handleEdge(Gui::Gizmo* gizmo) const
+{
+    // an edge's size, second size or angle handle, a default's on it too
+    for (const auto& handle : edgeHandles) {
+        if (handle.gizmo && handle.gizmo == gizmo) {
+            return handle.edge;
+        }
+    }
+    return {};
+}
+
+Gui::Gizmo* TaskChamferParameters::itemHandle(QTreeWidgetItem* item) const
+{
+    // an edge's size handle, else its first
+    if (!item) {
+        return nullptr;
+    }
+    const std::string edge = getGeometryItemText(item).constData();
+    Gui::Gizmo* first = nullptr;
+    for (const auto& handle : edgeHandles) {
+        if (handle.edge != edge || !handle.gizmo) {
+            continue;
+        }
+        if (handle.field == SizeField) {
+            return handle.gizmo;
+        }
+        if (!first) {
+            first = handle.gizmo;
+        }
+    }
+    return first;
+}
+
+int TaskChamferParameters::itemGroup(QTreeWidgetItem* item) const
+{
+    if (item && item->parent()) {
+        item = item->parent();
+    }
+    return item ? item->data(GroupColumn, Qt::UserRole).toInt() : 0;
+}
+
+void TaskChamferParameters::groupColorsChanged()
+{
+    if (auto chamfer = getChamfer()) {
+        for (const auto& handle : edgeHandles) {
+            const int group = chamfer->ChamferInfo.getGroup(handle.edge);
+            if (handle.gizmo && group > 0) {
+                handle.gizmo->setColor(groupColor(group));
+            }
+        }
+    }
+    // the rows' swatches
+    refresh();
+    TaskDressUpParameters::groupColorsChanged();
 }
 
 void TaskChamferParameters::removeEdge(const std::string& edge)
@@ -981,7 +1160,7 @@ void TaskChamferParameters::removeEdge(const std::string& edge)
         return;
     }
     // The panel's own removal, of this row alone
-    setupTransaction();
+    setupTransaction(tr("remove %1").arg(QString::fromStdString(edge)));
     chamfer->ChamferInfo.removeValue(edge);
     ui->treeWidgetReferences->clearSelection();
     item->setSelected(true);
@@ -1115,6 +1294,8 @@ void TaskChamferParameters::refresh()
             item->setIcon(GroupColumn, QIcon());
         }
     }
+    // by the values just shown, if the list is sorted by one
+    sortRows();
     // The view's handles follow what the feature holds now -- after an undo
     // or a redo too, which put the boxes back without telling the handles
     if (gizmoContainer) {
@@ -1133,6 +1314,8 @@ void TaskChamferParameters::onCheckBoxUseAllEdgesToggled(bool checked)
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
     ui->buttonRefAdd->setEnabled(!checked);
     ui->treeWidgetReferences->setEnabled(!checked);
+    // a step of its own, as every change (it opened none)
+    setupTransaction(checked ? tr("use all edges") : tr("use the listed edges"));
     pcChamfer->UseAllEdges.setValue(checked);
     pcChamfer->getDocument()->recomputeFeature(pcChamfer);
 }
@@ -1159,8 +1342,17 @@ Part::TopoShape::ChamferInfo TaskChamferParameters::getChamferInfo(QTreeWidgetIt
 void TaskChamferParameters::onUpdateItem(QTreeWidgetItem *item, int column)
 {
     if (column == GroupColumn) {
-        setEdgeGroup(getGeometryItemText(item).constData(),
-                     item->data(GroupColumn, Qt::UserRole).toInt());
+        // After the edit, by the edge's name: setEdgeGroup() fills the list
+        // anew, this row gone with it, while Qt is still in its setData()
+        // (the fillet's crash, entry 214). A group the edge has already --
+        // the delegate's first itemChanged, of the text -- is no change.
+        std::string edge = getGeometryItemText(item).constData();
+        const int group = item->data(GroupColumn, Qt::UserRole).toInt();
+        QMetaObject::invokeMethod(this, [this, edge, group]() {
+            auto chamfer = getChamfer();
+            if (chamfer && chamfer->ChamferInfo.getGroup(edge) != group)
+                setEdgeGroup(edge, group);
+        }, Qt::QueuedConnection);
         return;
     }
     if (column<1 || column>4)
@@ -1189,7 +1381,7 @@ void TaskChamferParameters::updateItem(QTreeWidgetItem *item)
     auto DressUpView = getDressUpView();
     if(!DressUpView)
         return;
-    setupTransaction();
+    setupTransaction(tr("%1 values").arg(QString::fromLatin1(getGeometryItemText(item))));
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
     if (item->data(1, Qt::UserRole).isValid()) {
         Part::TopoShape::ChamferInfo info;
@@ -1209,11 +1401,17 @@ void TaskChamferParameters::clearItems()
     auto DressUpView = getDressUpView();
     if(!DressUpView)
         return;
-    setupTransaction();
     auto items = ui->treeWidgetReferences->selectedItems();
     if (items.isEmpty()) {
+        setupTransaction(tr("clear every edge's values"));
         for (int i=0; i<ui->treeWidgetReferences->topLevelItemCount(); ++i)
             items.append(ui->treeWidgetReferences->topLevelItem(i));
+    }
+    else {
+        QStringList names;
+        for (auto item : items)
+            names << QString::fromLatin1(getGeometryItemText(item));
+        setupTransaction(tr("clear %1").arg(names.join(QStringLiteral(", "))));
     }
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
     // The selected rows, or every row with none selected: it went over the
@@ -1268,6 +1466,10 @@ void TaskChamferParameters::setItem(QTreeWidgetItem *item, const Part::TopoShape
     item->setData(GroupColumn, Qt::UserRole, group);
     item->setText(GroupColumn, group > 0 ? QString::number(group) : QString());
     item->setIcon(GroupColumn, group > 0 ? groupIcon(group) : QIcon());
+    Part::TopoShape::ChamferInfo own;
+    const bool customised =
+        pcChamfer->ChamferInfo.getValue(getGeometryItemText(item).constData(), own);
+    item->setToolTip(0, edgeModeTip(customised ? edgeMode(own) : DefaultMode, group));
 
     if (!ui->treeWidgetReferences->isPersistentEditorOpen(item, 4))
         ui->treeWidgetReferences->openPersistentEditor(item, 4);
@@ -1285,6 +1487,9 @@ void TaskChamferParameters::onTypeChanged(int index)
     if (!DressUpView)
         return;
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
+    // a step of its own, as every change (it opened none)
+    if (pcChamfer->ChamferType.getValue() != index)
+        setupTransaction(tr("type %1").arg(ui->chamferType->itemText(index)));
     pcChamfer->ChamferType.setValue(index);
     ui->stackedWidget->setCurrentIndex(index);
     ui->flipDirection->setEnabled(index != 0); // Enable if type is not "Equal distance"
@@ -1298,7 +1503,12 @@ void TaskChamferParameters::onSizeChanged(double len)
         return;
 
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
-    setupTransaction();
+    // The box tells its value again as it lets go of the focus: no step,
+    // no recompute for a value the chamfer has (an empty undo step each
+    // time, entry 215)
+    if (pcChamfer->Size.getValue() == len)
+        return;
+    setupTransaction(tr("default size"));
     pcChamfer->Size.setValue(len);
     recompute();
 }
@@ -1309,7 +1519,9 @@ void TaskChamferParameters::onSize2Changed(double len)
     if (!DressUpView)
         return;
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
-    setupTransaction();
+    if (pcChamfer->Size2.getValue() == len)
+        return;
+    setupTransaction(tr("default second size"));
     pcChamfer->Size2.setValue(len);
     pcChamfer->getDocument()->recomputeFeature(pcChamfer);
 }
@@ -1320,7 +1532,9 @@ void TaskChamferParameters::onAngleChanged(double angle)
     if (!DressUpView)
         return;
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
-    setupTransaction();
+    if (pcChamfer->Angle.getValue() == angle)
+        return;
+    setupTransaction(tr("default angle"));
     pcChamfer->Angle.setValue(angle);
     pcChamfer->getDocument()->recomputeFeature(pcChamfer);
 }
@@ -1331,7 +1545,7 @@ void TaskChamferParameters::onFlipDirection(bool flip)
     if (!DressUpView)
         return;
     PartDesign::Chamfer* pcChamfer = static_cast<PartDesign::Chamfer*>(DressUpView->getObject());
-    setupTransaction();
+    setupTransaction(tr("default flip"));
     pcChamfer->FlipDirection.setValue(flip);
     pcChamfer->getDocument()->recomputeFeature(pcChamfer);
 }
@@ -1359,6 +1573,18 @@ double TaskChamferParameters::getAngle() const
 bool TaskChamferParameters::getFlipDirection() const
 {
     return ui->flipDirection->isChecked();
+}
+
+QVariant TaskChamferParameters::sortValue(QTreeWidgetItem *item, int column) const
+{
+    // an edge on the defaults (no size of its own) sorts by the default size
+    // and flip
+    const bool own = !item->text(1).isEmpty();
+    if (column == 4)
+        return own ? item->data(4, Qt::UserRole).toBool() : getFlipDirection();
+    if (column == 1 && !own)
+        return getSize();
+    return TaskDressUpParameters::sortValue(item, column);
 }
 
 TaskChamferParameters::~TaskChamferParameters()

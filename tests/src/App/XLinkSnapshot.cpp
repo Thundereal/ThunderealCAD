@@ -78,7 +78,13 @@ protected:
 TEST_F(XLinkSnapshotTest, theClipboardsCopyWritesTheSnapshotAndPastesToTheDocument)
 {
     const std::string path = App::PropertyXLink::getSnapshotPath(_unsaved);
-    EXPECT_EQ(path.rfind(_unsaved->TransientDir.getStrValue(), 0), 0U) << path;
+    // Compared in one spelling: the snapshot's path is Qt's, with forward
+    // slashes, the transient directory the native one (backslashes on Windows).
+    const auto generic = [](const std::string& p) {
+        return fs::u8path(p).lexically_normal().generic_u8string();
+    };
+    EXPECT_EQ(generic(path).rfind(generic(_unsaved->TransientDir.getStrValue()), 0), 0U)
+        << path << " not in " << _unsaved->TransientDir.getStrValue();
     const std::string data = copy(true);
     EXPECT_TRUE(fs::exists(fs::u8path(path))) << path;
 

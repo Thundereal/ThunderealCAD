@@ -7622,3 +7622,472 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   lit for a base edge pointed at in 3D (the same call as the list hover,
   which the 160 test measures), and the scroll (the test's list is two
   rows). NOT pushed, NOT staged.
+
+## 2026-10-18: 169 pushed and staged; entry 170 sized
+
+- The user's direct "Push and restage" (00:2x, after the note-taker's
+  relay of 00:07): pushed `3b52423f11` (over `b76481281e`, all of 169);
+  stage15 from r107, 00:26 INSTALL-USER OK, fcad 3b52423f11, dirty False.
+- Entry 170 (the reporter 10:42, relayed): the on-view values brought from
+  the fillet and chamfer to the PartDesign features that have handles --
+  Draft, Thickness, Pad/Pocket, Revolution/Groove, Helix, Hole, and the
+  Box, Cylinder and Sphere primitives. Each panel's values go to a
+  Gui::OnViewValueSet bound to its own spin boxes: the main value's label
+  at the top middle, the others' beside their handle while it is active
+  (at the top middle too with handles off); Tab, typing, Enter/Space as the
+  fillet's; the handles' menu holds the feature's own operations --
+  Reversed, the sides and the type (Pad, Revolution), the depth type
+  (Hole), the mode, left handed (Helix), the join type (Thickness),
+  "Reverse pull direction" (Draft), "Remove <face>" (Draft, Thickness). A
+  click on Pad's, Revolution's and Hole's arrows no longer reverses them
+  (doc 3.3). Values the feature does not use now (a pad's second length
+  on one side, a helix's turns in pitch-height-angle) are hidden: no
+  label, passed over by Tab (OnViewValueSet::setHidden). Helix and Hole
+  also take values without handles (pitch, turns, cone angle, growth;
+  diameter). Labels beside a handle are placed from the gizmo container's
+  world matrix (GizmoContainer::getWorldMatrix, placeAnchors). The pad's
+  label read "Length 5" without its unit (the Fw form's real box holds no
+  unit; the bound property's is taken). NOT carried over: 169's preview
+  pick and hover (the reporter: "No need"), the fillet's fine undo, and
+  159's clearing click (not built yet anywhere). Set B -- Loft, Pipe,
+  Boolean, Wrap, Defeaturing, the datums, the patterns, the primitives
+  without handles -- is with the reporter.
+- r111 on the real screen: pd-values-in-view.py 37 of 37 (each feature in
+  edit, its labels, a typed value, a menu entry, the edit closed with no
+  label left); chamfer-values-in-view 19, fillet-radius-typed-in-view 21,
+  fillet-handle-click-in-view 15, none failed. NOT pushed, NOT staged.
+- 170, after the reporter's answers of 12:07 and 12:10: the set B design
+  is written (docs/OnViewValueEditing.md section 7, `6bad844c26`), for the
+  reporter to decide (7.6) before any of it is built. The click on an arrow
+  stays without a flip ("Yes no longer flip"); built: REVERSE BY DRAGGING
+  PAST THE START ("support auto reverse on drag beyond"), on Pad/Pocket's
+  length, Revolution/Groove's angle, Hole's depth, Draft's angle,
+  Thickness's value and Helix's height. Past the value's zero the panel's
+  reverse is toggled and the value grows again the other way; dragged back
+  past the start it turns back; while a drag has turned the feature its
+  handle is left where it is (a handle turned under the pointer reads the
+  drag the other way round) and placed again when the drag ends
+  (Gizmo::setReverseCallback). Primitives' handles stop at their minimum
+  as before.
+- Found on the way: (1) a drag cancelled with Escape put the box back but
+  not the property, on every set A panel without the fillet's held undo
+  step (the chamfer too): the value set now gives the box's signal again
+  on a cancel (OnViewValueSet::setCancelWritesBack, off for the fillet).
+  (2) 169 had made the dress-up preview pickable to Coin's own pick, by
+  which a dragger takes a press; the preview lies in front of the arrows
+  drawn on it, so those could not be dragged. The preview is unpickable
+  again, and only the selection's session pass picks it
+  (SoFCRayPickAction::setPickUnpickable). (3) fillet-undo-steps-in-view
+  failed its drag claim with a fixed 40 x 20 pixel offset, square to the
+  arrow since arrows lie in the face turned to the camera (142): the test
+  now drags along the arrow's own screen direction, 17 of 17.
+- r113 on the real screen: pad-drag-reverse.py 13 of 13 (no flip on a
+  click; dragged 5 mm past the start the pad is reversed, its solid below
+  the sketch, the arrow pointing down; back up un-reversed; a drag past
+  the start cancelled with Escape leaves it as it was);
+  pd-values-in-view 37, chamfer-values-in-view 19,
+  fillet-radius-typed-in-view 21, fillet-handle-click-in-view 15,
+  fillet-undo-steps-in-view 17, fillet-preview-pick-syncs-list 20,
+  fillet-hover-outlines-face 16, none failed. NOT pushed, NOT staged.
+
+## 2026-10-19: the ThunderealCAD merge; 171 and 173 designed
+
+- 170 pushed to origin/LinkVibe 2026-10-18 evening ("push, no restage
+  yet"; 3b52423f11..15205e7387).
+- The user's task: a remote for Thundereal/ThunderealCAD, its main merged,
+  built and tested, pushed as LinkVibe, and tracked from now on. Merge
+  `e25c8e2caf`, one conflict (fillet-undo-steps-in-view.py, both sides had
+  made the drag run along the arrow; theirs taken). The merged Part code
+  reaches the OCCT fork's functions through its C exports at run time
+  (fece1a32c7): with the box's older OCCT it built, and 26 Python tests and
+  one ctest failed (ShapeStorage, ShapeDiff, TransactionBranch, Helix and
+  Suppressed volumes after a reload). OCCT fast-forwarded to 1cbd8de319.
+  r115: ctest 968 of 968, Python 3799 OK, the on-view GUI set 159 of 159
+  (fillet-undo-steps now 18: their extra claim). Pushed to
+  thundereal/LinkVibe (cf833f0c98) and LinkVibe tracks it; staged
+  (stage16, 08:25). On the way: run.cmd hung in chcp (the suite step lost
+  overnight), then in vcvars64's vswhere; the Python suite runs without
+  the VS step (s1\pytest-novs.cmd).
+- 171 (Settings sub-menu) and 173 (the edit's menu button) designed
+  together, as they are one menu: docs/OnViewValueEditing.md sec 8, under
+  the 08:48 policy (per view over shared). The question that matters
+  (8.6 a): "Show preview" today also resumes the feature's recompute,
+  which is the document's state, so a this-view-only switch cannot do
+  that part. NOT built; with the reporter.
+- 172 (PD on-view edit in the browser) sized: docs/OnViewValueEditing.md
+  sec 9. By the source the handles are streamed (overlay 7) and a left drag
+  is replayed into the client's mirror viewer, the labels go the
+  sketcher's on-view way, the panel is mirrored; missing are the value
+  set's keys and right click (a Qt filter on a widget a mirror has not),
+  the handle's menu (QMenu::exec on the host), tool tips, snapping's
+  modifiers (read from the host's keyboard), and all of touch. Nothing of
+  it seen yet; step 1 is to see it in Chrome. NOT built; 9.5 a-c with the
+  reporter.
+- 174 (per-user settings) designed: docs/UserSettings.md. The user is a
+  thread scope (Gui::PrefUser) beside the existing App::ActorScope (who
+  wrote, for the log); an edit records who began it and its events run as
+  that user's settings; values in users.cfg under <kind>/<name>/ before
+  the unchanged path, read with a fall-back to the global, written to the
+  user's only; PrefWidget and its menu sub-entries through one helper; the
+  generated accessors (MiscParams) by opt-in per parameter (user=True),
+  first 171's six. Menu items: yes, the same way. NOT built; 2.6 a-f with
+  the reporter.
+- x16 (Linux): thundereal/LinkVibe crashed at exit in GuiEditPerView and
+  GuiPartDesignDefects after their checks passed -- resetEdit() then
+  closeDocument() at once takes the views before the task dialog's
+  deferred delete, and OnViewValueSet (170) held its view as a plain
+  pointer. Their fix 2c32fdd3e9 (the view's lifetime() handle, liveView())
+  is on thundereal/main; merged here as b196d5d35f. r116 on the Windows real
+  screen: edit-per-view 25, pd-gui-defects 34, no crash file in either
+  home; the on-view set 159 of 159. NOT pushed.
+- 174 revised after 09:32: never mix with the local user (a user with no
+  value gets the default; the cases listed in UserSettings 2.2); the user
+  also from the view out of an edit; the scope moves to App (App::PrefUser)
+  as the generated classes of App and Base read it. The generator check
+  (2.5.1): possible -- a per-user twin of <Class>P's members, handles and
+  observer for flagged parameters, getters one thread-local read on the
+  local path. 173 8.6 a answered 09:34: Show preview = the panel's box.
+- 172 9.5 c: puppeteer-core was already installed (viewer-harness\ppenv,
+  2026-09-12). Off screen on Windows: yes -- headless Chrome on a served
+  pad + fillet, the edit entered from the page (an invitation grant is
+  needed, else "ViewOnly"), drew the label, preview and handles
+  (viewer-harness\probes-2026-10-19\pdedit3\2-edit.png). Drag not tried.
+- 171 + 173 BUILT (d59ba8850c), the design of OnViewValueEditing sec 8 as
+  agreed at 10:01: one menu for a handle's right click, Space and a new
+  always shown menu button left of the top-middle label -- the value's
+  entries, "Show handles" (this view, Gizmo::setHiddenInView), the panel's
+  "Show preview" (a module extension, the panel's own box), and a
+  "Settings" sub-menu of the six drag settings as widgets written to
+  MiscParams at once. The button's strips as thick as their gaps (10:29,
+  10:34). The column and the button keep to the middle of what no overlay
+  covers (by the code; not tested). r118/r119 real screen:
+  pd-edit-menu-in-view 22 of 22, edit-per-view 25, pd-gui-defects 34, the
+  on-view set as before (fillet-hover once aborted on a pointer that did
+  not reach its target -- the desktop in use; 16 of 16 on its rerun). Two
+  test lessons: a sub-menu opened by its own popup() closes the parent and
+  its widgets; and widgets of an earlier menu can leave PySide stale
+  wrappers at the addresses the next menu's take -- find by object name in
+  the same opening. A screen grab shows the window in front on a desktop
+  in use; the button renders itself instead. NOT pushed, NOT staged.
+- Pushed c1c771de51 to thundereal/LinkVibe and STAGED (stage17, 11:12,
+  build r119) on the user's direct "push and restage".
+- 175: x16's tile-less icon (thundereal/main 094770130e) merged here as
+  ca6eddfbfa. r120: tests/gui/app-icon-on-both-grounds.py 4 of 4 -- the
+  window icon set at 16-48 px, the same picture as Gui.getIcon("freecad"),
+  its corners clear; drawn on white, light grey, dark grey and black it
+  reads on all four (icons.png). The title-bar logo button was not
+  rendered: the test home has the title bar off. The real task bar
+  (running and pinned) not looked at. pd-edit-menu 22 of 22 after the
+  merge. NOT pushed.
+- 176 (the stage's title said "FreeCAD"): the program is Thundereal.exe
+  since the merge, and tools\fcad-user.cmd started a stale FreeCAD.exe stub
+  of 10-18 that the build tree still held (install-user mirrors it, and its
+  guard even required it). Fixed outside the repo: the launcher (and its
+  cdb sibling) start Thundereal.exe, the guard requires it, my GUI and
+  pytest runners and the viewer-harness serve scripts name it, and the
+  stale FreeCAD/FreeCADCmd .exe/.pdb are gone from the tree. Since the
+  merge my GUI tests and pytest ran those stubs too -- current DLLs, old
+  name. Found on the way: Thundereal.exe still carried the OLD icon (10:17),
+  as the resource compiler reports no dependency on an embedded .ico;
+  2b69e67e86 names it (OBJECT_DEPENDS). r122: both executables relinked,
+  the icon extracted from Thundereal.exe is the tile-less one. STAGED
+  (stage19, 12:03): only Thundereal.exe and ThunderealCmd.exe in the stage.
+  2b69e67e86 NOT pushed.
+- 177 BUILT (88369fc96f): Tab on an omni search /error row completes the
+  name and keeps "/error ", the list narrowed to it (the marks "Doc#" and
+  "<< >>" part words for its filter); Return as before. r123 offscreen:
+  omni-search-label-one-row 20 of 20 with the two new Tab claims,
+  slash-word 10; recent-items 16 of 18, its two property-row failures
+  older than this (10-14, 10-16) and intermittent.
+- 178: Dimension120 read in the reporter's live session (read-only probe
+  over their MCP console): an Angle dimension on SectionView004, Edge5 and
+  Edge9 both at 45 deg -- parallel, after the references were matched again
+  by geometry. Built (the next commit): the dimension's recompute error
+  names the kind, view, elements and reason, and the re-matching; TDTest
+  DrawViewDimensionTest 3 of 3 (r124). The audit of TechDraw's execute()
+  failures: docs/TechDrawErrors.md -- the threaded views (part, section,
+  detail, complex section) return success before their work, so its
+  failures never reach the recompute error; a late error through
+  Document::setErrorDescription proposed. With the reporter (a-c). Seen in
+  the reporter's console on the way: "Transaction log: no such column:
+  joined" on opening scanner -- told x16.
+- 178 3.1 BUILT (9746b8aba9), after "agree all" (13:12): a threaded
+  TechDraw view's failure is its recompute error (part view projection,
+  section and detail cuts, complex section), a partial result a warning in
+  its tool tip (part view faces); held and returned when reported inside
+  the object's own recompute. Fixed on the way: the projection worker
+  destroyed its own watcher, so its finished() never came; the detail
+  worker drew an empty output after a failed tool. r126: TDTest
+  dimension 3, detail 2 (the new testFailedDetailSaysWhy), section 1 --
+  all pass; TestTechDrawApp 9 OK. r125 had failed to compile:
+  Standard_Failure has no DynamicType() in OCCT 8. NOT pushed.
+- 180 step 1 + 181 strips + 173 menu place BUILT (aefebaa749): a red cross
+  (fixed-size marker, on top, unpickable) where a failed or missing fillet
+  or chamfer edge's handle would be, in a new GizmoContainer "marks" branch
+  beside the gizmos' switch (shown when they are hidden); the menu
+  button's strips a square block like the cell's; its click opens the
+  menu below it. r128: fillet-failed-edge-cross 8, pd-edit-menu 23, the
+  on-view set as before. Test lessons: the container's annotation hangs in
+  the editing root by itself, so search the marker set, not the kit; Coin's
+  own type names have no "So"; a script's doc.recompute() does not refresh
+  a panel's handles -- drive the panel.
+- 183 BUILT (the next commit): the Overlay preset's bottom panel
+  see-through, no auto hide, report view | Python console | selection view
+  (collapsed); the top panel empty. overlay-preset test 52 of 52, the
+  halves measured over a 3D view (overlays hide with none). My first edit's
+  XML comment held "--": the preset did not parse; the test caught it.
+- Still to do in the batch: 181 point 2 (a preview face's tool tip and
+  right-click menu), 182 (a selection naming a preview face lights it), 180
+  point 2 (label hover highlight and preselection). 178 3.2/3.3 after.
+
+### 2026-10-19 evening: pushed + staged 55f4145d9d, then 188 and 189
+
+- PUSHED to thundereal/LinkVibe and STAGED (stage22, 17:56) 55f4145d9d on
+  the user's "push and restage": 159, 182, 184, 185, 186 (the grab guard),
+  187, and the merge of thundereal/main (179, 175). 179 checked on a copy
+  of scanner2.FCStd: 28 log rows, no "no such column"; the check now
+  answers the migration prompt and the recompute-error box itself (the
+  user had to click them once). 187 waits for a hand check.
+- 188 BUILT (2121766927): with one missing reference's row selected, a pick
+  of an unused base element of its kind replaces it in place -- every
+  dress-up; values follow; one undo step. dressup-replace-missing-edge.py
+  20 of 21 on r142, the miss my claim's (the feature stays Touched while
+  its panel is open, by design); the claim as it passed on r141 restored.
+- 189 (the user, "After that do 189 with real browser"), first steps BUILT
+  (913db7b153): a real Chrome drags the fillet's arrows live; the fine-snap
+  key is now the client's (plain 2.5, 3.5 ... / Shift 2.6, 3.6 ...); Tab and
+  Escape from the page move and clear the active value. Found: the
+  top-middle label under the web tool bars; a radius dragged to 0 (the
+  desktop's clamp too); no on-view entries for typing. OnViewValueEditing
+  sec 9.5a. NOT pushed.
+- 189 continued, each seen in a real Chrome on the served fillet: the
+  handle's right-click menu with its settings rows (b2ad908242); the
+  top-middle label below the page's tool bars (7238ddd227); typing a value,
+  Enter or a digit opening the label (3c3c7f5e9e); a click on nothing
+  leaves no value active (3fc186d196). OnViewValueEditing sec 9.5a.
+- The user on the radius dragged to 0: first "drag refuse if it goes to
+  zero" (built, r148, not committed), then "auto revert to the last working
+  value ... the whole drag is one transaction", "if failed, I mean": BUILT
+  (3fc186d196) for every value with a handle; seen in
+  fillet-undo-steps-in-view.py, 23 of 23 on r150. Sec 9.5b. NOT pushed.
+- Left of 189: the 173 menu button drawn by the page, handle tool tips
+  (9.2 #6), touch (9.3); 180/182/185/188 in the browser not yet looked at.
+- 189: 173's menu button drawn by the page (26adceee52), seen in a real
+  Chrome: at the label's left under the tool bars, its menu Show handles,
+  Settings.
+- 190 BUILT (224ec0828a), the note-taker's readings a-i and the 21:42
+  answer taken: the browser's tool bars in one card dragged by a grip, a
+  toggle collapsing it into a button dragged the same, a click opening it
+  there; kept inside the view; remembered per browser; on a phone it
+  starts collapsed and opens bounded, its bars wrapping and scrolling up
+  and down. covered.ts reports the card. Seen in a real Chrome:
+  viewer-harness drive-toolbar-card.js 13 of 13. NOT pushed.
+- 190 on the user's two notes: the grip on the card's short side and no
+  card fill (00966b5d71); the grip's ends the collapse button and a bar
+  picker, one tick per bar and "Show all", remembered per browser
+  (5072ffe4c7). drive-toolbar-card.js 20 of 20. The dull buttons are not a
+  layer: probe-toolbar-dim.js found all 72 tools refused (opacity 0.38) for
+  an invited editor, only the sketcher's tools being browser safe. The
+  user: no lighter refused look; later, a traditional disabled look.
+- PUSHED to thundereal/LinkVibe on the user's "Push, chase the problem":
+  55f4145d9d..5072ffe4c7 (188, 189's steps, 190). NOT restaged.
+- 189: 182/188 in a real Chrome. A click on the missing edge's kept face
+  selected nothing: the preview is drawn unpickable (entry 170) and picked
+  in a pass ahead of the scene that needed a desktop viewer; a browser's
+  click is replayed through its mirror, so the ray went through the face.
+  FIXED (ed758230a1): the pass picks through the mirror's event root. Seen
+  in Chrome: the click selects the '?Edge11' row, the next click on an
+  unused edge replaces it (Base ['Edge5', 'Edge8']), and the kept face
+  shows selected (a thin face is picked by its edge in the pick radius;
+  that edge now lights the face). serve-dressup-preview-pick.py 11 of 11,
+  fillet-preview-pick-syncs-list.py 20 of 20, dressup-replace-missing-edge
+  .py 21 of 21 on r153. NOT pushed.
+- PUSHED and STAGED 2026-10-20 on the user's "Push and continue", then
+  "Restage first": thundereal/LinkVibe 5072ffe4c7..fdf4dccef5; stage23
+  08:20, INSTALL-USER: OK, the copy fdf4dccef5 = r153 (188, 189's steps
+  and the preview pick, 190, 191). Note-taker told.
+- 189, 9.2 #6, the handle's hint in the browser: DONE (4c6455244c). A view
+  with no widget gets no tool tip request from Qt, so the handle keeps
+  Qt's wait itself and the client's mirror pushes the hint (op "hint");
+  the page shows it at its pointer. Seen in a real Chrome (hint1): the two
+  lines of the desktop's tip beside the pointer resting on the radius
+  arrow, none at once, none after moving off. serve-handle-hint.py 9 of 9,
+  fillet-handle-click-in-view.py all green (the desktop's tip unchanged)
+  on r154. NOT pushed. Left of 189: touch (9.3).
+- 192, a view deselected in a TechDraw page kept its selection frame: the
+  tree-to-scene sync blocks the observer whose redraw drops it. FIXED
+  (01d32da5c6): the sync ends with the frame refresh.
+  techdraw-view-click-through.py with 8 new claims. NOT pushed.
+- 194, a missing row selected in a dress-up panel now selects its preview
+  face too (c4c8e1a792); fillet-preview-pick-syncs-list.py 3 new claims.
+  NOT pushed.
+- 195 HELD by the note-taker's split; a first cut is parked, not in the
+  tree (dl\handson\2026-10-12\195-presel-measure-default.patch).
+- 196 on the user's r172/r173 hands-on: the on-view label lights on hover
+  and takes a click ahead of the geometry under it; every handle and
+  dragger loses its BASE_COLOR light model and follows the view's draw
+  style (f3dc8f68d2); dress-up handles are one colour whatever their group
+  (6d8ff90769). The silhouette outline is REVERTED on the user's word (it
+  fought Coin's dragger kits) and parked as 196-outline-attempt.patch;
+  the preview face highlight kept. Point 1 (the working edge's preview face
+  selecting the base edge only) left as is, the user's word. r174: all 8
+  handle/value/label tests green. NOT pushed, NOT staged; the dev build
+  launched 15:17 for the user's hands-on test.
+- 196 on the user's hands-on of r174-r177, 2026-10-20 afternoon:
+  a handle under the pointer lit as hovered, selected or not, the selected
+  colour back when it leaves; a press drops the hover until the pointer
+  has left, so a click shows the handle selected; the settings menu names
+  the drag key by what it does against the default ("Hold for fine drag"
+  / "Hold for coarse drag") (6f98a451b6). A drag beside a missing edge
+  keeps its value: a drag fails only for an edge of the dragged value
+  failing anew, the feature failing whole, or another error -- the
+  delayed second recompute the user saw was the wrong revert's write
+  back (de17c0aace). A drag cancelled by Esc or another button no longer
+  looks dragged: the arrow drops its dragged look and stays where the
+  drag began until the button is up; the grab is kept, so the navigation
+  style never gets half a press (6a8b259b6c).
+  fillet-drag-beside-missing-edge.py 20 of 20 (twice); fillet-partial-in-
+  view.py follows the go-back of 3fc186d196. The user on r177: "looks good".
+- PUSHED and STAGED 2026-10-20 on the user's "looks good, fetch and merge,
+  build test and push" and "then restage": thundereal/LinkVibe merged
+  (5f507995a3: x16win's 197, 178, 198, 193) as 9c50071301, built r178,
+  11 GUI tests green (the fillet handle set and overlay-list-row-bands.py),
+  pushed 5f507995a3..b245d01c73; stage24 17:47, INSTALL-USER: OK, the copy
+  b245d01c73 = r178 (dirty: only 199's test file, not built into the app).
+- 199 (XLinkSnapshotTest on Windows): the test's fix written
+  (tests/src/App/XLinkSnapshot.cpp, the two paths compared in one
+  spelling), NOT built or run, uncommitted: held on the user's word to stay
+  on the fillet work. Its first run started Tests_run.exe bare and put the
+  "DLL was not found" boxes on the user's screen (163); t199.cmd now runs
+  it through ctest only.
+
+### 2026-10-21: merged and restaged (stage25); entry 202 built
+
+- MERGED and STAGED on the user's "merge with main, stay on LinkVibe. build
+  and restage": thundereal/LinkVibe c860115ea7 (x16win's entry 200) and
+  thundereal/main 9660244ceb (THROWM, the wiki help, fresh test profiles, a
+  capture waiting for its refines, the overlay task page look), both
+  without conflicts; r179 built. The first restage refused (the user's
+  FreeCAD open, pid 20744); on their "closed, try again" stage25 INSTALL-
+  USER: OK (FreeCADGui 11:21). The fillet handle set on r179: green but
+  fillet-handle-click's three tool tip claims, which follow the real mouse
+  -- 3 of 3 failed twice, then the tip showed on a third run: not r179's.
+- The user asked how to set a setback corner (they could not pick a vertex
+  in the view): the Python route, Fillet.Corners = {'VertexN': setback},
+  then the panel's rows and arrows. My first explanation, read from the
+  code (the preview covers the base vertex), was WRONG: on a box corner a
+  click on the vertex made it a corner on r179.
+- Entry 203 (Esc ends an edit; make it a command on Shift+Esc): passed to
+  the note-taker on the user's word, given to x16win; what I found by
+  reading went with it.
+- 202 BUILT (8b4b49a405, r184), NOT pushed: (a) in the add mode a vertex
+  picked on the base stayed selected, so the next click deselected it and
+  toggled nothing -- a corner could be added, never taken away; fixed. (b) a
+  right click on a fillet's or chamfer's edge or its preview face opens
+  its handle's menu (draft, thickness: the value's). (c) the Group column
+  second. (d) group colours back; automatic ones clear of the plain,
+  dragged, selected and pointer hues; picked from the handle's Group menu
+  or the list's menu, kept in the new hidden output property GroupColors.
+  (e) a header tip with the modes, a row's with its mode and group. (f) a
+  double click edits a value's cell; a default-radius edge can join a
+  group (setValue(edge, param, radius) does nothing for an edge with no
+  points -- the whole list now). fillet-groups-and-preview-menu.py 19 of
+  19, fillet-corner-vertex-pick.py 8 of 8, the fillet set green.
+- Found on the way: QTest.mouseDClick on the list opened no editor while
+  editItem() did -- the panel now asks for the edit itself; why the view's
+  own trigger lost it is not known. pd-values-in-view failed 5 Space-menu
+  claims once on r183 and passed 37 of 37 on the rerun.
+- x16win pushed 5fb4053dfa (201, 189, 132, 203) this afternoon, by the
+  note-taker's relay; not merged here yet.
+
+### 2026-10-21 evening to 10-22 morning: entries 207, 209, 210, 211 -- COMMITTED, not pushed, not staged
+
+- 207 (binder context, object path only): a SubShapeBinder with no
+  recorded context, held by no GeoFeatureGroup (a link group takes no
+  children's nodes), is its own context. On a copy of scanner.FCStd
+  Binder008 recomputes valid, Context itself, bound box unchanged.
+  TestShapeBinder 18 of 18. `c6b59c9c9d`.
+- 207 (the tree's reveal): an object in error with no top-level row is
+  revealed along its shortest object path, else at its shallowest row in
+  the tree's order -- no longer the first by address.
+  tree-reveal-object-path.py 3 of 3 on r197 (its setup check had failed
+  three builds running: findItems() did not give the child rows, a walk
+  of the tree does). `79c5c379ef`.
+- 210 (one automatic colour helper, three independent uses -- the user:
+  "Independent is good"): Base/AutoColor.h, the hue farthest from those
+  taken; PartDesign's body tag colour and the random colour of a new
+  shape use it. auto-colors-spread.py 3 of 3. `879643c893`.
+- 209 (c) (group 2 and 3 alike): the automatic group colours, in id
+  order, each the hue farthest from the handle's, the picked ones and the
+  groups' before it. fillet-group-colors-apart.py 5 of 5. `f9682c8e9d`.
+- 209 (a)/(b) (preview face hover and click on Fillet004) -- FOUND, the
+  missing migration recompute, as the user supposed. Probe on a copy,
+  r190c to r196: before the recompute Fillet004's references are the old
+  names (Edge1, Edge2, Edge21, Edge22, Edge9, Edge7, Edge17) and no
+  preview element maps to a row -- hover and click stay on the preview
+  itself. After doc.recompute([Fillet004]) (22 objects, 0.33 s; the
+  references become Edge20, Edge4, Edge22, Edge12, Edge2, Edge21, Edge17)
+  8 of 9 preview faces hover the base edge and its row and a click selects
+  both; the ninth gives only an edge shared by several rows (a corner
+  patch, left unmapped on purpose). Two of my probes misled on the way:
+  a face's middle is where its radius handle stands, and getObjectInfo()
+  does not see the preview under the editing root -- real hovers did.
+  Nothing to commit for it: entry 211 is the fix.
+- 211 (a localized migration recompute) -- FITS: the edited feature and
+  what it needs, 22 of 686 objects, 0.33 s against 29 to 33 s for the
+  whole document. Not built; one choice is the user's (below in my
+  report): write the results into the document, or a preview only.
+- 208 (row bands in a panel laid over its view): built, not committed;
+  the in-view task box is opaque by design, so the bands show on grey.
+  The user's answer on see-through boxes is still needed.
+
+### 2026-10-22 morning: entry 211 built and committed; then the merge and the push
+
+- 211 (the user: "1, but make sure only do this for the migration
+  case"): restore marks each object it queues for the migration recompute
+  ObjectStatus::MigrationPending (runtime only, cleared with the touch;
+  Object.State shows it). An edit (default mode) recomputes the edited
+  object and what it needs only while one of those carries the mark; a
+  touch of the user's own waits for their recompute as before.
+  `35dc43b306`, built r198b.
+  - edit-migration-recompute.py 6 of 6 (r198b had 5 of 6: the claim read
+    Box2's own length, which a Part::Box rebuilds by itself on a size
+    change; it reads the mirror now).
+  - TestPartApp 390 of 390. Document 247 of 249 under my script runner;
+    the two (DocumentObserverCases) are that runner's: the transaction log
+    names an implicit transaction after its invocation, "<implicit
+    script>". Under -t, DocumentObserverCases 6 of 6.
+  - fillet-groups-and-preview-menu.py 19 of 19, fillet-corner-vertex-pick.py
+    8 of 8.
+  - The 209 hover probe on a scanner copy, first phase (no recompute run):
+    opening Fillet004's edit recomputes it, and 8 of 9 preview faces hover
+    and click their base edge and row; the probe's own recompute after it
+    finds nothing left.
+- 208: the user's answer came through the note-taker ("See-through like
+  dock"); diagnostic run, fix not started.
+- Built as m200 (the merge over 211), green; PUSHED on the user's word
+  ("Onece finish your current task, push"): thundereal/LinkVibe
+  27e32d75f1..44ab0fc6dd. Not restaged. m200's first ctest had 69
+  failures, all the launcher's: 68 sandbox cases with no FCX_PYODIDE
+  ("expression sandbox image is not available") and DeferredLoad's %TEMP%
+  timeout; again with both set, 92 of 92.
+
+### 2026-10-22 afternoon: entry 208 -- COMMITTED `5fce831256`, not pushed
+
+- The in-view panel's lists stood on an opaque ground because every
+  overlay sheet clears a task panel's lists by a rule scoped to
+  `Gui--TaskView--TaskView` (entry 184), and the host over the picture
+  holds no TaskView. The rules OverlayManager makes from the settings now
+  give the same to `Gui--TaskView--TaskPanelHost`; the overlay sheet is on
+  the host only while it is over the picture. With the earlier
+  hasOverlayRowBands() change (the host counts as the overlay) the rows
+  band too.
+- overlay-list-row-bands-in-view.py 7 of 7 on r203: rows (59,59,59) and
+  (49,49,49) at alpha 181, the docked list's own values; the task box's
+  ground 180 at its margin and 233 under the list (box and band); beside
+  the view no row at the overlay alpha. overlay-list-row-bands.py (docked)
+  13 of 13.
+- My diagnostic's "own ground" column misled: render() with
+  DrawWindowBackground fills a widget's palette ground even when it never
+  paints one. The comparison of the r189 rows (alpha 255) with the
+  docked ones (181) is what pointed at the list's own ground.

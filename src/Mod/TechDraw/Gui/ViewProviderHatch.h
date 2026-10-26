@@ -64,6 +64,12 @@ public:
     TechDraw::DrawHatch* getViewObject() const;
 
     Gui::MDIView *getMDIView() const override;
+    Gui::MDIView *getOrCreateMDIView() override;
+    /// Shown in its view's page view (entry 217)
+    bool hasOwnView() const override
+    {
+        return true;
+    }
 
 private:
     static App::PropertyFloatConstraint::Constraints scaleRange;

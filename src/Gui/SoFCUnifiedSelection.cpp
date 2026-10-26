@@ -125,6 +125,8 @@
 #include "SoMouseWheelEvent.h"
 #include "Tree.h"
 #include "ViewerContext.h"
+#include "EditableDatumLabel.h"
+#include "SoDatumLabel.h"
 
 FC_LOG_LEVEL_INIT("SoFCUnifiedSelection",false,true)
 
@@ -376,7 +378,7 @@ public:
 
     void onPreselectTimer();
     /// While an object is in edit: whether the event's pick runs through a
-    /// dragger, a handle of the edit
+    /// dragger, a handle of the edit, or an on-view value's label
     bool isOverEditHandle(SoHandleEventAction * action) const;
 
     SoFCUnifiedSelection * master;
@@ -977,18 +979,29 @@ SoFCUnifiedSelection::Private::getPickedInfoInSession(std::vector<PickedInfo> &r
     // drawn: picked with the rest, the base in front of it always had the
     // click (docs/HandsOnQueue.md entry 169). Only a hit some view provider
     // names counts; a node no one picks leaves the pick to the scene.
-    if (!pcViewer || !pcDocument)
+    if (!pcDocument)
         return;
     EditingRoot *session = pcDocument->editingRoot();
-    const SoPath *onTop = pcViewer->getGroupOnTopPath();
-    const SoPath *rootPath = pcViewer->getRootPath();
-    if (!session || !session->node() || !onTop || !rootPath
-            || onTop->getLength() <= rootPath->getLength())
+    if (!session || !session->node())
         return;
-    // the view's aux root, which the session root hangs under in each of
-    // its views (View3DInventorViewer::hangEditingRoot)
-    SoNode *aux = onTop->getNode(rootPath->getLength());
-    if (!aux->isOfType(SoGroup::getClassTypeId())
+    // Where the session root hangs in the view picking: the desktop's aux
+    // root (View3DInventorViewer::hangEditingRoot), reached by the view's
+    // root path; or, for a view-less root, the replaying mirror's event
+    // root, the camera and the served scene beside it
+    // (MirrorViewer::hangEditingRoot) -- without which a browser's click
+    // went through the preview to whatever lay behind it (entry 189)
+    const SoPath *rootPath = nullptr;
+    SoNode *aux = nullptr;
+    if (pcViewer) {
+        const SoPath *onTop = pcViewer->getGroupOnTopPath();
+        rootPath = pcViewer->getRootPath();
+        if (!onTop || !rootPath || onTop->getLength() <= rootPath->getLength())
+            return;
+        aux = onTop->getNode(rootPath->getLength());
+    }
+    else if (ViewerContext *view = pickView())
+        aux = view->getPickRoot();
+    if (!aux || !aux->isOfType(SoGroup::getClassTypeId())
             || static_cast<SoGroup*>(aux)->findChild(session->node()) < 0)
         return;
 
@@ -1000,12 +1013,17 @@ SoFCUnifiedSelection::Private::getPickedInfoInSession(std::vector<PickedInfo> &r
         if (!node || !node->isOfType(SoFCPathAnnotation::getClassTypeId()))
             continue;
         tmpPath.truncate(0);
-        tmpPath.append(rootPath);
+        if (rootPath)
+            tmpPath.append(rootPath);
         tmpPath.append(aux);
         tmpPath.append(session->node());
         tmpPath.append(holder);
         tmpPath.append(node);
+        // the preview stays unpickable to the scene's pick, by which the
+        // handles drawn over it take a press (entry 170)
+        this->rayPickAction.setPickUnpickable(true);
         this->rayPickAction.apply(&tmpPath);
+        this->rayPickAction.setPickUnpickable(false);
         std::vector<PickedInfo> hits;
         getPickedInfo(hits, this->rayPickAction.getPrioPickedPointList(), true, true, filter);
         this->rayPickAction.cleanup();
@@ -2107,6 +2125,12 @@ SoFCUnifiedSelection::handleEvent(SoHandleEventAction * action)
                 }
             }
         }
+        // An on-view value's label, picked on top: its root hangs beside
+        // this one, after it, so the press it takes is not known here yet
+        // either; the release, which is its click, must reach it
+        // (docs/HandsOnQueue.md entry 196, point 3)
+        if (!pimpl->pressGrabbedBelow && pimpl->isOverEditHandle(action))
+            pimpl->pressGrabbedBelow = true;
     }
 }
 
@@ -2147,8 +2171,20 @@ SoFCUnifiedSelection::Private::isOverEditHandle(SoHandleEventAction * action) co
     // The whole path: an SoPath hides what is inside a node kit, and a
     // gizmo's dragger is a part of its container
     const auto* path = static_cast<const SoFullPath*>(picked->getPath());
+    bool label = false;
     for (int i = path->getLength() - 1; i >= 0; --i) {
-        if (path->getNode(i)->isOfType(SoDragger::getClassTypeId()))
+        SoNode *node = path->getNode(i);
+        if (node->isOfType(SoDragger::getClassTypeId()))
+            return true;
+        // An on-view value's label, picked on top of what is behind it
+        // (EditableDatumLabel: its root an annotation of OnViewPriority):
+        // nothing behind it is preselected (entry 196, points 2 and 3). A
+        // sketch's constraint labels are not under such a root.
+        if (node->isOfType(SoDatumLabel::getClassTypeId()))
+            label = true;
+        else if (label && node->isOfType(SoFCPathAnnotation::getClassTypeId())
+                && static_cast<SoFCPathAnnotation*>(node)->priority.getValue()
+                    == EditableDatumLabel::OnViewPriority)
             return true;
     }
     return false;
@@ -3850,7 +3886,9 @@ void SoFCSelectionRoot::pick(SoPickAction * action) {
 
 void SoFCSelectionRoot::rayPick(SoRayPickAction * action) {
     if(!ViewParams::getOverrideSelectability()
-            && selectionStyle.getValue() == Unpickable)
+            && selectionStyle.getValue() == Unpickable
+            && !(action->isOfType(SoFCRayPickAction::getClassTypeId())
+                 && static_cast<SoFCRayPickAction*>(action)->pickUnpickable()))
         return;
     auto stack = beginAction(action);
     if (!stack)

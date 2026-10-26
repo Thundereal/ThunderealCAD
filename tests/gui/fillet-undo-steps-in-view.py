@@ -78,7 +78,12 @@ def real_key(widget, k):
     QtTest.QTest.keyPress(widget, k, Qt.NoModifier)
     pump(5)
     target = QtWidgets.QApplication.focusWidget() or widget
-    QtTest.QTest.keyRelease(target, k, Qt.NoModifier)
+    # the press may have closed what it was typed into (Escape on an open
+    # label): the release then has nowhere to go
+    try:
+        QtTest.QTest.keyRelease(target, k, Qt.NoModifier)
+    except RuntimeError:
+        pass
     pump(10)
 
 
@@ -369,6 +374,42 @@ def run():
             check("Escape in the drag left the edit alone", gdoc.getInEdit() is not None)
             check("every arrow back where it was, the other default edge's too",
                   arrow_offsets() == offsets, (arrow_offsets(), offsets))
+
+            # The user, 2026-10-19: "how about instead of zero refuse, just
+            # auto revert to the last working value. Do not go through the
+            # normal undo stack, as the whole drag may continue multiple
+            # working step, but the whole drag is one transaction" -- "if
+            # failed, I mean". A radius pulled far past zero fails; it goes
+            # back to the last that worked, the fillet valid, one step.
+            # First a short drag inward, which takes: the arrow is dragged
+            before = undos()
+            inward = arrow_drag(view().getPointOnViewport(middle), -0.2)
+            drag(arrow, inward)
+            shorter = fillet.Radius.Value
+            note("INFO a drag of %s inward: Radius %.4f, steps %d"
+                 % (inward, shorter, undos() - before))
+            if check("a short drag inward takes: the radius smaller, above zero",
+                     1e-6 < shorter < radius - 1e-6, shorter):
+                # then from there far past zero: failed, back to what worked
+                arrow2 = pick_arrow(view().getPointOnViewport(middle))
+                far = arrow_drag(view().getPointOnViewport(middle), -4 * radius)
+                note("INFO the arrow now at %s, a drag of %s" % (arrow2, far))
+                mid = undos()
+                if arrow2 is not None:
+                    drag(arrow2, far)
+                pump(60)
+                note("INFO after the far drag: Radius %.4f, state %s, steps %d"
+                     % (fillet.Radius.Value, fillet.State, undos() - mid))
+                check("a drag past zero goes back to the last working radius",
+                      abs(fillet.Radius.Value - shorter) < 1e-6, fillet.Radius.Value)
+                check("... the fillet not in error", "Invalid" not in fillet.State, fillet.State)
+                check("... the whole drag at most one step", undos() - mid <= 1,
+                      (undos() - mid, doc.UndoNames[:3]))
+            while undos() > before:
+                FreeCADGui.runCommand("Std_Undo")
+                pump(60)
+            check("... and after the undo the radius as before",
+                  abs(fillet.Radius.Value - radius) < 1e-6, fillet.Radius.Value)
 
         before = undos()
         accept = None

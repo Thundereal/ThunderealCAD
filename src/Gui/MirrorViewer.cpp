@@ -28,6 +28,7 @@
 
 #include <QEvent>
 #include <QKeyEvent>
+#include <QKeySequence>
 #include <QString>
 
 #include <Inventor/SbLine.h>
@@ -58,12 +59,15 @@
 #include <Base/Matrix.h>
 #include <Base/Placement.h>
 
+#include "Application.h"
+#include "Command.h"
 #include "Control.h"
 #include "Document.h"
 #include "EditableDatumLabel.h"
 #include "InventorBase.h"
 #include "MainWindow.h"
 #include "MirrorViewer.h"
+#include "OnViewValue.h"
 #include "Selection.h"
 #include "SoFCUnifiedSelection.h"
 #include "SoMouseWheelEvent.h"
@@ -223,7 +227,12 @@ public:
      * through the same setFocusToSpinbox() the controller already calls.
      */
     OnViewEntry* focusedParam = nullptr;
+    /// What the client's own interface covers (setCoveredRects())
+    std::vector<std::array<int, 4>> covered;
     std::function<void()> onViewParamsChanged;
+    /// The hint shown at the client's pointer (setHint())
+    QString hint;
+    std::function<void()> onHintChanged;
     /** The key frame being routed into an entry box, if any.
      *
      * The box may hand the key back (DrawSketchKeyboardManager decides
@@ -233,6 +242,9 @@ public:
      */
     Input pendingKey;
     bool hasPendingKey = false;
+    /// The key whose press ended the edit (takeEndEditKey), so that its
+    /// release goes nowhere either; 0 for none.
+    int endEditKey = 0;
     /** This client's own selection (docs/ThinClient.md section 8.4).
      *
      * Current for the extent of anything replayed through this view, so
@@ -677,6 +689,13 @@ bool MirrorViewer::handleInput(const Input& input)
             stamp(event);
             event.setButton(button(input.code));
             event.setState(press ? SoButtonEvent::DOWN : SoButtonEvent::UP);
+            // Seen by an edit's on-view values ahead of the scene, as the
+            // desktop's view widget filter sees it: a click on nothing
+            // leaves no value active (entry 159)
+            if (qtButton(input.code) == Qt::LeftButton) {
+                const SbVec2s at = event.getPosition();
+                OnViewValueSet::viewerLeftButton(this, press, QPoint(at[0], at[1]));
+            }
             return replay(event);
         }
         case Input::Wheel: {
@@ -692,8 +711,20 @@ bool MirrorViewer::handleInput(const Input& input)
             // is running, and every key reaches it before the view. What
             // it does not claim it hands back through sendKeyEvent below
             // (docs/ThinClient.md section 8.7).
+            // Ahead of the box a command's shortcut, as Qt's shortcut map
+            // goes ahead of every widget there: the one a key from the wire
+            // may reach is the edit's end (docs/HandsOnQueue.md entry 203).
+            if (takeEndEditKey(input)) {
+                return true;
+            }
             if (pimpl->focusedParam) {
                 return routeKeyToParameter(input);
+            }
+            // Then an on-view value set of an edit in this view: on the
+            // desktop it filters the view widget's keys, and a mirror has
+            // no widget (docs/OnViewValueEditing.md sec 9.2 #3)
+            if (takeValueSetKey(input)) {
+                return true;
             }
             return replayKey(input);
         }
@@ -798,6 +829,79 @@ bool MirrorViewer::routeKeyToParameter(const Input& input)
     const bool handled = param->sendKeyEvent(&event);
     pimpl->hasPendingKey = false;
     return handled;
+}
+
+bool MirrorViewer::takeValueSetKey(const Input& input)
+{
+    Qt::KeyboardModifiers mods = Qt::NoModifier;
+    if (input.shift) {
+        mods |= Qt::ShiftModifier;
+    }
+    if (input.ctrl) {
+        mods |= Qt::ControlModifier;
+    }
+    if (input.alt) {
+        mods |= Qt::AltModifier;
+    }
+    QString text;
+    if (input.delta > 0) {
+        text = QString(QChar(char16_t(input.delta)));
+    }
+    ViewerScope scope(this);
+    return OnViewValueSet::takeViewerKey(this, qtKeyForCoinKey(input.code), mods,
+                                         input.kind == Input::KeyDown, text);
+}
+
+bool MirrorViewer::takeEndEditKey(const Input& input)
+{
+    if (input.kind == Input::KeyUp) {
+        if (pimpl->endEditKey == 0 || pimpl->endEditKey != input.code) {
+            return false;
+        }
+        pimpl->endEditKey = 0;
+        return true;
+    }
+    if (!pimpl->doc || !isEditing()) {
+        return false;
+    }
+    // A session that is its initiating view's alone is ended by that view
+    // and by no other -- the resetEdit op's rule (SceneControl.cpp)
+    if (ViewerContext* owner = pimpl->doc->editingViewer()) {
+        if (owner != this && pimpl->doc->editingRoot()
+                && !pimpl->doc->editingRoot()->isShared()) {
+            return false;
+        }
+    }
+    // By the shortcut the user gave the command, not by a key fixed here:
+    // a rebinding on the desktop holds for the browser too
+    Command* cmd = Application::Instance->commandManager().getCommandByName("Std_ResetEdit");
+    if (!cmd) {
+        return false;
+    }
+    const QKeySequence shortcut(cmd->getShortcut(), QKeySequence::PortableText);
+    Qt::KeyboardModifiers mods = Qt::NoModifier;
+    if (input.shift) {
+        mods |= Qt::ShiftModifier;
+    }
+    if (input.ctrl) {
+        mods |= Qt::ControlModifier;
+    }
+    if (input.alt) {
+        mods |= Qt::AltModifier;
+    }
+    const int key = qtKeyForCoinKey(input.code);
+    if (shortcut.isEmpty() || key == Qt::Key_unknown
+            || shortcut != QKeySequence(QKeyCombination(mods, Qt::Key(key)))) {
+        return false;
+    }
+    pimpl->endEditKey = input.code;
+    // As the resetEdit op does, and with what Std_ResetEdit does after:
+    // the selection goes with the edit. Gui::Document::resetEdit opens the
+    // scope of the view the edit ran in itself.
+    pimpl->doc->resetEdit();
+    pimpl->selection.rmvPreselect();
+    pimpl->selection.clearSelection();
+    return true;
 }
 
 bool MirrorViewer::sendKeyEvent(QKeyEvent* event)
@@ -992,6 +1096,41 @@ const Render::VisibilitySet* MirrorViewer::objectVisibilities()
 float MirrorViewer::getPickRadius() const
 {
     return pimpl->state.pickRadius;
+}
+
+std::vector<std::array<int, 4>> MirrorViewer::coveredRects() const
+{
+    return pimpl->covered;
+}
+
+void MirrorViewer::setCoveredRects(std::vector<std::array<int, 4>> rects)
+{
+    if (rects == pimpl->covered) {
+        return;
+    }
+    pimpl->covered = std::move(rects);
+    OnViewValueSet::viewCoverChanged(this);
+}
+
+void MirrorViewer::setHint(const QString& text)
+{
+    if (text == pimpl->hint) {
+        return;
+    }
+    pimpl->hint = text;
+    if (pimpl->onHintChanged) {
+        pimpl->onHintChanged();
+    }
+}
+
+QString MirrorViewer::hint() const
+{
+    return pimpl->hint;
+}
+
+void MirrorViewer::setHintCallback(std::function<void()> callback)
+{
+    pimpl->onHintChanged = std::move(callback);
 }
 
 double MirrorViewer::devicePixelRatio() const

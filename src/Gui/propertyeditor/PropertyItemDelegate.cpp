@@ -97,10 +97,8 @@ void PropertyItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &
         }
         else if (auto editor = qobject_cast<PropertyEditor*>(par); editor && editor->overlayLook()) {
             // Overlaid: the rows are all of the view that has a ground
-            // (docs/HandsOnQueue.md entry 69)
-            const QBrush brush = editor->overlayRowBackground(index);
-            if (brush.style() != Qt::NoBrush && brush.color().alpha() != 0)
-                painter->fillRect(option.rect, brush);
+            // (docs/HandsOnQueue.md entry 69), the overlay's bands under
+            // the items, as every list's in an overlay (entry 193)
         }
 #if QT_VERSION  >= 0x050000
         else if (!(option.features & QStyleOptionViewItem::Alternate)) {

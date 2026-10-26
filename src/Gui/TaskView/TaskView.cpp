@@ -117,6 +117,15 @@ QString titleOf(const Gui::TaskView::TaskInfo &info)
     }
     return Gui::TaskView::TaskView::tr("Task panel");
 }
+
+/// Whether \a dialog is an edit's: its document is in edit. A dialog
+/// with no document, or of one that is not editing, is a plain task.
+bool isEditDialog(const Gui::TaskView::TaskDialog *dialog)
+{
+    Gui::Document *doc = Gui::Application::Instance->getDocument(
+        dialog->getDocumentName().c_str());
+    return doc && doc->getInEdit();
+}
 } // namespace
 
 
@@ -623,7 +632,11 @@ void TaskView::pageKeyPress(TaskPage *page, QKeyEvent* ke)
                 }
             }
         }
-        else if (ke->key() == Qt::Key_Escape && ActiveDialog->isEscapeButtonEnabled()) {
+        else if (ke->key() == Qt::Key_Escape && ActiveDialog->isEscapeButtonEnabled()
+                 && (ViewParams::getEscapeEndsEdit() || !isEditDialog(ActiveDialog))) {
+            // An edit's dialog ends the edit by Std_ResetEdit, not by Escape,
+            // unless the user asked for Escape back (docs/HandsOnQueue.md
+            // entry 203); a dialog that is no edit keeps its Cancel on it.
             // get only the buttons of the button box
             QDialogButtonBox* box = ActiveCtrl->standardButtons();
             QList<QAbstractButton*> list = box->buttons();

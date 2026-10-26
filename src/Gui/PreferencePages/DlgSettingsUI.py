@@ -70,7 +70,7 @@ ParamGroup = (
         'ResizableColumn',
         'CheckBoxesSelection',
         'HideColumn',
-        'HideScrollBar',
+        'HideScrollBarInOverlay',
         'HideHeaderView',
         'TreeToolTipIcon',
     )]),

@@ -29,6 +29,27 @@
 namespace Part
 {
 
+/** The OCCT fork's flat end at a vertex (ChFi3d_Builder::SetFlatEndAtVertex)
+ * on the calling thread for as long as this lives, and as it was after: a
+ * fillet whose end at a vertex would cut into the body past the vertex -- the
+ * far side of a pocket's acute tip -- ends there in a flat face instead. Looked
+ * up at run time; nothing where the OCCT libraries lack it.
+ */
+class PartExport FilletFlatEnd
+{
+public:
+    explicit FilletFlatEnd(bool enable);
+    ~FilletFlatEnd();
+    FilletFlatEnd(const FilletFlatEnd &) = delete;
+    FilletFlatEnd &operator=(const FilletFlatEnd &) = delete;
+
+    /// Whether the OCCT libraries have it
+    static bool isAvailable();
+
+private:
+    int previous = -1;
+};
+
 class Fillet : public Part::FilletBase
 {
     PROPERTY_HEADER_WITH_OVERRIDE(Part::Fillet);
@@ -36,10 +57,15 @@ class Fillet : public Part::FilletBase
 public:
     Fillet();
 
+    /// 1 from the first: a fillet's end that would cut into the body past
+    /// its vertex is flat (FilletFlatEnd); 0, a file's from before
+    App::PropertyInteger _Version;
+
     /** @name methods override feature */
     //@{
     /// recalculate the feature
     App::DocumentObjectExecReturn *execute() override;
+    void setupObject() override;
     /// returns the type name of the view provider
     const char* getViewProviderName() const override {
         return "PartGui::ViewProviderFillet";

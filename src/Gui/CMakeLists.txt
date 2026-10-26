@@ -1454,6 +1454,7 @@ SOURCE_GROUP("View" FILES ${View_SRCS})
 SET(Workbench_CPP_SRCS
     DockWindowManager.cpp
     OverlayManager.cpp
+    OverlayScrollBars.cpp
     OverlayWidgets.cpp
     MenuManager.cpp
     PythonWorkbenchPyImp.cpp
@@ -1470,6 +1471,7 @@ SET(Workbench_SRCS
     ${Workbench_CPP_SRCS}
     DockWindowManager.h
     OverlayManager.h
+    OverlayScrollBars.h
     OverlayWidgets.h
     MenuManager.h
     ToolBarManager.h

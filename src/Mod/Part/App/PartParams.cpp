@@ -22,15 +22,9 @@
 
 #include "PreCompiled.h"
 
-namespace Part {
-// AppPartPy.cpp: the OCCT fork's extension version, -1 without the fork.
-// ImmutableShapeValues defaults to it.
-PartExport int initOCCTExtension();
-// AppPartPy.cpp: hands FilletPlateG0FallbackRatio to the OCCT fork's fillet.
-PartExport bool setOCCTPlateG0FallbackRatio(double ratio);
-// AppPartPy.cpp: hands FilletCornerSetbackFallback to the OCCT fork's fillet.
-PartExport bool setOCCTCornerSetbackFallback(double multiple);
-}
+// OCCTFork.h: the OCCT fork's extension version (ImmutableShapeValues
+// defaults to it) and the fillet settings handed to the fork
+#include "OCCTFork.h"
 
 /*[[[cog
 import PartParams

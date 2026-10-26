@@ -12,6 +12,10 @@
 Keys go to whatever has the focus, as a keyboard's would; the sketcher
 acts on the release, so both are sent. Before the fixes the first and
 the last checks failed; the Escape pair passed.
+
+An Escape ends an edit only with View/EscapeEndsEdit on (docs/
+HandsOnQueue.md entry 203), so this test turns it on: what it checks is
+where the keys go, and that is the same either way.
 """
 import os
 import traceback
@@ -108,6 +112,7 @@ def run():
         mw = FreeCADGui.getMainWindow()
         mw.activateWindow()
         settle(0.5)
+        FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").SetBool("EscapeEndsEdit", True)
 
         # Entered from the tree, the way a double click there does.
         tree = None
@@ -160,6 +165,7 @@ def finish():
     if state["done"]:
         return
     state["done"] = True
+    FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View").RemBool("EscapeEndsEdit")
     if FreeCAD.listDocuments().get(DOC) and in_edit():
         FreeCADGui.getDocument(DOC).resetEdit()
     for name in list(FreeCAD.listDocuments().keys()):

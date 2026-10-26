@@ -200,9 +200,10 @@ git clone -b LinkVibe     git@github.com:realthunder/FreeCAD.git fcad
 git clone -b LinkVibe-801 git@github.com:realthunder/OCCT.git    occt
 git clone -b LinkVibe     git@github.com:realthunder/coin.git    coin
 cd fcad
-# Every submodule except cycles (the path tracer is BUILD_CYCLES=OFF and
-# large). bgfx has three nested ones of its own; vg-renderer is easy to
-# miss and configure fails without it.
+# Every submodule except cycles (large; BUILD_CYCLES defaults ON since
+# 2026-10-19, and without the submodule the configure warns and builds
+# without it). bgfx has three nested ones of its own; vg-renderer is easy
+# to miss and configure fails without it.
 git submodule update --init --recursive \
     $(git submodule status | awk '{print $2}' | grep -v cycles)
 scripts/install-hooks.sh          # the ASCII post-commit hook, once per clone

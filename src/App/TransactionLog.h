@@ -234,7 +234,8 @@ public:
     /// The copy the last save of this document carried (embed(),
     /// embedFolder()).
     const Embedded& lastEmbed() const { return _lastEmbed; }
-    Embedded embed(const std::string& saveDate);
+    /// `trigger`: who asked for the save (SaveTrigger.h), recorded with it
+    Embedded embed(const std::string& saveDate, const std::string& trigger = std::string());
     /** The copy a save to a folder carries (docs/TransactionLog.md sec 38.9),
      * written to `target`, a file in the save's stage: the folder's own copy
      * `previous` brought up to date by what changed here since its save,
@@ -242,14 +243,16 @@ public:
      * embed() copies it. `folder` is the folder, the canonical path.
      */
     Embedded embedFolder(const std::string& saveDate, const std::string& folder,
-                         const std::string& target, const std::string& previous);
+                         const std::string& target, const std::string& previous,
+                         const std::string& trigger = std::string());
     /** The folder's copy for a save to the log only (sec 27.28, 38.13): as
      * embedFolder() makes it, carrying the file's own save id and date, as
      * embedForFile() does, so the guard on open still matches.
      */
     Embedded embedFolderForFile(const std::string& saveDate, const std::string& saveId,
                                 const std::string& folder, const std::string& target,
-                                const std::string& previous);
+                                const std::string& previous,
+                                const std::string& trigger = std::string());
     /// The save embedFolder() wrote for is in the folder: the next save
     /// of it plays what changed since (sec 38.9).
     void folderSaved(const std::string& folder, const std::string& saveId);
@@ -261,20 +264,23 @@ public:
      * save id and date -- the guard on open then still matches -- and
      * leaves the branch the file reopens on as the store has it.
      */
-    Embedded embedForFile(const std::string& saveDate, const std::string& saveId);
+    Embedded embedForFile(const std::string& saveDate, const std::string& saveId,
+                          const std::string& trigger = std::string());
     /** A save that writes the file without its history (sec 30.19 G2): an
      * id is made for it and recorded as an embedding save's is (G1), at the
      * row the document is at. Returns what the file's `Version` is to say:
      * the last version's number and the id.
      */
-    std::string noteSave();
+    std::string noteSave(const std::string& trigger = std::string());
     /** The save `saveId` names, as this store recorded it (sec 30.19 G1):
-     * the version number it became and the row its state is at. False when
-     * the store holds no such save -- the file is not of this history, or
-     * was saved before saves were recorded.
+     * the version number it became and the row its state is at, and in
+     * `trigger`, when asked, who asked for it (docs/HandsOnQueue.md entry
+     * 167) -- "unknown" for a save recorded before triggers were. False
+     * when the store holds no such save -- the file is not of this
+     * history, or was saved before saves were recorded.
      */
     static bool savedAt(TransactionStore& store, const std::string& saveId, int64_t& version,
-                        int64_t& seq);
+                        int64_t& seq, std::string* trigger = nullptr);
 
     /** Continue from an embedded copy (sec 16.4): the live store is
      * replaced by `path`'s content, the counters follow the copy's, and
@@ -774,19 +780,23 @@ public:
     /// `branch`: the saving document's, the one the file reopens on
     /// (sec 27.16); 0 leaves the store's.
     TransactionLog::Embedded embed(const std::string& saveDate, int64_t branch = 0,
-                                   const std::string& saveId = std::string());
+                                   const std::string& saveId = std::string(),
+                                   const std::string& trigger = std::string());
     /// What every copy starts with: the file-scope state into the store,
-    /// the save recorded under its id (made when `saveId` is empty).
-    TransactionLog::Embedded beginEmbed(int64_t branch, const std::string& saveId);
+    /// the save recorded under its id (made when `saveId` is empty), with
+    /// who asked for it (`trigger`, entry 167).
+    TransactionLog::Embedded beginEmbed(int64_t branch, const std::string& saveId,
+                                        const std::string& trigger);
     /// What every copy ends with: retention, the blobs it holds as files,
     /// its sessions closed, the guard's meta.
     void finishEmbed(TransactionStore& copy, TransactionLog::Embedded& out,
-                     const std::string& saveDate, int64_t branch);
+                     const std::string& saveDate, int64_t branch, const std::string& trigger);
     /// TransactionLog::embedFolder().
     TransactionLog::Embedded embedFolder(const std::string& saveDate, int64_t branch,
                                          const std::string& folder, const std::string& target,
                                          const std::string& previous,
-                                         const std::string& saveId = std::string());
+                                         const std::string& saveId = std::string(),
+                                         const std::string& trigger = std::string());
     /** What a folder's own copy of the store lacks is recorded (sec 38.9):
      * `folder` the folder, `saveId` the save its copy is of -- the store
      * as it is now, less retention -- and `pending` the save being written

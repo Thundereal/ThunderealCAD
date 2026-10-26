@@ -70,6 +70,41 @@ class DrawViewSectionTest(unittest.TestCase):
         self.assertEqual(len(edges), 4, "DrawViewSection has wrong number of edges")
         self.assertTrue("Up-to-date" in section.State)
 
+    def testASectionWithNoBaseViewSaysWhy(self):
+        """A section with no base view says so: it said "BaseView object not
+        found" (docs/TechDrawErrors.md 3.2)"""
+        section = FreeCAD.ActiveDocument.addObject("TechDraw::DrawViewSection", "Section")
+        self.page.addView(section)
+        section.Source = [self.box]
+        FreeCAD.ActiveDocument.recompute()
+        self.assertTrue("Invalid" in section.State, section.State)
+        self.assertIn("no base view", section.getStatusString())
+
+    def testASectionThatCutsNothingSaysWhy(self):
+        """A section plane just before the part: the cutting tool, a prism
+        along the normal as deep as the shape is big, takes all of it and
+        leaves nothing to draw. In error, and says why; it used to be a
+        console line from the cut's worker and an empty view
+        (docs/TechDrawErrors.md 3.2)"""
+        section = FreeCAD.ActiveDocument.addObject("TechDraw::DrawViewSection", "Section")
+        self.page.addView(section)
+        section.Source = [self.box]
+        section.BaseView = self.view
+        section.Direction = (0.0, 1.0, 0.0)
+        section.SectionNormal = (0.0, 1.0, 0.0)
+        section.SectionOrigin = (5.0, -2.0, 5.0)
+        FreeCAD.ActiveDocument.recompute()
+
+        loop = QtCore.QEventLoop()
+        timer = QtCore.QTimer()
+        timer.setSingleShot(True)
+        timer.timeout.connect(loop.quit)
+        timer.start(2000)
+        loop.exec_()
+
+        self.assertTrue("Invalid" in section.State, section.State)
+        self.assertIn("does not meet the shape", section.getStatusString())
+
 
 if __name__ == "__main__":
     unittest.main()

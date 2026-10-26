@@ -87,15 +87,25 @@ private Q_SLOTS:
 protected:
     void changeEvent(QEvent *e) override;
     void refresh() override;
+    /// An edge's row from the feature: its group, mode and points
+    void refreshEdgeRow(QTreeWidgetItem *item);
     void onNewItem(QTreeWidgetItem *item) override;
     bool isBaseItem(QTreeWidgetItem *item) const override;
     void syncOtherItems() override;
     void populateOtherItems() override;
+    /// An edge's radii are in the rows under it: the first one's, the
+    /// default radius for an edge without any
+    QVariant sortValue(QTreeWidgetItem *item, int column) const override;
     void onRefDeleted() override;
     void finishedRecomputeFeature() override;
     void heldStepRolledBack() override;
     /// The dragged value's edges among the fillet's failed ones
     bool isDragFailing() const override;
+    int itemGroup(QTreeWidgetItem* item) const override;
+    std::vector<int> groupIds() const override;
+    Gui::Gizmo* itemHandle(QTreeWidgetItem* item) const override;
+    std::string handleEdge(Gui::Gizmo* gizmo) const override;
+    void groupColorsChanged() override;
 
     void removeSegments();
     void clearSegments();
@@ -184,12 +194,19 @@ private:
     void clearEdgeHandles();
     /// Put each arrow at its placement, its label beside it
     void placeEdgeHandles();
+    /** A red cross for each failed edge where its arrow's root would be,
+     * and for each missing one on the face last made for it (entry 180):
+     * fixed size, on top, not picked -- the face under it is
+     */
+    void updateFailureMarks();
     /// From the gizmos' frame to the world's
     Base::Matrix4D gizmoToWorld() const;
     EdgeHandle* findEdgeHandle(const Gui::Gizmo* gizmo);
     void fillEdgeMenu(QMenu& menu, Gui::Gizmo* gizmo);
     /// 0 default radius, 1 one radius, 2 two radii, VaryingMode otherwise
     static int edgeMode(const Part::PropertyFilletSegments::Segments& segments);
+    /// A row's tool tip: what its mode is, and its group (entry 202)
+    static QString edgeModeTip(int mode, int group);
     void setEdgeMode(const std::string& edge, int mode, double radius);
     void setEdgePointRadius(const std::string& edge, int point, double radius);
     /// The knob of a point inside its edge: from the start along the chord

@@ -1719,6 +1719,11 @@ public:
      */
     int recompute(const std::vector<App::DocumentObject*> &objs={},
             bool force=false,bool *hasError=nullptr, int options=0);
+    /** Recompute an object and what it depends on if any of that still
+     * waits for the migration recompute of its restore (ObjectStatus::
+     * MigrationPending); nothing otherwise. Returns the number recomputed.
+     */
+    static int recomputeMigration(App::DocumentObject *obj);
     /// Recompute only one feature
     bool recomputeFeature(DocumentObject* Feat,bool recursive=false);
     /// get the text of the error of a specified object

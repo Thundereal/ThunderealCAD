@@ -38,6 +38,7 @@
 #include <Gui/CommandT.h>
 #include <Gui/Inventor/Draggers/Gizmo.h>
 #include <Gui/MainWindow.h>
+#include <Gui/OnViewValue.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/PrefWidgets.h>
 #include <Gui/WaitCursor.h>
@@ -210,7 +211,10 @@ void TaskFeatureParameters::addBlinkWidget(QWidget *widget, const QString &txt)
         text = w->text();
     else
         return;
+    bool added = !blinkWidgets.count(widget);
     auto &info = blinkWidgets[widget];
+    if (added)
+        info.minWidth = widget->minimumWidth();
     info.widget = widget;
     info.text = text;
     info.altText = txt;
@@ -236,6 +240,12 @@ void TaskFeatureParameters::removeBlinkWidget(QWidget *widget)
     auto it = blinkWidgets.find(widget);
     if (it != blinkWidgets.end()) {
         it->second.setText(it->second.text);
+        // the width held while it blinked let go: its own, or the one
+        // fitTaskWidgets() gave it meanwhile
+        if (auto w = it->second.widget.data()) {
+            QVariant fitted = w->property("fitMinWidth");
+            w->setMinimumWidth(fitted.isValid() ? fitted.toInt() : it->second.minWidth);
+        }
         blinkWidgets.erase(it);
     }
 }
@@ -270,6 +280,12 @@ void TaskFeatureParameters::recomputeFeature(bool delay)
             finishedRecomputeFeature();
         }
         updateFailCursor();
+        // A handle's drag that failed goes back to its last working value,
+        // inside the drag's step (the user, 2026-10-19). Failed for what
+        // the drag changes: a dress-up with a missing edge stays in error
+        // while every drag of a working edge works (the user, 2026-10-20)
+        if (App::DocumentObject* obj = vp ? vp->getObject() : nullptr)
+            Gui::OnViewValueSet::featureRecomputed(obj->getDocument(), isDragFailing());
     }
 }
 
@@ -406,7 +422,7 @@ void TaskFeatureParameters::onUpdateViewTimer()
     recomputeFeature(false);
 }
 
-void TaskFeatureParameters::setupTransaction()
+void TaskFeatureParameters::setupTransaction(const QString& what)
 {
     if (!vp || !vp->getObject())
         return;
@@ -423,9 +439,16 @@ void TaskFeatureParameters::setupTransaction()
 
     if (fineUndo) {
         // A step of its own for what this event changes (entry 136), unless
-        // one is open already -- this event's, or a held one's
+        // one is open already -- this event's, or a held one's. Named for
+        // what it does, where the caller says (entry 228).
         if (!tid || tid != stepTid) {
-            stepTid = App::GetApplication().setActiveTransaction(n.c_str());
+            std::string step = n;
+            if (!what.isEmpty()) {
+                step = obj->Label.getValue();
+                step += ": ";
+                step += what.toUtf8().constData();
+            }
+            stepTid = App::GetApplication().setActiveTransaction(step.c_str());
             if (!transactionID)
                 transactionID = stepTid;
             if (!firstStepTid)
@@ -478,7 +501,8 @@ void TaskFeatureParameters::beginHeldStep()
 {
     if (!fineUndo)
         return;
-    ++heldSteps;
+    if (heldSteps++ == 0)
+        heldStepBegun();
 }
 
 void TaskFeatureParameters::endHeldStep(bool abort)
@@ -567,8 +591,10 @@ void TaskFeatureParameters::beginAcceptStep()
     App::GetApplication().getActiveTransaction(&tid);
     if (tid && tid == stepTid)
         App::GetApplication().closeActiveTransaction(false, tid);
-    std::string n("Edit ");
-    n += vp->getObject()->getNameInDocument();
+    // what it is, as each step says (entry 228)
+    std::string n = vp->getObject()->Label.getValue();
+    n += ": ";
+    n += tr("OK, recompute").toUtf8().constData();
     stepTid = App::GetApplication().setActiveTransaction(n.c_str());
     if (!transactionID)
         transactionID = stepTid;

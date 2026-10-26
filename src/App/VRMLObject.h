@@ -59,6 +59,29 @@ public:
     PropertyStringList Resources;
     //NOLINTEND
 
+    /** @name Resources in the transient directory (docs/HandsOnQueue.md
+     * entries 206, 212)
+     *
+     * A restore writes each resource under the transient directory, which
+     * a close deletes, and a ransomware guard watches the delete of an image
+     * file: a texture is written as `<resource>.blob`. A scene file a VRML
+     * Inline names (.wrl, .iv, ...) keeps its name, since Coin opens it by
+     * that; none of those is a guarded type.
+     */
+    //@{
+    /// The directory the VRML file was included from, empty if unknown.
+    const std::string& getVrmlPath() const
+    {
+        return vrmlPath;
+    }
+    /// True if \a resource keeps its own name in the transient directory.
+    static bool keepsItsName(const std::string& resource);
+    /// The archive entry of \a resource, `<Obj>.<Obj>/<path>`: the object
+    /// named by the resource's own first segment, as Save always wrote it
+    /// (this object's name for one with no segment).
+    std::string archiveName(const std::string& resource) const;
+    //@}
+
 protected:
     void onChanged(const App::Property*) override;
     std::string getRelativePath(const std::string&, const std::string&) const;
@@ -68,6 +91,9 @@ protected:
 private:
     mutable std::string vrmlPath;
     mutable int index{0};
+    /// Set while a restore fills Urls: Resources are the saved ones then,
+    /// not to be derived again from the transient paths.
+    bool restoringUrls{false};
 };
 
 } //namespace App

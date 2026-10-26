@@ -31,11 +31,13 @@
 #include <string>
 #include <vector>
 
+#include <array>
 #include <map>
 #include <memory>
 
 #include <QtCore/qnamespace.h>
 #include <QtCore/QPoint>
+#include <QtCore/QString>
 
 #include <Inventor/SbBox3f.h>
 #include <Inventor/SbRotation.h>
@@ -600,6 +602,28 @@ public:
     virtual bool cameraIsRemote() const
     {
         return false;
+    }
+    /** What a client's own interface covers of this view -- a browser's
+     * tool bars -- as rectangles {x, y, width, height} in logical pixels
+     * from the top left. None for a desktop view: its overlays are its
+     * widget's (OverlayManager::covered).
+     */
+    virtual std::vector<std::array<int, 4>> coveredRects() const
+    {
+        return {};
+    }
+    /** The hint a view with no widget shows at its client's pointer: a
+     * handle's tool tip (Gizmo, docs/OnViewValueEditing.md 9.2 #6), empty for
+     * none. A desktop view answers Qt's own tool tip request instead and
+     * keeps nothing here.
+     */
+    virtual void setHint(const QString& text)
+    {
+        (void)text;
+    }
+    virtual QString hint() const
+    {
+        return {};
     }
     /** The world-space size of what the viewport shows.
      *

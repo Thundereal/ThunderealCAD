@@ -123,19 +123,21 @@ Requires to re-enter edit mode to take effect.</string>
       <item>
        <widget class="Gui::PrefCheckBox" name="checkBoxEnableEscape">
         <property name="toolTip">
-         <string>Allows to leave the sketch edit mode by pressing the Esc key</string>
+         <string>Allows to leave an edit mode, the sketch's among them, by pressing the Esc key.
+Off, Esc only cancels what goes on inside the edit; End edit (Shift+Esc) ends it.
+This is the 3D view's setting, shared by every edit.</string>
         </property>
         <property name="text">
-         <string>Esc key can leave sketch edit mode</string>
+         <string>Esc key can leave edit mode</string>
         </property>
         <property name="checked">
-         <bool>true</bool>
+         <bool>false</bool>
         </property>
         <property name="prefEntry" stdset="0">
-         <cstring>LeaveSketchWithEscape</cstring>
+         <cstring>EscapeEndsEdit</cstring>
         </property>
         <property name="prefPath" stdset="0">
-         <cstring>Mod/Sketcher</cstring>
+         <cstring>View</cstring>
         </property>
        </widget>
       </item>

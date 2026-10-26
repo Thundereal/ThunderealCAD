@@ -22,6 +22,8 @@
 
 #include "PreCompiled.h"
 
+#include <App/FileBlobManager.h>
+
 #include "TechDrawParams.h"
 
 #ifndef _PreComp_
@@ -29,6 +31,8 @@
 # include <iomanip>
 # include <sstream>
 #endif
+
+#include <QCoreApplication>
 
 #include <App/Application.h>
 #include <App/Document.h>
@@ -116,6 +120,14 @@ App::DocumentObjectExecReturn *DrawHatch::execute(void)
     DrawViewPart* parent = getSourceView();
     if (parent) {
         parent->requestPaint();
+    }
+    // a pattern that cannot be read hatches nothing (docs/TechDrawErrors.md 3.2)
+    if (!SvgIncluded.isEmpty() && !Base::FileInfo(SvgIncluded.getValue()).isReadable()) {
+        return new App::DocumentObjectExecReturn(
+            QCoreApplication::translate("TechDraw", "The pattern file %1 cannot be read")
+                .arg(QString::fromUtf8(HatchPattern.getValue()))
+                .toStdString(),
+            this);
     }
     return App::DocumentObject::StdReturn;
 }
@@ -230,15 +242,18 @@ void DrawHatch::unsetupObject(void)
     App::DocumentObject::unsetupObject();
 }
 
+// The pattern file is a blob of the document's store, named
+// `<uuid>.<ext>.blob` there (docs/HandsOnQueue.md entry 206): its type is
+// the extension before the neutral suffix, not the path's last one
 bool DrawHatch::isSvgHatch(void) const
 {
-    Base::FileInfo fi(HatchPattern.getValue());
+    Base::FileInfo fi("hatch." + App::FileBlobManager::storedExtension(HatchPattern.getValue()));
     return fi.hasExtension("svg");
 }
 
 bool DrawHatch::isBitmapHatch(void) const
 {
-    Base::FileInfo fi(HatchPattern.getValue());
+    Base::FileInfo fi("hatch." + App::FileBlobManager::storedExtension(HatchPattern.getValue()));
     return fi.hasExtension({"bmp", "png", "jpg", "jpeg"});
 }
 

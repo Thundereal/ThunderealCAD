@@ -28,8 +28,14 @@
 #include <Base/Stream.h>
 
 #include "Actor.h"
+#include <optional>
+#include <sstream>
+
 #include "Document.h"
 #include "DocumentObject.h"
+#include "PropertyStandard.h"
+#include "SaveTrigger.h"
+#include "TransactionLog.h"
 #include "DocumentObjectPy.h"
 #include "DocumentParams.h"
 #include "MergeDocuments.h"
@@ -140,8 +146,41 @@ PyObject* DocumentPy::settings(PyObject* args)
     return Py::new_reference_to(Py::asObject(settings));
 }
 
+// A save asked for from Python names its caller, unless something outside
+// Python already named itself -- a command's doCommand runs this very binding
+// (docs/HandsOnQueue.md entry 167)
+namespace {
+struct PythonSaveTrigger
+{
+    std::optional<App::SaveTrigger> scope;
+    PythonSaveTrigger()
+    {
+        if (!App::SaveTrigger::active())
+            scope.emplace(App::SaveTrigger::pythonCaller());
+    }
+};
+}
+
+std::string App::SaveTrigger::pythonCaller()
+{
+    std::string out = "python";
+    PyFrameObject* frame = PyEval_GetFrame();
+    if (!frame)
+        return out;
+    PyCodeObject* code = PyFrame_GetCode(frame);
+    if (code) {
+        const char* file = PyUnicode_AsUTF8(code->co_filename);
+        out += ':';
+        out += file ? file : "?";
+        out += ':' + std::to_string(PyFrame_GetLineNumber(frame));
+        Py_DECREF(code);
+    }
+    return out;
+}
+
 PyObject*  DocumentPy::save(PyObject * args)
 {
+    PythonSaveTrigger trigger;
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
 
@@ -168,6 +207,7 @@ PyObject*  DocumentPy::save(PyObject * args)
 
 PyObject*  DocumentPy::saveAs(PyObject * args)
 {
+    PythonSaveTrigger trigger;
     char* fn;
     if (!PyArg_ParseTuple(args, "et", "utf-8", &fn))
         return nullptr;
@@ -183,6 +223,7 @@ PyObject*  DocumentPy::saveAs(PyObject * args)
 
 PyObject*  DocumentPy::saveCopy(PyObject * args)
 {
+    PythonSaveTrigger trigger;
     char* fn;
     PyObject* withHistory = Py_True;
     if (!PyArg_ParseTuple(args, "s|O!", &fn, &PyBool_Type, &withHistory))
@@ -1232,8 +1273,45 @@ PyObject* DocumentPy::openTransactionState(PyObject *args)
     } PY_CATCH;
 }
 
+PyObject* DocumentPy::getTransactionSave(PyObject *args)
+{
+    const char* id = "";
+    if (!PyArg_ParseTuple(args, "|s", &id))
+        return nullptr;
+    PY_TRY {
+        auto log = getDocumentPtr()->getTransactionLog();
+        if (!log)
+            Py_Return;
+        std::string saveId = id;
+        if (saveId.empty()) {
+            // The document's last save: `Version` is "<number> <save id>"
+            auto version = Base::freecad_dynamic_cast<PropertyString>(
+                getDocumentPtr()->getPropertyByName("Version"));
+            if (version) {
+                std::istringstream in(version->getValue());
+                std::string num;
+                in >> num >> saveId;
+            }
+        }
+        int64_t version = 0;
+        int64_t seq = 0;
+        std::string trigger;
+        if (saveId.empty()
+                || !TransactionLog::savedAt(log->store(), saveId, version, seq, &trigger))
+            Py_Return;
+        Py::Dict d;
+        d.setItem("id", Py::String(saveId));
+        d.setItem("version", Py::Long(static_cast<long long>(version)));
+        d.setItem("seq", Py::Long(static_cast<long long>(seq)));
+        d.setItem("trigger", Py::String(trigger));
+        return Py::new_reference_to(d);
+    }
+    PY_CATCH
+}
+
 PyObject* DocumentPy::saveVersionAsFile(PyObject *args)
 {
+    PythonSaveTrigger trigger;
     if (!PyArg_ParseTuple(args, ""))
         return nullptr;
     PY_TRY {

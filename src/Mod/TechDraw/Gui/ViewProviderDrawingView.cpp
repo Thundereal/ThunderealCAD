@@ -365,7 +365,31 @@ MDIViewPage* ViewProviderDrawingView::getMDIViewPage() const
 
 Gui::MDIView *ViewProviderDrawingView::getMDIView() const
 {
+    // On several pages: the page view in front, if it is one of them
+    auto dv = getViewObject();
+    Gui::Document* guiDoc = dv ? Gui::Application::Instance->getDocument(dv->getDocument()) : nullptr;
+    if (guiDoc) {
+        const auto pages = dv->findAllParentPages();
+        if (pages.size() > 1) {
+            Gui::MDIView* active = Gui::getMainWindow()->activeWindow();
+            for (auto page : pages) {
+                auto vpp = dynamic_cast<ViewProviderPage*>(guiDoc->getViewProvider(page));
+                if (vpp && active && vpp->getMDIView() == active) {
+                    return active;
+                }
+            }
+        }
+    }
     return getMDIViewPage();
+}
+
+Gui::MDIView *ViewProviderDrawingView::getOrCreateMDIView()
+{
+    if (auto view = getMDIView()) {
+        return view;
+    }
+    ViewProviderPage* vpp = getViewProviderPage();
+    return vpp ? vpp->getOrCreateMDIView() : nullptr;
 }
 
 void ViewProviderDrawingView::onGuiRepaint(const TechDraw::DrawView* dv)
@@ -527,4 +551,19 @@ const char*  ViewProviderDrawingView::whoAmI() const
 TechDraw::DrawView* ViewProviderDrawingView::getViewObject() const
 {
     return dynamic_cast<TechDraw::DrawView*>(pcObject);
+}
+
+QString ViewProviderDrawingView::getToolTip(const QByteArray& iconTag) const
+{
+    QString tip = Gui::ViewProviderDocumentObject::getToolTip(iconTag);
+    auto view = getViewObject();
+    if (!view || view->getLateWarnings().empty()) {
+        return tip;
+    }
+    // a result usable but partial: the object is valid, and says what it
+    // lacks (the reporter 2026-10-19 13:12, "agree all", TechDrawErrors 3 b)
+    QString warning = QCoreApplication::translate("TechDrawGui::ViewProviderDrawingView",
+                                                  "Warning: %1")
+                          .arg(QString::fromUtf8(view->getLateWarnings().c_str()));
+    return tip.isEmpty() ? warning : warning + QStringLiteral("\n\n") + tip;
 }

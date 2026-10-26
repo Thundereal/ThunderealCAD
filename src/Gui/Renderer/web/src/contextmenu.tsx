@@ -32,6 +32,21 @@ interface Entry {
   pick?: { obj: string; sub: string; edit?: boolean };
   separator?: boolean;
   items?: Entry[];
+  /// A settings row of a handle's menu (docs/OnViewValueEditing.md sec 9.2
+  /// #5): set here, the menu stays open as a desktop menu does for a widget
+  widget?: {
+    type: 'check' | 'choice' | 'number';
+    options?: string[];
+    current?: number;
+    value?: number;
+    min?: number;
+    max?: number;
+    step?: number;
+    decimals?: number;
+  };
+  /// One option of a choice row, drawn as a submenu of its own
+  choiceOf?: Entry;
+  choiceIndex?: number;
 }
 
 interface Menu {
@@ -144,19 +159,54 @@ export function SceneContextMenu(props: { viewOnly: () => boolean }) {
       })
       .catch(() => {});
   };
+  // The edit's menu button (onviewbutton.tsx): the edit's menu, no ray
+  const onViewMenu = (e: Event) => {
+    const d = (e as CustomEvent).detail as { x: number; y: number } | null;
+    if (!d) return;
+    close();
+    const ask = ++asked;
+    sendOp('contextMenu', { onViewButton: true })
+      .then((r) => {
+        if (ask !== asked) return;
+        const items = (r.items as Entry[]) ?? [];
+        if (!items.length) return;
+        window.fcviewerHoldHover?.(true);
+        setMenu({ token: r.menu as number, x: d.x, y: d.y, path: [items], titles: [] });
+      })
+      .catch(() => {});
+  };
   const onDown = (e: PointerEvent) => {
     if (menu() && !(root && root.contains(e.target as Node))) close();
   };
+  // An Escape that closes the menu is the menu's: neither its press nor its
+  // release goes on to the viewer, whose edit mode would take it as its
+  // own Escape and end the edit (entry 201). Caught on the window in the
+  // capture phase, ahead of the viewer's listeners on the document.
+  let escapeEaten = false;
   const onKey = (e: KeyboardEvent) => {
-    if (e.key === 'Escape' && menu()) close();
+    if (e.key !== 'Escape' || !menu()) return;
+    close();
+    escapeEaten = true;
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  };
+  const onKeyUp = (e: KeyboardEvent) => {
+    if (e.key !== 'Escape' || !escapeEaten) return;
+    escapeEaten = false;
+    e.preventDefault();
+    e.stopImmediatePropagation();
   };
   window.addEventListener('fc:contextmenu', onOpen);
+  window.addEventListener('fc:onviewmenu', onViewMenu);
   document.addEventListener('pointerdown', onDown, true);
-  window.addEventListener('keydown', onKey);
+  window.addEventListener('keydown', onKey, true);
+  window.addEventListener('keyup', onKeyUp, true);
   onCleanup(() => {
     window.removeEventListener('fc:contextmenu', onOpen);
+    window.removeEventListener('fc:onviewmenu', onViewMenu);
     document.removeEventListener('pointerdown', onDown, true);
-    window.removeEventListener('keydown', onKey);
+    window.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('keyup', onKeyUp, true);
   });
 
   const level = () => {
@@ -164,11 +214,58 @@ export function SceneContextMenu(props: { viewOnly: () => boolean }) {
     return m ? m.path[m.path.length - 1] : [];
   };
   const usable = (it: Entry) => it.enabled !== false && (it.allowed !== false || !!it.local);
+  // A widget's value changed here: the rows that show it drawn again
+  const [tick, setTick] = createSignal(0);
+
+  /// Set a settings row's control on the host; the menu stays open
+  const setWidget = (it: Entry, value: boolean | number): Promise<boolean> => {
+    const m = menu();
+    if (!m || busy()) return Promise.resolve(false);
+    setBusy(true);
+    setError(null);
+    return sendOp('contextMenu.trigger', { menu: m.token, item: it.id, value })
+      .then(() => true)
+      .catch((err) => {
+        setError(err?.message || err?.code || 'Failed');
+        return false;
+      })
+      .finally(() => setBusy(false));
+  };
 
   const choose = (it: Entry, ev?: MouseEvent) => {
     const m = menu();
     if (!m || busy()) return;
     setError(null);
+    if (it.choiceOf) {
+      const row = it.choiceOf;
+      const index = it.choiceIndex ?? 0;
+      setWidget(row, index).then((ok) => {
+        if (!ok || !row.widget) return;
+        row.widget.current = index;
+        setTick(tick() + 1);
+        back();
+      });
+      return;
+    }
+    if (it.widget && usable(it)) {
+      if (it.widget.type === 'check') {
+        const on = !it.checked;
+        setWidget(it, on).then((ok) => {
+          if (!ok) return;
+          it.checked = on;
+          setTick(tick() + 1);
+        });
+      } else if (it.widget.type === 'choice') {
+        unhover();
+        const options = (it.widget.options ?? []).map((text, i) => ({
+          text, checkable: true, checked: i === it.widget!.current,
+          choiceOf: it, choiceIndex: i,
+        }));
+        setMenu({ ...m, path: [...m.path, options], titles: [...m.titles, it.text ?? ''] });
+      }
+      // a number row is set by its own box
+      return;
+    }
     if (it.items) {
       unhover();
       setMenu({ ...m, path: [...m.path, it.items], titles: [...m.titles, it.text ?? ''] });
@@ -247,11 +344,44 @@ export function SceneContextMenu(props: { viewOnly: () => boolean }) {
                   onPointerEnter={(ev) => { if (ev.pointerType !== 'touch') hover(it); }}
                   onPointerLeave={(ev) => { if (ev.pointerType !== 'touch') unhover(); }}
                 >
-                  <span class="fc-menu-tick">{it.checkable && it.checked ? '\u2713' : ''}</span>
+                  <span class="fc-menu-tick">
+                    {(tick(), it.checkable && it.checked ? '\u2713' : '')}
+                  </span>
                   <Icon name={it.icon} />
                   <span class="fc-ctx-text">{it.text}</span>
-                  <Show when={it.items}>
+                  <Show when={it.items || it.widget?.type === 'choice'}>
+                    <Show when={it.widget?.type === 'choice'}>
+                      <span class="fc-ctx-shortcut">
+                        {(tick(), it.widget!.options?.[it.widget!.current ?? 0] ?? '')}
+                      </span>
+                    </Show>
                     <span class="fc-ctx-more">{'\u203a'}</span>
+                  </Show>
+                  <Show when={it.widget?.type === 'number'}>
+                    <input
+                      class="fc-ctx-number"
+                      type="number"
+                      value={it.widget!.value ?? 0}
+                      min={it.widget!.min}
+                      max={it.widget!.max}
+                      step={it.widget!.step ?? 1}
+                      disabled={!usable(it)}
+                      onClick={(ev) => ev.stopPropagation()}
+                      onPointerDown={(ev) => ev.stopPropagation()}
+                      onKeyDown={(ev) => {
+                        ev.stopPropagation();
+                        if (ev.key === 'Enter') (ev.currentTarget as HTMLInputElement).blur();
+                      }}
+                      onChange={(ev) => {
+                        const input = ev.currentTarget as HTMLInputElement;
+                        const v = Number(input.value);
+                        if (!Number.isFinite(v)) return;
+                        setWidget(it, v).then((ok) => {
+                          if (ok && it.widget) it.widget.value = v;
+                          else input.value = String(it.widget?.value ?? 0);
+                        });
+                      }}
+                    />
                   </Show>
                   <Show when={!it.items && it.shortcut && armed() !== it}>
                     <span class="fc-ctx-shortcut">{it.shortcut}</span>

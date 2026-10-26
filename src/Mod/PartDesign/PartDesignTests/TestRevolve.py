@@ -421,6 +421,73 @@ class TestRevolve(unittest.TestCase):
         self.assertNotIn('Invalid', rev.State)
         self.assertAlmostEqual(rev.Shape.Volume, math.pi * 100 * 20, places=3)
 
+    def _openRevolution(self, name, pts):
+        """A Revolution about Z of a binder of the open sketch through \a pts
+        (x, z), the sketch upright on XZ"""
+        body = self.Doc.addObject('PartDesign::Body', name + 'Body')
+        sketch = self.Doc.addObject('Sketcher::SketchObject', name + 'Sketch')
+        sketch.Placement = FreeCAD.Placement(
+            FreeCAD.Vector(), FreeCAD.Rotation(FreeCAD.Vector(1, 0, 0), 90))
+        pts = [FreeCAD.Vector(x, z, 0) for x, z in pts]
+        for a, b in zip(pts, pts[1:]):
+            sketch.addGeometry(Part.LineSegment(a, b), False)
+        self.Doc.recompute()
+        binder = body.newObject('PartDesign::SubShapeBinder', name + 'Binder')
+        binder.Support = [(sketch, '')]
+        self.Doc.recompute()
+        rev = body.newObject('PartDesign::Revolution', name)
+        rev.Profile = binder
+        rev.ReferenceAxis = ([o for o in body.Origin.OriginFeatures
+                              if o.Role == 'Z_Axis'][0], [''])
+        rev.Angle = 360
+        self.Doc.recompute()
+        return rev
+
+    def testFitOnAnOpenProfile(self):
+        # entry 198: the Fit of an open profile was offset and the result
+        # dropped, so it did nothing. A positive Fit grows what the wire
+        # closes with the line between its ends, as it grows a face
+        rev = self._openRevolution('FitOpen', [(0, 0), (10, 0), (10, 20), (0, 20)])
+        self.assertEqual(rev._FitRule, 3)
+        drawn = math.pi * 100 * 20
+        self.assertAlmostEqual(rev.Shape.Volume, drawn, places=3)
+        rev.Fit = -0.5
+        self.Doc.recompute()
+        self.assertNotIn('Invalid', rev.State)
+        # the inner corners stay square
+        self.assertAlmostEqual(rev.Shape.Volume, math.pi * 9.5 ** 2 * 19, places=2)
+        rev.Fit = 0.5
+        self.Doc.recompute()
+        self.assertNotIn('Invalid', rev.State)
+        # the outer corners rounded: less than the full 10.5 by 21 cylinder
+        self.assertGreater(rev.Shape.Volume, drawn + 1)
+        self.assertLess(rev.Shape.Volume, math.pi * 10.5 ** 2 * 21)
+        box = rev.Shape.optimalBoundingBox()
+        self.assertAlmostEqual(box.XMax, 10.5, places=4)
+        self.assertAlmostEqual(box.ZMin, -0.5, places=4)
+
+    def testFitOnAnOpenProfileOfAnOlderFeature(self):
+        # an older feature never had its open wires fitted: its file shows
+        # them as drawn, and keeps doing so
+        rev = self._openRevolution('FitOld', [(0, 0), (10, 0), (10, 20), (0, 20)])
+        rev._FitRule = 2
+        rev.Fit = 0.5
+        self.Doc.recompute()
+        self.assertNotIn('Invalid', rev.State)
+        self.assertAlmostEqual(rev.Shape.Volume, math.pi * 100 * 20, places=3)
+
+    def testFitTakingTheOpenProfileOffTheAxisIsAnError(self):
+        # ends meeting the axis slanted move off it with the offset, which
+        # would open the surface
+        rev = self._openRevolution('FitSlant', [(0, 0), (10, 5), (10, 15), (0, 20)])
+        self.assertNotIn('Invalid', rev.State)
+        rev.Fit = 0.5
+        self.Doc.recompute()
+        self.assertIn('Invalid', rev.State)
+        rev.Fit = 0
+        self.Doc.recompute()
+        self.assertNotIn('Invalid', rev.State)
+
     def testPlaneAsAxisTakesItsLocation(self):
         # A plane as the axis: its normal through its location. The base was
         # built from the location's X and the normal's Y and Z, so an axis

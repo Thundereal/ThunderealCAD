@@ -256,9 +256,9 @@ bool ViewProviderDatum::setEdit(int ModNum)
 
         // start the edit dialog
         if (datumDlg)
-            Gui::Control().showDialog(datumDlg);
+            PartDesignGui::showTaskDialog(datumDlg);
         else
-            Gui::Control().showDialog(new TaskDlgDatumParameters(this));
+            PartDesignGui::showTaskDialog(new TaskDlgDatumParameters(this));
 
         return true;
     }

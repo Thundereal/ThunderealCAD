@@ -26,7 +26,11 @@
 
 #include <fastsignals/signal.h>
 
+#include <optional>
+
 #include <QBrush>
+#include <QColor>
+#include <QVariant>
 
 #include <Base/Color.h>
 #include <Gui/TaskView/TaskView.h>
@@ -37,8 +41,17 @@
 
 class QAction;
 class QIcon;
+class QMenu;
 class QTreeWidget;
 class QTreeWidgetItem;
+
+namespace App {
+    class PropertyMap;
+}
+
+namespace Gui {
+    class Gizmo;
+}
 
 namespace Part {
     class Feature;
@@ -64,6 +77,11 @@ public:
 
     bool getItemElement(QTreeWidgetItem *item, std::string &subname);
     void lightPreviewFace(const std::string &subname);
+    /// The preview's faces the selection names, shown in the selection
+    /// colour (entry 182)
+    void syncPreviewSelection();
+    /// The preview's face kept for \a edge (as Base names it), 0 for none
+    int previewFaceOf(const std::string &edge) const;
     /** The row of the reference whose dress-up made \a element of the
      * preview ("Face2", as the preview names it): the reverse of
      * getItemElement(). Null for none, or more than one.
@@ -101,6 +119,21 @@ protected:
     virtual void syncOtherItems() {}
     /// Adds the rows that are not Base's, after the tree is built from Base
     virtual void populateOtherItems() {}
+    /** The top-level rows in the feature's order, whatever the list's sort:
+     * the order a change of the list writes back. A row added since the list
+     * was filled comes after the others.
+     */
+    std::vector<QTreeWidgetItem*> rowsInOrder() const;
+    /** What a top-level row is sorted by in \a column: its cell's number
+     * (Qt::UserRole) or text, the element's name with its number taken as
+     * one. Null for an empty cell, which sorts last either way.
+     */
+    virtual QVariant sortValue(QTreeWidgetItem *item, int column) const;
+    /** The rows in the order the list's header asks for: by the column whose
+     * title was clicked, either way, or the feature's. A sort moves the
+     * top-level rows only; the rows under one keep theirs.
+     */
+    void sortRows();
     void finishedRecomputeFeature() override; 
 
     QTreeWidgetItem *getCurrentItem() const;
@@ -109,13 +142,81 @@ protected:
     /** The colour of an edge group's handles (docs/OnViewValueEditing.md 3.3,
      * the reporter 2026-10-14 13:54: "each group show its own color. choose
      * color from a set of distinct ones (auto generated)"), a fillet's and a
-     * chamfer's alike
+     * chamfer's alike: the one the user picked (the feature's GroupColors),
+     * else an automatic one (entry 202)
      */
-    static Base::Color groupColor(int group);
+    Base::Color groupColor(int group) const;
+    /** A group's automatic colour: the ids taken in turn from 1, each the hue
+     * farthest from the hues a handle wears plain, dragged, selected and
+     * under the pointer, from the colours picked for the other groups, and
+     * from the ids' before it (entry 209) -- by the id alone, so that a group
+     * emptying moves no other group's colour (entry 226)
+     */
+    Base::Color autoGroupColor(int group) const;
+    /// The groups in use, in order (the feature's)
+    virtual std::vector<int> groupIds() const
+    {
+        return {};
+    }
+    /// The colour the user picked for \a group, if any
+    std::optional<QColor> pickedGroupColor(int group) const;
     /// A swatch of a group's colour, for its menu item and its panel row
-    static QIcon groupIcon(int group);
+    QIcon groupIcon(int group) const;
+    /// The feature's GroupColors, null for a dress-up without groups
+    App::PropertyMap* getGroupColors() const;
+    /// Pick \a group's colour (none: automatic again), in the open transaction
+    void setGroupColor(int group, const std::optional<QColor>& color);
+    /// The colour dialog for \a group's colour
+    void pickGroupColor(int group);
+    /// "Group colour..." and "Automatic group colour" in a handle's menu
+    void addGroupColorActions(QMenu& menu, int group);
+    /// The same two in \a parentList's own menu, for its current row
+    void createGroupColorActions(QTreeWidget* parentList);
+    /** The handle of the row whose preview face, edge or face the pointer is
+     * over in the view (entry 169's hover), null for none: a right click
+     * there opens its menu (OnViewValueSet::setHoverHandleProvider, entry 202)
+     */
+    Gui::Gizmo* getHoverHandle() const;
+    /// The handle that stands for a row, null for none
+    virtual Gui::Gizmo* itemHandle(QTreeWidgetItem*) const
+    {
+        return nullptr;
+    }
+    /// The edge a handle stands on (as Base names it), empty for none
+    virtual std::string handleEdge(Gui::Gizmo*) const
+    {
+        return {};
+    }
+    /** A handle made active selects its edge's row, and with it the edge --
+     * or a missing edge's preview face -- as a click on the row does
+     * (entry 213; the reporter: "just select the corresponding edge, as the
+     * right click context menu is meant to apply to that edge"). Only its
+     * own edge, a shared handle's too; a handle let go leaves the selection.
+     */
+    void onActiveHandleChanged(Gui::Gizmo* handle);
+    /// The group of a row, 0 for none
+    virtual int itemGroup(QTreeWidgetItem*) const
+    {
+        return 0;
+    }
+    /// A group's colour changed: the rows' swatches and the handles follow
+    virtual void groupColorsChanged() {}
+
+Q_SIGNALS:
+    void groupColorsUpdated();
+
+protected:
 
     void addAllEdges();
+
+    /** The row of the first face referenced: where a face feature's handle
+     * stands (DressUp::getFaces keeps the order of the references). Null for
+     * none.
+     */
+    QTreeWidgetItem *getFirstFaceItem() const;
+    /// "Remove <face>" in a handle's menu (docs/OnViewValueEditing.md 3.4):
+    /// the panel's removal of the first face's row
+    void addRemoveFirstFaceAction(QMenu &menu);
 
 protected:
     enum selectionModes { none, refToggle, plane, line };
@@ -124,6 +225,14 @@ protected:
     /// A selection of the preview, taken as one of the row its element
     /// names; false when it is not one
     bool onPreviewSelected(const Gui::SelectionChanges& msg);
+    /** With one missing reference's row selected, a pick of a base element
+     * the feature does not use yet takes its place: the row renamed where it
+     * is, its values following it (entry 188). False when that is not the
+     * case, and the pick goes on as before.
+     */
+    bool replaceMissing(const std::string &element);
+    /// The selected rows, when one missing reference's is all of them
+    QTreeWidgetItem *getSoleMissingRow() const;
     /** A preselection in the 3D view -- the base's edge, or the preview's
      * face of a missing one -- lights its row as hovered and its preview
      * face; the reverse of a hover of the row (onTimer()), entry 169
@@ -140,6 +249,15 @@ protected:
 
     bool eventFilter(QObject *o, QEvent *e) override;
 
+    /// The failed edges and the error as the held step began
+    void heldStepBegun() override;
+    /** For isDragFailing(): the edges failed now that did not when the held
+     * step began -- a missing edge failed before the drag, and fails after
+     * it, whatever the drag does. \a whole is set when the feature failed as
+     * a whole, or with the same edges with another error (an invalid result).
+     */
+    std::vector<std::string> failedSinceStepBegun(bool &whole) const;
+
 protected:
     QWidget* proxy;
 
@@ -151,6 +269,8 @@ protected:
     QAction* deleteAction = nullptr;
     QAction* addAllEdgesAction = nullptr;
     QTreeWidget *treeWidget = nullptr;
+    /// sortRows()'s hidden column of each row's place, -1 before a sort
+    int sortKeyColumn = -1;
     QCheckBox *btnAdd = nullptr;
     QLabel *messageLabel = nullptr;
 
@@ -167,6 +287,15 @@ protected:
     std::vector<QBrush> hoverBrushes;
     /// The panel itself preselects, for a hover of its list
     bool hoverFromList = false;
+    /// The missing row that was the selection when a click cleared it, for
+    /// the pick the same click makes next (replaceMissing())
+    std::string missingPick;
+    /// The edge whose handle was made active last (onActiveHandleChanged()):
+    /// its handle made anew and active again selects nothing
+    std::string activeHandleEdge;
+    /// heldStepBegun()'s
+    std::vector<std::string> failedAtStepStart;
+    std::string errorAtStepStart;
 };
 
 /// simulation dialog for the TaskView

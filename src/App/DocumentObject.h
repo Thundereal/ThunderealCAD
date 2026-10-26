@@ -81,6 +81,10 @@ enum ObjectStatus {
     // Freeze attribute. Upstream's bit is 21, which this fork already uses --
     // status bits are never saved by number, so only the name has to match.
     Freeze = 22,
+    // Restored needing the migration recompute (Document::addRecomputeObject)
+    // and not recomputed since; never saved. An edit recomputes what it
+    // needs while any of that carries it (Document::recomputeMigration).
+    MigrationPending = 23,
 };
 
 /** Return object for feature execution

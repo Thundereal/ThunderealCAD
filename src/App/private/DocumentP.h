@@ -261,6 +261,8 @@ struct DocumentP
 #endif //USE_OLD_DAG
     std::multimap<const App::DocumentObject*,
         std::unique_ptr<App::DocumentObjectExecReturn> > _RecomputeLog;
+    /// Entries ever added to _RecomputeLog: a recompute failed if it added any
+    unsigned long recomputeLogAdded = 0;
 
     StringHasherRef Hasher;
 
@@ -506,6 +508,7 @@ struct DocumentP
         }
         _RecomputeLog.emplace(returnCode->Which, std::unique_ptr<DocumentObjectExecReturn>(returnCode));
         returnCode->Which->setStatus(ObjectStatus::Error, true);
+        ++recomputeLogAdded;
     }
 
     void clearRecomputeLog(const App::DocumentObject *obj=nullptr) {
@@ -513,6 +516,25 @@ struct DocumentP
             _RecomputeLog.clear();
         else
             _RecomputeLog.erase(obj);
+    }
+
+    /** Keep the message of every object still in error; drop the rest, and
+     * any of an object no longer in the document. A recompute clears an
+     * object's own entry when it reruns it (_recomputeFeature); one it does
+     * not rerun stays in error, and its message with it -- the whole log
+     * cleared at a recompute's start left such an object with a bare
+     * "Error" (docs/HandsOnQueue.md entry 205, a TechDraw section view).
+     */
+    void pruneRecomputeLog() {
+        std::unordered_set<const App::DocumentObject*> live(objectArray.begin(),
+                                                            objectArray.end());
+        for (auto it = _RecomputeLog.begin(); it != _RecomputeLog.end();) {
+            // asked of the document first: a removed object may be gone
+            if (!live.count(it->first) || !it->first->isError())
+                it = _RecomputeLog.erase(it);
+            else
+                ++it;
+        }
     }
 
     void clearDocument() {

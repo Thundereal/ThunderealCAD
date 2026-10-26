@@ -2426,6 +2426,78 @@ public:
         return TopoShape(0,Hasher).makEDefeaturing(*this,faces,op);
     }
 
+    /* Take out the sliver faces at the given edges, for a fillet or chamfer
+     * that failed there to be tried again
+     *
+     * A sliver is a face narrower than maxWidth -- its width taken as twice
+     * its area over its perimeter -- that touches a vertex of one of the
+     * edges and holds none of them: most often a step left between two
+     * features that were meant to meet. A face is taken only where it and
+     * the faces beside it are planes, cylinders, cones, spheres or tori --
+     * with B-splines there the removal can run minutes -- and each removal
+     * and check is given seconds at most. The slivers are removed
+     * (BRepAlgoAPI_Defeaturing, their neighbours extended over them), and
+     * the removal is kept only when every sliver went, the result is
+     * clean (isMadeClean()), and its volume moved no more than the
+     * slivers' width times their area.
+     *
+     * @param source: the source shape
+     * @param edges: the edges of the source the slivers are looked for at
+     * @param maxWidth: the width a sliver is narrower than
+     * @param history: when given, the removal's history, to find a
+     *                 sub-shape of the source in the result
+     * @param removed: when given, the slivers removed, faces of the source
+     * @param op: optional string to be encoded into topo naming for
+     *            indicating the operation
+     *
+     * @return Whether slivers were removed. If so, this TopoShape is replaced
+     *         with the result; if not, it is left as it was.
+     */
+    /** Whether \a shape, made from \a source, passes BRepCheck, and its faces
+     * that are not the source's pass BOP's check against the rest of it
+     * (Part::RegionBooleanCheck): the check of a local change, where BOP's
+     * check of the whole shape can take minutes
+     */
+    static bool isMadeClean(const TopoDS_Shape &shape, const TopoDS_Shape &source);
+
+    bool makESliverFree(const TopoShape &source, const std::vector<TopoShape> &edges,
+                        double maxWidth, opencascade::handle<BRepTools_History> *history=nullptr,
+                        std::vector<TopoShape> *removed=nullptr, const char *op=nullptr);
+
+    /* Take out the features near the given edges, for a fillet or chamfer
+     * that failed there -- its line running into a pocket or a boss beside
+     * the edge -- to be tried again past them, and the features put back
+     *
+     * A feature is a set of faces joined by edges, one of them within reach
+     * of an edge, none holding one of the edges or touching one of their
+     * vertices, at most 12 of them, all within four reaches, and all, with
+     * the faces beside them, planes, cylinders, cones, spheres or tori (as
+     * makESliverFree() takes them). Each is
+     * tried by itself (BRepAlgoAPI_Defeaturing, the neighbours extended over
+     * it) and kept when the shape left is clean (isMadeClean()); the
+     * ones kept are then taken out together, and that result checked again.
+     *
+     * @param source: the source shape
+     * @param edges: the edges of the source the features are looked for at
+     * @param reach: how near an edge a face brings its feature in
+     * @param history: when given, the removal's history, to find a
+     *                 sub-shape of the source in the result
+     * @param removed: when given, the faces of the source taken out
+     * @param pockets: when given, the material the features took away, to
+     *                 cut back from what is made on the result
+     * @param bosses: when given, the material the features added, to fuse
+     *                back
+     * @param op: optional string to be encoded into topo naming for
+     *            indicating the operation
+     *
+     * @return Whether features were taken out. If so, this TopoShape is
+     *         replaced with the result; if not, it is left as it was.
+     */
+    bool makEFeatureFree(const TopoShape &source, const std::vector<TopoShape> &edges,
+                         double reach, opencascade::handle<BRepTools_History> *history=nullptr,
+                         std::vector<TopoShape> *removed=nullptr, TopoShape *pockets=nullptr,
+                         TopoShape *bosses=nullptr, const char *op=nullptr);
+
     /* Make a shell using this shape
      * @param silent: whether to throw exception on failure
      * @param op: optional string to be encoded into topo naming for indicating

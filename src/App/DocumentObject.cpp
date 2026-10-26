@@ -317,6 +317,7 @@ void DocumentObject::purgeTouched()
 {
     FC_TRACE("purgeTouched " << getFullName());
     StatusBits.reset(ObjectStatus::Enforce);
+    StatusBits.reset(ObjectStatus::MigrationPending);
     setPropertyStatus(Property::Touched, false);
     _enforceRecompute = false;
     if(StatusBits.test(ObjectStatus::Touch)) {

@@ -237,14 +237,17 @@ class BlobStorageCases(BlobTestCase):
     def testStoredInTheBlobDirectory(self):
         """The transient name is a uuid, not the hash: the store is a cache
         and nothing outside it may address a file by name. The extension is
-        kept, because the path is handed to whatever consumes the content."""
+        kept, because the path is handed to whatever consumes the content --
+        before a neutral ".blob" (docs/HandsOnQueue.md entry 206): a close
+        deletes the directory, and a ransomware guard watches the delete of a
+        file with an image extension."""
         doc = self.newDocument()
         content = b"content addressed"
         obj = self.fileObject(doc, "File1", content, saveName="picture.png")
         name = os.path.basename(obj.File)
         self.assertEqual(os.path.basename(os.path.dirname(obj.File)), BLOB_DIR)
         self.assertNotEqual(name, self.sha1(content))
-        self.assertTrue(name.endswith(".png"), name)
+        self.assertTrue(name.endswith(".png.blob"), name)
 
     def testIdenticalContentIsShared(self):
         """Same bytes, different source files and names -> one file on disk."""
@@ -1633,7 +1636,10 @@ class BlobPackStoreCases(BlobTestCase):
         shapes = [n for n in self.blobEntries(project) if n.endswith(".brp")]
         self.assertEqual(len(shapes), 20)
         # A save of an imported model used to be a file per shape.
-        self.assertEqual([n for n in self.storedBlobs(doc) if n.endswith(".brp")], [])
+        # A stored name ends in ".brp.blob" (docs/HandsOnQueue.md entry 206)
+        self.assertEqual(
+            [n for n in self.storedBlobs(doc) if n.endswith((".brp", ".brp.blob"))], []
+        )
         self.assertTrue(self.segments(doc))
         FreeCAD.closeDocument(doc.Name)
         reopened = self.openDocument(project)

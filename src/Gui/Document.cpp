@@ -21,6 +21,8 @@
  ***************************************************************************/
 
 #include "PreCompiled.h"
+
+#include <App/SaveTrigger.h>
 #include "Renderer/Renderer.h"
 
 #include <functional>
@@ -807,6 +809,19 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         if(!svp) {
             FC_ERR("Cannot edit '" << sobj->getFullName() << "' without view provider");
             return false;
+        }
+    }
+
+    // A feature of an old file opened without its migration recompute: it
+    // and what it needs, recomputed alone, so the edit's preview has the
+    // element names it is read by (docs/HandsOnQueue.md entry 211). Only
+    // then -- a touch of the user's own waits for their recompute.
+    if (ModNum == ViewProvider::Default) {
+        try {
+            App::Document::recomputeMigration(sobj);
+        }
+        catch (Base::Exception &e) {
+            e.ReportException();
         }
     }
 
@@ -2306,6 +2321,7 @@ bool saveVersionDocument(Gui::Document* gdoc)
     int64_t saved = 0;
     try {
         Gui::WaitCursor wc;
+        App::SaveTrigger trigger("schema-upgrade-box");
         saved = doc->saveVersionAsFile();
     }
     catch (const Base::Exception& e) {
@@ -5624,7 +5640,10 @@ bool Document::canClose (bool checkModify, bool checkLink)
             break;
         case MainWindow::ConfirmSaveResult::SaveAll:
         case MainWindow::ConfirmSaveResult::Save:
-            ok = save();
+            {
+                App::SaveTrigger trigger("close-confirm");
+                ok = save();
+            }
             if (!ok) {
                 int ret = QMessageBox::question(
                     getActiveView(),
@@ -5816,6 +5835,12 @@ MDIView *Document::setActiveView(ViewProviderDocumentObject *vp, Base::Type type
     }
     else {
         view = vp->getMDIView();
+        // An object of a view of its own whose view is closed: that view
+        // opened, not a 3D view raised (a TechDraw page's, entry 217). Not
+        // from inside a client's view, which no desktop path opens (below).
+        if (!view && vp->hasOwnView() && typeId.isBad() && !ViewerContext::current()) {
+            view = vp->getOrCreateMDIView();
+        }
         if (!view) {
             auto obj = vp->getObject();
             if (!obj) {

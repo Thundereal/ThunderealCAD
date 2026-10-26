@@ -23,6 +23,11 @@
 #ifndef UTILS_H_CS5LK2ZQ
 #define UTILS_H_CS5LK2ZQ
 
+#include <functional>
+#include <QStringList>
+
+#include <Base/Vector3D.h>
+
 #include "Workbench.h"
 #include <Gui/ActiveObjectList.h>
 
@@ -31,13 +36,29 @@ class QTreeWidgetItem;
 class QByteArray;
 class QGridLayout;
 class QCheckBox;
+class QComboBox;
+class QMenu;
+class QObject;
+class QWidget;
 
 /** \file PartDesign/Gui/Utils.h
  *  This file contains some utility function used over PartDesignGui module
  */
 namespace PartDesign {
     class Body;
+    class DressUp;
     class Feature;
+}
+
+namespace Part {
+    class TopoShape;
+}
+
+namespace Gui {
+    class GizmoContainer;
+    namespace TaskView {
+        class TaskDialog;
+    }
 }
 
 namespace App {
@@ -61,6 +82,20 @@ bool setEdit(App::DocumentObject *obj, App::DocumentObject *container=0,
 /// Call before editing object to setup visibilities
 void beforeEdit(App::DocumentObject *editingObj);
 
+/** Shows a PartDesign task dialog (Gui::Control().showDialog()), its
+ * widgets then able to shrink with the panel (fitTaskWidgets())
+ */
+void showTaskDialog(Gui::TaskView::TaskDialog *dlg);
+/** Gives the buttons, check boxes, spin boxes, combo boxes and labels under
+ * \a root a minimum width of a few letters, where Qt's would be their whole
+ * text (a check box), the style's (75 px a push button on Windows) or the
+ * widest value (144 px a quantity spin box), so that a task panel narrows
+ * with its dock. A wider one never; a label's own minimum stays (one set to
+ * line up a column of them). A container whose policy keeps it at its
+ * preferred width or more is made able to shrink.
+ */
+void fitTaskWidgets(QWidget *root);
+
 /// Show the given object on top
 void showObjectOnTop(const App::SubObjectT &objT);
 void hideObjectOnTop(const App::SubObjectT &objT);
@@ -81,6 +116,22 @@ QByteArray getGeometryItemText(QTreeWidgetItem *item);
 QByteArray getGeometryItemReference(QTreeWidgetItem *item);
 void setGeometryItemText(QTreeWidgetItem *item, const std::string &);
 void setGeometryItemReference(QTreeWidgetItem *item, const std::string &);
+
+/** @name A feature's operations in a handle's menu
+ * (docs/OnViewValueEditing.md 3.3, entry 170): each sets the panel's own
+ * field after the menu has closed, as the recompute it starts moves the
+ * handles, and only while \a context lives
+ */
+//@{
+/// A check box of the panel as a checkable entry
+void addToggleAction(QMenu &menu, const QString &title, bool checked, bool enabled,
+                     QObject *context, std::function<void(bool)> set);
+/// A combo box's choices as a sub-menu, the current one checked
+void addChoicesMenu(QMenu &menu, const QString &title, const QStringList &items, int current,
+                    QObject *context, std::function<void(int)> choose);
+/// The texts of a combo box's choices
+QStringList comboItems(const QComboBox *combo);
+//@}
 
 /// Import an external feature into the body of the host feature using SubShapeBinder
 App::SubObjectT importExternalObject(const App::SubObjectT &feature,
@@ -174,6 +225,20 @@ protected Q_SLOTS:
 };
 
 QGridLayout *addTaskCheckBox(Gui::ViewProviderDocumentObject *vp, QWidget * widget, int index = 0);
+
+/** Where a dress-up's handle for \a edge of \a baseShape stands, its root,
+ * in the gizmos' frame; false for none (the edge's middle is taken then)
+ */
+using EdgeHandleRoot = std::function<bool(Part::TopoShape& edge, Part::TopoShape& baseShape,
+                                          Base::Vector3d& at)>;
+/** A red cross in \a container's marks (Gui::GizmoContainer::getMarks) for
+ * each edge \a dressUp failed on, at its handle's root, and for each edge it
+ * no longer finds, on the face last made for it (docs/HandsOnQueue.md entry
+ * 180): fixed size, on top, not picked. Clears what it showed before; none
+ * without a container or a dress-up.
+ */
+void showFailureMarks(Gui::GizmoContainer* container, PartDesign::DressUp* dressUp,
+                      const EdgeHandleRoot& root = {});
 
 void fitViewWithDelay(int);
 

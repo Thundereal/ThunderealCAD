@@ -37,16 +37,20 @@
 #include <Inventor/SoPickedPoint.h>
 #include <Inventor/SoRenderManager.h>
 #include <Inventor/actions/SoHandleEventAction.h>
+#include <Inventor/actions/SoSearchAction.h>
+#include <Inventor/SoEventManager.h>
 #include <Inventor/draggers/SoDragger.h>
 #include <Inventor/events/SoKeyboardEvent.h>
 #include <Inventor/events/SoLocation2Event.h>
 #include <Inventor/events/SoMouseButtonEvent.h>
 #include <Inventor/nodes/SoBaseColor.h>
+#include <Inventor/nodes/SoCube.h>
 #include <Inventor/nodes/SoEventCallback.h>
 #include <Inventor/nodes/SoLightModel.h>
 #include <Inventor/nodes/SoOrthographicCamera.h>
 #include <Inventor/nodes/SoPerspectiveCamera.h>
 #include <Inventor/nodes/SoPickStyle.h>
+#include <Inventor/nodes/SoRotationXYZ.h>
 #include <Inventor/nodes/SoScale.h>
 #include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/nodes/SoSphere.h>
@@ -148,6 +152,33 @@ void Gizmo::setDraggerPlacement(const Base::Vector3d& pos, const Base::Vector3d&
     setDraggerPlacement(Base::convertTo<SbVec3f>(pos), Base::convertTo<SbVec3f>(dir));
 }
 
+double Gizmo::reverseIfPast(double value)
+{
+    if (!reverseCallback) {
+        return value;
+    }
+    // Over the start one way or the other: the feature turned, or back
+    const bool past = value < 0.0;
+    if (past != reversedInDrag && reverseCallback()) {
+        reversedInDrag = past;
+    }
+    return reversedInDrag ? -value : value;
+}
+
+bool Gizmo::endReverse(bool cancelled)
+{
+    const bool turned = reversedInDrag;
+    if (turned && cancelled && reverseCallback) {
+        reverseCallback();
+    }
+    reversedInDrag = false;
+    // Left where it was while the drag had the feature turned
+    if (turned && replaceCallback) {
+        replaceCallback();
+    }
+    return turned;
+}
+
 bool Gizmo::isDelayedUpdateEnabled()
 {
     return MiscParams::getDelayedGizmoUpdate();
@@ -166,6 +197,33 @@ double Gizmo::getAddFactor()
 bool Gizmo::getVisibility()
 {
     return visible;
+}
+
+/** Whether the fine-snap modifier is held for the drag \a dragger is in: read
+ * from the event it is handling -- a browser's drag is replayed into a mirror
+ * viewer with the client's keys on its events, and the host's own keyboard
+ * says nothing about them (docs/OnViewValueEditing.md sec 9.2 #2). On the
+ * desktop the event carries the same keys as the keyboard.
+ */
+static bool fineModifierHeld(const SoDragger* dragger)
+{
+    const SoEvent* event = dragger ? dragger->getEvent() : nullptr;
+    Qt::KeyboardModifiers modifiers;
+    if (event) {
+        if (event->wasShiftDown()) {
+            modifiers |= Qt::ShiftModifier;
+        }
+        if (event->wasCtrlDown()) {
+            modifiers |= Qt::ControlModifier;
+        }
+        if (event->wasAltDown()) {
+            modifiers |= Qt::AltModifier;
+        }
+    }
+    else {
+        modifiers = QApplication::queryKeyboardModifiers();
+    }
+    return modifiers == GizmoContainer::getFineSnapModifier();
 }
 
 void Gizmo::otherDragEvent(void* data, SoDragger* dragger)
@@ -217,10 +275,12 @@ static SbColor litColor(const SbColor& own, bool selected, bool preselected)
     if (!selected && !preselected) {
         return own;
     }
+    // Under the pointer wins over selected, as on a shape; the selected
+    // colour is back once the pointer leaves
     float transparency = 0.0F;
     SbColor lit;
-    lit.setPackedValue(static_cast<uint32_t>(selected ? ViewParams::getSelectionColor()
-                                                      : ViewParams::getHighlightColor()),
+    lit.setPackedValue(static_cast<uint32_t>(preselected ? ViewParams::getHighlightColor()
+                                                         : ViewParams::getSelectionColor()),
                        transparency);
     makeDistinctColor(lit, lit, own);
     return lit;
@@ -279,8 +339,20 @@ void Gizmo::setMenu(MenuCallback callback, const QString& toolTip)
     }
 }
 
+void Gizmo::dropViewHint()
+{
+    ViewerContext* view = hintView;
+    hintView = nullptr;
+    // only its own hint: another handle's may have come up since
+    if (view && !hintViewLife.expired() && view->hint() == menuToolTip) {
+        view->setHint(QString());
+    }
+    hintViewLife.reset();
+}
+
 void Gizmo::dropTip()
 {
+    dropViewHint();
     if (tipHandle != this) {
         return;
     }
@@ -304,6 +376,7 @@ void Gizmo::releaseEventNode()
 {
     dropTip();
     hovered = false;
+    hoverHeld = false;
     ++hoverSerial;
     menuPressed = false;
     ownNode = nullptr;
@@ -319,7 +392,13 @@ void Gizmo::setHovered(bool over)
         return;
     }
     hovered = over;
-    if (hoverCallback) {
+    // Pressed on: told off at the press already, and not on again until the
+    // pointer has left (pressedOn())
+    const bool held = hoverHeld;
+    if (!over) {
+        hoverHeld = false;
+    }
+    if (hoverCallback && !held) {
         hoverCallback(over);
     }
     const int serial = ++hoverSerial;
@@ -329,9 +408,29 @@ void Gizmo::setHovered(bool over)
         // the arrow" (the reporter, 2026-10-15 15:29): Qt's tool tip request
         // is that timer, and it is answered while this handle is the one
         // (HandleTipFilter)
-        if (!menuToolTip.isEmpty()) {
-            tipHandle = this;
+        if (menuToolTip.isEmpty()) {
+            return;
         }
+        ViewerContext* view = ViewerContext::current();
+        if (!view || view->getWidget()) {
+            tipHandle = this;
+            return;
+        }
+        // A view with no widget, a browser's (docs/OnViewValueEditing.md
+        // 9.2 #6): no Qt request comes, so the same wait is kept here, and
+        // the view hands the hint to its client, which shows it at its
+        // pointer
+        std::weak_ptr<const void> viewLife = view->lifetime();
+        const int wait = qApp ? qApp->style()->styleHint(QStyle::SH_ToolTip_WakeUpDelay) : 700;
+        QTimer::singleShot(wait, [this, life, serial, view, viewLife]() {
+            auto still = life.lock();
+            if (!still || !*still || serial != hoverSerial || !hovered || viewLife.expired()) {
+                return;
+            }
+            hintView = view;
+            hintViewLife = viewLife;
+            view->setHint(menuToolTip);
+        });
         return;
     }
     // "any repeated hitting do not hide tooltip": gone only when the pointer
@@ -343,6 +442,19 @@ void Gizmo::setHovered(bool over)
         }
         dropTip();
     });
+}
+
+void Gizmo::pressedOn()
+{
+    // The dragger takes the press before the event node: its start is where
+    // the click begins
+    if (!hovered || hoverHeld) {
+        return;
+    }
+    hoverHeld = true;
+    if (hoverCallback) {
+        hoverCallback(false);
+    }
 }
 
 void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
@@ -366,9 +478,16 @@ void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
             if (QToolTip::isVisible() && QToolTip::text() == self->menuToolTip) {
                 QToolTip::hideText();
             }
+            self->dropViewHint();
             cb->setHandled();
-            // the release comes back here, not to the view
-            cb->grabEvents();
+            // No grabEvents() here. A navigation style can take the release
+            // before the scene sees it (one opens the view's menu on a right
+            // release), and the grab was then never let go of; the handle
+            // whose node held it went with a change made from the menu, and
+            // the next mouse event traversed the dead grabber: a pure virtual
+            // call in SoHandleEventAction::beginTraversal (docs/HandsOnQueue.md
+            // entry 186, the reporter's session 2026-10-19 15:59). The release
+            // reaches this callback through the scene as any event does.
         }
         return;
     }
@@ -376,7 +495,6 @@ void Gizmo::eventNodeCallback(void* data, SoEventCallback* cb)
         const bool pressed = self->menuPressed;
         self->menuPressed = false;
         if (pressed) {
-            cb->releaseEvents();
             cb->setHandled();
             if (over) {
                 // After the event: the menu runs a loop of its own, and what
@@ -610,7 +728,16 @@ void LinearGizmo::setClickCallback(ClickCallback callback)
 void LinearGizmo::setVisibility(bool visible)
 {
     this->visible = visible;
-    getDraggerContainer()->visible = visible && !property->hasExpression();
+    getDraggerContainer()->visible = visible && !hiddenInView && !property->hasExpression();
+}
+
+void LinearGizmo::setHiddenInView(bool hidden)
+{
+    hiddenInView = hidden;
+    // before initDragger() there is nothing to switch: it applies it
+    if (draggerContainer && property) {
+        setVisibility(visible);
+    }
 }
 
 void LinearGizmo::draggingStarted()
@@ -619,6 +746,8 @@ void LinearGizmo::draggingStarted()
     hasDragged = false;
     dragging = true;
     dragCancelled = false;
+    reversedInDrag = false;
+    pressedOn();
     notifyDrag(DragEvent::Started);
     dragger->translationIncrementCount.setValue(0);
 
@@ -629,8 +758,8 @@ void LinearGizmo::draggingStarted()
 
 void LinearGizmo::draggingFinished()
 {
-    dragging = false;
     if (dragCancelled) {
+        dragging = false;
         // put back at the cancel already; nothing to commit or activate
         dragCancelled = false;
         if (isDelayedUpdateEnabled()) {
@@ -638,6 +767,12 @@ void LinearGizmo::draggingFinished()
         }
         return;
     }
+    // Where the turned feature puts the handle, the arrow as long as the
+    // value the other way
+    if (endReverse(false)) {
+        setDragLength(property->value().getValue());
+    }
+    dragging = false;
     if (isDelayedUpdateEnabled()) {
         property->blockSignals(false);
         property->valueChanged(property->value().getValue());
@@ -672,21 +807,29 @@ void LinearGizmo::cancelDrag()
         const QSignalBlocker blocker(property);
         property->setValue(initialValue);
     }
+    // a feature the drag turned, turned back
+    endReverse(true);
     setDragLength(initialValue);
+    // No longer shown dragged (the user, 2026-10-20: "the dragging is still
+    // active, no aborting"): the dragger keeps the pointer until its button
+    // is up, its moves undone as they come (draggingContinued()). Letting
+    // the pointer go here would hand the rest of a held left button to the
+    // navigation style, which never saw it pressed.
+    dragger->active = false;
     notifyDrag(DragEvent::Cancelled);
 }
 
 void LinearGizmo::draggingContinued()
 {
     if (dragCancelled) {
+        // cancelled: the arrow stays where the drag began
+        setDragLength(initialValue);
         return;
     }
     hasDragged = true;
     double value = initialValue + getDragLength();
 
-    auto fineModifier = GizmoContainer::getFineSnapModifier();
-    auto modifiers = QApplication::queryKeyboardModifiers();
-    bool fineModifierPressed = modifiers == fineModifier;
+    bool fineModifierPressed = fineModifierHeld(dragger);
     bool coarseByDefault = GizmoContainer::isCoarseByDefault();
     bool useCoarseSnap = coarseByDefault != fineModifierPressed;
 
@@ -695,10 +838,13 @@ void LinearGizmo::draggingContinued()
         value = snapToStep(value, baseStep * getCoarseLinearSnapMultiplier());
     }
 
+    // Back past the start: the feature turns, and the value grows again
+    value = reverseIfPast(value);
     value = std::clamp(value, property->minimum(), property->maximum());
 
     property->setValue(value);
-    setDragLength(value);
+    // the arrow where the pointer is, behind its start once turned
+    setDragLength(reversedInDrag ? -value : value);
 }
 
 
@@ -923,6 +1069,8 @@ void RotationGizmo::draggingStarted()
     hasDragged = false;
     dragging = true;
     dragCancelled = false;
+    reversedInDrag = false;
+    pressedOn();
     notifyDrag(DragEvent::Started);
     dragger->rotationIncrementCount.setValue(0);
 
@@ -933,14 +1081,20 @@ void RotationGizmo::draggingStarted()
 
 void RotationGizmo::draggingFinished()
 {
-    dragging = false;
     if (dragCancelled) {
+        dragging = false;
         dragCancelled = false;
         if (isDelayedUpdateEnabled()) {
             property->blockSignals(false);
         }
         return;
     }
+    // Where the turned feature puts the handle, the arc as wide as the value
+    // the other way
+    if (endReverse(false)) {
+        setRotAngle(property->value().getValue());
+    }
+    dragging = false;
     if (isDelayedUpdateEnabled()) {
         property->blockSignals(false);
         property->valueChanged(property->value().getValue());
@@ -972,13 +1126,20 @@ void RotationGizmo::cancelDrag()
         const QSignalBlocker blocker(property);
         property->setValue(initialValue);
     }
+    // a feature the drag turned, turned back
+    endReverse(true);
     setRotAngle(initialValue);
+    // no longer shown dragged, its moves undone until the button is up (as
+    // a linear handle's)
+    dragger->active = false;
     notifyDrag(DragEvent::Cancelled);
 }
 
 void RotationGizmo::draggingContinued()
 {
     if (dragCancelled) {
+        // cancelled: the arc stays where the drag began
+        setRotAngle(initialValue);
         return;
     }
     hasDragged = true;
@@ -987,9 +1148,7 @@ void RotationGizmo::draggingContinued()
     lastDragOffset = dragOffset;
     double value = initialValue + dragOffset;
 
-    auto fineModifier = GizmoContainer::getFineSnapModifier();
-    auto modifiers = QApplication::queryKeyboardModifiers();
-    bool fineModifierPressed = modifiers == fineModifier;
+    bool fineModifierPressed = fineModifierHeld(dragger);
     bool coarseByDefault = GizmoContainer::isCoarseByDefault();
     bool useCoarseSnap = coarseByDefault != fineModifierPressed;
 
@@ -997,10 +1156,13 @@ void RotationGizmo::draggingContinued()
         value = snapToStep(value, getCoarseRotationSnapMultiplier());
     }
 
+    // Back past the start: the feature turns, and the angle grows again
+    value = reverseIfPast(value);
     value = clampDragAngle(value, property->minimum(), property->maximum(), period);
 
     property->setValue(value);
-    setRotAngle(value);
+    // the arc where the pointer is, behind its start once turned
+    setRotAngle(reversedInDrag ? -value : value);
 }
 
 void RotationGizmo::orientAlongCamera(SoCamera* camera)
@@ -1066,7 +1228,16 @@ void RotationGizmo::setClickCallback(ClickCallback callback)
 void RotationGizmo::setVisibility(bool visible)
 {
     this->visible = visible;
-    getDraggerContainer()->visible = visible && !property->hasExpression();
+    getDraggerContainer()->visible = visible && !hiddenInView && !property->hasExpression();
+}
+
+void RotationGizmo::setHiddenInView(bool hidden)
+{
+    hiddenInView = hidden;
+    // before initDragger() there is nothing to switch: it applies it
+    if (draggerContainer && property) {
+        setVisibility(visible);
+    }
 }
 
 DirectedRotationGizmo::DirectedRotationGizmo(QuantitySpinBox* property)
@@ -1173,6 +1344,8 @@ GizmoContainer::GizmoContainer()
     FC_ADD_CATALOG_ENTRY(pickStyle, SoPickStyle, annotation);
     FC_ADD_CATALOG_ENTRY(toggleSwitch, SoToggleSwitch, annotation);
     FC_ADD_CATALOG_ENTRY(geometry, SoSeparator, toggleSwitch);
+    // beside the switch, not under it: shown when the gizmos are not
+    FC_ADD_CATALOG_ENTRY(marks, SoSeparator, annotation);
 
     SO_KIT_INIT_INSTANCE();
 
@@ -1181,10 +1354,24 @@ GizmoContainer::GizmoContainer()
     auto pickStyle = SO_GET_ANY_PART(this, "pickStyle", SoPickStyle);
     pickStyle->style = SoPickStyle::SHAPE_ON_TOP;
 
+    // Drawn over a dress-up's on-top preview (its priority -2) and under the
+    // on-view labels (1): the handles were drawn before the preview, which
+    // covered them (docs/HandsOnQueue.md entry 185, the reporter 2026-10-19
+    // 15:49). Picking is not ordered by this.
+    SO_GET_ANY_PART(this, "annotation", So3DAnnotation)->priority = -1;
+
     auto toggleSwitch = SO_GET_ANY_PART(this, "toggleSwitch", SoToggleSwitch);
     toggleSwitch->on.connectFrom(&visible);
 
     setPart("geometry", new SoSeparator);
+
+    // the marks are not picked: what is under them is (entry 180, "it can be
+    // unpicable, since the face is already pickable")
+    auto marks = new SoSeparator;
+    auto marksPick = new SoPickStyle;
+    marksPick->style = SoPickStyle::UNPICKABLE;
+    marks->addChild(marksPick);
+    setPart("marks", marks);
 
     cameraSensor.setFunction(&GizmoContainer::cameraChangeCallback);
     cameraSensor.setData(this);
@@ -1200,6 +1387,9 @@ GizmoContainer::~GizmoContainer()
 
     cameraPositionSensor.setData(nullptr);
     cameraPositionSensor.detach();
+
+    // a grab held by any of the gizmos goes before they do (entry 186)
+    releaseGrabUnder(SO_GET_ANY_PART(this, "annotation", So3DAnnotation));
 
     uninitGizmos();
 
@@ -1251,6 +1441,36 @@ void GizmoContainer::appendGizmo(Gizmo* gizmo)
     calculateScaleAndOrientation();
 }
 
+void GizmoContainer::releaseGrabUnder(SoNode* node)
+{
+    if (!node || !viewer || viewerLife.expired()) {
+        return;
+    }
+    SoEventManager* manager = viewer->getSoEventManager();
+    SoHandleEventAction* action = manager ? manager->getHandleEventAction() : nullptr;
+    SoNode* grabber = action ? action->getGrabber() : nullptr;
+    if (!grabber) {
+        return;
+    }
+    bool under = grabber == node;
+    if (!under) {
+        SoSearchAction search;
+        search.setNode(grabber);
+        search.setInterest(SoSearchAction::FIRST);
+        search.setSearchingAll(TRUE);
+        // into the draggers' kits, and back as it was: the switch is global
+        const SbBool wasSearching = SoBaseKit::isSearchingChildren();
+        SoBaseKit::setSearchingChildren(TRUE);
+        search.apply(node);
+        SoBaseKit::setSearchingChildren(wasSearching);
+        under = search.getPath() != nullptr;
+    }
+    if (under) {
+        // while the grabber still lives: releaseGrabber() calls into it
+        action->releaseGrabber();
+    }
+}
+
 void GizmoContainer::removeGizmo(Gizmo* gizmo)
 {
     auto it = std::ranges::find(gizmos, gizmo);
@@ -1261,6 +1481,9 @@ void GizmoContainer::removeGizmo(Gizmo* gizmo)
     auto geometry = SO_GET_ANY_PART(this, "geometry", SoSeparator);
     if (index < static_cast<decltype(index)>(gizmoNodes.size())) {
         auto [dragger, extra] = gizmoNodes[index];
+        for (SoNode* node : {dragger, extra}) {
+            releaseGrabUnder(node);
+        }
         for (SoNode* node : {dragger, extra}) {
             if (!node) {
                 continue;
@@ -1302,6 +1525,9 @@ void GizmoContainer::attachViewer(Gui::ViewerContext* viewer, Base::Placement& o
     setUpAutoScale(viewer->getSoRenderManager()->getCamera());
 
     auto mat = origin.toMatrix();
+    this->origin = mat;
+    this->viewer = viewer;
+    viewerLife = viewer->lifetime();
 
     // Upstream also makes `origin` the document's editing transform. Here the
     // edit path has already set that transform for the object being edited,
@@ -1309,6 +1535,18 @@ void GizmoContainer::attachViewer(Gui::ViewerContext* viewer, Base::Placement& o
     // node is placed.
     So3DAnnotation* annotation = SO_GET_ANY_PART(this, "annotation", So3DAnnotation);
     viewer->setupEditingRoot(annotation, &mat);
+}
+
+Base::Matrix4D GizmoContainer::getWorldMatrix() const
+{
+    Base::Matrix4D mat;
+    if (auto vp = viewProvider.get()) {
+        if (auto doc = vp->getDocument()) {
+            mat = doc->getEditingTransform();
+        }
+    }
+    mat *= origin;
+    return mat;
 }
 
 void GizmoContainer::setUpAutoScale(SoCamera* cameraIn)
@@ -1351,6 +1589,11 @@ void GizmoContainer::cameraChangeCallback(void* data, SoSensor*)
         float localScale = viewVolume.getWorldToScreenScale(gizmo->getDraggerPlacement().pos, 0.015);
         gizmo->setGeometryScale(localScale);
     }
+    // the crosses at the gizmos' size
+    for (auto& [pos, transform] : sudoThis->crosses) {
+        const float s = viewVolume.getWorldToScreenScale(pos, 0.015);
+        transform->scaleFactor.setValue(s, s, s);
+    }
 }
 
 void GizmoContainer::cameraPositionChangeCallback(void* data, SoSensor*)
@@ -1364,7 +1607,60 @@ void GizmoContainer::cameraPositionChangeCallback(void* data, SoSensor*)
         for (auto gizmo : sudoThis->gizmos) {
             gizmo->orientAlongCamera(camera);
         }
+        // a cross lies in the screen's plane
+        for (auto& cross : sudoThis->crosses) {
+            cross.second->rotation = camera->orientation.getValue();
+        }
     }
+}
+
+SoSeparator* GizmoContainer::getMarks()
+{
+    return SO_GET_ANY_PART(this, "marks", SoSeparator);
+}
+
+void GizmoContainer::clearMarks()
+{
+    auto marks = getMarks();
+    // the pick style stays
+    while (marks->getNumChildren() > 1) {
+        marks->removeChild(marks->getNumChildren() - 1);
+    }
+    crosses.clear();
+}
+
+void GizmoContainer::addCross(const SbVec3f& pos, const SbColor& color)
+{
+    // A linear handle's shaft is 0.4 across (SoArrowGeometry, cylinderRadius
+    // 0.2), in the units its geometry scale makes a size on the screen; the
+    // bars are that thick, and about as long as the bitmap cross they
+    // replace was wide
+    constexpr float thickness = 0.4F;
+    constexpr float length = 2.2F;
+    auto cross = new SoSeparator;
+    auto transform = new SoTransform;
+    transform->translation = pos;
+    cross->addChild(transform);
+    // lit as the view draws, as the handles it stands among (entry 196)
+    auto base = new SoBaseColor;
+    base->rgb = color;
+    cross->addChild(base);
+    for (float angle : {float(M_PI / 4), float(-M_PI / 4)}) {
+        auto bar = new SoSeparator;
+        auto turn = new SoRotationXYZ;
+        turn->axis = SoRotationXYZ::Z;
+        turn->angle = angle;
+        bar->addChild(turn);
+        auto cube = new SoCube;
+        cube->width = length;
+        cube->height = thickness;
+        cube->depth = thickness;
+        bar->addChild(cube);
+        cross->addChild(bar);
+    }
+    getMarks()->addChild(cross);
+    crosses.emplace_back(pos, transform);
+    calculateScaleAndOrientation();
 }
 
 bool GizmoContainer::isEnabled()

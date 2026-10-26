@@ -63,6 +63,8 @@ from PartDesignTests.TestFillet import (
     TestFilletCorners,
     TestDressUpNamesFollow,
     TestFilletGroups,
+    TestFilletSlivers,
+    TestFilletPastFeatures,
 )
 from PartDesignTests.TestChamfer import TestChamfer, TestChamferGroups
 from PartDesignTests.TestDraft import TestDraft

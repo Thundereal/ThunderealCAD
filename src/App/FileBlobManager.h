@@ -782,6 +782,33 @@ public:
     /// module owning the format does this once, at load.
     static void registerSourceReader(const char* ext, SourceReader reader);
 
+    /** @name Neutral names in the transient directory (docs/HandsOnQueue.md
+     * entry 206)
+     *
+     * Every file a store writes under the transient directory ends in
+     * ".blob": `<uuid>.<ext>.blob`, and a checkout's `<name>.blob`. A close
+     * deletes the directory, and a file deleted with an image or document
+     * extension is what a ransomware heuristic guards -- the user's
+     * company's Apex ended the program over a `.png`. The type stays in the
+     * name before the suffix and in the blob's own record; nothing reads it
+     * off the path's last extension any more.
+     */
+    //@{
+    /// The suffix every file a store writes carries, with the dot.
+    static const char* neutralSuffix()
+    {
+        return ".blob";
+    }
+    /// `name` as written under the transient directory: name + ".blob".
+    static std::string neutralName(const std::string& name);
+    /** The extension content at `path` is stored under, without the dot:
+     * "png" for `<uuid>.png.blob` and for an old-style `<uuid>.png` alike,
+     * empty for none. For any path: a file not of a store answers with its
+     * own extension.
+     */
+    static std::string storedExtension(const std::string& path);
+    //@}
+
 private:
     friend class FileBlob;
     /// One file a save is about to write: the name it goes under, the content

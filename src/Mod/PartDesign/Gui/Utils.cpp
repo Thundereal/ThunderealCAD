@@ -27,10 +27,25 @@
 # include <QApplication>
 # include <QPointer>
 # include <QMessageBox>
+# include <QAction>
+# include <QActionGroup>
+# include <QAbstractItemView>
+# include <QAbstractSpinBox>
 # include <QCheckBox>
+# include <QComboBox>
+# include <QLabel>
+# include <QMenu>
+# include <QRadioButton>
+# include <QStyle>
+# include <QStyleOptionButton>
+# include <QTimer>
 # include <QTreeWidget>
 # include <Precision.hxx>
 # include <gp_Pln.hxx>
+# include <BRepAdaptor_Curve.hxx>
+# include <BRepBndLib.hxx>
+# include <Bnd_Box.hxx>
+# include <TopoDS.hxx>
 # include <functional>
 #endif
 
@@ -52,6 +67,9 @@
 #include <Gui/CommandT.h>
 #include <Gui/MainWindow.h>
 #include <Gui/MDIView.h>
+#include <Gui/OnViewValue.h>
+#include <Gui/TaskView/TaskDialog.h>
+#include <Gui/Inventor/Draggers/Gizmo.h>
 #include <Gui/ViewProviderPart.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
@@ -65,6 +83,7 @@
 #include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/Body.h>
 #include <Mod/PartDesign/App/DatumCS.h>
+#include <Mod/PartDesign/App/FeatureDressUp.h>
 #include <Mod/PartDesign/App/Feature.h>
 #include <Mod/PartDesign/App/FeatureSketchBased.h>
 #include <Mod/PartDesign/App/FeatureBoolean.h>
@@ -1583,6 +1602,10 @@ public:
     
     Gui::View3DInventor *editView = nullptr;
     QPointer<QWidget> taskWidget;
+    /// The panel's "Show preview" box: the edit's menu shows the same switch
+    /// (docs/OnViewValueEditing.md 8.6 a, the reporter 2026-10-19 09:34:
+    /// "show preview should behave the same as the task panel")
+    QPointer<QCheckBox> previewBox;
 
     MonitorProxy proxy;
     QTimer editTimer;
@@ -1605,8 +1628,143 @@ public:
 static Monitor *_MonitorInstance;
 void initMonitor()
 {
-    if (!_MonitorInstance)
+    if (!_MonitorInstance) {
         _MonitorInstance = new Monitor;
+        // The edit's menu (the handles' right click, Space, the menu button)
+        // has the panel's "Show preview": the same box, so the two never
+        // differ and the menu's does all the panel's does
+        Gui::OnViewValueSet::addMenuExtension([](Gui::OnViewValueSet&, QMenu& menu) {
+            if (!_MonitorInstance) {
+                return;
+            }
+            QPointer<QCheckBox> box = _MonitorInstance->previewBox;
+            if (!box || !box->isVisibleTo(box->window()) || !box->isEnabled()) {
+                return;
+            }
+            QAction* action = menu.addAction(box->text());
+            action->setToolTip(box->toolTip());
+            action->setCheckable(true);
+            action->setChecked(box->isChecked());
+            QObject::connect(action, &QAction::toggled, box, [box](bool on) {
+                // after the menu has closed: switching it recomputes
+                QTimer::singleShot(0, box, [box, on]() {
+                    if (box && box->isChecked() != on) {
+                        box->setChecked(on);
+                    }
+                });
+            });
+        });
+    }
+}
+
+void showTaskDialog(Gui::TaskView::TaskDialog *dlg)
+{
+    QPointer<Gui::TaskView::TaskDialog> guard(dlg);
+    Gui::Control().showDialog(dlg);
+    // once shown, in the fonts and the style sheet it is shown with
+    QTimer::singleShot(0, [guard]() {
+        if (!guard || Gui::Control().activeDialog() != guard)
+            return;
+        for (auto widget : guard->getDialogContent())
+            fitTaskWidgets(widget);
+    });
+}
+
+void fitTaskWidgets(QWidget *root)
+{
+    if (!root)
+        return;
+    for (auto w : root->findChildren<QWidget*>()) {
+        // an item view's editors are sized by its cells, a spin box's line
+        // edit and a combo box's list by their owner
+        bool inside = false;
+        for (auto p = w->parentWidget(); p && p != root; p = p->parentWidget()) {
+            if (qobject_cast<QAbstractItemView*>(p) || qobject_cast<QAbstractSpinBox*>(p)
+                    || qobject_cast<QComboBox*>(p)) {
+                inside = true;
+                break;
+            }
+        }
+        if (inside)
+            continue;
+
+        // A container that will not go below its preferred width holds the
+        // whole panel however narrow its widgets can go: its policy made
+        // one that can shrink, growing as it did (Hole's form: Minimum in
+        // its .ui, 368 px of its 260 px minimum)
+        if (w->layout() && w->minimumWidth() == 0) {
+            QSizePolicy policy = w->sizePolicy();
+            switch (policy.horizontalPolicy()) {
+            case QSizePolicy::Minimum:
+                policy.setHorizontalPolicy(QSizePolicy::Preferred);
+                break;
+            case QSizePolicy::MinimumExpanding:
+                policy.setHorizontalPolicy(QSizePolicy::Expanding);
+                break;
+            case QSizePolicy::Fixed:
+                policy.setHorizontalPolicy(QSizePolicy::Maximum);
+                break;
+            default:
+                break;
+            }
+            if (policy != w->sizePolicy())
+                w->setSizePolicy(policy);
+        }
+
+        const QFontMetrics fm(w->font());
+        // about six letters of a text, eight of a value
+        const int letters = fm.averageCharWidth() * 6;
+        auto textWidth = [&](const QString &text) {
+            QString plain = text;
+            plain.remove(QLatin1Char('&'));
+            return std::min(fm.horizontalAdvance(plain), letters);
+        };
+        int want = -1;
+        if (auto button = qobject_cast<QCheckBox*>(w)) {
+            QStyleOptionButton opt;
+            opt.initFrom(button);
+            want = button->style()->pixelMetric(QStyle::PM_IndicatorWidth, &opt, button)
+                + button->style()->pixelMetric(QStyle::PM_CheckBoxLabelSpacing, &opt, button)
+                + textWidth(button->text());
+        }
+        else if (auto button = qobject_cast<QRadioButton*>(w)) {
+            QStyleOptionButton opt;
+            opt.initFrom(button);
+            want = button->style()->pixelMetric(QStyle::PM_ExclusiveIndicatorWidth, &opt, button)
+                + button->style()->pixelMetric(QStyle::PM_RadioButtonLabelSpacing, &opt, button)
+                + textWidth(button->text());
+        }
+        else if (auto button = qobject_cast<QAbstractButton*>(w)) {
+            // a push or tool button: its text (or icon) and a little room
+            if (button->text().isEmpty())
+                continue;
+            want = textWidth(button->text()) + fm.height();
+            if (!button->icon().isNull())
+                want += button->iconSize().width() + fm.averageCharWidth();
+        }
+        else if (qobject_cast<QAbstractSpinBox*>(w)) {
+            // eight letters of value, the arrows and the frame
+            want = fm.averageCharWidth() * 8 + fm.height() + 2 * fm.averageCharWidth();
+        }
+        else if (qobject_cast<QComboBox*>(w)) {
+            want = letters + 2 * fm.height();
+        }
+        else if (auto label = qobject_cast<QLabel*>(w)) {
+            if (label->wordWrap() || label->text().isEmpty() || label->minimumWidth() > 0)
+                continue;
+            want = textWidth(label->text());
+        }
+        else
+            continue;
+
+        // never wider than Qt would have it
+        want = std::min(want, w->minimumSizeHint().width());
+        if (want <= 0 || (w->minimumWidth() > 0 && w->minimumWidth() <= want))
+            continue;
+        w->setMinimumWidth(want);
+        // for a blinking button to come back to (TaskFeatureParameters)
+        w->setProperty("fitMinWidth", want);
+    }
 }
 
 void beforeEdit(App::DocumentObject *obj)
@@ -1681,6 +1839,7 @@ QGridLayout *Monitor::addCheckBox(Gui::ViewProviderDocumentObject *vp, QWidget *
     checkbox->setChecked(PartGui::PartParams::getPreviewOnEdit());
     QObject::connect(checkbox, SIGNAL(toggled(bool)), &proxy, SLOT(onPreview(bool)));
     grid->addWidget(checkbox, 0, 0);
+    previewBox = checkbox;
 
     checkbox = new QCheckBox(widget);
     checkbox->setText(QObject::tr("Transparent preview"));
@@ -1919,6 +2078,48 @@ QByteArray getGeometryItemText(QTreeWidgetItem *item)
     return item->data(0, Qt::UserRole+1).toByteArray().constData();
 }
 
+void addToggleAction(QMenu &menu, const QString &title, bool checked, bool enabled,
+                     QObject *context, std::function<void(bool)> set)
+{
+    QAction *action = menu.addAction(title);
+    action->setCheckable(true);
+    action->setChecked(checked);
+    action->setEnabled(enabled);
+    QObject::connect(action, &QAction::triggered, context, [context, set](bool on) {
+        // after the menu: the recompute moves the handles, the menu's too
+        QTimer::singleShot(0, context, [set, on]() {
+            set(on);
+        });
+    });
+}
+
+void addChoicesMenu(QMenu &menu, const QString &title, const QStringList &items, int current,
+                    QObject *context, std::function<void(int)> choose)
+{
+    QMenu *sub = menu.addMenu(title);
+    auto group = new QActionGroup(sub);
+    group->setExclusive(true);
+    for (int i = 0; i < items.size(); ++i) {
+        QAction *action = sub->addAction(items[i]);
+        action->setCheckable(true);
+        action->setChecked(i == current);
+        group->addAction(action);
+        QObject::connect(action, &QAction::triggered, context, [context, choose, i]() {
+            QTimer::singleShot(0, context, [choose, i]() {
+                choose(i);
+            });
+        });
+    }
+}
+
+QStringList comboItems(const QComboBox *combo)
+{
+    QStringList items;
+    for (int i = 0; i < combo->count(); ++i)
+        items.push_back(combo->itemText(i));
+    return items;
+}
+
 void setGeometryItemReference(QTreeWidgetItem *item, const std::string &ref)
 {
     item->setData(0, Qt::UserRole, QByteArray(ref.c_str()));
@@ -1974,6 +2175,78 @@ void toggleShowOnTop(Gui::ViewProviderDocumentObject *vp,
     for (auto link : propLink->linkedObjects()) {
         last.emplace_back(link, "");
         showObjectOnTop(last.back());
+    }
+}
+
+void showFailureMarks(Gui::GizmoContainer* container, PartDesign::DressUp* dressUp,
+                      const EdgeHandleRoot& root)
+{
+    if (!container) {
+        return;
+    }
+    container->clearMarks();
+    if (!dressUp) {
+        return;
+    }
+    // The edges the dress-up failed on, and those it no longer finds ("all
+    // failed fillet including missing edge", the reporter 2026-10-19 13:27)
+    std::vector<std::string> marked = dressUp->FailedEdges.getValues();
+    for (const auto& sub : dressUp->Base.getSubValues(false)) {
+        if (boost::starts_with(sub, "?Edge")
+                && std::find(marked.begin(), marked.end(), sub) == marked.end()) {
+            marked.push_back(sub);
+        }
+    }
+    if (marked.empty()) {
+        return;
+    }
+    Part::TopoShape baseShape = dressUp->getBaseShape(true);
+    std::vector<SbVec3f> points;
+    for (const auto& name : marked) {
+        Base::Vector3d at;
+        bool found = false;
+        // "at the root where the handle would have been"
+        if (!name.empty() && name[0] != '?') {
+            try {
+                Part::TopoShape edge = baseShape.getSubTopoShape(name.c_str(), true);
+                if (!edge.isNull()) {
+                    found = root && root(edge, baseShape, at);
+                    if (!found) {
+                        BRepAdaptor_Curve curve(TopoDS::Edge(edge.getShape()));
+                        gp_Pnt mid = curve.Value(
+                            (curve.FirstParameter() + curve.LastParameter()) / 2);
+                        at = Base::Vector3d(mid.X(), mid.Y(), mid.Z());
+                        found = true;
+                    }
+                }
+            }
+            catch (Standard_Failure&) {
+            }
+            catch (Base::Exception&) {
+            }
+        }
+        // a missing edge has no root: the middle of the face last made for it
+        if (!found) {
+            TopoDS_Shape made = dressUp->getMadeFaces(name);
+            if (!made.IsNull()) {
+                Bnd_Box box;
+                BRepBndLib::Add(made, box);
+                if (!box.IsVoid()) {
+                    double x0, y0, z0, x1, y1, z1;
+                    box.Get(x0, y0, z0, x1, y1, z1);
+                    at = Base::Vector3d((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+                    found = true;
+                }
+            }
+        }
+        if (found) {
+            points.emplace_back(float(at.x), float(at.y), float(at.z));
+        }
+    }
+    // bars as thick as a handle's shaft, at the handles' size (the reporter
+    // 2026-10-19 15:08; a bitmap marker's lines were thinner)
+    for (const auto& point : points) {
+        container->addCross(point, SbColor(1.0F, 0.0F, 0.0F));
     }
 }
 

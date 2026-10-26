@@ -414,6 +414,31 @@ class TestSubShapeBinder(unittest.TestCase):
         os.remove(path)
         self.Doc = FreeCAD.newDocument("PartDesignTestSubShapeBinder")
 
+    def testNoContextInALinkGroupIsAtTheRoot(self):
+        """A link group lists the binder but leaves its node at the root of
+        the scene, as an App::Part does not: the binder's shortest path is
+        that one, of no length, and with no context it takes itself -- valid,
+        where it is -- before the group's path, which would move it. It was
+        in its "No context" error (the user, docs/HandsOnQueue.md entry 207:
+        "unlike App::Part, which moves object's node into its child group,
+        link group does not")."""
+        box, binder = self._looseBinder()
+        center = binder.Shape.BoundBox.Center
+        group = self.Doc.addObject("App::LinkGroup", "Group")
+        group.ElementList = [binder]
+        group.Placement = FreeCAD.Placement(
+            Base.Vector(3, -4, 53), FreeCAD.Rotation(Base.Vector(0, 1, 0), 3.5)
+        )
+        binder.touch()
+        self.Doc.recompute()
+        self.assertEqual([parent.Name for parent, _ in binder.Parents], ["Group"])
+        self.assertTrue(binder.isValid(), binder.getStatusString())
+        self.assertIsNotNone(binder.Context)
+        # a link with no sub-name reads as the object alone
+        context = binder.Context[0] if isinstance(binder.Context, tuple) else binder.Context
+        self.assertEqual(context.Name, binder.Name)
+        self.assertLess(binder.Shape.BoundBox.Center.distanceToPoint(center), 1e-6)
+
     def testAVisibleLinkToItselfIsStillRefused(self):
         """Only a link of hidden scope may name its owner."""
         link = self.Doc.addObject("App::Link", "SelfLink")

@@ -21,6 +21,8 @@
  ***************************************************************************/
 
 #include "PreCompiled.h"
+
+#include <App/FileBlobManager.h>
 #ifndef _PreComp_
 # include <sstream>
 # include <QAction>
@@ -256,8 +258,11 @@ QImage ViewProviderImagePlane::loadSvgOfSize(const char* filename, const QSizeF&
 
 bool ViewProviderImagePlane::isSvgFile(const char* filename) const
 {
-    QFileInfo fi(QString::fromUtf8(filename));
-    return (fi.suffix().toLower() == QLatin1String("svg"));
+    // The file is a blob of the document's store, named `<uuid>.svg.blob`
+    // there (docs/HandsOnQueue.md entry 206): the type sits before the
+    // neutral suffix, which is what storedExtension() reads
+    QString ext = QString::fromStdString(App::FileBlobManager::storedExtension(filename));
+    return (ext.toLower() == QLatin1String("svg"));
 }
 
 QSizeF ViewProviderImagePlane::defaultSizeOfSvg(const char* filename) const

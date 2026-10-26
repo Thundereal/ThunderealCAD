@@ -137,6 +137,7 @@
 #include "View3DInventor.h"
 #include "View3DInventorViewer.h"
 #include "ViewArea.h"
+#include <App/SaveTrigger.h>
 #include "DlgObjectSelection.h"
 #include "Tools.h"
 #include <App/Color.h>
@@ -1376,8 +1377,11 @@ bool MainWindow::closeAllDocuments (bool close)
             }
         }
 
-        if (save && !gdoc->save())
-            failedSaves++;
+        if (save) {
+            App::SaveTrigger trigger("close-all-confirm");
+            if (!gdoc->save())
+                failedSaves++;
+        }
     }
 
     if (failedSaves > 0) {
@@ -1821,6 +1825,106 @@ void MainWindow::setActiveWindow(MDIView* view)
     updateActions();
 }
 
+void MainWindow::dropActiveWindow(MDIView* view, Document* own, Document* leaving)
+{
+    // The active window is a QPointer and lets go of a view only when the
+    // view is deleted -- a deferred delete, 110-180 ms after its close on
+    // the box where it was measured. A closed view whose document has
+    // another view is detached at its close (MDIView::closeEvent), and in
+    // between the menus' update asked it for Undo and Redo with no
+    // document (docs/HandsOnQueue.md entry 132: a page view's onHasMsg,
+    // during page exports to PDF). Nothing moves the active window then
+    // unless Qt activates another sub window, which it need not.
+    if (!view || d->activeView != view)
+        return;
+    // Who takes over. A cell of a split view whose sub window stays open:
+    // Qt activates nothing there, the sub window being the active one
+    // still, and the split view hands over to a cell beside it only when
+    // the closed view is deleted (ViewArea::childViewGone) -- on a screen
+    // the keyboard moving into that cell does it sooner, offscreen nothing
+    // does. So a cell beside it now, one of the same document first. Not
+    // \a view, a view that has left its document, or one of \a leaving,
+    // a document going with it.
+    MDIView* next = nullptr;
+    if (ViewArea* area = ViewArea::areaOf(view)) {
+        std::vector<MDIView*> cells;
+        for (auto cell : area->cells()) {
+            if (cell->childView())
+                cells.push_back(cell->childView()->activeSubView());
+        }
+        auto eligible = [&](MDIView* candidate) {
+            return candidate && candidate != view && candidate->getGuiDocument()
+                && candidate->getGuiDocument() != leaving;
+        };
+        for (auto candidate : cells) {
+            if (eligible(candidate) && (!own || candidate->getGuiDocument() == own)) {
+                next = candidate;
+                break;
+            }
+        }
+        for (auto it = cells.begin(); !next && it != cells.end(); ++it) {
+            if (eligible(*it))
+                next = *it;
+        }
+    }
+    if (next) {
+        // The usual path: the cell made its split view's active one, and
+        // the view activated through its sub window -- one activation,
+        // heard by the commands, the tree and whatever else follows it
+        setActiveWindow(next);
+        if (d->activeView != next) {
+            d->activeView = next;
+            Application::Instance->viewActivated(next);
+        }
+    }
+    else {
+        // A whole sub window going: Qt activates the next one itself, as
+        // it chooses, and onWindowActivated takes it then. Until it does,
+        // no active view rather than this one. Qt need not -- offscreen,
+        // the main window not active, a closed page view's sub window
+        // stays the active one until it is gone -- and then the window is
+        // picked here once the close has run its course: a view of the
+        // same document first, then the latest activated.
+        d->activeView = nullptr;
+        QPointer<MDIView> closing(view);
+        // By name: a document can be gone by then
+        auto nameOf = [](const Document* doc) {
+            return doc ? std::string(doc->getDocument()->getName()) : std::string();
+        };
+        QTimer::singleShot(0, this, [this, closing, ownName = nameOf(own),
+                                     leavingName = nameOf(leaving), nameOf]() {
+            if (d->activeView)
+                return;
+            std::vector<MDIView*> order;
+            const auto subs = d->mdiArea->subWindowList(QMdiArea::ActivationHistoryOrder);
+            for (auto it = subs.crbegin(); it != subs.crend(); ++it) {
+                if (auto top = dynamic_cast<MDIView*>((*it)->widget()))
+                    order.push_back(top->activeSubView());
+            }
+            auto eligible = [&](MDIView* candidate) {
+                return candidate && candidate != closing.data()
+                    && (candidate->isPassive() || candidate->getGuiDocument())
+                    && (leavingName.empty() || nameOf(candidate->getGuiDocument()) != leavingName);
+            };
+            MDIView* next = nullptr;
+            for (auto candidate : order) {
+                if (!ownName.empty() && eligible(candidate)
+                        && nameOf(candidate->getGuiDocument()) == ownName) {
+                    next = candidate;
+                    break;
+                }
+            }
+            for (auto it = order.begin(); !next && it != order.end(); ++it) {
+                if (eligible(*it))
+                    next = *it;
+            }
+            if (next)
+                setActiveWindow(next);
+        });
+    }
+    updateActions();
+}
+
 void MainWindow::onWindowActivated(QMdiSubWindow* w)
 {
     if (!w)
@@ -1830,6 +1934,11 @@ void MainWindow::onWindowActivated(QMdiSubWindow* w)
     // child, so the active view is always one commands can work on.
     if (view)
         view = view->activeSubView();
+    // Not a view closed and detached from its document, whose sub window
+    // is still on its way out (dropActiveWindow, docs/HandsOnQueue.md
+    // entry 132)
+    if (view && !view->isPassive() && !view->getGuiDocument())
+        return;
     if(view == d->activeView)
         return;
 

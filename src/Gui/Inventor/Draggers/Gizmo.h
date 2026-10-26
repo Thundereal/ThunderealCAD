@@ -35,10 +35,12 @@
 #include <Inventor/sensors/SoFieldSensor.h>
 #include <Inventor/nodekits/SoBaseKit.h>
 #include <Inventor/SbVec3f.h>
+#include <Inventor/SbColor.h>
 #include <QMetaObject>
 #include <QString>
 
 #include <Base/Color.h>
+#include <Base/Matrix.h>
 #include <Base/Placement.h>
 #include <Gui/DocumentObserver.h>
 #include <Gui/InputHint.h>
@@ -53,6 +55,8 @@ class SoInteractionKit;
 class SoNode;
 class SoScale;
 class SoSwitch;
+class SoSeparator;
+class SoTransform;
 
 namespace Gui
 {
@@ -119,11 +123,16 @@ public:
     virtual void setColor([[maybe_unused]] const std::optional<Base::Color>& color) {}
     /** Lit as a shape is under the pointer: View/HighlightColor, made
      * distinct from the handle's own colour where the two are close
-     * (docs/HandsOnQueue.md entry 144); the highlighted state above,
-     * View/SelectionColor, the same way, wins over it
+     * (docs/HandsOnQueue.md entry 144); it wins over the highlighted state
+     * above, View/SelectionColor, as on a shape (entry 196)
      */
     virtual void setPreselected([[maybe_unused]] bool preselected) {}
-    /// Told when the pointer comes onto the handle and leaves it
+    /** Told when the pointer comes onto the handle and leaves it. A press on
+     * the handle tells it left, though the pointer stays: the click shows
+     * the handle selected (the user, 2026-10-20: "when click to select the
+     * handle, its highlight should change from hover to selection"); it is
+     * told on again once the pointer has left and come back.
+     */
     using HoverCallback = std::function<void(bool over)>;
     void setHoverCallback(HoverCallback callback)
     {
@@ -151,6 +160,14 @@ public:
         if (menuCallback) {
             menuCallback();
         }
+    }
+    /** Hidden by the view's "Show handles" (OnViewValueSet::setHandlesShown,
+     * docs/OnViewValueEditing.md 8.5), whatever the owner's setVisibility()
+     * says; shown again as the owner has it
+     */
+    virtual void setHiddenInView(bool hidden)
+    {
+        hiddenInView = hidden;
     }
     //@}
 
@@ -181,6 +198,31 @@ public:
     virtual void cancelDrag() {}
     //@}
 
+    /** @name Reverse by dragging past the start (entry 170, the reporter
+     * 2026-10-18 12:10: "support auto reverse on drag beyond")
+     * A drag that goes back past the value's zero calls \a callback, which
+     * turns the feature the other way (its Reversed) and says whether it
+     * did; the value then grows again the other way instead of stopping at
+     * its minimum, and dragging back past the start turns it back. While a
+     * drag has turned it (isTurnedInDrag()), the owner leaves the handle
+     * where it is -- a handle moved or turned under the pointer would read
+     * the drag the other way round -- and \a replace, called when the drag
+     * ends, puts it where the feature now has it. A cancelled drag turns
+     * the feature back. Null for a value with nothing to reverse.
+     */
+    //@{
+    using ReverseCallback = std::function<bool()>;
+    void setReverseCallback(ReverseCallback callback, std::function<void()> replace)
+    {
+        reverseCallback = std::move(callback);
+        replaceCallback = std::move(replace);
+    }
+    bool isTurnedInDrag() const
+    {
+        return dragging && reversedInDrag;
+    }
+    //@}
+
 protected:
     /// What the pointer is over or not: the handle's own geometry. Made by
     /// initDragger(), and put in the container after the dragger.
@@ -194,6 +236,10 @@ protected:
     QString menuToolTip;
     bool menuPressed = false;
     bool hovered = false;
+    /// Pressed on while hovered: no hover until the pointer leaves
+    bool hoverHeld = false;
+    /// The press on the handle (its dragger's start): the hover dropped
+    void pressedOn();
     HoverCallback hoverCallback;
     /// Bumped at each change of hovered: a timer of an older one does nothing
     int hoverSerial = 0;
@@ -204,6 +250,11 @@ protected:
     void setHovered(bool over);
     /// No longer the handle whose hint shows; its tip hidden
     void dropTip();
+    /// The view with no widget -- a browser's -- this handle's hint was
+    /// given to (ViewerContext::setHint), and that view's lifetime
+    ViewerContext* hintView = nullptr;
+    std::weak_ptr<const void> hintViewLife;
+    void dropViewHint();
 
     DragCallback dragCallback;
     bool dragging = false;
@@ -217,6 +268,18 @@ protected:
     /// For the dragger's other events: Esc or another button cancels the drag
     static void otherDragEvent(void* data, SoDragger* dragger);
 
+    ReverseCallback reverseCallback;
+    std::function<void()> replaceCallback;
+    /// The feature turned by this drag, past its start
+    bool reversedInDrag = false;
+    /** \a value as dragged, from the start: past zero the feature is turned
+     * (or turned back) and the value is given back the other way round
+     */
+    double reverseIfPast(double value);
+    /// The drag's end: the feature turned back if \a cancelled, and the
+    /// handle put where the feature has it; true if it had turned the feature
+    bool endReverse(bool cancelled);
+
 protected:
     double multFactor = 1.0f;
     double addFactor = 0.0f;
@@ -225,6 +288,7 @@ protected:
     double initialValue;
 
     bool visible = true;
+    bool hiddenInView = false;
 };
 
 enum class LinearDraggerStyle
@@ -263,6 +327,7 @@ public:
     void setClickCallback(ClickCallback callback);
     void setReleaseCallback(ReleaseCallback callback) override;
     void setVisibility(bool visible);
+    void setHiddenInView(bool hidden) override;
     /** Draw the handle in its active colour while not dragged: the handle
      * that takes typed values (docs/OnViewValueEditing.md 3.2).
      */
@@ -332,6 +397,7 @@ public:
     void setAddFactor(const double val);
     void setClickCallback(ClickCallback callback);
     void setVisibility(bool visible);
+    void setHiddenInView(bool hidden) override;
 
     /// As a linear handle's (an angle typed in the view, a chamfer's), but
     /// with no root button: its value's menu is opened from another handle
@@ -403,6 +469,7 @@ class GuiExport GizmoContainer: public SoBaseKit
     SO_KIT_CATALOG_ENTRY_HEADER(pickStyle);
     SO_KIT_CATALOG_ENTRY_HEADER(toggleSwitch);
     SO_KIT_CATALOG_ENTRY_HEADER(geometry);
+    SO_KIT_CATALOG_ENTRY_HEADER(marks);
 
 public:
     static void initClass();
@@ -430,8 +497,29 @@ public:
     /// Take out and delete a gizmo of this container
     void removeGizmo(Gui::Gizmo* gizmo);
     void attachViewer(Gui::ViewerContext* viewer, Base::Placement& origin);
+    /** The gizmos' frame in world coordinates: the document's editing
+     * transform and the offset from it attachViewer() was given -- where a
+     * value's label beside its handle goes (OnViewValueSet::placeAnchors)
+     */
+    Base::Matrix4D getWorldMatrix() const;
     void setUpAutoScale(SoCamera* cameraIn);
     void calculateScaleAndOrientation();
+
+    /** Marks drawn with the gizmos, in their frame and on top, but not
+     * picked and not hidden with them (`visible`): what an owner shows where
+     * a gizmo cannot be -- a fillet's red cross where a failed edge's arrow
+     * would stand (docs/HandsOnQueue.md entry 180, addCross()). Its first
+     * child is the pick style that makes it unpickable; clearMarks()
+     * removes everything after it.
+     */
+    SoSeparator* getMarks();
+    void clearMarks();
+    /** A cross at \a pos in the marks: two bars as thick as a linear
+     * handle's shaft, facing the camera and kept at the handles' size on
+     * the screen as they are (the reporter 2026-10-19 15:08: "make the two
+     * bars in the cross as thick as the handle arrow lines")
+     */
+    void addCross(const SbVec3f& pos, const SbColor& color);
 
     // Checks if the gizmos are enabled in the preferences
     static bool isEnabled();
@@ -456,6 +544,21 @@ private:
     SoFieldSensor cameraSensor;
     SoFieldSensor cameraPositionSensor;
     WeakPtrT<ViewProviderDragger> viewProvider;
+    /// The offset from the editing transform attachViewer() was given
+    Base::Matrix4D origin;
+    /// addCross()'s crosses: where each stands, and its transform, which
+    /// the camera callbacks scale and turn as they do the gizmos
+    std::vector<std::pair<SbVec3f, SoTransform*>> crosses;
+    /// The view attachViewer() put the gizmos in, and its lifetime: whose
+    /// event grab a gizmo going away must not leave behind
+    ViewerContext* viewer = nullptr;
+    std::weak_ptr<const void> viewerLife;
+    /** Lets go of the view's event grab when the grabber is \a node or
+     * under it: Coin keeps the grabber as a plain pointer, and a grabber
+     * deleted with its gizmo was traversed (a pure virtual call) and then
+     * released (an access violation) -- docs/HandsOnQueue.md entry 186
+     */
+    void releaseGrabUnder(SoNode* node);
 
     void addGizmo(Gizmo* gizmo);
 

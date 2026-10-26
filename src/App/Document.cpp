@@ -96,6 +96,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 
 #include <App/DocumentPy.h>
 #include <Base/Console.h>
+#include "SaveTrigger.h"
 #include <Base/ConsoleContext.h>
 #include <Base/Exception.h>
 #include <Base/ExceptionSafeCall.h>
@@ -157,6 +158,42 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 #include <zipios++/meta-iostreams.h>
 
 FC_LOG_LEVEL_INIT("App", true, 2, true)
+
+// Who asked for a save (SaveTrigger.h, docs/HandsOnQueue.md entry 167): the
+// scopes open on this thread, outermost first. A save runs on the thread
+// that asked for it, so the thread's own stack is the record.
+namespace {
+thread_local std::vector<std::string> _saveTriggers;
+}
+
+App::SaveTrigger::SaveTrigger(const std::string& name)
+{
+    _saveTriggers.push_back(name);
+}
+
+App::SaveTrigger::~SaveTrigger()
+{
+    if (!_saveTriggers.empty())
+        _saveTriggers.pop_back();
+}
+
+std::string App::SaveTrigger::current()
+{
+    if (_saveTriggers.empty())
+        return unknown();
+    std::string out;
+    for (const auto& name : _saveTriggers) {
+        if (!out.empty())
+            out += '/';
+        out += name;
+    }
+    return out;
+}
+
+bool App::SaveTrigger::active()
+{
+    return !_saveTriggers.empty();
+}
 
 using Base::Console;
 using Base::streq;
@@ -4814,7 +4851,35 @@ void Document::addRecomputeObject(DocumentObject *obj) {
         setStatus(Status::RecomputeOnRestore, true);
         d->touchedObjs.insert(obj);
         obj->enforceRecompute();
+        // remembered past the prompt, which forgets the document's mark: a
+        // touch alone does not tell a migration from the user's own change
+        obj->setStatus(ObjectStatus::MigrationPending, true);
     }
+}
+
+int Document::recomputeMigration(DocumentObject *obj)
+{
+    // "I remember I did the migration recompute ... in the future, we may
+    // need localized migration partial recompute to just get the updated
+    // preview shapes" -- "1, but make sure only do this for the migration
+    // case" (the user, docs/HandsOnQueue.md entries 209 and 211). An old
+    // file opened without its migration recompute keeps a feature's old
+    // element names, and an edit's preview cannot be told from them which
+    // reference it shows. The feature and what it needs, recomputed alone:
+    // 22 objects in 0.33 s against 29 s for the whole of scanner.FCStd.
+    if (!obj || !obj->isAttachedToDocument())
+        return 0;
+    bool pending = false;
+    for (auto dep : getDependencyList({obj})) {
+        if (dep->testStatus(ObjectStatus::MigrationPending)) {
+            pending = true;
+            break;
+        }
+    }
+    if (!pending)
+        return 0;
+    FC_LOG("migration recompute for " << obj->getFullName());
+    return obj->getDocument()->recompute({obj});
 }
 
 std::vector<App::DocumentObject*>
@@ -6180,6 +6245,11 @@ bool Document::saveToFile(const char* filename) const
     if (getSaveSchemaVersion() < getCurrentSchemaVersion() && getTransactionLog())
         const_cast<Document*>(this)->_snapshotToLog("save");
 
+    // Every write of a project file says so, and by whom (docs/HandsOnQueue.md
+    // entry 167): a save writes no other console line, and a console log kept
+    // by a host -- the MCP console's -- then carries it.
+    Base::Console().Log("Saved %s (schema %d) by %s\n", filename, int(getSaveSchemaVersion()),
+                        SaveTrigger::current().c_str());
     if(!archive) {
         std::vector<std::pair<std::string,int> > files;
         for(const auto &f : fileNames) {
@@ -7117,7 +7187,7 @@ void Document::embedHistory(bool archive, Base::FileWriter* folder)
             }
             if (version) {
                 const std::string was = version->getValue();
-                version->setValue(mine->noteSave());
+                version->setValue(mine->noteSave(SaveTrigger::current()));
                 auto restore = d->restoreHistory;
                 d->restoreHistory = [restore, version, was]() {
                     if (restore)
@@ -7137,11 +7207,12 @@ void Document::embedHistory(bool archive, Base::FileWriter* folder)
             const std::string name = historyFileName();
             const std::string dir = folder->getDirName();
             copy = log->embedFolder(LastModifiedDate.getValue(), FileHistory::canonicalPath(dir),
-                                    folder->getStageDir() + "/" + name, dir + "/" + name);
+                                    folder->getStageDir() + "/" + name, dir + "/" + name,
+                                    SaveTrigger::current());
             d->folderSaveId = copy.saveId;
         }
         else {
-            copy = log->embed(LastModifiedDate.getValue());
+            copy = log->embed(LastModifiedDate.getValue(), SaveTrigger::current());
         }
         auto& manager = getFileBlobManager();
         FileBlobHandle db = toFolder ? FileBlobHandle() : manager.adoptFile(copy.path.c_str(), "db");
@@ -7385,8 +7456,13 @@ std::string Document::materialiseVersion(TransactionLogCore& log, int64_t num, c
             continue;
         }
         ++written;
+        // A blob written under the transient directory ends in ".blob"
+        // (docs/HandsOnQueue.md entry 206): the directory restore reads the
+        // name and type back from before the suffix. Not the index, which
+        // that restore knows by its exact name.
+        const bool neutral = isBlob && e.entry != FileBlobManager::indexName();
         Base::FileInfo target(dir + "/" + (isBlob ? FileBlobManager::archivePrefix() : "")
-                              + e.entry);
+                              + (neutral ? FileBlobManager::neutralName(e.entry) : e.entry));
         CapturedValue v;
         if (!log.readValue(e.hash, v))
             THROWM(Base::RuntimeError, "version entry " + e.entry + " cannot be read");
@@ -17612,8 +17688,10 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
         return 0;
     }
 
-    // delete recompute log
-    d->clearRecomputeLog();
+    // the recompute log keeps the messages of the objects still in error
+    // (entry 205); what this recompute adds says whether it failed
+    d->pruneRecomputeLog();
+    const auto logAddedBefore = d->recomputeLogAdded;
 
     d->skippedObjs.clear();
 
@@ -17908,7 +17986,7 @@ int Document::recompute(const std::vector<App::DocumentObject*> &objs, bool forc
 
     FC_TIME_LOG(t,"Recompute total");
 
-    if (!d->_RecomputeLog.empty()) {
+    if (d->recomputeLogAdded != logAddedBefore) {
         if (!testStatus(Status::IgnoreErrorOnRecompute))
             Base::Console().Error("Recompute failed!\n");
     }

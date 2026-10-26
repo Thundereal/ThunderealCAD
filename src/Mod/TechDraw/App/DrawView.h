@@ -124,6 +124,24 @@ public:
     void overrideKeepUpdated(bool s) { m_overrideKeepUpdated = s; }
     bool overrideKeepUpdated(void) { return m_overrideKeepUpdated; }
 
+    /** @name A failure of work done after execute() returned
+     * (docs/TechDrawErrors.md 3.1). A view's projection, faces, section or
+     * detail cut run on worker threads, and execute() has returned success
+     * by the time they fail. Called on the GUI thread once the worker is
+     * done. An error is the object's recompute error, as if execute() had
+     * returned it; a warning -- a result usable but partial -- leaves the
+     * object valid and shows in its tool tip. Both go at the next recompute.
+     * An error reported while the object is in its own recompute -- a
+     * failure caught there rather than thrown -- is that recompute's.
+     */
+    //@{
+    void reportLateError(const std::string& why);
+    void reportLateWarning(const std::string& why);
+    /// The warnings since the last recompute, one per line
+    const std::string& getLateWarnings() const { return m_lateWarnings; }
+    App::DocumentObjectExecReturn* recompute() override;
+    //@}
+
     void translateLabel(std::string context, std::string baseName, std::string uniqueName);
 
 protected:
@@ -141,6 +159,11 @@ private:
     static App::PropertyFloatConstraint::Constraints scaleRange;
 
     bool m_overrideKeepUpdated;
+    std::string m_lateWarnings;
+    /// reportLateError() from inside this object's own recompute: returned
+    /// as its error when the recompute ends
+    std::string m_heldError;
+    bool m_inRecompute = false;
 };
 
 using DrawViewPython = App::FeaturePythonT<DrawView>;

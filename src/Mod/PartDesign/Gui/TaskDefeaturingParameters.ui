@@ -45,7 +45,7 @@ be removed using the Delete key.</string>
     </layout>
    </item>
    <item>
-    <widget class="QTreeWidget" name="treeWidgetReferences">
+    <widget class="PartDesignGui::StickyColumnTreeWidget" name="treeWidgetReferences">
      <property name="toolTip">
       <string>The faces to remove. The solid is healed where they were:
 pick the faces of a hole, a fillet or a boss to take it off.</string>
@@ -72,6 +72,13 @@ pick the faces of a hole, a fillet or a boss to take it off.</string>
   <tabstop>buttonRefAdd</tabstop>
   <tabstop>treeWidgetReferences</tabstop>
  </tabstops>
+ <customwidgets>
+  <customwidget>
+   <class>PartDesignGui::StickyColumnTreeWidget</class>
+   <extends>QTreeWidget</extends>
+   <header>Mod/PartDesign/Gui/StickyColumnTreeWidget.h</header>
+  </customwidget>
+ </customwidgets>
  <resources/>
  <connections/>
 </ui>

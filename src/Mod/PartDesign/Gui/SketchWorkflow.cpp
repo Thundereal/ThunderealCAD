@@ -581,8 +581,8 @@ private:
             Gui::Selection().clearSelection();
 
             // Show dialog and let user pick plane
-            Gui::Control().showDialog(new PartDesignGui::TaskDlgFeaturePick(planes, status, acceptFunction,
-                                                                            processFunction, true, rejectFunction));
+            PartDesignGui::showTaskDialog(new PartDesignGui::TaskDlgFeaturePick(planes, status, acceptFunction,
+                                                                                processFunction, true, rejectFunction));
         }
     }
 

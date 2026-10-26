@@ -665,7 +665,11 @@ for bit (the grounded parts are made solver bodies in name order now, not
 in an `unordered_set`'s). Left of F1: the redundancy search still throws
 and re-factorises; no early-out when already solved; the column order is
 kept across a run's iterations only, and found again for each run (each
-drag step).
+drag step). And the Newton iteration has no step control: an ordinary edit
+(the bench's 5 degree offset change, a touched leaf, a joint added) sends
+the parts metres away before a redundancy search sets equations aside, and
+costs at chain 200 what it did before (a minute and more), the replay
+being the old elimination and the search being slow either way.
 
 **Phase 3 -- from Assembly3, and its importer** (`docs/AssemblyFromAsm3.md`).
 Its behaviours, not its objects -- Element objects would put a second

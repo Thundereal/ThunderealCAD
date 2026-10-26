@@ -3202,7 +3202,14 @@ stopped). Both are handled in `run()`:
   far from their joints: 40 with Distance joints (whose squared forms send
   the steps far), the rest `test_drag_bundles_fixed`,
   `test_partially_redundant` and `test_drag_moves_fixed_neighbour`; none in
-  the bench chains;
+  the bench chains' first solves. But an ordinary edit wanders too: in the
+  bench, turning the middle joint's offset 5 degrees about x sends the
+  largest position step from 10 mm through 786 mm to 29 m in five
+  iterations, with the old elimination as with the new, before a
+  redundancy search sets equations aside (of Revolute joints, in a chain
+  with nothing redundant) and the rest converges. Replayed, that edit
+  costs at 200 parts what it did before -- a minute -- and so do a touched
+  leaf, a joint added and a drag (GUI bench, chain 200);
 - a singular matrix whose redundancy search sets nothing new aside is
   solved again the same way if it was not already, and otherwise fails
   ("singular matrix, no redundant constraint found") instead of looping:
@@ -3234,12 +3241,16 @@ failures (370 + the new test).
 
 **Not done:** a large assembly whose solve wanders is solved twice, the
 second time at the old elimination's speed -- as slow as before, and the
-abandoned first try on top; the drag steps and kinematic runs have no replay (they have
-no redundancy rounds; a degenerate drag step may end in other last bits
-than before); the velocity solves keep `GESpMatParPvPrecise`; past about
-1000 parts in a chain the equilibrated pivots reach the 1e-12 tolerance
-and steps go to the old elimination again; the Newton iteration has no
-damping or line search, which the wandering starts would want.
+abandoned first try on top; without the replay it is little faster, the
+redundancy search (`GESpMatFullPvPosIC`, a full pivoting elimination) then
+taking the time. The cause is the iteration's lack of any step control:
+no damping, no line search, no bound on a part's turn per step, which the
+Reference and Chrono backends have (sec 6.13, 6.15). The drag steps and
+kinematic runs have no replay (they have no redundancy rounds; a
+degenerate drag step may end in other last bits than before); the
+velocity solves keep `GESpMatParPvPrecise`; past about 1000 parts in a
+chain the equilibrated pivots reach the 1e-12 tolerance and steps go to
+the old elimination again.
 
 ### 6.4 Where Python must change
 

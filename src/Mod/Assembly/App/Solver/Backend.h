@@ -148,6 +148,19 @@ public:
     virtual bool frame(double time, const std::vector<BodyPose>& poses) = 0;
 };
 
+// What centredOnJoints gives each body: the centre of its joints in the
+// body's frame, and its inertia. 'sized' is false for a grounded body and a
+// body without a joint frame, which keep their frame and an inertia of 1.
+// 'body' is the body the solve moves it with: itself, or the first body of
+// the group groupedRigidly put it in.
+struct BodyMetric
+{
+    bool sized = false;
+    Base::Vector3d centre;
+    double inertia = 1.0;
+    Id body = NoId;
+};
+
 // One warm system: one connected component, or the whole model.
 class Session
 {
@@ -189,6 +202,12 @@ public:
         (void)path;
         return Status::Unsupported;
     }
+    // How the solve weighs each body of the model it was given (sec 6.20);
+    // empty when the session does not say.
+    virtual std::vector<BodyMetric> bodyMetric() const
+    {
+        return {};
+    }
 };
 
 class Backend
@@ -218,15 +237,6 @@ public:
 // bodies without a joint frame are left as they are.
 AssemblyExport std::unique_ptr<Session> centredOnJoints(std::unique_ptr<Session> session);
 
-// What centredOnJoints gives each body: the centre of its joints in the
-// body's frame, and its inertia. 'sized' is false for a grounded body and a
-// body without a joint frame, which keep their frame and an inertia of 1.
-struct BodyMetric
-{
-    bool sized = false;
-    Base::Vector3d centre;
-    double inertia = 1.0;
-};
 AssemblyExport std::vector<BodyMetric> jointMetric(const Model& model);
 
 // The kinematic run of sec 4.6 on any session that solves positions: at each

@@ -134,12 +134,16 @@ public:
     {
         return inner->exportNative(path);
     }
+    std::vector<BodyMetric> bodyMetric() const override
+    {
+        return metric;
+    }
 
 private:
     Model centred(const Model& model)
     {
         const std::size_t n = model.bodies.size();
-        const std::vector<BodyMetric> metric = jointMetric(model);
+        metric = jointMetric(model);
         Model out = model;
         centres.assign(n, Base::Placement());
         shifted.assign(n, false);
@@ -194,6 +198,7 @@ private:
     std::unique_ptr<Session> inner;
     std::vector<Base::Placement> centres;  // per body: its centre in its own frame
     std::vector<bool> shifted;
+    std::vector<BodyMetric> metric;  // per body of the model given
     std::vector<std::pair<Base::Placement, Base::Placement>> starts;  // centred, own
 };
 
@@ -219,6 +224,7 @@ std::vector<BodyMetric> Assembly::Solver::jointMetric(const Model& model)
     }
     std::vector<BodyMetric> metric(n);
     for (std::size_t b = 0; b < n; ++b) {
+        metric[b].body = static_cast<Id>(b);
         const Base::BoundBox3d& box = boxes[b];
         if (model.bodies[b].grounded || !box.IsValid()) {
             continue;
@@ -226,7 +232,7 @@ std::vector<BodyMetric> Assembly::Solver::jointMetric(const Model& model)
         // A turn weighs as much as moving the box's corner along its arc
         // (Euler parameters move by half the angle, so 4 r^2), r at least 1 mm.
         const double r = std::max(0.5 * box.CalcDiagonalLength(), 1.0);
-        metric[b] = {true, box.GetCenter(), 4.0 * r * r};
+        metric[b] = {true, box.GetCenter(), 4.0 * r * r, static_cast<Id>(b)};
     }
     return metric;
 }

@@ -3374,6 +3374,75 @@ solve that falls back to restoring ends on the constraints near the start,
 not at the closest pose (within 0.2 % of it in the gate). The Reference is
 dense, so at 200 parts it takes minutes.
 
+### 6.21 As built: bodies held rigidly leave the solve (2026-10-27)
+
+**Assembly3's way.** Before its solver runs, `Constraint.getFixedParts`
+takes every Attachment constraint with a fixed part on one side, computes the
+other part's placement from the two elements' placements (a matrix product,
+no solver), makes that part fixed, and removes the constraint; the parts so
+fixed can fix the next. An Attachment with no fixed side stays a solver
+constraint (a PlaneCoincident with the angle locked). Only Attachments count,
+and its cascade is one pass in list order (the `nxt` list it loops on is
+never filled).
+
+**Here** (`Solver::groupedRigidly`, `Solver/RigidGroups.{h,cpp}`; the
+session wraps `centredOnJoints`, which wraps the backend's): the same idea
+for any joints, and for bodies that reach no fixed body.
+- From the grounded bodies: a body whose joints to the held ones carry 6
+  equations or more is tried. One Fixed joint places it by multiplying its
+  frames, as Assembly3 places an Attachment; any other set is solved for that
+  body alone by the Reference backend (six unknowns, the others' frames on
+  the ground), and taken when it converges with DoF 0 and no dependent
+  equation. A placed body is held in turn, until no body can be placed.
+- Then the first remaining body (model order) is a ground of its own, and
+  the bodies it holds rigidly the same way become one body with it, each at
+  the offset its placing gave; then the next remaining body, until none is
+  left.
+- Never taken out: a set of joints with a dependent equation (it stays with
+  the backend, which finds and reports the redundancy as before), a body a
+  limit or a driver touches, a joint that couples rotations or holds a point
+  on a curve (their equations count turns or follow a point, not the two
+  poses alone).
+
+The smaller model has the placed bodies' frames on the ground, each group's
+members' frames on its first body, the joints that placed a body removed.
+Poses, drag targets (a member's target taken to its group's body), the
+diagnostics' joint ids and per-body DoF map back; the DoF is the same, each
+body taken out with six independent equations. A model with nothing to
+take out goes to the backend unchanged. `Session::bodyMetric()` says what
+each body weighs and which solver body it moves with, so
+`getSolverMetric()` reports the metric of the solve that ran, and the gate
+counts a group once.
+
+Where a Fixed joint starts violated, the group's first body keeps its start
+and the member goes to it, where the whole solve moved both towards each
+other; `test_drag_bundles_fixed` (C 50 mm from where its Fixed joint puts it)
+is the gate's one case that moved for this, 13.7 mm. The other five records
+taken again (the bench chains and stars, the Fixed joint case) changed their
+digests and moved by rounding.
+
+**Results** (the bench chain, OndselSolver, before -> after; the chain's
+Fixed joints pair its boxes, so the backend sees half the bodies):
+
+| | 100 parts | 200 parts |
+|---|---|---|
+| solve | 0.23 -> 0.13 s | 0.90 -> 0.64 s |
+| the 5 degree edit | 0.30 -> 0.18 s | 1.11 -> 0.65 s |
+| a touched leaf | 0.28 -> 0.21 s | 1.00 -> 0.77 s |
+| preDrag | 0.40 -> 0.33 s | 2.06 -> 1.60 s |
+| ten drag steps | 1.30 -> 1.25 s | 4.12 -> 3.71 s |
+
+Chrono's solve at 100 parts went from 0.36 to 0.09 s and the edit from
+4.1 to 0.75 s; at 200 it still fails the edit and its drag. The Assembly
+suite 372 run (the new `TestSolverBackend.test_rigid_groups`), 59 skipped,
+no failures; ctest 1000/1000.
+
+**Not done:** a group is placed from its first body's start, not the
+closest pose of all its bodies; a body is tried against the held ones alone,
+so two bodies that are rigid only together (neither alone) stay with the
+backend; the drag still bundles Fixed joints by the parts' current offsets
+(`bundleFixed`) before this sees the model.
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a

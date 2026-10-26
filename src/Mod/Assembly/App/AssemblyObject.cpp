@@ -73,6 +73,7 @@
 #include "Solver/Backend.h"
 #include "Solver/ReferenceBackend.h"
 #include "Solver/Registry.h"
+#include "Solver/RigidGroups.h"
 
 FC_LOG_LEVEL_INIT("Assembly", true, true, true)
 
@@ -688,7 +689,13 @@ std::vector<std::tuple<std::string, Base::Vector3d, double, int>> AssemblyObject
     if (!solverModel) {
         return out;
     }
-    const std::vector<Solver::BodyMetric> metric = Solver::jointMetric(*solverModel);
+    std::vector<Solver::BodyMetric> metric;
+    if (session) {
+        metric = session->bodyMetric();
+    }
+    if (metric.size() != solverModel->bodies.size()) {
+        metric = Solver::jointMetric(*solverModel);
+    }
     for (const auto& [obj, data] : objectPartMap) {
         if (!obj || !obj->isAttachedToDocument() || data.body >= metric.size()) {
             continue;
@@ -698,7 +705,7 @@ std::vector<std::tuple<std::string, Base::Vector3d, double, int>> AssemblyObject
         const Solver::BodyMetric& m = metric[data.body];
         Base::Vector3d centre;
         data.offsetPlc.inverse().multVec(m.centre, centre);
-        out.emplace_back(obj->getNameInDocument(), centre, m.inertia, static_cast<int>(data.body));
+        out.emplace_back(obj->getNameInDocument(), centre, m.inertia, static_cast<int>(m.body));
     }
     std::ranges::sort(out, [](const auto& a, const auto& b) {
         return std::get<0>(a) < std::get<0>(b);
@@ -1615,7 +1622,9 @@ void AssemblyObject::makeMbdModel()
 {
     loadedBodies = 0;
     Solver::Backend* backend = Solver::Registry::instance().select(this);
-    session = backend ? Solver::centredOnJoints(backend->createSession()) : nullptr;
+    session = backend
+        ? Solver::groupedRigidly(Solver::centredOnJoints(backend->createSession()))
+        : nullptr;
     if (!session) {
         FC_ERR("Assembly: no solver backend is registered");
         return;

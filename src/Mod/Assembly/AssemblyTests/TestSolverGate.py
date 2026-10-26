@@ -58,6 +58,13 @@ constraints' error, so the three solves that wandered off before
 (PointPoint d=0, test_drag_bundles_fixed, LineTorus) now solve as the other
 backends do. Placements with no freedom left stayed within the tolerance.
 
+Since sec 6.21 the bodies the joints hold rigidly are placed before the
+backend sees the model, and leave it; six records were taken again, the
+model text of the cases with a Fixed joint and placements that moved by
+rounding, but test_drag_bundles_fixed, whose Fixed joint starts 50 mm off:
+C is moved onto B's frame, one body with it, and B goes where the
+Revolute takes it, instead of the two meeting between.
+
 Every other registered backend (AssemblyApp.getAvailableSolvers(); since sec
 6.13 the Reference backend) runs the same cases through the assembly's
 SolverBackend property, in a generated class named after the case's class and

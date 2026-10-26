@@ -500,6 +500,50 @@ class TestSolverBackend(AssemblyTestBase):
         revolutes = sum(i % 2 for i in range(1, len(boxes)))
         self.assertEqual(self.assembly.getSolveStatus()["DoF"], revolutes)
 
+    def test_rigid_groups(self):
+        """Bodies the joints hold rigidly leave the solve (docs/AssemblySolverInterface.md sec 6.21).
+
+        A box Fixed to the grounded one is placed by its joint's frames,
+        exactly; a box Fixed to one a Revolute holds moves with it, one body;
+        a box held by a Fixed and a Revolute joint is not taken out, and the
+        redundancy is reported as the solver finds it.
+        """
+        g, a, b, c, d = [self.assembly.newObject("Part::Box", "Box") for i in range(5)]
+        self.doc.recompute()  # the shapes the references name
+        ground = self.jointgroup.newObject("App::FeaturePython", "GroundedJoint")
+        JointObject.GroundedJoint(ground, g)
+
+        def joint(kind, one, two):
+            j = self.jointgroup.newObject("App::FeaturePython", "testJoint")
+            JointObject.Joint(j, kind)
+            j.Proxy.setJointConnectors(j, [[one, ["Face2", "Face2"]], [two, ["Face1", "Face1"]]])
+            return j
+
+        hinge = joint(1, g, a)  # Revolute
+        arm = joint(0, a, b)  # Fixed
+        placed = joint(0, g, c)  # Fixed
+        held = joint(0, c, d)  # Fixed
+        extra = joint(1, c, d)  # Revolute, redundant with it
+        for i, box in enumerate((a, b, c, d)):
+            box.Placement = App.Placement(
+                App.Vector(12.0 * (i + 1), 3.0 * i, -2.0), App.Rotation(5.0 * i, 10.0, -7.0)
+            )
+        self.assertEqual(self.assembly.solve(), 0)
+
+        residuals = self.assembly.getSolverResiduals()
+        for j in (hinge, arm, placed):
+            self.assertLess(residuals[j.Name], 1e-9, j.Name)
+        status = self.assembly.getSolveStatus()
+        self.assertEqual(status["DoF"], 1)
+        self.assertTrue(set(status["Redundant"]) & {held.Name, extra.Name}, status)
+        for j in (hinge, arm, placed):
+            self.assertNotIn(j.Name, status["Redundant"])
+
+        metric = self.assembly.getSolverMetric()
+        self.assertEqual(metric[a.Name][2], metric[b.Name][2], "a and b one body")
+        self.assertNotEqual(metric[a.Name][2], metric[c.Name][2])
+        self.assertNotEqual(metric[c.Name][2], metric[d.Name][2], "d not taken out")
+
     def test_reference_backend(self):
         """The Reference backend, chosen by the property, solves as OndselSolver does.
 

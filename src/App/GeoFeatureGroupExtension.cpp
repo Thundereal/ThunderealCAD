@@ -24,6 +24,9 @@
 
 #include "PreCompiled.h"
 
+#include <unordered_map>
+#include <unordered_set>
+
 #include <App/Document.h>
 #include <Base/Console.h>
 #include <Base/Tools.h>
@@ -58,7 +61,27 @@ GeoFeatureGroupExtension::GeoFeatureGroupExtension()
     ClaimAllChildren.setValue(false);
 }
 
-GeoFeatureGroupExtension::~GeoFeatureGroupExtension() = default;
+namespace {
+/** The members each group checked at its last change of Group: a change that
+ * only adds checks only what it adds. Every check went over every member --
+ * its other owners, its coordinate-system links -- and a group of N members
+ * built one at a time paid O(N) a member: an assembly's joints and element
+ * links are its members. Held here rather than in the class, whose header
+ * most of the tree includes. Pointers only compared, never followed.
+ */
+std::unordered_map<const GeoFeatureGroupExtension*,
+                   std::unordered_set<const DocumentObject*>> &checkedMembers()
+{
+    static std::unordered_map<const GeoFeatureGroupExtension*,
+                              std::unordered_set<const DocumentObject*>> map;
+    return map;
+}
+}
+
+GeoFeatureGroupExtension::~GeoFeatureGroupExtension()
+{
+    checkedMembers().erase(this);
+}
 
 void GeoFeatureGroupExtension::initExtension(ExtensionContainer* obj) {
 
@@ -326,6 +349,7 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
     //objects are only allowed in a single GeoFeatureGroup
     if(p == &Group && !Group.testStatus(Property::User3)) {
     
+        auto &checked = checkedMembers()[this];
         if((!owner->isRestoring()
                 || owner->getDocument()->testStatus(Document::Importing))
             && !owner->getDocument()->isPerformingTransaction())
@@ -334,6 +358,21 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
             auto children = Group.getValues();
             std::unordered_map<App::DocumentObject*, bool> objMap;
             std::vector<App::DocumentObject *> crossLinks;
+            // Only what is added needs looking at, unless something left:
+            // a member may have linked to it
+            bool removed = false;
+            {
+                std::unordered_set<const DocumentObject*> now(children.begin(), children.end());
+                for (auto obj : checked) {
+                    if (!now.count(obj)) {
+                        removed = true;
+                        break;
+                    }
+                }
+            }
+            auto isNew = [&](const DocumentObject *obj) {
+                return removed || !checked.count(obj);
+            };
             for(auto it=children.begin(),itNext=it;it!=children.end();it=itNext) {
                 ++itNext;
                 auto obj = *it;
@@ -359,7 +398,7 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
                 // A member the group does not own (hasObject() says so: a
                 // PartDesign::Boolean's tool body, say) is a reference: it
                 // has its own place, and neither of the checks below is about it
-                if (!hasObject(obj))
+                if (!hasObject(obj) || !isNew(obj))
                     continue;
 
                 //we have already set the obj into the group, so in a case of multiple groups getGroupOfObject
@@ -384,7 +423,7 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
                 retry = false;
                 for(auto it=children.begin();it!=children.end();++it) {
                     auto obj = *it;
-                    if (!hasObject(obj))
+                    if (!hasObject(obj) || !isNew(obj))
                         continue;
                     auto &valid = objMap[obj];
                     for(auto link : getCSRelevantLinks(obj)) {
@@ -412,6 +451,7 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
             }while(retry);
 
             buildExport(children);
+            checked = std::unordered_set<const DocumentObject*>(children.begin(), children.end());
 
             //if an error was found we need to correct the values and inform the user
             if(error) {
@@ -425,6 +465,10 @@ void GeoFeatureGroupExtension::extensionOnChanged(const Property* p) {
                 FC_WARN("Auto correct group member for " << owner->getFullName());
 #endif
             }
+        }
+        else {
+            // Not checked: the next change checks every member
+            checked.clear();
         }
 
         // Skip handling in parent class GroupExtension

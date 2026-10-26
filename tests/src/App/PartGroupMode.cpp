@@ -14,6 +14,7 @@
 #include "App/FeatureTest.h"
 #include "App/Link.h"
 #include "App/Part.h"
+#include "Base/Exception.h"
 #include <src/App/InitApplication.h>
 
 // NOLINTBEGIN(readability-magic-numbers)
@@ -333,6 +334,38 @@ TEST_F(PartGroupModeTest, aChildAGlobalLinkRefersToIsExported)
     p->addObjects({obj, other});
 
     EXPECT_EQ(exported(p), std::vector<App::DocumentObject*>({obj, other}));
+}
+
+// A change of Group checks only the members it adds, unless one left: the
+// checks must still catch both
+TEST_F(PartGroupModeTest, aMemberAddedLaterLinkingOutOfThePartIsTakenOut)
+{
+    auto p = part("P");
+    auto q = part("Q");
+    auto a = feature("A");
+    auto b = feature("B");
+    auto c = feature("C");
+    q->addObject(b);
+    p->Group.setValues({a});
+    c->Link.setValue(b);
+
+    EXPECT_THROW(p->Group.setValues({a, c}), Base::RuntimeError);
+
+    EXPECT_EQ(p->Group.getValues(), std::vector<App::DocumentObject*>({a}));
+}
+
+TEST_F(PartGroupModeTest, aMemberLeftLinkingToOneThatLeftIsTakenOut)
+{
+    auto p = part("P");
+    auto x = feature("X");
+    auto y = feature("Y");
+    y->Link.setValue(x);
+    p->Group.setValues({x, y});
+    ASSERT_EQ(p->Group.getValues(), std::vector<App::DocumentObject*>({x, y}));
+
+    EXPECT_THROW(p->Group.setValues({y}), Base::RuntimeError);
+
+    EXPECT_TRUE(p->Group.getValues().empty());
 }
 
 TEST_F(PartGroupModeTest, aLinkSetAfterIsFollowedOnRecompute)

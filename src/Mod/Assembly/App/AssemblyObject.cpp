@@ -101,10 +101,11 @@ Base::Placement getJointSideGlobalPlacement(
     }
 
     if (int side = typedJointSide(joint, refName)) {
-        // A C++ joint's frame is in its assembly's coordinate system
+        // A C++ joint's frame is in its assembly's coordinate system, or
+        // the flexible sub-assembly instance's holding its mirror
         auto* typed = static_cast<Joint*>(joint);
-        auto* assembly = typed->getAssembly();
-        return (assembly ? assembly->globalPlacement() : Base::Placement())
+        auto* container = typed->getContainer();
+        return (container ? container->globalPlacement() : Base::Placement())
             * typed->getSide(side).frame;
     }
 
@@ -1487,7 +1488,25 @@ void AssemblyObject::setNewPlacements(
             const Base::Placement delta = newPlacement * propPlacement->getValue().inverse();
             propPlacement->setValue(newPlacement);
             obj->purgeTouched();
-            Joint::relocateCopies(this, obj, delta);
+            // The copies that follow it: in this assembly, and, for a part
+            // of a flexible sub-assembly instance, in the instance too, the
+            // move then said in each one's coordinate system
+            auto* container = Base::freecad_dynamic_cast<App::Part>(
+                App::GeoFeatureGroupExtension::getGroupOfObject(obj));
+            if (container && container != this) {
+                Joint::relocateCopies(container, obj, delta);
+                // Down the placements, not the global ones: those throw
+                // while this assembly recomputes, as a solve on recompute is
+                Base::Placement inThis;
+                for (App::DocumentObject* step = container; step && step != this;
+                     step = App::GeoFeatureGroupExtension::getGroupOfObject(step)) {
+                    inThis = getPlacementFromProp(step, "Placement") * inThis;
+                }
+                Joint::relocateCopies(this, obj, inThis * delta * inThis.inverse());
+            }
+            else {
+                Joint::relocateCopies(this, obj, delta);
+            }
         }
     }
 }
@@ -3120,8 +3139,7 @@ Solver::Id AssemblyObject::handleOneSideOfJoint(
             return Solver::NoId;
         }
         MbDPartData data = getMbDData(jointSide.component);
-        Base::Placement plc
-            = getPlacementFromProp(jointSide.component, "Placement").inverse() * jointSide.frame;
+        Base::Placement plc = jointSide.placement.inverse() * jointSide.frame;
         if (!data.offsetPlc.isIdentity()) {
             plc = data.offsetPlc * plc;
         }

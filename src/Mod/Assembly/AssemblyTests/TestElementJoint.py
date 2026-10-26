@@ -143,6 +143,26 @@ class TestElementJoint(JointTestBase):
         self.assertNotIn("Invalid", joint.State)
         self.assertTrue(joint.getFrame(1).isSame(link.Placement, 1e-9))
 
+    def testAnAxisIsTheFrameAlongIt(self):
+        # A whole axis of a coordinate system: Z along the line, as
+        # upstream's joint takes it (UtilsAssembly.findPlacement)
+        part = self.assembly.newObject("App::Part", "Holder")
+        part.Placement = plc(3, 4, 5, Z, 30)
+        b = self.box("B", plc(30, 0, 0))
+        self.doc.recompute()
+        for role, axis in (("X_Axis", App.Vector(1, 0, 0)), ("Y_Axis", App.Vector(0, 1, 0)),
+                           ("Z_Axis", App.Vector(0, 0, 1))):
+            line = next(f for f in part.Origin.OriginFeatures if f.Role == role)
+            joint = self.assembly.makeJoint(
+                "Revolute", (part, "%s.%s." % (part.Origin.Name, line.Name)), (b, "Face5")
+            )
+            self.doc.recompute()
+            self.assertNotIn("Invalid", joint.State, role)
+            frame = joint.getFrame(1)
+            self.assertVecClose(frame.Base, part.Placement.Base)
+            along = part.Placement.Rotation.multVec(axis)
+            self.assertVecClose(zaxis(frame), along)
+
     def testVertexBecomesTheOffset(self):
         a = self.box("A")
         b = self.box("B", plc(30, 0, 0))
@@ -179,6 +199,16 @@ class TestElementJoint(JointTestBase):
         joint = self.assembly.makeJoint("Fixed", (a, "Face6"), (b, "Face5"))
         self.solve()
         self.assertCoincide(joint, a, b)
+
+    def testElementLinksAreNoComponents(self):
+        # A joint's element links are children of the assembly and shapes,
+        # but no parts: counted, each added six freedoms to the DoF
+        a = self.box("A")
+        b = self.box("B", plc(30, 5, 2, Z, 20))
+        self.ground(a)
+        self.assembly.makeJoint("Revolute", (a, "Face6"), (b, "Face5"))
+        status = self.solve()
+        self.assertEqual(status["DoF"], 1)
 
     def testRevoluteJointSolvesAndMatchesThePythonJoint(self):
         a = self.box("A")

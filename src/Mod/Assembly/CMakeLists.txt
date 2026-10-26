@@ -81,6 +81,7 @@ SET(AssemblyTests_SRCS
     AssemblyTests/TestAssemblyExport.py
     AssemblyTests/TestUnloadedChild.py
     AssemblyTests/TestReplaceComponent.py
+    AssemblyTests/TestFlexibleSubAssembly.py
     AssemblyTests/mocks/__init__.py
     AssemblyTests/mocks/MockGui.py
 )

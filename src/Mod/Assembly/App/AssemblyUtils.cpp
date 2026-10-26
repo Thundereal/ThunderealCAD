@@ -1083,6 +1083,11 @@ void collectComponentsRecursively(
         if (!obj || isSuppressedLinkElement(obj)) {
             continue;
         }
+        // A joint's element links are children of the assembly, and shapes,
+        // but no components: counted, each added six freedoms to the DoF
+        if (obj->isDerivedFrom<Part::ElementLink>() || obj->isDerivedFrom<Part::Element>()) {
+            continue;
+        }
 
         if (auto* asmLink = freecad_cast<Assembly::AssemblyLink*>(obj)) {
             // If the sub-assembly is rigid, treat it as a single movable part.

@@ -53,7 +53,7 @@ from AssemblyTests.TestSolverGate import (
     TestSolverGateCam,
     BACKEND_GATE_CLASSES,
 )
-from AssemblyTests.TestCamJoint import TestCamJoint, TestSimulationMotions
+from AssemblyTests.TestCamJoint import TestCamJoint, TestCamJointTyped, TestSimulationMotions
 from AssemblyTests.TestGuiCommands import TestGuiCommands
 from AssemblyTests.TestAsm3Bundle import TestAsm3Bundle
 from AssemblyTests.TestElementJoint import TestElementJoint
@@ -66,6 +66,7 @@ from AssemblyTests.TestFreeze import TestFreeze
 from AssemblyTests.TestAssemblyExport import TestAssemblyExport
 from AssemblyTests.TestUnloadedChild import TestUnloadedChild
 from AssemblyTests.TestReplaceComponent import TestReplaceComponent
+from AssemblyTests.TestFlexibleSubAssembly import TestFlexibleSubAssembly
 
 # Use the modules so that code checkers don't complain (flake8)
 True if TestCore else False
@@ -96,6 +97,7 @@ True if TestSolverGateBench else False
 True if TestSolverGateRigid else False
 True if TestSolverGateCam else False
 True if TestCamJoint else False
+True if TestCamJointTyped else False
 True if TestSimulationMotions else False
 True if TestGuiCommands else False
 True if TestAsm3Bundle else False
@@ -109,6 +111,7 @@ True if TestFreeze else False
 True if TestAssemblyExport else False
 True if TestUnloadedChild else False
 True if TestReplaceComponent else False
+True if TestFlexibleSubAssembly else False
 
 # The gate once more per registered backend other than OndselSolver
 # (TestSolverGateJointsReference, ...), compared with OndselSolver's records.

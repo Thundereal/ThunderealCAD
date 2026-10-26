@@ -33,6 +33,7 @@
 #include <gp_Pnt.hxx>
 
 #include <App/Application.h>
+#include <App/Datums.h>
 #include <App/AuxGroup.h>
 #include <App/Document.h>
 #include <App/ElementNamingUtils.h>
@@ -225,9 +226,22 @@ bool Element::getWholeObjectPlacement(App::DocumentObject *obj,
     if (*Data::findElementName(subname))
         return false;
     Base::Matrix4D mat;
-    if (!obj->getSubObject(subname, nullptr, &mat, true))
+    auto sobj = obj->getSubObject(subname, nullptr, &mat, true);
+    if (!sobj)
         return false;
     placement.fromMatrix(mat);
+    // An axis of a coordinate system is the frame along it, as upstream's
+    // joint takes it (UtilsAssembly.findPlacement): Z on the line
+    if (auto line = Base::freecad_dynamic_cast<App::Line>(sobj->getLinkedObject(true))) {
+        const char *role = line->Role.getValue();
+        if (strcmp(role, App::LocalCoordinateSystem::AxisRoles[0]) == 0
+            || strcmp(role, App::LocalCoordinateSystem::AxisRoles[1]) == 0)
+            placement = placement * Base::Placement(Base::Vector3d(),
+                                                    Base::Rotation(0.5, 0.5, 0.5, 0.5));
+        else if (strcmp(role, App::LocalCoordinateSystem::AxisRoles[2]) == 0)
+            placement = placement * Base::Placement(Base::Vector3d(),
+                                                    Base::Rotation(-0.5, 0.5, -0.5, 0.5));
+    }
     return true;
 }
 

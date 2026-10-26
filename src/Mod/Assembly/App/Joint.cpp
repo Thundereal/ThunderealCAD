@@ -58,12 +58,14 @@
 #include <App/GeoFeatureGroupExtension.h>
 #include <App/GroupExtension.h>
 #include <App/Link.h>
+#include <App/Part.h>
 #include <Base/Console.h>
 #include <Base/Tools.h>
 #include <Mod/Part/App/FeatureElement.h>
 #include <Mod/Part/App/PartFeature.h>
 
 #include "AssemblyGroup.h"
+#include "AssemblyLink.h"
 #include "AssemblyObject.h"
 #include "AssemblyUtils.h"
 #include "ElementGeometry.h"
@@ -77,7 +79,7 @@ namespace
 {
 
 /// The direct child of the assembly an object is, or null
-App::DocumentObject* directChild(const AssemblyObject* assembly, App::DocumentObject* obj)
+App::DocumentObject* directChild(const App::Part* assembly, App::DocumentObject* obj)
 {
     if (!assembly || !obj) {
         return nullptr;
@@ -85,27 +87,67 @@ App::DocumentObject* directChild(const AssemblyObject* assembly, App::DocumentOb
     return assembly->Group.find(obj->getNameInDocument()) == obj ? obj : nullptr;
 }
 
+/// A sub-assembly instance whose parts move each on its own
+AssemblyLink* flexibleInstance(App::DocumentObject* obj)
+{
+    auto link = Base::freecad_dynamic_cast<AssemblyLink>(obj);
+    return link && !link->isRigid() ? link : nullptr;
+}
+
 /** The component (object, subname) is on: the direct child of the assembly
  * it starts with, or, through a link group whose elements are each a
  * component (an expanded link array, isElementLinkGroup()), the element the
- * path steps into. Null when obj is not a direct child.
+ * path steps into, or, through the instance of a flexible sub-assembly, the
+ * part of it the path steps into, at any depth. Null when obj is not a
+ * direct child.
+ *
+ * @param placement: optionally, the component's placement in the
+ *                   assembly's coordinate system (JointSide::placement)
  */
-App::DocumentObject* componentOf(const AssemblyObject* assembly,
+App::DocumentObject* componentOf(const App::Part* assembly,
                                  App::DocumentObject* obj,
-                                 const std::string& sub)
+                                 const std::string& sub,
+                                 Base::Placement* placement = nullptr)
 {
     auto child = directChild(assembly, obj);
-    if (!child || !isElementLinkGroup(child)) {
-        return child;
+    if (!child) {
+        return nullptr;
+    }
+    if (placement) {
+        *placement = App::GeoFeature::getPlacementFromProp(child, "Placement");
     }
     auto dot = sub.find('.');
-    if (dot == std::string::npos) {
+    if (isElementLinkGroup(child)) {
+        if (dot == std::string::npos) {
+            return child;
+        }
+        auto element = child->getSubObject(sub.substr(0, dot + 1).c_str(), nullptr, nullptr, false);
+        auto group = static_cast<App::Link*>(child);
+        if (element && element != child
+            && group->ElementList.find(element->getNameInDocument()) == element) {
+            if (placement) {
+                *placement = App::GeoFeature::getPlacementFromProp(element, "Placement");
+            }
+            return element;
+        }
         return child;
     }
-    auto element = child->getSubObject(sub.substr(0, dot + 1).c_str(), nullptr, nullptr, false);
-    auto group = static_cast<App::Link*>(child);
-    if (element && element != child && group->ElementList.find(element->getNameInDocument()) == element) {
-        return element;
+    // Down the flexible instances, each a container of its parts
+    std::string rest = sub;
+    for (auto instance = flexibleInstance(child); instance; instance = flexibleInstance(child)) {
+        dot = rest.find('.');
+        if (dot == std::string::npos) {
+            break;
+        }
+        auto part = instance->Group.find(rest.substr(0, dot).c_str());
+        if (!part) {
+            break;
+        }
+        if (placement) {
+            *placement = *placement * App::GeoFeature::getPlacementFromProp(part, "Placement");
+        }
+        child = part;
+        rest = rest.substr(dot + 1);
     }
     return child;
 }
@@ -256,6 +298,15 @@ AssemblyObject* Joint::getAssembly() const
     );
 }
 
+App::Part* Joint::getContainer() const
+{
+    auto group = App::GeoFeatureGroupExtension::getGroupOfObject(this);
+    if (group && (group->isDerivedFrom<AssemblyObject>() || group->isDerivedFrom<AssemblyLink>())) {
+        return static_cast<App::Part*>(group);
+    }
+    return nullptr;
+}
+
 namespace
 {
 /// The placement of a component in the assembly: a link group's element is
@@ -310,11 +361,17 @@ App::DocumentObject* Joint::getComponent(int side) const
     if (!link) {
         return nullptr;
     }
-    auto assembly = getAssembly();
+    return componentOfLink(getContainer(), link, nullptr);
+}
+
+App::DocumentObject* Joint::componentOfLink(App::Part* assembly,
+                                            Part::ElementLink* link,
+                                            Base::Placement* placement)
+{
     auto obj = link->Element.getValue();
     const auto& subs = link->Element.getSubValues();
     const std::string sub = subs.empty() ? std::string() : subs.front();
-    if (auto child = componentOf(assembly, obj, sub)) {
+    if (auto child = ::componentOf(assembly, obj, sub, placement)) {
         return child;
     }
     // A convenience element in the assembly's own Elements group: its
@@ -324,9 +381,10 @@ App::DocumentObject* Joint::getComponent(int side) const
         return nullptr;
     }
     const auto& tsubs = element->Target.getSubValues();
-    return componentOf(assembly,
-                       element->Target.getValue(),
-                       tsubs.empty() ? std::string() : tsubs.front());
+    return ::componentOf(assembly,
+                         element->Target.getValue(),
+                         tsubs.empty() ? std::string() : tsubs.front(),
+                         placement);
 }
 
 JointSide Joint::getSide(int side) const
@@ -347,6 +405,7 @@ JointSide Joint::getSide(int side) const
             const Base::Placement move
                 = componentPlacement(element) * componentPlacement(res.component).inverse();
             res.component = element;
+            res.placement = App::GeoFeature::getPlacementFromProp(element, "Placement");
             res.frame = move * res.frame;
             res.shape.transformShape(move.toMatrix(), false);
             return res;
@@ -369,7 +428,7 @@ JointSide Joint::getSide(int side) const
     if (!res.link) {
         return res;
     }
-    res.component = getComponent(side);
+    res.component = componentOfLink(getContainer(), res.link, &res.placement);
 
     auto obj = res.link->Element.getValue();
     const auto& subs = res.link->Element.getSubValues();
@@ -382,7 +441,7 @@ JointSide Joint::getSide(int side) const
     // is reached through the component, which places it where it is now.
     App::DocumentObject* geomObj = obj;
     std::string geomSub = sub;
-    if (!directChild(getAssembly(), obj)) {
+    if (!directChild(getContainer(), obj)) {
         auto element = resolveElement(obj, sub);
         if (element && !element->Detach.getValue() && element->Target.getValue()) {
             geomObj = element->Target.getValue();
@@ -393,7 +452,8 @@ JointSide Joint::getSide(int side) const
     // An element of an array (componentOf()) through the element itself: the
     // array's shape caches its elements where they were, which a solve, that
     // moves an element without a recompute, makes stale
-    if (res.component && res.component != geomObj && directChild(getAssembly(), geomObj)) {
+    if (res.component && res.component != geomObj && directChild(getContainer(), geomObj)
+        && isElementLinkGroup(geomObj)) {
         auto dot = geomSub.find('.');
         if (dot != std::string::npos) {
             geomObj = res.component;
@@ -412,9 +472,12 @@ JointSide Joint::getSide(int side) const
         res.shape = res.link->Shape.getShape();
         res.stored = !res.shape.isNull();
     }
+    // A path naming no element is a whole object, framed by its placement
+    // whether it has a shape or not, as upstream's joint takes it: a body,
+    // an empty link, a datum, an axis (whose shape is an edge, but whose
+    // frame is along it)
     Base::Placement wholePlacement;
-    if (res.shape.isNull()
-        && Part::Element::getWholeObjectPlacement(geomObj, geomSub.c_str(), wholePlacement)) {
+    if (Part::Element::getWholeObjectPlacement(geomObj, geomSub.c_str(), wholePlacement)) {
         res.wholeObject = true;
     }
     if (res.shape.isNull() && !res.wholeObject) {
@@ -445,8 +508,7 @@ JointSide Joint::getSide(int side) const
         // gave, relative to the component as execute() keeps it, and the
         // copy goes with it
         const auto& local = side == 1 ? Placement1 : Placement2;
-        const Base::Placement now
-            = App::GeoFeature::getPlacementFromProp(res.component, "Placement") * local.getValue();
+        const Base::Placement now = res.placement * local.getValue();
         res.shape.transformShape((now * res.frame.inverse()).toMatrix(), false);
         res.frame = now;
     }
@@ -476,9 +538,7 @@ App::DocumentObjectExecReturn* Joint::execute()
         // Relative to the component, as the Python joint's are to their
         // object: it does not change when a solve moves the component
         auto& plc = side == 1 ? Placement1 : Placement2;
-        const Base::Placement local
-            = App::GeoFeature::getPlacementFromProp(jointSide.component, "Placement").inverse()
-            * jointSide.frame;
+        const Base::Placement local = jointSide.placement.inverse() * jointSide.frame;
         if (!plc.getValue().isSame(local, 1e-12)) {
             plc.setValue(local);
         }
@@ -805,7 +865,7 @@ bool isUsedByAnotherJoint(const Part::ElementLink* link, const Joint* joint)
 
 /// Delete an element link, and the convenience element it used when no
 /// other element link of the assembly uses that one
-void removeElementLink(AssemblyObject* assembly, Part::ElementLink* link)
+void removeElementLink(App::Part* assembly, Part::ElementLink* link)
 {
     auto doc = link->getDocument();
     Part::Element* convenience = nullptr;
@@ -857,7 +917,7 @@ void Joint::clearSide(int side)
     auto old = getElementLink(side);
     (side == 1 ? ElementLink1 : ElementLink2).setValue(nullptr);
     if (old && !old->isRemoving() && !isUsedByAnotherJoint(old, this)) {
-        removeElementLink(getAssembly(), old);
+        removeElementLink(getContainer(), old);
     }
 }
 
@@ -880,7 +940,7 @@ void Joint::unsetupObject()
     }
     // The joint holds its element links: they go with it, unless another
     // joint uses one too
-    auto assembly = getAssembly();
+    auto assembly = getContainer();
     std::vector<App::DocumentObjectT> links;
     for (int side : {1, 2}) {
         auto link = getElementLink(side);
@@ -900,7 +960,7 @@ void Joint::unsetupObject()
     App::DocumentObject::unsetupObject();
 }
 
-void Joint::relocateCopies(AssemblyObject* assembly,
+void Joint::relocateCopies(App::Part* assembly,
                            App::DocumentObject* component,
                            const Base::Placement& delta)
 {
@@ -1027,6 +1087,37 @@ Part::Element* declare(App::DocumentObject* container,
     return element;
 }
 
+/** The direct child of the assembly that a part of a flexible sub-assembly
+ * instance is in, at any depth, and the path from it to the part ("B001.",
+ * "Inner.B001."); null when the part is in none
+ */
+App::DocumentObject* instanceOf(const App::Part* assembly,
+                                App::DocumentObject* part,
+                                std::string& path)
+{
+    path.clear();
+    auto obj = part;
+    for (int depth = 0; obj && depth < 16; ++depth) {
+        App::DocumentObject* holder = nullptr;
+        for (auto parent : obj->getInList()) {
+            auto instance = flexibleInstance(parent);
+            if (instance && instance->Group.find(obj->getNameInDocument()) == obj) {
+                holder = instance;
+                break;
+            }
+        }
+        if (!holder) {
+            return nullptr;
+        }
+        path = std::string(obj->getNameInDocument()) + "." + path;
+        if (directChild(assembly, holder)) {
+            return holder;
+        }
+        obj = holder;
+    }
+    return nullptr;
+}
+
 /** The direct child of a container a path from it starts with, and the rest
  * of the path: a body's own shape is its tip's
  */
@@ -1074,9 +1165,17 @@ Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
         }
         component = array;
     }
+    // A part of a flexible sub-assembly instance is reached through the
+    // instance, the assembly's child, with the path to the part in front
+    App::DocumentObject* via = component;
+    std::string prefix;
     if (!directChild(assembly, component)) {
-        FC_THROWM(Base::ValueError,
-                  component->getFullName() << " is not a component of " << assembly->getFullName());
+        via = instanceOf(assembly, component, prefix);
+        if (!via) {
+            FC_THROWM(Base::ValueError,
+                      component->getFullName() << " is not a component of "
+                                               << assembly->getFullName());
+        }
     }
     // The path names the element of the array: what declares elements is
     // what every element links to, so the element is the assembly's own
@@ -1098,18 +1197,18 @@ Part::ElementLink* Joint::makeSide(AssemblyObject* assembly,
             auto element = declare(container, target, rest, vertex, vertexRest, nullptr);
             link = Part::ElementLink::create(
                 assembly,
-                component,
-                (std::string("$$Elements.$") + element->Label.getValue() + ".").c_str()
+                via,
+                (prefix + "$$Elements.$" + element->Label.getValue() + ".").c_str()
             );
         }
     }
     if (!link) {
         // A convenience element in the assembly's own Elements group
         auto element = declare(assembly,
-                               component,
-                               sub,
-                               vertexSub.empty() ? nullptr : component,
-                               vertexSub,
+                               via,
+                               prefix + sub,
+                               vertexSub.empty() ? nullptr : via,
+                               vertexSub.empty() ? vertexSub : prefix + vertexSub,
                                "_Element");
         link = Part::ElementLink::create(
             assembly,

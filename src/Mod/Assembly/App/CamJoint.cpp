@@ -256,7 +256,7 @@ TopoDS_Edge camEdge(const App::DocumentObject* joint, Base::Placement* partGloba
             return {};
         }
         if (partGlobal) {
-            *partGlobal = App::GeoFeature::getPlacementFromProp(side.component, "Placement");
+            *partGlobal = side.placement;
         }
         return TopoDS::Edge(s);
     }

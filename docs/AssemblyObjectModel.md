@@ -1126,10 +1126,8 @@ Built as step 4a (2026-10-25):
   every recompute, for a plain `App::Part` too, since step 3.
   `OriginGroupExtension::hasObject` now counts the Elements group and its
   elements as the container's, as it counts the origin.
-- Not yet: cam joints (`CamJoint.cpp` reads `Reference1`), C++ joints in a
-  flexible sub-assembly (`AssemblyLink` mirrors joints by property name),
-  the markers (4b), and a whole-object side on `App::Line` (upstream's
-  axis roles).
+- Not yet: the markers (4b). The rest of this list was built 2026-10-26,
+  below ("The rest of the C++ joint").
 - Tests: `AssemblyTests/TestElementJoint.py` (15): the sides for plain
   parts and for a part that declares elements, reuse of an element, the
   frames of a face, a circle and a cylinder, a vertex as the offset and
@@ -1192,6 +1190,72 @@ Built as step 4b (2026-10-25), the joints the task makes:
   `TestGuiCommands` (37) now makes every joint type through its command
   as a C++ joint. Headless as before, and `TestElementJoint` (16, with a
   whole object without a shape).
+
+The rest of the C++ joint (2026-10-26), what still needed the Python
+joint's properties:
+
+- **Cam joints** needed nothing: `CamJoint.cpp` already read a C++ joint's
+  sides through `getSide()` and the side helpers of `AssemblyUtils`. The
+  refusal reads the element links' copies, made on recompute, as the task
+  makes them before it asks. Tests: `TestCamJointTyped` (3), the
+  mechanisms of `TestCamJoint` converted in place, a point and a roller,
+  the static solve and the simulation, at the Python joint's 1e-9.
+- **The DoF counted element links as parts.** `collectComponentsRecursively`
+  took every `GeoFeature` child of the assembly for a component, a joint's
+  element links included: six freedoms each, 37 for a cam that has 1. They
+  are left out now, as `getChildDefaultExport` leaves them out of the
+  shape. Test: `TestElementJoint.testElementLinksAreNoComponents`.
+- **A flexible sub-assembly** (`AssemblyLink`, `Rigid` off) mirrors its
+  assembly's joints onto its own links to the components. A C++ joint was
+  copied (`copyObject`): the copy's element links were the assembly's, and
+  adding it to the instance took them, and the joint, out of that
+  assembly -- the instance left the sub-assembly without its joint. Now:
+  - the mirror is a plain `Assembly::Joint`, with element links of its
+    own in the instance, on the instance's links (the step into a link
+    group's element mapped to the instance's element), and, for a side on
+    a convenience element, a convenience element of the instance's own
+    (`AssemblyLink::mirrorSide()`, `mirrorElement()`), the target, vertex
+    and offsets carried over. A mirror of the other kind is replaced, so a
+    joint converted since is mirrored again. A multiplied joint is not
+    mirrored (a warning): its instances are made in its assembly's group;
+  - `synchronizeComponents` neither links nor removes element links and
+    elements;
+  - `Joint::getContainer()` is the assembly or the instance holding the
+    joint, and the side helpers take an `App::Part`, so a mirror's sides
+    resolve in the instance.
+  - an instance is not synced while an object is being removed: the
+    assembly's `Group` change syncs its instances at once, and a sync that
+    replaced a mirror inside a removal's walk of the document's objects
+    (`PropertyLinkBase::breakLinks`) freed objects under it -- an access
+    violation converting a sub-assembly's joint. It is touched instead,
+    and synced on the next recompute.
+- **A parent's joint on a part of a flexible instance.** `componentOf`
+  steps through a flexible instance: `(Inst, "B001.Face3")` is on `B001`,
+  at any depth, and `JointSide::placement` is the component's placement in
+  the container, which the builder, `execute` and the cam use in place of
+  the component's own. `makeSide` takes such a part: its element link and
+  convenience element go through the instance, the parent's child, with
+  the path in front; an element the part declares stays its own. Rigid on
+  and off needs no re-pointing: the path is the same, and only `componentOf`
+  reads it otherwise (the instance whole, or the part). A solve moves the
+  copies in the parent too, the move said in the parent's coordinate
+  system down the placements (the global placement throws while the
+  assembly recomputes, as a solve on recompute is). The converter no
+  longer refuses such a side; it was the last reason a joint stayed Python
+  besides a rigid sub-assembly's part. A flexible instance's own placement
+  went into its parts' when it turned flexible: theirs are in the parent's
+  coordinate system, the solver's convention, for the Python joint too.
+- **A whole axis** (`App::Line` of a coordinate system) is the frame along
+  it, upstream's axis roles (`Part::Element::getWholeObjectPlacement`),
+  and a path naming no element is a whole object framed by its placement
+  whether it has a shape or not: a datum line's shape is an edge, whose
+  frame was not the axis's. Test:
+  `TestElementJoint.testAnAxisIsTheFrameAlongIt`.
+- Tests: `TestFlexibleSubAssembly` (6): the mirror and its own element
+  links and convenience elements, the mirror solving in the parent, rigid
+  again leaving nothing, saved and restored, a parent's joint on a part of
+  the instance (rigid and back), and upstream's joints converted in and on
+  the instance.
 
 ### 7.2 Simulations, motions, exploded views, snapshots (step 4d)
 

@@ -40,8 +40,10 @@ the frame from it: a Distance or Cam joint, a detached side, a vertex that
 is the element itself, or no vertex.
 
 A joint that cannot be converted stays a Python joint, which still solves,
-and is reported: a side on a component that is not a direct child of the
-assembly (one inside a sub-assembly), or a side not set.
+and is reported: a side on what is no component of the assembly (a part of
+a rigid sub-assembly, or of another document), or a side not set. A part of
+a flexible sub-assembly instance is a component, reached through the
+instance.
 """
 
 import FreeCAD as App
@@ -88,14 +90,16 @@ def _sides(assembly, joint):
     or a reason they cannot be converted"""
     import UtilsAssembly
 
-    children = set(o.Name for o in assembly.Group)
     sides = []
     for i in (1, 2):
         ref = getattr(joint, "Reference%d" % i)
         if not UtilsAssembly.isRefValid(ref, 1):
             return None, "side %d is not set" % i
         comp = ref[0]
-        if comp.Document != assembly.Document or comp.Name not in children:
+        # A direct child, or a part of a flexible sub-assembly instance, which
+        # the C++ joint reaches through the instance; anything else the side
+        # refuses (Joint::makeSide)
+        if comp.Document != assembly.Document:
             return None, "side %d is on %s, which is not a component of the assembly" % (
                 i,
                 comp.Label,

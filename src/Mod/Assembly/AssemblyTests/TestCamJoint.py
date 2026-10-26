@@ -444,3 +444,77 @@ class TestSimulationMotions(CamMechanism, JointTestBase):
         self.assertAlmostEqual(turn, 0.0, delta=1e-6)
         # The force element did not drive B.
         self.assertTrue(b.Placement.isSame(b_start, 1e-9), b.Placement)
+
+
+class TestCamJointTyped(CamMechanism, JointTestBase):
+    """The Cam joint as a C++ joint (docs/AssemblyObjectModel.md sec 7.1): its
+    sides are element links, the cam's edge and the follower are read through
+    them. The mechanisms are built as Python joints and converted in place,
+    which keeps every frame exactly."""
+
+    def convert(self):
+        import AssemblyMigrate
+
+        report = AssemblyMigrate.convertDocument(self.doc, force=True)
+        self.doc.recompute()
+        self.assertTrue(all(new is not None for _, new, _ in report), report)
+        cams = [
+            o
+            for o in self.doc.Objects
+            if o.isDerivedFrom("Assembly::Joint") and o.JointType == "Cam"
+        ]
+        self.assertEqual(len(cams), 1)
+        return cams[0]
+
+    def test_picks(self):
+        """A C++ cam from picks: an edge and a vertex; a face is refused, by its name."""
+        import AssemblyApp
+
+        g = self.cam_ground()
+        cam = self.cylinder("Cam", CAM_R, CAM_H, plc(CAM_E, 0, 0))
+        f = self.box("Follower", plc(0, 30, CAM_H), size=4.0)
+        self.doc.recompute()
+        top = circle_edge(cam, CAM_H)
+        # The refusal reads the element links' copies, made on recompute (the
+        # task recomputes the sides before it asks)
+        j = self.assembly.makeJoint("Cam", (cam, top), (f, "Vertex1"))
+        self.doc.recompute()
+        self.assertEqual(AssemblyApp.getCamRefusal(j), "")
+        j = self.assembly.makeJoint("Cam", (cam, "Face1"), (f, "Vertex1"))
+        self.doc.recompute()
+        self.assertIn("the face Face1 of Cam is not an edge", AssemblyApp.getCamRefusal(j))
+
+    def test_static_solve_puts_the_follower_on_the_cam(self):
+        """From 0.8 mm off, a solve puts the follower on the cam, a point and a roller."""
+        import AssemblyApp
+
+        for roller in (0.0, ROLLER):
+            with self.subTest(roller=roller):
+                self.tearDown()
+                self.setUp()
+                cam, rev, f = self.disk_mechanism(roller, start_error=0.8)
+                j = self.convert()
+                self.assertEqual(AssemblyApp.getCamRefusal(j), "")
+                status = self.solve()
+                theta = turn_about_z(cam.Placement)
+                self.assertAlmostEqual(f.Placement.Base.y, disk_lift(theta, roller), delta=LIFT_TOL)
+                self.assertAlmostEqual(f.Placement.Base.z, CAM_H, delta=LIFT_TOL)
+                self.assertEqual(status["DoF"], 1)
+
+    def test_disk_cam_simulation(self):
+        """The disk cam for more than six turns: the lift at every frame."""
+        for roller in (0.0, ROLLER):
+            with self.subTest(roller=roller):
+                self.tearDown()
+                self.setUp()
+                cam, rev, f = self.disk_mechanism(roller)
+                sim = self.make_simulation([(rev, "Angular", "%g*time" % RATE)])
+                self.convert()
+                self.assertEqual(self.assembly.generateSimulation(sim), 0)
+                n = self.assembly.numberOfFrames()
+                for k in range(round(T_END / T_STEP) + 1):
+                    self.assembly.updateForFrame(n - 1 - k)
+                    theta = RATE * (T_END - T_STEP * k)
+                    self.assertAlmostEqual(
+                        f.Placement.Base.y, disk_lift(theta, roller), delta=LIFT_TOL
+                    )

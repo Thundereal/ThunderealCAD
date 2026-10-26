@@ -43,6 +43,11 @@
 
 #include "ElementGeometry.h"
 
+namespace App
+{
+class Part;
+}
+
 namespace Part
 {
 class ElementLink;
@@ -59,8 +64,13 @@ struct AssemblyExport JointSide
 {
     /// The element link of the side
     Part::ElementLink* link = nullptr;
-    /// The component that moves: a direct child of the assembly
+    /// The component that moves: a direct child of the assembly, an element
+    /// of a link array that is one, or a part of a flexible sub-assembly
+    /// instance that is one, at any depth
     App::DocumentObject* component = nullptr;
+    /// The component's placement in the assembly's coordinate system; its
+    /// own Placement for a direct child (and an array's element, as before)
+    Base::Placement placement;
     /// The element's geometry in the assembly's coordinate system
     Part::TopoShape shape;
     /// The joint coordinate system in the assembly's coordinate system,
@@ -176,6 +186,20 @@ public:
     JointSide getSide(int side) const;
     /// The assembly holding the joint
     AssemblyObject* getAssembly() const;
+    /** The component an element link of \a assembly is on (JointSide::component)
+     *
+     * @param placement: optionally, the component's placement in the
+     *                   assembly's coordinate system
+     */
+    static App::DocumentObject* componentOfLink(App::Part* assembly,
+                                                Part::ElementLink* link,
+                                                Base::Placement* placement = nullptr);
+    /** What holds the joint and its element links, whose children its
+     * components are: its assembly, or the instance of a flexible
+     * sub-assembly (AssemblyLink) holding the joint mirrored from its
+     * assembly's (AssemblyLink::synchronizeJoints())
+     */
+    App::Part* getContainer() const;
 
     /// Make side 1 or 2 from a pick (makeSide()), deleting its old element
     /// link unless another joint uses it
@@ -213,7 +237,7 @@ public:
     /// Move the copies that follow a component in the assembly's coordinate
     /// system by \a delta, as a solve moved the component: its element links
     /// and the convenience elements on it
-    static void relocateCopies(AssemblyObject* assembly,
+    static void relocateCopies(App::Part* assembly,
                                App::DocumentObject* component,
                                const Base::Placement& delta);
 

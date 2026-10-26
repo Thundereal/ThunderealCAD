@@ -38,6 +38,7 @@
 #include <Base/Interpreter.h>
 
 #include <App/LinkArray.h>
+#include <Mod/Part/App/FeatureElement.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/TopoShape.h>
 #include <Mod/PartDesign/App/Body.h>
@@ -46,6 +47,7 @@
 #include "AssemblyObject.h"
 #include "AssemblyUtils.h"
 #include "Groups.h"
+#include "Joint.h"
 
 #include "AssemblyLink.h"
 #include "AssemblyLinkPy.h"
@@ -334,6 +336,20 @@ void AssemblyLink::updateParentJoints()
 
 void AssemblyLink::updateContents()
 {
+    // Not while an object is being removed: the sync makes and removes
+    // objects, and a removal walks the document's objects while it breaks
+    // their links to the one it removes -- one removed under it was freed
+    // memory to the walk (a joint converted in the sub-assembly, whose
+    // removal changes the assembly's Group, which syncs its instances).
+    // Synced on the next recompute instead (execute()).
+    if (auto doc = getDocument()) {
+        for (auto* obj : doc->getObjects()) {
+            if (obj->isRemoving()) {
+                touch();
+                return;
+            }
+        }
+    }
     synchronizeComponents();
 
     if (isRigid()) {
@@ -396,6 +412,11 @@ void AssemblyLink::synchronizeComponents()
     // We check if a component needs to be added to the AssemblyLink
     for (auto* obj : topLevelComponents) {
         if (isSuppressedLinkElement(obj)) {
+            continue;
+        }
+        // A joint's element links are shapes, and no components: this
+        // instance has its own, its mirrored joints' (synchronizeJoints())
+        if (obj->isDerivedFrom<::Part::ElementLink>() || obj->isDerivedFrom<::Part::Element>()) {
             continue;
         }
         if (!obj->isDerivedFrom<App::Part>() && !obj->isDerivedFrom<PartApp::Feature>()
@@ -559,6 +580,10 @@ void AssemblyLink::synchronizeComponents()
             && !obj->isDerivedFrom<App::Link>()) {
             continue;
         }
+        // The mirrored joints' own: they go with their joints
+        if (obj->isDerivedFrom<::Part::ElementLink>() || obj->isDerivedFrom<::Part::Element>()) {
+            continue;
+        }
         if (validLinks.find(obj) == validLinks.end()) {
             doc->removeObject(obj->getNameInDocument());
         }
@@ -621,7 +646,24 @@ void AssemblyLink::synchronizeJoints()
 
     JointGroup* jGroup = ensureJointGroup();
 
-    std::vector<App::DocumentObject*> assemblyJoints = assembly->getJoints(false, false);
+    std::vector<App::DocumentObject*> assemblyJoints;
+    for (auto* joint : assembly->getJoints(false, false)) {
+        // A multiplied joint's instances are not mirrored, nor is it: its
+        // instances are made in its assembly's joint group
+        auto* typed = freecad_cast<Joint*>(joint);
+        if (typed && (typed->getMultiplier() || typed->Multiply.getValue())) {
+            if (!typed->getMultiplier()) {
+                Base::Console().warning(
+                    "AssemblyLink: the multiplied joint %s is not mirrored into the flexible "
+                    "sub-assembly %s\n",
+                    joint->getFullName().c_str(),
+                    getFullName().c_str()
+                );
+            }
+            continue;
+        }
+        assemblyJoints.push_back(joint);
+    }
     std::vector<App::DocumentObject*> assemblyLinkJoints = getJoints();
 
     // We delete the excess of joints if any
@@ -632,11 +674,26 @@ void AssemblyLink::synchronizeJoints()
     // We make sure the joints match.
     for (size_t i = 0; i < assemblyJoints.size(); ++i) {
         App::DocumentObject* joint = assemblyJoints[i];
-        App::DocumentObject* lJoint;
+        auto* typed = freecad_cast<Joint*>(joint);
+        App::DocumentObject* lJoint = nullptr;
         if (i < assemblyLinkJoints.size()) {
             lJoint = assemblyLinkJoints[i];
+            // A mirror of the other kind (the joint was converted since)
+            if (bool(typed) != lJoint->isDerivedFrom<Joint>()) {
+                doc->removeObject(lJoint->getNameInDocument());
+                lJoint = nullptr;
+            }
         }
-        else {
+        if (!lJoint && typed) {
+            // A C++ joint is not copied: its element links are its
+            // assembly's, and a copy taken into this instance took them, and
+            // the joint with them, out of that assembly. Its mirror has
+            // element links of its own, on this instance's links.
+            lJoint = doc->addObject("Assembly::Joint", joint->getNameInDocument());
+            lJoint->Label.setValue(joint->Label.getValue());
+            jGroup->addObject(lJoint);
+        }
+        else if (!lJoint) {
             auto ret = doc->copyObject({joint});
             if (ret.size() != 1) {
                 continue;
@@ -664,6 +721,20 @@ void AssemblyLink::synchronizeJoints()
         copyPropertyIfDifferent<App::PropertyBool>(joint, lJoint, "EnableAngleMin");
         copyPropertyIfDifferent<App::PropertyBool>(joint, lJoint, "EnableLengthMax");
         copyPropertyIfDifferent<App::PropertyBool>(joint, lJoint, "EnableLengthMin");
+
+        if (typed) {
+            copyPropertyIfDifferent<App::PropertyFloat>(joint, lJoint, "Angle");
+            auto* mirror = static_cast<Joint*>(lJoint);
+            for (int side : {1, 2}) {
+                auto& prop = side == 1 ? mirror->ElementLink1 : mirror->ElementLink2;
+                auto* current = Base::freecad_dynamic_cast<::Part::ElementLink>(prop.getValue());
+                auto* link = mirrorSide(typed, side, current);
+                if (link != current) {
+                    prop.setValue(link);
+                }
+            }
+            continue;
+        }
 
         // The reference needs to be handled specifically
         handleJointReference(joint, lJoint, "Reference1");
@@ -761,6 +832,136 @@ void AssemblyLink::handleJointReference(
     if (changed) {
         prop2->setValue(prop2->getValue(), std::move(subs1));
     }
+}
+
+bool AssemblyLink::mapPath(App::DocumentObject* obj,
+                           const std::string& sub,
+                           App::DocumentObject*& local,
+                           std::string& localSub) const
+{
+    auto it = objLinkMap.find(obj);
+    if (it == objLinkMap.end()) {
+        return false;
+    }
+    local = it->second;
+    localSub = sub;
+    // Through a link group whose elements are components, the step into the
+    // element is the instance's element of the same place
+    auto dot = sub.find('.');
+    if (dot == std::string::npos || !isElementLinkGroup(obj)) {
+        return true;
+    }
+    auto* src = obj->getDocument()->getObject(sub.substr(0, dot).c_str());
+    auto element = src ? objLinkMap.find(src) : objLinkMap.end();
+    if (element != objLinkMap.end() && element->second) {
+        localSub = std::string(element->second->getNameInDocument()) + sub.substr(dot);
+    }
+    return true;
+}
+
+::Part::Element* AssemblyLink::mirrorElement(::Part::Element* element)
+{
+    if (!element || !element->Target.getValue()) {
+        return nullptr;
+    }
+    App::DocumentObject* target = nullptr;
+    std::string targetSub;
+    const auto& tsubs = element->Target.getSubValues();
+    if (!mapPath(element->Target.getValue(),
+                 tsubs.empty() ? std::string() : tsubs.front(),
+                 target,
+                 targetSub)) {
+        return nullptr;
+    }
+    App::DocumentObject* vertex = nullptr;
+    std::string vertexSub;
+    if (element->Vertex.getValue()) {
+        const auto& vsubs = element->Vertex.getSubValues();
+        mapPath(element->Vertex.getValue(),
+                vsubs.empty() ? std::string() : vsubs.front(),
+                vertex,
+                vertexSub);
+    }
+    // One already on that geometry with that vertex
+    auto holds = [](const App::PropertyLinkSub& prop,
+                    App::DocumentObject* obj,
+                    const std::string& sub) {
+        const auto& subs = prop.getSubValues();
+        return prop.getValue() == obj
+            && ((subs.empty() && sub.empty()) || (!subs.empty() && subs.front() == sub));
+    };
+    ::Part::Element* mirror = nullptr;
+    if (auto* group = getElementsGroup(false)) {
+        for (auto* child : group->Group.getValues()) {
+            auto* candidate = Base::freecad_dynamic_cast<::Part::Element>(child);
+            if (candidate && holds(candidate->Target, target, targetSub)
+                && holds(candidate->Vertex, vertex, vertex ? vertexSub : std::string())) {
+                mirror = candidate;
+                break;
+            }
+        }
+    }
+    if (!mirror) {
+        mirror = ::Part::Element::create(this, target, targetSub.c_str(), element->Label.getValue());
+        if (vertex) {
+            mirror->Vertex.setValue(vertex, std::vector<std::string> {vertexSub});
+        }
+    }
+    // The element's offset, the vertex's share with it
+    if (!mirror->VertexPosition.getValue().IsEqual(element->VertexPosition.getValue(), 1e-12)) {
+        mirror->VertexPosition.setValue(element->VertexPosition.getValue());
+    }
+    if (!mirror->Offset.getValue().isSame(element->Offset.getValue())) {
+        mirror->Offset.setValue(element->Offset.getValue());
+    }
+    return mirror;
+}
+
+::Part::ElementLink* AssemblyLink::mirrorSide(Joint* joint, int side, ::Part::ElementLink* current)
+{
+    auto* link = joint->getElementLink(side);
+    if (!link || !link->Element.getValue()) {
+        return current;
+    }
+    auto* obj = link->Element.getValue();
+    const auto& subs = link->Element.getSubValues();
+    const std::string sub = subs.empty() ? std::string() : subs.front();
+
+    App::DocumentObject* target = nullptr;
+    std::string targetSub;
+    // An element a component declares: through this instance's link to it
+    if (!mapPath(obj, sub, target, targetSub)) {
+        // A convenience element of the linked assembly: one of this
+        // instance's own on the same geometry
+        auto* mirror = mirrorElement(
+            Base::freecad_dynamic_cast<::Part::Element>(obj->getSubObject(sub.c_str()))
+        );
+        if (!mirror) {
+            Base::Console().warning(
+                "AssemblyLink: the %s side of %s is not mirrored into %s\n",
+                side == 1 ? "first" : "second",
+                joint->getFullName().c_str(),
+                getFullName().c_str()
+            );
+            return current;
+        }
+        target = getElementsGroup(false);
+        targetSub = std::string("$") + mirror->Label.getValue() + ".";
+    }
+    if (!current) {
+        current = ::Part::ElementLink::create(this, target, targetSub.c_str());
+    }
+    else {
+        const auto& csubs = current->Element.getSubValues();
+        if (current->Element.getValue() != target || csubs.size() != 1
+            || csubs.front() != targetSub) {
+            current->Element.setValue(target, std::vector<std::string> {targetSub});
+        }
+    }
+    if (!current->Offset.getValue().isSame(link->Offset.getValue())) {
+        current->Offset.setValue(link->Offset.getValue());
+    }
+    return current;
 }
 
 void AssemblyLink::ensureNoJointGroup()

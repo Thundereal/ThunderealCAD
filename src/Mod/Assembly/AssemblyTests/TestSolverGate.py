@@ -36,12 +36,20 @@ solver-neutral model, and the two agreed byte for byte and bit for bit (sec
 6.3 step 3; that in-process comparison is commit 09ce3133a3). So a change
 that alters what the solver is given, or what it gives back, fails here.
 
-Grounded parts come from an unordered_set of pointers, so their order -- in
-the ASMT text, and in OndselSolver's columns -- differs from run to run. The
-text is compared with the grounded entries sorted (assembly markers, the
-leading grounded parts, the leading grounding joints), everything else in
-order; placements with a tolerance, since the column order can move the last
-bits.
+Grounded parts came from an unordered_set of pointers, so their order -- in
+the ASMT text, and in OndselSolver's columns -- differed from run to run.
+Since sec 6.19 they are ordered by name, but the records keep the order they
+were taken in: the text is compared with the grounded entries sorted
+(assembly markers, the leading grounded parts, the leading grounding
+joints), everything else in order; placements with a tolerance.
+
+Since sec 6.19 OndselSolver's Newton steps are solved by a sparse LU instead
+of its row scaled Gaussian elimination. Results move by rounding, within the
+tolerance; what moved more is the digest of the model handed to a drag,
+which carries the solve before it, and those digests alone were taken again
+(six drag cases). A solve whose iteration wanders far from its start is
+solved again from there by the elimination (test_drag_bundles_fixed, the
+distance cases), so it ends as its record does, bit for bit.
 
 Every other registered backend (AssemblyApp.getAvailableSolvers(); since sec
 6.13 the Reference backend) runs the same cases through the assembly's

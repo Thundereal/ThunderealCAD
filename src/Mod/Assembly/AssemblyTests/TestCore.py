@@ -456,6 +456,50 @@ class TestSolverBackend(AssemblyTestBase):
         self.assertEqual(results[0][1], results[1][1])
         self.assertEqual(results[1][1]["SolverStatus"], 0)
 
+    def test_same_start_same_solution_bit_for_bit(self):
+        """OndselSolver's answer is a function of the start alone.
+
+        A chain of boxes, Fixed and Revolute joints alternating (free
+        rotations, so the free parts' poses depend on the solve), solved from
+        the same start twice: every placement equal bit for bit. Its sparse
+        LU orders the columns by the matrix's pattern only.
+        """
+        boxes = []
+        for i in range(12):
+            box = self.assembly.newObject("Part::Box", "Box")
+            boxes.append(box)
+        self.doc.recompute()  # the shapes the references name
+        ground = self.jointgroup.newObject("App::FeaturePython", "GroundedJoint")
+        JointObject.GroundedJoint(ground, boxes[0])
+        for i in range(1, len(boxes)):
+            joint = self.jointgroup.newObject("App::FeaturePython", "testJoint")
+            JointObject.Joint(joint, i % 2)  # Fixed, Revolute
+            joint.Proxy.setJointConnectors(
+                joint, [[boxes[i - 1], ["Face2", "Face2"]], [boxes[i], ["Face1", "Face1"]]]
+            )
+
+        def start():
+            for i, box in enumerate(boxes):
+                box.Placement = App.Placement(
+                    App.Vector(12.0 * i + i % 3, 1.5 * (i % 4), 0.7 * (i % 5)),
+                    App.Rotation(App.Vector(0, 0, 1), (7 * i) % 20),
+                )
+
+        def solved():
+            self.assertEqual(self.assembly.solve(), 0)
+            values = []
+            for box in boxes:
+                plm = box.Placement
+                values += [plm.Base.x, plm.Base.y, plm.Base.z] + list(plm.Rotation.Q)
+            return [float(v).hex() for v in values]
+
+        start()
+        first = solved()
+        start()
+        self.assertEqual(solved(), first)
+        revolutes = sum(i % 2 for i in range(1, len(boxes)))
+        self.assertEqual(self.assembly.getSolveStatus()["DoF"], revolutes)
+
     def test_reference_backend(self):
         """The Reference backend, chosen by the property, solves as OndselSolver does.
 

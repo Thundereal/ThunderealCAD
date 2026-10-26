@@ -3126,6 +3126,121 @@ surface" kind for planar mechanisms; reading a curve back from its
 description (out of process); the lift-off cam of `AssemblyDynamics` sec 7.4,
 which needs the same projector and a force element.
 
+### 6.19 As built: a sparse LU for OndselSolver's Newton steps (2026-10-26)
+
+Performance at scale (audit sec 8.2, Phase 2, F1). On a chain of boxes (the
+bench's Fixed and Revolute joints alternating) a static solve took 3.3 s at
+100 parts and 190 s at 200; 65-80 % of it in
+`GESpMatParPv::forwardEliminateWithPivot`, a Gaussian elimination on rows
+kept as `std::map`s, in the natural column order, filling in node by node;
+most of the rest in `handleSingularMatrix`, its fallback for matrices it
+took for singular.
+
+**The solver** (`OndselSolver/SparseLUSolver.{h,cpp}`, the submodule):
+`SystemNewtonRaphson::matrixSolverClassNew()` -- the static solve, the drag
+steps and the kinematic position and acceleration solves -- now gives a
+`SparseLUSolver`: Eigen's `SparseLU` with a COLAMD column order (a fill
+reducing order from the matrix's pattern alone), the column order kept from
+one step to the next while the pattern stays. The rows are conditioned as
+`GESpMatParPvMarkoFast` conditions them (scaled to a largest magnitude of
+1, entries below 4 eps dropped), then rows and columns are equilibrated
+(Ruiz, four passes, factors that are powers of 2, so scaling rounds
+nothing). The equilibration is not optional: the minimum movement rows
+carry weights of 1e3 to 1e6 (`Part::fillqsuWeights`) against constraint
+rows of order 1, so after the row scaling alone the multipliers' columns
+are tiny and the pivots fall with the size of the model (row scaled, in
+the LU's order: 8e-13 at 50 parts, 4e-15 at 200), where no tolerance tells
+a regular matrix from a singular one. That is also why the old elimination
+took long chains for singular and spent a fifth of its time in its fallback.
+Equilibrated, the smallest pivots are 3e-9 at 50 parts, 1e-9 at 100 and
+1.3e-10 at 200. It decides no singularity of its own (but an all zero row,
+as `GESpMatParPvMarkoFast` does): a pivot below 1e-12, a failed
+factorization or a non-finite answer hands that step to
+`GESpMatParPvMarkoFast`, which solves it or throws `SingularMatrixError`
+as before, so the redundant constraint removal runs as it did.
+
+**Same start, same answer.** COLAMD orders by the pattern, and the
+factorization and the solve run single threaded in a fixed order: the same
+matrix gives the same answer bit for bit. Two things outside the solver
+are needed for the same assembly to give the same matrix: the grounded
+parts are made solver bodies in the order of their names
+(`AssemblyObject::fixGroundedParts`, which took them in the order of an
+`unordered_set` of pointers, so the column order could change from one run
+to the next); the rest of the model was already in document order.
+Verified on chains of 50, 100 and 200 parts, two documents in each of two
+processes: every placement equal bit for bit (`float.hex`); and by
+`TestSolverBackend.test_same_start_same_solution_bit_for_bit` (12 boxes,
+six revolutes free, solved twice from the same start).
+
+**A Chrono trap.** With `BUILD_ASSEMBLY_CHRONO` the Chrono core library is
+linked into the same module, and Chrono's `EIGEN_SPARSEMATRIX_PLUGIN`
+declares a virtual `SetElement` in `Eigen::SparseMatrix`: its sparse
+matrices carry a vtable, and the linker keeps one copy of each inline
+member. The first build used `int` indices, which Chrono's sparse solvers
+also instantiate, and ran Chrono's `resize()` on a matrix without the
+vtable (28 rows and 0 columns after `resize(28, 28)`, then an access
+violation in `setFromTriplets`). The solver's matrices are indexed by
+`std::int64_t`, a type Chrono does not instantiate.
+
+**Degenerate starts.** Where a start is far from consistent, OndselSolver's
+Newton iteration wanders -- steps growing to 1e8 and beyond, redundant
+equations found on the way -- before it converges, if it does; the gate's
+`test_drag_bundles_fixed` (sec 6.13) and the distance cases are such
+solves. There the outcome turns on the last bits of every step, so the
+sparse LU, whose rounding differs, ended elsewhere: in
+`test_partially_redundant` other equations were set aside and both joints
+reported conflicting; in `test_drag_bundles_fixed` the iteration reached a
+singular matrix where nothing was left to remove, and `PosICNewtonRaphson::
+run()` restarted the identical solve for ever (14,472 rounds before it was
+stopped). Both are handled in `run()`:
+
+- a step more than 1000 times the first (and above 1) is taken as
+  wandering, and the run is solved once more from its start with
+  `GESpMatParPvMarkoFast` throughout, all constraints back
+  (`legacyElimination`, `canReplay`): it then ends as it did before, bit for
+  bit. In the Assembly suite that is 44 solves, all of small models started
+  far from their joints: 40 with Distance joints (whose squared forms send
+  the steps far), the rest `test_drag_bundles_fixed`,
+  `test_partially_redundant` and `test_drag_moves_fixed_neighbour`; none in
+  the bench chains;
+- a singular matrix whose redundancy search sets nothing new aside is
+  solved again the same way if it was not already, and otherwise fails
+  ("singular matrix, no redundant constraint found") instead of looping:
+  that loop was there before, any start that reached it hung.
+
+**Results** (headless, `asm.solve()` on the bench chain after a recompute;
+seconds, the faster of two runs; the old elimination first):
+
+| parts | solve_1 | solve_2 |
+|---|---|---|
+| 50 | 0.30 -> 0.069 | 1.34 -> 0.072 |
+| 100 | 3.26 -> 0.19 | 3.23 -> 0.18 |
+| 200 | 191 -> 0.73 | 154 -> 0.61 |
+
+The placements are within 1.1e-13 mm of the old solver's at 50 and 100
+parts and 1.8e-12 at 200.
+
+**Gate.** Every placement, status, drag step and simulation frame within
+the gate's 1e-9 of the records. Six digests were taken again, each the
+model handed to a drag (`drag/dump`), which carries the solve before it:
+the bench chain and star at 10 and 50, the roller follower's drag and the
+rigid group. Only those six lines of `SolverGateReference.json` changed,
+merged from a recording to a temporary file, so the placements stay those
+the old elimination recorded. `test_drag_bundles_fixed` replays and matches
+its record exactly.
+
+**Tests.** ctest 1000/1000; the Assembly suite 371 run, 59 skipped, no
+failures (370 + the new test).
+
+**Not done:** a large assembly whose solve wanders is solved twice, the
+second time at the old elimination's speed -- as slow as before, and the
+abandoned first try on top; the drag steps and kinematic runs have no replay (they have
+no redundancy rounds; a degenerate drag step may end in other last bits
+than before); the velocity solves keep `GESpMatParPvPrecise`; past about
+1000 parts in a chain the equilibrated pivots reach the 1e-12 tolerance
+and steps go to the old elimination again; the Newton iteration has no
+damping or line search, which the wandering starts would want.
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a

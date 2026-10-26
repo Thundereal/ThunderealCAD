@@ -561,6 +561,9 @@ step 7 needs are in `docs/AssemblySolverInterface.md` sec 6.6. Not yet done
 from the decisions: the neutral formula evaluator. The Distance mapping of
 decision 7 came after step 7 (`e320accd94`, `85a4379a0b`;
 `docs/AssemblySolverInterface.md` sec 6.8). Chrono is not started.
+*Since then (2026-10-23): the neutral formula evaluator (sec 6.9), the
+Reference backend (sec 6.13) and the Chrono backend (sec 6.15, built with
+`BUILD_ASSEMBLY_CHRONO`, off by default).*
 
 **Phase 2 -- scale.** Where sec 4 measured the time going:
 
@@ -649,6 +652,20 @@ change of the assembly's `Group` still rebuilds its tree export
 (O(children)), and the joint task asks `isPartConnected` per joint made;
 and the solver itself (F1), which is what a solve, a recompute and a drag at
 chain 100 spend their time in, Python joints and C++ alike.
+
+F1, first step (2026-10-26, `docs/AssemblySolverInterface.md` sec 6.19):
+OndselSolver's Newton steps are solved by a sparse LU (Eigen's `SparseLU`,
+COLAMD order, rows and columns equilibrated), the old elimination taking
+over only the steps whose pivots say the matrix may be singular, and
+solving again from the start a run that wanders, so redundancy is found as
+before and those runs end as they did. A static solve of chain 100 went
+from 3.3 s to 0.19 s, of chain 200 from 190 s to 0.73 s; placements within
+2e-12 mm of the old solver's, and the same start gives the same answer bit
+for bit (the grounded parts are made solver bodies in name order now, not
+in an `unordered_set`'s). Left of F1: the redundancy search still throws
+and re-factorises; no early-out when already solved; the column order is
+kept across a run's iterations only, and found again for each run (each
+drag step).
 
 **Phase 3 -- from Assembly3, and its importer** (`docs/AssemblyFromAsm3.md`).
 Its behaviours, not its objects -- Element objects would put a second

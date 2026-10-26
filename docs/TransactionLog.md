@@ -25701,6 +25701,58 @@ document.
 | Q7e | Read a version from the store with nothing materialised: recovery, opening a version | **Measure the materialising first**, then build it if it is a real share. |
 | Q7c, Q7d | As above | Unchanged. |
 
+**Q7e measured (2026-10-26, user: "push and do measure").** Recovery now
+logs its phases (`recover <doc>: N rows after version V; take over,
+materialise, restore, replay, undo`, at `App` log level). Probe
+`~/.cache/lv-merge/probe38/recovery.py`: 600 boxes saved, 20 or 199 edits,
+then a crash (`os._exit`); a second process recovers the transient
+directory left, then opens the saved file. FreeCADCmd, this box, two runs
+each:
+
+| | Folder document | Archive document |
+| --- | ---: | ---: |
+| Take over the log (`TransactionLog::recover`) | 12 ms | 14 ms |
+| Materialise the anchor | 90 ms | 32 ms |
+| Restore it | 200 ms | 140 ms |
+| Replay 20 edits (41 rows) / 199 edits (399 rows) | 23 / 103 ms | 24 / 105 ms |
+| Rebuild undo | 19 ms | 19 ms |
+| Recovery, whole | 355-377 / 459-463 ms | 258-263 / 342-351 ms |
+| Opening the saved file, for comparison | 198-212 ms | 104-107 ms (one run 197) |
+
+What it says:
+- **Materialising is 12-24% here**, and its cost is files. A schema-5
+  version leaves its blobs in the store (`materialiseVersion`,
+  `blobsInStore`) and writes only its XML entries. For an archive that is
+  `Document.xml` and the Gui's: a couple of files. For a folder document it
+  is a file per object, 600 here, which at sec 14's 61 ms a create would be
+  about 37 s on that Windows laptop.
+- **The restore is the open,** at the same cost as opening the file, and
+  replay is about 0.5 ms a row.
+- **In the common case the anchor is the file on disk.** It is the
+  version of the last save or open, until 200 commits or the autosave
+  interval take a newer one. Then the entries are already on disk, in the
+  document's own file, and materialising them copies what is there.
+
+**Recommended, in place of a store-served reader:**
+- **R1.** When the document's own file or folder on disk is a version on
+  the recovered branch (its `Document.xml` hash matches that version's),
+  restore from it in place and replay the rows after that version. That
+  holds even when a newer cadence version exists, as long as the extra
+  rows cost less than materialising would. At 0.5 ms a row against a file
+  per object, that is nearly always for a folder document; for an archive
+  the difference is small either way. No file is written. A folder's
+  blobs are read in place (38.9) and an archive's from the copy the store
+  already makes at open.
+- **R2, only if R1 leaves a case that matters:** a reader that serves a
+  version's entries from the store, for recovery past a file changed
+  elsewhere, and for opening an old version (`checkout`). It needs a third
+  kind of reader beside the archive and the directory, so it is the bigger
+  job.
+
+| | Question | Recommended |
+| --- | --- | --- |
+| Q7e | Read a version from the store with nothing materialised | **R1 first**: recover from the document's own file when it is a version of the branch, then replay; R2 only for what R1 leaves. |
+
 **Tests** (`FolderSaveCases`):
 - `testAnObjectGainingMapsLeavesTheFilesAfterIt` (was the first half of
   38.14's `testElementMapsNumberedOtherwiseAreWritten`): the first object

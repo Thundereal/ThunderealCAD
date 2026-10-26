@@ -7716,9 +7716,20 @@ bool Document::recoverFromLog(const std::string& oldDir)
     TransactionLog* log = getTransactionLog();
     if (!log)
         THROWM(Base::RuntimeError, "recovery needs the transaction log");
+    // Where the time goes, logged at the end (sec 38.17, Q7e).
+    using Clock = std::chrono::steady_clock;
+    auto phase = Clock::now();
+    auto split = [&phase]() {
+        const auto now = Clock::now();
+        const double secs = std::chrono::duration<double>(now - phase).count();
+        phase = now;
+        return secs;
+    };
+    double tTakeOver = 0, tMaterialise = 0, tRestore = 0, tReplay = 0, tUndo = 0;
     TransactionLog::RecoverInfo info;
     if (!log->recover(oldDir, info))
         return false;
+    tTakeOver = split();
     auto& manager = getFileBlobManager();
     std::unique_ptr<void, std::function<void(void*)>> ending(
         &manager, [](void* m) { static_cast<FileBlobManager*>(m)->endRecovery(); });
@@ -7745,15 +7756,20 @@ bool Document::recoverFromLog(const std::string& oldDir)
         if (haveAnchor) {
             // Materialised outside this document's transient directory: the
             // restore takes the version's Uid and renames it.
+            split();
             const std::string dir = _materialiseVersion(anchor.num, oldDir + "/checkout");
+            tMaterialise = split();
             Base::FlagToggler<> guard(d->checkingOut);
             restore(dir.c_str(), false);
             Base::FileInfo(dir).deleteDirectoryRecursive();
+            tRestore = split();
         }
         FileName.setValue(info.fileName);
         if (!info.label.empty())
             Label.setValue(info.label);
+        split();
         rows = _replayLog(haveAnchor ? anchor.seq : 0, last);
+        tReplay = split();
     }
     // The replay ended before an incomplete row (sec 25.2 item 3): the
     // document is the state at `last`, so that is the head -- the rows
@@ -7768,6 +7784,11 @@ bool Document::recoverFromLog(const std::string& oldDir)
             log->store().removeTransactions(skipped);
     }
     _rebuildUndoFromLog();
+    tUndo = split();
+    FC_LOG("recover " << getName() << ": " << rows << " rows after version "
+                      << (haveAnchor ? anchor.num : 0) << "; take over " << tTakeOver
+                      << "s, materialise " << tMaterialise << "s, restore " << tRestore
+                      << "s, replay " << tReplay << "s, undo " << tUndo << "s");
 
     std::string from;
     for (char c : oldDir) {

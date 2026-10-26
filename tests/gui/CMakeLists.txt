@@ -108,6 +108,10 @@ fc_add_gui_test(GuiSketch3DTools_tests_run sketch3d-tools.py
 # commands, the dimension labels and their in-view values, Delete.
 fc_add_gui_test(GuiSketch3DConstraints_tests_run sketch3d-constraints.py
                 --timeout 180)
+# Its drag and kept planes (S2e): a point and a curve dragged with the
+# constraints kept, Keep Plane, Ctrl+press on a kept plane and on a face.
+fc_add_gui_test(GuiSketch3DDragPlane_tests_run sketch3d-drag-plane.py
+                --timeout 180)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

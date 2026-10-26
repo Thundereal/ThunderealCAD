@@ -61,8 +61,34 @@ in view coordinates</UserDocu>
     </Methode>
     <Methode Name="press">
       <Documentation>
-        <UserDocu>press(x, y) -> bool: a left press there, as the mouse gives it;
+        <UserDocu>press(x, y, ctrl=False) -> bool: a left press there, as the mouse gives it;
 whether the edit took it</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="dragTo">
+      <Documentation>
+        <UserDocu>dragTo(x, y) -> bool: the pointer moved there with the left button held</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="release">
+      <Documentation>
+        <UserDocu>release(x, y) -> bool: the left button let go; whether a drag ended</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="keepPlane">
+      <Documentation>
+        <UserDocu>keepPlane() -> int: the working plane stored as a fixed workplane, made the
+active kept plane; its geometry id</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="activateKeptPlane">
+      <Documentation>
+        <UserDocu>activateKeptPlane(geoId): a stored workplane as the working and kept plane; -1 lets go</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="activeKeptPlane" Const="true">
+      <Documentation>
+        <UserDocu>activeKeptPlane() -> int, or -1</UserDocu>
       </Documentation>
     </Methode>
     <Methode Name="move">

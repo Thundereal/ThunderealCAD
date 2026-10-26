@@ -144,6 +144,33 @@ bool CmdSketcherSketch3DLockHeight::isActive()
     return manipulatorActive();
 }
 
+DEF_STD_CMD_A(CmdSketcherSketch3DKeepPlane)
+
+CmdSketcherSketch3DKeepPlane::CmdSketcherSketch3DKeepPlane()
+    : Command("Sketcher_Sketch3DKeepPlane")
+{
+    sAppModule = "Sketcher";
+    sGroup = "Sketcher";
+    sMenuText = QT_TR_NOOP("Keep Plane");
+    sToolTipText =
+        QT_TR_NOOP("Stores the working plane as a fixed workplane of the 3D sketch; points placed "
+                   "while it is active are held on it. Ctrl+click it to make it active again");
+    sWhatsThis = "Sketcher_Sketch3DKeepPlane";
+    sStatusTip = sToolTipText;
+}
+
+void CmdSketcherSketch3DKeepPlane::activated(int /*iMsg*/)
+{
+    if (auto vp = activeSketch3DInEdit()) {
+        vp->keepPlane();
+    }
+}
+
+bool CmdSketcherSketch3DKeepPlane::isActive()
+{
+    return manipulatorActive();
+}
+
 DEF_STD_CMD_A(CmdSketcherSketch3DResetManipulator)
 
 CmdSketcherSketch3DResetManipulator::CmdSketcherSketch3DResetManipulator()
@@ -300,6 +327,7 @@ void CreateSketcherCommandsSketch3D()
     rcCmdMgr.addCommand(new CmdSketcherSketch3DCyclePlane());
     rcCmdMgr.addCommand(new CmdSketcherSketch3DLockHeight());
     rcCmdMgr.addCommand(new CmdSketcherSketch3DResetManipulator());
+    rcCmdMgr.addCommand(new CmdSketcherSketch3DKeepPlane());
     rcCmdMgr.addCommand(new CmdSketcherSketch3DRotationHandles());
     rcCmdMgr.addCommand(new CmdSketcherConstrain3D(
         "Sketcher_Constrain3DAlongX",

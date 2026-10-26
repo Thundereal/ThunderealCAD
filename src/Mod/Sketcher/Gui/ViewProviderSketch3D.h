@@ -121,6 +121,14 @@ public:
     bool rotationHandlesShown() const;
     /// The active plane as a placement in the sketch's frame (its XY is the plane).
     Base::Placement workingPlane() const;
+    /** Keep plane (section 6, v1): the working plane stored as a fixed workplane, and
+     * made the kept plane points are put on: while one is active, a placed point not
+     * snapped to anything else is held on it. Returns its geometry id.
+     */
+    int keepPlane();
+    /// Makes a stored workplane the working plane and the kept one; -1 lets go.
+    void activateKeptPlane(int geoId);
+    int activeKeptPlane() const;
     //@}
 
     /** @name Drawing tools (section 7: point, line, polyline, the two splines)
@@ -201,9 +209,14 @@ public:
     bool pointAt(const SbVec2s& pos, Base::Vector3d& point) const;
     /// A point of the sketch's frame in view coordinates.
     bool toView(const Base::Vector3d& point, SbVec2s& pos) const;
-    /// A left press: with a tool, places a point; without, picks a plane handle or
-    /// moves the manipulator to a sketch point.
-    bool press(const SbVec2s& pos);
+    /// A left press: with a tool, places a point; without, picks a plane handle,
+    /// selects (and starts a drag of) a sketch point or curve. ctrl: a kept plane, a
+    /// planar face or a datum plane under the pointer becomes the working plane.
+    bool press(const SbVec2s& pos, bool ctrl = false);
+    /// The pointer moved with the left button held after a press on the sketch: the
+    /// point or curve follows on the working plane through it (one undo step).
+    bool dragTo(const SbVec2s& pos);
+    bool release(const SbVec2s& pos);
     /// A right press: finishes the tool's placing, as Escape does.
     bool pressRight(const SbVec2s& pos);
     bool move(const SbVec2s& pos);
@@ -236,6 +249,9 @@ private:
     int pointNear(const SbVec2s& pos) const;
     /// The plane handle (0 XY, 1 YZ, 2 ZX) under pos, or -1.
     int planeHandleAt(const SbVec2s& pos) const;
+    /// Ctrl+press: a kept plane, a planar face or a datum plane taken as the working
+    /// plane.
+    bool takePlaneAt(const SbVec2s& pos, class SoPickedPoint* pp);
     void addPlaced(const Placed& placed);
     /// The constraint that ties (geoId, pos) where the snap put it.
     void constrainTo(const Snap& snap, int geoId, int pos);

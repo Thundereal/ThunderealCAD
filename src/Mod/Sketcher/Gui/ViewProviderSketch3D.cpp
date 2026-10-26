@@ -124,6 +124,14 @@ public:
         auto layout = new QVBoxLayout(widget);
         status = new QLabel(widget);
         status->setWordWrap(true);
+        status->setTextFormat(Qt::RichText);
+        // a constraint number in the solver's message selects that constraint
+        QObject::connect(status, &QLabel::linkActivated, status, [vp](const QString& link) {
+            if (link.startsWith(QLatin1String("c:"))) {
+                vp->clearSelection();
+                vp->selectConstraint(link.mid(2).toInt());
+            }
+        });
         layout->addWidget(status);
         box->groupLayout()->addWidget(widget);
         Content.push_back(box);
@@ -149,11 +157,13 @@ public:
     QLabel* status;
 };
 
+// Constraint numbers as links that select them (counted from 1, as the 2D sketch's
+// messages count).
 QString indexText(const std::vector<int>& v)
 {
     QStringList list;
     for (int i : v) {
-        list << QString::number(i + 1);
+        list << QStringLiteral("<a href=\"c:%1\">%2</a>").arg(i).arg(i + 1);
     }
     return list.join(QStringLiteral(", "));
 }
@@ -328,6 +338,15 @@ struct ViewProviderSketch3D::EditData
     int lastLabelPress {-1};
     qint64 lastLabelTime {0};
     class Datum3DSession* datum {nullptr};
+
+    // A press on the sketch that a move with the button held turns into a drag.
+    bool dragCandidate {false};
+    bool dragging {false};
+    Element dragElement {Sketcher::GeoEnum::GeoUndef, Sketcher::PointPos::none};
+    SbVec2s pressPos {0, 0};
+    Base::Vector3d dragLast;
+    // The kept plane points are put on (section 6), or -1.
+    int keptPlane {-1};
     std::unique_ptr<QObject> deleteFilter;
 
     EditData()
@@ -628,6 +647,7 @@ void ViewProviderSketch3D::cycleWorkingPlane()
         return;
     }
     edit->plane = static_cast<Plane>((static_cast<int>(edit->plane) + 1) % 3);
+    edit->keptPlane = -1;
     updateManipulator();
 }
 
@@ -639,6 +659,7 @@ void ViewProviderSketch3D::resetManipulator()
     edit->rotation = Base::Rotation();
     edit->plane = Plane::XY;
     edit->heightLock = false;
+    edit->keptPlane = -1;
     updateManipulator();
 }
 
@@ -912,12 +933,13 @@ int ViewProviderSketch3D::pointNear(const SbVec2s& pos) const
     return best;
 }
 
-bool ViewProviderSketch3D::press(const SbVec2s& pos)
+bool ViewProviderSketch3D::press(const SbVec2s& pos, bool ctrl)
 {
     if (!edit || !edit->viewer) {
         return false;
     }
     edit->lastPos = pos;
+    edit->dragCandidate = false;
     // A press anywhere while a value is typed takes what is typed.
     if (edit->datum) {
         finishDatumEdit(true);
@@ -930,6 +952,9 @@ bool ViewProviderSketch3D::press(const SbVec2s& pos)
         return true;
     }
     std::unique_ptr<SoPickedPoint> pp(edit->viewer->getPointOnRay(pos, this));
+    if (ctrl && takePlaneAt(pos, pp.get())) {
+        return true;  // asked for, so before the gizmo
+    }
     if (pp && pp->getPath()->containsNode(edit->dragger)) {
         return false;  // the rotation rings: the gizmo drags
     }
@@ -964,7 +989,13 @@ bool ViewProviderSketch3D::press(const SbVec2s& pos)
         const SbVec3f& p = edit->pointCoords->point[near];
         edit->origin = Base::Vector3d(p[0], p[1], p[2]);
         updateManipulator();
-        select({edit->pointRefs[near].first, edit->pointRefs[near].second});
+        Element e {edit->pointRefs[near].first, edit->pointRefs[near].second};
+        select(e);
+        if (e.geoId >= 0) {
+            edit->dragCandidate = true;
+            edit->dragElement = e;
+            edit->pressPos = pos;
+        }
         return true;
     }
     // A curve: selected.
@@ -972,7 +1003,22 @@ bool ViewProviderSketch3D::press(const SbVec2s& pos)
         auto detail = dynamic_cast<const SoLineDetail*>(pp->getDetail());
         int part = detail ? detail->getPartIndex() : -1;
         if (part >= 0 && part < int(edit->curveRefs.size())) {
-            select({edit->curveRefs[part], Sketcher::PointPos::none});
+            Element e {edit->curveRefs[part], Sketcher::PointPos::none};
+            select(e);
+            auto geo = getSketch3DObject()->getGeometry(e.geoId);
+            if (e.geoId >= 0 && geo && !geo->isDerivedFrom<Part::GeomPlane>()) {
+                // a curve is dragged by where it was taken, on the working plane
+                // through that point
+                SbVec3f w = pp->getPoint();
+                Base::Matrix4D inv = editingTransform();
+                inv.inverseGauss();
+                inv.multVec(Base::Vector3d(w[0], w[1], w[2]), edit->dragLast);
+                edit->origin = edit->dragLast;
+                updateManipulator();
+                edit->dragCandidate = true;
+                edit->dragElement = e;
+                edit->pressPos = pos;
+            }
             return true;
         }
     }
@@ -991,6 +1037,171 @@ bool ViewProviderSketch3D::move(const SbVec2s& pos)
     }
     // Not taken: the view goes on preselecting the model, which the snap reads.
     return false;
+}
+
+bool ViewProviderSketch3D::dragTo(const SbVec2s& pos)
+{
+    if (!edit || !edit->dragCandidate) {
+        return false;
+    }
+    edit->lastPos = pos;
+    if (!edit->dragging) {
+        // a press that wanders a few pixels is still a click
+        int dx = pos[0] - edit->pressPos[0], dy = pos[1] - edit->pressPos[1];
+        if (dx * dx + dy * dy < 9) {
+            return true;
+        }
+        edit->dragging = true;
+        Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Drag 3D sketch geometry"));
+    }
+    Base::Vector3d at;
+    if (!pointAt(pos, at)) {
+        return true;
+    }
+    auto sketch = getSketch3DObject();
+    const Element& e = edit->dragElement;
+    if (e.pos != Sketcher::PointPos::none) {
+        sketch->movePoint(e.geoId, e.pos, at, false);
+    }
+    else {
+        sketch->movePoint(e.geoId, e.pos, at - edit->dragLast, true);
+        edit->dragLast = at;
+    }
+    return true;
+}
+
+bool ViewProviderSketch3D::release(const SbVec2s& /*pos*/)
+{
+    if (!edit || !edit->dragCandidate) {
+        return false;
+    }
+    bool dragged = edit->dragging;
+    edit->dragCandidate = edit->dragging = false;
+    if (dragged) {
+        Gui::Command::commitCommand();
+        // the manipulator goes with the point it was on
+        Base::Vector3d p;
+        if (edit->dragElement.pos != Sketcher::PointPos::none
+            && pointOf(edit->dragElement.geoId, edit->dragElement.pos, p)) {
+            edit->origin = p;
+            updateManipulator();
+        }
+    }
+    return dragged;
+}
+
+int ViewProviderSketch3D::keepPlane()
+{
+    if (!edit) {
+        return -1;
+    }
+    auto sketch = getSketch3DObject();
+    Base::Placement plane = workingPlane();
+    double q0, q1, q2, q3;
+    plane.getRotation().getValue(q0, q1, q2, q3);
+    const Base::Vector3d& o = plane.getPosition();
+    int id = sketch->Geometry.getSize();
+    Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Keep 3D sketch plane"));
+    Gui::Command::doCommand(Gui::Command::Doc,
+                            "_p = Part.Plane()\n"
+                            "_p.transform(App.Placement(App.Vector(%.17g, %.17g, %.17g), "
+                            "App.Rotation(%.17g, %.17g, %.17g, "
+                            "%.17g)).toMatrix())\n"
+                            "%s.addGeometry(_p, True)\n"
+                            "del _p",
+                            o.x,
+                            o.y,
+                            o.z,
+                            q0,
+                            q1,
+                            q2,
+                            q3,
+                            Gui::Command::getObjectCmd(sketch).c_str());
+    Gui::Command::commitCommand();
+    activateKeptPlane(id);
+    return id;
+}
+
+void ViewProviderSketch3D::activateKeptPlane(int geoId)
+{
+    if (!edit) {
+        return;
+    }
+    auto geo = geoId >= 0 ? getSketch3DObject()->getGeometry(geoId) : nullptr;
+    if (!geo || !geo->isDerivedFrom<Part::GeomPlane>()) {
+        edit->keptPlane = -1;
+        draw();
+        return;
+    }
+    edit->keptPlane = geoId;
+    auto pln = Handle(Geom_Plane)::DownCast(geo->handle());
+    const gp_Ax3& ax = pln->Position();
+    auto vec = [](const gp_XYZ& v) {
+        return Base::Vector3d(v.X(), v.Y(), v.Z());
+    };
+    edit->origin = vec(ax.Location().XYZ());
+    edit->rotation = Base::Rotation::makeRotationByAxes(vec(ax.XDirection().XYZ()),
+                                                        vec(ax.YDirection().XYZ()),
+                                                        vec(ax.Direction().XYZ()));
+    edit->plane = Plane::XY;
+    edit->heightLock = false;
+    updateManipulator();
+    draw();
+}
+
+int ViewProviderSketch3D::activeKeptPlane() const
+{
+    return edit ? edit->keptPlane : -1;
+}
+
+bool ViewProviderSketch3D::takePlaneAt(const SbVec2s& pos, SoPickedPoint* pp)
+{
+    // A kept plane: active again.
+    if (pp && pp->getPath()->getTail() == edit->curveLines) {
+        auto detail = dynamic_cast<const SoLineDetail*>(pp->getDetail());
+        int part = detail ? detail->getPartIndex() : -1;
+        if (part >= 0 && part < int(edit->curveRefs.size())) {
+            auto geo = getSketch3DObject()->getGeometry(edit->curveRefs[part]);
+            if (geo && geo->isDerivedFrom<Part::GeomPlane>()) {
+                activateKeptPlane(edit->curveRefs[part]);
+                return true;
+            }
+        }
+    }
+    // A planar face or a datum plane of the model: the working plane, through the
+    // point pressed (SOLIDWORKS' Ctrl+click [S 8]).
+    Placed placed;
+    if (!place(pos, placed) || placed.snap.kind != Snap::Kind::ModelPlane) {
+        return false;
+    }
+    auto sketch = getSketch3DObject();
+    Part::TopoShape shape;
+    try {
+        shape = Part::Feature::getTopoShape(placed.snap.obj, placed.snap.sub.c_str(), true);
+    }
+    catch (...) {
+        return false;
+    }
+    if (shape.isNull() || shape.getShape().ShapeType() != TopAbs_FACE) {
+        return false;
+    }
+    shape.transformShape(sketch->Placement.getValue().inverse().toMatrix(), false, true);
+    BRepAdaptor_Surface surf(TopoDS::Face(shape.getShape()));
+    gp_Pln pln = surf.Plane();
+    const gp_Ax3& ax = pln.Position();
+    auto vec = [](const gp_XYZ& v) {
+        return Base::Vector3d(v.X(), v.Y(), v.Z());
+    };
+    edit->keptPlane = -1;
+    edit->origin = placed.point;
+    edit->rotation = Base::Rotation::makeRotationByAxes(vec(ax.XDirection().XYZ()),
+                                                        vec(ax.YDirection().XYZ()),
+                                                        vec(ax.Direction().XYZ()));
+    edit->plane = Plane::XY;
+    edit->heightLock = false;
+    updateManipulator();
+    draw();
+    return true;
 }
 
 bool ViewProviderSketch3D::pressRight(const SbVec2s& pos)
@@ -1022,19 +1233,25 @@ bool ViewProviderSketch3D::keyPressed(bool pressed, int key)
     return PartGui::ViewProviderPart::keyPressed(pressed, key);
 }
 
-bool ViewProviderSketch3D::mouseMove(const SbVec2s& cursorPos, Gui::ViewerContext* /*viewer*/)
+bool ViewProviderSketch3D::mouseMove(const SbVec2s& cursorPos, Gui::ViewerContext* viewer)
 {
+    if (edit && edit->dragCandidate && viewer && (viewer->mouseButtons() & Qt::LeftButton)) {
+        return dragTo(cursorPos);
+    }
     return move(cursorPos);
 }
 
 bool ViewProviderSketch3D::mouseButtonPressed(int button,
                                               bool pressed,
                                               const SbVec2s& cursorPos,
-                                              const Gui::ViewerContext* /*viewer*/
-)
+                                              const Gui::ViewerContext* viewer)
 {
     if (button == SoMouseButtonEvent::BUTTON1 && pressed) {
-        return press(cursorPos);
+        bool ctrl = viewer && (viewer->keyboardModifiers() & Qt::ControlModifier);
+        return press(cursorPos, ctrl);
+    }
+    if (button == SoMouseButtonEvent::BUTTON1 && !pressed && edit && edit->dragCandidate) {
+        return release(cursorPos);
     }
     if (button == SoMouseButtonEvent::BUTTON2 && edit && edit->tool != Tool::None) {
         // the release too, or the view's context menu comes up after the finish
@@ -1379,6 +1596,17 @@ void ViewProviderSketch3D::constrainTo(const Snap& snap, int geoId, int pos)
         }
         case Snap::Kind::Model:
         case Snap::Kind::None:
+            // On the kept plane, held there (section 6).
+            if (edit && edit->keptPlane >= 0) {
+                snprintf(buf,
+                         sizeof(buf),
+                         "%s.addConstraint(Sketcher.Constraint('PointOnObject', %d, %d, %d))",
+                         obj.c_str(),
+                         geoId,
+                         pos,
+                         edit->keptPlane);
+                run(buf);
+            }
             break;
     }
 }
@@ -2814,7 +3042,26 @@ void ViewProviderSketch3D::draw()
     for (auto geo : sketch->Geometry.getValues()) {
         ++geoId;
         if (geo->isDerivedFrom<Part::GeomPlane>()) {
-            continue;  // a workplane: the manipulator shows it (section 6)
+            // A kept workplane (section 6): an outline square about its origin, three
+            // gizmo lengths across as the view was at the draw, clear of the gizmo's
+            // rings when the manipulator stands on it.
+            auto pln = Handle(Geom_Plane)::DownCast(geo->handle());
+            const gp_Ax3& ax = pln->Position();
+            double h = 1.5 * GizmoAxis * std::max(1e-6f, edit->dragger->autoScaleResult.getValue());
+            gp_Pnt o = ax.Location();
+            gp_Vec x(ax.XDirection()), y(ax.YDirection());
+            std::size_t before = coords.size();
+            const double corners[5][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}, {-1, -1}};
+            for (const auto& c : corners) {
+                gp_Pnt p = o.Translated(x * (c[0] * h) + y * (c[1] * h));
+                coords.emplace_back(float(p.X()), float(p.Y()), float(p.Z()));
+            }
+            counts.push_back(int32_t(coords.size() - before));
+            colors.push_back(selected(geoId, Sketcher::PointPos::none) ? selectColor
+                                 : geoId == edit->keptPlane            ? SbColor(1.f, 0.75f, 0.f)
+                                                                       : constructionColor);
+            edit->curveRefs.push_back(geoId);
+            continue;
         }
         bool construction = Sketcher::GeometryFacade::getConstruction(geo);
         const SbColor& curveColor = construction
@@ -2901,7 +3148,7 @@ void ViewProviderSketch3D::draw()
             text = QObject::tr("%1 degrees of freedom").arg(dof);
         }
         if (!sketch->getRedundant().empty()) {
-            text += QStringLiteral("\n")
+            text += QStringLiteral("<br>")
                 + QObject::tr("Redundant constraints: %1").arg(indexText(sketch->getRedundant()));
         }
         edit->dialog->setStatus(text);

@@ -160,14 +160,61 @@ PyObject* ViewProviderSketch3DPy::toView(PyObject* args) const
     return Py::new_reference_to(Py::TupleN(Py::Long(pos[0]), Py::Long(pos[1])));
 }
 
-PyObject* ViewProviderSketch3DPy::press(PyObject* args)
+PyObject* ViewProviderSketch3DPy::dragTo(PyObject* args)
 {
     int x, y;
     if (!PyArg_ParseTuple(args, "ii", &x, &y)) {
         return nullptr;
     }
     return Py::new_reference_to(
-        Py::Boolean(getViewProviderSketch3DPtr()->press(SbVec2s(short(x), short(y)))));
+        Py::Boolean(getViewProviderSketch3DPtr()->dragTo(SbVec2s(short(x), short(y)))));
+}
+
+PyObject* ViewProviderSketch3DPy::release(PyObject* args)
+{
+    int x, y;
+    if (!PyArg_ParseTuple(args, "ii", &x, &y)) {
+        return nullptr;
+    }
+    return Py::new_reference_to(
+        Py::Boolean(getViewProviderSketch3DPtr()->release(SbVec2s(short(x), short(y)))));
+}
+
+PyObject* ViewProviderSketch3DPy::keepPlane(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    return Py::new_reference_to(Py::Long(getViewProviderSketch3DPtr()->keepPlane()));
+}
+
+PyObject* ViewProviderSketch3DPy::activateKeptPlane(PyObject* args)
+{
+    int geoId;
+    if (!PyArg_ParseTuple(args, "i", &geoId)) {
+        return nullptr;
+    }
+    getViewProviderSketch3DPtr()->activateKeptPlane(geoId);
+    Py_Return;
+}
+
+PyObject* ViewProviderSketch3DPy::activeKeptPlane(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    return Py::new_reference_to(Py::Long(getViewProviderSketch3DPtr()->activeKeptPlane()));
+}
+
+PyObject* ViewProviderSketch3DPy::press(PyObject* args)
+{
+    int x, y;
+    PyObject* ctrl = Py_False;
+    if (!PyArg_ParseTuple(args, "ii|O!", &x, &y, &PyBool_Type, &ctrl)) {
+        return nullptr;
+    }
+    return Py::new_reference_to(Py::Boolean(
+        getViewProviderSketch3DPtr()->press(SbVec2s(short(x), short(y)), PyObject_IsTrue(ctrl))));
 }
 
 PyObject* ViewProviderSketch3DPy::move(PyObject* args)

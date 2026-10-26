@@ -123,6 +123,7 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
     sketch3D->setCommand("Sketcher 3D");
     *sketch3D << "Sketcher_Sketch3DCyclePlane"
               << "Sketcher_Sketch3DLockHeight"
+              << "Sketcher_Sketch3DKeepPlane"
               << "Sketcher_Sketch3DResetManipulator"
               << "Sketcher_Sketch3DRotationHandles"
               << "Separator"

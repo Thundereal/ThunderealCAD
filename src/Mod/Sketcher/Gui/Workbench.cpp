@@ -245,6 +245,7 @@ template<>
 inline void SketcherAddWorkbenchSketchActions(Gui::MenuItem& sketch)
 {
     sketch << "Sketcher_NewSketch"
+           << "Sketcher_NewSketch3D"
            << "Sketcher_EditSketch"
            << "Sketcher_MapSketch"
            << "Sketcher_ReorientSketch"
@@ -256,6 +257,7 @@ template<>
 inline void SketcherAddWorkbenchSketchActions(Gui::ToolBarItem& sketch)
 {
     sketch << "Sketcher_NewSketch"
+           << "Sketcher_NewSketch3D"
            << "Sketcher_EditSketch"
            << "Sketcher_MapSketch"
            << "Sketcher_ReorientSketch"

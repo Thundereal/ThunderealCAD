@@ -70,6 +70,10 @@ public:
 
     App::DocumentObjectExecReturn* execute() override;
     short mustExecute() const override;
+    const char* getViewProviderName() const override
+    {
+        return "SketcherGui::ViewProviderSketch3D";
+    }
     PyObject* getPyObject() override;
 
     /// Geometry: the sketch's own, then the frame's and the external references in

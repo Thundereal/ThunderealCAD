@@ -65,6 +65,7 @@
 #include "TaskSketcherValidation.h"
 #include "Utils.h"
 #include "ViewProviderSketch.h"
+#include "ViewProviderSketch3D.h"
 
 // Hint: this is to prevent to re-format big parts of the file. Remove it later again.
 // clang-format off
@@ -394,7 +395,7 @@ void CmdSketcherLeaveSketch::activated(int iMsg)
 
 bool CmdSketcherLeaveSketch::isActive()
 {
-    return isSketchInEdit(getActiveGuiDocument());
+    return isSketchInEdit(getActiveGuiDocument()) || isSketch3DInEdit(getActiveGuiDocument());
 }
 
 // Cancel sketch edition (upstream 189d86ee53)

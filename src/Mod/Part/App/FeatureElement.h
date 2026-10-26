@@ -65,10 +65,11 @@ public:
     App::PropertyPlacement Offset;
     /// Keep the copy and stop following the target
     App::PropertyBool Detach;
-    /** What Target resolves to, when not the target itself: hidden, kept
-     * in step. A change reaches a dependent only through objects that
-     * change, and those between (a part, an Elements group, a link) do not:
-     * this is the dependency on the geometry itself.
+    /** What Target resolves to, through a link to what it links, when not
+     * the target itself: hidden, kept in step. A change reaches a dependent
+     * only through objects that change, and those between (a part, an
+     * Elements group, a link) do not: this is the dependency on the
+     * geometry itself.
      */
     App::PropertyXLink _Resolved;
     /// The target is not loaded now (a link to a closed or missing
@@ -143,6 +144,14 @@ public:
 
 private:
     void touchGroups();
+    /** Find the target's geometry again (docs/AssemblyObjectModel.md sec
+     * 4.5): where its name names nothing now, by the naming history, then
+     * by a search for the copy; where the component is replaced, by the
+     * search alone. A path through labels is the link's own.
+     *
+     * @return true when Target was changed
+     */
+    bool repair(bool replaced);
 };
 
 /** How a container uses an element, for a joint of its own

@@ -277,3 +277,55 @@ class ElementTest(unittest.TestCase):
         link.Vertex = (box, ["Edge1"])
         self.doc.recompute()
         self.assertIn("Invalid", link.State)
+
+    def testReplacedComponentKeepsItsLabelledElements(self):
+        # Replacing a component: its element links follow the labels the
+        # new one declares (docs/AssemblyObjectModel.md sec 4.5)
+        pin, box = self.makePart("Pin")
+        Part.makeElement(pin, box, "Face6", "End")
+        other, otherBox = self.makePart("Other")
+        otherBox.Height = 20
+        Part.makeElement(other, otherBox, "Face6", "End")
+        rotor = self.doc.addObject("App::Part", "Rotor")
+        rotor.GroupMode = "Link"
+        link = rotor.addObject(pin)[0]
+        elementLink = Part.makeElementLink(rotor, link, "$$Elements.$End.")
+        self.doc.recompute()
+        link.LinkedObject = other
+        self.doc.recompute()
+        self.assertSameFace(elementLink.Shape, otherBox.Shape.Face6)
+
+    def makeReplaceable(self):
+        """A link to a box in a part, and an element on the box's Face1
+        through the link"""
+        box = self.doc.addObject("Part::Box", "Box")
+        outer = self.doc.addObject("App::Part", "Outer")
+        link = outer.newObject("App::Link", "Link")
+        link.LinkedObject = box
+        self.doc.recompute()
+        element = Part.makeElement(outer, link, "Face1", "Side")
+        self.doc.recompute()
+        return outer, link, element
+
+    def testReplacedComponentIsSearchedForTheCopy(self):
+        # The same face at another index of the new component
+        outer, link, element = self.makeReplaceable()
+        face = element.Shape.copy()
+        feature = self.doc.addObject("Part::Feature", "Reordered")
+        box = Part.makeBox(10, 10, 10)
+        feature.Shape = Part.Solid(Part.Shell(list(reversed(box.Faces))))
+        link.LinkedObject = feature
+        self.doc.recompute()
+        self.assertEqual(element.Target[1], ["Face6"])
+        self.assertNotIn("Invalid", element.State)
+        self.assertSameFace(element.Shape, face)
+
+    def testReplacedComponentWithoutTheCopyKeepsTheName(self):
+        outer, link, element = self.makeReplaceable()
+        taller = self.doc.addObject("Part::Box", "Taller")
+        taller.Height = 20
+        link.LinkedObject = taller
+        self.doc.recompute()
+        self.assertEqual(element.Target[1], ["Face1"])
+        self.assertNotIn("Invalid", element.State)
+        self.assertSameFace(element.Shape, taller.Shape.Face1)

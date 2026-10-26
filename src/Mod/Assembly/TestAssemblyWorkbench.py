@@ -65,6 +65,7 @@ from AssemblyTests.TestMultiplyJoint import TestMultiplyJoint
 from AssemblyTests.TestFreeze import TestFreeze
 from AssemblyTests.TestAssemblyExport import TestAssemblyExport
 from AssemblyTests.TestUnloadedChild import TestUnloadedChild
+from AssemblyTests.TestReplaceComponent import TestReplaceComponent
 
 # Use the modules so that code checkers don't complain (flake8)
 True if TestCore else False
@@ -107,6 +108,7 @@ True if TestMultiplyJoint else False
 True if TestFreeze else False
 True if TestAssemblyExport else False
 True if TestUnloadedChild else False
+True if TestReplaceComponent else False
 
 # The gate once more per registered backend other than OndselSolver
 # (TestSolverGateJointsReference, ...), compared with OndselSolver's records.

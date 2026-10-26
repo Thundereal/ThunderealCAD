@@ -86,6 +86,50 @@ class TestBodyElement(unittest.TestCase):
         self.assertIsNone(self.doc.getObject(group))
         self.assertIsNone(self.doc.getObject(name))
 
+    def topEdges(self, shape, z):
+        return [
+            "Edge%d" % (i + 1)
+            for i, edge in enumerate(shape.Edges)
+            if abs(edge.CenterOfMass.z - z) < 1e-7
+        ]
+
+    def elementOnTheBody(self):
+        """A part holding the body, and an element of the part on the
+        body's top face: the body's result, a moving target"""
+        part = self.doc.addObject("App::Part", "Part")
+        part.addObject(self.body)
+        element = Part.makeElement(part, self.body, "Face6", "Top")
+        self.doc.recompute()
+        return part, element
+
+    def testElementFollowsItsFaceByTheNamingHistory(self):
+        # A fillet renames the face beyond what the link follows: the
+        # element finds what it became (docs/AssemblyObjectModel.md sec 4.5)
+        part, element = self.elementOnTheBody()
+        fillet = self.body.newObject("PartDesign::Fillet", "Fillet")
+        fillet.Base = (self.box, self.topEdges(self.box.Shape, 10))
+        fillet.Radius = 1
+        self.doc.recompute()
+        self.assertNotIn("Invalid", element.State)
+        self.assertNotIn("?", element.Target[1][0])
+        self.assertAlmostEqual(element.Shape.Area, 64, places=6)
+        self.assertAlmostEqual(element.Shape.CenterOfMass.z, 10, places=6)
+
+    def testElementWithItsFaceGoneIsAnErrorOfItsOwn(self):
+        # Nothing became the face: the element says so, and an element link
+        # to it keeps its copy
+        part, element = self.elementOnTheBody()
+        elementLink = Part.makeElementLink(part, part.Elements, "$Top.")
+        self.doc.recompute()
+        cut = self.body.newObject("PartDesign::SubtractiveBox", "Cut")
+        cut.Placement.Base = FreeCAD.Vector(-1, -1, 5)
+        cut.Length = cut.Width = 12
+        self.doc.recompute()
+        self.assertIn("Invalid", element.State)
+        self.assertNotIn("Invalid", elementLink.State)
+        self.assertAlmostEqual(elementLink.Shape.Area, 100, places=6)
+        self.assertAlmostEqual(elementLink.Shape.CenterOfMass.z, 10, places=6)
+
 
 class TestSolidBodyElements(unittest.TestCase):
     """A body with SolidBodies shows each solid's elements in that solid

@@ -472,9 +472,9 @@ at display or solve time.
   between an element and its geometry (an `App::Part`, an Elements group, a
   link) do not. Two things make the copies follow anyway:
   - an element and an element link keep a hidden `_Resolved` link
-    (`PropertyXLink`, Global) on what their subname resolves to, kept in
-    step when the link is set and on each recompute: the dependency on the
-    geometry itself;
+    (`PropertyXLink`, Global) on what their subname resolves to (through a
+    link, what it links; sec 4.5), kept in step when the link is set and on
+    each recompute: the dependency on the geometry itself;
   - `App::AuxGroup::_GroupTouched` (an output, not saved) is touched when
     an element's shape changes, and the container's `_GroupTouched` with
     it, as a group's and a link's own do: the shape cache of a subname
@@ -710,6 +710,45 @@ missing; a frozen child loaded partially is sec 3.1's:
   to another container that exports the same element labels, and re-solve.
   Elements of the replaced child that were not exported by label go through
   the repair order once.
+
+Built (2026-10-26, step 5), `Part::Element::repair()` in
+`Part/App/FeatureElement.cpp`:
+
+- **When.** In the element's `execute`, when its `Target` names nothing now
+  (the link marks the name missing, `?Face6`), and once when the component
+  is replaced: what the geometry comes from (`_Resolved`) is another object
+  than last time, while `Target` itself was not edited (an edit keeps
+  `_Resolved` in step in `onChanged`).
+- **The `$Label` path is the link's own.** A target through labels
+  (`$$Elements.$PinEnd.`) resolves by them, after a relabel and in a
+  replacement alike, or not at all; a path that names no geometry is not
+  repaired, which leaves the repair to the deepest element.
+- **The naming history.** For a missing name, `Feature::getRelatedElements`
+  on the old mapped name, in the object the path resolves to: a fillet over
+  the face leaves its trimmed face (Face6 becomes Face8).
+- **The geometry.** Then `TopoShape::searchSubShape` for the copy, in the
+  target's shape at the container's coordinate system, the copy's own. For a
+  replacement this is the only step: the history is another object's. A
+  reordered replacement keeps its face (Face1 becomes Face6).
+- **What is found** is set as the new `Target`, with a warning naming the
+  old and new name and how it was found. Not found: a missing name stays the
+  element's error ("Target not found"), and its element links keep the copy
+  it last had, so the joints are not broken by it; a replacement without the
+  copy keeps the name it resolves (Face1 of a taller box), with a warning.
+- **`_Resolved` goes through a link** to what it links (it stopped at the
+  link before), so a component replaced behind a link is seen, and the copy
+  depends on the geometry itself there too.
+- **Replacing a component** needs nothing more: set the link's
+  `LinkedObject`. The element links follow the labels, and the joints solve
+  on the new geometry.
+- **Not repaired:** an element link's `Vertex`, which is a direct reference
+  into a child's geometry.
+- **Tests.** `parttests/ElementTest.py` (3): labelled elements followed
+  through a replacement, a replacement searched for the copy, a replacement
+  without it keeping the name. `PartDesignTests/TestBodyElement.py` (2): the
+  naming history after a fillet, and a face gone an error of the element
+  with its element link keeping the copy. `TestReplaceComponent` (1): the
+  joint solved on the replacement.
 
 ## 5. Who declares elements
 
@@ -1487,7 +1526,8 @@ Built as step 4b (2026-10-25), the joints the task makes:
 5. Partial loading through element links (sec 4.4), Freeze with the Parts
    group's compound (sec 3.1), and repair (sec 4.5). Freeze, with the
    partial loading of a frozen assembly, built (2026-10-25, sec 3.1); a
-   joint on a child not loaded, built (2026-10-26, sec 4.4).
+   joint on a child not loaded, built (2026-10-26, sec 4.4); repair and
+   replacement, built (2026-10-26, sec 4.5).
 
 ## 10. Open questions
 

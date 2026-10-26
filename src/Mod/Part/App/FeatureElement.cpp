@@ -56,7 +56,8 @@ static TopoShape linkedShape(const App::PropertyLinkSub &prop)
     return Feature::getTopoShape(obj, sub, true);
 }
 
-/// The object a link's subname resolves to, when not the linked object
+/// The object a link's subname resolves to, through a link to what it
+/// links, when not the linked object: what the geometry comes from
 static App::DocumentObject *resolvedObject(const App::PropertyLinkSub &prop)
 {
     auto obj = prop.getValue();
@@ -66,6 +67,8 @@ static App::DocumentObject *resolvedObject(const App::PropertyLinkSub &prop)
     if (subs.empty() || subs.front().empty())
         return nullptr;
     auto sobj = obj->getSubObject(subs.front().c_str());
+    if (sobj)
+        sobj = sobj->getLinkedObject(true);
     return sobj && sobj != obj ? sobj : nullptr;
 }
 
@@ -244,6 +247,12 @@ App::DocumentObjectExecReturn *Element::execute()
         return App::DocumentObject::StdReturn;
     if (!shape.isNull() && Unresolved.getValue())
         Unresolved.setValue(false);
+    // What the geometry comes from changed under the target: a component
+    // replaced. An edit of Target itself keeps _Resolved in step (onChanged).
+    auto resolved = resolvedObject(Target);
+    bool replaced = resolved && _Resolved.getValue() && resolved != _Resolved.getValue();
+    if ((shape.isNull() || replaced) && repair(replaced))
+        shape = linkedShape(Target);
     syncResolved(_Resolved, Target);
     if (shape.isNull()) {
         if (takeWholeObject(this, Target))
@@ -252,6 +261,62 @@ App::DocumentObjectExecReturn *Element::execute()
     }
     setCopy(this, shape);
     return App::DocumentObject::StdReturn;
+}
+
+bool Element::repair(bool replaced)
+{
+    auto obj = Target.getValue();
+    const auto &subs = Target.getSubValues();
+    if (!obj || subs.empty())
+        return false;
+    const std::string sub = subs.front();
+    const char *element = Data::findElementName(sub.c_str());
+    // No geometry named: a whole object, or a path to a child's element,
+    // which that element repairs
+    if (!element || !*element)
+        return false;
+    const std::string prefix(sub.c_str(), element - sub.c_str());
+    const bool missing = Data::hasMissingElement(element);
+
+    std::string found;
+    const char *how = nullptr;
+    // The naming history: what the element the name had became
+    const auto &shadows = Target.getShadowSubs();
+    const char *mapped = shadows.empty() ? nullptr
+        : Data::findElementName(shadows.front().first.c_str());
+    if (missing && mapped && Data::isMappedElement(mapped)) {
+        auto sobj = obj->getSubObject(prefix.c_str());
+        auto geo = sobj ? sobj->getLinkedObject(true) : nullptr;
+        auto related = geo ? Feature::getRelatedElements(geo, mapped)
+                           : QVector<Data::MappedElement>();
+        if (!related.isEmpty()) {
+            related.front().index.appendToStringBuffer(found);
+            how = "its naming history";
+        }
+    }
+    // The geometry: where the copy is, in what the target is now
+    if (found.empty()) {
+        const TopoDS_Shape copy = singleSubShape(Shape.getShape().getShape());
+        std::vector<std::string> names;
+        if (!copy.IsNull())
+            Feature::getTopoShape(obj, prefix.c_str(), false).searchSubShape(TopoShape(copy),
+                                                                             &names);
+        if (!names.empty()) {
+            found = names.front();
+            how = "its geometry";
+        }
+    }
+    if (found.empty() || (!missing && found == element)) {
+        if (replaced && found.empty())
+            Base::Console().Warning("%s: %s is replaced, and the element's geometry is not in "
+                                    "it: kept as %s\n", getFullName().c_str(),
+                                    obj->getFullName().c_str(), sub.c_str());
+        return false;
+    }
+    Base::Console().Warning("%s: %s.%s found by %s as %s\n", getFullName().c_str(),
+                            obj->getFullName().c_str(), sub.c_str(), how, found.c_str());
+    Target.setValue(obj, std::vector<std::string>{prefix + found});
+    return true;
 }
 
 void Element::onChanged(const App::Property *prop)

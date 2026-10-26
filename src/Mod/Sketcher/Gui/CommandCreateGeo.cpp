@@ -53,6 +53,7 @@
 #include "CircleEllipseConstructionMethod.h"
 #include "Utils.h"
 #include "ViewProviderSketch.h"
+#include "ViewProviderSketch3D.h"
 
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
@@ -129,12 +130,16 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreateLine, "Sketcher_CreateLine")
 void CmdSketcherCreateLine::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Line);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(), new DrawSketchHandlerLine());
 }
 
 bool CmdSketcherCreateLine::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 
@@ -314,12 +319,16 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreatePolyline, "Sketcher_CreatePolyline")
 void CmdSketcherCreatePolyline::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Polyline);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(), new DrawSketchHandlerLineSet());
 }
 
 bool CmdSketcherCreatePolyline::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 
@@ -680,6 +689,10 @@ CONSTRUCTION_UPDATE_ACTION(CmdSketcherCreateBSpline, "Sketcher_CreateBSpline")
 void CmdSketcherCreateBSpline::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::BSplineControl);
+        return;
+    }
     ActivateHandler(
         getActiveGuiDocument(),
         new DrawSketchHandlerBSpline(
@@ -688,7 +701,7 @@ void CmdSketcherCreateBSpline::activated(int iMsg)
 
 bool CmdSketcherCreateBSpline::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 /// @brief Macro that declares a new sketcher command class 'CmdSketcherCreateBSpline'
@@ -756,6 +769,10 @@ void CmdSketcherCreateBSplineByInterpolation::activated(int iMsg)
     // This command had a handler of its own from before the tools were
     // rebuilt on controllers: no tool widget, no on-view parameters, and
     // only the polygon through the knots drawn while they were placed.
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::BSplineThrough);
+        return;
+    }
     ActivateHandler(
         getActiveGuiDocument(),
         new DrawSketchHandlerBSpline(ConstructionMethods::BSplineConstructionMethod::Knots));
@@ -763,7 +780,7 @@ void CmdSketcherCreateBSplineByInterpolation::activated(int iMsg)
 
 bool CmdSketcherCreateBSplineByInterpolation::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 /// @brief Macro that declares a new sketcher command class
@@ -852,12 +869,16 @@ CmdSketcherCreatePoint::CmdSketcherCreatePoint()
 void CmdSketcherCreatePoint::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        vp3->startTool(ViewProviderSketch3D::Tool::Point);
+        return;
+    }
     ActivateHandler(getActiveGuiDocument(), new DrawSketchHandlerPoint());
 }
 
 bool CmdSketcherCreatePoint::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 // ======================================================================================

@@ -30,7 +30,12 @@
 #include <QLabel>
 #include <QVBoxLayout>
 
+#include <BRepAdaptor_Surface.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <BRep_Tool.hxx>
 #include <Geom_Curve.hxx>
+#include <TopoDS.hxx>
 #include <Precision.hxx>
 
 #include <Inventor/SbLine.h>
@@ -39,7 +44,9 @@
 #include <Inventor/nodes/SoCamera.h>
 #include <Inventor/SoPickedPoint.h>
 #include <Inventor/events/SoMouseButtonEvent.h>
+#include <Inventor/details/SoLineDetail.h>
 #include <Inventor/details/SoPointDetail.h>
+#include <Inventor/events/SoKeyboardEvent.h>
 #include <Inventor/engines/SoComposeVec3f.h>
 #include <Inventor/nodes/SoCoordinate3.h>
 #include <Inventor/nodes/SoDrawStyle.h>
@@ -55,6 +62,8 @@
 
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
+#include <App/GeoFeatureGroupExtension.h>
+#include <Mod/Part/App/PartFeature.h>
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <Base/Tools.h>
@@ -186,11 +195,40 @@ Base::Rotation planeTurn(int k)
     return Base::Rotation(Base::Vector3d(1, 1, 1), k * 2 * std::numbers::pi / 3);
 }
 
+// The gizmo's axis length in its own units (SoFCCSysDragger's arrows).
+constexpr float GizmoAxis = 10.f;
+
 // Within this many pixels of an axis, beyond the gizmo, a click locks to it.
 constexpr float AxisSnapPixels = 6.f;
 constexpr float AxisDeadPixels = 24.f;
 
 }  // namespace
+
+// Where a placed point came from, and so which constraint ties it there.
+struct ViewProviderSketch3D::Snap
+{
+    enum class Kind
+    {
+        None,
+        SketchPoint,  // coincident with (geoId, pos)
+        SketchCurve,  // on geoId
+        ModelVertex,  // an element of the model: made an external reference first
+        ModelEdge,
+        ModelPlane,
+        Model,  // position only (a curved face)
+    };
+    Kind kind {Kind::None};
+    int geoId {Sketcher::GeoEnum::GeoUndef};
+    Sketcher::PointPos pos {Sketcher::PointPos::none};
+    App::DocumentObject* obj {nullptr};
+    std::string sub;
+};
+
+struct ViewProviderSketch3D::Placed
+{
+    Base::Vector3d point;
+    Snap snap;
+};
 
 struct ViewProviderSketch3D::EditData
 {
@@ -224,6 +262,21 @@ struct ViewProviderSketch3D::EditData
     SoLineSet* heightLine {nullptr};
     Gui::SoFCCSysDragger* dragger {nullptr};
     bool syncing {false};
+
+    // What the drawn parts are: a curve part's geometry id, a point's id and position.
+    std::vector<int> curveRefs;
+    std::vector<std::pair<int, Sketcher::PointPos>> pointRefs;
+
+    // The active tool, the points it placed and not yet made, and a polyline's chain.
+    Tool tool {Tool::None};
+    std::vector<Placed> placed;
+    int chainFirst {-1};
+    int chainLast {-1};
+    SoCoordinate3* previewCoords {nullptr};
+    SoLineSet* previewLines {nullptr};
+    SoCoordinate3* cursorCoords {nullptr};
+    SoMarkerSet* cursorMarker {nullptr};
+    SoMaterial* cursorMaterial {nullptr};
 
     EditData()
     {
@@ -260,18 +313,54 @@ struct ViewProviderSketch3D::EditData
         content->addChild(pts);
 
         buildManipulator();
+        buildPreview();
+    }
+
+    void buildPreview()
+    {
+        // The tool's rubber band and the point a click would place, not pickable.
+        auto preview = new SoSeparator();
+        auto pick = new SoPickStyle();
+        pick->style = SoPickStyle::UNPICKABLE;
+        auto style = new SoDrawStyle();
+        style->lineWidth = 1;
+        style->linePattern = 0xFF00;
+        auto material = new SoMaterial();
+        material->diffuseColor = SbColor(0.8f, 0.8f, 0.8f);
+        previewCoords = new SoCoordinate3();
+        previewLines = new SoLineSet();
+        previewLines->numVertices.setNum(0);
+        preview->addChild(pick);
+        preview->addChild(style);
+        preview->addChild(material);
+        preview->addChild(previewCoords);
+        preview->addChild(previewLines);
+
+        auto cursor = new SoSeparator();
+        cursorMaterial = new SoMaterial();
+        cursorCoords = new SoCoordinate3();
+        cursorMarker = new SoMarkerSet();
+        cursorMarker->markerIndex = Gui::Inventor::MarkerBitmaps::getMarkerIndex("CIRCLE_LINE", 9);
+        cursorMarker->numPoints = 0;
+        cursor->addChild(cursorMaterial);
+        cursor->addChild(cursorCoords);
+        cursor->addChild(cursorMarker);
+        preview->addChild(cursor);
+        content->addChild(preview);
     }
 
     void buildManipulator()
     {
-        // Axes of unit length and the three plane handles, scaled with the gizmo so
+        // Axes and the three plane handles in the gizmo's units, scaled with it so
         // they keep their size on screen; the gizmo itself shows only its rotation
         // rings, which tilt the frame (section 7).
         manipRoot = new SoSeparator();
         manipRoot->setName("Sketch3DManipulator");
         dragger = new Gui::SoFCCSysDragger();
         dragger->setName("Sketch3DManipulatorDragger");
-        dragger->draggerSize.setValue(0.05f);
+        // About 70 pixels across: its axes are 10 units and its rings of radius 8,
+        // and the size is the fraction of the view half a unit takes.
+        dragger->draggerSize.setValue(0.015f);
         dragger->hideTranslationX();
         dragger->hideTranslationY();
         dragger->hideTranslationZ();
@@ -303,11 +392,11 @@ struct ViewProviderSketch3D::EditData
         axisStyle->lineWidth = 2;
         auto axisCoords = new SoCoordinate3();
         const SbVec3f axisPts[6] = {SbVec3f(0, 0, 0),
-                                    SbVec3f(1, 0, 0),
+                                    SbVec3f(GizmoAxis, 0, 0),
                                     SbVec3f(0, 0, 0),
-                                    SbVec3f(0, 1, 0),
+                                    SbVec3f(0, GizmoAxis, 0),
                                     SbVec3f(0, 0, 0),
-                                    SbVec3f(0, 0, 1)};
+                                    SbVec3f(0, 0, GizmoAxis)};
         axisCoords->point.setValues(0, 6, axisPts);
         auto axisLines = new SoLineSet();
         const int32_t axisCounts[3] = {2, 2, 2};
@@ -328,7 +417,7 @@ struct ViewProviderSketch3D::EditData
             planeMaterials[k] = new SoMaterial();
             auto coords = new SoCoordinate3();
             SbVec3f sq[4];
-            const float a = 0.25f, b = 0.55f;
+            const float a = 0.25f * GizmoAxis, b = 0.55f * GizmoAxis;
             const float corners[4][2] = {{a, a}, {b, a}, {b, b}, {a, b}};
             for (int c = 0; c < 4; ++c) {
                 float u = corners[c][0], v = corners[c][1];
@@ -654,7 +743,7 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
     SbVec2s o;
     if (toView(edit->origin, o)) {
         float dpr = float(edit->viewer->devicePixelRatio());
-        double reach = 10. * std::max(1e-6f, edit->dragger->autoScaleResult.getValue());
+        double reach = 10. * GizmoAxis * std::max(1e-6f, edit->dragger->autoScaleResult.getValue());
         int best = -1;
         float bestDist = AxisSnapPixels * dpr;
         for (int k = 0; k < 3; ++k) {
@@ -691,39 +780,112 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
     return toLocal(edit->viewer->getPointOnXYPlaneOfPlacement(pos, world), point);
 }
 
+int ViewProviderSketch3D::planeHandleAt(const SbVec2s& pos) const
+{
+    // In screen space, inside the projected square: the rotation rings can lie in
+    // front of a handle along the pick ray, and the handle is what is aimed at.
+    if (!edit || !edit->viewer) {
+        return -1;
+    }
+    const float scale = edit->dragger->autoScaleResult.getValue();
+    const float a = 0.25f * GizmoAxis * scale, b = 0.55f * GizmoAxis * scale;
+    const float corners[4][2] = {{a, a}, {b, a}, {b, b}, {a, b}};
+    for (int k = 0; k < 3; ++k) {
+        SbVec2f quad[4];
+        bool ok = true;
+        for (int c = 0; c < 4 && ok; ++c) {
+            float u = corners[c][0], v = corners[c][1];
+            Base::Vector3d q = k == 0
+                ? Base::Vector3d(u, v, 0)
+                : (k == 1 ? Base::Vector3d(0, u, v) : Base::Vector3d(v, 0, u));
+            edit->rotation.multVec(q, q);
+            SbVec2s sv;
+            ok = toView(edit->origin + q, sv);
+            quad[c] = SbVec2f(sv[0], sv[1]);
+        }
+        if (!ok) {
+            continue;
+        }
+        // inside when on the same side of all four edges
+        int sign = 0;
+        bool inside = true;
+        for (int c = 0; c < 4 && inside; ++c) {
+            SbVec2f e = quad[(c + 1) % 4] - quad[c];
+            SbVec2f r = SbVec2f(pos[0], pos[1]) - quad[c];
+            float cross = e[0] * r[1] - e[1] * r[0];
+            int sc = cross > 0 ? 1 : (cross < 0 ? -1 : 0);
+            if (sc != 0) {
+                if (sign == 0) {
+                    sign = sc;
+                }
+                else if (sc != sign) {
+                    inside = false;
+                }
+            }
+        }
+        if (inside && sign != 0) {
+            return k;
+        }
+    }
+    return -1;
+}
+
+int ViewProviderSketch3D::pointNear(const SbVec2s& pos) const
+{
+    // Sketch points come before curves: at a line's end the pick hits the line as
+    // readily as its end point, and a click there means the point.
+    if (!edit || !edit->viewer) {
+        return -1;
+    }
+    const float radius = edit->viewer->getPickRadius() * float(edit->viewer->devicePixelRatio());
+    int best = -1;
+    float bestDist = radius * radius;
+    for (int i = 0; i < edit->pointCoords->point.getNum() && i < int(edit->pointRefs.size()); ++i) {
+        const SbVec3f& p = edit->pointCoords->point[i];
+        SbVec2s v;
+        if (!toView(Base::Vector3d(p[0], p[1], p[2]), v)) {
+            continue;
+        }
+        float dx = float(v[0] - pos[0]), dy = float(v[1] - pos[1]);
+        float d = dx * dx + dy * dy;
+        if (d <= bestDist) {
+            best = i;
+            bestDist = d;
+        }
+    }
+    return best;
+}
+
 bool ViewProviderSketch3D::press(const SbVec2s& pos)
 {
     if (!edit || !edit->viewer) {
         return false;
     }
     edit->lastPos = pos;
-    std::unique_ptr<SoPickedPoint> pp(edit->viewer->getPointOnRay(pos, this));
-    if (!pp) {
-        return false;
+    int handle = planeHandleAt(pos);
+    if (handle >= 0) {
+        edit->plane = static_cast<Plane>(handle);
+        updateManipulator();
+        return true;
     }
-    SoPath* path = pp->getPath();
-    if (path->containsNode(edit->dragger)) {
+    std::unique_ptr<SoPickedPoint> pp(edit->viewer->getPointOnRay(pos, this));
+    if (pp && pp->getPath()->containsNode(edit->dragger)) {
         return false;  // the rotation rings: the gizmo drags
     }
-    for (int k = 0; k < 3; ++k) {
-        if (path->containsNode(edit->planeNodes[k])) {
-            edit->plane = static_cast<Plane>(k);
-            updateManipulator();
-            return true;
+    if (edit->tool != Tool::None) {
+        Placed placed;
+        if (place(pos, placed)) {
+            addPlaced(placed);
         }
+        return true;
     }
     // A sketch point: the manipulator goes there (section 7, decision k).
-    if (path->getTail() == edit->points) {
-        auto detail = dynamic_cast<const SoPointDetail*>(pp->getDetail());
-        if (detail) {
-            int i = detail->getCoordinateIndex();
-            if (i >= 0 && i < edit->pointCoords->point.getNum()) {
-                const SbVec3f& p = edit->pointCoords->point[i];
-                edit->origin = Base::Vector3d(p[0], p[1], p[2]);
-                updateManipulator();
-                return true;
-            }
-        }
+    int near = pointNear(pos);
+    if (near >= 0) {
+        const SbVec3f& p = edit->pointCoords->point[near];
+        edit->origin = Base::Vector3d(p[0], p[1], p[2]);
+        updateManipulator();
+        return true;
     }
     return false;
 }
@@ -732,8 +894,34 @@ bool ViewProviderSketch3D::move(const SbVec2s& pos)
 {
     if (edit) {
         edit->lastPos = pos;
+        if (edit->tool != Tool::None) {
+            updatePreview();
+        }
     }
+    // Not taken: the view goes on preselecting the model, which the snap reads.
     return false;
+}
+
+bool ViewProviderSketch3D::pressRight(const SbVec2s& pos)
+{
+    if (!edit || edit->tool == Tool::None) {
+        return false;
+    }
+    edit->lastPos = pos;
+    finishTool();
+    return true;
+}
+
+bool ViewProviderSketch3D::keyPressed(bool pressed, int key)
+{
+    if (edit && edit->tool != Tool::None && key == SoKeyboardEvent::ESCAPE) {
+        // Escape keeps what is placed (memory: Escape means leave, not undo).
+        if (pressed) {
+            finishTool();
+        }
+        return true;
+    }
+    return PartGui::ViewProviderPart::keyPressed(pressed, key);
 }
 
 bool ViewProviderSketch3D::mouseMove(const SbVec2s& cursorPos, Gui::ViewerContext* /*viewer*/)
@@ -750,7 +938,534 @@ bool ViewProviderSketch3D::mouseButtonPressed(int button,
     if (button == SoMouseButtonEvent::BUTTON1 && pressed) {
         return press(cursorPos);
     }
+    if (button == SoMouseButtonEvent::BUTTON2 && edit && edit->tool != Tool::None) {
+        // the release too, or the view's context menu comes up after the finish
+        return pressed ? pressRight(cursorPos) : true;
+    }
     return false;
+}
+
+// ---------------------------------------------------------------------------------
+// Drawing tools
+
+namespace
+{
+
+std::string pyVec(const Base::Vector3d& v)
+{
+    char buf[192];
+    snprintf(buf, sizeof(buf), "App.Vector(%.17g, %.17g, %.17g)", v.x, v.y, v.z);
+    return buf;
+}
+
+std::string pyVecs(const std::vector<Base::Vector3d>& pts)
+{
+    std::string s = "[";
+    for (std::size_t i = 0; i < pts.size(); ++i) {
+        s += (i ? ", " : "") + pyVec(pts[i]);
+    }
+    return s + "]";
+}
+
+// The frame axis a direction runs along within two degrees, or -1.
+int alongAxis(const Base::Vector3d& d)
+{
+    double l = d.Length();
+    if (l <= 0.) {
+        return -1;
+    }
+    for (int k = 0; k < 3; ++k) {
+        double c = std::fabs((k == 0 ? d.x : k == 1 ? d.y : d.z) / l);
+        if (c > std::cos(2. * std::numbers::pi / 180.)) {
+            return k;
+        }
+    }
+    return -1;
+}
+
+}  // namespace
+
+ViewProviderSketch3D::Tool ViewProviderSketch3D::activeTool() const
+{
+    return edit ? edit->tool : Tool::None;
+}
+
+int ViewProviderSketch3D::placedCount() const
+{
+    return edit ? int(edit->placed.size()) : 0;
+}
+
+bool ViewProviderSketch3D::constructionMode() const
+{
+    return construction;
+}
+
+void ViewProviderSketch3D::setConstructionMode(bool c)
+{
+    construction = c;
+}
+
+void ViewProviderSketch3D::startTool(Tool tool)
+{
+    if (!edit) {
+        return;
+    }
+    cancelTool();
+    edit->tool = tool;
+    edit->placed.clear();
+    edit->chainFirst = edit->chainLast = -1;
+    updatePreview();
+    showToolStatus();
+}
+
+void ViewProviderSketch3D::cancelTool()
+{
+    if (!edit) {
+        return;
+    }
+    edit->tool = Tool::None;
+    edit->placed.clear();
+    edit->chainFirst = edit->chainLast = -1;
+    updatePreview();
+    showToolStatus();
+}
+
+void ViewProviderSketch3D::finishTool()
+{
+    if (!edit || edit->tool == Tool::None) {
+        return;
+    }
+    bool spline = edit->tool == Tool::BSplineThrough || edit->tool == Tool::BSplineControl;
+    bool pending =
+        spline ? edit->placed.size() >= 2 : edit->chainLast >= 0 || !edit->placed.empty();
+    if (spline && edit->placed.size() >= 2) {
+        makeSpline();
+    }
+    if (pending) {
+        // A chain or a spline made: the tool stays for the next one.
+        edit->placed.clear();
+        edit->chainFirst = edit->chainLast = -1;
+        updatePreview();
+        showToolStatus();
+        return;
+    }
+    cancelTool();
+}
+
+void ViewProviderSketch3D::showToolStatus()
+{
+    QString text;
+    switch (edit ? edit->tool : Tool::None) {
+        case Tool::Point:
+            text = QObject::tr("3D point: click to place; Escape ends");
+            break;
+        case Tool::Line:
+            text = edit->placed.empty() ? QObject::tr("3D line: click the start; Escape ends")
+                                        : QObject::tr("3D line: click the end; Escape ends");
+            break;
+        case Tool::Polyline:
+            text =
+                QObject::tr("3D polyline: click the next point; Escape or a right click finishes");
+            break;
+        case Tool::BSplineThrough:
+            text = QObject::tr(
+                "3D spline through points: click the points; Escape or a right click makes it");
+            break;
+        case Tool::BSplineControl:
+            text = QObject::tr(
+                "3D spline by control points: click the poles; Escape or a right click makes it");
+            break;
+        case Tool::None:
+            break;
+    }
+    Gui::getMainWindow()->showMessage(text);
+}
+
+bool ViewProviderSketch3D::place(const SbVec2s& pos, Placed& placed) const
+{
+    if (!edit || !edit->viewer) {
+        return false;
+    }
+    Base::Matrix4D inv = editingTransform();
+    inv.inverseGauss();
+    auto sketch = getSketch3DObject();
+
+    // 1. The sketch's own points and curves (and its references), as drawn; points
+    // first.
+    int near = pointNear(pos);
+    if (near >= 0) {
+        const SbVec3f& p = edit->pointCoords->point[near];
+        placed.point = Base::Vector3d(p[0], p[1], p[2]);
+        placed.snap.kind = Snap::Kind::SketchPoint;
+        placed.snap.geoId = edit->pointRefs[near].first;
+        placed.snap.pos = edit->pointRefs[near].second;
+        return true;
+    }
+    std::unique_ptr<SoPickedPoint> pp(edit->viewer->getPointOnRay(pos, this));
+    if (pp && !pp->getPath()->containsNode(edit->manipRoot)) {
+        SoNode* tail = pp->getPath()->getTail();
+        if (tail == edit->points) {
+            auto detail = dynamic_cast<const SoPointDetail*>(pp->getDetail());
+            int i = detail ? detail->getCoordinateIndex() : -1;
+            if (i >= 0 && i < int(edit->pointRefs.size())) {
+                const SbVec3f& p = edit->pointCoords->point[i];
+                placed.point = Base::Vector3d(p[0], p[1], p[2]);
+                placed.snap.kind = Snap::Kind::SketchPoint;
+                placed.snap.geoId = edit->pointRefs[i].first;
+                placed.snap.pos = edit->pointRefs[i].second;
+                return true;
+            }
+        }
+        else if (tail == edit->curveLines) {
+            auto detail = dynamic_cast<const SoLineDetail*>(pp->getDetail());
+            int part = detail ? detail->getPartIndex() : -1;
+            if (part >= 0 && part < int(edit->curveRefs.size())) {
+                int geoId = edit->curveRefs[part];
+                auto curve =
+                    Base::freecad_dynamic_cast<Part::GeomCurve>(sketch->getGeometry(geoId));
+                SbVec3f w = pp->getPoint();
+                Base::Vector3d at;
+                inv.multVec(Base::Vector3d(w[0], w[1], w[2]), at);
+                double u;
+                if (curve && curve->closestParameter(at, u)) {
+                    placed.point = curve->pointAtParameter(u);
+                    placed.snap.kind = Snap::Kind::SketchCurve;
+                    placed.snap.geoId = geoId;
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 2. The model element under the pointer: what the view preselected.
+    const auto& pre = Gui::Selection().getPreselection();
+    App::Document* doc = sketch->getDocument();
+    if (pre.pObjectName && pre.pObjectName[0] && pre.pDocName
+        && doc->getName() == std::string(pre.pDocName)) {
+        App::DocumentObject* top = doc->getObject(pre.pObjectName);
+        std::string sub = pre.pSubName ? pre.pSubName : "";
+        if (top && top != sketch) {
+            // Taken from the sketch's own container when the path goes through it, so
+            // the reference is in the frame the sketch's Placement is in.
+            App::DocumentObject* obj = top;
+            const char* element = nullptr;
+            if (auto leaf = top->resolve(sub.c_str(), nullptr, nullptr, &element)) {
+                auto group = App::GeoFeatureGroupExtension::getGroupOfObject(sketch);
+                if (leaf != top && group
+                    && App::GeoFeatureGroupExtension::getGroupOfObject(leaf) == group) {
+                    obj = leaf;
+                    sub = element ? element : "";
+                }
+            }
+            Base::Vector3d at;
+            inv.multVec(Base::Vector3d(pre.x, pre.y, pre.z), at);
+            Part::TopoShape shape;
+            try {
+                shape = Part::Feature::getTopoShape(obj, sub.c_str(), true);
+            }
+            catch (...) {
+            }
+            if (!shape.isNull()) {
+                // The element in the sketch's frame, as rebuildExternalGeometry takes it.
+                Base::Matrix4D toSketch = sketch->Placement.getValue().inverse().toMatrix();
+                shape.transformShape(toSketch, false, true);
+                const TopoDS_Shape& s = shape.getShape();
+                placed.snap.obj = obj;
+                placed.snap.sub = sub;
+                const Base::Vector3d& local = at;  // the preselected point, in the sketch's frame
+                if (s.ShapeType() == TopAbs_VERTEX) {
+                    gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(s));
+                    placed.point = Base::Vector3d(p.X(), p.Y(), p.Z());
+                    placed.snap.kind = Snap::Kind::ModelVertex;
+                    return true;
+                }
+                if (s.ShapeType() == TopAbs_EDGE) {
+                    BRepExtrema_DistShapeShape dist(
+                        s,
+                        BRepBuilderAPI_MakeVertex(gp_Pnt(local.x, local.y, local.z)).Vertex());
+                    if (dist.IsDone() && dist.NbSolution() > 0) {
+                        gp_Pnt p = dist.PointOnShape1(1);
+                        placed.point = Base::Vector3d(p.X(), p.Y(), p.Z());
+                        placed.snap.kind = Snap::Kind::ModelEdge;
+                        return true;
+                    }
+                }
+                if (s.ShapeType() == TopAbs_FACE) {
+                    BRepAdaptor_Surface surf(TopoDS::Face(s));
+                    placed.point = local;
+                    placed.snap.kind = surf.GetType() == GeomAbs_Plane ? Snap::Kind::ModelPlane
+                                                                       : Snap::Kind::Model;
+                    return true;
+                }
+            }
+        }
+    }
+
+    // 3. The manipulator's plane, axis or height lock.
+    placed.snap = Snap();
+    return pointAt(pos, placed.point);
+}
+
+void ViewProviderSketch3D::constrainTo(const Snap& snap, int geoId, int pos)
+{
+    auto sketch = getSketch3DObject();
+    const std::string obj = Gui::Command::getObjectCmd(sketch);
+    auto run = [&](const std::string& code) {
+        Gui::Command::doCommand(Gui::Command::Doc, "%s", code.c_str());
+    };
+    // The external reference a model snap needs, reused when the sketch has it.
+    auto external = [&]() {
+        const auto& objs = sketch->ExternalGeometry.getValues();
+        const auto& subs = sketch->ExternalGeometry.getSubValues();
+        for (std::size_t i = 0; i < objs.size(); ++i) {
+            if (objs[i] == snap.obj && i < subs.size() && subs[i] == snap.sub) {
+                return Sketcher::Sketch3DObject::RefExt - int(i);
+            }
+        }
+        int before = sketch->ExternalGeo.getSize();
+        run(obj + ".addExternal(" + Gui::Command::getObjectCmd(snap.obj) + ", '" + snap.sub + "')");
+        return sketch->ExternalGeo.getSize() > before
+            ? Sketcher::Sketch3DObject::RefExt - (sketch->ExternalGeo.getSize() - 1)
+            : int(Sketcher::GeoEnum::GeoUndef);
+    };
+    char buf[256];
+    switch (snap.kind) {
+        case Snap::Kind::SketchPoint:
+            snprintf(buf,
+                     sizeof(buf),
+                     "%s.addConstraint(Sketcher.Constraint('Coincident', %d, %d, %d, %d))",
+                     obj.c_str(),
+                     geoId,
+                     pos,
+                     snap.geoId,
+                     int(snap.pos));
+            run(buf);
+            break;
+        case Snap::Kind::SketchCurve:
+            snprintf(buf,
+                     sizeof(buf),
+                     "%s.addConstraint(Sketcher.Constraint('PointOnObject', %d, %d, %d))",
+                     obj.c_str(),
+                     geoId,
+                     pos,
+                     snap.geoId);
+            run(buf);
+            break;
+        case Snap::Kind::ModelVertex:
+        case Snap::Kind::ModelEdge:
+        case Snap::Kind::ModelPlane: {
+            int ext = external();
+            if (ext == Sketcher::GeoEnum::GeoUndef) {
+                break;
+            }
+            if (snap.kind == Snap::Kind::ModelVertex) {
+                snprintf(buf,
+                         sizeof(buf),
+                         "%s.addConstraint(Sketcher.Constraint('Coincident', %d, %d, %d, 1))",
+                         obj.c_str(),
+                         geoId,
+                         pos,
+                         ext);
+            }
+            else {
+                snprintf(buf,
+                         sizeof(buf),
+                         "%s.addConstraint(Sketcher.Constraint('PointOnObject', %d, %d, %d))",
+                         obj.c_str(),
+                         geoId,
+                         pos,
+                         ext);
+            }
+            run(buf);
+            break;
+        }
+        case Snap::Kind::Model:
+        case Snap::Kind::None:
+            break;
+    }
+}
+
+void ViewProviderSketch3D::addPlaced(const Placed& placed)
+{
+    auto sketch = getSketch3DObject();
+    const std::string obj = Gui::Command::getObjectCmd(sketch);
+    const char* cons = construction ? "True" : "False";
+
+    auto run = [&](const std::string& code) {
+        Gui::Command::doCommand(Gui::Command::Doc, "%s", code.c_str());
+    };
+    auto tie = [&](const Snap& snap, int geoId, int pos) {
+        constrainTo(snap, geoId, pos);
+    };
+    auto fixed = [](const Snap& snap) {
+        return snap.kind == Snap::Kind::SketchPoint || snap.kind == Snap::Kind::ModelVertex;
+    };
+
+    switch (edit->tool) {
+        case Tool::Point: {
+            Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Add 3D sketch point"));
+            int id = sketch->Geometry.getSize();
+            run(obj + ".addGeometry(Part.Point(" + pyVec(placed.point) + "), " + cons + ")");
+            tie(placed.snap, id, 1);
+            Gui::Command::commitCommand();
+            break;
+        }
+        case Tool::Line:
+        case Tool::Polyline: {
+            if (edit->placed.empty()) {
+                edit->placed.push_back(placed);
+                break;
+            }
+            const Placed& prev = edit->placed.back();
+            if ((placed.point - prev.point).Length() < Precision::Confusion()) {
+                break;  // the same point again
+            }
+            Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Add 3D sketch line"));
+            int id = sketch->Geometry.getSize();
+            run(obj + ".addGeometry(Part.LineSegment(" + pyVec(prev.point) + ", "
+                + pyVec(placed.point) + "), " + cons + ")");
+            if (edit->chainLast >= 0) {
+                char buf[192];
+                snprintf(buf,
+                         sizeof(buf),
+                         "%s.addConstraint(Sketcher.Constraint('Coincident', %d, 2, %d, 1))",
+                         obj.c_str(),
+                         edit->chainLast,
+                         id);
+                run(buf);
+            }
+            else {
+                tie(prev.snap, id, 1);
+            }
+            bool closes = edit->tool == Tool::Polyline && edit->chainFirst >= 0
+                && placed.snap.kind == Snap::Kind::SketchPoint
+                && placed.snap.geoId == edit->chainFirst
+                && placed.snap.pos == Sketcher::PointPos::start;
+            tie(placed.snap, id, 2);
+            // Drawn along a frame axis, and not held at both ends already: Along it.
+            int axis = alongAxis(placed.point - prev.point);
+            bool heldStart = edit->chainLast >= 0 || fixed(prev.snap);
+            if (axis >= 0 && !(heldStart && fixed(placed.snap))) {
+                static const char* along[3] = {"AlongX", "AlongY", "AlongZ"};
+                run(obj + ".addConstraint(Sketcher.Constraint('" + along[axis] + "', "
+                    + std::to_string(id) + "))");
+            }
+            Gui::Command::commitCommand();
+            if (edit->tool == Tool::Line || closes) {
+                edit->placed.clear();
+                edit->chainFirst = edit->chainLast = -1;
+            }
+            else {
+                if (edit->chainFirst < 0) {
+                    edit->chainFirst = id;
+                }
+                edit->chainLast = id;
+                edit->placed.clear();
+                Placed end = placed;
+                end.snap = Snap();  // the next segment ties to this one instead
+                edit->placed.push_back(end);
+            }
+            break;
+        }
+        case Tool::BSplineThrough:
+        case Tool::BSplineControl:
+            if (edit->placed.empty()
+                || (placed.point - edit->placed.back().point).Length() >= Precision::Confusion()) {
+                edit->placed.push_back(placed);
+            }
+            break;
+        case Tool::None:
+            return;
+    }
+    // The manipulator follows the last point (section 7, decision k).
+    edit->origin = placed.point;
+    if (edit->heightLock) {
+        edit->heightLock = false;
+    }
+    updateManipulator();
+    updatePreview();
+    showToolStatus();
+}
+
+void ViewProviderSketch3D::makeSpline()
+{
+    auto sketch = getSketch3DObject();
+    const std::string obj = Gui::Command::getObjectCmd(sketch);
+    std::vector<Base::Vector3d> pts;
+    for (const auto& p : edit->placed) {
+        pts.push_back(p.point);
+    }
+    bool through = edit->tool == Tool::BSplineThrough;
+    int n = int(pts.size());
+    int id = sketch->Geometry.getSize();
+    std::string code = "_bs = Part.BSplineCurve()\n";
+    if (through) {
+        // OCCT puts the knots at the points' chord-length parameters, so each point
+        // is the curve at its knot, as the knot alignment says.
+        code += "_bs.interpolate(" + pyVecs(pts) + ")\n";
+    }
+    else {
+        code += "_bs.buildFromPoles(" + pyVecs(pts) + ", False, "
+            + std::to_string(std::min(3, n - 1)) + ")\n";
+    }
+    code += obj + ".addGeometry(_bs, " + (construction ? "True" : "False") + ")\ndel _bs";
+    Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Add 3D sketch spline"));
+    Gui::Command::doCommand(Gui::Command::Doc, "%s", code.c_str());
+    // The points it goes through (at its knots) or its poles, as sketch points held
+    // to it, so they snap, take constraints and drag the spline.
+    const char* alignment = through ? "BSplineKnotPoint" : "BSplineControlPoint";
+    for (int k = 0; k < n; ++k) {
+        int pid = sketch->Geometry.getSize();
+        Gui::Command::doCommand(Gui::Command::Doc,
+                                "%s.addGeometry(Part.Point(%s), True)\n"
+                                "%s.addConstraint(Sketcher.Constraint('InternalAlignment:Sketcher::"
+                                "%s', %d, 1, %d, %d))",
+                                obj.c_str(),
+                                pyVec(pts[k]).c_str(),
+                                obj.c_str(),
+                                alignment,
+                                pid,
+                                id,
+                                k);
+        // the same tie the line tool makes, on the point
+        constrainTo(edit->placed[k].snap, pid, 1);
+    }
+    Gui::Command::commitCommand();
+}
+
+void ViewProviderSketch3D::updatePreview()
+{
+    if (!edit) {
+        return;
+    }
+    std::vector<SbVec3f> pts;
+    Placed under;
+    bool have = edit->tool != Tool::None && edit->viewer && place(edit->lastPos, under);
+    for (const auto& p : edit->placed) {
+        pts.emplace_back(float(p.point.x), float(p.point.y), float(p.point.z));
+    }
+    if (have && !pts.empty()) {
+        pts.emplace_back(float(under.point.x), float(under.point.y), float(under.point.z));
+    }
+    edit->previewCoords->point.setValues(0, int(pts.size()), pts.data());
+    edit->previewCoords->point.setNum(int(pts.size()));
+    if (pts.size() >= 2) {
+        edit->previewLines->numVertices.setValue(int32_t(pts.size()));
+    }
+    else {
+        edit->previewLines->numVertices.setNum(0);
+    }
+    if (have) {
+        edit->cursorCoords->point.setValue(float(under.point.x),
+                                           float(under.point.y),
+                                           float(under.point.z));
+        edit->cursorMarker->numPoints = 1;
+        edit->cursorMaterial->diffuseColor =
+            under.snap.kind == Snap::Kind::None ? SbColor(1, 1, 1) : SbColor(1, 0.85f, 0);
+    }
+    else {
+        edit->cursorMarker->numPoints = 0;
+    }
 }
 
 ViewProviderSketch3D* SketcherGui::activeSketch3DInEdit()
@@ -846,6 +1561,7 @@ void ViewProviderSketch3D::unsetEdit(int ModNum)
         return;
     }
     Workbench::leaveEditMode();
+    Gui::getMainWindow()->showMessage(QString());
     Gui::ToolBarManager::getInstance()->setState(sketch3DToolbars(),
                                                  Gui::ToolBarManager::State::RestoreDefault);
 
@@ -938,18 +1654,24 @@ void ViewProviderSketch3D::draw()
     std::vector<SbVec3f> pts;
     std::vector<SbColor> ptColors;
 
-    auto addCurve = [&](const Part::Geometry* geo, const SbColor& color) {
+    edit->curveRefs.clear();
+    edit->pointRefs.clear();
+    auto addCurve = [&](const Part::Geometry* geo, const SbColor& color, int geoId) {
         std::size_t before = coords.size();
         sample(geo, coords);
         if (coords.size() > before) {
             counts.push_back(int32_t(coords.size() - before));
             colors.push_back(color);
+            edit->curveRefs.push_back(geoId);
         }
     };
-    auto addPoint = [&](const Base::Vector3d& v, const SbColor& color) {
-        pts.emplace_back(float(v.x), float(v.y), float(v.z));
-        ptColors.push_back(color);
-    };
+    auto addPoint =
+        [&](const Base::Vector3d& v, const SbColor& color, int geoId, Sketcher::PointPos pos) {
+            pts.emplace_back(float(v.x), float(v.y), float(v.z));
+            ptColors.push_back(color);
+            edit->pointRefs.emplace_back(geoId, pos);
+        };
+    using Sketcher::PointPos;
 
     using Params = Sketcher::SketcherParams;
     const SbColor edgeColor = editColor("EditedEdgeColor", Params::defaultEditedEdgeColor());
@@ -965,7 +1687,9 @@ void ViewProviderSketch3D::draw()
                   Params::defaultFullyConstraintConstructionElementColor());
     const SbColor vertexColor = editColor("SketchVertexColor", Params::defaultSketchVertexColor());
 
+    int geoId = -1;
     for (auto geo : sketch->Geometry.getValues()) {
+        ++geoId;
         if (geo->isDerivedFrom<Part::GeomPlane>()) {
             continue;  // a workplane: the manipulator shows it (section 6)
         }
@@ -975,28 +1699,30 @@ void ViewProviderSketch3D::draw()
             : (fully ? fullyColor : edgeColor);
         const SbColor& pointColor = fully ? fullyElementColor : vertexColor;
         if (auto pt = Base::freecad_dynamic_cast<Part::GeomPoint>(geo)) {
-            addPoint(pt->getPoint(), pointColor);
+            addPoint(pt->getPoint(), pointColor, geoId, PointPos::start);
             continue;
         }
-        addCurve(geo, curveColor);
+        addCurve(geo, curveColor, geoId);
         if (auto bounded = Base::freecad_dynamic_cast<Part::GeomBoundedCurve>(geo)) {
-            addPoint(bounded->getStartPoint(), pointColor);
-            addPoint(bounded->getEndPoint(), pointColor);
+            addPoint(bounded->getStartPoint(), pointColor, geoId, PointPos::start);
+            addPoint(bounded->getEndPoint(), pointColor, geoId, PointPos::end);
         }
         if (auto conic = Base::freecad_dynamic_cast<Part::GeomConic>(geo)) {
-            addPoint(conic->getCenter(), pointColor);
+            addPoint(conic->getCenter(), pointColor, geoId, PointPos::mid);
         }
         else if (auto arc = Base::freecad_dynamic_cast<Part::GeomArcOfConic>(geo)) {
-            addPoint(arc->getCenter(), pointColor);
+            addPoint(arc->getCenter(), pointColor, geoId, PointPos::mid);
         }
     }
+    int extId = Sketcher::Sketch3DObject::RefExt;
     for (auto geo : sketch->ExternalGeo.getValues()) {
         if (auto pt = Base::freecad_dynamic_cast<Part::GeomPoint>(geo)) {
-            addPoint(pt->getPoint(), externalColor);
+            addPoint(pt->getPoint(), externalColor, extId, PointPos::start);
         }
         else if (!geo->isDerivedFrom<Part::GeomPlane>()) {
-            addCurve(geo, externalColor);
+            addCurve(geo, externalColor, extId);
         }
+        --extId;
     }
 
     edit->curveCoords->point.setValues(0, int(coords.size()), coords.data());

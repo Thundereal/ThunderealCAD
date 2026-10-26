@@ -117,6 +117,36 @@ public:
     Base::Placement workingPlane() const;
     //@}
 
+    /** @name Drawing tools (section 7: point, line, polyline, the two splines)
+     * Started by the Sketcher's own commands when a 3D sketch is in edit. A click
+     * places a point where pointAt() lands it, or snapped: to a sketch point
+     * (coincident), a sketch curve (point on object), or the model element under the
+     * pointer (made an external reference, then coincident or point on object). Escape
+     * or a right click finishes what is placed; with nothing placed, it ends the tool.
+     */
+    //@{
+    enum class Tool
+    {
+        None,
+        Point,
+        Line,
+        Polyline,
+        BSplineThrough,
+        BSplineControl
+    };
+    void startTool(Tool tool);
+    Tool activeTool() const;
+    /// Commits what is placed (a polyline's chain, a spline's points); with nothing
+    /// placed, ends the tool.
+    void finishTool();
+    /// Ends the tool, dropping a spline's points not yet made.
+    void cancelTool();
+    /// The number of points placed and not yet made into geometry.
+    int placedCount() const;
+    bool constructionMode() const;
+    void setConstructionMode(bool construction);
+    //@}
+
     /** @name Input, in view coordinates (Coin's: origin bottom left)
      * The mouse handlers and the Python binding come through these, so a test drives
      * what a click does.
@@ -126,8 +156,11 @@ public:
     bool pointAt(const SbVec2s& pos, Base::Vector3d& point) const;
     /// A point of the sketch's frame in view coordinates.
     bool toView(const Base::Vector3d& point, SbVec2s& pos) const;
-    /// A left press: picks a plane handle, or moves the manipulator to a sketch point.
+    /// A left press: with a tool, places a point; without, picks a plane handle or
+    /// moves the manipulator to a sketch point.
     bool press(const SbVec2s& pos);
+    /// A right press: finishes the tool's placing, as Escape does.
+    bool pressRight(const SbVec2s& pos);
     bool move(const SbVec2s& pos);
     //@}
 
@@ -136,6 +169,7 @@ protected:
     void unsetEdit(int ModNum) override;
     void setEditViewer(Gui::ViewerContext* viewer, int ModNum) override;
     void unsetEditViewer(Gui::ViewerContext* viewer) override;
+    bool keyPressed(bool pressed, int key) override;
     bool mouseMove(const SbVec2s& cursorPos, Gui::ViewerContext* viewer) override;
     bool mouseButtonPressed(int button,
                             bool pressed,
@@ -145,9 +179,24 @@ protected:
 private:
     struct EditData;
     std::unique_ptr<EditData> edit;
+    /// The tools make construction geometry (Sketcher_ToggleConstruction).
+    bool construction {false};
 
+    struct Snap;
+    struct Placed;
     Base::Matrix4D editingTransform() const;
     void updateManipulator();
+    bool place(const SbVec2s& pos, Placed& placed) const;
+    /// The drawn sketch point within the pick radius of pos, nearest first, or -1.
+    int pointNear(const SbVec2s& pos) const;
+    /// The plane handle (0 XY, 1 YZ, 2 ZX) under pos, or -1.
+    int planeHandleAt(const SbVec2s& pos) const;
+    void addPlaced(const Placed& placed);
+    /// The constraint that ties (geoId, pos) where the snap put it.
+    void constrainTo(const Snap& snap, int geoId, int pos);
+    void makeSpline();
+    void updatePreview();
+    void showToolStatus();
     static void draggerChanged(void* data, SoDragger* dragger);
 };
 

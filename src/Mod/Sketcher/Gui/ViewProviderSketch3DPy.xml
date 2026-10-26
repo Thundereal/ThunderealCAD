@@ -70,5 +70,46 @@ whether the edit took it</UserDocu>
         <UserDocu>move(x, y) -> bool: the pointer moved there</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="pressRight">
+      <Documentation>
+        <UserDocu>pressRight(x, y) -> bool: a right press there: finishes the tool's placing</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="startTool">
+      <Documentation>
+        <UserDocu>startTool(name): 'Point', 'Line', 'Polyline', 'BSplineThrough', 'BSplineControl'
+-- what the Sketcher's creation commands start in a 3D sketch's edit</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="activeTool" Const="true">
+      <Documentation>
+        <UserDocu>activeTool() -> str: the tool's name, or 'None'</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="finishTool">
+      <Documentation>
+        <UserDocu>finishTool(): what Escape does: makes what is placed, or ends the tool</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="cancelTool">
+      <Documentation>
+        <UserDocu>cancelTool(): ends the tool, dropping points not yet made</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="placedCount" Const="true">
+      <Documentation>
+        <UserDocu>placedCount() -> int: points placed and not yet made into geometry</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="setConstructionMode">
+      <Documentation>
+        <UserDocu>setConstructionMode(bool): the tools make construction geometry</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="constructionMode" Const="true">
+      <Documentation>
+        <UserDocu>constructionMode() -> bool</UserDocu>
+      </Documentation>
+    </Methode>
   </PythonExport>
 </GenerateModel>

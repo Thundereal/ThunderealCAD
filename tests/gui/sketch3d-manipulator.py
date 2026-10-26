@@ -194,7 +194,7 @@ def run():
         scale = dragger_scale()
         check("the gizmo scales itself", scale is not None and scale > 0, scale)
         if scale:
-            hxy = vp.toView(V(0, 0.4, 0.4) * scale)
+            hxy = vp.toView(V(0, 4, 4) * scale)
             took = vp.press(*hxy)
             check(
                 "a press on the YZ handle takes it",

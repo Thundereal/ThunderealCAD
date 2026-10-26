@@ -100,6 +100,10 @@ fc_add_gui_test(GuiSketch3DEdit_tests_run sketch3d-edit.py
 # axis and with the height locked; the plane handles; the switching commands.
 fc_add_gui_test(GuiSketch3DManipulator_tests_run sketch3d-manipulator.py
                 --timeout 180)
+# Its drawing tools (S2c): the Sketcher's commands in a 3D sketch's edit,
+# snapping with the constraints it implies, splines, construction, undo.
+fc_add_gui_test(GuiSketch3DTools_tests_run sketch3d-tools.py
+                --timeout 180)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

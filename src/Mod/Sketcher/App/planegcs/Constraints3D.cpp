@@ -120,15 +120,6 @@ DeriVector3 Dir3::current() const
     return eval(params, 0, nullptr);
 }
 
-int dominantAxis(const DeriVector3& v)
-{
-    double ax = std::fabs(v.x), ay = std::fabs(v.y), az = std::fabs(v.z);
-    if (ax >= ay && ax >= az) {
-        return 0;
-    }
-    return ay >= az ? 1 : 2;
-}
-
 // --------------------------------------------------------
 // P3OnLine: pvec = P, A, B, t
 
@@ -253,15 +244,16 @@ void ConstraintP3PlaneDistance::evaluate()
 }
 
 // --------------------------------------------------------
-// Dir3Parallel, Dir3Dot, Dir3Angle: pvec = d1's params, d2's params
+// Dir3Parallel, Dir3Dot, Dir3Angle: pvec = d1's params, d2's params (, s or angle)
 
-ConstraintDir3Parallel::ConstraintDir3Parallel(const Dir3& d1, const Dir3& d2, int comp)
+ConstraintDir3Parallel::ConstraintDir3Parallel(const Dir3& d1, const Dir3& d2, double* s, int comp)
     : d1(d1)
     , d2(d2)
     , comp(comp)
 {
     pvec = d1.params;
     pvec.insert(pvec.end(), d2.params.begin(), d2.params.end());
+    pvec.push_back(s);
     origpvec = pvec;
     rescale();
 }
@@ -269,11 +261,10 @@ ConstraintDir3Parallel::ConstraintDir3Parallel(const Dir3& d1, const Dir3& d2, i
 void ConstraintDir3Parallel::errorgrad(double* err, double* grad, double* param)
 {
     DeriVector3 v1 = d1.eval(pvec, 0, param), v2 = d2.eval(pvec, d1.params.size(), param);
-    double dl1, dl2, dc, d;
-    double l1 = v1.length(dl1), l2 = v2.length(dl2);
-    double c = v1.cross(v2).component(comp, dc);
-    double e = normalised(c, dc, l1, dl1, l2, dl2, d);
-    output(err, grad, e, d);
+    double* s = pvec.back();
+    double d1c, d2c;
+    double c1 = v1.component(comp, d1c), c2 = v2.component(comp, d2c);
+    output(err, grad, c2 - *s * c1, d2c - *s * d1c - dvar(s, param) * c1);
 }
 
 ConstraintDir3Dot::ConstraintDir3Dot(const Dir3& d1, const Dir3& d2)
@@ -613,26 +604,24 @@ int addConstraintP3OnPlane(System& sys, Point3& p, Plane3& pl, int tag, bool dri
     return add(sys, new ConstraintP3PlaneDistance(p, pl, nullptr), tag, driving);
 }
 
-int addConstraintParallel3(System& sys, const Dir3& d1, const Dir3& d2, int tag, bool driving)
+double initialParallelRatio(const Dir3& d1, const Dir3& d2)
 {
-    // The two cross product components other than the directions' dominant axis: the
-    // third is second order small near the solution and would make the pair look
-    // partly redundant (section 4.3). The axis is read from the current geometry; the
-    // facade rebuilds the system for each solve, as the 2D sketch does.
-    DeriVector3 ref = d1.current();
-    if (ref.length() == 0.) {
-        ref = d2.current();
-    }
-    int skip = dominantAxis(ref);
-    int i = -1;
-    for (int k = 0; k < 3; ++k) {
-        if (k != skip) {
-            int j = add(sys, new ConstraintDir3Parallel(d1, d2, k), tag, driving);
-            if (i < 0) {
-                i = j;
-            }
-        }
-    }
+    DeriVector3 v1 = d1.current(), v2 = d2.current();
+    double dd;
+    double l2 = v1.dot(v1, dd);
+    return l2 == 0. ? 1. : v1.dot(v2, dd) / l2;
+}
+
+int addConstraintParallel3(System& sys,
+                           const Dir3& d1,
+                           const Dir3& d2,
+                           double* s,
+                           int tag,
+                           bool driving)
+{
+    int i = add(sys, new ConstraintDir3Parallel(d1, d2, s, 0), tag, driving);
+    add(sys, new ConstraintDir3Parallel(d1, d2, s, 1), tag, driving);
+    add(sys, new ConstraintDir3Parallel(d1, d2, s, 2), tag, driving);
     return i;
 }
 
@@ -700,9 +689,14 @@ int addConstraintTangentLineArc3(System& sys,
     return i;
 }
 
-int addConstraintTangent3(System& sys, const Dir3& t1, const Dir3& t2, int tag, bool driving)
+int addConstraintTangent3(System& sys,
+                          const Dir3& t1,
+                          const Dir3& t2,
+                          double* s,
+                          int tag,
+                          bool driving)
 {
-    return addConstraintParallel3(sys, t1, t2, tag, driving);
+    return addConstraintParallel3(sys, t1, t2, s, tag, driving);
 }
 
 int addConstraintP3Distance(System& sys,

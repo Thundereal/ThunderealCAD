@@ -166,6 +166,7 @@ TEST(Constraints3DGradient, everyConstraint)  // NOLINT
     auto D = ps.point(1.0, -1.5, 0.5);
     auto N = ps.point(0.3, 0.4, 0.8);
     double* t = ps.add(0.37);
+    double* s = ps.add(-1.7);
     double* d = ps.add(2.5);
     auto pl = ps.plane(ps.point(0.5, -0.2, 0.3), 1, 2, 0.5, 0.7, true);
     auto bsp = makeSpline(ps);
@@ -182,10 +183,11 @@ TEST(Constraints3DGradient, everyConstraint)  // NOLINT
         cs.emplace_back("P3Midpoint", std::make_unique<ConstraintP3Midpoint>(P, A, B, k));
         cs.emplace_back(
             "Dir3Parallel line-line",
-            std::make_unique<ConstraintDir3Parallel>(Dir3::diff(A, B), Dir3::diff(C, D), k));
+            std::make_unique<ConstraintDir3Parallel>(Dir3::diff(A, B), Dir3::diff(C, D), s, k));
         cs.emplace_back("Dir3Parallel arc tangent-plane normal",
                         std::make_unique<ConstraintDir3Parallel>(Dir3::crossDiff(N, C, D),
                                                                  Dir3::planeNormal(pl),
+                                                                 s,
                                                                  k));
     }
     cs.emplace_back("P3PlaneDistance", std::make_unique<ConstraintP3PlaneDistance>(P, pl, d));
@@ -309,8 +311,12 @@ TEST(Constraints3DDof, constraintsRemoveWhatTheTableSays)  // NOLINT
          }},
         {"parallel",
          2,
-         [](auto& s, auto&, auto& a, auto& b, auto& c, auto& d) {
-             GCS::addConstraintParallel3(s, GCS::Dir3::diff(a, b), GCS::Dir3::diff(c, d), 1);
+         [](auto& s, auto& ps, auto& a, auto& b, auto& c, auto& d) {
+             GCS::addConstraintParallel3(s,
+                                         GCS::Dir3::diff(a, b),
+                                         GCS::Dir3::diff(c, d),
+                                         ps.add(0.5),
+                                         1);
          }},
         {"perpendicular",
          1,
@@ -401,8 +407,8 @@ TEST(Constraints3DDof, rectangleOnAWorkplane)  // NOLINT
 
 TEST(Constraints3DDof, parallelStaysRankExactOffAxis)  // NOLINT
 {
-    // Parallel picks its two components from the dominant axis; lines along each
-    // axis and along a diagonal must all lose exactly 2.
+    // Parallel is d2 = s d1 with s unknown: lines along each axis and along a diagonal
+    // must all lose exactly 2.
     const double dirs[4][3] = {{1, 0.01, 0.02}, {0.01, 1, -0.02}, {0.02, -0.01, 1}, {1, 1, 1}};
     for (const auto& dir : dirs) {
         SystemTest sys;
@@ -411,10 +417,35 @@ TEST(Constraints3DDof, parallelStaysRankExactOffAxis)  // NOLINT
         auto b = ps.point(dir[0] * 10, dir[1] * 10, dir[2] * 10);
         auto c = ps.point(1, 2, 3);
         auto d = ps.point(1 + dir[0] * 5, 2 + dir[1] * 5.1, 3 + dir[2] * 4.9);
-        GCS::addConstraintParallel3(sys, GCS::Dir3::diff(a, b), GCS::Dir3::diff(c, d), 1);
+        auto d1 = GCS::Dir3::diff(a, b), d2 = GCS::Dir3::diff(c, d);
+        GCS::addConstraintParallel3(sys, d1, d2, ps.add(GCS::initialParallelRatio(d1, d2)), 1);
         EXPECT_EQ(diagnose(sys, ps), 10);
         EXPECT_FALSE(sys.hasPartiallyRedundant());
     }
+}
+
+TEST(Constraints3DSolve, parallelSwingsOntoAnotherAxis)  // NOLINT
+{
+    // Two lines drawn along Y, one then held along Z: the other must follow it round
+    // in one solve, keeping its length (the case that broke a parallel built from two
+    // cross product components picked by the directions as they were drawn).
+    SystemTest sys;
+    Params ps;
+    auto a = ps.point(0, 0, 0, false);
+    auto b = ps.point(0, 10, 0);
+    auto c = ps.point(5, 0, 0);
+    auto d = ps.point(5, 10, 0.5);
+    auto d1 = GCS::Dir3::diff(a, b), d2 = GCS::Dir3::diff(c, d);
+    int tag = 1;
+    GCS::addConstraintP3AlongAxis(sys, a, b, 2, tag++);
+    GCS::addConstraintP3Distance(sys, a, b, ps.add(10, false), tag++);
+    GCS::addConstraintParallel3(sys, d1, d2, ps.add(GCS::initialParallelRatio(d1, d2)), tag++);
+    GCS::addConstraintP3Distance(sys, c, d, ps.add(10, false), tag++);
+    ASSERT_EQ(solve(sys, ps), GCS::SolveStatus::Success);
+    EXPECT_NEAR(std::fabs(*b.z), 10, 1e-9);
+    EXPECT_NEAR(std::fabs(*d.z - *c.z), 10, 1e-9);
+    EXPECT_NEAR(*d.x - *c.x, 0, 1e-9);
+    EXPECT_NEAR(*d.y - *c.y, 0, 1e-9);
 }
 
 // --------------------------------------------------------

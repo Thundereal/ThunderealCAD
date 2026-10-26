@@ -69,9 +69,6 @@ public:
     DeriVector3 eval(const VEC_pD& pvec, std::size_t i, const double* derivparam) const;
 };
 
-/// The axis (0, 1, 2) of a vector's largest component.
-SketcherExport int dominantAxis(const DeriVector3& v);
-
 // P_k - (A_k + t (B_k - A_k)): one component of a point on a line, t unknown.
 class SketcherExport ConstraintP3OnLine: public Constraint
 {
@@ -138,16 +135,16 @@ public:
     void evaluate() override;
 };
 
-// (d1 x d2)_k / (|d1| |d2|): one component of the cross product of two directions.
-// Two of them, the components other than the directions' dominant axis, make the
-// directions parallel (section 4.3).
+// (d2 - s d1)_k, s unknown: one component of two directions being parallel. Three of
+// them and the one unknown remove exactly 2 DOF whatever the directions' orientation
+// (section 4.3), the way point on line uses its t; s < 0 is antiparallel.
 class SketcherExport ConstraintDir3Parallel: public Constraint
 {
     Dir3 d1, d2;
     int comp;
 
 public:
-    ConstraintDir3Parallel(const Dir3& d1, const Dir3& d2, int comp);
+    ConstraintDir3Parallel(const Dir3& d1, const Dir3& d2, double* s, int comp);
     ConstraintType getTypeId() override
     {
         return Dir3Parallel;
@@ -315,11 +312,15 @@ addConstraintP3OnPlane(System& sys, Point3& p, Plane3& pl, int tag = 0, bool dri
 
 // Directions: parallel (2), perpendicular (1), a line parallel to a plane (1),
 // collinear (4, two t unknowns).
+/// s: the ratio d2 = s d1, an unknown the caller allocates (initialParallelRatio).
 SketcherExport int addConstraintParallel3(System& sys,
                                           const Dir3& d1,
                                           const Dir3& d2,
+                                          double* s,
                                           int tag = 0,
                                           bool driving = true);
+/// The s that best fits two directions as they are: d1 . d2 / |d1|^2.
+SketcherExport double initialParallelRatio(const Dir3& d1, const Dir3& d2);
 SketcherExport int addConstraintPerpendicular3(System& sys,
                                                const Dir3& d1,
                                                const Dir3& d2,
@@ -366,6 +367,7 @@ SketcherExport int addConstraintTangentLineArc3(System& sys,
 SketcherExport int addConstraintTangent3(System& sys,
                                          const Dir3& t1,
                                          const Dir3& t2,
+                                         double* s,
                                          int tag = 0,
                                          bool driving = true);
 

@@ -194,8 +194,8 @@ for st, c in stacks.items():
 
 with open(outfile, "w") as f:
     f.write("samples %d over %.2fs (%.1f/s)\n\n" % (nsamp, elapsed, nsamp / max(elapsed, 1e-9)))
-    f.write("== inclusive (top 70)\n")
-    for n, c in incl.most_common(70):
+    f.write("== inclusive (top 400)\n")
+    for n, c in incl.most_common(400):
         f.write("%6.1f%%  %6d  %s\n" % (100.0 * c / max(nsamp, 1), c, n[:220]))
     f.write("\n== self (top 40)\n")
     for n, c in selfc.most_common(40):

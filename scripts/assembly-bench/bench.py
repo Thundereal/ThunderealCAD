@@ -17,6 +17,12 @@
 # joins them with alternating Fixed / Revolute joints (chain: i-1 -> i,
 # star: 0 -> i), and times each phase. Results go to results_<tag>.txt (human)
 # and results_<tag>.jsonl (one record per measurement). A line "DONE" ends a run.
+#
+# CFG["joint_kind"]: "cpp" (the default) makes the joints as the joint task
+# makes them since 2026-10-25, Assembly::JointPython with element links in
+# the assembly's Joints group (docs/AssemblyObjectModel.md sec 7.1);
+# "python" makes upstream's App::FeaturePython joints in a JointGroup, as the
+# numbers of 2026-10-22 were taken.
 
 import os
 import sys
@@ -185,7 +191,11 @@ def run_size(topo, N):
     if box.ViewObject:
         box.ViewObject.Visibility = False
     asm = doc.addObject("Assembly::AssemblyObject", "Assembly")
-    jg = asm.newObject("Assembly::JointGroup", "Joints")
+    cpp = CFG.get("joint_kind", "cpp") == "cpp"
+    if cpp:
+        jg = asm.getGroup("Joints", True)
+    else:
+        jg = asm.newObject("Assembly::JointGroup", "Joints")
     pump()
 
     links = []
@@ -200,7 +210,9 @@ def run_size(topo, N):
     measure(topo, N, "add_parts", add_parts)
 
     def ground():
-        gj = jg.newObject("App::FeaturePython", "GroundedJoint")
+        gj = jg.newObject(
+            "Assembly::GroundedJointPython" if cpp else "App::FeaturePython", "GroundedJoint"
+        )
         JointObject.GroundedJoint(gj, links[0])
         if gj.ViewObject:
             JointObject.ViewProviderGroundedJoint(gj.ViewObject)
@@ -211,7 +223,7 @@ def run_size(topo, N):
     per_joint = []
 
     def make_joint(i, other):
-        j = jg.newObject("App::FeaturePython", "Joint")
+        j = jg.newObject("Assembly::JointPython" if cpp else "App::FeaturePython", "Joint")
         JointObject.Joint(j, 1 if (i % 2) else 0)  # Revolute / Fixed alternate
         if j.ViewObject:
             JointObject.ViewProviderJoint(j.ViewObject)
@@ -264,8 +276,8 @@ def run_size(topo, N):
     try:
         gap = 0.0
         for j in joints:
-            p1 = UtilsAssembly.getJcsGlobalPlc(j.Placement1, j.Reference1)
-            p2 = UtilsAssembly.getJcsGlobalPlc(j.Placement2, j.Reference2)
+            p1 = JointObject.sideJcsGlobal(j, 1)
+            p2 = JointObject.sideJcsGlobal(j, 2)
             gap = max(gap, (p1.Base - p2.Base).Length)
         log("    max JCS origin gap after solve: %.3g mm" % gap)
         rec(topo=topo, N=N, phase="max_jcs_gap", value=gap)
@@ -313,9 +325,9 @@ def run_size(topo, N):
     measure(topo, N, "py_redraw_all_joints", redraw_all, profile=prof_here)
 
     def getglobal_one():
-        UtilsAssembly.getGlobalPlacement(joints[-1].Reference2)
+        JointObject.sideJcsGlobal(joints[-1], 2)
 
-    measure(topo, N, "py_getGlobalPlacement(1)", getglobal_one)
+    measure(topo, N, "py_sideJcsGlobal(1)", getglobal_one)
 
     def py_parents_one():
         return links[-1].Parents
@@ -327,7 +339,9 @@ def run_size(topo, N):
     mid = joints[len(joints) // 2]
 
     def change_offset():
-        mid.Offset2 = App.Placement(App.Vector(0, 0, 0), App.Rotation(App.Vector(1, 0, 0), 5))
+        JointObject.setJointOffset(
+            mid, 2, App.Placement(App.Vector(0, 0, 0), App.Rotation(App.Vector(1, 0, 0), 5))
+        )
 
     measure(topo, N, "change_offset(onChanged)", change_offset, profile=prof_here)
     measure(topo, N, "recompute_after_change", lambda: doc.recompute(), profile=prof_here)

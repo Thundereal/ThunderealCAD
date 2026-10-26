@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder for the working state, proposed (38.17) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6 ruled; Q7a-Q7d open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, then withdrawn for the file creates an archive would need (38.17) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6 ruled; Q7c-Q7e open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -25661,6 +25661,45 @@ more main-thread time, against a version that already takes 85-114 ms at
 | Q7b | Its place | **`<TransientDir>/working/`**: per process and per document, cleaned up with the transient directory. |
 | Q7c | W7 (archive save from the folder, opening an archive into it) | **Later**, after W1-W6 are measured on a real model. |
 | Q7d | Skip `beforeSave` for the objects nothing changed (the shared cost above) | **Survey first**: what `beforeSave` does per object that a kept file still needs (element-map numbering, 38.15; string hasher marks; the congruence search, 38.11). |
+
+**Revised (2026-10-26), on the user's question** "if opening an archive
+file, will working folder require to extract the archive in full, which
+cause slow down? The existing transient directory way does not extract in
+full right?":
+- **Yes, and yes.** An archive's open today copies its blob members raw
+  into a few capped segments of the store (`docs/FileBlobsManager.md` sec
+  14, 15.10): compressed, no file per entry. Its XML entries go into the
+  database as version 1. W4 would instead write the document out as a
+  folder: a file per object at least, and a file per blob unless the blobs
+  stayed in the store.
+- **A file per entry is what sec 14 was built to avoid.** On a monitored
+  Windows file system each file create cost about 61 ms: `MiSTer.FCStd`'s
+  5401 entries took 407 s of a 409 s open. A working folder of its 17800
+  objects is minutes of disk work there, every session. The measurements
+  above are on Linux with 600 boxes, where a file create costs next to
+  nothing, so they could not show it.
+- **Recovery has the same cost today.** It materialises the anchor as files
+  and reads them back (25.7 step 2), as does opening an old version.
+
+**So the recommendation changes:** no working folder for an archive
+document.
+- **The version:** it stays in the store, where kept entries are stored
+  once by hash. The working folder would only have added the files.
+- **Recovery's gain:** the anchor is read from the store directly, its
+  entries served by hash the way an archive's members are (sec 14 of
+  `FileBlobsManager.md`), with nothing materialised. The same reader serves
+  opening a version.
+- **First, measure** how much of recovery's 270-355 ms is the
+  materialising and how much the replay.
+- **A folder document is unchanged:** the user's folder is the folder, and
+  its blobs are read in place (38.9).
+
+| | Question | Recommended, revised |
+| --- | --- | --- |
+| Q7a | A working folder (W1-W6) | **No**, for the file creates above. |
+| Q7b | Its place | Moot. |
+| Q7e | Read a version from the store with nothing materialised: recovery, opening a version | **Measure the materialising first**, then build it if it is a real share. |
+| Q7c, Q7d | As above | Unchanged. |
 
 **Tests** (`FolderSaveCases`):
 - `testAnObjectGainingMapsLeavesTheFilesAfterIt` (was the first half of

@@ -374,6 +374,67 @@ class TestSketch3D(unittest.TestCase):
         with self.assertRaises(ValueError):
             sk.addConstraint(Sketcher.Constraint("Horizontal", 0, 1))
 
+    # -- S3c: corner fillet ------------------------------------------------------------
+
+    def testFilletAtACorner(self):
+        # Two lines meeting off every frame plane: the arc lies in their plane, tangent
+        # to both, the lines trimmed to where it touches, the corner's coincidence
+        # replaced by tangency at both ends; the radius is the one DOF it adds.
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        corner = V(10, 5, 8)
+        a = sk.addGeometry(Part.LineSegment(V(0, 0, 0), corner))
+        b = sk.addGeometry(Part.LineSegment(corner, V(14, 20, 2)))
+        sk.addConstraint(Sketcher.Constraint("Coincident", a, 2, b, 1))
+        dof = sk.DoF
+        arc = sk.fillet(a, 2, b, 1, 3.0)
+        self.assertEqual(arc, 2)
+        g = sk.Geometry[arc]
+        self.assertEqual(type(g).__name__, "ArcOfCircle")
+        self.assertAlmostEqual(g.Radius, 3.0, 7)
+        la, lb = sk.Geometry[a], sk.Geometry[b]
+        self.assertVector(la.EndPoint, g.StartPoint)
+        self.assertVector(lb.StartPoint, g.EndPoint)
+        normal = (corner - V(0, 0, 0)).cross(V(14, 20, 2) - corner)
+        self.assertLess(g.Axis.cross(normal).Length, 1e-7 * normal.Length)
+        da, db = la.EndPoint - la.StartPoint, lb.EndPoint - lb.StartPoint
+        ta = g.tangent(g.FirstParameter)[0]
+        tb = g.tangent(g.LastParameter)[0]
+        self.assertLess(ta.cross(da).Length, 1e-7 * da.Length)
+        self.assertLess(tb.cross(db).Length, 1e-7 * db.Length)
+        types = [c.Type for c in sk.Constraints]
+        self.assertEqual(types, ["Tangent", "Tangent"])
+        self.assertEqual(sk.DoF, dof + 1)
+        self.assertEqual(sk.Conflicting, [])
+        self.assertEqual(sk.Redundant, [])
+        with self.assertRaises(ValueError):
+            sk.fillet(a, 1, b, 2, 1.0)  # those ends do not meet
+
+    def testFilletedPathSweeps(self):
+        # The pipe route with both bends filleted and their radii fixed: fully
+        # constrained again, and the pipe sweeps along it.
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "Path")
+        addPath(sk)
+        self.assertEqual(sk.DoF, 0)
+        for first, second in ((0, 1), (1, 2)):
+            arc = sk.fillet(first, 2, second, 1, 2.0)
+            sk.addConstraint(Sketcher.Constraint("Radius", arc, 2.0))
+            self.assertEqual(sk.Conflicting, [])
+        self.assertEqual(sk.DoF, 0)
+        self.assertEqual(sk.Redundant, [])
+        self.doc.recompute()
+        self.assertEqual(len(sk.Shape.Edges), 5)
+        self.assertEqual(len(sk.Shape.Wires), 1)
+        circle = self.doc.addObject("Part::Circle", "Profile")
+        circle.Radius = 1
+        circle.Placement = App.Placement(V(0, 0, 0), App.Rotation(V(0, 1, 0), 90))
+        sweep = self.doc.addObject("Part::Sweep", "Sweep")
+        sweep.Sections = [circle]
+        sweep.Spine = (sk, ["Edge%d" % (i + 1) for i in range(5)])
+        sweep.Solid = True
+        self.doc.recompute()
+        self.assertTrue(sweep.Shape.isValid())
+        self.assertEqual(len(sweep.Shape.Solids), 1)
+
     # -- S3b: workplanes solved for (docs/Sketch3D.md section 6, v2) -------------------
 
     def planeOf(self, sk, wp):

@@ -95,6 +95,14 @@ projection). Returns its geometry id.</UserDocu>
         <UserDocu>delExternal(geoId): remove an external reference and the constraints on it.</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="fillet">
+      <Documentation>
+        <UserDocu>fillet(geo1, pos1, geo2, pos2, radius) -> int
+
+A corner fillet: the arc tangent to two lines whose given ends meet, in their
+plane, the lines trimmed back to it. Returns the arc's geometry id.</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="movePoint">
       <Documentation>
         <UserDocu>movePoint(geoId, pos, Vector, relative=False) -> int

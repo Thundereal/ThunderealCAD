@@ -1045,6 +1045,17 @@ bool ViewProviderSketch3D::press(const SbVec2s& pos, bool ctrl)
     if (pp && pp->getPath()->containsNode(edit->dragger)) {
         return false;  // the rotation rings: the gizmo drags
     }
+    if (edit->tool == Tool::Fillet) {
+        int near = pointNear(pos);
+        QString why;
+        if (near < 0
+            || !filletAt(edit->pointRefs[near].first, edit->pointRefs[near].second, &why)) {
+            Gui::getMainWindow()->showMessage(
+                why.isEmpty() ? QObject::tr("Click a corner where two lines meet") : why,
+                5000);
+        }
+        return true;
+    }
     if (edit->tool != Tool::None) {
         Placed placed;
         if (place(pos, placed)) {
@@ -1503,6 +1514,9 @@ void ViewProviderSketch3D::showToolStatus()
             text = QObject::tr(
                 "3D arc by three points: click the start, the end, then a point on the arc");
             break;
+        case Tool::Fillet:
+            text = QObject::tr("3D fillet: click a corner where two lines meet; Escape ends");
+            break;
         case Tool::None:
             break;
     }
@@ -1886,6 +1900,7 @@ void ViewProviderSketch3D::addPlaced(const Placed& placed)
             }
             break;
         }
+        case Tool::Fillet:
         case Tool::None:
             return;
     }
@@ -2964,6 +2979,126 @@ bool ViewProviderSketch3D::lockSelection(QString* why)
     Gui::Command::commitCommand();
     clearSelection();
     return true;
+}
+
+bool ViewProviderSketch3D::filletAt(int geoId, Sketcher::PointPos pos, QString* why)
+{
+    using Sketcher::PointPos;
+    auto fail = [&](const QString& text) {
+        if (why) {
+            *why = text;
+        }
+        return false;
+    };
+    auto sketch = getSketch3DObject();
+    auto line = [&](int g) {
+        return g >= 0 ? Base::freecad_dynamic_cast<Part::GeomLineSegment>(sketch->getGeometry(g))
+                      : nullptr;
+    };
+    auto endOf = [&](int g, PointPos p) {
+        auto l = line(g);
+        return p == PointPos::start ? l->getStartPoint() : l->getEndPoint();
+    };
+    if (!line(geoId) || (pos != PointPos::start && pos != PointPos::end)) {
+        return fail(QObject::tr("A fillet is at a corner where two lines meet"));
+    }
+    // The other line whose end is there.
+    Base::Vector3d corner = endOf(geoId, pos);
+    int other = -1;
+    PointPos otherPos = PointPos::none;
+    for (int g = 0; g < sketch->Geometry.getSize() && other < 0; ++g) {
+        if (g == geoId || !line(g)) {
+            continue;
+        }
+        for (PointPos p : {PointPos::start, PointPos::end}) {
+            if ((endOf(g, p) - corner).Length() < Precision::Confusion()) {
+                other = g;
+                otherPos = p;
+                break;
+            }
+        }
+    }
+    if (other < 0) {
+        return fail(QObject::tr("No other line ends at that corner"));
+    }
+    // A radius that leaves each line most of its length: the tangent points a third
+    // of the shorter line from the corner.
+    Base::Vector3d u1 =
+        endOf(geoId, pos == PointPos::start ? PointPos::end : PointPos::start) - corner;
+    Base::Vector3d u2 =
+        endOf(other, otherPos == PointPos::start ? PointPos::end : PointPos::start) - corner;
+    double angle = u1.GetAngle(u2);
+    if (angle < 1e-6 || angle > std::numbers::pi - 1e-6) {
+        return fail(QObject::tr("The lines at that corner are in line: nothing to round"));
+    }
+    double radius = std::min(u1.Length(), u2.Length()) / 3 * std::tan(angle / 2);
+    const std::string obj = Gui::Command::getObjectCmd(sketch);
+    int arc = sketch->Geometry.getSize();
+    Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Fillet 3D sketch corner"));
+    try {
+        Gui::Command::doCommand(Gui::Command::Doc,
+                                "%s.fillet(%d, %d, %d, %d, %.15g)",
+                                obj.c_str(),
+                                geoId,
+                                int(pos),
+                                other,
+                                int(otherPos),
+                                radius);
+        // its radius, typed next as a new dimension's value is (one undo step)
+        int index = sketch->Constraints.getSize();
+        Gui::Command::doCommand(Gui::Command::Doc,
+                                "%s.addConstraint(Sketcher.Constraint('Radius', %d, %.15g))",
+                                obj.c_str(),
+                                arc,
+                                radius);
+        clearSelection();
+        if (edit && edit->viewer && editDatum(index)) {
+            return true;
+        }
+        Gui::Command::commitCommand();
+        return true;
+    }
+    catch (const Base::Exception& e) {
+        Gui::Command::abortCommand();
+        return fail(QString::fromUtf8(e.what()));
+    }
+}
+
+bool ViewProviderSketch3D::filletSelection(QString* why)
+{
+    using Sketcher::PointPos;
+    if (!edit) {
+        return false;
+    }
+    auto sketch = getSketch3DObject();
+    const auto sel = edit->selection;
+    if (sel.empty()) {
+        startTool(Tool::Fillet);
+        return true;
+    }
+    if (sel.size() == 1 && sel[0].pos != PointPos::none) {
+        return filletAt(sel[0].geoId, sel[0].pos, why);
+    }
+    if (sel.size() == 2 && sel[0].pos == PointPos::none && sel[1].pos == PointPos::none) {
+        // the ends of the two lines that meet
+        auto l1 =
+            Base::freecad_dynamic_cast<Part::GeomLineSegment>(sketch->getGeometry(sel[0].geoId));
+        auto l2 =
+            Base::freecad_dynamic_cast<Part::GeomLineSegment>(sketch->getGeometry(sel[1].geoId));
+        if (l1 && l2) {
+            for (PointPos p : {PointPos::start, PointPos::end}) {
+                Base::Vector3d at = p == PointPos::start ? l1->getStartPoint() : l1->getEndPoint();
+                if ((at - l2->getStartPoint()).Length() < Precision::Confusion()
+                    || (at - l2->getEndPoint()).Length() < Precision::Confusion()) {
+                    return filletAt(sel[0].geoId, p, why);
+                }
+            }
+        }
+    }
+    if (why) {
+        *why = QObject::tr("Select two lines that meet, or the corner where they meet");
+    }
+    return false;
 }
 
 void ViewProviderSketch3D::deleteSelection()

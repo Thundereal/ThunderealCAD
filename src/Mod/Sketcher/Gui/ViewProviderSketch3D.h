@@ -156,7 +156,8 @@ public:
         Circle,
         Circle3Point,
         Arc,
-        Arc3Point
+        Arc3Point,
+        Fillet  // a click on a corner where two lines meet fillets it
     };
     void startTool(Tool tool);
     Tool activeTool() const;
@@ -199,6 +200,13 @@ public:
     bool constrainSelection(Sketcher::ConstraintType type, QString* why = nullptr);
     /// Lock: a point's three coordinates.
     bool lockSelection(QString* why = nullptr);
+    /** Fillet (S3c): the corner of the two selected lines, or at the selected point,
+     * rounded by an arc in the lines' plane, its radius typed next. With nothing
+     * selected, starts the tool that does it at a clicked corner.
+     */
+    bool filletSelection(QString* why = nullptr);
+    /// Fillets the corner where (geoId, pos), a line's end, meets another line.
+    bool filletAt(int geoId, Sketcher::PointPos pos, QString* why = nullptr);
     /// The selected constraints, else the selected geometry.
     void deleteSelection();
     /// The in-view editor on a dimension (a double click on its label does it).

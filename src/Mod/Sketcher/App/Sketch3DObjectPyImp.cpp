@@ -336,6 +336,25 @@ PyObject* Sketch3DObjectPy::movePoint(PyObject* args)
     PY_CATCH
 }
 
+PyObject* Sketch3DObjectPy::fillet(PyObject* args)
+{
+    int geo1, pos1, geo2, pos2;
+    double radius;
+    if (!PyArg_ParseTuple(args, "iiiid", &geo1, &pos1, &geo2, &pos2, &radius)) {
+        return nullptr;
+    }
+    PY_TRY
+    {
+        int id = getSketch3DObjectPtr()->fillet(geo1,
+                                                static_cast<PointPos>(pos1),
+                                                geo2,
+                                                static_cast<PointPos>(pos2),
+                                                radius);
+        return Py::new_reference_to(Py::Long(id));
+    }
+    PY_CATCH
+}
+
 Py::Long Sketch3DObjectPy::getDoF() const
 {
     return Py::Long(getSketch3DObjectPtr()->getDoF());

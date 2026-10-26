@@ -648,6 +648,28 @@ S3b, workplanes solved for (2026-10-27):
     nothing redundant, two planes at an angle;
   - the 2D sketch refusing the workplane Horizontal.
 
+S3c, corner fillet (2026-10-27):
+- `Sketch3DObject.fillet(geo1, pos1, geo2, pos2, radius)`: two lines whose
+  given ends meet are rounded by an arc in their plane, tangent to both. The
+  lines are trimmed back to where it touches, and the corner's coincidence
+  becomes the arc's tangency at both ends (end to end, so coincident too). No
+  plane constraint is needed: tangency at both ends keeps the arc in the
+  lines' plane. Like the 2D fillet, it adds one DOF, the radius.
+- In the edit, the Sketcher's Fillet command takes either selection:
+  - two lines that meet;
+  - the corner point;
+  - with nothing selected it starts a tool, and a click on a corner fillets
+    it.
+- The radius starts with the tangent points a third of the shorter line from
+  the corner, and a Radius dimension is added, its value typed next. The
+  fillet and its value are one undo step. Unlike the 2D fillet, which is
+  sized by the pointer, a selection has no drag to size it by. The dimension
+  can be deleted for a free radius.
+- Tests:
+  - `tests/gui/sketch3d-fillet.py`, 16 checks;
+  - two Python cases: one corner, and the pipe route with both bends filleted
+    and fully constrained again, swept.
+
 ## 11. Risks
 
 - **Solve stability in 3D** [S 15]: answered by rank-exact equations,

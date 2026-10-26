@@ -918,6 +918,13 @@ CmdSketcherCreateFillet::CmdSketcherCreateFillet()
 void CmdSketcherCreateFillet::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
+    if (auto vp3 = activeSketch3DInEdit()) {
+        QString why;
+        if (!vp3->filletSelection(&why) && !why.isEmpty()) {
+            Gui::getMainWindow()->showMessage(why, 5000);
+        }
+        return;
+    }
     ActivateHandler(
         getActiveGuiDocument(),
         new DrawSketchHandlerFillet(ConstructionMethods::FilletConstructionMethod::Fillet));
@@ -925,7 +932,7 @@ void CmdSketcherCreateFillet::activated(int iMsg)
 
 bool CmdSketcherCreateFillet::isActive()
 {
-    return isCommandActive(getActiveGuiDocument());
+    return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
 }
 
 // ======================================================================================

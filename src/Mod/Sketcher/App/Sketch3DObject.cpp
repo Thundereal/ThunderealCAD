@@ -24,11 +24,17 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <numbers>
 #include <sstream>
+#include <tuple>
 
 #include <BRepAdaptor_Surface.hxx>
 #include <BRep_Tool.hxx>
+#include <GC_MakeArcOfCircle.hxx>
 #include <Geom_Plane.hxx>
+#include <Geom_TrimmedCurve.hxx>
+#include <Precision.hxx>
 #include <TopoDS.hxx>
 #include <gp_Pln.hxx>
 
@@ -490,6 +496,112 @@ int Sketch3DObject::movePoint(int geoId, PointPos pos, const Base::Vector3d& to,
         return -1;
     }
     return applySolution() ? 0 : -1;
+}
+
+int Sketch3DObject::fillet(int geo1, PointPos pos1, int geo2, PointPos pos2, double radius)
+{
+    // Two lines meeting at a corner span a plane, and the fillet lies in it: an arc
+    // tangent to both, the lines trimmed back to where it touches them. Tangency at
+    // both ends keeps it in their plane, so no plane constraint is needed.
+    auto line = [&](int geoId) {
+        return geoId >= 0 && geoId < Geometry.getSize()
+            ? freecad_cast<const Part::GeomLineSegment*>(Geometry[geoId])
+            : nullptr;
+    };
+    auto l1 = line(geo1), l2 = line(geo2);
+    if (!l1 || !l2 || geo1 == geo2) {
+        FC_THROWM(Base::ValueError, "A fillet joins two lines of the sketch");
+    }
+    auto end =
+        [](const Part::GeomLineSegment* l, PointPos pos, Base::Vector3d& at, Base::Vector3d& away) {
+            if (pos != PointPos::start && pos != PointPos::end) {
+                return false;
+            }
+            at = pos == PointPos::start ? l->getStartPoint() : l->getEndPoint();
+            away = pos == PointPos::start ? l->getEndPoint() : l->getStartPoint();
+            return true;
+        };
+    Base::Vector3d c1, o1, c2, o2;
+    if (!end(l1, pos1, c1, o1) || !end(l2, pos2, c2, o2)) {
+        FC_THROWM(Base::ValueError, "A fillet is at an end of each line");
+    }
+    if ((c1 - c2).Length() > Precision::Confusion()) {
+        FC_THROWM(Base::ValueError, "The two lines do not meet at those ends");
+    }
+    const Base::Vector3d& corner = c1;
+    Base::Vector3d u1 = o1 - corner, u2 = o2 - corner;
+    double len1 = u1.Length(), len2 = u2.Length();
+    u1.Normalize();
+    u2.Normalize();
+    double angle = u1.GetAngle(u2);
+    if (radius <= 0. || angle < 1e-6 || angle > std::numbers::pi - 1e-6) {
+        FC_THROWM(Base::ValueError,
+                  "No fillet: the radius is not positive, or the lines are in "
+                  "line");
+    }
+    double t = radius / std::tan(angle / 2);
+    if (t >= len1 - Precision::Confusion() || t >= len2 - Precision::Confusion()) {
+        FC_THROWM(Base::ValueError, "The fillet is longer than the lines allow");
+    }
+    Base::Vector3d t1 = corner + u1 * t, t2 = corner + u2 * t;
+    Base::Vector3d bisector = (u1 + u2).Normalize();
+    Base::Vector3d centre = corner + bisector * (radius / std::sin(angle / 2));
+    Base::Vector3d mid = centre - bisector * radius;
+    auto gp = [](const Base::Vector3d& v) {
+        return gp_Pnt(v.x, v.y, v.z);
+    };
+    GC_MakeArcOfCircle make(gp(t1), gp(mid), gp(t2));
+    if (!make.IsDone()) {
+        FC_THROWM(Base::CADKernelError, "No arc through the fillet's points");
+    }
+    auto arc = std::make_unique<Part::GeomArcOfCircle>();
+    arc->setHandle(make.Value());
+    GeometryFacade::setId(arc.get(), static_cast<int>(nextGeometryId()));
+    GeometryFacade::setConstruction(arc.get(), GeometryFacade::getConstruction(l1));
+
+    std::vector<const Part::Geometry*> vals(Geometry.getValues().begin(),
+                                            Geometry.getValues().end());
+    auto trimmed = [&](const Part::GeomLineSegment* l, PointPos pos, const Base::Vector3d& to) {
+        auto copy = static_cast<Part::GeomLineSegment*>(l->clone());
+        if (pos == PointPos::start) {
+            copy->setPoints(to, l->getEndPoint());
+        }
+        else {
+            copy->setPoints(l->getStartPoint(), to);
+        }
+        return copy;
+    };
+    vals[geo1] = trimmed(l1, pos1, t1);
+    vals[geo2] = trimmed(l2, pos2, t2);
+    int arcId = static_cast<int>(vals.size());
+    vals.push_back(arc.release());
+
+    // The corner's coincidence goes; the arc's ends are tangent to the lines there.
+    auto atCorner = [&](int g, PointPos p) {
+        return (g == geo1 && p == pos1) || (g == geo2 && p == pos2);
+    };
+    std::vector<Constraint*> cons;
+    for (auto c : Constraints.getValues()) {
+        if (c->Type == Coincident && atCorner(c->First, c->FirstPos)
+            && atCorner(c->Second, c->SecondPos)) {
+            continue;
+        }
+        cons.push_back(c->clone());
+    }
+    for (auto [g, p, ap] :
+         {std::tuple(geo1, pos1, PointPos::start), std::tuple(geo2, pos2, PointPos::end)}) {
+        auto tangent = new Constraint();
+        tangent->Type = Tangent;
+        tangent->First = g;
+        tangent->FirstPos = p;
+        tangent->Second = arcId;
+        tangent->SecondPos = ap;
+        cons.push_back(tangent);
+    }
+    Geometry.setValues(std::move(vals));
+    Constraints.setValues(std::move(cons));
+    solve();
+    return arcId;
 }
 
 bool Sketch3DObject::applySolution()

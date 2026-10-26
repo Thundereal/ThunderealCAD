@@ -108,6 +108,11 @@ public:
     int solve(bool updateGeometry = true);
     /// Drags a point (or a curve with PointPos::none); 0 when solved.
     int movePoint(int geoId, PointPos pos, const Base::Vector3d& to, bool relative = false);
+    /** A corner fillet (S3c): the arc of radius tangent to two lines at the corner where
+     * the given ends meet, in their plane, the lines trimmed back to it. The corner's
+     * coincidence is replaced by the arc's tangency at both ends. Returns the arc's id.
+     */
+    int fillet(int geo1, PointPos pos1, int geo2, PointPos pos2, double radius);
 
     int getDoF() const
     {

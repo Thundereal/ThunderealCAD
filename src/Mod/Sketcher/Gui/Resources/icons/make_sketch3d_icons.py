@@ -227,16 +227,18 @@ for a, b in ((L, T), (T, R), (R, B)):
 ICONS["Sketcher_NewSketch3D"] = ("New 3D sketch", sheet + square_and_circle(sq, el))
 
 # Along X / Y / Z: the Horizontal bar laid along the axis
-corner = (10, 54)
+# the axis cross in the free corner: bottom left, except Along Y, whose bar
+# runs through there
+corner, size = (8, 50), 20
 ICONS["Constraint_AlongX"] = (
     "Along X",
-    bar(add((36, 29), X, -20), add((36, 29), X, 20)) + axes(corner, 15, "X"),
+    bar(add((36, 29), X, -20), add((36, 29), X, 20)) + axes(corner, size, "X"),
 )
 ICONS["Constraint_AlongY"] = (
     "Along Y",
-    bar(add((38, 33), Y, -20), add((38, 33), Y, 20)) + axes(corner, 15, "Y"),
+    bar(add((26, 25), Y, -20), add((26, 25), Y, 20)) + axes((42, 50), size, "Y"),
 )
-ICONS["Constraint_AlongZ"] = ("Along Z", bar((40, 8), (40, 52)) + axes(corner, 15, "Z"))
+ICONS["Constraint_AlongZ"] = ("Along Z", bar((40, 8), (40, 52)) + axes(corner, size, "Z"))
 
 # Distance Z: the vertical distance, its end marks lying flat
 top, bottom = (40, 9), (40, 55)
@@ -246,7 +248,7 @@ ICONS["Constraint_DistanceZ"] = (
     + bar(add(bottom, X, -10), add(bottom, X, 10))
     + [line([(40, 18), (40, 46)], C_OUT, 6), line([(40, 18), (40, 46)], C_HI, 2.5)]
     + [head((40, 15), (0, -1)), head((40, 49), (0, 1))]
-    + axes(corner, 15, "Z"),
+    + axes(corner, size, "Z"),
 )
 
 # Cycle Working Plane: three planes at a corner, the working one teal, an arrow round them

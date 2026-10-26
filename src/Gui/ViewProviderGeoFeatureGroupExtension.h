@@ -70,7 +70,12 @@ public:
     bool extensionGetToolTip(const QByteArray &, QString &) const override;
     bool extensionIconMouseEvent(QMouseEvent *, const QByteArray &) override;
 
-    static bool needUpdateChildren(App::DocumentObject *obj);
+    /** Whether a change of \a obj may change what the groups holding it
+     * claim. With \a exports, the group's export list is rebuilt (buildExport())
+     * as well: it follows its children's link properties, and a change of
+     * anything else leaves it as it is.
+     */
+    static bool needUpdateChildren(App::DocumentObject *obj, bool exports = true);
 
 protected:
     virtual void buildChildren3D();

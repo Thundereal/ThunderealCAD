@@ -4780,12 +4780,18 @@ void ViewProviderPartExt::updateData(const App::Property* prop)
             updateColors();
 
         // The visual made again is drawn in what is held: what the object
-        // makes of the new shape comes by its own change, if it changes
+        // makes of the new shape comes by its own change, if it changes.
+        // No view of the object's changed by it, so not said through the
+        // object (ViewObject, the HostOnlyView gate): each recompute of a
+        // shape said it three times, to every observer of the document
         {
             Base::StateLocker lock(mirroringAppearance);
+            const bool hostOnly = testStatus(Gui::HostOnlyView);
+            setStatus(Gui::HostOnlyView, true);
             DiffuseColor.touch();
             LineColorArray.touch();
             PointColorArray.touch();
+            setStatus(Gui::HostOnlyView, hostOnly);
         }
 
         if (!VisualTouched) {

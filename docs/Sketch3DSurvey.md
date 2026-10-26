@@ -127,6 +127,66 @@ Uses (Q7):
 - Uses (Q7): paths for tubing, sweeps and lofts; surface edges [25]. The help warns that unconstrained sketch geometry referenced downstream "can cause unpredictable results" [25].
 - Complaint (Q9): a user reports a spline drifting off-plane with the 3D options off, possibly through projected geometry [31] (search summary).
 
+### 2.3a Fusion against the separate-object programs (added 2026-10-26)
+
+Fusion has no 3D sketch object. Every Fusion sketch can already hold 3D geometry; the
+"3D Sketch" checkbox changes only how points are placed. Evidence:
+- The API's Sketch object has no 3D flag. Its only 3D-described property is the
+  bounding box; entities live in "sketch space" with sketchToModelSpace /
+  modelToSketchSpace [84].
+- Sketch.include "creates new sketch curves and points that represent the specified
+  entity as sketch geometry", placed where the entity is, not projected [84].
+- Autodesk's own API sample (API dated August 2014, before the March 2020 checkbox) adds
+  a fitted spline to an ordinary sketch through (6,4,3) and (7,6,6), off the sketch's
+  XY plane [85][86].
+- The Autodesk tech tip on the older preference "Allow 3D sketching of lines and
+  splines" says "ALL sketches in Fusion 360 are also 3D in nature". It also says Move/Copy
+  can drag sketch elements into 3D, which "does have an impact on dimensions" [30]
+  (search summary; page 403).
+- The March 2020 update added "Intuitive 3D Sketching: Create Sketch > Sketch Palette >
+  3D Sketch" [87] (search summary). That is the manipulator of [28].
+- A forum answer says off-plane snaps only work with 3D sketch enabled. That is
+  consistent with the checkbox being an input and snapping mode [88] (search summary).
+
+What follows from one sketch type (Fusion) [25][26]:
+- A profile for Extrude/Revolve is any closed loop of planar elements. Geometry that
+  drifts off the plane silently stops a profile forming. Forum cases: a projected spline
+  went 3D with the 3D options off, and CAD imports carry a tiny Z. A moderator mentions a
+  context-menu fix that "only appears when the Z value is not 0" [31][89] (search
+  summary; pages 403).
+- The 3D constraint list is the 2D list: Horizontal/Vertical, Coincident, Tangent,
+  Equal, Parallel, Perpendicular, Fix, Midpoint, Concentric, Collinear [26]. It has no
+  axis-alignment, on-face or normal-to constraint, and the help does not say which plane
+  Horizontal/Vertical refers to in 3D.
+- The 3D pages list no dimension types [26][27]. A forum consultant's advice for
+  dimensioning was to "untick 3d sketch" [90] (search summary).
+- Full definition is weak in 3D. A user reports the fully-constrained lock disappearing
+  after geometry moves along the third axis [91] (search summary; post circa 2020, may
+  be out of date).
+- The gain: no mode or object switch. One sketch can carry a planar profile and the 3D
+  path swept along it, and project/include/intersect work the same in both.
+
+The separate-object programs (SOLIDWORKS, Inventor, Solid Edge) [1][16][32]:
+- A 3D sketch is its own feature type, so planar intent is declared by the type. A 2D
+  sketch cannot drift off its plane, and a 3D sketch is never offered as a profile.
+- They have 3D-specific constraints: Along X/Y/Z or ParallelToX/Y/ZAxis, On Plane/On
+  Face, Normal To, Pierce, Tangent to Face [5][16].
+- They have 3D-specific dimensions: Along X/Y/Z by Tab in SOLIDWORKS [6], and
+  point-to-plane distance in Inventor [23].
+- They keep a defined/under-defined state that users route tubes and weldment frames
+  against. It is harder to reach than in 2D [15].
+- SOLIDWORKS adds 3D sketch planes inside the 3D sketch [7]. Inventor brings 2D
+  geometry in by Include Geometry [21].
+- The cost: two sketch kinds to learn, and a path plus its profile in two objects.
+
+Placement compared (analysis from [8][18][28]):
+- Fusion's manipulator is a free triad at the last point. Any plane can be rotated to,
+  and Alt cycles.
+- SOLIDWORKS cycles fixed XY/YZ/ZX by Tab, with Ctrl+click to align to a face.
+- Inventor has a space indicator with Shift+Space and an ortho mode.
+- All three snap to model geometry. Only SOLIDWORKS documents that snapping creates the
+  3D relation (Along X/Y/Z).
+
 ### 2.4 Solid Edge
 
 All from [32]:
@@ -465,3 +525,11 @@ Not found:
 80. https://www.ondsel.com/blog/archive/
 82. https://www.digitalengineering247.com/article/vero-licenses-siemens-d-cubed-3d-dcm/products and related 2007-2013 D-Cubed licensee articles (search summary)
 83. https://wiki.freecad.org/Translations:Release_notes_0.13/22/en (search summary)
+84. https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/fusion_Sketch.htm
+85. https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/SketchFittedSplines_add_Sample.htm
+86. https://help.autodesk.com/cloudhelp/ENU/Fusion-360-API/files/SketchFittedSplines_add.htm (search summary: "available since August 2014")
+87. https://www.autodesk.com/products/fusion-360/blog/march-2020-product-update-whats-new/ (search summary)
+88. https://forums.autodesk.com/t5/fusion-design-validate-document/annoying-snapping-to-geometry-in-sketches/td-p/8815275 (search summary)
+89. https://forums.autodesk.com/t5/fusion-support/spline-not-staying-in-2d-plane/m-p/12703625 (search summary)
+90. https://forums.autodesk.com/t5/fusion-design-validate-document/dimension-diagonal-line/m-p/10328986 (search summary)
+91. https://forums.autodesk.com/t5/fusion-design-validate-document/constraining-3d-vs-2d-sketches/td-p/9944404 (search summary)

@@ -67,6 +67,8 @@ SET(AssemblyGui_SRCS_Module
     ViewProviderAssembly.h
     ViewProviderAssemblyLink.cpp
     ViewProviderAssemblyLink.h
+    ViewProviderJoint.cpp
+    ViewProviderJoint.h
     ViewProviderBom.cpp
     ViewProviderBom.h
     ViewProviderGroups.cpp

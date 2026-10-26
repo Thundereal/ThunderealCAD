@@ -621,12 +621,26 @@ solver; fixed:
   `claimChildren` per joint) was rebuilt for any property change of a child
   in a geo group: on a link property's only, and not for `_GroupTouched`.
 
-Left: building a joint is still about 3x the Python joint's (chain 100,
-5 s against 1.5 s), each change of the assembly's `Group` -- every element
-link and joint added -- rebuilding its export with a Python
-`claimChildren` per joint; the Python view provider's markers (F8); and the
-solver itself (F1), which is what a solve, a recompute and a drag at chain
-100 spend their time in, Python joints and C++ alike.
+Then, the cost of building joints, which grew with the joints there are:
+
+- the joint's view provider claims its element links in C++
+  (`AssemblyGui::ViewProviderJoint`, `ViewProviderJointPython` for
+  `JointPython`): a group's tree export asked every joint's Python view
+  provider for its claims at each change of the assembly's `Group`. The
+  Python one still claims for a joint whose file states the generic view
+  provider, as files saved before do;
+- a change of a geo group's `Group` checked every member, its other owners
+  and its coordinate-system links: now only the members it adds, unless
+  one left, when all are checked as before
+  (`tests/src/App/PartGroupMode.cpp`, both cases).
+
+Chain 100 builds in 3.1 s (5 s before these, 1.5 s with Python joints),
+chain 200 in 9.8 s (13 s; 6.3 to 8.2 s with Python joints in sec 4.2).
+Left: each change of the assembly's `Group` still rebuilds its tree export
+(O(children)), and the joint task asks `isPartConnected` per joint made;
+the Python view provider's markers (F8); and the solver itself (F1), which
+is what a solve, a recompute and a drag at chain 100 spend their time in,
+Python joints and C++ alike.
 
 **Phase 3 -- from Assembly3, and its importer** (`docs/AssemblyFromAsm3.md`).
 Its behaviours, not its objects -- Element objects would put a second

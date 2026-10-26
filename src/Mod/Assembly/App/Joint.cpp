@@ -1288,7 +1288,7 @@ PROPERTY_SOURCE_TEMPLATE(Assembly::JointPython, Assembly::Joint)
 template<>
 const char* Assembly::JointPython::getViewProviderName() const
 {
-    return "Gui::ViewProviderPythonFeature";
+    return "AssemblyGui::ViewProviderJointPython";
 }
 
 template<>

@@ -169,11 +169,12 @@ public:
     void unsetupObject() override;
     void onChanged(const App::Property* prop) override;
     PyObject* getPyObject() override;
-    /// One that draws nothing: the markers come with JointPython's Python
-    /// view provider. A joint the assembly claims must have one.
+    /// One that claims the element links and draws nothing: the markers
+    /// come with JointPython's Python view provider. A joint the assembly
+    /// claims must have one.
     const char* getViewProviderName() const override
     {
-        return "Gui::ViewProviderDocumentObject";
+        return "AssemblyGui::ViewProviderJoint";
     }
 
     /// The element link of side 1 or 2

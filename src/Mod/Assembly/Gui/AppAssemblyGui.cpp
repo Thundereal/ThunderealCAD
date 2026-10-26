@@ -29,6 +29,7 @@
 #include "Commands.h"
 #include "ViewProviderAssembly.h"
 #include "ViewProviderAssemblyLink.h"
+#include "ViewProviderJoint.h"
 #include "ViewProviderBom.h"
 #include "ViewProviderGroups.h"
 
@@ -60,6 +61,8 @@ PyMOD_INIT_FUNC(AssemblyGui)
 
     AssemblyGui::ViewProviderAssembly::init();
     AssemblyGui::ViewProviderAssemblyLink::init();
+    AssemblyGui::ViewProviderJoint::init();
+    AssemblyGui::ViewProviderJointPython::init();
     AssemblyGui::ViewProviderBom::init();
     AssemblyGui::ViewProviderGroupBase::init();
     AssemblyGui::ViewProviderBomGroup::init();

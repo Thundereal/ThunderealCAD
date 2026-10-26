@@ -1,6 +1,7 @@
 <RCC>
     <qresource>
         <file>icons/Sketcher_Sketch.svg</file>
+        <file>icons/Sketcher_Sketch3D.svg</file>
         <file>icons/Sketcher_SketchConstrained.svg</file>
         <file>icons/SketcherWorkbench.svg</file>
         <file alias="icons/preferences-sketcher.svg">icons/SketcherWorkbench.svg</file>
@@ -58,6 +59,10 @@
         <file>icons/constraints/Constraint_TangentToEnd.svg</file>
         <file>icons/constraints/Constraint_TangentToStart.svg</file>
         <file>icons/constraints/Constraint_Vertical.svg</file>
+        <file>icons/constraints/Constraint_AlongX.svg</file>
+        <file>icons/constraints/Constraint_AlongY.svg</file>
+        <file>icons/constraints/Constraint_AlongZ.svg</file>
+        <file>icons/constraints/Constraint_DistanceZ.svg</file>
         <file>icons/constraints/Constraint_VerticalDistance.svg</file>
         <file>icons/constraints/Constraint_VerticalDistance_Driven.svg</file>
         <file>icons/constraints/Sketcher_Crosshair.svg</file>
@@ -111,6 +116,12 @@
         <file>icons/general/Sketcher_MergeSketch.svg</file>
         <file>icons/general/Sketcher_MirrorSketch.svg</file>
         <file>icons/general/Sketcher_NewSketch.svg</file>
+        <file>icons/general/Sketcher_NewSketch3D.svg</file>
+        <file>icons/general/Sketcher_Sketch3DCyclePlane.svg</file>
+        <file>icons/general/Sketcher_Sketch3DKeepPlane.svg</file>
+        <file>icons/general/Sketcher_Sketch3DLockHeight.svg</file>
+        <file>icons/general/Sketcher_Sketch3DResetManipulator.svg</file>
+        <file>icons/general/Sketcher_Sketch3DRotationHandles.svg</file>
         <file>icons/general/Sketcher_ReorientSketch.svg</file>
         <file>icons/general/Sketcher_SwitchVirtualSpace.svg</file>
         <file>icons/general/Sketcher_ValidateSketch.svg</file>

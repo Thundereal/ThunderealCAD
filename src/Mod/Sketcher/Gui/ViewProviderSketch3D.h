@@ -276,5 +276,9 @@ SketcherGuiExport ViewProviderSketch3D* activeSketch3DInEdit();
  * the edit's selection. False when no 3D sketch is in edit, and the 2D command goes on.
  */
 SketcherGuiExport bool runSketch3DConstraint(const char* commandName);
+/** Draws the Sketcher's tools in the 3D sketch's teal (on) or back in their red: the
+ * same commands serve both sketches, so their icons say which one is in edit.
+ */
+SketcherGuiExport void setSketch3DToolIcons(bool on);
 
 }  // namespace SketcherGui

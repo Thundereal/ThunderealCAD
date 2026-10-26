@@ -116,7 +116,7 @@ public:
     explicit TaskDlgSketch3D(ViewProviderSketch3D* vp)
         : vp(vp)
     {
-        auto box = new Gui::TaskView::TaskBox(Gui::BitmapFactory().pixmap("Sketcher_NewSketch"),
+        auto box = new Gui::TaskView::TaskBox(Gui::BitmapFactory().pixmap("Sketcher_Sketch3D"),
                                               QObject::tr("3D sketch"),
                                               true,
                                               nullptr);
@@ -553,7 +553,7 @@ ViewProviderSketch3D::ViewProviderSketch3D()
         "Visibility automation",
         App::PropertyType(App::Prop_ReadOnly | App::Prop_Hidden | App::Prop_Transient),
         "The visibility automation's state during an edit");
-    sPixmap = "Sketcher_Sketch";
+    sPixmap = "Sketcher_Sketch3D";
 }
 
 ViewProviderSketch3D::~ViewProviderSketch3D() = default;
@@ -2889,6 +2889,7 @@ bool ViewProviderSketch3D::setEdit(int ModNum)
     Workbench::enterEditMode();
     Gui::ToolBarManager::getInstance()->setState(sketch3DToolbars(),
                                                  Gui::ToolBarManager::State::ForceAvailable);
+    setSketch3DToolIcons(true);
     draw();
     updateManipulator();
     return true;
@@ -2902,6 +2903,7 @@ void ViewProviderSketch3D::unsetEdit(int ModNum)
     }
     finishDatumEdit(true);  // leaving is a press elsewhere
     Workbench::leaveEditMode();
+    setSketch3DToolIcons(false);
     Gui::getMainWindow()->showMessage(QString());
     Gui::ToolBarManager::getInstance()->setState(sketch3DToolbars(),
                                                  Gui::ToolBarManager::State::RestoreDefault);

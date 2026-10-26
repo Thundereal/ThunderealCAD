@@ -112,6 +112,10 @@ fc_add_gui_test(GuiSketch3DConstraints_tests_run sketch3d-constraints.py
 # constraints kept, Keep Plane, Ctrl+press on a kept plane and on a face.
 fc_add_gui_test(GuiSketch3DDragPlane_tests_run sketch3d-drag-plane.py
                 --timeout 180)
+# Its icons: its own, and the Sketcher's tools drawn in its teal while it is in
+# edit, back to red on leaving.
+fc_add_gui_test(GuiSketch3DIcons_tests_run sketch3d-icons.py
+                --timeout 180)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

@@ -362,7 +362,7 @@ switch is right here, unlike a TechDraw page's.
 
 **Commands** (decided): in the Sketcher workbench, with one new "Create 3D
 sketch" command. A 3D sketch in edit brings up the Sketcher's own toolbars,
-with the same icons and shortcuts (G, L for a line, and so on); each command
+with the same icons (drawn in teal, below) and shortcuts (G, L for a line, and so on); each command
 runs its 3D handler when the edited object is a 3D sketch and is greyed out
 where it has no 3D meaning yet (slots, polygons, ...). The shared part is the
 commands and toolbars, not the drawing handlers, which are 2D throughout.
@@ -379,6 +379,25 @@ drawing, styles and colours. Dimension labels lie in a plane through the measure
 geometry chosen to face the camera (`EditableDatumLabel` takes that
 placement); the DOF count and the conflicting / redundant lists are shown as
 the 2D sketch's task panel shows them, clickable.
+
+**Icons** (decided 2026-10-26). A 3D sketch's colour is teal where the 2D
+sketch's is red, shade for shade (`#ef2929` -> `#4dd0e1`, `#a40000` ->
+`#00838f`, ...). Teal rather than a light blue: the 2D sketch already uses
+blue for construction geometry and reference dimensions, and both keep that
+meaning here.
+- Its own icon is the 2D sketch's square and circle laid flat in isometric
+  view, the circle floating over the square's far corner; New 3D Sketch puts
+  them on a flat sheet. Its own commands are drawn in the same isometric
+  view, axes as FreeCAD's isometric view shows them (X down-right, Y up-right,
+  Z up) in the manipulator's red, green and blue.
+- The SVGs are written by `Resources/icons/make_sketch3d_icons.py`; change
+  the script, not the files.
+- The shared tools keep their SVGs: while a 3D sketch is in edit
+  `SketcherGui::setSketch3DToolIcons` sets a teal colour mapping on their icon
+  names, `_Constr` and `_Driven` variants included
+  (`BitmapFactory::setIconColorMapping`), so a construction or reference mode
+  switch during the edit is teal too. The commands that make or pick a sketch
+  stay red.
 
 **Drag.** A dragged point moves in the working plane, or along a triad axis
 when one is held, through the solver's temporary drag constraints.

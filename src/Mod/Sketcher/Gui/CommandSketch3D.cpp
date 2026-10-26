@@ -25,9 +25,12 @@
 #include "PreCompiled.h"
 
 #include <map>
+#include <set>
+#include <string_view>
 
 #include <Base/Console.h>
 #include <Gui/Application.h>
+#include <Gui/BitmapFactory.h>
 #include <Gui/Command.h>
 #include <Gui/Document.h>
 #include <Gui/MainWindow.h>
@@ -52,7 +55,7 @@ CmdSketcherNewSketch3D::CmdSketcherNewSketch3D()
         QT_TR_NOOP("Creates a 3D sketch: constrained geometry in space, in a frame of its own");
     sWhatsThis = "Sketcher_NewSketch3D";
     sStatusTip = sToolTipText;
-    sPixmap = "Sketcher_NewSketch";
+    sPixmap = "Sketcher_NewSketch3D";
 }
 
 void CmdSketcherNewSketch3D::activated(int iMsg)
@@ -100,6 +103,7 @@ CmdSketcherSketch3DCyclePlane::CmdSketcherSketch3DCyclePlane()
     sMenuText = QT_TR_NOOP("Cycle Working Plane");
     sToolTipText = QT_TR_NOOP("Switches the 3D sketch manipulator's active plane: XY, YZ, ZX");
     sWhatsThis = "Sketcher_Sketch3DCyclePlane";
+    sPixmap = "Sketcher_Sketch3DCyclePlane";
     eType = ForEdit;
     sStatusTip = sToolTipText;
     // Inventor's key for it; Fusion's Alt cannot be a shortcut on its own.
@@ -129,6 +133,7 @@ CmdSketcherSketch3DLockHeight::CmdSketcherSketch3DLockHeight()
     sToolTipText = QT_TR_NOOP(
         "Keeps the position on the working plane and moves along its normal; again to release");
     sWhatsThis = "Sketcher_Sketch3DLockHeight";
+    sPixmap = "Sketcher_Sketch3DLockHeight";
     eType = ForEdit;
     sStatusTip = sToolTipText;
     sAccel = "Up";  // Fusion's
@@ -158,6 +163,7 @@ CmdSketcherSketch3DKeepPlane::CmdSketcherSketch3DKeepPlane()
         QT_TR_NOOP("Stores the working plane as a fixed workplane of the 3D sketch; points placed "
                    "while it is active are held on it. Ctrl+click it to make it active again");
     sWhatsThis = "Sketcher_Sketch3DKeepPlane";
+    sPixmap = "Sketcher_Sketch3DKeepPlane";
     eType = ForEdit;
     sStatusTip = sToolTipText;
 }
@@ -184,6 +190,7 @@ CmdSketcherSketch3DResetManipulator::CmdSketcherSketch3DResetManipulator()
     sMenuText = QT_TR_NOOP("Reset Manipulator");
     sToolTipText = QT_TR_NOOP("Turns the 3D sketch manipulator back to the sketch's frame");
     sWhatsThis = "Sketcher_Sketch3DResetManipulator";
+    sPixmap = "Sketcher_Sketch3DResetManipulator";
     eType = ForEdit;
     sStatusTip = sToolTipText;
 }
@@ -210,6 +217,7 @@ CmdSketcherSketch3DRotationHandles::CmdSketcherSketch3DRotationHandles()
     sMenuText = QT_TR_NOOP("Manipulator Rotation Handles");
     sToolTipText = QT_TR_NOOP("Shows or hides the rings that tilt the 3D sketch manipulator");
     sWhatsThis = "Sketcher_Sketch3DRotationHandles";
+    sPixmap = "Sketcher_Sketch3DRotationHandles";
     eType = ForEdit;
     sStatusTip = sToolTipText;
 }
@@ -287,6 +295,86 @@ bool SketcherGui::runSketch3DConstraint(const char* commandName)
     return true;
 }
 
+void SketcherGui::setSketch3DToolIcons(bool on)
+{
+    // The 2D icons' reds (Tango scarlet, and the darker and orange shades the
+    // constraints use) to the 3D sketch's teal, shade for shade; see
+    // Resources/icons/make_sketch3d_icons.py. Blue stays: it marks construction
+    // geometry and reference dimensions in both sketches.
+    static const std::map<unsigned long, unsigned long> teal = {
+        {0xef2929, 0x4dd0e1},
+        {0xff5f00, 0x26c6da},
+        {0xff2600, 0x26c6da},
+        {0xcc0000, 0x00acc1},
+        {0xc51900, 0x0097a7},
+        {0xa40000, 0x00838f},
+        {0xa70202, 0x00838f},
+        {0x731200, 0x006064},
+        {0x3d0000, 0x00292d},
+        {0x2e0000, 0x00292d},
+        {0x280000, 0x00292d},
+    };
+    // The commands that make or pick a sketch, outside any edit, stay red; the 3D
+    // sketch's own are teal already, and their axes keep the manipulator's red.
+    static const std::set<std::string_view> outside = {
+        "Sketcher_NewSketch",
+        "Sketcher_NewSketch3D",
+        "Sketcher_EditSketch",
+        "Sketcher_MapSketch",
+        "Sketcher_ReorientSketch",
+        "Sketcher_ValidateSketch",
+        "Sketcher_MergeSketches",
+        "Sketcher_MirrorSketch",
+        "Sketcher_Sketch3DCyclePlane",
+        "Sketcher_Sketch3DLockHeight",
+        "Sketcher_Sketch3DKeepPlane",
+        "Sketcher_Sketch3DResetManipulator",
+        "Sketcher_Sketch3DRotationHandles",
+        "Sketcher_Constrain3DAlongX",
+        "Sketcher_Constrain3DAlongY",
+        "Sketcher_Constrain3DAlongZ",
+        "Sketcher_ConstrainDistanceZ",
+    };
+    static std::set<std::string> tinted;
+
+    auto& manager = Gui::Application::Instance->commandManager();
+    std::vector<Gui::Command*> commands;
+    for (auto cmd : manager.getAllCommands()) {
+        std::string_view name(cmd->getName());
+        if (!name.starts_with("Sketcher_") || outside.count(name)) {
+            continue;
+        }
+        commands.push_back(cmd);
+        const char* pixmap = cmd->getPixmap();
+        if (!on || !pixmap || !*pixmap) {
+            continue;
+        }
+        // with the variants the construction and reference modes switch to
+        for (const char* variant : {"", "_Constr", "_Driven"}) {
+            std::string icon = std::string(pixmap) + variant;
+            if (tinted.insert(icon).second) {
+                Gui::BitmapFactory().setIconColorMapping(icon.c_str(), teal);
+            }
+        }
+    }
+    if (!on) {
+        for (const auto& icon : tinted) {
+            Gui::BitmapFactory().setIconColorMapping(icon.c_str(), {});
+        }
+        tinted.clear();
+    }
+    for (auto cmd : commands) {
+        cmd->refreshIcon();
+    }
+    // A refresh sets each command's own icon: the modes put theirs back.
+    for (const char* context : {"ToggleConstruction", "ToggleDrivingConstraint"}) {
+        int mode = manager.getCommandMode(context);
+        if (mode >= 0) {
+            manager.updateCommands(context, mode);
+        }
+    }
+}
+
 namespace
 {
 class CmdSketcherConstrain3D: public Gui::Command
@@ -295,6 +383,7 @@ public:
     CmdSketcherConstrain3D(const char* name,
                            const char* menu,
                            const char* tip,
+                           const char* pixmap,
                            const char* accel = nullptr)
         : Command(name)
     {
@@ -303,6 +392,7 @@ public:
         sMenuText = menu;
         sToolTipText = tip;
         sWhatsThis = name;
+        sPixmap = pixmap;
         // enabled with the edit's task dialog open, as the 2D Sketcher's commands are
         eType = ForEdit;
         sStatusTip = sToolTipText;
@@ -339,17 +429,21 @@ void CreateSketcherCommandsSketch3D()
     rcCmdMgr.addCommand(new CmdSketcherConstrain3D(
         "Sketcher_Constrain3DAlongX",
         QT_TR_NOOP("Along X"),
-        QT_TR_NOOP("Constrains lines, or two points, to run along the 3D sketch's X axis")));
+        QT_TR_NOOP("Constrains lines, or two points, to run along the 3D sketch's X axis"),
+        "Constraint_AlongX"));
     rcCmdMgr.addCommand(new CmdSketcherConstrain3D(
         "Sketcher_Constrain3DAlongY",
         QT_TR_NOOP("Along Y"),
-        QT_TR_NOOP("Constrains lines, or two points, to run along the 3D sketch's Y axis")));
+        QT_TR_NOOP("Constrains lines, or two points, to run along the 3D sketch's Y axis"),
+        "Constraint_AlongY"));
     rcCmdMgr.addCommand(new CmdSketcherConstrain3D(
         "Sketcher_Constrain3DAlongZ",
         QT_TR_NOOP("Along Z"),
-        QT_TR_NOOP("Constrains lines, or two points, to run along the 3D sketch's Z axis")));
+        QT_TR_NOOP("Constrains lines, or two points, to run along the 3D sketch's Z axis"),
+        "Constraint_AlongZ"));
     rcCmdMgr.addCommand(new CmdSketcherConstrain3D(
         "Sketcher_ConstrainDistanceZ",
         QT_TR_NOOP("Distance Z"),
-        QT_TR_NOOP("Fixes the Z distance of a line, two points or a point in a 3D sketch")));
+        QT_TR_NOOP("Fixes the Z distance of a line, two points or a point in a 3D sketch"),
+        "Constraint_DistanceZ"));
 }

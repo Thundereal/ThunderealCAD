@@ -137,6 +137,9 @@ def run():
         p = V(25, 35, 0)
         q, xy = roundtrip(vp, p)
         check("a click lands on the XY plane", near(q, p, tol), (p, q, xy))
+        # exactly on it, not a float's micron off: a point placed on XY has z = 0
+        zs = [abs(vp.pointAt(xy[0] + dx, xy[1] + dy).z) for dx in range(-7, 8, 3) for dy in (-5, 4)]
+        check("and exactly on it", max(zs) < 1e-12, max(zs))
 
         FreeCADGui.Command.get("Sketcher_Sketch3DCyclePlane").run()
         settle(0.2)
@@ -157,6 +160,13 @@ def run():
         p = origin + rot.multVec(V(20, 15, 0))
         q, xy = roundtrip(vp, p)
         check("a click lands on the tilted plane", near(q, p, tol), (p, q, xy))
+        normal = rot.multVec(V(0, 0, 1))
+        offs = [
+            abs((vp.pointAt(xy[0] + dx, xy[1] + dy) - origin).dot(normal))
+            for dx in range(-7, 8, 3)
+            for dy in (-5, 4)
+        ]
+        check("and exactly on it", max(offs) < 1e-12, max(offs))
 
         # Along the X axis beyond the gizmo: the axis, also two pixels off it.
         axis = rot.multVec(V(1, 0, 0))

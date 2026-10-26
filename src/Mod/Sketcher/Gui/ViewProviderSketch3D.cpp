@@ -827,25 +827,33 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
         inv.multVec(Base::Vector3d(w[0], w[1], w[2]), out);
         return true;
     };
-    // The point of a line closest to the pick ray, in doubles and exactly on the line
-    // (the viewer's getPointOnLine goes through the focal plane in floats and lands
-    // up to a tenth of a millimetre off it).
-    auto onLine = [&](const Base::Vector3d& base, const Base::Vector3d& dir, Base::Vector3d& out) {
+    // The pick ray in the sketch's frame, in doubles from there on.
+    auto pickRay = [&](Base::Vector3d& p0, Base::Vector3d& u) {
         SoCamera* camera = edit->viewer->getCamera();
         if (!camera) {
             return false;
         }
         SbLine ray;
         camera->getViewVolume().projectPointToLine(edit->viewer->getNormalizedPosition(pos), ray);
-        Base::Vector3d p0, u(ray.getDirection()[0], ray.getDirection()[1], ray.getDirection()[2]);
-        inv.multVec(
-            Base::Vector3d(ray.getPosition()[0], ray.getPosition()[1], ray.getPosition()[2]),
-            p0);
+        Base::Vector3d at(ray.getPosition()[0], ray.getPosition()[1], ray.getPosition()[2]);
         Base::Vector3d p1;
-        inv.multVec(Base::Vector3d(ray.getPosition()[0], ray.getPosition()[1], ray.getPosition()[2])
-                        + u,
+        inv.multVec(at, p0);
+        inv.multVec(at
+                        + Base::Vector3d(ray.getDirection()[0],
+                                         ray.getDirection()[1],
+                                         ray.getDirection()[2]),
                     p1);
-        u = p1 - p0;  // the ray in the sketch's frame
+        u = p1 - p0;
+        return true;
+    };
+    // The point of a line closest to the pick ray, in doubles and exactly on the line
+    // (the viewer's getPointOnLine goes through the focal plane in floats and lands
+    // up to a tenth of a millimetre off it).
+    auto onLine = [&](const Base::Vector3d& base, const Base::Vector3d& dir, Base::Vector3d& out) {
+        Base::Vector3d p0, u;
+        if (!pickRay(p0, u)) {
+            return false;
+        }
         const Base::Vector3d& v = dir;
         Base::Vector3d w = p0 - base;
         double a = u * u, b = u * v, c = v * v, d = u * w, e = v * w;
@@ -918,7 +926,21 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
         }
     }
 
-    Base::Placement world = Base::Placement(mat) * plane;
+    // On the plane: where the ray meets it, in doubles and exactly on it, as for a
+    // line (the viewer's getPointOnXYPlaneOfPlacement works in floats, and a point
+    // placed on the XY plane came out at z = 1e-6).
+    Base::Vector3d p0, u;
+    if (pickRay(p0, u)) {
+        Base::Vector3d o = plane.getPosition(), n(0, 0, 1);
+        plane.getRotation().multVec(n, n);
+        double un = u * n;
+        if (std::fabs(un) > 1e-12 * u.Length()) {
+            point = p0 + u * (((o - p0) * n) / un);
+            point = point - n * ((point - o) * n);
+            return true;
+        }
+    }
+    Base::Placement world = Base::Placement(mat) * plane;  // seen edge on
     return toLocal(edit->viewer->getPointOnXYPlaneOfPlacement(pos, world), point);
 }
 

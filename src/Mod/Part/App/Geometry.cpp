@@ -5998,14 +5998,50 @@ unsigned int GeomPlane::getMemSize() const
     return sizeof(Geom_Plane);
 }
 
-void GeomPlane::Save(Base::Writer& /*writer*/) const
+void GeomPlane::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomPlane::Save")
+    // The extensions first, as a curve writes them (a 3D sketch's workplane keeps
+    // its id and construction flag there), then the frame: the position, the
+    // normal and the X direction, which a plane's parametrisation follows.
+    Geometry::Save(writer);
+
+    const gp_Ax3& pos = mySurface->Position();
+    const gp_Pnt& loc = pos.Location();
+    const gp_Dir& normal = pos.Direction();
+    const gp_Dir& xdir = pos.XDirection();
+    writer.Stream() << writer.ind() << "<Plane "
+                    << "PosX=\"" << loc.X() << "\" PosY=\"" << loc.Y() << "\" PosZ=\"" << loc.Z()
+                    << "\" NormalX=\"" << normal.X() << "\" NormalY=\"" << normal.Y()
+                    << "\" NormalZ=\"" << normal.Z() << "\" XDirX=\"" << xdir.X() << "\" XDirY=\""
+                    << xdir.Y() << "\" XDirZ=\"" << xdir.Z() << "\" Direct=\"" << (pos.Direct() ? 1 : 0)
+                    << "\"/>" << std::endl;
 }
 
-void GeomPlane::Restore(Base::XMLReader& /*reader*/)
+void GeomPlane::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomPlane::Restore")
+    Geometry::Restore(reader);
+
+    reader.readElement("Plane");
+    gp_Pnt loc(reader.getAttribute<double>("PosX"),
+               reader.getAttribute<double>("PosY"),
+               reader.getAttribute<double>("PosZ"));
+    gp_Dir normal(reader.getAttribute<double>("NormalX"),
+                  reader.getAttribute<double>("NormalY"),
+                  reader.getAttribute<double>("NormalZ"));
+    gp_Dir xdir(reader.getAttribute<double>("XDirX"),
+                reader.getAttribute<double>("XDirY"),
+                reader.getAttribute<double>("XDirZ"));
+    gp_Ax3 pos(loc, normal, xdir);
+    // a left-handed frame (the Y direction reversed) as it was written
+    if (reader.hasAttribute("Direct") && reader.getAttribute<long>("Direct") == 0) {
+        pos.YReverse();
+    }
+    try {
+        mySurface = new Geom_Plane(pos);
+    }
+    catch (Standard_Failure& e) {
+        THROWM(Base::CADKernelError, e.GetMessageString())
+    }
 }
 
 PyObject* GeomPlane::getPyObject()

@@ -250,6 +250,35 @@ class TestSketch3D(unittest.TestCase):
         self.assertTrue(sk.isValid())
         self.assertEqual(len(sk.Shape.Edges), 3)
 
+    def testWorkplaneSaveRestore(self):
+        # A kept workplane is a Part.Plane in the geometry list: it is written and
+        # read back with its frame and its construction flag (GeomPlane had no
+        # persistence: "Not yet implemented: GeomPlane::Save").
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        pl = Part.Plane()
+        plm = App.Placement(V(1, 2, 3), App.Rotation(V(1, 1, 0), 40))
+        pl.transform(plm.toMatrix())
+        wp = sk.addGeometry(pl)
+        line = sk.addGeometry(Part.LineSegment(V(0, 0, 0), V(5, 5, 5)))
+        sk.addConstraint(Sketcher.Constraint("PointOnObject", line, 2, wp))
+        self.assertEqual(sk.solve(), 0)
+        self.doc.recompute()
+        path = os.path.join(tempfile.mkdtemp(), "workplane.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        sk = self.doc.getObject("S")
+        plane = sk.Geometry[wp]
+        self.assertEqual(type(plane).__name__, "Plane")
+        self.assertVector(plane.Position, V(1, 2, 3))
+        self.assertVector(plane.Axis, plm.Rotation.multVec(V(0, 0, 1)))
+        self.assertVector(plane.value(1, 0) - plane.value(0, 0), plm.Rotation.multVec(V(1, 0, 0)))
+        self.assertEqual(sk.DoF, 5)  # the line, one end held on the plane
+        self.doc.recompute()
+        self.assertTrue(sk.isValid())
+        # construction: not in the shape
+        self.assertEqual(len(sk.Shape.Edges), 1)
+
     def testExternalEdgeFollowedThroughNamingChange(self):
         # A line endpoint on a model edge whose index changes when a cut adds edges.
         box = self.doc.addObject("Part::Box", "Box")

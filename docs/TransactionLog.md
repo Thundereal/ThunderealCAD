@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6 ruled; Q7 open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder for the working state, proposed (38.17) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6 ruled; Q7a-Q7d open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -25546,6 +25546,121 @@ reopen has the edit.
 
 **Gates** (round s38i): 25 GUI checks; Python 3885 OK with freeze on and
 off; gtest 1014 with freeze on and off; driven 301.
+
+### 38.17 Q7: one folder save for the working state, proposed (2026-10-26)
+
+**Ruling (user, 2026-10-26)**, on Q7: "if it performs better or on par with
+current transient directory saving, we can consider replacing it with
+unified folder save". This section measures that and proposes the shape.
+Nothing here is built.
+
+**What the transient directory holds today** (log on, the default; 22.1,
+25):
+- **Every commit** goes to `history/log.db` in the transient directory.
+  The main thread copies the values the commit set, and the log's worker
+  writes them (25.4).
+- **An unnamed version** is taken every 200 commits
+  (`TransactionLogSnapshotTransactions`) or on the first commit after the
+  autosave interval (`AutoSaveTimeout`, 15 min) (16.3, 25.6). It is a
+  save's serialisation with no archive written (`snapshotToLog`). The
+  store keeps the entries by hash.
+- **Recovery** after a crash (`recoverDocument`, 25.7): the newest
+  version is materialised into a directory and opened as a file is, then
+  the rows after it are replayed.
+- **The old AutoSaver's recovery directory** (`fc_recovery_files`,
+  `RecoveryWriter`) is written only with the log off, which is the staging
+  switch 22.1 retires. It is not what is compared here.
+
+**Measured** (FreeCADCmd, this box; `~/.cache/lv-merge/probe38/`
+`workingfolder.py` and `recovery.py`; 600 objects, either 600 boxes or 200
+cuts of two boxes each; ten rounds of one edit each; two runs each):
+
+| | 600 boxes | 200 cuts (600 objects) |
+| --- | ---: | ---: |
+| A commit, main thread | 0.3 ms | 0.7 ms |
+| A version (`snapshotTransactionLog`), main thread | 85-94 ms | 100-114 ms |
+| The same, until the worker has it | 106-153 ms | 141-196 ms |
+| A folder save after the edit, main thread | 96-129 ms | 120-152 ms |
+
+| Recovery, 600 boxes | |
+| --- | ---: |
+| From the log, 20 commits after the version | 354-355 ms |
+| From the log, 200 commits (the cadence's version just taken) | 272 ms |
+| Opening the saved folder (no tail) | 198-207 ms |
+
+What the numbers say:
+- **A folder save is the version plus the files.** It captures its log
+  version as it writes (the entry sink, 38.12), with no separate
+  snapshot. It costs 12-20 ms more than a version alone, about 15%, and
+  leaves a folder the document opens from.
+- **Most of either is the same work:** every object's `beforeSave` and
+  serialisation pass, kept or not (38.3: 0.2 ms an object). Skipping that
+  for the objects nothing changed would speed up both alike.
+- **Recovery from a folder skips the materialising.** The log's recovery
+  writes the anchor's entries out and then reads them as a file. A folder
+  is opened as it lies: 200 ms, against 270-355 ms with the tail.
+- **A commit is unchanged** either way: the rows still stream to the log.
+
+So on the measure asked for, a folder is on par for a version (about 15%
+more main-thread time, against a version that already takes 85-114 ms at
+600 objects) and better for recovery.
+
+**Proposed shape: a working folder.**
+- **W1. Where.** Each document's working folder is
+  `<TransientDir>/working/`, laid out as a document folder. It is never the
+  user's own file or folder: what the user saved changes only when they
+  save. That is so for a document kept as a folder too, whose folder is
+  the user's saved state.
+- **W2. The cadence writes it.** An unnamed version due by the cadence
+  becomes a folder save into the working folder: S2b keeps what nothing
+  changed, and the save's version is the unnamed version, as any save's
+  is. `snapshotToLog` stays for the saves that write no folder (`saveCopy`
+  into an archive, a version restored).
+- **W3. Keeping per folder.** S2b's state (`folderLast`, the dirty notes'
+  generations, the map numbers) is kept for one folder today, the
+  document's own. It becomes a state per target folder. Then a save to the
+  user's folder and a save to the working folder each keep against what
+  that folder holds.
+- **W4. The first write.** A working folder written whole would cost a
+  `saveAs` (540-630 ms at 600 boxes, 38.16) on the main thread at the
+  first cadence. Instead, the log's worker fills it from the store when
+  the document is opened or made. It writes out the newest version's
+  entries, as recovery's materialising does, and that becomes the
+  folder's first state to keep from. The first cadence save then writes
+  only what changed since.
+- **W5. Recovery.** The Gui's recovery finds `working/` with
+  `history/log.db`, opens the folder, and replays the rows after the
+  version the folder's `Document.xml` names (25.7 step 3). With no
+  working folder, it falls back to the anchor as now.
+- **W6. No flush.** The working folder is written with `FolderSaveSync`
+  off, as the log's WAL runs at `synchronous=NORMAL` (25.4): a power loss
+  costs the last stretch, never consistency. S1's stage and record still
+  make each working save whole.
+- **W7. Later, measured first:** writing an archive save from the working
+  folder (zip what the last working save left plus what changed, instead
+  of serialising again), and opening an archive by extracting it into the
+  working folder. That is Q7's original "open an archive into a folder",
+  and it is only worth it if W1-W6 hold up.
+
+**Costs and risks:**
+- **Disk:** a working folder is the document uncompressed, about 5.5 KB
+  per box (38.3: 3.3 MB at 600 boxes without history), beside the store,
+  which keeps the versions' entries too.
+- **Main thread:** about 15% more per cadence version, at most every 200
+  commits or 15 minutes.
+- **The first write moves to the worker (W4).** If it is not done by the
+  first cadence, that cadence waits for it, or writes whole.
+- **Two keep states per document (W3).** The check mode
+  (`FC_FOLDER_SAVE_CHECK`) has to cover the working folder too.
+
+**Questions:**
+
+| | Question | Recommended |
+| --- | --- | --- |
+| Q7a | Build the working folder (W1-W6) | **Yes**, in the order W3, W1+W2, W4, W5, W6, with the check mode on in the gates throughout. |
+| Q7b | Its place | **`<TransientDir>/working/`**: per process and per document, cleaned up with the transient directory. |
+| Q7c | W7 (archive save from the folder, opening an archive into it) | **Later**, after W1-W6 are measured on a real model. |
+| Q7d | Skip `beforeSave` for the objects nothing changed (the shared cost above) | **Survey first**: what `beforeSave` does per object that a kept file still needs (element-map numbering, 38.15; string hasher marks; the congruence search, 38.11). |
 
 **Tests** (`FolderSaveCases`):
 - `testAnObjectGainingMapsLeavesTheFilesAfterIt` (was the first half of

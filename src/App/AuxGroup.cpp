@@ -68,6 +68,8 @@ AuxGroup::AuxGroup()
 {
     ADD_PROPERTY_TYPE(Group, (nullptr), "Base",
             (App::PropertyType)(App::Prop_Hidden|App::Prop_ReadOnly|App::Prop_Output), 0);
+    // A view of its owner's children only refers to them (attachOwner())
+    Group.setScope(LinkScope::Global);
     ADD_PROPERTY_TYPE(Role, (""), "Base",
             (App::PropertyType)(App::Prop_Hidden|App::Prop_ReadOnly),
             "The kind of children shown; empty for a group the user fills");
@@ -136,8 +138,11 @@ void AuxGroup::onChanged(const Property* prop)
             attachOwner();
             refresh();
         }
-        else if (prop == &Role)
+        else if (prop == &Role) {
+            // Whether it owns its children goes with the role
+            attachOwner();
             refresh();
+        }
         else if (prop == &Group && !isRemoving() && isOwning()) {
             if (auto owner = getAuxGroupOwner())
                 owner->onElementsChanged();
@@ -178,9 +183,15 @@ GroupExtension *AuxGroup::getOwnerGroup() const
 
 void AuxGroup::attachOwner()
 {
-    // An owning group's children are its own, not a view of the owner's
+    // An owning group's children are its own, not a view of the owner's.
+    // A view only refers to them: Global, so that it is no claim of them,
+    // and the owner still exports them as its own (an App::Part with a
+    // Parts group), nor a link that moving one of them to another
+    // coordinate system must drag along
+    bool owning = isOwning();
+    Group.setScope(owning ? LinkScope::Local : LinkScope::Global);
     auto owner = getAuxGroupOwner();
-    auto source = owner && !isOwning() ? owner->getAuxGroupSource(this) : nullptr;
+    auto source = owner && !owning ? owner->getAuxGroupSource(this) : nullptr;
     if (!source)
         connOwner.disconnect();
     else

@@ -74,6 +74,8 @@ public:
     ~GeoFeatureGroupExtension() override;
 
     void extensionOnChanged(const Property* p) override;
+    App::DocumentObjectExecReturn *extensionExecute() override;
+    void onExtendedDocumentRestored() override;
 
     /** Returns the geo feature group which contains this object.
      * In case this object is not part of any geoFeatureGroup 0 is returned.
@@ -158,6 +160,11 @@ protected:
         return _ExportChildren;
     }
 
+    /** Build _ExportChildren from the children, when no view provider is
+     * attached to do it: the children no other child takes in through a
+     * link that is not Global (one that only refers), as the view provider
+     * does from the children it claims
+     */
     void buildExport(const std::vector<App::DocumentObject*> &);
 
 private:

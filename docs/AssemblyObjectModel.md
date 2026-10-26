@@ -363,6 +363,33 @@ its part, and a joint holds its element links
   Query" defaults and the user's choice, a link to the assembly, and a
   STEP file read back.
 
+Link scope (2026-10-26). Asked whether making our own reference links
+Global would have fixed the export instead. Not alone: the elements', the
+element links' and both groundings' already were, and the rule without a
+view ignored scope (any child in another child's `InList` was left out).
+What was done:
+
+- **The rule without a view honours scope**, as the view provider's does:
+  a child claims what it links to through a link that is not Global, an
+  expression claims nothing, and a child that is a coordinate system of
+  its own claims nothing. The list is built again on the part's recompute
+  (a joint given its element after it was added) and after a restore, in
+  both rules, since the list read is the one the saving version built.
+- **An aux group that is a view refers**: `AuxGroup::Group` is Global,
+  Local only for the owning Elements group. A plain App::Part with a Parts
+  group exported nothing (its shape was empty in the GUI, and lost the
+  components on the next Group change without one): the group took the
+  components and passes nothing on. The tree keeps them under the group
+  only (`ViewProviderPart::claimChildren`), so the tree and the export
+  list now differ there. The assembly keeps its own rule.
+- **A rigid group refers**: `RigidGroup::ObjectsToRigidGroup` is Global, so
+  it is no claim, nor a link that moving one member drags the others along
+  by. The type is unchanged, and files with it.
+- **Tests.** `PartGroupMode` (C++, 5 more): the Parts group leaves the
+  components exported; the Elements group stays Local; a Local link leaves
+  the child out and a Global one leaves it in; a link set later is
+  followed on recompute.
+
 ## 4. Elements and ElementLinks
 
 ### 4.1 What they are

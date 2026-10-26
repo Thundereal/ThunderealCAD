@@ -1,9 +1,11 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 // App::Part's GroupMode and its aux groups (docs/AssemblyObjectModel.md
-// sec 2 and 3).
+// sec 2 and 3), and what it exports without a view provider.
 
 #include "gtest/gtest.h"
+
+#include <algorithm>
 
 #include "App/Application.h"
 #include "App/AuxGroup.h"
@@ -271,6 +273,80 @@ TEST_F(PartGroupModeTest, thePartsGroupListsTheComponents)
 
     p->addObject(obj2);
     EXPECT_EQ(group->Group.getValues(), std::vector<App::DocumentObject*>({obj, obj2}));
+}
+
+// The exported children, without a view provider to build the list
+static std::vector<App::DocumentObject*> exported(App::Part* p)
+{
+    return p->_ExportChildren.getValues();
+}
+
+TEST_F(PartGroupModeTest, thePartsGroupLeavesTheComponentsExported)
+{
+    auto p = part("P");
+    auto obj = feature("Obj");
+    p->addObject(obj);
+    auto group = p->addPartsGroup();
+    ASSERT_TRUE(group);
+    // A view only refers to the components
+    EXPECT_EQ(group->Group.getScope(), App::LinkScope::Global);
+
+    // A change of Group after the group came builds the list again
+    auto obj2 = feature("Obj2");
+    p->addObject(obj2);
+
+    ASSERT_EQ(group->Group.getValues(), std::vector<App::DocumentObject*>({obj, obj2}));
+    EXPECT_EQ(exported(p), std::vector<App::DocumentObject*>({obj, group, obj2}));
+    auto subs = p->getSubObjects();
+    EXPECT_NE(std::find(subs.begin(), subs.end(), "Obj."), subs.end());
+    EXPECT_NE(std::find(subs.begin(), subs.end(), "Obj2."), subs.end());
+}
+
+TEST_F(PartGroupModeTest, theElementsGroupOwnsItsChildren)
+{
+    auto p = part("P");
+    auto elements = p->getElementsGroup(true);
+    ASSERT_TRUE(elements);
+    ASSERT_TRUE(elements->isOwning());
+    EXPECT_EQ(elements->Group.getScope(), App::LinkScope::Local);
+}
+
+TEST_F(PartGroupModeTest, aChildTakenInThroughALocalLinkIsNotExported)
+{
+    auto p = part("P");
+    auto obj = feature("Obj");
+    auto base = feature("Base");
+    obj->Link.setValue(base);
+    p->addObjects({obj, base});
+
+    EXPECT_EQ(exported(p), std::vector<App::DocumentObject*>({obj}));
+}
+
+TEST_F(PartGroupModeTest, aChildAGlobalLinkRefersToIsExported)
+{
+    auto p = part("P");
+    auto obj = feature("Obj");
+    auto other = feature("Other");
+    auto ref = static_cast<App::PropertyLinkGlobal*>(
+        obj->addDynamicProperty("App::PropertyLinkGlobal", "Ref"));
+    ref->setValue(other);
+    p->addObjects({obj, other});
+
+    EXPECT_EQ(exported(p), std::vector<App::DocumentObject*>({obj, other}));
+}
+
+TEST_F(PartGroupModeTest, aLinkSetAfterIsFollowedOnRecompute)
+{
+    auto p = part("P");
+    auto obj = feature("Obj");
+    auto base = feature("Base");
+    p->addObjects({obj, base});
+    ASSERT_EQ(exported(p), std::vector<App::DocumentObject*>({obj, base}));
+
+    obj->Link.setValue(base);
+    doc()->recompute();
+
+    EXPECT_EQ(exported(p), std::vector<App::DocumentObject*>({obj}));
 }
 
 TEST_F(PartGroupModeTest, thePartsGroupRanksLast)

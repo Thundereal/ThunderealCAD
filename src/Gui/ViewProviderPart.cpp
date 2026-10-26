@@ -27,6 +27,9 @@
 # include <QMenu>
 #endif
 
+#include <algorithm>
+#include <set>
+
 #include <App/AuxGroup.h>
 #include <App/AutoTransaction.h>
 #include <App/Document.h>
@@ -198,6 +201,21 @@ std::vector<App::DocumentObject*> ViewProviderPart::claimChildren() const
     }
     if (groups.empty())
         return children;
+    // A child one of the groups shows is under it only. Its link to them is
+    // Global, no claim, so that the part still exports them: the export
+    // list holds them, and this is where the tree differs from it
+    std::set<App::DocumentObject*> shown;
+    for (auto group : groups) {
+        if (!group->isOwning()) {
+            const auto& members = group->Group.getValues();
+            shown.insert(members.begin(), members.end());
+        }
+    }
+    if (!shown.empty()) {
+        rest.erase(std::remove_if(rest.begin(), rest.end(),
+                                  [&shown](App::DocumentObject* obj) { return shown.count(obj) > 0; }),
+                   rest.end());
+    }
     std::stable_sort(groups.begin(), groups.end(),
             [](const App::AuxGroup *a, const App::AuxGroup *b) {
                 return App::Part::getAuxGroupRank(a) < App::Part::getAuxGroupRank(b);

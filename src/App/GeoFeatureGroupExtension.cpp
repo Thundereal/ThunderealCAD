@@ -236,28 +236,54 @@ void GeoFeatureGroupExtension::buildExport(
     // NOTE: if there is view provider attached, we rely on
     // ViewProviderGeoFeatureGroupExtension to populate _ExportChildren based
     // on how each child claim their own children. If no view provider is
-    // attached (e.g. Gui module is not loaded), we rely on the following logic
-    // to include only children that do not appear in the inList of any other
-    // child. This logic is similar to ViewProviderGeoFeatureGroupExtension,
-    // but not exactly the same.  So there may have some discrepancy depending
-    // on whether the Gui module is loaded or not.
+    // attached (e.g. Gui module is not loaded), what a child links to is
+    // taken for what it claims, and kept as the view provider keeps a claim:
+    // through a link that is not Global. A Global link only refers (an
+    // element's target, a joint's grounding, a group that is a view), and
+    // leaves the child it refers to in. Nor does a child that is a
+    // coordinate system of its own claim, as in the view provider. An
+    // expression only reads a value, and claims nothing either.
     if(owner->testStatus(ObjectStatus::ViewProviderAttached))
         return;
 
-    std::set<App::DocumentObject *> childSet(children.begin(),children.end());
+    std::set<App::DocumentObject *> claimed;
+    std::vector<Property *> props;
+    for(auto child : children) {
+        if(!child || !child->isAttachedToDocument()
+                || child->hasExtension(GeoFeatureGroupExtension::getExtensionClassTypeId()))
+            continue;
+        props.clear();
+        child->getPropertyList(props);
+        for(auto prop : props) {
+            auto link = Base::freecad_dynamic_cast<PropertyLinkBase>(prop);
+            if(link && link->getScope() != LinkScope::Global
+                    && !prop->isDerivedFrom<PropertyExpressionContainer>())
+                link->getLinkedObjects(std::inserter(claimed, claimed.end()), true);
+        }
+    }
     std::vector<App::DocumentObject *> exportChildren;
     for(auto child : children) {
-        bool exclude = false;
-        for(auto obj : child->getInList()) {
-            if(childSet.count(obj)) {
-                exclude = true;
-                break;
-            }
-        }
-        if(!exclude)
+        if(child && child->isAttachedToDocument() && !claimed.count(child))
             exportChildren.push_back(child);
     }
-    _ExportChildren.setValue(std::move(exportChildren));
+    if(_ExportChildren.getValues() != exportChildren)
+        _ExportChildren.setValues(std::move(exportChildren));
+}
+
+App::DocumentObjectExecReturn *GeoFeatureGroupExtension::extensionExecute()
+{
+    // What a child links to may have changed since Group did: a joint given
+    // its second element after it was added
+    buildExport(Group.getValues());
+    return GroupExtension::extensionExecute();
+}
+
+void GeoFeatureGroupExtension::onExtendedDocumentRestored()
+{
+    // The list read is the one saved, built by the rule of the version that
+    // saved it
+    buildExport(Group.getValues());
+    GroupExtension::onExtendedDocumentRestored();
 }
 
 std::vector<DocumentObject*> GeoFeatureGroupExtension::removeObjects(std::vector<App::DocumentObject*> objects)  {

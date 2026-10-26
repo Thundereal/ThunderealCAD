@@ -40,6 +40,10 @@ RigidGroup::RigidGroup()
 {
     ADD_PROPERTY_TYPE(ObjectsToRigidGroup, (), "RigidGroup", App::Prop_None,
                       "List of references to components to group together");
+    // It refers to the components, as a joint's grounding does: no claim of
+    // them in the tree or the export, nor a link moving one of them must
+    // drag the others along
+    ObjectsToRigidGroup.setScope(App::LinkScope::Global);
     ADD_PROPERTY_TYPE(RigidPlacements, (), "RigidGroup",
                       (App::PropertyType)(App::Prop_Hidden | App::Prop_ReadOnly),
                       "Relative placements for restore");

@@ -5,7 +5,8 @@ toView), which are what the mouse handlers call, so the clicks are the edit's
 own and no synthetic Qt event is needed:
 
   - the manipulator starts at the sketch frame's origin, plane XY, rotation
-    handles shown; the Sketcher 3D toolbar is up in the edit only;
+    handles shown; the Sketcher 3D toolbar is up in the edit only, its
+    commands enabled;
   - a click lands on the active plane: a point's view position maps back to
     it, on XY, on YZ, and on a plane of a tilted manipulator;
   - Sketcher_Sketch3DCyclePlane cycles XY -> YZ -> ZX -> XY;
@@ -109,6 +110,21 @@ def run():
         )
         check("with its rotation handles", m and m["RotationHandles"])
         check("the Sketcher 3D toolbar is up in the edit", toolbar_visible("Sketcher 3D"))
+        # The edit's task dialog disables a command not made for an edit
+        # (Command::testActive): its button and shortcut would do nothing.
+        enabled = {
+            n: FreeCADGui.Command.get(n).getAction()[0].isEnabled()
+            for n in (
+                "Sketcher_Sketch3DCyclePlane",
+                "Sketcher_Sketch3DLockHeight",
+                "Sketcher_Sketch3DKeepPlane",
+                "Sketcher_Sketch3DResetManipulator",
+                "Sketcher_Sketch3DRotationHandles",
+                "Sketcher_Constrain3DAlongX",
+                "Sketcher_ConstrainDistanceZ",
+            )
+        }
+        check("and its commands are enabled", all(enabled.values()), enabled)
         check(
             "and the commands are active",
             FreeCADGui.Command.get("Sketcher_Sketch3DCyclePlane").isActive(),

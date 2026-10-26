@@ -100,6 +100,7 @@ CmdSketcherSketch3DCyclePlane::CmdSketcherSketch3DCyclePlane()
     sMenuText = QT_TR_NOOP("Cycle Working Plane");
     sToolTipText = QT_TR_NOOP("Switches the 3D sketch manipulator's active plane: XY, YZ, ZX");
     sWhatsThis = "Sketcher_Sketch3DCyclePlane";
+    eType = ForEdit;
     sStatusTip = sToolTipText;
     // Inventor's key for it; Fusion's Alt cannot be a shortcut on its own.
     sAccel = "Shift+Space";
@@ -128,6 +129,7 @@ CmdSketcherSketch3DLockHeight::CmdSketcherSketch3DLockHeight()
     sToolTipText = QT_TR_NOOP(
         "Keeps the position on the working plane and moves along its normal; again to release");
     sWhatsThis = "Sketcher_Sketch3DLockHeight";
+    eType = ForEdit;
     sStatusTip = sToolTipText;
     sAccel = "Up";  // Fusion's
 }
@@ -156,6 +158,7 @@ CmdSketcherSketch3DKeepPlane::CmdSketcherSketch3DKeepPlane()
         QT_TR_NOOP("Stores the working plane as a fixed workplane of the 3D sketch; points placed "
                    "while it is active are held on it. Ctrl+click it to make it active again");
     sWhatsThis = "Sketcher_Sketch3DKeepPlane";
+    eType = ForEdit;
     sStatusTip = sToolTipText;
 }
 
@@ -181,6 +184,7 @@ CmdSketcherSketch3DResetManipulator::CmdSketcherSketch3DResetManipulator()
     sMenuText = QT_TR_NOOP("Reset Manipulator");
     sToolTipText = QT_TR_NOOP("Turns the 3D sketch manipulator back to the sketch's frame");
     sWhatsThis = "Sketcher_Sketch3DResetManipulator";
+    eType = ForEdit;
     sStatusTip = sToolTipText;
 }
 
@@ -206,6 +210,7 @@ CmdSketcherSketch3DRotationHandles::CmdSketcherSketch3DRotationHandles()
     sMenuText = QT_TR_NOOP("Manipulator Rotation Handles");
     sToolTipText = QT_TR_NOOP("Shows or hides the rings that tilt the 3D sketch manipulator");
     sWhatsThis = "Sketcher_Sketch3DRotationHandles";
+    eType = ForEdit;
     sStatusTip = sToolTipText;
 }
 
@@ -298,6 +303,8 @@ public:
         sMenuText = menu;
         sToolTipText = tip;
         sWhatsThis = name;
+        // enabled with the edit's task dialog open, as the 2D Sketcher's commands are
+        eType = ForEdit;
         sStatusTip = sToolTipText;
         if (accel) {
             sAccel = accel;

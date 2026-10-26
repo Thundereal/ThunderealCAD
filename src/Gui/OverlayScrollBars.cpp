@@ -195,16 +195,25 @@ void OverlayScrollBars::place()
             const bool atRight = r.right() >= width - 1;
             const bool atTop = r.top() <= 0;
             const bool atBottom = r.bottom() >= height - 1;
-            if (atRight && !atLeft) {
+            // A cover at a corner is one dock, on one side: a side dock
+            // reaches above a viewport that begins below the sheet's header,
+            // and taken for one at the top as well it left the bars no room
+            // between the two and sent them under the docks. It is on the
+            // side it runs more of the area along.
+            const bool corner = (atLeft != atRight) && (atTop != atBottom);
+            const bool alongSide = double(r.height()) / height > double(r.width()) / width;
+            const bool side = (atLeft != atRight) && (!corner || alongSide);
+            const bool across = (atTop != atBottom) && !side;
+            if (side && atRight) {
                 right = std::min(right, r.left());
             }
-            if (atBottom && !atTop) {
-                bottom = std::min(bottom, r.top());
-            }
-            if (atLeft && !atRight) {
+            if (side && atLeft) {
                 left = std::max(left, r.right() + 1);
             }
-            if (atTop && !atBottom) {
+            if (across && atBottom) {
+                bottom = std::min(bottom, r.top());
+            }
+            if (across && atTop) {
                 top = std::max(top, r.bottom() + 1);
             }
         }

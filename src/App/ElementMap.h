@@ -102,6 +102,14 @@ private:
     ElementMapIdScope* _outer;
 };
 
+/** Start a save's numbering of element maps (docs/TransactionLog.md sec
+ * 38.15): forget which map this process's last save numbered how, so that
+ * each map is given the id it keeps again. A document's save to its file
+ * does this through the save signals; Document::Save calls it too, for the
+ * saves no signal brackets (the auto saver's recovery file).
+ */
+AppExport void startElementMapNumbering();
+
 /** The ids of the element maps a save numbers (beforeSave), writes, or a
  * restore reads on this thread while one of these lives, into `ids`
  * (docs/TransactionLog.md sec 38.14). A document's save numbers its maps

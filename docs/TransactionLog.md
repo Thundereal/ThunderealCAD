@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14 built; Q2, Q5-Q7 open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15 built; Q2, Q5-Q7 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -25375,7 +25375,7 @@ which writes everything and compares what would have been kept):
   when this save numbers the object's maps as the file does. The cost is
   that an edit giving an earlier object more or fewer maps rewrites the
   objects after it. Numbers kept across saves (a map keeps its number, new
-  maps take ones above any used) would avoid that; not built.
+  maps take ones above any used) avoid that: built in 38.15.
 - **A reference put right at reload** (a broken one repaired from its
   retained generation, `ShapeStorage`) changed the link with no signal.
   `_updateElementReference` now notes a change of the reference or its
@@ -25386,7 +25386,7 @@ which writes everything and compares what would have been kept):
   it: the property's own Restore touches it again, and the document purges
   it after. A file saved before a recompute therefore came back otherwise.
   The status is now written without that bit (`savedStatus`). No reader
-  sees a difference.
+  sees a difference. (Said too strongly; 38.15 has it precisely.)
 
 After these, the suite under the check: 3883 tests OK, no file differing.
 
@@ -25421,3 +25421,120 @@ four rounds of open, edit one box, save, edit another, save):
   - a view and an object changed, each written alone;
   - a colour writes the object's file;
   - under the check, nothing differs.
+
+### 38.15 Element maps keep their numbers across saves (2026-10-26)
+
+**Ruling (user, 2026-10-26):** "Yes make element map stable", on the
+follow-up 38.14 left: numbers kept across saves, so an edit giving one
+object more or fewer maps no longer rewrites the objects after it.
+
+**As built** (`src/App/ElementMap.cpp`):
+- A map keeps the number it was last saved under (`_id`), and a restore now
+  sets it to the number it read. A restore inside an `ElementMapIdScope`
+  (the log's own captures, 27.67) does not: those numbers are the scope's.
+- A save gives each map that number again, unless another map of the same
+  save took it first (`UsedIds`). A map with no number, or whose number is
+  taken, gets one above every number given or read in this process
+  (`LastId`, only ever raised). It therefore cannot take a number that a map
+  numbered later in the same save still holds.
+- Numbers are still unique within one save. That is all a reader needs,
+  and the format is unchanged.
+- The 38.14 check stays as it is: a file is kept only when this save
+  numbers its object's maps as the file does. Two maps holding one number
+  are the case it still catches. One map comes from the document's own
+  folder and the other from a file another process wrote, merged in
+  (`mergeProject`, paste, import). The first one numbered keeps the number,
+  and the other is numbered anew and its object written.
+- `Data::startElementMapNumbering()` starts a save's numbering. The save
+  signals already reset it. `Document::Save` now calls it too, for the save
+  no signal brackets (the auto saver's recovery file). Left to accumulate
+  there, a reopened document's maps would find their own numbers taken and
+  be numbered anew, and the next save would rewrite every object once.
+  Because a map takes its own number again, starting twice in one save
+  changes nothing.
+- The auto saver numbers maps by the same rules, so a recovery file does
+  not disturb the numbers either.
+
+**Measured** (`~/.cache/lv-merge/probe38/stablemaps.py`, FreeCADCmd, 200
+cuts of two boxes each behind a first `Part::Feature`, 601 objects; the
+first object alternately given a cut's shape scaled by two, and a plain box;
+a save after each, four rounds after a save and four after an open):
+
+| | Before (38.14) | Now |
+| --- | --- | --- |
+| written / kept, after a save | the objects after the first, all written | 1 / 600 every round |
+| written / kept, after an open | the same | 1 / 600 every round |
+| ms, after a save | | 108-136 |
+| ms, after an open | | 228-232 |
+
+The "before" column follows from 38.14's rule; it was not run. Once the first
+object gains or loses maps, every object after it numbers its maps otherwise.
+
+**Not about the numbers, found on the way.** Given the cut's shape unscaled
+(`PROBE_SCALE=0`), the first save writes 201 files, the first object and
+every cut. That is 38.11's congruence search: the first object's shape is
+congruent to every cut and comes first, so each cut's blob now records it
+as its match. The blob compare refuses those files ("blobs differ", in the
+new log below), which is right. Turning the first object back into a box
+writes only that one: each cut keeps the match it made, and its blob still
+reads, since the blob it matched stays in the folder. Probe
+`~/.cache/lv-merge/probe38/congruent.py` (20 cuts): five such saves, each
+followed by a reopen, and every cut's volume and box centre came back as
+saved.
+
+**Why a file was written** is now logged per object at `App` log level:
+"changed in the log", "a change noted", "blobs differ", "element map ids
+differ" or "entry differs".
+
+**Gates** (round s38h): 25 GUI checks; Python 3884 OK with freeze on and
+off; gtest 1014 with freeze on and off; driven 301. The Python suite under
+`FC_FOLDER_SAVE_CHECK`: 3884 OK, no file that would have been kept came out
+otherwise.
+
+**Tests** (`FolderSaveCases`):
+- `testAnObjectGainingMapsLeavesTheFilesAfterIt` (was the first half of
+  38.14's `testElementMapsNumberedOtherwiseAreWritten`): the first object
+  given the cut's maps writes one file, keeps three, and leaves their files
+  untouched. Each object reopens with its own maps. After the open, the
+  first object given fewer maps again writes one and keeps three.
+- `testElementMapsNumberedOtherwiseAreWritten`, now the collision case. A
+  second document, cut with a cylinder so its maps differ, is saved as a
+  folder. Its map numbers are rewritten by hand to the first document's,
+  as another process would have numbered them, and the folder is zipped.
+  The archive is merged into the first document, opened from its folder.
+  The save writes the four merged objects and keeps the four of our own,
+  and the merged maps' numbers come out apart from ours. On reopen every
+  object has its own map.
+
+**The Touched bit, said precisely** (38.14 said "no file preserves it",
+which was too strong). Before 38.14, a property's saved status did carry
+the bit, and `PropertyContainer::Restore` applied it (`setStatusValue`)
+before the property's own Restore. It never decided anything, for two
+reasons:
+- An object saved up to date is purged after the restore
+  (`afterRestore`: `purgeTouched` unless the object is in `touchedObjs` or
+  in error),
+  which clears every property's bit whatever the file said.
+- An object saved needing a recompute is marked so by the `Touched="1"`
+  attribute of its entry in `Document.xml`, which 38.14 did not change.
+  Its properties are then not purged. Every property whose value the file
+  holds is touched by its own Restore (`hasSetValue` -> `touch()`) whether
+  or not the bit was saved.
+
+The bit could matter only in a touched object, and only for a property
+whose Restore does not touch it:
+- a transient property, whose value the file does not hold at all, so
+  marking it changed claims a change the file cannot reproduce;
+- an empty expression engine, which now marks no change at restore
+  (38.14).
+
+What says an object needs a recompute was never a property's bit: it is
+the object's `Touch` bit, saved as `Touched="1"`. The other recompute
+state, `Enforce` (`touch()`, `enforceRecompute()`), was never saved,
+before or after; a property's `NoRecompute` bit is saved as before.
+Probe `~/.cache/lv-merge/probe38/touched.py`: a box left at a new length
+unrecomputed, a box touched with nothing changed, and a cut of the two,
+saved as a folder and as an archive. Both reopen with the same objects
+touched and recompute to the right volumes (A 3000, Cut 2750). The folder
+patched by hand to carry the bit in every status of the box's file, as
+the old writer did, reopens the same.

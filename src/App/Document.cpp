@@ -2978,6 +2978,8 @@ void Document::Save (Base::Writer &writer) const
     // to compare with what its file holds (sec 38.14).
     const bool folderIds = d->folderKeeping || !d->folderNext.folder.empty();
     d->folderMapIdsNow.clear();
+    // Each map is given the id it keeps (sec 38.15), whichever save this is.
+    Data::startElementMapNumbering();
     for (auto o : d->objectArray) {
         if (d->saveSeq) {
             d->saveSeq->next();
@@ -4307,6 +4309,18 @@ void Document::writeObjects(const std::vector<App::DocumentObject*>& obj,
                         ++d->folderInfo.kept;
                     }
                 }
+                else {
+                    FC_LOG("save " << (*it)->getFullName() << ": written, "
+                                   << (!folder           ? "not a folder"
+                                       : !sameRefs       ? "blobs differ"
+                                       : !sameIds        ? "element map ids differ"
+                                                         : "entry differs"));
+                }
+            }
+            else if (d->folderKeeping) {
+                FC_LOG("save " << (*it)->getFullName() << ": written, "
+                               << (!d->folderUnchanged.count(id) ? "changed in the log"
+                                                                 : "a change noted"));
             }
             writer.Stream() << "file=\"" << entry << "\" ";
         }

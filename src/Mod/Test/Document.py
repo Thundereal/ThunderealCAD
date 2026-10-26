@@ -12915,24 +12915,19 @@ class FolderSaveCases(unittest.TestCase):
         doc.save()
         self.assertEqual(doc.getLastFolderSave()["kept"], 4)
 
-    def testElementMapsNumberedOtherwiseAreWritten(self):
-        # Sec 38.14: a save numbers element maps across all its objects, and
-        # a reader takes a map by its number once, whichever file names it
-        # first. An object nothing changed whose maps this save numbers
-        # otherwise -- an earlier object has more maps now -- is written, or
-        # its file would name a map another file now holds under that number.
-        self.noCheck()
+    def mapsDocument(self, name, tool="Part::Box"):
+        # First, then A and B cut: First's maps are numbered before theirs.
         import Part
 
-        path = os.path.join(self.dir, "Maps")
+        path = os.path.join(self.dir, name)
         os.makedirs(path)
-        doc = self.track(FreeCAD.newDocument("Maps"))
+        doc = self.track(FreeCAD.newDocument(name))
         doc.UndoMode = 1
 
         def make(d):
             d.addObject("Part::Feature", "First").Shape = Part.makeBox(1, 1, 1)
             a = d.addObject("Part::Box", "A")
-            b = d.addObject("Part::Box", "B")
+            b = d.addObject(tool, "B")
             b.Placement.Base = FreeCAD.Vector(5, 5, 5)
             cut = d.addObject("Part::Cut", "Cut")
             cut.Base, cut.Tool = a, b
@@ -12940,18 +12935,152 @@ class FolderSaveCases(unittest.TestCase):
         self.edit(doc, "create", make)
         doc.saveAs(path)
         doc.save()
+        return doc, path
+
+    def testAnObjectGainingMapsLeavesTheFilesAfterIt(self):
+        # Sec 38.14, 38.15: a save numbers element maps across all its
+        # objects, and a reader takes a map by its number once, whichever
+        # file names it first. A map keeps its number from save to save, and
+        # from an open, so an earlier object gaining maps leaves the files of
+        # the objects after it as they are -- and they reopen with their own.
+        self.noCheck()
+        doc, path = self.mapsDocument("Maps")
         names = ("A", "B", "Cut")
         before = {n: doc.getObject(n).Shape.ElementMap for n in names}
         self.assertTrue(all(before.values()))
-        # The first object takes a shape with maps of its own and its inputs'.
-        self.edit(doc, "more maps", lambda d: setattr(d.First, "Shape", d.Cut.Shape.copy()))
+        files = {n: self.stamp(os.path.join(path, n + ".xml")) for n in names}
+
+        # The first object takes a shape with maps of its own and its inputs':
+        # the cut's, scaled. (One congruent to the cut's would change the
+        # cut's blob, which 38.11 then stores as a match, and write it.)
+        def more(d):
+            d.First.Shape = d.Cut.Shape.copy().transformGeometry(
+                FreeCAD.Matrix(2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 2, 0, 0, 0, 0, 1)
+            )
+
+        self.edit(doc, "more maps", more)
         first = doc.First.Shape.ElementMap
+        self.assertTrue(first)
         doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 3), last)
+        for n in names:
+            self.assertEqual(self.stamp(os.path.join(path, n + ".xml")), files[n], n)
         FreeCAD.closeDocument(doc.Name)
         doc = self.track(FreeCAD.openDocument(path))
         for n in names:
             self.assertEqual(doc.getObject(n).Shape.ElementMap, before[n], n)
         self.assertEqual(doc.First.Shape.ElementMap, first)
+        # After the open, the maps it read keep their numbers too.
+        import Part
+
+        self.edit(doc, "fewer maps", lambda d: setattr(d.First, "Shape", Part.makeBox(2, 2, 2)))
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (1, 3), last)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        for n in names:
+            self.assertEqual(doc.getObject(n).Shape.ElementMap, before[n], n)
+
+    MAP_IDS = r"^(\d+) PostfixCount|^ElementMap (\d+) (\d+) "
+
+    def mapIds(self, path):
+        # {file: [map ids]} of the objects' files of folder `path`
+        import re
+
+        ids = {}
+        for n in sorted(os.listdir(path)):
+            if n.endswith(".xml") and n != "Document.xml":
+                with open(os.path.join(path, n), encoding="utf-8") as f:
+                    text = f.read()
+                found = re.findall(self.MAP_IDS, text, re.M)
+                ids[n] = [int(x or z) for x, _, z in found]
+        return ids
+
+    def testElementMapsNumberedOtherwiseAreWritten(self):
+        # Sec 38.15: two maps can hold the same number -- one read from this
+        # document's folder, one merged in from a file another process wrote
+        # -- and a save gives it to the first it numbers. The other is
+        # numbered anew and its object written, or its file would name a map
+        # another file holds under that number.
+        import re
+        import zipfile
+
+        self.noCheck()
+        doc, path = self.mapsDocument("Into")
+        FreeCAD.closeDocument(doc.Name)
+        # Its maps unlike ours, so that one taken for another shows; an
+        # archive of deflate entries, so that it can be written by hand.
+        other = self.track(FreeCAD.newDocument("From"))
+        other.BlobCompression = "Deflate"
+
+        def make(d):
+            a = d.addObject("Part::Box", "A")
+            b = d.addObject("Part::Cylinder", "B")
+            b.Placement.Base = FreeCAD.Vector(5, 5, 5)
+            cut = d.addObject("Part::Cut", "Cut")
+            cut.Base, cut.Tool = a, b
+
+        self.edit(other, "create", make)
+        names = ("A", "B", "Cut")
+        theirs = {n: other.getObject(n).Shape.ElementMap for n in names}
+        archive = os.path.join(self.dir, "From.FCStd")
+        other.saveAs(archive)
+        FreeCAD.closeDocument(other.Name)
+        # A process numbers maps above any it has seen; another starts low.
+        # Its file, by hand: From's numbers made ours.
+        with zipfile.ZipFile(archive) as z:
+            entries = [(i.filename, z.read(i.filename)) for i in z.infolist()]
+        xml = dict(entries)["Document.xml"].decode("utf-8")
+        ours = sorted({i for v in self.mapIds(path).values() for i in v})
+        their = sorted({int(x or z) for x, _, z in re.findall(self.MAP_IDS, xml, re.M)})
+        self.assertTrue(ours and their)
+        spare = max(ours + their)
+        to = {}
+        for k, i in enumerate(their):
+            if k < len(ours):
+                to[i] = ours[k]
+            else:
+                spare += 1
+                to[i] = spare
+
+        def renumber(m):
+            if m.group(1):
+                return "%d PostfixCount" % to[int(m.group(1))]
+            return "ElementMap %s %d " % (m.group(2), to[int(m.group(3))])
+
+        xml = re.sub(self.MAP_IDS, renumber, xml, flags=re.M)
+        with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
+            for n, data in entries:
+                z.writestr(n, xml.encode("utf-8") if n == "Document.xml" else data)
+
+        doc = self.track(FreeCAD.openDocument(path))
+        mine = {n: doc.getObject(n).Shape.ElementMap for n in ("First",) + names}
+        self.assertNotEqual(mine["Cut"], theirs["Cut"])
+        before = {o.Name for o in doc.Objects}
+        doc.mergeProject(archive)
+        merged = [o.Name for o in doc.Objects if o.Name not in before]
+        self.assertEqual(len(merged), 3, merged)
+        for name in merged:
+            src = re.sub(r"\d+$", "", name)
+            self.assertEqual(doc.getObject(name).Shape.ElementMap, theirs[src], name)
+        doc.save()
+        last = doc.getLastFolderSave()
+        self.assertEqual((last["written"], last["kept"]), (3, 4), last)
+        # The merged maps were numbered anew, apart from ours.
+        now = self.mapIds(path)
+        kept = {i for n in mine for i in now.get(n + ".xml", [])}
+        fresh = {i for n in merged for i in now.get(n + ".xml", [])}
+        self.assertTrue(kept & set(to.values()))
+        self.assertFalse(kept & fresh, (kept, fresh))
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        for n in mine:
+            self.assertEqual(doc.getObject(n).Shape.ElementMap, mine[n], n)
+        for name in merged:
+            src = re.sub(r"\d+$", "", name)
+            self.assertEqual(doc.getObject(name).Shape.ElementMap, theirs[src], name)
 
     def testAChangeTheLogLeavesOutIsWritten(self):
         # Sec 38.14: a property's status is saved with it and recorded by no

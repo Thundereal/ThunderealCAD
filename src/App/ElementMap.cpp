@@ -261,8 +261,33 @@ inline std::ostream & operator << (std::ostream &s, const QByteArray &bytes)
 // any shape sharing is lost. But again, we do want to keep separate shape files
 // because of partial loading. The same technique used here can be applied to
 // restore shape sharing.
+//
+// The id is not one-time any more (docs/TransactionLog.md sec 38.15): a map
+// keeps the id it was last saved or read under, and a save gives it that id
+// again unless another map of the same save took it first. A map with none,
+// or whose id is taken, gets one above every id given or read in this
+// process (LastId), so it cannot take one a later map of the save still
+// holds. A folder save keeps an object's file only when this save numbers
+// its maps as the file does, so an id kept across saves is what lets an
+// edit that adds or drops a map leave the files of the objects after it.
 static std::unordered_map<const ElementMap*, unsigned> ToId;
+static std::unordered_set<unsigned> UsedIds;    ///< the ids this save gave
+static std::atomic<unsigned> LastId{0};
 static std::unordered_map<unsigned, ElementMapPtr> _IdToElementMap;
+
+void startElementMapNumbering()
+{
+    ToId.clear();
+    UsedIds.clear();
+}
+
+/// Raise LastId to `id`, if below.
+static void noteLastId(unsigned id)
+{
+    unsigned last = LastId.load();
+    while (last < id && !LastId.compare_exchange_weak(last, id)) {
+    }
+}
 
 namespace {
 thread_local Data::ElementMapIdScope* idScope = nullptr;
@@ -487,11 +512,11 @@ public:
             inited = true;
             App::GetApplication().signalStartSaveDocument.connect(
                 [](const App::Document &, const std::string &) {
-                    ToId.clear();
+                    Data::startElementMapNumbering();
                 });
             App::GetApplication().signalFinishSaveDocument.connect(
                 [](const App::Document &, const std::string &) {
-                    ToId.clear();
+                    Data::startElementMapNumbering();
                 });
             App::GetApplication().signalStartRestoreDocument.connect(
                 [](const App::Document &) {
@@ -505,9 +530,17 @@ public:
     }
 
     void beforeSave(const App::StringHasherRef & hasher) const {
-        unsigned & id = ToId[this];
-        if (!id)
-            id = ToId.size();
+        auto res = ToId.emplace(this, 0);
+        if (res.second) {
+            // The id it had, unless a map of this save took it already
+            unsigned id = this->_id;
+            if (!id || !UsedIds.insert(id).second) {
+                id = ++LastId;
+                UsedIds.insert(id);
+            }
+            res.first->second = id;
+        }
+        const unsigned id = res.first->second;
         this->_id = id;
         Data::ElementMapIdCollector::note(id);
         
@@ -781,6 +814,11 @@ public:
             return map;
         }
         map = shared_from_this();
+        // Saved under it again (sec 38.15); an id of a scope is its own.
+        if (!Data::ElementMapIdScope::current()) {
+            this->_id = id;
+            noteLastId(id);
+        }
         changed("restore");
         dropPending();
 

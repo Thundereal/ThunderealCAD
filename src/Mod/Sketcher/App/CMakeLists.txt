@@ -116,6 +116,10 @@ SET(PlaneGCS_SRCS
     planegcs/Geo.h
     planegcs/Constraints.cpp
     planegcs/Constraints.h
+    planegcs/Geo3D.cpp
+    planegcs/Geo3D.h
+    planegcs/Constraints3D.cpp
+    planegcs/Constraints3D.h
     planegcs/SubSystem.cpp
     planegcs/SubSystem.h
     planegcs/qp_eq.cpp

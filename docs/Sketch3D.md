@@ -413,6 +413,32 @@ not in the first phases.
 S0 and S1 deliver something usable on their own (scripted 3D paths with
 constraints, which the Surface port and the agent can use) before any GUI.
 
+**S0 done 2026-10-26.** `planegcs/Geo3D.{h,cpp}` (Point3, DeriVector3, Plane3,
+Circle3, Arc3, BSpline3, FixedCurve3 for model edges) and
+`planegcs/Constraints3D.{h,cpp}` (13 one-equation classes, the ConstraintType
+values from 100, and one `addConstraint*3` function per sketch constraint
+adding as many equations as the DOF it removes; coincident, along an axis,
+distance along an axis and circle radius reuse the 2D Equal and Difference, so
+the solver's Equal reduction applies). Tests:
+`tests/src/Mod/Sketcher/App/planegcs/Constraints3D.cpp`, 11 cases:
+- every class's gradient by every parameter against central differences;
+- the B-spline tangent against differences of its value;
+- the DOF of a constrained point pair, a line along Z, a circle and an arc;
+- every v1 constraint's DOF drop against the table, with nothing reported
+  partly redundant;
+- a rectangle on a tilted workplane (5 DOF, and the fourth right angle
+  reported redundant);
+- parallel staying rank-exact along each axis and a diagonal;
+- redundant and conflicting sets reported;
+- convergence from perturbed starts: a routed path, keeping the branch it
+  started on (20 starts); curves, planes and dimensions (10 starts); an arc
+  tangent to two lines;
+- the timing case below.
+All 141 Sketcher C++ tests pass.
+
+Not in S0: workplane-local constraints, point on face, G1 / G2 to model edges,
+coaxial and symmetric (all v2); periodic splines.
+
 ## 11. Risks
 
 - **Solve stability in 3D** [S 15]: answered by rank-exact equations,
@@ -420,7 +446,25 @@ constraints, which the Surface port and the agent can use) before any GUI.
 - **Speed** on large 3D sketches: PlaneGCS evaluates gradients per
   parameter; Dune 3D had to patch SolveSpace's solver for speed [S 71]. The
   S0 tests include a 1000-entity case timed against the 2D sketch of the
-  same size; a vectorised `errorgrad` is the known next step if it is slow.
+  same size. Measured 2026-10-26, a chain of lines each joined to the last
+  with an axis direction and a length (`FC_S0_CHAIN=1000`; the suite runs 300):
+
+  | Chain | 3D diagnose + solve | 2D diagnose + solve |
+  |---|---|---|
+  | 300 lines | 449 + 45 ms | 104 + 42 ms |
+  | 1000 lines | 33.2 + 2.3 s | 10.2 + 2.0 s |
+
+  **Solving costs about the same; the diagnosis is the difference**, and it is
+  slow in 2D already at this size. So `errorgrad` is not the next step. The
+  next step is the diagnosis's sparse QR, where the 2D sketch's big cost
+  already is. Its time grows faster than the cube of the size here (300 ->
+  1000 lines: 74 times in 3D, 98 times in 2D), and 3D has 1.5 times the
+  unknowns per entity.
+- **Parallel's component choice** is made from the geometry when the system
+  is built. A direction that swings onto the dropped axis during one solve
+  loses rank for that solve. The facade rebuilds the system per solve, as the
+  2D sketch does, which bounds it; a drag that rotates a line through 90 deg
+  in one step would show it.
 - **Shared enum**: appending 3D types to `Sketcher::ConstraintType` touches
   code that switches over it, in a file shared with upstream. A separate
   enum avoids it at the cost of re-doing the naming and datum plumbing

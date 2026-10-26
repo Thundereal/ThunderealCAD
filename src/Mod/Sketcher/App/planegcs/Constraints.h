@@ -85,6 +85,20 @@ enum ConstraintType
     AngleViaPointAndTwoParams = 34,
     AngleViaTwoPoints = 35,
     ArcLength = 36,
+    // The 3D layer, Constraints3D.h
+    P3OnLine = 100,
+    P3OnBSpline = 101,
+    P3OnFixedCurve = 102,
+    P3PlaneDistance = 103,
+    Dir3Parallel = 104,
+    Dir3Dot = 105,
+    Dir3Angle = 106,
+    P3Distance = 107,
+    P3EqualDistance = 108,
+    P3LineDistance = 109,
+    P3Midpoint = 110,
+    Vec3Unit = 111,
+    QuatUnit = 112,
 };
 
 enum InternalAlignmentType

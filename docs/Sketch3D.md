@@ -237,8 +237,9 @@ the workplane-local forms in v2.
 
 ## 5. The object
 
-**A separate object, `Sketcher::Sketch3DObject`** (recommended), not a 3D
-option on the 2D sketch as Fusion does it [S 25]:
+**A separate object, `Sketcher::Sketch3DObject`** (decided 2026-10-26), not a 3D
+option on the 2D sketch as Fusion does it [S 25]. Points are placed Fusion's way,
+though (section 7). Reasons for the separate object:
 
 - the 2D sketch is a `Part::Part2DObject`, and Pad, Pocket, Revolution,
   holes and the sketch's own projection rules all rely on it being planar;
@@ -277,6 +278,11 @@ It lives in the Sketcher module, sharing the library with PlaneGCS:
 A solver facade `Sketcher::Sketch3DSolver` maps between the object and
 PlaneGCS, as `Sketcher::Sketch` does for 2D.
 
+**In a PartDesign Body** (decided): allowed, as a 2D sketch is.
+`Body::isAllowed` (src/Mod/PartDesign/App/Body.cpp) gains the type, so an
+AdditivePipe can follow it without a binder. It never changes the solid, so the
+Tip rules do not apply to it. It works outside a Body too.
+
 ## 6. Workplanes inside the sketch (v2)
 
 A workplane is a geometry entry with a position and orientation, itself
@@ -300,32 +306,55 @@ from whatever workbench is active and go on leaving (docs/CadNewcomerWorkflow.md
 section 6 item 4) -- an edit is a mode entered on purpose, so the global
 switch is right here, unlike a TechDraw page's.
 
-**Placing points.**
-- A working plane: the sketch frame's XY at first; **Tab cycles XY / YZ / ZX**
-  through the last placed point (SOLIDWORKS [S 2]); Ctrl+click on a face,
-  datum plane, LCS or workplane takes that plane (SOLIDWORKS [S 8]). It is
-  drawn as a small grid patch round the cursor.
-- A **triad at the last point** (`Gui::SoFCCSysDragger`), whose axes lock the
-  next point to a line through it -- Fusion's and Onshape's triad [S 28]
-  [S 47], and what makes "go up 40" one move.
+**Placing points: Fusion's manipulator** (decided 2026-10-26) [S 28].
+- A **manipulator** (`Gui::SoFCCSysDragger`) stands at the sketch frame's
+  origin when editing starts and **moves to each point as it is placed**.
+  Clicking an existing point without placing one moves it there, which is how a
+  path branches off the middle of another.
+- Its **active plane** (the sketch frame's XY at first) is where a click lands.
+  Clicking one of its plane handles picks XY / YZ / ZX. **Its rotation handles
+  tilt it to any orientation**, typed angles included. Ctrl+click on a face,
+  datum plane, LCS or workplane takes that plane (SOLIDWORKS [S 8]). The
+  plane is a placement aid only: geometry put on it gets no constraint keeping
+  it there (as in Fusion). Keeping a plane is section 6.
+- **Hovering along one of its axes** locks the next point to that axis, and a
+  typed distance places it. That makes "go up 40" one move.
+- The switches are **commands**, so Tools > Customize can rebind them. They are
+  active only while a 3D sketch is in edit:
+
+  | Command | Does | Default |
+  |---|---|---|
+  | Cycle working plane | XY -> YZ -> ZX of the manipulator | Shift+Space (Inventor's [S 18]; Fusion's Alt cannot be a Qt shortcut alone) |
+  | Lock height | keep the in-plane position, move along the plane normal | Up (Fusion's [S 28]); a navigation style's Up-arrow pan is lost during the edit |
+  | Reset manipulator | back to the sketch frame's orientation | none |
+  | Manipulator rotation handles | show / hide | none |
+
+  Tab stays with the on-view value entries, as in the 2D sketch
+  (`DrawSketchKeyboardManager.cpp`).
 - **Snapping** to sketch points, model vertices, edges and faces, with the
   constraint it implies created on release: coincident to a vertex, point on
   an edge, point on a face; and Along X / Y / Z when a line is drawn within a
   few degrees of an axis (SOLIDWORKS creates Along relations from snaps
   [S 7]). The snap shows its constraint icon before the click.
 - **Typed values** through the on-view entries: length and the three
-  coordinate offsets of the next point; Tab in a dimension cycles absolute /
-  along X / Y / Z (SOLIDWORKS [S 6]).
+  coordinate offsets of the next point. A dimension's kind (absolute / along
+  X / Y / Z) is picked in its on-view entry (SOLIDWORKS uses Tab [S 6], which
+  is taken here).
+
+**Commands** (decided): in the Sketcher workbench, with one new "Create 3D
+sketch" command. A 3D sketch in edit brings up the Sketcher's own toolbars,
+with the same icons and shortcuts (G, L for a line, and so on); each command
+runs its 3D handler when the edited object is a 3D sketch and is greyed out
+where it has no 3D meaning yet (slots, polygons, ...). The shared part is the
+commands and toolbars, not the drawing handlers, which are 2D throughout.
 
 **Tools, v1**: point, line, polyline, through-points spline, control-point
 spline, construction toggle, and the constraint commands of the v1 set.
 **v2**: arc, circle, 3D corner fillet (an arc tangent to two lines in their
 plane -- the routing bend), workplane, spline on face, trim / split.
 
-**Display.** Geometry is depth-tested against the model with the hidden part
-dashed, unlike the 2D sketch's always-on-top drawing, because in 3D "where
-is it" is the question; entities off the active working plane are muted
-(SOLIDWORKS [S 7]); dimension labels lie in a plane through the measured
+**Display** (decided): the same as the 2D sketch's edit geometry -- the same
+drawing, styles and colours. Dimension labels lie in a plane through the measured
 geometry chosen to face the camera (`EditableDatumLabel` takes that
 placement); the DOF count and the conflicting / redundant lists are shown as
 the 2D sketch's task panel shows them, clickable.
@@ -343,8 +372,7 @@ when one is held, through the solver's temporary drag constraints.
   sketch then gives it parametric, constrained inputs.
 - Routing: a polyline with corner fillets (v2) is a pipe or tube route,
   Onshape's Routing Curve's polyline-with-bend-radius case [S 47].
-- Inside a PartDesign Body as a non-solid feature, if the Body admits it
-  (question 13 b).
+- Inside a PartDesign Body as a non-solid feature (decided, section 5).
 
 ## 9. The browser and the agent
 
@@ -377,7 +405,7 @@ constraints, which the Surface port and the agent can use) before any GUI.
 - **Shared enum**: appending 3D types to `Sketcher::ConstraintType` touches
   code that switches over it, in a file shared with upstream. A separate
   enum avoids it at the cost of re-doing the naming and datum plumbing
-  (question 13 c).
+  (decided: the shared enum, 13 c).
 - **Scope pull** toward a CATIA-GSD-style wireframe workbench, which #14010's
   commenters ask for [S 76]: the 3D sketch is the constrained-curve piece;
   intersection curves, projections and curves on surfaces as features
@@ -392,23 +420,26 @@ constraints, which the Surface port and the agent can use) before any GUI.
 - A whole-model constraint system like SolveSpace's: the 3D sketch is one
   feature in the parametric loop, like the 2D one.
 
-## 13. Open questions
+## 13. Questions and decisions
 
-a. A separate `Sketch3DObject` (recommended), or Fusion's 3D option on the
-   2D sketch?
-b. Allowed inside a PartDesign Body as a non-solid feature? Before or after
-   the Tip rules apply to it?
-c. Reuse `Sketcher::Constraint` and `PropertyConstraintList` with new enum
-   values (recommended), or a 3D constraint class of its own?
-d. v1 with the sketch frame's three planes only, workplanes in v2 -- or
-   workplanes in v1?
-e. Which spline first: through-points (what #5794 and Onshape's 3D Fit
-   Spline point at [S 45][S 75]) or control-point? Both exist in 2D; v1 has
-   both in the list above.
-f. Curves on faces: a 3D sketch's "spline on face" constraint, or a Surface
-   workbench feature (the Curves addon's Sketch on Surface and Curve on
-   Surface), or both?
-g. Name and place: "3D Sketch" commands in the Sketcher workbench
-   (recommended, sharing the edit-mode machinery), or a workbench of its own?
-h. Display: depth-tested with hidden lines dashed (recommended), or always
-   on top like the 2D sketch?
+Decided 2026-10-26:
+
+a. A separate `Sketch3DObject`, with Fusion's way of placing points (section 7).
+b. Allowed inside a PartDesign Body as a sketch is; no Tip rules (section 5).
+c. `Sketcher::Constraint` and `PropertyConstraintList` reused, the 3D types
+   appended to the enum.
+e. Through-points spline first, control-point right after.
+f. Curves pinned to a face ("point / spline on face") are 3D sketch geometry,
+   v2, built in the face's (u, v) so they lie exactly on it. Projection and
+   wrap of a flat sketch onto faces are Surface workbench features.
+g. Commands in the Sketcher workbench, sharing its toolbars and shortcuts
+   (section 7).
+h. Display the same as the 2D sketch.
+i. The manipulator plane tilts freely; Ctrl+click takes a face's plane.
+j. Plane switching and height lock are customisable commands, active only in
+   3D sketch edit (section 7).
+k. The manipulator moves to the last placed point, or to a point clicked.
+
+Open:
+
+d. Workplanes (section 6): which form, and when.

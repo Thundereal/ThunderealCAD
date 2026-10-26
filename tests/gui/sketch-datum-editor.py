@@ -178,7 +178,9 @@ def run():
         check("and moves the editor to the next dimension",
               line() is not None and line().text().startswith("50"),
               line().text() if line() else None)
-        type_in("51 mm")
+        # a bare number is in the unit the line shows (it made the dimension
+        # -2147483647: QuantitySpinBox hands back its minimum for it)
+        type_in("51")
         key(QtCore.Qt.Key_Backtab)
         check("Shift+Tab applies and goes back",
               values(sk)[:2] == [61.0, 51.0] and line().text().startswith("61"),

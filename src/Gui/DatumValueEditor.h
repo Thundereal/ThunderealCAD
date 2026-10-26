@@ -194,6 +194,16 @@ protected:
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:
+    /** The line's text as a value in the target's unit
+     *
+     * What QuantitySpinBox takes -- a quantity, or a simple expression of
+     * quantities -- and a bare number, which is in the unit the editor shows:
+     * the spin box calls that unfinished and hands back its minimum, so typing
+     * "61" made a dimension -2147483647 (its validate() is compiled out and
+     * accepts everything). False when the text is no value of that unit.
+     */
+    bool parseValue(const QString& text, Base::Quantity& value) const;
+
     void lineEdited();
     void checkText();
     void toggleDriving();

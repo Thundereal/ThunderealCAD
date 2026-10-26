@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18), B: a frozen edge's pcurve test answered once (38.19), the save measured again with B and the freeze on (38.20), an audit of the folder and two-process code (38.21), its fixes and the merge's GUI failures (38.22) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5, B built; Q2, Q6, Q7, A ruled (Q7, A: nothing built) |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18), B: a frozen edge's pcurve test answered once (38.19), the save measured again with B and the freeze on (38.20), an audit of the folder and two-process code (38.21), its fixes and the merge's GUI failures (38.22), a view cell's handles keep their corners over laid-over bars (38.23) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5, B built; Q2, Q6, Q7, A ruled (Q7, A: nothing built) |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -26237,3 +26237,31 @@ held when they passed for their authors is not known here. With defaults, `UseVi
 **Gates** (round s38l): 25 GUI checks; Python 3911 OK and C++ 1018/1018
 with freeze on and off; driven 329/329; the suite with
 `FC_FOLDER_SAVE_CHECK=1` 3911 OK.
+
+### 38.23 A view cell's handles keep their corners over laid-over bars (2026-10-26)
+
+**Ruling (user, 2026-10-26),** on 38.22's open question -- a laid-over
+scroll bar, shown, can stand where a view cell's corner handle is: "Cells
+drag handle takes priority."
+
+**As built:** `ViewAreaCell::placeChrome` no longer moves a zone aside for a
+bar laid over the view (`OverlayScrollBars`); it still does for a view's own
+bars, which stand there for good. It hands the menu button's and the two
+zones' rectangles to each such area's bars (`OverlayScrollBars::keepClear`),
+and a bar that would run under one stops short of it at the end it is
+nearer; one left shorter than three of its thickness is not shown. A view
+taken out of its cell (`releaseView`) has its bars run to its corners again.
+Before, a zone moved aside each time the bars showed, and back as they
+faded.
+
+**Test:** `GuiTechDrawPageOverlayScrollBars` puts its page in a view cell
+(`UseViewArea` on for the run): shown, the bars leave the zones in their
+corners, run under neither, and stop just short of them (x 14, y 14).
+Without the fix it fails: the zones stood at x 402 and y 557, not 413 and
+568, and the bars ran to 1. `GuiViewCellDragCancelAndLook`'s scroll scenario
+now scrolls the sheet so that its bars show and checks the zones did not
+move; a sheet's bars stand in from the cell's edges past its headers, so it
+does not reach the case, and it passes without the fix too.
+
+**Gates** (round s38m): 25 GUI checks; Python 3911 OK and C++ 1018/1018
+with freeze on and off; driven 329/329.

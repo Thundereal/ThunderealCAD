@@ -144,7 +144,8 @@ public:
 
     /** Put the menu button and the two corner zones in their places:
      * the corners, except that a zone steps aside from a scroll bar of
-     * the hosted view it would lie on.
+     * the hosted view it would lie on. A bar laid over the view
+     * (OverlayScrollBars) gives way instead: it stops short of them.
      */
     void placeChrome();
 

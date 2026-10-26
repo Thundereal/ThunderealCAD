@@ -54,10 +54,10 @@ spreadsheet in a third, the minimum cell size at 120:
             every change from splitting cursor to forbidden cursor prints
             one message" -- and the release splits nothing and says
             nothing more;
-  scroll  - in the spreadsheet's cell no zone lies on a scroll bar: the
-            one whose corner a bar runs through has stepped aside to the
-            bar's edge, the other is in its corner; in a 3D cell both are
-            in their corners;
+  scroll  - in the spreadsheet's cell both zones are in their corners,
+            and with its laid-over bars shown (scrolled) still there, no
+            bar running under one: "cells drag handle takes priority"; in
+            a 3D cell both are in their corners;
   other   - "split view on some view type did nothing, like techdraw page
             [...] create a 3d view instead": the spreadsheet's cell split
             by the gesture gives one cell more, showing a 3D view of the
@@ -434,36 +434,35 @@ def scroll_scenario():
     # as the cursor coming into the cell: the zones are placed then at the latest
     hover(sheet_cell, True)
     settle(0.3)
-    bars = [place(b, sheet_cell) for b in sheet_cell.findChildren(QtWidgets.QScrollBar)
-            if b.isVisible()]
     w, h = sheet_cell.width(), sheet_cell.height()
     corners = {"top right": QtCore.QRect(w - ZONE, 0, ZONE, ZONE),
                "bottom left": QtCore.QRect(0, h - ZONE, ZONE, ZONE)}
-    in_the_way = dict((name, [b for b in bars if b.intersects(corner)])
-                      for name, corner in corners.items())
-    # A sheet's bars are laid over its cells and shown only while it scrolls
-    # or the pointer is by them (Gui::OverlayScrollBars, a19fb686e7): none
-    # stands in a corner then, and the zones below must keep theirs. Where a
-    # bar does stand in a zone's corner, the zone steps aside from it.
-    note("INFO scroll: the cell %d x %d, its bars shown %s, in a zone's corner %s" % (
-        w, h, show(bars), any(in_the_way.values())))
     zones = {"top right": zone(sheet_cell).geometry(),
              "bottom left": zone(sheet_cell, top_right=False).geometry()}
+    # A sheet's bars are laid over its cells and shown only while it scrolls
+    # or the pointer is by them (Gui::OverlayScrollBars, a19fb686e7). The
+    # zones keep their corners and the bars give way ("cells drag handle
+    # takes priority"): scrolled, so that they show, no bar runs under a
+    # zone, and the zones have not moved for them.
+    table = [a for a in sheet_cell.findChildren(QtWidgets.QAbstractScrollArea)
+             if a.metaObject().className() == "SpreadsheetGui::SheetTableView"]
+    if not check("scroll: the sheet's table", len(table) == 1, len(table)):
+        return
+    for own in (table[0].verticalScrollBar(), table[0].horizontalScrollBar()):
+        own.setValue(own.value() + 1)
+    settle(0.3)
+    bars = [place(b, sheet_cell) for b in sheet_cell.findChildren(QtWidgets.QScrollBar)
+            if b.isVisible()]
+    note("INFO scroll: the cell %d x %d, its bars shown %s" % (w, h, show(bars)))
+    check("scroll: scrolled, both laid-over bars show", len(bars) == 2, show(bars))
     for name in ("top right", "bottom left"):
-        z = zones[name]
-        check("scroll: the %s zone lies on no scroll bar" % name,
+        z = zone(sheet_cell, top_right=(name == "top right")).geometry()
+        check("scroll: the %s zone is in its corner, the bars shown" % name,
+              z == corners[name] and z == zones[name], (show([z]), show([zones[name]])))
+        check("scroll: ... and no bar runs under it",
               not any(b.intersects(z) for b in bars), (show([z]), show(bars)))
-        if not in_the_way[name]:
-            check("scroll: ... and is in its corner, no bar being there", z == corners[name],
-                  show([z]))
-        elif name == "top right":
-            check("scroll: ... and ends where the bar begins, at the top",
-                  z.top() == 0 and z.right() + 1 == min(b.left() for b in in_the_way[name]),
-                  (show([z]), show(in_the_way[name])))
-        else:
-            check("scroll: ... and sits on top of the bar, at the left",
-                  z.left() == 0 and z.bottom() + 1 == min(b.top() for b in in_the_way[name]),
-                  (show([z]), show(in_the_way[name])))
+    for own in (table[0].verticalScrollBar(), table[0].horizontalScrollBar()):
+        own.setValue(own.value() - 1)
     top = zone(plain_cell).geometry()
     bottom = zone(plain_cell, top_right=False).geometry()
     check("scroll: in a 3D cell both zones are in their corners",

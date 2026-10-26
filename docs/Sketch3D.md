@@ -189,7 +189,7 @@ Entities, in the sketch's local frame:
 |---|---|---|---|
 | Point | x, y, z | -- | 3 |
 | Line segment | two points | -- | 6 |
-| Workplane | origin (3), orientation as a unit quaternion (4) | \|q\| = 1 | 6 |
+| Workplane | origin (3), orientation as a unit quaternion (4) | \|q\| = 1 | 6 (v2); 0 in v1, where it is always fixed (section 6) |
 | Circle | centre (3), normal n (3), radius | \|n\| = 1 | 6 |
 | Arc | centre c, normal n, start s, end e (12) | \|n\| = 1, \|s-c\| = \|e-c\|, (s-c).n = 0, (e-c).n = 0 | 8 |
 | B-spline | poles (3 each), weights; degree and knots fixed | endpoint = first / last pole; through-points at their knots, as in 2D | 3 per pole + weights |
@@ -283,21 +283,38 @@ PlaneGCS, as `Sketcher::Sketch` does for 2D.
 AdditivePipe can follow it without a binder. It never changes the solid, so the
 Tip rules do not apply to it. It works outside a Body too.
 
-## 6. Workplanes inside the sketch (v2)
+## 6. Workplanes inside the sketch (decided 2026-10-26: fixed in v1, constrainable in v2)
 
-A workplane is a geometry entry with a position and orientation, itself
-constrainable (on a face, through three points, parallel to a datum, at a
-distance) like SOLIDWORKS' 3D sketch planes [S 7]. Uses:
+A workplane is a geometry entry with a position and orientation
+(`Part::GeomPlane`, construction, never in the output shape). Uses:
 
 - the plane new points are placed on (section 7);
-- the reference that makes horizontal / vertical / normal, arcs and
-  symmetric-about-a-line meaningful, through workplane-local constraints --
-  SolveSpace's "projected" idea [S 50];
 - "a planar part of a 3D sketch": geometry put on a workplane by one
-  constraint each.
+  constraint per point, so a rectangle drawn on a tilted plane stays flat;
+- in v2, the reference that makes horizontal / vertical / normal, arcs and
+  symmetric-about-a-line meaningful, through workplane-local constraints --
+  SolveSpace's "projected" idea [S 50].
 
-v1 needs none of this: the sketch frame's own XY, YZ and ZX are the planes,
-and Along X / Y / Z covers the axis case.
+**v1: a kept plane, fixed.** The "Keep plane" command stores the manipulator's
+current plane as a workplane, locked where it is.
+- Activating it (double-click, or Ctrl+click as for a face) puts the
+  manipulator on it. Everything drawn while it is active gets a point on plane
+  constraint per point (the v1 constraint, against constants).
+- It is moved by editing its placement values, like a datum plane's
+  attachment offset; the solver never moves it, so it adds no solver
+  parameters and nothing to the diagnosis.
+- Without it, the manipulator's plane is a placement aid only, and a
+  rectangle drawn 40 above the frame on a plane tilted 30 deg is four joined
+  lines that twist out of plane when a corner is dragged.
+
+**v2: constrainable workplanes**, like SOLIDWORKS' 3D sketch planes [S 7]:
+the plane's own 6 DOF are solved (origin, unit quaternion with |q| = 1), and
+constraints place it -- on a face, through three points, parallel to a datum,
+at a distance or angle -- carrying its geometry along when it moves. The
+workplane-local constraints of 4.4 come with it.
+
+**The stored form is the same in both**: v1's plane is a v2 plane carrying a
+Fix. Going to v2 removes nothing and converts no files.
 
 ## 7. Editing
 
@@ -349,9 +366,11 @@ where it has no 3D meaning yet (slots, polygons, ...). The shared part is the
 commands and toolbars, not the drawing handlers, which are 2D throughout.
 
 **Tools, v1**: point, line, polyline, through-points spline, control-point
-spline, construction toggle, and the constraint commands of the v1 set.
+spline, construction toggle, Keep plane (a fixed workplane, section 6), and
+the constraint commands of the v1 set.
 **v2**: arc, circle, 3D corner fillet (an arc tangent to two lines in their
-plane -- the routing bend), workplane, spline on face, trim / split.
+plane -- the routing bend), constrainable workplanes, spline on face, trim /
+split.
 
 **Display** (decided): the same as the 2D sketch's edit geometry -- the same
 drawing, styles and colours. Dimension labels lie in a plane through the measured
@@ -387,8 +406,8 @@ not in the first phases.
 |---|---|---|---|
 | S0 | PlaneGCS 3D layer: entities and the v1 constraints | GoogleTest under `tests/src/Mod/Sketcher/App/planegcs/`: each constraint's error is zero at a satisfying configuration; every gradient against finite differences; DOF counts of canonical cases (a free point 3, a line 6, a line Along Z 4, a closed rectangle in space ...); redundant and conflicting sets reported; convergence from perturbed starts | M |
 | S1 | `Sketch3DObject`, the solver facade, external references, the output shape, the Python API, save / restore | Python tests: a Pipe along a constrained 3D path; edge names stable across a solve and a dimension change; an expression driving a dimension; a document saved and reopened; a reference to a model edge followed through a TNP change | M to L |
-| S2 | GUI v1: edit mode, the v1 tools, working plane with Tab, snapping with implied constraints, the triad, on-view values, drag, diagnosis display | GUI tests through `scripts/gui-test.sh`, as the 2D sketch's | L |
-| S3 | v2: arcs and circles, workplanes and their local constraints, corner fillet, spline and point on face, G1 / G2 to model edges, coaxial, symmetric | per feature, as S0 to S2 | L |
+| S2 | GUI v1: edit mode, the v1 tools, the manipulator and its switching commands, fixed workplanes, snapping with implied constraints, on-view values, drag, diagnosis display | GUI tests through `scripts/gui-test.sh`, as the 2D sketch's | L |
+| S3 | v2: arcs and circles, constrainable workplanes and their local constraints, corner fillet, spline and point on face, G1 / G2 to model edges, coaxial, symmetric | per feature, as S0 to S2 | L |
 | S4 | the served edit in the browser | the web gate | M |
 
 S0 and S1 deliver something usable on their own (scripted 3D paths with
@@ -439,7 +458,7 @@ i. The manipulator plane tilts freely; Ctrl+click takes a face's plane.
 j. Plane switching and height lock are customisable commands, active only in
    3D sketch edit (section 7).
 k. The manipulator moves to the last placed point, or to a point clicked.
+d. Workplanes: fixed ("Keep plane") in v1, constrainable in v2, the same
+   stored form (section 6).
 
-Open:
-
-d. Workplanes (section 6): which form, and when.
+Nothing is open.

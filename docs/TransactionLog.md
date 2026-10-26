@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6, Q7 ruled (Q7: nothing built) |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6, Q7 ruled (Q7: nothing built) |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -25770,6 +25770,71 @@ out of the transient directory:
   for a folder document. That is the one per-object cost, paid only after
   a crash, and it stays: R1 and R2 are not built. The phase line
   `recoverFromLog` now logs stays, for measuring it again on Windows.
+
+### 38.18 Survey: what a folder save still spends on what it keeps (2026-10-26)
+
+**Asked (user, 2026-10-26):** "do the survey first", on Q7d: skip each
+object's save preparation when its file is kept. Nothing built.
+
+**Where a save goes.** FreeCADCmd, 600 objects (600 boxes, or 200 cuts of
+two boxes each), one object edited before each save, from the save's own
+phase line (`~/.cache/lv-merge/probe38/phases38.py`):
+
+| | Boxes, first objects edited | Boxes, last edited | Cuts, first edited | Cuts, last edited |
+| --- | ---: | ---: | ---: | ---: |
+| Save, whole | 112-128 ms | 98-113 ms | 126-147 ms | 110-129 ms |
+| Every object's `beforeSave` | 49-50 | 37-40 | 60-64 | 49 |
+| The history into the folder ("collect") | 32-50 | 26-50 | 34-50 | 27-48 |
+| The rest: `Document.xml`, the edited file, blobs, the flush and the move | about 20 | about 20 | about 20 | about 20 |
+
+A kept object is already not serialised (38.12): its cost is all in
+`beforeSave`.
+
+**Inside, by perf** (`/usr/lib/linux-tools/6.8.0-147-generic/perf`, since
+`/usr/bin/perf` has no build for this WSL kernel; 40 saves of 600 boxes,
+first objects edited, call graphs by DWARF; percent of the save's samples):
+- **Each shape's `makeBlob`, 53%**, run for every shape, kept or not:
+  - **`ShapeRefSet::build`, 33%.** Of that, OCCT's geometry analysis
+    (`BRepTools_ShapeSet::AddGeometry`, chiefly
+    `BRepTools::IsPCurveOmittable`: `BRep_Tool::CurveOnPlane`,
+    `GeomProjLib::ProjectOnPlane`) is 22% of the save. The walk and the
+    owner-table lookups are the rest.
+  - **The congruence search (`CongruenceIndex::find`), 18%**, most of it
+    `recoverShapeMotion`. That is the probe's worst case: the boxes are
+    congruent, all match the first box, and the first boxes are the ones
+    edited, so every box matches anew. With the last objects edited
+    instead, `beforeSave` is 10-15 ms less.
+- **The history step (`embedFolder`), 24%.** Most of it is retention run
+  on the copy at every save (`finishEmbed`). The save adds one unnamed
+  version, retention evicts the one now over the limit
+  (`dropTier`, `evictVersions`), and evicting walks the store's whole
+  held graph (`collectEntities`, 21% of the save), then `trimCopy`.
+- **Element-map numbering and string-table marks: under 0.3%** of the
+  samples each. Not worth touching.
+- The log's worker writes the save's version (`writeVersion`), off the
+  main thread.
+
+**Why a kept shape still pays.** What a shape's file borrows is decided
+against the owner table this save builds, from what the files before it
+publish in this save (38.11). So the table is built afresh and every
+shape walks into it. Of that walk, though, only the owner lookups depend
+on the save: the geometry analysis is a function of the shape alone, and
+a shape's TShapes are not changed in place (23.6).
+
+**Options:**
+
+| | What | Gain at 600 objects | Risk |
+| --- | --- | --- | --- |
+| A | **Retention in batches.** Evict only once the unnamed versions are a few over the limit (say 8), so the walk runs about every eighth save. | most of the history step's 21%: about 20-25 ms on 7 saves of 8 | Low. A file carries up to 8 more unnamed versions. The walk itself is unchanged. |
+| B | **The geometry analysis cached per shape.** `IsPCurveOmittable`'s answer per edge and face, kept with the shape across saves (as 38.11 keeps the congruence invariants) and dropped when the shape changes. The owner lookups still run every save. | about 22% of the save: 20-25 ms | Low to moderate. Pure geometry, so no save decision is cached. The cache must die with the shape. Where it lives, the ShapeRefSet or the OCCT fork's `BRepTools`, is the build's first question. |
+| C | **A shape's whole outcome cached** (plan, blob, match, what it publishes), reused when the shape and everything before it in the owner table are unchanged | up to 40-50 ms | Moderate to high. "Everything before it" is the 38.15 cascade again: an early edit recomputes all after it. Done exactly, it needs each shape's TShape set kept. Not recommended before A and B are measured. |
+| D | **The congruence match reused** while the shape and the shape it matched are both unchanged | 10-15 ms, after an early edit only | Low. Smaller and narrower. |
+
+**Recommended:** A, then B, each measured with this probe and gated with
+`FC_FOLDER_SAVE_CHECK` on. Together they take about 40-50 ms off a
+100-130 ms save at 600 objects, and B speeds up an archive save and the
+log's snapshot as well, since both run `makeBlob`. C and D wait for those
+numbers.
 
 **Tests** (`FolderSaveCases`):
 - `testAnObjectGainingMapsLeavesTheFilesAfterIt` (was the first half of

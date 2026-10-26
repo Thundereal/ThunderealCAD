@@ -441,10 +441,12 @@ def scroll_scenario():
                "bottom left": QtCore.QRect(0, h - ZONE, ZONE, ZONE)}
     in_the_way = dict((name, [b for b in bars if b.intersects(corner)])
                       for name, corner in corners.items())
-    if not check("scroll: a scroll bar of the sheet runs through a corner a zone belongs in",
-                 any(in_the_way.values()), "the cell %d x %d, its bars %s" % (
-                     w, h, show(bars))):
-        return
+    # A sheet's bars are laid over its cells and shown only while it scrolls
+    # or the pointer is by them (Gui::OverlayScrollBars, a19fb686e7): none
+    # stands in a corner then, and the zones below must keep theirs. Where a
+    # bar does stand in a zone's corner, the zone steps aside from it.
+    note("INFO scroll: the cell %d x %d, its bars shown %s, in a zone's corner %s" % (
+        w, h, show(bars), any(in_the_way.values())))
     zones = {"top right": zone(sheet_cell).geometry(),
              "bottom left": zone(sheet_cell, top_right=False).geometry()}
     for name in ("top right", "bottom left"):

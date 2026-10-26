@@ -608,8 +608,11 @@ double initialParallelRatio(const Dir3& d1, const Dir3& d2)
 {
     DeriVector3 v1 = d1.current(), v2 = d2.current();
     double dd;
-    double l2 = v1.dot(v1, dd);
-    return l2 == 0. ? 1. : v1.dot(v2, dd) / l2;
+    double l1 = v1.length(), l2 = v2.length();
+    if (l1 == 0.) {
+        return 1.;
+    }
+    return v1.dot(v2, dd) < 0. ? -l2 / l1 : l2 / l1;
 }
 
 int addConstraintParallel3(System& sys,

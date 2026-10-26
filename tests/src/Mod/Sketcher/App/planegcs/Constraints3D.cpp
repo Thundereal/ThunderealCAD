@@ -448,6 +448,28 @@ TEST(Constraints3DSolve, parallelSwingsOntoAnotherAxis)  // NOLINT
     EXPECT_NEAR(*d.y - *c.y, 0, 1e-9);
 }
 
+TEST(Constraints3DSolve, parallelFromPerpendicular)  // NOLINT
+{
+    // Two circles made coaxial whose normals start square to each other: with the
+    // ratio started at d1 . d2 / |d1|^2 = 0, d2 - s d1 has no gradient that turns
+    // d2, and the unit normal cannot shrink to 0, so the solve stalled.
+    SystemTest sys;
+    Params ps;
+    GCS::Circle3 c1 {ps.point(0, 0, 0, false), ps.point(0, 0, 1, false), ps.add(5, false)};
+    GCS::Circle3 c2 {ps.point(10, 0, 0), ps.point(1, 0, 0), ps.add(5)};
+    auto n1 = GCS::Dir3::vector(c1.normal), n2 = GCS::Dir3::vector(c2.normal);
+    double s = GCS::initialParallelRatio(n1, n2);
+    EXPECT_NEAR(std::fabs(s), 1, 1e-12) << "the length ratio, not the projection";
+    GCS::addConstraintCircle3Rules(sys, c2);
+    GCS::addConstraintP3Coincident(sys, c1.center, c2.center, 1);
+    GCS::addConstraintParallel3(sys, n1, n2, ps.add(s), 2);
+    ASSERT_EQ(solve(sys, ps), GCS::SolveStatus::Success);
+    EXPECT_NEAR(std::fabs(*c2.normal.z), 1, 1e-9);
+    EXPECT_NEAR(*c2.normal.x, 0, 1e-9);
+    EXPECT_NEAR(*c2.normal.y, 0, 1e-9);
+    EXPECT_NEAR(dist(c1.center, c2.center), 0, 1e-9);
+}
+
 // --------------------------------------------------------
 // Diagnosis
 

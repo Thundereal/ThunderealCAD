@@ -319,7 +319,10 @@ SketcherExport int addConstraintParallel3(System& sys,
                                           double* s,
                                           int tag = 0,
                                           bool driving = true);
-/// The s that best fits two directions as they are: d1 . d2 / |d1|^2.
+/// The s to start from: |d2| / |d1|, negative when the directions face apart -- the
+/// ratio a parallel pair of their lengths has, on the side they are nearer. Not the
+/// projection d1 . d2 / |d1|^2, which is 0 for perpendicular directions, where the
+/// equations then have no gradient to turn them.
 SketcherExport double initialParallelRatio(const Dir3& d1, const Dir3& d2);
 SketcherExport int addConstraintPerpendicular3(System& sys,
                                                const Dir3& d1,

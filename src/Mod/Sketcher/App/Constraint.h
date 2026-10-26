@@ -73,6 +73,11 @@ enum ConstraintType : int
     Weight = 19,
     Group = 20,
     Text = 21,
+    // 3D sketch only (Sketch3DObject, docs/Sketch3D.md); the 2D sketch refuses them
+    AlongX = 22,
+    AlongY = 23,
+    AlongZ = 24,
+    DistanceZ = 25,
     NumConstraintTypes  // must be the last item!
 };
 
@@ -144,8 +149,15 @@ public:
 
     inline bool isDimensional() const
     {
-        return Type == Distance || Type == DistanceX || Type == DistanceY || Type == Radius
-            || Type == Diameter || Type == Angle || Type == SnellsLaw || Type == Weight;
+        return Type == Distance || Type == DistanceX || Type == DistanceY || Type == DistanceZ
+            || Type == Radius || Type == Diameter || Type == Angle || Type == SnellsLaw
+            || Type == Weight;
+    }
+
+    /// A type only the 3D sketch (Sketch3DObject) solves; the 2D sketch refuses it.
+    inline bool isSketch3DOnly() const
+    {
+        return Type == AlongX || Type == AlongY || Type == AlongZ || Type == DistanceZ;
     }
 
     /// utility function to swap the index in elements of the provided constraint from the
@@ -209,7 +221,11 @@ private:
          "Diameter",
          "Weight",
          "Group",
-         "Text"}};
+         "Text",
+         "AlongX",
+         "AlongY",
+         "AlongZ",
+         "DistanceZ"}};
     // clang-format on
 
     constexpr static std::array<const char*, InternalAlignmentType::NumInternalAlignmentType>

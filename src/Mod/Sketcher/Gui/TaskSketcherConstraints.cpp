@@ -460,6 +460,10 @@ public:
         switch (constraint->Type) {
             case Sketcher::None:
             case Sketcher::NumConstraintTypes:
+            case Sketcher::AlongX:  // 3D sketch only, never in a 2D sketch
+            case Sketcher::AlongY:
+            case Sketcher::AlongZ:
+            case Sketcher::DistanceZ:
                 assert(false);
                 return false;
             case Sketcher::Horizontal:

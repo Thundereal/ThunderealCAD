@@ -205,6 +205,15 @@ int ConstraintPy::PyInit(PyObject* args, PyObject* /*kwd*/)
         else if (strcmp("Block", ConstraintType) == 0) {
             constraint->Type = Block;
         }
+        else if (strcmp("AlongX", ConstraintType) == 0) {
+            constraint->Type = AlongX;
+        }
+        else if (strcmp("AlongY", ConstraintType) == 0) {
+            constraint->Type = AlongY;
+        }
+        else if (strcmp("AlongZ", ConstraintType) == 0) {
+            constraint->Type = AlongZ;
+        }
         else {
             return false;
         }
@@ -306,6 +315,9 @@ int ConstraintPy::PyInit(PyObject* args, PyObject* /*kwd*/)
             }
             else if (strcmp("DistanceY", ConstraintType) == 0) {
                 constraint->Type = DistanceY;
+            }
+            else if (strcmp("DistanceZ", ConstraintType) == 0) {
+                constraint->Type = DistanceZ;
             }
             else if (strcmp("Radius", ConstraintType) == 0) {
                 constraint->Type = Radius;
@@ -450,6 +462,12 @@ int ConstraintPy::PyInit(PyObject* args, PyObject* /*kwd*/)
                 constraint->Type = DistanceY;
                 constraint->FirstPos = static_cast<Sketcher::PointPos>(FirstPos);
             }
+            else if (strcmp("DistanceZ", ConstraintType) == 0) {
+                FirstPos = SecondIndex;
+                SecondIndex = -1;
+                constraint->Type = DistanceZ;
+                constraint->FirstPos = static_cast<Sketcher::PointPos>(FirstPos);
+            }
             else {
                 return false;
             }
@@ -519,6 +537,18 @@ int ConstraintPy::PyInit(PyObject* args, PyObject* /*kwd*/)
             }
             else if (strcmp("Vertical", ConstraintType) == 0) {
                 constraint->Type = Vertical;
+                valid = true;
+            }
+            else if (strcmp("AlongX", ConstraintType) == 0) {
+                constraint->Type = AlongX;
+                valid = true;
+            }
+            else if (strcmp("AlongY", ConstraintType) == 0) {
+                constraint->Type = AlongY;
+                valid = true;
+            }
+            else if (strcmp("AlongZ", ConstraintType) == 0) {
+                constraint->Type = AlongZ;
                 valid = true;
             }
             else if (strcmp("Perpendicular", ConstraintType) == 0) {
@@ -681,6 +711,9 @@ int ConstraintPy::PyInit(PyObject* args, PyObject* /*kwd*/)
             }
             else if (strcmp("DistanceY", ConstraintType) == 0) {
                 constraint->Type = DistanceY;
+            }
+            else if (strcmp("DistanceZ", ConstraintType) == 0) {
+                constraint->Type = DistanceZ;
             }
             else if (strcmp("Angle", ConstraintType) == 0) {
                 if (PyObject_TypeCheck(oNumArg5, &(Base::QuantityPy::Type))) {
@@ -1029,6 +1062,18 @@ Py::String ConstraintPy::getType() const
             break;
         case DistanceY:
             return Py::String("DistanceY");
+            break;
+        case DistanceZ:
+            return Py::String("DistanceZ");
+            break;
+        case AlongX:
+            return Py::String("AlongX");
+            break;
+        case AlongY:
+            return Py::String("AlongY");
+            break;
+        case AlongZ:
+            return Py::String("AlongZ");
             break;
         case Coincident:
             return Py::String("Coincident");

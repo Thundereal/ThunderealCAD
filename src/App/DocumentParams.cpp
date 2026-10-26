@@ -55,6 +55,7 @@ public:
         signalParamChanged("CheckExtension");
         signalParamChanged("ForceXML");
         signalParamChanged("BlobCompression");
+        signalParamChanged("FolderSaveSync");
         signalParamChanged("SplitXML");
         signalParamChanged("PreferBinary");
         signalParamChanged("InlineListSize");
@@ -133,6 +134,7 @@ public:
     bool CheckExtension;
     long ForceXML;
     long BlobCompression;
+    bool FolderSaveSync;
     bool SplitXML;
     bool PreferBinary;
     long InlineListSize;
@@ -223,6 +225,8 @@ public:
         funcs["ForceXML"] = &DocumentParamsP::updateForceXML;
         BlobCompression = this->handle->GetInt("BlobCompression", 0);
         funcs["BlobCompression"] = &DocumentParamsP::updateBlobCompression;
+        FolderSaveSync = this->handle->GetBool("FolderSaveSync", true);
+        funcs["FolderSaveSync"] = &DocumentParamsP::updateFolderSaveSync;
         SplitXML = this->handle->GetBool("SplitXML", true);
         funcs["SplitXML"] = &DocumentParamsP::updateSplitXML;
         PreferBinary = this->handle->GetBool("PreferBinary", false);
@@ -407,6 +411,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateBlobCompression(DocumentParamsP *self) {
         self->BlobCompression = self->handle->GetInt("BlobCompression", 0);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateFolderSaveSync(DocumentParamsP *self) {
+        self->FolderSaveSync = self->handle->GetBool("FolderSaveSync", true);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateSplitXML(DocumentParamsP *self) {
@@ -728,6 +736,12 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
 "tool extracts deflate, and the extracted folder opens as the\n"
 "document; zstd reads back about twice as fast. Has no effect on a\n"
 "document saved as a directory."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "FolderSaveSync", "FolderSaveSync", App::ParamInfo::Bool, true)
+        .setTitle("Sync a directory save to disk")
+        .setDoc("Flush the files a save of a document kept as a directory changed to\n"
+"the disk before the save counts as done, so that a power loss leaves\n"
+"the previous save or this one, whole. Costs a disk flush per changed\n"
+"file; turn it off on a slow network drive."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "SplitXML", "SplitXML", App::ParamInfo::Bool, true)
         .setTitle("Split XML")
         .setDoc("Give each object an XML file of its own in new documents saved as a\n"
@@ -1358,6 +1372,37 @@ void DocumentParams::setBlobCompression(const long &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void DocumentParams::removeBlobCompression() {
     instance()->handle->RemoveInt("BlobCompression");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docFolderSaveSync() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"Flush the files a save of a document kept as a directory changed to\n"
+"the disk before the save counts as done, so that a power loss leaves\n"
+"the previous save or this one, whole. Costs a disk flush per changed\n"
+"file; turn it off on a slow network drive.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const bool & DocumentParams::getFolderSaveSync() {
+    return instance()->FolderSaveSync;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const bool & DocumentParams::defaultFolderSaveSync() {
+    const static bool def = true;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setFolderSaveSync(const bool &v) {
+    instance()->handle->SetBool("FolderSaveSync",v);
+    instance()->FolderSaveSync = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeFolderSaveSync() {
+    instance()->handle->RemoveBool("FolderSaveSync");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

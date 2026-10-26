@@ -12482,6 +12482,29 @@ class FolderSaveCases(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(path, "Box2.xml")))
         self.assertTrue(os.path.exists(os.path.join(path, "Box1.xml")))
 
+    def testASaveFlushedOrNotGoesInWhole(self):
+        # Sec 38.16 (Q5): with FolderSaveSync, what a save moves in is
+        # flushed to the disk before its record is written. On or off, the
+        # save goes in whole and reopens as saved; many files flush several
+        # at a time.
+        was = self.param.GetBool("FolderSaveSync", True)
+        try:
+            for sync in (True, False):
+                self.param.SetBool("FolderSaveSync", sync)
+                name = "Sync%d" % sync
+                doc, path = self.saved(name, boxes=40)
+                self.edit(doc, "longer", lambda d: setattr(d.Box3, "Length", 20 + sync))
+                doc.save()
+                self.assertFalse(os.path.exists(self.stage(path)))
+                last = doc.getLastFolderSave()
+                self.assertEqual((last["written"], last["kept"]), (1, 39), last)
+                FreeCAD.closeDocument(doc.Name)
+                doc = self.track(FreeCAD.openDocument(path))
+                self.assertEqual(doc.Box3.Length.Value, 20 + sync)
+                self.assertEqual(len(doc.Objects), 40)
+        finally:
+            self.param.SetBool("FolderSaveSync", was)
+
     def cutShort(self, name, record, halfMoved=False):
         # A folder saved at Length 10, then at 20; the second save's files
         # made into a stage beside the first's, as a save cut short leaves.

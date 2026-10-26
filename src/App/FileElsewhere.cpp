@@ -23,6 +23,8 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+# include <algorithm>
+# include <atomic>
 # include <chrono>
 # include <cstdio>
 # include <ctime>
@@ -31,14 +33,18 @@
 # include <set>
 # include <sstream>
 # include <thread>
+# include <vector>
 #endif
 
 #ifdef _WIN32
+# include <io.h>
 # include <windows.h>
 #else
 # include <cerrno>
 # include <csignal>
+# include <fcntl.h>
 # include <sys/stat.h>
+# include <unistd.h>
 #endif
 
 #include <boost/interprocess/exceptions.hpp>
@@ -57,6 +63,7 @@
 #include <Base/Exception.h>
 #include <Base/FileInfo.h>
 
+#include "DocumentParams.h"
 #include "FileElsewhere.h"
 
 using namespace App;
@@ -469,6 +476,67 @@ bool sameBytes(const QString& a, const QString& b)
     return true;
 }
 
+/// Flush `path`'s bytes to the disk (docs/TransactionLog.md sec 38.16, Q5).
+/// Opened for writing: Windows flushes only a handle that may write.
+bool syncFile(const QString& path)
+{
+    QFile f(path);
+    if (!f.open(QIODevice::ReadWrite))
+        return false;
+#ifdef _WIN32
+    return FlushFileBuffers(reinterpret_cast<HANDLE>(_get_osfhandle(f.handle()))) != 0;
+#else
+    return ::fsync(f.handle()) == 0;
+#endif
+}
+
+/// syncFile() each of `paths`, several at a time when they are many: a
+/// journal takes the flushes that come together in one commit, which made
+/// 600 files 55 ms on 64 threads against 270 ms one by one (sec 38.16).
+/// The first that failed, or empty.
+QString syncFiles(const QStringList& paths)
+{
+    const int count = static_cast<int>(paths.size());
+    const int threads = std::min(32, count / 4);
+    std::atomic<int> next {0};
+    std::atomic<int> failed {-1};
+    auto work = [&]() {
+        for (int i = next++; i < count; i = next++) {
+            if (!syncFile(paths[i])) {
+                int none = -1;
+                failed.compare_exchange_strong(none, i);
+            }
+        }
+    };
+    if (threads < 2) {
+        work();
+    }
+    else {
+        std::vector<std::thread> pool;
+        pool.reserve(threads);
+        for (int t = 0; t < threads; ++t)
+            pool.emplace_back(work);
+        for (auto& t : pool)
+            t.join();
+    }
+    return failed < 0 ? QString() : paths[failed];
+}
+
+/// Make what `dir` lists durable, where that is a step of its own; on
+/// Windows a file's flush covers its entry.
+void syncDir(const QString& dir)
+{
+#ifndef _WIN32
+    const int fd = ::open(QFile::encodeName(dir).constData(), O_RDONLY);
+    if (fd >= 0) {
+        ::fsync(fd);
+        ::close(fd);
+    }
+#else
+    (void)dir;
+#endif
+}
+
 /// The staged files, relative to the stage, the record left out.
 QStringList stagedFiles(const QString& stage)
 {
@@ -499,8 +567,9 @@ bool moveOver(const QString& from, const QString& to, std::string& why)
     return false;
 }
 
-/// Move a recorded stage in. False when it has no record.
-bool rollForward(const QString& folder, const QString& stage)
+/// Move a recorded stage in. False when it has no record. With `sync`, the
+/// folder's entries are made durable before the record goes.
+bool rollForward(const QString& folder, const QString& stage, bool sync)
 {
     QFile record(QDir(stage).filePath(QLatin1String(commitName)));
     if (!record.open(QIODevice::ReadOnly | QIODevice::Text))
@@ -530,8 +599,10 @@ bool rollForward(const QString& folder, const QString& stage)
     if (files.removeAll(docXml))
         files.push_back(docXml);
     QDir target(folder);
+    std::set<QString> moved;
     for (const QString& rel : files) {
         const QString to = target.filePath(rel);
+        moved.insert(QFileInfo(to).absolutePath());
         target.mkpath(QFileInfo(to).absolutePath());
         std::string why;
         if (!moveOver(QDir(stage).filePath(rel), to, why)) {
@@ -542,6 +613,10 @@ bool rollForward(const QString& folder, const QString& stage)
                        .c_str(),
                    Base::FileInfo(folder.toStdString()));
         }
+    }
+    if (sync) {
+        for (const QString& dir : moved)
+            syncDir(dir);
     }
     for (const QString& rel : removals)
         QFile::remove(target.filePath(rel));
@@ -571,7 +646,8 @@ int FolderSave::recover(const std::string& folder)
         return 0;
     QFileInfo fi(QString::fromStdString(folder));
     const QString canonical = fi.canonicalFilePath();
-    if (rollForward(canonical.isEmpty() ? fi.absoluteFilePath() : canonical, stage))
+    if (rollForward(canonical.isEmpty() ? fi.absoluteFilePath() : canonical, stage,
+                    App::DocumentParams::getFolderSaveSync()))
         return 1;
     QDir(stage).removeRecursively();
     return -1;
@@ -606,6 +682,30 @@ void FolderSave::commit(const std::string& folder, const std::vector<std::string
             QFile::remove(staged);
     }
 
+    // Q5 (sec 38.16): what is moved in is on the disk before the record
+    // says the stage is whole, so that a power loss leaves either the
+    // previous save or this one. A file that cannot be flushed fails the
+    // save with the folder as it was.
+    const bool sync = App::DocumentParams::getFolderSaveSync();
+    if (sync) {
+        std::set<QString> dirs {stage};
+        QStringList staged;
+        for (const QString& rel : stagedFiles(stage)) {
+            staged.push_back(QDir(stage).filePath(rel));
+            dirs.insert(QFileInfo(staged.back()).absolutePath());
+        }
+        const QString failed = syncFiles(staged);
+        if (!failed.isEmpty()) {
+            THROWM(Base::FileException,
+                   ("cannot flush '" + QDir(stage).relativeFilePath(failed).toStdString()
+                    + "' of the folder's save to the disk; nothing was moved in")
+                       .c_str(),
+                   Base::FileInfo(folder));
+        }
+        for (const QString& dir : dirs)
+            syncDir(dir);
+    }
+
     QSaveFile record(QDir(stage).filePath(QLatin1String(commitName)));
     if (!record.open(QIODevice::WriteOnly | QIODevice::Text)) {
         THROWM(Base::FileException, "cannot write the record of the folder's save",
@@ -622,5 +722,10 @@ void FolderSave::commit(const std::string& folder, const std::vector<std::string
         THROWM(Base::FileException, "cannot write the record of the folder's save",
                Base::FileInfo(folder));
     }
-    rollForward(target, stage);
+    // The record is in, so the save goes in below whatever this answers.
+    if (sync) {
+        syncFile(QDir(stage).filePath(QLatin1String(commitName)));
+        syncDir(stage);
+    }
+    rollForward(target, stage, sync);
 }

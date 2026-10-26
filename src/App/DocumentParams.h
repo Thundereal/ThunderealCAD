@@ -198,6 +198,21 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter FolderSaveSync
+    ///
+    /// Flush the files a save of a document kept as a directory changed to
+    /// the disk before the save counts as done, so that a power loss leaves
+    /// the previous save or this one, whole. Costs a disk flush per changed
+    /// file; turn it off on a slow network drive.
+    static const bool & getFolderSaveSync();
+    static const bool & defaultFolderSaveSync();
+    static void removeFolderSaveSync();
+    static void setFolderSaveSync(const bool &v);
+    static const char *docFolderSaveSync();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter SplitXML
     ///
     /// Give each object an XML file of its own in new documents saved as a

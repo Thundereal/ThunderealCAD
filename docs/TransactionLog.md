@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15 built; Q2, Q5-Q7 open |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6 ruled; Q7 open |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -25490,6 +25490,62 @@ differ" or "entry differs".
 off; gtest 1014 with freeze on and off; driven 301. The Python suite under
 `FC_FOLDER_SAVE_CHECK`: 3884 OK, no file that would have been kept came out
 otherwise.
+
+### 38.16 Q2, Q5 and Q6 ruled; a folder save flushed to the disk (2026-10-26)
+
+**Ruling (user, 2026-10-26):** "yes good", on: Q2 and Q6 as recommended, Q5
+built, and Q7 written up (38.17).
+- **Q2:** older builds of this fork read a folder S1 wrote with no change.
+  This still holds after S2b, 38.14 and 38.15. `FolderOptions` is an
+  attribute an older reader skips, and the map numbers are as unique per
+  file set as before.
+- **Q6:** no backup file for a folder. The previous save's files stay until
+  the next save, and the history holds the versions.
+- **Q5:** recommended as no fsync while every save wrote everything. Since
+  S2b a save writes what changed, so the recommendation is now to flush,
+  and it is built.
+
+**As built** (`FolderSave::commit` in `src/App/FileElsewhere.cpp`), with
+`FolderSaveSync` on (the default):
+- Every file the stage still holds after the files the folder already has
+  are dropped is flushed to the disk, then each directory of the stage.
+  Only then is the record written. A file that cannot be flushed fails the
+  save, with the folder as it was.
+- The record is flushed, and the stage's directory. From here the save goes
+  in whatever happens.
+- The files are moved in and each folder directory they went into is
+  flushed, all before the record is removed. A power loss before then
+  leaves the record, and the next open moves the stage in (`recover()`,
+  which flushes the same way).
+- On Windows a file's flush (`FlushFileBuffers`, on a handle open for
+  writing) covers its directory entry; the directory flushes are POSIX
+  only.
+- Many files are flushed several at a time (`syncFiles`: one by one below
+  8 files, up to 32 threads above): a journal takes flushes that arrive
+  together in one commit.
+- `FolderSaveSync` off restores the save as it was, for a slow network
+  drive.
+
+**Measured** (`~/.cache/lv-merge/probe38/syncsave.py`, FreeCADCmd, 600
+boxes, this box's ext4 under WSL; ten saves each after an edit of one box,
+two runs each way):
+
+| | Sync off | Sync on, one by one | Sync on, as built |
+| --- | ---: | ---: | ---: |
+| First save (`saveAs`, 600 files) | 540-579 ms | 1500-1593 ms | 617-631 ms |
+| One box edited, median | 111-120 ms | 126-129 ms | 121-127 ms |
+
+A bare probe of the disk (`~/.cache/lv-merge/probe38/fsync/`): 600 small
+files flushed one by one took 270 ms, on 16 threads 99 ms, on 64 threads
+55 ms. `syncfs` took 3 ms, but it flushes everything on the file system,
+other programs' writes included, and is Linux only, so it was not used.
+
+**Test.** `FolderSaveCases.testASaveFlushedOrNotGoesInWhole`: 40 boxes,
+sync on and off, one edited; one written, 39 kept, no stage left, and the
+reopen has the edit.
+
+**Gates** (round s38i): 25 GUI checks; Python 3885 OK with freeze on and
+off; gtest 1014 with freeze on and off; driven 301.
 
 **Tests** (`FolderSaveCases`):
 - `testAnObjectGainingMapsLeavesTheFilesAfterIt` (was the first half of

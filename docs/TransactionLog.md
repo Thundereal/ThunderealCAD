@@ -60,7 +60,7 @@ question is the one that holds.
 | 35 | An assembly whose files share no history, as branches: linked sets (L1-L9) | built L1-L8; gaps G1-G7: G1 G2 G4 G5 G7 built (35.16, 35.17), G3 G6 left |
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
-| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6, Q7 ruled (Q7: nothing built) |
+| 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18), B: a frozen edge's pcurve test answered once (38.19) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5 built; Q2, Q6, Q7 ruled (Q7: nothing built) |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -25486,6 +25486,54 @@ saved.
 "changed in the log", "a change noted", "blobs differ", "element map ids
 differ" or "entry differs".
 
+**Tests** (`FolderSaveCases`):
+- `testAnObjectGainingMapsLeavesTheFilesAfterIt` (was the first half of
+  38.14's `testElementMapsNumberedOtherwiseAreWritten`): the first object
+  given the cut's maps writes one file, keeps three, and leaves their files
+  untouched. Each object reopens with its own maps. After the open, the
+  first object given fewer maps again writes one and keeps three.
+- `testElementMapsNumberedOtherwiseAreWritten`, now the collision case. A
+  second document, cut with a cylinder so its maps differ, is saved as a
+  folder. Its map numbers are rewritten by hand to the first document's,
+  as another process would have numbered them, and the folder is zipped.
+  The archive is merged into the first document, opened from its folder.
+  The save writes the four merged objects and keeps the four of our own,
+  and the merged maps' numbers come out apart from ours. On reopen every
+  object has its own map.
+
+**The Touched bit, said precisely** (38.14 said "no file preserves it",
+which was too strong). Before 38.14, a property's saved status did carry
+the bit, and `PropertyContainer::Restore` applied it (`setStatusValue`)
+before the property's own Restore. It never decided anything, for two
+reasons:
+- An object saved up to date is purged after the restore
+  (`afterRestore`: `purgeTouched` unless the object is in `touchedObjs` or
+  in error),
+  which clears every property's bit whatever the file said.
+- An object saved needing a recompute is marked so by the `Touched="1"`
+  attribute of its entry in `Document.xml`, which 38.14 did not change.
+  Its properties are then not purged. Every property whose value the file
+  holds is touched by its own Restore (`hasSetValue` -> `touch()`) whether
+  or not the bit was saved.
+
+The bit could matter only in a touched object, and only for a property
+whose Restore does not touch it:
+- a transient property, whose value the file does not hold at all, so
+  marking it changed claims a change the file cannot reproduce;
+- an empty expression engine, which now marks no change at restore
+  (38.14).
+
+What says an object needs a recompute was never a property's bit: it is
+the object's `Touch` bit, saved as `Touched="1"`. The other recompute
+state, `Enforce` (`touch()`, `enforceRecompute()`), was never saved,
+before or after; a property's `NoRecompute` bit is saved as before.
+Probe `~/.cache/lv-merge/probe38/touched.py`: a box left at a new length
+unrecomputed, a box touched with nothing changed, and a cut of the two,
+saved as a folder and as an archive. Both reopen with the same objects
+touched and recompute to the right volumes (A 3000, Cut 2750). The folder
+patched by hand to carry the bit in every status of the box's file, as
+the old writer did, reopens the same.
+
 **Gates** (round s38h): 25 GUI checks; Python 3884 OK with freeze on and
 off; gtest 1014 with freeze on and off; driven 301. The Python suite under
 `FC_FOLDER_SAVE_CHECK`: 3884 OK, no file that would have been kept came out
@@ -25836,50 +25884,85 @@ a shape's TShapes are not changed in place (23.6).
 log's snapshot as well, since both run `makeBlob`. C and D wait for those
 numbers.
 
-**Tests** (`FolderSaveCases`):
-- `testAnObjectGainingMapsLeavesTheFilesAfterIt` (was the first half of
-  38.14's `testElementMapsNumberedOtherwiseAreWritten`): the first object
-  given the cut's maps writes one file, keeps three, and leaves their files
-  untouched. Each object reopens with its own maps. After the open, the
-  first object given fewer maps again writes one and keeps three.
-- `testElementMapsNumberedOtherwiseAreWritten`, now the collision case. A
-  second document, cut with a cylinder so its maps differ, is saved as a
-  folder. Its map numbers are rewritten by hand to the first document's,
-  as another process would have numbered them, and the folder is zipped.
-  The archive is merged into the first document, opened from its folder.
-  The save writes the four merged objects and keeps the four of our own,
-  and the merged maps' numbers come out apart from ours. On reopen every
-  object has its own map.
+### 38.19 B as built: a frozen edge's pcurve test is answered once; A not built (2026-10-26)
 
-**The Touched bit, said precisely** (38.14 said "no file preserves it",
-which was too strong). Before 38.14, a property's saved status did carry
-the bit, and `PropertyContainer::Restore` applied it (`setStatusValue`)
-before the property's own Restore. It never decided anything, for two
-reasons:
-- An object saved up to date is purged after the restore
-  (`afterRestore`: `purgeTouched` unless the object is in `touchedObjs` or
-  in error),
-  which clears every property's bit whatever the file said.
-- An object saved needing a recompute is marked so by the `Touched="1"`
-  attribute of its entry in `Document.xml`, which 38.14 did not change.
-  Its properties are then not purged. Every property whose value the file
-  holds is touched by its own Restore (`hasSetValue` -> `touch()`) whether
-  or not the bit was saved.
+**Ruling (user, 2026-10-26):** "yes", on A then B.
 
-The bit could matter only in a touched object, and only for a property
-whose Restore does not touch it:
-- a transient property, whose value the file does not hold at all, so
-  marking it changed claims a change the file cannot reproduce;
-- an empty expression engine, which now marks no change at restore
-  (38.14).
+**A turned out not to be the low-risk item 38.18 said.** Timed inside
+`finishEmbed` (600 boxes, the last objects edited), on the folder's copy
+of the history:
+- `dropTier` evicts nothing at the save, since the live store evicted the
+  version already. It still walks the whole held graph to strip the cache
+  tier: 9-14 ms. The cache tier grew by 3 entries a save, and the walk
+  dropped none, because the newest manifest reaches them.
+- `trimCopy` takes 4-24 ms, cutting 0-3 rows a save.
+- The live store's own eviction runs on the worker, off the main thread.
 
-What says an object needs a recompute was never a property's bit: it is
-the object's `Touch` bit, saved as `Touched="1"`. The other recompute
-state, `Enforce` (`touch()`, `enforceRecompute()`), was never saved,
-before or after; a property's `NoRecompute` bit is saved as before.
-Probe `~/.cache/lv-merge/probe38/touched.py`: a box left at a new length
-unrecomputed, a box touched with nothing changed, and a cut of the two,
-saved as a folder and as an archive. Both reopen with the same objects
-touched and recompute to the right volumes (A 3000, Cut 2750). The folder
-patched by hand to carry the bit in every status of the box's file, as
-the old writer did, reopens the same.
+The walk cannot be skipped while retention is exact. Each save's changes
+carry the live store's eviction of one version, and that can leave
+entities unreached, which only the walk finds. Running it less often means
+retention floats: "keep 2" becomes 2 to 9 versions, in the live store and
+in the file. That is a rule the user sees, and `evictsUnnamedVersions` and
+the retention tests pin it. Deferring only the sweep keeps the version
+rule exact, but leaves dead entities in the file between sweeps, and the
+same gtest checks that they go at once. Either way is a ruling, so A is
+not built (question A below).
+
+**B as built** (OCCT fork, TKBRep): `BRepTools::IsPCurveOmittable`, the
+test of whether a writer may leave out a pcurve on a plane, keeps its
+answer on the curve representation when the edge is Immutable
+(`BRep_CurveRepresentation::PCurveOmittable`, -1 not asked, 0, 1). The
+answer comes from the edge's 3D curve, its pcurve, the plane and its
+tolerance, all of which the flag freezes. So a shape saved again asks each
+planar pcurve once in its life, not once per save. A mutable edge computes
+as before. A copy of a representation starts unasked. The field is atomic,
+since a recovery or log worker may write the same shape on another thread.
+FreeCAD needs no change: it freezes every TShape of a shape property's
+value (`ImmutableShapeValues`, on by default), edges included, and both
+`AddGeometry` and the write ask the same function.
+
+**Measured** (`~/.cache/lv-merge/probe38/phases38.py`, now setting
+`ImmutableShapeValues` itself; 600 objects, the last ones edited, five
+saves each; the cache bypassed by a temporary switch for the "before"
+column, removed since):
+
+| | Before | After |
+| --- | ---: | ---: |
+| Boxes: every object's `beforeSave` | 38-41 ms | 20-22 ms |
+| Boxes: save, whole | 93-118 ms | 75-96 ms |
+| Cuts: every object's `beforeSave` | 52-55 ms | 27-29 ms |
+| Cuts: save, whole | 112-136 ms | 96-119 ms |
+
+With the freeze off nothing changes (37-39 ms for the boxes), as designed.
+
+**A finding about the earlier numbers.** This box's own
+`~/.config/Thundereal/user.cfg` holds `ImmutableShapeValues=0`, and
+FreeCADCmd reads it. So every probe of 38.15-38.18 ran with the freeze off.
+The gates are unaffected: they run in homes of their own with the freeze
+set each way. The probe now sets the freeze itself and restores the
+setting after.
+
+**Tests.**
+- OCCT, `BRepTools_OmitPCurve.ImmutableEdgeKeepsItsAnswer`: a mutable
+  edge's answer is not kept; an Immutable one's is kept and given again; a
+  kept answer is the one given; a copy starts unasked. The tree here is
+  built without OCCT's gtests (`BUILD_GTEST=OFF`), so the file was compiled
+  on its own against the installed OCCT and gtest from the conda env: 6 of
+  6 pass.
+- FreeCAD: no new test. The bytes are unchanged by construction, and
+  `FC_FOLDER_SAVE_CHECK` over the suite compares them (below).
+
+**Gates** (round s38j): 25 GUI checks; Python 3885 OK with freeze on and
+off; C++ 1014/1014 with freeze on and off; driven 301/301. The suite with
+`FC_FOLDER_SAVE_CHECK=1`: 3885 run, no file differed, one failure:
+`testASaveFlushedOrNotGoesInWhole` (38.16) asserted one file written and
+39 kept, which check mode cannot give since it writes every file to
+compare it. 38.16 had not run check mode. The test now turns the check
+off for itself (`noCheck()`, as the other count tests do), and
+`FolderSaveCases` passes 24/24 with the check on and off.
+
+**Question A** (not built):
+
+| | Question | Recommended |
+| --- | --- | --- |
+| A | Retention that floats ("keep N" becomes N to N+7, the walk about every eighth save), or a sweep deferred while the version rule stays exact, for about 13-25 ms a save at 600 objects | **Neither for now.** The gain is about half B's, and either way changes what a rule or a test promises. Revisit if a real model's history makes the walk large. |

@@ -12487,6 +12487,7 @@ class FolderSaveCases(unittest.TestCase):
         # flushed to the disk before its record is written. On or off, the
         # save goes in whole and reopens as saved; many files flush several
         # at a time.
+        self.noCheck()
         was = self.param.GetBool("FolderSaveSync", True)
         try:
             for sync in (True, False):

@@ -85,13 +85,27 @@ ISO="$OUT/.iso"
 rm -rf "$ISO/user.cfg" "$ISO/config"
 mkdir -p "$ISO/cache" "$ISO/config"
 rm -f "$ISO/cache/FreeCAD/Cache/FreeCAD_"*.lock 2>/dev/null
+
+# Mesa's shader cache is shared by every run instead of living in $ISO:
+# what llvmpipe compiles depends on the driver and the shader, not on the
+# test, and a work directory's first run otherwise compiles every bgfx
+# program from nothing -- an empty test took 11.5-13.6 s in a new
+# directory and 5.1-5.3 s in a used one (2026-10-25). Mesa keeps the
+# cache safe for processes sharing it. GT_MESA_CACHE points elsewhere;
+# an empty value keeps the per-directory cache.
+MESA_CACHE=${GT_MESA_CACHE-"${XDG_CACHE_HOME:-$HOME/.cache}/thundereal-gui-test"}
+MESA_ENV=()
+if [ -n "$MESA_CACHE" ]; then
+    mkdir -p "$MESA_CACHE"
+    MESA_ENV=(MESA_SHADER_CACHE_DIR="$MESA_CACHE")
+fi
 RESULT="$OUT/result.txt"
 : > "$RESULT"
 LOG="$OUT/run.log"
 
 echo "GUI test $(basename "$SCRIPT") (log: $LOG)"
 if [ "$WINDOW" = 1 ]; then
-    env -u WAYLAND_DISPLAY DISPLAY="${GT_DISPLAY:-:0}" "${GL[@]}" \
+    env -u WAYLAND_DISPLAY DISPLAY="${GT_DISPLAY:-:0}" "${GL[@]}" "${MESA_ENV[@]}" \
         XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" \
         GT_OUT="$OUT" GT_RESULT="$RESULT" \
         QT_QPA_PLATFORM=xcb \
@@ -100,7 +114,7 @@ if [ "$WINDOW" = 1 ]; then
         "$REPO/scripts/gui-test-profile.py" "$SCRIPT" \
         > "$LOG" 2>&1 </dev/null
 else
-    env -u WAYLAND_DISPLAY "${GL[@]}" \
+    env -u WAYLAND_DISPLAY "${GL[@]}" "${MESA_ENV[@]}" \
         XDG_CACHE_HOME="$ISO/cache" XDG_CONFIG_HOME="$ISO/config" \
         GT_OUT="$OUT" GT_RESULT="$RESULT" \
         QT_QPA_PLATFORM=xcb \

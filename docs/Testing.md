@@ -948,6 +948,21 @@ written against pictures without it, and a multisampled view answers
 The golden render scenes (`scripts/render-test-scene.py`,
 `render-test-chess.py`) say the same for themselves.
 
+**Mesa's shader cache is shared by every run (2026-10-25).** The rest of
+the isolated configuration is per work directory, and the Mesa cache used
+to be too -- so a directory's first run had llvmpipe compile every bgfx
+program from nothing. An empty test (a script that writes DONE and quits)
+took 11.5-13.6 s in a new directory and 5.1-5.3 s in a used one; with
+the cache shared, 9.6 s for the very first run on the box and 5.1-5.4 s
+in every new directory after it. Of the 5 s that is left, FreeCAD's own
+start is most; bgfx adds about 0.8 s over `Render/Type` "Legacy" (4.4 s).
+The cache is `MESA_SHADER_CACHE_DIR` =
+`${XDG_CACHE_HOME:-~/.cache}/thundereal-gui-test`; `GT_MESA_CACHE`
+points it elsewhere, and `GT_MESA_CACHE=` (empty) gives back the
+per-directory cache, for a measurement of a cold start. Nothing a test
+checks depends on it: what llvmpipe compiles depends on the driver and the
+shader, not on the test.
+
 | Test | What | Cost |
 |---|---|---|
 | `GuiLiveImportNestedLoop_tests_run` | the live-import nested-loop crash (`docs/DocumentLoad.md` sec 15.2): a command pumps a nested event loop while the chess set is still importing, so the tree populates inside the user-edit guard | 25 s |

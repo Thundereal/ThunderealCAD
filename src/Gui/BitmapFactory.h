@@ -71,6 +71,12 @@ public:
     /// "png") from whatever pixmap the name resolves to; empty, with
     /// `format` cleared, when the name resolves to nothing.
     QByteArray iconSource(const char* name, int size, QString& format);
+    /// The name a client that caches icons by name is to fetch \a name's icon
+    /// by, as it is drawn now: \a name itself, or while a colour mapping is set
+    /// for it (setIconColorMapping) \a name with a tag of the mapping,
+    /// "<name>#cm<hex>", so that the recoloured icon is fetched and kept apart
+    /// from the plain one. iconSource() takes either.
+    QString iconVariantName(const char* name) const;
     /// Adds a build in XPM pixmap under a given name
     void addXPM(const char* name, const char** pXPM);
     /** Adds a build in XPM pixmap under a given name

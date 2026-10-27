@@ -16,6 +16,10 @@ does, and reads each step back on the GUI thread:
   - a press on a point and a drag moves it;
   - the 3D sketch's own commands are on the browser allowlist: Along X on a
     selected line, and the working plane's cycle;
+  - the tool bar stream names the shared tools' icons as they are drawn in
+    the edit, teal, under names of their own -- a client keeps icons by
+    name, so under the plain name it would go on showing the red one -- and
+    the icon fetched by that name is the teal one;
   - `resetEdit` ends it.
 
 The camera looks straight down the sketch's Z, so a pixel maps to a point of
@@ -28,6 +32,7 @@ import json
 import math
 import os
 import queue
+import re
 import threading
 import time
 import traceback
@@ -113,6 +118,7 @@ class Client(threading.Thread):
         self.snapshot = False
         self.replies = {}
         self.pushes = {}
+        self.icon_name = None
         self.t = 1000
 
     def run(self):
@@ -171,12 +177,24 @@ class Client(threading.Thread):
         ws.next_binary(0.5)
         ws.send(2, camera_frame())
         ws.drain(0.5)
+        self.replies["subscribe"] = reply_of(ws.op(
+            '{"id":20,"op":"widgets.subscribe","toolbars":true}'))
+        ws.drain(1.0)
 
         mark = len(ws.pushes)
         self.replies["edit"] = reply_of(ws.op('{"id":1,"op":"edit","obj":"%s","mode":0}' % OBJ))
-        ws.drain(0.5)
+        ws.drain(1.0)
         self.pushes["edit"] = ws.next_push("edit", 3.0, since=mark)
         self.reading("edit")
+
+        # The line tool's icon as the tool bar stream names it in the edit
+        found = re.search(rb'"(Sketcher_CreateLine#cm[0-9a-f]+)"', b"".join(ws.pushes[mark:]))
+        self.icon_name = found.group(1).decode() if found else None
+        if self.icon_name:
+            self.replies["icon"] = reply_of(ws.op(json.dumps(
+                {"id": 21, "op": "widgets.icon", "name": self.icon_name})))
+        self.replies["plain"] = reply_of(ws.op(
+            '{"id":22,"op":"widgets.icon","name":"Sketcher_CreateLine"}'))
 
         # A line by two clicks
         self.command(ws, 2, "Sketcher_CreateLine")
@@ -330,6 +348,16 @@ def verify():
         pushed = json.loads(client.pushes["edit"]) if client.pushes.get("edit") else {}
         check("and pushed to it", pushed.get("editing") is True, pushed)
         check("the 3D sketch is in edit", at("edit").get("in_edit") is True, at("edit"))
+
+        r = client.replies.get("subscribe", {})
+        check("the tool bar stream is subscribed", r.get("ok") is True, r)
+        check("which names the line tool's icon in the edit under a name of its own",
+              client.icon_name is not None, client.icon_name)
+        svg = client.replies.get("icon", {}).get("data", "")
+        check("the icon by that name is the teal one",
+              "#4dd0e1" in svg and "#ef2929" not in svg, svg[:120])
+        svg = client.replies.get("plain", {}).get("data", "")
+        check("and by the plain name still the red one", "#ef2929" in svg, svg[:120])
 
         r = client.replies.get("Sketcher_CreateLine", {})
         check("Sketcher_CreateLine is accepted", r.get("ok") is True, r)

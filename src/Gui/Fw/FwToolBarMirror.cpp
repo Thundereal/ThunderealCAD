@@ -34,6 +34,7 @@
 
 #include "Action.h"
 #include "Application.h"
+#include "BitmapFactory.h"
 #include "Command.h"
 #include "Fw/FwQtView.h"
 #include "Fw/FwStore.h"
@@ -103,8 +104,10 @@ QString pixmapOf(Command* cmd)
 {
     if (!cmd)
         return QString();
+    // as it is drawn now: a recoloured icon under a name of its own, so a
+    // client that keeps icons by name fetches it
     const char* px = cmd->getPixmap();
-    return px ? QString::fromUtf8(px) : QString();
+    return px ? BitmapFactory().iconVariantName(px) : QString();
 }
 }  // namespace
 

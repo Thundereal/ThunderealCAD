@@ -922,6 +922,28 @@ const std::vector<InterferenceResult>& AssemblyObject::checkDragCollisions()
     return dragCollisions;
 }
 
+double AssemblyObject::stopAtDragCollision(const std::function<bool(double)>& poseAt)
+{
+    auto hits = dragCollisions;
+    double lo = 0.0;
+    double hi = 1.0;
+    for (int i = 0; i < dragCollisionHalvings; ++i) {
+        const double t = 0.5 * (lo + hi);
+        const bool posed = poseAt(t);
+        if (posed && checkDragCollisions().empty()) {
+            lo = t;
+            continue;
+        }
+        hi = t;
+        if (posed) {
+            hits = dragCollisions;
+        }
+    }
+    poseAt(lo);
+    dragCollisions = std::move(hits);
+    return lo;
+}
+
 void AssemblyObject::preDrag(std::vector<App::DocumentObject*> dragParts)
 {
     dragStepCount = 0;
@@ -1129,13 +1151,40 @@ bool AssemblyObject::doDragStep()
 
             if (collisionWatch && !checkDragCollisions().empty()
                 && dragCollisionMode == DragCollision::Stop) {
-                // Taken back, the solver and the document both, to where the
-                // last good step left them
-                if (session->setPoses(before) != Solver::Status::Ok) {
-                    FC_WARN("The solver could not take back a step that collides");
-                }
-                setNewPlacements(before);
-                updateRigidPlacementCache();
+                // The step goes only as far as it does without colliding: each
+                // fraction of it solved from where the last good step left the
+                // bodies, towards the targets moved that fraction of the way
+                stopAtDragCollision([&](double t) {
+                    if (session->setPoses(before) != Solver::Status::Ok) {
+                        FC_WARN("The solver could not take back a step that collides");
+                        if (t > 0.0) {
+                            return false;
+                        }
+                    }
+                    if (t <= 0.0) {
+                        setNewPlacements(before);
+                        updateRigidPlacementCache();
+                        return true;
+                    }
+                    std::vector<Solver::BodyPose> partial;
+                    for (const auto& target : targets) {
+                        const Base::Placement from = target.body < before.size()
+                            ? before[target.body].placement
+                            : target.placement;
+                        partial.push_back(
+                            {target.body, Base::Placement::sclerp(from, target.placement, t)});
+                    }
+                    if (session->dragStep(partial).status != Solver::Status::Ok) {
+                        return false;
+                    }
+                    auto poses = session->poses();
+                    if (!validateNewPlacements(poses)) {
+                        return false;
+                    }
+                    setNewPlacements(poses);
+                    updateRigidPlacementCache();
+                    return true;
+                });
                 for (auto* joint : joints) {
                     if (joint->Visibility.getValue()) {
                         redrawJointPlacement(joint);

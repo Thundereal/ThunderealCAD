@@ -25,6 +25,7 @@
 #pragma once
 
 #include <fastsignals/signal.h>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -159,9 +160,19 @@ public:
     }
     // The pairs the components' placements in the document now bring into
     // collision (none without a watch), kept for getDragCollisions(). With
-    // Stop, doDragStep() takes a step back that would collide, and the pairs
-    // are those it would have brought into collision.
+    // Stop, doDragStep() takes a step that would collide only as far as it
+    // goes without, and the pairs are those the rest would have brought into
+    // collision.
     const std::vector<InterferenceResult>& checkDragCollisions();
+    // Stop at a collision: the move from where the last good step left the
+    // parts (0) to where this one takes them (1) collides, and is halved
+    // towards the farthest fraction that does not, dragCollisionHalvings times
+    // at most. poseAt(t) puts the parts at fraction t, in the solver and the
+    // document both, and says whether it could. Leaves the parts at the
+    // fraction found, which it returns, the collisions those of the nearest
+    // fraction that collides.
+    double stopAtDragCollision(const std::function<bool(double)>& poseAt);
+    static constexpr int dragCollisionHalvings = 8;
     const std::vector<InterferenceResult>& getDragCollisions() const
     {
         return dragCollisions;

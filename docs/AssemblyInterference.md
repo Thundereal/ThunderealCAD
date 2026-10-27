@@ -74,11 +74,17 @@ drag watches the assembly's components with the Fast check:
 
 - *Highlight*: the drag goes on; the components it brings into collision are
   drawn in red while they collide.
-- *Stop*: a step that would bring two components into collision is taken
-  back -- the solver and the document both, to where the last good step left
-  them -- and the pair is drawn in red, the status bar saying "Stopped: A
-  would collide with B". The part stays at the last position that did not
-  collide and follows the mouse again as soon as it can.
+- *Stop*: a step that would bring two components into collision goes only
+  as far as it can without -- the solver and the document both -- and the
+  pair is drawn in red, the status bar saying "Stopped: A would collide with
+  B". The part stays against the other and follows the mouse again as soon
+  as it can. How far: the move from the last good step to this one is
+  halved towards the farthest fraction that does not collide, 8 times at
+  most (`AssemblyObject::stopAtDragCollision()`), so the part stops within
+  1/256 of the step, and within the tolerance, of the contact. With the
+  solver each fraction is a drag step solved from the last good poses
+  towards the targets moved that fraction of the way (`Placement::sclerp`);
+  without, the moved parts' placements are interpolated so.
 
 Components interfering when the drag starts are left out (the log says how
 many pairs), so a drag can move parts that overlap by design apart. Both
@@ -212,6 +218,12 @@ contact):
 | Highlight | 16 ms | 0.2 s (every pair checked once) |
 | Stop | 16 ms | 0.17 s |
 
+A step that collides costs its halvings: up to 8 solves and checks. The box
+of the tests (`TestDragCollision`) dragged 2 mm, 1 mm of it into a plate:
+12 to 20 ms, against under 1 ms for a step that does not collide; it stops
+0.039 mm into the plate, within the tolerance, on all three backends, where
+it stopped 1 mm short before.
+
 Timed with a WSL build sharing the box.
 
 What Fast misses here, Exact found: two sphere caps of under 0.1 mm^3, some
@@ -245,9 +257,9 @@ at a point.
 
 ## Limits
 
-- Dragging stops at the last step that did not collide, not at the contact:
-  a fast mouse leaves a gap as wide as its last move. Bisecting the step
-  would close it, at a solve per halving.
+- Dragging stops within 1/256 of the last step of the contact, not at it:
+  a fast mouse's long step leaves a gap of that much. The halvings are
+  fractions of the step, not of the distance to the contact.
 - Fast finds that two components overlap, not by how much, and an overlap
   no deeper than a few times the tolerance can be taken for a contact; Exact
   is the authority. Fast's tolerance is at least twice the deflection, so

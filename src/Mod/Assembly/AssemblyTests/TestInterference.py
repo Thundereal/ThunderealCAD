@@ -329,7 +329,8 @@ class TestDragCollision(unittest.TestCase):
         return AssemblyApp.getAvailableSolvers()
 
     def test_stop(self):
-        """The step that would collide is taken back, and the drag goes on."""
+        """The step that would collide goes as far as it can without, and the
+        drag goes on."""
         self.params.SetInt("DragCollision", 2)
         for backend in self.backends():
             with self.subTest(backend=backend):
@@ -338,8 +339,14 @@ class TestDragCollision(unittest.TestCase):
                     steps = self.drag([12, 14, 16, 14.5])
                     self.assertEqual(steps[0], (True, 12.0, []))
                     self.assertEqual(steps[1], (True, 14.0, []))
-                    # S's top at 26: 1 mm into the plate. Back at 14.
-                    self.assertEqual(steps[2], (False, 14.0, [("Plate", "S")]))
+                    # S's top at 26: 1 mm into the plate. Halved back to the
+                    # plate's underside at 25, within the tolerance and the
+                    # last halving (2 mm / 256) above it
+                    ok, z, pairs = steps[2]
+                    self.assertFalse(ok)
+                    self.assertEqual(pairs, [("Plate", "S")])
+                    self.assertGreaterEqual(z, 15.0 - 1e-6)
+                    self.assertLess(z, 15.05)
                     self.assertEqual(steps[3], (True, 14.5, []))
                     # The solver is where the document is: a step from there
                     self.S.Placement = App.Placement(App.Vector(0, 0, 13), App.Rotation())

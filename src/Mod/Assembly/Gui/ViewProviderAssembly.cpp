@@ -804,9 +804,18 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
         else {
             if (assemblyPart->getDragCollisionMode() != DragCollision::Off
                 && !assemblyPart->checkDragCollisions().empty() && stopAtCollision) {
+                // As far along the move as the parts go without colliding
+                std::vector<Base::Placement> wanted;
                 for (auto& [prop, plc] : previous) {
-                    prop->setValue(plc);
+                    wanted.push_back(prop->getValue());
                 }
+                assemblyPart->stopAtDragCollision([&](double t) {
+                    for (std::size_t i = 0; i < previous.size(); ++i) {
+                        const auto& [prop, plc] = previous[i];
+                        prop->setValue(t <= 0.0 ? plc : Base::Placement::sclerp(plc, wanted[i], t));
+                    }
+                    return true;
+                });
                 stopped();
             }
             assemblyPart->redrawJointPlacements(assemblyPart->getJoints());

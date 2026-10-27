@@ -1064,6 +1064,14 @@ public:
     UndoneMerge rollBackMerge();
     /// rollBackMerge() and _merge(): the rows out, where there are any.
     bool _rollBackUndoneMerge();
+    /** A linked set's Keep ours of step `step` taken back, the step undone
+     * (user, 2026-10-27; docs/TransactionLogJournal.md sec 39.4): the record
+     * that took the branch in leaves the log, with the records after it and
+     * the unnamed versions taken at them, so that the branch is asked again.
+     * 1 taken back; 0 none of that step; -1 there and kept -- a row that
+     * changed something came after it, or something stands on it.
+     */
+    int rollBackSetDecision(int step);
 
     /// A branch of another copy of the file, as importFork() can take it.
     struct ForkBranch

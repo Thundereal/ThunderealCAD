@@ -361,6 +361,12 @@ Params = [
             'since it was read here, and merges it (docs/TransactionLogJournal.md sec\n'
             '29.8); a conflict stops the save at the merge. Off, the save\n'
             'writes over the file as before. The save lock is taken either way.'),
+    ParamInt('FileOpenerExpiryDays', 30,
+        doc='A line of the open marker beside a file (.~<name>.open) that names\n'
+            'a process of another computer and was not seen -- opened or saved --\n'
+            'for this many days is taken as gone (docs/TransactionLogJournal.md\n'
+            'sec 39.3): one that ended without closing left the folder never\n'
+            'alone again. 0 keeps every line.'),
     ParamInt('TransactionLogCoalesceSeconds', 3,
         doc='A commit that writes by hand the one property the commit before\n'
             'it wrote, by the same author under the same name and within this\n'

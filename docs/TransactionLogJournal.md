@@ -26369,3 +26369,68 @@ as the round ran it: it looked for the pieces in the old shared folder;
 pointed at this process's folder, 57 of 57. The driven failure,
 `GuiOmniSearchRecentItems` ("picking the parameter's row opens its
 editor"), passes alone; nothing here touches the search.
+
+### 39.3 Five of 39.2 fixed, and two panel costs (2026-10-27)
+
+**Asked (user, 2026-10-27):** "go" -- on the next steps proposed: the
+items of 39.2 that can still leave wrong data, then the panel's costs.
+
+| | What | Fix |
+| --- | --- | --- |
+| C2 | A write in no transaction was not forgotten by the log, so the next composed snapshot claimed the value last recorded. `Visibility` is the plain case: it is `NoModify`, no write of it opens a transaction, and the create's value was claimed for ever. | `Document::onBeforeChangeProperty` calls `forgetValue` for a write that lands in no transaction -- or is bookkeeping -- outside an undo, a replay or a checkout. |
+| C3 | An entity's tier is its first writer's: the before of a hand write over a computed value stayed in the cache tier, and the budget dropped it; the hand row then could not be undone from the log. | `evictTier` holds every value a row by hand (`derived` not 1) names, whatever its tier. |
+| S5 | A read that failed (I/O error, damaged page, busy past the timeout) was taken for "no row": `lastSeq` 0, `getMeta` empty, and `adoptEmbedded` or `recover` then took a live store for empty and deleted it. | `stepRow()` in the SQLite store: a row, the end, or a throw. Every read uses it (67). |
+| D4 | A marker line of a process of another computer that ended without closing was never dropped: the folder was never alone again, its blob files never pruned, its lock file never removed. | A marker line carries when it was last seen (a fourth field; older builds read the first three); a process's line is seen again at each save; a line of another computer not seen for `FileOpenerExpiryDays` (30; 0 keeps every line) is taken as gone, with a warning. |
+| D6 | `TransactionTwoProcessCases` held a 200-line block twice; the first copy never ran. | Deleted. |
+| G3 | Selecting an op read its value two or three times and built and measured a shape on the GUI thread at every click; the served `log.value` the same at every call. | A ref names its bytes, so what is said of it never changes: `App::summariseValue(doc, ref, ...)` remembers the newest 512 summaries; the value pane keeps the newest 64 texts, and reads under a wait cursor. |
+| G4 | The Kept list asked the store once per value of each kept object at every commit, recompute, undo and redo, shown or not. | Hidden, the tab shows only the count; the lines are built when it is shown. |
+
+`testAnotherOpenerKeepsTheNamesItMayRead` wrote another process's line
+opened at time 1 (1970), which D4 now takes as gone; it writes the time
+now.
+
+**Tests** (in `TransactionAuditCases`): C2, C3 and D4, each failing on the
+build before the fixes. C2's checks what the version holds, not what a
+restore makes of it: a restore leaves `Visibility` alone (view state). S5
+has none: it needs a read that fails.
+
+### 39.4 Keep ours under undo (ruled 2026-10-27)
+
+**Asked (user, 2026-10-27):** "let's rethink 'Keep ours under undo'".
+Keep ours wrote a record into the file's history that took their branch in
+(35.11), and a record is no undo step: undoing the set merge left it, so
+after 39.1 L4 the set came back pending with that file's branch still
+counted merged -- a Merge of it the second time brought nothing. **Ruled:
+undone with the rest** -- the set merge is one step, so undoing it leaves
+every file undecided, Keep ours included.
+
+**As built:** the Keep ours and Take theirs records carry the set's step.
+A merge of a set whose last merge stands undone (its step undone in the
+top or in a file it changed, as `pendingSets` reads it) first calls
+`Document::rollBackSetDecision(step)` on each file: the record of that
+step leaves the log with the records after it and the unnamed versions
+taken at them, the branch head put back on the row before it -- the way
+`_rollBackUndoneMerge` takes out an undone merge. A file changed since the
+record, or one where something stands on those rows (another document's
+cursor, a named version, a branch), keeps it, and a Merge of that file is
+refused: "Keep ours took its branch in, and the file was changed since:
+Take theirs, or pick the branch's rows". A set where every file was Keep
+ours changed nothing and has no undo step: to choose again, the set is
+imported again.
+
+**Test:** `testUndoOfASetMergeTakesItsKeepOursBack` -- Keep ours, the merge
+undone, merged again with Take theirs: the Keep ours record is gone and the
+part is theirs.
+
+`FileElsewhereTest.theOpenMarkerSaysWhoElseHasTheFile` wrote another
+computer's line dated 2023, which D4 takes as gone: it writes the time now,
+and a line 40 days old beside it that must not be listed.
+
+**Gates** (round s39c): 25 GUI checks; Python 3927 OK and C++ 1018/1018
+with freeze on and off; driven 329/329. Round s39b, on 39.3 alone, had the
+two fixtures above fail, and the unfrozen Python suite crashed once in
+`TestFilletSlivers.testBaseOutsideTheBody` (SIGSEGV in
+`GeoFeatureGroupExtension::getGroupOfObject` from a recompute: a dangling
+object, the signature a7e36a7e74 took the trigger of away). Alone, three
+times, and in the whole suite twice since, it passed: one in three runs,
+PartDesign's, not chased here.

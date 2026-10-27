@@ -58,6 +58,13 @@ AppExport void registerValueSummary(ValueSummariser fn);
 AppExport bool summariseValue(const Document& doc, const CapturedValue& value,
                               ValueSummary& out);
 
+/// The same for the value the log holds as `ref`. A ref names its bytes, so
+/// what it says never changes: said once, then remembered (the newest few
+/// hundred), so that a panel or a reader asking again does not build and
+/// measure the shape again (sec 39.3, G3).
+AppExport bool summariseValue(const Document& doc, const std::string& ref,
+                              const CapturedValue& value, ValueSummary& out);
+
 } // namespace App
 
 #endif // APP_VALUESUMMARY_H

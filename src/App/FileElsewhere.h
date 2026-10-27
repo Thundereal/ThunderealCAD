@@ -106,6 +106,7 @@ struct AppExport FileOpener
     std::string host;
     int64_t pid {0};
     double since {0};   ///< seconds since the epoch
+    double seen {0};    ///< the last time it said so: its open or a save
 };
 
 /** The marker beside a file that says which processes have it open,
@@ -122,7 +123,9 @@ namespace FileOpeners
 AppExport std::string markerPath(const std::string& file);
 /// The other processes that have `file` open.
 AppExport std::vector<FileOpener> others(const std::string& file);
-/// This process has `file` open; the others it found there.
+/// This process has `file` open, seen now; the others it found there. Run
+/// again at each save, so that a line of a process that is still there stays
+/// seen (FileOpenerExpiryDays).
 AppExport std::vector<FileOpener> add(const std::string& file);
 /// This process no longer has `file` open.
 AppExport void remove(const std::string& file);

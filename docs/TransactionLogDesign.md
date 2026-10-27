@@ -213,6 +213,11 @@ the op that causes it was the user's idea (Journal 27.58).
 - A transaction still open when its document is destroyed is committed but not
   logged.
 
+A write that lands in no transaction (a `NoModify` property such as
+`Visibility`, a `Legacy` one, a view's derived size, bookkeeping) makes the
+log forget what it holds for that property, so the next snapshot serialises
+it afresh (sec 39).
+
 Known accepted leak: a write through a non-const reference that skips
 `aboutToSetValue`. It is found by `TransactionLogVerify` and fixed at the site
 (section 3.2).
@@ -338,7 +343,9 @@ values plus bytes only they hold. Over either, `TransactionStore::evictTier`
 removes values down to three quarters, per property oldest first, across
 properties by age times bytes over the object's average recompute seconds
 (cheap shapes go first). Kept regardless: the newest value of each property on
-each branch, what a version lists, a kept value or object (section 7.6). A
+each branch, what a version lists, a kept value or object (section 7.6), and
+any value a row by hand names -- the before of a hand write over a computed
+value, which undoing that row writes back (sec 39). A
 gone value reads as never kept: a cold undo skips it, touches the owner, and
 the recompute remakes it. A delta whose base goes is rewritten full in the same
 SQL transaction. The job runs when an eighth of a budget was added since the
@@ -973,9 +980,11 @@ writer must not be slower.
   it. Taken on every save, archive or folder, history or not; a history-only
   save locks before it reads.
 - **Open marker.** `.~<name>.open`, one line per opening process (host, pid,
-  time); warns that the file is also open elsewhere; blocks nothing; stale
-  lines of this host are dropped; the last closer removes marker and lock
-  (`getFileOpeners()`).
+  opened, last seen); warns that the file is also open elsewhere; blocks
+  nothing; lines of gone processes of this host are dropped; a process's line
+  is seen again at each save, and a line of another computer not seen for
+  `FileOpenerExpiryDays` (30) is taken as gone, with a warning (sec 39); the
+  last closer removes marker and lock (`getFileOpeners()`).
 - **Pull** (`_pullFromDisk`, under the lock, at save only -- an automatic pull
   would rewrite the document under the user): copy the file to
   `<TransientDir>/pull/<n>/`, import it as a fork branch `<file> saved
@@ -1217,8 +1226,12 @@ assemblies"; Q1-Q9 as proposed, 2026-10-18).
   `merge`, `theirs`, `ours`, `write`, `drop`; nothing moves unless all can;
   dependencies first; **one undo step across the documents** (user,
   2026-10-18, Q3). Take theirs = ours restored to their branch head (one row,
-  ours kept in history) plus a record with their head as second parent. Undo of
-  Take theirs leaves the set pending and the branch mergeable again (sec 39).
+  ours kept in history) plus a record with their head as second parent; Keep
+  ours = that record alone. Undoing the set merge leaves every file undecided,
+  Keep ours too (user, 2026-10-27): the set is pending again, and its re-merge
+  first takes each Keep-ours record of the undone step back out of the log; a
+  file changed since keeps it, and a Merge of that file is refused with the
+  reason (sec 39).
   `mergeLinkedSet(write_to)` is gated `fs.write` (sec 39).
 - **Preview** (`previewLinkedSet(files)`; user, 2026-10-23): each file's result
   is built and every reference to another file of the set resolved; failures
@@ -1441,6 +1454,7 @@ Journal: 21 (panel), 22.2, 26.7, 28.6, 31.12-31.13, 32.9-32.20, 33.11-33.13,
 | `TransactionOnRecompute` | off | ignored with the log on |
 | `StableShapeBytes` | on | saved shape bytes independent of later builds |
 | `FolderSaveSync` | on | flush a folder save before its commit record |
+| `FileOpenerExpiryDays` | 30 | an open-marker line of another computer not seen (opened or saved) for this many days is taken as gone; 0 keeps every line |
 | `BlobCompression` | 0 | a new document's blob entries: 0 zstd, 1 deflate level 1 |
 | `BlobAppendSize` | 1024 KB | pack-store append segment bound |
 | `NoPartialLoading` | off | read pinned versions (and linked files) whole |
@@ -1577,11 +1591,12 @@ Document methods unless said otherwise; each has its docstring.
   numbering (38.21).
 - Windows: the lock, marker and folder code are largely unmeasured there
   (29.8, 38).
-- The audit of 2026-10-27 left about twenty small findings for a case: a
-  write in no transaction not forgotten by the log, a derived before value
-  evicted under a hand write, SELECT errors read as "no row", stale
-  other-host marker lines, the panel's shape reads on the GUI thread and
-  others (Journal 39.2).
+- The audit of 2026-10-27 left some fifteen small findings for a case: a
+  failed branch switch clearing the undo stacks, a version document's first
+  recompute row, `commit()` ignoring a refused roll-forward, `canonicalPath`
+  with two missing parents, a set recorded merged after one file's merge
+  threw, folder-document sets, and others (Journal 39.2; 39.3 fixed five
+  of them and two panel costs).
 - Held until a real use case (user, 2026-10-17): Scion's ideas -- derived
   per-row indexes and blame, a kind on every change with approval rules,
   agent provenance, rebase on the host, write grants scoped to a body (34).

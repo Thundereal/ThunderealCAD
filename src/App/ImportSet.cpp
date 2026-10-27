@@ -1003,14 +1003,15 @@ namespace
 /// The branch `branch` of `doc`'s file taken in as merged, by a record with
 /// no ops whose second parent is its head: not asked again, and what is held
 /// for it let go. No undo step.
-void recordTaken(Document& doc, const std::string& branch, const char* how)
+void recordTaken(Document& doc, const std::string& branch, const char* how, int step)
 {
     TransactionLog* log = doc.getTransactionLog();
     LogBranch b;
     if (!log || !log->store().findBranch(branch, b))
         return;
     nlohmann::json j;
-    j["set"] = {{"branch", branch}, {"action", how}};
+    // The set's step: undone, the decision is taken back with it (sec 39.4)
+    j["set"] = {{"branch", branch}, {"action", how}, {"step", step}};
     log->record("merge", std::string(how) + " " + branch, j.dump(), b.head);
     log->flush();
 }
@@ -1037,6 +1038,28 @@ bool stepUndone(Document& doc, int tid)
         }
     }
     return undone > 0;
+}
+
+/// Whether the merge a set's "Merged set" record names stands undone (sec
+/// 39, L4): its step undone in the top or in any file it changed.
+bool setMergeUndone(Document& top, const nlohmann::json& set)
+{
+    const int step = set.value("step", 0);
+    if (!step)
+        return false;
+    if (stepUndone(top, step))
+        return true;
+    for (const auto& file : set.value("changed", nlohmann::json::array())) {
+        if (!file.is_string())
+            continue;
+        for (auto doc : GetApplication().getDocuments()) {
+            if (!doc->testStatus(Document::VersionDoc)
+                    && keyOf(doc->FileName.getStrValue()) == file.get<std::string>()
+                    && stepUndone(*doc, step))
+                return true;
+        }
+    }
+    return false;
 }
 
 }  // namespace
@@ -1241,6 +1264,34 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
         return app.openDocument(file.c_str(), false);
     };
 
+    // The set merged before and that merge undone: each file's Keep ours
+    // of it is taken back, so that every file is asked again (user,
+    // 2026-10-27, sec 39.4). One worked on since keeps it, and a Merge of
+    // it is refused below: it would bring nothing.
+    std::set<std::size_t> declined;
+    if (!options.set.empty()) {
+        int step = 0;
+        if (TransactionLog* log = ourTop.getTransactionLog()) {
+            log->flush();
+            for (const auto& t : log->store().history(log->head())) {
+                if (t.kind != "set")
+                    continue;
+                const auto j = nlohmann::json::parse(t.script, nullptr, false);
+                if (j.is_object() && j.contains("set") && j["set"].is_object()
+                        && j["set"].value("merged", false)
+                        && j["set"].value("id", std::string()) == options.set)
+                    step = setMergeUndone(ourTop, j["set"]) ? j["set"].value("step", 0) : 0;
+            }
+        }
+        for (std::size_t i = 0; step && i < files.size(); ++i) {
+            if (files[i].ourFile.empty() || files[i].branch.empty())
+                continue;
+            Document* ours = docOf(files[i].ourFile);
+            if (ours && ours->rollBackSetDecision(step) < 0)
+                declined.insert(i);
+        }
+    }
+
     // Nothing moves until all of it can: conflicts with no side, a file to
     // be written that is there -- and never one of their set, which a write
     // would take the history and the links of (sec 39, L1).
@@ -1259,6 +1310,10 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
                 r.error = "'" + f.writeTo + "' is a file of their set";
             else if (!options.overwrite && QFileInfo::exists(qs(f.writeTo)))
                 r.error = "'" + f.writeTo + "' is there";
+        }
+        else if (f.action == SetMergeAction::Merge && declined.count(i)) {
+            r.error = "Keep ours took its branch in, and the file was changed since: "
+                      "Take theirs, or pick the branch's rows";
         }
         else if (f.action == SetMergeAction::Merge && !f.branch.empty()) {
             Document* ours = docOf(f.ourFile);
@@ -1433,11 +1488,11 @@ SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& 
                         // ours that held them goes in this row.
                         ours->restoreVersion(num, ours->importedNames(f.branch));
                         r.seq = ours->getTransactionLog() ? ours->getTransactionLog()->lastSeq() : 0;
-                        recordTaken(*ours, f.branch, "Take theirs");
+                        recordTaken(*ours, f.branch, "Take theirs", tid);
                         break;
                     }
                     case SetMergeAction::KeepOurs:
-                        recordTaken(*ours, f.branch, "Keep ours");
+                        recordTaken(*ours, f.branch, "Keep ours", tid);
                         break;
                     default:
                         break;
@@ -1511,19 +1566,7 @@ std::vector<PendingSet> App::pendingSets(Document& ourTop)
         const auto& set = j["set"];
         if (set.value("merged", false)) {
             // A merge whose step was undone leaves the set pending (L4).
-            const int step = set.value("step", 0);
-            bool undone = step && stepUndone(ourTop, step);
-            for (const auto& file : set.value("changed", nlohmann::json::array())) {
-                if (undone || !file.is_string())
-                    break;
-                for (auto doc : GetApplication().getDocuments()) {
-                    if (!doc->testStatus(Document::VersionDoc)
-                            && keyOf(doc->FileName.getStrValue()) == file.get<std::string>()
-                            && stepUndone(*doc, step))
-                        undone = true;
-                }
-            }
-            if (!undone)
+            if (!setMergeUndone(ourTop, set))
                 merged.insert(set.value("id", std::string()));
         }
         else

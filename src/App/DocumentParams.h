@@ -796,6 +796,22 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter FileOpenerExpiryDays
+    ///
+    /// A line of the open marker beside a file (.~<name>.open) that names
+    /// a process of another computer and was not seen -- opened or saved --
+    /// for this many days is taken as gone (docs/TransactionLogJournal.md
+    /// sec 39.3): one that ended without closing left the folder never
+    /// alone again. 0 keeps every line.
+    static const long & getFileOpenerExpiryDays();
+    static const long & defaultFileOpenerExpiryDays();
+    static void removeFileOpenerExpiryDays();
+    static void setFileOpenerExpiryDays(const long &v);
+    static const char *docFileOpenerExpiryDays();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter TransactionLogCoalesceSeconds
     ///
     /// A commit that writes by hand the one property the commit before

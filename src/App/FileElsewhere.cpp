@@ -124,14 +124,21 @@ double nowSeconds()
     return duration<double>(system_clock::now().time_since_epoch()).count();
 }
 
-/// The marker's lines, those of gone processes of this host left out.
-std::vector<FileOpener> readMarker(const std::string& marker)
+/// The marker's lines, those of gone processes of this host left out --
+/// and those of another host not seen for FileOpenerExpiryDays, which a
+/// process there that ended without closing left (sec 39.3, D4): kept, the
+/// folder was never alone again, its blob files never pruned. They go into
+/// `expired` when asked.
+std::vector<FileOpener> readMarker(const std::string& marker,
+                                   std::vector<FileOpener>* expired = nullptr)
 {
     std::vector<FileOpener> out;
     QFile in(QString::fromStdString(marker));
     if (!in.open(QIODevice::ReadOnly | QIODevice::Text))
         return out;
     const std::string host = thisHost();
+    const long days = DocumentParams::getFileOpenerExpiryDays();
+    const double now = nowSeconds();
     std::istringstream lines(in.readAll().toStdString());
     std::string line;
     while (std::getline(lines, line)) {
@@ -139,8 +146,16 @@ std::vector<FileOpener> readMarker(const std::string& marker)
         FileOpener o;
         if (!(fields >> o.host >> o.pid >> o.since))
             continue;
+        // Last seen: a line written before it was kept is seen when opened.
+        if (!(fields >> o.seen))
+            o.seen = o.since;
         if (o.host == host && !alive(o.pid))
             continue;
+        if (o.host != host && days > 0 && now - o.seen > days * 86400.0) {
+            if (expired)
+                expired->push_back(o);
+            continue;
+        }
         out.push_back(o);
     }
     return out;
@@ -155,7 +170,7 @@ void writeMarker(const std::string& marker, const std::vector<FileOpener>& opene
     std::ostringstream text;
     text.precision(17);
     for (const auto& o : openers)
-        text << o.host << ' ' << o.pid << ' ' << o.since << '\n';
+        text << o.host << ' ' << o.pid << ' ' << o.since << ' ' << o.seen << '\n';
     const std::string bytes = text.str();
     for (int attempt = 0; attempt < 50; ++attempt) {
         if (attempt)
@@ -405,16 +420,24 @@ std::vector<FileOpener> FileOpeners::add(const std::string& file)
     MarkerLock lock(file);
     std::vector<FileOpener> all;
     std::vector<FileOpener> others;
-    for (const auto& o : readMarker(marker)) {
-        if (isMe(o))
-            continue;
-        all.push_back(o);
-        others.push_back(o);
-    }
+    std::vector<FileOpener> expired;
     FileOpener me;
     me.host = thisHost();
     me.pid = thisPid();
     me.since = nowSeconds();
+    for (const auto& o : readMarker(marker, &expired)) {
+        if (isMe(o)) {
+            me.since = o.since;   // opened then; seen now
+            continue;
+        }
+        all.push_back(o);
+        others.push_back(o);
+    }
+    for (const auto& o : expired)
+        Base::Console().Warning("'%s': %s was not seen for %ld days: taken as gone\n",
+                                file.c_str(), describe(o).c_str(),
+                                DocumentParams::getFileOpenerExpiryDays());
+    me.seen = nowSeconds();
     all.push_back(me);
     writeMarker(marker, all);
     return others;

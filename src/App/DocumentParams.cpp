@@ -97,6 +97,7 @@ public:
         signalParamChanged("TransactionLogCacheSize");
         signalParamChanged("TransactionLogCacheValues");
         signalParamChanged("TransactionLogPullOnSave");
+        signalParamChanged("FileOpenerExpiryDays");
         signalParamChanged("TransactionLogCoalesceSeconds");
         signalParamChanged("TransactionLogKeepNamed");
         signalParamChanged("TransactionLogCompactSize");
@@ -176,6 +177,7 @@ public:
     long TransactionLogCacheSize;
     long TransactionLogCacheValues;
     bool TransactionLogPullOnSave;
+    long FileOpenerExpiryDays;
     long TransactionLogCoalesceSeconds;
     long TransactionLogKeepNamed;
     long TransactionLogCompactSize;
@@ -309,6 +311,8 @@ public:
         funcs["TransactionLogCacheValues"] = &DocumentParamsP::updateTransactionLogCacheValues;
         TransactionLogPullOnSave = this->handle->GetBool("TransactionLogPullOnSave", true);
         funcs["TransactionLogPullOnSave"] = &DocumentParamsP::updateTransactionLogPullOnSave;
+        FileOpenerExpiryDays = this->handle->GetInt("FileOpenerExpiryDays", 30);
+        funcs["FileOpenerExpiryDays"] = &DocumentParamsP::updateFileOpenerExpiryDays;
         TransactionLogCoalesceSeconds = this->handle->GetInt("TransactionLogCoalesceSeconds", 3);
         funcs["TransactionLogCoalesceSeconds"] = &DocumentParamsP::updateTransactionLogCoalesceSeconds;
         TransactionLogKeepNamed = this->handle->GetInt("TransactionLogKeepNamed", 10);
@@ -579,6 +583,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLogPullOnSave(DocumentParamsP *self) {
         self->TransactionLogPullOnSave = self->handle->GetBool("TransactionLogPullOnSave", true);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateFileOpenerExpiryDays(DocumentParamsP *self) {
+        self->FileOpenerExpiryDays = self->handle->GetInt("FileOpenerExpiryDays", 30);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLogCoalesceSeconds(DocumentParamsP *self) {
@@ -956,6 +964,13 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
 "since it was read here, and merges it (docs/TransactionLogJournal.md sec\n"
 "29.8); a conflict stops the save at the merge. Off, the save\n"
 "writes over the file as before. The save lock is taken either way."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "FileOpenerExpiryDays", "FileOpenerExpiryDays", App::ParamInfo::Int, 30)
+        .setTitle("File Opener Expiry Days")
+        .setDoc("A line of the open marker beside a file (.~<name>.open) that names\n"
+"a process of another computer and was not seen -- opened or saved --\n"
+"for this many days is taken as gone (docs/TransactionLogJournal.md\n"
+"sec 39.3): one that ended without closing left the folder never\n"
+"alone again. 0 keeps every line."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCoalesceSeconds", "TransactionLogCoalesceSeconds", App::ParamInfo::Int, 3)
         .setTitle("Transaction Log Coalesce Seconds")
         .setDoc("A commit that writes by hand the one property the commit before\n"
@@ -2642,6 +2657,38 @@ void DocumentParams::setTransactionLogPullOnSave(const bool &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void DocumentParams::removeTransactionLogPullOnSave() {
     instance()->handle->RemoveBool("TransactionLogPullOnSave");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docFileOpenerExpiryDays() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"A line of the open marker beside a file (.~<name>.open) that names\n"
+"a process of another computer and was not seen -- opened or saved --\n"
+"for this many days is taken as gone (docs/TransactionLogJournal.md\n"
+"sec 39.3): one that ended without closing left the folder never\n"
+"alone again. 0 keeps every line.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getFileOpenerExpiryDays() {
+    return instance()->FileOpenerExpiryDays;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultFileOpenerExpiryDays() {
+    const static long def = 30;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setFileOpenerExpiryDays(const long &v) {
+    instance()->handle->SetInt("FileOpenerExpiryDays",v);
+    instance()->FileOpenerExpiryDays = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeFileOpenerExpiryDays() {
+    instance()->handle->RemoveInt("FileOpenerExpiryDays");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

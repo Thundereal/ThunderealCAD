@@ -2614,6 +2614,15 @@ void Document::onBeforeChangeProperty(const TransactionalObject *Who, const Prop
         if (d->activeUndoTransaction)
             d->activeUndoTransaction->addObjectChange(Who, What);
     }
+    // A write in no transaction -- NoModify, Legacy, a view's derived size,
+    // bookkeeping -- is in no row: what the log holds for the property is
+    // stale from here, and the next snapshot serialises it afresh (sec 39.3,
+    // C2), as onChanged() does for the document's own bookkeeping.
+    // An undo, a replay or a checkout puts recorded values back, which the
+    // log follows itself.
+    if (d->transactionLog && !isPerformingTransaction()
+            && (d->bookkeeping || !d->activeUndoTransaction))
+        d->transactionLog->forgetValue(*What);
 }
 
 void Document::onBeforeChangeFreeze(const DocumentObject *Who)
@@ -5601,6 +5610,9 @@ void Document::_noteDiskState(const std::string& file)
         for (const auto& other : FileOpeners::add(file))
             Base::Console().Warning("'%s' is also open in %s\n", Label.getValue(),
                                     FileOpeners::describe(other).c_str());
+    }
+    else {
+        FileOpeners::add(file);   // seen again (sec 39.3, D4)
     }
 }
 
@@ -13429,6 +13441,84 @@ Document::UndoneMerge Document::rollBackMerge()
     if (!_rollBackUndoneMerge())
         out = UndoneMerge();
     return out;
+}
+
+int Document::rollBackSetDecision(int step)
+{
+    TransactionLog* log = getTransactionLog();
+    if (!log || step <= 0 || log->detached())
+        return 0;
+    if (d->activeUndoTransaction)
+        commitImplicitTransaction();
+    log->resolvePending();
+    log->flush();
+    auto& store = log->store();
+    const int64_t head = log->head();
+    const auto chain = store.chain(head);
+    auto stepOf = [](const LogTransaction& t) {
+        const auto j = nlohmann::json::parse(t.script, nullptr, false);
+        return j.is_object() && j.contains("set") && j["set"].is_object()
+            ? j["set"].value("step", 0) : 0;
+    };
+    // From the head back to the record, over rows that changed nothing.
+    int64_t record = 0;
+    bool since = false;
+    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
+        const bool changed = !store.ops(it->seq).empty();
+        if (!changed && it->kind == "merge" && it->mergeFrom > 0 && stepOf(*it) == step) {
+            record = it->seq;
+            break;
+        }
+        since = since || changed;
+    }
+    if (!record)
+        return 0;
+    std::vector<int64_t> seqs;
+    int64_t before = 0;
+    for (const auto& t : chain) {
+        if (t.seq == record)
+            before = t.parent;
+        if (t.seq >= record)
+            seqs.push_back(t.seq);
+    }
+    if (since || log->othersStandOn(seqs))
+        return -1;
+    const std::set<int64_t> gone(seqs.begin(), seqs.end());
+    std::vector<int64_t> evict;
+    for (const auto& v : store.versions()) {
+        if (!gone.count(v.seq))
+            continue;
+        if (v.kind != "unnamed")
+            return -1;
+        evict.push_back(v.num);
+    }
+    for (const auto& b : store.branches()) {
+        if (b.id != log->branch() && (gone.count(b.fromSeq) || gone.count(b.head)))
+            return -1;
+    }
+    FC_LOG(getName() << ": the set's Keep ours at row " << record << " taken back, "
+                     << seqs.size() << " row(s)");
+    clearUndos();
+    _clearRedos();
+    store.forwardBranch(log->branch(), before, {});
+    log->moveHead(before);
+    // Records only: the document is as it was. What they said of the
+    // touched state is folded back all the same.
+    try {
+        _followHead(head);
+    }
+    catch (Base::Exception& e) {
+        FC_WARN(getName() << ": the Keep ours taken back without following the rows: "
+                          << e.what());
+        log->forgetLiveValues();
+    }
+    if (!evict.empty())
+        store.evictVersions(evict);
+    store.removeTransactions(seqs);
+    _arriveOnBranch();
+    refreshVersionNames();
+    signalBranchesChanged(*this);
+    return 1;
 }
 
 bool Document::_rollBackUndoneMerge()

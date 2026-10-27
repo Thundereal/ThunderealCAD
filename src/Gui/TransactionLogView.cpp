@@ -22,6 +22,7 @@
 
 #include "PreCompiled.h"
 #ifndef _PreComp_
+# include <deque>
 # include <map>
 # include <set>
 # include <unordered_map>
@@ -1610,6 +1611,22 @@ void TransactionLogView::refreshKept()
     };
     std::vector<Line> lines;
     int kept = 0;
+    // Hidden, only the count on the tab: the lines ask the store once per
+    // value of each object kept, and refresh() runs at every commit,
+    // recompute, undo and redo (sec 39.3, G4). Switching to the tab
+    // rebuilds them.
+    if (_tabs->currentIndex() != TabKept) {
+        try {
+            kept = static_cast<int>(l->store().keptValues().size()
+                                    + l->store().keptObjects().size());
+        }
+        catch (Base::Exception& e) {
+            FC_ERR("transaction log view: " << e.what());
+            return;
+        }
+        _tabs->setTabText(TabKept, kept ? tr("Kept (%1)").arg(kept) : tr("Kept"));
+        return;
+    }
     try {
         auto& store = l->store();
         auto rowThere = [&store](int64_t seq) {
@@ -1826,13 +1843,25 @@ QString TransactionLogView::valueText(const QString& label, const QString& ref) 
     if (ref.isEmpty())
         return text;
     text += QStringLiteral("== %1 %2\n").arg(label, ref);
+    // A ref names its bytes: what the pane says of one never changes, and a
+    // large shape is read, built and measured once, not at every click
+    // (sec 39.3, G3). The newest few are kept; one the log no longer reads
+    // is not, so a later read can find it again.
+    static std::map<QString, QString> said;
+    static std::deque<QString> order;
+    auto known = said.find(ref);
+    if (known != said.end())
+        return text + known->second;
+    const QString head = text;
     App::CapturedValue v;
     auto l = log();
-    if (l && l->readValue(ref.toStdString(), v)) {
+    WaitCursor wc;
+    const bool read = l && l->readValue(ref.toStdString(), v);
+    if (read) {
         // What a shape is, where its text is the start of the geometry's
         // file (sec 32.35)
         App::ValueSummary summary;
-        if (_doc && App::summariseValue(*_doc, v, summary))
+        if (_doc && App::summariseValue(*_doc, ref.toStdString(), v, summary))
             text += QString::fromStdString(summary.text) + QStringLiteral("\n");
         text += QString::fromStdString(v.fragment);
         if (!text.endsWith(QLatin1Char('\n')))
@@ -1841,7 +1870,15 @@ QString TransactionLogView::valueText(const QString& label, const QString& ref) 
             text += tr("-- attachment %1: %2 bytes\n")
                         .arg(QString::fromStdString(a.name)).arg(a.bytes.size());
     }
-    else {
+    if (read && v.ok) {
+        said[ref] = text.mid(head.size()) + QLatin1Char('\n');
+        order.push_back(ref);
+        if (order.size() > 64) {
+            said.erase(order.front());
+            order.pop_front();
+        }
+    }
+    else if (!read) {
         // Sec 32.33: what a recompute wrote is a cache, and a file's copy of
         // the log carries none of it
         text += tr("(not in the log any more: a value a recompute made is a cache, which the "

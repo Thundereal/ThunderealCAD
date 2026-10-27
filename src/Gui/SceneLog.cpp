@@ -837,7 +837,7 @@ QJsonObject valueOp(const QJsonObject& req, const std::string& boundDoc, uint64_
         // A value whose text says nothing to a reader -- a shape's, the start
         // of the geometry's file -- says what it is (sec 32.35)
         App::ValueSummary summary;
-        if (App::summariseValue(*doc, value, summary)) {
+        if (App::summariseValue(*doc, ref, value, summary)) {   // remembered (sec 39.3)
             reply[QLatin1String("summary")] = QString::fromStdString(summary.text);
             QJsonObject facts;
             for (const auto& kv : summary.facts)

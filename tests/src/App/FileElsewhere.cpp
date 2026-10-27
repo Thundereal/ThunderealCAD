@@ -173,10 +173,17 @@ TEST_F(FileElsewhereTest, theOpenMarkerSaysWhoElseHasTheFile)
     EXPECT_EQ(fs::path(marker).filename().string(), ".~part.TStd.open");
     ASSERT_TRUE(fs::exists(marker));
 
-    // Another machine's process, and a process of this one that is gone.
+    // Another machine's process, seen now; one of another machine not seen
+    // for 40 days (FileOpenerExpiryDays, 30: taken as gone, sec 39.3); and
+    // a process of this one that is gone.
+    const auto now = std::chrono::duration<double>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
     {
         std::ofstream out(marker, std::ios::app);
-        out << "elsewhere-host 4242 1700000000\n";
+        out.precision(17);
+        out << "elsewhere-host 4242 " << now << '\n';
+        out << "stale-host 4343 " << now - 40 * 86400.0 << '\n';
     }
     std::string here;
     {

@@ -285,12 +285,17 @@ void solve(Handle(Geom_BSplineSurface) & s,
            const std::array<Targets, 4>& targets)
 {
     // the poles to set: r rows in from each conditioned boundary, the
-    // boundaries that meet it left where they are
+    // boundaries that meet it left where they are -- unless free
     std::map<std::pair<int, int>, int> unknown;
     std::vector<std::pair<int, int>> poleOf;
     for (int b = 0; b < 4; ++b) {
+        // the sides at the boundary's first and last pole
+        int first = alongU(b) ? int(Boundary::UMin) : int(Boundary::VMin);
+        int last = alongU(b) ? int(Boundary::UMax) : int(Boundary::VMax);
+        bool freeFirst = cond[first].order == 0 && cond[first].free;
+        bool freeLast = cond[last].order == 0 && cond[last].free;
         for (int r = 1; r <= cond[b].order; ++r) {
-            for (int a = 1; a + 1 < fr.along(b); ++a) {
+            for (int a = freeFirst ? 0 : 1; a < fr.along(b) - (freeLast ? 0 : 1); ++a) {
                 auto ij = fr.pole(b, a, r);
                 if (unknown.emplace(ij, (int)poleOf.size()).second) {
                     poleOf.push_back(ij);

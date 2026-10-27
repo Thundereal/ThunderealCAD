@@ -295,3 +295,22 @@ TEST(EdgeCondition, poleCountBounded)
     matchBoundary(s, Boundary::VMin, {2, cylinder(), 1.0});
     EXPECT_LE(s->NbUPoles(), 4 * before);
 }
+
+// The same corner with the boundary at x = 20 free -- no curve of the user's
+// there, as at the side of a loft -- is met: the free side's poles move
+TEST(EdgeCondition, aFreeSideLetsTheCornerBeMet)
+{
+    auto s = field({0, -0.1, -0.2, -0.3, -0.3});
+    auto before = copy(s);
+    Conditions c;
+    c[int(Boundary::VMin)] = {1, cylinder(), 1.0};
+    c[int(Boundary::UMax)].free = true;
+    MatchOptions opt;
+    auto r = matchBoundaries(s, c, opt);
+    ASSERT_TRUE(r[int(Boundary::VMin)].error.empty()) << r[int(Boundary::VMin)].error;
+    EXPECT_TRUE(r[int(Boundary::VMin)].achieved);
+    EXPECT_LT(measure(s, Boundary::VMin, cylinder()).angle, opt.angularTolerance);
+    EXPECT_LT(boundaryMoved(before, s, Boundary::VMin), 1e-9);
+    EXPECT_LT(boundaryMoved(before, s, Boundary::UMin), 1e-9) << "a side that is not free stays";
+    EXPECT_GT(boundaryMoved(before, s, Boundary::UMax), 1e-3) << "the free side moved";
+}

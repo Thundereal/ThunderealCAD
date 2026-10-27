@@ -54,6 +54,9 @@ struct EdgeCondition
     TopoDS_Face support;
     /// Scales the derivative across the boundary; 1 keeps its own length
     double weight = 1.0;
+    /// With order 0: no curve of the user's is there (the side of a loft),
+    /// so its poles may move for the boundaries that meet it
+    bool free = false;
 };
 
 struct MatchOptions

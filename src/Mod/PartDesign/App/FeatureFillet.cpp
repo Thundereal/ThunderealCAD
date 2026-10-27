@@ -357,9 +357,14 @@ Part::TopoShape::FilletCorners Fillet::getCorners(const Part::TopoShape &baseSha
 
 void Fillet::onChanged(const App::Property *prop)
 {
-    // Corners links the vertexes and faces of the object Base is on
+    // Corners links the vertexes and faces of the object Base is on. Not
+    // while this fillet is being removed: the removal clears Corners before
+    // Base, and linking it again left this fillet in the InList of the object
+    // Base is on, a dangling pointer once it was deleted (a recompute walking
+    // that list crashed, TestFilletSlivers.testBaseOutsideTheBody)
     if ((prop == &Corners || prop == &Base) && getDocument()
             && !isRestoring() && !getDocument()->isPerformingTransaction()
+            && !testStatus(App::Remove)
             && Base.getValue() && Corners.getLinkObject() != Base.getValue())
         Corners.setLinkObject(Base.getValue());
     DressUp::onChanged(prop);

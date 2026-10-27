@@ -26432,5 +26432,16 @@ two fixtures above fail, and the unfrozen Python suite crashed once in
 `TestFilletSlivers.testBaseOutsideTheBody` (SIGSEGV in
 `GeoFeatureGroupExtension::getGroupOfObject` from a recompute: a dangling
 object, the signature a7e36a7e74 took the trigger of away). Alone, three
-times, and in the whole suite twice since, it passed: one in three runs,
-PartDesign's, not chased here.
+times, and in the whole suite twice since, it passed: one in three runs.
+
+Chased after (PartDesign's, not the log's): `MALLOC_PERTURB_=165` makes it
+crash every time, alone, with the freeze off. Removing a fillet clears its
+link properties one by one (`PropertyLinkBase::breakLinks`), `Corners`
+before `Base`; `Fillet::onChanged` saw `Corners` empty and `Base` still
+set, and linked `Corners` to the Base's object again. That link was never
+taken back, so the deleted fillet stayed in the FeatureBase's InList, and the
+next recompute's `getGroupOfObject` walked it. The freeze only decides
+whether the freed memory is reused before that walk. `Fillet::onChanged` no
+longer relinks while the fillet is being removed (`App::Remove`). The test now
+also asserts the FeatureBase's InList is the body's two links: that fails on
+the old build every time, with the freeze on or off.

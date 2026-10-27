@@ -8,15 +8,15 @@
   <!-- Collision while dragging, highlighted: a dragged block (blue, under
        the cursor) driven into a fixed one (grey), the part they share in red -->
   <path
-     d="M 30,26 L 60,26 L 60,58 L 30,58 Z"
+     d="M 24,22 L 60,22 L 60,58 L 24,58 Z"
      style="fill:#babdb6;stroke:#2e3436;stroke-width:2;stroke-linejoin:round" />
   <path
-     d="M 6,6 L 42,6 L 42,38 L 6,38 Z"
+     d="M 4,4 L 44,4 L 44,42 L 4,42 Z"
      style="fill:#729fcf;stroke:#204a87;stroke-width:2;stroke-linejoin:round" />
   <path
-     d="M 30,26 L 42,26 L 42,38 L 30,38 Z"
+     d="M 24,22 L 44,22 L 44,42 L 24,42 Z"
      style="fill:#ef2929;stroke:#a40000;stroke-width:2;stroke-linejoin:round" />
   <path
-     d="M 12,12 L 12,31 L 16.5,26.5 L 20,34 L 23.5,32.5 L 20,25 L 26,25 Z"
+     d="M 9,8 L 9,27 L 13.5,22.5 L 17,30 L 20.5,28.5 L 17,21 L 23,21 Z"
      style="fill:#ffffff;stroke:#2e3436;stroke-width:2;stroke-linejoin:round" />
 </svg>

@@ -121,7 +121,7 @@ The Curves workbench's Gordon is a Python port of DLR TiGL (Apache-2.0, about 2,
 So OCCT's Gordon is exact and robust, but:
 - **Uneven crossings bloat it.** When the crossings are not already at shared parameters, the result is bloated and, inside, only C0 in its parametrization.
   - The exact reparametrization (`reparametrizeExactly`, a piecewise-linear parameter law) inserts full-multiplicity knots at every crossing.
-  - The result came out degree 9 and flagged rational, even for polynomial cubic input with all weights 1. Where the degree 9 comes from is not traced yet.
+  - The result came out degree 9 and flagged rational, even for polynomial cubic input with all weights 1. **Traced and fixed 2026-10-27 (occt 09c2509936):** `GeomFill_NetworkSurface` took a network with no rational curve for a rational one -- a `!=` that meant "not both", and weights of 1 that came back from a homogeneous interpolation 1 only to rounding -- and multiplied the three denominators exactly. With the fix, Gordon on the 12 x 12 network is degree 3, 306 x 306 poles, 119 ms, still exact; write-up in the occt fork's `tests/fork/surface/README.md`. The knots of full multiplicity at the crossings remain, so Gordon's surface is still C0 inside.
 - **A C0 parametrization is a trap for what comes next.** Offset and thicken generally need C1 or better (gk, OCCT's offset algorithm), and a face that size is costly to tessellate, evaluate and save. An evenly spaced network, like the first row, has none of this.
 - **It is G0 only.** It has no tangency or curvature conditions to adjacent faces.
 
@@ -309,7 +309,7 @@ The analysis tools belong in the view, not in the Surface workbench. Upstream as
 
 **Ruled 2026-10-27:** (a) the whole plan, U0 to U5, for the release. (b) to (i) as recommended: the network fix in Surface's own geometry layer, offered to OCCT later; edge conditions approximate within tolerance and reported; the support face implicit with an explicit override per edge; trim's kept side a 3D point with the element name as tie-break; analysis in the renderer and Gui core; the existing features kept and grown, the network surface a new feature; Cut off the tool bar for good, old files still load; upstream's Blend Curve task panel taken into U0.
 
-**Progress:** U0 started -- every feature's output named and Coons on curves of degree 2 (5c229a8b48); a Sew command with a FreeEdges / MaxGap readout (92a503c194). Upstream's Blend Curve task panel, with an empty end and a continuity above G4 handled (8c5758c6eb). Left in U0: the `Geom/` layer and `Surface_tests_run`, which arrive with U1's first function.
+**Progress:** U0 done. U1 started -- `Surface::Geom::networkSurface` (`App/Geom/`, gtest target `Surface_tests_run`): each family refitted at degree 3 on shared knots through the crossings, within a tolerance, then `GeomFill_NetworkSurface`; the 12 x 12 network is 67 x 26 poles in 78 ms. U0 before it -- every feature's output named and Coons on curves of degree 2 (5c229a8b48); a Sew command with a FreeEdges / MaxGap readout (92a503c194). Upstream's Blend Curve task panel, with an empty end and a continuity above G4 handled (8c5758c6eb).
 
 a. **Scope for the end-2026 release.** Proposed: U0 to U3, then U4 (analysis), then U5 if there is time. Or a cut: U0, U1, U2 (network, edge conditions, trim) as the release's surfacing, and the rest after.
 

@@ -356,7 +356,10 @@ class TestFilletSlivers(unittest.TestCase):
         fillet.Radius = 0.3
         self.Doc.recompute()
         self.assertTrue(fillet.isValid())
-        made = self.Base.Shape.makeFillet(0.3, [self.Base.Shape.getElement(slope)])
+        # on a copy: the value is frozen (ImmutableShapeValues), and the fillet
+        # raises the tolerance of a vertex it keeps; the feature retries so itself
+        shape = self.Base.Shape.copy()
+        made = shape.makeFillet(0.3, [shape.getElement(slope)])
         self.assertAlmostEqual(fillet.Shape.Volume, made.Volume, places=6)
 
     def testFilletTakesOutTheStep(self):

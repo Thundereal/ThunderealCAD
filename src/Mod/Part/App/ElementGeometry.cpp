@@ -22,6 +22,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <map>
 #include <mutex>
 #include <type_traits>
 #include <unordered_map>
@@ -107,6 +108,20 @@ std::unordered_map<const TopoDS_TShape*, CachedCurve>& curveCache()
 std::unordered_map<const TopoDS_TShape*, CachedSurface>& surfaceCache()
 {
     static std::unordered_map<const TopoDS_TShape*, CachedSurface> cache;
+    return cache;
+}
+// A face's frame where its geometry is (no location), per TShape and
+// orientation: faceFrame() integrates the face for its centre, and an
+// assembly asks it again for every joint's face at every solve, the faces
+// only moved
+struct CachedFrame
+{
+    Handle(TopoDS_TShape) tshape;
+    Base::Placement frame;
+};
+std::map<std::pair<const TopoDS_TShape*, int>, CachedFrame>& frameCache()
+{
+    static std::map<std::pair<const TopoDS_TShape*, int>, CachedFrame> cache;
     return cache;
 }
 std::atomic<int> conversions {0};
@@ -649,8 +664,34 @@ Base::Placement findElementFrame(const TopoShape& shape)
                                    Base::Rotation());
         case TopAbs_EDGE:
             return edgeFrame(TopoDS::Edge(s));
-        case TopAbs_FACE:
-            return faceFrame(TopoDS::Face(s));
+        case TopAbs_FACE: {
+            const TopoDS_Face& face = TopoDS::Face(s);
+            const gp_Trsf trsf = face.Location().Transformation();
+            // A location that scales or mirrors is not a placement
+            if (std::abs(trsf.ScaleFactor() - 1.0) > 1e-12 || trsf.IsNegative()) {
+                return faceFrame(face);
+            }
+            const auto key = std::make_pair(face.TShape().get(), int(face.Orientation()));
+            Base::Placement local;
+            bool found = false;
+            {
+                std::lock_guard<std::mutex> lock(cacheMutex());
+                auto it = frameCache().find(key);
+                if (it != frameCache().end()) {
+                    local = it->second.frame;
+                    found = true;
+                }
+            }
+            if (!found) {
+                local = faceFrame(TopoDS::Face(face.Located(TopLoc_Location())));
+                std::lock_guard<std::mutex> lock(cacheMutex());
+                if (frameCache().size() >= CacheLimit) {
+                    frameCache().clear();
+                }
+                frameCache()[key] = CachedFrame {face.TShape(), local};
+            }
+            return Base::Placement(TopoShape::convert(trsf)) * local;
+        }
         default:
             // A whole object (a datum, a body): its own frame
             return shape.getPlacement();

@@ -3503,8 +3503,15 @@ at 200 parts: a solve 0.59 s, the edit 0.70 s, ten drag steps 12.9 s (most
 record as it was. The Assembly suite 372 run, 59 skipped, no failures;
 ctest 1000/1000.
 
-**Not done:** four of Chrono's ten drag steps at 200 parts take 2 to 3.4 s
-(not looked into); the pair search has no case of its own; a
+Four of Chrono's ten drag steps at 200 parts still took 2 to 3.4 s: the
+reduced Newton step of its pull differentiates the Lagrangian's gradient
+along each free direction (a hundred at 200 parts), each an update of the
+whole system and a Jacobian built dense. The gradient takes Cq' lambda from
+the sparse Jacobian now, and forward differences halve the updates (the
+Hessian only orients a step that is restored and taken while it brings the
+poses closer): ten drag steps 12.9 -> 7.9 s.
+
+**Not done:** the pair search has no case of its own; a
 group still moves as one body in the solve's metric (its joints' centre and
 spread), not as the sum of its bodies.
 

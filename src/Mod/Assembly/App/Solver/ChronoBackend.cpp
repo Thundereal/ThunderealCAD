@@ -1642,6 +1642,17 @@ struct ChronoSession::Impl
         return MatX(Cq);
     }
 
+    // Cq' lambda at the current state, Cq kept sparse.
+    VecX jacobianTransposeTimes(const VecX& lambda)
+    {
+        ch::ChSparseMatrix Cq;
+        sys->GetConstraintJacobianMatrix(Cq);
+        if (Cq.rows() != lambda.size()) {
+            return VecX();
+        }
+        return Cq.transpose() * lambda;
+    }
+
     // M (x - target), the gradient of the metric, in velocity coordinates.
     VecX metricGradient(const std::vector<Pose>& target)
     {
@@ -1655,7 +1666,7 @@ struct ChronoSession::Impl
 
     // The reduced Newton step towards the target along the constraints: the
     // null space Z of Chrono's Jacobian, the multipliers that make the
-    // gradient of the Lagrangian normal to it, its Hessian on Z by central
+    // gradient of the Lagrangian normal to it, its Hessian on Z by forward
     // differences of that gradient (Chrono's Jacobian at the perturbed
     // states), and the step Z (Z' H Z)^-1 Z' g when Z' H Z is positive
     // definite. False when it is not, or Z is too large to be worth it.
@@ -1685,21 +1696,25 @@ struct ChronoSession::Impl
         }
         auto lagrangian = [&](const State& y) {
             scatter(y);
-            const MatX Jy = jacobian();
             VecX g = metricGradient(target);
-            if (Jy.rows() == lambda.size()) {
-                g += Jy.transpose() * lambda;
+            const VecX jl = jacobianTransposeTimes(lambda);
+            if (jl.size() == g.size()) {
+                g += jl;
             }
             return g;
         };
+        // Forward differences: one state per free direction, not two; each is
+        // an update of the whole system, and with a hundred free directions
+        // (a chain of 200 parts) the central ones made a drag step take 2 s.
+        // The Hessian only orients the step, which is restored and taken while
+        // it brings the poses closer.
         const double h = 1e-6;
+        const VecX base = lagrangian(s);
         MatX HZ(n, free);
         for (Eigen::Index k = 0; k < free; ++k) {
             ch::ChStateDelta zk(n, sys.get());
             zk = Z.col(k);
-            const VecX plus = lagrangian(stepped(s, zk, h));
-            const VecX minus = lagrangian(stepped(s, zk, -h));
-            HZ.col(k) = (plus - minus) / (2.0 * h);
+            HZ.col(k) = (lagrangian(stepped(s, zk, h)) - base) / h;
         }
         scatter(s);
         MatX Hr = Z.transpose() * HZ;

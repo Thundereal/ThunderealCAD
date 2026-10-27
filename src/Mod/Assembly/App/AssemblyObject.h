@@ -411,7 +411,6 @@ private:
 
     std::vector<std::pair<App::DocumentObject*, Base::Placement>> previousPositions;
 
-    bool bundleFixed;
     // Frames I and J of the joint being built come from Reference2 and
     // Reference1 (swapJCS); reset by makeMbdJoint for each joint.
     bool jcsSwapped {false};

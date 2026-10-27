@@ -656,8 +656,8 @@ Result OndselSession::solve(const SolveOptions& options)
 
 Status OndselSession::beginDrag(const std::vector<Id>& bodies, const DragOptions& options)
 {
-    // Fixed joints are bundled by the builder (AssemblyObject's bundleFixed), so
-    // the option has nothing left to do here.
+    // The bodies Fixed joints hold together are one body of the model already
+    // (groupedRigidly), so the option has nothing left to do here.
     (void)options;
 
     // Every solver body is built with mass 1 and unit inertia, and that stays

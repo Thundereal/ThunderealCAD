@@ -3369,7 +3369,7 @@ within 0.2 % of the backends' closest (LineSphere), the rest equal.
 1000/1000.
 
 **Not done:** Chrono still fails the edit at 200 parts ("Chrono's assembly
-did not converge"), and its drag there turns nothing. A
+did not converge"), and its drag there turns nothing. (Fixed in sec 6.22.) A
 solve that falls back to restoring ends on the constraints near the start,
 not at the closest pose (within 0.2 % of it in the gate). The Reference is
 dense, so at 200 parts it takes minutes.
@@ -3442,6 +3442,67 @@ closest pose of all its bodies; a body is tried against the held ones alone,
 so two bodies that are rigid only together (neither alone) stay with the
 backend; the drag still bundles Fixed joints by the parts' current offsets
 (`bundleFixed`) before this sees the model.
+(All three taken up in sec 6.22.)
+
+### 6.22 As built: the open ends of sec 6.20 and 6.21 (2026-10-27)
+
+**Chrono at 200 parts.** Its restoration converged (0.87, then 0.024, then
+5.8e-4) and then no step factor down to 1e-6 reduced the error. The step did
+not solve the system it came from: |Cq dx + C| / |C| was 3e-3, 2e-2, then
+1.0 -- Eigen's SparseQR (`ChSolverSparseQR`), taken for the rank-deficient
+KKT systems redundant joints make, is not accurate on these regular ones;
+Eigen's SparseLU solves them to 1e-13. The backend's solver is now
+`LUThenQR`: SparseLU, and SparseQR where the LU fails or its solution is off
+the constraint rows (relative 1e-10) or off the variables' rows (1e-8 of
+the larger of their right-hand side, the step and 1). Both tests are needed:
+on a cam's roller follower the system is singular, the LU still solves the
+constraint rows, but its multipliers come to 1e19 and the variables' rows
+are hundreds off, the step with them. The edit at 200 parts now solves on
+Chrono (86.367 mm, as the others), and its drag turns the part.
+
+**A group's start.** The group started at its first body's start, its
+members where the placing put them, so the solve measured nothing of how
+far the placing had moved them. Now the group is moved, before the solve,
+to where its bodies best match their starts: by the mean of their turns from
+placed to start, then by the mean offset of their joints' centres. Left
+alone when the placing moved nothing. `test_drag_bundles_fixed` (C 50 mm off
+its Fixed joint) is again solved with B and C meeting between, as the whole
+solve did.
+
+**Pairs.** When no single body can be placed, two joined bodies are tried
+together, both against the held ones (twelve equations or more, DoF 0,
+nothing dependent). Not tested on a case of its own: the gate's loops all
+carry a dependent equation, so they reach the pair search and are refused
+there.
+
+**The search** was a scan of every body each round, and of every pair once
+the singles stalled -- O(n^2) small collections, 20 % of a solve at 200
+parts. Only bodies joined to a held one are tried now, in model order (a
+body joined to one just placed comes in that round if its turn has not
+come, as the full scan took it), which makes the outcome the scan's.
+
+**The drag's own bundling is gone** (`bundleFixed`): `preDrag` bundled
+Fixed joints by the parts' current offsets and dropped the joints, so only
+a bundle's first part could be dragged -- a drag of the part a Fixed joint
+holds did nothing (the bench's, sec 6.20). The groups do it now, by the
+joints' frames, and map a member's drag target to its group: dragging the
+last box of the bench chain turns it 30 degrees. The five drag cases' model
+digests changed; their placements moved by rounding.
+
+**Results** (the bench chain at 200 parts, OndselSolver, sec 6.21 -> now):
+a solve 0.64 -> 0.48 s, the 5 degree edit 0.65 -> 0.63 s, a touched leaf
+0.77 -> 0.75 s, preDrag 1.6 -> 1.5 s, ten drag steps 3.7 -> 3.8 s. Chrono:
+a solve 0.67 s, the edit 4.3 s, ten drag steps 72 s (the first 25 s).
+
+**Gate.** Three records for the group start (the bench chains,
+`test_drag_bundles_fixed`), five drag digests for the bundling; every other
+record as it was. The Assembly suite 372 run, 59 skipped, no failures;
+ctest 1000/1000.
+
+**Not done:** Chrono's drag at 200 parts is slow (its first step 25 s, the
+pull phase; not looked into); the pair search has no case of its own; a
+group still moves as one body in the solve's metric (its joints' centre and
+spread), not as the sum of its bodies.
 
 ### 6.4 Where Python must change
 

@@ -118,6 +118,8 @@ struct SolveOptions
 
 struct DragOptions
 {
+    // Unused: the bodies Fixed joints hold together are one body of the model
+    // already (groupedRigidly, sec 6.21).
     bool bundleFixed = true;
 };
 

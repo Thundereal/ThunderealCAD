@@ -87,8 +87,8 @@
 // right-hand side [M (target - x); -C] gives the step to the point of the
 // linearised constraints closest to the target, which is taken, restored onto
 // the constraints and kept while it brings the poses closer (the pull). Both
-// solve with Chrono's ChSolverSparseQR, which takes the rank-deficient KKT
-// systems redundant joints make.
+// solve with Eigen's SparseLU, and SparseQR where that does not solve the
+// system (the rank-deficient KKT systems redundant joints make; LUThenQR).
 //
 // Limits are an active set: a bound a solution violates gets a Chrono link
 // holding it there (ChLinkMateDistanceZ for a slide, a constant
@@ -153,6 +153,75 @@ constexpr double maxDriverStep = 0.25;
 
 using MatX = Eigen::MatrixXd;
 using VecX = Eigen::VectorXd;
+
+// The KKT solves: Eigen's SparseLU, and SparseQR where that does not solve
+// the system: a factorization that fails, or a solution off the constraint
+// rows (Cq dx = -C, the rows after the variables') or off the variables'
+// rows. Redundant joints make the system singular: an LU of it solves the
+// constraint rows still, but its multipliers come to 1e19 and their rounding
+// leaves the variables' rows hundreds off (a cam's roller follower), the step
+// with them; conflicting joints make it inconsistent, which wants the least
+// squares step. SparseQR alone took the
+// rank-deficient systems, but on regular ones it returned steps far off the
+// system: on a chain of 100 bodies |Cq dx + C| / |C| came to 3e-3, then
+// 2e-2, then 1, where SparseLU gives 1e-13, and the restoration stopped short
+// of the constraints.
+class LUThenQR: public ch::ChDirectSolverLS
+{
+public:
+    Type GetType() const override
+    {
+        return Type::SPARSE_LU;
+    }
+    bool Setup(ch::ChSystemDescriptor& sysd, bool analyze) override
+    {
+        constraints = sysd.CountActiveConstraints();
+        return ChDirectSolverLS::Setup(sysd, analyze);
+    }
+
+private:
+    bool FactorizeMatrix(bool analyze) override
+    {
+        if (analyze) {
+            lu.analyzePattern(m_mat);
+        }
+        lu.factorize(m_mat);
+        factored = lu.info() == Eigen::Success;
+        qrReady = false;
+        return true;
+    }
+    bool SolveSystem() override
+    {
+        if (factored) {
+            m_sol = lu.solve(m_rhs);
+            if (lu.info() == Eigen::Success && m_sol.allFinite()) {
+                const Eigen::Index n = std::min<Eigen::Index>(constraints, m_rhs.size());
+                const ch::ChVectorDynamic<> residual = m_mat * m_sol - m_rhs;
+                const Eigen::Index nv = m_rhs.size() - n;
+                const double scale =
+                    std::max({1.0, m_rhs.head(nv).norm(), m_sol.head(nv).norm()});
+                if (residual.tail(n).norm() <= 1e-10 * std::max(m_rhs.tail(n).norm(), 1e-12)
+                    && residual.head(nv).norm() <= 1e-8 * scale) {
+                    return true;
+                }
+            }
+        }
+        if (!qrReady) {
+            qr.compute(m_mat);
+            qrReady = true;
+        }
+        m_sol = qr.solve(m_rhs);
+        return qr.info() == Eigen::Success && m_sol.allFinite();
+    }
+    void PrintErrorMessage() override
+    {}
+
+    Eigen::SparseLU<ch::ChSparseMatrix, Eigen::COLAMDOrdering<int>> lu;
+    Eigen::SparseQR<ch::ChSparseMatrix, Eigen::COLAMDOrdering<int>> qr;
+    unsigned int constraints = 0;
+    bool factored = false;
+    bool qrReady = false;
+};
 
 enum class Category : std::uint8_t
 {
@@ -1955,7 +2024,7 @@ Status ChronoSession::load(const Model& model)
     try {
         ch::ChSystemNSC& sys = *d->sys;
         sys.SetGravitationalAcceleration(ch::ChVector3d(0, 0, 0));
-        sys.SetSolver(std::make_shared<ch::ChSolverSparseQR>());
+        sys.SetSolver(std::make_shared<LUThenQR>());
 
         d->world = std::make_shared<ch::ChBody>();
         d->world->SetFixed(true);

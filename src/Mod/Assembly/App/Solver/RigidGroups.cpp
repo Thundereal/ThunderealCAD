@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <set>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -235,23 +236,35 @@ private:
         return frame.body == NoId ? frame.local : pose[frame.body] * frame.local;
     }
 
-    // Where the joints place body b against the bodies they reach, which are
-    // held: true when they leave it no freedom and have no dependent equation.
-    bool place(Id b, const std::vector<Id>& joints, Base::Placement& placed) const
+    // Where the joints place the bodies against the bodies they reach, which
+    // are held: true when they leave them no freedom and have no dependent
+    // equation.
+    bool place(
+        const std::vector<Id>& bodies,
+        const std::vector<Id>& joints,
+        std::vector<Base::Placement>& placed
+    ) const
     {
-        if (joints.size() == 1 && original.joints[joints[0]].kind == JointKind::Fixed) {
+        placed.clear();
+        if (bodies.size() == 1 && joints.size() == 1
+            && original.joints[joints[0]].kind == JointKind::Fixed) {
             const Joint& joint = original.joints[joints[0]];
             const Frame& fi = original.frames[joint.frameI];
             const Frame& fj = original.frames[joint.frameJ];
-            placed = fj.body == b ? world(fi) * fj.local.inverse() : world(fj) * fi.local.inverse();
+            placed.push_back(
+                fj.body == bodies[0] ? world(fi) * fj.local.inverse() : world(fj) * fi.local.inverse()
+            );
             return true;
         }
 
-        // The body alone, the frames of the others on the ground
-        Model one;
-        Body body;
-        body.placement = pose[b];
-        one.addBody(body);
+        // The bodies alone, the frames of the others on the ground
+        Model some;
+        std::unordered_map<Id, Id> index;
+        for (Id b : bodies) {
+            Body body;
+            body.placement = pose[b];
+            index[b] = some.addBody(body);
+        }
         std::unordered_map<Id, Id> frames;
         auto frameOf = [&](Id f) -> Id {
             if (f == NoId) {
@@ -262,14 +275,14 @@ private:
             }
             Frame frame = original.frames[f];
             frame.label = NoId;
-            if (frame.body == b) {
-                frame.body = 0;
+            if (auto it = index.find(frame.body); it != index.end()) {
+                frame.body = it->second;
             }
             else {
                 frame.local = world(frame);
                 frame.body = NoId;
             }
-            return frames[f] = one.addFrame(frame);
+            return frames[f] = some.addFrame(frame);
         };
         for (Id j : joints) {
             Joint joint = original.joints[j];
@@ -277,11 +290,11 @@ private:
             joint.frameI = frameOf(joint.frameI);
             joint.frameJ = frameOf(joint.frameJ);
             joint.frameK = frameOf(joint.frameK);
-            one.addJoint(joint);
+            some.addJoint(joint);
         }
 
         ReferenceSession session;
-        if (session.load(one) != Status::Ok || session.solve({}).status != Status::Ok) {
+        if (session.load(some) != Status::Ok || session.solve({}).status != Status::Ok) {
             return false;
         }
         const Diagnostics d = session.analyse();
@@ -289,8 +302,10 @@ private:
             || !d.conflicting.empty() || !d.partiallyRedundant.empty()) {
             return false;
         }
-        placed = session.poses().at(0).placement;
-        return true;
+        for (const auto& p : session.poses()) {
+            placed.push_back(p.placement);
+        }
+        return placed.size() == bodies.size();
     }
 
     void build()
@@ -335,55 +350,138 @@ private:
         std::vector<bool> taken(original.joints.size(), false);
         bool any = false;
 
-        // Places, until none is left, the bodies that the joints to the bodies
-        // 'held' says are held (NoId: the ground) leave no freedom.
-        auto grow = [&](const std::function<bool(Id)>& held, const std::function<void(Id)>& accept) {
-            for (bool changed = true; changed;) {
-                changed = false;
-                for (Id b = 0; b < n; ++b) {
-                    if (assigned[b] || timed[b]) {
+        // The joints of a set of bodies that reach only the set and the bodies
+        // 'held' says are held (NoId: the ground), and the equations they
+        // hold; -1 when one of them cannot be taken out.
+        auto collect = [&](const std::vector<Id>& set,
+                           const std::function<bool(Id)>& held,
+                           std::vector<Id>& joints) {
+            joints.clear();
+            int count = 0;
+            auto in = [&](Id o) { return std::ranges::find(set, o) != set.end(); };
+            for (Id b : set) {
+                for (Id j : jointsOf[b]) {
+                    if (std::ranges::find(joints, j) != joints.end()) {
                         continue;
                     }
-                    std::vector<Id> joints;
-                    int count = 0;
-                    bool usable = true;
-                    for (Id j : jointsOf[b]) {
-                        const Joint& joint = original.joints[j];
-                        bool reaches = true;
-                        bool other = false;
-                        for (Id f : {joint.frameI, joint.frameJ, joint.frameK}) {
-                            if (f == NoId) {
-                                continue;
-                            }
-                            const Id o = bodyOf(f);
-                            if (o != b) {
-                                other = true;
-                                reaches = reaches && held(o);
-                            }
-                        }
-                        if (!reaches) {
+                    const Joint& joint = original.joints[j];
+                    bool reaches = true;
+                    std::vector<Id> on;
+                    for (Id f : {joint.frameI, joint.frameJ, joint.frameK}) {
+                        if (f == NoId) {
                             continue;
                         }
-                        const int e = equationsOf(joint.kind);
-                        if (!other || e < 0 || joint.frameK != NoId) {
-                            usable = false;
-                            break;
+                        const Id o = bodyOf(f);
+                        if (std::ranges::find(on, o) == on.end()) {
+                            on.push_back(o);
                         }
-                        count += e;
-                        joints.push_back(j);
+                        if (!in(o)) {
+                            reaches = reaches && held(o);
+                        }
                     }
-                    Base::Placement placed;
-                    if (!usable || count < 6 || !place(b, joints, placed)) {
+                    if (!reaches) {
                         continue;
                     }
-                    pose[b] = placed;
-                    assigned[b] = true;
-                    for (Id j : joints) {
-                        taken[j] = true;
+                    const int e = equationsOf(joint.kind);
+                    if (on.size() < 2 || e < 0 || joint.frameK != NoId) {
+                        return -1;  // on one body, or not to be taken out
                     }
-                    accept(b);
-                    any = true;
-                    changed = true;
+                    count += e;
+                    joints.push_back(j);
+                }
+            }
+            return count;
+        };
+        auto free = [&](Id b) { return b < n && !assigned[b] && !timed[b]; };
+
+        // The bodies a joint joins to each body; and those joined to the ground
+        std::vector<std::vector<Id>> neighbours(n);
+        std::set<Id> onGround;
+        for (const auto& joint : original.joints) {
+            std::vector<Id> on;
+            bool ground = false;
+            for (Id f : {joint.frameI, joint.frameJ, joint.frameK}) {
+                if (f == NoId) {
+                    continue;
+                }
+                const Id b = bodyOf(f);
+                if (b < n) {
+                    on.push_back(b);
+                }
+                else {
+                    ground = true;
+                }
+            }
+            for (Id a : on) {
+                for (Id b : on) {
+                    if (a != b && std::ranges::find(neighbours[a], b) == neighbours[a].end()) {
+                        neighbours[a].push_back(b);
+                    }
+                }
+                if (ground) {
+                    onGround.insert(a);
+                }
+            }
+        }
+
+        // Places, until none is left, the bodies -- one by one, else two at a
+        // time, joined -- that the joints to the held ones leave no freedom.
+        // Only the bodies joined to a held one can be, so those are tried, in
+        // model order, a body joined to one just placed after it in the same
+        // round if its turn has not come.
+        auto grow = [&](std::set<Id> frontier,
+                        const std::function<bool(Id)>& held,
+                        const std::function<void(Id)>& accept) {
+            std::vector<Id> joints;
+            std::vector<Base::Placement> placed;
+            auto take = [&](const std::vector<Id>& set) {
+                for (std::size_t k = 0; k < set.size(); ++k) {
+                    pose[set[k]] = placed[k];
+                    assigned[set[k]] = true;
+                    accept(set[k]);
+                    for (Id b : neighbours[set[k]]) {
+                        if (free(b)) {
+                            frontier.insert(b);
+                        }
+                    }
+                }
+                for (Id j : joints) {
+                    taken[j] = true;
+                }
+                any = true;
+            };
+            for (bool changed = true; changed;) {
+                changed = false;
+                for (auto it = frontier.begin(); it != frontier.end();) {
+                    const Id b = *it;
+                    if (!free(b)) {
+                        it = frontier.erase(it);
+                        continue;
+                    }
+                    if (collect({b}, held, joints) >= 6 && place({b}, joints, placed)) {
+                        take({b});
+                        changed = true;
+                        it = frontier.erase(it);
+                        continue;
+                    }
+                    ++it;
+                }
+                if (changed) {
+                    continue;
+                }
+                for (auto it = frontier.begin(); it != frontier.end() && !changed; ++it) {
+                    const Id a = *it;
+                    for (Id b : neighbours[a]) {
+                        if (!free(b)) {
+                            continue;
+                        }
+                        const std::vector<Id> pair {std::min(a, b), std::max(a, b)};
+                        if (collect(pair, held, joints) >= 12 && place(pair, joints, placed)) {
+                            take(pair);
+                            changed = true;
+                            break;
+                        }
+                    }
                 }
             }
         };
@@ -395,7 +493,14 @@ private:
                 fixed[b] = assigned[b] = true;
             }
         }
+        std::set<Id> fromGround = onGround;
+        for (Id b = 0; b < n; ++b) {
+            if (fixed[b]) {
+                fromGround.insert(neighbours[b].begin(), neighbours[b].end());
+            }
+        }
         grow(
+            std::move(fromGround),
             [&](Id o) { return o == NoId || (o < n && fixed[o]); },
             [&](Id b) {
                 fixed[b] = true;
@@ -413,12 +518,65 @@ private:
             assigned[r] = true;
             groupOf[r] = r;
             grow(
+                std::set<Id>(neighbours[r].begin(), neighbours[r].end()),
                 [&](Id o) { return o < n && groupOf[o] == r; },
                 [&](Id b) {
                     groupOf[b] = r;
                     map[b].role = Role::Member;
                 }
             );
+        }
+
+        // A group starts where its bodies, as the placing put them against
+        // its first body, best match where each of them started: the mean of
+        // their turns from placed to start, then the translation that brings
+        // their joints' centres nearest. Left alone when nothing moved.
+        const std::vector<BodyMetric> metric = jointMetric(original);
+        for (Id r = 0; r < n; ++r) {
+            std::vector<Id> group;
+            bool moved = false;
+            for (Id b = 0; b < n; ++b) {
+                if (groupOf[b] == r && map[b].role != Role::Placed) {
+                    group.push_back(b);
+                    moved = moved || pose[b] != original.bodies[b].placement;
+                }
+            }
+            if (group.size() < 2 || !moved) {
+                continue;
+            }
+            double q[4] = {0.0, 0.0, 0.0, 0.0};
+            double first[4] = {0.0, 0.0, 0.0, 0.0};
+            for (std::size_t k = 0; k < group.size(); ++k) {
+                const Id b = group[k];
+                const Base::Rotation turn =
+                    original.bodies[b].placement.getRotation() * pose[b].getRotation().inverse();
+                double t[4];
+                turn.getValue(t[0], t[1], t[2], t[3]);
+                if (k == 0) {
+                    std::copy(t, t + 4, first);
+                }
+                const double sign = t[0] * first[0] + t[1] * first[1] + t[2] * first[2]
+                        + t[3] * first[3] < 0.0
+                    ? -1.0
+                    : 1.0;
+                for (int i = 0; i < 4; ++i) {
+                    q[i] += sign * t[i];
+                }
+            }
+            const Base::Rotation turn(q[0], q[1], q[2], q[3]);  // normalised by the constructor
+            Base::Vector3d shift;
+            for (Id b : group) {
+                Base::Vector3d placedCentre;
+                Base::Vector3d startCentre;
+                pose[b].multVec(metric[b].centre, placedCentre);
+                original.bodies[b].placement.multVec(metric[b].centre, startCentre);
+                shift += startCentre - turn.multVec(placedCentre);
+            }
+            shift /= static_cast<double>(group.size());
+            const Base::Placement fit(shift, turn);
+            for (Id b : group) {
+                pose[b] = fit * pose[b];
+            }
         }
 
         jointOrigin.clear();
@@ -440,7 +598,9 @@ private:
         reduced.sources = original.sources;
         for (Id b = 0; b < n; ++b) {
             if (map[b].role == Role::Kept) {
-                map[b].reduced = reduced.addBody(original.bodies[b]);
+                Body body = original.bodies[b];
+                body.placement = pose[b];
+                map[b].reduced = reduced.addBody(body);
                 keptOrigin.push_back(b);
             }
         }

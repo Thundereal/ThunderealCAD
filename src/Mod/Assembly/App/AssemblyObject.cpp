@@ -271,8 +271,7 @@ void appendUnique(std::vector<std::string>& names, const std::string& name)
 PROPERTY_SOURCE(Assembly::AssemblyObject, App::Part)
 
 AssemblyObject::AssemblyObject()
-    : bundleFixed(false)
-    , lastDoF(0)
+    : lastDoF(0)
     , lastHasConflict(false)
     , lastHasRedundancies(false)
     , lastHasPartialRedundancies(false)
@@ -878,7 +877,8 @@ void AssemblyObject::preDrag(std::vector<App::DocumentObject*> dragParts)
     dragStepFailures = 0;
     lastDragStepFailed = false;
 
-    bundleFixed = true;
+    // Bodies Fixed joints hold together are one body in the solve
+    // (Solver::groupedRigidly, sec 6.21); a drag needs no bundling of its own.
     bool hasUnconnectedDragPart = std::ranges::any_of(dragParts, [this](App::DocumentObject* part) {
         return part && !isPartConnected(part);
     });
@@ -889,7 +889,6 @@ void AssemblyObject::preDrag(std::vector<App::DocumentObject*> dragParts)
     else {
         solve();
     }
-    bundleFixed = false;
 
     draggedParts.clear();
 
@@ -2597,9 +2596,6 @@ std::shared_ptr<Solver::Joint> AssemblyObject::makeMbdJointOfType(App::DocumentO
 {
     switch (type) {
         case JointType::Fixed:
-            if (bundleFixed) {
-                return nullptr;
-            }
             return makeJoint(Solver::JointKind::Fixed);
 
         case JointType::Revolute:
@@ -3506,8 +3502,8 @@ const char* AssemblyObject::jcsPlc(int side) const
 
 bool AssemblyObject::isMbDJointValid(App::DocumentObject* joint)
 {
-    // When dragging a part, we are bundling fixed parts together.
-    // This may lead to a conflicting joint that is self referencing a MbD part.
+    // The members of a rigid group share one MbD part, so a joint between two
+    // of them would be self referencing.
     // The solver crash when fed such a bad joint. So we make sure it does not happen.
     App::DocumentObject* part1 = getMovingPartFromRef(joint, "Reference1");
     App::DocumentObject* part2 = getMovingPartFromRef(joint, "Reference2");
@@ -3574,34 +3570,6 @@ AssemblyObject::MbDPartData AssemblyObject::getMbDData(App::DocumentObject* part
     MbDPartData data = {mbdPart, Base::Placement()};
     objectPartMap[part] = data;  // Store the association
 
-    // Associate other objects connected with fixed joints
-    if (bundleFixed) {
-        auto addConnectedFixedParts = [&](App::DocumentObject* currentPart, auto& self) -> void {
-            std::vector<App::DocumentObject*> joints = getJointsOfPart(currentPart);
-            for (auto* joint : joints) {
-                JointType jointType = getJointType(joint);
-                if (jointType == JointType::Fixed) {
-                    App::DocumentObject* part1 = getMovingPartFromRef(joint, "Reference1");
-                    App::DocumentObject* part2 = getMovingPartFromRef(joint, "Reference2");
-                    App::DocumentObject* partToAdd = currentPart == part1 ? part2 : part1;
-
-                    if (objectPartMap.find(partToAdd) != objectPartMap.end()) {
-                        // already added
-                        continue;
-                    }
-
-                    Base::Placement plci = getPlacementFromProp(partToAdd, "Placement");
-                    MbDPartData partData = {mbdPart, plc.inverse() * plci};
-                    objectPartMap[partToAdd] = partData;  // Store the association
-
-                    // Recursively call for partToAdd
-                    self(partToAdd, self);
-                }
-            }
-        };
-
-        addConnectedFixedParts(part, addConnectedFixedParts);
-    }
     return data;
 }
 

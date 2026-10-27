@@ -63,7 +63,10 @@ backend sees the model, and leave it; six records were taken again, the
 model text of the cases with a Fixed joint and placements that moved by
 rounding, but test_drag_bundles_fixed, whose Fixed joint starts 50 mm off:
 C is moved onto B's frame, one body with it, and B goes where the
-Revolute takes it, instead of the two meeting between.
+Revolute takes it, instead of the two meeting between. Since sec 6.22 a
+group starts where its bodies best match their starts, so they meet between
+again (three records), and a drag no longer bundles Fixed joints itself
+(the five drag cases' model digests).
 
 Every other registered backend (AssemblyApp.getAvailableSolvers(); since sec
 6.13 the Reference backend) runs the same cases through the assembly's

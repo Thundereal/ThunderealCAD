@@ -21,10 +21,13 @@
  *                                                                          *
  ***************************************************************************/
 
+#include <cstring>
 #include <vector>
 
+#include <App/Application.h>
 #include <App/Document.h>
 #include <App/DocumentObject.h>
+#include <Gui/Action.h>
 #include <Gui/Application.h>
 #include <Gui/CommandT.h>
 #include <Gui/Document.h>
@@ -34,6 +37,7 @@
 
 #include <Mod/Assembly/App/AssemblyLink.h>
 #include <Mod/Assembly/App/AssemblyObject.h>
+#include <Mod/Assembly/App/AssemblyParams.h>
 #include <Mod/Assembly/App/AssemblyUtils.h>
 
 #include "Commands.h"
@@ -362,6 +366,216 @@ bool CmdAssemblySelectJointsOfComponent::isActive()
 
 
 // ================================================================================
+// Collision While Dragging
+// ================================================================================
+
+// The DragCollision preference, read from its group: AssemblyParams has the
+// new value only once its own observer is told, and the commands below
+// observe the group too
+static long dragCollision()
+{
+    return App::GetApplication()
+        .GetParameterGroupByPath("User parameter:BaseApp/Preferences/Mod/Assembly")
+        ->GetInt("DragCollision", 0);
+}
+
+// One value of the DragCollision preference (docs/AssemblyInterference.md),
+// checked while it is the one set
+class CmdAssemblyDragCollisionMode: public Gui::CheckableCommand
+{
+public:
+    CmdAssemblyDragCollisionMode(const char* name, AssemblyObject::DragCollision mode)
+        : Gui::CheckableCommand(name)
+        , mode(mode)
+    {
+        sGroup = QT_TR_NOOP("Assembly");
+        sWhatsThis = name;
+        // Off is no mode for the tool bar button to turn on
+        eType = mode == AssemblyObject::DragCollision::Off ? NoDefaultAction : 0;
+        bCanLog = false;
+    }
+    const char* className() const override
+    {
+        return "CmdAssemblyDragCollisionMode";
+    }
+
+protected:
+    bool getOption() const override
+    {
+        return dragCollision() == static_cast<long>(mode);
+    }
+    void setOption(bool checked) override
+    {
+        // Unchecked as another mode is checked, by the group or by the menu's
+        // radio buttons following it: that one has set the preference, or
+        // will. Off has nothing to undo.
+        if (checked) {
+            AssemblyParams::setDragCollision(static_cast<long>(mode));
+        }
+        else if (getOption() && mode != AssemblyObject::DragCollision::Off) {
+            AssemblyParams::setDragCollision(static_cast<long>(AssemblyObject::DragCollision::Off));
+        }
+    }
+
+private:
+    AssemblyObject::DragCollision mode;
+};
+
+/** The DragCollision preference on the tool bar: the button turns collision
+ * while dragging on and off, in the mode its menu chose last (Highlight or
+ * Stop); the menu has the three values. It follows the preference, as the
+ * preference page and Python set it too, and the next drag reads it.
+ */
+class CmdAssemblyDragCollision: public Gui::GroupCommand
+{
+public:
+    CmdAssemblyDragCollision()
+        : GroupCommand("Assembly_DragCollision", StopIndex)
+    {
+        sGroup = QT_TR_NOOP("Assembly");
+        sMenuText = QT_TR_NOOP("Collision While Dragging");
+        sToolTipText = QT_TR_NOOP("What dragging a part does when it brings two components "
+                                  "into collision");
+        sWhatsThis = "Assembly_DragCollision";
+        sStatusTip = sToolTipText;
+        eType = 0;
+        bCanLog = false;
+        setCheckable(true);
+        setExclusive(true);
+
+        // The children's texts are translated in their own class's context
+        auto off = new CmdAssemblyDragCollisionMode("Assembly_DragCollisionOff",
+                                                    AssemblyObject::DragCollision::Off);
+        off->setMenuText(QT_TRANSLATE_NOOP("CmdAssemblyDragCollisionMode", "Off"));
+        off->setToolTipText(QT_TRANSLATE_NOOP("CmdAssemblyDragCollisionMode",
+                                              "Dragging a part does not look for collisions"));
+        off->setStatusTip(off->getToolTipText());
+        addCommand(off);
+
+        auto highlight = new CmdAssemblyDragCollisionMode("Assembly_DragCollisionHighlight",
+                                                          AssemblyObject::DragCollision::Highlight);
+        highlight->setMenuText(
+            QT_TRANSLATE_NOOP("CmdAssemblyDragCollisionMode", "Highlight Collisions"));
+        highlight->setToolTipText(QT_TRANSLATE_NOOP(
+            "CmdAssemblyDragCollisionMode",
+            "Dragging a part shows the components it brings into collision in red.\n"
+            "Components interfering when the drag starts are left out."));
+        highlight->setStatusTip(highlight->getToolTipText());
+        highlight->setPixmap("Assembly_DragCollisionHighlight");
+        addCommand(highlight);
+
+        auto stop = new CmdAssemblyDragCollisionMode("Assembly_DragCollisionStop",
+                                                     AssemblyObject::DragCollision::Stop);
+        stop->setMenuText(QT_TRANSLATE_NOOP("CmdAssemblyDragCollisionMode", "Stop at Collisions"));
+        stop->setToolTipText(QT_TRANSLATE_NOOP(
+            "CmdAssemblyDragCollisionMode",
+            "Dragging a part stops it before it collides with another component,\n"
+            "the two shown in red. Components interfering when the drag starts\n"
+            "are left out."));
+        stop->setStatusTip(stop->getToolTipText());
+        stop->setPixmap("Assembly_DragCollisionStop");
+        addCommand(stop);
+
+        hParam = App::GetApplication().GetParameterGroupByPath(
+            "User parameter:BaseApp/Preferences/Mod/Assembly");
+        hParam->Attach(this);
+    }
+    ~CmdAssemblyDragCollision() override
+    {
+        hParam->Detach(this);
+    }
+    const char* className() const override
+    {
+        return "CmdAssemblyDragCollision";
+    }
+
+    void OnChange(Base::Subject<const char*>& caller, const char* reason) override
+    {
+        (void)caller;
+        if (reason && std::strcmp(reason, "DragCollision") == 0) {
+            sync(_pcAction);
+        }
+    }
+
+protected:
+    enum
+    {
+        OffIndex,
+        HighlightIndex,
+        StopIndex
+    };
+
+    Gui::Action* createAction() override
+    {
+        Gui::Action* action = GroupCommand::createAction();
+        if (auto group = qobject_cast<Gui::ActionGroup*>(action)) {
+            // the button unchecks the mode it shows, leaving none checked
+            // until Off is
+            group->setExclusiveOptional(true);
+        }
+        sync(action);
+        return action;
+    }
+
+    // Not a sync: invoke() asks this between the click checking the button
+    // and activated() reading it
+    bool isActive() override
+    {
+        return true;
+    }
+
+    void activated(int iMsg) override
+    {
+        if (triggerSource() == TriggerNone) {
+            // From a script, Gui.runCommand("Assembly_DragCollision", n): the
+            // value n, where a group would give its child n its own state
+            if (iMsg >= OffIndex && iMsg <= StopIndex) {
+                AssemblyParams::setDragCollision(iMsg);
+            }
+        }
+        else {
+            GroupCommand::activated(iMsg);
+        }
+        sync(_pcAction);
+    }
+
+private:
+    void sync(Gui::Action* action)
+    {
+        auto group = qobject_cast<Gui::ActionGroup*>(action);
+        if (!group) {
+            return;
+        }
+        int index = OffIndex;
+        switch (static_cast<AssemblyObject::DragCollision>(dragCollision())) {
+            case AssemblyObject::DragCollision::Highlight:
+                index = HighlightIndex;
+                break;
+            case AssemblyObject::DragCollision::Stop:
+                index = StopIndex;
+                break;
+            default:
+                break;
+        }
+        int i = 0;
+        for (auto cmd : getCommands()) {
+            if (auto child = cmd->getAction()) {
+                child->setChecked(i == index, true);
+            }
+            ++i;
+        }
+        if (index != OffIndex && group->property("defaultAction").toInt() != index) {
+            group->setProperty("defaultAction", index);
+            setup(group);
+        }
+        group->setChecked(index != OffIndex, true);
+    }
+
+    ParameterGrp::handle hParam;
+};
+
+
+// ================================================================================
 // Command Creation
 // ================================================================================
 
@@ -375,4 +589,5 @@ void AssemblyGui::CreateAssemblyCommands()
     rcCmdMgr.addCommand(new CmdAssemblySelectMalformedConstraints());
     rcCmdMgr.addCommand(new CmdAssemblySelectComponentsWithDoFs());
     rcCmdMgr.addCommand(new CmdAssemblySelectJointsOfComponent());
+    rcCmdMgr.addCommand(new CmdAssemblyDragCollision());
 }

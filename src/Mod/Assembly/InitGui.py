@@ -90,6 +90,7 @@ class AssemblyWorkbench(Workbench):
             "Std_LinkArrayActions",
             "Assembly_SolveAssembly",
             "Assembly_CheckInterference",
+            "Assembly_DragCollision",
             "Assembly_CreateView",
             "Assembly_CreateSnapshot",
             "Assembly_CreateSimulation",

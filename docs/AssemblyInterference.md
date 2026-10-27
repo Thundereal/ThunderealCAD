@@ -64,8 +64,13 @@ a ValueError, as is `frames` with no simulation run.
 Preferences > Assembly > **Collision while dragging**: *Off* (the default),
 *Highlight* or *Stop* (the parameter `DragCollision`: 0, 1, 2; its tolerance
 `DragCollisionTolerance`, mm, 0 by default and taken at least twice the
-deflection, as Fast's). With either on, a drag watches the assembly's
-components with the Fast check:
+deflection, as Fast's). The Assembly tool bar has it too, as **Collision
+While Dragging** (`Assembly_DragCollision`, `Gui/Commands.cpp`): the button
+turns it on and off, in the mode it shows -- the one its menu chose last,
+Stop at first -- and the menu has the three values, as radio buttons. Both
+follow the parameter whoever sets it; from a script,
+`Gui.runCommand("Assembly_DragCollision", n)` sets it to n. With either on, a
+drag watches the assembly's components with the Fast check:
 
 - *Highlight*: the drag goes on; the components it brings into collision are
   drawn in red while they collide.

@@ -93,7 +93,8 @@ def browser_safe(name):
             or name in ("Sketcher_External", "Sketcher_Defining", "Sketcher_Intersection",
                         "Sketcher_IntersectionDefining", "Sketcher_CarbonCopy")
             or name in DIALOG_FREE_CONSTRAINTS
-            or name in SKETCH3D_COMMANDS)
+            or name in SKETCH3D_COMMANDS
+            or name in SURFACE_COMMANDS)
 
 
 DIALOG_FREE_CONSTRAINTS = {"Sketcher_" + n for n in (
@@ -111,6 +112,8 @@ SKETCH3D_COMMANDS = {"Sketcher_" + n for n in (
     "Sketch3DKeepPlane", "Sketch3DRotationHandles", "Sketch3DSplineOnFace",
     "Constrain3DAlongX", "Constrain3DAlongY", "Constrain3DAlongZ",
     "ConstrainDistanceZ", "Constrain3DSmooth")}
+
+SURFACE_COMMANDS = {"Surface_Network"}
 
 
 class Run(threading.Thread):

@@ -161,6 +161,9 @@ public:
     }
 
 private:
+    void resetEdit();
+
+    std::string docName;
     NetworkPanel* widget;
 };
 

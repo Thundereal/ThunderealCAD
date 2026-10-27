@@ -38,6 +38,7 @@
 #include <Gui/Application.h>
 #include <Gui/Command.h>
 #include <Gui/Control.h>
+#include <Gui/Document.h>
 #include <Gui/MainWindow.h>
 #include <Gui/SelectionFilter.h>
 #include <Gui/SelectionObject.h>
@@ -385,18 +386,29 @@ void CmdSurfaceNetwork::activated(int iMsg)
             }
         }
     }
-    std::string FeatName = getUniqueObjectName("Network");
+    // named, not "Active": in a served process the document is the one of
+    // the view the command came through, which Python's ActiveDocument is not
+    Gui::Document* gdoc = getActiveGuiDocument();
+    if (!gdoc) {
+        return;
+    }
+    const char* doc = gdoc->getDocument()->getName();
+    std::string FeatName = gdoc->getDocument()->getUniqueObjectName("Network");
 
     openCommand(QT_TRANSLATE_NOOP("Command", "Create network surface"));
-    doCommand(Doc, "App.ActiveDocument.addObject(\"Surface::Network\",\"%s\")", FeatName.c_str());
+    doCommand(Doc,
+              "App.getDocument('%s').addObject('Surface::Network', '%s')",
+              doc,
+              FeatName.c_str());
     if (!links.str().empty()) {
         doCommand(Doc,
-                  "App.ActiveDocument.%s.Profiles = [%s]",
+                  "App.getDocument('%s').getObject('%s').Profiles = [%s]",
+                  doc,
                   FeatName.c_str(),
                   links.str().c_str());
-        doCommand(Doc, "App.ActiveDocument.recompute()");
+        doCommand(Doc, "App.getDocument('%s').recompute()", doc);
     }
-    doCommand(Doc, "Gui.ActiveDocument.setEdit('%s',0)", FeatName.c_str());
+    doCommand(Gui, "Gui.getDocument('%s').setEdit('%s', 0)", doc, FeatName.c_str());
 }
 
 bool CmdSurfaceNetwork::isActive()

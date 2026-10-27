@@ -828,6 +828,7 @@ bool NetworkPanel::reject()
 // ----------------------------------------------------------------------------
 
 TaskNetwork::TaskNetwork(ViewProviderNetwork* vp, Surface::Network* obj)
+    : docName(obj->getDocument()->getName())
 {
     widget = new NetworkPanel(vp, obj);
     auto box = new Gui::TaskView::TaskBox(Gui::BitmapFactory().pixmap("Surface_Network"),
@@ -849,8 +850,7 @@ bool TaskNetwork::accept()
         return false;
     }
     Gui::Command::commitCommand();
-    Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
-    Gui::Command::updateActive();
+    resetEdit();
     return true;
 }
 
@@ -858,9 +858,22 @@ bool TaskNetwork::reject()
 {
     widget->reject();
     Gui::Command::abortCommand();
-    Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
-    Gui::Command::updateActive();
+    resetEdit();
     return true;
+}
+
+void TaskNetwork::resetEdit()
+{
+    // the network's own document: a served one has no window, and so is
+    // never the active one
+    if (Gui::Application::Instance->getDocument(docName.c_str())) {
+        Gui::Command::doCommand(Gui::Command::Gui,
+                                "Gui.getDocument('%s').resetEdit()",
+                                docName.c_str());
+        Gui::Command::doCommand(Gui::Command::App,
+                                "App.getDocument('%s').recompute()",
+                                docName.c_str());
+    }
 }
 
 }  // namespace SurfaceGui

@@ -906,6 +906,12 @@ bool isBrowserSafeCommand(const QString &name)
         QStringLiteral("Sketcher_ConstrainDistanceZ"),
         QStringLiteral("Sketcher_Constrain3DSmooth"),
     };
+    // Surface's commands that make an object and open its panel, which the
+    // panel mirror carries and which says what it has to say in the panel,
+    // never in a dialog (docs/Surface.md sec 8)
+    static const QSet<QString> surface = {
+        QStringLiteral("Surface_Network"),
+    };
     // Sketcher_External's three siblings start the same handler in another
     // flavour; pressed while a constraint tool runs, each switches that
     // tool's outside picking to its flavour.
@@ -916,7 +922,8 @@ bool isBrowserSafeCommand(const QString &name)
         || name == QLatin1String("Sketcher_IntersectionDefining")
         || name == QLatin1String("Sketcher_CarbonCopy")
         || constraints.contains(name)
-        || sketch3d.contains(name);
+        || sketch3d.contains(name)
+        || surface.contains(name);
 }
 
 /// The command a group's member `index` (1-based) runs, by the route the

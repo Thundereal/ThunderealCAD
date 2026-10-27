@@ -121,6 +121,11 @@ fc_add_gui_test(GuiSurfaceBlendCurve_tests_run surface-blend-curve.py
 # conditions set and read out, Cancel and OK.
 fc_add_gui_test(GuiSurfaceNetwork_tests_run surface-network.py
                 --timeout 180)
+# And from a browser's connection (sec 8): the command op runs it, the
+# panel is mirrored and worked -- separate, a continuity, a tolerance, OK
+# refused and taken, Cancel -- with no dialog at any point.
+fc_add_gui_test(GuiServeSurfaceNetwork_tests_run serve-surface-network.py
+                --timeout 240)
 # Its drag and kept planes (S2e): a point and a curve dragged with the
 # constraints kept, Keep Plane, Ctrl+press on a kept plane and on a face.
 fc_add_gui_test(GuiSketch3DDragPlane_tests_run sketch3d-drag-plane.py

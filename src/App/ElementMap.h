@@ -59,7 +59,7 @@ struct AppExport MappedChildElements
 };
 
 /** `map`, whose names are of the table `from`, with the ids of `to`
- * (docs/TransactionLog.md sec 27.76 item 2, 27.77): every name, held id,
+ * (docs/TransactionLogJournal.md sec 27.76 item 2, 27.77): every name, held id,
  * child postfix and child map imported (StringHasher::importName). A copy,
  * cached per source map and target table while both live, so the shape a
  * link makes on demand, and every link to the same object, share one.
@@ -69,7 +69,7 @@ AppExport ElementMapPtr translateElementMap(const ElementMapPtr &map,
                                             const App::StringHasherRef &from,
                                             const App::StringHasherRef &to);
 
-/** Element map ids of their own (docs/TransactionLog.md sec 27.67).
+/** Element map ids of their own (docs/TransactionLogJournal.md sec 27.67).
  *
  * A document's save numbers its element maps (beforeSave) so a map shared
  * by several shapes is written once, and its restore reads each id once;
@@ -102,7 +102,7 @@ private:
     ElementMapIdScope* _outer;
 };
 
-/** Start a save's numbering of element maps (docs/TransactionLog.md sec
+/** Start a save's numbering of element maps (docs/TransactionLogJournal.md sec
  * 38.15): forget which map this process's last save numbered how, so that
  * each map is given the id it keeps again. A document's save to its file
  * does this through the save signals; Document::Save calls it too, for the
@@ -112,7 +112,7 @@ AppExport void startElementMapNumbering();
 
 /** The ids of the element maps a save numbers (beforeSave), writes, or a
  * restore reads on this thread while one of these lives, into `ids`
- * (docs/TransactionLog.md sec 38.14). A document's save numbers its maps
+ * (docs/TransactionLogJournal.md sec 38.14). A document's save numbers its maps
  * across all its objects, so what an object's file says of them depends on
  * the others: a folder save keeps the file only if this save numbers the
  * object's maps as the file does. Not inside an ElementMapIdScope, whose

@@ -98,7 +98,7 @@ public:
     /// Override the prompt message
     void setMessage(const QString &);
 
-    /** Paste mode (docs/TransactionLog.md sec 37.9): the objects listed are
+    /** Paste mode (docs/TransactionLogJournal.md sec 37.9): the objects listed are
      * to be brought into `target`, which has some of them already; `pairs`
      * maps each such to the one there. Its row gets a second check,
      * "Assign to" the one there (which then takes the state brought), and

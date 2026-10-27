@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 30.20, 30.23, 30.29: the request.
+# GUI check of docs/TransactionLogJournal.md sec 30.20, 30.23, 30.29: the request.
 # A file sent over the control lane as a client of a served document would
 # send it -- kept in the log and not read, listed in the log panel with its
 # sender, refused to a view-only connection, past the upload limit and past
@@ -25,7 +25,7 @@ lines = []
 
 
 def mergeDialog():
-    # The merge's preview is not modal (docs/TransactionLog.md sec 32.15): it
+    # The merge's preview is not modal (docs/TransactionLogJournal.md sec 32.15): it
     # is found among the windows. Anything modal instead is in its way.
     for w in QtWidgets.QApplication.topLevelWidgets():
         if w.objectName() == "TransactionMergeDialog" and w.isVisible():

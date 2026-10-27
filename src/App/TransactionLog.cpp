@@ -1854,7 +1854,7 @@ bool TransactionLog::recover(const std::string& oldDir, RecoverInfo& info)
 
     openStore();
     // A document saved as a folder read its saved blobs where they are, so
-    // the store left behind does not have them (docs/TransactionLog.md sec
+    // the store left behind does not have them (docs/TransactionLogJournal.md sec
     // 38.9): they are read from the folder again. Its name is the log's, the
     // recovered document having none yet.
     const std::string file = _c._store->getMeta("file");
@@ -1913,7 +1913,7 @@ int64_t TransactionLog::record(const char* kind, const std::string& name,
 int64_t TransactionLog::keepFile(const FileBlobHandle& file, const std::string& name,
                                  const std::string& script)
 {
-    // docs/TransactionLog.md sec 30.29: a row that says who sent what, under
+    // docs/TransactionLogJournal.md sec 30.29: a row that says who sent what, under
     // whoever acts, and the bytes held as one blob. The blob is made
     // durable and named in the store before the row that says it is there.
     LogTransaction t;
@@ -3088,7 +3088,7 @@ void TransactionLog::restoreBlobsOf(const std::string& hash)
         // restore this is for: the tip's snapshot had just made the file a
         // patch of its successor, its last holder let go between this and
         // the property asking, and the property waited for a file nobody
-        // was going to bring (docs/TransactionLog.md sec 31.6).
+        // was going to bring (docs/TransactionLogJournal.md sec 31.6).
         if (FileBlobHandle live = _c.liveBlob(r.target))
             _c.putBlob(live);
         else

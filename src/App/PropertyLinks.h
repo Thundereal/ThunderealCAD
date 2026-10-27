@@ -115,7 +115,7 @@ public:
     bool canShareDefault() const override { return true; }
 
     /// A sub-element reference as resolved, with the string ids its name
-    /// holds (ShadowSub.h; docs/TransactionLog.md sec 27.75)
+    /// holds (ShadowSub.h; docs/TransactionLogJournal.md sec 27.75)
     using ShadowSub = App::ShadowSub;
 
     PropertyLinkBase();
@@ -144,7 +144,7 @@ public:
     /** Take the element numbers of this value from its mapped names
      *
      * For a value written against other shapes than the ones here
-     * (docs/TransactionLog.md sec 31.22): one a merge takes from another
+     * (docs/TransactionLogJournal.md sec 31.22): one a merge takes from another
      * branch names each element by its number in that branch's shape, with
      * the mapped name beside it. Every reference that has a mapped name is
      * looked up by it in the object as it is now, and takes the number it
@@ -800,7 +800,7 @@ public:
 
     void Save(Base::Writer &writer) const override;
     void Restore(Base::XMLReader &reader) override;
-    /// By the object linked (docs/TransactionLog.md sec 31.8).
+    /// By the object linked (docs/TransactionLogJournal.md sec 31.8).
     bool splitSaved(const std::string &fragment, SavedElements &elements) const override;
     bool joinSaved(const SavedElements &elements, std::string &fragment) const override;
 
@@ -1245,7 +1245,7 @@ public:
     const char *getDocumentPath() const;
     const char *getObjectName() const;
 
-    /** @name Pinned links (docs/TransactionLog.md sec 16.5, 27)
+    /** @name Pinned links (docs/TransactionLogJournal.md sec 16.5, 27)
      *
      * A link to another file may be pinned to one of the file's versions: it
      * then resolves to that version, opened as a document of its own, and not
@@ -1259,7 +1259,7 @@ public:
     /// to another saved file.
     void setPin(int64_t version, const std::string& uuid = std::string());
     /** Link to the object of the same name in the file at `path`, plainly:
-     * no pin, no branch, not held, no library (docs/TransactionLog.md sec 35
+     * no pin, no branch, not held, no library (docs/TransactionLogJournal.md sec 35
      * L6). The object need not be there yet: the link names it, and holds
      * once it is. An undoable change of the link's value.
      */
@@ -1368,7 +1368,7 @@ public:
     /// The file of `doc`'s snapshot, whether written or not.
     static std::string getSnapshotPath(const App::Document* doc);
 
-    /** Their links, read into this file (docs/TransactionLog.md sec 35 L1).
+    /** Their links, read into this file (docs/TransactionLogJournal.md sec 35 L1).
      * While an import brings a file of another folder into a document of this
      * file, a relative path its links name is theirs: it is ours where this
      * file's folder has that file, else their file by its full path. A link
@@ -1411,7 +1411,7 @@ public:
         ImportPaths* _outer;
     };
 
-    /** A set imported (docs/TransactionLog.md sec 35 L4). While it is open,
+    /** A set imported (docs/TransactionLogJournal.md sec 35 L4). While it is open,
      * a link an import brings to a file of their set that is paired with
      * one of ours is a link to ours: live to the branch their file came to,
      * or pinned to the version it was when it brought nothing new.
@@ -1548,10 +1548,10 @@ protected:
     int64_t _pinVersion {0};
     std::string _pinUuid;
     bool _pinFellBack {false};
-    /// A live link to a branch of the file (docs/TransactionLog.md sec
+    /// A live link to a branch of the file (docs/TransactionLogJournal.md sec
     /// 27.23): to whatever document holds it.
     std::string _liveBranch;
-    /// To a file of theirs a set import holds (docs/TransactionLog.md sec 35
+    /// To a file of theirs a set import holds (docs/TransactionLogJournal.md sec 35
     /// L5): the held bytes' hash, and the path under a document's
     /// `held/` the file is written to when it is not there.
     std::string _heldHash;

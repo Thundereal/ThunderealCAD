@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 32.30, the desktop's side of a
+# GUI check of docs/TransactionLogJournal.md sec 32.30, the desktop's side of a
 # branch served in a document of its own, which has no window: closing the
 # last document that has one, while such a document is open, says so and
 # offers to show it -- "Show Them", "Leave Hidden", or Cancel -- and saving

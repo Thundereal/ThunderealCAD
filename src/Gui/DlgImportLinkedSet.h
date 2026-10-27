@@ -42,7 +42,7 @@ class Document;
 namespace Gui
 {
 
-/** File > Import a Linked Set (docs/TransactionLog.md sec 35 L6): another
+/** File > Import a Linked Set (docs/TransactionLogJournal.md sec 35 L6): another
  * copy of the document's set -- its top chosen -- read and paired with ours
  * file by file (L2, L3), the pairing changeable; brought in as branches of
  * ours (L4, L5); then merged, each file merged, taken whole or kept ours, or

@@ -41,7 +41,7 @@ namespace Gui
 {
 
 /** The transaction log of a served document, for a client's own panel of it
- * (docs/TransactionLog.md sec 32.21).
+ * (docs/TransactionLogJournal.md sec 32.21).
  *
  * The desktop's panel is a dock of the host's window, and one widget: a
  * client is not shown it. A client has a panel of its own, drawn in its
@@ -154,7 +154,7 @@ GuiExport bool logRowListed(App::Document* doc, int64_t row);
 GuiExport bool logKeptListed(App::Document* doc, App::DocumentObject* obj, const std::string& ref,
                              int64_t* row = nullptr);
 
-/** The versions a squash to `to` may start from (docs/TransactionLog.md
+/** The versions a squash to `to` may start from (docs/TransactionLogJournal.md
  * sec 16.7): those behind it on its own history, oldest first.
  */
 GuiExport std::vector<App::LogVersion> logVersionsBehind(App::TransactionStore& store,

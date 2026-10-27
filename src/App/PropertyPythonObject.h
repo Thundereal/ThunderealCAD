@@ -77,7 +77,7 @@ public:
      * a proxy keeps outside the property system (dumps(), __getstate__() or
      * its __dict__), which no change of a property records. Empty where it
      * has none. A folder save keeps an object's file only while this is
-     * what it last wrote (docs/TransactionLog.md sec 38.21 F1).
+     * what it last wrote (docs/TransactionLogJournal.md sec 38.21 F1).
      */
     static std::string stateOf(const PropertyContainer& container);
     void fromString(const std::string&);

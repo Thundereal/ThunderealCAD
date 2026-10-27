@@ -6,7 +6,7 @@ changed, keep a version, work on a branch, and merge.
 
 This is the how-to. Why things are built the way they are is in
 `docs/TransactionLogDesign.md`; the record of how they were built, by the
-section numbers this guide names, is `docs/TransactionLog.md`.
+section numbers this guide names, is `docs/TransactionLogJournal.md`.
 
 The pictures are taken from the running application by
 `scripts/transaction-log-guide-shots.py`; see the end for how to take them
@@ -1070,7 +1070,7 @@ its shots (`sent.png` among them) -- and copied from there as
 `14-log-browser*.png` and `15-log-browser-*.png`. Both tests
 say in their first lines how they are run. `16-log-browser-graph.png` and
 `16-log-browser-summary.png` were taken by hand from the page
-(`docs/TransactionLog.md` sec 32.35); no test writes them.
+(`docs/TransactionLogJournal.md` sec 32.35); no test writes them.
 
 The sections added for two FreeCADs on one file, folders, linked sets and
 pasting (13-16) have no pictures yet.

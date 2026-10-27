@@ -79,14 +79,14 @@ struct DocumentP
     std::unordered_set<App::DocumentObject*> touchedObjs;
     /// The ids of the objects the last restore read as touched -- the
     /// `Touched` attribute as saved, before the restore touched anything
-    /// of its own (docs/TransactionLog.md sec 27.60).
+    /// of its own (docs/TransactionLogJournal.md sec 27.60).
     std::set<long> savedTouched;
     /// A file in an older format was opened: its version is taken once the
     /// restore is over, at the current schema (sec 27.62).
     bool openVersionPending = false;
     std::unordered_map<std::string, DocumentObject*> objectMap;
     std::unordered_map<long, DocumentObject*> objectIdMap;
-    /// The live objects by their UID (docs/TransactionLog.md sec 36).
+    /// The live objects by their UID (docs/TransactionLogJournal.md sec 36).
     std::unordered_map<std::string, DocumentObject*> objectUidMap;
     std::unordered_map<std::string, bool> partialLoadObjects;
     std::vector<DocumentObjectT> pendingRemove;
@@ -140,30 +140,30 @@ struct DocumentP
     std::string programVersion;
     mutable HasherMap hashers;
     /// Lifetime of the files behind this document's PropertyFileIncluded.
-    /// The file's history (docs/TransactionLog.md sec 27.7): its blob store
+    /// The file's history (docs/TransactionLogJournal.md sec 27.7): its blob store
     /// and directory, shared with the other documents of the file.
     mutable std::shared_ptr<App::FileHistory> history;
-    /// The transaction log (docs/TransactionLog.md), when the mode is not off.
+    /// The transaction log (docs/TransactionLogJournal.md), when the mode is not off.
     std::unique_ptr<App::TransactionLog> transactionLog;
     /// Whether the mode was looked at for this document yet.
     bool transactionLogChecked {false};
     /// The document's own bookkeeping being written -- a save's stamps, the
     /// file name and label Save As gives it, the log's History, Version and
-    /// Branch: never a transaction, never an undo step (docs/TransactionLog.md
+    /// Branch: never a transaction, never an undo step (docs/TransactionLogJournal.md
     /// sec 16.4, 27.5).
     bool bookkeeping {false};
     /// This document joined a file history another document of the file
-    /// made (docs/TransactionLog.md sec 27.7): its restore does not start
+    /// made (docs/TransactionLogJournal.md sec 27.7): its restore does not start
     /// or adopt a history, the log has one.
     bool joinedHistory {false};
-    /// A version document's name parts (docs/TransactionLog.md sec 27.23):
+    /// A version document's name parts (docs/TransactionLogJournal.md sec 27.23):
     /// the file and the label it is named after, and the version its name
     /// ends in -- the one it was opened at, then the one it last saved.
     std::string versionFile;
     std::string versionLabel;
     int64_t versionTail {0};
     /// Document.xml as the reader saw it, tapped by restore(const char*)
-    /// for the log's version 1 (docs/TransactionLog.md sec 16.6); empty
+    /// for the log's version 1 (docs/TransactionLogJournal.md sec 16.6); empty
     /// when no tap was installed.
     std::string restoreDocXml;
     bool restoreTapped {false};
@@ -172,7 +172,7 @@ struct DocumentP
     /// the version manifest.
     std::vector<std::pair<std::string, std::string>> fileEntries;
     /// The same for a save or snapshot: every entry as the writer captured
-    /// it (docs/TransactionLog.md 23.3), Document.xml first.
+    /// it (docs/TransactionLogJournal.md 23.3), Document.xml first.
     TransactionLog::Captures captures;
     /// The cadence of unnamed versions (sec 16.3): commits since the last
     /// version, and when it was taken (steady clock seconds).
@@ -185,7 +185,7 @@ struct DocumentP
     double lastCommitTime {0};
     bool snapshotting {false};
     /// The save in progress writes the string table as a member of its own
-    /// (docs/TransactionLog.md sec 27.50 item 1) -- or, snapshotting, names
+    /// (docs/TransactionLogJournal.md sec 27.50 item 1) -- or, snapshotting, names
     /// the log's table and writes none; `tableMember` is what the writer
     /// writes it from, `tableEntry` the name it got.
     bool tableAsMember {false};
@@ -196,7 +196,7 @@ struct DocumentP
     /// Another copy's rows or state being written in (isWritingForeign)
     bool writingForeign {false};
     /// The scratch document a restore to a version reads the version into
-    /// (docs/TransactionLog.md sec 24.5): it keeps no log of its own.
+    /// (docs/TransactionLogJournal.md sec 24.5): it keeps no log of its own.
     bool noLog {false};
     /// The document is being destroyed: what is still open is not logged
     /// (Document::~Document).
@@ -209,10 +209,10 @@ struct DocumentP
     /// what it writes is in the log already, and is no transaction.
     bool replaying {false};
     /// The log's last seq when the document was opened: undo reaches no
-    /// further back on any branch (docs/TransactionLog.md sec 26.4).
+    /// further back on any branch (docs/TransactionLogJournal.md sec 26.4).
     int64_t undoFloor {0};
     /// The state the document's values are in, as its undo steps know it
-    /// (docs/TransactionLog.md sec 30.10): a new token for every change,
+    /// (docs/TransactionLogJournal.md sec 30.10): a new token for every change,
     /// the old one back when a step is applied from its copies.
     int64_t stateToken {1};
     int64_t stateCounter {1};
@@ -230,9 +230,9 @@ struct DocumentP
     std::string importingRequest;
     std::function<void()> restoreHistory;
     /// The save id of a save to a folder whose history went into its stage
-    /// (docs/TransactionLog.md sec 38.9), told to the log once it is in.
+    /// (docs/TransactionLogJournal.md sec 38.9), told to the log once it is in.
     std::string folderSaveId;
-    /// Two processes on one file (docs/TransactionLog.md sec 29.8): the file
+    /// Two processes on one file (docs/TransactionLogJournal.md sec 29.8): the file
     /// as this document last read or wrote it -- its stamp, the save id its
     /// `Version` carried, and the row of the log whose state it is -- and
     /// the stamp taken as a restore starts, kept once the restore is done.
@@ -341,7 +341,7 @@ struct DocumentP
      * are, and stale only between the two.
      */
     std::map<std::string, App::DocumentObject*> splitXmlEntries;
-    /** S2b (docs/TransactionLog.md sec 38.12): what a save to a folder
+    /** S2b (docs/TransactionLogJournal.md sec 38.12): what a save to a folder
      * wrote, so that the next save of it keeps the files of the objects
      * nothing changed since. `seq` is the log's row the save was of,
      * `version` the version it recorded, `options` what decides the bytes,
@@ -466,7 +466,7 @@ struct DocumentP
     }
 
     /// A new object's id: from the file's counter when the document has a
-    /// history (docs/TransactionLog.md sec 27.40 item 1), else its own.
+    /// history (docs/TransactionLogJournal.md sec 27.40 item 1), else its own.
     /// `obj` is not live here any more: its UID is free again (sec 36).
     void forgetObjectUid(const DocumentObject* obj) {
         auto it = objectUidMap.find(obj->getObjectUid());

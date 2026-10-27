@@ -28,7 +28,7 @@ put down anywhere but the middle of the canvas**, fixed in `8a4b30bc83`
 on the user's ruling to take it before continuing.
 
 Upstream's `f4665aa7b5` ("Core: support multiple active transactions") was
-evaluated and **declined**; `docs/TransactionLog.md` records why, and the
+evaluated and **declined**; `docs/TransactionLogJournal.md` records why, and the
 direction the user wants instead.
 
 **Where the ledger stands (2026-09-25).** 1149 rows, of which 278 are open

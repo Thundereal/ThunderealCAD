@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 38.14: a save of a document kept
+# GUI check of docs/TransactionLogJournal.md sec 38.14: a save of a document kept
 # as a folder leaves the view-provider files of the objects whose view
 # nothing changed as the folder has them, as it does their objects' files
 # (sec 38.12) -- after a save of it, and after an open of it.

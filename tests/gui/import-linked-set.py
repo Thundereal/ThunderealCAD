@@ -1,4 +1,4 @@
-"""File > Import a Linked Set (docs/TransactionLog.md sec 35 L6).
+"""File > Import a Linked Set (docs/TransactionLogJournal.md sec 35 L6).
 
 Our `Asm` links the box of our `Part`; a copy of both elsewhere, its box
 made longer and its `Asm` linking a new `Bolt` too. With our `Asm` active,

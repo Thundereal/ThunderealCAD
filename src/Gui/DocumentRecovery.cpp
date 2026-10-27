@@ -192,7 +192,7 @@ public:
         bool noLock = false;
         QList<Warning> warnings;
         /// The transient directory, when the document is recovered from the
-        /// transaction log it holds (docs/TransactionLog.md sec 25).
+        /// transaction log it holds (docs/TransactionLogJournal.md sec 25).
         QString logDir;
         Status status = Unknown;
     };
@@ -981,7 +981,7 @@ bool DocumentRecoveryFinder::isRecoverable(const QFileInfo& dir)
 {
     // What DocumentRecoveryPrivate::getRecoveryInfo() can open
     QDir docDir(dir.absoluteFilePath());
-    // a transaction log to recover from (docs/TransactionLog.md sec 25):
+    // a transaction log to recover from (docs/TransactionLogJournal.md sec 25):
     // offered whatever the preference says now -- the unsaved tail of a
     // crashed session is not deleted unlisted for having turned the log
     // off since; the recovery itself says the log must be on

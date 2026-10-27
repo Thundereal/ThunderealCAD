@@ -1359,7 +1359,7 @@ PyObject* DocumentPy::undoTransactionFromLog(PyObject *args)
     if (!PyArg_ParseTuple(args, "O", &arg))
         return nullptr;
     PY_TRY {
-        // One row, or several as one step (docs/TransactionLog.md sec 33.13).
+        // One row, or several as one step (docs/TransactionLogJournal.md sec 33.13).
         if (PyLong_Check(arg)) {
             const long long seq = PyLong_AsLongLong(arg);
             if (seq == -1 && PyErr_Occurred())

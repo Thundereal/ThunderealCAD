@@ -138,7 +138,7 @@ public:
 
     /// The mapped names a file gave for the element paths of the cell's
     /// expression, and the string ids they hold, go to the paths, once the
-    /// expression is parsed (docs/TransactionLog.md sec 31.22, 31.24)
+    /// expression is parsed (docs/TransactionLogJournal.md sec 31.22, 31.24)
     void giveShadows();
 
     /// The string ids the element paths hold are marked for a save, as a

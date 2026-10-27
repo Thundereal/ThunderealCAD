@@ -53,7 +53,7 @@ public:
         return nameMap;
     }
     /** The UIDs of the objects of a stream importObjects() takes, read off
-     * its Document.xml alone (docs/TransactionLog.md sec 37.9): whether a
+     * its Document.xml alone (docs/TransactionLogJournal.md sec 37.9): whether a
      * paste may clash, asked before anything is read. `from` is the
      * document it was copied from (the `From` attribute), empty if none.
      * An object with no UID (a stream from before UIDs) clashes with

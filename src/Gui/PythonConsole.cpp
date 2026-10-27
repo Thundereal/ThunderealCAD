@@ -270,7 +270,7 @@ int InteractiveInterpreter::compileCommand(const char* source) const
 bool InteractiveInterpreter::runSource(const char* source) const
 {
     Base::PyGILStateLocker lock;
-    // One console line is one invocation (docs/TransactionLog.md sec 9.1).
+    // One console line is one invocation (docs/TransactionLogJournal.md sec 9.1).
     App::Application::InvocationScope scope("console");
     PyObject* code;
     try {

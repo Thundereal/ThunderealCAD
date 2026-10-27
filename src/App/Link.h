@@ -632,7 +632,7 @@ public:
     int extensionIsElementVisibleEx(const char *,int) const override;
     bool extensionHasChildElement() const override;
 
-    /** What a link owns (docs/TransactionLog.md sec 37.9): its
+    /** What a link owns (docs/TransactionLogJournal.md sec 37.9): its
      * copy-on-change group, and the elements it removes with itself -- every
      * one in AutoDelete mode, those it made (an array's) in AutoUnlink.
      * Pasted onto a live link, the group stands for the live one's, a copy
@@ -674,7 +674,7 @@ public:
         const std::vector<std::string> &subs = std::vector<std::string>());
 
     /** Takes an element out of the list to go elsewhere (a drag out of the
-     * group, docs/TransactionLog.md sec 37.12): kept whatever the LinkMode,
+     * group, docs/TransactionLogJournal.md sec 37.12): kept whatever the LinkMode,
      * and a link the group made is no longer its own.
      * @return false when it is not an element
      */

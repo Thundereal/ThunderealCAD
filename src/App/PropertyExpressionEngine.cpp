@@ -383,7 +383,7 @@ void PropertyExpressionEngine::beforeSave(Base::Writer &writer) const
 
 /** The string ids the expressions' element paths hold, written after the
  * expressions as an element of their own, which a reader that does not know
- * it skips (docs/TransactionLog.md sec 27.77): the expression text has no
+ * it skips (docs/TransactionLogJournal.md sec 27.77): the expression text has no
  * room for them. Keyed by the expression's place among those written and
  * the path's place in a visit of it; hex, space separated, as a link
  * property writes its own (sec 27.75), and not when exporting, the ids
@@ -571,7 +571,7 @@ void PropertyExpressionEngine::Restore(Base::XMLReader &reader)
             long index = reader.getAttributeAsInteger("index");
             long ref = reader.getAttributeAsInteger("ref");
             // A value of another copy of the file names that copy's table
-            // (docs/TransactionLog.md sec 30.16): each id, and each name,
+            // (docs/TransactionLogJournal.md sec 30.16): each id, and each name,
             // is taken into this one.
             auto strings = RestoreStrings::current();
             std::vector<long> ids;
@@ -877,7 +877,7 @@ void PropertyExpressionEngine::releaseBeforeRestore()
     // Taken out as they stand, not through setValue(): that asks the
     // property for the value at the path first, and what a path names may
     // be gone already -- a constraint of a list put back before this one
-    // (docs/TransactionLog.md sec 31.14). The expression then stayed, bound
+    // (docs/TransactionLogJournal.md sec 31.14). The expression then stayed, bound
     // to nothing.
     for (auto &path : gone) {
         auto it = expressions.find(path);
@@ -896,7 +896,7 @@ void PropertyExpressionEngine::afterRestore()
     if(restoredExpressions && docObj) {
         Base::FlagToggler<bool> flag(restoring);
         // Nothing read into an empty engine is no change: a folder's first
-        // save keeps the object's file then (docs/TransactionLog.md sec
+        // save keeps the object's file then (docs/TransactionLogJournal.md sec
         // 38.14).
         AtomicPropertyChange signaller(*this,
                 !restoredExpressions->empty() || !expressions.empty());
@@ -905,7 +905,7 @@ void PropertyExpressionEngine::afterRestore()
         ObjectIdentifier::DocumentMapper mapper(this->_DocMap);
 
         // Into a live engine -- a value of the transaction log restored
-        // (docs/TransactionLog.md sec 27.67) -- the value replaces what the
+        // (docs/TransactionLogJournal.md sec 27.67) -- the value replaces what the
         // engine holds; a document's restore starts from an empty one.
         auto doc = docObj->getDocument();
         if (!docObj->isRestoring() && doc && !doc->testStatus(Document::Restoring)
@@ -972,7 +972,7 @@ void PropertyExpressionEngine::afterRestore()
     // document's restore follows to register the element paths
     // (onContainerRestored): installed above with 'restoring' set, they
     // were left out, and a face renumbered afterwards went unfollowed
-    // (docs/TransactionLog.md sec 31.22).
+    // (docs/TransactionLogJournal.md sec 31.22).
     auto doc = docObj ? docObj->getDocument() : nullptr;
     if (doc && docObj->isAttachedToDocument() && !docObj->isRestoring()
             && !doc->testStatus(Document::Restoring))

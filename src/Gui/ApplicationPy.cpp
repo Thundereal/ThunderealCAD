@@ -332,7 +332,7 @@ PyMethodDef Application::Methods[] = {
    "serveBranch(doc, name='', port=0) -> Document\n"
    "\n"
    "Serve a branch of a document to clients of its own\n"
-   "(docs/TransactionLog.md sec 32.23): a branch is made where the\n"
+   "(docs/TransactionLogJournal.md sec 32.23): a branch is made where the\n"
    "document is -- `name`, or `<branch>~<n>` -- and opened in a second\n"
    "document of the file, with no window, which is served as\n"
    "serveDocument() serves one and returned. The first document stays\n"
@@ -348,7 +348,7 @@ PyMethodDef Application::Methods[] = {
    "serveRequests(doc='') -> list\n"
    "\n"
    "The files clients of a served document sent to be merged, which\n"
-   "wait unread (docs/TransactionLog.md sec 30.23, 30.29), one dict\n"
+   "wait unread (docs/TransactionLogJournal.md sec 30.23, 30.29), one dict\n"
    "each: id, doc, name, inLog, path, size, sender, kind (how the\n"
    "sender's name is known), time. One in the log (inLog) is a row of\n"
    "its document's history, id the row's number, with no path; one of a\n"
@@ -362,7 +362,7 @@ PyMethodDef Application::Methods[] = {
   {"serveUploads",            (PyCFunction) Application::sServeUploads, METH_VARARGS,
    "serveUploads() -> (count, bytes)\n"
    "\n"
-   "The uploads whose pieces are arriving (docs/TransactionLog.md sec\n"
+   "The uploads whose pieces are arriving (docs/TransactionLogJournal.md sec\n"
    "32.36): how many, and the bytes they hold together."},
   {"serveClients",            (PyCFunction) Application::sServeClients, METH_VARARGS,
    "serveClients() -> list\n"
@@ -406,7 +406,7 @@ PyMethodDef Application::Methods[] = {
    "1 view-only, 2 banned, 3 host -- a host only for the identity it\n"
    "names literally, edit for anyone else it matches), liveOnly,\n"
    "maxUsers (how many browsers it is for; 0 counts none) and devices\n"
-   "(the keys of those enrolled, docs/TransactionLog.md sec 30.32)."},
+   "(the keys of those enrolled, docs/TransactionLogJournal.md sec 30.32)."},
   {"serveSetGrants",          (PyCFunction) Application::sServeSetGrants, METH_VARARGS,
    "serveSetGrants(list) -> None\n"
    "\n"
@@ -417,7 +417,7 @@ PyMethodDef Application::Methods[] = {
   {"serveDevices",            (PyCFunction) Application::sServeDevices, METH_VARARGS,
    "serveDevices() -> list\n"
    "\n"
-   "The record of browsers (docs/TransactionLog.md sec 30.32), one dict\n"
+   "The record of browsers (docs/TransactionLogJournal.md sec 30.32), one dict\n"
    "each: key (the hash of the id the browser keeps), name (what its\n"
    "user calls itself, as last given), enrolledAs (as first given),\n"
    "identity (the verified one it last came with), label (the host's\n"

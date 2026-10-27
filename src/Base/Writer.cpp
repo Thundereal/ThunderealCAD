@@ -478,7 +478,7 @@ void Writer::writeEntry(const FileEntry& entry)
 }
 
 // ----------------------------------------------------------------------------
-// The entry capture and the property marks (docs/TransactionLog.md 23.3)
+// The entry capture and the property marks (docs/TransactionLogJournal.md 23.3)
 
 EntryCapture::EntryCapture(std::string bytes)
 {
@@ -834,7 +834,7 @@ void FileWriter::putNextEntry(const char* file, const char *obj)
                           std::ios::out | std::ios::binary | std::ios::trunc);
     // One float format for every writer, the archive's (ZipWriter): a
     // value has to serialise to the same bytes whichever writer it goes
-    // through, or the log cannot hold one copy of it (TransactionLog.md
+    // through, or the log cannot hold one copy of it (TransactionLogJournal.md
     // 23.3).
     this->FileStream << std::setprecision(std::numeric_limits<double>::digits10 + 1);
     this->FileStream.setf(ios::fixed, ios::floatfield);

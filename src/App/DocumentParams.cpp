@@ -780,7 +780,7 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "BlobAppendSize", "BlobAppendSize", App::ParamInfo::Int, 1024)
         .setTitle("Blob Append Size")
         .setDoc("How full, in KB, the pack store segment new content is added to\n"
-"may be before the next batch starts another (docs/TransactionLog.md\n"
+"may be before the next batch starts another (docs/TransactionLogJournal.md\n"
 "sec 37.4 P8): adding rewrites that segment whole, so this bounds\n"
 "what a commit writes besides its own content. The small segments\n"
 "left behind are merged in the background. At most BlobSegmentSize."),
@@ -913,7 +913,7 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
 "When off, refreshing leaves the undo and redo history alone."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLog", "TransactionLog", App::ParamInfo::Int, 2)
         .setTitle("Transaction Log")
-        .setDoc("Transaction log mode (docs/TransactionLog.md sec 13.3, 27.5). The\n"
+        .setDoc("Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The\n"
 "log is always on; what this chooses is whether a save writes the\n"
 "history into the file: 2 (the default) writes it, 1 keeps it in\n"
 "the document transient directory only, where it dies with the\n"
@@ -943,7 +943,7 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCacheSize", "TransactionLogCacheSize", App::ParamInfo::Int, 256)
         .setTitle("Transaction Log Cache Size")
         .setDoc("The budget of the transaction log cache tier, in MB (docs/\n"
-"TransactionLog.md sec 37.13): the shapes recomputes wrote that only\n"
+"TransactionLogJournal.md sec 37.13): the shapes recomputes wrote that only\n"
 "the history holds. Past it the oldest go, the quickest to recompute\n"
 "first, down to three quarters; an undo onto one recomputes it. The\n"
 "newest of each property and what a version lists stay. 0 for none."),
@@ -953,7 +953,7 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogPullOnSave", "TransactionLogPullOnSave", App::ParamInfo::Bool, true)
         .setTitle("Transaction Log Pull On Save")
         .setDoc("A save first brings in what another process saved into the file\n"
-"since it was read here, and merges it (docs/TransactionLog.md sec\n"
+"since it was read here, and merges it (docs/TransactionLogJournal.md sec\n"
 "29.8); a conflict stops the save at the merge. Off, the save\n"
 "writes over the file as before. The save lock is taken either way."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCoalesceSeconds", "TransactionLogCoalesceSeconds", App::ParamInfo::Int, 3)
@@ -962,11 +962,11 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
 "it wrote, by the same author under the same name and within this\n"
 "many seconds of it, is folded into it: one row of the transaction\n"
 "log and one undo step for the run, as a spinbox or a Python loop\n"
-"makes it (docs/TransactionLog.md sec 37.4 P4). 0 never folds."),
+"makes it (docs/TransactionLogJournal.md sec 37.4 P4). 0 never folds."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogKeepNamed", "TransactionLogKeepNamed", App::ParamInfo::Int, 10)
         .setTitle("Transaction Log Keep Named")
         .setDoc("How many named versions a saved file carries in its history\n"
-"(docs/TransactionLog.md sec 37.4 P1), the newest first, for a file\n"
+"(docs/TransactionLogJournal.md sec 37.4 P1), the newest first, for a file\n"
 "that does not say (Document.setHistoryRetention): rows older than\n"
 "the oldest version the file carries are left out of it. A version\n"
 "a branch forked from and a pinned one always travel. 0 carries\n"
@@ -974,14 +974,14 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCompactSize", "TransactionLogCompactSize", App::ParamInfo::Int, 256)
         .setTitle("Transaction Log Compact Size")
         .setDoc("When the file-scope state of the transaction log is compacted on\n"
-"its own (docs/TransactionLog.md sec 27.48, 27.49), in KB: after a\n"
+"its own (docs/TransactionLogJournal.md sec 27.48, 27.49), in KB: after a\n"
 "trim, a branch deletion or a squash, once the names estimated to be\n"
 "referred to by nothing and the strings of the file hasher nothing\n"
 "holds come to this many bytes together. 0 never."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "ClosePinnedVersion", "ClosePinnedVersion", App::ParamInfo::Int, 0)
         .setTitle("Close Pinned Version")
         .setDoc("When the last link pinned to a version of a file goes, what\n"
-"happens to the document that showed it (docs/TransactionLog.md\n"
+"happens to the document that showed it (docs/TransactionLogJournal.md\n"
 "sec 27.21 Q5): 0 ask, 1 close it, 2 keep it open. With no Gui to\n"
 "ask, 0 keeps it open."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogDeltaHops", "TransactionLogDeltaHops", App::ParamInfo::Int, 8)
@@ -1004,7 +1004,7 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "MergeConflictSide", "MergeConflictSide", App::ParamInfo::Int, 0)
         .setTitle("Merge Conflict Side")
         .setDoc("The side a conflict starts on when a merge, or rows applied, are\n"
-"previewed (docs/TransactionLog.md sec 32.17): 0 ours (the default),\n"
+"previewed (docs/TransactionLogJournal.md sec 32.17): 0 ours (the default),\n"
 "1 theirs, 2 none -- it is asked. A side is what the dialog starts\n"
 "each conflict on, and what is merged unless another is picked.\n"
 "Asked, nothing is merged or shown until each conflict has a side.\n"
@@ -1594,7 +1594,7 @@ void DocumentParams::removeBlobSegmentSize() {
 const char *DocumentParams::docBlobAppendSize() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "How full, in KB, the pack store segment new content is added to\n"
-"may be before the next batch starts another (docs/TransactionLog.md\n"
+"may be before the next batch starts another (docs/TransactionLogJournal.md\n"
 "sec 37.4 P8): adding rewrites that segment whole, so this bounds\n"
 "what a commit writes besides its own content. The small segments\n"
 "left behind are merged in the background. At most BlobSegmentSize.");
@@ -2402,7 +2402,7 @@ void DocumentParams::removeTransactionOnRecompute() {
 // Auto generated code (Tools/params_utils.py:397)
 const char *DocumentParams::docTransactionLog() {
     return QT_TRANSLATE_NOOP("DocumentParams",
-"Transaction log mode (docs/TransactionLog.md sec 13.3, 27.5). The\n"
+"Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The\n"
 "log is always on; what this chooses is whether a save writes the\n"
 "history into the file: 2 (the default) writes it, 1 keeps it in\n"
 "the document transient directory only, where it dies with the\n"
@@ -2557,7 +2557,7 @@ void DocumentParams::removeTransactionLogKeepVersions() {
 const char *DocumentParams::docTransactionLogCacheSize() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "The budget of the transaction log cache tier, in MB (docs/\n"
-"TransactionLog.md sec 37.13): the shapes recomputes wrote that only\n"
+"TransactionLogJournal.md sec 37.13): the shapes recomputes wrote that only\n"
 "the history holds. Past it the oldest go, the quickest to recompute\n"
 "first, down to three quarters; an undo onto one recomputes it. The\n"
 "newest of each property and what a version lists stay. 0 for none.");
@@ -2617,7 +2617,7 @@ void DocumentParams::removeTransactionLogCacheValues() {
 const char *DocumentParams::docTransactionLogPullOnSave() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "A save first brings in what another process saved into the file\n"
-"since it was read here, and merges it (docs/TransactionLog.md sec\n"
+"since it was read here, and merges it (docs/TransactionLogJournal.md sec\n"
 "29.8); a conflict stops the save at the merge. Off, the save\n"
 "writes over the file as before. The save lock is taken either way.");
 }
@@ -2651,7 +2651,7 @@ const char *DocumentParams::docTransactionLogCoalesceSeconds() {
 "it wrote, by the same author under the same name and within this\n"
 "many seconds of it, is folded into it: one row of the transaction\n"
 "log and one undo step for the run, as a spinbox or a Python loop\n"
-"makes it (docs/TransactionLog.md sec 37.4 P4). 0 never folds.");
+"makes it (docs/TransactionLogJournal.md sec 37.4 P4). 0 never folds.");
 }
 
 // Auto generated code (Tools/params_utils.py:405)
@@ -2680,7 +2680,7 @@ void DocumentParams::removeTransactionLogCoalesceSeconds() {
 const char *DocumentParams::docTransactionLogKeepNamed() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "How many named versions a saved file carries in its history\n"
-"(docs/TransactionLog.md sec 37.4 P1), the newest first, for a file\n"
+"(docs/TransactionLogJournal.md sec 37.4 P1), the newest first, for a file\n"
 "that does not say (Document.setHistoryRetention): rows older than\n"
 "the oldest version the file carries are left out of it. A version\n"
 "a branch forked from and a pinned one always travel. 0 carries\n"
@@ -2713,7 +2713,7 @@ void DocumentParams::removeTransactionLogKeepNamed() {
 const char *DocumentParams::docTransactionLogCompactSize() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "When the file-scope state of the transaction log is compacted on\n"
-"its own (docs/TransactionLog.md sec 27.48, 27.49), in KB: after a\n"
+"its own (docs/TransactionLogJournal.md sec 27.48, 27.49), in KB: after a\n"
 "trim, a branch deletion or a squash, once the names estimated to be\n"
 "referred to by nothing and the strings of the file hasher nothing\n"
 "holds come to this many bytes together. 0 never.");
@@ -2745,7 +2745,7 @@ void DocumentParams::removeTransactionLogCompactSize() {
 const char *DocumentParams::docClosePinnedVersion() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "When the last link pinned to a version of a file goes, what\n"
-"happens to the document that showed it (docs/TransactionLog.md\n"
+"happens to the document that showed it (docs/TransactionLogJournal.md\n"
 "sec 27.21 Q5): 0 ask, 1 close it, 2 keep it open. With no Gui to\n"
 "ask, 0 keeps it open.");
 }
@@ -2868,7 +2868,7 @@ void DocumentParams::removeTransactionLogVerify() {
 const char *DocumentParams::docMergeConflictSide() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "The side a conflict starts on when a merge, or rows applied, are\n"
-"previewed (docs/TransactionLog.md sec 32.17): 0 ours (the default),\n"
+"previewed (docs/TransactionLogJournal.md sec 32.17): 0 ours (the default),\n"
 "1 theirs, 2 none -- it is asked. A side is what the dialog starts\n"
 "each conflict on, and what is merged unless another is picked.\n"
 "Asked, nothing is merged or shown until each conflict has a side.\n"

@@ -570,7 +570,7 @@ StdCmdExportLinkedSet::StdCmdExportLinkedSet()
 
 void StdCmdExportLinkedSet::activated(int iMsg)
 {
-    // docs/TransactionLog.md sec 35 L7.
+    // docs/TransactionLogJournal.md sec 35 L7.
     Q_UNUSED(iMsg);
     Gui::Document* gdoc = getActiveGuiDocument();
     if (!gdoc)
@@ -611,7 +611,7 @@ StdCmdImportLinkedSet::StdCmdImportLinkedSet()
 
 void StdCmdImportLinkedSet::activated(int iMsg)
 {
-    // docs/TransactionLog.md sec 35 L6.
+    // docs/TransactionLogJournal.md sec 35 L6.
     Q_UNUSED(iMsg);
     Gui::Document* gdoc = getActiveGuiDocument();
     if (!gdoc)
@@ -995,7 +995,7 @@ StdCmdSaveToHistory::StdCmdSaveToHistory()
 
 void StdCmdSaveToHistory::activated(int iMsg)
 {
-    // docs/TransactionLog.md sec 27.22, 27.28.
+    // docs/TransactionLogJournal.md sec 27.22, 27.28.
     Q_UNUSED(iMsg);
     Gui::Document* gdoc = getActiveGuiDocument();
     if (!gdoc)

@@ -40,7 +40,7 @@ class Document;
 namespace Gui
 {
 
-/** File > Export with linked files (docs/TransactionLog.md sec 35 L7): the
+/** File > Export with linked files (docs/TransactionLogJournal.md sec 35 L7): the
  * set of the document -- every file its links reach -- listed with what
  * each is and the name it will be written under, the folder, and whether
  * the files keep their history -- and, when library links reach some, whether

@@ -304,7 +304,7 @@ const char* App::setPairingName(SetPairing pairing)
 
 SetImportPlan App::planSetImport(Document& ourTop, const std::string& theirTop)
 {
-    // docs/TransactionLog.md sec 35 L2, L3, 35.6 Q1.
+    // docs/TransactionLogJournal.md sec 35 L2, L3, 35.6 Q1.
     const std::string topKey = keyOf(theirTop);
     if (!QFileInfo(qs(topKey)).isFile())
         THROWM(Base::FileException, "no such file", theirTop.c_str());
@@ -768,7 +768,7 @@ void closeOpened(const std::set<Document*>& before)
 
 SetImportResult App::importSet(const SetImportPlan& plan)
 {
-    // docs/TransactionLog.md sec 35 L4.
+    // docs/TransactionLogJournal.md sec 35 L4.
     // The documents this opens -- branches' tips, to replay into and to
     // relink -- it fills in itself, as a load does: what the Gui still fills
     // in of them is their views, and their changes are the program's, not
@@ -1220,7 +1220,7 @@ App::previewSetReferences(Document& ourTop, const std::vector<SetMergeFile>& fil
 SetMergeResult App::mergeSet(Document& ourTop, const std::vector<SetMergeFile>& files,
                              const SetMergeOptions& options)
 {
-    // docs/TransactionLog.md sec 35 L6. The branches' documents it opens it
+    // docs/TransactionLogJournal.md sec 35 L6. The branches' documents it opens it
     // changes itself, as importSet() does.
     Document::UserEditSuspend suspend;
     auto& app = GetApplication();

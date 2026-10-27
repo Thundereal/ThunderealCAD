@@ -412,7 +412,7 @@ bool decodeMember(const BlobRawMember& member, std::string& bytes)
 
 /// Compress content into a member named \a name: zstd at level 3 where the
 /// build has it (sec 15.7), else deflate. `portable`: deflate at its fastest
-/// level, which any zip tool reads (docs/TransactionLog.md sec 38.10).
+/// level, which any zip tool reads (docs/TransactionLogJournal.md sec 38.10).
 std::shared_ptr<BlobRawMember> encodeMember(const std::string& bytes, const std::string& name,
                                             bool portable = false)
 {
@@ -2028,7 +2028,7 @@ bool FileBlobManager::readArchiveMember(const std::string& path, const std::stri
 std::map<std::string, BlobIndexEntry> FileBlobManager::archiveBlobIndex(const std::string& path,
                                                                       bool* hasIndex)
 {
-    // A document saved as a folder (docs/TransactionLog.md sec 38.13): its
+    // A document saved as a folder (docs/TransactionLogJournal.md sec 38.13): its
     // blobs are files, named as the members would be.
     if (Base::FileInfo(path).isDir()) {
         const std::string dir = path + "/" + archivePrefix();
@@ -3368,7 +3368,7 @@ void FileBlobManager::flushLocked()
     const uint64_t cap = segmentCap();
     // Adding to a segment rewrites it whole: past this, the batch starts a
     // new one rather than copy the old one's members again (sec 37.4 P8 of
-    // docs/TransactionLog.md); maintain() merges the small ones.
+    // docs/TransactionLogJournal.md); maintain() merges the small ones.
     const uint64_t append = appendCap();
     for (;;) {
         std::vector<std::shared_ptr<const BlobRawMember>> batch;
@@ -3521,7 +3521,7 @@ void FileBlobManager::maintain()
     // sizes merge, the smallest first: a group goes only when none of it is
     // more than half of it, so a merged segment is not written again for
     // every small one a batch leaves after it (sec 37.4 P8 of
-    // docs/TransactionLog.md) -- each byte is merged a logarithmic number of
+    // docs/TransactionLogJournal.md) -- each byte is merged a logarithmic number of
     // times.
     std::stable_sort(small.begin(), small.end(),
                      [](const Plan* a, const Plan* b) { return a->live < b->live; });

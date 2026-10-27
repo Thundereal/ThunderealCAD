@@ -1167,7 +1167,7 @@ Document* Application::openDocumentPrivate(const char * FileName,
                                       FileName ? FileName : "");
 
     // A document of a file named for a version or a branch (docs/
-    // TransactionLog.md sec 27.7, 27.23, 27.24): `<file>@v<num>`, the frozen
+    // TransactionLogJournal.md sec 27.7, 27.23, 27.24): `<file>@v<num>`, the frozen
     // instance a pin shows; `<file>@<branch>@v<num>`, an editable instance
     // at that version; `<file>@<branch>@`, the branch's tip -- whatever
     // document holds the branch, or its head opened as an editable instance.
@@ -1285,7 +1285,7 @@ Document* Application::openDocumentPrivate(const char * FileName,
         label = name.c_str();
     Document* newDoc = newDocument(name.c_str(),label,isMainDoc && createView);
 
-    // Who the document is, not a change to it (docs/TransactionLog.md sec
+    // Who the document is, not a change to it (docs/TransactionLogJournal.md sec
     // 27.9): outside any transaction, so it joins none that is open, which
     // the restore below would commit in every document (sec 27.15).
     {

@@ -49,7 +49,7 @@ Part::Part()
     ADD_PROPERTY_TYPE(Meta, (), "Part", App::Prop_None, "Map with additional meta information");
 
     // No Uid of its own: the part's is the object's (getObjectUid(),
-    // docs/TransactionLog.md sec 36.7), and Python's Uid answers it
+    // docs/TransactionLogJournal.md sec 36.7), and Python's Uid answers it
     ADD_PROPERTY_TYPE(Id, (""), "Part", App::Prop_None, "ID (Part-Number) of the Item");
 
     // license stuff (leave them empty to avoid confusion with imported 3rd party STEP/IGES files)

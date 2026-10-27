@@ -339,7 +339,7 @@ protected:
 
 } // namespace
 
-/** Values at two states, shown in the 3D view (docs/TransactionLog.md sec
+/** Values at two states, shown in the 3D view (docs/TransactionLogJournal.md sec
  * 32.9, 32.10): which two, where between them, and whether what did not
  * change is left out. Each object's view provider is asked to show its own
  * (ViewProviderDocumentObject::showValueDiff) and says whether it can; what
@@ -886,7 +886,7 @@ private:
     };
 
     /** Ref `ref`, of a value at the state at row `row`, as showValueDiff()
-     * takes it (docs/TransactionLog.md sec 32.33). A value a recompute wrote
+     * takes it (docs/TransactionLogJournal.md sec 32.33). A value a recompute wrote
      * is a cache, which a file's copy of the log does not carry: where the
      * log no longer holds it, it is what the object has in that state's own
      * document, opened once (App::Document::openRowState()) and kept while
@@ -2619,7 +2619,7 @@ QString valueText(App::TransactionLog* log, const std::string& ref, bool derived
     return text;
 }
 
-/** What a merge would do, and a side for each conflict (docs/TransactionLog.md
+/** What a merge would do, and a side for each conflict (docs/TransactionLogJournal.md
  * sec 28.2 item 10): every change the other branch made, the conflicts
  * first, each with the value at the base, ours and theirs as text. A
  * conflict starts on ours; a view-provider conflict is listed with the
@@ -3338,7 +3338,7 @@ void TransactionLogView::onServeBranch()
 
 namespace {
 
-/** Who may what of a branch (docs/TransactionLog.md sec 32.25): what is
+/** Who may what of a branch (docs/TransactionLogJournal.md sec 32.25): what is
  * said in the log, one line each, and a line to say more.
  */
 class AccessDialog : public QDialog
@@ -3810,7 +3810,7 @@ void TransactionLogView::rollBackMerge()
 
 void TransactionLogView::applyRows(const QString& seqs)
 {
-    // docs/TransactionLog.md sec 31.12: rows of another branch, picked in
+    // docs/TransactionLogJournal.md sec 31.12: rows of another branch, picked in
     // the list, applied to this one as a step of its own.
     auto l = log();
     if (!l || !_doc || mergeIsOpen())
@@ -4636,7 +4636,7 @@ void TransactionLogView::transactionMenu(QTreeWidgetItem* item, const QPoint& gl
 
 void TransactionLogView::squashTo(qlonglong version)
 {
-    // docs/TransactionLog.md sec 16.7: the rows between an older version
+    // docs/TransactionLogJournal.md sec 16.7: the rows between an older version
     // and this one folded into one row, the older one chosen from those
     // behind it. What the log refuses is said in the status line.
     auto l = log();

@@ -32,7 +32,7 @@
 namespace App
 {
 
-/** One committed transaction as the store keeps it (docs/TransactionLog.md
+/** One committed transaction as the store keeps it (docs/TransactionLogJournal.md
  * sec 13.2, table `txn`). `seq` is assigned by the store on append.
  */
 struct LogTransaction
@@ -325,7 +325,7 @@ struct LogManifestEntry
     std::string hash;
 };
 
-/** One string of the file's string table (docs/TransactionLog.md sec 27.50
+/** One string of the file's string table (docs/TransactionLogJournal.md sec 27.50
  * item 2, table `strtable`): the table is file-scope state, kept once, and
  * no version carries one. `sids` names the strings it is built from, as
  * `id` or `id:index`, space separated; `data` and `postfix` are its bytes as
@@ -341,7 +341,7 @@ struct LogString
 };
 
 /** A file someone sent to be merged, for as long as the log holds its bytes
- * (table `heldfile`, docs/TransactionLog.md sec 30.29): `seq` the `request`
+ * (table `heldfile`, docs/TransactionLogJournal.md sec 30.29): `seq` the `request`
  * row that says who sent what, `hash` the blob, `branch` the branch it was
  * brought in to -- 0 until it is. The store keeps it by the row's identity
  * (LogRowId), so `seq` is the number the row has now: a fast-forward gives
@@ -597,7 +597,7 @@ public:
     virtual void vacuum() = 0;
     /// The share of the store's pages that are free, 0 to 1.
     virtual double freeShare() = 0;
-    /** @name What changed since a save (docs/TransactionLog.md sec 38.9)
+    /** @name What changed since a save (docs/TransactionLogJournal.md sec 38.9)
      *
      * The history a folder holds is this store as the folder's last save
      * left it, less what retention took out of it. The next save brings a
@@ -624,7 +624,7 @@ public:
     /// sec 38.9: a copy brought up to date against one made whole).
     virtual std::vector<std::string> differences(const std::string& path) = 0;
     //@}
-    /** @name Kept values (docs/TransactionLog.md sec 32.11)
+    /** @name Kept values (docs/TransactionLogJournal.md sec 32.11)
      *
      * A derived value -- a shape -- is of the cache tier, which the copy
      * that travels in the file leaves out (dropTier()). One kept is left
@@ -661,7 +661,7 @@ public:
     virtual void dropTier(const std::string& tier, const std::vector<int64_t>& evict) = 0;
 
     /** Hold the values of `tier` the rows name under a budget
-     * (docs/TransactionLog.md sec 10, 16.3, 37.13): `bytes` of what only
+     * (docs/TransactionLogJournal.md sec 10, 16.3, 37.13): `bytes` of what only
      * they hold, `values` of them, 0 for no limit. Over either, values go
      * until both are at three quarters: of each property the oldest first
      * (a value is a delta on the one after it, 23.2), and across properties

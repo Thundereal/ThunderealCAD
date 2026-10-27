@@ -582,7 +582,7 @@ Application::Application(bool GUIenabled)
         //NOLINTEND
 
         // How the transaction log reaches a view provider from App, for a
-        // cold undo or a restore to a version (docs/TransactionLog.md 24.9).
+        // cold undo or a restore to a version (docs/TransactionLogJournal.md 24.9).
         App::Document::setViewResolver([](const App::DocumentObject* obj) -> App::PropertyContainer* {
             auto self = Application::Instance;
             return self ? self->getViewProvider(obj) : nullptr;
@@ -1352,7 +1352,7 @@ void Application::switchActiveDocument()
     }
     // A document with no window -- a branch served in a document of its
     // own -- is not given one for being left: closing the last window says
-    // what has none and offers to show it (docs/TransactionLog.md sec
+    // what has none and offers to show it (docs/TransactionLogJournal.md sec
     // 32.30). With none that has a window, no document is active.
     if(gdoc) {
         setActiveDocument(gdoc);
@@ -2278,7 +2278,7 @@ struct LiveLoad
     /// that had it set by an actual import must keep it.
     std::set<std::string> claimed;
     /// The documents whose load a running command started: a link's
-    /// target, a pinned link's version (docs/TransactionLog.md sec 27.16).
+    /// target, a pinned link's version (docs/TransactionLogJournal.md sec 27.16).
     /// The command's own doing, like an import into an open document, so
     /// not claimed while that command runs -- claimed, the load's own
     /// writes aborted it, and the document was left empty.

@@ -200,7 +200,7 @@ void PropertyHistory::Restore(Base::XMLReader& reader)
     }
     reader.readEndElement("History");
     // A version says what history its file carried when it was taken, and
-    // carries none of it (docs/TransactionLog.md sec 27.29): a document
+    // carries none of it (docs/TransactionLogJournal.md sec 27.29): a document
     // read from one has its file's log -- joined, or being recovered from.
     // There is nothing to wait for, and the manager would say that a file
     // is missing of every version opened.

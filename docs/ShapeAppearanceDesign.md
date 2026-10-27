@@ -2861,7 +2861,7 @@ object's look" and spelled it `getMaterial(0)` or `getTransparency(0)` reads
 ## 13. The painted elements, by name, as materials
 
 > Survey and proposal, 2026-10-06. Asked for by the merge of the
-> transaction log (docs/TransactionLog.md sec 31.16-31.18): a face's look
+> transaction log (docs/TransactionLogJournal.md sec 31.16-31.18): a face's look
 > has to be held by the face's name before two branches that each painted
 > one can be merged. The user ruled the order: this first, made to work,
 > the merge on top of it. **13.2's first item is built. 13.4 is ruled:
@@ -2928,7 +2928,7 @@ the colour and its alpha: gloss, emission, a finish, a texture.
    `ColoredElements` is the object's and is put back; `MappedColors` is
    the view provider's, and a restore puts a view provider's back only
    where `ViewObjectTransaction` says so, which is off unless set
-   (docs/TransactionLog.md sec 24.9). Two names and no colour, in the
+   (docs/TransactionLogJournal.md sec 24.9). Two names and no colour, in the
    document and in the file saved from it. (Before item 1 both lists came
    out empty, which hid it.)
 4. **A colour is all a name can hold.** *A material now, 13.7 step 4.*
@@ -2955,7 +2955,7 @@ a document is read.
 
 A face written by number -- a script, the importer, `TaskFaceColors` --
 stays as written and is no name's: `updateColors()` leaves a face alone
-that it never wrote. (Ruled, docs/TransactionLog.md sec 31.17: such a
+that it never wrote. (Ruled, docs/TransactionLogJournal.md sec 31.17: such a
 face gets its name when it is merged, not when it is written.)
 
 **The way in.** `getElementAppearances` / `setElementAppearances` beside
@@ -3066,7 +3066,7 @@ frozen and unfrozen.
    (`Document::restoreVersion`, `_moveAlongLog`'s `views`), and where the
    pair first has to be one thing to it.
 
-After 7 the merge by name (docs/TransactionLog.md sec 31.16-31.18), then
+After 7 the merge by name (docs/TransactionLogJournal.md sec 31.16-31.18), then
 the shape diff (sec 32).
 
 ### 13.7 Built
@@ -3355,7 +3355,7 @@ its own gloss; the name taken away, nothing of it left on the cut.
 **Step 7, the restore (2026-10-07).** 13.2 item 3, Q4. A version restored
 put `ColoredElements` back, the object's, and left `MappedAppearance`, its
 view provider's, as it was: a restore puts a view provider's values back
-only under `ViewObjectTransaction` (docs/TransactionLog.md sec 24.9). The
+only under `ViewObjectTransaction` (docs/TransactionLogJournal.md sec 24.9). The
 names came back without their looks.
 
 The log does not know these two properties, and is not told of them. It
@@ -3427,7 +3427,7 @@ It is one flag for the list and not one for each face or field: a face
 that is only painted beside one that has a material does not follow.
 Finer than that is the "one more stored value" above, and is not built.
 
-In the merge (docs/TransactionLog.md sec 31.20) a side whose list is
+In the merge (docs/TransactionLogJournal.md sec 31.20) a side whose list is
 colours is read over the object's look as the document has it, so a
 branch that painted and a branch that gave a material merge with nothing
 asked; the merged list is colours where neither side gave more.
@@ -3584,7 +3584,7 @@ A read answers what is drawn. A write goes **to the name where the shape
 has a mapped name for the element, to the number where it has not** --
 asked of the object's geometry (`ComplexGeoData::getMappedName`) when it
 is written, which is the ruling that a write by number gets its name then
-and not at a merge (it replaces docs/TransactionLog.md sec 31.17's). An
+and not at a merge (it replaces docs/TransactionLogJournal.md sec 31.17's). An
 element with both, a number stated before the shape had names, is the
 name's: the name is laid over the number when the looks are made.
 
@@ -3643,7 +3643,7 @@ for what they say of the name and of the file. The order to build in is
    is kept in the property.
 4. **The importer and the exporters without a view provider**: a STEP
    file's colours read in `FreeCADCmd` and written from it.
-5. **The merge** (docs/TransactionLog.md sec 31.20) on one value: the
+5. **The merge** (docs/TransactionLogJournal.md sec 31.20) on one value: the
    pair, the two halves arriving one after the other and
    `Prop_OwnerValue` for these two all go.
 6. **Below schema 5** `ShapeAppearance` and `DiffuseColor` are still
@@ -3885,7 +3885,7 @@ list.
 
 Ruled. It follows from where the value is, and it is a change from today,
 where a view provider's values are put back only under
-`ViewObjectTransaction` (docs/TransactionLog.md sec 24.9):
+`ViewObjectTransaction` (docs/TransactionLogJournal.md sec 24.9):
 
 - an undo takes a painted face back, always;
 - the log has it as the object's row and no view row; `Prop_OwnerValue`
@@ -4280,7 +4280,7 @@ is drawn is left out of a merged value and made when it lands.
 *Found building it.* A list held in the store asked for its document's
 blob store whenever it was given a holder. Asking makes the store, and the
 file's history with it, after which a removed object's name is not given
-again (docs/TransactionLog.md sec 27.40): every document had a history as
+again (docs/TransactionLogJournal.md sec 27.40): every document had a history as
 soon as it had a `Part::Feature`, and eighteen CAM cases that remove an
 object and add it again by the same name failed. A list asks only where
 it names stored content.
@@ -4547,7 +4547,7 @@ looks being the object's.
   reads its table into a hasher of its own and merges it
   (`Document::Restore`); that one was gone before the reader came to it.
   The table's file is named for the document to read now, as the member of
-  docs/TransactionLog.md sec 27.50 is.
+  docs/TransactionLogJournal.md sec 27.50 is.
 - **Every colour of the older build's file came back inverted**, an opaque
   box wholly transparent. The released images state the day they were built
   as their version, `2025.1020R14555`, which `Base::alphaIsOpacity` read as

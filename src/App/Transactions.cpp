@@ -840,7 +840,7 @@ void TransactionObject::setProperty(const Property* pcProp)
             pcProp->getContainer()->getDynamicPropertyData(pcProp);
         data.propertyOrig = pcProp;
         // The log's copy of the value at its last commit, when this is the
-        // first write since (docs/TransactionLog.md sec 25.4). A status
+        // first write since (docs/TransactionLogJournal.md sec 25.4). A status
         // changed since, `Touched` aside, means a fresh copy: the cached one
         // is shared with the log's worker and is not written to.
         auto cached = TransactionCopyCache::take(pcProp->getID());
@@ -914,7 +914,7 @@ void TransactionObject::addOrRemoveProperty(const Property* pcProp, bool add)
         pcProp->getContainer()->getDynamicPropertyData(pcProp);
     // The type of an added property too: the transaction log names it in
     // the op, and a row that said `BadType` could not be replayed
-    // (docs/TransactionLog.md sec 30.18).
+    // (docs/TransactionLogJournal.md sec 30.18).
     data.propertyType = pcProp->getTypeId();
     if(add) 
         data.property = nullptr;

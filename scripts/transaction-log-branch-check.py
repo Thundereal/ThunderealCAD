@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 26: branches switched in place in
+# GUI check of docs/TransactionLogJournal.md sec 26: branches switched in place in
 # the running application -- the model and the view providers follow a
 # switch, and the log panel's switcher and row filter work. One GUI run in a
 # fresh user home, given this script at startup:

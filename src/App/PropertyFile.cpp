@@ -719,7 +719,7 @@ const FileBlobHandle &PropertyStringIncluded::ensureBlob() const
         // scratch file: its name was the same for every text, and the
         // transaction log's worker stores a copy's text while the main thread
         // stores others, so one could adopt what the other had just written
-        // (docs/TransactionLog.md sec 27.73).
+        // (docs/TransactionLogJournal.md sec 27.73).
         _blob = manager.adoptBytes(_cValue, _ext.c_str());
     }
     catch (const Base::Exception &e) {

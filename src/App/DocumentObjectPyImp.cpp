@@ -1108,7 +1108,7 @@ PyObject *DocumentObjectPy::getCustomAttributes(const char* attr) const
             requestViewObject(*obj);
     }
     // What was a property of a part and a FEM analysis is the object's UID
-    // (docs/TransactionLog.md sec 36.7); a property of the name answers
+    // (docs/TransactionLogJournal.md sec 36.7); a property of the name answers
     if (boost::equals(attr, "Uid")) {
         auto obj = getDocumentObjectPtr();
         if (obj->hasUidAttribute() && !obj->getPropertyByName(attr))

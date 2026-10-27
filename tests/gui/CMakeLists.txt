@@ -321,7 +321,7 @@ fc_add_gui_test(GuiServeLog_tests_run serve-log.py
                 --timeout 240)
 fc_add_gui_test(GuiServeLogBrowser_tests_run serve-log-browser.py
                 --timeout 600)
-# What the panel does with what it lists (docs/TransactionLog.md sec 32.22):
+# What the panel does with what it lists (docs/TransactionLogJournal.md sec 32.22):
 # rows taken back, versions, branches, each asked of the host by an editor,
 # a viewer and the host; and the same from the page in a real browser.
 fc_add_gui_test(GuiServeLogActs_tests_run serve-log-acts.py
@@ -329,7 +329,7 @@ fc_add_gui_test(GuiServeLogActs_tests_run serve-log-acts.py
 fc_add_gui_test(GuiServeLogActsBrowser_tests_run serve-log-acts-browser.py
                 --timeout 600)
 # A copy larger than one message of the socket carries, sent from the page
-# in pieces (docs/TransactionLog.md sec 32.36): the progress it says, and
+# in pieces (docs/TransactionLogJournal.md sec 32.36): the progress it says, and
 # the host's copy byte for byte.
 fc_add_gui_test(GuiServeRequestBrowser_tests_run serve-request-browser.py
                 --timeout 600)
@@ -2337,14 +2337,14 @@ fc_add_gui_test(GuiCaptureWaitsForExactEdges_tests_run
                 capture-waits-for-exact-edges.py
                 --timeout 180)
 
-# File > Export with Linked Files (docs/TransactionLog.md sec 35 L7): the
+# File > Export with Linked Files (docs/TransactionLogJournal.md sec 35 L7): the
 # dialog lists the set, writes it into a new folder, and asks before
 # writing into one that is not empty.
 fc_add_gui_test(GuiExportLinkedSet_tests_run
                 export-linked-set.py
                 --timeout 180)
 
-# File > Import a Linked Set (docs/TransactionLog.md sec 35 L6): the dialog
+# File > Import a Linked Set (docs/TransactionLogJournal.md sec 35 L6): the dialog
 # pairs another copy of the set with ours, imports it as branches and
 # merges it as one undo step.
 fc_add_gui_test(GuiImportLinkedSet_tests_run
@@ -2354,33 +2354,33 @@ fc_add_gui_test(GuiImportClash_tests_run
                 import-clash.py
                 --timeout 120)
 
-# A drag out of an Auto Delete link group (docs/TransactionLog.md sec
+# A drag out of an Auto Delete link group (docs/TransactionLogJournal.md sec
 # 37.12): a move, not the removal the mode makes of an element taken out.
 fc_add_gui_test(GuiLinkGroupDragOut_tests_run
                 link-group-drag-out.py
                 --timeout 120)
 
 # A set's merge says first what will not resolve after it
-# (docs/TransactionLog.md sec 35.6 Q4, 35.16 G5), and offers to merge
+# (docs/TransactionLogJournal.md sec 35.6 Q4, 35.16 G5), and offers to merge
 # the file kept ours that it needs.
 fc_add_gui_test(GuiImportLinkedSetReferences_tests_run
                 import-linked-set-references.py
                 --timeout 180)
 
-# A linked set's import leaves its files to be saved (docs/TransactionLog.md
+# A linked set's import leaves its files to be saved (docs/TransactionLogJournal.md
 # sec 35.18): each file given a branch is marked modified.
 fc_add_gui_test(GuiSetImportMarksModified_tests_run
                 set-import-marks-modified.py
                 --timeout 180)
 
 # A paste assigned onto an object here takes the look brought too, unless
-# unchecked (docs/TransactionLog.md sec 35.18).
+# unchecked (docs/TransactionLogJournal.md sec 35.18).
 fc_add_gui_test(GuiPasteAssignLook_tests_run
                 paste-assign-look.py
                 --timeout 120)
 
 # A save merges what another process saved into the file, says it while
-# idle, and puts a conflict to the merge (docs/TransactionLog.md sec 29.8).
+# idle, and puts a conflict to the merge (docs/TransactionLogJournal.md sec 29.8).
 fc_add_gui_test(GuiSaveMergesAnotherProcess_tests_run
                 save-merges-another-process.py
                 --timeout 180)

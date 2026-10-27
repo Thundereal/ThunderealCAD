@@ -1,6 +1,6 @@
 """A real browser asks for an object's last change, sees it and works it.
 
-The browser half of docs/TransactionLog.md sec 32.19.
+The browser half of docs/TransactionLogJournal.md sec 32.19.
 tests/gui/serve-shape-diff-edit.py checks the server side against a
 synthetic socket client: the `edit` op with the mode, the two states a node
 of the session, the panel mirrored, a write to its slider. What no
@@ -74,7 +74,7 @@ MODE = 6  # Gui::ViewProvider::ValueDiff
 SETTLE_MS = 9000
 RUN_WAIT_S = 300
 # The browser acts on the document, so it is someone: the holder of an
-# invitation issued to its name (docs/TransactionLog.md sec 30.6 U4, U6).
+# invitation issued to its name (docs/TransactionLogJournal.md sec 30.6 U4, U6).
 TOKEN = "shape-diff-browser-invite"
 CLIENT = "shape-diff-browser"
 

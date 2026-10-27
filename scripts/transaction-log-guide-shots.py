@@ -393,7 +393,7 @@ def run():
         settle()
 
         # 17: who may what of a branch, and a merge someone asked for
-        # (docs/TransactionLog.md sec 32.25). Two who came to the document
+        # (docs/TransactionLogJournal.md sec 32.25). Two who came to the document
         # and wrote a row each are users the log knows.
         for kind, name, prop, value in (("invited", "bob", "Width", 22),
                                         ("verified", "ann@example.com", "Height", 19)):

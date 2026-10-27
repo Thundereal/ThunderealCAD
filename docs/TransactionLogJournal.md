@@ -26,7 +26,7 @@ question is the one that holds.
   `docs/TransactionLogDesign.md`; this document is the journal it was
   built from.
 - A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
-  found with `grep -n '^### 27.22\|^## 36' docs/TransactionLog.md`.
+  found with `grep -n '^### 27.22\|^## 36' docs/TransactionLogJournal.md`.
 
 ## Contents
 

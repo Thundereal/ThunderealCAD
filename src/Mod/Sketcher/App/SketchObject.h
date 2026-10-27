@@ -128,7 +128,7 @@ public:
     std::vector<std::string> getMergeUnit(const char* prop) const override;
     /// A sketch two branches both changed: geometry by its id, constraints
     /// by what they say of which geometry, and the result one that solves
-    /// (SketchMerge.cpp, docs/TransactionLog.md sec 31.10).
+    /// (SketchMerge.cpp, docs/TransactionLogJournal.md sec 31.10).
     bool mergeUnit(const MergeUnitState& base, const MergeUnitSide& ours,
                    const MergeUnitSide& theirs, MergeUnitState& merged,
                    std::vector<MergeUnitNote>& notes) const override;
@@ -138,7 +138,7 @@ public:
                         std::vector<MergePlace>& places) const override;
     bool nameMergePlaces(MergeUnitState& at, const std::vector<std::string>& names) const override;
     /// `Geometry` and `ExternalGeo`: each geometry's id, the copy's new
-    /// ones given ids of this file (docs/TransactionLog.md sec 31.14).
+    /// ones given ids of this file (docs/TransactionLogJournal.md sec 31.14).
     bool importMintedIds(const char* prop, std::string& fragment, std::map<long, long>& ids,
                          bool seed) override;
     /// `g5;SKT`, `g5v1;SKT`, `e7;SKT`: the id in an element's name.
@@ -1079,7 +1079,7 @@ protected:
     void updateGeoHistory();
     void generateId(Part::Geometry *geo);
     /// A geometry id never given in this sketch, in any version or branch
-    /// of its file (docs/TransactionLog.md sec 27.40 item 4); moves
+    /// of its file (docs/TransactionLogJournal.md sec 27.40 item 4); moves
     /// geoLastId to it.
     long newGeoId();
 

@@ -34,7 +34,7 @@ namespace App {
 class DocumentObject;
 
 /// How an owned object goes when its owner is pasted onto a live one
-/// (DocumentObject::getOwnedCounterpart, docs/TransactionLog.md sec 37.9)
+/// (DocumentObject::getOwnedCounterpart, docs/TransactionLogJournal.md sec 37.9)
 enum class OwnedPaste {
     /// As its owner goes: assigned with it, left out with it
     FollowOwner,

@@ -36,7 +36,7 @@ namespace App
 class Document;
 
 /** How a file of their set was paired with one of ours
- * (docs/TransactionLog.md sec 35 L3, 35.6 Q1), strongest first.
+ * (docs/TransactionLogJournal.md sec 35 L3, 35.6 Q1), strongest first.
  */
 enum class SetPairing
 {

@@ -648,7 +648,7 @@ void Gui::installSceneWidgetOps()
         if (base.isEmpty())
             return sceneControlError(id, "BadRequest", QStringLiteral("name required"));
         // The most one upload may carry is a setting (SceneRequests::
-        // uploadLimit, docs/TransactionLog.md sec 30.23): 16 MB unless set,
+        // uploadLimit, docs/TransactionLogJournal.md sec 30.23): 16 MB unless set,
         // a panel's file being a font, a hatch pattern, a symbol. A larger
         // one comes in pieces and is named by its upload (sec 32.36).
         QJsonObject tooMuch;

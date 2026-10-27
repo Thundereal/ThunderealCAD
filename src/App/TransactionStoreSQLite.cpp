@@ -54,7 +54,7 @@ using namespace App;
 
 namespace {
 
-// docs/TransactionLog.md sec 27.53: an entity's hash, its base and both
+// docs/TransactionLogJournal.md sec 27.53: an entity's hash, its base and both
 // ends of an edge are the SHA-1's 20 bytes, and `ref` is its key.
 #define FC_ENTITY_COLUMNS                                                              \
     "(hash BLOB PRIMARY KEY, kind TEXT, enc TEXT, base BLOB, tier TEXT,"         \
@@ -108,7 +108,7 @@ bool packHash(const char* hex, size_t n, unsigned char* out)
     return true;
 }
 
-/** The store's layout version, PRAGMA user_version (docs/TransactionLog.md
+/** The store's layout version, PRAGMA user_version (docs/TransactionLogJournal.md
  * sec 27.55: none from 2026-09-28, one again from 2026-10-19 for the release
  * at the end of 2026). 0 is a store from before it; 1 is the layout of
  * 2026-10-19; 2 adds the object UIDs (sec 36, 2026-10-21); 3 packs the op
@@ -237,7 +237,7 @@ std::string fileUri(const std::string& path)
     return uri;
 }
 
-/** The SQLite log (docs/TransactionLog.md sec 13). One database per
+/** The SQLite log (docs/TransactionLogJournal.md sec 13). One database per
  * document history; every append is one SQL transaction, so atomicity
  * and crash recovery are the database's, not ours.
  */
@@ -277,7 +277,7 @@ public:
         }
     }
 
-    /** The layout, made or brought up to StoreVersion (docs/TransactionLog.md
+    /** The layout, made or brought up to StoreVersion (docs/TransactionLogJournal.md
      * sec 27.55, as ruled again on 2026-10-19). A store of a newer build is
      * refused, never misread; one older is migrated, step by step.
      */

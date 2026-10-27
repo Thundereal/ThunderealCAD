@@ -97,7 +97,7 @@ enum ViewStatus {
     /// A second view of an object that only the host's own views draw
     /// (under a SoFCPathAnnotation with hostOnly): a change of it is not
     /// said to be a change of the object's view, which is what a served
-    /// document publishes for (docs/TransactionLog.md sec 32.24)
+    /// document publishes for (docs/TransactionLogJournal.md sec 32.24)
     HostOnlyView = 7,
 };
 

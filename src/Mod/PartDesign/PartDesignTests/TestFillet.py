@@ -356,7 +356,7 @@ class TestFilletSlivers(unittest.TestCase):
         fillet.Radius = 0.3
         self.Doc.recompute()
         self.assertTrue(fillet.isValid())
-        # on a copy: a feature's Shape is frozen (docs/TransactionLog.md sec
+        # on a copy: a feature's Shape is frozen (docs/TransactionLogJournal.md sec
         # 27.82), and a fillet that writes into its input raises on it
         shape = self.Base.Shape.copy()
         made = shape.makeFillet(0.3, [shape.getElement(slope)])

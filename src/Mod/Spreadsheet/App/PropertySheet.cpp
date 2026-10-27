@@ -518,7 +518,7 @@ void PropertySheet::Restore(Base::XMLReader& reader)
     // has none yet; a value put back from the transaction log -- a switch of
     // branch, an undo past the hot window, a merge -- is read into a sheet
     // that has, and a cell the value has not got stayed: one set on a
-    // branch was there on every other (docs/TransactionLog.md sec 31.1).
+    // branch was there on every other (docs/TransactionLogJournal.md sec 31.1).
     clear();
 
     reader.readElement("Cells");

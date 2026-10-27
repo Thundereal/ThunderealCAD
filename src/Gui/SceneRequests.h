@@ -38,7 +38,7 @@ namespace Gui
 {
 
 /** A file a client of a served document sent to be merged
- * (docs/TransactionLog.md sec 30.20 H4-H7, 30.23, 30.29): kept as it came,
+ * (docs/TransactionLogJournal.md sec 30.20 H4-H7, 30.23, 30.29): kept as it came,
  * and not read. Nothing of it is opened, replayed or made until the owner
  * asks -- the log panel's request list is where -- and what it then becomes
  * is a branch, by Document::importSentFile(), with the sender in the
@@ -89,12 +89,12 @@ GuiExport fastsignals::signal<void()>& signalChanged();
 
 /** The most one upload may carry, in bytes: a panel's file chooser
  * (`widgets.upload`, docs/Sandbox.md 7.22) and a request alike. A setting
- * (docs/TransactionLog.md sec 30.23): the preference `UploadLimitMB` of
+ * (docs/TransactionLogJournal.md sec 30.23): the preference `UploadLimitMB` of
  * `BaseApp/Preferences/SceneShare`, 16 unless set, which `FC_SERVE_UPLOAD_MB`
  * presets for a headless serve and setUploadLimit() overrides for the
  * life of the process. Never more than ceiling(). A file larger than one
  * frame of the socket carries is sent in pieces (`upload.begin`,
- * `upload.piece`, docs/TransactionLog.md sec 32.36) and the op that takes
+ * `upload.piece`, docs/TransactionLogJournal.md sec 32.36) and the op that takes
  * it names the pieces' upload instead of carrying `data`.
  */
 GuiExport qint64 uploadLimit();
@@ -112,7 +112,7 @@ GuiExport qint64 ceiling();
 GuiExport qint64 pieceSize();
 
 /** The most that may wait for one document, in bytes, all its sent files
- * together (docs/TransactionLog.md sec 30.28 J4, 30.29): a file that would
+ * together (docs/TransactionLogJournal.md sec 30.28 J4, 30.29): a file that would
  * take it past is refused, `TooMany`. A file waits in the document's
  * history and is saved with it, so this bounds what a client can make a
  * file grow by. The preference `RequestsTotalMB` of

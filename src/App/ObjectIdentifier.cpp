@@ -1442,7 +1442,7 @@ void ObjectIdentifier::addComponent(ObjectIdentifier::Component &&c) {
     // 'Doc#Obj.<<Edge1>>': a string right after a document-qualified object is
     // its sub-name, as the grammar makes it for 'Obj.<<Edge1>>' -- not a
     // sub-object label, which made an element path in another document name
-    // nothing (docs/TransactionLog.md sec 27.82).
+    // nothing (docs/TransactionLogJournal.md sec 27.82).
     if (!documentName.getString().empty() && documentObjectNameSet && components.empty()
             && subObjectName.getString().empty() && !isLocalProperty()) {
         subObjectName = String(std::move(name), true);

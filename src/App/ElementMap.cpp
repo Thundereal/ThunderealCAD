@@ -262,7 +262,7 @@ inline std::ostream & operator << (std::ostream &s, const QByteArray &bytes)
 // because of partial loading. The same technique used here can be applied to
 // restore shape sharing.
 //
-// The id is not one-time any more (docs/TransactionLog.md sec 38.15): a map
+// The id is not one-time any more (docs/TransactionLogJournal.md sec 38.15): a map
 // keeps the id it was last saved or read under, and a save gives it that id
 // again unless another map of the same save took it first. A map with none,
 // or whose id is taken, gets one above every id given or read in this
@@ -360,7 +360,7 @@ static ElementMapPtr& restoredMap(unsigned id)
 // A map that a value given to another thread holds -- a shape's copy the
 // transaction log saves on its worker, the auto saver on its pool -- is read
 // there with no lock, and a map is edited in place, with no copy made for
-// whoever else holds it (docs/TransactionLog.md sec 31.28). So a map is
+// whoever else holds it (docs/TransactionLogJournal.md sec 31.28). So a map is
 // counted as held from the handover until its reader is done, and a name
 // made meanwhile waits beside the map and is taken in afterwards (sec
 // 31.31). The check: an edit of a map while it is held is counted and
@@ -771,7 +771,7 @@ public:
             s >> postfixes.back();
         }
         // One buffer per saved postfix, which every name ending in it
-        // shares (docs/TransactionLog.md sec 27.77).
+        // shares (docs/TransactionLogJournal.md sec 27.77).
         std::vector<QByteArray> postfixBytes;
         postfixBytes.reserve(count);
         for (auto &p : postfixes)
@@ -1015,7 +1015,7 @@ public:
      * A name made by an op gets its postfix from a stream of its own
      * (encodeElementName), so the names one op gives the same op code and
      * tag each held a copy -- 51,140 buffers for 6,054 texts on
-     * scanner.FCStd (docs/TransactionLog.md sec 27.77).
+     * scanner.FCStd (docs/TransactionLogJournal.md sec 27.77).
      */
     MappedName withSharedPostfix(const MappedName &name)
     {
@@ -1221,7 +1221,7 @@ public:
                 // The strings the child's postfix names by id are held by
                 // the child, and so by every name read through it: one that
                 // is written down as a name of its own has nothing else to
-                // hold them (docs/TransactionLog.md sec 33.2).
+                // hold them (docs/TransactionLogJournal.md sec 33.2).
                 if (sids)
                     *sids += child.sids;
                 return name;
@@ -2535,7 +2535,7 @@ void ComplexGeoData::Save(Base::Writer &writer) const {
 
 /// The table a map being restored names its ids in: the geometry's own,
 /// 'own' -- or, for a value of another copy of the file
-/// (App::RestoreStrings, docs/TransactionLog.md sec 30.16), that copy's,
+/// (App::RestoreStrings, docs/TransactionLogJournal.md sec 30.16), that copy's,
 /// from which the map is then taken into 'own' by content.
 static App::StringHasherRef restoreTable(const App::StringHasherRef &own)
 {

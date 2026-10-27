@@ -1,9 +1,9 @@
 # GUI check of the Share dialogs' settings (docs/ShareAccess.md sec 2.3, 2.4
-# and 4; docs/TransactionLog.md sec 30.26): the most a client may send, as a
+# and 4; docs/TransactionLogJournal.md sec 30.26): the most a client may send, as a
 # control in the dialog that starts a share and in the sharing panel; an
 # invitation by name where no door signs anyone in, with the link that
 # carries it; and the header a sign-in door names its user in. And the
-# branches served in documents of their own (docs/TransactionLog.md sec
+# branches served in documents of their own (docs/TransactionLogJournal.md sec
 # 32.31): listed in the panel with their documents, shown and closed from
 # there; a branch there is already served as it is.
 # One GUI run in a fresh user home, given this script at startup:
@@ -61,7 +61,7 @@ def off(fn, *args):
 
 def connect(port, doc, name, query="", headers="", device=""):
     """A client, as the viewer page would be one: `device` the id its browser
-    keeps (docs/TransactionLog.md sec 30.32), none when empty."""
+    keeps (docs/TransactionLogJournal.md sec 30.32), none when empty."""
 
     def talk():
         ws = WS(port, "/scene" + query, headers)

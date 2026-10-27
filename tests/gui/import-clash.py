@@ -1,4 +1,4 @@
-"""A paste onto objects already there (docs/TransactionLog.md sec 36.4, 37.9).
+"""A paste onto objects already there (docs/TransactionLogJournal.md sec 36.4, 37.9).
 
 `Obj` of document A, and `LA` linking it, are copied into document B, where
 `Obj` is changed and linked by a new `L`. B's three are copied and pasted

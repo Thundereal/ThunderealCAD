@@ -1,7 +1,7 @@
 """What the host looks at of a shape's two states stays the host's: the
 clients of a served document are sent none of it.
 
-docs/TransactionLog.md sec 32.24 (ruled 2026-10-13), which takes back what
+docs/TransactionLogJournal.md sec 32.24 (ruled 2026-10-13), which takes back what
 sec 32.18 measured. The desktop's log panel and its merge dialog draw two
 states of an object's shape over the object, as an annotation under its
 view provider's root (PartGui::ShapeDiffView) -- the root every view of

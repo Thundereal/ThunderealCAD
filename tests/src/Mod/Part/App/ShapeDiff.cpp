@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
 // What became of each element between two states of a shape
-// (Part::ShapeDiff, docs/TransactionLog.md sec 32.6).
+// (Part::ShapeDiff, docs/TransactionLogJournal.md sec 32.6).
 
 #include <gtest/gtest.h>
 

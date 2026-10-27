@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 30.3 S.a: a branch opened in a
+# GUI check of docs/TransactionLogJournal.md sec 30.3 S.a: a branch opened in a
 # second document of the file, in the running application -- neither follows
 # the other, a merge that is asked for takes the other's rows as they are,
 # model and view providers both; and the log panel's "Branch to document"

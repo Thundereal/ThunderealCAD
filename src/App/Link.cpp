@@ -602,7 +602,7 @@ static bool copiedWhole(App::Document* doc,
     return false;
 }
 
-// Each copy names its source by the source's UID (docs/TransactionLog.md
+// Each copy names its source by the source's UID (docs/TransactionLogJournal.md
 // sec 36.7) in _SourceUUID: the next copy finds the old one it replaces by
 // it. copyObject() returns the copies in the order of the input.
 static void nameCopySources(const std::vector<App::DocumentObject*>& srcObjs,

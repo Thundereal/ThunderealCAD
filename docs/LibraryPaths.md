@@ -30,7 +30,7 @@ A document-wise management of the folders external links point into:
   editor show.
 - **A relative form needs the owner saved**: `getDocPath` throws "Owner
   document not saved" when the owner has no file name. That is what
-  refused an import of a file with links (`docs/TransactionLog.md` sec
+  refused an import of a file with links (`docs/TransactionLogJournal.md` sec
   35.2 item 6a).
 - **The save form** is `<XLink file="..." stamp="..." name="..."
   [resolve="..."] .../>`. The log's pins and branch links (TransactionLog

@@ -7,7 +7,7 @@ idea starts from.
 
 Companion documents:
 
-- `docs/TransactionLog.md` sec 24.9-24.10 -- what the document log records
+- `docs/TransactionLogJournal.md` sec 24.9-24.10 -- what the document log records
   of view providers today, and why the camera was kept out of it.
 - `docs/ThinClient.md` 8.11 (the shared session) and 8.12 (what per client
   would cost) -- the multi-client side this idea answers much of.
@@ -17,7 +17,7 @@ Companion documents:
   already live on the view (`ObjectDisplayModes`, `OnTopObjects`).
 - `docs/SplitViews.md` -- views with persistent names, which is what makes
   per-view state addressable across a save.
-- `docs/TransactionLog.md` sec 17 -- branches, merge and concurrent writers,
+- `docs/TransactionLogJournal.md` sec 17 -- branches, merge and concurrent writers,
   which section 10 here builds on.
 
 ## 1. The idea (user, 2026-09-25)
@@ -86,7 +86,7 @@ is not a property and is in no undo.
 **Visibility is two properties, both document state.**
 `App::DocumentObject::Visibility` ("visibility in App name space") and
 `ViewProviderDocumentObject::Visibility`, kept in step. Since
-`docs/TransactionLog.md` 24.10 both are logged and undone as document
+`docs/TransactionLogJournal.md` 24.10 both are logged and undone as document
 data. `TempoVis` (the edit mode's temporary hides, a saved Python property
 on e.g. `ViewProviderSketch`) writes the same visibility.
 
@@ -179,7 +179,7 @@ Each view keeps its own undo and redo stack of view-property changes:
   one entry.
 - **Its own commands.** An "undo view" / "redo view" pair, the precedent
   being SolidWorks' Ctrl+Shift+Z "Previous View" and Rhino's `UndoView`
-  (`docs/TransactionLog.md` 24.10 has the survey). Which view it acts on:
+  (`docs/TransactionLogJournal.md` 24.10 has the survey). Which view it acts on:
   the active one.
 - **Per client for free.** A client's view has its own stack; one client
   undoing a camera move or a hide does nothing to anyone else.
@@ -215,11 +215,11 @@ What that touches, from `docs/ThinClient.md` 8.12:
 - **Transactions.** Each session's edit is still a document transaction
   (the log records it); two sessions' transactions interleave in one log,
   which is what the per-session undo of `docs/ThinClient.md` 8.12 G and
-  the selective undo of `docs/TransactionLog.md` 24.4 are for.
+  the selective undo of `docs/TransactionLogJournal.md` 24.4 are for.
 
 ## 7. What it changes elsewhere, when built
 
-- `docs/TransactionLog.md` 24.10 logs the view provider's `Visibility` as
+- `docs/TransactionLogJournal.md` 24.10 logs the view provider's `Visibility` as
   document data. Once visibility is view state, that row leaves the log;
   the App visibility stays in it (it is the document's record of what the
   author showed). `TempoVis` leaves it too.
@@ -260,11 +260,11 @@ What that touches, from `docs/ThinClient.md` 8.12:
 4. The remaining classifications of section 8.
 5. The edit session per view (section 6), on top of the shared session.
 6. A client's view and session saved on its branch (section 10), on top of
-   the concurrent-writer branches of `docs/TransactionLog.md` 17.5.
+   the concurrent-writer branches of `docs/TransactionLogJournal.md` 17.5.
 
 ## 10. A client's view and session as a branch of the log (user, 2026-09-25)
 
-The pieces meet. `docs/TransactionLog.md` 17.5 already rules that **every
+The pieces meet. `docs/TransactionLogJournal.md` 17.5 already rules that **every
 writer works on its own branch** -- two clients in a shared session each
 get one, created from the head they started at, merged into the shared
 head after each operation (17.3), trimmed when the merge is clean. Section
@@ -292,7 +292,7 @@ What that buys:
   back tomorrow reopens its branch and gets its view back -- camera,
   visibility, display modes -- and re-enters the edit it was in, over the
   ops it had made. A desktop user gets the same from a named workspace.
-- **Sessions are browsable.** The history panel (`docs/TransactionLog.md`
+- **Sessions are browsable.** The history panel (`docs/TransactionLogJournal.md`
   22.2) can list each client's branch with its view: what that person was
   looking at, what they had in edit, what they changed -- attribution and
   presence from the same records.
@@ -316,5 +316,5 @@ Where it rubs against 17.5, to settle when built:
   open, with the cost of a branch per window against the gain of
   resumable windows.
 - **Size.** A view entity is small, but it is rewritten often; it goes
-  through the reverse-delta policy of `docs/TransactionLog.md` 23.2 like
+  through the reverse-delta policy of `docs/TransactionLogJournal.md` 23.2 like
   any other entity, and a camera settle point is not a commit.

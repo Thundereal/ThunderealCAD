@@ -38,7 +38,7 @@
                       referring document, rebuilt at every save, served when
                       the reference comes back missing
   ShapeStableBytesCases  a shape's stored bytes are the shape's alone, not
-                      what was built on it (docs/TransactionLog.md 23.12)
+                      what was built on it (docs/TransactionLogJournal.md 23.12)
 
 Run headless with:  FreeCADCmd -t ShapeStorage
 """
@@ -327,7 +327,7 @@ class ShapeLocationCases(ShapeTestCase):
         self.assertIn('loc="1 0 0 11 0 1 0 -22.5 0 0 1 3.25"', xml)
         # Round numbers stay round: the shortest text that reads back exactly.
         # Read in the attribute alone -- property values around it are
-        # written in the fixed float format (docs/TransactionLog.md 23.9).
+        # written in the fixed float format (docs/TransactionLogJournal.md 23.9).
         for loc in re.findall(r' loc="([^"]*)"', xml):
             self.assertNotIn("-22.500000", loc)
         # And with the location gone, the two boxes are the same geometry --
@@ -449,7 +449,7 @@ class ShapeLocationCases(ShapeTestCase):
         reopened = self.openDocument(project)
         self.assertPlacement(reopened.getObject("Moved"), wanted)
         # Opened, it is this fork's own format from then on (user, 2026-09-28,
-        # docs/TransactionLog.md sec 27.62): the next plain save writes the
+        # docs/TransactionLogJournal.md sec 27.62): the next plain save writes the
         # current schema, and the open says so. Save As keeps the old one.
         self.assertEqual(reopened.SaveSchemaVersion, 5)
 
@@ -512,7 +512,7 @@ class ShapeBlobCases(ShapeTestCase):
     def testTwoFilesWithTheSameGeometryShareItsParse(self):
         """Two files holding the same bytes have two blobs; with shape values
         frozen, the second finds the first's parse by the content hash and
-        the two documents share one TShape (docs/TransactionLog.md sec 27.25
+        the two documents share one TShape (docs/TransactionLogJournal.md sec 27.25
         item 4). Not frozen, each file parses its own."""
         part = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/Part")
         had = "ImmutableShapeValues" in part.GetBools()
@@ -544,7 +544,7 @@ class ShapeBlobCases(ShapeTestCase):
     def testAReleasedParseIsKeptForAWhile(self):
         """A file closed and opened again finds its shapes' parses kept, with
         shape values frozen: the same TShape comes back, nothing is parsed
-        (docs/TransactionLog.md sec 27.25 item 5)."""
+        (docs/TransactionLogJournal.md sec 27.25 item 5)."""
         part = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Mod/Part")
         had = "ImmutableShapeValues" in part.GetBools()
         kept = part.GetBool("ImmutableShapeValues", True)
@@ -714,7 +714,7 @@ class ShapeRefCases(ShapeTestCase):
 
     def testABorrowersParseIsKeptWithItsSources(self):
         """A parse kept after its file was closed is kept with the parses it
-        borrowed from (docs/TransactionLog.md sec 31.9).
+        borrowed from (docs/TransactionLogJournal.md sec 31.9).
 
         The compound's parse holds the box's TShape. Kept while the box's own
         parse was swept, it came back on the next open over a box that the box
@@ -993,7 +993,7 @@ class ShapeCongruenceCases(ShapeTestCase):
 
     def testSaveAfterSaveFollowsWhatChanged(self):
         """A shape keeps what its last save learned of it -- its invariants
-        and the match it made (docs/TransactionLog.md sec 38.11) -- only while
+        and the match it made (docs/TransactionLogJournal.md sec 38.11) -- only while
         it and the shape it matched are the ones they were. Saved again after
         each change, the files and the shapes read back follow."""
         group = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
@@ -1039,7 +1039,7 @@ class ShapeCongruenceCases(ShapeTestCase):
     def testMovedInstancesShareTheirFaces(self):
         """The motion goes one level down: two instances of one part come back
         with every face the same TShape, and so with one mesh between them
-        (docs/TransactionLog.md sec 27.25 item 3)."""
+        (docs/TransactionLogJournal.md sec 27.25 item 3)."""
         project, volumes, _ = self.savedWith(True, "CongFaces")
         doc = self.openDocument(project)
         second = doc.getObject("Second").Shape
@@ -1053,7 +1053,7 @@ class ShapeCongruenceCases(ShapeTestCase):
     def testMovedFaceTopsShareTheirSurface(self):
         """A face on top holds its own surface: the instance's top is a new
         TShape whose surface is placed by the motion, and its wires are the
-        shared ones (docs/TransactionLog.md sec 27.37). Every pcurve must
+        shared ones (docs/TransactionLogJournal.md sec 27.37). Every pcurve must
         still be found where the motion put the surface."""
         group = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
         previous = group.GetBool("DedupCongruentShapes", True)
@@ -1102,7 +1102,7 @@ class ShapeCongruenceCases(ShapeTestCase):
         """A face held reversed comes back as it went: the instance's new top
         takes the orientation after its wires are in, or they are turned with
         it -- the outer wire running the wrong way, the face invalid and its
-        area negative (docs/TransactionLog.md sec 27.85)."""
+        area negative (docs/TransactionLogJournal.md sec 27.85)."""
         group = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
         previous = group.GetBool("DedupCongruentShapes", True)
         group.SetBool("DedupCongruentShapes", True)
@@ -2001,7 +2001,7 @@ class ForeignBaseShapeCases(ShapeTestCase):
 
 @unittest.skipUnless(HAS_PART, "Part module not available")
 class ShapeStableBytesCases(ShapeTestCase):
-    """A shape's stored bytes are the shape's alone (docs/TransactionLog.md 23.12).
+    """A shape's stored bytes are the shape's alone (docs/TransactionLogJournal.md 23.12).
 
     Extruding a face gives the face's edges a 2D curve on each side face, and
     an edge is shared, so those curves used to be saved with the face that

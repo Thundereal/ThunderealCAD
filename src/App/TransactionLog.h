@@ -54,7 +54,7 @@ class PropertyContainer;
 class StringHasher;
 class Transaction;
 
-/** The document's transaction log (docs/TransactionLog.md).
+/** The document's transaction log (docs/TransactionLogJournal.md).
  *
  * Written at commit from the in-memory Transaction: one op per object
  * created, removed or changed, one per property touched, with values
@@ -236,7 +236,7 @@ public:
     const Embedded& lastEmbed() const { return _lastEmbed; }
     /// `trigger`: who asked for the save (SaveTrigger.h), recorded with it
     Embedded embed(const std::string& saveDate, const std::string& trigger = std::string());
-    /** The copy a save to a folder carries (docs/TransactionLog.md sec 38.9),
+    /** The copy a save to a folder carries (docs/TransactionLogJournal.md sec 38.9),
      * written to `target`, a file in the save's stage: the folder's own copy
      * `previous` brought up to date by what changed here since its save,
      * where the store recorded that; otherwise the store copied whole, as
@@ -290,7 +290,7 @@ public:
      * them); the log takes a handle on each.
      */
     /** The objects an op of a row after `seq` on this branch's chain names
-     * (docs/TransactionLog.md sec 38.12): what changed since the save at
+     * (docs/TransactionLogJournal.md sec 38.12): what changed since the save at
      * `seq`. False when `seq` is not on the chain, or no longer stored.
      * `views`, when given, the objects whose view provider an op names
      * (sec 38.14).
@@ -318,7 +318,7 @@ public:
         std::string label;
         std::string fileName;
     };
-    /** Crash recovery (docs/TransactionLog.md sec 25.2 item 4): take over
+    /** Crash recovery (docs/TransactionLogJournal.md sec 25.2 item 4): take over
      * the log and the blob store a crashed session left in `oldDir`, its
      * transient directory. `history/log.db` moves in with its WAL -- the
      * rows committed and not yet checkpointed -- the blob segments and
@@ -333,7 +333,7 @@ public:
     /// The label and file name a recovery shows before anything is read
     /// (meta `label`, `file`), from a leftover store; false if none.
     static bool readRecoveryMeta(const std::string& oldDir, RecoverInfo& info);
-    /** What a saved file carries of its history (docs/TransactionLog.md sec
+    /** What a saved file carries of its history (docs/TransactionLogJournal.md sec
      * 37.4 P1): `named` the newest named versions (0 every one, below 0 the
      * whole history), `snapshots` the newest unnamed ones of each branch, at
      * least 1. The store's own (meta `keep_named`, `keep_snapshots`), which
@@ -354,7 +354,7 @@ public:
     /// Returns its seq.
     int64_t record(const char* kind, const std::string& name, const std::string& script,
                    int64_t mergeFrom = 0);
-    /** Keep `file`, which someone sent to be merged (docs/TransactionLog.md
+    /** Keep `file`, which someone sent to be merged (docs/TransactionLogJournal.md
      * sec 30.29): a `request` row named `name` under whoever acts, `script`
      * its JSON, and the bytes held by the store until
      * TransactionStore::releaseFile(). Nothing of the file is read.
@@ -435,7 +435,7 @@ public:
     int64_t onSnapshot(const Captures& entries, const Blobs& blobs, int schema,
                        const char* kind = "snapshot");
     /** The string ids the version the next save or snapshot records uses
-     * (docs/TransactionLog.md sec 27.50 item 4): what its save marked. A
+     * (docs/TransactionLogJournal.md sec 27.50 item 4): what its save marked. A
      * version recorded without them -- a file as read -- keeps every id the
      * file's hasher holds.
      */
@@ -497,7 +497,7 @@ public:
     /// only the refs of ops in those rows.
     void resolvePending(const std::set<int64_t>* rows = nullptr);
     /** Fold row `prevSeq` into row `laterSeq`, the next commit, as one row
-     * (docs/TransactionLog.md sec 37.4 P4): the later row keeps its seq and
+     * (docs/TransactionLogJournal.md sec 37.4 P4): the later row keeps its seq and
      * ops and takes the earlier one's befores and parent, and what the
      * earlier changed that the later did not; the rows between go with
      * what they changed folded in too. Those may be recompute records and
@@ -679,7 +679,7 @@ private:
     /// Keep row `t` in `_recent`, with the sets of `ops` (sec 27.63).
     void remember(const LogTransaction& t, const std::vector<LogOp>* ops);
 
-    /// The file's history (docs/TransactionLog.md sec 27.7) and the shared
+    /// The file's history (docs/TransactionLogJournal.md sec 27.7) and the shared
     /// half of its log in it: the store, the worker, the counters, the
     /// entities held (TransactionLogCore, in TransactionLog.cpp). What is
     /// below is this document's cursor on one branch.
@@ -726,7 +726,7 @@ private:
     friend class TransactionLogCore;
 };
 
-/** The shared half of a file's log (docs/TransactionLog.md sec 27.7): what
+/** The shared half of a file's log (docs/TransactionLogJournal.md sec 27.7): what
  * every document of the file writes through -- the store, the worker that
  * writes it, the sequence and version counters, the entities held -- owned
  * by the file's history, so it outlives any one document. Each document's
@@ -910,7 +910,7 @@ public:
     /// The longest delta chain hanging off `hash`, in hops.
     int chainBelow(const std::string& hash, int depth = 0);
 
-    /** The file's strings into the store (docs/TransactionLog.md sec 27.50
+    /** The file's strings into the store (docs/TransactionLogJournal.md sec 27.50
      * item 2): those minted since the last call, or with `all` every one the
      * store lacks. Main thread; the worker writes them ahead of the job
      * posted next. The first call for a hasher takes the store's strings it
@@ -945,7 +945,7 @@ public:
     int64_t sessionOf(const Actor* actor);
     /// Close the session of `actor`'s login; false when there is none.
     bool closeLogin(const Actor& actor);
-    /** Where this history and another part (docs/TransactionLog.md sec
+    /** Where this history and another part (docs/TransactionLogJournal.md sec
      * 30.3 S.e). Two files are one history when they hold a row in common,
      * each row known by its session's uuid and its ordinal there; the base
      * of a fork is the newest such row. `other` is the other file's store
@@ -1052,7 +1052,7 @@ public:
     std::map<int64_t, TransactionLog*> _holders;
 };
 
-/** A branch's history cut at a version (docs/TransactionLog.md sec 16.7,
+/** A branch's history cut at a version (docs/TransactionLogJournal.md sec 16.7,
  * "trim a branch"; the bridge of 27.71), on any store: what Document::
  * trimBranch does to the live store and the embedded copy to itself (sec
  * 37.4 P1). `keep` stays and anchors what is left; the rows of the chain up

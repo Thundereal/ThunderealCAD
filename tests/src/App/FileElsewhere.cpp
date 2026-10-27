@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-// Two processes on one file (docs/TransactionLog.md sec 29.7, 29.8): the
+// Two processes on one file (docs/TransactionLogJournal.md sec 29.7, 29.8): the
 // stamp a save compares, the lock it holds, the marker of who has it open.
 
 #include "gtest/gtest.h"
@@ -228,7 +228,7 @@ std::string readAll(const fs::path& path)
 
 }   // namespace
 
-// A folder save goes in whole (docs/TransactionLog.md sec 38).
+// A folder save goes in whole (docs/TransactionLogJournal.md sec 38).
 TEST_F(FileElsewhereTest, aFolderSaveMovesInOnlyWhatChanged)
 {
     const fs::path folder = _root / "Doc";

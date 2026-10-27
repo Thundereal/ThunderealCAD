@@ -85,7 +85,7 @@ struct StringIDHasher {
     }
 };
 
-// The string side is a multiset (docs/TransactionLog.md sec 27.41 Q2): a
+// The string side is a multiset (docs/TransactionLogJournal.md sec 27.41 Q2): a
 // table shared by the documents of one file can come to hold one string
 // under two ids -- dropped from the saved state, minted again after a
 // reopen, then brought back under its old id by an old version. Both ids
@@ -112,7 +112,7 @@ public:
     /// Counts the changes to the entries, which is what the cached hash of
     /// the whole table (contentHash()) is valid for.
     uint64_t Revision = 0;
-    /// Many readers or one writer, of any thread (docs/TransactionLog.md sec
+    /// Many readers or one writer, of any thread (docs/TransactionLogJournal.md sec
     /// 31.30): taken through TableLock by every function that reads or
     /// changes the entries.
     mutable std::shared_mutex mutex;
@@ -311,7 +311,7 @@ StringHasher::~StringHasher() {
 void StringHasher::setSaveAll(bool enable) {
     TableLock lock(*_hashes, TableLock::Write);
     // No compaction here: what may go depends on what the file's history
-    // still uses, which only the document knows (docs/TransactionLog.md sec
+    // still uses, which only the document knows (docs/TransactionLogJournal.md sec
     // 27.50 item 4). The next save compacts.
     _hashes->SaveAll = enable;
 }
@@ -580,7 +580,7 @@ bool StringHasher::merge(const StringHasher& other, std::size_t* aliased)
 {
     TableLock theirs(*other._hashes, TableLock::Read);
     TableLock lock(*_hashes, TableLock::Write);
-    // docs/TransactionLog.md sec 27.40 item 2: the table of one document of
+    // docs/TransactionLogJournal.md sec 27.40 item 2: the table of one document of
     // a file, read on its own, joins the file's. First see that no id means
     // something else here; only then change anything.
     constexpr auto kept = ~static_cast<int>(StringID::Flag::Marked);
@@ -644,7 +644,7 @@ StringIDRef StringHasher::getID(const QByteArray& data, Options options)
     // Looked up under the shared lock, which is all a string that is there
     // needs; one that is not is put in under the exclusive one, and looked
     // up again first where the lock was let go in between: another thread
-    // may have put it in (docs/TransactionLog.md sec 31.30).
+    // may have put it in (docs/TransactionLogJournal.md sec 31.30).
     const bool writing = TableLock::writing(*_hashes);
     bool hashed = false;
     StringID dataID;
@@ -940,7 +940,7 @@ long tagHere(long tag)
 /** `text` where it starts with an element's own name and the tag of the
  * object that made it -- `g5;SKT;:H24,E`, a name no string stands for --
  * with the name as this file numbers it (RestoreMinted,
- * docs/TransactionLog.md sec 31.14). The tag is the copy's still.
+ * docs/TransactionLogJournal.md sec 31.14). The tag is the copy's still.
  */
 QByteArray rewriteMinted(const QByteArray& text)
 {
@@ -999,7 +999,7 @@ QByteArray rewriteTags(const QByteArray& text)
 namespace {
 /** `#b;:H24,E`, `#b;:G;XTR;:H24:7,F` are the name `#b` -- `g5;SKT` -- as
  * an element of the object the first tag after it says: the shape it came
- * from (docs/TransactionLog.md sec 31.14). Where that object numbers the
+ * from (docs/TransactionLogJournal.md sec 31.14). Where that object numbers the
  * thing otherwise here (RestoreMinted), `said` is what the string `prefix`
  * says here in place of its own text. `after` is what follows the
  * reference to it. False where it comes as it is.
@@ -1028,7 +1028,7 @@ bool mintedText(const App::StringIDRef& prefix, const QByteArray& after, QByteAr
 }
 
 /** The same for a name whose number is in the reference and not in the
- * string (a table that indexes names, docs/TransactionLog.md sec 33.7):
+ * string (a table that indexes names, docs/TransactionLogJournal.md sec 33.7):
  * `#c:5;:G;XTR;:H24:7,F` is `#c` -- `g;SKT` -- with 5, the name `g5;SKT`.
  * `own` is what of the string's own postfix belongs to the name, `after`
  * what holds the tag. Where the object numbers the thing otherwise here,
@@ -1757,7 +1757,7 @@ void StringHasher::Restore(Base::XMLReader& reader)
         newTag = true;
     }
 
-    // The file's table as a member of its own (docs/TransactionLog.md sec
+    // The file's table as a member of its own (docs/TransactionLogJournal.md sec
     // 27.50 item 1): read before the objects by whoever restores the
     // document, which knows the archive -- or not at all, when the table is
     // in memory already (item 3).

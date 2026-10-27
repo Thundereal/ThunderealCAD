@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 27.22-27.30, the Gui half of
+# GUI check of docs/TransactionLogJournal.md sec 27.22-27.30, the Gui half of
 # frozen pinned versions: the tree's labels (the branch suffix of a file's
 # own document, a pinned version shown in italics), Std_SaveToHistory, a
 # version document's Save offering Save to History, and the prompt to close

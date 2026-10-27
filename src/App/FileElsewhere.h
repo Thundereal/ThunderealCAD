@@ -38,7 +38,7 @@ class file_lock;
 namespace App
 {
 
-/** What a file on disk is, as one stat says it (docs/TransactionLog.md sec
+/** What a file on disk is, as one stat says it (docs/TransactionLogJournal.md sec
  * 29.8): enough to tell a file nobody else wrote since from one somebody
  * did, at the cost of a single system call. A write by rename -- what a save
  * is -- changes the inode; a write in place changes the size or the time.
@@ -130,7 +130,7 @@ AppExport void remove(const std::string& file);
 AppExport std::string describe(const FileOpener& opener);
 }   // namespace FileOpeners
 
-/** A document saved as a folder goes in whole (docs/TransactionLog.md sec
+/** A document saved as a folder goes in whole (docs/TransactionLogJournal.md sec
  * 38). The save writes into a stage beside the folder, `.~<name>.save`,
  * laid out as the folder is. Once every entry is closed, commit() drops the
  * staged files whose bytes the folder has already, writes the stage's

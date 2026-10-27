@@ -73,7 +73,7 @@ class Proxy:
         self.Dictionary = data
 
 class OwnerProxy:
-    """A scripted object that owns a helper object (docs/TransactionLog.md
+    """A scripted object that owns a helper object (docs/TransactionLogJournal.md
     sec 37.9): it says so, and which of a live owner's objects a helper
     brought stands for."""
 
@@ -106,7 +106,7 @@ def optimizeRecompute():
 def transactionLogIsOn():
     # With the log on, a bare write outside any invocation opens an implicit
     # transaction, and observers see it open and commit like any other
-    # (docs/TransactionLog.md sec 24.13).
+    # (docs/TransactionLogJournal.md sec 24.13).
     return FreeCAD.ParamGet(
             'User parameter:BaseApp/Preferences/Document').GetInt(
                     'TransactionLog',2) != 0
@@ -2481,7 +2481,7 @@ class DocumentObserverCases(unittest.TestCase):
         self.assertEqual(self.Obs.signal.pop(), "DocFinishSave")
         self.assertEqual(self.Obs.parameter2.pop(), self.Doc1.FileName)
         # A save that writes the history into the file (the default with the
-        # transaction log on, docs/TransactionLog.md sec 27.5) sets the
+        # transaction log on, docs/TransactionLogJournal.md sec 27.5) sets the
         # document's History, Version and Branch properties as it goes.
         while self.Obs.parameter2[-1] in ("History", "Version", "Branch"):
             self.Obs.signal.pop()
@@ -3251,7 +3251,7 @@ class ElementAppearanceCases(unittest.TestCase):
 
 
 class TransactionBranchCases(unittest.TestCase):
-    # Branches of the transaction log in a file (docs/TransactionLog.md
+    # Branches of the transaction log in a file (docs/TransactionLogJournal.md
     # sec 17, 26): the branch travels with the embedded history, and a file
     # edited elsewhere keeps its history as closed branches.
 
@@ -9953,7 +9953,7 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(doc.Made.Integer, 7)
 
     def testUsersInGroups(self):
-        # docs/TransactionLog.md sec 32.32: a group is a user of kind
+        # docs/TransactionLogJournal.md sec 32.32: a group is a user of kind
         # 'group'; a user is put in one by naming it, which makes it; a
         # group may be in a group, and not in itself.
         doc = self.track(FreeCAD.newDocument("Groups"))
@@ -9984,7 +9984,7 @@ class TransactionBranchCases(unittest.TestCase):
         self.assertEqual(users[("invited", "bob")], "")
 
     def testABranchOpenedByNameLeavesAnotherBranchsDocumentWhereItIs(self):
-        # docs/TransactionLog.md sec 32.31: the tip of a branch opened by its
+        # docs/TransactionLogJournal.md sec 32.31: the tip of a branch opened by its
         # name, where the editable instance of the version it opens at is
         # another branch's document -- that one is not switched from under
         # it; a second instance is opened.
@@ -12446,7 +12446,7 @@ class TransactionBranchCases(unittest.TestCase):
 
 
 class FolderSaveCases(unittest.TestCase):
-    # A document saved as a folder goes in whole (docs/TransactionLog.md sec
+    # A document saved as a folder goes in whole (docs/TransactionLogJournal.md sec
     # 38): the save writes into a stage beside the folder, `.~<name>.save`,
     # then moves in what changed, Document.xml last. A stage left by a save
     # cut short is thrown away at the next open without its record, and
@@ -13392,7 +13392,7 @@ class FolderSaveCases(unittest.TestCase):
 
 
 class TransactionTwoProcessCases(unittest.TestCase):
-    # Two processes on one file (docs/TransactionLog.md sec 29.7, 29.8): a
+    # Two processes on one file (docs/TransactionLogJournal.md sec 29.7, 29.8): a
     # save first brings in and merges what another process saved into the
     # file since it was read here. The other process is a FreeCADCmd run.
 
@@ -14187,7 +14187,7 @@ class TransactionTwoProcessCases(unittest.TestCase):
 
 
 class TransactionAuditCases(unittest.TestCase):
-    # The defects the audit of 2026-10-27 found (docs/TransactionLog.md sec
+    # The defects the audit of 2026-10-27 found (docs/TransactionLogJournal.md sec
     # 39), one test each that failed before its fix.
 
     def setUp(self):

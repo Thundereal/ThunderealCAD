@@ -305,7 +305,7 @@ public:
     /// Accessor for parameter BlobAppendSize
     ///
     /// How full, in KB, the pack store segment new content is added to
-    /// may be before the next batch starts another (docs/TransactionLog.md
+    /// may be before the next batch starts another (docs/TransactionLogJournal.md
     /// sec 37.4 P8): adding rewrites that segment whole, so this bounds
     /// what a commit writes besides its own content. The small segments
     /// left behind are merged in the background. At most BlobSegmentSize.
@@ -681,7 +681,7 @@ public:
     //@{
     /// Accessor for parameter TransactionLog
     ///
-    /// Transaction log mode (docs/TransactionLog.md sec 13.3, 27.5). The
+    /// Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The
     /// log is always on; what this chooses is whether a save writes the
     /// history into the file: 2 (the default) writes it, 1 keeps it in
     /// the document transient directory only, where it dies with the
@@ -756,7 +756,7 @@ public:
     /// Accessor for parameter TransactionLogCacheSize
     ///
     /// The budget of the transaction log cache tier, in MB (docs/
-    /// TransactionLog.md sec 37.13): the shapes recomputes wrote that only
+    /// TransactionLogJournal.md sec 37.13): the shapes recomputes wrote that only
     /// the history holds. Past it the oldest go, the quickest to recompute
     /// first, down to three quarters; an undo onto one recomputes it. The
     /// newest of each property and what a version lists stay. 0 for none.
@@ -784,7 +784,7 @@ public:
     /// Accessor for parameter TransactionLogPullOnSave
     ///
     /// A save first brings in what another process saved into the file
-    /// since it was read here, and merges it (docs/TransactionLog.md sec
+    /// since it was read here, and merges it (docs/TransactionLogJournal.md sec
     /// 29.8); a conflict stops the save at the merge. Off, the save
     /// writes over the file as before. The save lock is taken either way.
     static const bool & getTransactionLogPullOnSave();
@@ -802,7 +802,7 @@ public:
     /// it wrote, by the same author under the same name and within this
     /// many seconds of it, is folded into it: one row of the transaction
     /// log and one undo step for the run, as a spinbox or a Python loop
-    /// makes it (docs/TransactionLog.md sec 37.4 P4). 0 never folds.
+    /// makes it (docs/TransactionLogJournal.md sec 37.4 P4). 0 never folds.
     static const long & getTransactionLogCoalesceSeconds();
     static const long & defaultTransactionLogCoalesceSeconds();
     static void removeTransactionLogCoalesceSeconds();
@@ -815,7 +815,7 @@ public:
     /// Accessor for parameter TransactionLogKeepNamed
     ///
     /// How many named versions a saved file carries in its history
-    /// (docs/TransactionLog.md sec 37.4 P1), the newest first, for a file
+    /// (docs/TransactionLogJournal.md sec 37.4 P1), the newest first, for a file
     /// that does not say (Document.setHistoryRetention): rows older than
     /// the oldest version the file carries are left out of it. A version
     /// a branch forked from and a pinned one always travel. 0 carries
@@ -832,7 +832,7 @@ public:
     /// Accessor for parameter TransactionLogCompactSize
     ///
     /// When the file-scope state of the transaction log is compacted on
-    /// its own (docs/TransactionLog.md sec 27.48, 27.49), in KB: after a
+    /// its own (docs/TransactionLogJournal.md sec 27.48, 27.49), in KB: after a
     /// trim, a branch deletion or a squash, once the names estimated to be
     /// referred to by nothing and the strings of the file hasher nothing
     /// holds come to this many bytes together. 0 never.
@@ -848,7 +848,7 @@ public:
     /// Accessor for parameter ClosePinnedVersion
     ///
     /// When the last link pinned to a version of a file goes, what
-    /// happens to the document that showed it (docs/TransactionLog.md
+    /// happens to the document that showed it (docs/TransactionLogJournal.md
     /// sec 27.21 Q5): 0 ask, 1 close it, 2 keep it open. With no Gui to
     /// ask, 0 keeps it open.
     static const long & getClosePinnedVersion();
@@ -907,7 +907,7 @@ public:
     /// Accessor for parameter MergeConflictSide
     ///
     /// The side a conflict starts on when a merge, or rows applied, are
-    /// previewed (docs/TransactionLog.md sec 32.17): 0 ours (the default),
+    /// previewed (docs/TransactionLogJournal.md sec 32.17): 0 ours (the default),
     /// 1 theirs, 2 none -- it is asked. A side is what the dialog starts
     /// each conflict on, and what is merged unless another is picked.
     /// Asked, nothing is merged or shown until each conflict has a side.

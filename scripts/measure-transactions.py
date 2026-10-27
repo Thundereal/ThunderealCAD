@@ -1,4 +1,4 @@
-"""Phase 0 of the transaction log (docs/TransactionLog.md sec 15): drive the
+"""Phase 0 of the transaction log (docs/TransactionLogJournal.md sec 15): drive the
 commit-path measurement over the scenarios the design names and write the CSV.
 
 Run under FreeCADCmd:

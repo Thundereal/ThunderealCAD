@@ -82,7 +82,7 @@ def free_port():
 
 
 # Who this client is: a pick is refused to a connection nobody vouched for
-# (docs/TransactionLog.md sec 30.6 U4), so it says so the way a front door
+# (docs/TransactionLogJournal.md sec 30.6 U4), so it says so the way a front door
 # would, in a header the server believes from a loopback peer once told to
 # trust its proxy -- which it reads when it is first made.
 IDENTITY = "tester@example.com"

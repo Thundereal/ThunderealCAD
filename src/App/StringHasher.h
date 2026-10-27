@@ -768,7 +768,7 @@ public:
     /** Enable/disable saving all string ID
      *
      * If saveAll is true, then compact() does nothing even when called explicitly, and a save
-     * keeps every string (docs/TransactionLog.md sec 27.51). Setting it to false compacts
+     * keeps every string (docs/TransactionLogJournal.md sec 27.51). Setting it to false compacts
      * nothing by itself: the next save does.
      */
     void setSaveAll(bool enable);
@@ -805,14 +805,14 @@ public:
     /** Compact string storage by eliminating unused strings from the table.
      *
      * @param keep: ids to keep although nothing in memory holds them -- what
-     *              the file's retained history uses (docs/TransactionLog.md
+     *              the file's retained history uses (docs/TransactionLogJournal.md
      *              sec 27.50 item 4). What a kept string is built from stays
      *              with it.
      * @return the ids dropped.
      */
     std::vector<long> compact(const std::function<bool(long)>& keep = {});
 
-    /** The whole table as the file's own member (docs/TransactionLog.md sec
+    /** The whole table as the file's own member (docs/TransactionLogJournal.md sec
      * 27.50 item 1): every id, whatever is marked, in the format
      * restoreTable() reads.
      */
@@ -828,7 +828,7 @@ public:
      */
     void restoreTable(std::istream& stream);
 
-    /** One string as the transaction log keeps it (docs/TransactionLog.md
+    /** One string as the transaction log keeps it (docs/TransactionLogJournal.md
      * sec 27.50 item 2): its id, its flags, the ids (and indices) it refers
      * to, and its two byte parts as they are held.
      */
@@ -852,7 +852,7 @@ public:
     /// Whether `id` is held.
     bool hasID(long id) const;
     /// The ids a save marked, with the persistent ones, in order: what a
-    /// version uses (docs/TransactionLog.md sec 27.50 item 4).
+    /// version uses (docs/TransactionLogJournal.md sec 27.50 item 4).
     std::vector<long> markedIDs() const;
     /// The last id handed out or read; none is handed out again.
     long lastID() const;
@@ -865,7 +865,7 @@ public:
     }
 
     /** Write the elements naming the table as the member `file`, with content
-     * `hash` and `count` strings (docs/TransactionLog.md sec 27.50 item 1),
+     * `hash` and `count` strings (docs/TransactionLogJournal.md sec 27.50 item 1),
      * where Save() writes the entries; a version the log keeps names the
      * same and has no member, the log's table standing for it (item 2).
      * `used`, sorted, is what the save marked, written as ranges: the ids the
@@ -889,7 +889,7 @@ public:
         return _tableHash;
     }
 
-    /** Take in `other`'s table (docs/TransactionLog.md sec 27.40 item 2):
+    /** Take in `other`'s table (docs/TransactionLogJournal.md sec 27.40 item 2):
      * each id it has that this one has not, under the same id. False, with
      * nothing changed, when an id means something else here. `aliased`
      * gets how many strings came in that this table already had under
@@ -902,7 +902,7 @@ public:
     using ImportMemo = std::unordered_map<const StringID*, StringIDRef>;
 
     /** Find or take in `foreign`, a string of another table, by content
-     * (docs/TransactionLog.md sec 27.76 item 1, 27.77). What it is built
+     * (docs/TransactionLogJournal.md sec 27.76 item 1, 27.77). What it is built
      * from comes first, the same way, and every id its text names -- a
      * prefix reference, a `#` inside a postfix, the names of a combo string
      * -- is rewritten to this table's, the string it names taken in as
@@ -931,7 +931,7 @@ public:
     bool importName(const Data::MappedName& name, const StringHasher& from,
                     Data::MappedName& out, QVector<StringIDRef>& sids, ImportMemo& memo);
 
-    /** The object ids an import by content rewrites (docs/TransactionLog.md
+    /** The object ids an import by content rewrites (docs/TransactionLogJournal.md
      * sec 30.16). An element name says which object made each step of it by
      * a tag, `;:H<hex id>`, in its own text and in the strings it names.
      * Values of another copy of the file name that copy's objects, and the
@@ -983,7 +983,7 @@ private:
     mutable uint64_t _hashRevision {0};
     std::uint64_t _serial;
 };
-/** The ids an element map written on this thread uses (docs/TransactionLog.md
+/** The ids an element map written on this thread uses (docs/TransactionLogJournal.md
  * sec 27.49, 27.50 item 4). While one lives, an element map lists after each
  * name every id of `hasher` the name refers to -- not the ones the last save
  * marked, which another thread may be marking -- and each goes into `ids`:

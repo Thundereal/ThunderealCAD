@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 25: a session killed mid-work is
+# GUI check of docs/TransactionLogJournal.md sec 25: a session killed mid-work is
 # recovered from its transaction log through the recovery dialog. Two runs of
 # the GUI in the same fresh user home, each given this script at startup:
 #
@@ -134,7 +134,7 @@ def recover():
         )
         check("the old directory is gone", not os.path.exists(notes.get("dir", "")))
         # One undo: the cylinder with the recompute that followed it, an
-        # implicit step that goes with it (docs/TransactionLog.md sec 33.4).
+        # implicit step that goes with it (docs/TransactionLogJournal.md sec 33.4).
         doc.undo()
         check(
             "undo across the crash takes the cylinder away: %s" % doc.UndoNames[:1],

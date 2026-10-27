@@ -1287,7 +1287,7 @@ TreeWidget::TreeWidget(const char *name, QWidget* parent)
     // transaction closes, so a rank the tree writes for it -- an object the
     // command moved out to the root, sent last -- is part of that command's
     // step and not an edit of the tree's own from its timer
-    // (docs/TransactionLog.md sec 30.8). The flush is the one
+    // (docs/TransactionLogJournal.md sec 30.8). The flush is the one
     // checkTopParent() asks for, and does nothing when nothing is pending.
     connectBeforeCloseTransaction = App::GetApplication().signalBeforeCloseTransaction.connect(
         [this](bool abort) {
@@ -3328,7 +3328,7 @@ void TreeWidget::mousePressEvent(QMouseEvent *event) {
                     pimpl->toggleItemShowOnTop(oitem);
                 else {
                     // With the log on a click is a step of its own, named
-                    // (docs/TransactionLog.md sec 24.10); off, as it was.
+                    // (docs/TransactionLogJournal.md sec 24.10); off, as it was.
                     std::optional<App::AutoTransaction> committer;
                     if (App::DocumentParams::getTransactionLog() != 0)
                         committer.emplace("Toggle visibility");
@@ -4366,7 +4366,7 @@ void TreeWidget::dropEvent(QDropEvent *event)
             }
         }
         // A copy into a document that has some of what it brings asks
-        // before the step opens (docs/TransactionLog.md sec 37.9, 37.7 item
+        // before the step opens (docs/TransactionLogJournal.md sec 37.9, 37.7 item
         // 13): of the dragged objects and what they bring with them, by
         // their names in their documents, which the copy keeps.
         std::map<std::string, App::Document::ImportTake> pasteTakes;
@@ -6132,7 +6132,7 @@ DocumentItem::DocumentItem(const Gui::Document* doc, QTreeWidgetItem * parent)
     connectRecomputedObj = adoc->signalRecomputedObject.connect(
             std::bind(&DocumentItem::slotRecomputedObject, this, sp::_1));
     connectChangedModified = doc->signalChangedModified.connect([this](const Document &) { setDocumentLabel(); });
-    // The branch suffix follows the file's branches (docs/TransactionLog.md
+    // The branch suffix follows the file's branches (docs/TransactionLogJournal.md
     // sec 27.24).
     connBranches = adoc->signalBranchesChanged.connect(
         [this](const App::Document &) { setDocumentLabel(); });
@@ -6205,7 +6205,7 @@ void DocumentItem::setDocumentLabel() {
         return;
     // The file's own document, while the file has more than one branch:
     // `@<branch>@v<num>`, the branch it is on and the version it is on disk
-    // (docs/TransactionLog.md sec 27.24). A version document's label carries
+    // (docs/TransactionLogJournal.md sec 27.24). A version document's label carries
     // its own (27.23).
     QString suffix;
     auto log = doc->getTransactionLog();
@@ -6399,7 +6399,7 @@ void DocumentItem::setupTreeRank(DocumentObjectItem *item, bool moved)
     // for the first time. Writing a rank then is an edit nobody made: with
     // the transaction log it was an undo step of its own after the command,
     // and it cleared the redo stack after an undo
-    // (docs/TransactionLog.md sec 30.8). Only an object with no rank at all
+    // (docs/TransactionLogJournal.md sec 30.8). Only an object with no rank at all
     // is given one.
     //
     // An item moved out to the root goes last, so the user finds it -- as

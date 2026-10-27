@@ -140,7 +140,7 @@ void AutoSaver::saveDocument(const std::string& name, AutoSaveProperty& saver)
 {
     // With the transaction log on, the log is the autosave: every commit is
     // written as it happens, and a crashed session is recovered from it
-    // (docs/TransactionLog.md sec 22.1, 25.3). No recovery file is written.
+    // (docs/TransactionLogJournal.md sec 22.1, 25.3). No recovery file is written.
     if (App::DocumentParams::getTransactionLog() != 0)
         return;
     Gui::WaitCursor wc;
@@ -421,7 +421,7 @@ void RecoveryWriter::writeFiles()
 
             // For properties a copy can be created and then this can be written to disk in a thread.
             // Not one whose copy shares what the main thread may still change in place -- a shape
-            // that is not frozen (App::Property::canSaveOffThread, docs/TransactionLog.md sec
+            // that is not frozen (App::Property::canSaveOffThread, docs/TransactionLogJournal.md sec
             // 27.99, 31.28): that one is written here, as it stands.
             const App::Property* prop = nullptr;
             if (entry.Object->isDerivedFrom(App::Property::getClassTypeId())) {

@@ -1,4 +1,4 @@
-"""A paste assigned onto an object here takes the look brought too (docs/TransactionLog.md
+"""A paste assigned onto an object here takes the look brought too (docs/TransactionLogJournal.md
 sec 35.18), unless the paste dialog's check says not.
 
 `Box` of document A is copied into B, where it is made longer, drawn with

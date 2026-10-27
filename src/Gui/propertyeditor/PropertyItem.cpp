@@ -244,7 +244,7 @@ void PropertyItem::updateData()
         if (!parent)
             continue;
         // A pinned version refuses every change to its data but the view's
-        // (docs/TransactionLog.md sec 27.22): shown read-only.
+        // (docs/TransactionLogJournal.md sec 27.22): shown read-only.
         bool frozen = false;
         if (auto obj = Base::freecad_dynamic_cast<App::DocumentObject>(parent)) {
             frozen = obj->getDocument()

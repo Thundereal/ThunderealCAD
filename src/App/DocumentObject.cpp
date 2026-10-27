@@ -582,7 +582,7 @@ int DocumentObject::isExporting() const {
 std::string DocumentObject::getExportName(bool forced) const {
     if(!isAttachedToDocument()) {
         // Removed, and a transaction-log capture is asking for the name it
-        // had (docs/TransactionLog.md sec 24.3).
+        // had (docs/TransactionLogJournal.md sec 24.3).
         if (auto name = CaptureNames::find(this))
             return *name;
         return {};
@@ -1044,7 +1044,7 @@ void DocumentObject::onBeforeChange(const Property* prop)
     // Store current name in oldLabel, to be able to easily retrieve old name of document object later
     // when renaming expressions.
     // A pinned version refuses every change to its data, before anything
-    // changes (docs/TransactionLog.md sec 27.22). Exempt as checkUserEdit
+    // changes (docs/TransactionLogJournal.md sec 27.22). Exempt as checkUserEdit
     // exempts them: Visibility is view state, TreeRank the tree's own
     // ordering, ViewObject the mirror of the view provider; and a property
     // never saved is a cache. A link letting go of a document that closes,
@@ -2047,7 +2047,7 @@ bool DocumentObject::redirectSubName(std::ostringstream &, DocumentObject *, Doc
 }
 
 void DocumentObject::onPropertyStatusChanged(const Property &prop, unsigned long oldStatus) {
-    // The status is saved with the property (docs/TransactionLog.md sec 38.14)
+    // The status is saved with the property (docs/TransactionLogJournal.md sec 38.14)
     if (isAttachedToDocument() && getDocument())
         getDocument()->noteSavedChange(this);
     if(!Document::isAnyRestoring() && isAttachedToDocument() && getDocument()) {

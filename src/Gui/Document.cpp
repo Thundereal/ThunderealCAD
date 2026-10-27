@@ -504,7 +504,7 @@ Document::Document(App::Document* pcDocument,Application * app)
     d->connectPinsReleased = pcDocument->signalPinsReleased.connect
         (std::bind(&Gui::Document::slotPinsReleased, this, sp::_1));
     //NOLINTEND
-    // What is kept is written by the next save (TransactionLog.md 32.11),
+    // What is kept is written by the next save (TransactionLogJournal.md 32.11),
     // so keeping or letting go is a change of the file like any other.
     d->connectLogKept = pcDocument->signalLogKeptChanged.connect(
         [this](const App::Document&) { setModified(true); });
@@ -548,7 +548,7 @@ Document::Document(App::Document* pcDocument,Application * app)
             }
         });
     // A save stopped at the merge of what another process saved into the
-    // file (docs/TransactionLog.md sec 29.8): the log panel puts the merge
+    // file (docs/TransactionLogJournal.md sec 29.8): the log panel puts the merge
     // to the user once the save has returned.
     d->connectSaveMerge = pcDocument->signalSaveMergeConflict.connect(
         [](const App::Document& doc, const std::string& branch) {
@@ -2220,7 +2220,7 @@ std::vector<App::PropertyXLink*> linksPinnedTo(const std::string& file, int64_t 
 
 /// Save a version document over its file, asking first, then offer to
 /// re-pin the loaded links that pin the version it was
-/// (docs/TransactionLog.md sec 27.5 ruling 4, 27.16).
+/// (docs/TransactionLogJournal.md sec 27.5 ruling 4, 27.16).
 bool saveVersionDocument(Gui::Document* gdoc)
 {
     App::Document* doc = gdoc->getDocument();
@@ -2232,7 +2232,7 @@ bool saveVersionDocument(Gui::Document* gdoc)
     App::TransactionLog* log = doc->getTransactionLog();
     if (!num || file.empty() || !log)
         return false;
-    // The instance pins show is the version itself (docs/TransactionLog.md
+    // The instance pins show is the version itself (docs/TransactionLogJournal.md
     // sec 27.22): nothing in it can change, so there is nothing to save.
     if (doc->testStatus(App::Document::FrozenVersion)) {
         QMessageBox::information(
@@ -2290,7 +2290,7 @@ bool saveVersionDocument(Gui::Document* gdoc)
                               "what the file holds.")
                       .arg(QString::fromUtf8(other->Label.getValue()));
     }
-    // Save to History (docs/TransactionLog.md sec 27.22, 27.28), the default:
+    // Save to History (docs/TransactionLogJournal.md sec 27.22, 27.28), the default:
     // the version's work kept in the file's history, the file as it was.
     text += QStringLiteral("\n\n")
         + QObject::tr("Save to History keeps it in the file's history instead, and leaves "
@@ -3092,7 +3092,7 @@ static const char *FC_ATTR_SPLIT_FILES = "SplitFiles";
 static const char *FC_ATTR_TREE_EXPANSION = "HasExpansion";
 
 /// What a view provider's file says outside its properties, which a folder
-/// save compares before it keeps the file (docs/TransactionLog.md sec 38.14).
+/// save compares before it keeps the file (docs/TransactionLogJournal.md sec 38.14).
 static std::string viewHead(const std::string& name, bool expanded, bool extensions)
 {
     return name + (expanded ? "\n1" : "\n0") + (extensions ? "\n1" : "\n0");
@@ -5544,7 +5544,7 @@ bool Document::isLastView()
 namespace {
 /** Closing `closing`, the last document with a window, leaves those that
  * have none open with nothing that shows them -- a branch served in a
- * document of its own (docs/TransactionLog.md sec 32.23) is one. Say so and
+ * document of its own (docs/TransactionLogJournal.md sec 32.23) is one. Say so and
  * offer to show them (ruled 2026-10-15). False when the close is cancelled.
  * A version pins show, and a temporary document, are no such: they go with
  * what holds them.
@@ -6112,7 +6112,7 @@ int Document::takeSteps(bool undo, int iSteps, int skipped)
         return -1;
     {
         // One guard for the run, let go of around a step that goes through
-        // the log (docs/TransactionLog.md sec 30.10): that one recomputes,
+        // the log (docs/TransactionLogJournal.md sec 30.10): that one recomputes,
         // and the guard defers the touches a recompute works from.
         std::optional<App::TransactionGuard> guard(std::in_place, kind);
 
@@ -6142,7 +6142,7 @@ int Document::takeSteps(bool undo, int iSteps, int skipped)
 
 bool Document::askToSkip(bool undo, int skipped, const std::string& why)
 {
-    // docs/TransactionLog.md sec 33.11: a step that was refused is said,
+    // docs/TransactionLogJournal.md sec 33.11: a step that was refused is said,
     // with the reason, where it only went to the report view and the
     // command looked as if it did nothing; and the step after it is
     // offered, where every further undo tried the same one again.

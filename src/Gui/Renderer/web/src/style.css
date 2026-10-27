@@ -807,7 +807,7 @@ html.fc-split-forbidden * {
   color: #ffb0b0;
   background: rgba(120, 30, 30, 0.35);
 }
-/* The transaction log's panel (logpanel.tsx, docs/TransactionLog.md sec
+/* The transaction log's panel (logpanel.tsx, docs/TransactionLogJournal.md sec
    32.21): a card of the sheet's kind at the other side, three lists one
    under the other -- the rows, the ops of the one chosen, a value. Each
    scrolls by itself, so a long one costs the others nothing. */

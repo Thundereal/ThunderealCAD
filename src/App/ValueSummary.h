@@ -34,7 +34,7 @@ namespace App
 class Document;
 struct CapturedValue;
 
-/** What a value says of itself in a line (docs/TransactionLog.md sec
+/** What a value says of itself in a line (docs/TransactionLogJournal.md sec
  * 32.35), where the log's text of it says nothing to a reader: a shape's
  * kind, how many of each of its elements, its volume and its size. `facts`
  * are the same as numbers, by name.

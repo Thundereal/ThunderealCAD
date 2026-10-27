@@ -302,7 +302,7 @@ public:
 
     /// The variables of \a expr that name a sub-object, in the order a visit
     /// meets them: what is saved beside an expression for each is keyed by
-    /// its place here (docs/TransactionLog.md sec 27.77, 31.22).
+    /// its place here (docs/TransactionLogJournal.md sec 27.77, 31.22).
     static std::vector<VariableExpression*> elementPaths(Expression &expr);
 
     bool isTouched() const override;
@@ -312,7 +312,7 @@ public:
     const ObjectIdentifier &getPath() const;
 
     /// The ids a file gave for the element path's shadow
-    /// (docs/TransactionLog.md sec 27.77).
+    /// (docs/TransactionLogJournal.md sec 27.77).
     void setSavedShadowIds(std::vector<long> ids) {
         var.setSavedShadowIds(std::move(ids));
     }

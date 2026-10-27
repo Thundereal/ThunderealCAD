@@ -279,7 +279,7 @@ void PropertyPythonObject::saveObject(Base::Writer &writer) const
     Base::PyGILStateLocker lock;
     try {
         // A detached copy (the transaction log serialises the copy the undo
-        // system took, docs/TransactionLog.md sec 24.10) has no container;
+        // system took, docs/TransactionLogJournal.md sec 24.10) has no container;
         // the attribute alone then says which it was.
         PropertyContainer* parent = this->getContainer();
         if (!parent || parent->isDerivedFrom(Base::Type::fromName("App::DocumentObject"))) {

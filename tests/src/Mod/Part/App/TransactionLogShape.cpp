@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-// The transaction log and the shape property (docs/TransactionLog.md sec
+// The transaction log and the shape property (docs/TransactionLogJournal.md sec
 // 20.2, decision 6b): a shape that keeps the file it was last saved to
 // answers the log with that file's hash instead of exporting again.
 
@@ -267,7 +267,7 @@ double volumeOf(const Part::Box* box)
     return props.Mass();
 }
 
-// docs/TransactionLog.md sec 25: a crashed session with shapes -- values the
+// docs/TransactionLogJournal.md sec 25: a crashed session with shapes -- values the
 // log keeps as blobs in the pack store -- comes back with its shapes, and
 // the version it replays over is a saved file's.
 TEST_F(TransactionLogShapeTest, recoversShapesFromTheLeftoverStore)

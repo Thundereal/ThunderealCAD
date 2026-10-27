@@ -98,7 +98,7 @@ APP_HOOKS = [
     Hook("editProperty", SELF_NONE,
          note="the odd one out: the App side passes only the property name"),
     Hook("getOwnedObjects", SELF_ALWAYS,
-         note="docs/TransactionLog.md sec 37.9: a list, added to the base's"),
+         note="docs/TransactionLogJournal.md sec 37.9: a list, added to the base's"),
     Hook("getOwnedCounterpart", SELF_ALWAYS,
          note="(owned, liveOwner) -> object or (object, 'keep'|'follow')"),
 ]

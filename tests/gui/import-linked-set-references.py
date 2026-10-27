@@ -1,4 +1,4 @@
-"""What will not resolve after a set's merge, said before it (docs/TransactionLog.md
+"""What will not resolve after a set's merge, said before it (docs/TransactionLogJournal.md
 sec 35.6 Q4 (b), 35.16 G5).
 
 Our `Asm` links the box of our `Part`; a copy of both elsewhere, where

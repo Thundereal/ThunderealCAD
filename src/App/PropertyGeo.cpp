@@ -462,7 +462,7 @@ void _PropertyVectorList::restoreStream(Base::InputStream &str, unsigned uCt)
     // Read into the new list, not the live one: reading into the live
     // list wrote past aboutToSetValue() and then replaced it with the
     // zeros `values` was made of (found when the list went private,
-    // docs/TransactionLog.md 23.6).
+    // docs/TransactionLogJournal.md 23.6).
     std::vector<Base::Vector3f> values(uCt);
     for(auto &v : values)
         str >> v.x >> v.y >> v.z;
@@ -1563,7 +1563,7 @@ std::string PropertyComplexGeoData::getElementMapVersion(bool) const {
     auto owner = Base::freecad_dynamic_cast<DocumentObject>(getContainer());
     // A detached copy has no owner; one the transaction log captures is its
     // document's value, and answers as the owner would
-    // (docs/TransactionLog.md sec 27.72).
+    // (docs/TransactionLogJournal.md sec 27.72).
     const Document* doc = owner ? owner->getDocument() : capturingDocument();
     std::ostringstream ss;
     if(doc && doc->getStringHasher()==data->Hasher)

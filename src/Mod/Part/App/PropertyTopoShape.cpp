@@ -113,7 +113,7 @@ namespace
 
 /** Freeze a value: every TShape refuses a change to its geometry or topology.
  *
- * docs/TransactionLog.md sec 23.6, tier 2. The flag is the OCCT fork's
+ * docs/TransactionLogJournal.md sec 23.6, tier 2. The flag is the OCCT fork's
  * Immutable, not Locked -- the mesher still writes its caches -- and it is
  * per TShape, not recursive, so the walk visits every sub-shape. Children
  * are marked before their parent, so a marked TShape stands for its whole
@@ -243,7 +243,7 @@ struct ParsedShape
  * tessellation instead of N (docs/SharedShapeStorage.md sec 12.5).
  *
  * A blob is one blob manager's, and a manager is a file's
- * (docs/TransactionLog.md sec 27.10): every document of one file -- its own,
+ * (docs/TransactionLogJournal.md sec 27.10): every document of one file -- its own,
  * its versions, its branches -- shares it, and so shares the parse. Two
  * files holding the same bytes have two blobs. With shape values frozen
  * (PartParams ImmutableShapeValues, sec 23.13) nothing can change a TShape
@@ -586,7 +586,7 @@ void moveOwnSurface(const TopoDS_Shape& shape, const TopoDS_Shape& top,
 }
 
 /** `shape` moved by `motion` with its top location unchanged, sharing all it
- * can (docs/TransactionLog.md sec 27.25 item 3, 27.35, 27.37).
+ * can (docs/TransactionLogJournal.md sec 27.25 item 3, 27.35, 27.37).
  *
  * The motion cannot go on the top: the top location is the object's
  * Placement. It goes one level down instead -- a new top node whose children
@@ -783,7 +783,7 @@ void PropertyPartShape::makeBlob(Base::Writer& writer) const
     if (owners && congruent && !root.IsNull()) {
         CongruenceIndex::Match match;
         // What the last save took of this shape, while it is the same one
-        // (docs/TransactionLog.md sec 38.11).
+        // (docs/TransactionLogJournal.md sec 38.11).
         if (!_congruentFor.IsEqual(root)) {
             _congruentFor = root;
             _congruentInvariants = CongruenceIndex::Invariants();
@@ -1093,7 +1093,7 @@ void PropertyPartShape::validateShape(App::DocumentObject *obj)
     // An undo, a redo or an abort puts back a value the document had, checked
     // when it was made, and InvalidShape comes back with it in the same
     // transaction. Checking again is a full BRepCheck -- 16 s for one polar
-    // pattern (docs/TransactionLog.md sec 27.64) -- and a fix() would make
+    // pattern (docs/TransactionLogJournal.md sec 27.64) -- and a fix() would make
     // the value put back other than the one recorded.
     if (obj->getDocument()->isPerformingTransaction())
         return;
@@ -1523,7 +1523,7 @@ bool PropertyPartShape::canSaveOffThread() const
     // and clears the sub-shapes the cache holds (resetElementMap) -- on the
     // worker, while the main thread hands those out (Shape.Faces): a
     // SIGSEGV in Cache::Info::_getTopoShape, about one frozen run of the
-    // suite in seven (docs/TransactionLog.md sec 31.27). Made here, on the
+    // suite in seven (docs/TransactionLogJournal.md sec 31.27). Made here, on the
     // thread that asks, the worker's Save finds it there and writes
     // nothing to the cache.
     _Shape.flushElementMap();
@@ -1534,7 +1534,7 @@ std::shared_ptr<void> PropertyPartShape::holdForOffThread() const
 {
     // The map is one object for every copy of the shape, and edited in
     // place by whoever edits it: held while the reader has it, a name made
-    // meanwhile waits beside it (docs/TransactionLog.md sec 31.28, 31.31).
+    // meanwhile waits beside it (docs/TransactionLogJournal.md sec 31.28, 31.31).
     ensureRestored();
     return _Shape.holdElementMap();
 }
@@ -1624,7 +1624,7 @@ void PropertyPartShape::Save (Base::Writer &writer) const
         // its owner's save would, hasher prefix and all: without it, every
         // value read back from the log -- a switch, a cold undo -- failed
         // the version check, and once saved again asked for a recompute at
-        // the next open (docs/TransactionLog.md sec 27.72).
+        // the next open (docs/TransactionLogJournal.md sec 27.72).
         version = _Ver.size()?_Ver:getElementMapVersion();
     }else
         version = _Ver.size()?_Ver:_Shape.getElementMapVersion();
@@ -1648,7 +1648,7 @@ void PropertyPartShape::Save (Base::Writer &writer) const
     bool toXML = writer.getFileVersion()>1 && writer.isForceXML()>=(binary?3:2);
     if (_blob && writer.getMode("BlobRef")) {
         // A writer that wants the content's hash and not the content: the
-        // transaction log's capture of a copy (docs/TransactionLog.md sec
+        // transaction log's capture of a copy (docs/TransactionLogJournal.md sec
         // 20.2, decision 6b). The blob is the value's bytes as last saved,
         // dropped whenever the value changes (dropBlob), so naming it is
         // exact; the log holds the file through contentBlob(). No note to
@@ -1752,7 +1752,7 @@ void PropertyPartShape::Restore(Base::XMLReader &reader)
             // value the transaction log puts back -- does, and
             // ensureRestored() takes whatever file is held for the one that
             // arrived: the shape stayed the old value's, under the new
-            // one's name (docs/TransactionLog.md sec 31.6). Kept alive until
+            // one's name (docs/TransactionLogJournal.md sec 31.6). Kept alive until
             // the manager has answered, in case it is the same file.
             const App::FileBlobHandle replaced = _blob;
             _blob.reset();
@@ -1796,7 +1796,7 @@ void PropertyPartShape::Restore(Base::XMLReader &reader)
         // The element map below is read with whatever hasher _Shape holds: a
         // live object's is still the document's, but an object the log
         // recreates has none, and its map lost every string id it held
-        // (docs/TransactionLog.md sec 27.74).
+        // (docs/TransactionLogJournal.md sec 27.74).
         _Shape.Hasher = owner->getDocument()->getStringHasher();
     }
 
@@ -1867,7 +1867,7 @@ void PropertyPartShape::afterRestore()
     else if (_Shape.hasLegacyCrossing()) {
         // A shape that crossed a document boundary before a name named its
         // document keeps the other table's ids as text, which this table
-        // reads as its own strings (docs/TransactionLog.md sec 27.76 item
+        // reads as its own strings (docs/TransactionLogJournal.md sec 27.76 item
         // 4): recomputed once, it imports them.
         auto owner = Base::freecad_dynamic_cast<App::DocumentObject>(getContainer());
         if (owner && owner->getNameInDocument() && owner->getDocument()

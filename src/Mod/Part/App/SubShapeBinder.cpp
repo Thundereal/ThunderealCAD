@@ -272,7 +272,7 @@ void SubShapeBinder::update(SubShapeBinder::UpdateOption options) {
     std::vector<Part ::TopoShape> shapes;
     std::vector<std::pair<int,int> > shapeOwners;
     // The document each shape is of: a copy's is the original's, its own
-    // being temporary (docs/TransactionLog.md sec 27.76 item 4).
+    // being temporary (docs/TransactionLogJournal.md sec 27.76 item 4).
     std::vector<App::Document*> shapeDocs;
     std::vector<const Base::Matrix4D*> shapeMats;
 

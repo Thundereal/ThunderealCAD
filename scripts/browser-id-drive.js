@@ -1,6 +1,6 @@
 // Open the viewer page headless in a browser profile that is kept, and say
 // which browser the page says it is and what the door let it do
-// (docs/TransactionLog.md sec 30.32): the id a browser makes once and keeps
+// (docs/TransactionLogJournal.md sec 30.32): the id a browser makes once and keeps
 // is half of who a connection is where a grant counts the browsers it is
 // for.
 //

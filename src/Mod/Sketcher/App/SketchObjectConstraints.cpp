@@ -1008,7 +1008,7 @@ int SketchObject::deleteAllConstraints(DeleteOptions options)
 
 // The state a constraint puts on its geometry (InternalType, Blocked) is
 // saved with the geometry, so writing it is a change of the Geometry property
-// and goes through its guard (docs/TransactionLog.md 23.6). The guard marks
+// and goes through its guard (docs/TransactionLogJournal.md 23.6). The guard marks
 // the property only when a value actually differs.
 void SketchObject::addGeometryState(const Constraint* cstr)
 {

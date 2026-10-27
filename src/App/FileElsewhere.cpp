@@ -483,7 +483,7 @@ bool sameBytes(const QString& a, const QString& b)
     return true;
 }
 
-/// Flush `path`'s bytes to the disk (docs/TransactionLog.md sec 38.16, Q5).
+/// Flush `path`'s bytes to the disk (docs/TransactionLogJournal.md sec 38.16, Q5).
 /// Opened for writing: Windows flushes only a handle that may write.
 bool syncFile(const QString& path)
 {

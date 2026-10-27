@@ -324,7 +324,7 @@ public:
         return ver;
     }
 
-    /// What the object owns (docs/TransactionLog.md sec 37.9): the base's,
+    /// What the object owns (docs/TransactionLogJournal.md sec 37.9): the base's,
     /// and what the Proxy's getOwnedObjects(obj) adds
     std::vector<App::DocumentObject*> getOwnedObjects() const override {
         auto ret = FeatureT::getOwnedObjects();

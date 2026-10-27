@@ -154,7 +154,7 @@ void PropertyColumnWidths::Restore(Base::XMLReader& reader)
 
     // The whole of what is held: read into the widths that were there, one
     // set on another branch of the file stayed when the log put this value
-    // back (docs/TransactionLog.md sec 31.6).
+    // back (docs/TransactionLogJournal.md sec 31.6).
     setValues(values);
 }
 

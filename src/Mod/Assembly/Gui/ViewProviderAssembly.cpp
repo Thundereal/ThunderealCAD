@@ -774,14 +774,6 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
         // HACK: Re-solve assembly to update rigid groups while dragging.
         using DragCollision = AssemblyObject::DragCollision;
         const bool stopAtCollision = assemblyPart->getDragCollisionMode() == DragCollision::Stop;
-        auto stopped = [&]() {
-            const auto& hit = assemblyPart->getDragCollisions().front();
-            Gui::getMainWindow()->showMessage(
-                tr("Stopped: %1 would collide with %2")
-                    .arg(QString::fromUtf8(hit.first->Label.getValue()),
-                         QString::fromUtf8(hit.second->Label.getValue())),
-                3000);
-        };
         // Where the move puts the moved parts
         auto placementsMoved = [&]() {
             std::vector<Base::Placement> placements;
@@ -801,7 +793,7 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
                 }
                 return !solve || assemblyPart->solve() == 0;
             });
-            stopped();
+            showDragStopped();
         };
         if (solveOnMove && (dragMode != DragMode::TranslationNoSolve || forceSolveOnMoveForRigid)) {
             if (forceSolveOnMoveForRigid) {
@@ -814,7 +806,7 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
             }
             else if (!assemblyPart->doDragStep() && assemblyPart->getLastDragStepFailed()) {
                 if (stopAtCollision && !assemblyPart->getDragCollisions().empty()) {
-                    stopped();
+                    showDragStopped();
                 }
                 else {
                     // The parts stay where the last good step left them; tell the
@@ -835,6 +827,19 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
         showDragCollisions();
     }
     return false;
+}
+
+void ViewProviderAssembly::showDragStopped()
+{
+    const auto& hits = getObject<AssemblyObject>()->getDragCollisions();
+    if (hits.empty()) {
+        return;
+    }
+    Gui::getMainWindow()->showMessage(
+        tr("Stopped: %1 would collide with %2")
+            .arg(QString::fromUtf8(hits.front().first->Label.getValue()),
+                 QString::fromUtf8(hits.front().second->Label.getValue())),
+        3000);
 }
 
 void ViewProviderAssembly::showDragCollisions()
@@ -1548,15 +1553,50 @@ void ViewProviderAssembly::initMoveDragger()
     draggerInitPlc.setPosition(pos);
 
     setDraggerPlacement(draggerInitPlc);
+    asmDragger->addStartCallback(draggerStartCallback, this);
     asmDragger->addMotionCallback(draggerMotionCallback, this);
+    asmDragger->addFinishCallback(draggerFinishCallback, this);
 }
 
 void ViewProviderAssembly::endMoveDragger()
 {
     if (getDraggerVisibility()) {
+        asmDragger->removeStartCallback(draggerStartCallback, this);
         asmDragger->removeMotionCallback(draggerMotionCallback, this);
+        asmDragger->removeFinishCallback(draggerFinishCallback, this);
         setDraggerVisibility(false);
     }
+}
+
+void ViewProviderAssembly::draggerStartCallback(void* data, SoDragger* d)
+{
+    boost::ignore_unused(d);
+    static_cast<ViewProviderAssembly*>(data)->getObject<AssemblyObject>()->beginCollisionWatch();
+}
+
+void ViewProviderAssembly::draggerFinishCallback(void* data, SoDragger* d)
+{
+    boost::ignore_unused(d);
+    auto sudoThis = static_cast<ViewProviderAssembly*>(data);
+    auto* assembly = sudoThis->getObject<AssemblyObject>();
+    assembly->endCollisionWatch();
+    sudoThis->clearDragCollisions();
+
+    // Stopped short of where the dragger was let go: back to the parts
+    if (sudoThis->docsToMove.empty()) {
+        return;
+    }
+    const auto& moved = sudoThis->docsToMove.front();
+    auto* pPlc = moved.obj->getPlacementProperty();
+    if (!pPlc) {
+        return;
+    }
+    Base::Placement movePlc = pPlc->getValue() * moved.plc.inverse();
+    Base::Placement asmPlc = App::GeoFeature::getGlobalPlacement(assembly);
+    if (!asmPlc.isIdentity()) {
+        movePlc = asmPlc * movePlc * asmPlc.inverse();
+    }
+    sudoThis->setDraggerPlacement(movePlc * sudoThis->draggerInitPlc);
 }
 
 void ViewProviderAssembly::draggerMotionCallback(void* data, SoDragger* d)
@@ -1573,14 +1613,34 @@ void ViewProviderAssembly::draggerMotionCallback(void* data, SoDragger* d)
         movePlc = asmPlc.inverse() * movePlc * asmPlc;
     }
 
+    // A move that would collide is taken back towards these
+    std::vector<std::pair<App::PropertyPlacement*, Base::Placement>> previous;
+    std::vector<Base::Placement> wanted;
     for (auto& movingObj : sudoThis->docsToMove) {
         App::DocumentObject* obj = movingObj.obj;
 
         auto* pPlc = obj->getPlacementProperty();
         if (pPlc) {
-            pPlc->setValue(movePlc * movingObj.plc);
+            previous.emplace_back(pPlc, pPlc->getValue());
+            wanted.push_back(movePlc * movingObj.plc);
+            pPlc->setValue(wanted.back());
         }
     }
+
+    // Stop: as far along the move as the parts go without colliding
+    auto* assembly = sudoThis->getObject<AssemblyObject>();
+    if (!assembly->checkDragCollisions().empty()
+        && assembly->getDragCollisionMode() == AssemblyObject::DragCollision::Stop) {
+        assembly->stopAtDragCollision([&](double t) {
+            for (std::size_t i = 0; i < previous.size(); ++i) {
+                const auto& [prop, plc] = previous[i];
+                prop->setValue(t <= 0.0 ? plc : Base::Placement::sclerp(plc, wanted[i], t));
+            }
+            return true;
+        });
+        sudoThis->showDragStopped();
+    }
+    sudoThis->showDragCollisions();
 }
 
 void ViewProviderAssembly::onSelectionChanged(const Gui::SelectionChanges& msg)

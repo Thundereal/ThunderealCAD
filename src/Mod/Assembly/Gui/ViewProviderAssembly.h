@@ -211,6 +211,10 @@ public:
     void initMoveDragger();
     void endMoveDragger();
     static void draggerMotionCallback(void* data, SoDragger* d);
+    // Collision while dragging, for the dragger's moves: watched from its
+    // start to its finish
+    static void draggerStartCallback(void* data, SoDragger* d);
+    static void draggerFinishCallback(void* data, SoDragger* d);
 
     void setDragger();
     void unsetDragger();
@@ -273,6 +277,7 @@ public:
         signalSetUp;
 
 private:
+    void showDragStopped();
     void showDragCollisions();
     void clearDragCollisions();
     bool tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerContext* viewer);

@@ -5,8 +5,8 @@
    viewBox="0 0 64 64"
    version="1.1"
    xmlns="http://www.w3.org/2000/svg">
-  <!-- Collision while dragging, highlighted: a dragged block (blue, under
-       the cursor) driven into a fixed one (grey), the part they share in red -->
+  <!-- Collision while dragging: a dragged block (blue, under the cursor)
+       driven into a fixed one (grey), the part they share in red -->
   <path
      d="M 24,22 L 60,22 L 60,58 L 24,58 Z"
      style="fill:#babdb6;stroke:#2e3436;stroke-width:2;stroke-linejoin:round" />

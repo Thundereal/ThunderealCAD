@@ -461,7 +461,7 @@ public:
             "Dragging a part shows the components it brings into collision in red.\n"
             "Components interfering when the drag starts are left out."));
         highlight->setStatusTip(highlight->getToolTipText());
-        highlight->setPixmap("Assembly_DragCollisionHighlight");
+        highlight->setPixmap("Assembly_DragCollision");
         addCommand(highlight);
 
         auto stop = new CmdAssemblyDragCollisionMode("Assembly_DragCollisionStop",
@@ -473,7 +473,9 @@ public:
             "the two shown in red. Components interfering when the drag starts\n"
             "are left out."));
         stop->setStatusTip(stop->getToolTipText());
-        stop->setPixmap("Assembly_DragCollisionStop");
+        // One icon: the button's checked state says whether it is on, its
+        // menu in which mode
+        stop->setPixmap("Assembly_DragCollision");
         addCommand(stop);
 
         hParam = App::GetApplication().GetParameterGroupByPath(

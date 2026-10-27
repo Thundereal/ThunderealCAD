@@ -89,10 +89,12 @@ drag watches the assembly's components with the Fast check:
 Components interfering when the drag starts are left out (the log says how
 many pairs), so a drag can move parts that overlap by design apart. Both
 drags are watched: with the solver (`doDragStep()`) and without (the 3D view
-moving a part itself, "Solve while dragging" off). A drag of a part in a
-rigid group, which the 3D view does by a whole solve per move, is
-highlighted only, not stopped; the transform dragger's moves are not
-watched. From Python: the preference, then `preDrag()`, `doDragStep()`,
+moving a part itself, "Solve while dragging" off), and a drag of a part in a
+rigid group, which the 3D view does by a whole solve per move: stopped, it
+solves each fraction of the move too, the dragged parts at that fraction --
+a rigid group stays together, whichever member meets the other part. That
+costs a stopped move about 40-50 ms (a box in a group of two: 12 ms a move
+otherwise). The transform dragger's moves are not watched. From Python: the preference, then `preDrag()`, `doDragStep()`,
 `getDragCollisions()` (the pairs the last step brought into collision, or,
 stopped, would have), `postDrag()`.
 
@@ -272,8 +274,7 @@ at a point.
 ## Not done
 
 - While dragging: the faces in contact highlighted rather than the whole
-  components; the transform dragger's moves watched; a rigid group's drag
-  stopped, not only highlighted.
+  components; the transform dragger's moves watched.
 - Exclusions (hidden components, a fasteners group) and clearance thresholds
   per pair.
 - Faces in contact highlighted, the touching area measured.

@@ -671,7 +671,7 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
         Base::Rotation asmInvRot
             = App::GeoFeature::getGlobalPlacement(getObject<AssemblyObject>()).getRotation().inverse();
 
-        // A move without a solve that would collide is taken back to these
+        // A move that would collide is taken back towards these
         std::vector<std::pair<App::PropertyPlacement*, Base::Placement>> previous;
         for (auto& objToMove : docsToMove) {
             App::DocumentObject* obj = objToMove.obj;
@@ -782,11 +782,35 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
                          QString::fromUtf8(hit.second->Label.getValue())),
                 3000);
         };
+        // Where the move puts the moved parts
+        auto placementsMoved = [&]() {
+            std::vector<Base::Placement> placements;
+            for (auto& [prop, plc] : previous) {
+                placements.push_back(prop->getValue());
+            }
+            return placements;
+        };
+        // Stop: as far along the move as the parts go without colliding, the
+        // moved parts' placements interpolated, and, with solve, the assembly
+        // solved for each fraction
+        auto stopAlongMove = [&](const std::vector<Base::Placement>& wanted, bool solve) {
+            assemblyPart->stopAtDragCollision([&](double t) {
+                for (std::size_t i = 0; i < previous.size(); ++i) {
+                    const auto& [prop, plc] = previous[i];
+                    prop->setValue(t <= 0.0 ? plc : Base::Placement::sclerp(plc, wanted[i], t));
+                }
+                return !solve || assemblyPart->solve() == 0;
+            });
+            stopped();
+        };
         if (solveOnMove && (dragMode != DragMode::TranslationNoSolve || forceSolveOnMoveForRigid)) {
             if (forceSolveOnMoveForRigid) {
+                // A whole solve per move, and, stopped, per fraction of it
+                const auto wanted = placementsMoved();
                 assemblyPart->solve();
-                // Highlighted only: a whole solve is not taken back
-                assemblyPart->checkDragCollisions();
+                if (!assemblyPart->checkDragCollisions().empty() && stopAtCollision) {
+                    stopAlongMove(wanted, true);
+                }
             }
             else if (!assemblyPart->doDragStep() && assemblyPart->getLastDragStepFailed()) {
                 if (stopAtCollision && !assemblyPart->getDragCollisions().empty()) {
@@ -804,19 +828,7 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
         else {
             if (assemblyPart->getDragCollisionMode() != DragCollision::Off
                 && !assemblyPart->checkDragCollisions().empty() && stopAtCollision) {
-                // As far along the move as the parts go without colliding
-                std::vector<Base::Placement> wanted;
-                for (auto& [prop, plc] : previous) {
-                    wanted.push_back(prop->getValue());
-                }
-                assemblyPart->stopAtDragCollision([&](double t) {
-                    for (std::size_t i = 0; i < previous.size(); ++i) {
-                        const auto& [prop, plc] = previous[i];
-                        prop->setValue(t <= 0.0 ? plc : Base::Placement::sclerp(plc, wanted[i], t));
-                    }
-                    return true;
-                });
-                stopped();
+                stopAlongMove(placementsMoved(), false);
             }
             assemblyPart->redrawJointPlacements(assemblyPart->getJoints());
         }

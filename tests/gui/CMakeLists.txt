@@ -126,6 +126,10 @@ fc_add_gui_test(GuiSurfaceNetwork_tests_run surface-network.py
 # refused and taken, Cancel -- with no dialog at any point.
 fc_add_gui_test(GuiServeSurfaceNetwork_tests_run serve-surface-network.py
                 --timeout 240)
+# A client that drops with a task panel open, whose Cancel throws: the panel
+# is closed with the client's view, and the server lives on.
+fc_add_gui_test(GuiServeDropInPanel_tests_run serve-drop-in-panel.py
+                --timeout 120)
 # Its drag and kept planes (S2e): a point and a curve dragged with the
 # constraints kept, Keep Plane, Ctrl+press on a kept plane and on a face.
 fc_add_gui_test(GuiSketch3DDragPlane_tests_run sketch3d-drag-plane.py

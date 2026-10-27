@@ -35,6 +35,7 @@
 #include <BRepTools.hxx>
 #include <BRep_Tool.hxx>
 #include <BSplCLib.hxx>
+#include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <GeomLProp_SLProps.hxx>
 #include <Standard_Failure.hxx>
@@ -426,6 +427,29 @@ Reports matchBoundaries(Handle(Geom_BSplineSurface)& surface,
         Handle(Geom_BSplineSurface) base =
             Handle(Geom_BSplineSurface)::DownCast(surface->Copy());
         base->IncreaseDegree(std::max(3, base->UDegree()), std::max(3, base->VDegree()));
+        // a reach: knots across at its end and between, so that the rows a
+        // condition sets (r <= order) have no support beyond it
+        for (int b = 0; b < 4; ++b) {
+            const auto& c = cond[b];
+            if (c.order < 1 || c.reach >= 1 || c.reach <= 0) {
+                continue;
+            }
+            double u0, u1, v0, v1;
+            base->Bounds(u0, u1, v0, v1);
+            const bool au = alongU(b);
+            const double c0 = au ? v0 : u0, c1 = au ? v1 : u1;
+            const bool atMax = b == int(Boundary::VMax) || b == int(Boundary::UMax);
+            for (int j = 1; j <= c.order + 1; ++j) {
+                double f = c.reach * j / (c.order + 1);
+                double t = atMax ? c1 - (c1 - c0) * f : c0 + (c1 - c0) * f;
+                if (au) {
+                    base->InsertVKnot(t, 1, 1e-9);
+                }
+                else {
+                    base->InsertUKnot(t, 1, 1e-9);
+                }
+            }
+        }
         int needU = cond[int(Boundary::UMin)].order + cond[int(Boundary::UMax)].order + 2;
         int needV = cond[int(Boundary::VMin)].order + cond[int(Boundary::VMax)].order + 2;
         for (int guard = 0; guard < 16 && base->NbUPoles() < needU + 1; ++guard) {
@@ -605,6 +629,31 @@ Reports matchBoundaries(Handle(Geom_BSplineSurface)& surface,
         }
     }
     return reports;
+}
+
+int boundaryOf(const Handle(Geom_BSplineSurface) & surface,
+               const Handle(Geom_Curve) & curve,
+               double tol)
+{
+    double u0, u1, v0, v1;
+    surface->Bounds(u0, u1, v0, v1);
+    Handle(Geom_Curve) iso[4] = {surface->UIso(u0),
+                                 surface->UIso(u1),
+                                 surface->VIso(v0),
+                                 surface->VIso(v1)};
+    const double a = curve->FirstParameter(), z = curve->LastParameter();
+    for (int b = 0; b < 4; ++b) {
+        GeomAPI_ProjectPointOnCurve pr;
+        bool on = true;
+        for (double f : {0.0, 0.5, 1.0}) {
+            pr.Init(curve->Value(a + (z - a) * f), iso[b]);
+            on = on && pr.NbPoints() > 0 && pr.LowerDistance() <= tol;
+        }
+        if (on) {
+            return b;
+        }
+    }
+    return -1;
 }
 
 MatchReport matchBoundary(Handle(Geom_BSplineSurface)& surface,

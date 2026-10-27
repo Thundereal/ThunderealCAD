@@ -28,6 +28,7 @@
 #include <string>
 
 #include <Geom_BSplineSurface.hxx>
+#include <Geom_Curve.hxx>
 #include <TopoDS_Face.hxx>
 
 #include <Mod/Surface/SurfaceGlobal.h>
@@ -57,6 +58,9 @@ struct EdgeCondition
     /// With order 0: no curve of the user's is there (the side of a loft),
     /// so its poles may move for the boundaries that meet it
     bool free = false;
+    /// The share of the surface across the boundary (0 to 1, from it) that
+    /// may change; the rest stays exactly where it is
+    double reach = 1.0;
 };
 
 struct MatchOptions
@@ -107,6 +111,12 @@ using Reports = std::array<MatchReport, 4>;
 SurfaceExport Reports matchBoundaries(Handle(Geom_BSplineSurface)& surface,
                                       const Conditions& conditions,
                                       const MatchOptions& options = {});
+
+/// The boundary of `surface` that `curve` lies on (ends and middle within
+/// tol), or -1
+SurfaceExport int boundaryOf(const Handle(Geom_BSplineSurface) & surface,
+                             const Handle(Geom_Curve) & curve,
+                             double tol);
 
 /// One boundary alone
 SurfaceExport MatchReport matchBoundary(Handle(Geom_BSplineSurface)& surface,

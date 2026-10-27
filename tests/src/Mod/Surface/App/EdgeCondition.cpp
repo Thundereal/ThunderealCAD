@@ -314,3 +314,31 @@ TEST(EdgeCondition, aFreeSideLetsTheCornerBeMet)
     EXPECT_LT(boundaryMoved(before, s, Boundary::UMin), 1e-9) << "a side that is not free stays";
     EXPECT_GT(boundaryMoved(before, s, Boundary::UMax), 1e-3) << "the free side moved";
 }
+
+// A reach keeps a condition local: the surface beyond that share of the way
+// across does not move -- the rest of a loft's sections stay on it
+TEST(EdgeCondition, reach)
+{
+    auto s = field(sloped);
+    auto before = copy(s);
+    EdgeCondition c {1, cylinder(), 1.0};
+    c.reach = 0.3;
+    MatchOptions opt;
+    auto r = matchBoundary(s, Boundary::VMin, c, opt);
+    ASSERT_TRUE(r.error.empty()) << r.error;
+    EXPECT_TRUE(r.achieved);
+    EXPECT_LT(measure(s, Boundary::VMin, cylinder()).angle, opt.angularTolerance);
+    double u0, u1, v0, v1;
+    before->Bounds(u0, u1, v0, v1);
+    double moved = 0, near = 0;
+    for (int i = 0; i <= 10; ++i) {
+        for (int j = 0; j <= 10; ++j) {
+            double u = u0 + (u1 - u0) * i / 10, v = v0 + (v1 - v0) * j / 10;
+            double d = before->Value(u, v).Distance(s->Value(u, v));
+            (v - v0 >= 0.3 * (v1 - v0) ? moved : near) =
+                std::max(v - v0 >= 0.3 * (v1 - v0) ? moved : near, d);
+        }
+    }
+    EXPECT_LT(moved, 1e-9) << "beyond the reach";
+    EXPECT_GT(near, 1e-3) << "within it";
+}

@@ -31,17 +31,21 @@
 #include <vector>
 #include <sstream>
 #include <iostream>
+#include <Inventor/nodes/SoCone.h>
 #include <Inventor/nodes/SoCoordinate3.h>
+#include <Inventor/nodes/SoCylinder.h>
 #include <Inventor/nodes/SoFaceSet.h>
 #include <Inventor/nodes/SoMaterial.h>
 #include <Inventor/nodes/SoPickStyle.h>
 #include <Inventor/nodes/SoPolygonOffset.h>
+#include <Inventor/nodes/SoRotation.h>
 #include <Inventor/nodes/SoSeparator.h>
 #include <Inventor/nodes/SoShapeHints.h>
 #include <Inventor/draggers/SoDragger.h>
 #include <Inventor/events/SoKeyboardEvent.h>
 #include <Inventor/nodes/SoSwitch.h>
 #include <Inventor/nodes/SoTransform.h>
+#include <Inventor/nodes/SoTranslation.h>
 #include <Inventor/sensors/SoFieldSensor.h>
 #include <Inventor/sensors/SoSensor.h>
 
@@ -75,6 +79,8 @@
 #include <Gui/Control.h>
 #include <Gui/Document.h>
 #include <Gui/Inventor/Draggers/SoTransformDragger.h>
+#include <Gui/Inventor/So3DAnnotation.h>
+#include <Gui/Inventor/SoAutoZoomTranslation.h>
 #include <Gui/MDIView.h>
 #include <Gui/MainWindow.h>
 #include <Gui/View3DInventor.h>
@@ -168,7 +174,86 @@ ViewProviderAssembly::~ViewProviderAssembly()
         collisionSwitch->unref();
         collisionSwitch = nullptr;
     }
+    connectCollisionMarkers.disconnect();
+    if (markerGroup) {
+        pcRoot->removeChild(markerGroup);
+        markerGroup->unref();
+        markerGroup = nullptr;
+    }
 };
+
+void ViewProviderAssembly::attach(App::DocumentObject* obj)
+{
+    ViewProviderPart::attach(obj);
+    if (auto* assembly = freecad_cast<AssemblyObject*>(obj)) {
+        connectCollisionMarkers = assembly->signalCollisionMarkers.connect([this] {
+            showCollisionMarkers();
+        });
+    }
+}
+
+void ViewProviderAssembly::showCollisionMarkers()
+{
+    const auto& markers = getObject<AssemblyObject>()->getCollisionMarkers();
+    if (!markerGroup) {
+        if (markers.empty()) {
+            return;
+        }
+        // In the assembly's coordinates: after its transform in pcRoot
+        markerGroup = new Gui::So3DAnnotation;
+        markerGroup->ref();
+        markerGroup->setName("AssemblyCollisionMarkers");
+        // After the other annotations: the dragger (-1), the labels (1)
+        markerGroup->priority = 2;
+        pcRoot->addChild(markerGroup);
+    }
+    markerGroup->removeAllChildren();
+    if (markers.empty()) {
+        return;
+    }
+    auto* pick = new SoPickStyle;
+    pick->style = SoPickStyle::UNPICKABLE;
+    markerGroup->addChild(pick);
+    auto* material = new SoMaterial;
+    material->diffuseColor.setValue(1.0F, 0.1F, 0.05F);
+    material->emissiveColor.setValue(0.6F, 0.0F, 0.0F);
+    markerGroup->addChild(material);
+    // In units of the auto zoom's, about 1.5% of the view's height: the head
+    // 2.4 long, its tip at where the two met, the shaft 3.6 behind it
+    constexpr float headLength = 2.4F;
+    constexpr float shaftLength = 3.6F;
+    for (const auto& marker : markers) {
+        auto* arrow = new SoSeparator;
+        auto* at = new SoTranslation;
+        at->translation.setValue(Base::convertTo<SbVec3f>(marker.centre));
+        arrow->addChild(at);
+        arrow->addChild(new Gui::SoAutoZoomTranslation);
+        // Its +Y along the arrow, towards the tip: into the component hit
+        Base::Vector3d towards = -marker.direction;
+        if (towards.Length() < 1e-12) {
+            towards = Base::Vector3d(0.0, 0.0, -1.0);
+        }
+        auto* turn = new SoRotation;
+        turn->rotation.setValue(
+            SbRotation(SbVec3f(0.0F, 1.0F, 0.0F), Base::convertTo<SbVec3f>(towards.Normalize())));
+        arrow->addChild(turn);
+        auto* headAt = new SoTranslation;
+        headAt->translation.setValue(0.0F, -0.5F * headLength, 0.0F);
+        arrow->addChild(headAt);
+        auto* head = new SoCone;
+        head->height = headLength;
+        head->bottomRadius = 1.0F;
+        arrow->addChild(head);
+        auto* shaftAt = new SoTranslation;
+        shaftAt->translation.setValue(0.0F, -0.5F * (headLength + shaftLength), 0.0F);
+        arrow->addChild(shaftAt);
+        auto* shaft = new SoCylinder;
+        shaft->height = shaftLength;
+        shaft->radius = 0.35F;
+        arrow->addChild(shaft);
+        markerGroup->addChild(arrow);
+    }
+}
 
 QIcon ViewProviderAssembly::getIcon() const
 {

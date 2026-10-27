@@ -882,6 +882,7 @@ void AssemblyObject::beginCollisionWatch()
         return;
     }
     dragCollisionMode = static_cast<DragCollision>(mode);
+    ++collisionWatches;
     try {
         collisionWatch =
             std::make_unique<CollisionWatch>(this, AssemblyParams::getDragCollisionTolerance());
@@ -919,7 +920,49 @@ const std::vector<InterferenceResult>& AssemblyObject::checkDragCollisions()
             FC_WARN("The collision check of a drag step failed: " << e.GetMessageString());
         }
     }
+    markDragCollisions();
     return dragCollisions;
+}
+
+void AssemblyObject::markDragCollisions()
+{
+    bool changed = false;
+    for (const auto& hit : dragCollisions) {
+        if (!hit.touched) {
+            continue;
+        }
+        // This drag's marker of the pair moves to where they meet now: Stop
+        // checks nearer the contact as it halves the step
+        auto it = std::find_if(collisionMarkers.begin(),
+                               collisionMarkers.end(),
+                               [&](const CollisionMarker& marker) {
+                                   return marker.watch == collisionWatches
+                                       && marker.first.getObject() == hit.first
+                                       && marker.second.getObject() == hit.second;
+                               });
+        if (it == collisionMarkers.end()) {
+            CollisionMarker marker;
+            marker.first = hit.first;
+            marker.second = hit.second;
+            marker.watch = collisionWatches;
+            it = collisionMarkers.insert(collisionMarkers.end(), marker);
+        }
+        it->centre = hit.touchCentre;
+        it->direction = hit.touchNormal;
+        changed = true;
+    }
+    if (changed) {
+        signalCollisionMarkers();
+    }
+}
+
+void AssemblyObject::clearCollisionMarkers()
+{
+    if (collisionMarkers.empty()) {
+        return;
+    }
+    collisionMarkers.clear();
+    signalCollisionMarkers();
 }
 
 double AssemblyObject::stopAtDragCollision(const std::function<bool(double)>& poseAt)

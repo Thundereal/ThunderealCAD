@@ -578,6 +578,63 @@ private:
 
 
 // ================================================================================
+// Clear Collision Markers
+// ================================================================================
+
+// The assemblies whose collision markers the command clears: the one in edit,
+// else those of the active document
+static std::vector<AssemblyObject*> markedAssemblies()
+{
+    std::vector<AssemblyObject*> marked;
+    if (auto* assembly = getActiveAssembly()) {
+        if (!assembly->getCollisionMarkers().empty()) {
+            marked.push_back(assembly);
+        }
+        return marked;
+    }
+    Gui::Document* doc = Gui::Application::Instance->activeDocument();
+    if (!doc) {
+        return marked;
+    }
+    for (auto* assembly : doc->getDocument()->getObjectsOfType<AssemblyObject>()) {
+        if (!assembly->getCollisionMarkers().empty()) {
+            marked.push_back(assembly);
+        }
+    }
+    return marked;
+}
+
+DEF_STD_CMD_A(CmdAssemblyClearCollisionMarkers)
+
+CmdAssemblyClearCollisionMarkers::CmdAssemblyClearCollisionMarkers()
+    : Command("Assembly_ClearCollisionMarkers")
+{
+    sGroup = QT_TR_NOOP("Assembly");
+    sMenuText = QT_TR_NOOP("Clear Collision Markers");
+    sToolTipText =
+        QT_TR_NOOP("Removes the arrows that mark where dragging brought components into collision");
+    sWhatsThis = "Assembly_ClearCollisionMarkers";
+    sStatusTip = sToolTipText;
+    sPixmap = "Assembly_ClearCollisionMarkers";
+    // The markers are not the document's: nothing to undo or record
+    bCanLog = false;
+}
+
+void CmdAssemblyClearCollisionMarkers::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    for (auto* assembly : markedAssemblies()) {
+        assembly->clearCollisionMarkers();
+    }
+}
+
+bool CmdAssemblyClearCollisionMarkers::isActive()
+{
+    return !markedAssemblies().empty();
+}
+
+
+// ================================================================================
 // Command Creation
 // ================================================================================
 
@@ -592,4 +649,5 @@ void AssemblyGui::CreateAssemblyCommands()
     rcCmdMgr.addCommand(new CmdAssemblySelectComponentsWithDoFs());
     rcCmdMgr.addCommand(new CmdAssemblySelectJointsOfComponent());
     rcCmdMgr.addCommand(new CmdAssemblyDragCollision());
+    rcCmdMgr.addCommand(new CmdAssemblyClearCollisionMarkers());
 }

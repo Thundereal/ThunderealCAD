@@ -42,6 +42,7 @@ class SoFieldSensor;
 
 namespace Gui
 {
+class So3DAnnotation;
 class SoTransformDragger;
 class View3DInventorViewer;
 class ViewerContext;
@@ -113,6 +114,7 @@ public:
 
     ViewProviderAssembly();
     ~ViewProviderAssembly() override;
+    void attach(App::DocumentObject* obj) override;
 
     /// deliver the icon shown in the tree view. Override from ViewProvider.h
     QIcon getIcon() const override;
@@ -269,6 +271,12 @@ public:
     SoSwitch* collisionSwitch = nullptr;
     SoSeparator* collisionGroup = nullptr;
     std::map<App::DocumentObject*, std::pair<SoSeparator*, SoTransform*>> collisionNodes;
+    // The markers of where drags brought components into collision
+    // (AssemblyObject::getCollisionMarkers()): arrows pointing at where they
+    // met, drawn over everything, the selection's highlight too, and the same
+    // size on screen however far the view is zoomed
+    Gui::So3DAnnotation* markerGroup = nullptr;
+    fastsignals::scoped_connection connectCollisionMarkers;
     SoFieldSensor* translationSensor = nullptr;
     SoFieldSensor* rotationSensor = nullptr;
 
@@ -277,6 +285,7 @@ public:
         signalSetUp;
 
 private:
+    void showCollisionMarkers();
     void showDragStopped();
     void showDragCollisions();
     void clearDragCollisions();

@@ -241,6 +241,23 @@ class AssemblyObject(Part):
         ...
 
     @constmethod
+    def getCollisionMarkers(self) -> list:
+        """
+        Collision while dragging (docs/AssemblyInterference.md): the markers of
+        where drags brought components into collision, one for each pair a
+        drag brought into collision, kept until cleared and not saved.
+
+        Returns: a list of dicts: First, Second (the objects, None when gone),
+        Centre (where they met, in the assembly's coordinates), Direction (a
+        unit vector out of the component hit, towards the other).
+        """
+        ...
+
+    def clearCollisionMarkers(self) -> None:
+        """Removes the markers of getCollisionMarkers()."""
+        ...
+
+    @constmethod
     def getDragCollisions(self) -> list:
         """
         Collision while dragging (docs/AssemblyInterference.md), with the

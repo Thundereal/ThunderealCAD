@@ -370,6 +370,47 @@ class TestDragCollision(unittest.TestCase):
         finally:
             App.closeDocument(self.doc.Name)
 
+    def test_markers(self):
+        """A drag that brings two components into collision leaves a marker
+        where they met, pointing into the one hit: one for each pair and
+        drag, kept after the drag until cleared."""
+        self.build("Ondsel")
+        try:
+
+            def check(marker):
+                pair = sorted((marker["First"].Name, marker["Second"].Name))
+                self.assertEqual(pair, ["Plate", "S"])
+                # S's top square crosses the plate's underside at 25
+                centre = marker["Centre"]
+                self.assertAlmostEqual(centre.x, 5.0, delta=0.1)
+                self.assertAlmostEqual(centre.y, 5.0, delta=0.1)
+                self.assertAlmostEqual(centre.z, 25.0, places=6)
+                # Out of the plate, which did not move: down, to S
+                direction = marker["Direction"]
+                self.assertAlmostEqual(direction.z, -1.0, places=6)
+
+            self.params.SetInt("DragCollision", 2)
+            # Stopped twice in one drag: one marker, at the last stop
+            self.drag([14, 16, 14.5, 16])
+            self.assembly.postDrag()
+            markers = self.assembly.getCollisionMarkers()
+            self.assertEqual(len(markers), 1)
+            check(markers[0])
+
+            # Another drag, highlighting: through the plate, a marker of its own
+            self.params.SetInt("DragCollision", 1)
+            self.S.Placement = App.Placement(App.Vector(0, 0, 10), App.Rotation())
+            self.drag([14, 16])
+            self.assembly.postDrag()
+            markers = self.assembly.getCollisionMarkers()
+            self.assertEqual(len(markers), 2)
+            check(markers[1])
+
+            self.assembly.clearCollisionMarkers()
+            self.assertEqual(self.assembly.getCollisionMarkers(), [])
+        finally:
+            App.closeDocument(self.doc.Name)
+
     def test_off(self):
         self.params.SetInt("DragCollision", 0)
         self.build("Ondsel")

@@ -369,6 +369,36 @@ PyObject* AssemblyObjectPy::getDragCollisions(PyObject* args) const
     return Py::new_reference_to(ret);
 }
 
+PyObject* AssemblyObjectPy::getCollisionMarkers(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    auto object = [](const App::DocumentObjectT& ref) -> Py::Object {
+        auto* obj = ref.getObject();
+        return obj ? Py::asObject(obj->getPyObject()) : Py::None();
+    };
+    Py::List ret;
+    for (const auto& marker : getAssemblyObjectPtr()->getCollisionMarkers()) {
+        Py::Dict entry;
+        entry.setItem("First", object(marker.first));
+        entry.setItem("Second", object(marker.second));
+        entry.setItem("Centre", Py::Vector(marker.centre));
+        entry.setItem("Direction", Py::Vector(marker.direction));
+        ret.append(entry);
+    }
+    return Py::new_reference_to(ret);
+}
+
+PyObject* AssemblyObjectPy::clearCollisionMarkers(PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    getAssemblyObjectPtr()->clearCollisionMarkers();
+    Py_Return;
+}
+
 PyObject* AssemblyObjectPy::getSolveStatus(PyObject* args) const
 {
     if (!PyArg_ParseTuple(args, "")) {

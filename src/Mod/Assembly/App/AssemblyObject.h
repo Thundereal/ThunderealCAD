@@ -36,6 +36,7 @@
 
 #include <Mod/Assembly/AssemblyGlobal.h>
 
+#include <App/DocumentObserver.h>
 #include <App/FeaturePython.h>
 #include <App/Part.h>
 #include <App/PropertyLinks.h>
@@ -177,6 +178,27 @@ public:
     {
         return dragCollisions;
     }
+    // Where drags brought components into collision, kept until cleared and
+    // not saved: one for each pair a drag brought into collision, where they
+    // met at the last check that found them (InterferenceResult's touch), for
+    // the view to mark with an arrow. In the assembly's coordinates.
+    struct CollisionMarker
+    {
+        App::DocumentObjectT first;
+        App::DocumentObjectT second;
+        Base::Vector3d centre;
+        // Out of the component hit, towards the other
+        Base::Vector3d direction;
+        // The watch (beginCollisionWatch()) that found it
+        int watch = 0;
+    };
+    const std::vector<CollisionMarker>& getCollisionMarkers() const
+    {
+        return collisionMarkers;
+    }
+    void clearCollisionMarkers();
+    // The markers added, moved or cleared
+    fastsignals::signal<void()> signalCollisionMarkers;
     // The triangles of a component the watch checks, to draw a collision
     // with (CollisionWatch::meshOf)
     bool getCollisionMesh(const App::DocumentObject* obj, std::vector<Base::Vector3d>& points) const
@@ -487,6 +509,10 @@ private:
     std::unique_ptr<CollisionWatch> collisionWatch;
     DragCollision dragCollisionMode {DragCollision::Off};
     std::vector<InterferenceResult> dragCollisions;
+    std::vector<CollisionMarker> collisionMarkers;
+    int collisionWatches {0};
+    // The markers of the pairs the last check found
+    void markDragCollisions();
     bool lastDragStepFailed {false};
 
     // True while solve() is running; breaks the solve()/updateSolveStatus() cycle.

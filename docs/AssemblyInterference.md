@@ -101,6 +101,25 @@ stopped, put back on them. From Python: the preference, then `preDrag()`, `doDra
 `getDragCollisions()` (the pairs the last step brought into collision, or,
 stopped, would have), `postDrag()`.
 
+Where a drag brought two components into collision is marked with a red
+arrow, its tip there, pointing into the component hit (the one that did not
+move), drawn over everything -- the selection's highlight too -- and the same
+size on screen at any zoom. One for each pair and drag, at the last check that
+found them: stopped, where they meet; highlighting, where they last crossed.
+The marks stay after the drag, in the assembly that was dragged in, until
+**Clear Collision Markers** (`Assembly_ClearCollisionMarkers`, on the tool
+bar) removes them -- the edited assembly's, else those of every assembly of
+the document. They are not saved. Where: the Fast check's touch
+(`InterferenceResult::touchCentre`/`touchNormal`, `touchOf()` in
+`App/Interference.cpp`): the points where an edge of one mesh passes through
+a triangle of the other make, for each pair of triangles, a segment of the
+curve along which the meshes cross; its centre is the middle of the
+segments, each weighted by its length, and the direction is the normal of
+the hit component's triangles crossed, turned to point out of it. One inside
+the other, nothing crosses: the middle of the common part of their boxes.
+From Python: `getCollisionMarkers()` (dicts of `First`, `Second`, `Centre`,
+`Direction`), `clearCollisionMarkers()`.
+
 ## What is checked
 
 The assembly's components (`getAssemblyComponents()`: a rigid sub-assembly

@@ -342,17 +342,17 @@ bool confirmed(const std::function<bool(const Vec&)>& witness,
     return false;
 }
 
-// Whether two solids' meshes cross by a confirmed crossing, tested in the
-// frame of ia's solid: b's tree is carried over by the pose of its solid
+// Each triangle of ia's mesh with each of ib's whose boxes are within tol of
+// each other, handed to `visit` in the frame of ia's solid until it says to
+// stop; true when it did. b's tree is carried over by the pose of its solid
 // relative to a's, its boxes as boxes around them and its triangles moved as
-// they are reached, so a move rebuilds nothing. `candidates` counts the
-// unconfirmed ones across the pair's solids.
-bool instancesCross(Component& ca,
-                    const Instance& ia,
-                    Component& cb,
-                    const Instance& ib,
-                    double tol,
-                    int& candidates)
+// they are reached, so a move rebuilds nothing.
+using VisitTriangles = std::function<bool(const Vec (&pa)[3], const Vec (&pb)[3])>;
+
+bool visitNearTriangles(const Instance& ia,
+                        const Instance& ib,
+                        double tol,
+                        const VisitTriangles& visit)
 {
     BRepExtrema_TriangleSet& a = ia.geometry->triangles();
     BRepExtrema_TriangleSet& b = ib.geometry->triangles();
@@ -386,18 +386,6 @@ bool instancesCross(Component& ca,
         }
     };
 
-    // The witnesses are classified in the assembly's coordinates, against
-    // all of each component's solids
-    const std::function<bool(const Vec&)> witness = [&](const Vec& local) {
-        const gp_Pnt point = pointOf(apply(ia.trsf, local));
-        return cb.contains(point, tol) && ca.contains(point, tol);
-    };
-    const Confirm confirm =
-        [&](const Vec& at, const Vec& from, const Vec& to, const Vec& normal, const Vec& crossed) {
-            ++candidates;
-            return confirmed(witness, at, from, to, normal, crossed, tol);
-        };
-
     std::vector<std::pair<int, int>> stack {{0, 0}};
     std::vector<std::array<Vec, 3>> leafB;
     while (!stack.empty()) {
@@ -424,11 +412,8 @@ bool instancesCross(Component& ca,
                 a.GetVertices(i, pa[0], pa[1], pa[2]);
                 for (const auto& moved : leafB) {
                     const Vec pb[3] = {moved[0], moved[1], moved[2]};
-                    if (edgeCrosses(pa, pb, tol, confirm) || edgeCrosses(pb, pa, tol, confirm)) {
+                    if (visit(pa, pb)) {
                         return true;
-                    }
-                    if (candidates >= maxCandidates) {
-                        return false;
                     }
                 }
             }
@@ -447,7 +432,152 @@ bool instancesCross(Component& ca,
     return false;
 }
 
-// Whether the two components' meshes cross by a confirmed crossing
+// Whether two solids' meshes cross by a confirmed crossing, tested in the
+// frame of ia's solid. `candidates` counts the unconfirmed ones across the
+// pair's solids.
+bool instancesCross(Component& ca,
+                    const Instance& ia,
+                    Component& cb,
+                    const Instance& ib,
+                    double tol,
+                    int& candidates)
+{
+    // The witnesses are classified in the assembly's coordinates, against
+    // all of each component's solids
+    const std::function<bool(const Vec&)> witness = [&](const Vec& local) {
+        const gp_Pnt point = pointOf(apply(ia.trsf, local));
+        return cb.contains(point, tol) && ca.contains(point, tol);
+    };
+    const Confirm confirm =
+        [&](const Vec& at, const Vec& from, const Vec& to, const Vec& normal, const Vec& crossed) {
+            ++candidates;
+            return confirmed(witness, at, from, to, normal, crossed, tol);
+        };
+    bool crossed = false;
+    visitNearTriangles(ia, ib, tol, [&](const Vec(&pa)[3], const Vec(&pb)[3]) {
+        if (edgeCrosses(pa, pb, tol, confirm) || edgeCrosses(pb, pa, tol, confirm)) {
+            crossed = true;
+            return true;
+        }
+        return candidates >= maxCandidates;
+    });
+    return crossed;
+}
+
+// The triangle pairs looked at for a touch, at most: a part sunk deep into a
+// finely meshed one is marked from what they show
+constexpr int maxTouchPairs = 200000;
+
+// Where two components that interfere meet, into result's touch. The points
+// where an edge of a triangle of one passes through a triangle of the other
+// (unconfirmed: the pair is known to interfere) make, for each pair of
+// triangles, a segment of the curve along which the meshes cross. The middle
+// of the segments, each weighted by its length, is the centre; the normals of
+// the triangles of `hit` crossed, weighted so and turned to agree, the
+// direction, then turned to point out of `hit`. One inside the other, nothing
+// crosses: the middle of the common part of their boxes, and the direction
+// from hit's box to the other's.
+void touchOf(Component& other, Component& hit, double tol, InterferenceResult& result)
+{
+    Vec weighted(0.0, 0.0, 0.0);
+    Vec normal(0.0, 0.0, 0.0);
+    double total = 0.0;
+    int pairs = 0;
+    Vec points[6];
+    int count = 0;
+    Vec hitNormal(0.0, 0.0, 0.0);
+    // An edge of other's through a triangle of hit's: crossed is hit's
+    const Confirm throughHit =
+        [&](const Vec& at, const Vec&, const Vec&, const Vec&, const Vec& crossed) {
+            if (count < 6) {
+                points[count++] = at;
+            }
+            hitNormal = crossed;
+            return false;
+        };
+    // An edge of hit's through a triangle of other's: the edge's is hit's
+    const Confirm throughOther =
+        [&](const Vec& at, const Vec&, const Vec&, const Vec& edgeNormal, const Vec&) {
+            if (count < 6) {
+                points[count++] = at;
+            }
+            hitNormal = edgeNormal;
+            return false;
+        };
+    for (const auto& io : other.instances) {
+        for (const auto& ih : hit.instances) {
+            if (!io.geometry || !ih.geometry || !boxesNear(io.box, ih.box, tol)) {
+                continue;
+            }
+            // Found in the frame of io's solid, summed in the assembly's
+            const Vec origin = apply(io.trsf, Vec(0.0, 0.0, 0.0));
+            visitNearTriangles(io, ih, tol, [&](const Vec(&po)[3], const Vec(&ph)[3]) {
+                count = 0;
+                edgeCrosses(po, ph, tol, throughHit);
+                edgeCrosses(ph, po, tol, throughOther);
+                if (count > 0) {
+                    // The segment: the two points farthest apart
+                    Vec from = points[0];
+                    Vec to = points[0];
+                    double best = 0.0;
+                    for (int i = 0; i < count; ++i) {
+                        for (int j = i + 1; j < count; ++j) {
+                            const Vec d = points[j] - points[i];
+                            if (dot(d, d) > best) {
+                                best = dot(d, d);
+                                from = points[i];
+                                to = points[j];
+                            }
+                        }
+                    }
+                    const double length = std::max(std::sqrt(best), tol);
+                    weighted = weighted + apply(io.trsf, (from + to) * 0.5) * length;
+                    total += length;
+                    Vec unit = apply(io.trsf, hitNormal) - origin;
+                    const double size = std::sqrt(dot(unit, unit));
+                    if (size > 0.0) {
+                        unit = unit * ((dot(unit, normal) < 0.0 ? -1.0 : 1.0) / size);
+                        normal = normal + unit * length;
+                    }
+                }
+                return ++pairs >= maxTouchPairs;
+            });
+        }
+    }
+
+    Vec centre;
+    if (total > 0.0) {
+        centre = weighted * (1.0 / total);
+    }
+    else {
+        const Bnd_Box& bo = exactBox(other);
+        const Bnd_Box& bh = exactBox(hit);
+        if (bo.IsVoid() || bh.IsVoid()) {
+            return;
+        }
+        double ox0 {}, oy0 {}, oz0 {}, ox1 {}, oy1 {}, oz1 {};
+        double hx0 {}, hy0 {}, hz0 {}, hx1 {}, hy1 {}, hz1 {};
+        bo.Get(ox0, oy0, oz0, ox1, oy1, oz1);
+        bh.Get(hx0, hy0, hz0, hx1, hy1, hz1);
+        centre = Vec(0.5 * (std::max(ox0, hx0) + std::min(ox1, hx1)),
+                     0.5 * (std::max(oy0, hy0) + std::min(oy1, hy1)),
+                     0.5 * (std::max(oz0, hz0) + std::min(oz1, hz1)));
+        normal = Vec(ox0 + ox1 - hx0 - hx1, oy0 + oy1 - hy0 - hy1, oz0 + oz1 - hz0 - hz1);
+    }
+    const double size = std::sqrt(dot(normal, normal));
+    if (size > 0.0) {
+        normal = normal * (1.0 / size);
+        // Out of hit: a step along it is not inside hit, a step back is
+        const double step = 3.0 * tol;
+        if (hit.contains(pointOf(centre + normal * step), tol)
+            && !hit.contains(pointOf(centre - normal * step), tol)) {
+            normal = normal * -1.0;
+        }
+    }
+    result.touched = true;
+    result.touchCentre = Base::Vector3d(centre.x(), centre.y(), centre.z());
+    result.touchNormal = Base::Vector3d(normal.x(), normal.y(), normal.z());
+}
 bool meshesCross(Component& ca, Component& cb, double tol)
 {
     int candidates = 0;
@@ -835,6 +965,18 @@ struct Scene
                     if (!boxesNear(a.box, b.box, pairTol + Precision::Confusion())
                         || !checkPair(a, b, options, tol, pairTol, result)) {
                         continue;
+                    }
+                    if (fast && result.kind == InterferenceResult::Kind::Interference) {
+                        // The one hit: the one that did not move, else b
+                        const bool aHit = b.moved && !a.moved;
+                        try {
+                            touchOf(aHit ? b : a, aHit ? a : b, pairTol, result);
+                        }
+                        catch (const Standard_Failure& e) {
+                            FC_WARN("Where " << a.obj->getFullName() << " and "
+                                             << b.obj->getFullName()
+                                             << " meet was not found: " << e.GetMessageString());
+                        }
                     }
                 }
                 result.frame = frame;

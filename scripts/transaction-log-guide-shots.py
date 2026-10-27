@@ -201,6 +201,248 @@ def driveMerge(doc, mw):
             dialog.reject()
 
 
+def whenShown(objectName, act, tries=50):
+    """`act(widget)` once the top-level widget of that name shows: a modal
+    dialog runs its own loop, so it is driven from a timer set before."""
+    left = [tries]
+
+    def poll():
+        for w in QtWidgets.QApplication.topLevelWidgets():
+            if w.isVisible() and w.objectName() == objectName:
+                try:
+                    act(w)
+                except Exception:
+                    said.append("%s:\n%s" % (objectName, traceback.format_exc()))
+                    w.reject()
+                return
+        left[0] -= 1
+        if left[0] > 0:
+            QtCore.QTimer.singleShot(200, poll)
+        else:
+            said.append("%s: not shown" % objectName)
+
+    QtCore.QTimer.singleShot(200, poll)
+
+
+def activate(doc):
+    App.setActiveDocument(doc.Name)
+    Gui.ActiveDocument = Gui.getDocument(doc.Name)
+    settle()
+
+
+def labelSaying(dock, text):
+    for label in dock.findChildren(QtWidgets.QLabel):
+        if text in label.text():
+            return label
+    return None
+
+
+def twoCopies(dock, tabs):
+    """Section 13: another FreeCAD saves the file this one has open."""
+    import subprocess
+    import sys
+
+    folder = tempfile.mkdtemp(prefix="fc-guide-two-")
+    path = os.path.join(folder, "plate.FCStd")
+    plate = App.newDocument("plate")
+    plate.UndoMode = 1
+    plate.openTransaction("make the plate")
+    box = plate.addObject("Part::Box", "Plate")
+    box.Length, box.Width, box.Height = 60, 30, 4
+    plate.recompute()
+    plate.commitTransaction()
+    plate.saveAs(path)
+    activate(plate)
+    Gui.ActiveDocument.ActiveView.viewIsometric()
+    Gui.ActiveDocument.ActiveView.fitAll()
+    # The other FreeCAD: a console one, which opens the file, makes the
+    # plate longer and saves it
+    other = os.path.join(folder, "other.py")
+    with open(other, "w") as f:
+        f.write("import os, FreeCAD\n"
+                "d = FreeCAD.openDocument(%r)\n"
+                "d.getObject('Plate').Length = 70\n"
+                "d.recompute()\n"
+                "d.save()\n"
+                "os._exit(0)\n" % path)
+    cmd = os.path.join(App.getHomePath(), "bin", "FreeCADCmd")
+    if not os.path.exists(cmd):
+        cmd = os.path.join(os.path.dirname(sys.executable), "FreeCADCmd")
+    subprocess.run([cmd, other], timeout=300, stdout=subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL)
+    # The panel looks at the file every few seconds
+    until = time.time() + 20
+    while time.time() < until and labelSaying(dock, "saved by another process") is None:
+        wait(0.5)
+    status = labelSaying(dock, "saved by another process")
+    if status is None:
+        said.append("19-saved-elsewhere: the status line did not say so")
+    else:
+        shot("19-saved-elsewhere", tabs, status)
+
+    # The same length changed here too: the save stops at the conflict and
+    # the merge's preview opens
+    plate.openTransaction("plate longer here")
+    box.Length = 65
+    plate.recompute()
+    plate.commitTransaction()
+
+    def conflict(dialog):
+        dialog.move(420, 300)
+        dialog.resize(1000, 420)
+        wait(0.8)
+        shotWidget("19-save-conflict", dialog)
+        dialog.reject()
+
+    whenShown("TransactionMergeDialog", conflict)
+    Gui.getDocument(plate.Name).save()
+    wait(3)
+    App.closeDocument(plate.Name)
+    settle()
+
+
+def linkedSets():
+    """Section 15: a set exported, worked on elsewhere and taken back."""
+    import shutil
+
+    # A short path: the dialogs show it
+    root = os.path.join(tempfile.gettempdir(), "guide-set")
+    shutil.rmtree(root, True)
+    ours = os.path.join(root, "ours")
+    os.makedirs(ours)
+    part = App.newDocument("Part")
+    part.UndoMode = 1
+    part.openTransaction("the part")
+    box = part.addObject("Part::Box", "Box")
+    box.Length, box.Width, box.Height = 30, 20, 10
+    part.recompute()
+    part.commitTransaction()
+    part.saveAs(os.path.join(ours, "Part.FCStd"))
+    asm = App.newDocument("Asm")
+    asm.UndoMode = 1
+    asm.openTransaction("place the part")
+    asm.addObject("App::Link", "PartLink").LinkedObject = box
+    asm.recompute()
+    asm.commitTransaction()
+    asm.saveAs(os.path.join(ours, "Asm.FCStd"))
+    activate(asm)
+
+    def export(dialog):
+        dialog.resize(820, 300)
+        history = dialog.findChild(QtWidgets.QCheckBox, "history")
+        if history is not None:
+            history.setChecked(True)
+        wait(0.5)
+        shotWidget("20-export-set", dialog)
+        dialog.reject()
+
+    whenShown("DlgExportLinkedSet", export)
+    Gui.runCommand("Std_ExportLinkedSet")
+    wait(1)
+
+    # Their copy: the set written with its history, the box made longer
+    # there and a bolt linked in beside it
+    theirs = os.path.join(root, "theirs")
+    asm.exportLinkedSet(theirs, True)
+    tpart = App.openDocument(os.path.join(theirs, "Part.FCStd"))
+    tpart.getObject("Box").Length = 36
+    tpart.recompute()
+    tpart.save()
+    bolt = App.newDocument("Bolt")
+    cyl = bolt.addObject("Part::Cylinder", "Bolt")
+    cyl.Radius, cyl.Height = 2, 16
+    bolt.recompute()
+    bolt.saveAs(os.path.join(theirs, "Bolt.FCStd"))
+    tasm = App.openDocument(os.path.join(theirs, "Asm.FCStd"))
+    tasm.addObject("App::Link", "BoltLink").LinkedObject = cyl
+    tasm.recompute()
+    tasm.save()
+    for d in (tasm, bolt, tpart):
+        App.closeDocument(d.Name)
+    activate(asm)
+
+    def bringIn(dialog):
+        dialog.resize(980, 380)
+        dialog.findChild(QtWidgets.QLineEdit, "theirs").setText(
+            os.path.join(theirs, "Asm.FCStd"))
+        dialog.findChild(QtWidgets.QPushButton, "read").click()
+        files = dialog.findChild(QtWidgets.QTreeWidget, "files")
+
+        def widths():
+            for col in range(files.columnCount()):
+                files.resizeColumnToContents(col)
+
+        widths()
+        wait(0.5)
+        shotWidget("20-import-set", dialog)
+        dialog.findChild(QtWidgets.QPushButton, "import").click()
+        widths()
+        wait(0.5)
+        shotWidget("20-import-set-imported", dialog)
+        dialog.reject()
+
+    whenShown("DlgImportLinkedSet", bringIn)
+    Gui.runCommand("Std_ImportLinkedSet")
+    wait(1)
+    for d in (asm, part):
+        App.closeDocument(d.Name)
+    settle()
+
+
+def pasteBack():
+    """Section 16: objects copied out, changed, and pasted back."""
+    here = App.newDocument("Fixture")
+    here.UndoMode = 1
+    here.openTransaction("the fixture")
+    base = here.addObject("Part::Box", "Base")
+    base.Length, base.Width, base.Height = 50, 30, 5
+    pin = here.addObject("Part::Cylinder", "Pin")
+    pin.Radius, pin.Height = 2, 12
+    here.recompute()
+    here.commitTransaction()
+    there = App.newDocument("Sketchpad")
+    there.UndoMode = 1
+
+    def copy(doc, objs):
+        activate(doc)
+        Gui.Selection.clearSelection()
+        for o in objs:
+            Gui.Selection.addSelection(o)
+        Gui.runCommand("Std_Copy")
+        settle()
+
+    def paste(doc):
+        activate(doc)
+        Gui.Selection.clearSelection()
+        Gui.runCommand("Std_Paste")
+        settle()
+
+    copy(here, [base, pin])
+    paste(there)
+    there.getObject("Base").Length = 56
+    there.recompute()
+    copy(there, [there.getObject("Base"), there.getObject("Pin")])
+
+    def ask(dialog):
+        dialog.resize(760, 300)
+        tree = dialog.findChild(QtWidgets.QTreeWidget, "treeWidget")
+        for i in range(tree.topLevelItemCount()):
+            item = tree.topLevelItem(i)
+            if item.text(0).split("(")[0] == "Base":
+                item.setCheckState(1, QtCore.Qt.Checked)
+        # The dialog settles a change on a short timer
+        wait(0.6)
+        shotWidget("21-paste-clash", dialog)
+        dialog.reject()
+
+    whenShown("DlgPasteSelection", ask)
+    paste(here)
+    wait(1)
+    for d in (there, here):
+        App.closeDocument(d.Name)
+    settle()
+
+
 def run():
     try:
         os.makedirs(OUT, exist_ok=True)
@@ -452,6 +694,14 @@ def run():
             withMenu("17-asked-merge-menu", requests, asked, tabs, requests)
         else:
             said.append("asked merge: not listed")
+
+        # 19-21: sections 13, 15 and 16, each on documents of its own
+        for scene in (lambda: twoCopies(dock, tabs), linkedSets, pasteBack):
+            try:
+                scene()
+            except Exception:
+                said.append(traceback.format_exc())
+        activate(doc)
 
         # 18: a branch served in a document of its own, which has no window:
         # closing the last window that has one says so (sec 32.30)

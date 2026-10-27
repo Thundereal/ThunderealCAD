@@ -808,6 +808,8 @@ other one saves it, the report view and the status bar say so once --
 save here` -- and the panel's status line carries `saved by another
 process: merged at the next save`.
 
+![The panel after another FreeCAD saved the file](images/transaction-log/19-saved-elsewhere.png)
+
 **When you save**, what the other one saved comes in as a branch named
 after the file -- `part saved elsewhere`, or `part saved by NAME` where the
 file names who saved it -- and is merged into yours as a `merge` row, which
@@ -822,6 +824,8 @@ here: pick a side for each conflict, then save again`, and the merge's
 preview opens (section 10). Pick a side for each conflict, **Merge**, and
 save again. Until then the status line carries `a save waits on the merge
 of BRANCH`.
+
+![A save stopped at a conflict: the same length, changed in both](images/transaction-log/19-save-conflict.png)
 
 **Save As to another file** while such a merge waits goes ahead, as the
 merge is not of that file. The report view says the branch `is left to
@@ -895,6 +899,8 @@ opens in any FreeCAD. Files from outside the document's folder go under
 | **With history** | Each file keeps its history, for someone who uses the log too. Without, a file brought back is paired with yours by its save. Off by default. |
 | **Leave library files in their library** | Shown when links reach a library: those files are not copied, and the links keep pointing at the library. |
 
+![Export with Linked Files](images/transaction-log/20-export-set.png)
+
 **Export** writes them; the status bar says how many.
 
 ### Import a Linked Set
@@ -915,9 +921,14 @@ saved with its history.
    | Written to | Where a file of theirs alone is written. |
    | State | After Import: `branch X`, `held`, `nothing new`, or what went wrong. |
 
+   ![Their set read: two files paired by history, one of theirs alone](images/transaction-log/20-import-set.png)
+
 2. **Import** brings them in as branches; nothing of yours changes yet. Look
    at each in its document's panel, or stop here: the next **Import a
    Linked Set...** offers to merge the set brought in.
+
+   ![Imported: two branches, and their file alone held](images/transaction-log/20-import-set-imported.png)
+
 3. **Merge** does what each line's action says, as **one undo step** across
    the files, named `Merge their set`. If a reference would not resolve
    after it -- a link into a file you keep as ours, to something only
@@ -941,6 +952,8 @@ asked first, before anything changes, in **Paste: objects already here**:
 | Unchecked | Leaves it out: what is brought refers to the one here, as it is. |
 | Checked | A new object beside the one here, as a paste always made. |
 | Checked, with **Assign to X** in the **Here** column | The one here takes the state brought, and keeps its name; what is brought refers to it. |
+
+![Two objects pasted back: Base assigned, Pin a new object beside](images/transaction-log/21-paste-clash.png)
 
 What an assigned object depends on, if it is here too, is assigned with it
 or left out. What an object owns -- a body's origin and its planes, a
@@ -1060,7 +1073,10 @@ GUIDE_OUT=$PWD/../../docs/images/transaction-log \
 
 A fresh home and cache each time: the run ends abruptly, and the next one in
 the same cache would be offered the document to recover, over the pictures.
-`shots.txt` beside the pictures lists what was taken, and any error.
+`shots.txt` beside the pictures lists what was taken, and any error. The
+pictures of sections 13, 15 and 16 are made on documents of their own; for
+section 13 the script starts `FreeCADCmd` beside it, as the other copy that
+saves the file.
 
 The pictures of section 12 are a browser's, and that script does not take
 them. They are written by the two browser tests into their output directory

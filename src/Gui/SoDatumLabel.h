@@ -43,6 +43,7 @@ class SoSeparator;
 class SoLightModel;
 class SoMaterial;
 class SoDrawStyle;
+class SoSwitch;
 
 namespace Gui {
 
@@ -150,6 +151,11 @@ public:
     SoSFFloat  lineWidth;
     /// the leaders' line pattern, sixteen bits (upstream c2d6248bc7)
     SoSFUShort linePattern;
+    /// A border round the number and the leaders, in outlineColor, outlineWidth
+    /// pixels wide outside them; 0, the default, for none. A light colour with a
+    /// dark border reads on a dark and a light background alike.
+    SoSFColor  outlineColor;
+    SoSFFloat  outlineWidth;
     bool       useAntialiasing;
 
 protected:
@@ -217,6 +223,11 @@ private:
     Gui::SoAutoZoomTranslation* imageZoom;
     Gui::SoDatumLabelImage* imageShape;
     Gui::SoDatumLabelLeader* leaderShape;
+    // The leaders once more under them, wider, in outlineColor: the border
+    SoSwitch* outlineSwitch = nullptr;
+    SoDrawStyle* outlineStyle = nullptr;
+    Gui::SoDatumLabelLeader* outlineLeader = nullptr;
+    void syncOutline();
 };
 
 }

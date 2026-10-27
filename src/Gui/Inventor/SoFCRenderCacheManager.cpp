@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <memory>
+#include <vector>
 
 #include <Inventor/details/SoDetail.h>
 #include <Inventor/lists/SoTypeList.h>
@@ -2870,6 +2871,85 @@ static bool flatImageColor(const unsigned char * px, const SbVec2s & size, int n
   return true;
 }
 
+// The two colours an image is drawn in -- an icon in one colour inside a
+// border of another -- if every opaque pixel lies on the line between them,
+// up to rounding. `back` is the one round the outside (the opaque pixels
+// next to a clear one lean to it); `t` gets each pixel's place from `front`
+// (0) to `back` (1). False for an image of more colours, or without alpha.
+static bool twoToneImageColors(const unsigned char * px, const SbVec2s & size, int nc,
+                               SbColor & front, SbColor & back,
+                               std::vector<unsigned char> & t)
+{
+  if (nc != 4)
+    return false;
+  const int w = size[0], h = size[1], count = w * h;
+  auto colour = [px](int i) {
+    return SbVec3f(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]);
+  };
+  auto opaque = [px](int i) { return px[i * 4 + 3] >= 224; };
+  // the two ends: the opaque pixel farthest from any one, then the
+  // farthest from that
+  int first = -1;
+  for (int i = 0; i < count && first < 0; ++i) {
+    if (opaque(i))
+      first = i;
+  }
+  if (first < 0)
+    return false;
+  auto farthest = [&](const SbVec3f & from) {
+    int best = first;
+    float d = -1.f;
+    for (int i = 0; i < count; ++i) {
+      if (opaque(i) && (colour(i) - from).sqrLength() > d) {
+        d = (colour(i) - from).sqrLength();
+        best = i;
+      }
+    }
+    return colour(best);
+  };
+  const SbVec3f a = farthest(colour(first));
+  const SbVec3f b = farthest(a);
+  const SbVec3f ab = b - a;
+  const float len2 = ab.sqrLength();
+  if (len2 < 32.f * 32.f)
+    return false;
+  auto place = [&](const SbVec3f & c) {
+    return std::min(1.f, std::max(0.f, (c - a).dot(ab) / len2));
+  };
+  float rim = 0.f;
+  int rimcount = 0;
+  for (int i = 0; i < count; ++i) {
+    if (!opaque(i))
+      continue;
+    const SbVec3f c = colour(i);
+    if ((a + ab * place(c) - c).length() > 24.f)
+      return false;   // off the line: a third colour
+    const int x = i % w, y = i / w;
+    const bool edge = x == 0 || y == 0 || x == w - 1 || y == h - 1
+        || px[(i - 1) * 4 + 3] < 32 || px[(i + 1) * 4 + 3] < 32
+        || px[(i - w) * 4 + 3] < 32 || px[(i + w) * 4 + 3] < 32;
+    if (edge) {
+      rim += place(c);
+      ++rimcount;
+    }
+  }
+  if (!rimcount)
+    return false;
+  const bool backIsB = rim / float(rimcount) >= 0.5f;
+  const SbVec3f f = backIsB ? a : b;
+  const SbVec3f k = backIsB ? b : a;
+  front.setValue(f[0] / 255.f, f[1] / 255.f, f[2] / 255.f);
+  back.setValue(k[0] / 255.f, k[1] / 255.f, k[2] / 255.f);
+  t.assign(px, px + std::size_t(count) * 4);
+  for (int i = 0; i < count; ++i) {
+    float v = place(colour(i));
+    if (!backIsB)
+      v = 1.f - v;
+    t[i * 4] = t[i * 4 + 1] = t[i * 4 + 2] = static_cast<unsigned char>(std::lround(v * 255.f));
+  }
+  return true;
+}
+
 void
 SoFCRenderCacheManagerP::syncImageTexture(SoTexture2 * texture,
                                           SoBaseColor * color,
@@ -2877,7 +2957,8 @@ SoFCRenderCacheManagerP::syncImageTexture(SoTexture2 * texture,
 {
   // An image of one colour is drawn as its alpha in that colour: the same
   // pixels, but a colour a highlight can override -- a preselected
-  // constraint icon shown on top in the preselection colour. Any other
+  // constraint icon shown on top in the preselection colour. One of two
+  // colours, an icon in a border, is drawn BLEND below; any other
   // keeps its own colours, the texel replacing the fragment colour.
   SbVec2s size;
   int nc;
@@ -2890,6 +2971,18 @@ SoFCRenderCacheManagerP::syncImageTexture(SoTexture2 * texture,
     texture->image.setValue(size, 4, mask.data());
     texture->model = SoTexture2::MODULATE;
     color->rgb = flat;
+    return;
+  }
+  // An image of two colours, an icon inside a border, is drawn BLEND: the
+  // fragment's colour toward the border's by the texel, so a highlight
+  // recolours the icon and leaves its border.
+  SbColor front, back;
+  std::vector<unsigned char> mix;
+  if (px && twoToneImageColors(px, size, nc, front, back, mix)) {
+    texture->image.setValue(size, 4, mix.data());
+    texture->model = SoTexture2::BLEND;
+    texture->blendColor = back;
+    color->rgb = front;
   }
   else {
     texture->image.setValue(size, nc, px);

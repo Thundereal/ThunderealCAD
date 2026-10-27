@@ -112,6 +112,10 @@ fc_add_gui_test(GuiSketch3DConstraints_tests_run sketch3d-constraints.py
 # from selected faces or whole shapes, its gap readout, one undo step.
 fc_add_gui_test(GuiSurfaceSew_tests_run surface-sew.py
                 --timeout 180)
+# Its Blend Curve task panel (U0, upstream's): both edges shown, a value set
+# in it recomputed, an edge picked, Cancel and OK.
+fc_add_gui_test(GuiSurfaceBlendCurve_tests_run surface-blend-curve.py
+                --timeout 180)
 # Its drag and kept planes (S2e): a point and a curve dragged with the
 # constraints kept, Keep Plane, Ctrl+press on a kept plane and on a face.
 fc_add_gui_test(GuiSketch3DDragPlane_tests_run sketch3d-drag-plane.py

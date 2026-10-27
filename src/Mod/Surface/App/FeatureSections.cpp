@@ -34,6 +34,10 @@
 #include <TopoDS.hxx>
 #endif
 
+#include <App/Document.h>
+#include <Mod/Part/App/TopoShapeOpCode.h>
+
+#include "ElementNames.h"
 #include "FeatureSections.h"
 
 
@@ -50,29 +54,26 @@ Sections::Sections()
 App::DocumentObjectExecReturn* Sections::execute()
 {
     TColGeom_SequenceOfCurve curveSeq;
+    std::vector<Part::TopoShape> inputs;
     auto edge_obj = NSections.getValues();
     auto edge_sub = NSections.getSubValues();
     if (edge_obj.size() == edge_sub.size()) {
         for (std::size_t index = 0; index < edge_obj.size(); index++) {
-            // get the part object
-            App::DocumentObject* obj = edge_obj[index];
-            const std::string& sub = edge_sub[index];
-            if (obj && obj->isDerivedFrom<Part::Feature>()) {
-                // get the sub-edge of the part's shape
-                const Part::TopoShape& shape = static_cast<Part::Feature*>(obj)->Shape.getShape();
-                TopoDS_Shape edge = shape.getSubShape(sub.c_str());
-                if (!edge.IsNull() && edge.ShapeType() == TopAbs_EDGE) {
-                    BRepAdaptor_Curve curve_adapt(TopoDS::Edge(edge));
-                    const TopLoc_Location& loc = edge.Location();
-                    Handle(Geom_TrimmedCurve) hCurve =
-                        new Geom_TrimmedCurve(curve_adapt.Curve().Curve(),
-                                              curve_adapt.FirstParameter(),
-                                              curve_adapt.LastParameter());
-                    if (!loc.IsIdentity()) {
-                        hCurve->Transform(loc.Transformation());
-                    }
-                    curveSeq.Append(hCurve);
+            auto edge = Part::Feature::getTopoShape(edge_obj[index],
+                                                    edge_sub[index].c_str(),
+                                                    /*needSubElement*/ true);
+            if (!edge.isNull() && edge.getShape().ShapeType() == TopAbs_EDGE) {
+                BRepAdaptor_Curve curve_adapt(TopoDS::Edge(edge.getShape()));
+                const TopLoc_Location& loc = edge.getShape().Location();
+                Handle(Geom_TrimmedCurve) hCurve =
+                    new Geom_TrimmedCurve(curve_adapt.Curve().Curve(),
+                                          curve_adapt.FirstParameter(),
+                                          curve_adapt.LastParameter());
+                if (!loc.IsIdentity()) {
+                    hCurve->Transform(loc.Transformation());
                 }
+                curveSeq.Append(hCurve);
+                inputs.push_back(edge);
             }
         }
     }
@@ -91,6 +92,9 @@ App::DocumentObjectExecReturn* Sections::execute()
 
     BRepBuilderAPI_MakeFace mkFace(aSurf, Precision::Confusion());
 
-    Shape.setValue(mkFace.Face());
+    Shape.setValue(nameFromEdges(mkFace.Face(),
+                                 inputs,
+                                 getDocument()->getStringHasher(),
+                                 Part::OpCodes::ThruSections));
     return StdReturn;
 }

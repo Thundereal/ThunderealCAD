@@ -6211,7 +6211,7 @@ TopoShape & TopoShape::makEBSplineFace(const std::vector<TopoShape> &input,
 
         TopoShape s;
         s.makESHAPE(comp, mapper, edges, Part::OpCodes::Split);
-        return makEBSplineFace(s, style, op);
+        return makEBSplineFace(s, style, keepBezier, op);
     }
 
     if (edges.size() < 2 || edges.size() > 4)
@@ -6294,6 +6294,18 @@ TopoShape & TopoShape::makEBSplineFace(const std::vector<TopoShape> &input,
                     if (spline.IsNull())
                         throw Standard_Failure("A curve was not a B-spline and could not be converted into one.");
                     curves.push_back(spline);
+                }
+            }
+        }
+
+        // Coons wants 4 poles a side, which OCCT's Bezier filling sees to by
+        // raising the degree and its B-spline filling refuses; raise it here,
+        // on copies, as the curves may be the input edges' own
+        if (fstyle == GeomFill_CoonsStyle) {
+            for (auto &curve : curves) {
+                if (curve->Degree() < 3) {
+                    curve = Handle(Geom_BSplineCurve)::DownCast(curve->Copy());
+                    curve->IncreaseDegree(3);
                 }
             }
         }

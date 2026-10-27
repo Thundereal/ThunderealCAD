@@ -46,6 +46,8 @@ SET(Surface_SRCS
   ${Blending_SRCS}
   ${BlendingPy_SRCS}
   AppSurface.cpp
+  ElementNames.cpp
+  ElementNames.h
   PreCompiled.cpp
   PreCompiled.h
   FeatureExtend.cpp

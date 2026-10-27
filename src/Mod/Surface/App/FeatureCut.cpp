@@ -25,6 +25,7 @@
 #include <TopoDS.hxx>
 #endif
 
+#include <App/Document.h>
 #include "FeatureCut.h"
 
 
@@ -64,7 +65,7 @@ App::DocumentObjectExecReturn* Cut::execute()
 
         // Get first toposhape
         if (shapes[0]->isDerivedFrom<Part::Feature>()) {
-            ts1 = static_cast<Part::Feature*>(shapes[0])->Shape.getShape();  // Part::TopoShape 1
+            ts1 = static_cast<Part::Feature*>(shapes[0])->Shape.getShape();
         }
         else {
             return new App::DocumentObjectExecReturn("Shape1 not from Part::Feature");
@@ -79,15 +80,15 @@ App::DocumentObjectExecReturn* Cut::execute()
         }
 
         // Cut Shape1 by Shape2
-        TopoDS_Shape aCutShape;
-        aCutShape = ts1.cut(ts2.getShape());
+        Part::TopoShape result(0, getDocument()->getStringHasher());
+        result.makECut({ts1, ts2});
 
         // Check if resulting shell is null
-        if (aCutShape.IsNull()) {
+        if (result.isNull()) {
             return new App::DocumentObjectExecReturn("Resulting shape is null");
         }
 
-        this->Shape.setValue(aCutShape);
+        this->Shape.setValue(result);
         return nullptr;
     }
     catch (Standard_Failure& e) {

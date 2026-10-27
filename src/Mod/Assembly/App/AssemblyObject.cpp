@@ -1487,6 +1487,17 @@ void AssemblyObject::setNewPlacements(
     const std::vector<Solver::BodyPose>& poses
 )
 {
+    // The copies that follow the components, found once per assembly: a scan
+    // of the assembly's children for each part moved made a drag step of a
+    // chain of 200 parts spend 0.3 s here, five times the solve.
+    std::unordered_map<App::Part*, Joint::Copies> copies;
+    auto copiesOf = [&](App::Part* assembly) -> const Joint::Copies& {
+        auto it = copies.find(assembly);
+        if (it == copies.end()) {
+            it = copies.emplace(assembly, Joint::copiesOf(assembly)).first;
+        }
+        return it->second;
+    };
     for (auto& pair : parts) {
         App::DocumentObject* obj = pair.first;
         const Solver::Id body = pair.second.body;
@@ -1525,7 +1536,7 @@ void AssemblyObject::setNewPlacements(
             auto* container = Base::freecad_dynamic_cast<App::Part>(
                 App::GeoFeatureGroupExtension::getGroupOfObject(obj));
             if (container && container != this) {
-                Joint::relocateCopies(container, obj, delta);
+                Joint::relocateCopies(copiesOf(container), obj, delta);
                 // Down the placements, not the global ones: those throw
                 // while this assembly recomputes, as a solve on recompute is
                 Base::Placement inThis;
@@ -1533,10 +1544,10 @@ void AssemblyObject::setNewPlacements(
                      step = App::GeoFeatureGroupExtension::getGroupOfObject(step)) {
                     inThis = getPlacementFromProp(step, "Placement") * inThis;
                 }
-                Joint::relocateCopies(this, obj, inThis * delta * inThis.inverse());
+                Joint::relocateCopies(copiesOf(this), obj, inThis * delta * inThis.inverse());
             }
             else {
-                Joint::relocateCopies(this, obj, delta);
+                Joint::relocateCopies(copiesOf(this), obj, delta);
             }
         }
     }

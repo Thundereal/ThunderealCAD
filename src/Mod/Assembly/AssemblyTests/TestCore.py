@@ -558,7 +558,13 @@ class TestSolverBackend(AssemblyTestBase):
         and a Distance and an Angle between them at their values: neither box
         is held alone, the two are. Both are placed before the solve (a
         placed body's metric is a unit inertia), every joint satisfied, DoF 0.
+        The joints are made without a solve each (SolveInJointCreation off),
+        so that the values set are those of the turned boxes.
         """
+        params = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Assembly")
+        saved = params.GetBool("SolveInJointCreation", True)
+        params.SetBool("SolveInJointCreation", False)
+        self.addCleanup(params.SetBool, "SolveInJointCreation", saved)
         g, a, b = [self.assembly.newObject("Part::Box", "Box") for i in range(3)]
         self.doc.recompute()  # the shapes the references name
         ground = self.jointgroup.newObject("App::FeaturePython", "GroundedJoint")

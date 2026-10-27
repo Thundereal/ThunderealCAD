@@ -3575,6 +3575,30 @@ frames, were taken out. The test asks for 6 now; no gate record changed
 (no gate case has a body that joints other than one Fixed hold rigidly).
 The Assembly suite 373 run, 59 skipped, no failures; ctest 1000/1000.
 
+### 6.24 As built: writing a solve back, once per assembly (2026-10-27)
+
+The drag of sec 6.23 was not slower for the groups' weights: with unit
+masses the drag steps took the same three Newton iterations, and 4.0 s
+against 4.4 s, within the bench's spread. Timed inside, a drag step of the
+chain at 200 parts spent 0.07 s in the solver and 0.35 s writing the
+placements back -- all of it in `Joint::relocateCopies`, which moves the
+element links and elements that follow a moved component and found them by
+scanning every child of the assembly, once for each of the 200 parts moved.
+`Joint::copiesOf(assembly)` now finds them once, a map from each component
+to its copies, and `setNewPlacements` takes it once per assembly per write
+(the old per-component call stays, on top of it).
+
+That write is in every solve, not only in drags. The bench chain at 200
+parts, OndselSolver, before -> after: a solve 0.60 -> 0.28 s, the 5 degree
+edit 0.76 -> 0.46 s, a touched leaf 0.84 -> 0.36 s, preDrag 0.64 -> 0.37 s,
+ten drag steps 4.4 -> 1.5 s. Chrono: ten drag steps 10.3 -> 4.4 s.
+
+`test_rigid_pair` made its joints with the user's SolveInJointCreation, and
+failed when that was on (each joint solved as it was made, before the test
+set its value); it turns the preference off for itself now, as the other
+suites do. The Assembly suite 373 run, 59 skipped, no failures; ctest
+1000/1000; no gate record changed.
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a

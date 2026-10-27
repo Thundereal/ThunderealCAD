@@ -28,6 +28,7 @@
 #pragma once
 
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <App/DocumentObject.h>
@@ -257,10 +258,19 @@ public:
                                        const char* vertex = nullptr,
                                        bool local = false);
 
+    /// The copies that follow each component in the assembly's coordinate
+    /// system: its element links and the convenience elements on it
+    using Copies = std::unordered_map<App::DocumentObject*, std::vector<App::DocumentObject*>>;
+    static Copies copiesOf(App::Part* assembly);
+
     /// Move the copies that follow a component in the assembly's coordinate
     /// system by \a delta, as a solve moved the component: its element links
     /// and the convenience elements on it
     static void relocateCopies(App::Part* assembly,
+                               App::DocumentObject* component,
+                               const Base::Placement& delta);
+    /// The same, with the copies found once for many components
+    static void relocateCopies(const Copies& copies,
                                App::DocumentObject* component,
                                const Base::Placement& delta);
 

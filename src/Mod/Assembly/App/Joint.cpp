@@ -991,21 +991,18 @@ void Joint::unsetupObject()
     App::DocumentObject::unsetupObject();
 }
 
-void Joint::relocateCopies(App::Part* assembly,
-                           App::DocumentObject* component,
-                           const Base::Placement& delta)
+Joint::Copies Joint::copiesOf(App::Part* assembly)
 {
-    if (!assembly || !component) {
-        return;
+    Copies copies;
+    if (!assembly) {
+        return copies;
     }
-    // A solve writes placements without a recompute, so the copies that
-    // follow a component in the assembly's coordinate system are moved with
-    // it: its element links, and the convenience elements on it
-    auto move = [&delta](Part::Feature* feature) {
-        feature->Placement.setValue(delta * feature->Placement.getValue());
-        feature->purgeTouched();
+    auto add = [&](App::DocumentObject* component, App::DocumentObject* copy) {
+        auto& list = copies[component];
+        if (std::find(list.begin(), list.end(), copy) == list.end()) {
+            list.push_back(copy);
+        }
     };
-    std::vector<Part::Element*> moved;
     for (auto child : assembly->Group.getValues()) {
         auto link = Base::freecad_dynamic_cast<Part::ElementLink>(child);
         if (!link) {
@@ -1017,8 +1014,8 @@ void Joint::relocateCopies(App::Part* assembly,
         if (directChild(assembly, obj)) {
             // An element the component declares, or one of an array's
             // elements through the array
-            if (componentOf(assembly, obj, sub) == component) {
-                move(link);
+            if (auto component = componentOf(assembly, obj, sub)) {
+                add(component, link);
             }
             continue;
         }
@@ -1027,18 +1024,44 @@ void Joint::relocateCopies(App::Part* assembly,
             continue;
         }
         const auto& tsubs = element->Target.getSubValues();
-        if (componentOf(assembly,
-                        element->Target.getValue(),
-                        tsubs.empty() ? std::string() : tsubs.front())
-            != component) {
-            continue;
-        }
-        move(link);
-        if (std::find(moved.begin(), moved.end(), element) == moved.end()) {
-            moved.push_back(element);
-            move(element);
+        auto component = componentOf(assembly,
+                                     element->Target.getValue(),
+                                     tsubs.empty() ? std::string() : tsubs.front());
+        if (component) {
+            add(component, link);
+            add(component, element);
         }
     }
+    return copies;
+}
+
+void Joint::relocateCopies(const Copies& copies,
+                           App::DocumentObject* component,
+                           const Base::Placement& delta)
+{
+    // A solve writes placements without a recompute, so the copies that
+    // follow a component in the assembly's coordinate system are moved with
+    // it
+    auto it = copies.find(component);
+    if (it == copies.end()) {
+        return;
+    }
+    for (auto copy : it->second) {
+        if (auto feature = Base::freecad_dynamic_cast<Part::Feature>(copy)) {
+            feature->Placement.setValue(delta * feature->Placement.getValue());
+            feature->purgeTouched();
+        }
+    }
+}
+
+void Joint::relocateCopies(App::Part* assembly,
+                           App::DocumentObject* component,
+                           const Base::Placement& delta)
+{
+    if (!assembly || !component) {
+        return;
+    }
+    relocateCopies(copiesOf(assembly), component, delta);
 }
 
 // ------------------------------------------------------------------------

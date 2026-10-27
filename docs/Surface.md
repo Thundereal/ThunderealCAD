@@ -133,7 +133,7 @@ So OCCT's Gordon is exact and robust, but:
 
 ### 3.5 The Curves workbench
 
-LGPL-2.1+. Of its 32,996 lines, 24,618 are reachable from its command registration; most of the author's 2026 work sits in the unreachable `lib/` tree [C, B0].
+LGPL-2.1+. Of its 32,996 lines, 24,618 are reachable from its command registration; about half of the author's 2026 work sits in the unreachable `lib/` tree: recognising faces that are really planes, cylinders or cones, and fitting curves through points [C, B4].
 - **44 registered commands** [C, B4].
 - **11 carry maths of their own** that a port would have to rewrite:
   - Gordon;

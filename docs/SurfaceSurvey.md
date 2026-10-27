@@ -567,15 +567,31 @@ Legend:
 | `Curves_Sweep2Rails` | Sweep2RailsFP.py (167) + SweepObject(_2).py | Newer Sweep2Rails (commented out in init_gui) | curves_to_surface |
 | `tool_name` x2 | FaceMapFP.py (155), TemplateFP.py (96) | Template and "Face Map" stubs | -- |
 
-Other dead modules (no command): Blending/smooth_objects.py (1473, scipy, a WIP smooth-surface
-rewrite: "smooth_surface WIP" 2026-09-14), lib/flatten_face.py (460), lib/curve_fitting.py (376,
+Other dead modules (no command): Blending/smooth_objects.py (1473, scipy, an older rewrite of the blend
+classes, last changed 2024-2025; the "smooth_surface WIP" commit of 2026-09-14 is
+Join Surfaces' live `lib/bspline_surface.py`, not this file), lib/flatten_face.py (460), lib/curve_fitting.py (376,
 scipy `make_interp_spline`), lib/point_grid.py (272), lib/point_list.py (236),
 lib/point_array.py (156), lib/surface_identifier.py (330, recognises canonical surfaces, WIP
 2026-02..04), lib/curve_identifier.py (122), lib/face_builder.py, lib/surface_builder.py,
 lib/logger.py, lib/timer.py, lib/math_util.py, nurbs_surface_match.py (307), ribbon.py (309),
 grid.py (493), grid2.py (357), HUD.py (154), fix_wire.py, fuzzy_wire.py, helix_on_face.py,
-import3DM.py, PointInterpolat*.py, PointParameters.py, selFilter.py. Most of the 2026 work is
-in this lib/ tree and is not yet wired to any command.
+import3DM.py, PointInterpolat*.py, PointParameters.py, selFilter.py. About half of the 2026 work is
+in this lib/ tree and is not yet wired to any command (checked against the git log when this
+was filed). It forms two threads:
+- **Recognising canonical faces**: `surface_identifier.py` (15 commits, Feb-Apr 2026),
+  `curve_identifier.py`, `face_builder.py`, `surface_builder.py`. It tells a face that is
+  geometrically a plane, cylinder, cone or sphere, even when stored as a B-spline (as STEP
+  files often do), and rebuilds it on the canonical surface. Its one caller is the unloaded
+  `lib/flatten_face.py`, so the evident aim is a Flatten that also works on such faces.
+- **Point interpolation and curve fitting**: `point_list.py`, `point_grid.py`,
+  `point_array.py`, `curve_fitting.py` (May-Jul 2026, "Point interpolation lib", "Curve fitting
+  WIP"). It fits B-spline curves and point grids with parametrisation control, periodic
+  closing and end tangents, comparing OCCT's interpolation with scipy's `make_interp_spline`.
+  No caller yet; the nearest live tools are Interpolate and Approximate.
+Neither the README nor the changelog states a plan for either thread.
+The rest of the 2026 work is in live tools: GeomInfo (13 commits), the new Join Surfaces
+tool with its continuity smoothing (`lib/bspline_surface.py`), and fixes to Sketch on Surface
+and ShapeMapper.
 
 ## B2. Shared library modules
 

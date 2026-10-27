@@ -365,6 +365,19 @@ bool DatumValueEditor::read(Entry& entry, QString* why) const
     return true;
 }
 
+QString DatumValueEditor::text() const
+{
+    return line ? line->text() : QString();
+}
+
+void DatumValueEditor::setText(const QString& text)
+{
+    if (line) {
+        line->setText(text);
+        line->setCursorPosition(int(text.size()));
+    }
+}
+
 bool DatumValueEditor::parseValue(const QString& text, Base::Quantity& value) const
 {
     QString copy = text.trimmed();

@@ -160,6 +160,17 @@ public:
      * expression that cannot be bound.
      */
     bool read(Entry& entry, QString* why = nullptr) const;
+    /// The value line's text as typed, for a caller that reads more into it than a
+    /// value (a 3D sketch's offsets, a dimension's kind)
+    QString text() const;
+    /// Replaces the value line's text, the cursor at its end: the first key typed
+    /// before the editor was open
+    void setText(const QString& text);
+    /// A value as read() reads one, in the target's unit
+    bool parse(const QString& text, Base::Quantity& value) const
+    {
+        return parseValue(text, value);
+    }
     /// Whether anything differs from what edit() was given
     bool isModified() const;
     /// Say under the line why what was typed was refused

@@ -1477,6 +1477,29 @@ void AssemblyObject::setNewPlacements()
     }
 }
 
+namespace
+{
+// Whether a solve left the placement where it was, to rounding: within 1e-12
+// of the position's size (at least 1 mm) and 1e-12 rad. A solve that moves
+// nothing still hands back every pose through the solver's own coordinates,
+// their last bits changed, and writing those moved every part and its
+// copies -- a solve after a solve, as a recompute after a joint was made,
+// paid the write of all of them for nothing.
+bool sameToRounding(const Base::Placement& was, const Base::Placement& now)
+{
+    if (was.isSame(now)) {
+        return true;
+    }
+    const Base::Vector3d& p = was.getPosition();
+    if ((now.getPosition() - p).Length() > 1e-12 * std::max(1.0, p.Length())) {
+        return false;
+    }
+    double x {}, y {}, z {}, w {};
+    (was.getRotation().inverse() * now.getRotation()).getValue(x, y, z, w);
+    return 2.0 * std::atan2(std::sqrt(x * x + y * y + z * z), std::abs(w)) <= 1e-12;
+}
+}  // namespace
+
 void AssemblyObject::setNewPlacements(const std::vector<Solver::BodyPose>& poses)
 {
     setNewPlacements(objectPartMap, poses);
@@ -1526,7 +1549,7 @@ void AssemblyObject::setNewPlacements(
             );
             continue;
         }
-        if (!propPlacement->getValue().isSame(newPlacement)) {
+        if (!sameToRounding(propPlacement->getValue(), newPlacement)) {
             const Base::Placement delta = newPlacement * propPlacement->getValue().inverse();
             propPlacement->setValue(newPlacement);
             obj->purgeTouched();

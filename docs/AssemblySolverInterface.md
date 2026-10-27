@@ -3658,6 +3658,38 @@ alone; one joint made by hand costs that once.
 The Assembly suite 373 run, 59 skipped, no failures; TestPartApp 413 OK;
 ctest 1000/1000.
 
+### 6.26 As built: a solve writes only what it moved (2026-10-27)
+
+A joint made by hand solves twice -- `setJointConnectors` with
+SolveInJointCreation, then the recompute -- and sampled at 200 parts each
+solve spent as long writing placements back as solving: every pose comes
+back through the solver's own coordinates with its last bits changed, and
+`setNewPlacements` compared exactly, so every part was written, and every
+copy that follows it moved (sec 6.24), though nothing had. A placement
+within 1e-12 of where it was -- of its position's size, at least 1 mm, and
+1e-12 rad -- is left as it is now. The same held for each drag step, which
+wrote every part of the chain to move one.
+
+The bench chain in the GUI, before -> after:
+
+| | 50 | 100 | 200 parts |
+|---|---|---|---|
+| solve | 0.07 -> 0.04 s | 0.20 -> 0.09 s | 0.43 -> 0.21 s |
+| the 5 degree edit | 0.13 -> 0.08 s | 0.32 -> 0.14 s | 0.70 -> 0.41 s |
+| a joint added | 0.25 -> 0.14 s | 0.61 -> 0.25 s | 1.35 -> 0.55 s |
+| preDrag | 0.11 -> 0.06 s | 0.16 -> 0.07 s | 0.50 -> 0.17 s |
+| a drag step | 0.046 -> 0.034 s | 0.11 -> 0.066 s | 0.26 -> 0.15 s |
+
+Gate: the five drag cases' model digests (the model handed to a drag carries
+the placements the solve before it left, now with their earlier last bits);
+placements within 4e-12 of the records. The Assembly suite 373 run, 59
+skipped, no failures; ctest 1000/1000 (two TransactionLogTest cases failed once
+under load, and pass alone).
+
+Still in a joint made: the frames of the joints' faces, found by
+`findElementFrame` (a face's centre by BRepGProp) for every joint at every
+model built -- 7 % sampled; not cached.
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a

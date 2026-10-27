@@ -24,7 +24,10 @@
 
 #pragma once
 
+#include <array>
+
 #include <App/PropertyLinks.h>
+#include <App/PropertyStandard.h>
 #include <App/PropertyUnits.h>
 #include <Mod/Part/App/FeaturePartSpline.h>
 #include <Mod/Surface/SurfaceGlobal.h>
@@ -48,7 +51,34 @@ public:
     App::PropertyDistance MaxGap;           // Output
     App::PropertyDistance MaxFitDeviation;  // Output
 
+    /// The edge conditions of the outer curves (docs/Surface.md sec 4.2,
+    /// 4.3): the first and last profile, the first and last guide
+    App::PropertyEnumeration FirstProfileContinuity;
+    App::PropertyFloatConstraint FirstProfileWeight;
+    App::PropertyLinkSub FirstProfileSupport;
+    App::PropertyEnumeration LastProfileContinuity;
+    App::PropertyFloatConstraint LastProfileWeight;
+    App::PropertyLinkSub LastProfileSupport;
+    App::PropertyEnumeration FirstGuideContinuity;
+    App::PropertyFloatConstraint FirstGuideWeight;
+    App::PropertyLinkSub FirstGuideSupport;
+    App::PropertyEnumeration LastGuideContinuity;
+    App::PropertyFloatConstraint LastGuideWeight;
+    App::PropertyLinkSub LastGuideSupport;
+    /// What each condition achieved, a line each
+    App::PropertyStringList Achieved;  // Output
+
     App::DocumentObjectExecReturn* execute() override;
+
+private:
+    struct Side
+    {
+        const char* name;
+        App::PropertyEnumeration* continuity;
+        App::PropertyFloatConstraint* weight;
+        App::PropertyLinkSub* support;
+    };
+    std::array<Side, 4> sides();
 };
 
 }  // namespace Surface

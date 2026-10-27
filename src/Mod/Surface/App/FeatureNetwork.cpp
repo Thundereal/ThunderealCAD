@@ -62,7 +62,9 @@ Network::Network()
                       (nullptr),
                       "Network",
                       App::Prop_None,
-                      "Curves one way across the surface: edges, in any order, either way round");
+                      "Curves one way across the surface: edges, in any order, either way round,\n"
+                      "or whole objects (their edges). With no guides, these are the whole\n"
+                      "network and are sorted into its two families");
     ADD_PROPERTY_TYPE(Guides,
                       (nullptr),
                       "Network",
@@ -91,7 +93,7 @@ Network::Network()
     Profiles.setScope(App::LinkScope::Global);
     Guides.setScope(App::LinkScope::Global);
 
-SURFACE_ADD_CONDITION(FirstProfile, "the first profile");
+    SURFACE_ADD_CONDITION(FirstProfile, "the first profile");
     SURFACE_ADD_CONDITION(LastProfile, "the last profile");
     SURFACE_ADD_CONDITION(FirstGuide, "the first guide");
     SURFACE_ADD_CONDITION(LastGuide, "the last guide");
@@ -107,30 +109,70 @@ App::DocumentObjectExecReturn* Network::execute()
     std::vector<Part::TopoShape> inputs;
     std::vector<std::pair<App::DocumentObject*, std::string>> sources;
     std::vector<Handle(Geom_Curve)> curves[2];
+    std::vector<std::string> names;
+    auto add = [&](int family,
+                   const Part::TopoShape& edge,
+                   App::DocumentObject* obj,
+                   const std::string& sub) {
+        BRepAdaptor_Curve adapt(TopoDS::Edge(edge.getShape()));
+        Handle(Geom_Curve) curve = new Geom_TrimmedCurve(adapt.Curve().Curve(),
+                                                         adapt.FirstParameter(),
+                                                         adapt.LastParameter());
+        const TopLoc_Location& loc = edge.getShape().Location();
+        if (!loc.IsIdentity()) {
+            curve->Transform(loc.Transformation());
+        }
+        curves[family].push_back(curve);
+        inputs.push_back(edge);
+        sources.emplace_back(obj, sub);
+        names.push_back(std::string(obj->Label.getValue()) + "." + sub);
+    };
     int index = 0;
     for (auto prop : {&Profiles, &Guides}) {
         const auto& objs = prop->getValues();
         const auto& subs = prop->getSubValues();
         for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
-            auto edge = Part::Feature::getTopoShape(objs[i], subs[i].c_str(), true);
-            if (edge.isNull() || edge.getShape().ShapeType() != TopAbs_EDGE) {
+            const auto& sub = subs[i];
+            auto shape = Part::Feature::getTopoShape(objs[i], sub.c_str(), true);
+            if (!shape.isNull() && shape.getShape().ShapeType() == TopAbs_EDGE) {
+                add(index, shape, objs[i], sub);
+                continue;
+            }
+            // an object given whole (or a sub-object, "Body.Sketch.") is its edges
+            if (shape.isNull() || shape.countSubShapes(TopAbs_EDGE) == 0
+                || (!sub.empty() && sub.back() != '.')) {
                 return new App::DocumentObjectExecReturn(
                     std::string(prop->getName()) + " " + std::to_string(i + 1)
-                    + " is not an edge");
+                    + " is not an edge, nor an object with edges");
             }
-            BRepAdaptor_Curve adapt(TopoDS::Edge(edge.getShape()));
-            Handle(Geom_Curve) curve = new Geom_TrimmedCurve(adapt.Curve().Curve(),
-                                                             adapt.FirstParameter(),
-                                                             adapt.LastParameter());
-            const TopLoc_Location& loc = edge.getShape().Location();
-            if (!loc.IsIdentity()) {
-                curve->Transform(loc.Transformation());
+            int k = 0;
+            for (const auto& edge : shape.getSubTopoShapes(TopAbs_EDGE)) {
+                add(index, edge, objs[i], sub + "Edge" + std::to_string(++k));
             }
-            curves[index].push_back(curve);
-            inputs.push_back(edge);
-            sources.emplace_back(objs[i], subs[i]);
         }
         ++index;
+    }
+
+    // no guides: the profiles are the whole network, sorted into its two
+    // families (docs/Surface.md sec 6)
+    if (curves[1].empty() && !curves[0].empty()) {
+        auto families = Geom::sortFamilies(curves[0], Tolerance.getValue(), names);
+        if (!families.isDone()) {
+            return new App::DocumentObjectExecReturn(families.error);
+        }
+        std::vector<Handle(Geom_Curve)> all;
+        all.swap(curves[0]);
+        std::vector<Part::TopoShape> allInputs;
+        allInputs.swap(inputs);
+        decltype(sources) allSources;
+        allSources.swap(sources);
+        for (int family = 0; family < 2; ++family) {
+            for (int i : family ? families.guides : families.profiles) {
+                curves[family].push_back(all[i]);
+                inputs.push_back(allInputs[i]);
+                sources.push_back(allSources[i]);
+            }
+        }
     }
 
     Geom::NetworkOptions options;

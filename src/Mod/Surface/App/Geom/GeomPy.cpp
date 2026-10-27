@@ -118,6 +118,14 @@ public:
             "input indices in order along the surface), ProfileReversed and\n"
             "GuideReversed, MaxGap and MaxFitDeviation. Raises ValueError when the\n"
             "network cannot be spanned.");
+        add_keyword_method(
+            "families",
+            &Module::families,
+            "families(curves, tolerance=1e-4) -> (profiles, guides)\n\n"
+            "The curves of a whole network sorted into its two families, as lists of\n"
+            "input indices; the first curve's family is the profiles. Raises ValueError\n"
+            "when the curves are not one network: a curve that meets nothing, one that\n"
+            "meets both families, or a profile short of a guide.");
         initialize("Surface's geometry layer: functions over curves and surfaces, no document");
     }
 
@@ -157,6 +165,26 @@ private:
         info.setItem("MaxFitDeviation", Py::Float(result.maxFitDeviation));
         Part::GeomBSplineSurface surface(result.surface);
         return Py::TupleN(Py::asObject(surface.getPyObject()), info);
+    }
+
+    Py::Object families(const Py::Tuple& args, const Py::Dict& kwds)
+    {
+        PyObject* curves = nullptr;
+        double tolerance = NetworkOptions().tolerance;
+        static const std::array<const char*, 3> keywords {"curves", "tolerance", nullptr};
+        if (!Base::Wrapped_ParseTupleAndKeywords(args.ptr(),
+                                                 kwds.ptr(),
+                                                 "O|d",
+                                                 keywords,
+                                                 &curves,
+                                                 &tolerance)) {
+            throw Py::Exception();
+        }
+        auto result = sortFamilies(toCurves(Py::Object(curves), "curve"), tolerance);
+        if (!result.isDone()) {
+            throw Py::ValueError(result.error);
+        }
+        return Py::TupleN(toList(result.profiles), toList(result.guides));
     }
 };
 

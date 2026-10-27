@@ -458,4 +458,117 @@ NetworkResult networkSurface(const std::vector<Handle(Geom_Curve)>& profiles,
     return r;
 }
 
+FamiliesResult sortFamilies(const std::vector<Handle(Geom_Curve)>& curves,
+                            double tolerance,
+                            const std::vector<std::string>& names)
+{
+    FamiliesResult r;
+    const int n = (int)curves.size();
+    auto name = [&](int i) {
+        return i < (int)names.size() ? names[i] : "curve " + std::to_string(i + 1);
+    };
+    if (n < 4) {
+        r.error = "a network needs two families of at least two curves";
+        return r;
+    }
+    for (int i = 0; i < n; ++i) {
+        const auto& c = curves[i];
+        if (c.IsNull() || Precision::IsInfinite(c->FirstParameter())
+            || Precision::IsInfinite(c->LastParameter())) {
+            r.error = name(i) + " is not a bounded curve";
+            return r;
+        }
+    }
+
+    try {
+        std::vector<std::vector<char>> meets(n, std::vector<char>(n, 0));
+        for (int i = 0; i < n; ++i) {
+            for (int j = i + 1; j < n; ++j) {
+                GeomAPI_ExtremaCurveCurve ext(curves[i], curves[j]);
+                double a = 0, b = 0;
+                if (ext.TotalLowerDistanceParameters(a, b)
+                    && ext.TotalLowerDistance() <= tolerance) {
+                    meets[i][j] = meets[j][i] = 1;
+                }
+            }
+        }
+
+        // two-colour the graph of meetings from the first curve: a network's
+        // is connected and bipartite, so the colouring is the families
+        std::vector<int> family(n, -1);
+        std::vector<int> queue = {0};
+        family[0] = 0;
+        for (std::size_t k = 0; k < queue.size(); ++k) {
+            int i = queue[k];
+            for (int j = 0; j < n; ++j) {
+                if (!meets[i][j]) {
+                    continue;
+                }
+                if (family[j] < 0) {
+                    family[j] = 1 - family[i];
+                    queue.push_back(j);
+                }
+                else if (family[j] == family[i]) {
+                    // three curves that meet one another cannot be two
+                    // families; which of them is the stray is the user's call
+                    for (int c = 0; c < n; ++c) {
+                        if (meets[c][i] && meets[c][j]) {
+                            int t[3] = {c, i, j};
+                            std::sort(t, t + 3);
+                            r.error = name(t[0]) + ", " + name(t[1]) + " and " + name(t[2])
+                                + " all meet one another: a curve may only meet the other "
+                                  "family";
+                            return r;
+                        }
+                    }
+                    r.error = name(std::min(i, j)) + " and " + name(std::max(i, j))
+                        + " meet, but the other crossings put them in one family";
+                    return r;
+                }
+            }
+        }
+        for (int i = 0; i < n; ++i) {
+            if (family[i] < 0) {
+                bool none = std::none_of(meets[i].begin(), meets[i].end(), [](char m) {
+                    return m != 0;
+                });
+                r.error = none ? name(i) + " meets none of the others"
+                               : name(i) + " is not connected to " + name(0)
+                        + " through crossings: the curves are more than one network";
+                return r;
+            }
+        }
+        for (int i = 0; i < n; ++i) {
+            (family[i] == 0 ? r.profiles : r.guides).push_back(i);
+        }
+        if (r.profiles.size() < 2 || r.guides.size() < 2) {
+            r.error = "a network needs two families of at least two curves";
+            r.profiles.clear();
+            r.guides.clear();
+            return r;
+        }
+        for (int i : r.profiles) {
+            for (int j : r.guides) {
+                if (!meets[i][j]) {
+                    std::ostringstream ss;
+                    ss << name(std::min(i, j)) << " and " << name(std::max(i, j))
+                       << " do not meet: every curve one way has to cross every curve "
+                          "the other, within "
+                       << tolerance;
+                    r.error = ss.str();
+                    r.profiles.clear();
+                    r.guides.clear();
+                    return r;
+                }
+            }
+        }
+    }
+    catch (Standard_Failure& e) {
+        r.profiles.clear();
+        r.guides.clear();
+        r.error = std::string("sorting the curves failed: ") + e.what();
+    }
+    return r;
+}
+
 }  // namespace Surface::Geom

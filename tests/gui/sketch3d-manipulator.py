@@ -15,7 +15,9 @@ own and no synthetic Qt event is needed:
   - Lock Height keeps the in-plane position and moves along the normal;
   - Reset puts the frame back;
   - a press on a plane handle picks that plane; a press on a sketch point
-    moves the manipulator there.
+    moves the manipulator there;
+  - in perspective, an axis's point behind the eye is no lock, nor is an axis
+    seen almost end on.
 
 Run through scripts/gui-test.sh; registered in ctest by tests/gui/CMakeLists.txt.
 """
@@ -238,6 +240,38 @@ def run():
             took and (m["Origin"] - end).Length < 1e-4,
             (took, m["Origin"]),
         )
+
+        # In perspective, looking straight down Z with the manipulator off centre, its
+        # Z axis runs on screen from the middle out through it. Pointed at across the
+        # middle, the axis's point is behind the eye: no lock, the plane's point. Seen
+        # within a few degrees of end on, it does not lock at all.
+        view = FreeCADGui.getDocument(DOC).ActiveView
+        view.setCamera(
+            "#Inventor V2.1 ascii\nPerspectiveCamera { position 0 0 60 orientation 0 0 1 0"
+            " nearDistance 10 farDistance 200 heightAngle 0.785398 }"
+        )
+        settle(0.3)
+        FreeCADGui.Command.get("Sketcher_Sketch3DResetManipulator").run()  # plane XY
+        vp.setManipulator(V(-18, -9, 0), FreeCAD.Rotation())
+        far = V(14, 7, 0)
+        q = vp.pointAt(*vp.toView(far))
+        check(
+            "across the middle of a perspective view the axis behind the eye does not lock",
+            q is not None and (q - far).Length < 0.2,
+            q,
+        )
+        vp.setManipulator(V(-6, -3, 0), FreeCAD.Rotation())
+        o = vp.toView(V(-6, -3, 0))
+        mid = vp.toView(V(0, 0, 0))
+        out = (o[0] + (o[0] - mid[0]) * 2, o[1] + (o[1] - mid[1]) * 2)
+        q = vp.pointAt(*out)
+        check(
+            "an axis seen almost end on does not lock",
+            q is not None and abs(q.z) < 1e-9,
+            (q, o, out),
+        )
+        view.setCameraType("Orthographic")
+        settle(0.3)
 
         FreeCADGui.Command.get("Sketcher_Sketch3DRotationHandles").run()
         check("the rotation handles hide", not vp.getManipulator()["RotationHandles"])

@@ -26,6 +26,7 @@
 
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <map>
 #include <numbers>
 #include <string_view>
@@ -73,6 +74,7 @@
 #include <Inventor/nodes/SoMarkerSet.h>
 #include <Inventor/nodes/SoMaterial.h>
 #include <Inventor/nodes/SoMaterialBinding.h>
+#include <Inventor/nodes/SoPerspectiveCamera.h>
 #include <Inventor/nodes/SoPickStyle.h>
 #include <Inventor/nodes/SoScale.h>
 #include <Inventor/nodes/SoSeparator.h>
@@ -946,31 +948,43 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
         inv.multVec(Base::Vector3d(w[0], w[1], w[2]), out);
         return true;
     };
-    // The pick ray in the sketch's frame, in doubles from there on.
-    auto pickRay = [&](Base::Vector3d& p0, Base::Vector3d& u) {
+    // The pick ray through a pixel in the sketch's frame, in doubles from there on.
+    // `eye` is where on it (p0 + u * eye) a perspective camera's eye is: nothing before
+    // that is in view. An orthographic camera has no behind.
+    double eye = -std::numeric_limits<double>::infinity();
+    auto pickRay = [&](const SbVec2s& at, Base::Vector3d& p0, Base::Vector3d& u) {
         SoCamera* camera = edit->viewer->getCamera();
         if (!camera) {
             return false;
         }
         SbLine ray;
-        camera->getViewVolume().projectPointToLine(edit->viewer->getNormalizedPosition(pos), ray);
-        Base::Vector3d at(ray.getPosition()[0], ray.getPosition()[1], ray.getPosition()[2]);
+        camera->getViewVolume().projectPointToLine(edit->viewer->getNormalizedPosition(at), ray);
+        Base::Vector3d start(ray.getPosition()[0], ray.getPosition()[1], ray.getPosition()[2]);
         Base::Vector3d p1;
-        inv.multVec(at, p0);
-        inv.multVec(at
+        inv.multVec(start, p0);
+        inv.multVec(start
                         + Base::Vector3d(ray.getDirection()[0],
                                          ray.getDirection()[1],
                                          ray.getDirection()[2]),
                     p1);
         u = p1 - p0;
+        eye = -std::numeric_limits<double>::infinity();
+        if (camera->getTypeId().isDerivedFrom(SoPerspectiveCamera::getClassTypeId())) {
+            const SbVec3f& c = camera->position.getValue();
+            Base::Vector3d e;
+            inv.multVec(Base::Vector3d(c[0], c[1], c[2]), e);
+            eye = ((e - p0) * u) / (u * u);
+        }
         return true;
     };
     // The point of a line closest to the pick ray, in doubles and exactly on the line
     // (the viewer's getPointOnLine goes through the focal plane in floats and lands
-    // up to a tenth of a millimetre off it).
+    // up to a tenth of a millimetre off it). None where that point of the ray is
+    // behind the eye: in perspective a line's far side on screen is the part of it
+    // behind the eye.
     auto onLine = [&](const Base::Vector3d& base, const Base::Vector3d& dir, Base::Vector3d& out) {
         Base::Vector3d p0, u;
-        if (!pickRay(p0, u)) {
+        if (!pickRay(pos, p0, u)) {
             return false;
         }
         const Base::Vector3d& v = dir;
@@ -979,6 +993,9 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
         double denom = a * c - b * b;
         if (std::fabs(denom) < 1e-12 * a * c) {
             return false;  // the line runs along the ray
+        }
+        if ((b * e - c * d) / denom < eye) {
+            return false;
         }
         out = base + v * ((a * e - b * d) / denom);
         return true;
@@ -1007,7 +1024,9 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
         }
     }
     SbVec2s o;
-    if (toView(edit->origin, o)) {
+    Base::Vector3d sight0, sight;
+    if (toView(edit->origin, o) && pickRay(o, sight0, sight)) {
+        sight.Normalize();
         float dpr = float(edit->viewer->devicePixelRatio());
         double reach = 10. * GizmoAxis * std::max(1e-6f, edit->dragger->autoScaleResult.getValue());
         int best = -1;
@@ -1016,6 +1035,11 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
             Base::Vector3d axis(k == 0, k == 1, k == 2);
             edit->rotation.multVec(axis, axis);
             if (std::fabs(axis * normal) > 0.999) {
+                continue;
+            }
+            // Within about 15 degrees of the line of sight a pixel along it is a long
+            // way: seen end on, it does not lock
+            if ((axis % sight).Length() < 0.25) {
                 continue;
             }
             SbVec2s e;
@@ -1049,12 +1073,16 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
     // line (the viewer's getPointOnXYPlaneOfPlacement works in floats, and a point
     // placed on the XY plane came out at z = 1e-6).
     Base::Vector3d p0, u;
-    if (pickRay(p0, u)) {
+    if (pickRay(pos, p0, u)) {
         Base::Vector3d o = plane.getPosition(), n(0, 0, 1);
         plane.getRotation().multVec(n, n);
         double un = u * n;
         if (std::fabs(un) > 1e-12 * u.Length()) {
-            point = p0 + u * (((o - p0) * n) / un);
+            const double t = ((o - p0) * n) / un;
+            if (t < eye) {
+                return false;  // the plane is met behind the eye: not in view there
+            }
+            point = p0 + u * t;
             point = point - n * ((point - o) * n);
             return true;
         }

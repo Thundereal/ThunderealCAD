@@ -108,6 +108,8 @@
 #include "LinePy.h"
 #include "LineSegmentPy.h"
 #include "OffsetCurvePy.h"
+#include "CurveOnSurfacePy.h"
+#include "GeomCurveOnSurface.h"
 #include "OffsetSurfacePy.h"
 #include "ParabolaPy.h"
 #include "Part2DObject.h"
@@ -341,6 +343,7 @@ PyMOD_INIT_FUNC(Part)
     Base::Interpreter().addType(&Part::BezierCurvePy        ::Type,partModule,"BezierCurve");
     Base::Interpreter().addType(&Part::BSplineCurvePy       ::Type,partModule,"BSplineCurve");
     Base::Interpreter().addType(&Part::OffsetCurvePy        ::Type,partModule,"OffsetCurve");
+    Base::Interpreter().addType(&Part::CurveOnSurfacePy     ::Type,partModule,"CurveOnSurface");
 
     Base::Interpreter().addType(&Part::PlanePy              ::Type,partModule,"Plane");
     Base::Interpreter().addType(&Part::CylinderPy           ::Type,partModule,"Cylinder");
@@ -563,6 +566,7 @@ PyMOD_INIT_FUNC(Part)
     Part::GeomLine                	::init();
     Part::GeomLineSegment         	::init();
     Part::GeomOffsetCurve         	::init();
+    Part::GeomCurveOnSurface        ::init();
     Part::GeomSurface             	::init();
     Part::GeomBezierSurface       	::init();
     Part::GeomBSplineSurface      	::init();

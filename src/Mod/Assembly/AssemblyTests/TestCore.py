@@ -21,6 +21,7 @@
 #                                                                           *
 # ***************************************************************************/
 
+import math
 import FreeCAD as App
 import Part
 import os
@@ -549,6 +550,51 @@ class TestSolverBackend(AssemblyTestBase):
         self.assertEqual(metric[a.Name][3], 2.0, "the group weighs two bodies")
         self.assertNotEqual(metric[a.Name][2], metric[c.Name][2])
         self.assertNotEqual(metric[c.Name][2], metric[d.Name][2], "d not taken out")
+
+    def test_rigid_pair(self):
+        """Two bodies rigid only together are placed together (docs/AssemblySolverInterface.md sec 6.22).
+
+        Two boxes on Revolute joints to the grounded one, about crossed axes,
+        and a Distance and an Angle between them at their values: neither box
+        is held alone, the two are. Both are placed before the solve (a
+        placed body's metric is a unit inertia), every joint satisfied, DoF 0.
+        """
+        g, a, b = [self.assembly.newObject("Part::Box", "Box") for i in range(3)]
+        self.doc.recompute()  # the shapes the references name
+        ground = self.jointgroup.newObject("App::FeaturePython", "GroundedJoint")
+        JointObject.GroundedJoint(ground, g)
+
+        def joint(kind, one, sub1, two, sub2):
+            j = self.jointgroup.newObject("App::FeaturePython", "testJoint")
+            JointObject.Joint(j, JointObject.JointTypes.index(kind))
+            j.Proxy.setJointConnectors(j, [[one, [sub1, sub1]], [two, [sub2, sub2]]])
+            return j
+
+        joints = [joint("Revolute", g, "Face2", a, "Face1"), joint("Revolute", g, "Face4", b, "Face3")]
+        self.assertEqual(self.assembly.solve(), 0)
+        turn = App.Rotation(App.Vector(1, 0, 0), 20)
+        a.Placement = App.Placement(App.Vector(), turn, App.Vector(10, 5, 5)).multiply(a.Placement)
+        turn = App.Rotation(App.Vector(0, 1, 0), 35)
+        b.Placement = App.Placement(App.Vector(), turn, App.Vector(5, 10, 5)).multiply(b.Placement)
+        self.doc.recompute()
+        distance = joint("Distance", a, "Vertex8", b, "Vertex8")
+        distance.Distance = (a.Shape.Vertexes[7].Point - b.Shape.Vertexes[7].Point).Length
+        angle = joint("Angle", a, "Face6", b, "Face6")
+        normals = a.Shape.Faces[5].normalAt(0, 0), b.Shape.Faces[5].normalAt(0, 0)
+        angle.Angle = math.degrees(normals[0].getAngle(normals[1]))
+        joints += [distance, angle]
+        self.doc.recompute()
+
+        self.assertEqual(self.assembly.solve(), 0)
+        status = self.assembly.getSolveStatus()
+        self.assertEqual(status["DoF"], 0)
+        self.assertEqual(status["Redundant"], [])
+        residuals = self.assembly.getSolverResiduals()
+        for j in joints:
+            self.assertLess(residuals[j.Name], 1e-9, j.Name)
+        metric = self.assembly.getSolverMetric()
+        for box in (a, b):
+            self.assertEqual(metric[box.Name][1], 1.0, "%s placed" % box.Name)
 
     def test_reference_backend(self):
         """The Reference backend, chosen by the property, solves as OndselSolver does.

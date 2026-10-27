@@ -3564,7 +3564,16 @@ joints, so is solved whole): OndselSolver solves it in 0.52 to 0.61 s with
 (3.8 s with the unit-mass groups of sec 6.22). Chrono: ten drag steps
 10.3 s.
 
-**Not done:** the pair search still has no case of its own.
+**The pair search's case** (`TestSolverBackend.test_rigid_pair`): two boxes
+on Revolute joints to the grounded one, about crossed axes, a Distance and
+an Angle between them at their values -- neither held alone, the two are.
+Writing it found that no body had been placed by the Reference's solve since
+sec 6.21, single or pair: the Reference counts the assembly origin as a body
+(six DoF more, as OndselSolver counts them), and the test asked for DoF 0
+where a body held rigidly reads 6. Only single Fixed joints, placed by their
+frames, were taken out. The test asks for 6 now; no gate record changed
+(no gate case has a body that joints other than one Fixed hold rigidly).
+The Assembly suite 373 run, 59 skipped, no failures; ctest 1000/1000.
 
 ### 6.4 Where Python must change
 

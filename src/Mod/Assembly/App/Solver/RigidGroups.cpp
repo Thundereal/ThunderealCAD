@@ -298,8 +298,10 @@ private:
         if (session.load(some) != Status::Ok || session.solve({}).status != Status::Ok) {
             return false;
         }
+        // The Reference counts the assembly origin as a body, as OndselSolver
+        // does (sec 6.13): six more than the bodies here have.
         const Diagnostics d = session.analyse();
-        if (!(d.known & Diagnostics::KnownDof) || d.dof != 0 || !d.redundant.empty()
+        if (!(d.known & Diagnostics::KnownDof) || d.dof != 6 || !d.redundant.empty()
             || !d.conflicting.empty() || !d.partiallyRedundant.empty()) {
             return false;
         }

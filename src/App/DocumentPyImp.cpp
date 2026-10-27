@@ -44,6 +44,7 @@
 #include "DocumentPy.h"
 #include "DocumentSettings.h"
 #include "DocumentSettingsPy.h"
+#include "ExpressionSecurityRuntime.h"
 #include "ExportSet.h"
 #include "ImportSet.h"
 #include "GeoFeature.h"
@@ -2377,6 +2378,9 @@ std::vector<App::SetMergeFile> setMergeFilesOf(PyObject* list)
         f.ourFile = text(d, "our_file");
         f.branch = text(d, "branch");
         f.writeTo = text(d, "write_to");
+        // A host file written by path, as saveCopy (sec 39, L3)
+        if (!f.writeTo.empty())
+            ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsWrite, f.writeTo);
         f.fallback = text(d, "fallback");
         if (d.hasKey("held"))
             f.held = Py::Long(d.getItem("held")).as_long_long();
@@ -2606,6 +2610,8 @@ PyObject* DocumentPy::keepTransactionSentFile(PyObject *args)
     const std::string file(path);
     PyMem_Free(path);
     PY_TRY {
+        // A host file read by path (sec 39, L3)
+        ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsRead, file);
         Base::FileInfo fi(file);
         Base::ifstream in(fi, std::ios::in | std::ios::binary);
         if (!in)
@@ -2658,6 +2664,8 @@ PyObject* DocumentPy::writeTransactionSentFile(PyObject *args)
     const std::string file(path);
     PyMem_Free(path);
     PY_TRY {
+        // A host file written by path, as saveAs (sec 39, L3)
+        ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsWrite, file);
         getDocumentPtr()->writeSentFile(seq, file);
         Py_Return;
     } PY_CATCH;

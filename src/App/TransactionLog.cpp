@@ -225,14 +225,9 @@ std::set<int64_t> travelling(TransactionStore& store, const std::vector<LogVersi
         if (b.fromVersion)
             travel.insert(b.fromVersion);
     }
-    // A pin names its version by number from another file (sec 27): `pins`
-    // is a line per pin, the version first.
-    std::istringstream pins(store.getMeta("pins"));
-    for (std::string line; std::getline(pins, line);) {
-        const long long num = std::atoll(line.c_str());
-        if (num > 0)
-            travel.insert(num);
-    }
+    // A pin names its version by number from another file (sec 27).
+    const std::set<int64_t> pinned = TransactionLog::pinnedVersions(store);
+    travel.insert(pinned.begin(), pinned.end());
     return travel;
 }
 
@@ -1738,6 +1733,18 @@ void TransactionLog::setHistoryRetention(TransactionStore& store, long named, lo
     store.setMeta("keep_snapshots", std::to_string(std::max(1L, snapshots)));
 }
 
+std::set<int64_t> TransactionLog::pinnedVersions(TransactionStore& store)
+{
+    std::set<int64_t> pinned;
+    std::istringstream pins(store.getMeta("pins"));
+    for (std::string line; std::getline(pins, line);) {
+        const long long num = std::atoll(line.c_str());
+        if (num > 0)
+            pinned.insert(num);
+    }
+    return pinned;
+}
+
 bool TransactionLog::readRecoveryMeta(const std::string& oldDir, RecoverInfo& info)
 {
     const std::string path = oldDir + "/history/log.db";
@@ -2046,6 +2053,25 @@ bool TransactionLog::othersStandOn(const std::vector<int64_t>& seqs) const
     return false;
 }
 
+Document* TransactionLog::otherStandingOn(const std::set<int64_t>& rows,
+                                          const std::set<int64_t>& versions) const
+{
+    for (const TransactionLog* cursor : _c._cursors) {
+        if (cursor == this)
+            continue;
+        // One at a version needs the version, which is whole: its row may go
+        // (a pin's frozen document; a first change then forks from it).
+        if (cursor->_branch == 0 && cursor->_at) {
+            if (versions.count(cursor->_at))
+                return &cursor->_doc;
+            continue;
+        }
+        if (rows.count(cursor->_head))
+            return &cursor->_doc;
+    }
+    return nullptr;
+}
+
 int64_t TransactionLog::forkHere(int64_t target, const std::string& name)
 {
     flush();
@@ -2061,6 +2087,11 @@ int64_t TransactionLog::forkHere(int64_t target, const std::string& name)
     branch.target = target;
     branch.created = now();
     store.addBranch(branch);
+    // The fork point outlives eviction, as createBranch's does (17.1):
+    // named, so the branch's `from_version` names a version that is there.
+    LogVersion fork;
+    if (_at && store.getVersion(_at, fork) && fork.kind != "named")
+        store.nameVersion(_at, "branch " + name);
     auto held = _c._holders.find(_branch);
     if (held != _c._holders.end() && held->second == this)
         _c._holders.erase(held);
@@ -4081,11 +4112,18 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
                 continue;
             }
 
+            // Removals first (sec 39, C1): a property removed and one of its
+            // name added in the transaction read forward as delprop, addprop,
+            // set -- the map's order put the delprop last, and a replay
+            // removed what it had just added.
+            for (int pass = 0; pass < 2; ++pass)
             for (auto& kv : rec._PropChangeMap) {
                 auto& data = kv.second;
                 auto prop = const_cast<Property*>(data.propertyOrig);
                 std::string typeName = data.propertyType.getName();
                 if (!data.property) {
+                    if (pass == 0)
+                        continue;
                     // Nothing that is not saved is logged: a cache a module
                     // hangs on an object as a dynamic property (Part's
                     // shape cache) is not the document's (sec 30.18).
@@ -4106,9 +4144,12 @@ int64_t TransactionLog::onCommit(const Transaction& txn, const char* kind, const
                 // `prop` is read only once found live in the container; the
                 // id tells a property added in a removed one's freed address
                 // (the same name and type, in one transaction) from it.
-                if (!name || (!data.name.empty() && data.name != name)
+                const bool gone = !name || (!data.name.empty() && data.name != name)
                         || data.propertyType != prop->getTypeId()
-                        || prop->getID() != kv.first) {
+                        || prop->getID() != kv.first;
+                if (gone != (pass == 0))
+                    continue;
+                if (gone) {
                     // The original is gone: a dynamic property removed.
                     if (data.name.empty())
                         continue;

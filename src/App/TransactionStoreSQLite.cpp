@@ -1049,7 +1049,23 @@ public:
         if (sqlite3_step(s) == SQLITE_ROW)
             seq = sqlite3_column_int64(s, 0);
         sqlite3_reset(s);
-        return seq;
+        // A row removed at the tip keeps its number taken (sec 39, S2):
+        // txn.inverts, merge_from and version.seq name rows by it.
+        return std::max(seq, seqCounter());
+    }
+
+    int64_t seqCounter()
+    {
+        const std::string counter = getMeta("seq_counter");
+        return counter.empty() ? 0 : std::atoll(counter.c_str());
+    }
+
+    /// Before rows are deleted: the newest number stays taken.
+    void keepSeqCounter()
+    {
+        const int64_t last = lastSeq();
+        if (last > seqCounter())
+            setMeta("seq_counter", std::to_string(last));
     }
 
     long maxObjectId() override
@@ -1553,6 +1569,7 @@ public:
     {
         exec("BEGIN");
         try {
+            keepSeqCounter();
             for (int64_t seq : seqs) {
                 auto s = prepare("DELETE FROM op WHERE txn=?");
                 sqlite3_bind_int64(s, 1, seq);
@@ -1575,6 +1592,7 @@ public:
     {
         exec("BEGIN");
         try {
+            keepSeqCounter();
             for (int64_t seq : seqs) {
                 auto s = prepare("DELETE FROM op WHERE txn=?");
                 sqlite3_bind_int64(s, 1, seq);

@@ -14186,6 +14186,385 @@ class TransactionTwoProcessCases(unittest.TestCase):
         self.assertEqual(len(told), 3, told)
 
 
+class TransactionAuditCases(unittest.TestCase):
+    # The defects the audit of 2026-10-27 found (docs/TransactionLog.md sec
+    # 39), one test each that failed before its fix.
+
+    def setUp(self):
+        self.param = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
+        self.mode = self.param.GetInt("TransactionLog", 2)
+        self.param.SetInt("TransactionLog", 2)
+        self.dir = tempfile.mkdtemp(prefix="fc-audit-")
+        self.docs = []
+
+    def tearDown(self):
+        import shutil
+
+        for name in self.docs:
+            if name in FreeCAD.listDocuments():
+                FreeCAD.closeDocument(name)
+        self.param.SetInt("TransactionLog", self.mode)
+        shutil.rmtree(self.dir, True)
+
+    def track(self, doc):
+        self.docs.append(doc.Name)
+        return doc
+
+    def commit(self, doc, name, change):
+        doc.openTransaction(name)
+        change()
+        doc.commitTransaction()
+
+    def made(self, name="Audit"):
+        doc = self.track(FreeCAD.newDocument(name))
+        doc.UndoMode = 1
+        self.commit(doc, "create", lambda: setattr(doc.addObject("App::FeatureTest", "Obj"), "Integer", 1))
+        return doc
+
+    def versions(self, doc):
+        return {v["num"]: v for v in doc.getTransactionVersions()}
+
+    def testADeletedBranchLeavesAVersionALinkPins(self):
+        # V1: 16.7 keeps a pinned version through a delete of its branch.
+        part = self.made("PinPart")
+        part.saveAs(os.path.join(self.dir, "pinpart.FCStd"))
+        part.createTransactionBranch("side")
+        self.commit(part, "side", lambda: setattr(part.Obj, "Integer", 2))
+        part.save()
+        asm = self.track(FreeCAD.newDocument("PinAsm"))
+        asm.UndoMode = 1
+        self.commit(asm, "link", lambda: setattr(asm.addObject("App::Link", "L"), "LinkedObject", part.Obj))
+        asm.saveAs(os.path.join(self.dir, "pinasm.FCStd"))
+        asm.openTransaction("pin")
+        pinned = asm.L.pinLink("LinkedObject")
+        asm.commitTransaction()
+        part.switchTransactionBranch("main")
+        part.deleteTransactionBranch("side")
+        self.assertIn(pinned, self.versions(part))
+        self.assertEqual(self.versions(part)[pinned]["kind"], "named")
+
+    def testATrimLeavesWhatAnOpenVersionStandsOn(self):
+        # V2: a version opened beside the document holds no branch; a trim
+        # that takes its row and version away is refused while it is open.
+        doc = self.made("Trim")
+        first = doc.snapshotTransactionLog()
+        self.commit(doc, "two", lambda: setattr(doc.Obj, "Integer", 2))
+        doc.snapshotTransactionLog()
+        self.commit(doc, "three", lambda: setattr(doc.Obj, "Integer", 3))
+        opened = self.track(doc.openTransactionVersion(first, False))
+        rows = [r["seq"] for r in doc.getTransactionLog()]
+        with self.assertRaises(ValueError):
+            doc.trimTransactionBranch("main")
+        now = [r["seq"] for r in doc.getTransactionLog()]
+        self.assertEqual(now[: len(rows)], rows)
+        self.assertIn(first, self.versions(doc))
+        FreeCAD.closeDocument(opened.Name)
+        self.assertGreater(doc.trimTransactionBranch("main"), 0)
+        self.assertEqual(doc.Obj.Integer, 3)
+
+    def testAMergeResultNamedAnotherDocumentLeavesItOpen(self):
+        # V3: `again` names a result this document made, nothing else.
+        doc = self.made("Merge")
+        doc.createTransactionBranch("side")
+        self.commit(doc, "side", lambda: setattr(doc.Obj, "Integer", 2))
+        doc.switchTransactionBranch("main")
+        self.commit(doc, "ours", lambda: setattr(doc.Obj, "Float", 2.5))
+        victim = self.track(FreeCAD.newDocument("Victim"))
+        victim.addObject("App::FeatureTest", "Precious")
+        result = doc.previewTransactionMergeResult("side", {}, "", 0, victim.Name)
+        if result["document"]:
+            self.track(result["document"])
+        self.assertIn(victim.Name, FreeCAD.listDocuments())
+
+    def testABranchOpenedBesideKeepsTheVersionItForksFrom(self):
+        # V4: the fork point of openTransactionBranch is named, as
+        # createTransactionBranch's is, so eviction leaves it.
+        doc = self.made("Fork")
+        self.commit(doc, "one", lambda: setattr(doc.Obj, "Integer", 2))
+        other = doc.openTransactionBranch("feature", False)
+        if other:
+            self.track(other)
+        fork = [b for b in doc.getTransactionBranches() if b["name"] == "feature"][0]
+        keep = self.param.GetInt("TransactionLogKeepVersions", 5)
+        for i in range(keep + 2):
+            self.commit(doc, "more %d" % i, lambda: setattr(doc.Obj, "Integer", 100 + i))
+            doc.snapshotTransactionLog()
+        self.assertTrue(fork["from_version"])
+        self.assertIn(fork["from_version"], self.versions(doc))
+
+    def testAVersionABranchStandsOnKeepsItsName(self):
+        # V5: a name keeps a version from eviction; one a branch was made
+        # from cannot be un-named.
+        doc = self.made("Name")
+        first = doc.snapshotTransactionLog()
+        doc.createTransactionBranch("side", first)
+        self.assertEqual(self.versions(doc)[first]["kind"], "named")
+        with self.assertRaises(ValueError):
+            doc.nameTransactionVersion(first, "")
+        self.assertEqual(self.versions(doc)[first]["kind"], "named")
+        # A version nothing stands on is un-named as before.
+        doc.switchTransactionBranch("main")
+        loose = doc.snapshotTransactionLog()
+        doc.nameTransactionVersion(loose, "mine")
+        doc.nameTransactionVersion(loose, "")
+        self.assertEqual(self.versions(doc)[loose]["kind"], "unnamed")
+
+    def testASaveOntoAFileAnotherDocumentHasOpenIsRefused(self):
+        # D1: a document opened from a folder reads its blobs where they
+        # are; another document saved over that folder took them away.
+        path = os.path.join(self.dir, "F")
+        os.makedirs(path)
+        a = self.track(FreeCAD.newDocument("A"))
+        a.addObject("Part::Box", "Box").Length = 7
+        a.recompute()
+        a.saveAs(path)
+        FreeCAD.closeDocument(a.Name)
+        a = self.track(FreeCAD.openDocument(path))
+        before = sorted(os.listdir(os.path.join(path, "blobs")))
+        b = self.track(FreeCAD.newDocument("B"))
+        b.addObject("Part::Cylinder", "Cylinder")
+        b.recompute()
+        with self.assertRaises(Exception):
+            b.saveAs(path)
+        with self.assertRaises(Exception):
+            b.saveCopy(path)
+        self.assertEqual(sorted(os.listdir(os.path.join(path, "blobs"))), before)
+        there = os.path.join(self.dir, "G")
+        os.makedirs(there)
+        a.saveAs(there)
+        self.assertAlmostEqual(a.Box.Shape.Volume, 700)
+
+    def testARecoveredDocumentPullsWhatWasSavedMeanwhile(self):
+        # D2: the first save of a document recovered from the log brings in
+        # what another process saved since, as any save does (29.8).
+        import subprocess
+
+        exe = consoleExe()
+        if not exe:
+            self.skipTest("no FreeCADCmd beside this build")
+        doc = self.made("Recovered")
+        self.commit(doc, "float", lambda: setattr(doc.Obj, "Float", 1.0))
+        path = os.path.join(self.dir, "recovered.FCStd")
+        doc.saveAs(path)
+        FreeCAD.closeDocument(doc.Name)
+        script = os.path.join(self.dir, "killed.py")
+        with open(script, "w") as f:
+            f.write(
+                "import os, FreeCAD\n"
+                "p = FreeCAD.ParamGet('User parameter:BaseApp/Preferences/Document')\n"
+                "p.SetInt('TransactionLog', 2)\n"
+                "doc = FreeCAD.openDocument(%r)\n"
+                "doc.UndoMode = 1\n"
+                "doc.openTransaction('ours')\n"
+                "doc.Obj.Integer = 5\n"
+                "doc.commitTransaction()\n"
+                "doc.getTransactionLog()\n"
+                "print('dir', doc.TransientDir, flush=True)\n"
+                "os._exit(0)\n" % path
+            )
+        out = subprocess.run([exe, script], capture_output=True, timeout=300)
+        text = out.stdout.decode("utf-8", "replace")
+        dirs = [l[4:].strip() for l in text.splitlines() if l.startswith("dir ")]
+        self.assertTrue(dirs, text + out.stderr.decode("utf-8", "replace"))
+        # Another process's save, made while the first lay dead
+        other = FreeCAD.openDocument(path)
+        other.UndoMode = 1
+        self.commit(other, "theirs", lambda: setattr(other.Obj, "Float", 2.5))
+        other.save()
+        FreeCAD.closeDocument(other.Name)
+        doc = self.track(FreeCAD.recoverDocument(dirs[0]))
+        self.assertEqual(doc.Obj.Integer, 5)
+        doc.save()
+        self.assertEqual(doc.Obj.Float, 2.5)
+        FreeCAD.closeDocument(doc.Name)
+        doc = self.track(FreeCAD.openDocument(path))
+        self.assertEqual((doc.Obj.Integer, doc.Obj.Float), (5, 2.5))
+
+    def setOf(self, theirLib):
+        # Ours: Asm linking Part's Box. Theirs: a copy whose Asm also links a
+        # Bolt; with `theirLib` the Bolt is outside their top's folder.
+        import shutil
+
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        lib = os.path.join(self.dir, "lib") if theirLib else theirs
+        os.makedirs(ours)
+        part = self.track(FreeCAD.newDocument("SetPart"))
+        part.UndoMode = 1
+        self.commit(part, "box", lambda: part.addObject("Part::Box", "Box"))
+        part.recompute()
+        part.saveAs(os.path.join(ours, "Part.FCStd"))
+        asm = self.track(FreeCAD.newDocument("SetAsm"))
+        asm.UndoMode = 1
+        self.commit(asm, "link", lambda: setattr(asm.addObject("App::Link", "L"), "LinkedObject", part.Box))
+        asm.saveAs(os.path.join(ours, "Asm.FCStd"))
+        FreeCAD.closeDocument(asm.Name)
+        FreeCAD.closeDocument(part.Name)
+        shutil.copytree(ours, theirs)
+        os.makedirs(lib, exist_ok=True)
+        bolt = self.track(FreeCAD.newDocument("SetBolt"))
+        cyl = bolt.addObject("Part::Cylinder", "Cyl")
+        bolt.recompute()
+        bolt.saveAs(os.path.join(lib, "Bolt.FCStd"))
+        asm = self.track(FreeCAD.openDocument(os.path.join(theirs, "Asm.FCStd")))
+        asm.addObject("App::Link", "L2").LinkedObject = cyl
+        asm.recompute()
+        asm.save()
+        for n in list(FreeCAD.listDocuments()):
+            FreeCAD.closeDocument(n)
+        return ours, theirs, lib
+
+    def testASetFileOutsideTheirFolderIsNotWrittenOverTheirs(self):
+        # L1: a file of theirs alone outside their top's folder goes under
+        # _external/ in ours, as an export lays it out -- never back over
+        # their own file.
+        ours, theirs, lib = self.setOf(True)
+        bolt = os.path.join(lib, "Bolt.FCStd")
+        was = open(bolt, "rb").read()
+        doc = self.track(FreeCAD.openDocument(os.path.join(ours, "Asm.FCStd")))
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+            d.UndoMode = 1
+        row = [f for f in res["files"] if f["relative"].endswith("Bolt.FCStd")][0]
+        self.assertNotEqual(os.path.realpath(row["write_to"]), os.path.realpath(bolt))
+        self.assertEqual(os.path.realpath(row["write_to"]),
+                         os.path.realpath(os.path.join(ours, "_external", "Bolt.FCStd")))
+        # Named as their own file by hand, the write is refused.
+        row["write_to"] = bolt
+        m = doc.mergeLinkedSet(res["files"], overwrite=True, set=res["set"])
+        self.assertTrue(m["refused"])
+        self.assertEqual(open(bolt, "rb").read(), was)
+
+    def testAHeldPathLeavingTheFolderIsNotWritten(self):
+        # L2: a link's `heldpath` comes from the file; one with `..` is not
+        # written outside the transient directory's held/.
+        import re
+        import zipfile
+
+        bolt = self.track(FreeCAD.newDocument("Bolt"))
+        cyl = bolt.addObject("Part::Cylinder", "Cyl")
+        bolt.recompute()
+        bolt.saveAs(os.path.join(self.dir, "Bolt.FCStd"))
+        c = self.track(FreeCAD.newDocument("C"))
+        c.addObject("App::Link", "L").LinkedObject = cyl
+        c.recompute()
+        c.saveAs(os.path.join(self.dir, "C.FCStd"))
+        FreeCAD.closeDocument(c.Name)
+        FreeCAD.closeDocument(bolt.Name)
+        a = self.track(FreeCAD.newDocument("A"))
+        a.saveAs(os.path.join(self.dir, "A.FCStd"))
+        seq = a.keepTransactionSentFile(os.path.join(self.dir, "Bolt.FCStd"), "Bolt.FCStd", "x", "request")
+        digest = [f["hash"] for f in a.getTransactionSentFiles() if f["seq"] == seq][0]
+        os.makedirs(os.path.join(a.TransientDir, "held"), exist_ok=True)
+        evil = os.path.join(self.dir, "evil", "x.FCStd")
+        os.makedirs(os.path.dirname(evil))
+        crafted = os.path.join(self.dir, "C2.FCStd")
+        with zipfile.ZipFile(os.path.join(self.dir, "C.FCStd")) as zin, \
+                zipfile.ZipFile(crafted, "w") as zout:
+            for item in zin.infolist():
+                try:
+                    data = zin.read(item.filename)
+                except NotImplementedError:
+                    continue   # a member Python's zipfile cannot read: the history
+                item.compress_type = zipfile.ZIP_DEFLATED
+                if item.filename == "Document.xml":
+                    text = re.sub(r'<XLink file="[^"]*"',
+                                  '<XLink file="gone.FCStd" held="%s" heldpath="%s"'
+                                  % (digest, "../" * 12 + evil.lstrip("/")),
+                                  data.decode("utf-8"))
+                    data = text.encode("utf-8")
+                zout.writestr(item, data)
+        self.track(FreeCAD.openDocument(crafted))
+        self.assertFalse(os.path.exists(evil))
+
+    def testAPropertyRemovedAndAddedAgainComesBackFromTheLog(self):
+        # C1: a row that removes a dynamic property and adds one of its name
+        # and type: undone from the log, the object has it, with its value.
+        doc = self.track(FreeCAD.newDocument("Dyn"))
+        doc.UndoMode = 1
+        doc.openTransaction("create")
+        obj = doc.addObject("App::FeatureTest", "Obj")
+        obj.addProperty("App::PropertyString", "Note", "Extra")
+        obj.Note = "first"
+        doc.commitTransaction()
+        integer = obj.Integer
+        doc.openTransaction("again")
+        obj.removeProperty("Note")
+        obj.Integer = 1
+        obj.addProperty("App::PropertyString", "Note", "Extra")
+        obj.Note = "second"
+        doc.commitTransaction()
+        seq = [r for r in doc.getTransactionLog() if r["kind"] == "user"][-1]["seq"]
+        ops = [o["op"] for o in doc.getTransactionOps(seq) if o["prop"] == "Note"]
+        self.assertLess(ops.index("delprop"), ops.index("addprop"))
+        self.assertTrue(doc.undoTransactionFromLog(seq))
+        self.assertIn("Note", obj.PropertiesList)
+        self.assertEqual(obj.Note, "first")
+        self.assertEqual(obj.Integer, integer)
+
+    def testARemovedRowsNumberIsNotGivenAgain(self):
+        # S2: rows a merge roll-back removed at the tip keep their numbers
+        # taken across a save-as, which reopens the store; other rows name
+        # rows by them.
+        doc = self.made("Seq")
+        doc.saveAs(os.path.join(self.dir, "a.FCStd"))
+        doc.createTransactionBranch("side")
+        self.commit(doc, "side", lambda: setattr(doc.Obj, "Integer", 2))
+        doc.switchTransactionBranch("main")
+        self.commit(doc, "main", lambda: setattr(doc.Obj, "Float", 3.0))
+        doc.mergeTransactionBranch("side")
+        doc.undo()
+        top = max(r["seq"] for r in doc.getTransactionLog())
+        self.assertTrue(doc.rollBackTransactionMerge())
+        self.assertLess(max(r["seq"] for r in doc.getTransactionLog()), top)
+        doc.saveAs(os.path.join(self.dir, "b.FCStd"))
+        self.commit(doc, "after", lambda: setattr(doc.Obj, "Integer", 7))
+        self.assertGreater(min(r["seq"] for r in doc.getTransactionLog()[-2:]), top)
+
+    def testUndoOfATakeTheirsLeavesTheSetPending(self):
+        # L4: Take theirs undone puts ours back and leaves their set to be
+        # taken again: pending, and their branch mergeable.
+        import shutil
+
+        ours = os.path.join(self.dir, "ours")
+        theirs = os.path.join(self.dir, "theirs")
+        for folder, kind, name in ((ours, "Part::Box", "Box"), (theirs, "Part::Cylinder", "Cyl")):
+            os.makedirs(folder)
+            part = self.track(FreeCAD.newDocument("TakePart"))
+            part.UndoMode = 1
+            part.openTransaction("make")
+            made = part.addObject(kind, name)
+            part.recompute()
+            part.commitTransaction()
+            part.saveAs(os.path.join(folder, "Part.FCStd"))
+            asm = self.track(FreeCAD.newDocument("TakeAsm"))
+            asm.UndoMode = 1
+            self.commit(asm, "link", lambda: setattr(asm.addObject("App::Link", "L"), "LinkedObject", made))
+            asm.saveAs(os.path.join(folder, "Asm.FCStd"))
+            FreeCAD.closeDocument(asm.Name)
+            FreeCAD.closeDocument(part.Name)
+        doc = self.track(FreeCAD.openDocument(os.path.join(ours, "Asm.FCStd")))
+        res = doc.importLinkedSet(os.path.join(theirs, "Asm.FCStd"))
+        for d in FreeCAD.listDocuments().values():
+            self.track(d)
+            d.UndoMode = 1
+        partRow = [f for f in res["files"] if f["relative"].endswith("Part.FCStd")][0]
+        self.assertEqual(partRow["action"], "theirs")
+        m = doc.mergeLinkedSet(res["files"], set=res["set"])
+        self.assertFalse(m["refused"])
+        part = doc.L.LinkedObject.Document
+        self.assertEqual([o.Name for o in part.Objects], ["Cyl"])
+        self.assertEqual(len(doc.getLinkedSetImports()), 0)
+        for d in (doc, part):
+            if d.UndoCount:
+                d.undo()
+        self.assertEqual([o.Name for o in part.Objects], ["Box"])
+        self.assertEqual(len(doc.getLinkedSetImports()), 1)
+        branch = partRow["branch"]
+        self.assertGreater(len(part.previewTransactionMerge(branch)["changes"]), 0)
+
+
 class XLinkIntoUnsavedCases(unittest.TestCase):
     # A copy of objects with external links into a document never saved: the
     # links keep the full path till its first save writes them relative.

@@ -81,6 +81,7 @@ recompute path. Also, it enables more complicated dependencies beyond trees.
 
 #include <boost/regex.hpp>
 #include <algorithm>
+#include <filesystem>
 #include <random>
 #include <unordered_map>
 #include <unordered_set>
@@ -982,6 +983,16 @@ void Document::_applyRevert(ColdRevert& revert)
     // in place it kept the removed one from coming back, and step 4 then
     // took it away as the row's addition: the object had no Offset at all.
     std::set<std::pair<const PropertyContainer*, std::string>> replaced;
+    // Removed and added again of the same type in the row (sec 39, C1):
+    // the one there is the row's addition, and takes the removed one's
+    // value back; step 4 leaves it.
+    std::set<std::pair<const PropertyContainer*, std::string>> added;
+    for (const LogOp* o : revert.ops) {
+        if (o->op == "addprop") {
+            if (auto container = opContainer(*this, *o))
+                added.emplace(container, o->prop);
+        }
+    }
     for (const LogOp* o : revert.ops) {
         if (o->op != "delprop")
             continue;
@@ -990,8 +1001,11 @@ void Document::_applyRevert(ColdRevert& revert)
             if (!container)
                 return;
             if (auto there = container->getPropertyByName(o->prop.c_str())) {
-                if (o->ptype == there->getTypeId().getName())
+                if (o->ptype == there->getTypeId().getName()) {
+                    if (added.count({container, o->prop}))
+                        replaced.emplace(container, o->prop);
                     return;
+                }
                 if (!container->removeDynamicProperty(o->prop.c_str()))
                     return;
                 replaced.emplace(container, o->prop);
@@ -5379,6 +5393,25 @@ static std::string checkFileName(const char *file, long schema) {
     return fn;
 }
 
+namespace {
+
+/// Another document of this process that is the file at `file` (sec 39,
+/// D1): a save over it would take away what that one reads where it is --
+/// a folder's blob files -- and its history is the file's one (27.5).
+void refuseOtherDocumentOfFile(const Document* self, const std::string& file)
+{
+    const std::string canonical = FileHistory::canonicalPath(file);
+    for (auto doc : GetApplication().getDocuments()) {
+        if (doc != self && !doc->testStatus(Document::VersionDoc)
+                && !doc->testStatus(Document::TempDoc) && doc->FileName.getStrValue().size()
+                && FileHistory::canonicalPath(doc->FileName.getStrValue()) == canonical)
+            THROWM(Base::FileException, (std::string("document ") + doc->Label.getValue()
+                                            + " has '" + file + "' open: close it first").c_str());
+    }
+}
+
+}   // namespace
+
 bool Document::saveAs(const char* _file)
 {
     std::string file = checkFileName(_file, getSaveSchemaVersion());
@@ -5388,6 +5421,7 @@ bool Document::saveAs(const char* _file)
     // picked in a dialog under this guest is blessed and passes.
     // checkFileName may have appended .FCStd: gate what will be written.
     ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsWrite, file);
+    refuseOtherDocumentOfFile(this, file);
     Base::FileInfo fi(file.c_str());
     if (this->FileName.getStrValue() != file) {
         Base::FlagToggler<> quiet(d->bookkeeping, false);
@@ -5407,6 +5441,7 @@ bool Document::saveCopy(const char* _file, bool withHistory) const
     std::string file = checkFileName(_file, getSaveSchemaVersion());
     // a copy is a host file written by path, exactly as saveAs (7.29)
     ExpressionSecurity::checkHostPath(ExpressionSecurity::Permission::FsWrite, file);
+    refuseOtherDocumentOfFile(this, file);
     if (this->FileName.getStrValue() != file) {
         struct Guard
         {
@@ -7374,7 +7409,31 @@ int64_t Document::snapshotToLog()
 bool Document::nameLogVersion(int64_t num, const std::string& name)
 {
     TransactionLog* log = getTransactionLog();
-    if (!log || !log->store().nameVersion(num, name))
+    if (!log)
+        return false;
+    // A name is what keeps a version from eviction (16.3). One something
+    // stands on keeps it (sec 39, V5): a pin from another file, a branch
+    // forked from it, or a trim's start, whose rows are gone.
+    if (name.empty()) {
+        auto& store = log->store();
+        LogVersion v;
+        if (store.getVersion(num, v)) {
+            const char* why = nullptr;
+            if (TransactionLog::pinnedVersions(store).count(num))
+                why = "a link of another file pins it";
+            for (const auto& b : store.branches()) {
+                if (!why && b.fromVersion == num)
+                    why = "a branch was made from it";
+            }
+            const auto at = store.transactions(v.seq, 1);
+            if (!why && v.seq > 0 && (at.empty() || at.front().seq != v.seq))
+                why = "the history before it was trimmed";
+            if (why)
+                THROWM(Base::ValueError, "version " + std::to_string(num)
+                                             + " keeps its name: " + why);
+        }
+    }
+    if (!log->store().nameVersion(num, name))
         return false;
     // The panels of the file's documents show the names; with the log
     // embedded, a name reaches the file by a save (32.11).
@@ -7905,6 +7964,28 @@ bool Document::recoverFromLog(const std::string& oldDir)
     }
     _rebuildUndoFromLog();
     tUndo = split();
+    // The file as it is now is what the next save compares (sec 29.8), and
+    // this process has it open (sec 39, D2). A save this history made is
+    // where it was left; any other -- another process saved meanwhile, or a
+    // copy of the file was put there -- is moved, so the first save pulls.
+    const std::string file = FileName.getStrValue();
+    if (!file.empty() && DiskStamp::of(file).valid()) {
+        FileHistory::Saved saved;
+        int64_t savedVersion = 0, savedSeq = 0;
+        const bool ours = FileHistory::savedAs(file, saved) && saved.history
+            && TransactionLog::savedAt(log->store(), saved.saveId, savedVersion, savedSeq);
+        _noteDiskState(file);
+        if (ours) {
+            d->diskSeq = savedSeq;
+            d->diskSaveId = saved.saveId;
+        }
+        else {
+            d->diskSeq = haveAnchor ? anchor.seq : 0;
+            d->movedStamp = d->diskStamp;
+            d->diskStamp.mtime -= 1;   // valid, and not the file's
+            d->diskSaveId.clear();
+        }
+    }
     FC_LOG("recover " << getName() << ": " << rows << " rows after version "
                       << (haveAnchor ? anchor.num : 0) << "; take over " << tTakeOver
                       << "s, materialise " << tMaterialise << "s, restore " << tRestore
@@ -8922,8 +9003,20 @@ int64_t Document::saveToLog(const char* name)
         Base::FileInfo(tmp).deleteFile();
         throw;
     }
-    if (!fi.deleteFile() || !Base::FileInfo(tmp).renameFile(file.c_str()))
-        THROWM(Base::FileException, ("cannot replace '" + file + "'").c_str());
+    // Renamed over the file in one step, which replaces it on every system
+    // (MoveFileEx on Windows): no moment without a file of that name, as a
+    // delete first left (sec 39, D3).
+    std::error_code renamed;
+#ifdef FC_OS_WIN32
+    std::filesystem::rename(QString::fromUtf8(tmp.c_str()).toStdWString(),
+                            QString::fromUtf8(file.c_str()).toStdWString(), renamed);
+#else
+    std::filesystem::rename(tmp, file, renamed);
+#endif
+    if (renamed) {
+        Base::FileInfo(tmp).deleteFile();
+        THROWM(Base::FileException, ("cannot replace '" + file + "': " + renamed.message()).c_str());
+    }
     Base::FileInfo(copy.path).deleteFile();
     FC_LOG("saveToLog " << getName() << ": snapshot " << FC_DURATION(tEmbed - tSnap).count()
            << "s, history " << FC_DURATION(tIndex - tEmbed).count()
@@ -9934,7 +10027,14 @@ void Document::_checkoutHead(int64_t fromHead)
         _readVersion(anchor.num, [this](Document& version) { _applyVersion(version, true); });
     }
     else {
-        // No version on the chain: every object's create is in its rows.
+        // No version on the chain: every object's create is in its rows --
+        // when they reach back to the start. A chain hanging off a row that
+        // is gone with no version there would empty the document and
+        // replay part of a history (sec 39, V2): refused, nothing touched.
+        const auto rows = store.chain(log->head());
+        if (!rows.empty() && rows.front().parent != 0)
+            THROWM(Base::RuntimeError, "the history at row " + std::to_string(log->head())
+                                           + " does not reach back to a version or the start");
         std::vector<std::string> names;
         for (auto obj : getObjects())
             names.emplace_back(obj->getNameInDocument());
@@ -10710,11 +10810,17 @@ size_t Document::trimBranch(const std::string& name, int64_t version, bool bridg
         if (!atHead)
             THROWM(Base::RuntimeError, "branch '" + name + "' has no version at its head");
     }
-    if (keep.kind != "named")
-        store.nameVersion(keep.num, "trim " + name);
-
     log->resolvePending();
     TrimPlan plan = planTrim(store, branch, keep, bridge);
+    // Nor what another document of the file stands on: a version opened
+    // beside this one holds no branch, and would be left on a row or a
+    // version that is gone (sec 39, V2).
+    if (Document* other = log->otherStandingOn(
+                {plan.rows.begin(), plan.rows.end()}, {plan.versions.begin(), plan.versions.end()}))
+        THROWM(Base::ValueError, std::string("document ") + other->getName()
+                                     + " stands on what the trim takes away: close it first");
+    if (keep.kind != "named")
+        store.nameVersion(keep.num, "trim " + name);
     const std::set<long> named = _objectIdsOfRows(plan.rows);
     applyTrim(store, plan, name);
     const auto& span = plan.span;
@@ -10799,17 +10905,25 @@ size_t Document::deleteBranch(const std::string& name)
     }
     // Its versions, and any other taken at one of its own rows; a version
     // another branch forked from stays, named (sec 16.7).
+    // So does one a link of another file pins, and one at a row another
+    // branch's history holds -- merged into it -- named (16.7, sec 39 V1).
+    const std::set<int64_t> pinned = TransactionLog::pinnedVersions(store);
     std::vector<int64_t> versions;
     size_t kept = 0;
     for (const auto& v : store.versions()) {
         if (v.branch != branch.id && !gone.count(v.seq))
             continue;
-        if (shared.forks.count(v.num)) {
+        if (shared.forks.count(v.num) || pinned.count(v.num) || held.count(v.seq)) {
+            if (v.kind != "named")
+                store.nameVersion(v.num, "kept from " + name);
             ++kept;
             continue;
         }
         versions.push_back(v.num);
     }
+    if (Document* other = log->otherStandingOn(gone, {versions.begin(), versions.end()}))
+        THROWM(Base::ValueError, std::string("document ") + other->getName()
+                                     + " stands on what the delete takes away: close it first");
     const std::set<long> named = _objectIdsOfRows(rows);
     store.removeTransactions(rows);
     if (!versions.empty())
@@ -10884,6 +10998,9 @@ size_t Document::squashVersions(int64_t from, int64_t to)
         evict.push_back(v.num);
     }
 
+    if (Document* other = log->otherStandingOn(inside, {evict.begin(), evict.end()}))
+        THROWM(Base::ValueError, std::string("document ") + other->getName()
+                                     + " stands on what the squash takes away: close it first");
     std::vector<LogOp> ops = netOps(store, path);
 
     LogTransaction t = path.back();
@@ -11157,16 +11274,30 @@ std::vector<int64_t> undoneMergeAtHead(TransactionLog& log, int64_t& before,
     if (t.kind != "undo")
         return {};
     LogTransaction merge = t;
-    for (int guard = 0; guard < 64 && merge.kind != "merge"; ++guard) {
+    for (int guard = 0; guard < 64 && merge.kind != "merge" && merge.kind != "restore"; ++guard) {
         if ((merge.kind != "undo" && merge.kind != "redo") || merge.inverts <= 0
                 || !row(merge.inverts, merge))
             return {};
     }
-    if (merge.kind != "merge" || merge.parent <= 0)
+    if ((merge.kind != "merge" && merge.kind != "restore") || merge.parent <= 0)
         return {};
     const std::vector<LogTransaction> rows = store.chain(head, merge.seq);
     if (rows.empty() || rows.front().seq != merge.seq)
         return {};
+    // A set's Take theirs (sec 35 L6) is a restore to their head and, next,
+    // a record with no ops that takes their branch in: undone, it is a
+    // merge undone (sec 39, L4). A restore alone is not.
+    if (merge.kind == "restore") {
+        bool taken = false;
+        for (const auto& r : rows) {
+            if (r.parent == merge.seq) {
+                taken = r.kind == "merge" && r.mergeFrom > 0 && store.ops(r.seq).empty();
+                break;
+            }
+        }
+        if (!taken)
+            return {};
+    }
     // Each row after the merge is its recompute, a record, or one more turn
     // of its own undo and redo -- and the turns leave it undone.
     std::set<int64_t> turns {merge.seq};
@@ -13833,7 +13964,9 @@ Document::MergeResult Document::_merge(const std::string& branch,
             outcome->reused = true;
         }
         else {
-            if (back)
+            // Only a result made here, of this document; a name that is any
+            // other document is left open (sec 39, V3).
+            if (back && known != results.end() && known->second.of == getName())
                 GetApplication().closeDocument(again.c_str());
             // Named as no other was: what shows its values knows them by it
             static int made = 0;

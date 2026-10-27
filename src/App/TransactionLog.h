@@ -342,6 +342,9 @@ public:
      */
     static void historyRetention(TransactionStore& store, long& named, long& snapshots);
     static void setHistoryRetention(TransactionStore& store, long named, long snapshots);
+    /// The versions a link of another file pins (meta `pins`, a line per pin,
+    /// the version first; sec 27): a delete or an un-naming leaves them.
+    static std::set<int64_t> pinnedVersions(TransactionStore& store);
     /// Keep the document's label and file name in `meta` for a recovery.
     void noteIdentity();
     /// Append the `recover` record (sec 25.2), `script` its JSON.
@@ -379,6 +382,13 @@ public:
     int64_t reappend(LogTransaction t);
     /// Whether another document of the file stands on one of these rows.
     bool othersStandOn(const std::vector<int64_t>& seqs) const;
+    /** Another document of the file that stands on what a trim, a delete or
+     * a squash would take away: its head among `rows`, or, opened at a
+     * version and not yet changed, that version among `versions`. Null if
+     * none.
+     */
+    Document* otherStandingOn(const std::set<int64_t>& rows,
+                              const std::set<int64_t>& versions) const;
     /// On no branch yet: a version document before its first change.
     bool detached() const { return _branch == 0; }
     /// The version a detached cursor is at, 0 for none.

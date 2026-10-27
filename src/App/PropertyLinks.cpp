@@ -5694,6 +5694,20 @@ std::string folderOf(const std::string& file)
 std::string writeHeldFile(const std::string& hash, const std::string& heldPath,
                           App::Document* owner)
 {
+    // The path comes from a file: one with no way out of held/ -- not
+    // absolute, no `..`, no `\` or `:` -- as the import makes it (holdAlone)
+    // and as a save record's lines are taken (sec 39, L2).
+    if (heldPath.empty() || heldPath.front() == '/'
+            || heldPath.find_first_of("\\:") != std::string::npos) {
+        FC_WARN("the held file '" << heldPath << "' is not a path under held/: not written");
+        return {};
+    }
+    for (const QString& part : QString::fromUtf8(heldPath.c_str()).split(QLatin1Char('/'))) {
+        if (part == QStringLiteral("..")) {
+            FC_WARN("the held file '" << heldPath << "' leaves held/: not written");
+            return {};
+        }
+    }
     std::vector<App::Document*> docs;
     if (owner)
         docs.push_back(owner);

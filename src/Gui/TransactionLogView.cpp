@@ -752,7 +752,11 @@ private:
         // The states read for what the log let go, and what of it there is
         std::set<int64_t> rows;
         LetGo letGo;
-        for (const auto& value : _values) {
+        // A copy: reading what the log let go opens a document, and the
+        // panel may be put on another one under the loop, which clears
+        // _values (sec 39, G2).
+        const std::vector<Held> values = _values;
+        for (const auto& value : values) {
             if (index < 0 || index >= static_cast<int>(value.pairs.size())
                     || !value.pairs[index].there)
                 continue;
@@ -3885,6 +3889,11 @@ void TransactionLogView::mergeSaved(const QString& doc, const QString& branch)
     App::Document* saved = App::GetApplication().getDocument(doc.toUtf8().constData());
     if (!saved)
         return;
+    // Made the active one, not only shown here: the panel follows the active
+    // document, and one shown while another is active is taken off it at the
+    // next activation -- a document opened to read a row is one (sec 39, G2).
+    if (auto gdoc = Application::Instance->getDocument(saved))
+        Application::Instance->setActiveDocument(gdoc);
     attach(saved);
     if (auto mgr = DockWindowManager::instance())
         mgr->activate(this);

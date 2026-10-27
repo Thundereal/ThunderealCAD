@@ -22,6 +22,9 @@ question is the one that holds.
   (left as found; elaborated in 37.7; built in 37.8-37.12, nothing left), the
   "Not built" lines of 35.11 and 36.6, 34 (held), and 38 (S1 built in
   38.8; S2, S3 and the questions open).
+- **The design as it stands**, without the history, is
+  `docs/TransactionLogDesign.md`; this document is the journal it was
+  built from.
 - A section number cited in code comments (`sec 27.22`, `sec 36.4`) is
   found with `grep -n '^### 27.22\|^## 36' docs/TransactionLog.md`.
 
@@ -61,6 +64,7 @@ question is the one that holds.
 | 36 | Object UIDs; the `_ObjectUUID` carrier (36.7) | built; U5 and the look under Assign built (35.18), the marks moot |
 | 37 | Audit of the implementation: fixed (37.1), left (37.2), sound (37.3), storage growth measured and reduced, proposals P1-P8 (37.4), as built (37.5), the WAL (37.6), the items left elaborated (37.7), rulings and builds of 2026-10-22 (37.8), a paste asked first and owned objects (37.9-37.10), an origin's planes in every copy (37.11), a drag out of an Auto Delete group (37.12), the cache tier's budget (37.13) | none left from 37.13 |
 | 38 | A document as a folder, the format the log wants: the folder save today (38.2), its cost measured (38.3), a save killed part way (38.4), stages S1-S3 proposed (38.5), questions (38.6), S1 as built: the save goes in whole (38.8), S3 (a), saved blobs read in place and a read-only folder, as built (38.9), an archive extracted by hand opens as a folder: `BlobCompression` (38.10), S2's survey and S2a, the congruence search kept across saves (38.11), S2b: an unchanged object is not written (38.12), the history saved alone into a folder (38.13), view-provider files kept, and the first save after an open (38.14), element maps keep their numbers (38.15), Q2/Q5/Q6 ruled and a folder save flushed to the disk (38.16), Q7: a working folder proposed, withdrawn, and Q7 closed with nothing built (38.17), a survey of what a save spends on kept objects (38.18), B: a frozen edge's pcurve test answered once (38.19), the save measured again with B and the freeze on (38.20), an audit of the folder and two-process code (38.21), its fixes and the merge's GUI failures (38.22), a view cell's handles keep their corners over laid-over bars (38.23) | S1, S2a, S2b, S3 (a), blobs in place, `BlobCompression`, folder history-only save, 38.14, 38.15, Q5, B built; Q2, Q6, Q7, A ruled (Q7, A: nothing built) |
+| 39 | Audit of the whole implementation (2026-10-27): sixteen fixed (39.1), the rest left (39.2); the design document `docs/TransactionLogDesign.md` written beside this journal | fixed |
 
 ## 1. The idea (user, 2026-09-18)
 
@@ -26265,3 +26269,103 @@ does not reach the case, and it passes without the fix too.
 
 **Gates** (round s38m): 25 GUI checks; Python 3911 OK and C++ 1018/1018
 with freeze on and off; driven 329/329.
+
+## 39. Audit of the whole implementation (2026-10-27)
+
+**Asked (user, 2026-10-27):** "Do a full audit for Transaction
+implementation. Give me report using concise words". Then, on the report:
+"agree. go ahead" -- the sixteen recommended fixes -- and a design document
+to stand beside this journal (`docs/TransactionLogDesign.md`).
+
+Six read-only passes, one per area (recording and replay; versions,
+branches and merge; the store and the file history; the document's saves,
+folders and two processes; linked sets, UIDs and paste; the Gui panel and
+the browser server), each told what 37.2, 37.7 and 38.21 had ruled. A fuzz
+of the 85 Python entry points with 13 bad-argument shapes each: no crash
+(`setHistoryRetention(-1)` is the designed "whole history"). Every finding
+was run as a probe or traced to its lines; the severe ones not probed were
+read again by hand.
+
+### 39.1 Found, and fixed
+
+| | What | Fix |
+| --- | --- | --- |
+| D1 | A save-as or a copy onto the folder of another open document of this process pruned the blob files that document reads in place (the open marker leaves this process's own line out); it could not be saved anywhere after. | `saveAs` and `saveCopy` refuse a file another open document of this process is (`refuseOtherDocumentOfFile`): "document X has '...' open: close it first". |
+| D2 | A document recovered from the log never pulled: `recoverFromLog` restores with no file name, so no disk state was noted, and the first save wrote over what another process had saved meanwhile. | After the replay the file's state is noted and the open marker added. A save this history made is where it was left; any other is taken as moved, so the first save pulls. |
+| D3 | `saveToLog` of an archive deleted the file, then renamed the rewrite over it: a kill between left only `<name>.FCStd.<uuid>`. | One `std::filesystem::rename` over the file (MoveFileEx on Windows). |
+| V1 | A branch delete evicted a version on it that a link of another file pins (`pins` was never read), against 16.7. | Kept, named "kept from <branch>": a pinned version, a fork, and one at a row another branch's history holds. `TransactionLog::pinnedVersions()` reads `pins` (travelling() uses it too). |
+| V2 | trim, delete and squash took the version a version document stands on; its first commit then forked from a row that was gone, and a switch to that branch emptied the document. | All three refuse what another open document of the file stands on (`otherStandingOn`): a branch head among the rows, or a version document's version among the versions evicted. A version document whose version stays is left alone: the version is whole. `_checkoutHead` with no version on the chain and a chain that does not reach row 0 throws instead of emptying the document. |
+| V3 | `previewTransactionMergeResult(..., again)` closed any open document of that name. | Only a result this document made is closed. |
+| V4 | `openTransactionBranch` named no fork version; eviction dropped it and `from_version` named nothing. | `forkHere` names it "branch <name>", as `createBranch` does (17.1). |
+| V5 | `nameTransactionVersion(n, "")` un-named a version a pin, a branch or a trim stands on; the next eviction removed it. | Refused, saying which: "a link of another file pins it", "a branch was made from it", "the history before it was trimmed". |
+| L1 | A linked set's file outside their top folder (a library beside both) got `write_to` = their own file; "Write over it?" rewrote it. | Such a file goes under `_external/` in ours, as the export lays it out; a write onto any file of their set is refused. |
+| L2 | A link's `heldpath`, read from the file, was joined under `held/` unchecked: `..` wrote a held file's bytes anywhere. | `writeHeldFile` refuses a path that is absolute, has `..`, or holds `\` or `:` (as 38.22 F4 does for a save record). |
+| L3 | `writeTransactionSentFile`, `keepTransactionSentFile` and `mergeLinkedSet`'s `write_to` took no host-path gate; `saveAs` does (Sandbox 7.29). | `checkHostPath` with fs.write / fs.read at the three. |
+| C1 | A row that removed a dynamic property and added one of its name and type: the hot undo was right, a cold undo, a replay and a fold lost it (ops in hash-map order; step 2 took the added one for the removed one, step 4 removed it). | `onCommit` emits a container's removals first; `_applyRevert` keeps the re-added property (step 4 leaves it) and restores the removed one's value into it. |
+| S2 | Row numbers had no counter: after a merge roll-back or a branch delete removed the newest rows, a reopen handed a removed number out again (`inverts`, `merge_from`, `version.seq` name rows by it). | The store keeps `seq_counter` in meta before rows are deleted; `lastSeq()` is the larger of it and MAX(seq). |
+| L4 | Undo of a set's Take theirs put the documents back, but its records stood: the set was no longer pending and the branch read as merged. | `undoneMergeAtHead` takes a restore followed by a no-ops merge record (Take theirs) as a merge; the "Merged set" record carries its step and the files it changed, and `pendingSets` reads a set whose step stands undone in any of them as pending. Keep ours writes only a record and stays decided. |
+| G1 | Browser uploads in pieces: every serving process wrote `<temp>/BrowserUploads.pieces/<n>.part` from a counter at 1, and cleared every `*.part` at its first use. | A folder per process (`.../BrowserUploads.pieces/<pid>`). |
+| G2 | After a save conflict in a document not active, the panel showed it without activating it; reading a let-go shape opens a document, the activation signal put the panel back on the active one, and `_values` was cleared under `TransactionDiffBar::update()`'s loop. | `mergeSaved` makes the document active; `update()` iterates a copy. |
+
+**Tests** (`TransactionAuditCases`, src/Mod/Test/Document.py, 12): one per
+fix except D3, L3, G1, G2. D3's window needs a kill between two calls; L3
+is the same gate as `saveAs`, which `SandboxHostFiles` covers through a
+guest; G1 needs two serving processes; G2 a Gui session with a conflict.
+Each of the twelve failed before its fix: run against the App library
+built without the fixes, 11 failed at once; S2's first test passed (the
+branch delete writes a row of its own after the removed ones), and was
+replaced by the path the audit named -- a merge undone, rolled back, the
+document saved as another file, a commit: the new rows took numbers 10
+and 11 again.
+
+### 39.2 Found, left
+
+Each is real and small, and waits for a case or a ruling:
+
+- **Versions:** a failed branch switch or create leaves the undo and redo
+  stacks cleared (`_arriveOnBranch` not run in the catch).
+- **Recording:** a write that lands in no transaction (Visibility is
+  NoModify; Legacy, DerivedViewWrites, bookkeeping) is not forgotten by the
+  log, so the next compose-mode snapshot claims the old value;
+  `TransactionLogVerify` (off) is what catches it. A hand write whose
+  before value is a derived one cannot be undone from the log once the
+  cache budget evicts that value (an entity's tier is the first writer's).
+  A version document's first change has no recompute row (`onRecompute`
+  returns on `_branch == 0`). A failed version write leaves claims with no
+  hash until the next save. A cold revert that fails on one op is still
+  committed as the undo step.
+- **Store:** `commit()` ignores `rollForward()`'s refusal (latent: no
+  staged name can trip it today). `canonicalPath` resolves only one missing
+  parent (38.22 P, narrower). A recovered folder document reads blobs in
+  place with no open marker. SELECT errors read as "no row" (`adoptEmbedded`
+  and `recover` would take a live store for empty). The lock file stays
+  when the marker was never written.
+- **Saves:** a marker line of a crashed opener on another host is never
+  aged: the folder is "not alone" for ever. A stale conflict on one document
+  silences another's save error (Gui/Document.cpp). `TransactionTwoProcessCases`
+  is defined twice in Document.py; the first copy never runs.
+- **Sets:** a set is recorded merged when one file's merge threw; a set of
+  folder documents cannot be imported (the planner wants archives); a copy
+  spanning two documents pasted back into its source asks about clashes
+  with itself.
+- **Gui and server:** selecting an op reads its shape two or three times
+  and computes its volume on the GUI thread, and `log.value` does the same
+  per call for any reader; `refreshKept` runs a query per kept value on
+  every commit; four idle writers can hold the four staged-upload slots; a
+  save conflict while a preview is open is not queued.
+
+**Found sound** (the parts worth naming): store handles, migration,
+WAL embed, the lock race, the fsync order, `rollForward` resumed, 38.22
+F4; the commit order and the keep decision; the fixes of 38.22; 37.8's
+refusals; the paste clash asked before the transaction (37.2's modal item
+is closed); UID and owned-object rules; the preview bound to its document;
+the pinned greying; upload order, resume and limits; served trim, squash
+and delete host-only; property ids never reused; the copy cache's
+ownership.
+
+**Gates** (round s39): 25 GUI checks; Python 3923 OK and C++ 1018/1018
+with freeze on and off; driven 328/329. The request check failed one of 57
+as the round ran it: it looked for the pieces in the old shared folder;
+pointed at this process's folder, 57 of 57. The driven failure,
+`GuiOmniSearchRecentItems` ("picking the parameter's row opens its
+editor"), passes alone; nothing here touches the search.

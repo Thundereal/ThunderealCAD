@@ -365,7 +365,9 @@ def run():
 
             # Sec 32.37: the pieces are on disk as they come, and a
             # connection that dropped takes its upload up again.
-            pieces_dir = os.path.join(App.getTempPath(), "BrowserUploads.pieces")
+            # A folder of this process's own (sec 39, G1).
+            pieces_dir = os.path.join(App.getTempPath(), "BrowserUploads.pieces",
+                                      str(os.getpid()))
             begun = control({"op": "upload.begin", "size": len(large), "for": "requests.send"})
             upload, token = begun.get("upload"), begun.get("resume")
             part(0)

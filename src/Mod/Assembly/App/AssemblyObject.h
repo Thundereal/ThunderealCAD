@@ -26,6 +26,7 @@
 
 #include <fastsignals/signal.h>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -266,6 +267,10 @@ public:
         const std::vector<App::DocumentObject*>& joints
     );
     bool isPartGrounded(App::DocumentObject* part);
+    // Answered from one walk of the assembly, kept until anything in the
+    // document changes but a placement, a shape or a visibility (what a solve
+    // and a drag write), or an object is made or deleted: the joints' icons
+    // ask it for their parts, every one of them at each refresh.
     bool isPartConnected(App::DocumentObject* part);
 
     std::vector<ObjRef> getDownstreamParts(
@@ -345,12 +350,17 @@ public:
     fastsignals::signal<void()> signalSolverUpdate;
 
 protected:
+    void onSettingDocument() override;
     const char* getPartsGroupType() const override
     {
         return "Assembly::PartsGroup";
     }
 
 private:
+    std::optional<std::unordered_set<App::DocumentObject*>> connectedCache;
+    fastsignals::scoped_connection connConnectivityChanged;
+    fastsignals::scoped_connection connConnectivityNew;
+    fastsignals::scoped_connection connConnectivityDeleted;
     void rebuildRigidClusters();
     App::DocumentObject* getRigidRepresentative(App::DocumentObject* part) const;
     const std::vector<App::DocumentObject*>* getRigidMembers(App::DocumentObject* part) const;

@@ -2546,14 +2546,44 @@ bool AssemblyObject::isPartConnected(App::DocumentObject* obj)
         return false;
     }
 
-    const auto grounded = getGroundedParts();
-    if (grounded.count(obj)) {
-        return true;
+    if (!connectedCache) {
+        const auto grounded = getGroundedParts();
+        const Connectivity index(this, getJoints(), [this](App::DocumentObject* part) {
+            return getRigidMembers(part);
+        });
+        auto reached = index.reachSet(grounded);
+        reached.insert(grounded.begin(), grounded.end());
+        connectedCache = std::move(reached);
     }
-    const Connectivity index(this, getJoints(), [this](App::DocumentObject* part) {
-        return getRigidMembers(part);
-    });
-    return index.reachSet(grounded).count(obj) > 0;
+    return connectedCache->count(obj) > 0;
+}
+
+void AssemblyObject::onSettingDocument()
+{
+    App::Part::onSettingDocument();
+    App::Document* doc = getDocument();
+    if (!doc) {
+        return;
+    }
+    connConnectivityChanged = doc->signalChangedObject.connect(
+        [this](const App::DocumentObject&, const App::Property& prop) {
+            if (!connectedCache) {
+                return;
+            }
+            const char* name = prop.getName();
+            if (name
+                && (std::strcmp(name, "Placement") == 0 || std::strcmp(name, "Shape") == 0
+                    || std::strcmp(name, "Visibility") == 0)) {
+                return;
+            }
+            connectedCache.reset();
+        }
+    );
+    auto drop = [this](const App::DocumentObject&) {
+        connectedCache.reset();
+    };
+    connConnectivityNew = doc->signalNewObject.connect(drop);
+    connConnectivityDeleted = doc->signalDeletedObject.connect(drop);
 }
 
 void AssemblyObject::jointParts(std::vector<App::DocumentObject*> joints)

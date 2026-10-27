@@ -1,7 +1,7 @@
 """Undo and redo are two control ops on the served document.
 
 docs/ThinClient.md 8.11 order item 2, the undo half, as
-docs/TransactionLog.md sec 30.10 leaves it. A served document is one
+docs/TransactionLogJournal.md sec 30.10 leaves it. A served document is one
 session with N views, and each author undoes its own steps: a client's
 undo takes the client's newest step, not the desktop's. It is still
 Gui::Document::undo, the room's selection cleared as it is there, and --
@@ -206,7 +206,7 @@ def build():
         box.Length = box.Width = box.Height = 10
         doc.recompute()
         # With the transaction log on (the default), the set-up above is an
-        # implicit step of its own (docs/TransactionLog.md sec 24.13); it is
+        # implicit step of its own (docs/TransactionLogJournal.md sec 24.13); it is
         # not what is under test.
         doc.clearUndos()
         # The desktop's one step, recomputed inside the transaction as a

@@ -47,6 +47,7 @@
 #include <Gui/Application.h>
 #include <Gui/CommandT.h>
 #include <Gui/MainWindow.h>
+#include <Gui/OverlayScrollBars.h>
 #include <Gui/Widgets.h>
 #include <App/Range.h>
 #include "SpreadsheetDelegate.h"
@@ -132,6 +133,10 @@ SheetTableView::SheetTableView(QWidget* parent)
     setVerticalHeader(new SheetViewHeader(this,Qt::Vertical));
     setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    // The scroll bars thin and see-through, laid over the cells out of the
+    // overlaid docks' way: at the view's edges they stood under the docks and
+    // looked like their edges (docs/HandsOnQueue.md entry 222)
+    new Gui::OverlayScrollBars(this);
 
     horizontalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);
     verticalHeader()->setContextMenuPolicy(Qt::CustomContextMenu);

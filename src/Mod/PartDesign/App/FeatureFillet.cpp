@@ -32,10 +32,13 @@
 # include <ShapeFix_ShapeTolerance.hxx>
 #endif
 
+#include <algorithm>
+
 #include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/Reader.h>
 #include <App/Document.h>
+#include <Mod/Part/App/FeatureFillet.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/App/PropertyTopoShape.h>
 #include <Mod/Part/App/TopoShape.h>
@@ -79,6 +82,26 @@ Fillet::Fillet()
       static_cast<App::PropertyType>(App::Prop_Hidden | App::Prop_Output),
       "The colour of an edge group's handles in the view, by group id ('#rrggbb').\n"
       "A group not listed takes an automatic colour.");
+
+    ADD_PROPERTY_TYPE(RemoveSlivers, (true), "Fillet", App::Prop_None,
+      "Where the fillet of an edge fails: take out the faces narrower than a quarter of\n"
+      "the radius at its ends -- most often a step left between two features meant to\n"
+      "meet -- their neighbours extended over them, and fillet again. Kept only when\n"
+      "fewer fillets fail; the faces taken out are reported.");
+
+    ADD_PROPERTY_TYPE(PastFeatures, (true), "Fillet", App::Prop_None,
+      "Where the fillet of an edge fails, and RemoveSlivers did not help: take out the\n"
+      "features near it -- a pocket or a boss within the radius of the edge, that its\n"
+      "fillet runs into -- fillet, and put them back, a pocket then cutting into the\n"
+      "fillet. Kept only when fewer fillets fail; the faces taken out are reported.");
+
+    ADD_PROPERTY_TYPE(_Version, (0), "Part Design", App::Prop_Hidden, 0);
+}
+
+void Fillet::setupObject()
+{
+    DressUp::setupObject();
+    _Version.setValue(1);
 }
 
 short Fillet::mustExecute() const
@@ -139,10 +162,94 @@ App::DocumentObjectExecReturn *Fillet::execute()
         }
 
         Part::TopoShape::FilletPartial partial;
+        Part::FilletFlatEnd flatEnd(_Version.getValue() >= 1);
+        auto corners = getCorners(baseShape);
         shape.makEFillet(baseShape,edges,segmentList,Radius.getValue(),nullptr,
-                         getCorners(baseShape),&partial);
+                         corners,&partial);
         if (shape.isNull())
             return new App::DocumentObjectExecReturn(QT_TRANSLATE_NOOP("Exception", "Resulting shape is null"));
+
+        // Where some fail, tried again: first with the slivers at them taken
+        // out -- faces narrower than a quarter of the radius, most often a
+        // step left between two features meant to meet (RemoveSlivers) --
+        // then with the features near them taken out, a pocket or a boss the
+        // fillet runs into, and put back after, cutting into the fillet
+        // (PastFeatures). Each kept when fewer fail.
+        TopoShape usedBase = baseShape;
+        auto usedEdges = edges;
+        auto usedCorners = corners;
+        for (int pass = 0; pass < 2 && !partial.failed.empty(); ++pass) {
+            const bool features = pass == 1;
+            if (!(features ? PastFeatures.getValue() : RemoveSlivers.getValue()))
+                continue;
+            TopoShape freedBase = usedBase;
+            auto freedEdges = usedEdges;
+            std::vector<TopoDS_Shape> extra;
+            for (const auto &corner : usedCorners) {
+                extra.push_back(corner.vertex);
+                for (const auto &v : corner.edges)
+                    extra.push_back(v.first);
+                for (const auto &v : corner.faces)
+                    extra.push_back(v.first);
+            }
+            std::vector<std::string> taken;
+            TopoShape pockets, bosses;
+            if (features ? !removeFeatures(freedBase, freedEdges, partial.failed,
+                                           Radius.getValue(), extra, taken, pockets, bosses)
+                         : !removeSlivers(freedBase, freedEdges, partial.failed,
+                                          Radius.getValue() / 4.0, extra, taken))
+                continue;
+            // the corners as they are after, what went dropped
+            Part::TopoShape::FilletCorners freedCorners;
+            std::size_t k = 0;
+            for (const auto &corner : usedCorners) {
+                auto freed = corner;
+                freed.vertex = extra[k++];
+                for (auto &v : freed.edges)
+                    v.first = extra[k++];
+                for (auto &v : freed.faces)
+                    v.first = extra[k++];
+                auto gone = [](const std::pair<TopoDS_Shape, double> &v) {
+                    return v.first.IsNull();
+                };
+                freed.edges.erase(std::remove_if(freed.edges.begin(), freed.edges.end(), gone),
+                                  freed.edges.end());
+                freed.faces.erase(std::remove_if(freed.faces.begin(), freed.faces.end(), gone),
+                                  freed.faces.end());
+                if (!freed.vertex.IsNull())
+                    freedCorners.push_back(freed);
+            }
+            try {
+                TopoShape retry(0, getDocument()->getStringHasher());
+                Part::TopoShape::FilletPartial retryPartial;
+                retry.makEFillet(freedBase, freedEdges, segmentList, Radius.getValue(), nullptr,
+                                 freedCorners, &retryPartial);
+                if (features && !retry.isNull())
+                    retry = putBackFeatures(retry, pockets, bosses);
+                if (!retry.isNull() && retryPartial.failed.size() < partial.failed.size()) {
+                    std::string names;
+                    for (const auto &name : taken)
+                        names += " " + name;
+                    if (features)
+                        FC_WARN(getFullName() << ": features taken out to fillet, and put back:"
+                                << names);
+                    else
+                        FC_WARN(getFullName() << ": sliver faces taken out to fillet:" << names);
+                    shape = retry;
+                    partial = retryPartial;
+                    // put back, the features are the base's again
+                    if (!features) {
+                        usedBase = freedBase;
+                        usedEdges = freedEdges;
+                        usedCorners = freedCorners;
+                    }
+                }
+            }
+            catch (Base::Exception &) {
+            }
+            catch (Standard_Failure &) {
+            }
+        }
 
         // The faces of each edge's fillet, kept for when it fails later; the
         // failed ones' as last made
@@ -150,7 +257,7 @@ App::DocumentObjectExecReturn *Fillet::execute()
         setFailedEdges(baseShape, edges, partial, missing, failedNames);
 
         TopTools_ListOfShape aLarg;
-        aLarg.Append(baseShape.getShape());
+        aLarg.Append(usedBase.getShape());
         bool failed = false;
         // Checked as it will be kept: a run on copies of the inputs (a
         // frozen input refused, Part::Feature::recompute()) puts back what
@@ -250,9 +357,14 @@ Part::TopoShape::FilletCorners Fillet::getCorners(const Part::TopoShape &baseSha
 
 void Fillet::onChanged(const App::Property *prop)
 {
-    // Corners links the vertexes and faces of the object Base is on
+    // Corners links the vertexes and faces of the object Base is on. Not
+    // while this fillet is being removed: the removal clears Corners before
+    // Base, and linking it again left this fillet in the InList of the object
+    // Base is on, a dangling pointer once it was deleted (a recompute walking
+    // that list crashed, TestFilletSlivers.testBaseOutsideTheBody)
     if ((prop == &Corners || prop == &Base) && getDocument()
             && !isRestoring() && !getDocument()->isPerformingTransaction()
+            && !testStatus(App::Remove)
             && Base.getValue() && Corners.getLinkObject() != Base.getValue())
         Corners.setLinkObject(Base.getValue());
     DressUp::onChanged(prop);

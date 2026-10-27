@@ -326,7 +326,7 @@ EM_JS(char *, fcviewer_stored_client, (), {
     return s;
 });
 
-// The id this browser keeps (docs/TransactionLog.md sec 30.32): half of who
+// The id this browser keeps (docs/TransactionLogJournal.md sec 30.32): half of who
 // a connection is, where a grant counts the browsers it is for, and what
 // lets a host follow one browser from one link to another. Made once, at
 // random, and kept in localStorage -- with the browser asked not to clear
@@ -374,7 +374,7 @@ static const std::string &deviceId()
 }
 
 /// The headers of a plain request to the scene server: which browser this
-/// is, as the hello says it (docs/TransactionLog.md sec 30.40). The door
+/// is, as the hello says it (docs/TransactionLogJournal.md sec 30.40). The door
 /// of a grant that counts its browsers lets a request read nothing of the
 /// scene without it, and the first load comes before the hello. A header
 /// and never the URL. \a textBody: a POST of lines, which says so too.

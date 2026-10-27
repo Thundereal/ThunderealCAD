@@ -229,7 +229,7 @@ class TestSketchExternalGeometry(unittest.TestCase):
         # reversed curve: the curve runs as the geometry does, and so does an
         # external edge taken from it. The copy swapped the ends a sketch
         # built on it constrains, and so which circle took which radius
-        # (docs/TransactionLog.md sec 27.87).
+        # (docs/TransactionLogJournal.md sec 27.87).
         import Part
 
         profile = self.doc.addObject("Sketcher::SketchObject", "Profile")

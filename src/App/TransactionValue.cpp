@@ -24,7 +24,9 @@
 
 #ifndef _PreComp_
 # include <algorithm>
+# include <deque>
 # include <limits>
+# include <mutex>
 # include <sstream>
 #endif
 
@@ -594,4 +596,33 @@ bool App::summariseValue(const Document& doc, const CapturedValue& value, ValueS
         out = ValueSummary();
     }
     return false;
+}
+
+bool App::summariseValue(const Document& doc, const std::string& ref, const CapturedValue& value,
+                         ValueSummary& out)
+{
+    static std::mutex mutex;
+    static std::map<std::string, std::pair<bool, ValueSummary>> said;
+    static std::deque<std::string> order;
+    constexpr std::size_t most = 512;
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        auto it = said.find(ref);
+        if (it != said.end()) {
+            out = it->second.second;
+            return it->second.first;
+        }
+    }
+    const bool known = summariseValue(doc, value, out);
+    if (ref.empty() || !value.ok)
+        return known;
+    std::lock_guard<std::mutex> lock(mutex);
+    if (said.emplace(ref, std::make_pair(known, out)).second) {
+        order.push_back(ref);
+        if (order.size() > most) {
+            said.erase(order.front());
+            order.pop_front();
+        }
+    }
+    return known;
 }

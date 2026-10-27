@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 27.22-27.30, the Gui half of
+# GUI check of docs/TransactionLogJournal.md sec 27.22-27.30, the Gui half of
 # frozen pinned versions: the tree's labels (the branch suffix of a file's
 # own document, a pinned version shown in italics), Std_SaveToHistory, a
 # version document's Save offering Save to History, and the prompt to close
@@ -30,6 +30,17 @@ def check(what, ok):
 def settle():
     for _ in range(5):
         QtWidgets.QApplication.processEvents()
+
+
+def logPanel():
+    # The log panel, shown: its lists and status follow the active document.
+    for w in Gui.getMainWindow().findChildren(QtWidgets.QWidget):
+        if w.metaObject().className() == "Gui::DockWnd::TransactionLogView":
+            if isinstance(w.parentWidget(), QtWidgets.QDockWidget):
+                w.parentWidget().show()
+            w.show()
+            return w
+    return None
 
 
 def answer(fn, tries=100):
@@ -149,6 +160,29 @@ def run():
         settle()
         check("not offered for a pinned version (%s active)" % Gui.ActiveDocument.Document.Name,
               Gui.ActiveDocument.Document is frozen and not cmd.isActive())
+        # The log panel shows a pinned version and changes nothing of it
+        # (sec 37.7 item 16): its writing buttons greyed, the reason said.
+        dock = logPanel()
+        if dock is None:
+            check("the log panel is there", False)
+        else:
+            settle()
+            writing = [b for b in dock.findChildren(QtWidgets.QPushButton)
+                       if b.text().replace("&", "") in ("Snapshot", "Branch...", "Merge...")]
+            status = [l.text() for l in dock.findChildren(QtWidgets.QLabel)
+                      if frozen.Name in l.text()]
+            check("the panel's writing buttons greyed on a pinned version: %s"
+                  % [(b.text(), b.isEnabled()) for b in writing],
+                  writing and not any(b.isEnabled() for b in writing))
+            check("the panel says it is pinned: %r" % status[:1],
+                  any("pinned version" in t for t in status))
+            Gui.setActiveDocument(part.Name)
+            settle()
+            snap = [b for b in writing if b.text().replace("&", "") == "Snapshot"]
+            check("and gives them back for the file's document",
+                  snap and snap[0].isEnabled())
+            Gui.setActiveDocument(frozen.Name)
+            settle()
 
         # A version document's Save: Save to History is the default.
         editable = App.openFileVersion(partPath, first)

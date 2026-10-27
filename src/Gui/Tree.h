@@ -246,6 +246,8 @@ protected:
     void leaveEvent(QEvent *) override;
     void _updateStatus(bool delay=true);
     bool onDoubleClickItem(QTreeWidgetItem *);
+    /// The item that reveals an object in error with no top-level item
+    static DocumentObjectItem *pickRevealItem(const DocumentObjectDataPtr &data);
 
 protected Q_SLOTS:
     void onActivateDocument(QAction*);

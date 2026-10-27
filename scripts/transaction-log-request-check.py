@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 30.20, 30.23, 30.29: the request.
+# GUI check of docs/TransactionLogJournal.md sec 30.20, 30.23, 30.29: the request.
 # A file sent over the control lane as a client of a served document would
 # send it -- kept in the log and not read, listed in the log panel with its
 # sender, refused to a view-only connection, past the upload limit and past
@@ -25,7 +25,7 @@ lines = []
 
 
 def mergeDialog():
-    # The merge's preview is not modal (docs/TransactionLog.md sec 32.15): it
+    # The merge's preview is not modal (docs/TransactionLogJournal.md sec 32.15): it
     # is found among the windows. Anything modal instead is in its way.
     for w in QtWidgets.QApplication.topLevelWidgets():
         if w.objectName() == "TransactionMergeDialog" and w.isVisible():
@@ -254,6 +254,9 @@ def run():
 
             # A second one, dropped unread.
             reply = send(copy, "mine.FCStd", 7, "edit")
+            # The panel rebuilds on its timer, not in the signal (TransactionLog
+            # sec 37.7 item 14)
+            settle()
             other = [r for r in Gui.serveRequests() if r["id"] == reply.get("request")]
             check("the same name again is a second file",
                   len(other) == 1 and other[0]["id"] != sent[0]["id"]
@@ -362,7 +365,9 @@ def run():
 
             # Sec 32.37: the pieces are on disk as they come, and a
             # connection that dropped takes its upload up again.
-            pieces_dir = os.path.join(App.getTempPath(), "BrowserUploads.pieces")
+            # A folder of this process's own (sec 39, G1).
+            pieces_dir = os.path.join(App.getTempPath(), "BrowserUploads.pieces",
+                                      str(os.getpid()))
             begun = control({"op": "upload.begin", "size": len(large), "for": "requests.send"})
             upload, token = begun.get("upload"), begun.get("resume")
             part(0)

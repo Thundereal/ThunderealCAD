@@ -226,6 +226,17 @@ MDIViewPage* ViewProviderTemplate::getMDIViewPage() const
 
 Gui::MDIView* ViewProviderTemplate::getMDIView() const { return getMDIViewPage(); }
 
+Gui::MDIView* ViewProviderTemplate::getOrCreateMDIView()
+{
+    // its page's view, opened if closed (entry 217)
+    auto t = getTemplate();
+    auto page = t ? t->getParentPage() : nullptr;
+    auto gdoc = page ? Gui::Application::Instance->getDocument(page->getDocument()) : nullptr;
+    auto vpp = gdoc ? dynamic_cast<TechDrawGui::ViewProviderPage*>(gdoc->getViewProvider(page))
+                    : nullptr;
+    return vpp ? vpp->getOrCreateMDIView() : nullptr;
+}
+
 TechDraw::DrawTemplate* ViewProviderTemplate::getTemplate() const
 {
     return dynamic_cast<TechDraw::DrawTemplate*>(pcObject);

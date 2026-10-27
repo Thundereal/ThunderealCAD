@@ -240,6 +240,110 @@ fc_add_gui_test(GuiFilletGroupsAndPreviewMenu_tests_run fillet-groups-and-previe
 fc_add_gui_test(GuiFilletCornerVertexPick_tests_run fillet-corner-vertex-pick.py
                 --timeout 200)
 
+# Entry 207, the hands-on of 2026-10-21: an object in error is revealed in
+# the tree along its object path, not under a row that only groups it.
+fc_add_gui_test(GuiTreeRevealObjectPath_tests_run tree-reveal-object-path.py
+                --timeout 200)
+
+# Entries 209 and 210, the hands-on of 2026-10-21: automatic colours stand
+# apart -- a fillet's edge groups, PartDesign's tag colours, the shapes'.
+fc_add_gui_test(GuiFilletGroupColorsApart_tests_run fillet-group-colors-apart.py
+                --timeout 200)
+fc_add_gui_test(GuiAutoColorsSpread_tests_run auto-colors-spread.py
+                --timeout 200)
+
+# Entries 209 and 211, the hands-on of 2026-10-21: an edit recomputes the
+# feature and what it needs only while that waits for the migration
+# recompute of an old file's restore.
+fc_add_gui_test(GuiEditMigrationRecompute_tests_run edit-migration-recompute.py
+                --timeout 200)
+
+# Entry 208, the hands-on of 2026-10-21: a task panel laid over its view
+# bands its lists as an overlaid dock does (193's painter).
+fc_add_gui_test(GuiOverlayListRowBandsInView_tests_run overlay-list-row-bands-in-view.py
+                --timeout 200)
+
+# The reporter, 2026-10-23: a dress-up's edge list sorts by the column whose
+# title is clicked; the feature's own order stays what it writes back.
+fc_add_gui_test(GuiDressUpListSort_tests_run dressup-list-sort.py
+                --timeout 200)
+
+# Entry 214, a crash on stage28: a group typed into a fillet's Group cell
+# filled the list anew inside Qt's commit of it, the row deleted under the
+# commit (heap corruption). The edge's row is changed in place now.
+fc_add_gui_test(GuiDressUpTypedGroupKeepsRow_tests_run dressup-typed-group-keeps-row.py
+                --timeout 200)
+
+# The reporter, 2026-10-23: PartDesign task panels narrow with their dock
+# (buttons, check boxes, spin and combo boxes at a few letters' minimum), and
+# a dress-up's element column stays put while the others scroll sideways.
+fc_add_gui_test(GuiPdPanelWidthsStickyColumn_tests_run pd-panel-widths-sticky-column.py
+                --timeout 200)
+
+# Entry 213, the reporter 2026-10-23: a dress-up handle made active (a click
+# on it) selects its edge, as a click on the edge's row does.
+fc_add_gui_test(GuiDressUpHandleSelectsEdge_tests_run dressup-handle-selects-edge.py
+                --timeout 200)
+
+# Entry 220, the reporter 2026-10-23: a group box (a bare frame) in an
+# overlaid task panel is as see-through as the panel, not the theme's ground.
+fc_add_gui_test(GuiOverlayPanelGroupBoxSeeThrough_tests_run overlay-panel-groupbox-see-through.py
+                --timeout 200)
+
+# Entry 216: a projection group with Auto Distribution lays its views out,
+# and follows its X/Y spacing, without a toggle (its views project in
+# threads: the GUI's event loop).
+fc_add_gui_test(GuiTechDrawProjGroupAutoDistribute_tests_run techdraw-projgroup-auto-distribute.py
+                --timeout 200)
+
+# Entry 217: a tree pick of a TechDraw object (sync on) brings its page view
+# to the front, opening it if closed; a double click does so whatever the
+# sync.
+fc_add_gui_test(GuiTechDrawTreePickSwitchesPage_tests_run techdraw-tree-pick-switches-page.py
+                --timeout 200)
+
+# Entry 218: a tree hover (preselect) lights a dimension's label and a
+# balloon's, not only their lines.
+fc_add_gui_test(GuiTechDrawTreeHoverLightsLabel_tests_run techdraw-tree-hover-lights-label.py
+                --timeout 200)
+
+# Entry 219: a double click on a dimension while a projection group is in
+# edit ends the group's edit, its change kept, and edits the dimension.
+fc_add_gui_test(GuiTechDrawDimensionEditEndsGroupEdit_tests_run techdraw-dimension-edit-ends-group-edit.py
+                --timeout 200)
+
+# Entry 215: every change in a chamfer's panel an undo step of its own, as
+# the fillet's (entry 136); Cancel takes the edit back.
+fc_add_gui_test(GuiChamferUndoSteps_tests_run chamfer-undo-steps.py
+                --timeout 200)
+
+# Entries 221, 224: a TechDraw page view shows the spreadsheet's thin
+# overlaid scroll bars (General/HidePageScrollBars, off by default, hides
+# them, applied at once) and pans either way.
+fc_add_gui_test(GuiTechDrawPageOverlayScrollBars_tests_run techdraw-page-overlay-scroll-bars.py
+                --timeout 200)
+
+# Entry 222: a spreadsheet's scroll bars laid over the cells, out of the
+# overlaid docks' way, thin and fading.
+fc_add_gui_test(GuiSpreadsheetScrollBarsBesideOverlay_tests_run spreadsheet-scroll-bars-beside-overlay.py
+                --timeout 200)
+
+# Entry 225: every list in an overlaid panel takes the thin overlaid scroll
+# bars, a task panel's made later too, and gives them back when the panel
+# leaves overlay mode; the tree's hide option, on, keeps them off it.
+fc_add_gui_test(GuiOverlayDockAutoScrollBars_tests_run overlay-dock-auto-scroll-bars.py
+                --timeout 200)
+
+# Entry 226: a dress-up group's automatic colour by its id alone; an edge
+# typed into an existing group takes that group's colour.
+fc_add_gui_test(GuiDressUpGroupColorsKept_tests_run dressup-group-colors-kept.py
+                --timeout 200)
+
+# Entry 228: each fine undo step of a fillet's or chamfer's panel is named
+# for what it did.
+fc_add_gui_test(GuiPdUndoStepNames_tests_run pd-undo-step-names.py
+                --timeout 200)
+
 # Leaving a PartDesign feature's edit by a bare resetEdit (Esc in a view, a
 # served client leaving it) keeps the change and shows it: preview-on-edit
 # paused the feature's recompute, and only the panel's OK made it again.
@@ -287,7 +391,7 @@ fc_add_gui_test(GuiServeLog_tests_run serve-log.py
                 --timeout 240)
 fc_add_gui_test(GuiServeLogBrowser_tests_run serve-log-browser.py
                 --timeout 600)
-# What the panel does with what it lists (docs/TransactionLog.md sec 32.22):
+# What the panel does with what it lists (docs/TransactionLogJournal.md sec 32.22):
 # rows taken back, versions, branches, each asked of the host by an editor,
 # a viewer and the host; and the same from the page in a real browser.
 fc_add_gui_test(GuiServeLogActs_tests_run serve-log-acts.py
@@ -295,7 +399,7 @@ fc_add_gui_test(GuiServeLogActs_tests_run serve-log-acts.py
 fc_add_gui_test(GuiServeLogActsBrowser_tests_run serve-log-acts-browser.py
                 --timeout 600)
 # A copy larger than one message of the socket carries, sent from the page
-# in pieces (docs/TransactionLog.md sec 32.36): the progress it says, and
+# in pieces (docs/TransactionLogJournal.md sec 32.36): the progress it says, and
 # the host's copy byte for byte.
 fc_add_gui_test(GuiServeRequestBrowser_tests_run serve-request-browser.py
                 --timeout 600)
@@ -2301,4 +2405,52 @@ fc_add_gui_test(GuiXLinkSnapshotSave_tests_run
 # question itself. A box, a filleted box and a cylinder, new and edited.
 fc_add_gui_test(GuiCaptureWaitsForExactEdges_tests_run
                 capture-waits-for-exact-edges.py
+                --timeout 180)
+
+# File > Export with Linked Files (docs/TransactionLogJournal.md sec 35 L7): the
+# dialog lists the set, writes it into a new folder, and asks before
+# writing into one that is not empty.
+fc_add_gui_test(GuiExportLinkedSet_tests_run
+                export-linked-set.py
+                --timeout 180)
+
+# File > Import a Linked Set (docs/TransactionLogJournal.md sec 35 L6): the dialog
+# pairs another copy of the set with ours, imports it as branches and
+# merges it as one undo step.
+fc_add_gui_test(GuiImportLinkedSet_tests_run
+                import-linked-set.py
+                --timeout 180)
+fc_add_gui_test(GuiImportClash_tests_run
+                import-clash.py
+                --timeout 120)
+
+# A drag out of an Auto Delete link group (docs/TransactionLogJournal.md sec
+# 37.12): a move, not the removal the mode makes of an element taken out.
+fc_add_gui_test(GuiLinkGroupDragOut_tests_run
+                link-group-drag-out.py
+                --timeout 120)
+
+# A set's merge says first what will not resolve after it
+# (docs/TransactionLogJournal.md sec 35.6 Q4, 35.16 G5), and offers to merge
+# the file kept ours that it needs.
+fc_add_gui_test(GuiImportLinkedSetReferences_tests_run
+                import-linked-set-references.py
+                --timeout 180)
+
+# A linked set's import leaves its files to be saved (docs/TransactionLogJournal.md
+# sec 35.18): each file given a branch is marked modified.
+fc_add_gui_test(GuiSetImportMarksModified_tests_run
+                set-import-marks-modified.py
+                --timeout 180)
+
+# A paste assigned onto an object here takes the look brought too, unless
+# unchecked (docs/TransactionLogJournal.md sec 35.18).
+fc_add_gui_test(GuiPasteAssignLook_tests_run
+                paste-assign-look.py
+                --timeout 120)
+
+# A save merges what another process saved into the file, says it while
+# idle, and puts a conflict to the merge (docs/TransactionLogJournal.md sec 29.8).
+fc_add_gui_test(GuiSaveMergesAnotherProcess_tests_run
+                save-merges-another-process.py
                 --timeout 180)

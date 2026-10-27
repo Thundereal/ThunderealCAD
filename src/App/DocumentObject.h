@@ -52,6 +52,8 @@ class DocumentObjectGroup;
 class DocumentObjectPy;
 class Expression;
 class PropertyPlacement;
+/// Defined in DocumentObjectExtension.h (sec 37.9)
+enum class OwnedPaste;
 
 enum ObjectStatus {
     Touch = 0,
@@ -79,6 +81,10 @@ enum ObjectStatus {
     // Freeze attribute. Upstream's bit is 21, which this fork already uses --
     // status bits are never saved by number, so only the name has to match.
     Freeze = 22,
+    // Restored needing the migration recompute (Document::addRecomputeObject)
+    // and not recomputed since; never saved. An edit recomputes what it
+    // needs while any of that carries it (Document::recomputeMigration).
+    MigrationPending = 23,
 };
 
 /** Return object for feature execution
@@ -164,6 +170,17 @@ public:
     const char *getNameInDocument() const;
     /// Return the object ID that is unique within its owner document
     long getID() const {return _Id;}
+    /** What the object is known by across copies of its file and across
+     * documents (docs/TransactionLogJournal.md sec 36): given when it is created,
+     * kept when it is saved, restored or brought elsewhere, new only where
+     * a live object has it already.
+     */
+    const std::string& getObjectUid() const {return _uid;}
+    /** Whether Python's read-only `Uid` answers getObjectUid(): the classes
+     * that had a `Uid` property of their own before there was one for
+     * every object (docs/TransactionLogJournal.md sec 36.7).
+     */
+    virtual bool hasUidAttribute() const {return false;}
     /// returns the name that is safe to be exported to other document
     std::string getExportName(bool forced=false) const;
     /// Return the object full name of the form DocName#ObjName
@@ -190,7 +207,7 @@ public:
     /// reset this document object touched
     void purgeTouched();
     /** The touched state as the transaction log records it
-     * (docs/TransactionLog.md sec 27.58), packed: a property's own Touched
+     * (docs/TransactionLogJournal.md sec 27.58), packed: a property's own Touched
      * bit, the object's Touch and Enforce bits, and an explicit request to
      * recompute (touch(), enforceRecompute()).
      */
@@ -272,6 +289,26 @@ public:
 
     /// return true to activate tree view group object handling and element visibility
     virtual bool hasChildElement() const;
+    //@}
+
+    /** @name What an object owns (docs/TransactionLogJournal.md sec 37.9)
+     *
+     * An owned object is made with its owner and removed with it, and is
+     * never another's: a body's or a part's Origin, a coordinate system's
+     * axes and planes. A paste follows the owner for it: what it owns is
+     * not chosen apart from it.
+     */
+    //@{
+    /// What this object owns; the extensions are asked, none by default.
+    virtual std::vector<DocumentObject*> getOwnedObjects() const;
+    /** Of what this object owns, the object of `liveOwner` -- an object
+     * this one is pasted onto -- that `owned` stands for, null if none,
+     * and in `how` whether it follows the owner or the live one is kept.
+     * An origin pairs by its slot, the axes and planes by Role.
+     */
+    virtual DocumentObject* getOwnedCounterpart(const DocumentObject* owned,
+                                                const DocumentObject* liveOwner,
+                                                OwnedPaste& how) const;
     //@}
 
 
@@ -532,7 +569,7 @@ public:
     virtual bool canLinkProperties() const {return true;}
 
     /** The properties of this object a merge takes or leaves together
-     * (docs/TransactionLog.md sec 31.5), `prop` being one of them: what
+     * (docs/TransactionLogJournal.md sec 31.5), `prop` being one of them: what
      * is one thing said in several properties, each meaning nothing
      * without the others -- a sketch's constraints name its geometry by
      * its place in the list. The first is the one the unit is known by.
@@ -565,7 +602,7 @@ public:
         bool byTime {false};  ///< both changed it, and the later was kept
     };
     /** A unit both branches changed, merged by what it holds
-     * (docs/TransactionLog.md sec 31.10): `merged` is each property as it
+     * (docs/TransactionLogJournal.md sec 31.10): `merged` is each property as it
      * goes in, `notes` what was done to the things theirs changed. False
      * where the object cannot, or will not -- the result is not one it
      * would stand behind -- and the unit is then one question, a side for
@@ -590,7 +627,7 @@ public:
      * A merge moves things to other places, and an expression that says a
      * place then says another thing; so before a merge every thing named
      * by its place is given a name, and the expressions say the name
-     * (docs/TransactionLog.md sec 31.11). False where there are none.
+     * (docs/TransactionLogJournal.md sec 31.11). False where there are none.
      */
     virtual bool getMergePlaces(const MergeUnitState& at, std::string& prop,
                                 std::vector<MergePlace>& places) const;
@@ -600,7 +637,7 @@ public:
     virtual bool nameMergePlaces(MergeUnitState& at, const std::vector<std::string>& names) const;
 
     /** The numbers this object gives the things it holds, where another
-     * copy of its file gave them (docs/TransactionLog.md sec 31.14). Two
+     * copy of its file gave them (docs/TransactionLogJournal.md sec 31.14). Two
      * copies of a file number on from one counter, so a number the copy
      * gave since they parted is not the thing this file gave it to.
      * `fragment` is `prop` as the copy saved it, and is given back saying
@@ -621,7 +658,7 @@ public:
      */
     virtual bool importMintedName(std::string& name, const std::map<long, long>& ids) const;
     /** One value of `prop` as two copies of the file hold it, each under
-     * its own numbers (docs/TransactionLog.md sec 31.15): `theirs` as the
+     * its own numbers (docs/TransactionLogJournal.md sec 31.15): `theirs` as the
      * copy saved it in a row, `ours` as this file saved it in the same
      * row -- one of the two replayed the other's. What the two say of
      * each other's numbers goes into `ids`, the copy's to this file's; a
@@ -632,7 +669,7 @@ public:
                                const std::string& ours, std::map<long, long>& ids) const;
 
     /** Whether `prop` of this object is merged by the things it holds
-     * (Property::splitSaved, docs/TransactionLog.md sec 31.8) where two
+     * (Property::splitSaved, docs/TransactionLogJournal.md sec 31.8) where two
      * branches both changed it. A property that takes its values apart by
      * something of their own -- cells, expressions -- always may. A list
      * of links may only where the object says its order means nothing: a
@@ -979,6 +1016,12 @@ protected:
     /// get called when a property status has changed
     void onPropertyStatusChanged(const Property &prop, unsigned long oldStatus) override;
 
+    /** For handleChangedPropertyName(): a `Uid` property of an older file,
+     * which the classes that had one of their own wrote, is read for the
+     * object's UID (docs/TransactionLogJournal.md sec 36.7). True if it was one.
+     */
+    bool restoreUidProperty(Base::XMLReader &reader, const char *TypeName, const char *PropName);
+
 private:
     void printInvalidLinks() const;
 
@@ -1000,6 +1043,8 @@ private:
 
     // unique identifier (among a document) of this object.
     long _Id{0};
+    // sec 36, set by App::Document
+    std::string _uid;
 
 private:
     // Back pointer to all the fathers in a DAG of the document

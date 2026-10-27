@@ -38,6 +38,7 @@
 # include <QTimer>
 # include <QPainter>
 # include <QPainterPath>
+# include <QAbstractScrollArea>
 # include <QScrollBar>
 # include <QSplitter>
 # include <QVBoxLayout>
@@ -57,6 +58,7 @@
 #include "TaskView/TaskPanelHost.h"
 #include "OpenViewParams.h"
 #include "OverlayManager.h"
+#include "OverlayScrollBars.h"
 #include "OverlayWidgets.h"
 #include "View3DInventor.h"
 #include "ViewPlacement.h"
@@ -866,14 +868,31 @@ void ViewAreaCell::placeChrome()
     // along the right and the bottom edge, which is where the two corner
     // zones are: on top of a bar's arrow a zone can neither be seen well
     // nor the arrow be reached. Each steps aside by the bar it would lie
-    // on.
+    // on. Not for bars laid over the view (Gui::OverlayScrollBars), shown
+    // only while it scrolls: the zones keep their corners and those bars
+    // stop short of them (below), or a zone would hop each time they show.
     int right = 0;
     int bottom = 0;
+    QVector<OverlayScrollBars*> overlaid;
     if (_child) {
         const QRect topRight(width() - z, 0, z, z);
         const QRect bottomLeft(0, height() - z, z, z);
+        const auto areas = _child->findChildren<QAbstractScrollArea*>();
+        for (QAbstractScrollArea *a : areas) {
+            if (auto laid = OverlayScrollBars::of(a))
+                overlaid.push_back(laid);
+        }
+        auto isOverlaid = [&overlaid](QScrollBar *bar) {
+            for (OverlayScrollBars *laid : overlaid) {
+                if (laid->bar(bar->orientation()) == bar)
+                    return true;
+            }
+            return false;
+        };
         const auto bars = _child->findChildren<QScrollBar*>();
         for (QScrollBar *bar : bars) {
+            if (isOverlaid(bar))
+                continue;
             // told when one comes or goes (eventFilter); once is enough,
             // Qt keeps a filter installed twice only once
             bar->installEventFilter(this);
@@ -953,6 +972,15 @@ void ViewAreaCell::placeChrome()
     _zoneTopRight->setGeometry(topRight);
     _zoneBottomLeft->setGeometry(bottomLeft);
     _menuButton->setGeometry(menu);
+    for (OverlayScrollBars *laid : overlaid) {
+        auto a = qobject_cast<QAbstractScrollArea*>(laid->parent());
+        if (!a)
+            continue;
+        QRegion keep;
+        for (const QRect &r : {topRight, bottomLeft, menu})
+            keep += QRect(a->mapFrom(this, r.topLeft()), r.size());
+        laid->keepClear(keep);
+    }
 }
 
 bool ViewAreaCell::eventFilter(QObject *watched, QEvent *ev)
@@ -993,6 +1021,11 @@ MDIView *ViewAreaCell::releaseView()
     // Cleared first: the reparenting below delivers ChildRemoved, which
     // must read as an intentional release, not the child being torn away.
     _child = nullptr;
+    // its bars laid over it run to its corners again
+    for (QAbstractScrollArea *a : view->findChildren<QAbstractScrollArea*>()) {
+        if (auto laid = OverlayScrollBars::of(a))
+            laid->keepClear(QRegion());
+    }
     QObject::disconnect(view, nullptr, _area, nullptr);
     QObject::disconnect(view, &MDIView::message,
                         getMainWindow(), &MainWindow::showMessage);

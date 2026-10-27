@@ -34,7 +34,7 @@ namespace App
 class Document;
 struct CapturedValue;
 
-/** What a value says of itself in a line (docs/TransactionLog.md sec
+/** What a value says of itself in a line (docs/TransactionLogJournal.md sec
  * 32.35), where the log's text of it says nothing to a reader: a shape's
  * kind, how many of each of its elements, its volume and its size. `facts`
  * are the same as numbers, by name.
@@ -57,6 +57,13 @@ AppExport void registerValueSummary(ValueSummariser fn);
 /// module knows it.
 AppExport bool summariseValue(const Document& doc, const CapturedValue& value,
                               ValueSummary& out);
+
+/// The same for the value the log holds as `ref`. A ref names its bytes, so
+/// what it says never changes: said once, then remembered (the newest few
+/// hundred), so that a panel or a reader asking again does not build and
+/// measure the shape again (sec 39.3, G3).
+AppExport bool summariseValue(const Document& doc, const std::string& ref,
+                              const CapturedValue& value, ValueSummary& out);
 
 } // namespace App
 

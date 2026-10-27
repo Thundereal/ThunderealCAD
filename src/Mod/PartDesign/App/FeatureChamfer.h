@@ -45,6 +45,8 @@ public:
     App::PropertyAngle Angle;
     App::PropertyBool FlipDirection;
     App::PropertyBool UseAllEdges;
+    App::PropertyBool RemoveSlivers;
+    App::PropertyBool PastFeatures;
 
     Part::PropertyChamferEdges ChamferInfo;
     /// A colour the user picked for an edge group's handles: the group id

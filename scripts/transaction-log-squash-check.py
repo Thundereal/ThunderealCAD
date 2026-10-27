@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 16.7, the squash, as the log panel
+# GUI check of docs/TransactionLogJournal.md sec 16.7, the squash, as the log panel
 # offers it: the versions list's menu entry, the list of versions to squash
 # from, the confirmation, the rows folded into one, and what the log refuses
 # said in the status line. One GUI run in a fresh user home, given this

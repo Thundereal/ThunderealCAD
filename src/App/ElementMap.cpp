@@ -261,11 +261,54 @@ inline std::ostream & operator << (std::ostream &s, const QByteArray &bytes)
 // any shape sharing is lost. But again, we do want to keep separate shape files
 // because of partial loading. The same technique used here can be applied to
 // restore shape sharing.
+//
+// The id is not one-time any more (docs/TransactionLogJournal.md sec 38.15): a map
+// keeps the id it was last saved or read under, and a save gives it that id
+// again unless another map of the same save took it first. A map with none,
+// or whose id is taken, gets one above every id given or read in this
+// process (LastId), so it cannot take one a later map of the save still
+// holds. A folder save keeps an object's file only when this save numbers
+// its maps as the file does, so an id kept across saves is what lets an
+// edit that adds or drops a map leave the files of the objects after it.
 static std::unordered_map<const ElementMap*, unsigned> ToId;
+static std::unordered_set<unsigned> UsedIds;    ///< the ids this save gave
+static std::atomic<unsigned> LastId{0};
 static std::unordered_map<unsigned, ElementMapPtr> _IdToElementMap;
+
+void startElementMapNumbering()
+{
+    ToId.clear();
+    UsedIds.clear();
+}
+
+/// Raise LastId to `id`, if below.
+static void noteLastId(unsigned id)
+{
+    unsigned last = LastId.load();
+    while (last < id && !LastId.compare_exchange_weak(last, id)) {
+    }
+}
 
 namespace {
 thread_local Data::ElementMapIdScope* idScope = nullptr;
+thread_local std::vector<unsigned>* idCollector = nullptr;
+}
+
+Data::ElementMapIdCollector::ElementMapIdCollector(std::vector<unsigned>& ids)
+    : _outer(idCollector)
+{
+    idCollector = &ids;
+}
+
+Data::ElementMapIdCollector::~ElementMapIdCollector()
+{
+    idCollector = _outer;
+}
+
+void Data::ElementMapIdCollector::note(unsigned id)
+{
+    if (idCollector && !idScope)
+        idCollector->push_back(id);
 }
 
 Data::ElementMapIdScope::ElementMapIdScope()
@@ -302,6 +345,7 @@ static unsigned savedId(const ElementMap* map, unsigned id)
 {
     if (auto scope = Data::ElementMapIdScope::current())
         return scope->idOf(map);
+    Data::ElementMapIdCollector::note(id);
     return id;
 }
 
@@ -316,7 +360,7 @@ static ElementMapPtr& restoredMap(unsigned id)
 // A map that a value given to another thread holds -- a shape's copy the
 // transaction log saves on its worker, the auto saver on its pool -- is read
 // there with no lock, and a map is edited in place, with no copy made for
-// whoever else holds it (docs/TransactionLog.md sec 31.28). So a map is
+// whoever else holds it (docs/TransactionLogJournal.md sec 31.28). So a map is
 // counted as held from the handover until its reader is done, and a name
 // made meanwhile waits beside the map and is taken in afterwards (sec
 // 31.31). The check: an edit of a map while it is held is counted and
@@ -468,11 +512,11 @@ public:
             inited = true;
             App::GetApplication().signalStartSaveDocument.connect(
                 [](const App::Document &, const std::string &) {
-                    ToId.clear();
+                    Data::startElementMapNumbering();
                 });
             App::GetApplication().signalFinishSaveDocument.connect(
                 [](const App::Document &, const std::string &) {
-                    ToId.clear();
+                    Data::startElementMapNumbering();
                 });
             App::GetApplication().signalStartRestoreDocument.connect(
                 [](const App::Document &) {
@@ -486,10 +530,19 @@ public:
     }
 
     void beforeSave(const App::StringHasherRef & hasher) const {
-        unsigned & id = ToId[this];
-        if (!id)
-            id = ToId.size();
+        auto res = ToId.emplace(this, 0);
+        if (res.second) {
+            // The id it had, unless a map of this save took it already
+            unsigned id = this->_id;
+            if (!id || !UsedIds.insert(id).second) {
+                id = ++LastId;
+                UsedIds.insert(id);
+            }
+            res.first->second = id;
+        }
+        const unsigned id = res.first->second;
         this->_id = id;
+        Data::ElementMapIdCollector::note(id);
         
         for (auto & v : this->indexedNames) {
             for (const MappedNameRef & ref : v.second.names) {
@@ -705,6 +758,7 @@ public:
         std::string tmp;
         if (! (s >> id >> tmp >> count) || tmp != "PostfixCount")
             FC_THROWM(Base::RuntimeError, msg);
+        Data::ElementMapIdCollector::note(id);
 
         auto & map = restoredMap(id);
         if (map)
@@ -717,7 +771,7 @@ public:
             s >> postfixes.back();
         }
         // One buffer per saved postfix, which every name ending in it
-        // shares (docs/TransactionLog.md sec 27.77).
+        // shares (docs/TransactionLogJournal.md sec 27.77).
         std::vector<QByteArray> postfixBytes;
         postfixBytes.reserve(count);
         for (auto &p : postfixes)
@@ -749,6 +803,7 @@ public:
         unsigned id = 0;
         if (! (s >> tmp >> index >> id >> typeCount) || tmp != "ElementMap")
             FC_THROWM(Base::RuntimeError, msg);
+        Data::ElementMapIdCollector::note(id);
 
         auto & map = restoredMap(id);
         if (map) {
@@ -759,6 +814,11 @@ public:
             return map;
         }
         map = shared_from_this();
+        // Saved under it again (sec 38.15); an id of a scope is its own.
+        if (!Data::ElementMapIdScope::current()) {
+            this->_id = id;
+            noteLastId(id);
+        }
         changed("restore");
         dropPending();
 
@@ -955,7 +1015,7 @@ public:
      * A name made by an op gets its postfix from a stream of its own
      * (encodeElementName), so the names one op gives the same op code and
      * tag each held a copy -- 51,140 buffers for 6,054 texts on
-     * scanner.FCStd (docs/TransactionLog.md sec 27.77).
+     * scanner.FCStd (docs/TransactionLogJournal.md sec 27.77).
      */
     MappedName withSharedPostfix(const MappedName &name)
     {
@@ -1161,7 +1221,7 @@ public:
                 // The strings the child's postfix names by id are held by
                 // the child, and so by every name read through it: one that
                 // is written down as a name of its own has nothing else to
-                // hold them (docs/TransactionLog.md sec 33.2).
+                // hold them (docs/TransactionLogJournal.md sec 33.2).
                 if (sids)
                     *sids += child.sids;
                 return name;
@@ -2475,7 +2535,7 @@ void ComplexGeoData::Save(Base::Writer &writer) const {
 
 /// The table a map being restored names its ids in: the geometry's own,
 /// 'own' -- or, for a value of another copy of the file
-/// (App::RestoreStrings, docs/TransactionLog.md sec 30.16), that copy's,
+/// (App::RestoreStrings, docs/TransactionLogJournal.md sec 30.16), that copy's,
 /// from which the map is then taken into 'own' by content.
 static App::StringHasherRef restoreTable(const App::StringHasherRef &own)
 {

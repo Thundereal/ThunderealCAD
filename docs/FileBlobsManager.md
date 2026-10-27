@@ -919,7 +919,7 @@ is not installed -- still pays two `sys.path` walks per object (8.6 ms per
 
 Status: **design, not built.** Asked for by the user on 2026-09-24 after a
 recovery cleanup froze the GUI for about two minutes. To be coordinated with
-the `Transaction` branch (`docs/TransactionLog.md`, developed by the `oplab`
+the `Transaction` branch (`docs/TransactionLogJournal.md`, developed by the `oplab`
 session), which adds far more referrers to this store than everything else
 put together.
 
@@ -942,7 +942,7 @@ Where loose blob files still come from:
 - **Included files made in the session**: imports, materials, MaterialX
   manifests, TechDraw templates -- every `insertFile()` / `adoptFile()` /
   `adoptBytes()` call site.
-- **The transaction log, as designed.** `docs/TransactionLog.md` sec 13.2 and
+- **The transaction log, as designed.** `docs/TransactionLogJournal.md` sec 13.2 and
   23.1 keep values over a threshold (64 KB to start) as files in this store,
   and version snapshots add more. Every commit that touches a large shape adds
   a file, and a long session with many versions multiplies them. Reverse
@@ -1005,12 +1005,12 @@ large files.
   50%) is rewritten: live ranges copied to the current segment, their index
   rows updated in one SQLite transaction, then the old segment deleted. It runs
   on a worker thread, never the GUI's. The log's collector
-  (`docs/TransactionLog.md` sec 23.5) marks dead entities and feeds the same
+  (`docs/TransactionLogJournal.md` sec 23.5) marks dead entities and feeds the same
   pass.
 - **Crashes and orphans.** A transient directory becomes a few segments, an
   index and a handful of materialized files, so a leftover costs a few deletes
   instead of tens of thousands. The index database is also where session-mode
-  crash recovery (`docs/TransactionLog.md` sec 13.3) finds the blobs of the
+  crash recovery (`docs/TransactionLogJournal.md` sec 13.3) finds the blobs of the
   log's tail.
 - **Browser and mobile.** Segment files and SQLite both work on OPFS (SQLite
   has an official WASM build with OPFS persistence), so nothing here closes off
@@ -1018,7 +1018,7 @@ large files.
 
 ### 15.3 What it changes for the transaction log
 
-`docs/TransactionLog.md` sec 23.1 says where an entity's bytes live is "a
+`docs/TransactionLogJournal.md` sec 23.1 says where an entity's bytes live is "a
 backend detail chosen by size: small inline in `data`, large as a file in the
 document's `FileBlobManager`". With this store the large case is a range in a
 segment, not a file. Two consequences:
@@ -1055,7 +1055,7 @@ slower.
   means one transaction covers a log commit and the blobs it names; separate
   means the store works without the log. Decide with the `Transaction` branch.
 - Encoding: shapes are text BREP by default and compress about 4:1 with zstd
-  (`docs/TransactionLog.md` sec 20.1). Compress in the segment, or keep them raw
+  (`docs/TransactionLogJournal.md` sec 20.1). Compress in the segment, or keep them raw
   so a range can be handed to a reader without inflating?
 - Whether a save could make a copy of the **saved archive** the new read-only
   segment, as restore does, instead of appending the shapes it just wrote.
@@ -1068,7 +1068,7 @@ What code outside the store relies on, and must mean the same over segments:
 
 - `FileBlobHandle` as the reference and its count as the lifetime.
 - `FileBlob::read()` returns the bytes wherever they live -- the log's cold
-  undo and restore-to-version (TransactionLog.md sec 24, being built now)
+  undo and restore-to-version (TransactionLogJournal.md sec 24, being built now)
   read through it.
 - `adoptBytes()` stores bytes and deduplicates by hash -- cold undo re-adopts
   decoded blobs through it.
@@ -1084,7 +1084,7 @@ in this repository yet) merge in when the branches meet.
 **The answers to 15.5.**
 
 - The index is its own database, `blobs/index.db`: the log replaces its own
-  database at run time (an embedded copy is adopted, `docs/TransactionLog.md`
+  database at run time (an embedded copy is adopted, `docs/TransactionLogJournal.md`
   16.4) and would take a blob index with it.
 - New content is **zstd**. What a segment holds is a zip member, so each
   member carries its own method: zstd (zip method 93) for content this
@@ -1151,7 +1151,7 @@ not open a schema 5 file's blob entries.
 **Unchanged.** `FileBlobHandle` as reference and refcount as lifetime,
 `read()` returning bytes wherever they live, `adoptBytes()` storing by
 hash, `path()` materialising on demand (15.6 on the other side). The
-transaction log relies on nothing else (`docs/TransactionLog.md` 23.1,
+transaction log relies on nothing else (`docs/TransactionLogJournal.md` 23.1,
 note of 2026-09-24).
 
 **Next: phase 0 (15.4) on this box** -- file per blob, everything in SQLite,
@@ -1178,7 +1178,7 @@ nothing it would hold is not already in the segments or in memory.
 **Nothing persisted names a segment.** The segments' directories name
 members by hash; the saved FCStd names blob entries without segments; the
 transaction log names a blob by its hash (`enc = file` is "the store's copy
-of this hash", `docs/TransactionLog.md` 23.16). Where a blob lives is always
+of this hash", `docs/TransactionLogJournal.md` 23.16). Where a blob lives is always
 answered by looking, never by a stored pointer.
 
 **Merges are allowed, occasionally.** Several segments each under a small
@@ -1465,3 +1465,31 @@ Not built yet: the recovery pass of 15.8 (reading several segments'
 directories, the newest number winning, finishing an interrupted merge) --
 that is phase 7 with the log's session recovery; a store opens fresh
 today and numbers its segments past any it finds.
+
+### 15.12 A small append segment (docs/TransactionLogJournal.md sec 37.4 P8, 2026-10-21)
+
+A batch added to the segment being written to rewrote it whole: the
+live members carried into the next generation, then the new ones. With
+`BlobSegmentSize` at 64 MB that made a commit that wrote one small blob
+copy up to 64 MB of what was there already -- write amplification, not
+size. Ruled yes with the other storage proposals of 37.4.
+
+As built: a batch adds to the append segment only while it holds less
+than `BlobAppendSize` (new preference, KB, default 1024, at most
+`BlobSegmentSize`); past that it starts a new segment, so what a commit
+writes besides its own content is bounded by that, not by the segment
+cap. A batch bigger than that still fills one segment up to the cap: that
+is new content, written once.
+
+The small segments this leaves behind are merged by `maintain()`, which
+merged any run of two or more segments under a quarter of the cap. That
+rule would now rewrite a growing merged segment again for every small one
+that followed it, so the merge is size-tiered: the small segments in
+ascending order of live bytes, and a group grows only by a segment no
+larger than the group so far -- none of it more than half of it. Each
+byte is then merged a logarithmic number of times. The append segment
+itself is never merged, as before.
+
+Test: `FileBlobs.BlobPackStoreCases.testASaveRewritesNoMoreThanTheAppendCap`
+(20 saves of a 1000-byte blob each, append cap 4 KB: no segment file
+written is over the cap plus one batch).

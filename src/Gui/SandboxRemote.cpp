@@ -131,7 +131,7 @@ std::vector<uint8_t> dispatch(App::Document* doc, const Render::SceneBridgeReque
         e.table.setOwner(face);
         Py_DECREF(face);
         App::ExpressionSecurity::Runtime::Scope scope(doc, client);
-        // What the guest writes is its connection's (docs/TransactionLog.md
+        // What the guest writes is its connection's (docs/TransactionLogJournal.md
         // sec 30.3 S.b).
         App::ActorScope actor(SceneActors::of(req.client));
         std::string opName;

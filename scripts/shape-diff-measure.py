@@ -1,4 +1,4 @@
-# shape-diff-measure.py : docs/TransactionLog.md sec 32.4 step 1 and sec 32.5 -- how the faces of two states of
+# shape-diff-measure.py : docs/TransactionLogJournal.md sec 32.4 step 1 and sec 32.5 -- how the faces of two states of
 # one object's shape pair up after the edits a user makes: by name, by name once the steps only one side has are
 # taken out of it, by geometry, by the faces around. A measurement, not a check; it prints "SD ..." lines.
 #

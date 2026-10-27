@@ -87,17 +87,24 @@ private Q_SLOTS:
 protected:
     void changeEvent(QEvent *e) override;
     void refresh() override;
+    /// An edge's row from the feature: its group, mode and points
+    void refreshEdgeRow(QTreeWidgetItem *item);
     void onNewItem(QTreeWidgetItem *item) override;
     bool isBaseItem(QTreeWidgetItem *item) const override;
     void syncOtherItems() override;
     void populateOtherItems() override;
+    /// An edge's radii are in the rows under it: the first one's, the
+    /// default radius for an edge without any
+    QVariant sortValue(QTreeWidgetItem *item, int column) const override;
     void onRefDeleted() override;
     void finishedRecomputeFeature() override;
     void heldStepRolledBack() override;
     /// The dragged value's edges among the fillet's failed ones
     bool isDragFailing() const override;
     int itemGroup(QTreeWidgetItem* item) const override;
+    std::vector<int> groupIds() const override;
     Gui::Gizmo* itemHandle(QTreeWidgetItem* item) const override;
+    std::string handleEdge(Gui::Gizmo* gizmo) const override;
     void groupColorsChanged() override;
 
     void removeSegments();

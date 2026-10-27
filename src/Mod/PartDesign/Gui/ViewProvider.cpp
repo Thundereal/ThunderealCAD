@@ -257,7 +257,7 @@ bool ViewProvider::setEdit(int ModNum)
         }
 
         PartDesignGui::beforeEdit(getObject());
-        Gui::Control().showDialog(featureDlg);
+        PartDesignGui::showTaskDialog(featureDlg);
         return true;
     }
     case EditToggleSupress: {

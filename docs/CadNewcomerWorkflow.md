@@ -80,7 +80,7 @@ Fusion "only to describe compatibility" [1].
   (`Utils.cpp` 155-195); `PartDesign_NewSketch` makes a body when the document
   has none (`Command.cpp` 594-609).
 - `PartDesign::Feature::Suppress` exists (`Feature.h` 57).
-- docs/TransactionLog.md: an append-only log of document transactions, with
+- docs/TransactionLogJournal.md: an append-only log of document transactions, with
   versions and branches, Onshape as the blueprint (its sec 8.1, 16). Its own
   survey notes: "Fusion's timeline is the feature list, not an undo log"
   (sec 19). See section 6 item 7.
@@ -199,7 +199,7 @@ Fusion "only to describe compatibility" [1].
 - History. The Feature list is "a parametric history of work, containing a
   Rollback bar" [29]; drag it, right-click a feature for "Roll to here", the
   arrow keys step it [28]. Separately, the version graph (versions, branches,
-  per-user undo as forward operations) -- the blueprint of TransactionLog.md
+  per-user undo as forward operations) -- the blueprint of TransactionLogJournal.md
   sec 16 and its sources.
 - Sketch. A sketch is a feature in the list (gk); its dialog is accepted with
   the checkmark like any feature (gk). Sketch keys: l line, c circle, d
@@ -438,7 +438,7 @@ fork to do the same:
    visibility -- show an earlier feature and that is the part at that step --
    which is faster than a rollback, because nothing is recomputed; Set tip
    is there when later features should really be ignored. None of this is the
-   undo/redo transaction history (docs/TransactionLog.md), which Fusion has
+   undo/redo transaction history (docs/TransactionLogJournal.md), which Fusion has
    too and which is a different thing. What a Fusion user lacks is only the
    word: they look for "timeline" and "rollback", which proposal 7.1's
    aliases and 7.2's "coming from" help can point at the Body tree and at
@@ -673,7 +673,7 @@ features already are that history, and visibility already rewinds it,
 faster than a rollback because nothing recomputes (section 6 item 7). A
 second widget over the same list adds nothing; the words "timeline" and
 "rollback" go into 7.1's aliases instead. The undo/redo transaction history
-stays a separate thing (docs/TransactionLog.md).
+stays a separate thing (docs/TransactionLogJournal.md).
 
 ### 7.8 Extrude-with-operation as a panel switch -- value medium, size M, later
 

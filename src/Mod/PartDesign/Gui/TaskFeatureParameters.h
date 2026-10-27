@@ -79,7 +79,14 @@ public:
 
     virtual void refresh() {}
 
-    void setupTransaction();
+    /** Opens the step the change about to be made goes in. With fineUndo,
+     * \a what says in a few words what the change is, and the step is named
+     * "<label>: <what>" -- "Fillet004: Edge12 to group 1" -- where every step
+     * was "Edit <name>" (docs/HandsOnQueue.md entry 228, the reporter: "add
+     * some concise descript for each edit steps in partdesign editing
+     * task"). A step open already keeps its name.
+     */
+    void setupTransaction(const QString& what = QString());
 
     int getTransactionID() const {
         return transactionID;
@@ -193,6 +200,8 @@ protected:
         QPointer<QWidget> widget;
         QString text;
         QString altText;
+        /// the widget's own minimum width, back once it stops blinking
+        int minWidth = 0;
         void setText(const QString &text);
     };
     std::unordered_map<void*, BlinkInfo> blinkWidgets;

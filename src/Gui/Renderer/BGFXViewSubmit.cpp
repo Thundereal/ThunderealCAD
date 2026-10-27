@@ -824,7 +824,7 @@ bool BGFXView::submitInstanced(const Render::DrawCall &draw, const float *data,
     // UI overlays (NaviCube faces, etc.) are flat chrome with baked
     // textures: light them uniformly so faces don't darken by angle.
     // An overlay drawn with the scene's camera is not chrome: the two
-    // states of a shape in an edit (docs/TransactionLog.md sec 32.19), a
+    // states of a shape in an edit (docs/TransactionLogJournal.md sec 32.19), a
     // feature's preview, a dragger -- lit as Coin lights them.
     if (overlayView >= 0 && !overlayInScene)
         shaded = false;

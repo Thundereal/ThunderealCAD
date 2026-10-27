@@ -109,7 +109,7 @@ public:
      * its text shows -- and any id the text names that the map does not
      * know (a name made on demand, such as a wire's). A reference into the
      * element holds them, so the string table keeps what it names
-     * (docs/TransactionLog.md sec 27.75).
+     * (docs/TransactionLogJournal.md sec 27.75).
      *
      * @param element: the element part of a sub-name, mapped or indexed
      */
@@ -215,7 +215,7 @@ public:
      * taken from that branch.
      *
      * A reference a merge takes names its element by the number it has in
-     * the other branch's value of the geometry (docs/TransactionLog.md sec
+     * the other branch's value of the geometry (docs/TransactionLogJournal.md sec
      * 31.22), which is no generation this feature ever had.  The feature
      * makes a property of its own to hold that value and returns it for the
      * caller to fill.  From then on it is what 'referrer' is answered from

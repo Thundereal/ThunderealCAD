@@ -1924,7 +1924,7 @@ the two refusals that touch nothing, the undo answered with the stacks and the c
 told its selection is empty while the length is back and the room empty on the GUI
 thread, the redo forward again, and an undo deeper than the stack refused.
 
-**Amended 2026-10-04 (docs/TransactionLog.md sec 30.10).** With the transaction log on,
+**Amended 2026-10-04 (docs/TransactionLogJournal.md sec 30.10).** With the transaction log on,
 which it is by default, the stack a client's `undo` works on is its own: the steps its
 user made, the desktop's being the desktop user's. `undos` and `redos` in the reply are
 that user's, `NothingToUndo` counts them, and an undo of a step someone else has since
@@ -2394,7 +2394,7 @@ In headful Chrome (viewer-harness `sk-pick-*.png`, `touch-preview-*.png`,
 ### 8.11c Questions a command asks: ask, roll back, replay (design, 2026-10-03)
 
 **Recorded, not built.** It is built after the transaction log
-(`docs/TransactionLog.md` and `docs/MultiViewEdit.md` on the `Transaction`
+(`docs/TransactionLogJournal.md` and `docs/MultiViewEdit.md` on the `Transaction`
 branch) is finished, because it stands on that log's writer branches. Until
 then the browser allowlist of 8.7 stays as it is: a non-host runs the
 sketcher's create tools and the pick tools, and nothing else.
@@ -2430,7 +2430,7 @@ browser that asked cannot see it.
   risky: parked C++ and Python stacks, with Python's thread state saved and
   restored by hand. The hold also blocks every other writer to the document,
   which is the opposite of what the transaction log's concurrent writers are
-  for (`TransactionLog.md` 17.5).
+  for (`TransactionLogJournal.md` 17.5).
 
 **The design.** Nothing is ever parked. An invocation that needs an answer is
 rolled back, its question is shown non-modally, and once the answer arrives
@@ -2442,7 +2442,7 @@ the invocation runs again from its start.
    command sees. The branch merges automatically when the command is done, or
    when it is aborted, which merges nothing. **This applies to editing as
    well:** entering an edit branches out, and finishing or cancelling the edit
-   merges. This is `TransactionLog.md` 17.5's writer branch, scoped to one
+   merges. This is `TransactionLogJournal.md` 17.5's writer branch, scoped to one
    invocation or one edit session. A merge conflict takes 17.5's conflict
    path.
 2. **The first run answers provisionally.** When the command reaches a modal
@@ -2585,7 +2585,7 @@ means transactions tagged by session and *selective* undo -- an operational-tran
 problem on the document, not bookkeeping. With H, one of the two items that are hard
 rather than wide. **Built 2026-10-04** over the transaction log, which is what tags a
 transaction by its author and reads a value back for a selective undo:
-docs/TransactionLog.md sec 30.9 (authors) and 30.10 (each author's own stack). The open
+docs/TransactionLogJournal.md sec 30.9 (authors) and 30.10 (each author's own stack). The open
 transaction and the edit slot are still one per document.
 
 **H. The data -- whole-value write-back.** `SketchObject::Geometry` and `Constraints` are

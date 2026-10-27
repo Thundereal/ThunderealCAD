@@ -837,7 +837,7 @@ QJsonObject valueOp(const QJsonObject& req, const std::string& boundDoc, uint64_
         // A value whose text says nothing to a reader -- a shape's, the start
         // of the geometry's file -- says what it is (sec 32.35)
         App::ValueSummary summary;
-        if (App::summariseValue(*doc, value, summary)) {
+        if (App::summariseValue(*doc, ref, value, summary)) {   // remembered (sec 39.3)
             reply[QLatin1String("summary")] = QString::fromStdString(summary.text);
             QJsonObject facts;
             for (const auto& kv : summary.facts)
@@ -1101,7 +1101,7 @@ QJsonObject snapshotOp(const QJsonObject& req, const std::string& boundDoc, uint
             return sceneControlError(id, "Refused",
                                      QStringLiteral("the document cannot be snapshotted now"));
         if (!name.empty())
-            log->store().nameVersion(num, name);
+            doc->nameLogVersion(num, name);
         QJsonObject reply = placeReply(id, doc, log);
         reply[QLatin1String("version")] = double(num);
         // A version is no row, and nothing else says the list of them moved
@@ -1134,7 +1134,7 @@ QJsonObject nameVersionOp(const QJsonObject& req, const std::string& boundDoc, u
         // branch it is of, since the point
         if (!reach.names(version))
             return notReached(id, reach.writes(version.branch) ? kBeforePoint : kNeedsWrite);
-        if (!log->store().nameVersion(num, name))
+        if (!doc->nameLogVersion(num, name))
             return sceneControlError(id, "Refused", QStringLiteral("not named"));
         QJsonObject reply = placeReply(id, doc, log);
         reply[QLatin1String("version")] = double(num);

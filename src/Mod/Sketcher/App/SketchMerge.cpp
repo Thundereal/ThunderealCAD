@@ -20,7 +20,7 @@
  **************************************************************************/
 
 // A sketch two branches both changed, merged by what it holds
-// (docs/TransactionLog.md sec 31.10): geometry by its id, constraints by
+// (docs/TransactionLogJournal.md sec 31.10): geometry by its id, constraints by
 // what they say of which geometry, and the solver as the judge of the
 // result.
 
@@ -681,7 +681,7 @@ bool SketchObject::nameMergePlaces(MergeUnitState& at, const std::vector<std::st
 }
 
 // Another copy of the file numbers its new geometry on from the counter
-// this file numbers its own from (docs/TransactionLog.md sec 31.14): the
+// this file numbers its own from (docs/TransactionLogJournal.md sec 31.14): the
 // fifth line is `g5` in each, and they are two lines. What an import reads
 // of the copy's says this file's ids.
 

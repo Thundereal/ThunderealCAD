@@ -21,7 +21,7 @@ import time
 clock = time.perf_counter
 
 # Who a test's client is. Only a user who is known may write to a served
-# document (docs/TransactionLog.md sec 30.6 U4): one a front door verified,
+# document (docs/TransactionLogJournal.md sec 30.6 U4): one a front door verified,
 # or one holding an invitation issued to its name. A client here says who
 # it is the first way -- the identity header a front door in front of the
 # server would add (docs/ShareAccess.md sec 4), which the server believes
@@ -43,7 +43,7 @@ PICK_SIZE = 2 + 6 * 4
 def client_undos(doc, name=IDENTITY):
     """How many undo steps the test's client has in `doc`.
 
-    Undo is each author's own (docs/TransactionLog.md sec 30.10): UndoCount
+    Undo is each author's own (docs/TransactionLogJournal.md sec 30.10): UndoCount
     answers for whoever acts, and a test's own script runs as the desktop
     user, whose steps a client's are not among. So the count of what a
     client did is read as that client -- by user, whichever its connection.
@@ -59,7 +59,7 @@ def invitation(token, name):
     """The door for a browser page that edits: its grant list.
 
     A page cannot add a front door's header to its own socket, so it is
-    known the other way (docs/TransactionLog.md sec 30.6 U6): by an
+    known the other way (docs/TransactionLogJournal.md sec 30.6 U6): by an
     invitation the host issued to its one name -- `name` is what the page
     says in its hello, or `?client=` for the viewer. The same token is also
     an open invitation to look, which is what admits the page's plain

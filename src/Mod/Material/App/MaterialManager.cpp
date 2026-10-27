@@ -30,7 +30,11 @@
 #include <QMutexLocker>
 
 #include <App/Application.h>
+#include <App/Document.h>
+#include <App/DocumentObject.h>
 #include <App/MaterialAppearance.h>
+#include <App/PropertyStandard.h>
+#include <Base/AutoColor.h>
 
 #include "Exceptions.h"
 #include "MaterialConfigLoader.h"
@@ -169,9 +173,43 @@ std::shared_ptr<App::MaterialAppearance> MaterialManager::defaultAppearance()
     bool randomColor = hGrp->GetBool("RandomColor", false);
 
     if (randomColor) {
-        float red = static_cast<float>(intRandom(0, 255)) / 255.0F;
-        float green = static_cast<float>(intRandom(0, 255)) / 255.0F;
-        float blue = static_cast<float>(intRandom(0, 255)) / 255.0F;
+        // Its hue the one farthest from those of the shapes shown in the
+        // active document -- the ones a new shape is seen with -- as the
+        // dress-up groups and the tag colours pick theirs (Base::farthestHue,
+        // docs/HandsOnQueue.md entry 210); saturation and value random as
+        // the random colour's were, but kept off grey and off black. A random
+        // colour could land next to a shape's beside it. Random hue too while
+        // a file is read in, or with no coloured shape to stand apart from.
+        float hue = static_cast<float>(intRandom(0, 359)) / 360.0F;
+        if (!App::GetApplication().isRestoring()) {
+            if (auto doc = App::GetApplication().getActiveDocument()) {
+                std::vector<float> taken;
+                for (auto obj : doc->getObjects()) {
+                    if (!obj->Visibility.getValue()) {
+                        continue;
+                    }
+                    auto look = dynamic_cast<App::PropertyAppearanceList*>(
+                        obj->getPropertyByName("ShapeAppearance"));
+                    if (!look || look->getSize() == 0) {
+                        continue;
+                    }
+                    const Base::Color shown = look->getDiffuseColor();
+                    float h, s, v;
+                    Base::rgbToHsv(shown.r, shown.g, shown.b, h, s, v);
+                    // a grey has no hue to keep clear of
+                    if (s > 0.15F) {
+                        taken.push_back(h);
+                    }
+                }
+                if (!taken.empty()) {
+                    hue = Base::farthestHue(taken);
+                }
+            }
+        }
+        const float saturation = static_cast<float>(intRandom(40, 85)) / 100.0F;
+        const float value = static_cast<float>(intRandom(60, 95)) / 100.0F;
+        float red, green, blue;
+        Base::hsvToRgb(hue, saturation, value, red, green, blue);
         mat.diffuseColor = Base::Color(red, green, blue, 1.0);
     }
     else {

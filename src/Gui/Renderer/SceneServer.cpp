@@ -428,7 +428,7 @@ public:
     /// What is asking (SceneGrant::maxUsers): a plain request for
     /// something of the scene, or a hello -- either says which browser it
     /// is and may be enrolled, and one that does not say is none of the
-    /// grant's (docs/TransactionLog.md sec 30.40); a connection judged
+    /// grant's (docs/TransactionLogJournal.md sec 30.40); a connection judged
     /// again, which is enrolled or is not; or a plain request for what is
     /// not the scene's -- the console beacon, which can carry no header,
     /// and a mount's files -- which the token opens whoever holds it.
@@ -463,7 +463,7 @@ public:
     }
 
     /// Whether \a grant is an invitation the host issued to one named
-    /// person, and \a client that person (docs/TransactionLog.md sec 30.6
+    /// person, and \a client that person (docs/TransactionLogJournal.md sec 30.6
     /// U6): it has a token, which is a secret, and its name field spells
     /// a name out rather than a pattern, which is the host saying whose
     /// it is. An easing the server minted for a rename names nobody the
@@ -490,7 +490,7 @@ public:
         return grantList.empty() && !tokenSecret.empty() && !tokenInvitee.empty();
     }
 
-    /// Only a user who is known may write (docs/TransactionLog.md sec
+    /// Only a user who is known may write (docs/TransactionLogJournal.md sec
     /// 30.6 U4): a connection with no verified identity and no
     /// invitation to its name is view-only, whatever its grant says --
     /// the rule a host grant already had for an identity it does not
@@ -3824,7 +3824,7 @@ public:
                         std::lock_guard<std::mutex> guard(connMutex);
                         conn.grant = entry.grant;
                     }
-                    // An invitation is to one name (docs/TransactionLog.md
+                    // An invitation is to one name (docs/TransactionLogJournal.md
                     // sec 30.6 U6): under another the connection is
                     // whoever it says it is, and no longer writes.
                     std::lock_guard<std::mutex> guard(connMutex);

@@ -54,12 +54,15 @@ public:
         signalParamChanged("CompressionLevel");
         signalParamChanged("CheckExtension");
         signalParamChanged("ForceXML");
+        signalParamChanged("BlobCompression");
+        signalParamChanged("FolderSaveSync");
         signalParamChanged("SplitXML");
         signalParamChanged("PreferBinary");
         signalParamChanged("InlineListSize");
         signalParamChanged("ArchiveRandomAccess");
         signalParamChanged("ArchiveBlobStore");
         signalParamChanged("BlobSegmentSize");
+        signalParamChanged("BlobAppendSize");
         signalParamChanged("DeferShapeLoad");
         signalParamChanged("SaveMaterialCards");
         signalParamChanged("DedupShapePCurves");
@@ -91,6 +94,12 @@ public:
         signalParamChanged("TransactionLogDerived");
         signalParamChanged("TransactionLogSnapshotTransactions");
         signalParamChanged("TransactionLogKeepVersions");
+        signalParamChanged("TransactionLogCacheSize");
+        signalParamChanged("TransactionLogCacheValues");
+        signalParamChanged("TransactionLogPullOnSave");
+        signalParamChanged("FileOpenerExpiryDays");
+        signalParamChanged("TransactionLogCoalesceSeconds");
+        signalParamChanged("TransactionLogKeepNamed");
         signalParamChanged("TransactionLogCompactSize");
         signalParamChanged("ClosePinnedVersion");
         signalParamChanged("TransactionLogDeltaHops");
@@ -125,12 +134,15 @@ public:
     long CompressionLevel;
     bool CheckExtension;
     long ForceXML;
+    long BlobCompression;
+    bool FolderSaveSync;
     bool SplitXML;
     bool PreferBinary;
     long InlineListSize;
     bool ArchiveRandomAccess;
     bool ArchiveBlobStore;
     long BlobSegmentSize;
+    long BlobAppendSize;
     bool DeferShapeLoad;
     bool SaveMaterialCards;
     bool DedupShapePCurves;
@@ -162,6 +174,12 @@ public:
     long TransactionLogDerived;
     long TransactionLogSnapshotTransactions;
     long TransactionLogKeepVersions;
+    long TransactionLogCacheSize;
+    long TransactionLogCacheValues;
+    bool TransactionLogPullOnSave;
+    long FileOpenerExpiryDays;
+    long TransactionLogCoalesceSeconds;
+    long TransactionLogKeepNamed;
     long TransactionLogCompactSize;
     long ClosePinnedVersion;
     long TransactionLogDeltaHops;
@@ -207,6 +225,10 @@ public:
         funcs["CheckExtension"] = &DocumentParamsP::updateCheckExtension;
         ForceXML = this->handle->GetInt("ForceXML", 3);
         funcs["ForceXML"] = &DocumentParamsP::updateForceXML;
+        BlobCompression = this->handle->GetInt("BlobCompression", 0);
+        funcs["BlobCompression"] = &DocumentParamsP::updateBlobCompression;
+        FolderSaveSync = this->handle->GetBool("FolderSaveSync", true);
+        funcs["FolderSaveSync"] = &DocumentParamsP::updateFolderSaveSync;
         SplitXML = this->handle->GetBool("SplitXML", true);
         funcs["SplitXML"] = &DocumentParamsP::updateSplitXML;
         PreferBinary = this->handle->GetBool("PreferBinary", false);
@@ -219,6 +241,8 @@ public:
         funcs["ArchiveBlobStore"] = &DocumentParamsP::updateArchiveBlobStore;
         BlobSegmentSize = this->handle->GetInt("BlobSegmentSize", 65536);
         funcs["BlobSegmentSize"] = &DocumentParamsP::updateBlobSegmentSize;
+        BlobAppendSize = this->handle->GetInt("BlobAppendSize", 1024);
+        funcs["BlobAppendSize"] = &DocumentParamsP::updateBlobAppendSize;
         DeferShapeLoad = this->handle->GetBool("DeferShapeLoad", true);
         funcs["DeferShapeLoad"] = &DocumentParamsP::updateDeferShapeLoad;
         SaveMaterialCards = this->handle->GetBool("SaveMaterialCards", true);
@@ -279,8 +303,20 @@ public:
         funcs["TransactionLogDerived"] = &DocumentParamsP::updateTransactionLogDerived;
         TransactionLogSnapshotTransactions = this->handle->GetInt("TransactionLogSnapshotTransactions", 200);
         funcs["TransactionLogSnapshotTransactions"] = &DocumentParamsP::updateTransactionLogSnapshotTransactions;
-        TransactionLogKeepVersions = this->handle->GetInt("TransactionLogKeepVersions", 0);
+        TransactionLogKeepVersions = this->handle->GetInt("TransactionLogKeepVersions", 5);
         funcs["TransactionLogKeepVersions"] = &DocumentParamsP::updateTransactionLogKeepVersions;
+        TransactionLogCacheSize = this->handle->GetInt("TransactionLogCacheSize", 256);
+        funcs["TransactionLogCacheSize"] = &DocumentParamsP::updateTransactionLogCacheSize;
+        TransactionLogCacheValues = this->handle->GetInt("TransactionLogCacheValues", 10000);
+        funcs["TransactionLogCacheValues"] = &DocumentParamsP::updateTransactionLogCacheValues;
+        TransactionLogPullOnSave = this->handle->GetBool("TransactionLogPullOnSave", true);
+        funcs["TransactionLogPullOnSave"] = &DocumentParamsP::updateTransactionLogPullOnSave;
+        FileOpenerExpiryDays = this->handle->GetInt("FileOpenerExpiryDays", 30);
+        funcs["FileOpenerExpiryDays"] = &DocumentParamsP::updateFileOpenerExpiryDays;
+        TransactionLogCoalesceSeconds = this->handle->GetInt("TransactionLogCoalesceSeconds", 3);
+        funcs["TransactionLogCoalesceSeconds"] = &DocumentParamsP::updateTransactionLogCoalesceSeconds;
+        TransactionLogKeepNamed = this->handle->GetInt("TransactionLogKeepNamed", 10);
+        funcs["TransactionLogKeepNamed"] = &DocumentParamsP::updateTransactionLogKeepNamed;
         TransactionLogCompactSize = this->handle->GetInt("TransactionLogCompactSize", 256);
         funcs["TransactionLogCompactSize"] = &DocumentParamsP::updateTransactionLogCompactSize;
         ClosePinnedVersion = this->handle->GetInt("ClosePinnedVersion", 0);
@@ -377,6 +413,14 @@ public:
         self->ForceXML = self->handle->GetInt("ForceXML", 3);
     }
     // Auto generated code (Tools/params_utils.py:314)
+    static void updateBlobCompression(DocumentParamsP *self) {
+        self->BlobCompression = self->handle->GetInt("BlobCompression", 0);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateFolderSaveSync(DocumentParamsP *self) {
+        self->FolderSaveSync = self->handle->GetBool("FolderSaveSync", true);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
     static void updateSplitXML(DocumentParamsP *self) {
         self->SplitXML = self->handle->GetBool("SplitXML", true);
     }
@@ -399,6 +443,10 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateBlobSegmentSize(DocumentParamsP *self) {
         self->BlobSegmentSize = self->handle->GetInt("BlobSegmentSize", 65536);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateBlobAppendSize(DocumentParamsP *self) {
+        self->BlobAppendSize = self->handle->GetInt("BlobAppendSize", 1024);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateDeferShapeLoad(DocumentParamsP *self) {
@@ -522,7 +570,31 @@ public:
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLogKeepVersions(DocumentParamsP *self) {
-        self->TransactionLogKeepVersions = self->handle->GetInt("TransactionLogKeepVersions", 0);
+        self->TransactionLogKeepVersions = self->handle->GetInt("TransactionLogKeepVersions", 5);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogCacheSize(DocumentParamsP *self) {
+        self->TransactionLogCacheSize = self->handle->GetInt("TransactionLogCacheSize", 256);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogCacheValues(DocumentParamsP *self) {
+        self->TransactionLogCacheValues = self->handle->GetInt("TransactionLogCacheValues", 10000);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogPullOnSave(DocumentParamsP *self) {
+        self->TransactionLogPullOnSave = self->handle->GetBool("TransactionLogPullOnSave", true);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateFileOpenerExpiryDays(DocumentParamsP *self) {
+        self->FileOpenerExpiryDays = self->handle->GetInt("FileOpenerExpiryDays", 30);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogCoalesceSeconds(DocumentParamsP *self) {
+        self->TransactionLogCoalesceSeconds = self->handle->GetInt("TransactionLogCoalesceSeconds", 3);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateTransactionLogKeepNamed(DocumentParamsP *self) {
+        self->TransactionLogKeepNamed = self->handle->GetInt("TransactionLogKeepNamed", 10);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateTransactionLogCompactSize(DocumentParamsP *self) {
@@ -665,6 +737,19 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
         .setDoc("How much object data new documents keep inside the XML when saved\n"
 "as a directory. 0 none, 1 lists, 2 also meshes, points and text\n"
 "shapes, 3 also binary shapes, 4 and up also included files."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "BlobCompression", "BlobCompression", App::ParamInfo::Int, 0)
+        .setTitle("Content compression")
+        .setDoc("How new documents compress the content their file carries --\n"
+"shapes, included files, the history: 0 zstd, 1 deflate. Any zip\n"
+"tool extracts deflate, and the extracted folder opens as the\n"
+"document; zstd reads back about twice as fast. Has no effect on a\n"
+"document saved as a directory."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "FolderSaveSync", "FolderSaveSync", App::ParamInfo::Bool, true)
+        .setTitle("Sync a directory save to disk")
+        .setDoc("Flush the files a save of a document kept as a directory changed to\n"
+"the disk before the save counts as done, so that a power loss leaves\n"
+"the previous save or this one, whole. Costs a disk flush per changed\n"
+"file; turn it off on a slow network drive."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "SplitXML", "SplitXML", App::ParamInfo::Bool, true)
         .setTitle("Split XML")
         .setDoc("Give each object an XML file of its own in new documents saved as a\n"
@@ -700,6 +785,13 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
 "whole when content is added to it or dropped from it, so this\n"
 "bounds the cost of every such rewrite. Content over a quarter of\n"
 "it is kept as a file of its own."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "BlobAppendSize", "BlobAppendSize", App::ParamInfo::Int, 1024)
+        .setTitle("Blob Append Size")
+        .setDoc("How full, in KB, the pack store segment new content is added to\n"
+"may be before the next batch starts another (docs/TransactionLogJournal.md\n"
+"sec 37.4 P8): adding rewrites that segment whole, so this bounds\n"
+"what a commit writes besides its own content. The small segments\n"
+"left behind are merged in the background. At most BlobSegmentSize."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "DeferShapeLoad", "DeferShapeLoad", App::ParamInfo::Bool, true)
         .setTitle("Defer Shape Load")
         .setDoc("When opening a document, read each shape on first use instead of\n"
@@ -829,7 +921,7 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
 "When off, refreshing leaves the undo and redo history alone."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLog", "TransactionLog", App::ParamInfo::Int, 2)
         .setTitle("Transaction Log")
-        .setDoc("Transaction log mode (docs/TransactionLog.md sec 13.3, 27.5). The\n"
+        .setDoc("Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The\n"
 "log is always on; what this chooses is whether a save writes the\n"
 "history into the file: 2 (the default) writes it, 1 keeps it in\n"
 "the document transient directory only, where it dies with the\n"
@@ -850,22 +942,61 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
 "none. A snapshot serialises the document like a save, without\n"
 "writing an archive. With the time rule of AutoSaveTimeout, it\n"
 "bounds how much a crash recovery replays (sec 25.3)."),
-    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogKeepVersions", "TransactionLogKeepVersions", App::ParamInfo::Int, 0)
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogKeepVersions", "TransactionLogKeepVersions", App::ParamInfo::Int, 5)
         .setTitle("Transaction Log Keep Versions")
-        .setDoc("How many unnamed versions the transaction log keeps (sec 16.3):\n"
-"when a version is added, the oldest unnamed ones over this count\n"
-"are evicted -- never a named one, never the newest. 0 keeps all."),
+        .setDoc("How many unnamed versions the transaction log keeps (sec 16.3,\n"
+"37.4 P6): when a version is added, the oldest unnamed ones over\n"
+"this count are evicted -- never a named one, never the newest of\n"
+"a branch. 0 keeps all."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCacheSize", "TransactionLogCacheSize", App::ParamInfo::Int, 256)
+        .setTitle("Transaction Log Cache Size")
+        .setDoc("The budget of the transaction log cache tier, in MB (docs/\n"
+"TransactionLogJournal.md sec 37.13): the shapes recomputes wrote that only\n"
+"the history holds. Past it the oldest go, the quickest to recompute\n"
+"first, down to three quarters; an undo onto one recomputes it. The\n"
+"newest of each property and what a version lists stay. 0 for none."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCacheValues", "TransactionLogCacheValues", App::ParamInfo::Int, 10000)
+        .setTitle("The same budget as TransactionLogCacheSize, in values. 0 sets none.")
+        .setDoc("The same budget as TransactionLogCacheSize, in values. 0 sets none."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogPullOnSave", "TransactionLogPullOnSave", App::ParamInfo::Bool, true)
+        .setTitle("Transaction Log Pull On Save")
+        .setDoc("A save first brings in what another process saved into the file\n"
+"since it was read here, and merges it (docs/TransactionLogJournal.md sec\n"
+"29.8); a conflict stops the save at the merge. Off, the save\n"
+"writes over the file as before. The save lock is taken either way."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "FileOpenerExpiryDays", "FileOpenerExpiryDays", App::ParamInfo::Int, 30)
+        .setTitle("File Opener Expiry Days")
+        .setDoc("A line of the open marker beside a file (.~<name>.open) that names\n"
+"a process of another computer and was not seen -- opened or saved --\n"
+"for this many days is taken as gone (docs/TransactionLogJournal.md\n"
+"sec 39.3): one that ended without closing left the folder never\n"
+"alone again. 0 keeps every line."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCoalesceSeconds", "TransactionLogCoalesceSeconds", App::ParamInfo::Int, 3)
+        .setTitle("Transaction Log Coalesce Seconds")
+        .setDoc("A commit that writes by hand the one property the commit before\n"
+"it wrote, by the same author under the same name and within this\n"
+"many seconds of it, is folded into it: one row of the transaction\n"
+"log and one undo step for the run, as a spinbox or a Python loop\n"
+"makes it (docs/TransactionLogJournal.md sec 37.4 P4). 0 never folds."),
+    App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogKeepNamed", "TransactionLogKeepNamed", App::ParamInfo::Int, 10)
+        .setTitle("Transaction Log Keep Named")
+        .setDoc("How many named versions a saved file carries in its history\n"
+"(docs/TransactionLogJournal.md sec 37.4 P1), the newest first, for a file\n"
+"that does not say (Document.setHistoryRetention): rows older than\n"
+"the oldest version the file carries are left out of it. A version\n"
+"a branch forked from and a pinned one always travel. 0 carries\n"
+"every named version; below 0 carries the whole history."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogCompactSize", "TransactionLogCompactSize", App::ParamInfo::Int, 256)
         .setTitle("Transaction Log Compact Size")
         .setDoc("When the file-scope state of the transaction log is compacted on\n"
-"its own (docs/TransactionLog.md sec 27.48, 27.49), in KB: after a\n"
+"its own (docs/TransactionLogJournal.md sec 27.48, 27.49), in KB: after a\n"
 "trim, a branch deletion or a squash, once the names estimated to be\n"
 "referred to by nothing and the strings of the file hasher nothing\n"
 "holds come to this many bytes together. 0 never."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "ClosePinnedVersion", "ClosePinnedVersion", App::ParamInfo::Int, 0)
         .setTitle("Close Pinned Version")
         .setDoc("When the last link pinned to a version of a file goes, what\n"
-"happens to the document that showed it (docs/TransactionLog.md\n"
+"happens to the document that showed it (docs/TransactionLogJournal.md\n"
 "sec 27.21 Q5): 0 ask, 1 close it, 2 keep it open. With no Gui to\n"
 "ask, 0 keeps it open."),
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "TransactionLogDeltaHops", "TransactionLogDeltaHops", App::ParamInfo::Int, 8)
@@ -888,7 +1019,7 @@ static const App::ParamRegistry::Registrar _DocumentParamsRegistrar({
     App::ParamInfo("App", "DocumentParams", "User parameter:BaseApp/Preferences/Document", "MergeConflictSide", "MergeConflictSide", App::ParamInfo::Int, 0)
         .setTitle("Merge Conflict Side")
         .setDoc("The side a conflict starts on when a merge, or rows applied, are\n"
-"previewed (docs/TransactionLog.md sec 32.17): 0 ours (the default),\n"
+"previewed (docs/TransactionLogJournal.md sec 32.17): 0 ours (the default),\n"
 "1 theirs, 2 none -- it is asked. A side is what the dialog starts\n"
 "each conflict on, and what is merged unless another is picked.\n"
 "Asked, nothing is merged or shown until each conflict has a side.\n"
@@ -1227,6 +1358,69 @@ void DocumentParams::removeForceXML() {
 }
 
 // Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docBlobCompression() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"How new documents compress the content their file carries --\n"
+"shapes, included files, the history: 0 zstd, 1 deflate. Any zip\n"
+"tool extracts deflate, and the extracted folder opens as the\n"
+"document; zstd reads back about twice as fast. Has no effect on a\n"
+"document saved as a directory.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getBlobCompression() {
+    return instance()->BlobCompression;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultBlobCompression() {
+    const static long def = 0;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setBlobCompression(const long &v) {
+    instance()->handle->SetInt("BlobCompression",v);
+    instance()->BlobCompression = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeBlobCompression() {
+    instance()->handle->RemoveInt("BlobCompression");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docFolderSaveSync() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"Flush the files a save of a document kept as a directory changed to\n"
+"the disk before the save counts as done, so that a power loss leaves\n"
+"the previous save or this one, whole. Costs a disk flush per changed\n"
+"file; turn it off on a slow network drive.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const bool & DocumentParams::getFolderSaveSync() {
+    return instance()->FolderSaveSync;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const bool & DocumentParams::defaultFolderSaveSync() {
+    const static bool def = true;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setFolderSaveSync(const bool &v) {
+    instance()->handle->SetBool("FolderSaveSync",v);
+    instance()->FolderSaveSync = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeFolderSaveSync() {
+    instance()->handle->RemoveBool("FolderSaveSync");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
 const char *DocumentParams::docSplitXML() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "Give each object an XML file of its own in new documents saved as a\n"
@@ -1409,6 +1603,38 @@ void DocumentParams::setBlobSegmentSize(const long &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void DocumentParams::removeBlobSegmentSize() {
     instance()->handle->RemoveInt("BlobSegmentSize");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docBlobAppendSize() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"How full, in KB, the pack store segment new content is added to\n"
+"may be before the next batch starts another (docs/TransactionLogJournal.md\n"
+"sec 37.4 P8): adding rewrites that segment whole, so this bounds\n"
+"what a commit writes besides its own content. The small segments\n"
+"left behind are merged in the background. At most BlobSegmentSize.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getBlobAppendSize() {
+    return instance()->BlobAppendSize;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultBlobAppendSize() {
+    const static long def = 1024;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setBlobAppendSize(const long &v) {
+    instance()->handle->SetInt("BlobAppendSize",v);
+    instance()->BlobAppendSize = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeBlobAppendSize() {
+    instance()->handle->RemoveInt("BlobAppendSize");
 }
 
 // Auto generated code (Tools/params_utils.py:397)
@@ -2191,7 +2417,7 @@ void DocumentParams::removeTransactionOnRecompute() {
 // Auto generated code (Tools/params_utils.py:397)
 const char *DocumentParams::docTransactionLog() {
     return QT_TRANSLATE_NOOP("DocumentParams",
-"Transaction log mode (docs/TransactionLog.md sec 13.3, 27.5). The\n"
+"Transaction log mode (docs/TransactionLogJournal.md sec 13.3, 27.5). The\n"
 "log is always on; what this chooses is whether a save writes the\n"
 "history into the file: 2 (the default) writes it, 1 keeps it in\n"
 "the document transient directory only, where it dies with the\n"
@@ -2314,9 +2540,10 @@ void DocumentParams::removeTransactionLogSnapshotTransactions() {
 // Auto generated code (Tools/params_utils.py:397)
 const char *DocumentParams::docTransactionLogKeepVersions() {
     return QT_TRANSLATE_NOOP("DocumentParams",
-"How many unnamed versions the transaction log keeps (sec 16.3):\n"
-"when a version is added, the oldest unnamed ones over this count\n"
-"are evicted -- never a named one, never the newest. 0 keeps all.");
+"How many unnamed versions the transaction log keeps (sec 16.3,\n"
+"37.4 P6): when a version is added, the oldest unnamed ones over\n"
+"this count are evicted -- never a named one, never the newest of\n"
+"a branch. 0 keeps all.");
 }
 
 // Auto generated code (Tools/params_utils.py:405)
@@ -2326,7 +2553,7 @@ const long & DocumentParams::getTransactionLogKeepVersions() {
 
 // Auto generated code (Tools/params_utils.py:413)
 const long & DocumentParams::defaultTransactionLogKeepVersions() {
-    const static long def = 0;
+    const static long def = 5;
     return def;
 }
 
@@ -2342,10 +2569,198 @@ void DocumentParams::removeTransactionLogKeepVersions() {
 }
 
 // Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogCacheSize() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"The budget of the transaction log cache tier, in MB (docs/\n"
+"TransactionLogJournal.md sec 37.13): the shapes recomputes wrote that only\n"
+"the history holds. Past it the oldest go, the quickest to recompute\n"
+"first, down to three quarters; an undo onto one recomputes it. The\n"
+"newest of each property and what a version lists stay. 0 for none.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getTransactionLogCacheSize() {
+    return instance()->TransactionLogCacheSize;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultTransactionLogCacheSize() {
+    const static long def = 256;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogCacheSize(const long &v) {
+    instance()->handle->SetInt("TransactionLogCacheSize",v);
+    instance()->TransactionLogCacheSize = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogCacheSize() {
+    instance()->handle->RemoveInt("TransactionLogCacheSize");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogCacheValues() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"The same budget as TransactionLogCacheSize, in values. 0 sets none.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getTransactionLogCacheValues() {
+    return instance()->TransactionLogCacheValues;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultTransactionLogCacheValues() {
+    const static long def = 10000;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogCacheValues(const long &v) {
+    instance()->handle->SetInt("TransactionLogCacheValues",v);
+    instance()->TransactionLogCacheValues = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogCacheValues() {
+    instance()->handle->RemoveInt("TransactionLogCacheValues");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogPullOnSave() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"A save first brings in what another process saved into the file\n"
+"since it was read here, and merges it (docs/TransactionLogJournal.md sec\n"
+"29.8); a conflict stops the save at the merge. Off, the save\n"
+"writes over the file as before. The save lock is taken either way.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const bool & DocumentParams::getTransactionLogPullOnSave() {
+    return instance()->TransactionLogPullOnSave;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const bool & DocumentParams::defaultTransactionLogPullOnSave() {
+    const static bool def = true;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogPullOnSave(const bool &v) {
+    instance()->handle->SetBool("TransactionLogPullOnSave",v);
+    instance()->TransactionLogPullOnSave = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogPullOnSave() {
+    instance()->handle->RemoveBool("TransactionLogPullOnSave");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docFileOpenerExpiryDays() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"A line of the open marker beside a file (.~<name>.open) that names\n"
+"a process of another computer and was not seen -- opened or saved --\n"
+"for this many days is taken as gone (docs/TransactionLogJournal.md\n"
+"sec 39.3): one that ended without closing left the folder never\n"
+"alone again. 0 keeps every line.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getFileOpenerExpiryDays() {
+    return instance()->FileOpenerExpiryDays;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultFileOpenerExpiryDays() {
+    const static long def = 30;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setFileOpenerExpiryDays(const long &v) {
+    instance()->handle->SetInt("FileOpenerExpiryDays",v);
+    instance()->FileOpenerExpiryDays = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeFileOpenerExpiryDays() {
+    instance()->handle->RemoveInt("FileOpenerExpiryDays");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogCoalesceSeconds() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"A commit that writes by hand the one property the commit before\n"
+"it wrote, by the same author under the same name and within this\n"
+"many seconds of it, is folded into it: one row of the transaction\n"
+"log and one undo step for the run, as a spinbox or a Python loop\n"
+"makes it (docs/TransactionLogJournal.md sec 37.4 P4). 0 never folds.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getTransactionLogCoalesceSeconds() {
+    return instance()->TransactionLogCoalesceSeconds;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultTransactionLogCoalesceSeconds() {
+    const static long def = 3;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogCoalesceSeconds(const long &v) {
+    instance()->handle->SetInt("TransactionLogCoalesceSeconds",v);
+    instance()->TransactionLogCoalesceSeconds = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogCoalesceSeconds() {
+    instance()->handle->RemoveInt("TransactionLogCoalesceSeconds");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *DocumentParams::docTransactionLogKeepNamed() {
+    return QT_TRANSLATE_NOOP("DocumentParams",
+"How many named versions a saved file carries in its history\n"
+"(docs/TransactionLogJournal.md sec 37.4 P1), the newest first, for a file\n"
+"that does not say (Document.setHistoryRetention): rows older than\n"
+"the oldest version the file carries are left out of it. A version\n"
+"a branch forked from and a pinned one always travel. 0 carries\n"
+"every named version; below 0 carries the whole history.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & DocumentParams::getTransactionLogKeepNamed() {
+    return instance()->TransactionLogKeepNamed;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & DocumentParams::defaultTransactionLogKeepNamed() {
+    const static long def = 10;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void DocumentParams::setTransactionLogKeepNamed(const long &v) {
+    instance()->handle->SetInt("TransactionLogKeepNamed",v);
+    instance()->TransactionLogKeepNamed = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void DocumentParams::removeTransactionLogKeepNamed() {
+    instance()->handle->RemoveInt("TransactionLogKeepNamed");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
 const char *DocumentParams::docTransactionLogCompactSize() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "When the file-scope state of the transaction log is compacted on\n"
-"its own (docs/TransactionLog.md sec 27.48, 27.49), in KB: after a\n"
+"its own (docs/TransactionLogJournal.md sec 27.48, 27.49), in KB: after a\n"
 "trim, a branch deletion or a squash, once the names estimated to be\n"
 "referred to by nothing and the strings of the file hasher nothing\n"
 "holds come to this many bytes together. 0 never.");
@@ -2377,7 +2792,7 @@ void DocumentParams::removeTransactionLogCompactSize() {
 const char *DocumentParams::docClosePinnedVersion() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "When the last link pinned to a version of a file goes, what\n"
-"happens to the document that showed it (docs/TransactionLog.md\n"
+"happens to the document that showed it (docs/TransactionLogJournal.md\n"
 "sec 27.21 Q5): 0 ask, 1 close it, 2 keep it open. With no Gui to\n"
 "ask, 0 keeps it open.");
 }
@@ -2500,7 +2915,7 @@ void DocumentParams::removeTransactionLogVerify() {
 const char *DocumentParams::docMergeConflictSide() {
     return QT_TRANSLATE_NOOP("DocumentParams",
 "The side a conflict starts on when a merge, or rows applied, are\n"
-"previewed (docs/TransactionLog.md sec 32.17): 0 ours (the default),\n"
+"previewed (docs/TransactionLogJournal.md sec 32.17): 0 ours (the default),\n"
 "1 theirs, 2 none -- it is asked. A side is what the dialog starts\n"
 "each conflict on, and what is merged unless another is picked.\n"
 "Asked, nothing is merged or shown until each conflict has a side.\n"

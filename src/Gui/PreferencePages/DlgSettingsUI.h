@@ -102,7 +102,7 @@ private:
     Gui::PrefCheckBox *ResizableColumn = nullptr;
     Gui::PrefCheckBox *CheckBoxesSelection = nullptr;
     Gui::PrefCheckBox *HideColumn = nullptr;
-    Gui::PrefCheckBox *HideScrollBar = nullptr;
+    Gui::PrefCheckBox *HideScrollBarInOverlay = nullptr;
     Gui::PrefCheckBox *HideHeaderView = nullptr;
     Gui::PrefCheckBox *TreeToolTipIcon = nullptr;
 

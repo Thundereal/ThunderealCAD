@@ -29,6 +29,7 @@
 #include <deque>
 #include <functional>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -53,7 +54,7 @@ class PropertyContainer;
 class StringHasher;
 class Transaction;
 
-/** The document's transaction log (docs/TransactionLog.md).
+/** The document's transaction log (docs/TransactionLogJournal.md).
  *
  * Written at commit from the in-memory Transaction: one op per object
  * created, removed or changed, one per property touched, with values
@@ -217,9 +218,47 @@ public:
         std::vector<std::pair<std::string, std::string>> blobs;   ///< (hash, ext)
         std::string saveId;
         int64_t version {0};
+        /// Rows the copy left out, older than what it carries (sec 37.4 P1).
+        size_t rowsLeftOut {0};
+        /// The folder's own copy brought up to date (sec 38.9), not the
+        /// store copied whole; the bytes of changes played into it.
+        bool updated {false};
+        size_t changes {0};
+        /// Seconds the copy took, from the store's state to its close.
+        double seconds {0};
+        /// FC_TXNLOG_CHECK_FOLDER (sec 38.9): the copy brought up to date
+        /// was compared with one made whole, and the tables that differ.
+        bool checked {false};
+        std::vector<std::string> differences;
     };
+    /// The copy the last save of this document carried (embed(),
+    /// embedFolder()).
+    const Embedded& lastEmbed() const { return _lastEmbed; }
     /// `trigger`: who asked for the save (SaveTrigger.h), recorded with it
     Embedded embed(const std::string& saveDate, const std::string& trigger = std::string());
+    /** The copy a save to a folder carries (docs/TransactionLogJournal.md sec 38.9),
+     * written to `target`, a file in the save's stage: the folder's own copy
+     * `previous` brought up to date by what changed here since its save,
+     * where the store recorded that; otherwise the store copied whole, as
+     * embed() copies it. `folder` is the folder, the canonical path.
+     */
+    Embedded embedFolder(const std::string& saveDate, const std::string& folder,
+                         const std::string& target, const std::string& previous,
+                         const std::string& trigger = std::string());
+    /** The folder's copy for a save to the log only (sec 27.28, 38.13): as
+     * embedFolder() makes it, carrying the file's own save id and date, as
+     * embedForFile() does, so the guard on open still matches.
+     */
+    Embedded embedFolderForFile(const std::string& saveDate, const std::string& saveId,
+                                const std::string& folder, const std::string& target,
+                                const std::string& previous,
+                                const std::string& trigger = std::string());
+    /// The save embedFolder() wrote for is in the folder: the next save
+    /// of it plays what changed since (sec 38.9).
+    void folderSaved(const std::string& folder, const std::string& saveId);
+    /// Nothing is recorded for a folder any more: the document is saved
+    /// elsewhere, or without its history.
+    void untrackFolder();
     /** The copy a save to the log only puts into the file (sec 27.28): the
      * file's document is not written, so the copy carries the file's own
      * save id and date -- the guard on open then still matches -- and
@@ -250,13 +289,25 @@ public:
      * are in the document's blob store by then (PropertyHistory restored
      * them); the log takes a handle on each.
      */
-    bool adoptStore(const std::string& path);
+    /** The objects an op of a row after `seq` on this branch's chain names
+     * (docs/TransactionLogJournal.md sec 38.12): what changed since the save at
+     * `seq`. False when `seq` is not on the chain, or no longer stored.
+     * `views`, when given, the objects whose view provider an op names
+     * (sec 38.14).
+     */
+    bool objectsChangedSince(int64_t seq, std::set<long>& objects,
+                             std::set<long>* views = nullptr);
+    /// Version `num` is in the store.
+    bool hasVersion(int64_t num);
+    /// `folder`: the folder the copy is from, when it is a folder's own
+    /// (sec 38.9), whose next save then plays what changed since.
+    bool adoptStore(const std::string& path, const std::string& folder = std::string());
     /** The embedded copy of a file edited elsewhere (sec 16.6, 26.2 item
      * 7): adopted as adoptStore() does, every branch of it closed and its
      * `main` renamed `main@<save date>`, and a new, empty `main` opened, so
      * the file as found becomes its first version, numbered on.
      */
-    bool adoptClosed(const std::string& path);
+    bool adoptClosed(const std::string& path, const std::string& folder = std::string());
 
     /// What recover() found.
     struct RecoverInfo
@@ -267,7 +318,7 @@ public:
         std::string label;
         std::string fileName;
     };
-    /** Crash recovery (docs/TransactionLog.md sec 25.2 item 4): take over
+    /** Crash recovery (docs/TransactionLogJournal.md sec 25.2 item 4): take over
      * the log and the blob store a crashed session left in `oldDir`, its
      * transient directory. `history/log.db` moves in with its WAL -- the
      * rows committed and not yet checkpointed -- the blob segments and
@@ -282,6 +333,18 @@ public:
     /// The label and file name a recovery shows before anything is read
     /// (meta `label`, `file`), from a leftover store; false if none.
     static bool readRecoveryMeta(const std::string& oldDir, RecoverInfo& info);
+    /** What a saved file carries of its history (docs/TransactionLogJournal.md sec
+     * 37.4 P1): `named` the newest named versions (0 every one, below 0 the
+     * whole history), `snapshots` the newest unnamed ones of each branch, at
+     * least 1. The store's own (meta `keep_named`, `keep_snapshots`), which
+     * the file carries, else the preferences TransactionLogKeepNamed and
+     * TransactionLogKeepVersions.
+     */
+    static void historyRetention(TransactionStore& store, long& named, long& snapshots);
+    static void setHistoryRetention(TransactionStore& store, long named, long snapshots);
+    /// The versions a link of another file pins (meta `pins`, a line per pin,
+    /// the version first; sec 27): a delete or an un-naming leaves them.
+    static std::set<int64_t> pinnedVersions(TransactionStore& store);
     /// Keep the document's label and file name in `meta` for a recovery.
     void noteIdentity();
     /// Append the `recover` record (sec 25.2), `script` its JSON.
@@ -291,7 +354,7 @@ public:
     /// Returns its seq.
     int64_t record(const char* kind, const std::string& name, const std::string& script,
                    int64_t mergeFrom = 0);
-    /** Keep `file`, which someone sent to be merged (docs/TransactionLog.md
+    /** Keep `file`, which someone sent to be merged (docs/TransactionLogJournal.md
      * sec 30.29): a `request` row named `name` under whoever acts, `script`
      * its JSON, and the bytes held by the store until
      * TransactionStore::releaseFile(). Nothing of the file is read.
@@ -319,6 +382,13 @@ public:
     int64_t reappend(LogTransaction t);
     /// Whether another document of the file stands on one of these rows.
     bool othersStandOn(const std::vector<int64_t>& seqs) const;
+    /** Another document of the file that stands on what a trim, a delete or
+     * a squash would take away: its head among `rows`, or, opened at a
+     * version and not yet changed, that version among `versions`. Null if
+     * none.
+     */
+    Document* otherStandingOn(const std::set<int64_t>& rows,
+                              const std::set<int64_t>& versions) const;
     /// On no branch yet: a version document before its first change.
     bool detached() const { return _branch == 0; }
     /// The version a detached cursor is at, 0 for none.
@@ -365,7 +435,7 @@ public:
     int64_t onSnapshot(const Captures& entries, const Blobs& blobs, int schema,
                        const char* kind = "snapshot");
     /** The string ids the version the next save or snapshot records uses
-     * (docs/TransactionLog.md sec 27.50 item 4): what its save marked. A
+     * (docs/TransactionLogJournal.md sec 27.50 item 4): what its save marked. A
      * version recorded without them -- a file as read -- keeps every id the
      * file's hasher holds.
      */
@@ -423,8 +493,20 @@ public:
 
     /// Serialise the live value behind every pending after ref. What a
     /// version snapshot does first; also what makes the log complete for
-    /// a reader that wants the head state from the log alone.
-    void resolvePending();
+    /// a reader that wants the head state from the log alone. With `rows`,
+    /// only the refs of ops in those rows.
+    void resolvePending(const std::set<int64_t>* rows = nullptr);
+    /** Fold row `prevSeq` into row `laterSeq`, the next commit, as one row
+     * (docs/TransactionLogJournal.md sec 37.4 P4): the later row keeps its seq and
+     * ops and takes the earlier one's befores and parent, and what the
+     * earlier changed that the later did not; the rows between go with
+     * what they changed folded in too. Those may be recompute records and
+     * the rows `implicit`, the recompute's own steps, and nothing else:
+     * false, with nothing done, when they are not, or are not in memory.
+     * The store is rewritten on the worker without a collection; the values
+     * nothing names any more go at the next one. Main thread.
+     */
+    bool coalesceRows(int64_t prevSeq, int64_t laterSeq, const std::set<int64_t>& implicit);
     size_t pendingCount() const { return _pending.size(); }
 
     /// The store, for reading: what it returns waits for every queued
@@ -597,7 +679,7 @@ private:
     /// Keep row `t` in `_recent`, with the sets of `ops` (sec 27.63).
     void remember(const LogTransaction& t, const std::vector<LogOp>* ops);
 
-    /// The file's history (docs/TransactionLog.md sec 27.7) and the shared
+    /// The file's history (docs/TransactionLogJournal.md sec 27.7) and the shared
     /// half of its log in it: the store, the worker, the counters, the
     /// entities held (TransactionLogCore, in TransactionLog.cpp). What is
     /// below is this document's cursor on one branch.
@@ -626,6 +708,11 @@ private:
     /// every copy posted with a key, every part a snapshot stored; taken
     /// out by a change whose value is not recorded. Main thread only.
     std::unordered_set<int64_t> _recorded;
+    /// Keys whose value the worker could not write, to leave _recorded:
+    /// filled on the worker, taken on the main thread (dropUnrecorded).
+    std::mutex _unrecordedMutex;
+    std::vector<int64_t> _unrecorded;
+    void dropUnrecorded();
     /// What the sink of the snapshot in progress did not claim, to join
     /// _recorded once the snapshot is posted. Main thread only.
     std::unordered_set<int64_t> _misses;
@@ -635,10 +722,11 @@ private:
     bool _haveVersionStrings {false};
     /// What a capture on the worker needs of the document.
     CaptureConfig _config;
+    Embedded _lastEmbed;
     friend class TransactionLogCore;
 };
 
-/** The shared half of a file's log (docs/TransactionLog.md sec 27.7): what
+/** The shared half of a file's log (docs/TransactionLogJournal.md sec 27.7): what
  * every document of the file writes through -- the store, the worker that
  * writes it, the sequence and version counters, the entities held -- owned
  * by the file's history, so it outlives any one document. Each document's
@@ -659,7 +747,7 @@ public:
      * for a store with no history of its own yet. The copy's blobs are in
      * the file's blob store by then; the log takes a handle on each.
      */
-    bool adoptEmbedded(const std::string& path);
+    bool adoptEmbedded(const std::string& path, const std::string& folder = std::string());
     /// Sec 16.6, 26.2 item 7: every branch of the copy just adopted closed,
     /// its `main` renamed, a new `main` made current; returns its id.
     int64_t closeAdopted();
@@ -677,6 +765,14 @@ public:
     void postVersion(LogVersion v, LogTransaction t, const TransactionLog::Captures& entries,
                      const TransactionLog::Blobs& blobs, int schema, const std::string& path,
                      std::vector<std::pair<long, long>> strings = {}, bool marked = true);
+    /// The body of postVersion's job, on the worker: the composites, the
+    /// blobs, the version and its record. Throws on a store failure.
+    void writeVersion(LogVersion& v, LogTransaction& t, const TransactionLog::Captures& entries,
+                      TransactionLog::Blobs& blobs, int schema, const std::string& escaped,
+                      size_t nblobs, long keep, std::vector<std::pair<long, long>> strings,
+                      bool marked);
+    /// `text` as the body of a JSON string.
+    static std::string escapeJson(const std::string& text);
     /// The ids a version recorded with no marks keeps: every one the file's
     /// hasher holds (sec 27.50 item 4).
     std::vector<std::pair<long, long>> allStrings() const;
@@ -696,6 +792,47 @@ public:
     TransactionLog::Embedded embed(const std::string& saveDate, int64_t branch = 0,
                                    const std::string& saveId = std::string(),
                                    const std::string& trigger = std::string());
+    /// What every copy starts with: the file-scope state into the store,
+    /// the save recorded under its id (made when `saveId` is empty), with
+    /// who asked for it (`trigger`, entry 167).
+    TransactionLog::Embedded beginEmbed(int64_t branch, const std::string& saveId,
+                                        const std::string& trigger);
+    /// What every copy ends with: retention, the blobs it holds as files,
+    /// its sessions closed, the guard's meta.
+    void finishEmbed(TransactionStore& copy, TransactionLog::Embedded& out,
+                     const std::string& saveDate, int64_t branch, const std::string& trigger);
+    /// TransactionLog::embedFolder().
+    TransactionLog::Embedded embedFolder(const std::string& saveDate, int64_t branch,
+                                         const std::string& folder, const std::string& target,
+                                         const std::string& previous,
+                                         const std::string& saveId = std::string(),
+                                         const std::string& trigger = std::string());
+    /** What a folder's own copy of the store lacks is recorded (sec 38.9):
+     * `folder` the folder, `saveId` the save its copy is of -- the store
+     * as it is now, less retention -- and `pending` the save being written
+     * that will be, once folderSaved() says it is in.
+     */
+    struct FolderTrack
+    {
+        std::string folder;
+        std::string saveId;
+        std::string pending;
+        /// The copy's own token, `copy_id` in its meta, and the one the
+        /// pending save's copy carries (sec 38.21 F6): a save to the history
+        /// alone keeps the file's save id, so the save id alone does not
+        /// tell one copy of a save from another.
+        std::string copyId;
+        std::string pendingCopy;
+    };
+    FolderTrack _folderTrack;
+    void folderSaved(const std::string& folder, const std::string& saveId);
+    void untrackFolder();
+    /// The embedded copy `copy` cut to the versions `travel` (sec 37.4 P1):
+    /// each branch trimmed at the oldest of them on it where the bound
+    /// binds -- a version older on its chain left out (`evictedAt` their
+    /// rows), or `snapshots` unnamed ones on it. Returns the rows left out.
+    size_t trimCopy(TransactionStore& copy, const std::set<int64_t>& travel,
+                    const std::set<int64_t>& evictedAt, long snapshots);
     /// The documents of the file and their branches (sec 27.7).
     Document* holderOf(int64_t id) const;
     std::vector<Document*> documents() const;
@@ -720,6 +857,10 @@ public:
     /// read when the job was posted) go, oldest first (sec 16.3). Worker
     /// thread, after a version is added.
     void evictVersions(long keep);
+    /// The cache tier held under its budget (TransactionStore::evictTier,
+    /// sec 37.13). Worker thread, a job of its own: between two jobs
+    /// every value put is named by a row.
+    void evictCache(uint64_t bytes, uint64_t values);
     /// Store a captured value (fragment and attachments) and return its ref.
     /// Each blob the value names (its `blobs`, decision 6b) is held and
     /// becomes a `blob` ref of the value. Worker thread.
@@ -754,10 +895,22 @@ public:
     /// a chain no longer than TransactionLogDeltaHops, a patch no larger
     /// than TransactionLogDeltaRatio of the full. Worker thread.
     void supersede(const std::string& older, const std::string& newer);
+    /** Sec 23.2, 37.4 P7: a named version is a full anchor, always. Every
+     * entity it reaches -- its entry list, each entry, a composite's
+     * skeleton and parts, a value's attachments, a blob and the blobs it
+     * reads -- is made full where it is a delta, and supersede() leaves
+     * it alone after. The store's nameVersion() calls it through store();
+     * main thread, queue drained.
+     */
+    void anchorVersion(int64_t num);
+    /// `hash` is reached from a named version: the set made from the store
+    /// on first use, added to by anchorVersion(). A version unnamed or gone
+    /// leaves its entities in it, which costs a delta, never a byte read.
+    bool anchored(const std::string& hash);
     /// The longest delta chain hanging off `hash`, in hops.
     int chainBelow(const std::string& hash, int depth = 0);
 
-    /** The file's strings into the store (docs/TransactionLog.md sec 27.50
+    /** The file's strings into the store (docs/TransactionLogJournal.md sec 27.50
      * item 2): those minted since the last call, or with `all` every one the
      * store lacks. Main thread; the worker writes them ahead of the job
      * posted next. The first call for a hasher takes the store's strings it
@@ -792,7 +945,7 @@ public:
     int64_t sessionOf(const Actor* actor);
     /// Close the session of `actor`'s login; false when there is none.
     bool closeLogin(const Actor& actor);
-    /** Where this history and another part (docs/TransactionLog.md sec
+    /** Where this history and another part (docs/TransactionLogJournal.md sec
      * 30.3 S.e). Two files are one history when they hold a row in common,
      * each row known by its session's uuid and its ordinal there; the base
      * of a fork is the newest such row. `other` is the other file's store
@@ -841,6 +994,17 @@ public:
     /// the worker never touches the preferences.
     std::atomic<long> _deltaHops {0};
     std::atomic<long> _deltaRatio {0};
+    /// The cache tier's budget (sec 37.13), read the same way: bytes and
+    /// values, 0 for none.
+    std::atomic<uint64_t> _cacheBytes {0};
+    std::atomic<uint64_t> _cacheValues {0};
+    /// What the worker put in the cache tier since the budget was last
+    /// looked at, and that it is to be looked at: set when that passes an
+    /// eighth of a budget, and on open, and taken by post(), which queues
+    /// the look as a job of its own.
+    uint64_t _cacheWrittenBytes {0};
+    uint64_t _cacheWrittenValues {0};
+    std::atomic<bool> _cacheDue {true};
     /// The ids the store's string table holds, and the largest, as posted
     /// (sec 27.50 item 2); the hasher whose strings the store's were last
     /// taken into (loadStrings). Main thread.
@@ -856,6 +1020,16 @@ public:
     std::unordered_map<std::string, FileBlobHandle> _blobs;
     /// The blobs putSources() has read. Worker thread.
     std::unordered_set<std::string> _sourced;
+    /// Every entity a named version reaches (anchored()), with the blobs
+    /// among them and their extensions. Worker thread, or a flushed caller.
+    std::unordered_set<std::string> _anchors;
+    bool _anchorsLoaded {false};
+    /// Add `hash` and what it reaches to `_anchors` and to `out`, each
+    /// once a walk (`seen`), with `ext` the extension a blob is written
+    /// back under.
+    void anchorClosure(const std::string& hash, const std::string& ext,
+                       std::vector<std::pair<std::string, std::string>>& out,
+                       std::unordered_set<std::string>& seen, int depth = 0);
 
     std::thread _worker;
     std::mutex _mutex;
@@ -878,6 +1052,28 @@ public:
     std::map<int64_t, TransactionLog*> _holders;
 };
 
+/** A branch's history cut at a version (docs/TransactionLogJournal.md sec 16.7,
+ * "trim a branch"; the bridge of 27.71), on any store: what Document::
+ * trimBranch does to the live store and the embedded copy to itself (sec
+ * 37.4 P1). `keep` stays and anchors what is left; the rows of the chain up
+ * to it that no other branch shares go, and the unnamed versions on them.
+ */
+struct TrimPlan
+{
+    LogVersion keep;
+    std::vector<int64_t> rows;           ///< the chain's rows that go, squashed or not
+    std::vector<int64_t> versions;       ///< the versions evicted with them
+    std::vector<LogTransaction> span;    ///< squashed into keep's row: the bridge
+    int64_t from {0};                    ///< the bridge row's parent
+    size_t removed {0};                  ///< after applyTrim: rows removed outright
+    size_t squashed {0};                 ///< and rows folded into the bridge
+};
+/// What a trim of `branch` to `keep` takes; `bridge` asks for 27.71's.
+/// Nothing is changed.
+AppExport TrimPlan planTrim(TransactionStore& store, const LogBranch& branch,
+                            const LogVersion& keep, bool bridge);
+/// Carry `plan` out; `name` is the branch's, for the bridge row.
+AppExport void applyTrim(TransactionStore& store, TrimPlan& plan, const std::string& name);
 
 } // namespace App
 

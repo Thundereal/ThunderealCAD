@@ -72,7 +72,7 @@ def set_pref(face):
 
 def face(vo):
     """What the sketch's faces are drawn in: under AutoColor the settings',
-    which the properties are not (docs/TransactionLog.md sec 33.15)"""
+    which the properties are not (docs/TransactionLogJournal.md sec 33.15)"""
     c = vo.getDrawnColors()["Face"][0]
     return tuple(round(v, 3) for v in c[:3]), int(round(c[3] * 100))
 
@@ -156,7 +156,7 @@ def run():
               "%s, was %s" % ((tuple(round(c, 3) for c in a.ShapeColor[:3]), a.Transparency), own))
 
         # A face colour set by hand turns AutoColor off, by either name
-        # (docs/TransactionLog.md sec 33.16).
+        # (docs/TransactionLogJournal.md sec 33.16).
         vb.ShapeColor = ORANGE[0]
         settle(0.2)
         check("a face colour set under AutoColor turns it off", vb.AutoColor is False)

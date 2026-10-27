@@ -632,6 +632,19 @@ public:
     int extensionIsElementVisibleEx(const char *,int) const override;
     bool extensionHasChildElement() const override;
 
+    /** What a link owns (docs/TransactionLogJournal.md sec 37.9): its
+     * copy-on-change group, and the elements it removes with itself -- every
+     * one in AutoDelete mode, those it made (an array's) in AutoUnlink.
+     * Pasted onto a live link, the group stands for the live one's, a copy
+     * in it for the live copy of the same source (_SourceUUID, 36.7), an
+     * array's element for the live one at its index (a slot), a group's
+     * for the live one of its UID (content, sec 37.12); all follow the link.
+     */
+    void extensionGetOwnedObjects(std::vector<DocumentObject*>& owned) const override;
+    DocumentObject* extensionGetOwnedCounterpart(const DocumentObject* owned,
+                                                 const DocumentObject* liveOwner,
+                                                 OwnedPaste& how) const override;
+
     PyObject* getExtensionPyObject() override;
 
     Property *extensionGetPropertyByName(const char* name) const override;
@@ -659,6 +672,13 @@ public:
 
     void setLink(int index, DocumentObject *obj, const char *subname=nullptr,
         const std::vector<std::string> &subs = std::vector<std::string>());
+
+    /** Takes an element out of the list to go elsewhere (a drag out of the
+     * group, docs/TransactionLogJournal.md sec 37.12): kept whatever the LinkMode,
+     * and a link the group made is no longer its own.
+     * @return false when it is not an element
+     */
+    bool releaseElement(DocumentObject *obj);
 
     DocumentObject *getTrueLinkedObject(bool recurse,
             Base::Matrix4D *mat=nullptr,int depth=0, bool noElement=false) const;

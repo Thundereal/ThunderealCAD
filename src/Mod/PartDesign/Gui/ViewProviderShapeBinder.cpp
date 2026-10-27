@@ -47,6 +47,7 @@
 #include "ViewProvider.h"
 #include "ViewProviderShapeBinder.h"
 #include "TaskShapeBinder.h"
+#include "Utils.h"
 
 FC_LOG_LEVEL_INIT("PartDesign",true,true)
 
@@ -110,9 +111,9 @@ bool ViewProviderShapeBinder::setEdit(int ModNum) {
         // start the edit dialog
         // another pad left open its task panel
         if (sbDlg)
-            Gui::Control().showDialog(sbDlg);
+            PartDesignGui::showTaskDialog(sbDlg);
         else
-            Gui::Control().showDialog(new TaskDlgShapeBinder(this, ModNum == 1));
+            PartDesignGui::showTaskDialog(new TaskDlgShapeBinder(this, ModNum == 1));
 
         return true;
     }

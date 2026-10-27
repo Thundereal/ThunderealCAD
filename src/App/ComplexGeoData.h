@@ -322,7 +322,7 @@ public:
     int checkElementMap(std::vector<std::string> * problems = nullptr) const;
 
     /** Whether the element map carries the external marker as written
-     * before it named its document (docs/TransactionLog.md sec 27.76 item
+     * before it named its document (docs/TransactionLogJournal.md sec 27.76 item
      * 4), in a name or in a string a name refers to: a shape that crossed a
      * document boundary keeping the other table's ids as text, whose owner
      * recomputes once on restore.
@@ -412,7 +412,7 @@ public:
      * in the names that waited. Null for a geometry with no map. With the
      * check on (FC_ELEMENTMAP_CHECK in the environment, or
      * setElementMapCheck) an edit of a held map is counted and reported
-     * (docs/TransactionLog.md sec 31.28, 31.31).
+     * (docs/TransactionLogJournal.md sec 31.28, 31.31).
      */
     std::shared_ptr<void> holdElementMap() const;
     /// Whether a reader on another thread has the element map now

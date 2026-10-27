@@ -1,4 +1,4 @@
-// The transaction log's panel (docs/TransactionLog.md sec 32.21, 32.22):
+// The transaction log's panel (docs/TransactionLogJournal.md sec 32.21, 32.22):
 // the rows of the served document's log, the ops of the one chosen, a value
 // of the one chosen of those -- a change shown as the edit it is -- and
 // what is done with them: rows taken back, versions, branches.

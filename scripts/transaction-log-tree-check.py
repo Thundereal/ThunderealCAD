@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 30.8: what the tree view and the
+# GUI check of docs/TransactionLogJournal.md sec 30.8: what the tree view and the
 # 3D view do on their own -- rank the objects they show, draw a shape read
 # from the file on first use -- is not an edit: no row in the log, no undo
 # step, no redo lost. One GUI run in a fresh user home, given this script at

@@ -23,7 +23,7 @@
  ***************************************************************************/
 
 // The looks of a shape's elements, merged by what they are given to
-// (docs/ShapeAppearanceDesign.md sec 14.6.5, docs/TransactionLog.md sec
+// (docs/ShapeAppearanceDesign.md sec 14.6.5, docs/TransactionLogJournal.md sec
 // 31.20). ElementAppearance is one value: the names with a look each and
 // which of it is the name's own, the looks given by number, and the own look
 // of the faces, the edges and the vertices. Where two branches both wrote it

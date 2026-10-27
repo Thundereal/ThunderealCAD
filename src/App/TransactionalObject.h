@@ -47,7 +47,7 @@ public:
     virtual const char* detachFromDocument();
     /** The document object this container belongs to, when it is not one
      * itself: a view provider answers with its object. The transaction log
-     * names such a container by its owner's id (docs/TransactionLog.md sec
+     * names such a container by its owner's id (docs/TransactionLogJournal.md sec
      * 24.9), which is how a cold undo finds it again.
      */
     virtual const DocumentObject* getTransactionOwner() const { return nullptr; }

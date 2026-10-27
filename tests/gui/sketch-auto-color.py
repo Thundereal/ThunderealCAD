@@ -6,7 +6,7 @@ SketchVertexColor -- the theme's -- so a sketch drawn on one theme is not
 stuck with its colours on another. Nothing of that is written anywhere: the
 colour properties are the sketch's own whatever AutoColor says, names over
 the object's looks, white for a sketch nobody coloured, and under AutoColor
-they are not what is drawn (docs/TransactionLog.md sec 33.15). So what is
+they are not what is drawn (docs/TransactionLogJournal.md sec 33.15). So what is
 drawn is read off the screen's nodes (getDrawnColors()) and the properties
 beside it. A preference change recolours every such sketch and changes
 neither the document nor the object. Turned off, the sketch is drawn in its

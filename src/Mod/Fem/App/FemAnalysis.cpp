@@ -23,7 +23,6 @@
 
 #include <App/DocumentObjectPy.h>
 #include <App/FeaturePythonPyImp.h>
-#include <Base/Uuid.h>
 
 #include "FemAnalysis.h"
 
@@ -34,11 +33,7 @@ using namespace App;
 PROPERTY_SOURCE(Fem::FemAnalysis, App::DocumentObjectGroup)
 
 
-FemAnalysis::FemAnalysis()
-{
-    Base::Uuid id;
-    ADD_PROPERTY_TYPE(Uid, (id), 0, App::Prop_None, "UUID of the Analysis");
-}
+FemAnalysis::FemAnalysis() = default;
 
 FemAnalysis::~FemAnalysis() = default;
 
@@ -51,6 +46,9 @@ void FemAnalysis::handleChangedPropertyName(
     Base::Type type = Base::Type::fromName(TypeName);
     if (Group.getClassTypeId() == type && strcmp(PropName, "Member") == 0) {
         Group.Restore(reader);
+    }
+    else if (restoreUidProperty(reader, TypeName, PropName)) {
+        return;
     }
     else {
         App::DocumentObjectGroup::handleChangedPropertyName(reader, TypeName, PropName);

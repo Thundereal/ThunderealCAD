@@ -45,7 +45,7 @@ class FileBlobManager;
 class Property;
 class StringHasher;
 
-/** A value as the transaction log sees it (docs/TransactionLog.md sec 9.3,
+/** A value as the transaction log sees it (docs/TransactionLogJournal.md sec 9.3,
  * sec 20.2 decision 5): the XML fragment Property::Save writes, plus every
  * file it handed to Writer::addFile(), captured in memory. Nothing is
  * hashed here; the log hashes the attachments and the fragment separately.
@@ -64,7 +64,7 @@ struct CapturedValue
     /// log holds them as entities of their own.
     std::vector<std::shared_ptr<FileBlob>> blobs;
     /// The ids of the file's string table the value's element maps use,
-    /// sorted (docs/TransactionLog.md sec 27.50 item 4): found by the
+    /// sorted (docs/TransactionLogJournal.md sec 27.50 item 4): found by the
     /// capture's own walk, not by what a save marked.
     std::vector<long> stringIds;
     bool ok {false};
@@ -96,7 +96,7 @@ struct CaptureConfig
     /// The value as its text alone: what a save would put in a file beside
     /// Document.xml is written inline. Not the bytes a save writes, and so
     /// not for a value the log is to hold as the document's: for one a
-    /// merge takes apart (docs/TransactionLog.md sec 31.20).
+    /// merge takes apart (docs/TransactionLogJournal.md sec 31.20).
     bool forceXML {false};
     CaptureConfig() = default;
     explicit CaptureConfig(const Document& doc);
@@ -113,7 +113,7 @@ AppExport CapturedValue captureValue(const CaptureConfig& config, const Base::Pe
 /// on this thread finishes.
 AppExport void restoreValue(Property& prop, const CapturedValue& value);
 
-/** Values restored together (docs/TransactionLog.md sec 27.67). A document's
+/** Values restored together (docs/TransactionLogJournal.md sec 27.67). A document's
  * restore reads every property before any afterRestore(), and some depend
  * on it: an expression engine installs the expressions it read there, and
  * one naming `Constraints[3]` needs the constraints restored first. While a
@@ -145,7 +145,7 @@ private:
 };
 
 /** The names a capture writes for objects that have left the document
- * (docs/TransactionLog.md sec 24.3). A link's value is its target's name,
+ * (docs/TransactionLogJournal.md sec 24.3). A link's value is its target's name,
  * and DocumentObject::getExportName() has none for a detached object -- but
  * a transaction that removed an object still holds the name it had, and a
  * before value linking to it must say so. While one of these lives on a
@@ -167,7 +167,7 @@ private:
 };
 
 /** The names the values restored on this thread are read through
- * (docs/TransactionLog.md sec 30.13, 30.4 P4). A fork's new object whose
+ * (docs/TransactionLogJournal.md sec 30.13, 30.4 P4). A fork's new object whose
  * name this file has given to another since arrives under a new one, and
  * what names it follows: a link's target, an object in a sub-object path,
  * an expression. While one of these lives, restoreValue() reads through
@@ -196,7 +196,7 @@ private:
 };
 
 /** The string table the values restored on this thread name their strings
- * in (docs/TransactionLog.md sec 30.13 F1, 30.16). A value of another copy
+ * in (docs/TransactionLogJournal.md sec 30.13 F1, 30.16). A value of another copy
  * of the file names string ids of that copy's table; in this file's the
  * same numbers are other strings, or none. While one of these lives, a
  * restore reads the ids of an element map, of a reference's shadow name
@@ -256,7 +256,7 @@ private:
 };
 
 /** The numbers the objects of a document gave the things they hold, as
- * another copy of the file gave them (docs/TransactionLog.md sec 31.14).
+ * another copy of the file gave them (docs/TransactionLogJournal.md sec 31.14).
  * Two copies of a file number on from one counter: the fifth line of a
  * sketch is `g5` in each, and they are two lines. An import gives what the
  * copy made numbers of this file (DocumentObject::importMintedIds); while
@@ -288,7 +288,7 @@ private:
 };
 
 /** The document a capture on this thread is for, or null outside one
- * (docs/TransactionLog.md sec 27.67). A detached copy of a property has no
+ * (docs/TransactionLogJournal.md sec 27.67). A detached copy of a property has no
  * container: the undo system's copy at the first write, a value the log
  * copies at commit. A link names its target by the owner's document, and
  * PropertyXLink::Save of an ownerless copy writes relative to this one --

@@ -319,7 +319,7 @@ public:
     SoSFBool pickThrough;
     /// What is under it is the host's own to see: drawn by the views of
     /// the document, and left out of what a served document publishes
-    /// (Render::hostOnlyModeId; docs/TransactionLog.md sec 32.24)
+    /// (Render::hostOnlyModeId; docs/TransactionLogJournal.md sec 32.24)
     SoSFBool hostOnly;
 
     static void initClass();

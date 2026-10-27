@@ -31,7 +31,7 @@ window's end deterministic; the import still supplies the objects and
 runs its animated fit.
 
 Re-aimed 2026-10-12, after the tree stopped making undo steps of its own
-(docs/TransactionLog.md sec 30.8), which moved both halves of the window:
+(docs/TransactionLogJournal.md sec 30.8), which moved both halves of the window:
   - the tree is brought up to date before every transaction closes
     (signalBeforeCloseTransaction). An import run from a script writes
     into an implicit transaction, the fit's command commits that as it
@@ -206,7 +206,7 @@ def fire():
         return
     state["live_at_start"] = doc.LiveImport
     # The one rank the tree still writes for an item new to it is the
-    # rank of an object that has none (docs/TransactionLog.md sec 30.8),
+    # rank of an object that has none (docs/TransactionLogJournal.md sec 30.8),
     # and what an import adds is ranked by the document. TreeRank is the
     # property the guard lets through, so this write is allowed where a
     # fit's guard already stands; a refusal here is the exemption gone.

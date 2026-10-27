@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 32.33: a shape the log let go -- a
+# GUI check of docs/TransactionLogJournal.md sec 32.33: a shape the log let go -- a
 # value a recompute wrote is a cache, which a file's copy of the log does not
 # carry, so a file opened again has none of its rows' shapes -- shown all the
 # same, read from that state's own document: a row's before against after,

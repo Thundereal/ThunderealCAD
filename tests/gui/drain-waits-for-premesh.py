@@ -25,7 +25,7 @@ saved three times over, no two alike, and the three are opened one after
 the other in one process, the first to warm up. Three files and not one
 opened three times: with shape values frozen a parse is kept under the hash
 of its bytes for a while after its document has closed
-(docs/TransactionLog.md sec 27.25), so the same file opened again comes with
+(docs/TransactionLogJournal.md sec 27.25), so the same file opened again comes with
 the shapes of the load before, meshed already, and nothing is in flight.
 
 What is asserted of each of the two loads after it, from the drain's own

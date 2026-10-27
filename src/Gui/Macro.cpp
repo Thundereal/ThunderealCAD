@@ -378,7 +378,7 @@ namespace Gui {
 void MacroManager::run(MacroType eType, const char *sName)
 {
     Q_UNUSED(eType);
-    // The macro is one invocation (docs/TransactionLog.md sec 9.1).
+    // The macro is one invocation (docs/TransactionLogJournal.md sec 9.1).
     App::Application::InvocationScope scope("macro");
 
     // Running a macro file is host.exec (F1, docs/Sandbox.md 7.29).  A

@@ -1,7 +1,7 @@
 """A real browser reads the transaction log in its own panel, and is shown a
 row's change.
 
-The browser half of docs/TransactionLog.md sec 32.21. tests/gui/serve-log.py
+The browser half of docs/TransactionLogJournal.md sec 32.21. tests/gui/serve-log.py
 checks the ops against synthetic socket clients: the rows, a page at a
 time, the ops of one, a value, the push, the refusal of a client that may
 only look, the `edit` op with a row named. What no synthetic client can
@@ -68,7 +68,7 @@ MODE = 6  # Gui::ViewProvider::ValueDiff
 SETTLE_MS = 9000
 RUN_WAIT_S = 300
 # The browser acts on the document, so it is someone: the holder of an
-# invitation issued to its name (docs/TransactionLog.md sec 30.6 U4, U6).
+# invitation issued to its name (docs/TransactionLogJournal.md sec 30.6 U4, U6).
 TOKEN = "log-browser-invite"
 CLIENT = "log-browser"
 

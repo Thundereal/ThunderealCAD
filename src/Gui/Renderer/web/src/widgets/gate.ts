@@ -710,7 +710,7 @@ function checkImages(): void {
   check(t, 'another size is another fetch', themed.asked === 3, `asked ${themed.asked}`);
 }
 
-/// The transaction log's panel (logpanel.tsx, docs/TransactionLog.md sec
+/// The transaction log's panel (logpanel.tsx, docs/TransactionLogJournal.md sec
 /// 32.21): what it says of a row and an op, and which rows it keeps when
 /// the host answers again.
 function checkLog(): void {

@@ -31,6 +31,7 @@
 
 #include <App/Application.h>
 #include <App/Document.h>
+#include <App/DocumentObjectExtension.h>
 #include <Base/Console.h>
 #include <Base/Parameter.h>
 
@@ -415,6 +416,40 @@ std::vector<App::DocumentObject*> DrawPage::getAllViews(void)
         }
     }
     return allViews;
+}
+
+std::vector<App::DocumentObject*> DrawPage::getOwnedObjects() const
+{
+    auto owned = App::DocumentObject::getOwnedObjects();
+    for (auto view : Views.getValues()) {
+        if (view)
+            owned.push_back(view);
+    }
+    if (auto tmpl = Template.getValue())
+        owned.push_back(tmpl);
+    return owned;
+}
+
+App::DocumentObject* DrawPage::getOwnedCounterpart(const App::DocumentObject* owned,
+                                                   const App::DocumentObject* liveOwner,
+                                                   App::OwnedPaste& how) const
+{
+    auto live = Base::freecad_dynamic_cast<const DrawPage>(liveOwner);
+    if (!owned || !live)
+        return App::DocumentObject::getOwnedCounterpart(owned, liveOwner, how);
+    if (owned == Template.getValue()) {
+        how = App::OwnedPaste::FollowOwner;
+        return live->Template.getValue();
+    }
+    const auto& views = Views.getValues();
+    if (std::find(views.begin(), views.end(), owned) == views.end())
+        return App::DocumentObject::getOwnedCounterpart(owned, liveOwner, how);
+    how = App::OwnedPaste::FollowOwner;
+    for (auto view : live->Views.getValues()) {
+        if (view && view->getObjectUid() == owned->getObjectUid())
+            return view;
+    }
+    return nullptr;
 }
 
 void DrawPage::unsetupObject()

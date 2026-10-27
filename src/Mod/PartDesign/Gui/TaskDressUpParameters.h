@@ -30,6 +30,7 @@
 
 #include <QBrush>
 #include <QColor>
+#include <QVariant>
 
 #include <Base/Color.h>
 #include <Gui/TaskView/TaskView.h>
@@ -118,6 +119,21 @@ protected:
     virtual void syncOtherItems() {}
     /// Adds the rows that are not Base's, after the tree is built from Base
     virtual void populateOtherItems() {}
+    /** The top-level rows in the feature's order, whatever the list's sort:
+     * the order a change of the list writes back. A row added since the list
+     * was filled comes after the others.
+     */
+    std::vector<QTreeWidgetItem*> rowsInOrder() const;
+    /** What a top-level row is sorted by in \a column: its cell's number
+     * (Qt::UserRole) or text, the element's name with its number taken as
+     * one. Null for an empty cell, which sorts last either way.
+     */
+    virtual QVariant sortValue(QTreeWidgetItem *item, int column) const;
+    /** The rows in the order the list's header asks for: by the column whose
+     * title was clicked, either way, or the feature's. A sort moves the
+     * top-level rows only; the rows under one keep theirs.
+     */
+    void sortRows();
     void finishedRecomputeFeature() override; 
 
     QTreeWidgetItem *getCurrentItem() const;
@@ -130,10 +146,18 @@ protected:
      * else an automatic one (entry 202)
      */
     Base::Color groupColor(int group) const;
-    /** A group's automatic colour: a hue from its id, kept clear of the hues
-     * a handle wears plain, dragged, selected and under the pointer
+    /** A group's automatic colour: the ids taken in turn from 1, each the hue
+     * farthest from the hues a handle wears plain, dragged, selected and
+     * under the pointer, from the colours picked for the other groups, and
+     * from the ids' before it (entry 209) -- by the id alone, so that a group
+     * emptying moves no other group's colour (entry 226)
      */
-    static Base::Color autoGroupColor(int group);
+    Base::Color autoGroupColor(int group) const;
+    /// The groups in use, in order (the feature's)
+    virtual std::vector<int> groupIds() const
+    {
+        return {};
+    }
     /// The colour the user picked for \a group, if any
     std::optional<QColor> pickedGroupColor(int group) const;
     /// A swatch of a group's colour, for its menu item and its panel row
@@ -158,6 +182,18 @@ protected:
     {
         return nullptr;
     }
+    /// The edge a handle stands on (as Base names it), empty for none
+    virtual std::string handleEdge(Gui::Gizmo*) const
+    {
+        return {};
+    }
+    /** A handle made active selects its edge's row, and with it the edge --
+     * or a missing edge's preview face -- as a click on the row does
+     * (entry 213; the reporter: "just select the corresponding edge, as the
+     * right click context menu is meant to apply to that edge"). Only its
+     * own edge, a shared handle's too; a handle let go leaves the selection.
+     */
+    void onActiveHandleChanged(Gui::Gizmo* handle);
     /// The group of a row, 0 for none
     virtual int itemGroup(QTreeWidgetItem*) const
     {
@@ -233,6 +269,8 @@ protected:
     QAction* deleteAction = nullptr;
     QAction* addAllEdgesAction = nullptr;
     QTreeWidget *treeWidget = nullptr;
+    /// sortRows()'s hidden column of each row's place, -1 before a sort
+    int sortKeyColumn = -1;
     QCheckBox *btnAdd = nullptr;
     QLabel *messageLabel = nullptr;
 
@@ -252,6 +290,9 @@ protected:
     /// The missing row that was the selection when a click cleared it, for
     /// the pick the same click makes next (replaceMissing())
     std::string missingPick;
+    /// The edge whose handle was made active last (onActiveHandleChanged()):
+    /// its handle made anew and active again selects nothing
+    std::string activeHandleEdge;
     /// heldStepBegun()'s
     std::vector<std::string> failedAtStepStart;
     std::string errorAtStepStart;

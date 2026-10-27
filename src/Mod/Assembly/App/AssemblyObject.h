@@ -153,6 +153,17 @@ public:
     void jointParts(std::vector<App::DocumentObject*> joints);
     JointGroup* getJointGroup() const;
     ViewGroup* getExplodedViewGroup() const;
+
+    /** What an assembly owns (docs/TransactionLogJournal.md sec 37.9): its origin
+     * (as a part's), and its joint, view and BOM groups, which deleting it
+     * deletes with their content (ViewProviderAssembly::onDelete). Pasted
+     * onto a live assembly, each group stands for the live one's of its
+     * type and follows the assembly.
+     */
+    std::vector<App::DocumentObject*> getOwnedObjects() const override;
+    App::DocumentObject* getOwnedCounterpart(const App::DocumentObject* owned,
+                                             const App::DocumentObject* liveOwner,
+                                             App::OwnedPaste& how) const override;
     template<typename T>
     T* getGroup();
 

@@ -566,6 +566,8 @@ SET(Part_SRCS
     ImportStep.h
     Interface.cpp
     Interface.h
+    OCCTFork.cpp
+    OCCTFork.h
     PreCompiled.cpp
     PreCompiled.h
     ProgressIndicator.cpp

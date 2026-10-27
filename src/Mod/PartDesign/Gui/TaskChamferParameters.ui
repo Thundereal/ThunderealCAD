@@ -55,7 +55,7 @@
     </layout>
    </item>
    <item>
-    <widget class="QTreeWidget" name="treeWidgetReferences">
+    <widget class="PartDesignGui::StickyColumnTreeWidget" name="treeWidgetReferences">
      <property name="minimumSize">
       <size>
        <width>0</width>
@@ -261,6 +261,11 @@
    <class>Gui::QuantitySpinBox</class>
    <extends>QWidget</extends>
    <header>Gui/QuantitySpinBox.h</header>
+  </customwidget>
+  <customwidget>
+   <class>PartDesignGui::StickyColumnTreeWidget</class>
+   <extends>QTreeWidget</extends>
+   <header>Mod/PartDesign/Gui/StickyColumnTreeWidget.h</header>
   </customwidget>
  </customwidgets>
  <resources/>

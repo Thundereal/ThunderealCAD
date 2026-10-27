@@ -95,7 +95,7 @@ public:
 
     /** @name A property at two states, shown over the object
      *
-     * docs/TransactionLog.md sec 32.9. A value the transaction log holds is
+     * docs/TransactionLogJournal.md sec 32.9. A value the transaction log holds is
      * named by its ref -- a row's op has the value before and after it, a
      * merge's preview the value at the base and at each side -- and an
      * empty ref is the value the object has now. The ref "-" is no value:
@@ -147,7 +147,7 @@ public:
     void setValueChangeRow(long long row) { _valueChangeRow = row; }
     /** The value the next ViewProvider::ValueDiff edit of this object shows
      * against what the object has now, in place of a row's change: a value
-     * the log keeps in the file, by its ref (docs/TransactionLog.md sec
+     * the log keeps in the file, by its ref (docs/TransactionLogJournal.md sec
      * 32.12, 32.27), with the row it was kept at. Spent as
      * setValueChangeRow() is; it goes before a row.
      */
@@ -196,6 +196,18 @@ public:
      * goes into that cell.
      */
     virtual MDIView *getOrCreateMDIView();
+    /** Whether the object is shown in a view of its own rather than in the
+     * 3D views -- a TechDraw page and what is on it. Bringing the object's
+     * view to the front (Document::setActiveView(): the tree's sync, its
+     * double click) opens that view with getOrCreateMDIView() when it is
+     * closed, where it fell back to a 3D view (docs/HandsOnQueue.md entry
+     * 217). False by default: getOrCreateMDIView() would show() an object
+     * of the 3D views that was hidden.
+     */
+    virtual bool hasOwnView() const
+    {
+        return false;
+    }
     /// Is called by the tree if the user double clicks on the object. It returns the string
     /// for the transaction that will be shown in the undo/redo dialog.
     /// If null is returned then no transaction will be opened.
@@ -401,7 +413,7 @@ protected:
     bool isAttachedToDocument() const override;
     const char* detachFromDocument() override;
     /// Its object: how the transaction log names this view provider
-    /// (docs/TransactionLog.md sec 24.9).
+    /// (docs/TransactionLogJournal.md sec 24.9).
     const App::DocumentObject* getTransactionOwner() const override { return pcObject; }
 
     /// get called when a property status has changed

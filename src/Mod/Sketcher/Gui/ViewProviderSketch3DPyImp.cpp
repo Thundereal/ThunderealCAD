@@ -252,6 +252,7 @@ const std::pair<const char*, Tool> toolNames[] = {
     {"Arc", Tool::Arc},
     {"Arc3Point", Tool::Arc3Point},
     {"Fillet", Tool::Fillet},
+    {"SplineOnFace", Tool::SplineOnFace},
 };
 }  // namespace
 

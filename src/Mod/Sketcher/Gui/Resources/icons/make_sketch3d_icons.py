@@ -306,6 +306,46 @@ ICONS["Sketcher_Sketch3DRotationHandles"] = (
     rings + axes(c, 12, None, 3),
 )
 
+# Spline on Face: a curved face, part of a cylinder, turned a quarter on the icon so it
+# lies low and wide, and a spline floating over it with its points, as the circle floats
+# over the page in New 3D Sketch
+def spline_on_face():
+    r, length, a0, a1 = 30.0, 30.0, -10, 80
+
+    def at(a, y):
+        return add(
+            add(add((0, 0), X, r * math.cos(math.radians(a))), Z, r * math.sin(math.radians(a))),
+            Y,
+            y,
+        )
+
+    edge = [at(d, 0) for d in range(a0, a1 + 1, 5)] + [at(d, length) for d in range(a1, a0 - 1, -5)]
+    edge = [(q[1], -q[0]) for q in edge]  # the quarter turn
+    xs, ys = [q[0] for q in edge], [q[1] for q in edge]
+    k = 50 / max(max(xs) - min(xs), max(ys) - min(ys))
+    cx, cy = (min(xs) + max(xs)) / 2, (min(ys) + max(ys)) / 2
+    edge = [(32 + (q[0] - cx) * k, 45 + (q[1] - cy) * k) for q in edge]
+    curve = [
+        (9 + 46 * t, 29 - 12 * t - 8 * math.sin(2 * math.pi * t))
+        for t in [i / 32 for i in range(33)]
+    ]
+    return [
+        '<defs><linearGradient id="patch" x1="0" y1="64" x2="0" y2="0" '
+        'gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#d3d7cf"/>'
+        '<stop offset="1" stop-color="#ffffff"/></linearGradient></defs>',
+        '<path d="%s" fill="url(#patch)" %s/>'
+        % (path(edge), stroke("#3f3f3f", 2).replace('fill="none" ', "")),
+        line(curve, DARK, 6),
+        line(curve, LIGHT, 2),
+    ] + [
+        '<circle cx="%.2f" cy="%.2f" r="3.6" fill="%s" stroke="%s" stroke-width="2"/>'
+        % (q[0], q[1], LIGHT, DARK)
+        for q in (curve[0], curve[16], curve[32])
+    ]
+
+
+ICONS["Sketcher_Sketch3DSplineOnFace"] = ("Spline on face", spline_on_face())
+
 FOLDERS = {"Sketcher_Sketch3D": "."}
 
 

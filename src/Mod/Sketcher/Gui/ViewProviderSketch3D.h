@@ -157,7 +157,8 @@ public:
         Circle3Point,
         Arc,
         Arc3Point,
-        Fillet  // a click on a corner where two lines meet fillets it
+        Fillet,       // a click on a corner where two lines meet fillets it
+        SplineOnFace  // clicks on a model face; a spline in its (u, v) through them
     };
     void startTool(Tool tool);
     Tool activeTool() const;
@@ -276,6 +277,11 @@ private:
     void constrainTo(const Snap& snap, int geoId, int pos, bool onKeptPlane = true);
     /// The constraint that puts the snapped point on the curve geoId.
     void constrainOn(const Snap& snap, int geoId);
+    /// The external reference to a model element, the sketch's own when it has one:
+    /// its geometry id, or GeoUndef.
+    int referenceTo(App::DocumentObject* obj, const std::string& sub);
+    /// Spline on Face: the spline through the placed points, in the face's (u, v).
+    bool makeSplineOnFace();
     void makeSpline();
     bool makeCircular();
     struct Circular;

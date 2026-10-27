@@ -129,6 +129,10 @@ fc_add_gui_test(GuiSketch3DWorkplanes_tests_run sketch3d-workplanes.py
 # point and as a tool, its radius typed next, one undo step.
 fc_add_gui_test(GuiSketch3DFillet_tests_run sketch3d-fillet.py
                 --timeout 180)
+# Its spline on a face (S3d): points clicked on a model face, the spline in the
+# face's (u, v) through them, following the face.
+fc_add_gui_test(GuiSketch3DFaceSpline_tests_run sketch3d-face-spline.py
+                --timeout 180)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

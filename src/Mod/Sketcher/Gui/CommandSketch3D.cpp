@@ -234,6 +234,34 @@ bool CmdSketcherSketch3DRotationHandles::isActive()
     return manipulatorActive();
 }
 
+DEF_STD_CMD_A(CmdSketcherSketch3DSplineOnFace)
+
+CmdSketcherSketch3DSplineOnFace::CmdSketcherSketch3DSplineOnFace()
+    : Command("Sketcher_Sketch3DSplineOnFace")
+{
+    sAppModule = "Sketcher";
+    sGroup = "Sketcher";
+    sMenuText = QT_TR_NOOP("Spline on Face");
+    sToolTipText = QT_TR_NOOP("Draws a spline through points clicked on a face of the model, "
+                              "lying on the face exactly and following it when it changes");
+    sWhatsThis = "Sketcher_Sketch3DSplineOnFace";
+    sPixmap = "Sketcher_Sketch3DSplineOnFace";
+    eType = ForEdit;
+    sStatusTip = sToolTipText;
+}
+
+void CmdSketcherSketch3DSplineOnFace::activated(int /*iMsg*/)
+{
+    if (auto vp = activeSketch3DInEdit()) {
+        vp->startTool(ViewProviderSketch3D::Tool::SplineOnFace);
+    }
+}
+
+bool CmdSketcherSketch3DSplineOnFace::isActive()
+{
+    return manipulatorActive();
+}
+
 // The Sketcher's constraint commands in a 3D sketch's edit: its constraint of the
 // selection (section 7, decision g).
 bool SketcherGui::runSketch3DConstraint(const char* commandName)
@@ -330,6 +358,7 @@ void SketcherGui::setSketch3DToolIcons(bool on)
         "Sketcher_Sketch3DKeepPlane",
         "Sketcher_Sketch3DResetManipulator",
         "Sketcher_Sketch3DRotationHandles",
+        "Sketcher_Sketch3DSplineOnFace",
         "Sketcher_Constrain3DAlongX",
         "Sketcher_Constrain3DAlongY",
         "Sketcher_Constrain3DAlongZ",
@@ -426,6 +455,7 @@ void CreateSketcherCommandsSketch3D()
     rcCmdMgr.addCommand(new CmdSketcherSketch3DResetManipulator());
     rcCmdMgr.addCommand(new CmdSketcherSketch3DKeepPlane());
     rcCmdMgr.addCommand(new CmdSketcherSketch3DRotationHandles());
+    rcCmdMgr.addCommand(new CmdSketcherSketch3DSplineOnFace());
     rcCmdMgr.addCommand(new CmdSketcherConstrain3D(
         "Sketcher_Constrain3DAlongX",
         QT_TR_NOOP("Along X"),

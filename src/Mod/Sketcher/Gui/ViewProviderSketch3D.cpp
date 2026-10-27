@@ -39,6 +39,8 @@
 #include <BRepAdaptor_Surface.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
+#include <Geom_Surface.hxx>
 #include <BRep_Tool.hxx>
 #include <Geom_Curve.hxx>
 #include <TopoDS.hxx>
@@ -1462,6 +1464,9 @@ void ViewProviderSketch3D::finishTool()
     if (spline && edit->placed.size() >= 2) {
         makeSpline();
     }
+    if (edit->tool == Tool::SplineOnFace && edit->placed.size() >= 2) {
+        makeSplineOnFace();
+    }
     if (pending) {
         // A chain or a spline made: the tool stays for the next one.
         edit->placed.clear();
@@ -1516,6 +1521,12 @@ void ViewProviderSketch3D::showToolStatus()
             break;
         case Tool::Fillet:
             text = QObject::tr("3D fillet: click a corner where two lines meet; Escape ends");
+            break;
+        case Tool::SplineOnFace:
+            text = edit->placed.empty()
+                ? QObject::tr("Spline on face: click points on a face of the model; Escape ends")
+                : QObject::tr("Spline on face: click more points on the same face; Escape or a "
+                              "right click makes it");
             break;
         case Tool::None:
             break;
@@ -1657,18 +1668,7 @@ void ViewProviderSketch3D::constrainTo(const Snap& snap, int geoId, int pos, boo
     };
     // The external reference a model snap needs, reused when the sketch has it.
     auto external = [&]() {
-        const auto& objs = sketch->ExternalGeometry.getValues();
-        const auto& subs = sketch->ExternalGeometry.getSubValues();
-        for (std::size_t i = 0; i < objs.size(); ++i) {
-            if (objs[i] == snap.obj && i < subs.size() && subs[i] == snap.sub) {
-                return Sketcher::Sketch3DObject::RefExt - int(i);
-            }
-        }
-        int before = sketch->ExternalGeo.getSize();
-        run(obj + ".addExternal(" + Gui::Command::getObjectCmd(snap.obj) + ", '" + snap.sub + "')");
-        return sketch->ExternalGeo.getSize() > before
-            ? Sketcher::Sketch3DObject::RefExt - (sketch->ExternalGeo.getSize() - 1)
-            : int(Sketcher::GeoEnum::GeoUndef);
+        return referenceTo(snap.obj, snap.sub);
     };
     char buf[256];
     switch (snap.kind) {
@@ -1738,6 +1738,32 @@ void ViewProviderSketch3D::constrainTo(const Snap& snap, int geoId, int pos, boo
     }
 }
 
+int ViewProviderSketch3D::referenceTo(App::DocumentObject* target, const std::string& sub)
+{
+    auto sketch = getSketch3DObject();
+    const auto& objs = sketch->ExternalGeometry.getValues();
+    const auto& subs = sketch->ExternalGeometry.getSubValues();
+    for (std::size_t i = 0; i < objs.size(); ++i) {
+        if (objs[i] == target && i < subs.size() && subs[i] == sub) {
+            return Sketcher::Sketch3DObject::RefExt - int(i);
+        }
+    }
+    int before = sketch->ExternalGeo.getSize();
+    try {
+        Gui::Command::doCommand(Gui::Command::Doc,
+                                "%s.addExternal(%s, '%s')",
+                                Gui::Command::getObjectCmd(sketch).c_str(),
+                                Gui::Command::getObjectCmd(target).c_str(),
+                                sub.c_str());
+    }
+    catch (const Base::Exception& e) {
+        e.reportException();
+    }
+    return sketch->ExternalGeo.getSize() > before
+        ? Sketcher::Sketch3DObject::RefExt - (sketch->ExternalGeo.getSize() - 1)
+        : int(Sketcher::GeoEnum::GeoUndef);
+}
+
 void ViewProviderSketch3D::constrainOn(const Snap& snap, int geoId)
 {
     // A rim point the circle or arc goes through: the point it was snapped to lies on
@@ -1751,24 +1777,7 @@ void ViewProviderSketch3D::constrainOn(const Snap& snap, int geoId)
         pos = int(snap.pos);
     }
     else if (snap.kind == Snap::Kind::ModelVertex) {
-        const auto& objs = sketch->ExternalGeometry.getValues();
-        const auto& subs = sketch->ExternalGeometry.getSubValues();
-        for (std::size_t i = 0; i < objs.size(); ++i) {
-            if (objs[i] == snap.obj && i < subs.size() && subs[i] == snap.sub) {
-                point = Sketcher::Sketch3DObject::RefExt - int(i);
-            }
-        }
-        if (point == Sketcher::GeoEnum::GeoUndef) {
-            int before = sketch->ExternalGeo.getSize();
-            Gui::Command::doCommand(Gui::Command::Doc,
-                                    "%s.addExternal(%s, '%s')",
-                                    obj.c_str(),
-                                    Gui::Command::getObjectCmd(snap.obj).c_str(),
-                                    snap.sub.c_str());
-            if (sketch->ExternalGeo.getSize() > before) {
-                point = Sketcher::Sketch3DObject::RefExt - (sketch->ExternalGeo.getSize() - 1);
-            }
-        }
+        point = referenceTo(snap.obj, snap.sub);
     }
     if (point == Sketcher::GeoEnum::GeoUndef) {
         return;
@@ -1897,6 +1906,25 @@ void ViewProviderSketch3D::addPlaced(const Placed& placed)
                 else {
                     edit->placed.pop_back();  // click the last point again
                 }
+            }
+            break;
+        }
+        case Tool::SplineOnFace: {
+            // on a face of the model, the same face each time
+            bool onFace =
+                placed.snap.kind == Snap::Kind::Model || placed.snap.kind == Snap::Kind::ModelPlane;
+            const Snap* first = edit->placed.empty() ? nullptr : &edit->placed.front().snap;
+            if (!onFace
+                || (first && (first->obj != placed.snap.obj || first->sub != placed.snap.sub))) {
+                Gui::getMainWindow()->showMessage(
+                    first ? QObject::tr("Click on the same face as the first point")
+                          : QObject::tr("Click on a face of the model"),
+                    5000);
+                return;
+            }
+            if (edit->placed.empty()
+                || (placed.point - edit->placed.back().point).Length() >= Precision::Confusion()) {
+                edit->placed.push_back(placed);
             }
             break;
         }
@@ -2132,6 +2160,100 @@ bool ViewProviderSketch3D::makeCircular()
     }
     Gui::Command::commitCommand();
     return true;
+}
+
+bool ViewProviderSketch3D::makeSplineOnFace()
+{
+    // Its points in the face's (u, v), a 2D spline through them there: on the face
+    // exactly (Part.CurveOnSurface), solved there, following the face (decision f).
+    auto sketch = getSketch3DObject();
+    const std::string obj = Gui::Command::getObjectCmd(sketch);
+    const Snap& face = edit->placed.front().snap;
+    Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Add 3D sketch spline on face"));
+    int ext = referenceTo(face.obj, face.sub);
+    auto surfaceGeo = ext != Sketcher::GeoEnum::GeoUndef
+        ? Base::freecad_dynamic_cast<Part::GeomSurface>(sketch->getGeometry(ext))
+        : nullptr;
+    if (!surfaceGeo) {
+        Gui::Command::abortCommand();
+        Gui::getMainWindow()->showMessage(QObject::tr("That face cannot be referenced"), 5000);
+        return false;
+    }
+    auto surface = Handle(Geom_Surface)::DownCast(surfaceGeo->handle());
+    std::vector<gp_Pnt2d> uvs;
+    for (const auto& p : edit->placed) {
+        double u = 0., v = 0.;
+        GeomAPI_ProjectPointOnSurf proj(gp_Pnt(p.point.x, p.point.y, p.point.z), surface);
+        if (proj.NbPoints() > 0) {
+            proj.LowerDistanceParameters(u, v);
+        }
+        // across a periodic surface's seam, the way nearest the point before
+        if (!uvs.empty()) {
+            if (surface->IsUPeriodic()) {
+                double period = surface->UPeriod();
+                u += period * std::round((uvs.back().X() - u) / period);
+            }
+            if (surface->IsVPeriodic()) {
+                double period = surface->VPeriod();
+                v += period * std::round((uvs.back().Y() - v) / period);
+            }
+        }
+        uvs.emplace_back(u, v);
+    }
+    std::string list = "[";
+    char buf[96];
+    for (std::size_t i = 0; i < uvs.size(); ++i) {
+        snprintf(buf,
+                 sizeof(buf),
+                 "%sApp.Base.Vector2d(%.17g, %.17g)",
+                 i ? ", " : "",
+                 uvs[i].X(),
+                 uvs[i].Y());
+        list += buf;
+    }
+    list += "]";
+    int id = sketch->Geometry.getSize();
+    int extIndex = Sketcher::Sketch3DObject::RefExt - ext;
+    try {
+        Gui::Command::doCommand(
+            Gui::Command::Doc,
+            "_bs = Part.Geom2d.BSplineCurve2d()\n"
+            "_bs.interpolate(%s)\n"
+            "%s.addGeometry(Part.CurveOnSurface(_bs, %s.ExternalGeo[%d]), %s)\n"
+            "%s.addConstraint(Sketcher.Constraint('PointOnObject', %d, 0, %d))\n"
+            "del _bs",
+            list.c_str(),
+            obj.c_str(),
+            obj.c_str(),
+            extIndex,
+            construction ? "True" : "False",
+            obj.c_str(),
+            id,
+            ext);
+        // its points, at its knots, as sketch points held to it
+        for (std::size_t k = 0; k < uvs.size(); ++k) {
+            gp_Pnt p = surface->Value(uvs[k].X(), uvs[k].Y());
+            int pid = sketch->Geometry.getSize();
+            Gui::Command::doCommand(
+                Gui::Command::Doc,
+                "%s.addGeometry(Part.Point(%s), True)\n"
+                "%s.addConstraint(Sketcher.Constraint('InternalAlignment:Sketcher::"
+                "BSplineKnotPoint', %d, 1, %d, %d))",
+                obj.c_str(),
+                pyVec(Base::Vector3d(p.X(), p.Y(), p.Z())).c_str(),
+                obj.c_str(),
+                pid,
+                id,
+                int(k));
+        }
+        Gui::Command::commitCommand();
+        return true;
+    }
+    catch (const Base::Exception& e) {
+        Gui::Command::abortCommand();
+        Gui::getMainWindow()->showMessage(QString::fromUtf8(e.what()), 5000);
+        return false;
+    }
 }
 
 void ViewProviderSketch3D::updatePreview()

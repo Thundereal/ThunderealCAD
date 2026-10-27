@@ -127,6 +127,8 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
               << "Sketcher_Sketch3DResetManipulator"
               << "Sketcher_Sketch3DRotationHandles"
               << "Separator"
+              << "Sketcher_Sketch3DSplineOnFace"
+              << "Separator"
               << "Sketcher_Constrain3DAlongX"
               << "Sketcher_Constrain3DAlongY"
               << "Sketcher_Constrain3DAlongZ"

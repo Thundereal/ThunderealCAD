@@ -670,6 +670,51 @@ S3c, corner fillet (2026-10-27):
   - two Python cases: one corner, and the pipe route with both bends filleted
     and fully constrained again, swept.
 
+S3d, faces (2026-10-27). The curve on a face is a new geometry, as decision f
+asked: a 2D curve in the face's (u, v), so it lies on the face exactly.
+- Part (`Part.CurveOnSurface(curve2d, surface)`, `GeomCurveOnSurface`):
+  - it is a curve like the others: evaluated as S(c(t)) with derivatives by
+    the chain rule to the third, so projection, approximation, transform,
+    copy and reverse work through it;
+  - `toShape()` makes the edge from the 2D curve on the surface, carrying it
+    as the edge's curve on that surface, with a 3D curve built to match;
+  - it saves in OCCT's own text form, which holds any surface and 2D curve.
+  Part's surfaces could not be saved at all ("Not yet implemented"); they now
+  are, in the same form, so a curved face as a reference keeps in the file.
+- A curved face as a reference is its surface. Point on object puts a point on
+  it (P - S(u, v), u and v unknown, 1 DOF), and a snap onto a curved face in
+  the edit now does that. It used to take the position only.
+- A reference that cannot be built (its element gone) keeps its geometry as it
+  was. It used to be dropped, which moved every reference after it down one
+  id.
+- In the sketch, the curve on a face is solved in (u, v):
+  - its poles' u and v are the unknowns;
+  - put on a face with PointOnObject(curve, none, face), it is solved on that
+    face's surface and follows it; without, on its own surface;
+  - its ends, point on it, its knot points and Tangent work as on any curve.
+- Two curves on the same face join in (u, v): a coincidence is their end poles
+  equal (2 equations), and a tangency adds their end pole pairs parallel (1
+  more). In 3D the same coincidence removed 3 DOF away from the solution and
+  left one equation implied at it.
+- The edit has Spline on Face (Sketcher 3D toolbar):
+  - points clicked on one model face, then Escape: a spline through them in
+    the face's (u, v), with u carried across a periodic surface's seam the
+    short way;
+  - the face becomes a reference and the spline is put on it;
+  - its points are sketch points at its knots, so dragging one reshapes it on
+    the face.
+- A limit shared with every 3D tangency: Parallel is d2 = s d1, which s = 0
+  meets when a curve's end tangent collapses. A line started square to a face
+  and made tangent to a curve on it was met that way, with the curve's first
+  two (u, v) poles merged. Drawn roughly along the curve, as a G1 line is, it
+  solves as meant.
+- Tests:
+  - Part: `parttests/CurveOnSurfaceTest.py` (6) and `GeometrySaveTest.py`;
+  - planegcs gtests for the new constraint's gradients, the tangent's value
+    and a solve on a saddle;
+  - seven Python cases;
+  - `tests/gui/sketch3d-face-spline.py`, 20 checks.
+
 ## 11. Risks
 
 - **Solve stability in 3D** [S 15]: answered by rank-exact equations,

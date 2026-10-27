@@ -69,6 +69,12 @@ FC_LOG_LEVEL_INIT("Part", true, true)
 
 using namespace Part;
 
+namespace Part::detail
+{
+// Set while a feature's Shape is set to follow its Placement (Feature::onChanged)
+thread_local const Feature* shapeFollowingPlacement = nullptr;
+}
+
 namespace
 {
 
@@ -566,6 +572,9 @@ void Feature::onAppearanceChanged(const App::Property *prop)
         // Whatever was made of the write, the name says what is
         mirrorLooks();
         return;
+    }
+    if (prop == &Shape && detail::shapeFollowingPlacement == this) {
+        return;  // the same shape moved: the looks of its elements are what they were
     }
     if (prop != &Shape && prop != &ElementAppearance && prop != &ShapeMaterial
         && prop != &MapFaceColor && prop != &MapLineColor && prop != &MapPointColor

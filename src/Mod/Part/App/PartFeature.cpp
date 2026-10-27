@@ -100,6 +100,12 @@ typedef boost::iterator_range<const char*> CharRange;
 #include "TopoShapeOpCode.h"
 
 using namespace Part;
+
+namespace Part::detail
+{
+// The feature whose Shape is being set to follow its Placement (PartFeatureAppearance.cpp)
+extern thread_local const Feature* shapeFollowingPlacement;
+}
 namespace sp = std::placeholders;
 
 FC_LOG_LEVEL_INIT("Part",true,true)
@@ -2000,7 +2006,21 @@ void Feature::onChanged(const App::Property* prop)
         // Nobody sets this shape: it follows the property just written
         // (docs/TransactionLog.md sec 31.26)
         App::TransactionFollowing following;
-        this->Shape.setValue(shape);
+        // The same shape moved: its elements' looks stay what they are, and
+        // mapping them again for each part a solve moves was a quarter of an
+        // assembly's drag step
+        const Feature* was = detail::shapeFollowingPlacement;
+        if (prop == &this->Placement) {
+            detail::shapeFollowingPlacement = this;
+        }
+        try {
+            this->Shape.setValue(shape);
+        }
+        catch (...) {
+            detail::shapeFollowingPlacement = was;
+            throw;
+        }
+        detail::shapeFollowingPlacement = was;
     }
     // if the point data has changed check and adjust the transformation as well
     else if (prop == &this->Shape) {

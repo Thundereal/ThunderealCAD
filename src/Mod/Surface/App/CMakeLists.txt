@@ -44,6 +44,8 @@ SET(Blending_SRCS
 )
 
 SET(Geom_SRCS
+  Geom/GeomPy.cpp
+  Geom/GeomPy.h
   Geom/NetworkSurface.cpp
   Geom/NetworkSurface.h
 )
@@ -64,6 +66,8 @@ SET(Surface_SRCS
   FeatureGeomFillSurface.h
   FeatureFilling.cpp
   FeatureFilling.h
+  FeatureNetwork.cpp
+  FeatureNetwork.h
   FeatureSections.cpp
   FeatureSections.h
   FeatureSewing.cpp

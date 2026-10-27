@@ -37,6 +37,7 @@ namespace OpCodes
 {
 constexpr const char* Extend = "SXT";
 constexpr const char* BlendCurve = "SBC";
+constexpr const char* Network = "SNW";
 }  // namespace OpCodes
 
 /** Name a shape built from curves alone, which has no shape history

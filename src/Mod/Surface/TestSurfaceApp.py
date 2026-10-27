@@ -22,4 +22,5 @@
 
 # Unit test for the Surface module
 from SurfaceTests.TestBlendCurve import TestBlendCurve
+from SurfaceTests.TestNetwork import TestNetwork
 from SurfaceTests.TestSurfaceFeatures import TestSurfaceFeatures

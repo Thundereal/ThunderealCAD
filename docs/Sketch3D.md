@@ -766,7 +766,7 @@ The S2 leftovers, closed (2026-10-27):
     #00575e on #eef9fa.
   - 2D, the same outline on its dimensions, symbols and the tools' on-view
     parameters: ConstrainedDimColor and ConstrainedIcoColor as before with
-    ConstrainedOutlineColor #280000; on a light background #c41e00 on
+    ConstrainedOutlineColor #280000; on a light background #a01800 on
     #fff4f2.
   - The outline is `SoDatumLabel::outlineColor`/`outlineWidth`: the text
     stroked under its fill, and the leaders drawn once wider in the outline

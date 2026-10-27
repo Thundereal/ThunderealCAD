@@ -474,9 +474,9 @@ public:
         funcs["Sketch3DIcoColorLight"] = &SketcherParamsP::updateSketch3DIcoColorLight;
         Sketch3DOutlineColorLight = this->subHandles[9]->GetUnsigned("Sketch3DOutlineColorLight", 0xEEF9FAFF);
         funcs["Sketch3DOutlineColorLight"] = &SketcherParamsP::updateSketch3DOutlineColorLight;
-        ConstrainedDimColorLight = this->subHandles[9]->GetUnsigned("ConstrainedDimColorLight", 0xC41E00FF);
+        ConstrainedDimColorLight = this->subHandles[9]->GetUnsigned("ConstrainedDimColorLight", 0xA01800FF);
         funcs["ConstrainedDimColorLight"] = &SketcherParamsP::updateConstrainedDimColorLight;
-        ConstrainedIcoColorLight = this->subHandles[9]->GetUnsigned("ConstrainedIcoColorLight", 0xC41E00FF);
+        ConstrainedIcoColorLight = this->subHandles[9]->GetUnsigned("ConstrainedIcoColorLight", 0xA01800FF);
         funcs["ConstrainedIcoColorLight"] = &SketcherParamsP::updateConstrainedIcoColorLight;
         ConstrainedOutlineColorLight = this->subHandles[9]->GetUnsigned("ConstrainedOutlineColorLight", 0xFFF4F2FF);
         funcs["ConstrainedOutlineColorLight"] = &SketcherParamsP::updateConstrainedOutlineColorLight;
@@ -1062,11 +1062,11 @@ public:
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateConstrainedDimColorLight(SketcherParamsP *self) {
-        self->ConstrainedDimColorLight = self->subHandles[9]->GetUnsigned("ConstrainedDimColorLight", 0xC41E00FF);
+        self->ConstrainedDimColorLight = self->subHandles[9]->GetUnsigned("ConstrainedDimColorLight", 0xA01800FF);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateConstrainedIcoColorLight(SketcherParamsP *self) {
-        self->ConstrainedIcoColorLight = self->subHandles[9]->GetUnsigned("ConstrainedIcoColorLight", 0xC41E00FF);
+        self->ConstrainedIcoColorLight = self->subHandles[9]->GetUnsigned("ConstrainedIcoColorLight", 0xA01800FF);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateConstrainedOutlineColorLight(SketcherParamsP *self) {
@@ -1786,13 +1786,13 @@ static const App::ParamRegistry::Registrar _SketcherParamsRegistrar({
 "symbols when the view's background is light. Applies at once.")
         .setProxy("Color")
         .setTransparency(false),
-    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "ConstrainedDimColorLight", "ConstrainedDimColorLight", App::ParamInfo::Hex, 0xC41E00FF)
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "ConstrainedDimColorLight", "ConstrainedDimColorLight", App::ParamInfo::Hex, 0xA01800FF)
         .setTitle("Dimensional constraint colour on a light background")
         .setDoc("Colour of dimensional constraints in sketch edit mode when the\n"
 "view's background is light. Applies at once.")
         .setProxy("Color")
         .setTransparency(false),
-    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "ConstrainedIcoColorLight", "ConstrainedIcoColorLight", App::ParamInfo::Hex, 0xC41E00FF)
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "ConstrainedIcoColorLight", "ConstrainedIcoColorLight", App::ParamInfo::Hex, 0xA01800FF)
         .setTitle("Constraint symbol colour on a light background")
         .setDoc("Colour of constraint symbols in sketch edit mode when the view's\n"
 "background is light. Applies at once.")
@@ -5449,7 +5449,7 @@ const unsigned long & SketcherParams::getConstrainedDimColorLight() {
 
 // Auto generated code (Tools/params_utils.py:413)
 const unsigned long & SketcherParams::defaultConstrainedDimColorLight() {
-    const static unsigned long def = 0xC41E00FF;
+    const static unsigned long def = 0xA01800FF;
     return def;
 }
 
@@ -5478,7 +5478,7 @@ const unsigned long & SketcherParams::getConstrainedIcoColorLight() {
 
 // Auto generated code (Tools/params_utils.py:413)
 const unsigned long & SketcherParams::defaultConstrainedIcoColorLight() {
-    const static unsigned long def = 0xC41E00FF;
+    const static unsigned long def = 0xA01800FF;
     return def;
 }
 

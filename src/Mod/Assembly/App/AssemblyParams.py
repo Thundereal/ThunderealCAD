@@ -47,6 +47,17 @@ Params = [
         doc = "Solves the joints continuously while a part is dragged, so that\n"
               "connected parts follow. When off, only the joint markers are\n"
               "redrawn during the drag. Takes effect at the next drag."),
+    ParamInt('DragCollision', 0,
+        title = "Collision while dragging",
+        doc = "What a drag does when it brings two components into collision\n"
+              "(docs/AssemblyInterference.md): 0 nothing, 1 highlights them,\n"
+              "2 stops the drag before they collide. Components interfering\n"
+              "when the drag starts are left out. Takes effect at the next drag."),
+    ParamFloat('DragCollisionTolerance', 0.0,
+        title = "Collision tolerance",
+        doc = "mm. Components closer than this touch while dragging, and only\n"
+              "collide when they overlap; taken at least twice the deflection of\n"
+              "the meshes the check uses. Takes effect at the next drag."),
     ParamBool('LeaveEditWithEscape', True,
         title = "Esc leaves edit mode",
         doc = "Lets the Esc key leave the edit mode of an assembly when no task\n"

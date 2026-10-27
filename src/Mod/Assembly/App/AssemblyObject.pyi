@@ -241,6 +241,19 @@ class AssemblyObject(Part):
         ...
 
     @constmethod
+    def getDragCollisions(self) -> list:
+        """
+        Collision while dragging (docs/AssemblyInterference.md), with the
+        DragCollision preference at 1 (highlight) or 2 (stop) when the drag
+        began: the pairs of components the last drag step brought into
+        collision, or, stopped, would have.
+
+        Returns: a list of tuples of two objects; empty with no drag, or the
+        preference off.
+        """
+        ...
+
+    @constmethod
     def getSolveStatus(self) -> dict:
         """
         The diagnosis of the last solve, as the messages panel shows it.

@@ -40,6 +40,7 @@ class PreferencesPage:
         pref.SetBool("LeaveEditWithEscape", self.form.checkBoxEnableEscape.isChecked())
         pref.SetBool("LogSolverDebug", self.form.checkBoxSolverDebug.isChecked())
         pref.SetInt("GroundFirstPart", self.form.groundFirstPart.currentIndex())
+        pref.SetInt("DragCollision", self.form.dragCollision.currentIndex())
 
     def loadSettings(self):
         pref = preferences()
@@ -50,3 +51,8 @@ class PreferencesPage:
         self.form.groundFirstPart.addItem(translate("Assembly", "Always"))
         self.form.groundFirstPart.addItem(translate("Assembly", "Never"))
         self.form.groundFirstPart.setCurrentIndex(pref.GetInt("GroundFirstPart", 0))
+        self.form.dragCollision.clear()
+        self.form.dragCollision.addItem(translate("Assembly", "Off"))
+        self.form.dragCollision.addItem(translate("Assembly", "Highlight"))
+        self.form.dragCollision.addItem(translate("Assembly", "Stop"))
+        self.form.dragCollision.setCurrentIndex(pref.GetInt("DragCollision", 0))

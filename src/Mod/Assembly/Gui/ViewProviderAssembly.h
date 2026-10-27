@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <map>
 #include <QCoreApplication>
 #include <QMetaObject>
 #include <fastsignals/signal.h>
@@ -33,6 +34,8 @@
 #include <Gui/ViewProviderPart.h>
 
 class SoSwitch;
+class SoSeparator;
+class SoTransform;
 class SoSensor;
 class SoDragger;
 class SoFieldSensor;
@@ -256,6 +259,12 @@ public:
 
     Gui::SoTransformDragger* asmDragger = nullptr;
     SoSwitch* asmDraggerSwitch = nullptr;
+    // Collision while dragging: the components drawn in red while the drag
+    // brings them into collision, or would have (Stop), from the meshes the
+    // assembly's collision watch checks with, placed as the components are
+    SoSwitch* collisionSwitch = nullptr;
+    SoSeparator* collisionGroup = nullptr;
+    std::map<App::DocumentObject*, std::pair<SoSeparator*, SoTransform*>> collisionNodes;
     SoFieldSensor* translationSensor = nullptr;
     SoFieldSensor* rotationSensor = nullptr;
 
@@ -264,6 +273,8 @@ public:
         signalSetUp;
 
 private:
+    void showDragCollisions();
+    void clearDragCollisions();
     bool tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerContext* viewer);
     void tryInitMove(const SbVec2s& cursorPos, Gui::ViewerContext* viewer);
 

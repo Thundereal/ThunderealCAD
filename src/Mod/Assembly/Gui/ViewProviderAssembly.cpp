@@ -31,7 +31,13 @@
 #include <vector>
 #include <sstream>
 #include <iostream>
+#include <Inventor/nodes/SoCoordinate3.h>
+#include <Inventor/nodes/SoFaceSet.h>
+#include <Inventor/nodes/SoMaterial.h>
+#include <Inventor/nodes/SoPickStyle.h>
+#include <Inventor/nodes/SoPolygonOffset.h>
 #include <Inventor/nodes/SoSeparator.h>
+#include <Inventor/nodes/SoShapeHints.h>
 #include <Inventor/draggers/SoDragger.h>
 #include <Inventor/events/SoKeyboardEvent.h>
 #include <Inventor/nodes/SoSwitch.h>
@@ -62,6 +68,7 @@
 #include <Base/Exception.h>
 #include <Gui/ActionFunction.h>
 #include <App/DocumentObserver.h>
+#include <App/GeoFeatureGroupExtension.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
 #include <Gui/CommandT.h>
@@ -155,6 +162,12 @@ ViewProviderAssembly::~ViewProviderAssembly()
     QObject::disconnect(workbenchConnection);
 
     updateTaskPanel(false);
+    clearDragCollisions();
+    if (collisionSwitch) {
+        pcRoot->removeChild(collisionSwitch);
+        collisionSwitch->unref();
+        collisionSwitch = nullptr;
+    }
 };
 
 QIcon ViewProviderAssembly::getIcon() const
@@ -658,10 +671,13 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
         Base::Rotation asmInvRot
             = App::GeoFeature::getGlobalPlacement(getObject<AssemblyObject>()).getRotation().inverse();
 
+        // A move without a solve that would collide is taken back to these
+        std::vector<std::pair<App::PropertyPlacement*, Base::Placement>> previous;
         for (auto& objToMove : docsToMove) {
             App::DocumentObject* obj = objToMove.obj;
             auto* propPlacement = obj->getPlacementProperty();
             if (propPlacement) {
+                previous.emplace_back(propPlacement, propPlacement->getValue());
                 Base::Placement plc = objToMove.plc;
                 if (ungroundedJointDrag) {
                     plc.setPosition(plc.getPosition() + ungroundedDragTranslation);
@@ -756,24 +772,160 @@ bool ViewProviderAssembly::tryMouseMove(const SbVec2s& cursorPos, Gui::ViewerCon
         );
         bool solveOnMove = hGrp->GetBool("SolveOnMove", Assembly::AssemblyParams::defaultSolveOnMove());
         // HACK: Re-solve assembly to update rigid groups while dragging.
+        using DragCollision = AssemblyObject::DragCollision;
+        const bool stopAtCollision = assemblyPart->getDragCollisionMode() == DragCollision::Stop;
+        auto stopped = [&]() {
+            const auto& hit = assemblyPart->getDragCollisions().front();
+            Gui::getMainWindow()->showMessage(
+                tr("Stopped: %1 would collide with %2")
+                    .arg(QString::fromUtf8(hit.first->Label.getValue()),
+                         QString::fromUtf8(hit.second->Label.getValue())),
+                3000);
+        };
         if (solveOnMove && (dragMode != DragMode::TranslationNoSolve || forceSolveOnMoveForRigid)) {
             if (forceSolveOnMoveForRigid) {
                 assemblyPart->solve();
+                // Highlighted only: a whole solve is not taken back
+                assemblyPart->checkDragCollisions();
             }
             else if (!assemblyPart->doDragStep() && assemblyPart->getLastDragStepFailed()) {
-                // The parts stay where the last good step left them; tell the user
-                // why the part stopped following the mouse.
-                Gui::getMainWindow()->showMessage(
-                    tr("The assembly solver could not follow this move"),
-                    3000
-                );
+                if (stopAtCollision && !assemblyPart->getDragCollisions().empty()) {
+                    stopped();
+                }
+                else {
+                    // The parts stay where the last good step left them; tell the
+                    // user why the part stopped following the mouse.
+                    Gui::getMainWindow()->showMessage(
+                        tr("The assembly solver could not follow this move"),
+                        3000);
+                }
             }
         }
         else {
+            if (assemblyPart->getDragCollisionMode() != DragCollision::Off
+                && !assemblyPart->checkDragCollisions().empty() && stopAtCollision) {
+                for (auto& [prop, plc] : previous) {
+                    prop->setValue(plc);
+                }
+                stopped();
+            }
             assemblyPart->redrawJointPlacements(assemblyPart->getJoints());
         }
+        showDragCollisions();
     }
     return false;
+}
+
+void ViewProviderAssembly::showDragCollisions()
+{
+    auto* assembly = getObject<AssemblyObject>();
+    std::vector<App::DocumentObject*> colliding;
+    for (const auto& hit : assembly->getDragCollisions()) {
+        for (auto* obj : {hit.first, hit.second}) {
+            if (std::find(colliding.begin(), colliding.end(), obj) == colliding.end()) {
+                colliding.push_back(obj);
+            }
+        }
+    }
+    if (colliding.empty()) {
+        if (collisionSwitch) {
+            collisionSwitch->whichChild = SO_SWITCH_NONE;
+        }
+        return;
+    }
+    if (!collisionSwitch) {
+        // In the assembly's coordinates: after its transform in pcRoot
+        collisionSwitch = new SoSwitch(SO_SWITCH_NONE);
+        collisionSwitch->ref();
+        collisionSwitch->setName("AssemblyCollisions");
+        auto* look = new SoSeparator;
+        auto* pick = new SoPickStyle;
+        pick->style = SoPickStyle::UNPICKABLE;
+        look->addChild(pick);
+        // In front of the component it covers
+        auto* offset = new SoPolygonOffset;
+        offset->factor = -1.0F;
+        offset->units = -1.0F;
+        look->addChild(offset);
+        auto* hints = new SoShapeHints;
+        hints->vertexOrdering = SoShapeHints::UNKNOWN_ORDERING;
+        look->addChild(hints);
+        auto* material = new SoMaterial;
+        material->diffuseColor.setValue(1.0F, 0.15F, 0.1F);
+        material->emissiveColor.setValue(0.45F, 0.0F, 0.0F);
+        material->transparency.setValue(0.35F);
+        look->addChild(material);
+        collisionGroup = new SoSeparator;
+        look->addChild(collisionGroup);
+        collisionSwitch->addChild(look);
+        pcRoot->addChild(collisionSwitch);
+    }
+    collisionGroup->removeAllChildren();
+    for (auto* obj : colliding) {
+        auto it = collisionNodes.find(obj);
+        if (it == collisionNodes.end()) {
+            std::vector<Base::Vector3d> points;
+            if (!assembly->getCollisionMesh(obj, points) || points.empty()) {
+                continue;
+            }
+            auto* node = new SoSeparator;
+            node->ref();
+            auto* transform = new SoTransform;
+            node->addChild(transform);
+            auto* coords = new SoCoordinate3;
+            coords->point.setNum(static_cast<int>(points.size()));
+            SbVec3f* out = coords->point.startEditing();
+            for (std::size_t i = 0; i < points.size(); ++i) {
+                out[i].setValue(static_cast<float>(points[i].x),
+                                static_cast<float>(points[i].y),
+                                static_cast<float>(points[i].z));
+            }
+            coords->point.finishEditing();
+            node->addChild(coords);
+            auto* faces = new SoFaceSet;
+            const int count = static_cast<int>(points.size() / 3);
+            faces->numVertices.setNum(count);
+            int32_t* numbers = faces->numVertices.startEditing();
+            std::fill(numbers, numbers + count, 3);
+            faces->numVertices.finishEditing();
+            node->addChild(faces);
+            it = collisionNodes.emplace(obj, std::make_pair(node, transform)).first;
+        }
+        // The component's placement in the assembly, through its containers
+        Base::Placement plc;
+        for (auto* step = obj; step && step != assembly;
+             step = App::GeoFeatureGroupExtension::getGroupOfObject(step)) {
+            if (auto* prop = step->getPlacementProperty()) {
+                plc = prop->getValue() * plc;
+            }
+        }
+        const Base::Vector3d pos = plc.getPosition();
+        double q0 {}, q1 {}, q2 {}, q3 {};
+        plc.getRotation().getValue(q0, q1, q2, q3);
+        it->second.second->translation.setValue(static_cast<float>(pos.x),
+                                                static_cast<float>(pos.y),
+                                                static_cast<float>(pos.z));
+        it->second.second->rotation.setValue(static_cast<float>(q0),
+                                             static_cast<float>(q1),
+                                             static_cast<float>(q2),
+                                             static_cast<float>(q3));
+        collisionGroup->addChild(it->second.first);
+    }
+    collisionSwitch->whichChild = SO_SWITCH_ALL;
+}
+
+void ViewProviderAssembly::clearDragCollisions()
+{
+    if (collisionSwitch) {
+        collisionSwitch->whichChild = SO_SWITCH_NONE;
+    }
+    if (collisionGroup) {
+        collisionGroup->removeAllChildren();
+    }
+    for (auto& entry : collisionNodes) {
+        entry.second.first->unref();
+    }
+    collisionNodes.clear();
 }
 
 bool ViewProviderAssembly::mouseButtonPressed(
@@ -1309,6 +1461,8 @@ void ViewProviderAssembly::tryInitMove(const SbVec2s& cursorPos, Gui::ViewerCont
         assemblyPart->preDrag(dragParts);
     }
     else {
+        // preDrag() starts the collision watch for a solved drag
+        assemblyPart->beginCollisionWatch();
         assemblyPart->redrawJointPlacements(assemblyPart->getJoints());
     }
 }
@@ -1346,6 +1500,8 @@ void ViewProviderAssembly::endMove()
         assemblyPart->postDrag();
         assemblyPart->setObjMasses({});
     }
+    assemblyPart->endCollisionWatch();
+    clearDragCollisions();
 
     if (moveInCommand) {
         getDocument()->commitCommand();

@@ -1,9 +1,11 @@
 # Assembly: the interference check
 
 Which components of an assembly overlap, and, when asked, which touch:
-where they are, or over the frames of the last simulation. The static check
-of the audit's phase 5 (`docs/AssemblyAudit.md` sec 8.2), and interference
-over time (`docs/AssemblyDynamics.md` sec 7.3, P14). Built 2026-10-27.
+where they are, over the frames of the last simulation, or while a part is
+dragged. The static check of the audit's phase 5 (`docs/AssemblyAudit.md`
+sec 8.2), interference over time (`docs/AssemblyDynamics.md` sec 7.3, P14),
+and collision while dragging (CATIA's "stop on collision"). Built
+2026-10-27.
 
 ## Use
 
@@ -57,6 +59,32 @@ None). `frames` is a list of frame numbers of the last simulation
 at one frame and also has `Frame` and `Time` (s). A frame past the last is
 a ValueError, as is `frames` with no simulation run.
 
+### Collision while dragging
+
+Preferences > Assembly > **Collision while dragging**: *Off* (the default),
+*Highlight* or *Stop* (the parameter `DragCollision`: 0, 1, 2; its tolerance
+`DragCollisionTolerance`, mm, 0 by default and taken at least twice the
+deflection, as Fast's). With either on, a drag watches the assembly's
+components with the Fast check:
+
+- *Highlight*: the drag goes on; the components it brings into collision are
+  drawn in red while they collide.
+- *Stop*: a step that would bring two components into collision is taken
+  back -- the solver and the document both, to where the last good step left
+  them -- and the pair is drawn in red, the status bar saying "Stopped: A
+  would collide with B". The part stays at the last position that did not
+  collide and follows the mouse again as soon as it can.
+
+Components interfering when the drag starts are left out (the log says how
+many pairs), so a drag can move parts that overlap by design apart. Both
+drags are watched: with the solver (`doDragStep()`) and without (the 3D view
+moving a part itself, "Solve while dragging" off). A drag of a part in a
+rigid group, which the 3D view does by a whole solve per move, is
+highlighted only, not stopped; the transform dragger's moves are not
+watched. From Python: the preference, then `preDrag()`, `doDragStep()`,
+`getDragCollisions()` (the pairs the last step brought into collision, or,
+stopped, would have), `postDrag()`.
+
 ## What is checked
 
 The assembly's components (`getAssemblyComponents()`: a rigid sub-assembly
@@ -75,16 +103,25 @@ is an interference, and the common is kept for the drawing. Otherwise, with
 contacts asked for, `BRepExtrema_DistShapeShape`: within the tolerance, a
 contact.
 
-**Fast**:
+**Fast** (`App/ContactGeometry.{h,cpp}`, `App/Interference.cpp`):
 
 1. Each distinct solid (TShape) is meshed once, on a copy
-   (`BRepBuilderAPI_Copy`: the display's triangulation is left alone), and
-   placed per instance -- a fastener used 200 times is meshed once.
+   (`BRepBuilderAPI_Copy`: the display's triangulation is left alone), into
+   a `ContactMesh`: the mesh, its triangles' tree and the solid's exact
+   classifier, all in the solid's own frame. `ContactGeometryCache` keeps
+   them for every caller (the check, its frames, a drag's watch, the
+   dynamics later; `docs/AssemblyDynamics.md` sec 7.2) and drops those whose
+   solid nobody else holds as it grows -- a fastener used 200 times is
+   meshed once, and a second check meshes nothing. A solid in a component is
+   an instance: its `ContactMesh` and its pose in the assembly.
 2. Two solids overlap where their surfaces cross. An edge of a triangle of
    one crossing a triangle of the other, its ends on either side of the
    triangle's plane, one more than the tolerance from it and the other more
-   than 1e-3 of it, is searched for over both components' bounding volume
-   trees (`BRepExtrema_TriangleSet`'s BVH). Not both ends beyond the
+   than 1e-3 of it, is searched for over the two solids' bounding volume
+   trees (`BRepExtrema_TriangleSet`'s BVH), in the first solid's frame: the
+   second's tree is carried over by the pose of its solid relative to the
+   first's, its boxes as boxes around them and its triangles moved as they
+   are reached. Moving a part moves its pose: nothing is rebuilt. Not both ends beyond the
    tolerance: a sphere sunk 0.08 mm into a face had no such edge, its
    mesh's rings near the pole 0.06 deep and within 0.001 of the face. The
    1e-3 leaves out the ends of edges on a face in contact, on its plane to
@@ -94,7 +131,14 @@ contact.
    within their error. It is confirmed by a point near it inside both solids
    by more than the tolerance, by exact point classification
    (`BRepClass3d_SolidClassifier`) -- any such point is a witness, so no
-   point tried can make a false positive. Tried: along the bisector of the
+   point tried can make a false positive. A point the mesh has outside is
+   not classified: by the parity of a ray's crossings through the tree
+   (another ray when one grazes an edge or a vertex, the classifier when all
+   do). The tolerance is at least twice the deflection, so a point inside
+   the solid by more is inside the mesh by more than the deflection. Faces
+   in contact along tangent lines (two filleted plates turned on each
+   other) make candidates that are never confirmed, each tried at up to
+   eight points: the parity took such a pair from 57 ms to 15 ms. Tried: along the bisector of the
    two triangles' normals, either way and either sign (the region inside
    both is a wedge between the surfaces; the step is sized to be 1.5 times
    the tolerance deep, as far as the edge is long); then a little along the
@@ -115,15 +159,20 @@ contact.
 6. With contacts asked for, a pair with no interference whose meshes come
    within the tolerance (`BRepExtrema_ShapeProximity`) is a contact.
 
-**Over frames** the components are built and meshed once. At each frame a
-component's move is its placement in the assembly at the frame (the
-simulation's for each of it and its containers that the simulation moves,
-the present one for the rest) times the inverse of its placement now; the
-solids and meshes are moved, not rebuilt, and the triangles (and their
-tree) of a moved component are made again only when a pair needs them. A
-pair neither of whose components moved since the last frame checked is not
-checked again: it has the last frame's finding. The work shows on the
-progress bar and can be cancelled there.
+**Over frames** the components are built once. At each frame a component's
+move is its placement in the assembly at the frame (the simulation's for
+each of it and its containers that the simulation moves, the present one
+for the rest) times the inverse of its placement now: its solids' poses
+change (Fast), or its solids are moved (Exact). A pair neither of whose
+components moved since the last frame checked is not checked again: it has
+the last frame's finding. The work shows on the progress bar and can be
+cancelled there.
+
+**While dragging** (`CollisionWatch`) the same, with the document's
+placements after each step for a frame: a component that moved less than
+1e-9 (the solver's rounding) has not moved. A step taken back goes to the
+solver as `Session::setPoses()`, which every backend and the two session
+wrappers (the centred frames, the rigid groups) take.
 
 ## Measured (2026-10-27)
 
@@ -132,7 +181,7 @@ up through a disk, 60 components, defaults:
 
 | | Fast | Exact |
 |---|---|---|
-| time | 2.7 s (0.85 s of it meshing) | 2.8 s |
+| time | 0.48 s, the meshes cached (0.9 s to mesh them) | 2.8 s |
 | findings | 963 | 965 |
 
 Over 52 frames, 10 sliders each moving a filleted plate with 16 holes (42
@@ -140,13 +189,25 @@ faces) over and across another:
 
 | | Fast | Exact |
 |---|---|---|
-| time | 1.3 s | 148 s |
+| time | 0.28 s | 148 s |
 | findings | 514 | 514 |
 
-On analytic solids the booleans are cheap and Exact is as fast; Fast pays
-from a few dozen faces on. One frame of the plates where they are: Fast
-0.1 s, Exact 2.3 s. Timed with a WSL build sharing the box; earlier runs
-under heavier load were up to 1.5 times slower.
+On analytic solids the booleans are cheap; Fast pays from a few dozen faces
+on. One frame of the plates where they are: Fast 0.012 s, Exact 2.4 s.
+Before the meshes stayed in their solids' frames (their trees rebuilt for
+each move), Fast took 2.7 s and 1.3 s over these frames.
+
+Dragging, a stack of 30 such plates in face contact on revolutes, the top
+one turned 2 deg a step (3.5k triangles a plate, 594 on each face in
+contact):
+
+| Collision while dragging | a step (median) | the drag's start |
+|---|---|---|
+| Off | 4 ms | 0.008 s |
+| Highlight | 16 ms | 0.2 s (every pair checked once) |
+| Stop | 16 ms | 0.17 s |
+
+Timed with a WSL build sharing the box.
 
 What Fast misses here, Exact found: two sphere caps of under 0.1 mm^3, some
 0.08 mm deep, at a tolerance of 0.02 mm -- the mesh's rings, 0.6 mm apart at
@@ -179,6 +240,9 @@ at a point.
 
 ## Limits
 
+- Dragging stops at the last step that did not collide, not at the contact:
+  a fast mouse leaves a gap as wide as its last move. Bisecting the step
+  would close it, at a solve per halving.
 - Fast finds that two components overlap, not by how much, and an overlap
   no deeper than a few times the tolerance can be taken for a contact; Exact
   is the authority. Fast's tolerance is at least twice the deflection, so
@@ -190,8 +254,9 @@ at a point.
 
 ## Not done
 
-- Interference while dragging (stop at collision, highlight the faces): the
-  Fast path, its meshes and moved triangles, is the start.
+- While dragging: the faces in contact highlighted rather than the whole
+  components; the transform dragger's moves watched; a rigid group's drag
+  stopped, not only highlighted.
 - Exclusions (hidden components, a fasteners group) and clearance thresholds
   per pair.
 - Faces in contact highlighted, the touching area measured.

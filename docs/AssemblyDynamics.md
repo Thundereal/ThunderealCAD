@@ -897,6 +897,14 @@ licence file before linking.
   list of them per face and the active one is unchanged. It is never done by
   re-meshing the shared TShape in place. The second triangulation is
   preferred, as it is free memory-wise when the deflections agree.
+- *As built (2026-10-27, `docs/AssemblyInterference.md`):*
+  `App/ContactGeometry.{h,cpp}`. `ContactGeometryCache` is keyed by
+  (TShape, orientation, deflection asked), one `ContactMesh` each: the mesh
+  of a copy, its `BRepExtrema_TriangleSet` and the solid's classifier, in
+  the solid's own frame; entries whose solid nobody else holds are dropped
+  as it grows. The interference check, its frames and a drag's collision
+  watch use it; a pose moves an instance, never the mesh. No content hash
+  yet, no worker, no second triangulation (always the copy).
 - **Work placement.** The cache is computed in a worker; meshing and
   convexity tests are OCCT work. It is a natural tenant of the
   out-of-process OCCT workers in `docs/ComputeBoundaries.md`. Until those

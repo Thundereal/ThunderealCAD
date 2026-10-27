@@ -36,6 +36,7 @@
 
 // Reached transitively upstream, but not here.
 #include <Precision.hxx>
+#include <Standard_Failure.hxx>
 
 
 #include <App/Application.h>
@@ -871,11 +872,62 @@ bool AssemblyObject::requiresRigidSolveForMove(const std::vector<App::DocumentOb
     });
 }
 
+void AssemblyObject::beginCollisionWatch()
+{
+    collisionWatch.reset();
+    dragCollisions.clear();
+    const long mode = AssemblyParams::getDragCollision();
+    if (mode != static_cast<long>(DragCollision::Highlight)
+        && mode != static_cast<long>(DragCollision::Stop)) {
+        return;
+    }
+    dragCollisionMode = static_cast<DragCollision>(mode);
+    try {
+        collisionWatch =
+            std::make_unique<CollisionWatch>(this, AssemblyParams::getDragCollisionTolerance());
+        if (collisionWatch->initialInterferences() > 0) {
+            Base::Console().log("Assembly: %zu pairs of %s interfere already; the drag leaves "
+                                "them out.\n",
+                                collisionWatch->initialInterferences(),
+                                getFullLabel().c_str());
+        }
+    }
+    catch (const Base::Exception& e) {
+        FC_WARN("No collision check for this drag: " << e.what());
+        collisionWatch.reset();
+    }
+    catch (const Standard_Failure& e) {
+        FC_WARN("No collision check for this drag: " << e.GetMessageString());
+        collisionWatch.reset();
+    }
+}
+
+void AssemblyObject::endCollisionWatch()
+{
+    collisionWatch.reset();
+    dragCollisions.clear();
+}
+
+const std::vector<InterferenceResult>& AssemblyObject::checkDragCollisions()
+{
+    dragCollisions.clear();
+    if (collisionWatch) {
+        try {
+            dragCollisions = collisionWatch->check();
+        }
+        catch (const Standard_Failure& e) {
+            FC_WARN("The collision check of a drag step failed: " << e.GetMessageString());
+        }
+    }
+    return dragCollisions;
+}
+
 void AssemblyObject::preDrag(std::vector<App::DocumentObject*> dragParts)
 {
     dragStepCount = 0;
     dragStepFailures = 0;
     lastDragStepFailed = false;
+    beginCollisionWatch();
 
     // Bodies Fixed joints hold together are one body in the solve
     // (Solver::groupedRigidly, sec 6.21); a drag needs no bundling of its own.
@@ -1022,6 +1074,11 @@ bool AssemblyObject::doDragStep()
     lastDragStepFailed = true;  // until the step below gets through
     std::string failure;
     bool restoreAfterFailedDragStep = false;
+    // Stop at a collision: the poses to take a colliding step back to
+    std::vector<Solver::BodyPose> before;
+    if (collisionWatch && dragCollisionMode == DragCollision::Stop) {
+        before = session->poses();
+    }
 
     try {
         // The target of each dragged body: the Placement the caller wrote on
@@ -1069,6 +1126,26 @@ bool AssemblyObject::doDragStep()
                 }
             }
             lastDragStepFailed = false;
+
+            if (collisionWatch && !checkDragCollisions().empty()
+                && dragCollisionMode == DragCollision::Stop) {
+                // Taken back, the solver and the document both, to where the
+                // last good step left them
+                if (session->setPoses(before) != Solver::Status::Ok) {
+                    FC_WARN("The solver could not take back a step that collides");
+                }
+                setNewPlacements(before);
+                updateRigidPlacementCache();
+                for (auto* joint : joints) {
+                    if (joint->Visibility.getValue()) {
+                        redrawJointPlacement(joint);
+                    }
+                }
+                const auto& hit = dragCollisions.front();
+                failure = std::string("it would make ") + hit.first->getFullLabel()
+                    + " collide with " + hit.second->getFullLabel();
+                lastDragStepFailed = true;
+            }
         }
         else {
             // The solver's state is that solution; nothing older to go back to.
@@ -1153,6 +1230,7 @@ bool AssemblyObject::validateNewPlacements(const std::vector<Solver::BodyPose>& 
 
 void AssemblyObject::postDrag()
 {
+    endCollisionWatch();
     if (!session) {
         return;
     }

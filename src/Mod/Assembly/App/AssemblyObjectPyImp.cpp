@@ -356,6 +356,19 @@ PyObject* AssemblyObjectPy::getDragStatus(PyObject* args) const
     return Py::new_reference_to(ret);
 }
 
+PyObject* AssemblyObjectPy::getDragCollisions(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    Py::List ret;
+    for (const auto& hit : getAssemblyObjectPtr()->getDragCollisions()) {
+        ret.append(Py::TupleN(Py::asObject(hit.first->getPyObject()),
+                              Py::asObject(hit.second->getPyObject())));
+    }
+    return Py::new_reference_to(ret);
+}
+
 PyObject* AssemblyObjectPy::getSolveStatus(PyObject* args) const
 {
     if (!PyArg_ParseTuple(args, "")) {

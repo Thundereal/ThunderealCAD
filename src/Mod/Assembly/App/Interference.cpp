@@ -21,11 +21,13 @@
  *                                                                          *
  ***************************************************************************/
 
+
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <functional>
-#include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -33,24 +35,22 @@
 
 #include <BRepAlgoAPI_Common.hxx>
 #include <BRepBndLib.hxx>
-#include <BRepBuilderAPI_Copy.hxx>
-#include <BRepClass3d_SolidClassifier.hxx>
+#include <BRepBuilderAPI_Transform.hxx>
 #include <BRepExtrema_DistShapeShape.hxx>
 #include <BRepExtrema_ShapeProximity.hxx>
 #include <BRepExtrema_TriangleSet.hxx>
 #include <BRepGProp.hxx>
-#include <BRepMesh_IncrementalMesh.hxx>
 #include <BRep_Builder.hxx>
-#include <BRep_Tool.hxx>
 #include <Bnd_Box.hxx>
 #include <GProp_GProps.hxx>
 #include <Precision.hxx>
 #include <Standard_Failure.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Compound.hxx>
-#include <TopoDS_Solid.hxx>
-#include <TopTools_ListOfShape.hxx>
+#include <gp_Mat.hxx>
+#include <gp_Trsf.hxx>
 
 #include <App/DocumentObject.h>
 #include <App/GeoFeatureGroupExtension.h>
@@ -60,6 +60,7 @@
 
 #include "AssemblyObject.h"
 #include "AssemblyUtils.h"
+#include "ContactGeometry.h"
 #include "Interference.h"
 
 FC_LOG_LEVEL_INIT("Assembly", true, true)
@@ -69,52 +70,73 @@ using namespace Assembly;
 namespace
 {
 
-// A solid of a component where it is now and where it is checked (a frame
-// puts it elsewhere), and its mesh (Fast) at both
-struct Solid
+using Vec = BVH_Vec3d;
+
+Vec cross(const Vec& a, const Vec& b)
 {
-    TopoDS_Shape base;      // located, where it is now
-    TopoDS_Shape baseMesh;  // Fast: a meshed copy, at the same location
-    TopoDS_Shape shape;     // where it is checked
-    TopoDS_Shape mesh;
-    double deflection = 0.0;
+    return Vec(a.y() * b.z() - a.z() * b.y(),
+               a.z() * b.x() - a.x() * b.z(),
+               a.x() * b.y() - a.y() * b.x());
+}
+
+double dot(const Vec& a, const Vec& b)
+{
+    return a.x() * b.x() + a.y() * b.y() + a.z() * b.z();
+}
+
+Vec apply(const gp_Trsf& trsf, const Vec& v)
+{
+    gp_XYZ p(v.x(), v.y(), v.z());
+    trsf.Transforms(p);
+    return Vec(p.X(), p.Y(), p.Z());
+}
+
+gp_Pnt pointOf(const Vec& v)
+{
+    return gp_Pnt(v.x(), v.y(), v.z());
+}
+
+// A solid of a component, where it is now and where it is checked (a frame,
+// or a drag, puts it elsewhere)
+struct Instance
+{
+    TopoDS_Shape base;   // located, where it is now
+    TopoDS_Shape shape;  // Exact: where it is checked
+    // Fast: its contact geometry, in the solid's own frame, shared by every
+    // instance of the solid; and the solid's frame in the assembly's, now and
+    // where it is checked
+    std::shared_ptr<const ContactMesh> geometry;
+    gp_Trsf now;
+    gp_Trsf trsf;
+    gp_Trsf inverse;
+    Bnd_Box box;    // Fast: the geometry's box moved, so a little larger
+    Bnd_Box exact;  // Fast: the box of its triangles where checked, made when needed
 };
 
 struct Component
 {
     App::DocumentObject* obj = nullptr;
-    std::vector<Solid> solids;
-    TopoDS_Compound compound;  // the solids together, where checked
+    std::vector<Instance> instances;
+    TopoDS_Compound compound;  // Exact: the solids together, where checked
     Bnd_Box baseBox;           // now
     Bnd_Box box;               // where checked: baseBox moved, so a little larger
-    // Over frames: the component's placement in the assembly now, the move
-    // the frame last checked gave it, and whether that frame moved it
+    Bnd_Box exact;             // Fast: its instances' exact boxes, made when needed
+    // The component's placement in the assembly now, the move last given to
+    // it, and whether the last posing moved it
     Base::Placement now;
     Base::Placement move;
     bool moved = true;
     double volume = -1.0;     // computed when needed
     double deflection = 0.0;  // Fast: the largest of its solids'
-    // Fast: the triangles of all its meshes' faces, made when a pair needs
-    // them (null when it moved since): over frames, a component that moved
-    // near nothing is not given any
-    Handle(BRepExtrema_TriangleSet) triangles;
-    TopoDS_Compound meshes;  // Fast: the meshed copies together
-    // Fast: one per solid, made when a crossing is to be confirmed
-    std::vector<std::unique_ptr<BRepClass3d_SolidClassifier>> classifiers;
+    TopoDS_Compound meshes;   // Fast, contacts: the meshes where checked, made when needed
 
-    // Whether the point is inside one of the solids by more than tol
-    bool contains(const gp_Pnt& point, double tol)
+    // Fast: whether a point (the assembly's coordinates) is inside one of the
+    // solids by more than tol
+    bool contains(const gp_Pnt& point, double tol) const
     {
-        if (classifiers.empty()) {
-            for (const auto& solid : solids) {
-                auto classifier = std::make_unique<BRepClass3d_SolidClassifier>();
-                classifier->Load(solid.shape);
-                classifiers.push_back(std::move(classifier));
-            }
-        }
-        for (auto& classifier : classifiers) {
-            classifier->Perform(point, tol);
-            if (classifier->State() == TopAbs_IN) {
+        for (const auto& instance : instances) {
+            if (instance.geometry
+                && instance.geometry->contains(point.Transformed(instance.inverse), tol)) {
                 return true;
             }
         }
@@ -150,68 +172,59 @@ double volumeOf(const TopoDS_Shape& shape)
     return std::abs(props.Mass());
 }
 
-double diagonalOf(const Bnd_Box& box)
-{
-    return box.IsVoid() ? 0.0 : std::sqrt(box.SquareExtent());
-}
-
 bool boxesNear(const Bnd_Box& a, const Bnd_Box& b, double gap)
 {
+    if (a.IsVoid() || b.IsVoid()) {
+        return false;
+    }
     Bnd_Box enlarged = a;
     enlarged.Enlarge(gap);
     return !enlarged.IsOut(b);
 }
 
-// Fast: a solid's mesh, made once for every solid sharing its geometry, on a
-// copy (the display's triangulation is left alone)
-class Meshes
+// Fast: the box of the instance's triangles where it is checked, exact for the
+// mesh (the geometry's box moved is larger: the containment tests need it
+// exact)
+const Bnd_Box& exactBox(Instance& instance)
 {
-public:
-    explicit Meshes(double deflection)
-        : fixedDeflection(deflection)
-    {}
-
-    void mesh(Solid& solid)
-    {
-        const TopoDS_Shape bare = solid.base.Located(TopLoc_Location());
-        auto it = copies.find(bare.TShape().get());
-        if (it == copies.end()) {
-            Bnd_Box box;
-            BRepBndLib::Add(bare, box, false);
-            const double deflection =
-                fixedDeflection > 0.0 ? fixedDeflection : std::max(1e-4 * diagonalOf(box), 0.01);
-            BRepBuilderAPI_Copy copier(bare, true, false);
-            TopoDS_Shape copy = copier.Shape();
-            BRepMesh_IncrementalMesh(copy, deflection, false, 0.5, false);
-            it = copies.emplace(bare.TShape().get(), Entry {bare.TShape(), copy, deflection}).first;
+    if (instance.exact.IsVoid() && instance.geometry) {
+        BRepExtrema_TriangleSet& triangles = instance.geometry->triangles();
+        for (int i = 0; i < triangles.Size(); ++i) {
+            Vec p[3];
+            triangles.GetVertices(i, p[0], p[1], p[2]);
+            for (const Vec& v : p) {
+                const Vec w = apply(instance.trsf, v);
+                instance.exact.Update(w.x(), w.y(), w.z());
+            }
         }
-        solid.baseMesh = it->second.copy.Located(solid.base.Location());
-        solid.deflection = it->second.deflection;
     }
-
-private:
-    struct Entry
-    {
-        Handle(TopoDS_TShape) tshape;  // held, so that its address is not reused
-        TopoDS_Shape copy;
-        double deflection;
-    };
-    double fixedDeflection;
-    std::map<const TopoDS_TShape*, Entry> copies;
-};
-
-using Vec = BVH_Vec3d;
-
-Vec cross(const Vec& a, const Vec& b)
-{
-    return Vec(a.y() * b.z() - a.z() * b.y(),
-               a.z() * b.x() - a.x() * b.z(),
-               a.x() * b.y() - a.y() * b.x());
+    return instance.exact;
 }
 
-double dot(const Vec& a, const Vec& b)
+const Bnd_Box& exactBox(Component& component)
 {
-    return a.x() * b.x() + a.y() * b.y() + a.z() * b.z();
+    if (component.exact.IsVoid()) {
+        for (auto& instance : component.instances) {
+            component.exact.Add(exactBox(instance));
+        }
+    }
+    return component.exact;
+}
+
+// Fast, contacts: the meshes where checked
+const TopoDS_Compound& meshesOf(Component& component)
+{
+    if (component.meshes.IsNull()) {
+        BRep_Builder builder;
+        builder.MakeCompound(component.meshes);
+        for (const auto& instance : component.instances) {
+            if (instance.geometry) {
+                builder.Add(component.meshes,
+                            instance.geometry->mesh().Located(TopLoc_Location(instance.trsf)));
+            }
+        }
+    }
+    return component.meshes;
 }
 
 // An edge of triangle p crossing triangle t, from one side of its plane to the
@@ -269,8 +282,8 @@ bool boxesOverlap(const Vec& minA, const Vec& maxA, const Vec& minB, const Vec& 
 constexpr int maxCandidates = 64;
 
 // A crossing confirmed: a point near it inside both components by more than
-// tol. Any such point is a witness: the classification is exact. Two kinds
-// are tried:
+// tol (`witness`). Any such point is a witness: the classification is exact.
+// Two kinds are tried:
 // - between the two surfaces: the region inside both, at the crossing, is a
 //   wedge between the edge's triangle and the one it crosses, and its
 //   bisector is a sum of their normals, signs unknown. A step s along it is
@@ -282,8 +295,7 @@ constexpr int maxCandidates = 64;
 //   triangle, either way: the overlap of two boxes is bounded by faces of
 //   theirs, and its crossings lie on them.
 // Surfaces that only touch have no such point.
-bool confirmed(Component& mine,
-               Component& other,
+bool confirmed(const std::function<bool(const Vec&)>& witness,
                const Vec& at,
                const Vec& from,
                const Vec& to,
@@ -296,10 +308,6 @@ bool confirmed(Component& mine,
     if (size <= 0.0 || crossedSize <= 0.0) {
         return false;
     }
-    auto witness = [&](const Vec& point) {
-        const gp_Pnt pnt(point.x(), point.y(), point.z());
-        return other.contains(pnt, tol) && mine.contains(pnt, tol);
-    };
     const Vec off = normal * (1.0 / size);
     const Vec across = crossed * (1.0 / crossedSize);
     const double edge = std::sqrt(dot(to - from, to - from));
@@ -334,64 +342,89 @@ bool confirmed(Component& mine,
     return false;
 }
 
-BRepExtrema_TriangleSet& trianglesOf(Component& component)
+// Whether two solids' meshes cross by a confirmed crossing, tested in the
+// frame of ia's solid: b's tree is carried over by the pose of its solid
+// relative to a's, its boxes as boxes around them and its triangles moved as
+// they are reached, so a move rebuilds nothing. `candidates` counts the
+// unconfirmed ones across the pair's solids.
+bool instancesCross(Component& ca,
+                    const Instance& ia,
+                    Component& cb,
+                    const Instance& ib,
+                    double tol,
+                    int& candidates)
 {
-    if (component.triangles.IsNull()) {
-        NCollection_DynamicArray<TopoDS_Shape> faces;
-        for (TopExp_Explorer it(component.meshes, TopAbs_FACE); it.More(); it.Next()) {
-            faces.Append(it.Current());
-        }
-        component.triangles = new BRepExtrema_TriangleSet(faces);
-    }
-    return *component.triangles;
-}
-
-// Whether the two components' meshes cross by a confirmed crossing
-bool meshesCross(Component& ca, Component& cb, double tol)
-{
-    BRepExtrema_TriangleSet& a = trianglesOf(ca);
-    BRepExtrema_TriangleSet& b = trianglesOf(cb);
+    BRepExtrema_TriangleSet& a = ia.geometry->triangles();
+    BRepExtrema_TriangleSet& b = ib.geometry->triangles();
     if (a.Size() == 0 || b.Size() == 0) {
         return false;
     }
-    int candidates = 0;
-    // An edge of a's crossing a triangle of b goes into b, and the other way
-    const Confirm intoB =
-        [&](const Vec& at, const Vec& from, const Vec& to, const Vec& normal, const Vec& crossed) {
-            ++candidates;
-            return confirmed(ca, cb, at, from, to, normal, crossed, tol);
-        };
-    const Confirm intoA =
-        [&](const Vec& at, const Vec& from, const Vec& to, const Vec& normal, const Vec& crossed) {
-            ++candidates;
-            return confirmed(cb, ca, at, from, to, normal, crossed, tol);
-        };
     const auto& ta = a.BVH();
     const auto& tb = b.BVH();
     if (ta.IsNull() || tb.IsNull()) {
         return false;
     }
+    // b's solid frame to a's
+    const gp_Trsf relative = ia.inverse.Multiplied(ib.trsf);
+    const gp_Mat& rotation = relative.HVectorialPart();
+    double weight[3][3];
+    for (int r = 0; r < 3; ++r) {
+        for (int c = 0; c < 3; ++c) {
+            weight[r][c] = std::abs(rotation.Value(r + 1, c + 1)) * relative.ScaleFactor();
+        }
+    }
+    auto boxOfB = [&](int node, Vec& low, Vec& high) {
+        const Vec& mn = tb->MinPoint(node);
+        const Vec& mx = tb->MaxPoint(node);
+        const Vec centre = apply(relative, (mn + mx) * 0.5);
+        const Vec half = (mx - mn) * 0.5;
+        for (int r = 0; r < 3; ++r) {
+            const double extent =
+                weight[r][0] * half.x() + weight[r][1] * half.y() + weight[r][2] * half.z();
+            low[r] = centre[r] - extent;
+            high[r] = centre[r] + extent;
+        }
+    };
+
+    // The witnesses are classified in the assembly's coordinates, against
+    // all of each component's solids
+    const std::function<bool(const Vec&)> witness = [&](const Vec& local) {
+        const gp_Pnt point = pointOf(apply(ia.trsf, local));
+        return cb.contains(point, tol) && ca.contains(point, tol);
+    };
+    const Confirm confirm =
+        [&](const Vec& at, const Vec& from, const Vec& to, const Vec& normal, const Vec& crossed) {
+            ++candidates;
+            return confirmed(witness, at, from, to, normal, crossed, tol);
+        };
+
     std::vector<std::pair<int, int>> stack {{0, 0}};
+    std::vector<std::array<Vec, 3>> leafB;
     while (!stack.empty()) {
         const auto [na, nb] = stack.back();
         stack.pop_back();
-        if (!boxesOverlap(ta->MinPoint(na),
-                          ta->MaxPoint(na),
-                          tb->MinPoint(nb),
-                          tb->MaxPoint(nb),
-                          tol)) {
+        Vec lowB;
+        Vec highB;
+        boxOfB(nb, lowB, highB);
+        if (!boxesOverlap(ta->MinPoint(na), ta->MaxPoint(na), lowB, highB, tol)) {
             continue;
         }
         const bool leafA = ta->IsOuter(na);
-        const bool leafB = tb->IsOuter(nb);
-        if (leafA && leafB) {
+        const bool isLeafB = tb->IsOuter(nb);
+        if (leafA && isLeafB) {
+            leafB.clear();
+            for (int j = tb->BegPrimitive(nb); j <= tb->EndPrimitive(nb); ++j) {
+                Vec pb[3];
+                b.GetVertices(j, pb[0], pb[1], pb[2]);
+                leafB.push_back(
+                    {apply(relative, pb[0]), apply(relative, pb[1]), apply(relative, pb[2])});
+            }
             for (int i = ta->BegPrimitive(na); i <= ta->EndPrimitive(na); ++i) {
                 Vec pa[3];
                 a.GetVertices(i, pa[0], pa[1], pa[2]);
-                for (int j = tb->BegPrimitive(nb); j <= tb->EndPrimitive(nb); ++j) {
-                    Vec pb[3];
-                    b.GetVertices(j, pb[0], pb[1], pb[2]);
-                    if (edgeCrosses(pa, pb, tol, intoB) || edgeCrosses(pb, pa, tol, intoA)) {
+                for (const auto& moved : leafB) {
+                    const Vec pb[3] = {moved[0], moved[1], moved[2]};
+                    if (edgeCrosses(pa, pb, tol, confirm) || edgeCrosses(pb, pa, tol, confirm)) {
                         return true;
                     }
                     if (candidates >= maxCandidates) {
@@ -402,13 +435,33 @@ bool meshesCross(Component& ca, Component& cb, double tol)
             continue;
         }
         // Down the larger node, or the one that is not a leaf
-        if (leafA || (!leafB && tb->NbPrimitives(nb) > ta->NbPrimitives(na))) {
+        if (leafA || (!isLeafB && tb->NbPrimitives(nb) > ta->NbPrimitives(na))) {
             stack.emplace_back(na, tb->template Child<0>(nb));
             stack.emplace_back(na, tb->template Child<1>(nb));
         }
         else {
             stack.emplace_back(ta->template Child<0>(na), nb);
             stack.emplace_back(ta->template Child<1>(na), nb);
+        }
+    }
+    return false;
+}
+
+// Whether the two components' meshes cross by a confirmed crossing
+bool meshesCross(Component& ca, Component& cb, double tol)
+{
+    int candidates = 0;
+    for (const auto& ia : ca.instances) {
+        for (const auto& ib : cb.instances) {
+            if (!ia.geometry || !ib.geometry || !boxesNear(ia.box, ib.box, tol)) {
+                continue;
+            }
+            if (instancesCross(ca, ia, cb, ib, tol, candidates)) {
+                return true;
+            }
+            if (candidates >= maxCandidates) {
+                return false;
+            }
         }
     }
     return false;
@@ -424,41 +477,50 @@ bool meshesCross(Component& ca, Component& cb, double tol)
 // meshes where they are (the boxes of moved components are larger).
 bool inside(Component& inner, Component& outer, double tol)
 {
-    const auto& innerTree = trianglesOf(inner).BVH();
-    const auto& outerTree = trianglesOf(outer).BVH();
-    if (innerTree.IsNull() || outerTree.IsNull() || innerTree->Length() == 0
-        || outerTree->Length() == 0) {
+    const Bnd_Box& in = exactBox(inner);
+    const Bnd_Box& out = exactBox(outer);
+    if (in.IsVoid() || out.IsVoid()) {
         return false;
     }
     const double margin = tol + std::max(inner.deflection, outer.deflection);
-    const Vec minIn = innerTree->MinPoint(0);
-    const Vec maxIn = innerTree->MaxPoint(0);
-    const Vec minOut = outerTree->MinPoint(0);
-    const Vec maxOut = outerTree->MaxPoint(0);
-    for (int axis = 0; axis < 3; ++axis) {
-        if (minIn[axis] < minOut[axis] - margin || maxIn[axis] > maxOut[axis] + margin) {
+    const gp_Pnt minIn = in.CornerMin();
+    const gp_Pnt maxIn = in.CornerMax();
+    const gp_Pnt minOut = out.CornerMin();
+    const gp_Pnt maxOut = out.CornerMax();
+    for (int axis = 1; axis <= 3; ++axis) {
+        if (minIn.Coord(axis) < minOut.Coord(axis) - margin
+            || maxIn.Coord(axis) > maxOut.Coord(axis) + margin) {
             return false;
         }
     }
-    BRepExtrema_TriangleSet& triangles = trianglesOf(inner);
-    const int count = triangles.Size();
-    // A few triangles across the mesh: one may be on a wall thinner than 4 tol
-    for (int i : {0, count / 3, 2 * count / 3, count - 1}) {
-        Vec p[3];
-        triangles.GetVertices(i, p[0], p[1], p[2]);
-        const Vec normal = cross(p[1] - p[0], p[2] - p[0]);
-        const double size = std::sqrt(dot(normal, normal));
-        if (size <= 0.0) {
+    for (const auto& instance : inner.instances) {
+        if (!instance.geometry) {
             continue;
         }
-        const Vec middle = (p[0] + p[1] + p[2]) * (1.0 / 3.0);
-        for (double side : {1.0, -1.0}) {
-            const Vec point = middle + normal * (side * 2.0 * tol / size);
-            const gp_Pnt pnt(point.x(), point.y(), point.z());
-            if (inner.contains(pnt, tol)) {
-                return outer.contains(pnt, tol);
+        BRepExtrema_TriangleSet& triangles = instance.geometry->triangles();
+        const int count = triangles.Size();
+        if (count == 0) {
+            continue;
+        }
+        // A few triangles across the mesh: one may be on a wall thinner than 4 tol
+        for (int i : {0, count / 3, 2 * count / 3, count - 1}) {
+            Vec p[3];
+            triangles.GetVertices(i, p[0], p[1], p[2]);
+            const Vec normal = cross(p[1] - p[0], p[2] - p[0]);
+            const double size = std::sqrt(dot(normal, normal));
+            if (size <= 0.0) {
+                continue;
+            }
+            const Vec middle = (p[0] + p[1] + p[2]) * (1.0 / 3.0);
+            for (double side : {1.0, -1.0}) {
+                const gp_Pnt point =
+                    pointOf(apply(instance.trsf, middle + normal * (side * 2.0 * tol / size)));
+                if (inner.contains(point, tol)) {
+                    return outer.contains(point, tol);
+                }
             }
         }
+        break;
     }
     return false;
 }
@@ -472,17 +534,17 @@ bool inside(Component& inner, Component& outer, double tol)
 // contact the common part is a slab and its middle on them.
 bool middleInside(Component& a, Component& b, double tol)
 {
-    const auto& ta = trianglesOf(a).BVH();
-    const auto& tb = trianglesOf(b).BVH();
-    if (ta.IsNull() || tb.IsNull() || ta->Length() == 0 || tb->Length() == 0) {
+    const Bnd_Box& ba = exactBox(a);
+    const Bnd_Box& bb = exactBox(b);
+    if (ba.IsVoid() || bb.IsVoid()) {
         return false;
     }
-    Vec low;
-    Vec high;
+    double low[3];
+    double high[3];
     int longest = 0;
     for (int axis = 0; axis < 3; ++axis) {
-        low[axis] = std::max(ta->MinPoint(0)[axis], tb->MinPoint(0)[axis]);
-        high[axis] = std::min(ta->MaxPoint(0)[axis], tb->MaxPoint(0)[axis]);
+        low[axis] = std::max(ba.CornerMin().Coord(axis + 1), bb.CornerMin().Coord(axis + 1));
+        high[axis] = std::min(ba.CornerMax().Coord(axis + 1), bb.CornerMax().Coord(axis + 1));
         if (high[axis] - low[axis] <= 2.0 * tol) {
             return false;
         }
@@ -490,12 +552,14 @@ bool middleInside(Component& a, Component& b, double tol)
             longest = axis;
         }
     }
-    Vec middle = (low + high) * 0.5;
     const double quarter = 0.25 * (high[longest] - low[longest]);
     for (double offset : {0.0, -quarter, quarter}) {
-        Vec point = middle;
+        double point[3];
+        for (int axis = 0; axis < 3; ++axis) {
+            point[axis] = 0.5 * (low[axis] + high[axis]);
+        }
         point[longest] += offset;
-        const gp_Pnt pnt(point.x(), point.y(), point.z());
+        const gp_Pnt pnt(point[0], point[1], point[2]);
         if (a.contains(pnt, tol) && b.contains(pnt, tol)) {
             return true;
         }
@@ -503,28 +567,32 @@ bool middleInside(Component& a, Component& b, double tol)
     return false;
 }
 
-// Puts the component where `move` takes it from where it is now: its solids,
-// meshes and box; its triangles (Fast) are made again when needed
+// Puts the component where `move` takes it from where it is now: in Exact its
+// solids, in Fast its solids' poses (the meshes and their trees stay)
 void place(Component& component, const Base::Placement& move, bool fast)
 {
-    const TopLoc_Location location(Part::TopoShape::convert(move));
-    BRep_Builder builder;
-    builder.MakeCompound(component.compound);
-    TopoDS_Compound meshes;
-    builder.MakeCompound(meshes);
-    for (auto& solid : component.solids) {
-        solid.shape = solid.base.Moved(location);
-        builder.Add(component.compound, solid.shape);
-        if (fast) {
-            solid.mesh = solid.baseMesh.Moved(location);
-            builder.Add(meshes, solid.mesh);
+    const gp_Trsf moving = Part::TopoShape::convert(move);
+    if (fast) {
+        for (auto& instance : component.instances) {
+            instance.trsf = moving.Multiplied(instance.now);
+            instance.inverse = instance.trsf.Inverted();
+            instance.box =
+                instance.geometry ? instance.geometry->box().Transformed(instance.trsf) : Bnd_Box();
+            instance.exact.SetVoid();
+        }
+        component.exact.SetVoid();
+        component.meshes.Nullify();
+    }
+    else {
+        const TopLoc_Location location(moving);
+        BRep_Builder builder;
+        builder.MakeCompound(component.compound);
+        for (auto& instance : component.instances) {
+            instance.shape = instance.base.Moved(location);
+            builder.Add(component.compound, instance.shape);
         }
     }
-    component.box = move.isIdentity() ? component.baseBox
-                                      : component.baseBox.Transformed(location.Transformation());
-    component.classifiers.clear();
-    component.meshes = meshes;
-    component.triangles.Nullify();
+    component.box = move.isIdentity() ? component.baseBox : component.baseBox.Transformed(moving);
 }
 
 // The pair where its components are: true, with `result` filled, when they
@@ -547,7 +615,7 @@ bool checkPair(Component& a,
                 return true;
             }
             if (options.contacts) {
-                BRepExtrema_ShapeProximity proximity(a.meshes, b.meshes, pairTol);
+                BRepExtrema_ShapeProximity proximity(meshesOf(a), meshesOf(b), pairTol);
                 proximity.Perform();
                 if (proximity.IsDone() && !proximity.OverlapSubShapes1().IsEmpty()) {
                     result.kind = InterferenceResult::Kind::Contact;
@@ -566,11 +634,11 @@ bool checkPair(Component& a,
         BRepAlgoAPI_Common common;
         TopTools_ListOfShape arguments;
         TopTools_ListOfShape tools;
-        for (const auto& solid : a.solids) {
-            arguments.Append(solid.shape);
+        for (const auto& instance : a.instances) {
+            arguments.Append(instance.shape);
         }
-        for (const auto& solid : b.solids) {
-            tools.Append(solid.shape);
+        for (const auto& instance : b.instances) {
+            tools.Append(instance.shape);
         }
         common.SetArguments(arguments);
         common.SetTools(tools);
@@ -634,79 +702,120 @@ Base::Placement placementIn(const AssemblyObject* assembly, App::DocumentObject*
     return placement;
 }
 
-}  // namespace
+// The findings of a posing, keyed by pair
+using Findings = std::unordered_map<std::size_t, InterferenceResult>;
 
-std::vector<InterferenceResult>
-Assembly::findInterferences(const AssemblyObject* assembly,
-                            const InterferenceOptions& options,
-                            const std::vector<App::DocumentObject*>& only)
+// The components of an assembly, built once and posed as often as asked
+struct Scene
 {
-    std::vector<InterferenceResult> results;
-    if (!assembly) {
-        return results;
-    }
-    const bool fast = options.mode == InterferenceOptions::Mode::Fast;
-    const double tol = std::max(options.tolerance, 0.0);
-
-    // The components, each with its solids in the assembly's coordinates
+    const AssemblyObject* assembly;
+    InterferenceOptions options;
+    bool fast;
+    double tol;
     std::vector<Component> components;
-    Meshes meshes(options.deflection);
-    for (auto* obj : getAssemblyComponents(assembly)) {
-        if (!obj || (!only.empty() && std::find(only.begin(), only.end(), obj) == only.end())) {
-            continue;
-        }
-        const std::string path = pathFrom(assembly, obj);
-        if (path.empty()) {
-            continue;
-        }
-        Part::TopoShape shape;
-        try {
-            shape = Part::Feature::getTopoShape(assembly,
-                                                path.c_str(),
-                                                false,
-                                                nullptr,
-                                                nullptr,
-                                                true,
-                                                false);
-        }
-        catch (const Base::Exception& e) {
-            FC_WARN(obj->getFullName() << ": no shape for the interference check: " << e.what());
-            continue;
-        }
-        if (shape.isNull()) {
-            continue;
-        }
-        Component component;
-        component.obj = obj;
-        BRep_Builder builder;
-        TopoDS_Compound bases;
-        builder.MakeCompound(bases);
-        for (TopExp_Explorer it(shape.getShape(), TopAbs_SOLID); it.More(); it.Next()) {
-            Solid solid;
-            solid.base = it.Current();
-            builder.Add(bases, solid.base);
-            component.solids.push_back(solid);
-        }
-        if (component.solids.empty()) {
-            continue;
-        }
-        BRepBndLib::Add(bases, component.baseBox, false);
-        if (fast) {
-            for (auto& solid : component.solids) {
-                meshes.mesh(solid);
-                component.deflection = std::max(component.deflection, solid.deflection);
+
+    Scene(const AssemblyObject* assembly,
+          const InterferenceOptions& options,
+          const std::vector<App::DocumentObject*>& only)
+        : assembly(assembly)
+        , options(options)
+        , fast(options.mode == InterferenceOptions::Mode::Fast)
+        , tol(std::max(options.tolerance, 0.0))
+    {
+        for (auto* obj : getAssemblyComponents(assembly)) {
+            if (!obj || (!only.empty() && std::find(only.begin(), only.end(), obj) == only.end())) {
+                continue;
             }
+            const std::string path = pathFrom(assembly, obj);
+            if (path.empty()) {
+                continue;
+            }
+            Part::TopoShape shape;
+            try {
+                shape = Part::Feature::getTopoShape(assembly,
+                                                    path.c_str(),
+                                                    false,
+                                                    nullptr,
+                                                    nullptr,
+                                                    true,
+                                                    false);
+            }
+            catch (const Base::Exception& e) {
+                FC_WARN(obj->getFullName()
+                        << ": no shape for the interference check: " << e.what());
+                continue;
+            }
+            if (shape.isNull()) {
+                continue;
+            }
+            Component component;
+            component.obj = obj;
+            component.now = placementIn(assembly, obj, -1);
+            BRep_Builder builder;
+            TopoDS_Compound bases;
+            builder.MakeCompound(bases);
+            for (TopExp_Explorer it(shape.getShape(), TopAbs_SOLID); it.More(); it.Next()) {
+                Instance instance;
+                instance.base = it.Current();
+                builder.Add(bases, instance.base);
+                if (fast) {
+                    instance.now = instance.base.Location().Transformation();
+                    TopoDS_Shape solid = instance.base;
+                    if (std::abs(instance.now.ScaleFactor() - 1.0) > 1e-12
+                        || instance.now.IsNegative()) {
+                        // Scaled or mirrored: its own geometry, not shared
+                        solid = BRepBuilderAPI_Transform(instance.base.Located(TopLoc_Location()),
+                                                         instance.now,
+                                                         true)
+                                    .Shape();
+                        instance.now = gp_Trsf();
+                    }
+                    instance.geometry =
+                        ContactGeometryCache::instance().get(solid, options.deflection);
+                    if (!instance.geometry) {
+                        continue;
+                    }
+                    component.deflection =
+                        std::max(component.deflection, instance.geometry->deflection());
+                }
+                component.instances.push_back(std::move(instance));
+            }
+            if (component.instances.empty()) {
+                continue;
+            }
+            BRepBndLib::Add(bases, component.baseBox, false);
+            place(component, Base::Placement(), fast);
+            components.push_back(std::move(component));
         }
-        place(component, Base::Placement(), fast);
-        components.push_back(std::move(component));
+    }
+
+    // Each component where `placementOf` puts it in the assembly; `moved` set
+    // for those whose move changed by more than `same` (all, when `first`)
+    void pose(const std::function<Base::Placement(App::DocumentObject*)>& placementOf,
+              bool first,
+              double same)
+    {
+        for (auto& component : components) {
+            const Base::Placement move = placementOf(component.obj) * component.now.inverse();
+            const bool replace = !move.isSame(component.move, same);
+            if (replace) {
+                component.move = move;
+                place(component, move, fast);
+            }
+            component.moved = first || replace;
+        }
     }
 
     // The pairs where the components are now placed, findings into `found`
-    // (keyed by pair); a pair neither of whose components moved has the
-    // finding it had in `last`, if any
-    using Findings = std::unordered_map<std::size_t, InterferenceResult>;
-    const std::size_t n = components.size();
-    auto checkAll = [&](long frame, double time, const Findings* last, Findings& found) {
+    // (and `out`, in pair order); a pair neither of whose components moved
+    // has the finding it had in `last`, if any
+    void checkAll(long frame,
+                  double time,
+                  const Findings* last,
+                  Findings& found,
+                  std::vector<InterferenceResult>* out)
+    {
+        const std::size_t n = components.size();
         for (std::size_t i = 0; i < n; ++i) {
             for (std::size_t j = i + 1; j < n; ++j) {
                 Component& a = components[i];
@@ -730,21 +839,34 @@ Assembly::findInterferences(const AssemblyObject* assembly,
                 }
                 result.frame = frame;
                 result.time = time;
-                results.push_back(result);
+                if (out) {
+                    out->push_back(result);
+                }
                 found.emplace(key, std::move(result));
             }
         }
-    };
+    }
+};
+
+}  // namespace
+
+std::vector<InterferenceResult>
+Assembly::findInterferences(const AssemblyObject* assembly,
+                            const InterferenceOptions& options,
+                            const std::vector<App::DocumentObject*>& only)
+{
+    std::vector<InterferenceResult> results;
+    if (!assembly) {
+        return results;
+    }
+    Scene scene(assembly, options, only);
 
     if (options.frames.empty()) {
         Findings found;
-        checkAll(-1, 0.0, nullptr, found);
+        scene.checkAll(-1, 0.0, nullptr, found, &results);
         return results;
     }
 
-    for (auto& component : components) {
-        component.now = placementIn(assembly, component.obj, -1);
-    }
     Base::SequencerLauncher progress("Checking interference over the frames",
                                      options.frames.size());
     Findings last;
@@ -754,25 +876,126 @@ Assembly::findInterferences(const AssemblyObject* assembly,
             progress.next(true);
             continue;
         }
-        for (auto& component : components) {
-            const Base::Placement move =
-                placementIn(assembly, component.obj, static_cast<long>(frame))
-                * component.now.inverse();
-            const bool replace = !move.isSame(component.move, 1e-12);
-            if (replace) {
-                component.move = move;
-                place(component, move, fast);
-            }
-            component.moved = first || replace;
-        }
+        scene.pose(
+            [&](App::DocumentObject* obj) {
+                return placementIn(assembly, obj, static_cast<long>(frame));
+            },
+            first,
+            1e-12);
         Findings found;
-        checkAll(static_cast<long>(frame),
-                 assembly->timeOfFrame(frame),
-                 first ? nullptr : &last,
-                 found);
+        scene.checkAll(static_cast<long>(frame),
+                       assembly->timeOfFrame(frame),
+                       first ? nullptr : &last,
+                       found,
+                       &results);
         last = std::move(found);
         first = false;
         progress.next(true);
     }
     return results;
+}
+
+struct CollisionWatch::Private
+{
+    Scene scene;
+    std::set<std::size_t> initial;
+    Findings last;
+
+    Private(const AssemblyObject* assembly, const InterferenceOptions& options)
+        : scene(assembly, options, {})
+    {}
+};
+
+namespace
+{
+InterferenceOptions watchOptions(double tolerance, double deflection)
+{
+    InterferenceOptions options;
+    options.mode = InterferenceOptions::Mode::Fast;
+    options.tolerance = tolerance;
+    options.deflection = deflection;
+    return options;
+}
+}  // namespace
+
+CollisionWatch::CollisionWatch(const AssemblyObject* assembly, double tolerance, double deflection)
+    : d(std::make_unique<Private>(assembly, watchOptions(tolerance, deflection)))
+{
+    Findings found;
+    d->scene.checkAll(-1, 0.0, nullptr, found, nullptr);
+    for (const auto& entry : found) {
+        d->initial.insert(entry.first);
+    }
+    d->last = std::move(found);
+}
+
+CollisionWatch::~CollisionWatch() = default;
+
+std::vector<InterferenceResult> CollisionWatch::check()
+{
+    const AssemblyObject* assembly = d->scene.assembly;
+    // A pose that changed by less than this is the solver's rounding
+    d->scene.pose(
+        [&](App::DocumentObject* obj) {
+            return placementIn(assembly, obj, -1);
+        },
+        false,
+        1e-9);
+    Findings found;
+    d->scene.checkAll(-1, 0.0, &d->last, found, nullptr);
+    std::vector<std::pair<std::size_t, InterferenceResult>> fresh;
+    for (const auto& entry : found) {
+        if (!d->initial.count(entry.first)) {
+            fresh.emplace_back(entry);
+        }
+    }
+    d->last = std::move(found);
+    std::sort(fresh.begin(), fresh.end(), [](const auto& x, const auto& y) {
+        return x.first < y.first;
+    });
+    std::vector<InterferenceResult> results;
+    results.reserve(fresh.size());
+    for (auto& entry : fresh) {
+        results.push_back(std::move(entry.second));
+    }
+    return results;
+}
+
+std::size_t CollisionWatch::initialInterferences() const
+{
+    return d->initial.size();
+}
+
+std::size_t CollisionWatch::components() const
+{
+    return d->scene.components.size();
+}
+
+bool CollisionWatch::meshOf(const App::DocumentObject* obj,
+                            std::vector<Base::Vector3d>& points) const
+{
+    for (const auto& component : d->scene.components) {
+        if (component.obj != obj) {
+            continue;
+        }
+        const gp_Trsf frame = Part::TopoShape::convert(component.now).Inverted();
+        for (const auto& instance : component.instances) {
+            if (!instance.geometry) {
+                continue;
+            }
+            // The solid's frame to the component's
+            const gp_Trsf trsf = frame.Multiplied(instance.now);
+            BRepExtrema_TriangleSet& triangles = instance.geometry->triangles();
+            for (int i = 0; i < triangles.Size(); ++i) {
+                Vec p[3];
+                triangles.GetVertices(i, p[0], p[1], p[2]);
+                for (const Vec& v : p) {
+                    const Vec w = apply(trsf, v);
+                    points.emplace_back(w.x(), w.y(), w.z());
+                }
+            }
+        }
+        return true;
+    }
+    return false;
 }

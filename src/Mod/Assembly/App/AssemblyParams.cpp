@@ -43,6 +43,8 @@ public:
     std::unordered_map<const char *,void(*)(AssemblyParamsP*),App::CStringHasher,App::CStringHasher> funcs;
     bool SolveOnRecompute;
     bool SolveOnMove;
+    long DragCollision;
+    double DragCollisionTolerance;
     bool LeaveEditWithEscape;
     bool SwitchToWB;
     unsigned long JointHighlightColor;
@@ -59,6 +61,10 @@ public:
         funcs["SolveOnRecompute"] = &AssemblyParamsP::updateSolveOnRecompute;
         SolveOnMove = this->handle->GetBool("SolveOnMove", true);
         funcs["SolveOnMove"] = &AssemblyParamsP::updateSolveOnMove;
+        DragCollision = this->handle->GetInt("DragCollision", 0);
+        funcs["DragCollision"] = &AssemblyParamsP::updateDragCollision;
+        DragCollisionTolerance = this->handle->GetFloat("DragCollisionTolerance", 0.0);
+        funcs["DragCollisionTolerance"] = &AssemblyParamsP::updateDragCollisionTolerance;
         LeaveEditWithEscape = this->handle->GetBool("LeaveEditWithEscape", true);
         funcs["LeaveEditWithEscape"] = &AssemblyParamsP::updateLeaveEditWithEscape;
         SwitchToWB = this->handle->GetBool("SwitchToWB", true);
@@ -94,6 +100,14 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateSolveOnMove(AssemblyParamsP *self) {
         self->SolveOnMove = self->handle->GetBool("SolveOnMove", true);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateDragCollision(AssemblyParamsP *self) {
+        self->DragCollision = self->handle->GetInt("DragCollision", 0);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateDragCollisionTolerance(AssemblyParamsP *self) {
+        self->DragCollisionTolerance = self->handle->GetFloat("DragCollisionTolerance", 0.0);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateLeaveEditWithEscape(AssemblyParamsP *self) {
@@ -140,6 +154,17 @@ static const App::ParamRegistry::Registrar _AssemblyParamsRegistrar({
         .setDoc("Solves the joints continuously while a part is dragged, so that\n"
 "connected parts follow. When off, only the joint markers are\n"
 "redrawn during the drag. Takes effect at the next drag."),
+    App::ParamInfo("Assembly", "AssemblyParams", "User parameter:BaseApp/Preferences/Mod/Assembly", "DragCollision", "DragCollision", App::ParamInfo::Int, 0)
+        .setTitle("Collision while dragging")
+        .setDoc("What a drag does when it brings two components into collision\n"
+"(docs/AssemblyInterference.md): 0 nothing, 1 highlights them,\n"
+"2 stops the drag before they collide. Components interfering\n"
+"when the drag starts are left out. Takes effect at the next drag."),
+    App::ParamInfo("Assembly", "AssemblyParams", "User parameter:BaseApp/Preferences/Mod/Assembly", "DragCollisionTolerance", "DragCollisionTolerance", App::ParamInfo::Float, 0.0)
+        .setTitle("Collision tolerance")
+        .setDoc("mm. Components closer than this touch while dragging, and only\n"
+"collide when they overlap; taken at least twice the deflection of\n"
+"the meshes the check uses. Takes effect at the next drag."),
     App::ParamInfo("Assembly", "AssemblyParams", "User parameter:BaseApp/Preferences/Mod/Assembly", "LeaveEditWithEscape", "LeaveEditWithEscape", App::ParamInfo::Bool, true)
         .setTitle("Esc leaves edit mode")
         .setDoc("Lets the Esc key leave the edit mode of an assembly when no task\n"
@@ -235,6 +260,67 @@ void AssemblyParams::setSolveOnMove(const bool &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void AssemblyParams::removeSolveOnMove() {
     instance()->handle->RemoveBool("SolveOnMove");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *AssemblyParams::docDragCollision() {
+    return QT_TRANSLATE_NOOP("AssemblyParams",
+"What a drag does when it brings two components into collision\n"
+"(docs/AssemblyInterference.md): 0 nothing, 1 highlights them,\n"
+"2 stops the drag before they collide. Components interfering\n"
+"when the drag starts are left out. Takes effect at the next drag.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & AssemblyParams::getDragCollision() {
+    return instance()->DragCollision;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & AssemblyParams::defaultDragCollision() {
+    const static long def = 0;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void AssemblyParams::setDragCollision(const long &v) {
+    instance()->handle->SetInt("DragCollision",v);
+    instance()->DragCollision = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void AssemblyParams::removeDragCollision() {
+    instance()->handle->RemoveInt("DragCollision");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *AssemblyParams::docDragCollisionTolerance() {
+    return QT_TRANSLATE_NOOP("AssemblyParams",
+"mm. Components closer than this touch while dragging, and only\n"
+"collide when they overlap; taken at least twice the deflection of\n"
+"the meshes the check uses. Takes effect at the next drag.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const double & AssemblyParams::getDragCollisionTolerance() {
+    return instance()->DragCollisionTolerance;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const double & AssemblyParams::defaultDragCollisionTolerance() {
+    const static double def = 0.0;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void AssemblyParams::setDragCollisionTolerance(const double &v) {
+    instance()->handle->SetFloat("DragCollisionTolerance",v);
+    instance()->DragCollisionTolerance = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void AssemblyParams::removeDragCollisionTolerance() {
+    instance()->handle->RemoveFloat("DragCollisionTolerance");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

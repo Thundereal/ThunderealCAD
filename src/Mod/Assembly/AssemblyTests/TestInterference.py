@@ -267,3 +267,108 @@ class TestInterferenceOverFrames(unittest.TestCase):
             self.assembly.findInterferences(frames=[self.frames])
         with self.assertRaises(TypeError):
             self.assembly.findInterferences(frames=["0"])
+
+
+class TestDragCollision(unittest.TestCase):
+    """Collision while dragging: a box on a slider dragged up into a plate, on
+    every solver backend, with the DragCollision preference off, highlighting
+    and stopping; two boxes overlapping from the start are left out."""
+
+    def setUp(self):
+        self.params = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Assembly")
+        self._solveInCreation = self.params.GetBool("SolveInJointCreation", True)
+        self.params.SetBool("SolveInJointCreation", False)
+        self._mode = self.params.GetInt("DragCollision", 0)
+
+    def tearDown(self):
+        self.params.SetBool("SolveInJointCreation", self._solveInCreation)
+        self.params.SetInt("DragCollision", self._mode)
+
+    def build(self, backend):
+        self.doc = App.newDocument("TestDragCollision")
+        self.assembly = self.doc.addObject("Assembly::AssemblyObject", "Assembly")
+        self.assembly.SolverBackend = backend
+
+        def box(name, l, w, h, x, y, z):
+            b = self.assembly.newObject("Part::Box", name)
+            b.Length, b.Width, b.Height = l, w, h
+            b.Placement.Base = App.Vector(x, y, z)
+            return b
+
+        self.G = box("G", 10, 10, 10, 0, 0, 0)
+        self.S = box("S", 10, 10, 10, 0, 0, 10)  # on G, sliding up
+        self.Plate = box("Plate", 20, 20, 5, -5, -5, 25)  # 5 mm above S
+        self.P = box("P", 10, 10, 10, 100, 0, 0)
+        self.Q = box("Q", 10, 10, 10, 105, 0, 0)  # into P from the start
+        joints = self.assembly.getGroup("Joints", True)
+        for obj in (self.G, self.Plate):
+            ground = joints.newObject("Assembly::GroundedJointPython", "Grounded" + obj.Name)
+            JointObject.GroundedJoint(ground, obj)
+        self.doc.recompute()
+        self.assembly.makeJoint("Slider", (self.G, "Face6"), (self.S, "Face5"))
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+
+    def drag(self, heights):
+        """S dragged up through the heights; each step's result and S's height."""
+        self.assembly.preDrag([self.S])
+        steps = []
+        for z in heights:
+            target = App.Placement(self.S.Placement)
+            target.Base.z = z
+            self.S.Placement = target
+            ok = self.assembly.doDragStep()
+            hits = self.assembly.getDragCollisions()
+            pairs = sorted(tuple(sorted((a.Name, b.Name))) for a, b in hits)
+            steps.append((ok, round(self.S.Placement.Base.z, 6), pairs))
+        return steps
+
+    def backends(self):
+        import AssemblyApp
+
+        return AssemblyApp.getAvailableSolvers()
+
+    def test_stop(self):
+        """The step that would collide is taken back, and the drag goes on."""
+        self.params.SetInt("DragCollision", 2)
+        for backend in self.backends():
+            with self.subTest(backend=backend):
+                self.build(backend)
+                try:
+                    steps = self.drag([12, 14, 16, 14.5])
+                    self.assertEqual(steps[0], (True, 12.0, []))
+                    self.assertEqual(steps[1], (True, 14.0, []))
+                    # S's top at 26: 1 mm into the plate. Back at 14.
+                    self.assertEqual(steps[2], (False, 14.0, [("Plate", "S")]))
+                    self.assertEqual(steps[3], (True, 14.5, []))
+                    # The solver is where the document is: a step from there
+                    self.S.Placement = App.Placement(App.Vector(0, 0, 13), App.Rotation())
+                    self.assertTrue(self.assembly.doDragStep())
+                    self.assertAlmostEqual(self.S.Placement.Base.z, 13.0, places=6)
+                    self.assembly.postDrag()
+                    self.assertEqual(self.assembly.getDragCollisions(), [])
+                finally:
+                    App.closeDocument(self.doc.Name)
+
+    def test_highlight(self):
+        """The step goes through; the pair it brought into collision is reported."""
+        self.params.SetInt("DragCollision", 1)
+        self.build("Ondsel")
+        try:
+            steps = self.drag([14, 16, 14])
+            self.assertEqual(steps[0], (True, 14.0, []))
+            self.assertEqual(steps[1], (True, 16.0, [("Plate", "S")]))
+            self.assertEqual(steps[2], (True, 14.0, []))
+            self.assembly.postDrag()
+        finally:
+            App.closeDocument(self.doc.Name)
+
+    def test_off(self):
+        self.params.SetInt("DragCollision", 0)
+        self.build("Ondsel")
+        try:
+            steps = self.drag([16])
+            self.assertEqual(steps[0], (True, 16.0, []))
+            self.assembly.postDrag()
+        finally:
+            App.closeDocument(self.doc.Name)

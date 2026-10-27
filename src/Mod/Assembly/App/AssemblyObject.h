@@ -39,6 +39,7 @@
 #include <App/Part.h>
 #include <App/PropertyLinks.h>
 
+#include "Interference.h"
 #include "Solver/Model.h"
 
 namespace App
@@ -138,6 +139,38 @@ public:
     int getDragStepCount() const
     {
         return dragStepCount;
+    }
+
+    // Collision while dragging (docs/AssemblyInterference.md), as the
+    // DragCollision preference asks: off, highlight, or stop. preDrag() starts
+    // watching the components and postDrag() ends it; a move without a solve
+    // (the 3D view's) starts and ends it itself.
+    enum class DragCollision
+    {
+        Off = 0,
+        Highlight = 1,
+        Stop = 2
+    };
+    void beginCollisionWatch();
+    void endCollisionWatch();
+    DragCollision getDragCollisionMode() const
+    {
+        return collisionWatch ? dragCollisionMode : DragCollision::Off;
+    }
+    // The pairs the components' placements in the document now bring into
+    // collision (none without a watch), kept for getDragCollisions(). With
+    // Stop, doDragStep() takes a step back that would collide, and the pairs
+    // are those it would have brought into collision.
+    const std::vector<InterferenceResult>& checkDragCollisions();
+    const std::vector<InterferenceResult>& getDragCollisions() const
+    {
+        return dragCollisions;
+    }
+    // The triangles of a component the watch checks, to draw a collision
+    // with (CollisionWatch::meshOf)
+    bool getCollisionMesh(const App::DocumentObject* obj, std::vector<Base::Vector3d>& points) const
+    {
+        return collisionWatch && collisionWatch->meshOf(obj, points);
     }
     void savePlacementsForUndo();
     void undoSolve();
@@ -440,6 +473,9 @@ private:
     // Drag step bookkeeping, reset by preDrag().
     int dragStepCount {0};
     int dragStepFailures {0};
+    std::unique_ptr<CollisionWatch> collisionWatch;
+    DragCollision dragCollisionMode {DragCollision::Off};
+    std::vector<InterferenceResult> dragCollisions;
     bool lastDragStepFailed {false};
 
     // True while solve() is running; breaks the solve()/updateSolveStatus() cycle.

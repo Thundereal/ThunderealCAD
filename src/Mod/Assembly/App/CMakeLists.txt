@@ -115,6 +115,8 @@ SET(Assembly_SRCS
     AssemblyGroup.h
     Grounding.cpp
     Grounding.h
+    ContactGeometry.cpp
+    ContactGeometry.h
     Interference.cpp
     Interference.h
     Joint.cpp

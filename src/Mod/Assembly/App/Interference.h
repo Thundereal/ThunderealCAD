@@ -24,8 +24,10 @@
 #pragma once
 
 #include <cstddef>
+#include <memory>
 #include <vector>
 
+#include <Base/Vector3D.h>
 #include <Mod/Assembly/AssemblyGlobal.h>
 #include <Mod/Part/App/TopoShape.h>
 
@@ -106,10 +108,40 @@ struct InterferenceResult
 // Pairs in the components' order; over frames, frame by frame, each frame's
 // pairs in that order. A pair neither of whose components moved since the
 // last frame checked is not checked again: its finding is the last frame's.
-AssemblyExport std::vector<InterferenceResult> findInterferences(
-    const AssemblyObject* assembly,
-    const InterferenceOptions& options,
-    const std::vector<App::DocumentObject*>& only = {}
-);
+// Collision while dragging: the components watched as the document moves them,
+// with the Fast check, for pairs that come to interfere. A pair interfering
+// when the watch starts is left out, as is a pair neither of whose components
+// moved since the last check (it keeps that check's finding). The meshes come
+// from ContactGeometryCache and stay put: moving a component moves its pose.
+class AssemblyExport CollisionWatch
+{
+public:
+    // tolerance and deflection as InterferenceOptions' (Fast)
+    CollisionWatch(const AssemblyObject* assembly, double tolerance, double deflection = 0.0);
+    ~CollisionWatch();
+    CollisionWatch(const CollisionWatch&) = delete;
+    CollisionWatch& operator=(const CollisionWatch&) = delete;
+
+    // The pairs interfering now, the components where the document has them,
+    // that did not when the watch started
+    std::vector<InterferenceResult> check();
+    // The pairs interfering when the watch started
+    std::size_t initialInterferences() const;
+    std::size_t components() const;
+    // A component's triangles (three points each), from the meshes the watch
+    // checks with, in the component's own frame: placed by its placement in
+    // the assembly they are where the watch sees it. False when the watch
+    // does not have it.
+    bool meshOf(const App::DocumentObject* obj, std::vector<Base::Vector3d>& points) const;
+
+private:
+    struct Private;
+    std::unique_ptr<Private> d;
+};
+
+AssemblyExport std::vector<InterferenceResult>
+findInterferences(const AssemblyObject* assembly,
+                  const InterferenceOptions& options,
+                  const std::vector<App::DocumentObject*>& only = {});
 
 }  // namespace Assembly

@@ -99,6 +99,7 @@ enum ConstraintType
     P3Midpoint = 110,
     Vec3Unit = 111,
     QuatUnit = 112,
+    P3OnFixedSurface = 113,
 };
 
 enum InternalAlignmentType

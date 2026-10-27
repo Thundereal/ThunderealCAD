@@ -211,6 +211,36 @@ void ConstraintP3OnFixedCurve::errorgrad(double* err, double* grad, double* para
 }
 
 // --------------------------------------------------------
+// P3OnFixedSurface: pvec = P, u, v
+
+ConstraintP3OnFixedSurface::ConstraintP3OnFixedSurface(const Point3& p,
+                                                       std::shared_ptr<const FixedSurface3> surface,
+                                                       double* u,
+                                                       double* v,
+                                                       int comp)
+    : comp(comp)
+    , surface(std::move(surface))
+{
+    p.push(pvec);
+    pvec.push_back(u);
+    pvec.push_back(v);
+    origpvec = pvec;
+    rescale();
+}
+
+void ConstraintP3OnFixedSurface::errorgrad(double* err, double* grad, double* param)
+{
+    DeriVector3 P(pvec, 0, param);
+    double u = *pvec[3], du = dvar(pvec[3], param);
+    double v = *pvec[4], dv = dvar(pvec[4], param);
+    double s[3], su[3], sv[3];
+    surface->value(u, v, s, su, sv);
+    double dp;
+    double p = P.component(comp, dp);
+    output(err, grad, p - s[comp], dp - du * su[comp] - dv * sv[comp]);
+}
+
+// --------------------------------------------------------
 // P3PlaneDistance: pvec = P, O, q, [D]
 
 ConstraintP3PlaneDistance::ConstraintP3PlaneDistance(const Point3& p,
@@ -602,6 +632,20 @@ int addConstraintP3OnFixedCurve(System& sys,
     int i = add(sys, new ConstraintP3OnFixedCurve(p, curve, t, 0), tag, driving);
     add(sys, new ConstraintP3OnFixedCurve(p, curve, t, 1), tag, driving);
     add(sys, new ConstraintP3OnFixedCurve(p, curve, t, 2), tag, driving);
+    return i;
+}
+
+int addConstraintP3OnFixedSurface(System& sys,
+                                  Point3& p,
+                                  std::shared_ptr<const FixedSurface3> surface,
+                                  double* u,
+                                  double* v,
+                                  int tag,
+                                  bool driving)
+{
+    int i = add(sys, new ConstraintP3OnFixedSurface(p, surface, u, v, 0), tag, driving);
+    add(sys, new ConstraintP3OnFixedSurface(p, surface, u, v, 1), tag, driving);
+    add(sys, new ConstraintP3OnFixedSurface(p, surface, u, v, 2), tag, driving);
     return i;
 }
 

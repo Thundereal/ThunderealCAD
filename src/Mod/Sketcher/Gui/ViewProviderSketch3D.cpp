@@ -264,7 +264,7 @@ struct ViewProviderSketch3D::Snap
         ModelVertex,  // an element of the model: made an external reference first
         ModelEdge,
         ModelPlane,
-        Model,  // position only (a curved face)
+        Model,  // a curved face: made a reference, the point held on it
     };
     Kind kind {Kind::None};
     int geoId {Sketcher::GeoEnum::GeoUndef};
@@ -1695,7 +1695,8 @@ void ViewProviderSketch3D::constrainTo(const Snap& snap, int geoId, int pos, boo
             break;
         case Snap::Kind::ModelVertex:
         case Snap::Kind::ModelEdge:
-        case Snap::Kind::ModelPlane: {
+        case Snap::Kind::ModelPlane:
+        case Snap::Kind::Model: {
             int ext = external();
             if (ext == Sketcher::GeoEnum::GeoUndef) {
                 break;
@@ -1721,7 +1722,6 @@ void ViewProviderSketch3D::constrainTo(const Snap& snap, int geoId, int pos, boo
             run(buf);
             break;
         }
-        case Snap::Kind::Model:
         case Snap::Kind::None:
             // On the kept plane, held there (section 6).
             if (onKeptPlane && edit && edit->keptPlane >= 0) {
@@ -2116,7 +2116,7 @@ bool ViewProviderSketch3D::makeCircular()
     // On a kept plane, and held by nothing else: in it, by its centre on the plane and
     // its axis along the plane's normal (section 4.4, arc / circle in a plane).
     bool held = std::any_of(placed.begin(), placed.end(), [](const Placed& p) {
-        return p.snap.kind != Snap::Kind::None && p.snap.kind != Snap::Kind::Model;
+        return p.snap.kind != Snap::Kind::None;
     });
     if (edit->keptPlane >= 0 && !held) {
         Gui::Command::doCommand(
@@ -3741,7 +3741,7 @@ void ViewProviderSketch3D::draw()
         if (auto pt = Base::freecad_dynamic_cast<Part::GeomPoint>(geo)) {
             addPoint(pt->getPoint(), externalColor, extId, PointPos::start);
         }
-        else if (!geo->isDerivedFrom<Part::GeomPlane>()) {
+        else if (!geo->isDerivedFrom<Part::GeomSurface>()) {
             addCurve(geo, externalColor, extId);
         }
         --extId;

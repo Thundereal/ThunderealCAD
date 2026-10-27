@@ -242,4 +242,13 @@ public:
     virtual void value(double u, double p[3], double d1[3]) const = 0;
 };
 
+/// A surface that is not solved for -- a model face. The point and the first
+/// derivatives by u and v.
+class SketcherExport FixedSurface3
+{
+public:
+    virtual ~FixedSurface3() = default;
+    virtual void value(double u, double v, double p[3], double du[3], double dv[3]) const = 0;
+};
+
 }  // namespace GCS

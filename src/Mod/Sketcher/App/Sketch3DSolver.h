@@ -113,7 +113,8 @@ private:
         Arc,
         BSpline,
         Plane,
-        Curve,  // an external curve of any other kind
+        Curve,    // an external curve of any other kind
+        Surface,  // an external curved face
     };
 
     struct Entity
@@ -129,6 +130,7 @@ private:
         GCS::VEC_D distinctKnots;  // BSpline: one per knot, as InternalAlignment indexes them
         GCS::Plane3 plane;
         std::shared_ptr<const GCS::FixedCurve3> fixedCurve;  // externals with a curve
+        std::shared_ptr<const GCS::FixedSurface3> fixedSurface;  // an external face
         const Part::Geometry* source {nullptr};
     };
 

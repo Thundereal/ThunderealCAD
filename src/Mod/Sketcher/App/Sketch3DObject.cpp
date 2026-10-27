@@ -347,8 +347,8 @@ int Sketch3DObject::addExternal(App::DocumentObject* obj, const char* subname)
     objs.push_back(obj);
     subs.emplace_back(subname ? subname : "");
     ExternalGeometry.setValues(objs, subs);
-    rebuildExternalGeometry();
-    if (ExternalGeo.getSize() < static_cast<int>(subs.size())) {
+    auto unbuilt = rebuildExternalGeometry();
+    if (std::find(unbuilt.begin(), unbuilt.end(), subs.size() - 1) != unbuilt.end()) {
         objs.pop_back();
         subs.pop_back();
         ExternalGeometry.setValues(objs, subs);
@@ -391,8 +391,9 @@ void Sketch3DObject::delExternal(int geoId)
     solve();
 }
 
-void Sketch3DObject::rebuildExternalGeometry()
+std::vector<std::size_t> Sketch3DObject::rebuildExternalGeometry()
 {
+    std::vector<std::size_t> unbuilt;
     // Taken as they are, in the sketch's frame -- no projection, unlike the 2D sketch.
     Base::Placement inv = Placement.getValue().inverse();
     Base::Matrix4D invMat = inv.toMatrix();
@@ -419,13 +420,14 @@ void Sketch3DObject::rebuildExternalGeometry()
             }
             else {
                 Part::TopoShape shape = Part::Feature::getTopoShape(obj, sub.c_str(), true);
-                if (shape.isNull()) {
-                    FC_WARN("Null shape for reference " << obj->getFullName() << "." << sub);
-                    continue;
+                if (!shape.isNull()) {
+                    shape.transformShape(invMat, false, true);
                 }
-                shape.transformShape(invMat, false, true);
                 const TopoDS_Shape& s = shape.getShape();
-                if (s.ShapeType() == TopAbs_VERTEX) {
+                if (s.IsNull()) {
+                    // the element is gone: kept as it was, below
+                }
+                else if (s.ShapeType() == TopAbs_VERTEX) {
                     gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(s));
                     geo = std::make_unique<Part::GeomPoint>(Base::Vector3d(p.X(), p.Y(), p.Z()));
                 }
@@ -437,6 +439,16 @@ void Sketch3DObject::rebuildExternalGeometry()
                     if (surf.GetType() == GeomAbs_Plane) {
                         geo = std::make_unique<Part::GeomPlane>(surf.Plane());
                     }
+                    else {
+                        // a curved face: its surface, placed as the face is
+                        TopLoc_Location loc;
+                        Handle(Geom_Surface) surface = BRep_Tool::Surface(TopoDS::Face(s), loc);
+                        if (!loc.IsIdentity()) {
+                            surface = Handle(Geom_Surface)::DownCast(
+                                surface->Transformed(loc.Transformation()));
+                        }
+                        geo = Part::makeFromSurface(surface, true);
+                    }
                 }
             }
         }
@@ -445,6 +457,15 @@ void Sketch3DObject::rebuildExternalGeometry()
         }
         if (!geo) {
             FC_WARN("Unsupported reference " << obj->getFullName() << "." << sub);
+            unbuilt.push_back(i);
+            // Kept as it was, so the ids after it stay where the constraints have them;
+            // a reference never taken has none and is refused by addExternal.
+            if (i < static_cast<std::size_t>(ExternalGeo.getSize())) {
+                geos.push_back(ExternalGeo[static_cast<int>(i)]->clone());
+            }
+            else {
+                geos.push_back(new Part::GeomPoint(Base::Vector3d()));
+            }
             continue;
         }
         GeometryFacade::setConstruction(geo.get(), true);
@@ -452,6 +473,7 @@ void Sketch3DObject::rebuildExternalGeometry()
     }
     ExternalGeo.setValues(std::move(geos));
     acceptGeometry();
+    return unbuilt;
 }
 
 int Sketch3DObject::solve(bool updateGeometry)

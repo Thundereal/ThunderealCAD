@@ -30,7 +30,9 @@
 
 #include <Geom_Circle.hxx>
 #include <Geom_Curve.hxx>
+#include <GeomAPI_ProjectPointOnSurf.hxx>
 #include <Geom_Plane.hxx>
+#include <Geom_Surface.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
@@ -68,6 +70,29 @@ public:
 
 private:
     Handle(Geom_Curve) curve;
+};
+
+// A surface that is not solved for, evaluated by OCCT: an external face.
+class OcctSurface3: public GCS::FixedSurface3
+{
+public:
+    explicit OcctSurface3(Handle(Geom_Surface) s)
+        : surface(std::move(s))
+    {}
+    void value(double u, double v, double p[3], double du[3], double dv[3]) const override
+    {
+        gp_Pnt pnt;
+        gp_Vec su, sv;
+        surface->D1(u, v, pnt, su, sv);
+        for (int k = 0; k < 3; ++k) {
+            p[k] = pnt.Coord(k + 1);
+            du[k] = su.Coord(k + 1);
+            dv[k] = sv.Coord(k + 1);
+        }
+    }
+
+private:
+    Handle(Geom_Surface) surface;
 };
 
 Base::Vector3d vec(const GCS::Point3& p)
@@ -174,6 +199,12 @@ void Sketch3DSolver::addEntity(const Part::Geometry* geo, bool external, bool bl
             GCS::addConstraintPlane3Rules(sys, e.plane);
         }
     }
+    else if (auto surface = freecad_cast<const Part::GeomSurface*>(geo); surface && external) {
+        // A curved face: what it gives is a point on it (decision f).
+        e.kind = Kind::Surface;
+        e.fixedSurface =
+            std::make_shared<OcctSurface3>(Handle(Geom_Surface)::DownCast(surface->handle()));
+    }
     else if (auto curve = freecad_cast<const Part::GeomCurve*>(geo); curve && external) {
         e.kind = Kind::Curve;
         e.fixedCurve = std::make_shared<OcctCurve3>(Handle(Geom_Curve)::DownCast(curve->handle()));
@@ -188,7 +219,8 @@ void Sketch3DSolver::addEntity(const Part::Geometry* geo, bool external, bool bl
         e.kind = Kind::Curve;
     }
 
-    if (external && e.kind != Kind::Curve && e.kind != Kind::Plane && !e.fixedCurve) {
+    if (external && e.kind != Kind::Curve && e.kind != Kind::Plane && e.kind != Kind::Surface
+        && !e.fixedCurve) {
         if (auto curve = freecad_cast<const Part::GeomCurve*>(geo)) {
             e.fixedCurve =
                 std::make_shared<OcctCurve3>(Handle(Geom_Curve)::DownCast(curve->handle()));
@@ -237,6 +269,8 @@ GCS::Point3* Sketch3DSolver::entityPoint(int geoId, PointPos pos)
         case Kind::Circle:
         case Kind::Plane:
             return pos == PointPos::mid ? &e->mid : nullptr;
+        case Kind::Surface:
+            return nullptr;
         case Kind::Arc:
             if (pos == PointPos::start) {
                 return &e->start;
@@ -376,6 +410,24 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
                 case Kind::Plane:
                     GCS::addConstraintP3OnPlane(sys, *p, target->plane, tag, driving);
                     return true;
+                case Kind::Surface: {
+                    // its (u, v) unknowns, started where the point projects
+                    double u = 0., v = 0.;
+                    auto s = Handle(Geom_Surface)::DownCast(target->source->handle());
+                    Base::Vector3d at = vec(*p);
+                    GeomAPI_ProjectPointOnSurf proj(gp_Pnt(at.x, at.y, at.z), s);
+                    if (proj.NbPoints() > 0) {
+                        proj.LowerDistanceParameters(u, v);
+                    }
+                    GCS::addConstraintP3OnFixedSurface(sys,
+                                                       *p,
+                                                       target->fixedSurface,
+                                                       param(u, true),
+                                                       param(v, true),
+                                                       tag,
+                                                       driving);
+                    return true;
+                }
                 case Kind::Curve:
                     if (!target->fixedCurve) {
                         return false;
@@ -982,6 +1034,8 @@ std::vector<std::unique_ptr<Part::Geometry>> Sketch3DSolver::extractGeometry() c
                 bsp->setPoles(poles, weights);
                 break;
             }
+            case Kind::Surface:
+                break;
             case Kind::Plane: {
                 double w = *e.plane.qw, x = *e.plane.qx, y = *e.plane.qy, z = *e.plane.qz;
                 double l = std::sqrt(w * w + x * x + y * y + z * z);

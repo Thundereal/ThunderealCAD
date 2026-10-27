@@ -374,6 +374,69 @@ class TestSketch3D(unittest.TestCase):
         with self.assertRaises(ValueError):
             sk.addConstraint(Sketcher.Constraint("Horizontal", 0, 1))
 
+    # -- S3d: model faces --------------------------------------------------------------
+
+    def testPointOnACurvedFace(self):
+        # A cylinder's side as a reference: a point held on it keeps there when the
+        # radius changes, and the reference, a cylinder surface, saves and restores.
+        cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+        cyl.Radius, cyl.Height = 5, 20
+        self.doc.recompute()
+        side = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(cyl.Shape.Faces)
+            if f.Surface.TypeId == "Part::GeomCylinder"
+        ][0]
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        ext = sk.addExternal(cyl, side)
+        self.assertEqual(type(sk.ExternalGeo[0]).__name__, "Cylinder")
+        p = sk.addGeometry(Part.Point(V(7, 1, 8)))
+        sk.addConstraint(Sketcher.Constraint("DistanceZ", p, 1, 8.0))
+        dof = sk.DoF
+        sk.addConstraint(Sketcher.Constraint("PointOnObject", p, 1, ext))
+        self.assertEqual(sk.DoF, dof - 1)
+        self.assertEqual(sk.Conflicting, [])
+        g = sk.Geometry[p]
+        self.assertAlmostEqual(math.hypot(g.X, g.Y), 5, 9)
+        self.assertAlmostEqual(g.Z, 8, 9)
+        cyl.Radius = 9
+        self.doc.recompute()
+        g = sk.Geometry[p]
+        self.assertAlmostEqual(math.hypot(g.X, g.Y), 9, 9)
+        path = os.path.join(tempfile.mkdtemp(), "curvedface.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        sk = self.doc.getObject("S")
+        self.assertEqual(type(sk.ExternalGeo[0]).__name__, "Cylinder")
+        self.assertEqual(sk.solve(), 0)
+        g = sk.Geometry[p]
+        self.assertAlmostEqual(math.hypot(g.X, g.Y), 9, 9)
+
+    def testUnbuiltReferenceKeepsTheIdsAfterIt(self):
+        # A reference whose element is gone keeps its geometry as it was, so the ones
+        # after it keep their ids and their constraints stay on them.
+        feat = self.doc.addObject("Part::Feature", "F")
+        feat.Shape = Part.makeBox(10, 10, 10)
+        other = self.doc.addObject("Part::Feature", "G")
+        other.Shape = Part.Vertex(V(30, 0, 0))
+        self.doc.recompute()
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        first = sk.addExternal(feat, "Edge12")
+        second = sk.addExternal(other, "Vertex1")
+        p = sk.addGeometry(Part.Point(V(1, 2, 3)))
+        sk.addConstraint(Sketcher.Constraint("Coincident", p, 1, second, 1))
+        feat.Shape = Part.makeSphere(3)  # no Edge12 now
+        other.Shape = Part.Vertex(V(31, 0, 0))
+        self.doc.recompute()
+        self.assertEqual(len(sk.ExternalGeo), 2)
+        self.assertEqual(sk.Malformed, [])
+        g = sk.Geometry[p]
+        self.assertVector(V(g.X, g.Y, g.Z), V(31, 0, 0))
+        self.assertEqual(first, -7)
+        with self.assertRaises(ValueError):
+            sk.addExternal(feat, "Edge12")  # never built: refused
+
     # -- S3c: corner fillet ------------------------------------------------------------
 
     def testFilletAtACorner(self):

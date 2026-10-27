@@ -122,6 +122,26 @@ public:
     void errorgrad(double* err, double* grad, double* param) override;
 };
 
+// P_k - S(u, v)_k for a surface that is not solved for (a model face), u and v unknown:
+// three of them and the two unknowns remove 1 DOF, a point on a face.
+class SketcherExport ConstraintP3OnFixedSurface: public Constraint
+{
+    int comp;
+    std::shared_ptr<const FixedSurface3> surface;
+
+public:
+    ConstraintP3OnFixedSurface(const Point3& p,
+                               std::shared_ptr<const FixedSurface3> surface,
+                               double* u,
+                               double* v,
+                               int comp);
+    ConstraintType getTypeId() override
+    {
+        return P3OnFixedSurface;
+    }
+    void errorgrad(double* err, double* grad, double* param) override;
+};
+
 // (P - O) . n - D: a point's signed distance from a workplane; D null means 0, the
 // point on the plane.
 class SketcherExport ConstraintP3PlaneDistance: public Constraint
@@ -312,6 +332,14 @@ SketcherExport int addConstraintP3OnFixedCurve(System& sys,
                                                bool driving = true);
 SketcherExport int
 addConstraintP3OnPlane(System& sys, Point3& p, Plane3& pl, int tag = 0, bool driving = true);
+/// u, v: the point's parameters on the surface, unknowns the caller allocates.
+SketcherExport int addConstraintP3OnFixedSurface(System& sys,
+                                                 Point3& p,
+                                                 std::shared_ptr<const FixedSurface3> surface,
+                                                 double* u,
+                                                 double* v,
+                                                 int tag = 0,
+                                                 bool driving = true);
 
 // Directions: parallel (2), perpendicular (1), a line parallel to a plane (1),
 // collinear (4, two t unknowns).

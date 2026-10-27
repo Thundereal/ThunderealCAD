@@ -136,7 +136,8 @@ public:
     }
 
     /// Resolves ExternalGeometry into ExternalGeo.
-    void rebuildExternalGeometry();
+    /// The references that could not be built: their geometry is kept as it was.
+    std::vector<std::size_t> rebuildExternalGeometry();
 
 protected:
     void onChanged(const App::Property* prop) override;

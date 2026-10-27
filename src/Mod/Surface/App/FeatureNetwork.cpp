@@ -29,14 +29,12 @@
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <Geom_TrimmedCurve.hxx>
 #include <Precision.hxx>
-#include <sstream>
 #include <TopoDS.hxx>
 #endif
 
 #include <App/Document.h>
-#include <App/ElementNamingUtils.h>
-#include <Base/Tools.h>
 
+#include "EdgeConditions.h"
 #include "ElementNames.h"
 #include "FeatureNetwork.h"
 #include "Geom/EdgeCondition.h"
@@ -47,33 +45,8 @@ using namespace Surface;
 
 PROPERTY_SOURCE(Surface::Network, Part::Spline)
 
-namespace
-{
-const char* ContinuityEnums[] = {"G0", "G1", "G2", nullptr};
-const App::PropertyFloatConstraint::Constraints WeightRange = {0.01, 100.0, 0.1};
 
-/// Whether `edge` lies on `other`: both ends and the middle
-bool sameEdge(const TopoDS_Edge& edge, const TopoDS_Edge& other, double tol)
-{
-    BRepAdaptor_Curve a(edge), b(other);
-    for (double f : {0.0, 0.5, 1.0}) {
-        gp_Pnt p = a.Value(a.FirstParameter() + (a.LastParameter() - a.FirstParameter()) * f);
-        bool on = false;
-        for (double g : {0.0, 0.5, 1.0}) {
-            on = on
-                || p.Distance(
-                       b.Value(b.FirstParameter() + (b.LastParameter() - b.FirstParameter()) * g))
-                    < tol;
-        }
-        if (!on) {
-            return false;
-        }
-    }
-    return true;
-}
-}  // namespace
-
-std::array<Network::Side, 4> Network::sides()
+std::array<ConditionProperties, 4> Network::sides()
 {
     // in Geom::Boundary's order: the guides run along V, so the first and last
     // guide are UMin and UMax; the profiles VMin and VMax
@@ -118,33 +91,10 @@ Network::Network()
     Profiles.setScope(App::LinkScope::Global);
     Guides.setScope(App::LinkScope::Global);
 
-#define NETWORK_SIDE(_name, _doc)                                                                  \
-    ADD_PROPERTY_TYPE(_name##Continuity,                                                           \
-                      ((long)0),                                                                   \
-                      "Conditions",                                                                \
-                      App::Prop_None,                                                              \
-                      "How the surface meets its neighbour along the " _doc                       \
-                      ": G0 position, G1 tangent, G2 curvature");                                  \
-    _name##Continuity.setEnums(ContinuityEnums);                                                   \
-    ADD_PROPERTY_TYPE(_name##Weight,                                                               \
-                      (1.0),                                                                       \
-                      "Conditions",                                                                \
-                      App::Prop_None,                                                              \
-                      "Scales the surface's derivative across the " _doc ": 1 keeps its own");    \
-    _name##Weight.setConstraints(&WeightRange);                                                    \
-    ADD_PROPERTY_TYPE(_name##Support,                                                              \
-                      (nullptr),                                                                   \
-                      "Conditions",                                                                \
-                      App::Prop_None,                                                              \
-                      "The face to meet along the " _doc                                           \
-                      "; empty takes the face the curve is an edge of");                          \
-    _name##Support.setScope(App::LinkScope::Global);
-
-    NETWORK_SIDE(FirstProfile, "first profile")
-    NETWORK_SIDE(LastProfile, "last profile")
-    NETWORK_SIDE(FirstGuide, "first guide")
-    NETWORK_SIDE(LastGuide, "last guide")
-#undef NETWORK_SIDE
+SURFACE_ADD_CONDITION(FirstProfile, "the first profile");
+    SURFACE_ADD_CONDITION(LastProfile, "the last profile");
+    SURFACE_ADD_CONDITION(FirstGuide, "the first guide");
+    SURFACE_ADD_CONDITION(LastGuide, "the last guide");
     ADD_PROPERTY_TYPE(Achieved,
                       (),
                       "Conditions",
@@ -198,54 +148,18 @@ App::DocumentObjectExecReturn* Network::execute()
     auto all = sides();
     const int nprofiles = (int)curves[0].size();
     for (int b = 0; b < 4; ++b) {
-        const auto& side = all[b];
-        auto& c = conditions[b];
-        c.order = side.continuity->getValue();
-        c.weight = side.weight->getValue();
-        if (c.order == 0) {
-            continue;
-        }
-        if (side.support->getValue()) {
-            auto face = Part::Feature::getTopoShape(side.support->getValue(),
-                                                    side.support->getSubValues().empty()
-                                                        ? ""
-                                                        : side.support->getSubValues()[0].c_str(),
-                                                    true);
-            if (face.isNull() || face.getShape().ShapeType() != TopAbs_FACE) {
-                return new App::DocumentObjectExecReturn(std::string("The support of the ")
-                                                         + side.name + " is not a face");
-            }
-            c.support = TopoDS::Face(face.getShape());
-            continue;
-        }
-        // implicit: the one face of the curve's own shape it is an edge of
         bool guide = b == int(Geom::Boundary::UMin) || b == int(Geom::Boundary::UMax);
         const auto& order = guide ? result.guideOrder : result.profileOrder;
         bool last = b == int(Geom::Boundary::UMax) || b == int(Geom::Boundary::VMax);
         int input = order[last ? order.size() - 1 : 0] + (guide ? nprofiles : 0);
-        const auto& source = sources[input];
-        auto owner = Part::Feature::getTopoShape(source.first,
-                                                 Data::noElementName(source.second.c_str()).c_str(),
-                                                 false);
-        const TopoDS_Edge& edge = TopoDS::Edge(inputs[input].getShape());
-        std::vector<TopoDS_Face> faces;
-        for (const auto& f : owner.getSubTopoShapes(TopAbs_FACE)) {
-            for (const auto& e : f.getSubTopoShapes(TopAbs_EDGE)) {
-                if (sameEdge(edge, TopoDS::Edge(e.getShape()), Precision::Confusion())) {
-                    faces.push_back(TopoDS::Face(f.getShape()));
-                    break;
-                }
-            }
+        auto error = conditionOf(all[b],
+                                 sources[input].first,
+                                 sources[input].second,
+                                 TopoDS::Edge(inputs[input].getShape()),
+                                 conditions[b]);
+        if (!error.empty()) {
+            return new App::DocumentObjectExecReturn(error);
         }
-        if (faces.size() != 1) {
-            return new App::DocumentObjectExecReturn(
-                std::string("G") + std::to_string(c.order) + " on the " + side.name
-                + " needs a support face: "
-                + (faces.empty() ? "the curve is an edge of no face"
-                                 : "the curve is an edge of more than one face")
-                + "; pick one as its support");
-        }
-        c.support = faces.front();
     }
 
     std::vector<std::string> achieved;
@@ -259,18 +173,7 @@ App::DocumentObjectExecReturn* Network::execute()
             return new App::DocumentObjectExecReturn(std::string("The ") + all[b].name + ": "
                                                      + r.error);
         }
-        std::ostringstream ss;
-        ss << all[b].name << ": G" << conditions[b].order << ", worst angle "
-           << Base::toDegrees(r.maxAngle) << " deg";
-        if (conditions[b].order >= 2) {
-            ss << ", worst curvature gap " << r.maxCurvatureGap;
-        }
-        if (!r.achieved) {
-            ss << "; not met"
-               << (r.firstCorner ? " at its first corner"
-                                 : (r.lastCorner ? " at its last corner" : ""));
-        }
-        achieved.push_back(ss.str());
+        achieved.push_back(describe(all[b], conditions[b], r));
     }
     Achieved.setValues(achieved);
 

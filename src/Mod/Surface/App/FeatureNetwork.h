@@ -32,6 +32,8 @@
 #include <Mod/Part/App/FeaturePartSpline.h>
 #include <Mod/Surface/SurfaceGlobal.h>
 
+#include "EdgeConditions.h"
+
 namespace Surface
 {
 
@@ -71,14 +73,8 @@ public:
     App::DocumentObjectExecReturn* execute() override;
 
 private:
-    struct Side
-    {
-        const char* name;
-        App::PropertyEnumeration* continuity;
-        App::PropertyFloatConstraint* weight;
-        App::PropertyLinkSub* support;
-    };
-    std::array<Side, 4> sides();
+    /// In Geom::Boundary's order
+    std::array<ConditionProperties, 4> sides();
 };
 
 }  // namespace Surface

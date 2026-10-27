@@ -26,7 +26,9 @@
 #ifndef _PreComp_
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
+#include <BRepAdaptor_Curve.hxx>
 #include <BRep_Tool.hxx>
+#include <Precision.hxx>
 #include <GeomConvert.hxx>
 #include <GeomFill.hxx>
 #include <GeomFill_BSplineCurves.hxx>
@@ -51,7 +53,9 @@
 
 #include <Base/Console.h>
 #include <App/Document.h>
+#include <Mod/Part/App/TopoShapeOpCode.h>
 
+#include "ElementNames.h"
 #include "FeatureGeomFillSurface.h"
 
 FC_LOG_LEVEL_INIT("Surface",true, true);
@@ -139,6 +143,15 @@ GeomFillSurface::GeomFillSurface()
     ADD_PROPERTY(ReversedList, (false));
     FillType.setEnums(FillTypeEnums);
     BoundaryList.setScope(App::LinkScope::Global);
+    SURFACE_ADD_CONDITION(Boundary1, "the first boundary curve");
+    SURFACE_ADD_CONDITION(Boundary2, "the second boundary curve");
+    SURFACE_ADD_CONDITION(Boundary3, "the third boundary curve");
+    SURFACE_ADD_CONDITION(Boundary4, "the fourth boundary curve");
+    ADD_PROPERTY_TYPE(Achieved,
+                      (),
+                      "Conditions",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Output),
+                      "What each edge condition achieved");
 }
 
 
@@ -201,6 +214,10 @@ App::DocumentObjectExecReturn* GeomFillSurface::execute()
     }
     try {
         result.makEBSplineFace(shapes, style, true);
+        auto error = applyConditions(result, shapes);
+        if (!error.empty()) {
+            return new App::DocumentObjectExecReturn(error);
+        }
         this->Shape.setValue(result);
     } catch (const Standard_Failure &e) {
         if (wires[0].isClosed()) {
@@ -250,6 +267,90 @@ App::DocumentObjectExecReturn* GeomFillSurface::execute()
         return new App::DocumentObjectExecReturn(e.GetMessageString());
     }
 #endif
+}
+
+std::string GeomFillSurface::applyConditions(Part::TopoShape& result,
+                                             const std::vector<Part::TopoShape>& inputs)
+{
+    ConditionProperties props[4] = {
+        {"first boundary curve", &Boundary1Continuity, &Boundary1Weight, &Boundary1Support},
+        {"second boundary curve", &Boundary2Continuity, &Boundary2Weight, &Boundary2Support},
+        {"third boundary curve", &Boundary3Continuity, &Boundary3Weight, &Boundary3Support},
+        {"fourth boundary curve", &Boundary4Continuity, &Boundary4Weight, &Boundary4Support}};
+    std::vector<std::string> achieved;
+    Achieved.setValues(achieved);
+    bool any = false;
+    for (const auto& p : props) {
+        any = any || p.continuity->getValue() > 0;
+    }
+    if (!any) {
+        return {};
+    }
+
+    const auto& objs = BoundaryList.getValues();
+    const auto& subs = BoundaryList.getSubValues();
+    if (objs.size() != inputs.size() || result.countSubShapes(TopAbs_FACE) != 1) {
+        return "Edge conditions need each boundary to be a single edge";
+    }
+    TopoDS_Face face = TopoDS::Face(result.getSubShape(TopAbs_FACE, 1));
+    Handle(Geom_BSplineSurface) surface =
+        Handle(Geom_BSplineSurface)::DownCast(BRep_Tool::Surface(face));
+    if (surface.IsNull()) {
+        return "Edge conditions need the fill to be a B-spline surface";
+    }
+    surface = Handle(Geom_BSplineSurface)::DownCast(surface->Copy());
+
+    Geom::Conditions conditions;
+    int at[4] = {-1, -1, -1, -1};
+    for (std::size_t i = 0; i < inputs.size() && i < 4; ++i) {
+        if (inputs[i].getShape().ShapeType() != TopAbs_EDGE) {
+            if (props[i].continuity->getValue() > 0) {
+                return std::string("The ") + props[i].name + " is not a single edge";
+            }
+            continue;
+        }
+        const TopoDS_Edge& edge = TopoDS::Edge(inputs[i].getShape());
+        BRepAdaptor_Curve adapt(edge);
+        Handle(Geom_Curve) curve = new Geom_TrimmedCurve(adapt.Curve().Curve(),
+                                                         adapt.FirstParameter(),
+                                                         adapt.LastParameter());
+        if (!edge.Location().IsIdentity()) {
+            curve->Transform(edge.Location().Transformation());
+        }
+        at[i] = Geom::boundaryOf(surface, curve, 1e-5);
+        if (props[i].continuity->getValue() == 0) {
+            continue;
+        }
+        if (at[i] < 0) {
+            return std::string("The ") + props[i].name + " is not at a boundary of the surface";
+        }
+        auto error = conditionOf(props[i], objs[i], subs[i], edge, conditions[at[i]]);
+        if (!error.empty()) {
+            return error;
+        }
+    }
+    // a side no curve is on is made by the fill: free
+    for (int b = 0; b < 4; ++b) {
+        conditions[b].free = std::find(at, at + 4, b) == at + 4;
+    }
+    auto reports = Geom::matchBoundaries(surface, conditions);
+    for (int i = 0; i < 4; ++i) {
+        if (at[i] < 0 || conditions[at[i]].order == 0) {
+            continue;
+        }
+        if (!reports[at[i]].error.empty()) {
+            return std::string("The ") + props[i].name + ": " + reports[at[i]].error;
+        }
+        achieved.push_back(describe(props[i], conditions[at[i]], reports[at[i]]));
+    }
+    Achieved.setValues(achieved);
+
+    BRepBuilderAPI_MakeFace mkFace(surface, Precision::Confusion());
+    result = nameFromEdges(mkFace.Face(),
+                           inputs,
+                           getDocument()->getStringHasher(),
+                           Part::OpCodes::BSplineFace);
+    return {};
 }
 
 GeomFill_FillingStyle GeomFillSurface::getFillingStyle()

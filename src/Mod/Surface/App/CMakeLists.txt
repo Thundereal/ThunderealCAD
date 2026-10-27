@@ -58,6 +58,8 @@ SET(Surface_SRCS
   ${Geom_SRCS}
   ${BlendingPy_SRCS}
   AppSurface.cpp
+  EdgeConditions.cpp
+  EdgeConditions.h
   ElementNames.cpp
   ElementNames.h
   PreCompiled.cpp

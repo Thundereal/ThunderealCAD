@@ -1,4 +1,4 @@
-# Surface workbench: design (2026-10-27, proposal -- nothing built)
+# Surface workbench: design (2026-10-27, ruled -- U0 in progress)
 
 Status: DESIGN FOR DISCUSSION. The user asked on 2026-10-26 for three things in
 the pending (end of 2026) release: a 3D sketch, a fuller Surface workbench and
@@ -306,6 +306,10 @@ The analysis tools belong in the view, not in the Surface workbench. Upstream as
 - **Bundling Curves as an addon.** Ruled out on 2026-10-26: native C++.
 
 ## 12. Questions
+
+**Ruled 2026-10-27:** (a) the whole plan, U0 to U5, for the release. (b) to (i) as recommended: the network fix in Surface's own geometry layer, offered to OCCT later; edge conditions approximate within tolerance and reported; the support face implicit with an explicit override per edge; trim's kept side a 3D point with the element name as tie-break; analysis in the renderer and Gui core; the existing features kept and grown, the network surface a new feature; Cut off the tool bar for good, old files still load; upstream's Blend Curve task panel taken into U0.
+
+**Progress:** U0 started -- every feature's output named and Coons on curves of degree 2 (5c229a8b48); a Sew command with a FreeEdges / MaxGap readout (92a503c194).
 
 a. **Scope for the end-2026 release.** Proposed: U0 to U3, then U4 (analysis), then U5 if there is time. Or a cut: U0, U1, U2 (network, edge conditions, trim) as the release's surfacing, and the rest after.
 

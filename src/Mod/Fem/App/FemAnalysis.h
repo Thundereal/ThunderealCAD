@@ -54,20 +54,19 @@ class FemExport FemAnalysis: public App::DocumentObjectGroup
     PROPERTY_HEADER_WITH_OVERRIDE(Fem::FemAnalysis);
 
 public:
-    /**
-     * Uses Base::Uuid to initialize the Uid property to a newly generated
-     * unique id because PropertyUUID doesn't initialize itself.
-     */
     FemAnalysis();
     ~FemAnalysis() override;
 
     /**
-     * A unique identifier for each Analysis object. Useful when doing
-     * filesystem operations because it can provide a unique file or
-     * directory name for an analysis. Retains its value across save/load
-     * cycles.
+     * The analysis's unique identifier is the object's (getObjectUid(),
+     * docs/TransactionLogJournal.md sec 36.7), which Python's read-only `Uid`
+     * answers: it was a property of its own, made new for each object,
+     * kept across save and load.
      */
-    App::PropertyUUID Uid;
+    bool hasUidAttribute() const override
+    {
+        return true;
+    }
 
     const char* getViewProviderName() const override
     {
@@ -82,7 +81,8 @@ protected:
      *  In an older version of FreeCAD FemAnalysis handles it's member itself
      *  in a property called "Member". Now this is handled in the "Group"
      *  property of DocumentObjectGroup. This methods translates old files
-     *  still using the "Member" property.
+     *  still using the "Member" property. The `Uid` of an older file is the
+     *  analysis's UID.
      */
     void handleChangedPropertyName(
         Base::XMLReader& reader,

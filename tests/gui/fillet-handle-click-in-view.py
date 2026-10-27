@@ -15,8 +15,8 @@ through the window, as a hand would. Claims:
   - entry 141: the tool tip waits for the style's delay, then names the
     right click, and stays while the pointer rests and while it moves over
     the arrow;
-  - a click on an arrow selects nothing behind it, and makes its value
-    active (the arrow lit, not as hovered);
+  - a click on an arrow selects its edge (entry 213) and nothing behind it,
+    and makes its value active (the arrow lit, not as hovered);
   - a right click on an arrow opens its menu (the edge's modes), not the
     view's, and selects nothing;
   - a fillet with a reference that is gone (Edge99): in edit, an arrow on
@@ -311,7 +311,11 @@ def run():
             FreeCADGui.Selection.clearSelection()
             before = arrow_colours()
             click(*found["arrow"])
-            check("a click on an arrow selects nothing behind it", selection() == [], selection())
+            # its own edge only, nothing behind it (entry 213: a handle made
+            # active selects its edge)
+            picked = [n.split(".")[-1] for _, names in selection() for n in names]
+            check("a click on an arrow selects its edge, nothing behind it",
+                  picked == ["Edge1"], selection())
             lit = arrow_colours()
             note("INFO arrows before %s, after the click %s" % (before, lit))
             check("the arrow clicked is lit, its value's arrows alike, not as hovered",

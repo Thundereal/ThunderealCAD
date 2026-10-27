@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: LGPL-2.1-or-later
 
-// The transaction log, phase 1 (docs/TransactionLog.md sec 15): what a
+// The transaction log, phase 1 (docs/TransactionLogJournal.md sec 15): what a
 // commit writes to the store, the pending-after rule of sec 20.2, and the
 // promise that matters -- a log replays to an identical document.
 
@@ -17,6 +17,8 @@
 #include "App/Actor.h"
 #include "App/Application.h"
 #include "Base/Interpreter.h"
+#include <filesystem>
+
 #include "App/PropertyPythonObject.h"
 #include "App/PropertyExpressionEngine.h"
 #include "App/ObjectIdentifier.h"
@@ -27,7 +29,13 @@
 #include "App/Expression.h"
 #include "App/FeatureTest.h"
 #include "App/FileBlobManager.h"
+#include "App/Extension.h"
 #include "App/FileHistory.h"
+#include "App/GroupExtension.h"
+#include "App/Link.h"
+#include "App/Origin.h"
+#include "App/OriginGroupExtension.h"
+#include "App/Part.h"
 #include "App/PropertyFile.h"
 #include "App/PropertyHistory.h"
 #include "App/TransactionLog.h"
@@ -38,7 +46,7 @@
 #include "Base/Stream.h"
 #include <src/App/InitApplication.h>
 
-// A stand-in for a view provider (docs/TransactionLog.md sec 24.9): a
+// A stand-in for a view provider (docs/TransactionLogJournal.md sec 24.9): a
 // transactional container that is not a document object, belongs to one,
 // and reports its changes to that object's document.
 class TxnLogFakeView: public App::TransactionalObject
@@ -94,6 +102,10 @@ protected:
     {
         _mode = App::DocumentParams::getTransactionLog();
         App::DocumentParams::setTransactionLog(1);
+        // A row and an undo step per commit, which these cases count: the
+        // folding of rapid commits (sec 37.4 P4) is its own case's.
+        _coalesce = App::DocumentParams::getTransactionLogCoalesceSeconds();
+        App::DocumentParams::setTransactionLogCoalesceSeconds(0);
         _docName = App::GetApplication().getUniqueDocumentName("txnlog");
         _doc = App::GetApplication().newDocument(_docName.c_str(), "testUser");
         _doc->setUndoMode(1);
@@ -103,6 +115,7 @@ protected:
     {
         App::GetApplication().closeDocument(_docName.c_str());
         App::DocumentParams::setTransactionLog(_mode);
+        App::DocumentParams::setTransactionLogCoalesceSeconds(_coalesce);
     }
 
     App::Document* doc() { return _doc; }
@@ -169,6 +182,7 @@ protected:
 
 private:
     long _mode {0};
+    long _coalesce {0};
     std::string _docName;
     App::Document* _doc {};
 };
@@ -249,6 +263,174 @@ TEST_F(TransactionLogTest, unchangedWriteIsNotLogged)
     obj->Integer.setValue(obj->Integer.getValue());
     doc()->commitTransaction();
     EXPECT_EQ(log().store().transactions().size(), 1u);
+}
+
+// sec 37.7 item 1: a dynamic property removed and one of the same name and
+// type added in one transaction may get the removed one's freed address; the
+// row says the removal all the same.
+TEST_F(TransactionLogTest, aPropertyAddedInARemovedOnesPlaceIsNotItsSet)
+{
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    auto old = obj->addDynamicProperty("App::PropertyString", "Note", "Extra");
+    static_cast<App::PropertyString*>(old)->setValue("first");
+    doc()->commitTransaction();
+    log().resolvePending();
+
+    doc()->openTransaction("again");
+    obj->removeDynamicProperty("Note");
+    obj->Integer.setValue(1);   // the cleaner frees the removed one
+    auto added = obj->addDynamicProperty("App::PropertyString", "Note", "Extra");
+    static_cast<App::PropertyString*>(added)->setValue("second");
+    doc()->commitTransaction();
+    if (added != old)
+        GTEST_SKIP() << "the allocator did not reuse the address";
+
+    auto txns = log().store().transactions();
+    ASSERT_EQ(txns.size(), 2u);
+    int delprops = 0, addprops = 0, sets = 0;
+    for (auto& o : log().store().ops(txns[1].seq)) {
+        if (o.prop != "Note")
+            continue;
+        delprops += o.op == "delprop";
+        addprops += o.op == "addprop";
+        sets += o.op == "set";
+    }
+    EXPECT_EQ(delprops, 1);
+    EXPECT_EQ(addprops, 1);
+    EXPECT_EQ(sets, 1);
+}
+
+// sec 37.7 item 4: an undo inside a command commits its transaction while the
+// application still names it; the command's next write must not throw.
+TEST_F(TransactionLogTest, aWriteAfterAnUndoInsideACommandIsAStepOfItsOwn)
+{
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    doc()->commitTransaction();
+    {
+        App::AutoTransaction command("Command");
+        obj->Integer.setValue(1);
+        EXPECT_FALSE(doc()->undoLogged(int64_t(999999)));   // no such row: refused
+        EXPECT_NO_THROW(obj->Integer.setValue(2));
+    }
+    App::GetApplication().closeActiveTransaction();
+    if (doc()->hasPendingTransaction())
+        doc()->commitTransaction();
+    EXPECT_EQ(obj->Integer.getValue(), 2);
+}
+
+// sec 37.9: a paste answered before it is imported. An object left out keeps
+// the live one of its UID, and what was brought refers to it; a part
+// assigned keeps its live origin, which its own origin and axes stand for.
+TEST_F(TransactionLogTest, aPasteAnsweredAheadKeepsWhatIsLeftOutAndTheOrigin)
+{
+    doc()->openTransaction("make");
+    auto obj = make("Obj");
+    auto part = doc()->addObject("App::Part", "Part");
+    doc()->commitTransaction();
+    auto origin = part->getExtensionByType<App::OriginGroupExtension>()->getOrigin();
+    ASSERT_TRUE(origin);
+    origin->getX();   // its axes and planes made (they are lazy)
+    const std::string originName = origin->getNameInDocument();
+    const auto objects = doc()->getObjects().size();
+    const int before = obj->Integer.getValue();
+
+    auto other = App::GetApplication().newDocument("PasteAway", "PasteAway");
+    const std::string otherName = other->getName();
+    auto away = other->copyObject({obj});
+    ASSERT_EQ(away.size(), 1u);
+    static_cast<App::FeatureTest*>(away[0])->Integer.setValue(before + 3);
+    auto link = static_cast<App::Link*>(other->addObject("App::Link", "L"));
+    link->setLink(-1, away[0]);
+    auto parts = other->copyObject({part}, true, true);
+    App::DocumentObject* awayPart = nullptr;
+    for (auto o : parts) {
+        if (o->isDerivedFrom<App::Part>())
+            awayPart = o;
+    }
+    ASSERT_TRUE(awayPart);
+    static_cast<App::Part*>(awayPart)->Placement.setValue(
+        Base::Placement(Base::Vector3d(7, 0, 0), Base::Rotation()));
+
+    {
+        App::Document::ImportClashScope scope(App::Document::ImportClashScope::Answered);
+        scope.answers[away[0]->getNameInDocument()] = App::Document::ImportTake::Exclude;
+        scope.answers[awayPart->getNameInDocument()] = App::Document::ImportTake::Assign;
+        doc()->openTransaction("paste");
+        doc()->copyObject({away[0], link, awayPart}, true);
+        doc()->commitTransaction();
+    }
+    // Left out: ours as it was, the link brought links it
+    EXPECT_EQ(obj->Integer.getValue(), before);
+    App::Link* pasted = nullptr;
+    for (auto o : doc()->getObjects()) {
+        if (o->isDerivedFrom<App::Link>())
+            pasted = static_cast<App::Link*>(o);
+    }
+    ASSERT_TRUE(pasted);
+    EXPECT_EQ(pasted->getLinkedObjectValue(), obj);
+    // Assigned: the part took the placement, and kept its origin
+    EXPECT_DOUBLE_EQ(static_cast<App::Part*>(part)->Placement.getValue().getPosition().x, 7);
+    EXPECT_EQ(std::string(part->getExtensionByType<App::OriginGroupExtension>()
+                              ->getOrigin()->getNameInDocument()),
+              originName);
+    int origins = 0;
+    for (auto o : doc()->getObjects())
+        origins += o->isDerivedFrom<App::Origin>() ? 1 : 0;
+    EXPECT_EQ(origins, 1);
+    EXPECT_EQ(doc()->getObjects().size(), objects + 1);   // the link alone
+    App::GetApplication().closeDocument(otherName.c_str());
+}
+
+TEST_F(TransactionLogTest, aGroupsElementPastedFollowsItsUidNotItsPlace)
+{
+    // Sec 37.12: their group [A, B] assigned onto ours, where A was removed
+    // since; their A is no stand-in for our B, which took A's place
+    doc()->openTransaction("make");
+    auto a = make("A");
+    auto b = make("B");
+    auto group = static_cast<App::LinkGroup*>(doc()->addObject("App::LinkGroup", "G"));
+    group->LinkMode.setValue(App::LinkBaseExtension::LinkModeAutoDelete);
+    group->ElementList.setValues({a, b});
+    doc()->commitTransaction();
+    const int before = b->Integer.getValue();
+
+    auto other = App::GetApplication().newDocument("PasteGroup", "PasteGroup");
+    const std::string otherName = other->getName();
+    auto away = other->copyObject({a, b, group});
+    ASSERT_EQ(away.size(), 3u);
+    auto awayA = away[0], awayB = away[1], awayGroup = away[2];
+    ASSERT_EQ(static_cast<App::LinkGroup*>(awayGroup)->ElementList.getValues(),
+              (std::vector<App::DocumentObject*>{awayA, awayB}));
+    static_cast<App::FeatureTest*>(awayA)->Integer.setValue(42);
+    static_cast<App::FeatureTest*>(awayB)->Integer.setValue(before + 5);
+
+    doc()->openTransaction("remove A");
+    doc()->removeObject(a->getNameInDocument());
+    doc()->commitTransaction();
+    ASSERT_EQ(group->ElementList.getValues(), std::vector<App::DocumentObject*>{b});
+
+    {
+        App::Document::ImportClashScope scope(App::Document::ImportClashScope::Answered);
+        scope.answers[awayGroup->getNameInDocument()] = App::Document::ImportTake::Assign;
+        doc()->openTransaction("paste");
+        doc()->copyObject({awayGroup, awayA, awayB}, true);
+        doc()->commitTransaction();
+    }
+    // Ours took their B's state, by its UID, and not their A's
+    EXPECT_EQ(b->Integer.getValue(), before + 5);
+    // Their A came as an object of its own, in the group beside our B
+    const auto& elements = group->ElementList.getValues();
+    ASSERT_EQ(elements.size(), 2u);
+    EXPECT_NE(std::find(elements.begin(), elements.end(), b), elements.end());
+    int tests = 0;
+    for (auto o : doc()->getObjects())
+        // dynamic_cast: FeatureTest is not exported, so its type id does not
+        // link on Windows
+        tests += dynamic_cast<App::FeatureTest*>(o) ? 1 : 0;
+    EXPECT_EQ(tests, 2);
+    App::GetApplication().closeDocument(otherName.c_str());
 }
 
 TEST_F(TransactionLogTest, replaysToIdenticalDocument)
@@ -383,7 +565,7 @@ TEST_F(TransactionLogTest, implicitTransactionsGroupByInvocation)
     EXPECT_EQ(txns.back().name, "explicit");
 
     // Undo on: the implicit transaction is recorded, and is no undo step of
-    // its own (docs/TransactionLog.md sec 33.4). With no step of the user's
+    // its own (docs/TransactionLogJournal.md sec 33.4). With no step of the user's
     // below it there is nothing to undo ...
     doc()->setUndoMode(1);
     {
@@ -1015,6 +1197,189 @@ TEST_F(TransactionLogTest, evictsUnnamedVersions)
     EXPECT_GE(store.transactions().size(), 9u);
 }
 
+// Sec 23.2, 37.4 P7: a named version is a full anchor. Naming one makes
+// what it reaches full again -- its entries, their skeletons and parts --
+// and the versions and edits after it leave those full.
+TEST_F(TransactionLogTest, aNamedVersionIsAFullAnchor)
+{
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    doc()->commitTransaction();
+    std::vector<long> values(5000);
+    for (size_t i = 0; i < values.size(); ++i)
+        values[i] = static_cast<long>(i * 7919);
+    auto edit = [&](int i) {
+        values[100 * i] = -1 - i;
+        doc()->openTransaction("edit");
+        obj->IntegerList.setValues(values);
+        obj->Integer.setValue(i);
+        doc()->commitTransaction();
+    };
+    auto& l = log();
+    auto& store = l.store();
+    // The deltas among what version `num` reaches.
+    auto deltasOf = [&](int64_t num) {
+        std::set<std::string> reached;
+        App::LogVersion v;
+        EXPECT_TRUE(store.getVersion(num, v));
+        reached.insert(v.manifest);
+        for (const auto& e : store.manifest(num)) {
+            reached.insert(e.hash);
+            App::LogEntity ent;
+            std::string data;
+            App::TransactionLog::Composite c;
+            if (store.getEntity(e.hash, ent) && ent.kind == "composite"
+                    && l.readBytes(e.hash, data) && c.decode(data)) {
+                reached.insert(c.skeleton);
+                for (const auto& p : c.parts)
+                    reached.insert(p.hash);
+            }
+        }
+        int deltas = 0;
+        for (const auto& h : reached) {
+            App::LogEntity ent;
+            if (store.getEntity(h, ent) && ent.enc == "delta")
+                ++deltas;
+        }
+        return deltas;
+    };
+
+    edit(0);
+    const int64_t v1 = doc()->snapshotToLog();
+    edit(1);
+    const int64_t v2 = doc()->snapshotToLog();
+    EXPECT_GT(deltasOf(v1), 0);
+    ASSERT_TRUE(store.nameVersion(v1, "release"));
+    EXPECT_EQ(deltasOf(v1), 0);
+
+    edit(2);
+    doc()->snapshotToLog();
+    edit(3);
+    doc()->snapshotToLog();
+    EXPECT_EQ(deltasOf(v1), 0);
+    EXPECT_GT(deltasOf(v2), 0);   // an unnamed one is superseded as ever
+
+    ASSERT_TRUE(store.nameVersion(v2, "beta"));
+    EXPECT_EQ(deltasOf(v2), 0);
+
+    // Named while its values are the live ones: the edits and the version
+    // that supersede them leave them full.
+    edit(4);
+    const int64_t v5 = doc()->snapshotToLog();
+    ASSERT_TRUE(store.nameVersion(v5, "gamma"));
+    edit(5);
+    edit(6);
+    doc()->snapshotToLog();
+    EXPECT_EQ(deltasOf(v5), 0);
+
+    doc()->restoreVersion(v1);
+    obj = static_cast<App::FeatureTest*>(doc()->getObject("Obj"));
+    ASSERT_TRUE(obj);
+    EXPECT_EQ(obj->Integer.getValue(), 0);
+    EXPECT_EQ(obj->IntegerList.getValues()[0], -1);
+    EXPECT_EQ(obj->IntegerList.getValues()[100], 100 * 7919);
+}
+
+// Sec 37.4 P4: commits that write the one same property by hand, close
+// together, by one author under one name, fold into one row and one undo
+// step; a recompute's records between them go with the earlier commits.
+TEST_F(TransactionLogTest, aRunOnOnePropertyFoldsIntoOneStep)
+{
+    const long window = App::DocumentParams::getTransactionLogCoalesceSeconds();
+    App::DocumentParams::setTransactionLogCoalesceSeconds(60);
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    doc()->commitTransaction();
+    auto& store = log().store();
+    const size_t rows = store.transactions().size();
+    const int undos = doc()->getAvailableUndos();
+
+    for (int i = 1; i <= 5; ++i) {
+        doc()->openTransaction("Edit");
+        obj->Integer.setValue(i);
+        doc()->recompute();
+        doc()->commitTransaction();
+    }
+    EXPECT_EQ(doc()->getAvailableUndos(), undos + 1);
+    doc()->snapshotToLog();   // the last after in hand
+    std::vector<App::LogTransaction> edits;
+    size_t records = 0;
+    for (const auto& t : store.transactions()) {
+        if (t.name == "Edit")
+            edits.push_back(t);
+        else if (t.kind == "recompute")
+            ++records;
+    }
+    ASSERT_EQ(edits.size(), 1U);
+    EXPECT_GE(records, 1U);   // the last commit's recompute record stays
+    EXPECT_LE(store.transactions().size(), rows + 3);   // the row, its record, the snapshot's
+    App::LogOp set;
+    for (const auto& o : store.ops(edits.front().seq)) {
+        if (o.op == "set" && o.prop == "Integer")
+            set = o;
+    }
+    ASSERT_EQ(set.prop, "Integer");
+    App::CapturedValue before, after;
+    ASSERT_TRUE(log().readValue(set.vbefore, before));
+    ASSERT_TRUE(log().readValue(set.vafter, after));
+    EXPECT_NE(before.fragment.find("value=\"4711\""), std::string::npos) << before.fragment;
+    EXPECT_NE(after.fragment.find("value=\"5\""), std::string::npos) << after.fragment;
+
+    // One undo takes the run back, one redo does it again.
+    EXPECT_TRUE(doc()->undo());
+    EXPECT_EQ(obj->Integer.getValue(), 4711);   // FeatureTest's default
+    EXPECT_TRUE(doc()->redo());
+    EXPECT_EQ(obj->Integer.getValue(), 5);
+
+    // Another property, another name, a recompute's write by hand: a step
+    // of its own each.
+    const int folded = doc()->getAvailableUndos();
+    doc()->openTransaction("Edit");
+    obj->Float.setValue(1.5);
+    doc()->commitTransaction();
+    doc()->openTransaction("Other");
+    obj->Float.setValue(2.5);
+    doc()->commitTransaction();
+    doc()->openTransaction("Other");
+    obj->Float.setValue(3.5);
+    obj->Integer.setValue(9);
+    doc()->commitTransaction();
+    EXPECT_EQ(doc()->getAvailableUndos(), folded + 3);
+    EXPECT_TRUE(doc()->undo());
+    EXPECT_EQ(obj->Integer.getValue(), 5);
+    EXPECT_DOUBLE_EQ(obj->Float.getValue(), 2.5);
+    EXPECT_TRUE(doc()->undo());
+    EXPECT_DOUBLE_EQ(obj->Float.getValue(), 1.5);
+
+    // Committed, then recomputed: the recompute's own steps between the
+    // commits fold in too.
+    const int resized = doc()->getAvailableUndos();
+    for (int i = 1; i <= 4; ++i) {
+        doc()->openTransaction("Resize");
+        obj->Integer.setValue(100 + i);
+        doc()->commitTransaction();
+        obj->touch();
+        doc()->recompute();
+    }
+    EXPECT_EQ(doc()->getAvailableUndos(), resized + 1);
+    EXPECT_EQ(obj->Integer.getValue(), 104);
+    EXPECT_TRUE(doc()->undo());
+    EXPECT_EQ(obj->Integer.getValue(), 5);
+    EXPECT_TRUE(doc()->redo());
+    EXPECT_EQ(obj->Integer.getValue(), 104);
+
+    // No window, no folding.
+    App::DocumentParams::setTransactionLogCoalesceSeconds(0);
+    const int plain = doc()->getAvailableUndos();
+    for (int i = 0; i < 3; ++i) {
+        doc()->openTransaction("Edit");
+        obj->Integer.setValue(20 + i);
+        doc()->commitTransaction();
+    }
+    EXPECT_EQ(doc()->getAvailableUndos(), plain + 3);
+    App::DocumentParams::setTransactionLogCoalesceSeconds(window);
+}
+
 TEST_F(TransactionLogTest, restoresAVersion)
 {
     doc()->openTransaction("create");
@@ -1127,7 +1492,14 @@ TEST_F(TransactionLogTest, embeddedHistoryRoundTrips)
     ASSERT_TRUE(olog);
     auto& store = olog->store();
     auto txns = store.transactions();
-    ASSERT_GE(txns.size(), static_cast<size_t>(seqBefore + 1));
+    // The rows before v1, the oldest version the file carries, stay
+    // behind (sec 37.4 P1); v1's own row, `create`, starts the copy.
+    ASSERT_FALSE(txns.empty());
+    EXPECT_EQ(txns.front().name, "create");
+    std::set<std::string> names;
+    for (const auto& t : txns)
+        names.insert(t.name);
+    EXPECT_TRUE(names.count("edit"));
     EXPECT_EQ(txns.back().kind, "restore");
     // The copy is taken before the save's own record; the restore follows.
     // The save's stamps are bookkeeping, no transaction (sec 27.5).
@@ -1688,7 +2060,7 @@ std::map<std::string, App::LogOp> setsByProp(App::TransactionStore& store, int64
 
 TEST_F(TransactionLogTest, undoAndRedoAreLoggedAsInverses)
 {
-    // docs/TransactionLog.md sec 24.2: an undo is a transaction of its own
+    // docs/TransactionLogJournal.md sec 24.2: an undo is a transaction of its own
     // whose ops are the undone one's with before and after swapped, naming
     // the row it inverts; a redo inverts the undo. Derived stays derived.
     doc()->openTransaction("create");
@@ -1776,7 +2148,7 @@ TEST_F(TransactionLogTest, undoAndRedoAreLoggedAsInverses)
 
 TEST_F(TransactionLogTest, coldUndoRevertsFromTheLog)
 {
-    // docs/TransactionLog.md sec 24.3: past the hot window a step keeps its
+    // docs/TransactionLogJournal.md sec 24.3: past the hot window a step keeps its
     // name and log row only, and undoing it applies the row reversed from
     // the log -- objects recreated under their id and name, dynamic
     // properties added back, links restored.
@@ -1864,7 +2236,7 @@ TEST_F(TransactionLogTest, coldUndoRevertsFromTheLog)
 
 TEST_F(TransactionLogTest, selectiveUndoRefusesWhatChangedSince)
 {
-    // docs/TransactionLog.md sec 24.4: a row that is not the tip is undone
+    // docs/TransactionLogJournal.md sec 24.4: a row that is not the tip is undone
     // by a new transaction when nothing since touched what it set, and
     // refused when something did.
     doc()->openTransaction("create");
@@ -1945,7 +2317,7 @@ TEST_F(TransactionLogTest, selectiveUndoRefusesWhatChangedSince)
 
 TEST_F(TransactionLogTest, severalRowsUndoneAreOneStep)
 {
-    // docs/TransactionLog.md sec 33.13: several rows undone at once are one
+    // docs/TransactionLogJournal.md sec 33.13: several rows undone at once are one
     // transaction, taken back newest first; what the rows of the set did is
     // not held against one another, what any other row did is; and if one
     // is refused none is undone.
@@ -2399,7 +2771,7 @@ TEST_F(TransactionLogTest, recomputeRecordSurvivesAnObserverRemovingWithUndoOff)
     // An observer of signalRecomputed may delete what was recomputed -- with
     // undo off, at once -- and the record was read after it ran: the use
     // after free CAMTests.TestPathHelix crashed on with the log on, where a
-    // Python observer clears the document (docs/TransactionLog.md sec 24.12).
+    // Python observer clears the document (docs/TransactionLogJournal.md sec 24.12).
     doc()->setUndoMode(0);
     auto temp = make("Temp");
     ASSERT_TRUE(temp);
@@ -2428,7 +2800,7 @@ TEST_F(TransactionLogTest, implicitTransactionClosesWhenUndoModeChanges)
     // Writes made with undo off open an implicit transaction for the log.
     // Turning undo on before it closed made them an undo step the user never
     // had: one create and one rename became two steps in
-    // OmniControl.test_documentReachOfEditOps (docs/TransactionLog.md sec
+    // OmniControl.test_documentReachOfEditOps (docs/TransactionLogJournal.md sec
     // 24.13). The mode change closes it under the mode it was opened in.
     doc()->setUndoMode(0);
     auto obj = make("Obj");
@@ -2464,7 +2836,7 @@ TEST_F(TransactionLogTest, implicitTransactionIsNotMirroredIntoTheActiveDocument
     // implicit transaction into the active document as "-> <implicit>",
     // which was not implicit and so never closed with it: an empty step in
     // someone else's undo list (DocumentObserverCases.testDocument,
-    // docs/TransactionLog.md sec 24.13).
+    // docs/TransactionLogJournal.md sec 24.13).
     auto obj = make("Obj");
     ASSERT_TRUE(obj);
     doc()->commitTransaction();
@@ -2542,7 +2914,7 @@ TEST_F(TransactionLogTest, commitWritesItsAfterValuesAndKeepsTheCopy)
 
 TEST_F(TransactionLogTest, blobStoreRecoversALeftoverDirectory)
 {
-    // docs/TransactionLog.md sec 25.2 item 5: what a crashed session left in
+    // docs/TransactionLogJournal.md sec 25.2 item 5: what a crashed session left in
     // its blob directory is taken over -- the newest complete generation of
     // each segment, never one the crash cut short -- and handed back by hash.
     auto& source = doc()->getFileBlobManager();
@@ -2595,7 +2967,7 @@ TEST_F(TransactionLogTest, blobStoreRecoversALeftoverDirectory)
 
 TEST_F(TransactionLogTest, recoversACrashedSessionFromItsLog)
 {
-    // docs/TransactionLog.md sec 25: the transient directory a crashed
+    // docs/TransactionLogJournal.md sec 25: the transient directory a crashed
     // session leaves is enough to rebuild its document -- the newest version
     // with the log's tail replayed over it -- and the history carries on.
     doc()->openTransaction("create");
@@ -2679,6 +3051,69 @@ TEST_F(TransactionLogTest, recoversACrashedSessionFromItsLog)
     App::GetApplication().closeDocument(name.c_str());
 }
 
+// sec 37.7 item 6: a recovery that cannot take the WAL over with the database
+// takes neither, and leaves the crashed session's directory whole for another
+// try.
+TEST_F(TransactionLogTest, aRecoveryThatCannotTakeTheWalLeavesTheLogWhole)
+{
+    doc()->openTransaction("create");
+    auto obj = make("Obj");
+    obj->Integer.setValue(7);
+    doc()->commitTransaction();
+    log().flush();
+    const std::string crashed = Base::FileInfo::getTempPath() + "txnlog-crashed-wal";
+    Base::FileInfo(crashed).deleteDirectoryRecursive();
+    const std::string from = doc()->TransientDir.getStrValue() + "/history";
+    Base::FileInfo(crashed + "/history").createDirectories();
+    Base::FileInfo(crashed + "/blobs").createDirectories();
+    for (const auto& file : Base::FileInfo(from).getDirectoryContent()) {
+        if (file.isFile())
+            file.copyTo((crashed + "/history/" + file.fileName()).c_str());
+    }
+    const std::string oldLog = crashed + "/history/log.db";
+    if (!Base::FileInfo(oldLog + "-wal").exists())
+        GTEST_SKIP() << "no WAL beside the copied log";
+#ifdef _WIN32
+    // The case is made by unlinking the open WAL below, which Windows refuses
+    // ("being used by another process").
+    GTEST_SKIP() << "an open WAL cannot be unlinked on Windows";
+#endif
+
+    auto other = App::GetApplication().newDocument("RecoverInto", "RecoverInto");
+    const std::string otherName = other->getName();
+    other->setUndoMode(1);
+    ASSERT_TRUE(other->getTransactionLog());
+    // In the way of the WAL: a directory, which neither a rename nor a copy
+    // replaces.
+    const std::string newLog = other->getTransactionLog()->path();
+    // Its own WAL is open: unlinked, the connection keeps writing it.
+    std::filesystem::remove(newLog + "-wal");
+    std::filesystem::create_directories(newLog + "-wal/blocked");
+    ASSERT_TRUE(Base::FileInfo(newLog + "-wal").isDir());
+    // Refused, or -- the store opened again where the WAL cannot be --
+    // thrown; either way nothing of the crashed session's is gone.
+    bool recovered = true;
+    try {
+        recovered = other->recoverFromLog(crashed);
+    }
+    catch (const Base::Exception&) {
+        recovered = false;
+    }
+    EXPECT_FALSE(recovered);
+    EXPECT_TRUE(Base::FileInfo(oldLog).exists());
+    EXPECT_TRUE(Base::FileInfo(oldLog + "-wal").exists());
+    App::GetApplication().closeDocument(otherName.c_str());
+    std::filesystem::remove_all(newLog + "-wal");
+
+    // Another try, nothing in the way, takes it over whole.
+    auto again = App::GetApplication().recoverDocument(crashed.c_str(), false);
+    ASSERT_TRUE(again);
+    auto robj = dynamic_cast<App::FeatureTest*>(again->getObject("Obj"));
+    ASSERT_TRUE(robj);
+    EXPECT_EQ(robj->Integer.getValue(), 7);
+    App::GetApplication().closeDocument(again->getName());
+}
+
 namespace
 {
 /// `sql` run on the database at `path` by a connection of its own.
@@ -2708,7 +3143,7 @@ int rawInt(const std::string& path, const char* sql)
 }
 
 /** A store as the log wrote it on 2026-09-28, when the layout settled
- * without a version (docs/TransactionLog.md sec 27.55): one row on main,
+ * without a version (docs/TransactionLogJournal.md sec 27.55): one row on main,
  * one session by its user's name.
  */
 std::string makeSettledStore(const char* name)
@@ -2749,7 +3184,7 @@ std::string makeSettledStore(const char* name)
 
 TEST_F(TransactionLogTest, aStoreOfTheSettledLayoutIsMigrated)
 {
-    // docs/TransactionLog.md sec 27.55 (2026-10-19): a store from before the
+    // docs/TransactionLogJournal.md sec 27.55 (2026-10-19): a store from before the
     // version -- "scanner"'s, "no such column: joined" -- is brought up to
     // date when opened: the columns added since, with their defaults, and a
     // session's user, which was a name, as a row of `user`.
@@ -2797,7 +3232,7 @@ TEST_F(TransactionLogTest, aStoreOfTheSettledLayoutIsMigrated)
         kept.seq = 1;
         EXPECT_TRUE(store->keepValue(kept));
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 1);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
     // Opened again: nothing left to do.
     EXPECT_NO_THROW(App::TransactionStore::openSQLite(path));
     Base::FileInfo(path).deleteFile();
@@ -2872,7 +3307,190 @@ TEST_F(TransactionLogTest, aStoreOfScannersLayoutIsMigrated)
         ASSERT_EQ(sessions.size(), 1U);
         EXPECT_EQ(sessions.front().user, 1);
     }
-    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 1);
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST_F(TransactionLogTest, aStoreOfLayoutOneGetsObjectUids)
+{
+    // docs/TransactionLogJournal.md sec 36 U4: layout 2 adds `objuid`; a store of
+    // layout 1 is brought to it, and the UIDs are read from the table and
+    // from what the `create` and `remove` ops say.
+    const std::string path = Base::FileInfo::getTempFileName("txnlog-one") + ".db";
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+    }
+    rawSql(path, "DROP TABLE objuid; PRAGMA user_version=1;");
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        EXPECT_TRUE(store->objectUids().empty());
+        App::LogTransaction t;
+        t.parent = 0;
+        t.branch = 1;
+        t.kind = "user";
+        t.name = "Make";
+        std::vector<App::LogOp> ops(3);
+        ops[0].op = "create";
+        ops[0].ckind = "obj";
+        ops[0].cid = 7;
+        ops[0].cname = "Box";
+        ops[0].meta = "{\"uid\":\"u-7\"}";
+        ops[1].op = "remove";
+        ops[1].ckind = "obj";
+        ops[1].cid = 8;
+        ops[1].cname = "Cyl";
+        ops[1].meta = "{\"uid\":\"u-8\"}";
+        ops[2].op = "create";
+        ops[2].ckind = "obj";
+        ops[2].cid = 9;
+        ops[2].cname = "Old";
+        EXPECT_GT(store->append(t, ops), 0);
+        store->addObjectUids({{5, "u-5"}});
+        std::map<long, std::string> uids;
+        for (const auto& u : store->objectUids())
+            uids.emplace(u.first, u.second);
+        EXPECT_EQ(uids, (std::map<long, std::string> {{5, "u-5"}, {7, "u-7"}, {8, "u-8"}}));
+        store->removeObjectState({5});
+        uids.clear();
+        for (const auto& u : store->objectUids())
+            uids.emplace(u.first, u.second);
+        EXPECT_EQ(uids.count(5), 0U);
+    }
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST_F(TransactionLogTest, aStoreOfLayoutTwoGetsItsOpsPacked)
+{
+    // docs/TransactionLogJournal.md sec 37.4 P2: layout 3 keeps an op's hashes as
+    // 20 bytes and its type and property names as ids of `name`; the rows of
+    // a layout-2 store are packed when it is opened and read back the same.
+    const std::string path = Base::FileInfo::getTempFileName("txnlog-two") + ".db";
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+    }
+    const std::string h1(40, 'a'), h2 = "0123456789abcdef0123456789abcdef01234567";
+    const std::string layoutTwo =
+           "DROP TABLE op; DROP TABLE name;"
+           "CREATE TABLE op(txn INTEGER, idx INTEGER, op TEXT, ckind TEXT,"
+           " cid INTEGER, cname TEXT, ctype TEXT, prop TEXT, ptype TEXT, meta TEXT,"
+           " vbefore TEXT, vafter TEXT, derived INTEGER, touched INTEGER, PRIMARY KEY(txn, idx));"
+           "INSERT INTO txn(seq,parent,id,kind,origin,name,time,script,session)"
+           " VALUES(1,0,1,'user','gui','Edit',1.5,'',1);"
+           "INSERT INTO op VALUES(1,0,'set','obj',3,'Box','Part::Box','Length',"
+           " 'App::PropertyLength','','" + h1 + "','" + h2 + "',0,NULL);"
+           "INSERT INTO op VALUES(1,1,'set','obj',3,'Box','Part::Box','Shape',"
+           " 'Part::PropertyPartShape','','','pending',1,2);"
+           "PRAGMA user_version=2;";
+    rawSql(path, layoutTwo.c_str());
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        const auto ops = store->ops(1);
+        ASSERT_EQ(ops.size(), 2U);
+        EXPECT_EQ(ops[0].ctype, "Part::Box");
+        EXPECT_EQ(ops[0].prop, "Length");
+        EXPECT_EQ(ops[0].ptype, "App::PropertyLength");
+        EXPECT_EQ(ops[0].vbefore, h1);
+        EXPECT_EQ(ops[0].vafter, h2);
+        EXPECT_EQ(ops[1].prop, "Shape");
+        EXPECT_EQ(ops[1].vbefore, "");
+        EXPECT_EQ(ops[1].vafter, "pending");   // not a hash: kept as it is
+        EXPECT_TRUE(ops[1].derived);
+        EXPECT_EQ(ops[1].touched, 2);
+        App::LogOp last;
+        ASSERT_TRUE(store->lastOpOn("obj", 3, "Length", 0, 0, last));
+        EXPECT_EQ(last.vafter, h2);
+        EXPECT_FALSE(store->lastOpOn("obj", 3, "Height", 0, 0, last));
+        EXPECT_EQ(store->derivedPropsOf(3), std::vector<std::string> {"Shape"});
+        const auto values = store->valuesOf(3, "Length");
+        ASSERT_EQ(values.size(), 1U);
+        EXPECT_EQ(values.front().second, h2);
+
+        // Written on: the names it has are reused, a new one is made.
+        App::LogTransaction t;
+        t.parent = 1;
+        t.branch = 1;
+        t.kind = "user";
+        t.name = "More";
+        std::vector<App::LogOp> more(1);
+        more[0].op = "set";
+        more[0].ckind = "obj";
+        more[0].cid = 3;
+        more[0].ctype = "Part::Box";
+        more[0].prop = "Height";
+        more[0].ptype = "App::PropertyLength";
+        more[0].vbefore = h2;
+        const int64_t seq = store->append(t, more);
+        store->resolveAfter(seq, 0, h1);
+        const auto back = store->ops(seq);
+        ASSERT_EQ(back.size(), 1U);
+        EXPECT_EQ(back[0].prop, "Height");
+        EXPECT_EQ(back[0].vbefore, h2);
+        EXPECT_EQ(back[0].vafter, h1);
+    }
+    EXPECT_EQ(rawInt(path, "PRAGMA user_version"), 3);
+    EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM op WHERE typeof(prop)<>'integer'"), 0);
+    EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM op WHERE typeof(vbefore)='blob'"), 2);
+    EXPECT_EQ(rawInt(path, "SELECT length(vafter) FROM op WHERE txn=1 AND idx=0"), 20);
+    EXPECT_EQ(rawInt(path, "SELECT COUNT(*) FROM name"), 6);
+    Base::FileInfo(path).deleteFile();
+}
+
+TEST_F(TransactionLogTest, aRecordKeepsItsNamesAsIds)
+{
+    // docs/TransactionLogJournal.md sec 37.4 P3: a record's property names go as
+    // ids of `name`, a script past 128 bytes compressed; both read back as
+    // the JSON written, and a short script that is not a record stays text.
+    const std::string path = Base::FileInfo::getTempFileName("txnlog-record") + ".db";
+    std::string big = "{\"seconds\":0.5,\"objects\":[";
+    for (int i = 0; i < 40; ++i) {
+        if (i)
+            big += ',';
+        big += "{\"id\":" + std::to_string(i + 1)
+             + ",\"s\":0.25,\"b\":1,\"p\":[\"Length\",\"Placement\"],\"a\":0,"
+               "\"q\":[\"Shape\"]}";
+    }
+    big += "]}";
+    const std::vector<std::string> scripts = {
+        "{\"seconds\":0.5,\"objects\":[{\"id\":3,\"s\":0.25,\"b\":1,\"p\":[\"Length\"]}]}",
+        big,
+        "{\"seconds\":0.5,\"objects\":[{\"id\":3,\"error\":\"no \\\"shape\\\"\"}]}",
+        "{\"version\":3,\"path\":\"" + std::string(200, 'x') + "\"}",
+        "{\"version\":4}",
+    };
+    std::vector<int64_t> seqs;
+    {
+        auto store = App::TransactionStore::openSQLite(path);
+        int64_t parent = 0;
+        for (const auto& script : scripts) {
+            App::LogTransaction t;
+            t.parent = parent;
+            t.branch = 1;
+            t.kind = "recompute";
+            t.name = "recompute";
+            t.script = script;
+            std::vector<App::LogOp> none;
+            parent = store->append(t, none);
+            seqs.push_back(parent);
+        }
+        for (size_t i = 0; i < scripts.size(); ++i) {
+            const auto rows = store->transactions(seqs[i], 1);
+            ASSERT_EQ(rows.size(), 1U);
+            EXPECT_EQ(rows.front().script, scripts[i]) << i;
+        }
+    }
+    auto typeOf = [&](int64_t seq) {
+        const std::string sql = "SELECT typeof(script)='blob' FROM txn WHERE seq="
+                              + std::to_string(seq);
+        return rawInt(path, sql.c_str());
+    };
+    EXPECT_EQ(typeOf(seqs[0]), 1);   // names as ids
+    EXPECT_EQ(typeOf(seqs[1]), 1);   // and compressed
+    EXPECT_EQ(typeOf(seqs[2]), 0);   // no names: short text
+    EXPECT_EQ(typeOf(seqs[3]), 1);   // compressed as it is
+    EXPECT_EQ(typeOf(seqs[4]), 0);
+    const std::string sql = "SELECT length(script) FROM txn WHERE seq=" + std::to_string(seqs[1]);
+    EXPECT_LT(rawInt(path, sql.c_str()), static_cast<int>(big.size() / 4));
     Base::FileInfo(path).deleteFile();
 }
 
@@ -2916,13 +3534,13 @@ TEST_F(TransactionLogTest, aStoreNotOfThisBuildIsRefused)
     {
         auto store = App::TransactionStore::openSQLite(fresh);
     }
-    EXPECT_EQ(rawInt(fresh, "PRAGMA user_version"), 1);
+    EXPECT_EQ(rawInt(fresh, "PRAGMA user_version"), 3);
     Base::FileInfo(fresh).deleteFile();
 }
 
 TEST_F(TransactionLogTest, branchesAreChainsInTheStore)
 {
-    // docs/TransactionLog.md sec 26 (4.a): a branch is a named tip into the
+    // docs/TransactionLogJournal.md sec 26 (4.a): a branch is a named tip into the
     // parent tree; appending on it moves its head, and its history is the
     // chain from there, whatever else the store holds.
     const std::string path = Base::FileInfo::getTempFileName("txnlog-branches") + ".db";
@@ -3003,7 +3621,7 @@ TEST_F(TransactionLogTest, branchesAreChainsInTheStore)
 
 TEST_F(TransactionLogTest, compositeAndManifestHoldWithoutEdges)
 {
-    // docs/TransactionLog.md sec 27.53-27.54: the hashes of `entity` and
+    // docs/TransactionLogJournal.md sec 27.53-27.54: the hashes of `entity` and
     // `ref` are 20-byte blobs; a composite has no edge per value and a
     // version no manifest rows -- the collector reads both lists from the
     // entities themselves.
@@ -3092,7 +3710,7 @@ TEST_F(TransactionLogTest, compositeAndManifestHoldWithoutEdges)
 
 TEST_F(TransactionLogTest, dropTierWithEvictionIsTheTwoCalls)
 {
-    // docs/TransactionLog.md sec 27.69: the embedded copy's retention --
+    // docs/TransactionLogJournal.md sec 27.69: the embedded copy's retention --
     // evict the versions, drop the cache tier -- as one collection keeps
     // exactly what the two calls one after the other keep.
     const std::string pathA = Base::FileInfo::getTempFileName("txnlog-tier") + ".db";
@@ -3205,9 +3823,117 @@ TEST_F(TransactionLogTest, dropTierWithEvictionIsTheTwoCalls)
     Base::FileInfo(pathB).deleteFile();
 }
 
+TEST_F(TransactionLogTest, theCacheTierIsHeldUnderItsBudget)
+{
+    // docs/TransactionLogJournal.md sec 37.13: over the budget, of each property
+    // the oldest values go first, the cheapest to recompute first across
+    // properties, down to three quarters; the newest of a property, what a
+    // version lists stay, and a delta kept on a value that goes is written
+    // full.
+    const std::string path = Base::FileInfo::getTempFileName("txnlog-budget") + ".db";
+    auto h = [](char c) { return std::string(40, c); };
+    // Object 7, slow to recompute: v1..v5; version 1 lists v2, and v4 is a
+    // delta on w1. Object 8, quick: w1..w3.
+    const std::string v1 = h('1'), v2 = h('2'), v3 = h('3'), v4 = h('4'), v5 = h('5');
+    const std::string w1 = h('6'), w2 = h('7'), w3 = h('8'), skel = h('9');
+    const std::string listing = "skeleton " + skel + "\nc Obj\np 0 " + v2 + " A\n";
+    const std::string c1 = App::hashBytes(listing);
+    auto store = App::TransactionStore::openSQLite(path);
+    auto put = [&](const std::string& hash, const char* tier, const std::string& bytes,
+                   const std::string& base = {}, const char* kind = "prop") {
+        App::LogEntity e;
+        e.hash = hash;
+        e.kind = kind;
+        e.enc = base.empty() ? "raw" : "delta";
+        e.base = base;
+        e.tier = tier;
+        e.size = bytes.size();
+        e.data = bytes;
+        store->putEntity(e);
+    };
+    for (const auto& v : {v1, v2, v3, v5, w1, w2, w3})
+        put(v, "cache", std::string(1000, v[0]));
+    std::string patch;
+    ASSERT_TRUE(App::TransactionLog::deltaEncode(std::string(1000, '4'), std::string(1000, '6'),
+                                                 patch));
+    {
+        App::LogEntity e;
+        e.hash = v4;
+        e.enc = "delta";
+        e.base = w1;
+        e.tier = "cache";
+        e.size = 1000;
+        e.data = patch;
+        store->putEntity(e);
+    }
+    put(skel, "durable", "<a>", {}, "skeleton");
+    put(c1, "durable", listing, {}, "composite");
+    App::LogVersion version;
+    version.kind = "unnamed";
+    store->addVersion(version, {{"Document.xml", c1}});
+    auto row = [&](long cid, const std::string& before, const std::string& after) {
+        App::LogTransaction t;
+        t.kind = "recompute";
+        std::vector<App::LogOp> ops(1);
+        ops[0].op = "set";
+        ops[0].ckind = "obj";
+        ops[0].cid = cid;
+        ops[0].prop = "Shape";
+        ops[0].derived = true;
+        ops[0].vbefore = before;
+        ops[0].vafter = after;
+        store->append(t, ops);
+    };
+    row(7, {}, v1);
+    row(8, {}, w1);
+    row(7, v1, v2);
+    row(8, w1, w2);
+    row(7, v2, v3);
+    row(7, v3, v4);
+    row(8, w2, w3);
+    row(7, v4, v5);
+    App::LogTransaction rec;
+    rec.kind = "recompute";
+    rec.script = R"({"seconds":10.02,"objects":[{"id":7,"s":10},{"id":8,"s":0.01}]})";
+    std::vector<App::LogOp> none;
+    store->append(rec, none);
+
+    // Under the budget: nothing goes.
+    auto r = store->evictTier("cache", 7000, 0);
+    EXPECT_EQ(r.values, 7u);   // v2 is the version's
+    EXPECT_EQ(r.bytes, 6000u + patch.size());
+    EXPECT_EQ(r.evicted, 0u);
+    // Over it: 4500 bytes to reach. w1 first by cost, then w2, and that
+    // reaches it. v4 was a delta on w1: it is written full and stays.
+    r = store->evictTier("cache", 6000, 0);
+    EXPECT_EQ(r.evicted, 2u);
+    EXPECT_LT(r.left, 4500u);
+    for (const auto& kept : {v1, v2, v3, v4, v5, w3})
+        EXPECT_TRUE(store->hasEntity(kept)) << kept;
+    for (const auto& gone : {w1, w2})
+        EXPECT_FALSE(store->hasEntity(gone)) << gone;
+    App::LogEntity e;
+    ASSERT_TRUE(store->getEntity(v4, e));
+    EXPECT_NE(e.enc, "delta");
+    EXPECT_TRUE(e.base.empty());
+    // By count: 5 values over 3, to 3 (three quarters, rounded up): v1 and
+    // v3, the oldest of object 7; w3 is the newest of its property.
+    r = store->evictTier("cache", 0, 3);
+    EXPECT_EQ(r.values, 5u);
+    EXPECT_EQ(r.evicted, 2u);
+    for (const auto& gone : {v1, v3})
+        EXPECT_FALSE(store->hasEntity(gone)) << gone;
+    for (const auto& kept : {v2, v4, v5, w3})
+        EXPECT_TRUE(store->hasEntity(kept)) << kept;
+    // The rows keep their refs.
+    EXPECT_EQ(store->ops(1).at(0).vafter, v1);
+    store.reset();
+    Base::FileInfo(path).deleteFile();
+}
+
 TEST_F(TransactionLogTest, branchesSwitchInPlace)
 {
-    // docs/TransactionLog.md sec 26 (4.b): a branch from the head leaves the
+    // docs/TransactionLogJournal.md sec 26 (4.b): a branch from the head leaves the
     // document and its steps as they are; a switch makes the document the
     // other branch's head in place, with that branch's own steps; object
     // ids never collide across branches.
@@ -3408,7 +4134,7 @@ TEST_F(TransactionLogTest, recoveryContinuesOnTheBranch)
 
 TEST_F(TransactionLogTest, trimAndDeleteBranches)
 {
-    // docs/TransactionLog.md sec 16.7, 26 (4.e): a trim never takes what
+    // docs/TransactionLogJournal.md sec 16.7, 26 (4.e): a trim never takes what
     // another branch's history holds; a delete takes what only the branch
     // holds; what stays still checks out.
     doc()->openTransaction("create");
@@ -3503,7 +4229,7 @@ TEST_F(TransactionLogTest, trimAndDeleteBranches)
 
 TEST_F(TransactionLogTest, trimLeavesABridgeToABranchForkedBelow)
 {
-    // docs/TransactionLog.md sec 27.71 (user): where another branch shares
+    // docs/TransactionLogJournal.md sec 27.71 (user): where another branch shares
     // the history, a trim squashes the rows from the newest shared one up to
     // the kept version into that version's row, so the two histories still
     // meet in rows and a switch walks them -- no version is read whole.
@@ -3578,7 +4304,7 @@ TEST_F(TransactionLogTest, trimLeavesABridgeToABranchForkedBelow)
 
 TEST_F(TransactionLogTest, squashFoldsTheNetChange)
 {
-    // docs/TransactionLog.md sec 16.7 (4.e): the rows between two versions
+    // docs/TransactionLogJournal.md sec 16.7 (4.e): the rows between two versions
     // become one transaction of their net change, which undoes -- cold, from
     // the log -- and redoes like any.
     doc()->openTransaction("create");
@@ -4154,7 +4880,7 @@ TEST_F(TransactionLogTest, aClosedFilesHistoryIsReadFromTheArchive)
 
 TEST_F(TransactionLogTest, stringTableAndReferenceSets)
 {
-    // docs/TransactionLog.md sec 27.50 items 2 and 4: the store keeps the
+    // docs/TransactionLogJournal.md sec 27.50 items 2 and 4: the store keeps the
     // file's strings once, and each version's and value's ids as ranges
     // that go with their entity.
     const std::string path = Base::FileInfo::getTempFileName("txnlog-strings") + ".db";
@@ -6691,4 +7417,162 @@ TEST_F(TransactionLogTest, aFileWithNoHistoryIsImportedAsOneRow)
 
     for (const auto& file : {path, fork, strange})
         Base::FileInfo(file).deleteFile();
+}
+
+// --- Audit of 2026-10-21 ---------------------------------------------------
+
+TEST_F(TransactionLogTest, aRemovalWithNothingOpenIsLogged)
+{
+    // A removal in no transaction opened none before (upstream's rule:
+    // only an object some undo step names gets a "Delete" step), so the
+    // log had no `remove` op for it. With the log on it is an implicit
+    // step like a write is.
+    edit(doc(), "create", [&]() {
+        make("Gone");
+        make("Also");
+    });
+    for (int mode : {1, 0}) {
+        doc()->setUndoMode(mode);
+        const char* name = mode ? "Gone" : "Also";
+        const size_t rows = log().store().transactions().size();
+        doc()->removeObject(name);
+        doc()->commitImplicitTransaction();
+        const auto all = log().store().transactions();
+        ASSERT_GT(all.size(), rows) << "undo mode " << mode;
+        bool removed = false;
+        for (const auto& o : log().store().ops(all.back().seq))
+            removed = removed || (o.op == "remove" && o.cname == name);
+        EXPECT_TRUE(removed) << "undo mode " << mode;
+        EXPECT_FALSE(doc()->getObject(name));
+    }
+}
+
+TEST_F(TransactionLogTest, undoDownToAnothersStepIsRefused)
+{
+    // Sec 30.10: another author's step is in no run of this one's. Undoing
+    // down to it by id used to take every step of the actor's and return
+    // false; it is refused before anything moves.
+    edit(doc(), "create", [&]() { make("A"); });
+    const App::Actor bob = actor(App::Actor::Invited, "bob", 42);
+    int his = 0;
+    {
+        App::ActorScope scope(bob);
+        doc()->openTransaction("his");
+        featureOf(doc(), "A")->Integer.setValue(3);
+        doc()->commitTransaction();
+        his = doc()->getTransactionID(true);
+    }
+    edit(doc(), "mine", [&]() { featureOf(doc(), "A")->Float.setValue(2.5); });
+    ASSERT_GT(his, 0);
+    EXPECT_FALSE(doc()->undo(his));
+    EXPECT_EQ(undosOf(doc(), nullptr), (Names {"mine", "create"}));
+    EXPECT_EQ(undosOf(doc(), &bob), (Names {"his"}));
+    EXPECT_EQ(featureOf(doc(), "A")->Integer.getValue(), 3);
+    EXPECT_DOUBLE_EQ(featureOf(doc(), "A")->Float.getValue(), 2.5);
+}
+
+TEST_F(TransactionLogTest, aRecreatedObjectKeepsItsPythonExtensions)
+{
+    // Sec 9.2: an object made again by type -- a cold undo, a restore, a
+    // branch switch -- gets the Python extensions it had, which the create
+    // and remove ops carry; a group extension's Group among them.
+    edit(doc(), "create", [&]() {
+        auto obj = doc()->addObject("App::FeaturePython", "Grp");
+        Base::Type type = Base::Type::fromName("App::GroupExtensionPython");
+        ASSERT_FALSE(type.isBad());
+        auto ext = static_cast<App::Extension*>(type.createInstance());
+        ASSERT_TRUE(ext);
+        ext->initExtension(obj);
+        ASSERT_TRUE(obj->hasExtension(App::GroupExtension::getExtensionClassTypeId()));
+    });
+    const int64_t version = doc()->snapshotToLog();
+    ASSERT_GT(version, 0);
+    edit(doc(), "remove", [&]() { doc()->removeObject("Grp"); });
+    ASSERT_FALSE(doc()->getObject("Grp"));
+
+    ASSERT_TRUE(doc()->restoreVersion(version));
+    auto back = doc()->getObject("Grp");
+    ASSERT_TRUE(back);
+    EXPECT_TRUE(back->hasExtension(App::GroupExtension::getExtensionClassTypeId()));
+    EXPECT_TRUE(back->getPropertyByName("Group"));
+
+    // And through a cold undo of the removal row itself.
+    ASSERT_TRUE(doc()->undo());   // the restore
+    ASSERT_FALSE(doc()->getObject("Grp"));
+    const int64_t removal = rowNamed(log(), "remove");
+    ASSERT_GT(removal, 0);
+    edit(doc(), "since", [&]() { make("Other"); });
+    ASSERT_TRUE(doc()->undoLogged(removal)) << doc()->undoRefusal();
+    back = doc()->getObject("Grp");
+    ASSERT_TRUE(back);
+    EXPECT_TRUE(back->hasExtension(App::GroupExtension::getExtensionClassTypeId()));
+}
+
+TEST_F(TransactionLogTest, aCopyBroughtUpToDateHoldsWhatACopyMadeWholeDoes)
+{
+    // docs/TransactionLogJournal.md sec 38.9: a folder's copy of the store, copied
+    // at one save, is brought up to date at the next by what changed since.
+    // It then holds the rows a copy made whole then holds. A row the copy no
+    // longer has -- retention took it out -- is left out of the changes to
+    // it, not refused.
+    const std::string live = Base::FileInfo::getTempFileName("txnlog-live") + ".db";
+    const std::string kept = Base::FileInfo::getTempFileName("txnlog-kept") + ".db";
+    const std::string whole = Base::FileInfo::getTempFileName("txnlog-whole") + ".db";
+    {
+        auto store = App::TransactionStore::openSQLite(live);
+        auto row = [&store](const char* name, int64_t parent) {
+            App::LogTransaction t;
+            t.parent = parent;
+            t.branch = 1;
+            t.kind = "user";
+            t.name = name;
+            std::vector<App::LogOp> ops(1);
+            ops[0].op = "set";
+            ops[0].ckind = "obj";
+            ops[0].cid = 1;
+            ops[0].prop = "Length";
+            return store->append(t, ops);
+        };
+        const int64_t one = row("one", 0);
+        const int64_t two = row("two", one);
+        store->setMeta("save_id", "first");
+        store->copyTo(kept);
+        if (!store->beginChanges())
+            GTEST_SKIP() << "this build's SQLite records no changes";
+
+        const int64_t three = row("three", two);
+        store->setMeta("save_id", "second");
+        App::LogBranch side;
+        side.name = "side";
+        side.fromSeq = three;
+        store->addBranch(side);
+        store->removeTransactions({one});
+        std::string changes;
+        ASSERT_TRUE(store->takeChanges(changes));
+        EXPECT_FALSE(changes.empty());
+        store->copyTo(whole);
+
+        auto copy = App::TransactionStore::openSQLiteCopy(kept);
+        copy->applyChanges(changes);
+        EXPECT_EQ(copy->getMeta("save_id"), "second");
+        EXPECT_EQ(copy->differences(whole), std::vector<std::string>());
+
+        // Recorded again from the take: only what follows it.
+        row("four", three);
+        ASSERT_TRUE(store->takeChanges(changes));
+        // The copy lost row two meanwhile, as a trim of it would.
+        copy->removeTransactions({two});
+        copy->applyChanges(changes);
+        std::vector<std::string> names;
+        for (const auto& t : copy->transactions(0, 100))
+            names.push_back(t.name);
+        EXPECT_EQ(names, std::vector<std::string>({"three", "four"}));
+    }
+    // The copy carries no WAL beside it.
+    EXPECT_FALSE(Base::FileInfo(kept + "-wal").exists());
+    for (const auto& p : {live, kept, whole}) {
+        Base::FileInfo(p).deleteFile();
+        Base::FileInfo(p + "-wal").deleteFile();
+        Base::FileInfo(p + "-shm").deleteFile();
+    }
 }

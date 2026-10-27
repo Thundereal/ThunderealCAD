@@ -63,6 +63,7 @@
 #include "Application.h"
 #include "Document.h"
 #include "FileBlobManager.h"
+#include "FileElsewhere.h"
 #include "FileHistory.h"
 #include "Document.h"
 #include "DocumentObject.h"
@@ -410,8 +411,10 @@ bool decodeMember(const BlobRawMember& member, std::string& bytes)
 }
 
 /// Compress content into a member named \a name: zstd at level 3 where the
-/// build has it (sec 15.7), else deflate.
-std::shared_ptr<BlobRawMember> encodeMember(const std::string& bytes, const std::string& name)
+/// build has it (sec 15.7), else deflate. `portable`: deflate at its fastest
+/// level, which any zip tool reads (docs/TransactionLogJournal.md sec 38.10).
+std::shared_ptr<BlobRawMember> encodeMember(const std::string& bytes, const std::string& name,
+                                            bool portable = false)
 {
     auto member = std::make_shared<BlobRawMember>();
     member->name = name;
@@ -419,19 +422,24 @@ std::shared_ptr<BlobRawMember> encodeMember(const std::string& bytes, const std:
     member->crc = static_cast<uint32_t>(
         crc32(0L, reinterpret_cast<const Bytef*>(bytes.data()), static_cast<uInt>(bytes.size())));
 #ifdef FC_HAVE_ZSTD
-    member->data.resize(ZSTD_compressBound(bytes.size()));
-    const size_t n = ZSTD_compress(member->data.data(), member->data.size(), bytes.data(),
-                                   bytes.size(), 3);
-    if (!ZSTD_isError(n)) {
-        member->data.resize(n);
-        member->method = zipZstd;
-        return member;
+    if (!portable) {
+        member->data.resize(ZSTD_compressBound(bytes.size()));
+        const size_t n = ZSTD_compress(member->data.data(), member->data.size(), bytes.data(),
+                                       bytes.size(), 3);
+        if (!ZSTD_isError(n)) {
+            member->data.resize(n);
+            member->method = zipZstd;
+            return member;
+        }
     }
 #endif
     uLongf bound = compressBound(static_cast<uLong>(bytes.size()));
     member->data.resize(bound);
     z_stream stream {};
-    deflateInit2(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, -MAX_WBITS, 8, Z_DEFAULT_STRATEGY);
+    // Level 1 when asked for: 5 times faster to take in than the default and
+    // 5% larger, close to zstd's speed (sec 38.10).
+    deflateInit2(&stream, portable ? Z_BEST_SPEED : Z_DEFAULT_COMPRESSION, Z_DEFLATED, -MAX_WBITS,
+                 8, Z_DEFAULT_STRATEGY);
     stream.next_in = reinterpret_cast<Bytef*>(const_cast<char*>(bytes.data()));
     stream.avail_in = static_cast<uInt>(bytes.size());
     stream.next_out = reinterpret_cast<Bytef*>(member->data.data());
@@ -675,6 +683,11 @@ bool FileBlob::inPack() const
     return _packed;
 }
 
+bool FileBlob::inPlace() const
+{
+    return _inPlace.load(std::memory_order_acquire);
+}
+
 bool FileBlob::hasExtension(const char* ext) const
 {
     return Base::FileInfo("blob." + extension()).hasExtension(ext);
@@ -857,7 +870,8 @@ void FileBlobManager::relocate()
         }
     }
     for (const auto& blob : blobs()) {
-        if (blob->inArchive()) {
+        // A file of the document's folder did not move with the directory.
+        if (blob->inArchive() || blob->inPlace()) {
             continue;
         }
         if (Base::FileInfo(blob->path()).exists()) {
@@ -956,6 +970,7 @@ bool isContentAddressedName(const std::string& name)
                return std::isxdigit(chr) != 0;
            });
 }
+
 }  // namespace
 
 std::string FileBlobManager::hashFile(const char* path)
@@ -1273,7 +1288,8 @@ void FileBlobManager::nameRestored(const FileBlobHandle& blob, const std::string
 }
 
 std::vector<FileBlobManager::SaveEntry>
-FileBlobManager::planSave(const std::map<std::string, BlobIndexEntry>& previous) const
+FileBlobManager::planSave(const std::map<std::string, BlobIndexEntry>& previous,
+                          const std::set<std::string>& avoid) const
 {
     const std::vector<FileBlobHandle> pending = collected();
 
@@ -1386,8 +1402,11 @@ FileBlobManager::planSave(const std::map<std::string, BlobIndexEntry>& previous)
         if (!entries[i].name.empty()) {
             continue;
         }
+        // A name in `avoid` holds other content that someone may be reading
+        // where it is (sec 38.9): derived content goes elsewhere.
         std::string candidate = stems[i] + exts[i];
-        for (int number = 1; !taken.insert(candidate).second; ++number) {
+        for (int number = 1; avoid.count(candidate) || !taken.insert(candidate).second;
+             ++number) {
             candidate = numberedName(stems[i], exts[i], number);
         }
         entries[i].name = std::move(candidate);
@@ -1453,7 +1472,8 @@ std::map<std::string, BlobIndexEntry> FileBlobManager::readIndex(std::istream& f
     return index;
 }
 
-void FileBlobManager::writeIndex(Base::Writer& writer, const std::vector<SaveEntry>& entries)
+void FileBlobManager::writeIndex(Base::Writer& writer, const std::vector<SaveEntry>& entries,
+                                 const std::map<std::string, BlobIndexEntry>& carried)
 {
     writer.putNextEntry((std::string(archivePrefix()) + indexName()).c_str());
     std::ostream& str = writer.Stream();
@@ -1461,8 +1481,16 @@ void FileBlobManager::writeIndex(Base::Writer& writer, const std::vector<SaveEnt
         << "<FileStore v=\"1\">\n";
     // One element per line and sorted by name, so a content edit is a one-line
     // diff and two branches touching different parts of a project merge.
+    // `entries` are sorted by name already; `carried` (a map) too.
+    auto next = carried.begin();
     for (const auto& entry : entries) {
+        for (; next != carried.end() && next->first < entry.name; ++next) {
+            writeIndexLine(str, next->first, next->second.hash, next->second.referrers);
+        }
         writeIndexLine(str, entry.name, entry.blob->hash(), entry.referrers);
+    }
+    for (; next != carried.end(); ++next) {
+        writeIndexLine(str, next->first, next->second.hash, next->second.referrers);
     }
     str << "</FileStore>\n";
 }
@@ -1499,17 +1527,22 @@ const std::string& FileBlobManager::historyReferrer()
     return history;
 }
 
-void FileBlobManager::prune(const std::string& dir,
-                            const std::map<std::string, BlobIndexEntry>& previous,
-                            const std::set<std::string>& kept)
+std::vector<std::string> FileBlobManager::pruned(const std::string& dir,
+                                                const std::map<std::string, BlobIndexEntry>& previous,
+                                                const std::set<std::string>& kept, bool alone)
 {
+    std::vector<std::string> out;
+    // Another process has the folder open and may read any of these where
+    // it is (sec 38.9): they stay, and a save made alone takes them.
+    if (!alone) {
+        return out;
+    }
     for (const auto& entry : previous) {
         if (kept.count(entry.first)) {
             continue;
         }
-        Base::FileInfo fi(dir + entry.first);
-        if (fi.exists()) {
-            fi.deleteFile();
+        if (Base::FileInfo(dir + entry.first).exists()) {
+            out.push_back(entry.first);
         }
     }
 
@@ -1518,17 +1551,19 @@ void FileBlobManager::prune(const std::string& dir,
     // once the names have moved -- so they are the one thing outside the
     // previous index that is removed. Without this an upgraded project keeps
     // every orphan it ever accumulated, and `git add -A` commits them all.
+    // What a user put there stays.
     QDir source(QString::fromUtf8(dir.c_str()));
     if (!source.exists()) {
-        return;
+        return out;
     }
     for (const QFileInfo& info : source.entryInfoList(QDir::Files)) {
         const std::string name = info.fileName().toUtf8().constData();
-        if (kept.count(name) || !isContentAddressedName(name)) {
+        if (kept.count(name) || previous.count(name) || !isContentAddressedName(name)) {
             continue;
         }
-        Base::FileInfo(dir + name).deleteFile();
+        out.push_back(name);
     }
+    return out;
 }
 
 void FileBlobManager::writeBlobs(Base::Writer& writer)
@@ -1564,6 +1599,11 @@ void FileBlobManager::writeBlobs(Base::Writer& writer)
     auto* fileWriter = dynamic_cast<Base::FileWriter*>(&writer);
     std::string dir;
     std::map<std::string, BlobIndexEntry> previous;
+    // Another process has the folder open and may read its blobs where they
+    // are (sec 38.9): no name it found is given other content, and none is
+    // taken away.
+    bool alone = true;
+    std::set<std::string> avoid;
     if (fileWriter) {
         dir = fileWriter->getDirName() + "/" + archivePrefix();
         // Read the index out of the directory being written, rather than
@@ -1572,9 +1612,19 @@ void FileBlobManager::writeBlobs(Base::Writer& writer)
         // what the names there mean. An archive has no previous state to
         // read, and rewrites every entry.
         previous = readIndex(dir + indexName());
+        alone = FileOpeners::others(fileWriter->getDirName()).empty();
+        if (!alone) {
+            for (const auto& entry : previous) {
+                avoid.insert(entry.first);
+            }
+            QDir source(QString::fromUtf8(dir.c_str()));
+            for (const QFileInfo& info : source.entryInfoList(QDir::Files)) {
+                avoid.insert(info.fileName().toUtf8().constData());
+            }
+        }
     }
 
-    const std::vector<SaveEntry> entries = planSave(previous);
+    const std::vector<SaveEntry> entries = planSave(previous, avoid);
     if (entries.empty() && previous.empty()) {
         // Nothing to write and nothing to take back: leave the directory
         // without a blobs/ in it at all.
@@ -1587,19 +1637,51 @@ void FileBlobManager::writeBlobs(Base::Writer& writer)
         Base::FileInfo(dir).createDirectory();
     }
 
+    // What this process reads where it is and the save is about to replace
+    // or take away is copied in first (sec 38.9): a name given other content,
+    // and the files pruned below.
+    std::set<std::string> kept;
+    std::vector<std::string> leaving;
+    for (const auto& entry : entries) {
+        kept.insert(entry.name);
+        // A file there that the index does not say holds this content: one
+        // a save left while another process read the folder is not in it.
+        auto found = previous.find(entry.name);
+        const bool same = found != previous.end() && found->second.hash == entry.blob->hash();
+        if (fileWriter && !same && Base::FileInfo(dir + entry.name).exists()) {
+            leaving.push_back(entry.name);
+        }
+    }
+    const std::vector<std::string> dropping =
+        fileWriter ? pruned(dir, previous, kept, alone) : std::vector<std::string>();
+    if (fileWriter) {
+        leaving.insert(leaving.end(), dropping.begin(), dropping.end());
+        copyInNames(dir, leaving);
+    }
+
+    // A file left while another process reads the folder stays in the index
+    // as it was (sec 38.9), so that the save made alone that prunes it knows
+    // it is the store's.
+    std::map<std::string, BlobIndexEntry> carried;
+    if (fileWriter && !alone) {
+        for (const auto& entry : previous) {
+            if (!kept.count(entry.first) && Base::FileInfo(dir + entry.first).exists()) {
+                carried.insert(entry);
+            }
+        }
+    }
+
     // The index first, so that what is here can be known without reading the
     // content -- which is what a deferred read by name will need.
-    writeIndex(writer, entries);
+    writeIndex(writer, entries, carried);
 
     // The entries are where a save of a large document spends its bytes -- a
     // building's worth of shapes is thousands of them -- so this is a phase
     // the progress indicator has to see. Ticked before the skip below, so a
     // save that rewrites nothing still walks the bar to the end.
     const std::size_t progressBase = writer.progressBase();
-    std::set<std::string> kept;
     for (const auto& entry : entries) {
         writer.stepProgress(progressBase, entries.size());
-        kept.insert(entry.name);
         if (fileWriter) {
             // Names are derived now, so a file existing proves nothing about
             // what is in it. Only the index does: it recorded what this name
@@ -1617,12 +1699,20 @@ void FileBlobManager::writeBlobs(Base::Writer& writer)
             // The member as the pack store holds it, compressed once in its
             // life: an archive takes it raw (sec 15.7), and only a writer
             // that cannot -- a project directory -- is handed it decoded.
-            auto member = readMember(*entry.blob);
+            std::shared_ptr<const BlobRawMember> member = readMember(*entry.blob);
             if (!member) {
                 std::stringstream str;
                 str << "FileBlobManager::writeBlobs(): content " << entry.blob->hash()
                     << " cannot be read back out of the document's blob store.";
                 THROWM(Base::FileSystemError, str.str())
+            }
+            // An archive asked to carry deflate (sec 38.10) gets content taken
+            // in as zstd -- before the document asked -- compressed again.
+            if (!fileWriter && deflates() && member->method != zipDeflate) {
+                std::string bytes;
+                if (decodeMember(*member, bytes)) {
+                    member = encodeMember(bytes, member->name, true);
+                }
             }
             Base::Writer::RawEntry raw;
             raw.method = member->method;
@@ -1661,7 +1751,7 @@ void FileBlobManager::writeBlobs(Base::Writer& writer)
             std::string bytes(static_cast<std::size_t>(entry.blob->size()), '\0');
             if (from.read(bytes.data(), static_cast<std::streamsize>(bytes.size()))
                 && from.peek() == std::char_traits<char>::eof()) {
-                auto member = encodeMember(bytes, entry.name);
+                auto member = encodeMember(bytes, entry.name, deflates());
                 Base::Writer::RawEntry raw;
                 raw.method = member->method;
                 raw.crc = member->crc;
@@ -1679,8 +1769,8 @@ void FileBlobManager::writeBlobs(Base::Writer& writer)
         writer.Stream() << from.rdbuf();
     }
 
-    if (fileWriter) {
-        prune(dir, previous, kept);
+    for (const auto& name : dropping) {
+        fileWriter->dropFile(std::string(archivePrefix()) + name);
     }
 
     // A save is one of the batches new content is written in (sec 15.7).
@@ -1768,7 +1858,16 @@ void FileBlobManager::beginRestore(Base::XMLReader& reader)
     if (auto* source = reader.getReader()) {
         const std::string dir = source->getDirectory();
         if (!dir.empty()) {
-            restoreFromDirectory(dir + "/" + archivePrefix());
+            // The document's own folder is read where it is (sec 38.9); a
+            // folder of the store's own -- a version checked out, an anchor
+            // recovered -- is copied, since it goes away.
+            std::string inPlace;
+            {
+                std::lock_guard<std::mutex> guard(_mutex);
+                inPlace = _inPlaceDir;
+            }
+            restoreFromDirectory(dir + "/" + archivePrefix(),
+                                 !inPlace.empty() && FileHistory::canonicalPath(dir) == inPlace);
             return;
         }
     }
@@ -1892,10 +1991,31 @@ void FileBlobManager::readBlobEntry(const std::string& name, Base::Reader& entry
     hold(std::move(blob));
 }
 
+bool FileBlobManager::splitArchive(const std::string& archive)
+{
+    // A document saved as a folder keeps its blobs as files (sec 29.8).
+    if (Base::FileInfo(archive).isDir()) {
+        restoreFromDirectory(archive + "/" + archivePrefix());
+        return true;
+    }
+    return restoreFromArchive(archive);
+}
+
 bool FileBlobManager::readArchiveMember(const std::string& path, const std::string& name,
                                         std::string& bytes)
 {
     bytes.clear();
+    // A document saved as a folder: the member is a file in it (sec 29.8).
+    if (Base::FileInfo(path).isDir()) {
+        Base::FileInfo fi(path + "/" + name);
+        if (!fi.isFile())
+            return false;
+        Base::ifstream in(fi, std::ios::in | std::ios::binary);
+        if (!in)
+            return false;
+        bytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        return true;
+    }
     BlobArchive archive(path, false);
     const auto& entries = archive.entries();
     for (std::size_t i = 0; i < entries.size(); ++i) {
@@ -1908,6 +2028,27 @@ bool FileBlobManager::readArchiveMember(const std::string& path, const std::stri
 std::map<std::string, BlobIndexEntry> FileBlobManager::archiveBlobIndex(const std::string& path,
                                                                       bool* hasIndex)
 {
+    // A document saved as a folder (docs/TransactionLogJournal.md sec 38.13): its
+    // blobs are files, named as the members would be.
+    if (Base::FileInfo(path).isDir()) {
+        const std::string dir = path + "/" + archivePrefix();
+        const auto listed = readIndex(dir + indexName());
+        if (hasIndex)
+            *hasIndex = Base::FileInfo(dir + indexName()).exists();
+        std::map<std::string, BlobIndexEntry> out;
+        QDir source(QString::fromUtf8(dir.c_str()));
+        for (const QFileInfo& info : source.entryInfoList(QDir::Files)) {
+            const std::string member = info.fileName().toUtf8().constData();
+            if (member == indexName())
+                continue;
+            auto it = listed.find(member);
+            if (it != listed.end() && !it->second.hash.empty())
+                out[member] = it->second;
+            else
+                out[member].hash = hashFile(info.absoluteFilePath().toUtf8().constData());
+        }
+        return out;
+    }
     BlobArchive archive(path, false);
     const std::string prefix = archivePrefix();
     const std::string index = prefix + indexName();
@@ -2085,15 +2226,36 @@ bool FileBlobManager::restoreFromArchive(const std::string& source)
     return true;
 }
 
-void FileBlobManager::restoreFromDirectory(const std::string& dir)
+void FileBlobManager::restoreFromDirectory(const std::string& dir, bool inPlace)
 {
     QDir source(QString::fromUtf8(dir.c_str()));
     if (!source.exists()) {
         return;
     }
+    // In place (sec 38.9): the index says what each file holds, so nothing
+    // is read. A file it does not name is hashed where it is.
+    const auto index = inPlace ? readIndex(dir + indexName())
+                               : std::map<std::string, BlobIndexEntry>();
+    // Canonical, so that copyIn() and settleInPlace() compare paths as text.
+    const std::string canonical = inPlace ? FileHistory::canonicalPath(dir) : std::string();
     for (const QFileInfo& info : source.entryInfoList(QDir::Files)) {
         if (info.fileName() == QString::fromUtf8(indexName())) {
             // Describes the content rather than being any; see readBlobEntry().
+            continue;
+        }
+        if (inPlace) {
+            const std::string name = info.fileName().toUtf8().constData();
+            const std::string path = canonical + "/" + name;
+            auto found = index.find(name);
+            std::string hash = found != index.end() ? found->second.hash : hashFile(path.c_str());
+            if (hash.empty()) {
+                FC_ERR("Failed to read included file " << name);
+                continue;
+            }
+            FileBlobHandle blob =
+                adoptInPlace(path, hash, static_cast<uint64_t>(info.size()));
+            nameRestored(blob, name);
+            hold(std::move(blob));
             continue;
         }
         try {
@@ -2124,6 +2286,150 @@ void FileBlobManager::restoreFromDirectory(const std::string& dir)
     }
 }
 
+FileBlobHandle FileBlobManager::adoptInPlace(const std::string& path, const std::string& hash,
+                                             uint64_t size)
+{
+    std::lock_guard<std::mutex> guard(_mutex);
+    auto it = _blobs.find(hash);
+    if (it != _blobs.end()) {
+        if (auto existing = it->second.lock()) {
+            return existing;
+        }
+    }
+    FileBlobHandle blob = make(hash, path, size);
+    blob->_inPlace.store(true, std::memory_order_release);
+    return blob;
+}
+
+void FileBlobManager::holdFolderBlobs(const std::string& folder)
+{
+    restoreFromDirectory(folder + "/" + archivePrefix(), true);
+}
+
+std::map<long, std::vector<std::string>> FileBlobManager::takeRestoredReferences()
+{
+    std::map<long, std::vector<std::string>> out;
+    {
+        std::lock_guard<std::mutex> guard(_mutex);
+        out.swap(_restoredRefs);
+    }
+    for (auto& entry : out) {
+        std::sort(entry.second.begin(), entry.second.end());
+        entry.second.erase(std::unique(entry.second.begin(), entry.second.end()),
+                           entry.second.end());
+    }
+    return out;
+}
+
+std::map<long, std::vector<std::string>> FileBlobManager::referencesByObject() const
+{
+    std::map<long, std::vector<std::string>> out;
+    std::lock_guard<std::mutex> guard(_mutex);
+    for (const auto& entry : _saveRefs) {
+        for (const auto& referrer : entry.second) {
+            out[referrer.id].push_back(entry.first + " " + referrer.name);
+        }
+    }
+    for (auto& entry : out) {
+        std::sort(entry.second.begin(), entry.second.end());
+    }
+    return out;
+}
+
+void FileBlobManager::setDeflate(bool on)
+{
+    _deflate.store(on, std::memory_order_relaxed);
+}
+
+bool FileBlobManager::deflates() const
+{
+    return _deflate.load(std::memory_order_relaxed);
+}
+
+void FileBlobManager::readInPlace(const std::string& dir)
+{
+    std::lock_guard<std::mutex> guard(_mutex);
+    _inPlaceDir = dir;
+}
+
+size_t FileBlobManager::inPlaceCount() const
+{
+    size_t count = 0;
+    for (const auto& blob : blobs()) {
+        if (blob->inPlace()) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+void FileBlobManager::copyIn(const std::string& path)
+{
+    // An in-place blob's path is canonical (restoreFromDirectory()).
+    const std::string target = FileHistory::canonicalPath(path);
+    for (const auto& blob : blobs()) {
+        if (!blob->inPlace() || blob->_path != target) {
+            continue;
+        }
+        // Another thread may copy it in too; one copy is kept.
+        std::lock_guard<std::mutex> once(_materializeMutex);
+        if (!blob->inPlace()) {
+            continue;
+        }
+        std::string bytes;
+        if (!blob->read(bytes)) {
+            FC_ERR("Included file " << blob->hash() << " cannot be read from " << path
+                   << " to keep it");
+            continue;
+        }
+        std::string copy;
+        try {
+            copy = writeNewFile(bytes, blob->extension().c_str());
+        }
+        catch (const Base::Exception& e) {
+            FC_ERR("Included file " << blob->hash() << ": " << e.what());
+            continue;
+        }
+        std::lock_guard<std::mutex> guard(_mutex);
+        blob->_path = copy;
+        blob->_inPlace.store(false, std::memory_order_release);
+    }
+}
+
+void FileBlobManager::copyInNames(const std::string& dir, const std::vector<std::string>& names)
+{
+    for (const auto& name : names) {
+        copyIn(dir + name);
+    }
+}
+
+void FileBlobManager::settleInPlace(const std::string& folder)
+{
+    const std::string dir =
+        folder.empty() ? std::string() : FileHistory::canonicalPath(folder) + "/" + archivePrefix();
+    std::map<std::string, std::string> byHash;
+    if (!dir.empty()) {
+        for (const auto& entry : readIndex(dir + indexName())) {
+            byHash.emplace(entry.second.hash, entry.first);
+        }
+    }
+    for (const auto& blob : blobs()) {
+        if (!blob->inPlace()) {
+            continue;
+        }
+        if (!dir.empty() && blob->_path.compare(0, dir.size(), dir) == 0) {
+            continue;
+        }
+        auto found = byHash.find(blob->hash());
+        if (found != byHash.end() && Base::FileInfo(dir + found->second).exists()) {
+            std::lock_guard<std::mutex> guard(_mutex);
+            blob->_path = dir + found->second;
+            continue;
+        }
+        copyIn(blob->_path);
+    }
+}
+
 void FileBlobManager::hold(FileBlobHandle blob)
 {
     if (!blob) {
@@ -2137,6 +2443,19 @@ void FileBlobManager::hold(FileBlobHandle blob)
     slot = std::move(blob);
 }
 
+void FileBlobManager::noteRestored(BlobReferrerProperty* referrer, const FileBlobHandle& blob)
+{
+    auto prop = dynamic_cast<Property*>(referrer);
+    if (auto obj = Base::freecad_dynamic_cast<DocumentObject>(prop ? prop->getContainer()
+                                                                   : nullptr)) {
+        std::string name = obj->getNameInDocument() ? obj->getNameInDocument() : "";
+        name += '.';
+        name += prop->getName() ? prop->getName() : "";
+        std::lock_guard<std::mutex> guard(_mutex);
+        _restoredRefs[obj->getID()].push_back(blob->hash() + " " + name);
+    }
+}
+
 void FileBlobManager::addPendingReferrer(const std::string& hash, BlobReferrerProperty* prop)
 {
     if (hash.empty() || !prop) {
@@ -2147,6 +2466,7 @@ void FileBlobManager::addPendingReferrer(const std::string& hash, BlobReferrerPr
     if (auto blob = find(hash)) {
         FC_TRACE("referrer served at once from " << hash);
         prop->assignRestoredBlob(blob);
+        noteRestored(prop, blob);
         return;
     }
     FC_TRACE("referrer queued for " << hash);
@@ -2244,6 +2564,7 @@ void FileBlobManager::dispatchPending()
         }
         if (blob) {
             entry.second->assignRestoredBlob(blob);
+            noteRestored(entry.second, blob);
         }
         else {
             auto& counts = missing[entry.first];
@@ -2620,7 +2941,7 @@ FileBlobHandle FileBlobManager::adoptMember(const std::string& hash,
     }
     // Compressed outside the lock, once in the content's life (sec 15.7).
     if (!member) {
-        member = encodeMember(bytes, hash + (ext.empty() ? "" : "." + ext));
+        member = encodeMember(bytes, hash + (ext.empty() ? "" : "." + ext), deflates());
     }
     FileBlobHandle blob;
     bool full = false;
@@ -2743,7 +3064,9 @@ void FileBlobManager::release(FileBlob* blob)
         scheduleMaintenance();
     }
 
-    if (blob->_path.empty()) {
+    // The document's folder's file, read where it is (sec 38.9): never ours
+    // to delete.
+    if (blob->_path.empty() || blob->_inPlace.load(std::memory_order_acquire)) {
         return;
     }
     Base::FileInfo fi(blob->_path);
@@ -2780,6 +3103,13 @@ bool FileBlobManager::packStore() const
 uint64_t FileBlobManager::segmentCap() const
 {
     return static_cast<uint64_t>(std::max<long>(DocumentParams::getBlobSegmentSize(), 4)) * 1024u;
+}
+
+uint64_t FileBlobManager::appendCap() const
+{
+    const uint64_t append =
+        static_cast<uint64_t>(std::max<long>(DocumentParams::getBlobAppendSize(), 4)) * 1024u;
+    return std::min(append, segmentCap());
 }
 
 uint64_t FileBlobManager::memberCap() const
@@ -3036,6 +3366,10 @@ void FileBlobManager::flush()
 void FileBlobManager::flushLocked()
 {
     const uint64_t cap = segmentCap();
+    // Adding to a segment rewrites it whole: past this, the batch starts a
+    // new one rather than copy the old one's members again (sec 37.4 P8 of
+    // docs/TransactionLogJournal.md); maintain() merges the small ones.
+    const uint64_t append = appendCap();
     for (;;) {
         std::vector<std::shared_ptr<const BlobRawMember>> batch;
         std::vector<std::pair<int, std::string>> keep;
@@ -3075,7 +3409,7 @@ void FileBlobManager::flushLocked()
                         used += entries[member.second].compressedSize;
                     }
                 }
-                if (used + live.front()->data.size() > cap
+                if (used + live.front()->data.size() > append
                     || keep.size() >= segmentMaxMembers) {
                     keep.clear();
                     used = 0;
@@ -3183,13 +3517,23 @@ void FileBlobManager::maintain()
     }
 
     // Several small segments are merged into one (sec 15.8): a new number,
-    // higher than theirs, and the handles naming them redirected.
+    // higher than theirs, and the handles naming them redirected. Like
+    // sizes merge, the smallest first: a group goes only when none of it is
+    // more than half of it, so a merged segment is not written again for
+    // every small one a batch leaves after it (sec 37.4 P8 of
+    // docs/TransactionLogJournal.md) -- each byte is merged a logarithmic number of
+    // times.
+    std::stable_sort(small.begin(), small.end(),
+                     [](const Plan* a, const Plan* b) { return a->live < b->live; });
     std::size_t start = 0;
     while (start + 1 < small.size()) {
         std::vector<std::pair<int, std::string>> keep;
         uint64_t live = 0;
         std::size_t end = start;
+        // Ascending: the one added last is the largest, at most what the
+        // group holds already.
         while (end < small.size() && live + small[end]->live <= cap
+               && (end == start || small[end]->live <= live)
                && keep.size() + small[end]->keep.size() < segmentMaxMembers) {
             live += small[end]->live;
             keep.insert(keep.end(), small[end]->keep.begin(), small[end]->keep.end());

@@ -100,6 +100,8 @@ protected:
     double getSize2() const;
     double getAngle() const;
     bool getFlipDirection() const;
+    /// An edge on the defaults sorts by the default size and flip
+    QVariant sortValue(QTreeWidgetItem *item, int column) const override;
     void onNewItem(QTreeWidgetItem *item);
     void finishedRecomputeFeature() override;
     void heldStepRolledBack() override;
@@ -170,7 +172,9 @@ private:
     /// The dragged value's edges among the chamfer's failed ones
     bool isDragFailing() const override;
     int itemGroup(QTreeWidgetItem* item) const override;
+    std::vector<int> groupIds() const override;
     Gui::Gizmo* itemHandle(QTreeWidgetItem* item) const override;
+    std::string handleEdge(Gui::Gizmo* gizmo) const override;
     void groupColorsChanged() override;
     void fillEdgeMenu(QMenu& menu, Gui::Gizmo* gizmo);
     /// The values an edge is chamfered with: its own, or the defaults

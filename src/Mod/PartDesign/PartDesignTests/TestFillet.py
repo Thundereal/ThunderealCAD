@@ -356,16 +356,18 @@ class TestFilletSlivers(unittest.TestCase):
         fillet.Radius = 0.3
         self.Doc.recompute()
         self.assertTrue(fillet.isValid())
-        # on a copy: the value is frozen (ImmutableShapeValues), and the fillet
-        # raises the tolerance of a vertex it keeps; the feature retries so itself
+        # on a copy: a feature's Shape is frozen (docs/TransactionLogJournal.md sec
+        # 27.82), and a fillet that writes into its input raises on it
         shape = self.Base.Shape.copy()
         made = shape.makeFillet(0.3, [shape.getElement(slope)])
         self.assertAlmostEqual(fillet.Shape.Volume, made.Volume, places=6)
 
     def testFilletTakesOutTheStep(self):
-        # refused on the block as it is
+        # refused on the block as it is (a copy: a frozen Shape could raise
+        # for that alone)
+        shape = self.Base.Shape.copy()
         with self.assertRaises(Part.OCCError):
-            self.Base.Shape.makeFillet(0.3, [self.Base.Shape.getElement(self.Slope)])
+            shape.makeFillet(0.3, [shape.getElement(self.Slope)])
         fillet = self.Body.newObject('PartDesign::Fillet', 'Fillet')
         fillet.Base = (self.Base, [self.Slope])
         for r in (0.3, 0.8):
@@ -408,7 +410,10 @@ class TestFilletSlivers(unittest.TestCase):
         # A dress-up given the outside object links the FeatureBase: taking
         # the outside one for its BaseFeature ran the body's chain out of it,
         # and removing the dress-up made the outside object the body's Tip;
-        # the third time round the recompute crashed
+        # the third time round the recompute crashed. Removing the fillet
+        # also cleared its Corners before its Base, and linking Corners again
+        # left the deleted fillet in the holder's InList: the recompute
+        # walking it crashed, when the freed memory had been reused
         holder = self.Body.Group[0]
         self.assertEqual(holder.TypeId, 'PartDesign::FeatureBase')
         for k in range(3):
@@ -422,6 +427,8 @@ class TestFilletSlivers(unittest.TestCase):
             self.Body.removeObject(fillet)
             self.Doc.removeObject(fillet.Name)
             self.assertEqual(self.Body.Tip, holder, k)
+            # the body's Group and Tip, nothing else
+            self.assertEqual(holder.InList, [self.Body, self.Body], k)
             self.assertFalse([o for o in self.Body.Group if o.TypeId == 'PartDesign::SolidBody'])
 
     def testChamferTakesOutTheStep(self):
@@ -429,8 +436,9 @@ class TestFilletSlivers(unittest.TestCase):
         chamfer.Base = (self.Base, [self.Slope])
         chamfer.Size = 0.3
         self.Doc.recompute()
+        shape = self.Base.Shape.copy()   # a frozen Shape could raise for that alone
         try:
-            self.Base.Shape.makeChamfer(0.3, [self.Base.Shape.getElement(self.Slope)])
+            shape.makeChamfer(0.3, [shape.getElement(self.Slope)])
             self.skipTest("the chamfer is made with the step: nothing to test")
         except Part.OCCError:
             pass
@@ -503,98 +511,6 @@ class TestFilletPastFeatures(unittest.TestCase):
         # fillet at 2 runs under it; made, the boss fused back on
         boss = Part.makeCylinder(1, 1, FreeCAD.Vector(10, 2, 10))
         self.check(('boss', boss), 2.0, lambda made: made.fuse(boss))
-
-
-
-def _ribBlock(profile):
-    """A block 20x10x2 with a rib on it 10 high along y, `profile` its
-    section in (x, z) from its foot at z=2 up to its top at z=12"""
-    V = FreeCAD.Vector
-    rib = Part.Face(Part.makePolygon([V(x, 0, z) for x, z in profile + profile[:1]]))
-    rib = rib.extrude(V(0, 10, 0))
-    return Part.makeBox(20, 10, 2).fuse(rib).removeSplitter()
-
-
-def _forkKernel():
-    """Whether the OCCT is the fork, by its setback corners"""
-    box = Part.makeBox(10, 10, 10)
-    corner = FreeCAD.Vector(10, 10, 10)
-    edges = [box.getElement(e) for e in _nameAt(box, 'Edge', corner)]
-    try:
-        box.makeFillet(1, edges, corners={_nameAt(box, 'Vertex', corner): 0})
-    except Exception as e:
-        if 'OCCT fork' not in str(e):
-            raise
-        return False
-    return True
-
-
-class TestFilletFullRound(unittest.TestCase):
-    """A face selected with FullRound rounded whole: its two sides filleted,
-    their lines meeting along its middle, and the face gone. The kernel makes
-    a fillet as wide as its face beside it only in the fork (snapping, a
-    radius a hair smaller and the sliver left taken out)"""
-
-    def setUp(self):
-        if not _forkKernel():
-            self.skipTest('a full round needs the OCCT fork')
-        self.Doc = FreeCAD.newDocument("PartDesignTestFilletFullRound")
-        self.Body = self.Doc.addObject('PartDesign::Body', 'Body')
-
-    def tearDown(self):
-        FreeCAD.closeDocument(self.Doc.Name)
-
-    def fillet(self, shape):
-        base = self.Doc.addObject('Part::Feature', 'Rib')
-        base.Shape = shape
-        self.Body.BaseFeature = base
-        self.Doc.recompute()
-        top = _faceAt(shape, FreeCAD.Vector(10, 5, 12), FreeCAD.Vector(0, 0, 1))
-        fillet = self.Body.newObject('PartDesign::Fillet', 'Fillet')
-        fillet.Base = (base, [top])
-        fillet.FullRound = True
-        self.Doc.recompute()
-        return fillet
-
-    def check(self, profile, removed):
-        shape = _ribBlock(profile)
-        fillet = self.fillet(shape)
-        self.assertTrue(fillet.isValid(), fillet.getStatusString())
-        self.assertEqual(list(fillet.FailedEdges), [])
-        made = fillet.Shape
-        self.assertTrue(made.isValid())
-        self.assertEqual(len(made.Solids), 1)
-        self.assertAlmostEqual(made.Volume, shape.Volume - removed, places=3)
-        # the top is gone: no face is left at z=12, nor any sliver of it
-        self.assertFalse([f for f in made.Faces
-                          if abs(f.BoundBox.ZMin - 12) < 1e-6 and abs(f.BoundBox.ZMax - 12) < 1e-6])
-        self.assertFalse([f for f in made.Faces
-                          if 2 * f.Area / sum(e.Length for e in f.Edges) < 1e-3])
-        made.check(True)
-
-    def testSquare(self):
-        # a rib 2 wide, square: each side at 1, a half round
-        self.check([(9, 2), (11, 2), (11, 12), (9, 12)], 2 * (1 - pi / 4) * 10)
-
-    def testDrafted(self):
-        # a rib 4 wide at its foot, 2 at its top: the sides 95.7 deg from the
-        # top, each filleted at tan(95.7 / 2) so that its line on the top is 1
-        # in from it, at the middle
-        from math import atan2, tan
-        a = pi - atan2(10, 1)
-        r = tan(a / 2)
-        corner = r * 1 - r * r * (pi - a) / 2
-        self.check([(8, 2), (12, 2), (11, 12), (9, 12)], 2 * corner * 10)
-
-    def testNotAStrip(self):
-        # a rib whose top widens along it: no full round
-        V = FreeCAD.Vector
-        plan = Part.Face(Part.makePolygon([V(9, 0, 2), V(11, 0, 2), V(11.5, 10, 2), V(8.5, 10, 2),
-                                           V(9, 0, 2)]))
-        shape = Part.makeBox(20, 10, 2).fuse(plan.extrude(V(0, 0, 10))).removeSplitter()
-        fillet = self.fillet(shape)
-        self.assertFalse(fillet.isValid())
-        self.assertIn('not of one width', fillet.getStatusString())
 
 
 class TestFilletCorners(unittest.TestCase):

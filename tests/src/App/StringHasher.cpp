@@ -1624,7 +1624,7 @@ TEST_F(StringHasherTest, getIDFromMappedNameAskedTwiceIsOneString)  // NOLINT
     // With names indexed, a name built on another string's id is kept with
     // its number taken off the text ("#1:5" as "#1:" and an index), which is
     // not the form it is asked by: with one string allowed under two ids
-    // (docs/TransactionLog.md sec 27.41 Q2) the table took it again at every
+    // (docs/TransactionLogJournal.md sec 27.41 Q2) the table took it again at every
     // asking, and every rebuild renamed every element.
     // Arrange
     const bool was = App::DocumentParams::getHashIndexedName();
@@ -1790,7 +1790,7 @@ TEST_F(StringHasherTest, compact)  // NOLINT
 
 TEST_F(StringHasherTest, mergeTakesInAnotherTable)  // NOLINT
 {
-    // docs/TransactionLog.md sec 27.40 item 2: a table read on its own
+    // docs/TransactionLogJournal.md sec 27.40 item 2: a table read on its own
     // joins the file's under its own ids, references remapped.
     Base::Reference<App::StringHasher> other(new App::StringHasher);
     auto a = other->getID("A");
@@ -1870,7 +1870,7 @@ TEST_F(StringHasherTest, lastIdSurvivesASave)  // NOLINT
 
 TEST_F(StringHasherTest, wholeTableRoundTrips)  // NOLINT
 {
-    // docs/TransactionLog.md sec 27.50 item 1: the file's member holds
+    // docs/TransactionLogJournal.md sec 27.50 item 1: the file's member holds
     // every string, marked or not, and reads back under the same ids.
     auto a = Hasher()->getID("A");
     auto b = Hasher()->getID("B");
@@ -2078,7 +2078,7 @@ TEST_F(StringHasherTest, importFailsOnAnIdItsTableLacks)  // NOLINT
 TEST_F(StringHasherTest, lookupTextFindsByContentAndTakesNothingIn)  // NOLINT
 {
     // A reference into another document stores its name in its own table
-    // and looks it up in the target's (docs/TransactionLog.md sec 27.76 item
+    // and looks it up in the target's (docs/TransactionLogJournal.md sec 27.76 item
     // 5): the text comes back in the target's ids when the target has every
     // string it names, and the lookup never adds one.
     Base::Reference<App::StringHasher> other(new App::StringHasher);
@@ -2108,7 +2108,7 @@ TEST_F(StringHasherTest, lookupTextFindsByContentAndTakesNothingIn)  // NOLINT
 }
 
 // Not a check: the cost of one call into the table, for a decision
-// (docs/TransactionLog.md sec 31.30). Run with
+// (docs/TransactionLogJournal.md sec 31.30). Run with
 // --gtest_also_run_disabled_tests --gtest_filter='StringHasherCost.*'.
 TEST(StringHasherCost, DISABLED_aCallIntoTheTable)  // NOLINT
 {

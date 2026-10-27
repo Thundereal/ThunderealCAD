@@ -92,6 +92,8 @@ class ViewerContext;
 class GuiExport OnViewValueSet: public QObject
 {
     Q_OBJECT
+    // activeHandleChanged()'s argument, whole for its meta type
+    Q_MOC_INCLUDE("Gui/Inventor/Draggers/Gizmo.h")
 
 public:
     enum class Place
@@ -269,6 +271,12 @@ Q_SIGNALS:
     /// The view's camera moved: a handle that depends on it may move too.
     void cameraChanged();
     void activeChanged(int index);
+    /** A handle was made active by name (a click on it) -- another of the
+     * same value too: the default radius stands on every edge that takes
+     * it. Null when none is: no value active, or one made active by its
+     * label or a key, which stands for no single handle.
+     */
+    void activeHandleChanged(Gui::Gizmo* handle);
     /** A change that is one undo step however many writes it makes begins:
      * a drag of a handle, or a label opened for typing (entry 136). Ended
      * by stepEnded(); \a abort when a drag was cancelled, its changes to
@@ -341,6 +349,10 @@ private:
     int active = -1;
     bool cancelWritesBack = true;
     Gizmo* activeHandle = nullptr;
+    /// The active handle when one was asked for by name (a click on it),
+    /// what activeHandleChanged() tells; null when the value was made
+    /// active by its label or a key, its first handle taken
+    Gizmo* namedHandle = nullptr;
     int typing = -1;
     /// The handle being dragged, between its drag's start and end
     Gizmo* dragHandle = nullptr;

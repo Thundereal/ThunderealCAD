@@ -365,7 +365,31 @@ MDIViewPage* ViewProviderDrawingView::getMDIViewPage() const
 
 Gui::MDIView *ViewProviderDrawingView::getMDIView() const
 {
+    // On several pages: the page view in front, if it is one of them
+    auto dv = getViewObject();
+    Gui::Document* guiDoc = dv ? Gui::Application::Instance->getDocument(dv->getDocument()) : nullptr;
+    if (guiDoc) {
+        const auto pages = dv->findAllParentPages();
+        if (pages.size() > 1) {
+            Gui::MDIView* active = Gui::getMainWindow()->activeWindow();
+            for (auto page : pages) {
+                auto vpp = dynamic_cast<ViewProviderPage*>(guiDoc->getViewProvider(page));
+                if (vpp && active && vpp->getMDIView() == active) {
+                    return active;
+                }
+            }
+        }
+    }
     return getMDIViewPage();
+}
+
+Gui::MDIView *ViewProviderDrawingView::getOrCreateMDIView()
+{
+    if (auto view = getMDIView()) {
+        return view;
+    }
+    ViewProviderPage* vpp = getViewProviderPage();
+    return vpp ? vpp->getOrCreateMDIView() : nullptr;
 }
 
 void ViewProviderDrawingView::onGuiRepaint(const TechDraw::DrawView* dv)

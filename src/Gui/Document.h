@@ -100,7 +100,7 @@ protected:
     void slotFinishRestoreObject(const App::DocumentObject &obj);
     void slotRecomputed(const App::Document&, const std::vector<App::DocumentObject*> &);
     void slotSkipRecompute(const App::Document &doc, const std::vector<App::DocumentObject*> &objs);
-    /// The last pin of this pinned version let go (docs/TransactionLog.md
+    /// The last pin of this pinned version let go (docs/TransactionLogJournal.md
     /// sec 27.30): close it, keep it, or ask, per ClosePinnedVersion.
     void slotPinsReleased(const App::Document&);
     void slotTouchedObject(const App::DocumentObject &);
@@ -473,7 +473,7 @@ public:
     std::vector<std::string> getRedoVector() const;
     /** Will UNDO one or more steps. With \a ask, a step the document
      * refuses is said in a dialog with the reason, and the step after it
-     * offered (docs/TransactionLog.md sec 33.11): for the user's own undo,
+     * offered (docs/TransactionLogJournal.md sec 33.11): for the user's own undo,
      * not for one a script or a client asks for.
      */
     void undo(int iSteps, bool ask = false);

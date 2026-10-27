@@ -1,4 +1,4 @@
-# How the transaction log scales on a real model (docs/TransactionLog.md
+# How the transaction log scales on a real model (docs/TransactionLogJournal.md
 # sec 27.52). Run with FreeCADCmd:
 #
 #   SCALE_FILE=model.FCStd SCALE_OBJECT=Pad SCALE_PROPERTY=Length \

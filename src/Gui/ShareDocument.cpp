@@ -277,7 +277,7 @@ struct ShareGrant
     uint64_t liveId = 0;
     /// How many browsers the grant is for, 0 for one that counts none,
     /// and the keys of those the door has enrolled so far
-    /// (Render::SceneGrant, docs/TransactionLog.md sec 30.32).
+    /// (Render::SceneGrant, docs/TransactionLogJournal.md sec 30.32).
     int maxUsers = 0;
     QStringList devices;
     /// The host's own word for whom the grant is for; nothing judges it.
@@ -515,7 +515,7 @@ Render::SceneGrant toSceneGrant(const ShareGrant &g)
     return out;
 }
 
-/// Store what hellos changed (docs/TransactionLog.md sec 30.32): the
+/// Store what hellos changed (docs/TransactionLogJournal.md sec 30.32): the
 /// browsers the door heard from, and the ones each grant that counts its
 /// users enrolled. The door does both as connections arrive; this writes
 /// them down, so they are there at the next share. Cheap when nothing
@@ -708,7 +708,7 @@ QSpinBox *uploadLimitSpin(QWidget *parent)
     return spin;
 }
 
-/// The control for how much may wait to be merged (docs/TransactionLog.md
+/// The control for how much may wait to be merged (docs/TransactionLogJournal.md
 /// sec 30.29): every file sent to one document and not yet dealt with,
 /// together. As uploadLimitSpin(): it shows what holds, and whoever makes
 /// it stores the value.
@@ -870,7 +870,7 @@ public:
         layout->addWidget(tree, 1);
 
         // The branches served in documents of their own (docs/
-        // TransactionLog.md sec 32.23, 32.31): which document each is, for
+        // TransactionLogJournal.md sec 32.23, 32.31): which document each is, for
         // a client joins it by that name, and who is in it. Such a document
         // has no window; it is given one, or closed, from here.
         branchTree = new QTreeWidget(this);
@@ -941,7 +941,7 @@ public:
                     return;
                 }
                 // A token of its own, for so many browsers (docs/
-                // TransactionLog.md sec 30.32): the token is half of who
+                // TransactionLogJournal.md sec 30.32): the token is half of who
                 // its holder is and the id the browser keeps the other
                 // half. The door enrols the first of them and refuses the
                 // rest; the name is what the host calls the invitation,
@@ -1225,7 +1225,7 @@ public:
                 item->setToolTip(0, tr("Signed in through the sharing "
                                        "front door"));
             }
-            // Which browser, when it said (docs/TransactionLog.md sec
+            // Which browser, when it said (docs/TransactionLogJournal.md sec
             // 30.32): the start of its key, as the record lists it.
             if (!c.device.empty()) {
                 const QString key = QString::fromUtf8(c.device.c_str());
@@ -1261,7 +1261,7 @@ public:
             setItemEnabled(mode, 2, !c.identity.empty());
             // and only someone known may edit: a verified identity, or the
             // holder of an invitation issued to its one name
-            // (docs/TransactionLog.md sec 30.6 U4, U6)
+            // (docs/TransactionLogJournal.md sec 30.6 U4, U6)
             mode->setItemData(0, tr("Only for a signed-in identity, or the holder of an "
                    "invitation issued to its one name: a grant with a token "
                    "and the name written out in full."), Qt::ToolTipRole);
@@ -1672,7 +1672,7 @@ private:
         inviteNote->show();
     }
 
-    /// The record of browsers (docs/TransactionLog.md sec 30.32): those
+    /// The record of browsers (docs/TransactionLogJournal.md sec 30.32): those
     /// \a only has enrolled, or every one the door has heard from. Name
     /// one, turn it off or on, forget it; for a grant, change how many it
     /// is for.

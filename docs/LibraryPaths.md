@@ -1,7 +1,7 @@
 # Library paths: links into named folders
 
-Status (2026-10-19): **design ruled whole; steps 1 to 3 built** (App, Gui, the log;
-sections 7 to 11). Step 4, the export, waits for TransactionLog sec 35 L7.
+Status (2026-10-20): **design ruled whole; all four steps built** (App, Gui, the log;
+sections 7 to 11; step 4, the export's option, section 14).
 Asked for by the user the same day. Q1 to Q8 are ruled (section 5).
 
 ## 1. The ask (user, 2026-10-18)
@@ -30,7 +30,7 @@ A document-wise management of the folders external links point into:
   editor show.
 - **A relative form needs the owner saved**: `getDocPath` throws "Owner
   document not saved" when the owner has no file name. That is what
-  refused an import of a file with links (`docs/TransactionLog.md` sec
+  refused an import of a file with links (`docs/TransactionLogJournal.md` sec
   35.2 item 6a).
 - **The save form** is `<XLink file="..." stamp="..." name="..."
   [resolve="..."] .../>`. The log's pins and branch links (TransactionLog
@@ -259,6 +259,7 @@ old file keeps its old links. Save As in the standard format writes the
 3. **The log**: a link's value compared by its library form; a test of
    two copies with the library at two places merged without a conflict.
 4. **The export option** of TransactionLog sec 35 L7, when that is built.
+   Built 2026-10-20, section 14.
 
 ## 7. Built: step 1, App (2026-10-18)
 
@@ -569,3 +570,38 @@ did it right.
 - **Gates** (2026-10-19): the 24 Gui checks pass; Python 3807 OK with the
   freeze on and off (52 and 54 skipped); ctest gtest 987/987 both ways;
   the driven tests 293/293.
+
+## 14. Built: step 4, the export's option for library files (2026-10-20)
+
+The two choices of 3.8 for an exported set (TransactionLog sec 35 L7) are
+both offered; copying stays the default, so a set opens anywhere unless the
+user says the recipient has the library.
+
+- **Copied** (the default): a library file is a file outside the top's
+  folder like any other, written under `_external/`, and the copies link it
+  as a plain link.
+- **Left in its library** (`keepLibraries`, "Leave library files in their
+  library" in the dialog): a document the copied ones reach only by library
+  links, and not the top, is not written, and its own links are not
+  followed -- it stays where it links. One a copied document reaches by a
+  plain link is copied whatever else reaches it by its library, and every
+  copy then links the copy (a document inside the library, linking a
+  sibling relatively by Q5, is such a case). A copy's link to a file left
+  out keeps `lib` and `libfile`, and its `file` is the file's full path
+  here, not the owner's relative one, which the copy's folder would break.
+  The same holds for a link to a file not open, which no set includes.
+- **What says so**: `ExportSetFile::library` / `libraryFile` with an empty
+  `path`, listed after the written files; Python's `exportLinkedSet(...,
+  keepLibraries=True)` gives them as `lib` and `libfile`; the manifest lists
+  them apart, under `library`, with no `path` or `save_id`. The dialog shows
+  them as "left in library <name>", and offers the option only when the set
+  has such a file.
+- **Found by** `PropertyXLink::getLinkedDocuments(doc)`: the documents
+  `doc`'s links reach, each with whether every link to it is a library link
+  (a link set with no file never is).
+- **Test** (`Document.py`, `LibraryPathCases`):
+  `testAnExportedSetLeavesItsLibraryFiles` -- the default writes
+  `_external/bolt.FCStd`; with the option, only the assembly and the
+  manifest, which lists the bolt under `library`; the library then moved
+  and named again in the settings, the exported assembly opens with its
+  link resolved to the moved file.

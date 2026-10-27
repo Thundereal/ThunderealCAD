@@ -127,7 +127,7 @@ public:
     static bool serving(App::Document *doc);
     /// A document began to be served, or is served no more: for what
     /// offers something only of a served document (the log panel's
-    /// "Serve branch...", docs/TransactionLog.md sec 32.25).
+    /// "Serve branch...", docs/TransactionLogJournal.md sec 32.25).
     static fastsignals::signal<void()> &signalServed();
 
     /*!

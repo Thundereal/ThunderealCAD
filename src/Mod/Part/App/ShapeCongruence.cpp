@@ -493,7 +493,8 @@ double CongruenceIndex::volumeOf(const TopoDS_Shape& shape, Invariants& cache)
     return cache.volume;
 }
 
-bool CongruenceIndex::find(const TopoDS_Shape& shape, Match& match) const
+bool CongruenceIndex::find(const TopoDS_Shape& shape, Match& match, Invariants* kept,
+                           const Match* last) const
 {
     ++_cost.finds;
     std::size_t key = 0;
@@ -510,8 +511,23 @@ bool CongruenceIndex::find(const TopoDS_Shape& shape, Match& match) const
 
     // Only now, and only when a bucket actually proposes something: the area
     // below is the expensive part of this, and a bucket that proposes nothing
-    // must not pay for it.
-    Invariants own;
+    // must not pay for it. The caller's, when it keeps them across saves.
+    Invariants local;
+    Invariants& own = kept ? *kept : local;
+
+    // The shape the previous find of this one matched, stored again: the
+    // motion between the two is what it was (sec 38.11).
+    if (last && !last->with.IsNull()) {
+        for (const Entry& entry : it->second) {
+            if (entry.shape.IsEqual(last->with)) {
+                ++_cost.matches;
+                match.slot = entry.slot;
+                match.motion = last->motion;
+                match.with = entry.shape;
+                return true;
+            }
+        }
+    }
 
     for (const Entry& entry : it->second) {
         ++_cost.candidates;
@@ -547,6 +563,7 @@ bool CongruenceIndex::find(const TopoDS_Shape& shape, Match& match) const
         if (recoverShapeMotion(entry.shape, shape, motion)) {
             ++_cost.matches;
             match.slot = entry.slot;
+            match.with = entry.shape;
             // Snapped, so that two equal parts share a file *and* the one
             // TShape that reading it once gives, as they always have.
             match.motion =

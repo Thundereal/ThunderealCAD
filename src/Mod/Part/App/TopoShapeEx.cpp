@@ -1190,7 +1190,7 @@ void TopoShape::mapSubElement(const std::vector<TopoShape> &shapes, const char *
                     offset += count;
                     child.count = count;
                     // A child from another table is imported, cached per
-                    // source map (docs/TransactionLog.md sec 27.76 item 2).
+                    // source map (docs/TransactionLogJournal.md sec 27.76 item 2).
                     child.elementMap = Data::translateElementMap(s.elementMap(), s.Hasher, Hasher);
                     child.tag = s.Tag;
                     if (op)
@@ -1218,7 +1218,7 @@ void TopoShape::copyElementMap(const TopoShape &s, const char *op)
     if (s.isNull() || isNull())
         return;
     // The names of a shape of another table come in with this table's ids,
-    // not as text naming the other's (docs/TransactionLog.md sec 27.76 item
+    // not as text naming the other's (docs/TransactionLogJournal.md sec 27.76 item
     // 2); the ids the op's own postfix names -- the external marker's
     // document, item 4 -- are this table's, and the children hold them.
     auto elementMap = Data::translateElementMap(s.elementMap(), s.Hasher, Hasher);
@@ -1284,7 +1284,7 @@ void TopoShape::mapSubElement(const TopoShape &other, const char *op, bool force
         {TopAbs_VERTEX,TopAbs_EDGE,TopAbs_FACE};
 
     // A shape of another table has its names imported into this one's
-    // (docs/TransactionLog.md sec 27.76 item 2): this shape keeps its table,
+    // (docs/TransactionLogJournal.md sec 27.76 item 2): this shape keeps its table,
     // where it used to take the other's, or keep the other's ids as text.
     auto checkHasher = [this](const TopoShape &other) {
         if(!Hasher)
@@ -1360,7 +1360,7 @@ void TopoShape::mapSubElement(const TopoShape &other, const char *op, bool force
         }
         // A thawed copy (the OCCT fork's TopoDS_TShape::Thawed): an algorithm
         // copied a frozen sub-shape of other's where it would have changed it
-        // in place (docs/TransactionLog.md sec 23.15), and the copy is named
+        // in place (docs/TransactionLogJournal.md sec 23.15), and the copy is named
         // as the original would have been. The original may be a thawed copy
         // itself, of something other has.
         for (int idx = 1; idx <= shapeMap.count(); ++idx) {
@@ -2589,7 +2589,7 @@ TopoShape &TopoShape::makEPrismUntil(const TopoShape &_base,
     // extrusion to work around: retrying on the original until face, or on
     // a base of our own, gave a prism up to the wrong place. It is passed
     // on, and the feature recomputes on copies (Part::Feature::recompute(),
-    // docs/TransactionLog.md sec 27.82, 33.6).
+    // docs/TransactionLogJournal.md sec 27.82, 33.6).
     auto refusedFrozen = [refused = raisedOCCTLockedShapes()]() {
         return !ThawInputs::active() && raisedOCCTLockedShapes() != refused;
     };
@@ -3257,7 +3257,7 @@ struct EdgePoints {
 // when <reverse> is set, and handed over as it is otherwise -- for a caller that
 // gives the run to BRepBuilderAPI_MakeWire, which orients an edge itself and
 // keeps its curve: a sketch's edge keeps its geometry's direction, which its
-// external geometry and constraints on its ends read (docs/TransactionLog.md
+// external geometry and constraints on its ends read (docs/TransactionLogJournal.md
 // sec 27.87).
 static std::deque<TopoShape>
 extractRun(std::list<TopoShape>& edges,
@@ -4326,7 +4326,7 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
 
     std::map<Data::IndexedName, std::map<NameKey,NameInfo> > newNames;
     // Names of an input of another table come in with this one's ids
-    // (docs/TransactionLog.md sec 27.76 item 2).
+    // (docs/TransactionLogJournal.md sec 27.76 item 2).
     App::StringHasher::ImportMemo importMemo;
 
     // First, collect names from other shapes that generates or modifies the
@@ -4778,7 +4778,7 @@ TopoShape &TopoShape::makESHAPE(const TopoDS_Shape &shape, const Mapper &mapper,
                 // Cleared here, not only in the branch below: the stream still
                 // holds the last encode of the passes before, which a single
                 // lower name would otherwise carry into this one's name
-                // (docs/TransactionLog.md sec 27.77).
+                // (docs/TransactionLogJournal.md sec 27.77).
                 ss.str("");
                 if(names.size() == 1)
                     ss << lowerPostfix();
@@ -6570,7 +6570,7 @@ TopoShape & TopoShape::makEBSplineFace(const std::vector<TopoShape> &input,
 
         TopoShape s;
         s.makESHAPE(comp, mapper, edges, Part::OpCodes::Split);
-        return makEBSplineFace(s, style, op);
+        return makEBSplineFace(s, style, keepBezier, op);
     }
 
     if (edges.size() < 2 || edges.size() > 4)
@@ -6653,6 +6653,18 @@ TopoShape & TopoShape::makEBSplineFace(const std::vector<TopoShape> &input,
                     if (spline.IsNull())
                         throw Standard_Failure("A curve was not a B-spline and could not be converted into one.");
                     curves.push_back(spline);
+                }
+            }
+        }
+
+        // Coons wants 4 poles a side, which OCCT's Bezier filling sees to by
+        // raising the degree and its B-spline filling refuses; raise it here,
+        // on copies, as the curves may be the input edges' own
+        if (fstyle == GeomFill_CoonsStyle) {
+            for (auto &curve : curves) {
+                if (curve->Degree() < 3) {
+                    curve = Handle(Geom_BSplineCurve)::DownCast(curve->Copy());
+                    curve->IncreaseDegree(3);
                 }
             }
         }

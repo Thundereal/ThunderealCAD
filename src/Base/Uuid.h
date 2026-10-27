@@ -53,6 +53,9 @@ public:
     void setValue(const std::string& sString);
     const std::string& getValue() const;
     static std::string createUuid();
+    /// The same UUID for the same `name` in the same `space` (a UUID
+    /// itself): a name-based one (version 5).
+    static std::string createUuid(const std::string& space, const std::string& name);
 
     bool operator==(const Uuid& other) const
     {

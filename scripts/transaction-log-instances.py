@@ -1,4 +1,4 @@
-# T4 of docs/TransactionLog.md sec 27.52, with real modeling (sec 27.66): the
+# T4 of docs/TransactionLogJournal.md sec 27.52, with real modeling (sec 27.66): the
 # log over a long run of copy-on-change link instances. Run with FreeCADCmd:
 #
 #   T4_FILE=scanner.FCStd T4_STEPS=1000 T4_OUT=result.json \

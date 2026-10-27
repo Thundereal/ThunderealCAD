@@ -162,6 +162,67 @@ bool Transaction::isEmpty() const
     return _Objects.empty();
 }
 
+bool Transaction::handWrite(const TransactionalObject*& obj, int64_t& propId) const
+{
+    obj = nullptr;
+    propId = 0;
+    int hand = 0;
+    for (const auto& info : _Objects.get<0>()) {
+        const TransactionObject* to = info.second;
+        if (to->status != TransactionObject::Chn || to->_frozen >= 0)
+            return false;
+        for (const auto& pd : to->_PropChangeMap) {
+            if (pd.second.derived || pd.second.followed)
+                continue;
+            if (++hand > 1)
+                return false;
+            obj = info.first;
+            propId = pd.first;
+        }
+    }
+    return hand == 1;
+}
+
+bool Transaction::absorbable() const
+{
+    for (const auto& info : _Objects.get<0>()) {
+        if (info.second->status != TransactionObject::Chn || info.second->_frozen >= 0)
+            return false;
+    }
+    return true;
+}
+
+bool Transaction::absorb(Transaction& later)
+{
+    if (!later.absorbable())
+        return false;
+    auto& mine = _Objects.get<1>();
+    auto& theirs = later._Objects.get<0>();
+    for (auto it = theirs.begin(); it != theirs.end();) {
+        auto here = mine.find(it->first);
+        if (here == mine.end()) {
+            // Changed only later: the entry moves over whole.
+            _Objects.get<0>().push_back(*it);
+            it = theirs.erase(it);
+            continue;
+        }
+        TransactionObject* to = here->second;
+        TransactionObject* from = it->second;
+        for (auto& pd : from->_PropChangeMap) {
+            if (to->_PropChangeMap.count(pd.first))
+                continue;   // the earlier before stays
+            to->_PropChangeMap.emplace(pd.first, std::move(pd.second));
+            // Given away: not the giver's to delete any more.
+            pd.second.property = nullptr;
+            pd.second.shared.reset();
+        }
+        if (to->_objectBitsBefore < 0)
+            to->_objectBitsBefore = from->_objectBitsBefore;
+        ++it;
+    }
+    return true;
+}
+
 bool Transaction::destroysObjects() const
 {
     for (auto& info : _Objects.get<0>()) {
@@ -779,7 +840,7 @@ void TransactionObject::setProperty(const Property* pcProp)
             pcProp->getContainer()->getDynamicPropertyData(pcProp);
         data.propertyOrig = pcProp;
         // The log's copy of the value at its last commit, when this is the
-        // first write since (docs/TransactionLog.md sec 25.4). A status
+        // first write since (docs/TransactionLogJournal.md sec 25.4). A status
         // changed since, `Touched` aside, means a fresh copy: the cached one
         // is shared with the log's worker and is not written to.
         auto cached = TransactionCopyCache::take(pcProp->getID());
@@ -853,7 +914,7 @@ void TransactionObject::addOrRemoveProperty(const Property* pcProp, bool add)
         pcProp->getContainer()->getDynamicPropertyData(pcProp);
     // The type of an added property too: the transaction log names it in
     // the op, and a row that said `BadType` could not be replayed
-    // (docs/TransactionLog.md sec 30.18).
+    // (docs/TransactionLogJournal.md sec 30.18).
     data.propertyType = pcProp->getTypeId();
     if(add) 
         data.property = nullptr;

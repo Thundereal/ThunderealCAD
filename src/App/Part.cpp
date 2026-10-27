@@ -48,10 +48,9 @@ Part::Part()
     ADD_PROPERTY_TYPE(Material, (nullptr), 0, App::Prop_None, "The Material for this Part");
     ADD_PROPERTY_TYPE(Meta, (), "Part", App::Prop_None, "Map with additional meta information");
 
-    // create the uuid for the document
-    Base::Uuid id;
+    // No Uid of its own: the part's is the object's (getObjectUid(),
+    // docs/TransactionLogJournal.md sec 36.7), and Python's Uid answers it
     ADD_PROPERTY_TYPE(Id, (""), "Part", App::Prop_None, "ID (Part-Number) of the Item");
-    ADD_PROPERTY_TYPE(Uid, (id), "Part", App::Prop_None, "UUID of the Item");
 
     // license stuff (leave them empty to avoid confusion with imported 3rd party STEP/IGES files)
     ADD_PROPERTY_TYPE(License, (""), "Part", App::Prop_None, "License string of the Item");
@@ -162,6 +161,12 @@ void Part::handleChangedPropertyType(Base::XMLReader &reader, const char *TypeNa
     } else {
         App::GeoFeature::handleChangedPropertyType(reader, TypeName, prop);
     }
+}
+
+void Part::handleChangedPropertyName(Base::XMLReader &reader, const char *TypeName, const char *PropName)
+{
+    if (!restoreUidProperty(reader, TypeName, PropName))
+        App::GeoFeature::handleChangedPropertyName(reader, TypeName, PropName);
 }
 
 // Python feature ---------------------------------------------------------

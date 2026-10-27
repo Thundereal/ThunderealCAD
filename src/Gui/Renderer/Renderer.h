@@ -3019,7 +3019,7 @@ RendererExport uint16_t perViewShownModeId();
 /// The captured-mode id tagging what is drawn for the host's own views
 /// and for nobody served the document: what the host is looking at of
 /// its own accord, hung in the scene every client shares
-/// (SoFCPathAnnotation::hostOnly; docs/TransactionLog.md sec 32.24). A
+/// (SoFCPathAnnotation::hostOnly; docs/TransactionLogJournal.md sec 32.24). A
 /// view draws it as an untagged draw; a snapshot leaves it out.
 RendererExport uint16_t hostOnlyModeId();
 

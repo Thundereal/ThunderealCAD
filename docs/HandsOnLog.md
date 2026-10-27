@@ -7999,3 +7999,95 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   claims once on r183 and passed 37 of 37 on the rerun.
 - x16win pushed 5fb4053dfa (201, 189, 132, 203) this afternoon, by the
   note-taker's relay; not merged here yet.
+
+### 2026-10-21 evening to 10-22 morning: entries 207, 209, 210, 211 -- COMMITTED, not pushed, not staged
+
+- 207 (binder context, object path only): a SubShapeBinder with no
+  recorded context, held by no GeoFeatureGroup (a link group takes no
+  children's nodes), is its own context. On a copy of scanner.FCStd
+  Binder008 recomputes valid, Context itself, bound box unchanged.
+  TestShapeBinder 18 of 18. `c6b59c9c9d`.
+- 207 (the tree's reveal): an object in error with no top-level row is
+  revealed along its shortest object path, else at its shallowest row in
+  the tree's order -- no longer the first by address.
+  tree-reveal-object-path.py 3 of 3 on r197 (its setup check had failed
+  three builds running: findItems() did not give the child rows, a walk
+  of the tree does). `79c5c379ef`.
+- 210 (one automatic colour helper, three independent uses -- the user:
+  "Independent is good"): Base/AutoColor.h, the hue farthest from those
+  taken; PartDesign's body tag colour and the random colour of a new
+  shape use it. auto-colors-spread.py 3 of 3. `879643c893`.
+- 209 (c) (group 2 and 3 alike): the automatic group colours, in id
+  order, each the hue farthest from the handle's, the picked ones and the
+  groups' before it. fillet-group-colors-apart.py 5 of 5. `f9682c8e9d`.
+- 209 (a)/(b) (preview face hover and click on Fillet004) -- FOUND, the
+  missing migration recompute, as the user supposed. Probe on a copy,
+  r190c to r196: before the recompute Fillet004's references are the old
+  names (Edge1, Edge2, Edge21, Edge22, Edge9, Edge7, Edge17) and no
+  preview element maps to a row -- hover and click stay on the preview
+  itself. After doc.recompute([Fillet004]) (22 objects, 0.33 s; the
+  references become Edge20, Edge4, Edge22, Edge12, Edge2, Edge21, Edge17)
+  8 of 9 preview faces hover the base edge and its row and a click selects
+  both; the ninth gives only an edge shared by several rows (a corner
+  patch, left unmapped on purpose). Two of my probes misled on the way:
+  a face's middle is where its radius handle stands, and getObjectInfo()
+  does not see the preview under the editing root -- real hovers did.
+  Nothing to commit for it: entry 211 is the fix.
+- 211 (a localized migration recompute) -- FITS: the edited feature and
+  what it needs, 22 of 686 objects, 0.33 s against 29 to 33 s for the
+  whole document. Not built; one choice is the user's (below in my
+  report): write the results into the document, or a preview only.
+- 208 (row bands in a panel laid over its view): built, not committed;
+  the in-view task box is opaque by design, so the bands show on grey.
+  The user's answer on see-through boxes is still needed.
+
+### 2026-10-22 morning: entry 211 built and committed; then the merge and the push
+
+- 211 (the user: "1, but make sure only do this for the migration
+  case"): restore marks each object it queues for the migration recompute
+  ObjectStatus::MigrationPending (runtime only, cleared with the touch;
+  Object.State shows it). An edit (default mode) recomputes the edited
+  object and what it needs only while one of those carries the mark; a
+  touch of the user's own waits for their recompute as before.
+  `35dc43b306`, built r198b.
+  - edit-migration-recompute.py 6 of 6 (r198b had 5 of 6: the claim read
+    Box2's own length, which a Part::Box rebuilds by itself on a size
+    change; it reads the mirror now).
+  - TestPartApp 390 of 390. Document 247 of 249 under my script runner;
+    the two (DocumentObserverCases) are that runner's: the transaction log
+    names an implicit transaction after its invocation, "<implicit
+    script>". Under -t, DocumentObserverCases 6 of 6.
+  - fillet-groups-and-preview-menu.py 19 of 19, fillet-corner-vertex-pick.py
+    8 of 8.
+  - The 209 hover probe on a scanner copy, first phase (no recompute run):
+    opening Fillet004's edit recomputes it, and 8 of 9 preview faces hover
+    and click their base edge and row; the probe's own recompute after it
+    finds nothing left.
+- 208: the user's answer came through the note-taker ("See-through like
+  dock"); diagnostic run, fix not started.
+- Built as m200 (the merge over 211), green; PUSHED on the user's word
+  ("Onece finish your current task, push"): thundereal/LinkVibe
+  27e32d75f1..44ab0fc6dd. Not restaged. m200's first ctest had 69
+  failures, all the launcher's: 68 sandbox cases with no FCX_PYODIDE
+  ("expression sandbox image is not available") and DeferredLoad's %TEMP%
+  timeout; again with both set, 92 of 92.
+
+### 2026-10-22 afternoon: entry 208 -- COMMITTED `5fce831256`, not pushed
+
+- The in-view panel's lists stood on an opaque ground because every
+  overlay sheet clears a task panel's lists by a rule scoped to
+  `Gui--TaskView--TaskView` (entry 184), and the host over the picture
+  holds no TaskView. The rules OverlayManager makes from the settings now
+  give the same to `Gui--TaskView--TaskPanelHost`; the overlay sheet is on
+  the host only while it is over the picture. With the earlier
+  hasOverlayRowBands() change (the host counts as the overlay) the rows
+  band too.
+- overlay-list-row-bands-in-view.py 7 of 7 on r203: rows (59,59,59) and
+  (49,49,49) at alpha 181, the docked list's own values; the task box's
+  ground 180 at its margin and 233 under the list (box and band); beside
+  the view no row at the overlay alpha. overlay-list-row-bands.py (docked)
+  13 of 13.
+- My diagnostic's "own ground" column misled: render() with
+  DrawWindowBackground fills a widget's palette ground even when it never
+  paints one. The comparison of the r189 rows (alpha 255) with the
+  docked ones (181) is what pointed at the list's own ground.

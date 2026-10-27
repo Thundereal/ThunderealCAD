@@ -895,6 +895,11 @@ Document *Application::getDocumentByPath(const char *path, PathMatchMode checkCa
 
     std::string filepath = FileInfo(path).filePath();
     QString canonicalPath = QFileInfo(QString::fromUtf8(path)).canonicalFilePath();
+    // A file that is not there has no canonical path, and neither has an open
+    // document whose file was deleted: "" matched "", and a link to a missing
+    // file was given that document.
+    if (canonicalPath.isEmpty())
+        return nullptr;
     for (const auto &v : DocMap) {
         QFileInfo fi(QString::fromUtf8(v.second->FileName.getValue()));
         if (canonicalPath == fi.canonicalFilePath()) {
@@ -1085,8 +1090,8 @@ std::vector<Document*> Application::openDocuments(const std::vector<std::string>
 
             auto &timing = timings[doc];
             FC_TIME_INIT(t1);
-            // A version's document was restored whole when it was opened
-            // (Document::openFileVersion): nothing is left to finish.
+            // A version's document was restored when it was opened, whole or
+            // in part (Document::openFileVersion): nothing is left to finish.
             if (doc->testStatus(Document::VersionDoc)) {
                 openedDocs.emplace_back(doc);
                 it = docs.erase(it);
@@ -1162,24 +1167,39 @@ Document* Application::openDocumentPrivate(const char * FileName,
                                       FileName ? FileName : "");
 
     // A document of a file named for a version or a branch (docs/
-    // TransactionLog.md sec 27.7, 27.23, 27.24): `<file>@v<num>`, the frozen
+    // TransactionLogJournal.md sec 27.7, 27.23, 27.24): `<file>@v<num>`, the frozen
     // instance a pin shows; `<file>@<branch>@v<num>`, an editable instance
     // at that version; `<file>@<branch>@`, the branch's tip -- whatever
     // document holds the branch, or its head opened as an editable instance.
     {
         FileHistory::NameParts parts;
         if (FileHistory::parseName(FileName ? FileName : "", parts)) {
-            if (auto doc = getDocumentByPath(FileName))
-                return isMainDoc ? doc : nullptr;
+            // One read in part (sec 35 L8) goes on to openFileVersion(), which
+            // reads it again when more of it is asked for, or all of it.
+            if (Document* open = getDocumentByPath(FileName)) {
+                bool enough = !open->testStatus(Document::PartialDoc);
+                if (!enough && !isMainDoc && !objNames.empty()) {
+                    enough = true;
+                    for (const auto& name : objNames) {
+                        auto obj = open->getObject(name.c_str());
+                        enough = enough && obj && !obj->testStatus(App::PartialObject);
+                    }
+                }
+                if (enough)
+                    return isMainDoc ? open : nullptr;
+            }
             std::string reason;
             auto history = FileHistory::openFile(parts.file, &reason);
             if (!history)
                 THROWM(Base::FileSystemError, "no history in '" + parts.file + "': " + reason)
-            Document* doc = Document::openFileBranch(history, parts.branch, parts.version,
-                                                     isMainDoc && createView);
             // Asked for by a link resolving (the objects it wants are named):
             // opened for a pin, offered for closing when its pins go (27.30).
-            if (!objNames.empty() && doc->testStatus(Document::FrozenVersion))
+            const bool forLinks = !objNames.empty();
+            if (DocumentParams::getNoPartialLoading())
+                objNames.clear();
+            Document* doc = Document::openFileBranch(history, parts.branch, parts.version,
+                                                     isMainDoc && createView, objNames);
+            if (forLinks && doc->testStatus(Document::FrozenVersion))
                 doc->setStatus(Document::OpenedForPin, true);
             if (!DocFileMap.empty())
                 DocFileMap[FileInfo(doc->FileName.getValue()).filePath()] = doc;
@@ -1265,7 +1285,7 @@ Document* Application::openDocumentPrivate(const char * FileName,
         label = name.c_str();
     Document* newDoc = newDocument(name.c_str(),label,isMainDoc && createView);
 
-    // Who the document is, not a change to it (docs/TransactionLog.md sec
+    // Who the document is, not a change to it (docs/TransactionLogJournal.md sec
     // 27.9): outside any transaction, so it joins none that is open, which
     // the restore below would commit in every document (sec 27.15).
     {
@@ -1314,7 +1334,8 @@ Document* Application::recoverDocument(const char* transientDir, bool createView
     doc->setUndoMode(1);
     try {
         if (!doc->recoverFromLog(dir))
-            THROWM(Base::RuntimeError, std::string("nothing to recover in ") + dir)
+            THROWM(Base::RuntimeError, std::string("nothing recovered from ") + dir
+                   + "; the report view says why")
     }
     catch (...) {
         closeDocument(doc->getName());

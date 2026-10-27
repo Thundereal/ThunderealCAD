@@ -51,7 +51,7 @@ class TopoShape;
  * Two states of one object's shape -- before and after an edit, or as two
  * branches have it -- are compared element by element: which element of the
  * one is which of the other, and whether it is as it was. It is data, with
- * nothing of the view in it (docs/TransactionLog.md sec 32).
+ * nothing of the view in it (docs/TransactionLogJournal.md sec 32).
  *
  * An element of A is paired with one of B in stages, each working on what the
  * one before left (sec 32.5 has what each is worth, measured):
@@ -192,7 +192,7 @@ public:
     };
 
     /** Two states of a solid taken apart by their material
-     * (docs/TransactionLog.md sec 32.14): one general fuse of the two, and
+     * (docs/TransactionLogJournal.md sec 32.14): one general fuse of the two, and
      * of its cells those that only A has, those that only B has, and those
      * of both. Where the faces of a shape say which of them changed, this
      * says where: a box made taller is four faces changed and one moved,
@@ -214,7 +214,7 @@ public:
                          const Message_ProgressRange& progress = Message_ProgressRange());
 
     /** A shape value the transaction log of \a doc holds, by its ref, as a
-     * shape with its element names (docs/TransactionLog.md sec 32.7): what an
+     * shape with its element names (docs/TransactionLogJournal.md sec 32.7): what an
      * object's shape was at a row, or is on another branch, with nothing of
      * the document touched. \a tag is the object's id, which the names of its
      * own elements are read by; 0 where it is not known.
@@ -229,7 +229,7 @@ public:
     /// The same of a value already read; false where it is no shape.
     static bool valueShape(const App::Document& doc, const App::CapturedValue& value, long tag,
                            TopoShape& shape);
-    /** What \a shape is, in a line (docs/TransactionLog.md sec 32.35): its
+    /** What \a shape is, in a line (docs/TransactionLogJournal.md sec 32.35): its
      * kind, how many solids, shells, faces, edges and vertices it has, its
      * volume, area or length, and the size of its bounding box -- for a value
      * of the log, whose text is the start of the geometry's file.

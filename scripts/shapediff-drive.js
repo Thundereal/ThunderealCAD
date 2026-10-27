@@ -1,5 +1,5 @@
 // Drive a real browser viewer through an object's last change
-// (docs/TransactionLog.md sec 32.19).
+// (docs/TransactionLogJournal.md sec 32.19).
 //
 // tests/gui/serve-shape-diff-browser.py serves the document. The page asks
 // for the edit mode that shows the last change of an object

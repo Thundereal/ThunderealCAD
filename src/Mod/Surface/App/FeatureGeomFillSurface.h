@@ -28,6 +28,8 @@
 #include <Mod/Part/App/FeaturePartSpline.h>
 #include <Mod/Surface/SurfaceGlobal.h>
 
+#include "EdgeConditions.h"
+
 #include <GeomFill_FillingStyle.hxx>
 #include <Geom_BoundedSurface.hxx>
 #include <ShapeExtend_WireData.hxx>
@@ -71,6 +73,22 @@ public:
     App::PropertyBoolList ReversedList;     // Booleans to handle orientation of the curves
     App::PropertyEnumeration FillType;  // Fill method (1, 2, or 3 for Stretch, Coons, and Curved)
 
+    /// The edge conditions of the boundary curves, in BoundaryList's order
+    /// (docs/Surface.md sec 5.1); a side no curve is on is free
+    App::PropertyEnumeration Boundary1Continuity;
+    App::PropertyFloatConstraint Boundary1Weight;
+    App::PropertyLinkSub Boundary1Support;
+    App::PropertyEnumeration Boundary2Continuity;
+    App::PropertyFloatConstraint Boundary2Weight;
+    App::PropertyLinkSub Boundary2Support;
+    App::PropertyEnumeration Boundary3Continuity;
+    App::PropertyFloatConstraint Boundary3Weight;
+    App::PropertyLinkSub Boundary3Support;
+    App::PropertyEnumeration Boundary4Continuity;
+    App::PropertyFloatConstraint Boundary4Weight;
+    App::PropertyLinkSub Boundary4Support;
+    App::PropertyStringList Achieved;  // Output
+
     short mustExecute() const override;
     void onChanged(const App::Property*) override;
     App::DocumentObjectExecReturn* execute() override;
@@ -88,6 +106,9 @@ protected:
     void createFace(const Handle(Geom_BoundedSurface) & aSurface);
     void createBezierSurface(TopoDS_Wire& aWire);
     void createBSplineSurface(TopoDS_Wire& aWire);
+    /// Meets the edge conditions on the filled face in `result`; returns why
+    /// it could not, or empty
+    std::string applyConditions(Part::TopoShape& result, const std::vector<Part::TopoShape>& inputs);
 
 private:
     static const char* FillTypeEnums[];

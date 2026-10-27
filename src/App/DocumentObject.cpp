@@ -317,6 +317,7 @@ void DocumentObject::purgeTouched()
 {
     FC_TRACE("purgeTouched " << getFullName());
     StatusBits.reset(ObjectStatus::Enforce);
+    StatusBits.reset(ObjectStatus::MigrationPending);
     setPropertyStatus(Property::Touched, false);
     _enforceRecompute = false;
     if(StatusBits.test(ObjectStatus::Touch)) {
@@ -581,7 +582,7 @@ int DocumentObject::isExporting() const {
 std::string DocumentObject::getExportName(bool forced) const {
     if(!isAttachedToDocument()) {
         // Removed, and a transaction-log capture is asking for the name it
-        // had (docs/TransactionLog.md sec 24.3).
+        // had (docs/TransactionLogJournal.md sec 24.3).
         if (auto name = CaptureNames::find(this))
             return *name;
         return {};
@@ -1043,7 +1044,7 @@ void DocumentObject::onBeforeChange(const Property* prop)
     // Store current name in oldLabel, to be able to easily retrieve old name of document object later
     // when renaming expressions.
     // A pinned version refuses every change to its data, before anything
-    // changes (docs/TransactionLog.md sec 27.22). Exempt as checkUserEdit
+    // changes (docs/TransactionLogJournal.md sec 27.22). Exempt as checkUserEdit
     // exempts them: Visibility is view state, TreeRank the tree's own
     // ordering, ViewObject the mirror of the view provider; and a property
     // never saved is a cache. A link letting go of a document that closes,
@@ -1541,6 +1542,21 @@ void DocumentObject::onDocumentRestored()
         Visibility.setStatus(Property::NoModify,true);
 }
 
+bool DocumentObject::restoreUidProperty(Base::XMLReader &reader, const char *TypeName,
+                                        const char *PropName)
+{
+    if (strcmp(PropName, "Uid") != 0
+            || strcmp(TypeName, PropertyUUID::getClassTypeId().getName()) != 0)
+        return false;
+    // Taken for the UID as `_ObjectUUID` is, which a file written later
+    // holds it as, and which -- read after it -- has the last word
+    PropertyUUID uid;
+    uid.Restore(reader);
+    if (_pDoc)
+        _pDoc->carryObjectUid(this, uid.getValueStr());
+    return true;
+}
+
 std::vector<std::string> DocumentObject::getMergeUnit(const char* prop) const
 {
     // The looks of an object's elements are one value, merged by what they
@@ -1735,6 +1751,26 @@ bool DocumentObject::hasChildElement() const {
     RecursionGuard guard(queryingChildElement,this);
 
     return queryExtension(&DocumentObjectExtension::extensionHasChildElement);
+}
+
+std::vector<DocumentObject*> DocumentObject::getOwnedObjects() const
+{
+    std::vector<DocumentObject*> owned;
+    for (auto ext : getExtensionsDerivedFromType<DocumentObjectExtension>())
+        ext->extensionGetOwnedObjects(owned);
+    return owned;
+}
+
+DocumentObject* DocumentObject::getOwnedCounterpart(const DocumentObject* owned,
+                                                    const DocumentObject* liveOwner,
+                                                    OwnedPaste& how) const
+{
+    how = OwnedPaste::FollowOwner;
+    for (auto ext : getExtensionsDerivedFromType<DocumentObjectExtension>()) {
+        if (auto there = ext->extensionGetOwnedCounterpart(owned, liveOwner, how))
+            return there;
+    }
+    return nullptr;
 }
 
 DocumentObject *DocumentObject::resolve(const char *subname, 
@@ -2011,6 +2047,9 @@ bool DocumentObject::redirectSubName(std::ostringstream &, DocumentObject *, Doc
 }
 
 void DocumentObject::onPropertyStatusChanged(const Property &prop, unsigned long oldStatus) {
+    // The status is saved with the property (docs/TransactionLogJournal.md sec 38.14)
+    if (isAttachedToDocument() && getDocument())
+        getDocument()->noteSavedChange(this);
     if(!Document::isAnyRestoring() && isAttachedToDocument() && getDocument()) {
         static const unsigned long inputBit = 1UL << Property::Input;
         bool wasInput = (oldStatus & inputBit) != 0;

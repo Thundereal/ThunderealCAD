@@ -24,6 +24,7 @@
 #define SURFACE_FEATURESEWING_H
 
 #include <App/PropertyStandard.h>
+#include <App/PropertyUnits.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Surface/SurfaceGlobal.h>
 
@@ -45,6 +46,9 @@ public:
     App::PropertyBool DegenerateShape;  // Option for analysis of degenerated shapes
     App::PropertyBool CutFreeEdges;     // Option for cutting of free edges
     App::PropertyBool Nonmanifold;      // Option for non-manifold processing
+
+    App::PropertyInteger FreeEdges;  // Output: edges left unsewn
+    App::PropertyDistance MaxGap;    // Output: the largest gap closed
 
     // recalculate the feature
     App::DocumentObjectExecReturn* execute() override;

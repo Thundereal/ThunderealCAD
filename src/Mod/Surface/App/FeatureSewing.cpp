@@ -22,11 +22,16 @@
 
 #include "PreCompiled.h"
 #ifndef _PreComp_
+#include <algorithm>
+
 #include <BRepBuilderAPI_Sewing.hxx>
+#include <BRep_Tool.hxx>
+#include <TopExp_Explorer.hxx>
 #include <Precision.hxx>
 #include <TopoDS.hxx>
 #endif
 
+#include <App/Document.h>
 #include "FeatureSewing.h"
 
 
@@ -52,6 +57,16 @@ Sewing::Sewing()
                       "Analysis of degenerated shapes");
     ADD_PROPERTY_TYPE(CutFreeEdges, (true), "Sewing", App::Prop_None, "Cutting of free edges");
     ADD_PROPERTY_TYPE(Nonmanifold, (false), "Sewing", App::Prop_None, "Non-manifold processing");
+    ADD_PROPERTY_TYPE(FreeEdges,
+                      (0),
+                      "Sewing",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Output),
+                      "Edges left unsewn: boundaries, or gaps wider than the tolerance");
+    ADD_PROPERTY_TYPE(MaxGap,
+                      (0.0),
+                      "Sewing",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Output),
+                      "The largest gap closed: sewing raises an edge's tolerance to it");
 
     ShapeList.setScope(App::LinkScope::Global);
 }
@@ -77,18 +92,18 @@ App::DocumentObjectExecReturn* Sewing::execute()
     try {
         BRepBuilderAPI_Sewing builder(atol, opt1, opt2, opt3, opt4);
 
+        std::vector<Part::TopoShape> sources;
         std::vector<App::PropertyLinkSubList::SubSet> subset = ShapeList.getSubListValues();
         for (const auto& it : subset) {
             // the subset has the documentobject and the element name which belongs to it,
             // in our case for example the cube object and the "Edge1" string
             if (it.first->isDerivedFrom<Part::Feature>()) {
-                // we get the shape of the document object which resemble the whole box
-                Part::TopoShape ts = static_cast<Part::Feature*>(it.first)->Shape.getShape();
-
-                // we want only the subshape which is linked
+                // we want only the subshape which is linked, with its name
                 for (const auto& jt : it.second) {
-                    TopoDS_Shape sub = ts.getSubShape(jt.c_str());
-                    builder.Add(sub);
+                    sources.push_back(Part::Feature::getTopoShape(it.first,
+                                                                  jt.c_str(),
+                                                                  /*needSubElement*/ true));
+                    builder.Add(sources.back().getShape());
                 }
             }
             else {
@@ -98,11 +113,18 @@ App::DocumentObjectExecReturn* Sewing::execute()
 
         builder.Perform();  // Perform Sewing
 
-        TopoDS_Shape aShape = builder.SewedShape();  // Get Shape
-        if (aShape.IsNull()) {
+        if (builder.SewedShape().IsNull()) {
             return new App::DocumentObjectExecReturn("Resulting shape is null");
         }
-        this->Shape.setValue(aShape);
+        Part::TopoShape result(0, getDocument()->getStringHasher());
+        this->Shape.setValue(result.makEShape(builder, sources));
+
+        double gap = 0.0;
+        for (TopExp_Explorer xp(builder.SewedShape(), TopAbs_EDGE); xp.More(); xp.Next()) {
+            gap = std::max(gap, BRep_Tool::Tolerance(TopoDS::Edge(xp.Current())));
+        }
+        FreeEdges.setValue(builder.NbFreeEdges());
+        MaxGap.setValue(gap);
         return StdReturn;
     }
     catch (Standard_Failure& e) {

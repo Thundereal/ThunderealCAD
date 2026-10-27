@@ -86,6 +86,9 @@ public:
     void setPrettySel();
     void setPrettyPre();
     void setPrettyNormal();
+    /// The text items in \a state (PRE, SEL or NORMAL), telling no one: the
+    /// dimension's own pretty states carry the label (entry 218)
+    void showPretty(int state);
     void setColor(QColor color);
 
     QGCustomText* getDimText() { return m_dimText; }

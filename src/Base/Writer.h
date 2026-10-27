@@ -55,7 +55,7 @@ class Persistence;
 class SequencerLauncher;
 
 /** One archive entry as the transaction log captures it
- * (docs/TransactionLog.md sec 23.3): the bytes in order, cut at every
+ * (docs/TransactionLogJournal.md sec 23.3): the bytes in order, cut at every
  * property body a container wrote through the writer's property sink.
  *
  * A `Text` segment is literal bytes. A `Count` segment stands where a
@@ -87,6 +87,11 @@ struct BaseExport EntryCapture
         std::string elide;
     };
     std::vector<Segment> segments;
+    /** Not written by this save: the entry is the one version `keepFrom` of
+     * the transaction log has under the same name (docs/TransactionLogJournal.md
+     * sec 38.12, an unchanged object of a folder save). 0 for a written one.
+     */
+    int64_t keepFrom {0};
 
     EntryCapture() = default;
     /// A capture of plain bytes, one Text segment.
@@ -97,7 +102,7 @@ struct BaseExport EntryCapture
 };
 
 /** What decides, per property, whether the writer's loop serialises it
- * (docs/TransactionLog.md sec 23.3). Record mode claims nothing and the
+ * (docs/TransactionLogJournal.md sec 23.3). Record mode claims nothing and the
  * capture carries every body; compose mode claims what its owner already
  * holds by `key`, and a claimed body is left out of the capture unless
  * verify() asks for it to be written anyway, for comparison.
@@ -265,6 +270,16 @@ public:
     virtual bool supportsSharedStore() const { return false; }
     /// get all registered file names
     const std::vector<std::string>& getFilenames() const;
+    /// How many entries were added (addFile()), for telling which an
+    /// entry's own writing added.
+    std::size_t fileCount() const
+    {
+        return FileList.size();
+    }
+    const std::string& fileNameAt(std::size_t index) const
+    {
+        return FileList[index].FileName;
+    }
     /// Set mode
     void setMode(const std::string& mode);
     /// Set modes
@@ -349,7 +364,7 @@ public:
      * Every byte written to Stream() between beginTap() and endTap() is
      * also handed to the sink, in order. The bytes still reach the stream
      * unchanged; the tap only observes. It is how a save hashes one entry
-     * (Document.xml, docs/TransactionLog.md sec 11) as it streams out
+     * (Document.xml, docs/TransactionLogJournal.md sec 11) as it streams out
      * without writing it twice. putNextEntry() ends a tap left open.
      */
     //@{
@@ -359,7 +374,7 @@ public:
     bool isTapping() const { return static_cast<bool>(tapBuf); }
 
     /** Hand the capture of every entry writeFiles() serves to `sink`, by
-     * name: the version manifest's XML entries (docs/TransactionLog.md sec
+     * name: the version manifest's XML entries (docs/TransactionLogJournal.md sec
      * 16.1, 23.3). The writers serve each entry through writeEntry(), which
      * captures it when a sink is set. Blob entries are the manager's, not
      * these. An entry written outside writeFiles() (Document.xml) is
@@ -541,7 +556,7 @@ private:
  * Every entry streams into a sink that discards it, so a document can be
  * serialised for the side effects of a save -- the blobs made, the taps
  * fed, the entries served -- without an archive: the transaction log's
- * snapshot between saves (docs/TransactionLog.md sec 16.3) is one.
+ * snapshot between saves (docs/TransactionLogJournal.md sec 16.3) is one.
  */
 class BaseExport NullWriter: public Writer
 {
@@ -588,10 +603,45 @@ public:
      */
     virtual bool shouldWrite(const std::string& name, const Base::Persistence* Object) const;
 
-    /// Directory the entries are written into.
+    /// Directory the entries are for: what is in it is the save before this
+    /// one, and what a writer compares with.
     const std::string& getDirName() const
     {
         return DirName;
+    }
+
+    /** Write every entry into `dir` instead, laid out as in the directory
+     * itself, for the caller to move in once the save is whole
+     * (docs/TransactionLogJournal.md sec 38). Empty, the default, writes in place.
+     */
+    void setStageDir(const std::string& dir)
+    {
+        StageDir = dir;
+    }
+    const std::string& getStageDir() const
+    {
+        return StageDir;
+    }
+
+    /** A file of the directory, relative to it, that this save no longer
+     * has. Deleted at once when writing in place; when staging, kept in
+     * removals() for the caller to delete once the save is in.
+     */
+    void dropFile(const std::string& name);
+    const std::vector<std::string>& removals() const
+    {
+        return Removals;
+    }
+
+    /** A file of the directory this save keeps as it is: not written, and
+     * still one of the save's files, so nothing removes it
+     * (docs/TransactionLogJournal.md sec 38.12). Registered by addFile() or not --
+     * a data file the unwritten object's last write added.
+     */
+    void keepFile(const std::string& name);
+    bool isKept(const std::string& name) const
+    {
+        return Kept.count(name) != 0;
     }
 
     FileWriter(const FileWriter&) = delete;
@@ -602,6 +652,9 @@ public:
 protected:
     // NOLINTBEGIN
     std::string DirName;
+    std::string StageDir;
+    std::vector<std::string> Removals;
+    std::set<std::string> Kept;
     /// Base::ofstream, not std::ofstream: on Windows the narrow overload
     /// converts the path with the ANSI code page, so a UTF-8 entry name
     /// lands on disk as mojibake, and a path past MAX_PATH is not opened

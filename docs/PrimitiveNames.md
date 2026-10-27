@@ -191,7 +191,7 @@ takes the new version without a word where the shape has no names
 (`PropertyTopoShape.cpp`, "version mismatch"), which is the very state to
 be caught -- the 2025 file warned of its cut and not of its box. A value
 the transaction log captures is written by a property on no object, with
-the property's version and not its owner's (docs/TransactionLog.md sec
+the property's version and not its owner's (docs/TransactionLogJournal.md sec
 27.72), so a primitive put back from the log would say the old version and
 ask for a recompute at the next open, as every value did before that
 section. And the version of every shape, `OpCodes::Version`, would flag

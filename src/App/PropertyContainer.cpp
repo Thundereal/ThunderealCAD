@@ -327,6 +327,17 @@ void PropertyContainer::beforeSave(Base::Writer &writer) const
     }
 }
 
+namespace {
+// What a file keeps of a property's status: every bit but Touched, which no
+// file preserves -- the property's own Restore touches it again, and the
+// document purges it after -- so that an object read and written again comes
+// out as it was (docs/TransactionLogJournal.md sec 38.14).
+unsigned long savedStatus(const Property& prop)
+{
+    return prop.getStatus() & ~(1UL << Property::Touched);
+}
+} // namespace
+
 void PropertyContainer::Save (Base::Writer &writer) const
 {
     if (!_pimpl || _pimpl->propertyMap.empty())
@@ -344,7 +355,7 @@ void PropertyContainer::Save (Base::Writer &writer) const
     // and the decision, so an equivalence that is looser than the bytes can
     // never lose a value. The opt-outs are checked first, so the counters
     // only speak about properties that were actually eligible.
-    // A composing sink (docs/TransactionLog.md 23.3) decides the elision by
+    // A composing sink (docs/TransactionLogJournal.md 23.3) decides the elision by
     // hash, off this thread: the cheap tests stay here and the serialisation
     // that would settle it is exactly what compose mode exists to skip, so
     // the property stays in with the default's hash for the sink's owner to
@@ -431,7 +442,7 @@ void PropertyContainer::Save (Base::Writer &writer) const
     for(auto prop : transients) {
         writer.Stream() << writer.ind() << "<_Property name=\"" << prop->getName()
             << "\" type=\"" << writer.typeName(prop->getTypeId())
-            << "\" status=\"" << prop->getStatus() << "\"/>\n";
+            << "\" status=\"" << savedStatus(*prop) << "\"/>\n";
     }
     writer.decInd();
 
@@ -455,7 +466,7 @@ void PropertyContainer::Save (Base::Writer &writer) const
 
         dynamicProps.save(it.second,writer);
 
-        auto status = it.second->getStatus();
+        auto status = savedStatus(*it.second);
         if(status)
             writer.Stream() << "\" status=\"" << status;
         writer.Stream() << "\">";

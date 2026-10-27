@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 30.3 S.b and 30.6: the author of a
+# GUI check of docs/TransactionLogJournal.md sec 30.3 S.b and 30.6: the author of a
 # row. A document is served, three clients connect -- one a front door
 # verified, one holding an invitation issued to its name, one with nothing
 # but the name it gives -- and the log says who came and who wrote what.

@@ -307,7 +307,7 @@ void SketchObject::migrateExternalTypes()
     // rebuild can tell the pieces apart.
     unsplitExternalRefs.clear();
     // A flag set here is a change to ExternalGeo, made through its guard
-    // (docs/TransactionLog.md 23.6), which marks the property on the first
+    // (docs/TransactionLogJournal.md 23.6), which marks the property on the first
     // write only.
     Part::PropertyGeometryList::atomic_change guard(ExternalGeo, false);
     for (std::size_t i = 0; i < externalGeoRef.size() && i < types.size(); ++i) {

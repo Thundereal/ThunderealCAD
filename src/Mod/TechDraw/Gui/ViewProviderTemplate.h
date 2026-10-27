@@ -59,6 +59,12 @@ public:
     TechDraw::DrawTemplate* getTemplate() const;
     MDIViewPage* getMDIViewPage(void) const;
     Gui::MDIView *getMDIView() const override;
+    Gui::MDIView *getOrCreateMDIView() override;
+    /// Shown in its page's view (entry 217)
+    bool hasOwnView() const override
+    {
+        return true;
+    }
 
     void setMarkers(bool state);
     bool onDelete(const std::vector<std::string> &) override;

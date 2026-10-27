@@ -577,6 +577,54 @@ void LinkBaseExtension::setOnChangeCopyObject(
         prop->setValue(key, exclude ? "-" : nullptr);
 }
 
+// copyObject() returns the copies in the order of the input only when every
+// one was made; one that could not be ("Cannot create object") leaves a list
+// in read order, where the last is not the linked object's copy. Such a copy
+// is taken back whole, and false returned (sec 37.7 item 12).
+static bool copiedWhole(App::Document* doc,
+                        const std::vector<App::DocumentObject*>& srcObjs,
+                        const std::vector<App::DocumentObject*>& copiedObjs)
+{
+    if (copiedObjs.size() == srcObjs.size())
+        return true;
+    std::vector<std::string> names;
+    for (auto obj : copiedObjs) {
+        if (obj && obj->isAttachedToDocument())
+            names.emplace_back(obj->getNameInDocument());
+    }
+    // By name, looked up again: a removal's unsetup may take others with it.
+    for (auto it = names.rbegin(); it != names.rend(); ++it) {
+        if (doc->getObject(it->c_str()))
+            doc->removeObject(it->c_str());
+    }
+    FC_ERR("copy on change: " << copiedObjs.size() << " of " << srcObjs.size()
+                              << " objects copied; the copy is not taken");
+    return false;
+}
+
+// Each copy names its source by the source's UID (docs/TransactionLogJournal.md
+// sec 36.7) in _SourceUUID: the next copy finds the old one it replaces by
+// it. copyObject() returns the copies in the order of the input.
+static void nameCopySources(const std::vector<App::DocumentObject*>& srcObjs,
+                            const std::vector<App::DocumentObject*>& copiedObjs)
+{
+    if (copiedObjs.size() != srcObjs.size())
+        return;
+    for (std::size_t i = 0; i < copiedObjs.size(); ++i) {
+        auto copy = copiedObjs[i];
+        if (!copy || srcObjs[i]->getObjectUid().empty())
+            continue;
+        auto prop = Base::freecad_dynamic_cast<PropertyUUID>(
+                copy->getDynamicPropertyByName("_SourceUUID"));
+        if (!prop && !copy->getDynamicPropertyByName("_SourceUUID"))
+            prop = static_cast<PropertyUUID*>(copy->addDynamicProperty(
+                    "App::PropertyUUID", "_SourceUUID", nullptr, nullptr,
+                    Prop_Output | Prop_Hidden));
+        if (prop)
+            prop->setValue(srcObjs[i]->getObjectUid());
+    }
+}
+
 // The purpose of this function is to synchronize the mutated copy to the
 // original linked CopyOnChange object. It will make a new copy if any of the
 // non-CopyOnChange property of the original object has changed.
@@ -639,12 +687,15 @@ void LinkBaseExtension::syncCopyOnChange()
     // Refresh signal connection to monitor changes
     monitorOnChangeCopyObjects(srcObjs);
 
-    // Copy the objects. Document::export/importObjects() (called by
-    // copyObject()) will generate a _ObjectUUID for each source object and
-    // match it with a _SourceUUID in the copy.
+    // Copy the objects, each naming its source in _SourceUUID
+    // (nameCopySources()): what matches the old copies to the new.
     auto copiedObjs = parent->getDocument()->copyObject(srcObjs);
     if(copiedObjs.empty())
         return;
+    // The old copies stay as they are.
+    if (!copiedWhole(parent->getDocument(), srcObjs, copiedObjs))
+        return;
+    nameCopySources(srcObjs, copiedObjs);
 
     // copyObject() will return copy in order of the same order of the input,
     // so the last object will be the copy of the original linked object
@@ -961,6 +1012,10 @@ App::DocumentObject *LinkBaseExtension::makeCopyOnChange() {
     auto objs = parent->getDocument()->copyObject(srcobjs);
     if(objs.empty())
         return nullptr;
+    if (!copiedWhole(parent->getDocument(), srcobjs, objs))
+        FC_THROWM(Base::RuntimeError, "Cannot copy every object the link depends on: "
+            << App::SubObjectT(linked).getObjectFullName(parent->getDocument()->getName()));
+    nameCopySources(srcobjs, objs);
 
     monitorOnChangeCopyObjects(srcobjs);
 
@@ -1073,6 +1128,86 @@ int LinkBaseExtension::_getElementCountValue() const {
     if(prop)
         return prop->getValue();
     return 0;
+}
+
+void LinkBaseExtension::extensionGetOwnedObjects(std::vector<DocumentObject*>& owned) const
+{
+    if (auto group = getLinkCopyOnChangeGroupValue())
+        owned.push_back(group);
+    if (!getElementListProperty())
+        return;
+    auto container = getContainer();
+    const long ownerID = container ? container->getID() : 0;
+    const long mode = getLinkModeValue();
+    // What detachElement() removes with the link
+    for (auto obj : getElementListValue()) {
+        if (!obj)
+            continue;
+        if (mode == LinkModeAutoDelete) {
+            owned.push_back(obj);
+            continue;
+        }
+        if (mode != LinkModeAutoUnlink)
+            continue;
+        auto ext = obj->getExtensionByType<LinkBaseExtension>(true);
+        if (ext && ext->_LinkOwner.getValue() == ownerID)
+            owned.push_back(obj);
+    }
+}
+
+DocumentObject* LinkBaseExtension::extensionGetOwnedCounterpart(const DocumentObject* owned,
+                                                               const DocumentObject* liveOwner,
+                                                               OwnedPaste& how) const
+{
+    if (!owned || !liveOwner)
+        return nullptr;
+    auto live = liveOwner->getExtensionByType<LinkBaseExtension>(true);
+    if (!live)
+        return nullptr;
+    if (owned == getLinkCopyOnChangeGroupValue()) {
+        how = OwnedPaste::FollowOwner;
+        return live->getLinkCopyOnChangeGroupValue();
+    }
+    if (!getElementListProperty() || !live->getElementListProperty())
+        return nullptr;
+    const auto& mine = getElementListValue();
+    auto it = std::find(mine.begin(), mine.end(), owned);
+    if (it == mine.end())
+        return nullptr;
+    how = OwnedPaste::FollowOwner;
+    const auto& theirs = live->getElementListValue();
+    // A copy names its source (36.7): the live copy of the same one
+    auto source = [](const DocumentObject* obj) {
+        auto prop = Base::freecad_dynamic_cast<PropertyUUID>(
+            obj->getPropertyByName("_SourceUUID"));
+        return prop ? prop->getValueStr() : std::string();
+    };
+    const std::string from = source(owned);
+    if (!from.empty()) {
+        for (auto obj : theirs) {
+            if (obj && source(obj) == from)
+                return obj;
+        }
+        return nullptr;
+    }
+    // An array's element is a slot, the one of its index
+    if (getLinkedObjectProperty()) {
+        const std::size_t index = it - mine.begin();
+        if (index < theirs.size() && theirs[index]
+                && theirs[index]->getTypeId() == owned->getTypeId())
+            return theirs[index];
+        return nullptr;
+    }
+    // A group's is content: the live one of its UID or none. By its place
+    // it stood for a neighbour -- one added here apart, or the next one up
+    // after a removal (sec 37.12)
+    const std::string& uid = owned->getObjectUid();
+    for (auto obj : theirs) {
+        if (obj && !uid.empty() && obj->getObjectUid() == uid
+                && obj->getTypeId() == owned->getTypeId())
+            return obj;
+    }
+    return nullptr;
 }
 
 bool LinkBaseExtension::extensionHasChildElement() const {
@@ -2521,6 +2656,23 @@ void LinkBaseExtension::detachElement(DocumentObject *obj) {
         return;
     }
     obj->getDocument()->removeObject(obj->getNameInDocument());
+}
+
+bool LinkBaseExtension::releaseElement(DocumentObject *obj) {
+    auto prop = getElementListProperty();
+    if(!obj || !prop || getLinkedObjectProperty())
+        return false;
+    auto objs = prop->getValues();
+    auto it = std::find(objs.begin(), objs.end(), obj);
+    if(it == objs.end())
+        return false;
+    objs.erase(it);
+    prop->setValues(objs);
+    auto owner = getContainer();
+    auto ext = obj->getExtensionByType<LinkBaseExtension>(true);
+    if(owner && ext && ext->_LinkOwner.getValue() == owner->getID())
+        ext->_LinkOwner.setValue(0);
+    return true;
 }
 
 std::vector<App::DocumentObject*> LinkBaseExtension::getLinkedChildren(bool filter) const{

@@ -41,6 +41,12 @@ public:
     ~ViewProviderTile() override;
 
     Gui::MDIView* getMDIView() const override;
+    Gui::MDIView* getOrCreateMDIView() override;
+    /// Shown in its weld symbol's page view (entry 217)
+    bool hasOwnView() const override
+    {
+        return true;
+    }
 
     bool useNewSelectionModel() const override {return false;}
     bool canDelete(App::DocumentObject *obj) const override;

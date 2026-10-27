@@ -88,6 +88,7 @@
 #include "AssemblyObject.h"
 #include "AssemblyObjectPy.h"
 #include "AssemblyUtils.h"
+#include <App/DocumentObjectExtension.h>
 #include "Groups.h"
 
 FC_LOG_LEVEL_INIT("Assembly", true, true, true)
@@ -716,6 +717,42 @@ T* AssemblyObject::getGroup()
         }
     }
     return nullptr;
+}
+
+namespace
+{
+/// The groups an assembly owns: the ones its deletion deletes
+bool ownedGroup(const App::DocumentObject* obj)
+{
+    return obj
+        && (obj->is<JointGroup>() || obj->is<ViewGroup>() || obj->is<BomGroup>());
+}
+}  // namespace
+
+std::vector<App::DocumentObject*> AssemblyObject::getOwnedObjects() const
+{
+    auto owned = App::Part::getOwnedObjects();
+    for (auto obj : Group.getValues()) {
+        if (ownedGroup(obj))
+            owned.push_back(obj);
+    }
+    return owned;
+}
+
+App::DocumentObject* AssemblyObject::getOwnedCounterpart(const App::DocumentObject* owned,
+                                                         const App::DocumentObject* liveOwner,
+                                                         App::OwnedPaste& how) const
+{
+    auto live = Base::freecad_dynamic_cast<const AssemblyObject>(liveOwner);
+    if (live && ownedGroup(owned)) {
+        how = App::OwnedPaste::FollowOwner;
+        for (auto obj : live->Group.getValues()) {
+            if (obj && obj->getTypeId() == owned->getTypeId())
+                return obj;
+        }
+        return nullptr;
+    }
+    return App::Part::getOwnedCounterpart(owned, liveOwner, how);
 }
 
 JointGroup* AssemblyObject::getJointGroup() const

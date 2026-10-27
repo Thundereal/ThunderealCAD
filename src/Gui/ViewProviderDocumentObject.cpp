@@ -731,7 +731,7 @@ bool ViewProviderDocumentObject::valueChangeAt(long long row, const char *prop,
     bool found = false;
     try {
         App::TransactionStore &store = log->store();
-        // What the row made of it (docs/TransactionLog.md sec 32.10): the
+        // What the row made of it (docs/TransactionLogJournal.md sec 32.10): the
         // value before the first time it set it, and after the last
         for (const App::LogOp &op : store.ops(row)) {
             if (op.ckind != "obj" || op.cid != obj->getID() || op.op != "set"
@@ -1139,6 +1139,9 @@ void ViewProviderDocumentObject::onPropertyStatusChanged(
         const App::Property &prop, unsigned long oldStatus)
 {
     (void)oldStatus;
+    // The status is saved with the property (docs/TransactionLogJournal.md sec 38.14)
+    if (pcObject && pcObject->getDocument())
+        pcObject->getDocument()->noteSavedChange(this);
     if(!App::Document::isAnyRestoring() && pcObject && pcObject->getDocument())
         pcObject->getDocument()->signalChangePropertyEditor(*pcObject->getDocument(),prop);
 }

@@ -596,7 +596,7 @@ bool DrawViewPart::restoreStoredGeometry()
 //! -- or, while the document is read back from its transaction log (a branch
 //! switch, a version read whole), the projection the log supplies: the
 //! version's own, with the view touched as it was saved, so the next
-//! recompute projects it as it would have (docs/TransactionLog.md sec 27.71)
+//! recompute projects it as it would have (docs/TransactionLogJournal.md sec 27.71)
 bool DrawViewPart::canReuseStoredGeometry() const
 {
     if (!m_geometryFromStore) {

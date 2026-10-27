@@ -39,6 +39,7 @@ class QCheckBox;
 class QComboBox;
 class QMenu;
 class QObject;
+class QWidget;
 
 /** \file PartDesign/Gui/Utils.h
  *  This file contains some utility function used over PartDesignGui module
@@ -55,6 +56,9 @@ namespace Part {
 
 namespace Gui {
     class GizmoContainer;
+    namespace TaskView {
+        class TaskDialog;
+    }
 }
 
 namespace App {
@@ -77,6 +81,20 @@ bool setEdit(App::DocumentObject *obj, App::DocumentObject *container=0,
 
 /// Call before editing object to setup visibilities
 void beforeEdit(App::DocumentObject *editingObj);
+
+/** Shows a PartDesign task dialog (Gui::Control().showDialog()), its
+ * widgets then able to shrink with the panel (fitTaskWidgets())
+ */
+void showTaskDialog(Gui::TaskView::TaskDialog *dlg);
+/** Gives the buttons, check boxes, spin boxes, combo boxes and labels under
+ * \a root a minimum width of a few letters, where Qt's would be their whole
+ * text (a check box), the style's (75 px a push button on Windows) or the
+ * widest value (144 px a quantity spin box), so that a task panel narrows
+ * with its dock. A wider one never; a label's own minimum stays (one set to
+ * line up a column of them). A container whose policy keeps it at its
+ * preferred width or more is made able to shrink.
+ */
+void fitTaskWidgets(QWidget *root);
 
 /// Show the given object on top
 void showObjectOnTop(const App::SubObjectT &objT);

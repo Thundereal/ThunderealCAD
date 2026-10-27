@@ -220,6 +220,21 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter HidePageScrollBars
+    ///
+    /// Hide the scroll bars of a page view. Off, the page shows thin bars
+    /// laid over it, clear of the overlay panels, while it scrolls or the
+    /// pointer is near them. The page still pans with the mouse, the wheel
+    /// and the keys. Applies at once to open pages.
+    static const bool & getHidePageScrollBars();
+    static const bool & defaultHidePageScrollBars();
+    static void removeHidePageScrollBars();
+    static void setHidePageScrollBars(const bool &v);
+    static const char *docHidePageScrollBars();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter KbPan
     ///
     /// Direction of horizontal movement of a drawing page with the arrow

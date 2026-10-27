@@ -64,7 +64,7 @@ BLOB_INDEX = "Content.xml"
 
 def logIsOn():
     """The transaction log keeps what a document drops, as its history
-    (docs/TransactionLog.md sec 23.16), so nothing dies with it on."""
+    (docs/TransactionLogJournal.md sec 23.16), so nothing dies with it on."""
     params = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Document")
     return params.GetInt("TransactionLog", 2) != 0
 
@@ -676,7 +676,13 @@ class BlobSaveOptionCases(BlobTestCase):
         reopened = self.openDocument(project)
         self.assertContent(reopened.getObject("File1"), b"shared")
         self.assertContent(reopened.getObject("File2"), b"shared")
-        self.assertEqual(len(self.storedBlobs(reopened)), 1)
+        # Read in the folder, not copied into the store (TransactionLogJournal.md
+        # sec 38.9): one file for both.
+        self.assertEqual(self.storedBlobs(reopened), [])
+        self.assertEqual(reopened.getObject("File1").File, reopened.getObject("File2").File)
+        self.assertTrue(
+            os.path.realpath(reopened.getObject("File1").File).startswith(
+                os.path.realpath(project) + os.sep))
 
     def testDirectoryResaveKeepsStoredContent(self):
         """The index is what proves an existing file still holds what this
@@ -1547,6 +1553,48 @@ class BlobPackStoreCases(BlobTestCase):
         numbers = [n.split(".")[0] for n in self.segments(doc)]
         self.assertEqual(len(numbers), len(set(numbers)), self.segments(doc))
         self.assertFalse([n for n in self.segments(doc) if n.endswith(".tmp")])
+
+    def testASaveRewritesNoMoreThanTheAppendCap(self):
+        # docs/TransactionLogJournal.md sec 37.4 P8: adding to a segment rewrites it
+        # whole, so past BlobAppendSize the batch starts a new one; what a
+        # save writes is its content and at most that much of the old.
+        self.params.SetInt("BlobSegmentSize", 64)
+        self.params.SetInt("BlobAppendSize", 4)
+        # The history out of the file: a save's own member besides the
+        # content, which this measures without.
+        mode = self.params.GetInt("TransactionLog", 2)
+        self.params.SetInt("TransactionLog", 1)
+        try:
+            doc = self.newDocument()
+            project = self.projectPath()
+            seen = {}
+            written = []
+            contents = []
+            for step in range(20):
+                contents.append(os.urandom(1000))
+                self.fileObject(doc, "File%d" % step, contents[-1])
+                if step == 0:
+                    doc.saveAs(project)
+                else:
+                    doc.save()
+                blobdir = os.path.join(doc.TransientDir, BLOB_DIR)
+                for name in self.segments(doc):
+                    if name not in seen:
+                        try:
+                            seen[name] = os.path.getsize(os.path.join(blobdir, name))
+                        except FileNotFoundError:
+                            continue  # a later generation replaced it already
+                        written.append(seen[name])
+            # Each segment written holds at most the cap, one batch over it
+            # and the zip's own records.
+            self.assertTrue(written)
+            self.assertLess(max(written), 4096 + 1000 + 2048, written)
+            self.assertGreater(len(written), 3)
+            for step, content in enumerate(contents):
+                self.assertContent(doc.getObject("File%d" % step), content)
+        finally:
+            self.params.RemInt("BlobAppendSize")
+            self.params.SetInt("TransactionLog", mode)
 
     @unittest.skipIf(logIsOn(), "the transaction log keeps the content")
     def testDeadContentIsDroppedFromTheSegments(self):

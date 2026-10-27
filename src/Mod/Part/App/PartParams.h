@@ -364,7 +364,7 @@ public:
     /// Freeze a shape property's value when it is set: every TShape gets the
     /// OCCT fork's Immutable flag, so a later edit of its geometry, tolerance
     /// or topology throws instead of changing the value behind the property
-    /// (docs/TransactionLog.md sec 23.6, 23.12). Unless set, on exactly when
+    /// (docs/TransactionLogJournal.md sec 23.6, 23.12). Unless set, on exactly when
     /// the OCCT loaded at run time is the fork at extension version 2 or
     /// later, which is where the flag is honoured.
     static const bool & getImmutableShapeValues();

@@ -80,6 +80,10 @@ public:
      * allow a transaction live past any command scope.
      */
     static void setEnable(bool enable);
+    /// Whether AutoTransaction instances in the current stack hold the active
+    /// transaction open: false where none is standing, or setEnable(false)
+    /// turned them off.
+    static bool isEnabled();
 
     /// Check if view object changes are recorded in transaction
     static bool recordViewObjectChange();
@@ -90,7 +94,7 @@ private:
 };
 
 
-/** View state the Gui derives from the model (docs/TransactionLog.md sec
+/** View state the Gui derives from the model (docs/TransactionLogJournal.md sec
  * 24.10) -- an origin fitted to the model's extent, say -- is not an edit.
  * While one of these lives, a view provider's property written with no
  * transaction open opens none, whatever the log would otherwise do; inside

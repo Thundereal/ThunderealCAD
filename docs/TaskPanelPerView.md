@@ -939,7 +939,7 @@ Sec 8 and M6 say several live dialogs wait on `origin/Transaction`. Read
 on 2026-10-06 at `7d2c9e0a23`: it does not lift the limit.
 `Application::setActiveTransaction` still commits every document's open
 transaction before it opens the next, and the branch's own
-`docs/TransactionLog.md` lists "one edit slot: an open transaction or
+`docs/TransactionLogJournal.md` lists "one edit slot: an open transaction or
 edit session is everyone's" under what it does not do (30.10). What it
 adds is per-author undo of COMMITTED steps over the transaction log. A
 transaction per session is new work, to be built on that branch's model

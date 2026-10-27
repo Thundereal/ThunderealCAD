@@ -39,6 +39,7 @@
 
 #include "MappedName.h"
 #include "Property.h"
+#include "ShadowSub.h"
 
 namespace Base {
 class Writer;
@@ -113,70 +114,9 @@ class AppExport PropertyLinkBase : public Property, public ScopedLink
 public:
     bool canShareDefault() const override { return true; }
 
-    /** A sub-element reference as resolved: the new style (mapped) name in
-     * first, the old style one in second -- a pair, as it always was -- and
-     * the string ids the element's name holds.
-     *
-     * The mapped name names string ids by number, as text; nothing held
-     * them, so a string table compacted while the element was gone dropped
-     * what the reference names, and the element coming back was named anew
-     * (docs/TransactionLog.md sec 27.75). The ids are the element map's for
-     * the element, which include the names it was made from, not only those
-     * its text shows. They are saved beside the shadow and held again from
-     * the numbers once the reference registers against its target: no
-     * lookup, no parse of the name. Never compared: two shadows are the same
-     * when their names are.
-     */
-    struct ShadowSub : std::pair<std::string, std::string>
-    {
-        using Names = std::pair<std::string, std::string>;
-        ShadowSub() = default;
-        ShadowSub(std::string newName, std::string oldName)
-            : Names(std::move(newName), std::move(oldName))
-        {}
-        ShadowSub(const Names& names) : Names(names) {}
-        ShadowSub(Names&& names) : Names(std::move(names)) {}
-
-        bool operator==(const ShadowSub& other) const
-        {
-            return static_cast<const Names&>(*this) == static_cast<const Names&>(other);
-        }
-        bool operator!=(const ShadowSub& other) const
-        {
-            return !(*this == other);
-        }
-
-        /// The ids held, from the target's element map
-        Data::ElementIDRefs sids;
-        /// Read from a file and not yet held: ids of the owner's table, which
-        /// is the target's for a reference within one table. Held when the
-        /// reference registers.
-        std::vector<long> savedIds;
-
-        /** A reference whose names are another table's -- into another
-         * document, or through a link to one (docs/TransactionLog.md sec
-         * 27.76 item 5): the element part of 'first' with its string ids
-         * imported into the owner's table. This is what the file keeps; the
-         * working form, 'first', is looked up from it in the target's table
-         * when the reference registers. Empty for a reference within one
-         * table.
-         */
-        std::string stored;
-        /// The owner's ids 'stored' names, held
-        Data::ElementIDRefs storedIds;
-        /// 'first' is not yet looked up from 'stored': restored and not
-        /// registered, or looked up and missing (then 'first' is empty)
-        bool pending = false;
-
-        /** The mapped name a file gave beside the element of an
-         * expression's path (docs/TransactionLog.md sec 31.22), until the
-         * path registers. An expression says its element in its text, and
-         * a path with no name beside it takes the one that element has
-         * where it registers; with this, it registers as it was saved, as
-         * a link does.
-         */
-        std::string given;
-    };
+    /// A sub-element reference as resolved, with the string ids its name
+    /// holds (ShadowSub.h; docs/TransactionLogJournal.md sec 27.75)
+    using ShadowSub = App::ShadowSub;
 
     PropertyLinkBase();
     ~PropertyLinkBase() override;
@@ -204,7 +144,7 @@ public:
     /** Take the element numbers of this value from its mapped names
      *
      * For a value written against other shapes than the ones here
-     * (docs/TransactionLog.md sec 31.22): one a merge takes from another
+     * (docs/TransactionLogJournal.md sec 31.22): one a merge takes from another
      * branch names each element by its number in that branch's shape, with
      * the mapped name beside it. Every reference that has a mapped name is
      * looked up by it in the object as it is now, and takes the number it
@@ -860,7 +800,7 @@ public:
 
     void Save(Base::Writer &writer) const override;
     void Restore(Base::XMLReader &reader) override;
-    /// By the object linked (docs/TransactionLog.md sec 31.8).
+    /// By the object linked (docs/TransactionLogJournal.md sec 31.8).
     bool splitSaved(const std::string &fragment, SavedElements &elements) const override;
     bool joinSaved(const SavedElements &elements, std::string &fragment) const override;
 
@@ -1305,7 +1245,7 @@ public:
     const char *getDocumentPath() const;
     const char *getObjectName() const;
 
-    /** @name Pinned links (docs/TransactionLog.md sec 16.5, 27)
+    /** @name Pinned links (docs/TransactionLogJournal.md sec 16.5, 27)
      *
      * A link to another file may be pinned to one of the file's versions: it
      * then resolves to that version, opened as a document of its own, and not
@@ -1318,6 +1258,12 @@ public:
     /// an undoable change of the link's value. Throws when the link is not
     /// to another saved file.
     void setPin(int64_t version, const std::string& uuid = std::string());
+    /** Link to the object of the same name in the file at `path`, plainly:
+     * no pin, no branch, not held, no library (docs/TransactionLogJournal.md sec 35
+     * L6). The object need not be there yet: the link names it, and holds
+     * once it is. An undoable change of the link's value.
+     */
+    void setPlainFile(const std::string& path);
     int64_t getPinVersion() const { return _pinVersion; }
     const std::string& getPinUuid() const { return _pinUuid; }
     /// The pinned version could not be opened and the link shows the file.
@@ -1328,6 +1274,9 @@ public:
     /// when the link is to an editable instance of a version, whose name
     /// carries its branch; empty for a link to the file.
     const std::string& getLiveBranch() const { return _liveBranch; }
+    /// The hash of the held file of theirs it links (sec 35 L5); empty for
+    /// one that links none.
+    const std::string& getHeldHash() const { return _heldHash; }
     //@}
 
     /** @name Library links (docs/LibraryPaths.md)
@@ -1383,6 +1332,17 @@ public:
     static bool hasXLink(const std::vector<App::DocumentObject*> &objs, std::vector<App::Document*> *unsaved=nullptr);
     static std::map<App::Document*,std::set<App::Document*> > getDocumentOutList(App::Document *doc=nullptr);
     static std::map<App::Document*,std::set<App::Document*> > getDocumentInList(App::Document *doc=nullptr);
+    /// A document another's links reach (docs/LibraryPaths.md step 4).
+    struct LinkedDocument
+    {
+        /// Every link to it is a library link.
+        bool library = true;
+        /// The library and the path under it, of the first library link.
+        std::string libName;
+        std::string libFile;
+    };
+    /// The documents `doc`'s links reach, as getDocumentOutList() has them.
+    static std::map<App::Document*, LinkedDocument> getLinkedDocuments(App::Document* doc);
     static void restoreDocument(const App::Document &doc);
 
     /** Links into a document never saved, in a copy (docs/LibraryPaths.md
@@ -1407,6 +1367,81 @@ public:
     };
     /// The file of `doc`'s snapshot, whether written or not.
     static std::string getSnapshotPath(const App::Document* doc);
+
+    /** Their links, read into this file (docs/TransactionLogJournal.md sec 35 L1).
+     * While an import brings a file of another folder into a document of this
+     * file, a relative path its links name is theirs: it is ours where this
+     * file's folder has that file, else their file by its full path. A link
+     * to a file neither folder has stays broken, as at an open, instead of
+     * stopping the import. Only the restores into the document given by
+     * into() or intoFile() are mapped -- not their file opened to be read.
+     */
+    class AppExport ImportPaths
+    {
+    public:
+        ImportPaths(const std::string& theirFile, const std::string& ourFile);
+        ~ImportPaths();
+        ImportPaths(const ImportPaths&) = delete;
+        ImportPaths& operator=(const ImportPaths&) = delete;
+        /// The document the open scope's import restores into.
+        static void into(const App::Document* doc);
+        /** Or a document opened from `file`: their file read, its links
+         * mapped as the rows brought are (sec 35.15 G4, a file of theirs
+         * alone held with its links made the set's).
+         */
+        static void intoFile(const std::string& file);
+        /// The open scope, when `link` is restored into its document.
+        static const ImportPaths* covering(const PropertyXLink& link);
+        /// What map() made of a link to a file of a set (sec 35 L4).
+        struct Mapped
+        {
+            bool set = false;
+            std::string branch;
+            int64_t version = 0;
+            std::string held;       ///< a file of theirs held (L5)
+            std::string heldPath;
+        };
+        std::string map(const std::string& file, Mapped* mapped = nullptr) const;
+
+    private:
+        std::string _theirDir;
+        std::string _ourDir;
+        const App::Document* _into = nullptr;
+        std::string _intoFile;
+        ImportPaths* _outer;
+    };
+
+    /** A set imported (docs/TransactionLogJournal.md sec 35 L4). While it is open,
+     * a link an import brings to a file of their set that is paired with
+     * one of ours is a link to ours: live to the branch their file came to,
+     * or pinned to the version it was when it brought nothing new.
+     */
+    class AppExport ImportSetLinks
+    {
+    public:
+        struct Target
+        {
+            std::string file;     ///< ours, its full path
+            std::string branch;   ///< live to this branch, when not empty
+            int64_t version = 0;  ///< else pinned to this version, when not 0
+            /// A file of theirs alone, held (L5): the bytes' hash and the
+            /// path under `held/`; `file` is where it is written now.
+            std::string held;
+            std::string heldPath;
+        };
+        ImportSetLinks();
+        ~ImportSetLinks();
+        ImportSetLinks(const ImportSetLinks&) = delete;
+        ImportSetLinks& operator=(const ImportSetLinks&) = delete;
+        /// Their file, by its full path, is ours as `target`.
+        static void add(const std::string& theirs, const Target& target);
+        /// The open scope's target for their file; null when none.
+        static const Target* find(const std::string& theirs);
+
+    private:
+        std::map<std::string, Target> _targets;
+        ImportSetLinks* _outer;
+    };
 
     void updateElementReference(
             DocumentObject *feature,bool reverse=false, bool notify=false) override;
@@ -1513,9 +1548,14 @@ protected:
     int64_t _pinVersion {0};
     std::string _pinUuid;
     bool _pinFellBack {false};
-    /// A live link to a branch of the file (docs/TransactionLog.md sec
+    /// A live link to a branch of the file (docs/TransactionLogJournal.md sec
     /// 27.23): to whatever document holds it.
     std::string _liveBranch;
+    /// To a file of theirs a set import holds (docs/TransactionLogJournal.md sec 35
+    /// L5): the held bytes' hash, and the path under a document's
+    /// `held/` the file is written to when it is not there.
+    std::string _heldHash;
+    std::string _heldPath;
     /// Restored pinned to a version of its own file: resolved in
     /// afterRestore(), once the document's history is read (sec 27.20).
     bool _restoreSelf {false};

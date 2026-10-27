@@ -120,6 +120,11 @@ public:
     Gui::MDIView* getMDIView() const override;
     /// The page's view, opened if it is not
     Gui::MDIView* getOrCreateMDIView() override;
+    /// Shown in its page view, opened when it is closed (entry 217)
+    bool hasOwnView() const override
+    {
+        return true;
+    }
 
     bool getFrameState();
     void setFrameState(bool state);

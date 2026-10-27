@@ -1,7 +1,7 @@
 """A client of a served document asks for an object's last change, and it is
 its session's.
 
-The serving half of tests/gui/shape-diff-edit.py (docs/TransactionLog.md
+The serving half of tests/gui/shape-diff-edit.py (docs/TransactionLogJournal.md
 sec 32.19). The two states of a shape shown as the last change of an object
 are an edit mode, so a client asks for them with the `edit` op it has
 always had -- the mode is Gui::ViewProvider::ValueDiff, 6 -- and they hang

@@ -36,7 +36,7 @@ namespace App
 class Document;
 class Transaction;
 
-/** Phase 0 of the transaction log (docs/TransactionLog.md sec 14, 15):
+/** Phase 0 of the transaction log (docs/TransactionLogJournal.md sec 14, 15):
  * measure what a commit would write, without writing it.
  *
  * When enabled, every Document::_commitTransaction walks the transaction

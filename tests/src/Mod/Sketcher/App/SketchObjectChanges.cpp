@@ -1665,7 +1665,7 @@ TEST_F(SketchObjectTest, testJoinCurvesWhenTangent)
     EXPECT_TRUE(std::all_of(mults.begin(), mults.end(), [](auto mult) { return mult >= 1; }));
 }
 
-// The geometry a property holds is const (docs/TransactionLog.md 23.6): what
+// The geometry a property holds is const (docs/TransactionLogJournal.md 23.6): what
 // changes it goes through the property, so the property is touched and the
 // element is a new one.
 

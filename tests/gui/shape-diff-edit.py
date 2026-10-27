@@ -1,7 +1,7 @@
 """An object's last change is shown as an editing task, its two states in the
 edit session's root.
 
-docs/TransactionLog.md sec 32.19. The two states of a shape were drawn under
+docs/TransactionLogJournal.md sec 32.19. The two states of a shape were drawn under
 the object's root, in the document's scene: every view of the document had
 them, and every client of a served one. Shown as the last change of an object
 they are an edit mode of its view provider (Gui::ViewProvider::ValueDiff,

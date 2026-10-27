@@ -7,7 +7,7 @@ Rows are grouped by the marker row that precedes them. For each group the
 table gives what the log writer would have stored and what it would have
 cost, and the per-transaction commit overhead. Byte columns count only
 values not already seen in the session (content addressing), split by the
-derived rule of docs/TransactionLog.md sec 10 so that the three policies
+derived rule of docs/TransactionLogJournal.md sec 10 so that the three policies
 (none / cache / full) read straight off the same rows.
 """
 

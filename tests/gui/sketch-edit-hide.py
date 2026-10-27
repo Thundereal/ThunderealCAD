@@ -108,7 +108,7 @@ def quiet(sketch):
     vo = sketch.ViewObject
     # Its own colours are what is drawn only with AutoColor off: on, the
     # sketch is drawn in the theme's whatever they say
-    # (docs/TransactionLog.md sec 33.15)
+    # (docs/TransactionLogJournal.md sec 33.15)
     if hasattr(vo, "AutoColor"):
         vo.AutoColor = False
     vo.LineColor = (1.0, 0.0, 0.0)

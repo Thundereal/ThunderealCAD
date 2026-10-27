@@ -2910,7 +2910,7 @@ void TopoShape::sewShape(double tolerance)
 
 /** Whether a sub-shape of \a shape belongs to a frozen value.
  *
- * docs/TransactionLog.md sec 23.12: a shape property freezes its value, and a
+ * docs/TransactionLogJournal.md sec 23.12: a shape property freezes its value, and a
  * shape built on it shares the value's sub-shapes. Repairing such a shape in
  * place would repair them inside the value, so fix() keeps the repaired copy.
  */

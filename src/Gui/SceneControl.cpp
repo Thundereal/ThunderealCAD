@@ -763,7 +763,7 @@ QJsonObject setEditOp(const QJsonObject &req, const std::string &boundDoc,
     const int mode = req.value(QLatin1String("mode")).toInt(0);
     const QString subname = req.value(QLatin1String("subname")).toString();
     // The change of one row of the log, where the edit is of a change
-    // (ViewProvider::ValueDiff, docs/TransactionLog.md sec 32.21): said to
+    // (ViewProvider::ValueDiff, docs/TransactionLogJournal.md sec 32.21): said to
     // the view provider, which the edit that starts next spends it on
     auto vpd = Base::freecad_dynamic_cast<ViewProviderDocumentObject>(vp);
     const qint64 row = req.value(QLatin1String("row")).toInteger(0);
@@ -1264,7 +1264,7 @@ QJsonObject undoRedoOp(const QJsonObject &req, const std::string &boundDoc, bool
                           QStringLiteral("grouped transactions in other documents "
                                          "need the desktop user's answer"));
 
-    // The steps are this connection's user's own (docs/TransactionLog.md
+    // The steps are this connection's user's own (docs/TransactionLogJournal.md
     // sec 30.10): the counts above, the steps taken and the stacks told
     // back, all under the actor the request runs as.
     if (redo)
@@ -1401,7 +1401,7 @@ std::string Gui::handleSceneControlRequest(const std::string &json,
                      OmniControl::requiredAccess(op));
         AccessScope scope(access);
         // What a connection's op writes is the connection's
-        // (docs/TransactionLog.md sec 30.3 S.b); a request with no
+        // (docs/TransactionLogJournal.md sec 30.3 S.b); a request with no
         // connection behind it is the desktop's own.
         App::ActorScope actor(client ? SceneActors::of(client) : nullptr);
         if (access < required && access == Render::ClientAccess::View)

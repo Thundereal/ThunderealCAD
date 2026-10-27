@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 32.34, the merge dialog's result:
+# GUI check of docs/TransactionLogJournal.md sec 32.34, the merge dialog's result:
 # what the merge removes is drawn over its object as gone -- theirs removing
 # it, and the result without it -- and a side picked again makes the result
 # again in the document it was made in, which is kept while the sides change

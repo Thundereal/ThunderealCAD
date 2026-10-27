@@ -307,7 +307,7 @@ class ElementAppearanceNamesTest(unittest.TestCase):
     def testAColourWrittenToABinderEndsItsMapping(self):
         """A colour picked for a binder is the binder's and ends the mapping of
         that colour from its sources -- by the object's name as by the view
-        provider's (docs/TransactionLog.md sec 33.16)."""
+        provider's (docs/TransactionLogJournal.md sec 33.16)."""
         flags = ("MapFaceColor", "MapLineColor", "MapPointColor", "MapTransparency")
         self.box.ShapeColor = RED[:3]
         binder = self.doc.addObject("Part::SubShapeBinder", "Bound")

@@ -65,6 +65,9 @@
 #include "Selection.h"
 #include "ExpressionEditorView.h"
 #include "DlgObjectSelection.h"
+#include "DlgExportLinkedSet.h"
+#include "DlgImportClash.h"
+#include "DlgImportLinkedSet.h"
 #include "DlgProjectInformationImp.h"
 #include "DlgProjectUtility.h"
 #include "GraphvizView.h"
@@ -548,6 +551,99 @@ bool StdCmdExport::isActive()
 }
 
 //===========================================================================
+// Std_ExportLinkedSet
+//===========================================================================
+
+DEF_STD_CMD_A(StdCmdExportLinkedSet)
+
+StdCmdExportLinkedSet::StdCmdExportLinkedSet()
+  : Command("Std_ExportLinkedSet")
+{
+    sGroup        = "File";
+    sMenuText     = QT_TR_NOOP("Export with &Linked Files...");
+    sToolTipText  = QT_TR_NOOP("Write the active document and every file it links to into a "
+                               "folder, with the links between them");
+    sWhatsThis    = "Std_ExportLinkedSet";
+    sStatusTip    = sToolTipText;
+    eType         = 0;
+}
+
+void StdCmdExportLinkedSet::activated(int iMsg)
+{
+    // docs/TransactionLogJournal.md sec 35 L7.
+    Q_UNUSED(iMsg);
+    Gui::Document* gdoc = getActiveGuiDocument();
+    if (!gdoc)
+        return;
+    App::Document* top = gdoc->getDocument();
+    if (!top->isSaved()) {
+        QMessageBox::warning(getMainWindow(), QObject::tr("Export with Linked Files"),
+                             QObject::tr("Save the document first: its set is written "
+                                         "relative to its folder."));
+        return;
+    }
+    DlgExportLinkedSet dlg(top, getMainWindow());
+    dlg.exec();
+}
+
+bool StdCmdExportLinkedSet::isActive()
+{
+    return getActiveGuiDocument() != nullptr;
+}
+
+//===========================================================================
+// Std_ImportLinkedSet
+//===========================================================================
+
+DEF_STD_CMD_A(StdCmdImportLinkedSet)
+
+StdCmdImportLinkedSet::StdCmdImportLinkedSet()
+  : Command("Std_ImportLinkedSet")
+{
+    sGroup        = "File";
+    sMenuText     = QT_TR_NOOP("Import a Linked &Set...");
+    sToolTipText  = QT_TR_NOOP("Bring another copy of the active document's set of linked "
+                               "files in as branches, and merge it file by file");
+    sWhatsThis    = "Std_ImportLinkedSet";
+    sStatusTip    = sToolTipText;
+    eType         = 0;
+}
+
+void StdCmdImportLinkedSet::activated(int iMsg)
+{
+    // docs/TransactionLogJournal.md sec 35 L6.
+    Q_UNUSED(iMsg);
+    Gui::Document* gdoc = getActiveGuiDocument();
+    if (!gdoc)
+        return;
+    App::Document* top = gdoc->getDocument();
+    if (!top->isSaved() || !top->getTransactionLog()) {
+        QMessageBox::warning(getMainWindow(), QObject::tr("Import a Linked Set"),
+                             QObject::tr("The document needs a file and its history: their "
+                                         "files come as branches of ours."));
+        return;
+    }
+    DlgImportLinkedSet dlg(top, getMainWindow());
+    // Sec 35 Q9: a set imported before and not merged is offered first.
+    const auto pending = App::pendingSets(*top);
+    if (!pending.empty()) {
+        const auto& last = pending.back();
+        if (QMessageBox::question(getMainWindow(), QObject::tr("Import a Linked Set"),
+                                  QObject::tr("The set from %1 was imported and is not merged "
+                                              "yet. Merge it now?")
+                                      .arg(QString::fromUtf8(last.imported.theirTop.c_str())))
+                == QMessageBox::Yes)
+            dlg.resume(last);
+    }
+    dlg.exec();
+}
+
+bool StdCmdImportLinkedSet::isActive()
+{
+    return getActiveGuiDocument() != nullptr;
+}
+
+//===========================================================================
 // Std_MergeProjects
 //===========================================================================
 
@@ -585,12 +681,28 @@ void StdCmdMergeProjects::activated(int iMsg)
             return;
         }
 
-        doc->openTransaction("Merge document");
-        Base::FileInfo fi((const char*)project.toUtf8());
-        Base::ifstream str(fi, std::ios::in | std::ios::binary);
-        MergeDocuments md(doc);
-        md.importObjects(str);
-        str.close();
+        const Base::FileInfo fi((const char*)project.toUtf8());
+        std::vector<App::DocumentObject*> merged;
+        try {
+            // Asked before the step opens (sec 36.4, 37.9)
+            if (!pasteAsked(doc,
+                            [&fi]() -> std::unique_ptr<std::istream> {
+                                return std::make_unique<Base::ifstream>(
+                                    fi, std::ios::in | std::ios::binary);
+                            },
+                            "Merge document", merged))
+                return;
+        }
+        catch (const Base::AbortException&) {
+            doc->abortTransaction();
+            return;
+        }
+        catch (const Base::Exception& e) {
+            // What was brought goes with the transaction
+            doc->abortTransaction();
+            e.ReportException();
+            return;
+        }
         doc->commitTransaction();
     }
 }
@@ -883,7 +995,7 @@ StdCmdSaveToHistory::StdCmdSaveToHistory()
 
 void StdCmdSaveToHistory::activated(int iMsg)
 {
-    // docs/TransactionLog.md sec 27.22, 27.28.
+    // docs/TransactionLogJournal.md sec 27.22, 27.28.
     Q_UNUSED(iMsg);
     Gui::Document* gdoc = getActiveGuiDocument();
     if (!gdoc)
@@ -2072,6 +2184,8 @@ void CreateDocCommands()
     rcCmdMgr.addCommand(new StdCmdOpenDirectory());
     rcCmdMgr.addCommand(new StdCmdImport());
     rcCmdMgr.addCommand(new StdCmdExport());
+    rcCmdMgr.addCommand(new StdCmdExportLinkedSet());
+    rcCmdMgr.addCommand(new StdCmdImportLinkedSet());
     rcCmdMgr.addCommand(new StdCmdMergeProjects());
     rcCmdMgr.addCommand(new StdCmdDependencyGraph());
     rcCmdMgr.addCommand(new StdCmdExportDependencyGraph());

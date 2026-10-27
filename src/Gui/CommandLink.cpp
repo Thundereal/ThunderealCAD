@@ -1118,7 +1118,7 @@ public:
 
 //===========================================================================
 // Std_LinkPin, Std_LinkUnpin: links pinned to a version of another file
-// (docs/TransactionLog.md sec 27.16)
+// (docs/TransactionLogJournal.md sec 27.16)
 //===========================================================================
 
 namespace {
@@ -1131,7 +1131,7 @@ struct PinnableLink
 };
 
 /// The selected links whose link property is an XLink to a saved file --
-/// another one, or their own (docs/TransactionLog.md sec 27.20).
+/// another one, or their own (docs/TransactionLogJournal.md sec 27.20).
 std::vector<PinnableLink> getPinnableLinks(bool pinnedOnly)
 {
     std::vector<PinnableLink> links;

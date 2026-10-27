@@ -35,8 +35,10 @@
 #include <gp_Pnt.hxx>
 #endif
 
+#include <App/Document.h>
 #include <Base/Tools.h>
 
+#include "ElementNames.h"
 #include "FeatureExtend.h"
 
 
@@ -103,8 +105,8 @@ App::DocumentObjectExecReturn* Extend::execute()
         return new App::DocumentObjectExecReturn("Not exactly one sub-shape linked.");
     }
 
-    TopoDS_Shape shape =
-        static_cast<Part::Feature*>(part)->Shape.getShape().getSubShape(faces[0].c_str());
+    auto input = Part::Feature::getTopoShape(part, faces[0].c_str(), /*needSubElement*/ true);
+    const TopoDS_Shape& shape = input.getShape();
     if (shape.IsNull() || shape.ShapeType() != TopAbs_FACE) {
         return new App::DocumentObjectExecReturn("Sub-shape is not a face.");
     }
@@ -150,7 +152,12 @@ App::DocumentObjectExecReturn* Extend::execute()
     Handle(Geom_BSplineSurface) surface(approx.Surface());
     BRepBuilderAPI_MakeFace mkFace(surface, Precision::Confusion());
 
-    Shape.setValue(mkFace.Face());
+    // a refit: the face is the input face modified, the rest is named from it
+    Part::ShapeMapper mapper;
+    mapper.insert(false, shape, mkFace.Face());
+    Part::TopoShape result(0, getDocument()->getStringHasher());
+    result.makESHAPE(mkFace.Face(), mapper, {input}, OpCodes::Extend);
+    Shape.setValue(result);
 
     return StdReturn;
 }

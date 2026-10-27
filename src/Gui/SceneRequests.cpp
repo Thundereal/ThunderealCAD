@@ -28,6 +28,7 @@
 # include <cstdlib>
 # include <map>
 # include <set>
+# include <QCoreApplication>
 # include <QDir>
 # include <QFile>
 # include <QFileInfo>
@@ -111,13 +112,16 @@ std::map<uint64_t, Staged>& staged()
     return uploads;
 }
 
-/// Where the pieces are written as they come. What a process that ended
-/// in the middle of an upload left there is cleared at the first use.
+/// Where the pieces are written as they come: this process's own folder,
+/// since the numbers are this process's and the temp path is the system's
+/// -- two serving processes wrote each other's `1.part` (sec 39, G1). What
+/// an earlier process of this id left there is cleared at the first use.
 QString piecesDir()
 {
     static bool cleared = false;
     const QString dir = QString::fromStdString(App::Application::getTempPath())
-        + QStringLiteral("BrowserUploads.pieces");
+        + QStringLiteral("BrowserUploads.pieces/")
+        + QString::number(QCoreApplication::applicationPid());
     QDir at(dir);
     if (!cleared && at.exists()) {
         for (const QString& left : at.entryList({QStringLiteral("*.part")}, QDir::Files))
@@ -534,7 +538,7 @@ void SceneRequests::install()
     installed = true;
 
     // A client sends its copy of the served document to be merged
-    // (docs/TransactionLog.md sec 30.20 H4-H7, 30.23).
+    // (docs/TransactionLogJournal.md sec 30.20 H4-H7, 30.23).
     //
     // Built as `widgets.upload` is (docs/Sandbox.md 7.22): the traffic goes
     // one way, the client sends a NAME and bytes, and the host alone decides

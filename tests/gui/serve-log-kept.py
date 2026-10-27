@@ -2,7 +2,7 @@
 wrote, and let them go -- each within what it may of the branch, and what
 it kept.
 
-docs/TransactionLog.md sec 32.27, the fourth stage of the log's panel in a
+docs/TransactionLogJournal.md sec 32.27, the fourth stage of the log's panel in a
 browser. A value a recompute wrote -- a shape -- is left out of the history
 a save writes unless a kept version reaches it; one kept is written
 (sec 32.11). The ops (Gui/SceneLog.cpp):

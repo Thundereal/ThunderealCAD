@@ -1,0 +1,375 @@
+# SPDX-License-Identifier: LGPL-2.1-or-later
+
+"""The network surface (docs/Surface.md sec 5.1 and 9, U1): profiles and
+guides from any edges -- a 3D sketch's among them -- spanned at degree 3,
+in any order and either way round; its face and edges named, a reference
+that survives an input change and a save and reopen; a gap read out; and
+Surface.Geom.network for scripts."""
+
+import math
+import os
+import tempfile
+import unittest
+
+import FreeCAD as App
+import Part
+from FreeCAD import Vector as V
+
+
+def wave(u, v):
+    x, y = 20 * u, 12 * v
+    return V(x, y + 1.5 * math.sin(u * 3), 2 * math.sin(x / 4) * math.cos(y / 5))
+
+
+VS = [0.0, 0.3, 0.55, 0.8, 1.0]
+US = [0.0, 0.35, 0.7, 1.0]
+
+
+def through(alongU, fixed, cross, extra, f=wave, start=None):
+    """A curve through f at every crossing and `extra` points between,
+    leaving its first point along `start` if given"""
+    pts = []
+    for i, t in enumerate(cross):
+        pts.append(f(t, fixed) if alongU else f(fixed, t))
+        if i + 1 < len(cross):
+            for k in range(1, extra + 1):
+                s = t + (cross[i + 1] - t) * k / (extra + 1)
+                pts.append(f(s, fixed) if alongU else f(fixed, s))
+    c = Part.BSplineCurve()
+    if start is None:
+        c.interpolate(pts)
+    else:
+        c.interpolate(pts, InitialTangent=start, FinalTangent=pts[-1] - pts[-2])
+    return c
+
+
+def waveCurves(f=wave, guideStart=None):
+    """The wave's profiles and guides; guideStart(u), if given, is each
+    guide's direction where it leaves the first profile"""
+    profiles = [through(True, v, US, 1 + k % 3, f) for k, v in enumerate(VS)]
+    guides = [
+        through(False, u, VS, 1 + k % 2, f, guideStart(u) if guideStart else None)
+        for k, u in enumerate(US)
+    ]
+    return profiles, guides
+
+
+def edgeOn(shape, edge, tol=1e-3):
+    """The name of the edge of `shape` lying on `edge` (the network's edges
+    lie on its outer curves within its fit tolerance)"""
+    for i, e in enumerate(shape.Edges):
+        mid = Part.Vertex(e.valueAt((e.FirstParameter + e.LastParameter) / 2))
+        if edge.distToShape(mid)[0] < tol and edge.distToShape(e.Vertexes[0])[0] < tol:
+            return "Edge%d" % (i + 1)
+    return None
+
+
+class TestNetwork(unittest.TestCase):
+    def setUp(self):
+        self.doc = App.newDocument("SurfaceNetwork")
+
+    def tearDown(self):
+        App.closeDocument(self.doc.Name)
+
+    def features(self, curves, prefix):
+        objs = []
+        for i, c in enumerate(curves):
+            o = self.doc.addObject("Part::Feature", "%s%d" % (prefix, i))
+            o.Shape = c.toShape()
+            objs.append(o)
+        return objs
+
+    def network(self, profiles, guides):
+        n = self.doc.addObject("Surface::Network", "Network")
+        n.Profiles = [(o, "Edge1") for o in profiles]
+        n.Guides = [(o, "Edge1") for o in guides]
+        return n
+
+    def recompute(self, *objs):
+        self.doc.recompute()
+        for o in objs:
+            self.assertTrue(o.isValid(), "%s: %s" % (o.Name, o.getStatusString()))
+            self.assertFalse(o.Shape.isNull(), o.Name)
+            self.assertTrue(o.Shape.isValid(), o.Name)
+
+    def assertOnFace(self, n, objs):
+        face = n.Shape.Faces[0]
+        for o in objs:
+            self.assertLess(face.distToShape(o.Shape)[0], 2 * n.FitTolerance, o.Name)
+            mid = o.Shape.Edges[0].valueAt(
+                (o.Shape.Edges[0].FirstParameter + o.Shape.Edges[0].LastParameter) / 2
+            )
+            self.assertLess(face.distToShape(Part.Vertex(mid))[0], 2 * n.FitTolerance, o.Name)
+
+    def testBuilds(self):
+        p, g = waveCurves()
+        profiles, guides = self.features(p, "p"), self.features(g, "g")
+        n = self.network(profiles, guides)
+        self.recompute(n)
+        self.assertEqual(len(n.Shape.Faces), 1)
+        s = n.Shape.Faces[0].Surface
+        self.assertIsInstance(s, Part.BSplineSurface)
+        self.assertEqual((s.UDegree, s.VDegree), (3, 3))
+        self.assertFalse(s.isURational() or s.isVRational())
+        self.assertLessEqual(max(s.NbUPoles, s.NbVPoles), 60)
+        self.assertOnFace(n, profiles + guides)
+        self.assertLess(n.MaxGap.Value, 1e-6)
+        self.assertLessEqual(n.MaxFitDeviation.Value, n.FitTolerance)
+        # the outer curves are its boundary
+        self.assertEqual(len(n.Shape.Edges), 4)
+        for o in (profiles[0], profiles[-1], guides[0], guides[-1]):
+            self.assertIsNotNone(edgeOn(n.Shape, o.Shape), o.Name)
+
+    def testAnyOrderEitherWay(self):
+        p, g = waveCurves()
+        n = self.network(self.features(p, "p"), self.features(g, "g"))
+        self.recompute(n)
+        p2 = [p[2], p[0].copy(), p[4], p[1].copy(), p[3]]
+        p2[1].reverse()
+        p2[3].reverse()
+        g2 = [g[3], g[1], g[0], g[2]]
+        m = self.network(self.features(p2, "q"), self.features(g2, "h"))
+        self.recompute(m)
+        self.assertAlmostEqual(m.Shape.Area, n.Shape.Area, places=4)
+        for u, v in ((0.2, 0.3), (0.5, 0.5), (0.9, 0.1)):
+            pt = wave(u, v)
+            self.assertLess(m.Shape.distToShape(Part.Vertex(pt))[0], 0.05)
+            self.assertAlmostEqual(
+                m.Shape.distToShape(Part.Vertex(pt))[0],
+                n.Shape.distToShape(Part.Vertex(pt))[0],
+                places=4,
+            )
+
+    def testNamesSurviveAnInputChange(self):
+        p, g = waveCurves()
+        profiles, guides = self.features(p, "p"), self.features(g, "g")
+        n = self.network(profiles, guides)
+        self.recompute(n)
+        shape = n.Shape
+        self.assertGreater(shape.ElementMapSize, 0)
+        for i in range(len(shape.Edges)):
+            self.assertTrue(shape.getElementMappedName("Edge%d" % (i + 1)))
+        self.assertTrue(shape.getElementMappedName("Face1"))
+        first = edgeOn(shape, profiles[0].Shape)
+        h = self.doc.addObject("App::FeaturePython", "Ref")
+        h.addProperty("App::PropertyLinkSub", "Ref")
+        h.Ref = (n, [first])
+
+        # the curves lifted, the first profile with them: the reference follows it
+        def lifted(u, v):
+            q = wave(u, v)
+            return V(q.x, q.y, q.z + 1 + u)
+
+        p2, g2 = waveCurves(lifted)
+        for o, c in zip(profiles + guides, p2 + g2):
+            o.Shape = c.toShape()
+        self.recompute(n)
+        self.assertEqual(h.Ref[1][0], edgeOn(n.Shape, profiles[0].Shape))
+
+        # and through a save and reopen
+        path = os.path.join(tempfile.gettempdir(), "SurfaceNetwork.FCStd")
+        self.doc.saveAs(path)
+        area = n.Shape.Area
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        n, h = self.doc.Network, self.doc.Ref
+        self.assertAlmostEqual(n.Shape.Area, area, places=6)
+        n.touch()
+        self.recompute(n)
+        self.assertEqual(h.Ref[1][0], edgeOn(n.Shape, self.doc.p0.Shape))
+        os.remove(path)
+
+    def testGap(self):
+        p, g = waveCurves()
+        p[2].translate(V(0, 0, 0.01))
+        n = self.network(self.features(p, "p"), self.features(g, "g"))
+        self.doc.recompute()
+        self.assertFalse(n.isValid())
+        self.assertIn("do not meet", n.getStatusString())
+        n.Tolerance = 0.02
+        self.recompute(n)
+        self.assertAlmostEqual(n.MaxGap.Value, 0.01, delta=1e-3)
+
+    def testFrom3DSketch(self):
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "Sketch3D")
+        p, g = waveCurves()
+        for c in p + g:
+            sk.addGeometry(c)
+        self.doc.recompute()
+
+        # the sketch names its edges in the order of the wires it builds, not
+        # of its geometry: each curve's edge is found as a user picks it, by
+        # where it is
+        def named(c):
+            ends = (c.StartPoint, c.EndPoint)
+            for i, e in enumerate(sk.Shape.Edges):
+                pts = (e.Vertexes[0].Point, e.Vertexes[-1].Point)
+                if any(all(a.isEqual(b, 1e-7) for a, b in zip(ends, o)) for o in (pts, pts[::-1])):
+                    return "Edge%d" % (i + 1)
+            self.fail("no edge of the sketch on %s" % c)
+
+        n = self.doc.addObject("Surface::Network", "Network")
+        names = [named(c) for c in p + g]
+        self.assertEqual(len(set(names)), len(names))
+        n.Profiles = [(sk, x) for x in names[: len(p)]]
+        n.Guides = [(sk, x) for x in names[len(p) :]]
+        self.recompute(n)
+        face = n.Shape.Faces[0]
+        for e in sk.Shape.Edges:
+            self.assertLess(face.distToShape(e)[0], 2 * n.FitTolerance)
+
+    def testGeomFunction(self):
+        import Surface
+
+        p, g = waveCurves()
+        s, info = Surface.Geom.network(p, g)
+        self.assertIsInstance(s, Part.BSplineSurface)
+        self.assertEqual((s.UDegree, s.VDegree), (3, 3))
+        self.assertEqual(info["ProfileOrder"], [0, 1, 2, 3, 4])
+        self.assertEqual(info["GuideOrder"], [0, 1, 2, 3])
+        self.assertLess(info["MaxGap"], 1e-6)
+        self.assertLessEqual(info["MaxFitDeviation"], 1e-4)
+        # edges as well as curves
+        s2, _ = Surface.Geom.network([c.toShape() for c in p], [c.toShape() for c in g])
+        self.assertEqual((s2.NbUPoles, s2.NbVPoles), (s.NbUPoles, s.NbVPoles))
+        with self.assertRaises(ValueError):
+            Surface.Geom.network(p[:1], g)
+
+
+def bentWave(u, v):
+    """The wave, its cross slope at v = 0 bent by 4 cos(2 pi u): at u = 0 and
+    u = 1 it runs along (0, 3, 1), which the neighbour below is tangent to"""
+    q = wave(u, v)
+    return V(q.x, q.y, q.z + 4 * math.cos(2 * math.pi * u) * v * (1 - v) ** 2)
+
+
+class TestNetworkConditions(unittest.TestCase):
+    """Edge conditions on the network's outer curves (sec 4.2, 4.3): the
+    neighbour is the first profile swept along (0, -3, -1), whose tangent
+    plane the curves of bentWave meet at the corners but not between them"""
+
+    def setUp(self):
+        self.doc = App.newDocument("SurfaceNetworkConditions")
+
+    def tearDown(self):
+        App.closeDocument(self.doc.Name)
+
+    def build(self, f=bentWave, implicit=True):
+        # the guides leave the first profile as bentWave does, exactly: an
+        # interpolation's own end tangent is off by a fraction of a degree,
+        # which the corners would be too
+        p, g = waveCurves(
+            f, (lambda u: V(0, 12, 4 * math.cos(2 * math.pi * u))) if f is bentWave else None
+        )
+        objs = []
+        for i, c in enumerate(p + g):
+            o = self.doc.addObject("Part::Feature", "c%d" % i)
+            o.Shape = c.toShape()
+            objs.append(o)
+        ext = self.doc.addObject("Part::Extrusion", "Neighbour")
+        ext.Base = objs[0]
+        ext.DirMode = "Custom"
+        ext.Dir = V(0, -3, -1)
+        ext.LengthFwd = 5
+        self.doc.recompute()
+        n = self.doc.addObject("Surface::Network", "Network")
+        first = (
+            (ext, edgeOn(ext.Shape, objs[0].Shape.Edges[0], 1e-7))
+            if implicit
+            else (objs[0], "Edge1")
+        )
+        n.Profiles = [first] + [(o, "Edge1") for o in objs[1 : len(p)]]
+        n.Guides = [(o, "Edge1") for o in objs[len(p) :]]
+        # the edge the network and its neighbour share
+        self.shared = objs[0].Shape.Edges[0]
+        return n, ext, objs
+
+    def angle(self, n, ext):
+        """The worst angle between the network and the neighbour along their edge"""
+        face, other = n.Shape.Faces[0], ext.Shape.Faces[0]
+        name = edgeOn(n.Shape, self.shared)
+        self.assertIsNotNone(name)
+        edge = n.Shape.getElement(name)
+        worst = 0
+        for k in range(41):
+            pt = edge.valueAt(
+                edge.FirstParameter + (edge.LastParameter - edge.FirstParameter) * k / 40
+            )
+            n1 = face.normalAt(*face.Surface.parameter(pt))
+            n2 = other.normalAt(*other.Surface.parameter(pt))
+            worst = max(worst, math.degrees(math.acos(min(1, abs(n1.dot(n2))))))
+        return worst
+
+    def recompute(self, *objs):
+        self.doc.recompute()
+        for o in objs:
+            self.assertTrue(o.isValid(), "%s: %s" % (o.Name, o.getStatusString()))
+
+    def testG1ToItsOwnFace(self):
+        n, ext, _ = self.build()
+        self.recompute(n)
+        self.assertGreater(self.angle(n, ext), 5, "not tangent to begin")
+        n.FirstProfileContinuity = "G1"
+        self.recompute(n)
+        self.assertLess(self.angle(n, ext), 0.1)
+        self.assertTrue(
+            any("G1" in line and "first profile" in line for line in n.Achieved), n.Achieved
+        )
+
+        # the neighbour changes; the network stays tangent, and a reference on
+        # its edge along the neighbour follows
+        h = self.doc.addObject("App::FeaturePython", "Ref")
+        h.addProperty("App::PropertyLinkSub", "Ref")
+        h.Ref = (n, [edgeOn(n.Shape, self.shared)])
+        name = h.Ref[1][0]
+        ext.LengthFwd = 8
+        self.recompute(ext, n)
+        self.assertLess(self.angle(n, ext), 0.1)
+        self.assertEqual(h.Ref[1][0], name)
+
+        path = os.path.join(tempfile.gettempdir(), "SurfaceNetworkConditions.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        n, ext = self.doc.Network, self.doc.Neighbour
+        self.shared = self.doc.c0.Shape.Edges[0]
+        self.assertEqual(n.FirstProfileContinuity, "G1")
+        n.touch()
+        self.recompute(n)
+        self.assertLess(self.angle(n, ext), 0.1)
+        os.remove(path)
+
+    def testExplicitSupport(self):
+        n, ext, _ = self.build(implicit=False)
+        n.FirstProfileContinuity = "G1"
+        n.FirstProfileSupport = (ext, "Face1")
+        self.recompute(n)
+        self.assertLess(self.angle(n, ext), 0.1)
+
+    def testACurveWithNoFaceNeedsASupport(self):
+        n, ext, _ = self.build(implicit=False)
+        n.FirstProfileContinuity = "G1"
+        self.doc.recompute()
+        self.assertFalse(n.isValid())
+        self.assertIn("support", n.getStatusString())
+
+    def testWeight(self):
+        n, ext, _ = self.build()
+        n.FirstProfileContinuity = "G1"
+        self.recompute(n)
+        s = n.Shape.Faces[0].Surface
+        u0, u1, v0, v1 = s.bounds()
+        d1 = s.getDN(0.5 * (u0 + u1), v0, 0, 1).Length
+        n.FirstProfileWeight = 2
+        self.recompute(n)
+        s = n.Shape.Faces[0].Surface
+        u0, u1, v0, v1 = s.bounds()
+        self.assertAlmostEqual(s.getDN(0.5 * (u0 + u1), v0, 0, 1).Length / d1, 2, delta=0.05)
+
+    def testACornerThatCannotBeMet(self):
+        # the wave's guides run straight across: not along the neighbour at
+        # the corners
+        n, ext, _ = self.build(f=wave)
+        n.FirstProfileContinuity = "G1"
+        self.recompute(n)
+        self.assertTrue(any("corner" in line for line in n.Achieved), n.Achieved)

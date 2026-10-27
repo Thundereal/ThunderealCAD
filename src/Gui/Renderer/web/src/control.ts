@@ -508,7 +508,7 @@ export function onSheetChanged(
   return onPush('sheet.changed', fn);
 }
 
-// ---- The transaction log (docs/TransactionLog.md sec 32.21) ----
+// ---- The transaction log (docs/TransactionLogJournal.md sec 32.21) ----
 
 /// One row of the log as the host lists it (Gui/SceneLog.cpp).
 export interface LogRow {
@@ -530,7 +530,7 @@ export interface LogRow {
   within: boolean;           // a document may be moved from it by the one who asks
 }
 
-/// What the one who asks may (docs/TransactionLog.md sec 32.25): the host
+/// What the one who asks may (docs/TransactionLogJournal.md sec 32.25): the host
 /// all of it; anyone else by branch, and `write` says the branch the
 /// document is on is one it writes -- which is what lets it move the
 /// document: restore, switch, branch.
@@ -644,7 +644,7 @@ export interface LogVersion {
 }
 
 /// A branch of the log. One the asker does not read is listed by its name
-/// alone, `read` false, to be shown greyed (docs/TransactionLog.md sec 32.30).
+/// alone, `read` false, to be shown greyed (docs/TransactionLogJournal.md sec 32.30).
 export interface LogBranch {
   id: number;
   name: string;
@@ -744,7 +744,7 @@ export function logApply(
 
 /// A side for each conflict, by its key (LogChange.key), and one for the
 /// rest: what an apply or a merge that meets conflicts goes on with
-/// (docs/TransactionLog.md sec 32.26)
+/// (docs/TransactionLogJournal.md sec 32.26)
 export interface LogSides {
   fallback?: 'ours' | 'theirs';
   picks?: Record<string, 'ours' | 'theirs'>;
@@ -907,7 +907,7 @@ export function logMergeRequest(
 }
 
 // What a save writes into the file though no kept version reaches it: the
-// values a recompute wrote -- shapes -- kept (docs/TransactionLog.md sec
+// values a recompute wrote -- shapes -- kept (docs/TransactionLogJournal.md sec
 // 32.11, 32.27).
 
 /// A value kept by itself: it stays when its row goes.
@@ -996,7 +996,7 @@ export function showRowChange(obj: string, row: number, doc?: string): Promise<a
 }
 
 /// The same edit, of a value the log keeps in the file (its ref) against
-/// what the object has now (docs/TransactionLog.md sec 32.27).
+/// what the object has now (docs/TransactionLogJournal.md sec 32.27).
 export function showKeptValue(obj: string, kept: string, doc?: string): Promise<any> {
   window.fcviewerStateCamera?.();
   return sendOp('edit', withDoc(doc, { obj, mode: EDIT_VALUE_DIFF, kept }));
@@ -1107,7 +1107,7 @@ export interface SentRequest {
 }
 
 /// Send a copy of the document to whoever is sharing it, to be merged
-/// (docs/TransactionLog.md sec 30.23). The host keeps the file and reads
+/// (docs/TransactionLogJournal.md sec 30.23). The host keeps the file and reads
 /// nothing of it until its owner asks; the answer says only that it was
 /// taken. Needs a connection that may edit: a request becomes rows of the
 /// host's log. Rejects with `TooLarge` past the host's upload limit, and
@@ -1135,7 +1135,7 @@ function connectionLost(e: any): boolean {
 }
 
 /// A file to an op that takes one -- `requests.send`, `widgets.upload` --
-/// whole when it is small, in pieces when it is not (docs/TransactionLog.md
+/// whole when it is small, in pieces when it is not (docs/TransactionLogJournal.md
 /// sec 32.36): one message of the socket carries 46 MB once the bytes are
 /// base64, and a piece at a time lets the other traffic through and says
 /// how far it got. `upload.begin` gives the size first, so a file the

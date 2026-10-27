@@ -486,7 +486,7 @@ struct EditData {
     // by every draw(). It lives here and not on the geometry: the extension
     // that used to carry it is persistent, so writing it into the sketch
     // geometry changed the value the view was only meant to draw
-    // (docs/TransactionLog.md 23.6).
+    // (docs/TransactionLogJournal.md 23.6).
     std::map<int, double> PoleScaleFactor;
 
     // container to track our own selected parts

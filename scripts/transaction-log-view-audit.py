@@ -1,4 +1,4 @@
-# Audit of docs/TransactionLog.md sec 24.10: which GUI workflows write view
+# Audit of docs/TransactionLogJournal.md sec 24.10: which GUI workflows write view
 # provider properties outside any command. Run by the GUI at startup (sec
 # 24.10 says how); lists every log row with the step that produced it, view
 # ops first, to $AUDIT_OUT, and exits.

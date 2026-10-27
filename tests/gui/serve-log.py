@@ -1,7 +1,7 @@
 """A client of a served document reads its transaction log, and is shown a
 row's change.
 
-docs/TransactionLog.md sec 32.21. The desktop's panel of the log is a dock
+docs/TransactionLogJournal.md sec 32.21. The desktop's panel of the log is a dock
 of the host's window; a client has a panel of its own and asks the host
 for what it lists, with three ops (Gui/SceneLog.cpp):
 

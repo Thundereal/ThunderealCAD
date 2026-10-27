@@ -160,8 +160,13 @@ void FilletSegmentDelegate::setModelData(QWidget *editor, QAbstractItemModel *mo
 {
     if (auto groupBox = qobject_cast<QSpinBox*>(editor)) {
         groupBox->interpretText();
-        model->setData(index, QString::number(groupBox->value()), Qt::DisplayRole);
-        model->setData(index, groupBox->value(), Qt::UserRole);
+        // The number first: a change of the cell's text has the view load
+        // the editor again from the number (setEditorData()), and the old
+        // group came back -- typed 2 for an edge on the default radius, it
+        // took 1, the spin box's least (entry 214's test)
+        const int group = groupBox->value();
+        model->setData(index, group, Qt::UserRole);
+        model->setData(index, QString::number(group), Qt::DisplayRole);
         return;
     }
     Gui::QuantitySpinBox *spinBox = static_cast<Gui::QuantitySpinBox*>(editor);
@@ -261,7 +266,7 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
     Base::connect(ui->checkBoxFullRound, &QCheckBox::toggled,
         this, &TaskFilletParameters::onCheckBoxFullRoundToggled);
 
-    Base::connect(ui->treeWidgetReferences, &QTreeWidget::currentItemChanged,
+    Base::connect(static_cast<QTreeWidget*>(ui->treeWidgetReferences), &QTreeWidget::currentItemChanged,
         [this](QTreeWidgetItem *, QTreeWidgetItem *) { setCornerGizmoPositions(); });
 
     refresh();
@@ -272,6 +277,9 @@ TaskFilletParameters::TaskFilletParameters(ViewProviderDressUp *DressUpView,QWid
     // an edge that takes the default drives it, a customised one its own
     // radius, whose label shows beside the arrow while it is active
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a handle made active selects its edge (entry 213)
+    connect(onViewValues.get(), &Gui::OnViewValueSet::activeHandleChanged, this,
+            [this](Gui::Gizmo* handle) { onActiveHandleChanged(handle); });
     onViewValues->addValue(ui->filletRadius, tr("Radius"),
                            Gui::OnViewValueSet::Place::TopMiddle);
     onViewValues->setMenu(DefaultValue, [this](QMenu& menu, Gui::Gizmo* handle) {
@@ -749,7 +757,7 @@ void TaskFilletParameters::setEdgePointPosition(const std::string& edge, int poi
     else {
         segment.param = fraction;
     }
-    setupTransaction();
+    setupTransaction(tr("%1 point %2 moved").arg(QString::fromStdString(edge)).arg(point + 1));
     fillet->Segments.setValue(edge, std::move(segments));
     refresh();
     recompute();
@@ -768,7 +776,9 @@ void TaskFilletParameters::setEdgePointRadius(const std::string& edge, int point
         return;
     }
     segments[point].radius = radius;
-    setupTransaction();
+    setupTransaction(segments.size() > 1
+        ? tr("%1 point %2 radius").arg(QString::fromStdString(edge)).arg(point + 1)
+        : tr("%1 radius").arg(QString::fromStdString(edge)));
     fillet->Segments.setValue(edge, std::move(segments));
     refresh();
     recompute();
@@ -934,7 +944,10 @@ void TaskFilletParameters::setEdgeMode(const std::string& edge, int mode, double
     if (!fillet || edgeMode(fillet->Segments.getValue(edge)) == mode) {
         return;
     }
-    setupTransaction();
+    const QString modes[] = {tr("default radius"), tr("one radius"), tr("two radii"),
+                             tr("varying radius")};
+    setupTransaction(tr("%1 to %2").arg(QString::fromStdString(edge),
+                                        modes[std::clamp(mode, 0, 3)]));
     switch (mode) {
         case 0:
             fillet->Segments.removeValue(edge);
@@ -990,7 +1003,8 @@ void TaskFilletParameters::setEdgeGroup(const std::string& edge, int group)
     if (!own && group <= 0) {
         return;
     }
-    setupTransaction();
+    setupTransaction(group > 0 ? tr("%1 to group %2").arg(QString::fromStdString(edge)).arg(group)
+                               : tr("%1 to a new group").arg(QString::fromStdString(edge)));
     // An edge on the default radius takes it as a point of its own first,
     // which changes nothing of the fillet; then it joins the group, its
     // points taken from there, or starts the group if none has that id
@@ -1003,8 +1017,39 @@ void TaskFilletParameters::setEdgeGroup(const std::string& edge, int group)
     }
     // 0: a group of its own, by the lowest free id
     fillet->Segments.setGroup(edge, group > 0 ? group : fillet->Segments.newGroup());
-    refresh();
+    // Only the edge's own entry changes (its group, its points from the
+    // group's): its row in place, not the list filled anew (entry 214; the
+    // reporter: "why there is any need to refresh list?")
+    for (int i = 0; i < ui->treeWidgetReferences->topLevelItemCount(); ++i) {
+        auto item = ui->treeWidgetReferences->topLevelItem(i);
+        if (!getCornerItem(item) && edge == getGeometryItemText(item).constData()) {
+            refreshEdgeRow(item);
+            break;
+        }
+    }
+    sortRows();
+    if (gizmoContainer)
+        setGizmoPositions();
     recompute();
+}
+
+std::vector<int> TaskFilletParameters::groupIds() const
+{
+    auto vp = getDressUpView();
+    auto fillet = vp ? dynamic_cast<PartDesign::Fillet*>(vp->getObject()) : nullptr;
+    return fillet ? fillet->Segments.getGroups() : std::vector<int>();
+}
+
+std::string TaskFilletParameters::handleEdge(Gui::Gizmo* gizmo) const
+{
+    // an edge's arrows and knobs, the default radius's on it too; a corner's
+    // handle stands on no single edge
+    for (const auto& handle : edgeHandles) {
+        if (handle.gizmo && handle.gizmo == gizmo) {
+            return handle.edge;
+        }
+    }
+    return {};
 }
 
 Gui::Gizmo* TaskFilletParameters::itemHandle(QTreeWidgetItem* item) const
@@ -1057,7 +1102,7 @@ void TaskFilletParameters::setEdgeReversed(const std::string& edge, bool reverse
     if (!fillet || fillet->Segments.isReversed(edge) == reversed) {
         return;
     }
-    setupTransaction();
+    setupTransaction(tr("%1 reversed").arg(QString::fromStdString(edge)));
     fillet->Segments.setReversed(edge, reversed);
     refresh();
     recompute();
@@ -1082,7 +1127,7 @@ void TaskFilletParameters::removeEdge(const std::string& edge)
         return;
     }
     // The panel's own removal, of this row alone
-    setupTransaction();
+    setupTransaction(tr("remove %1").arg(QString::fromStdString(edge)));
     fillet->Segments.removeValue(edge);
     ui->treeWidgetReferences->clearSelection();
     item->setSelected(true);
@@ -1114,7 +1159,8 @@ void TaskFilletParameters::setupGizmos(ViewProviderDressUp* vp)
                 if (!DressUpView || target.vertex.empty())
                     return;
                 auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
-                setupTransaction();
+                setupTransaction(tr("%1 setback at %2").arg(QString::fromStdString(target.vertex),
+                                                            QString::fromStdString(target.edge)));
                 pcFillet->Corners.setValue(target.vertex, target.edge, value);
                 recompute();
             });
@@ -1137,7 +1183,8 @@ void TaskFilletParameters::setupGizmos(ViewProviderDressUp* vp)
                 if (!DressUpView || target.vertex.empty() || value <= 0.0)
                     return;
                 auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
-                setupTransaction();
+                setupTransaction(tr("%1 depth in %2").arg(QString::fromStdString(target.vertex),
+                                                          QString::fromStdString(target.edge)));
                 pcFillet->Corners.setValue(target.vertex, target.edge, value);
                 recompute();
             });
@@ -1484,27 +1531,38 @@ void TaskFilletParameters::refresh()
                                    "then the depths of its faces."));
             continue;
         }
-        const int group = pcFillet->Segments.getGroup(getGeometryItemText(item).constData());
-        item->setData(GroupColumn, Qt::UserRole, group);
-        item->setText(GroupColumn, group > 0 ? QString::number(group) : QString());
-        item->setIcon(GroupColumn, group > 0 ? groupIcon(group) : QIcon());
-        item->setToolTip(0, edgeModeTip(
-            edgeMode(pcFillet->Segments.getValue(getGeometryItemText(item).constData())),
-            group));
-        int j = 0;
-        for (const auto &segment : pcFillet->Segments.getValue(getGeometryItemText(item).constData())) {
-            setSegment(j<item->childCount() ? item->child(j) : new QTreeWidgetItem(item),
-                   segment.param, segment.radius, segment.length);
-            ++j;
-        }
-        while (j > item->childCount())
-            delete item->child(item->childCount()-1);
+        refreshEdgeRow(item);
     }
+    // by the values just shown, if the list is sorted by one
+    sortRows();
     // The handles follow what the feature holds now -- after an undo or a
     // redo too, which put the boxes back without telling the handles
     // (entry 136): placed again, each arrow as long as its box says
     if (gizmoContainer)
         setGizmoPositions();
+}
+
+void TaskFilletParameters::refreshEdgeRow(QTreeWidgetItem *item)
+{
+    auto DressUpView = getDressUpView();
+    if (!DressUpView || !item)
+        return;
+    auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
+    QSignalBlocker blocker(ui->treeWidgetReferences);
+    const std::string edge = getGeometryItemText(item).constData();
+    const int group = pcFillet->Segments.getGroup(edge);
+    item->setData(GroupColumn, Qt::UserRole, group);
+    item->setText(GroupColumn, group > 0 ? QString::number(group) : QString());
+    item->setIcon(GroupColumn, group > 0 ? groupIcon(group) : QIcon());
+    item->setToolTip(0, edgeModeTip(edgeMode(pcFillet->Segments.getValue(edge.c_str())), group));
+    int j = 0;
+    for (const auto &segment : pcFillet->Segments.getValue(edge.c_str())) {
+        setSegment(j<item->childCount() ? item->child(j) : new QTreeWidgetItem(item),
+               segment.param, segment.radius, segment.length);
+        ++j;
+    }
+    while (item->childCount() > j)
+        delete item->child(item->childCount()-1);
 }
 
 void TaskFilletParameters::updateSegment(QTreeWidgetItem *item, int column)
@@ -1515,9 +1573,21 @@ void TaskFilletParameters::updateSegment(QTreeWidgetItem *item, int column)
         return;
     }
     if (column == GroupColumn) {
-        if (!item->parent())
-            setEdgeGroup(getGeometryItemText(item).constData(),
-                         item->data(GroupColumn, Qt::UserRole).toInt());
+        if (item->parent())
+            return;
+        // After the edit, by the edge's name: setEdgeGroup() fills the list
+        // anew, this row gone with it, while Qt is still in its setData()
+        // -- a typed group corrupted the heap (entry 214). The delegate sets
+        // the text, then the number, each an itemChanged: a group the edge
+        // has already is no change.
+        std::string edge = getGeometryItemText(item).constData();
+        const int group = item->data(GroupColumn, Qt::UserRole).toInt();
+        QMetaObject::invokeMethod(this, [this, edge, group]() {
+            auto vp = getDressUpView();
+            auto fillet = vp ? dynamic_cast<PartDesign::Fillet*>(vp->getObject()) : nullptr;
+            if (fillet && fillet->Segments.getGroup(edge) != group)
+                setEdgeGroup(edge, group);
+        }, Qt::QueuedConnection);
         return;
     }
     if (column<1 || column>3)
@@ -1548,12 +1618,12 @@ void TaskFilletParameters::updateSegments(QTreeWidgetItem *item)
     auto DressUpView = getDressUpView();
     if(!DressUpView)
         return;
-    setupTransaction();
-    PartDesign::Fillet* pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
-    Part::PropertyFilletSegments::Segments segments;
     auto parent = item->parent();
     if (!parent)
         parent = item;
+    setupTransaction(tr("%1 radii").arg(QString::fromLatin1(getGeometryItemText(parent))));
+    PartDesign::Fillet* pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
+    Part::PropertyFilletSegments::Segments segments;
     for (int i=0; i<parent->childCount(); ++i) {
         auto child = parent->child(i);
         segments.emplace_back(child->data(2, Qt::UserRole).toDouble(),
@@ -1580,7 +1650,12 @@ void TaskFilletParameters::clearSegments()
             item = parent;
         items.insert(item);
     }
-    setupTransaction();
+    QStringList cleared;
+    for (auto item : items)
+        cleared << QString::fromLatin1(getGeometryItemText(item));
+    for (auto item : corners)
+        cleared << QString::fromLatin1(getGeometryItemText(getCornerItem(item)));
+    setupTransaction(tr("clear %1").arg(cleared.join(QStringLiteral(", "))));
     clearCornerEdges(corners);
     PartDesign::Fillet* pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
     for (auto item : items) {
@@ -1596,7 +1671,17 @@ void TaskFilletParameters::removeSegments()
     auto DressUpView = getDressUpView();
     if(!DressUpView)
         return;
-    setupTransaction();
+    // the rows removed, or the points of an edge
+    QStringList rows;
+    QStringList points;
+    for (auto item : ui->treeWidgetReferences->selectedItems()) {
+        const QString name = QString::fromLatin1(getGeometryItemText(item->parent() ? item->parent() : item));
+        QStringList& list = item->parent() ? points : rows;
+        if (!list.contains(name))
+            list << name;
+    }
+    setupTransaction(!rows.isEmpty() ? tr("remove %1").arg(rows.join(QStringLiteral(", ")))
+                                     : tr("remove points of %1").arg(points.join(QStringLiteral(", "))));
     PartDesign::Fillet* pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
     std::vector<QTreeWidgetItem*> cornerEdges;
     for (auto item : ui->treeWidgetReferences->selectedItems()) {
@@ -1693,7 +1778,7 @@ void TaskFilletParameters::onCheckBoxUseAllEdgesToggled(bool checked)
     ui->buttonRefAdd->setEnabled(!checked);
     ui->treeWidgetReferences->setEnabled(!checked);
     try {
-        setupTransaction();
+        setupTransaction(checked ? tr("use all edges") : tr("use the listed edges"));
         auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
         pcFillet->UseAllEdges.setValue(checked);
         recompute();
@@ -1732,7 +1817,14 @@ void TaskFilletParameters::onLengthChanged(double len)
 
     clearButtons(none);
     PartDesign::Fillet* pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
-    setupTransaction();
+    // The box tells its value again as it lets go of the focus: no step,
+    // no recompute for the radius the fillet has (an empty undo step each
+    // time, found with entry 215)
+    if (pcFillet->Radius.getValue() == len)
+        return;
+    // no value in the name: the box holds one step while it has the focus,
+    // through every value typed in it
+    setupTransaction(tr("default radius"));
     pcFillet->Radius.setValue(len);
     recompute();
 }
@@ -1748,7 +1840,7 @@ void TaskFilletParameters::onNewItem(QTreeWidgetItem *item)
     std::string vertex = getGeometryItemText(item).constData();
     if (pcFillet->Corners.getValue(vertex))
         return;
-    setupTransaction();
+    setupTransaction(tr("add corner %1").arg(QString::fromStdString(vertex)));
     pcFillet->Corners.setValue(vertex, getRadius());
     // A corner's row is not Base's, so the reference sync that called here
     // finds nothing changed and does not recompute
@@ -1783,6 +1875,19 @@ void TaskFilletParameters::populateOtherItems()
     }
 }
 
+QVariant TaskFilletParameters::sortValue(QTreeWidgetItem *item, int column) const
+{
+    QVariant value = TaskDressUpParameters::sortValue(item, column);
+    if (value.isValid() || column < 1 || column > 3 || getCornerItem(item))
+        return value;
+    if (item->childCount())
+        return TaskDressUpParameters::sortValue(item->child(0), column);
+    auto DressUpView = getDressUpView();
+    if (column != 1 || !DressUpView)
+        return value;
+    return static_cast<PartDesign::Fillet*>(DressUpView->getObject())->Radius.getValue();
+}
+
 void TaskFilletParameters::syncOtherItems()
 {
     // a corner whose row is gone is removed
@@ -1803,7 +1908,10 @@ void TaskFilletParameters::syncOtherItems()
     }
     if (gone.empty())
         return;
-    setupTransaction();
+    QStringList names;
+    for (const auto &vertex : gone)
+        names << QString::fromStdString(vertex);
+    setupTransaction(tr("remove corner %1").arg(names.join(QStringLiteral(", "))));
     for (const auto &vertex : gone)
         pcFillet->Corners.removeValue(vertex);
     recompute();
@@ -1974,7 +2082,9 @@ void TaskFilletParameters::updateCorner(QTreeWidgetItem *item)
     auto pcFillet = static_cast<PartDesign::Fillet*>(DressUpView->getObject());
     std::string vertex = getGeometryItemText(corner).constData();
     double value = item->data(SetbackColumn, Qt::UserRole).toDouble();
-    setupTransaction();
+    setupTransaction(item == corner
+        ? tr("%1 setback").arg(QString::fromStdString(vertex))
+        : tr("%1 setback at %2").arg(QString::fromStdString(vertex), item->text(0)));
     std::string name = item->text(0).toStdString();
     if (item == corner)
         pcFillet->Corners.setValue(vertex, value);

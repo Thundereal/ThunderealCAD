@@ -130,13 +130,13 @@ PyMethodDef Application::Methods[] = {
     {"recoverDocument", (PyCFunction) Application::sRecoverDocument, METH_VARARGS,
      "recoverDocument(transientDir) -> object\n"
      "Recover the document of a crashed session from the transaction log left\n"
-     "in its transient directory (docs/TransactionLog.md sec 25): a new\n"
+     "in its transient directory (docs/TransactionLogJournal.md sec 25): a new\n"
      "document, its newest version with the log's tail replayed over it, that\n"
      "takes the log over. The directory is removed once it is done."},
     {"openFileVersion", (PyCFunction) Application::sOpenFileVersion, METH_VARARGS,
      "openFileVersion(path, num, createView=True) -> Document\n"
      "Open version `num` of the file at `path` as a document of its own\n"
-     "(docs/TransactionLog.md sec 27.7, 27.13), whether or not the file is\n"
+     "(docs/TransactionLogJournal.md sec 27.7, 27.13), whether or not the file is\n"
      "open: its history is read straight out of the archive when it is not.\n"
      "A version open already is returned. Raises when the file has no such\n"
      "version, or no history."},
@@ -176,7 +176,7 @@ PyMethodDef Application::Methods[] = {
      "closeReleasedVersions() -> int\n\n"
      "Close the pinned versions no link pins any more, now, when the ClosePinnedVersion\n"
      "preference says close. Also done when an operation that released one ends\n"
-     "(docs/TransactionLog.md sec 27.38). Returns how many were closed."},
+     "(docs/TransactionLogJournal.md sec 27.38). Returns how many were closed."},
     {"activeDocument", (PyCFunction) Application::sActiveDocument, METH_VARARGS,
      "activeDocument() -> object or None\n\n"
      "Return the active document or None if there is no one."},
@@ -228,7 +228,7 @@ PyMethodDef Application::Methods[] = {
      "closeActiveTransaction(abort=False) -- commit or abort current active transaction"},
     {"startTransactionMeasure", (PyCFunction) Application::sStartTransactionMeasure, METH_VARARGS,
      "startTransactionMeasure(csvPath) -- measure what each transaction commit would log\n\n"
-     "Phase 0 of docs/TransactionLog.md: every commit serialises the values it would\n"
+     "Phase 0 of docs/TransactionLogJournal.md: every commit serialises the values it would\n"
      "write and appends bytes, hashes, compressed sizes and timings to the CSV."},
     {"stopTransactionMeasure", (PyCFunction) Application::sStopTransactionMeasure, METH_VARARGS,
      "stopTransactionMeasure() -- stop measuring transaction commits"},

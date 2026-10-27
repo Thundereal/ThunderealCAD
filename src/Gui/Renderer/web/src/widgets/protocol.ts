@@ -509,7 +509,7 @@ export const BUTTON_CANCEL = 0x400000;
 /// What a click on one button of the TASK PANEL's box asks of the panel
 /// root. The box is drawn with the buttons the host's has -- a task with
 /// Close alone shows Close, not an OK and a Cancel it never had (docs/
-/// TransactionLog.md sec 32.20) -- and each one's standard flag says what
+/// TransactionLogJournal.md sec 32.20) -- and each one's standard flag says what
 /// it asks:
 ///
 ///  - OK is the root's `accept` and Cancel and Close its `reject`: W1's

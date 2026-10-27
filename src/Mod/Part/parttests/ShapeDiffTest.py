@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # Tests for Shape.diff(): what became of each element between two states of
-# a shape (Part::ShapeDiff, docs/TransactionLog.md sec 32.6). The pairing is
+# a shape (Part::ShapeDiff, docs/TransactionLogJournal.md sec 32.6). The pairing is
 # tested in C++ (tests/src/Mod/Part/App/ShapeDiff.cpp); this is what Python
 # is given.
 
@@ -91,7 +91,7 @@ class ShapeDiffTest(unittest.TestCase):
 
 class ShapeMaterialTest(unittest.TestCase):
     """Two states of a solid taken apart by their material
-    (docs/TransactionLog.md sec 32.14)."""
+    (docs/TransactionLogJournal.md sec 32.14)."""
 
     def holed(self, x, height=10):
         tool = Part.makeCylinder(3, 100, App.Vector(x, 10, -50))
@@ -173,7 +173,7 @@ class ShapeMaterialTest(unittest.TestCase):
 
 class ShapeAtAStateTest(unittest.TestCase):
     """Part.getTransactionShape(): a shape the log holds, read with its names
-    (docs/TransactionLog.md sec 32.7)."""
+    (docs/TransactionLogJournal.md sec 32.7)."""
 
     def setUp(self):
         self.setting = App.ParamGet("User parameter:BaseApp/Preferences/Document")
@@ -393,7 +393,7 @@ class ShapeAtAStateTest(unittest.TestCase):
 
 class KeptShapesTest(unittest.TestCase):
     """A shape a recompute made, kept in the file where a save would leave it
-    out of the history (docs/TransactionLog.md sec 32.11)."""
+    out of the history (docs/TransactionLogJournal.md sec 32.11)."""
 
     def setUp(self):
         self.setting = App.ParamGet("User parameter:BaseApp/Preferences/Document")
@@ -576,7 +576,7 @@ class KeptShapesTest(unittest.TestCase):
 
 class MergedResultTest(unittest.TestCase):
     """Document.previewTransactionMergeResult(): what a merge would make, in a
-    document of its own (docs/TransactionLog.md sec 32.17)."""
+    document of its own (docs/TransactionLogJournal.md sec 32.17)."""
 
     def setUp(self):
         self.setting = App.ParamGet("User parameter:BaseApp/Preferences/Document")

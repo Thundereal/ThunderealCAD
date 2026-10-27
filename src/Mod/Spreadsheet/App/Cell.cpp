@@ -886,7 +886,7 @@ void Cell::restore(Base::XMLReader &reader, bool checkAlias, int restoreType)
         return;
 
     // The mapped name of each element the expression names, in the order a
-    // visit meets its paths (docs/TransactionLog.md sec 31.22). Read before
+    // visit meets its paths (docs/TransactionLogJournal.md sec 31.22). Read before
     // the content, which may be the element's character data.
     givenShadows.clear();
     long shadows = reader.getAttributeAsInteger("shadows", "0");
@@ -1044,7 +1044,7 @@ void Cell::save(Base::Writer &writer) const {
 
     // An element the expression names is said in the content by its number;
     // the mapped name it has is saved beside it, as a link's shadow is and an
-    // expression's in its engine (docs/TransactionLog.md sec 31.22): a value
+    // expression's in its engine (docs/TransactionLogJournal.md sec 31.22): a value
     // read where the shape counts another way has only the name to say which
     // element was meant.
     //

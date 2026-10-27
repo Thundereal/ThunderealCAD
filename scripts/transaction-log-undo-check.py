@@ -1,4 +1,4 @@
-# GUI check of docs/TransactionLog.md sec 33.4, 33.11 and 33.13: the user's
+# GUI check of docs/TransactionLogJournal.md sec 33.4, 33.11 and 33.13: the user's
 # own undo and redo. A change made with no name does not empty the redo list;
 # a redo it stands in the way of is refused, and the refusal is said in a
 # dialog with its reason and the step after it offered, where it only went to

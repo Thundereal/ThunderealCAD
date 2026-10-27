@@ -76,6 +76,11 @@ public:
     void setupContextMenu(QMenu*, QObject*, const char*) override;
     bool setEdit(int ModNum) override;
     bool doubleClicked() override;
+    /** The dimension's edit, a projection group's left first (as OK leaves
+     * it): its double click on the page and in the tree, its menu's Edit
+     * (entry 219)
+     */
+    void startEdit();
 
     TechDraw::DrawViewDimension* getViewObject() const override;
 

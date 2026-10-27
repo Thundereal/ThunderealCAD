@@ -303,6 +303,7 @@ SET(SWIG_HEADERS
 )
 
 SET(FreeCADBase_HPP_SRCS
+    AutoColor.h
     Axis.h
     Base64.h
     Base64Filter.h

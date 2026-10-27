@@ -145,6 +145,11 @@ fc_add_gui_test(GuiSketch3DConstraintIcons_tests_run sketch3d-constraint-icons.p
 # dimension's kind in its entry, the manipulator's angle after a ring turn.
 fc_add_gui_test(GuiSketch3DTypedValues_tests_run sketch3d-typed-values.py
                 --timeout 180)
+# Its edit from a browser (S4), over a real socket: the edit op, a tool by
+# the command op, clicks, a typed length, a drag, its own commands on the
+# browser allowlist, resetEdit -- and no 3D view made for any of it.
+fc_add_gui_test(GuiServeSketch3DEdit_tests_run serve-sketch3d-edit.py
+                --timeout 240)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

@@ -1056,6 +1056,22 @@ const DIALOG_FREE_CONSTRAINTS = new Set([
   'Sketcher_ConstrainSnellsLaw',
 ]);
 
+/// The 3D sketch's own commands: its manipulator's switches and its
+/// constraints, none of which opens a dialog.
+const SKETCH3D_COMMANDS = new Set([
+  'Sketcher_Sketch3DCyclePlane',
+  'Sketcher_Sketch3DLockHeight',
+  'Sketcher_Sketch3DResetManipulator',
+  'Sketcher_Sketch3DKeepPlane',
+  'Sketcher_Sketch3DRotationHandles',
+  'Sketcher_Sketch3DSplineOnFace',
+  'Sketcher_Constrain3DAlongX',
+  'Sketcher_Constrain3DAlongY',
+  'Sketcher_Constrain3DAlongZ',
+  'Sketcher_ConstrainDistanceZ',
+  'Sketcher_Constrain3DSmooth',
+]);
+
 /// The `command` op's allowlist as the server has it (SceneControl.cpp
 /// isBrowserSafeCommand), for drawing a button disabled rather than
 /// letting it be refused. The server's copy is the one that decides.
@@ -1066,7 +1082,8 @@ export function isBrowserSafeCommand(name: string): boolean {
     || name === 'Sketcher_Intersection'
     || name === 'Sketcher_IntersectionDefining'
     || name === 'Sketcher_CarbonCopy'
-    || DIALOG_FREE_CONSTRAINTS.has(name);
+    || DIALOG_FREE_CONSTRAINTS.has(name)
+    || SKETCH3D_COMMANDS.has(name);
 }
 
 /// Bytes as base64, in chunks: `String.fromCharCode(...bytes)` over a whole

@@ -1064,6 +1064,12 @@ int SketchObject::addConstraints(const std::vector<Constraint*>& ConstraintList)
     // no need to check input data validity as this is an sketchobject managed operation.
     Base::StateLocker lock(managedoperation, true);
 
+    for (auto* c : ConstraintList) {
+        if (c->isSketch3DOnly()) {
+            FC_THROWM(Base::ValueError, "Constraint type " << c->typeToString() << " belongs to a 3D sketch");
+        }
+    }
+
     const std::vector<Constraint*>& vals = this->Constraints.getValues();
 
     std::vector<Constraint*> newVals(vals);
@@ -1140,6 +1146,10 @@ int SketchObject::addConstraint(const Constraint* constraint)
 
 int SketchObject::addConstraint(std::unique_ptr<Constraint> constraint)
 {
+    if (constraint->isSketch3DOnly()) {
+        FC_THROWM(Base::ValueError, "Constraint type " << constraint->typeToString() << " belongs to a 3D sketch");
+    }
+
     // no need to check input data validity as this is an sketchobject managed operation.
     Base::StateLocker lock(managedoperation, true);
 

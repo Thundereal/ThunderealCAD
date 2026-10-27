@@ -71,6 +71,12 @@ public:
     /// "png") from whatever pixmap the name resolves to; empty, with
     /// `format` cleared, when the name resolves to nothing.
     QByteArray iconSource(const char* name, int size, QString& format);
+    /// The name a client that caches icons by name is to fetch \a name's icon
+    /// by, as it is drawn now: \a name itself, or while a colour mapping is set
+    /// for it (setIconColorMapping) \a name with a tag of the mapping,
+    /// "<name>#cm<hex>", so that the recoloured icon is fetched and kept apart
+    /// from the plain one. iconSource() takes either.
+    QString iconVariantName(const char* name) const;
     /// Adds a build in XPM pixmap under a given name
     void addXPM(const char* name, const char** pXPM);
     /** Adds a build in XPM pixmap under a given name
@@ -131,6 +137,16 @@ public:
      */
     QPixmap pixmapFromSvg(const QByteArray& contents, const QSizeF& size,
                           const std::map<unsigned long, unsigned long>& colorMapping = std::map<unsigned long, unsigned long>()) const;
+    /** Draws the named SVG icon with some of its colours substituted, until called
+     * again with an empty mapping: pixmap() and iconFromTheme() of the name return
+     * the substituted icon meanwhile. Every occurrence of a colour in the file is
+     * replaced, in a style or an attribute. The Sketcher draws its tools so while a
+     * 3D sketch is in edit.
+     * @param name: the icon's name, as pixmap() takes it
+     * @param colorMapping: 0xRRGGBB to 0xRRGGBB
+     */
+    void setIconColorMapping(const char* name,
+                             const std::map<unsigned long, unsigned long>& colorMapping);
     /** Returns the names of all registered pixmaps.
     * To get the appropriate pixmaps call pixmap() for each name.
     */
@@ -192,6 +208,7 @@ public:
 
 private:
     void restoreCustomPaths();
+    bool findColoredIcon(const char* name, QPixmap& icon) const;
 
     static BitmapFactoryInst* _pcSingleton;
     BitmapFactoryInst();

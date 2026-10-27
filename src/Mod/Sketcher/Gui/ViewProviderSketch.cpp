@@ -200,6 +200,8 @@ SbColor ViewProviderSketch::CrossColorV                             (0.47f,1.0f,
 SbColor ViewProviderSketch::FullyConstrainedColor                   (0.0f,1.0f,0.0f);     // #00FF00 -> (  0,255,  0)
 SbColor ViewProviderSketch::ConstrDimColor                          (1.0f,0.149f,0.0f);   // #FF2600 -> (255, 38,  0)
 SbColor ViewProviderSketch::ConstrIcoColor                          (1.0f,0.149f,0.0f);   // #FF2600 -> (255, 38,  0)
+SbColor ViewProviderSketch::ConstrOutlineColor                      (0.157f,0.0f,0.0f);   // #280000 -> ( 40,  0,  0)
+int ViewProviderSketch::ConstrOutlineWidth = 1;
 SbColor ViewProviderSketch::NonDrivingConstrDimColor                (0.0f,0.149f,1.0f);   // #0026FF -> (  0, 38,255)
 SbColor ViewProviderSketch::ExprBasedConstrDimColor                 (1.0f,0.5f,0.149f);   // #FF7F26 -> (255, 127,38)
 SbColor ViewProviderSketch::InformationColor                        (0.0f,1.0f,0.0f);     // #00FF00 -> (  0,255,  0)
@@ -5735,6 +5737,33 @@ QImage ViewProviderSketch::renderConstrIcon(const QString &type,
     qp.setCompositionMode(QPainter::CompositionMode_SourceIn);
     qp.fillRect(roticon.rect(), color);
 
+    // A border round the icon in the outline colour, under it, so it reads on a dark
+    // background and a light one (ConstraintOutlineWidth, 0 for none).
+    const int border = int(std::lround(ConstrOutlineWidth * edit->pixelScalingFactor));
+    if (border > 0) {
+        QImage tinted = image.copy(roticon.rect());
+        QImage rim = tinted;
+        QPainter tint(&rim);
+        tint.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        tint.fillRect(rim.rect(),
+                      QColor::fromRgbF(ConstrOutlineColor[0], ConstrOutlineColor[1], ConstrOutlineColor[2]));
+        tint.end();
+        QImage framed(tinted.size(), QImage::Format_ARGB32_Premultiplied);
+        framed.fill(Qt::transparent);
+        QPainter f(&framed);
+        for (int dx = -border; dx <= border; ++dx) {
+            for (int dy = -border; dy <= border; ++dy) {
+                if (dx * dx + dy * dy <= border * border + border) {
+                    f.drawImage(dx, dy, rim);
+                }
+            }
+        }
+        f.drawImage(0, 0, tinted);
+        f.end();
+        qp.setCompositionMode(QPainter::CompositionMode_Source);
+        qp.drawImage(0, 0, framed);
+    }
+
     // Render constraint label if necessary
     if (!label.isEmpty()) {
         qp.setCompositionMode(QPainter::CompositionMode_SourceOver);
@@ -5804,6 +5833,19 @@ void ViewProviderSketch::OnChange(Base::Subject<const char*> &rCaller, const cha
         "FullyConstrainedColor",
         "ConstrainedDimColor",
         "ConstrainedIcoColor",
+        "ConstrainedOutlineColor",
+        "ConstrainedDimColorLight",
+        "ConstrainedIcoColorLight",
+        "ConstrainedOutlineColorLight",
+        "ConstraintOutlineWidth",
+        // the background picks the dark or the light set above
+        "BackgroundColor",
+        "BackgroundColor2",
+        "BackgroundColor3",
+        "BackgroundColor4",
+        "UseBackgroundColorMid",
+        "Gradient",
+        "RadialGradient",
         "NonDrivingConstrDimColor",
         "ExprBasedConstrDimColor",
         "DeactivatedConstrDimColor",
@@ -6121,12 +6163,25 @@ void ViewProviderSketch::initParams()
     // set the fully constrained color
     color = hGrp->GetUnsigned("FullyConstrainedColor", Sketcher::SketcherParams::defaultFullyConstrainedColor());
     FullyConstrainedColor.setPackedValue((uint32_t)color, transparency);
+    // the constraints' colours: a light set on a dark background, a dark one on a light
+    const bool lightBackground = viewBackgroundIsLight();
     // set the constraint dimension color
-    color = hGrp->GetUnsigned("ConstrainedDimColor", Sketcher::SketcherParams::defaultConstrainedDimColor());
+    color = lightBackground
+        ? hGrp->GetUnsigned("ConstrainedDimColorLight", Sketcher::SketcherParams::defaultConstrainedDimColorLight())
+        : hGrp->GetUnsigned("ConstrainedDimColor", Sketcher::SketcherParams::defaultConstrainedDimColor());
     ConstrDimColor.setPackedValue((uint32_t)color, transparency);
     // set the constraint color
-    color = hGrp->GetUnsigned("ConstrainedIcoColor", Sketcher::SketcherParams::defaultConstrainedIcoColor());
+    color = lightBackground
+        ? hGrp->GetUnsigned("ConstrainedIcoColorLight", Sketcher::SketcherParams::defaultConstrainedIcoColorLight())
+        : hGrp->GetUnsigned("ConstrainedIcoColor", Sketcher::SketcherParams::defaultConstrainedIcoColor());
     ConstrIcoColor.setPackedValue((uint32_t)color, transparency);
+    // the border round dimensions and constraint icons, so they read on the background
+    color = lightBackground
+        ? hGrp->GetUnsigned("ConstrainedOutlineColorLight", Sketcher::SketcherParams::defaultConstrainedOutlineColorLight())
+        : hGrp->GetUnsigned("ConstrainedOutlineColor", Sketcher::SketcherParams::defaultConstrainedOutlineColor());
+    ConstrOutlineColor.setPackedValue((uint32_t)color, transparency);
+    ConstrOutlineWidth = std::max<long>(
+        0, hGrp->GetInt("ConstraintOutlineWidth", Sketcher::SketcherParams::defaultConstraintOutlineWidth()));
     // set non-driving constraint color
     color = hGrp->GetUnsigned("NonDrivingConstrDimColor", Sketcher::SketcherParams::defaultNonDrivingConstrDimColor());
     NonDrivingConstrDimColor.setPackedValue((uint32_t)color, transparency);
@@ -8495,6 +8550,11 @@ Restart:
                 case None:
                 case InternalAlignment:
                 case NumConstraintTypes:
+                case AlongX:  // 3D sketch only, never in a 2D sketch
+                case AlongY:
+                case AlongZ:
+                case DistanceZ:
+                case Smooth:
                     break;
             }
 
@@ -8584,6 +8644,8 @@ void ViewProviderSketch::rebuildConstraintsVisual(void)
                     text->name.setValue(edit->labelFontName.c_str());
                 text->lineWidth = edit->DimensionLineWidth * edit->pixelScalingFactor;
                 text->linePattern = edit->DimensionLinePattern;
+                text->outlineColor = ConstrOutlineColor;
+                text->outlineWidth = float(ConstrOutlineWidth * edit->pixelScalingFactor);
                 text->useAntialiasing = false;
                 SoAnnotation *anno = new SoAnnotation();
                 anno->renderCaching = SoSeparator::OFF;
@@ -8718,6 +8780,8 @@ void ViewProviderSketch::rebuildConstraintsVisual(void)
                 arrows->string = "";
                 arrows->textColor = ConstrDimColor;
                 arrows->lineWidth = 2 * edit->pixelScalingFactor;
+                arrows->outlineColor = ConstrOutlineColor;
+                arrows->outlineWidth = float(ConstrOutlineWidth * edit->pixelScalingFactor);
 
                 // #define CONSTRAINT_SEPARATOR_INDEX_MATERIAL_OR_DATUMLABEL 0
                 sep->addChild(arrows);

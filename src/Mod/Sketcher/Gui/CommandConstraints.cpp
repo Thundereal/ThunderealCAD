@@ -59,6 +59,7 @@
 #include "EditDatumDialog.h"
 #include "Utils.h"
 #include "ViewProviderSketch.h"
+#include "ViewProviderSketch3D.h"
 #include "ui_InsertDatum.h"
 #include <Inventor/events/SoKeyboardEvent.h>
 
@@ -1570,7 +1571,7 @@ protected:
     void activated(int /*iMsg*/) override;
     bool isActive() override
     {
-        return isCommandActive(getActiveGuiDocument());
+        return isCommandActive(getActiveGuiDocument()) || activeSketch3DInEdit();
     }
 };
 
@@ -4759,6 +4760,9 @@ CmdSketcherConstrainHorVer::CmdSketcherConstrainHorVer()
 
 void CmdSketcherConstrainHorVer::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     horVerActivated(this, "HorVer");
 }
@@ -4805,6 +4809,9 @@ CmdSketcherConstrainHorizontal::CmdSketcherConstrainHorizontal()
 
 void CmdSketcherConstrainHorizontal::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     horVerActivated(this, "Horizontal");
 }
@@ -4850,6 +4857,9 @@ CmdSketcherConstrainVertical::CmdSketcherConstrainVertical()
 
 void CmdSketcherConstrainVertical::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     horVerActivated(this, "Vertical");
 }
@@ -4896,6 +4906,9 @@ CmdSketcherConstrainLock::CmdSketcherConstrainLock()
 
 void CmdSketcherConstrainLock::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
 
     // get the selection
@@ -5181,6 +5194,9 @@ CmdSketcherConstrainBlock::CmdSketcherConstrainBlock()
 
 void CmdSketcherConstrainBlock::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
 
     // get the selection
@@ -5502,6 +5518,9 @@ bool CmdSketcherConstrainCoincidentUnified::substituteConstraintCombinationsCoin
 
 void CmdSketcherConstrainCoincidentUnified::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     onActivated(CoincicenceType::Both);
 }
@@ -5931,6 +5950,9 @@ CmdSketcherConstrainCoincident::CmdSketcherConstrainCoincident()
 
 void CmdSketcherConstrainCoincident::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     onActivated(CoincicenceType::Coincident);
 }
@@ -5981,6 +6003,9 @@ CmdSketcherConstrainPointOnObject::CmdSketcherConstrainPointOnObject()
 
 void CmdSketcherConstrainPointOnObject::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     onActivated(CoincicenceType::PointOnObject);
 }
@@ -6036,6 +6061,9 @@ CmdSketcherConstrainDistance::CmdSketcherConstrainDistance()
 
 void CmdSketcherConstrainDistance::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     // get the selection
     std::vector<Gui::SelectionObject> selection = getSelection().getSelectionEx();
@@ -6683,6 +6711,9 @@ CmdSketcherConstrainDistanceX::CmdSketcherConstrainDistanceX()
 
 void CmdSketcherConstrainDistanceX::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     // get the selection
     std::vector<Gui::SelectionObject> selection = getSelection().getSelectionEx();
@@ -6986,6 +7017,9 @@ CmdSketcherConstrainDistanceY::CmdSketcherConstrainDistanceY()
 
 void CmdSketcherConstrainDistanceY::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     // get the selection
     std::vector<Gui::SelectionObject> selection = getSelection().getSelectionEx();
@@ -7287,6 +7321,9 @@ CmdSketcherConstrainParallel::CmdSketcherConstrainParallel()
 
 void CmdSketcherConstrainParallel::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     // get the selection
     std::vector<Gui::SelectionObject> selection = getSelection().getSelectionEx();
@@ -7459,6 +7496,9 @@ CmdSketcherConstrainPerpendicular::CmdSketcherConstrainPerpendicular()
 
 void CmdSketcherConstrainPerpendicular::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
 
     // get the selection
@@ -8296,6 +8336,9 @@ bool CmdSketcherConstrainTangent::substituteConstraintCombinations(SketchObject*
 
 void CmdSketcherConstrainTangent::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
 
     // get the selection
@@ -9094,6 +9137,9 @@ CmdSketcherConstrainRadius::CmdSketcherConstrainRadius()
 
 void CmdSketcherConstrainRadius::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     // get the selection
     std::vector<Gui::SelectionObject> selection = getSelection().getSelectionEx();
@@ -9457,6 +9503,9 @@ CmdSketcherConstrainDiameter::CmdSketcherConstrainDiameter()
 
 void CmdSketcherConstrainDiameter::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     // get the selection
     std::vector<Gui::SelectionObject> selection = getSelection().getSelectionEx();
@@ -9775,6 +9824,9 @@ CmdSketcherConstrainRadiam::CmdSketcherConstrainRadiam()
 
 void CmdSketcherConstrainRadiam::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     // get the selection
     std::vector<Gui::SelectionObject> selection = getSelection().getSelectionEx();
@@ -10202,6 +10254,9 @@ CmdSketcherConstrainAngle::CmdSketcherConstrainAngle()
 
 void CmdSketcherConstrainAngle::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     // TODO: comprehensive messages, like in CmdSketcherConstrainTangent
     //  get the selection
@@ -10675,6 +10730,9 @@ CmdSketcherConstrainEqual::CmdSketcherConstrainEqual()
 
 void CmdSketcherConstrainEqual::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     // get the selection
     std::vector<Gui::SelectionObject> selection = getSelection().getSelectionEx();
@@ -10942,6 +11000,9 @@ CmdSketcherConstrainSymmetric::CmdSketcherConstrainSymmetric()
 
 void CmdSketcherConstrainSymmetric::activated(int iMsg)
 {
+    if (runSketch3DConstraint(getName())) {
+        return;
+    }
     Q_UNUSED(iMsg);
     // get the selection
     std::vector<Gui::SelectionObject> selection = getSelection().getSelectionEx();

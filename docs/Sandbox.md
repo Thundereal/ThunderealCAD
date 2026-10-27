@@ -6363,7 +6363,12 @@ channel of docs/ThinClient.md 4.2, one op per store message:
   (its reply also accepted the two deviations below).  The client
   caches by (theme, name); a theme change on the desktop is one
   `custom {"event":"theme","args":[name]}` on the `toolbars` object,
-  which is the cache-drop cue.
+  which is the cache-drop cue.  An icon drawn recoloured
+  (`BitmapFactory::setIconColorMapping`, the Sketcher's tools in teal
+  while a 3D sketch is in edit) is named `<name>#cm<hash of the
+  mapping>` in the stream (`iconVariantName`), and this op serves that
+  name with the colours substituted: under the plain name the cache
+  would go on showing the plain icon (2026-10-27, docs/Sketch3D.md S4).
 - `{"op":"widgets.update","id":..,"state":{"q_checked":true}}` ->
   `Store::applyUpdate` under the client's origin -- the model's
   `ActionView` writes the real action; `{"op":"widgets.custom","id":..,

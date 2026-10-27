@@ -889,6 +889,23 @@ bool isBrowserSafeCommand(const QString &name)
         QStringLiteral("Sketcher_ChangeDimensionConstraint"),
         QStringLiteral("Sketcher_ConstrainSnellsLaw"),
     };
+    // The 3D sketch's own: its manipulator's switches and its constraints,
+    // none of which opens a dialog (what they refuse goes to the status
+    // bar). Its tools are the Sketcher_Create* commands, which start the 3D
+    // tool while a 3D sketch is in edit.
+    static const QSet<QString> sketch3d = {
+        QStringLiteral("Sketcher_Sketch3DCyclePlane"),
+        QStringLiteral("Sketcher_Sketch3DLockHeight"),
+        QStringLiteral("Sketcher_Sketch3DResetManipulator"),
+        QStringLiteral("Sketcher_Sketch3DKeepPlane"),
+        QStringLiteral("Sketcher_Sketch3DRotationHandles"),
+        QStringLiteral("Sketcher_Sketch3DSplineOnFace"),
+        QStringLiteral("Sketcher_Constrain3DAlongX"),
+        QStringLiteral("Sketcher_Constrain3DAlongY"),
+        QStringLiteral("Sketcher_Constrain3DAlongZ"),
+        QStringLiteral("Sketcher_ConstrainDistanceZ"),
+        QStringLiteral("Sketcher_Constrain3DSmooth"),
+    };
     // Sketcher_External's three siblings start the same handler in another
     // flavour; pressed while a constraint tool runs, each switches that
     // tool's outside picking to its flavour.
@@ -898,7 +915,8 @@ bool isBrowserSafeCommand(const QString &name)
         || name == QLatin1String("Sketcher_Intersection")
         || name == QLatin1String("Sketcher_IntersectionDefining")
         || name == QLatin1String("Sketcher_CarbonCopy")
-        || constraints.contains(name);
+        || constraints.contains(name)
+        || sketch3d.contains(name);
 }
 
 /// The command a group's member `index` (1-based) runs, by the route the

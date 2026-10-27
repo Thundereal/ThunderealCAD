@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GenerateModel xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="generateMetaModel_Module.xsd">
+    <PythonExport
+        Name="CurveOnSurfacePy"
+        Namespace="Part"
+        Twin="GeomCurveOnSurface"
+        TwinPointer="GeomCurveOnSurface"
+        PythonName="Part.CurveOnSurface"
+        FatherInclude="Mod/Part/App/BoundedCurvePy.h"
+        Include="Mod/Part/App/GeomCurveOnSurface.h"
+        Father="BoundedCurvePy"
+        FatherNamespace="Part"
+        Constructor="true">
+        <Documentation>
+            <Author Licence="LGPL" Name="Zheng Lei" EMail="realthunder.dev@gmail.com"/>
+            <UserDocu>CurveOnSurface(curve2d, surface): a curve lying on a surface, given by a 2D
+curve (Part.Geom2d) in the surface's (u, v). It lies on the surface exactly, and is
+evaluated, projected and transformed as any curve; toShape() makes an edge that
+carries the 2D curve on the surface.</UserDocu>
+        </Documentation>
+        <Methode Name="toShape" Const="true">
+            <Documentation>
+                <UserDocu>toShape([first, last]) -> Edge: the edge of the 2D curve on the surface, with a
+3D curve built to match it.</UserDocu>
+            </Documentation>
+        </Methode>
+        <Attribute Name="Curve2d">
+            <Documentation>
+                <UserDocu>The 2D curve in the surface's (u, v).</UserDocu>
+            </Documentation>
+            <Parameter Name="Curve2d" Type="Object"/>
+        </Attribute>
+        <Attribute Name="Surface">
+            <Documentation>
+                <UserDocu>The surface the curve lies on.</UserDocu>
+            </Documentation>
+            <Parameter Name="Surface" Type="Object"/>
+        </Attribute>
+    </PythonExport>
+</GenerateModel>

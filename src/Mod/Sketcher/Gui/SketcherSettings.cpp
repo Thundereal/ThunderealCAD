@@ -880,6 +880,17 @@ void SketcherSettingsAppearance::saveSettings()
     ui->NonDrivingConstraintColor->onSave();
     ui->DatumColor->onSave();
     ui->ExprBasedConstrDimColor->onSave();
+    ui->Sketch3DDimColor->onSave();
+    ui->Sketch3DIcoColor->onSave();
+    ui->Sketch3DOutlineColor->onSave();
+    ui->ConstrainedOutlineColor->onSave();
+    ui->ConstraintOutlineWidth->onSave();
+    ui->ConstrainedDimColorLight->onSave();
+    ui->ConstrainedIcoColorLight->onSave();
+    ui->ConstrainedOutlineColorLight->onSave();
+    ui->Sketch3DDimColorLight->onSave();
+    ui->Sketch3DIcoColorLight->onSave();
+    ui->Sketch3DOutlineColorLight->onSave();
     ui->DeactivatedConstrDimColor->onSave();
 
     ui->CursorTextColor->onSave();
@@ -929,6 +940,17 @@ void SketcherSettingsAppearance::loadSettings()
     ui->NonDrivingConstraintColor->onRestore();
     ui->DatumColor->onRestore();
     ui->ExprBasedConstrDimColor->onRestore();
+    ui->Sketch3DDimColor->onRestore();
+    ui->Sketch3DIcoColor->onRestore();
+    ui->Sketch3DOutlineColor->onRestore();
+    ui->ConstrainedOutlineColor->onRestore();
+    ui->ConstraintOutlineWidth->onRestore();
+    ui->ConstrainedDimColorLight->onRestore();
+    ui->ConstrainedIcoColorLight->onRestore();
+    ui->ConstrainedOutlineColorLight->onRestore();
+    ui->Sketch3DDimColorLight->onRestore();
+    ui->Sketch3DIcoColorLight->onRestore();
+    ui->Sketch3DOutlineColorLight->onRestore();
     ui->DeactivatedConstrDimColor->onRestore();
 
     ui->CursorTextColor->onRestore();

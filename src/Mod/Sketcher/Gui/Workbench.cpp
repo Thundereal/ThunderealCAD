@@ -25,6 +25,7 @@
 #include <Mod/Sketcher/App/SketcherParams.h>
 
 #include "Utils.h"
+#include "ViewProviderSketch3D.h"
 #include "Workbench.h"
 #include <Base/Console.h>
 #include <Gui/Application.h>
@@ -116,6 +117,24 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
     sketcherEditMode->setCommand("Sketcher edit mode");
     addSketcherWorkbenchSketchEditModeActions(*sketcherEditMode);
 
+    // The 3D sketch's own switches (docs/Sketch3D.md section 7), shown in its edit only.
+    Gui::ToolBarItem* sketch3D =
+        new Gui::ToolBarItem(root, Gui::ToolBarItem::DefaultVisibility::Unavailable);
+    sketch3D->setCommand("Sketcher 3D");
+    *sketch3D << "Sketcher_Sketch3DCyclePlane"
+              << "Sketcher_Sketch3DLockHeight"
+              << "Sketcher_Sketch3DKeepPlane"
+              << "Sketcher_Sketch3DResetManipulator"
+              << "Sketcher_Sketch3DRotationHandles"
+              << "Separator"
+              << "Sketcher_Sketch3DSplineOnFace"
+              << "Separator"
+              << "Sketcher_Constrain3DAlongX"
+              << "Sketcher_Constrain3DAlongY"
+              << "Sketcher_Constrain3DAlongZ"
+              << "Sketcher_ConstrainDistanceZ"
+              << "Sketcher_Constrain3DSmooth";
+
     Gui::ToolBarItem* geom =
         new Gui::ToolBarItem(root, Gui::ToolBarItem::DefaultVisibility::Unavailable);
     geom->setCommand("Sketcher geometries");
@@ -197,6 +216,12 @@ void Workbench::activated()
         Gui::ToolBarManager::getInstance()->setState(editModeToolbarNames(),
                                                      Gui::ToolBarManager::State::ForceAvailable);
     }
+    else if (isSketch3DInEdit(doc)) {
+        Gui::ToolBarManager::getInstance()->setState(editModeToolbarNames(),
+                                                     Gui::ToolBarManager::State::ForceAvailable);
+        Gui::ToolBarManager::getInstance()->setState({QStringLiteral("Sketcher 3D")},
+                                                     Gui::ToolBarManager::State::ForceAvailable);
+    }
 }
 
 void Workbench::enterEditMode()
@@ -245,6 +270,7 @@ template<>
 inline void SketcherAddWorkbenchSketchActions(Gui::MenuItem& sketch)
 {
     sketch << "Sketcher_NewSketch"
+           << "Sketcher_NewSketch3D"
            << "Sketcher_EditSketch"
            << "Sketcher_MapSketch"
            << "Sketcher_ReorientSketch"
@@ -256,6 +282,7 @@ template<>
 inline void SketcherAddWorkbenchSketchActions(Gui::ToolBarItem& sketch)
 {
     sketch << "Sketcher_NewSketch"
+           << "Sketcher_NewSketch3D"
            << "Sketcher_EditSketch"
            << "Sketcher_MapSketch"
            << "Sketcher_ReorientSketch"

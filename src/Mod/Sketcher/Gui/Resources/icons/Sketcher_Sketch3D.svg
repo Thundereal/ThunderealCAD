@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by make_sketch3d_icons.py: change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>3D sketch</title>
+  <path d="M 3.05,38.11 L 29.90,22.61 L 56.75,38.11 L 29.90,53.61 Z" fill="none" stroke="#00838f" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 3.05,38.11 L 29.90,22.61 L 56.75,38.11 L 29.90,53.61 Z" fill="none" stroke="#4dd0e1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <ellipse cx="38.90" cy="23.11" rx="22.04" ry="12.73" fill="none" stroke="#00838f" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+  <ellipse cx="38.90" cy="23.11" rx="22.04" ry="12.73" fill="none" stroke="#4dd0e1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>

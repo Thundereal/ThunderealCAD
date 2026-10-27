@@ -2628,6 +2628,13 @@ int Sketch::addConstraint(const Constraint* constraint)
         case Sketcher::Block:  // handled separately while adding geometry
         case NumConstraintTypes:
             break;
+        case AlongX:  // 3D sketch only: malformed in a 2D sketch
+        case AlongY:
+        case AlongZ:
+        case DistanceZ:
+        case Smooth:
+            rtn = -1;
+            break;
     }
 
     Constrs.push_back(c);

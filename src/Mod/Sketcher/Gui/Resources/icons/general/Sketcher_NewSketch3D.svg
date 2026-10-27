@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Written by make_sketch3d_icons.py: change the script, not this file. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <title>New 3D sketch</title>
+  <defs><linearGradient id="sheet" x1="0" y1="64" x2="0" y2="17.97" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#e2e4df"/><stop offset="1" stop-color="#ffffff"/></linearGradient></defs>
+  <path d="M 0.00,64.00 L 0.00,30.45 L 21.62,17.97 L 64.00,42.43 L 64.00,43.50 L 28.49,64.00 Z" fill="url(#sheet)" stroke="none"/>
+  <path d="M 0.00,30.45 L 21.62,17.97" fill="none" stroke="#3f3f3f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 21.62,17.97 L 64.00,42.43" fill="none" stroke="#3f3f3f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 64.00,43.50 L 28.49,64.00" fill="none" stroke="#3f3f3f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 3.11,39.97 L 25.62,26.97 L 48.14,39.97 L 25.62,52.97 Z" fill="none" stroke="#00838f" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+  <path d="M 3.11,39.97 L 25.62,26.97 L 48.14,39.97 L 25.62,52.97 Z" fill="none" stroke="#4dd0e1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  <ellipse cx="37.62" cy="24.47" rx="23.27" ry="13.43" fill="none" stroke="#00838f" stroke-width="6" stroke-linejoin="round" stroke-linecap="round"/>
+  <ellipse cx="37.62" cy="24.47" rx="23.27" ry="13.43" fill="none" stroke="#4dd0e1" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+</svg>

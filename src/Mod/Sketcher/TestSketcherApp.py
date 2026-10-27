@@ -33,6 +33,7 @@ from SketcherTests.TestSketchExternalGeometry import TestSketchExternalGeometry
 from SketcherTests.TestSketchExternalTypes import TestSketchExternalTypes
 from SketcherTests.TestSketcherText import TestSketcherText
 from SketcherTests.TestSketchRadiusDiameter import TestSketchRadiusDiameter
+from SketcherTests.TestSketch3D import TestSketch3D
 
 # Path and PartDesign tests use these functions that used to live here
 # but moved to SketcherTests/TestSketcherSolver.py

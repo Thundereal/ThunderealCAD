@@ -156,8 +156,10 @@ using VecX = Eigen::VectorXd;
 
 // The KKT solves: Eigen's SparseLU, and SparseQR where that does not solve
 // the system: a factorization that fails, or a solution off the constraint
-// rows (Cq dx = -C, the rows after the variables') or off the variables'
-// rows. Redundant joints make the system singular: an LU of it solves the
+// rows (Cq dx = -C, the rows after the variables'; relative to C, with a floor
+// at the system's scale, for the steps along the constraints where C is all
+// but zero) or off the variables' rows. Redundant joints make the system
+// singular: an LU of it solves the
 // constraint rows still, but its multipliers come to 1e19 and their rounding
 // leaves the variables' rows hundreds off (a cam's roller follower), the step
 // with them; conflicting joints make it inconsistent, which wants the least
@@ -200,7 +202,7 @@ private:
                 const Eigen::Index nv = m_rhs.size() - n;
                 const double scale =
                     std::max({1.0, m_rhs.head(nv).norm(), m_sol.head(nv).norm()});
-                if (residual.tail(n).norm() <= 1e-10 * std::max(m_rhs.tail(n).norm(), 1e-12)
+                if (residual.tail(n).norm() <= 1e-10 * m_rhs.tail(n).norm() + 1e-12 * scale
                     && residual.head(nv).norm() <= 1e-8 * scale) {
                     return true;
                 }

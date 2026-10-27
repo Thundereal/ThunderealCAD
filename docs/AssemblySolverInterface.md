@@ -3453,8 +3453,11 @@ not solve the system it came from: |Cq dx + C| / |C| was 3e-3, 2e-2, then
 KKT systems redundant joints make, is not accurate on these regular ones;
 Eigen's SparseLU solves them to 1e-13. The backend's solver is now
 `LUThenQR`: SparseLU, and SparseQR where the LU fails or its solution is off
-the constraint rows (relative 1e-10) or off the variables' rows (1e-8 of
-the larger of their right-hand side, the step and 1). Both tests are needed:
+the constraint rows (1e-10 of C, plus 1e-12 of the system's scale -- the
+larger of the variables' right-hand side, the step and 1 -- since in the
+steps along the constraints C is all but zero, and a floor of C alone sent
+nine in ten of a drag's solves to SparseQR, 25 s a step at 200 parts) or
+off the variables' rows (1e-8 of that scale). Both tests are needed:
 on a cam's roller follower the system is singular, the LU still solves the
 constraint rows, but its multipliers come to 1e19 and the variables' rows
 are hundreds off, the step with them. The edit at 200 parts now solves on
@@ -3491,16 +3494,17 @@ digests changed; their placements moved by rounding.
 
 **Results** (the bench chain at 200 parts, OndselSolver, sec 6.21 -> now):
 a solve 0.64 -> 0.48 s, the 5 degree edit 0.65 -> 0.63 s, a touched leaf
-0.77 -> 0.75 s, preDrag 1.6 -> 1.5 s, ten drag steps 3.7 -> 3.8 s. Chrono:
-a solve 0.67 s, the edit 4.3 s, ten drag steps 72 s (the first 25 s).
+0.77 -> 0.75 s, preDrag 1.6 -> 1.5 s, ten drag steps 3.7 -> 3.8 s. Chrono
+at 200 parts: a solve 0.59 s, the edit 0.70 s, ten drag steps 12.9 s (most
+0.4 s, four 2 to 3.4 s); at 100: 0.11 s, 0.14 s, 1.2 s.
 
 **Gate.** Three records for the group start (the bench chains,
 `test_drag_bundles_fixed`), five drag digests for the bundling; every other
 record as it was. The Assembly suite 372 run, 59 skipped, no failures;
 ctest 1000/1000.
 
-**Not done:** Chrono's drag at 200 parts is slow (its first step 25 s, the
-pull phase; not looked into); the pair search has no case of its own; a
+**Not done:** four of Chrono's ten drag steps at 200 parts take 2 to 3.4 s
+(not looked into); the pair search has no case of its own; a
 group still moves as one body in the solve's metric (its joints' centre and
 spread), not as the sum of its bodies.
 

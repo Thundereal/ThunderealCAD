@@ -47,6 +47,8 @@
 #include "FeatureChamfer.h"
 
 
+FC_LOG_LEVEL_INIT("PartDesign",true,true)
+
 using namespace PartDesign;
 
 
@@ -79,6 +81,18 @@ Chamfer::Chamfer()
     ADD_PROPERTY_TYPE(UseAllEdges, (false), "Chamfer", App::Prop_None,
              "Chamfer all edges if true, else use only those edges in Base property.\n"
              "If true, then this overrides any edge changes made to the Base property or in the dialog.\n");
+
+    ADD_PROPERTY_TYPE(RemoveSlivers, (true), "Chamfer", App::Prop_None,
+             "Where the chamfer of an edge fails: take out the faces narrower than a quarter of\n"
+             "its size at its ends -- most often a step left between two features meant to\n"
+             "meet -- their neighbours extended over them, and chamfer again. Kept only when\n"
+             "fewer chamfers fail; the faces taken out are reported.");
+
+    ADD_PROPERTY_TYPE(PastFeatures, (true), "Chamfer", App::Prop_None,
+             "Where the chamfer of an edge fails, and RemoveSlivers did not help: take out\n"
+             "the features near it -- a pocket or a boss within its size of the edge, that\n"
+             "its chamfer runs into -- chamfer, and put them back, a pocket then cutting into\n"
+             "the chamfer. Kept only when fewer chamfers fail; the faces taken out are reported.");
 
     ADD_PROPERTY(ChamferInfo,());
     ChamferInfo.connectLinkProperty(Base);
@@ -181,13 +195,61 @@ App::DocumentObjectExecReturn *Chamfer::execute()
         if (shape.isNull())
             return new App::DocumentObjectExecReturn(QT_TRANSLATE_NOOP("Exception", "Failed to create chamfer"));
 
+        // Where some fail, tried again with the slivers at them taken out,
+        // then with the features near them taken out and put back; each kept
+        // when fewer fail (as Fillet::execute())
+        TopoShape usedBase = baseShape;
+        auto usedEdges = edges;
+        for (int pass = 0; pass < 2 && !partial.failed.empty(); ++pass) {
+            const bool features = pass == 1;
+            if (!(features ? PastFeatures.getValue() : RemoveSlivers.getValue()))
+                continue;
+            TopoShape freedBase = usedBase;
+            auto freedEdges = usedEdges;
+            std::vector<TopoDS_Shape> extra;
+            std::vector<std::string> taken;
+            TopoShape pockets, bosses;
+            if (features ? !removeFeatures(freedBase, freedEdges, partial.failed, size, extra,
+                                           taken, pockets, bosses)
+                         : !removeSlivers(freedBase, freedEdges, partial.failed, size / 4.0,
+                                          extra, taken))
+                continue;
+            try {
+                TopoShape retry(0, getDocument()->getStringHasher());
+                Part::TopoShape::FilletPartial retryPartial;
+                retry.makEChamfer(freedBase, freedEdges, chamferInfo, nullptr, &retryPartial);
+                if (features && !retry.isNull())
+                    retry = putBackFeatures(retry, pockets, bosses);
+                if (!retry.isNull() && retryPartial.failed.size() < partial.failed.size()) {
+                    std::string names;
+                    for (const auto &name : taken)
+                        names += " " + name;
+                    if (features)
+                        FC_WARN(getFullName() << ": features taken out to chamfer, and put back:"
+                                << names);
+                    else
+                        FC_WARN(getFullName() << ": sliver faces taken out to chamfer:" << names);
+                    shape = retry;
+                    partial = retryPartial;
+                    if (!features) {
+                        usedBase = freedBase;
+                        usedEdges = freedEdges;
+                    }
+                }
+            }
+            catch (Base::Exception &) {
+            }
+            catch (Standard_Failure &) {
+            }
+        }
+
         // The faces of each edge's chamfer, kept for when it fails later; the
         // failed ones' as last made
         std::vector<std::string> failedNames;
         setFailedEdges(baseShape, edges, partial, missing, failedNames);
 
         TopTools_ListOfShape aLarg;
-        aLarg.Append(baseShape.getShape());
+        aLarg.Append(usedBase.getShape());
         bool failed = false;
         // Checked as it will be kept: a run on copies puts back what it did
         // not change (as Fillet::execute(), entry 160)

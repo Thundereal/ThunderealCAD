@@ -3300,8 +3300,10 @@ scripts in `D:\works\sw\abi-upstream\tools` (the OCCT fork's
 
 - **No FreeCAD binary imports an OCCT symbol that only the fork exports.**
   What FreeCAD needs of the fork it reaches through a C function looked up by
-  name at run time (`Part::lookUpOCCT` in `AppPartPy.cpp`, the wrappers
-  beside it in `PartPyCXX.h`), and does without where it is not found.
+  name at run time (`Part::lookUpOCCT` and every typed wrapper over it in
+  `src/Mod/Part/App/OCCTFork.h` / `OCCTFork.cpp`, since 2026-10-21; they
+  were in `AppPartPy.cpp` and `PartPyCXX.h`), and does without where it is
+  not found.
   `win_forkonly.py <upstream bin> <build>` lists the imports that break this;
   it is to print none, the test binaries included. The last one was
   `TopoDS_LockedShape`'s counter, imported by whatever called an inline

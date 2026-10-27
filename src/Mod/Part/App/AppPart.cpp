@@ -210,12 +210,7 @@ PyObject* Part::PartExceptionOCCRangeError;
 PyObject* Part::PartExceptionOCCConstructionError;
 PyObject* Part::PartExceptionOCCDimensionError;
 
-namespace Part {
-// AppPartPy.cpp: hands the fillet corner plate fallback to the OCCT fork
-PartExport bool setOCCTPlateG0FallbackRatio(double ratio);
-// AppPartPy.cpp: hands the fillet corner setback fallback to the OCCT fork
-PartExport bool setOCCTCornerSetbackFallback(double multiple);
-}
+#include "OCCTFork.h" // the fillet settings handed to the OCCT fork
 
 PyMOD_INIT_FUNC(Part)
 {

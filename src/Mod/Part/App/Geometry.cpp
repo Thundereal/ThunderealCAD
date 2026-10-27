@@ -22,11 +22,14 @@
  *                                                                         *
  ***************************************************************************/
 
+#include <sstream>
+
 #include <Approx_Curve3d.hxx>
 #include <Bnd_Box.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <GeomTools.hxx>
 #include <BRepBuilderAPI_MakeEdge.hxx>
 #include <BRepBuilderAPI_MakeFace.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
@@ -141,6 +144,7 @@
 
 #include <App/Application.h>
 #include <App/PropertyStandard.h>
+#include <Base/Base64.h>
 #include <Base/Console.h>
 #include <Base/Exception.h>
 #include <Base/FileInfo.h>
@@ -668,6 +672,43 @@ void Geometry::translate(const Base::Vector3d& vec)
     handle()->Translate(trl);
 }
 
+
+// -------------------------------------------------
+// Saving a curve or surface in OCCT's own text form (GeomTools), for the types
+// without a form of their own here: any of them keeps, whatever it is built on.
+
+namespace
+{
+void saveInOcctText(Base::Writer& writer, const Handle(Geom_Geometry) & geom)
+{
+    std::ostringstream os;
+    os.precision(17);
+    if (auto surface = Handle(Geom_Surface)::DownCast(geom)) {
+        GeomTools::Write(surface, os);
+    }
+    else {
+        GeomTools::Write(Handle(Geom_Curve)::DownCast(geom), os);
+    }
+    std::string text = os.str();
+    writer.Stream() << writer.ind() << "<OcctGeometry Data=\""
+                    << Base::base64_encode(text.data(), text.size()) << "\"/>" << std::endl;
+}
+
+template<class T, class Base_>
+Handle(T) restoreFromOcctText(Base::XMLReader& reader, const char* what)
+{
+    reader.readElement("OcctGeometry");
+    std::istringstream is(
+        Base::base64_decode(std::string(reader.getAttribute<const char*>("Data"))));
+    Handle(Base_) geom;
+    GeomTools::Read(geom, is);
+    Handle(T) res = Handle(T)::DownCast(geom);
+    if (res.IsNull()) {
+        FC_THROWM(Base::RestoreError, what << ": not the geometry it was saved as");
+    }
+    return res;
+}
+}  // namespace
 
 // -------------------------------------------------
 
@@ -2541,14 +2582,16 @@ unsigned int GeomTrimmedCurve::getMemSize() const
     return sizeof(Geom_TrimmedCurve);
 }
 
-void GeomTrimmedCurve::Save(Base::Writer& /*writer*/) const
+void GeomTrimmedCurve::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomTrimmedCurve::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomTrimmedCurve::Restore(Base::XMLReader& /*reader*/)
+void GeomTrimmedCurve::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomTrimmedCurve::Restore")
+    Geometry::Restore(reader);
+    setHandle(restoreFromOcctText<Geom_TrimmedCurve, Geom_Curve>(reader, "GeomTrimmedCurve"));
 }
 
 PyObject* GeomTrimmedCurve::getPyObject()
@@ -5025,14 +5068,16 @@ unsigned int GeomOffsetCurve::getMemSize() const
     return sizeof(Geom_OffsetCurve);
 }
 
-void GeomOffsetCurve::Save(Base::Writer& /*writer*/) const
+void GeomOffsetCurve::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomOffsetCurve::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomOffsetCurve::Restore(Base::XMLReader& /*reader*/)
+void GeomOffsetCurve::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomOffsetCurve::Restore")
+    Geometry::Restore(reader);
+    setHandle(restoreFromOcctText<Geom_OffsetCurve, Geom_Curve>(reader, "GeomOffsetCurve"));
 }
 
 PyObject* GeomOffsetCurve::getPyObject()
@@ -5278,14 +5323,16 @@ unsigned int GeomBezierSurface::getMemSize() const
     return size;
 }
 
-void GeomBezierSurface::Save(Base::Writer& /*writer*/) const
+void GeomBezierSurface::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomBezierSurface::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomBezierSurface::Restore(Base::XMLReader& /*reader*/)
+void GeomBezierSurface::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomBezierSurface::Restore")
+    Geometry::Restore(reader);
+    setHandle(restoreFromOcctText<Geom_BezierSurface, Geom_Surface>(reader, "GeomBezierSurface"));
 }
 
 PyObject* GeomBezierSurface::getPyObject()
@@ -5452,14 +5499,16 @@ unsigned int GeomBSplineSurface::getMemSize() const
     return size;
 }
 
-void GeomBSplineSurface::Save(Base::Writer& /*writer*/) const
+void GeomBSplineSurface::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomBSplineSurface::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomBSplineSurface::Restore(Base::XMLReader& /*reader*/)
+void GeomBSplineSurface::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomBSplineSurface::Restore")
+    Geometry::Restore(reader);
+    setHandle(restoreFromOcctText<Geom_BSplineSurface, Geom_Surface>(reader, "GeomBSplineSurface"));
 }
 
 PyObject* GeomBSplineSurface::getPyObject()
@@ -5630,14 +5679,16 @@ unsigned int GeomCylinder::getMemSize() const
     return sizeof(Geom_CylindricalSurface);
 }
 
-void GeomCylinder::Save(Base::Writer& /*writer*/) const
+void GeomCylinder::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomCylinder::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomCylinder::Restore(Base::XMLReader& /*reader*/)
+void GeomCylinder::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomCylinder::Restore")
+    Geometry::Restore(reader);
+    setHandle(restoreFromOcctText<Geom_CylindricalSurface, Geom_Surface>(reader, "GeomCylinder"));
 }
 
 PyObject* GeomCylinder::getPyObject()
@@ -5704,14 +5755,16 @@ unsigned int GeomCone::getMemSize() const
     return sizeof(Geom_ConicalSurface);
 }
 
-void GeomCone::Save(Base::Writer& /*writer*/) const
+void GeomCone::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomCone::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomCone::Restore(Base::XMLReader& /*reader*/)
+void GeomCone::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomCone::Restore")
+    Geometry::Restore(reader);
+    setHandle(restoreFromOcctText<Geom_ConicalSurface, Geom_Surface>(reader, "GeomCone"));
 }
 
 PyObject* GeomCone::getPyObject()
@@ -5838,14 +5891,16 @@ unsigned int GeomToroid::getMemSize() const
     return sizeof(Geom_ToroidalSurface);
 }
 
-void GeomToroid::Save(Base::Writer& /*writer*/) const
+void GeomToroid::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomToroid::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomToroid::Restore(Base::XMLReader& /*reader*/)
+void GeomToroid::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomToroid::Restore")
+    Geometry::Restore(reader);
+    setHandle(restoreFromOcctText<Geom_ToroidalSurface, Geom_Surface>(reader, "GeomToroid"));
 }
 
 PyObject* GeomToroid::getPyObject()
@@ -5918,14 +5973,16 @@ unsigned int GeomSphere::getMemSize() const
     return sizeof(Geom_SphericalSurface);
 }
 
-void GeomSphere::Save(Base::Writer& /*writer*/) const
+void GeomSphere::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomSphere::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomSphere::Restore(Base::XMLReader& /*reader*/)
+void GeomSphere::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomSphere::Restore")
+    Geometry::Restore(reader);
+    setHandle(restoreFromOcctText<Geom_SphericalSurface, Geom_Surface>(reader, "GeomSphere"));
 }
 
 PyObject* GeomSphere::getPyObject()
@@ -6106,14 +6163,16 @@ unsigned int GeomOffsetSurface::getMemSize() const
     return sizeof(Geom_OffsetSurface);
 }
 
-void GeomOffsetSurface::Save(Base::Writer& /*writer*/) const
+void GeomOffsetSurface::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomOffsetSurface::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomOffsetSurface::Restore(Base::XMLReader& /*reader*/)
+void GeomOffsetSurface::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomOffsetSurface::Restore")
+    Geometry::Restore(reader);
+    setHandle(restoreFromOcctText<Geom_OffsetSurface, Geom_Surface>(reader, "GeomOffsetSurface"));
 }
 
 PyObject* GeomOffsetSurface::getPyObject()
@@ -6252,14 +6311,18 @@ unsigned int GeomTrimmedSurface::getMemSize() const
     return sizeof(Geom_RectangularTrimmedSurface);
 }
 
-void GeomTrimmedSurface::Save(Base::Writer& /*writer*/) const
+void GeomTrimmedSurface::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomTrimmedSurface::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomTrimmedSurface::Restore(Base::XMLReader& /*reader*/)
+void GeomTrimmedSurface::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomTrimmedSurface::Restore")
+    Geometry::Restore(reader);
+    setHandle(
+        restoreFromOcctText<Geom_RectangularTrimmedSurface, Geom_Surface>(reader,
+                                                                          "GeomTrimmedSurface"));
 }
 
 PyObject* GeomTrimmedSurface::getPyObject()
@@ -6376,14 +6439,18 @@ unsigned int GeomSurfaceOfRevolution::getMemSize() const
     return sizeof(Geom_SurfaceOfRevolution);
 }
 
-void GeomSurfaceOfRevolution::Save(Base::Writer& /*writer*/) const
+void GeomSurfaceOfRevolution::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomSurfaceOfRevolution::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomSurfaceOfRevolution::Restore(Base::XMLReader& /*reader*/)
+void GeomSurfaceOfRevolution::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomSurfaceOfRevolution::Restore")
+    Geometry::Restore(reader);
+    setHandle(
+        restoreFromOcctText<Geom_SurfaceOfRevolution, Geom_Surface>(reader,
+                                                                    "GeomSurfaceOfRevolution"));
 }
 
 PyObject* GeomSurfaceOfRevolution::getPyObject()
@@ -6432,14 +6499,18 @@ unsigned int GeomSurfaceOfExtrusion::getMemSize() const
     return sizeof(Geom_SurfaceOfLinearExtrusion);
 }
 
-void GeomSurfaceOfExtrusion::Save(Base::Writer& /*writer*/) const
+void GeomSurfaceOfExtrusion::Save(Base::Writer& writer) const
 {
-    THROWM(Base::NotImplementedError, "GeomSurfaceOfExtrusion::Save")
+    Geometry::Save(writer);
+    saveInOcctText(writer, handle());
 }
 
-void GeomSurfaceOfExtrusion::Restore(Base::XMLReader& /*reader*/)
+void GeomSurfaceOfExtrusion::Restore(Base::XMLReader& reader)
 {
-    THROWM(Base::NotImplementedError, "GeomSurfaceOfExtrusion::Restore")
+    Geometry::Restore(reader);
+    setHandle(
+        restoreFromOcctText<Geom_SurfaceOfLinearExtrusion, Geom_Surface>(reader,
+                                                                         "GeomSurfaceOfExtrusion"));
 }
 
 PyObject* GeomSurfaceOfExtrusion::getPyObject()

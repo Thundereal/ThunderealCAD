@@ -108,6 +108,7 @@
 #include <Mod/Sketcher/App/Sketch3DObject.h>
 #include <Mod/Sketcher/App/SketcherParams.h>
 
+#include "Utils.h"
 #include "ViewProviderSketch3D.h"
 #include "ViewProviderSketch3DPy.h"
 #include "Workbench.h"
@@ -336,7 +337,12 @@ public:
     }
     void OnChange(Base::Subject<const char*>& /*caller*/, const char* reason) override
     {
-        if (reason && std::string_view(reason).ends_with("Color") && vp->isEditingSketch()) {
+        if (reason
+            && (std::string_view(reason).ends_with("Color")
+                || std::string_view(reason).ends_with("ColorLight")
+                || std::string_view(reason) == "ConstraintOutlineWidth"
+                || isViewBackgroundParameter(reason))
+            && vp->isEditingSketch()) {
             vp->draw();
         }
     }
@@ -3900,12 +3906,18 @@ const char* constraintIconName(const Sketcher::Constraint* c)
     }
 }
 
-// The icon in one colour, as the 2D sketch draws its constraint icons.
-const QImage& tintedIcon(const char* name, int size, const QColor& color)
+// The icon in one colour, as the 2D sketch draws its constraint icons, with a border
+// of border pixels in outline round it (none for 0).
+const QImage& tintedIcon(const char* name,
+                         int size,
+                         const QColor& color,
+                         const QColor& outline = QColor(),
+                         int border = 0)
 {
     static std::map<std::string, QImage> cache;
-    std::string key =
-        std::string(name) + "/" + std::to_string(size) + "/" + std::to_string(color.rgba());
+    std::string key = std::string(name) + "/" + std::to_string(size) + "/"
+        + std::to_string(color.rgba()) + "/" + std::to_string(outline.rgba()) + "/"
+        + std::to_string(border);
     auto it = cache.find(key);
     if (it != cache.end()) {
         return it->second;
@@ -3918,6 +3930,27 @@ const QImage& tintedIcon(const char* name, int size, const QColor& color)
     painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
     painter.fillRect(image.rect(), color);
     painter.end();
+    if (border > 0) {
+        // the silhouette in the outline's colour, spread by the border, under it
+        QImage rim = image;
+        QPainter tint(&rim);
+        tint.setCompositionMode(QPainter::CompositionMode_SourceIn);
+        tint.fillRect(rim.rect(), outline);
+        tint.end();
+        QImage framed(size + 2 * border, size + 2 * border, QImage::Format_ARGB32_Premultiplied);
+        framed.fill(Qt::transparent);
+        QPainter p(&framed);
+        for (int dx = -border; dx <= border; ++dx) {
+            for (int dy = -border; dy <= border; ++dy) {
+                if (dx * dx + dy * dy <= border * border + border) {
+                    p.drawImage(border + dx, border + dy, rim);
+                }
+            }
+        }
+        p.drawImage(border, border, image);
+        p.end();
+        image = framed;
+    }
     return cache.emplace(key, image).first->second;
 }
 }  // namespace
@@ -4002,11 +4035,19 @@ void ViewProviderSketch3D::drawIcons()
     auto toQColor = [](const SbColor& c) {
         return QColor::fromRgbF(c[0], c[1], c[2]);
     };
-    // the 3D sketch's own, its teal (the 2D sketch's red is ConstrainedIcoColor)
+    // the 3D sketch's own, its teal (the 2D sketch's red is ConstrainedIcoColor), dark on
+    // a light halo when the view's background is light
+    const bool light = viewBackgroundIsLight();
     const QColor iconColor =
-        toQColor(editColor("Sketch3DIcoColor", Params::defaultSketch3DIcoColor()));
+        toQColor(light ? editColor("Sketch3DIcoColorLight", Params::defaultSketch3DIcoColorLight())
+                       : editColor("Sketch3DIcoColor", Params::defaultSketch3DIcoColor()));
     const QColor offColor = toQColor(
         editColor("DeactivatedConstrDimColor", Params::defaultDeactivatedConstrDimColor()));
+    const QColor outlineColor = toQColor(
+        light ? editColor("Sketch3DOutlineColorLight", Params::defaultSketch3DOutlineColorLight())
+              : editColor("Sketch3DOutlineColor", Params::defaultSketch3DOutlineColor()));
+    const int border = int(std::lround(
+        viewGrp->GetInt("ConstraintOutlineWidth", Params::defaultConstraintOutlineWidth()) * dpr));
     SbColor selectColor;
     {
         float transparency;
@@ -4127,7 +4168,9 @@ void ViewProviderSketch3D::drawIcons()
                                          size,
                                          selected           ? toQColor(selectColor)
                                              : !c->isActive ? offColor
-                                                            : iconColor);
+                                                            : iconColor,
+                                         outlineColor,
+                                         border);
         for (const auto& a : at) {
             // a few pixels up and to the right of the place, the next one there further
             // right: the world size of a pixel there, from the view
@@ -4239,10 +4282,22 @@ void ViewProviderSketch3D::drawLabels()
     };
 
     using Params = Sketcher::SketcherParams;
-    // the 3D sketch's own, its teal (the 2D sketch's red is ConstrainedDimColor)
-    const SbColor drivingColor = editColor("Sketch3DDimColor", Params::defaultSketch3DDimColor());
+    // the 3D sketch's own, its teal (the 2D sketch's red is ConstrainedDimColor), dark on
+    // a light halo when the view's background is light
+    const bool light = viewBackgroundIsLight();
+    const SbColor drivingColor = light
+        ? editColor("Sketch3DDimColorLight", Params::defaultSketch3DDimColorLight())
+        : editColor("Sketch3DDimColor", Params::defaultSketch3DDimColor());
     const SbColor referenceColor =
         editColor("NonDrivingConstrDimColor", Params::defaultNonDrivingConstrDimColor());
+    // a border, so the light teal reads on a light background too
+    const SbColor outlineColor = light
+        ? editColor("Sketch3DOutlineColorLight", Params::defaultSketch3DOutlineColorLight())
+        : editColor("Sketch3DOutlineColor", Params::defaultSketch3DOutlineColor());
+    const long outlineWidth =
+        App::GetApplication()
+            .GetParameterGroupByPath("User parameter:BaseApp/Preferences/View")
+            ->GetInt("ConstraintOutlineWidth", Params::defaultConstraintOutlineWidth());
     const SbColor expressionColor =
         editColor("ExprBasedConstrDimColor", Params::defaultExprBasedConstrDimColor());
     SbColor selectColor;
@@ -4403,6 +4458,8 @@ void ViewProviderSketch3D::drawLabels()
         label->norm.setValue(SbVec3f(0, 0, 1));
         label->size = fontSize;
         label->lineWidth = float(2. * dpr);
+        label->outlineColor = outlineColor;
+        label->outlineWidth = float(outlineWidth * dpr);
         bool selected =
             std::find(edit->selectedConstraints.begin(), edit->selectedConstraints.end(), int(i))
             != edit->selectedConstraints.end();

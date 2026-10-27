@@ -120,16 +120,28 @@ def run():
         )
 
         # -- teal, and the setting applies at once ---------------------------------
-        check(
-            "the dimension in the 3D sketch's teal", label_color() == (0, 131, 143), label_color()
-        )
+        teal, dark_teal = (0x4D, 0xD0, 0xE1), (0x00, 0x57, 0x5E)
+        check("the dimension in the 3D sketch's teal", label_color() == teal, label_color())
         grp = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
         grp.SetUnsigned("Sketch3DDimColor", 0x112233FF)
         settle(0.2)
         check("its setting applies at once", label_color() == (0x11, 0x22, 0x33), label_color())
         grp.RemUnsigned("Sketch3DDimColor")
         settle(0.2)
-        check("and back to teal without it", label_color() == (0, 131, 143), label_color())
+        check("and back to teal without it", label_color() == teal, label_color())
+
+        # -- a light background takes the dark teal, at once ----------------------
+        saved = {k: grp.GetBool(k, d) for k, d in (("Gradient", True), ("RadialGradient", False))}
+        grp.SetBool("Gradient", False)
+        grp.SetBool("RadialGradient", False)
+        grp.SetUnsigned("BackgroundColor", 0xC3C3C3FF)  # the Light theme's
+        settle(0.2)
+        check("on a light background the dark teal", label_color() == dark_teal, label_color())
+        for k, v in saved.items():
+            grp.SetBool(k, v)
+        grp.RemUnsigned("BackgroundColor")
+        settle(0.2)
+        check("and the light one again on the dark", label_color() == teal, label_color())
 
         # -- a press on an icon selects it, Delete removes it --------------------
         x, y = [(x, y) for i, x, y in icons if i == along_z][0]

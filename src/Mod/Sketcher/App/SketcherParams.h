@@ -1517,7 +1517,7 @@ public:
     /// Accessor for parameter Sketch3DDimColor
     ///
     /// Colour of dimensional constraints in 3D sketch edit mode, the 3D
-    /// sketch's teal. Applies at once.
+    /// sketch's light teal, bordered in its outline colour. Applies at once.
     static const unsigned long & getSketch3DDimColor();
     static const unsigned long & defaultSketch3DDimColor();
     static void removeSketch3DDimColor();
@@ -1530,12 +1530,132 @@ public:
     /// Accessor for parameter Sketch3DIcoColor
     ///
     /// Colour of constraint symbols in 3D sketch edit mode, the 3D
-    /// sketch's teal. Applies at once.
+    /// sketch's light teal, bordered in its outline colour. Applies at once.
     static const unsigned long & getSketch3DIcoColor();
     static const unsigned long & defaultSketch3DIcoColor();
     static void removeSketch3DIcoColor();
     static void setSketch3DIcoColor(const unsigned long &v);
     static const char *docSketch3DIcoColor();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter Sketch3DOutlineColor
+    ///
+    /// Colour of the border round a 3D sketch's dimensions and constraint
+    /// symbols, so they read on a dark background and a light one.
+    /// Applies at once.
+    static const unsigned long & getSketch3DOutlineColor();
+    static const unsigned long & defaultSketch3DOutlineColor();
+    static void removeSketch3DOutlineColor();
+    static void setSketch3DOutlineColor(const unsigned long &v);
+    static const char *docSketch3DOutlineColor();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter ConstrainedOutlineColor
+    ///
+    /// Colour of the border round a sketch's dimensions, constraint
+    /// symbols and on-view parameters in edit mode. Applies at once.
+    static const unsigned long & getConstrainedOutlineColor();
+    static const unsigned long & defaultConstrainedOutlineColor();
+    static void removeConstrainedOutlineColor();
+    static void setConstrainedOutlineColor(const unsigned long &v);
+    static const char *docConstrainedOutlineColor();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter Sketch3DDimColorLight
+    ///
+    /// Colour of dimensional constraints in 3D sketch edit mode when the
+    /// view's background is light. Applies at once.
+    static const unsigned long & getSketch3DDimColorLight();
+    static const unsigned long & defaultSketch3DDimColorLight();
+    static void removeSketch3DDimColorLight();
+    static void setSketch3DDimColorLight(const unsigned long &v);
+    static const char *docSketch3DDimColorLight();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter Sketch3DIcoColorLight
+    ///
+    /// Colour of constraint symbols in 3D sketch edit mode when the view's
+    /// background is light. Applies at once.
+    static const unsigned long & getSketch3DIcoColorLight();
+    static const unsigned long & defaultSketch3DIcoColorLight();
+    static void removeSketch3DIcoColorLight();
+    static void setSketch3DIcoColorLight(const unsigned long &v);
+    static const char *docSketch3DIcoColorLight();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter Sketch3DOutlineColorLight
+    ///
+    /// Colour of the border round a 3D sketch's dimensions and constraint
+    /// symbols when the view's background is light. Applies at once.
+    static const unsigned long & getSketch3DOutlineColorLight();
+    static const unsigned long & defaultSketch3DOutlineColorLight();
+    static void removeSketch3DOutlineColorLight();
+    static void setSketch3DOutlineColorLight(const unsigned long &v);
+    static const char *docSketch3DOutlineColorLight();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter ConstrainedDimColorLight
+    ///
+    /// Colour of dimensional constraints in sketch edit mode when the
+    /// view's background is light. Applies at once.
+    static const unsigned long & getConstrainedDimColorLight();
+    static const unsigned long & defaultConstrainedDimColorLight();
+    static void removeConstrainedDimColorLight();
+    static void setConstrainedDimColorLight(const unsigned long &v);
+    static const char *docConstrainedDimColorLight();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter ConstrainedIcoColorLight
+    ///
+    /// Colour of constraint symbols in sketch edit mode when the view's
+    /// background is light. Applies at once.
+    static const unsigned long & getConstrainedIcoColorLight();
+    static const unsigned long & defaultConstrainedIcoColorLight();
+    static void removeConstrainedIcoColorLight();
+    static void setConstrainedIcoColorLight(const unsigned long &v);
+    static const char *docConstrainedIcoColorLight();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter ConstrainedOutlineColorLight
+    ///
+    /// Colour of the border round a sketch's dimensions, constraint symbols
+    /// and on-view parameters when the view's background is light. Applies
+    /// at once.
+    static const unsigned long & getConstrainedOutlineColorLight();
+    static const unsigned long & defaultConstrainedOutlineColorLight();
+    static void removeConstrainedOutlineColorLight();
+    static void setConstrainedOutlineColorLight(const unsigned long &v);
+    static const char *docConstrainedOutlineColorLight();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter ConstraintOutlineWidth
+    ///
+    /// Width in pixels of the border round the dimensions, constraint
+    /// symbols and on-view parameters of 2D and 3D sketches in edit mode;
+    /// 0 for none. Applies at once.
+    static const long & getConstraintOutlineWidth();
+    static const long & defaultConstraintOutlineWidth();
+    static void removeConstraintOutlineWidth();
+    static void setConstraintOutlineWidth(const long &v);
+    static const char *docConstraintOutlineWidth();
     //@}
 
     // Auto generated code (Tools/params_utils.py:139)

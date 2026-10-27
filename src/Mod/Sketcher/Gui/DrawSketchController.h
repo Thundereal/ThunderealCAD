@@ -680,6 +680,20 @@ protected:
                                      )
                                  )
                                  .get();
+            // the border the sketch's dimensions have, so they read on any background
+            {
+                SbColor outline;
+                float transparency;
+                outline.setPackedValue(
+                    uint32_t(SketcherGui::viewBackgroundIsLight()
+                                 ? Sketcher::SketcherParams::getConstrainedOutlineColorLight()
+                                 : Sketcher::SketcherParams::getConstrainedOutlineColor()),
+                    transparency);
+                parameter->setOutline(
+                    outline,
+                    float(
+                        std::max<long>(0, Sketcher::SketcherParams::getConstraintOutlineWidth())));
+            }
 
             const auto handleParameterValueChanged = [this, parameter, i](double value) {
                 parameter->setActivatedColor();

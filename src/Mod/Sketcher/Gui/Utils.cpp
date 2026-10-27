@@ -25,6 +25,9 @@
 #include <Mod/Sketcher/App/SketcherParams.h>
 #ifndef _PreComp_
 #include <cfloat>
+#include <cmath>
+#include <set>
+#include <string_view>
 #include <numbers>
 
 #include <QCursor>
@@ -36,6 +39,7 @@
 #endif
 
 #include <App/Application.h>
+#include <Gui/ViewParams.h>
 #include <Base/Quantity.h>
 #include <Base/Tools.h>
 #include <Base/UnitsApi.h>
@@ -974,4 +978,54 @@ void SketcherGui::ConstraintLineByAngle(int geoId, double angle, App::DocumentOb
                               geoId,
                               angle);
     }
+}
+
+bool SketcherGui::isViewBackgroundParameter(const char* name)
+{
+    static const std::set<std::string_view> names {"BackgroundColor",
+                                                   "BackgroundColor2",
+                                                   "BackgroundColor3",
+                                                   "BackgroundColor4",
+                                                   "UseBackgroundColorMid",
+                                                   "Gradient",
+                                                   "RadialGradient"};
+    return name && names.count(name) > 0;
+}
+
+bool SketcherGui::viewBackgroundIsLight()
+{
+    // as View3DSettings draws the background from the same preferences
+    auto grp =
+        App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/View");
+    auto luminance = [](unsigned long packed) {
+        auto channel = [](unsigned long c) {
+            double x = double(c & 0xff) / 255.;
+            return x <= 0.03928 ? x / 12.92 : std::pow((x + 0.055) / 1.055, 2.4);
+        };
+        return 0.2126 * channel(packed >> 24) + 0.7152 * channel(packed >> 16)
+            + 0.0722 * channel(packed >> 8);
+    };
+    std::vector<unsigned long> colours;
+    bool gradient = grp->GetBool("Gradient", Gui::ViewParams::defaultGradient())
+        || grp->GetBool("RadialGradient", Gui::ViewParams::defaultRadialGradient());
+    if (gradient) {
+        colours.push_back(
+            grp->GetUnsigned("BackgroundColor2", Gui::ViewParams::defaultBackgroundColor2()));
+        colours.push_back(
+            grp->GetUnsigned("BackgroundColor3", Gui::ViewParams::defaultBackgroundColor3()));
+        if (grp->GetBool("UseBackgroundColorMid",
+                         Gui::ViewParams::defaultUseBackgroundColorMid())) {
+            colours.push_back(
+                grp->GetUnsigned("BackgroundColor4", Gui::ViewParams::defaultBackgroundColor4()));
+        }
+    }
+    else {
+        colours.push_back(
+            grp->GetUnsigned("BackgroundColor", Gui::ViewParams::defaultBackgroundColor()));
+    }
+    double sum = 0.;
+    for (auto c : colours) {
+        sum += luminance(c);
+    }
+    return sum / double(colours.size()) > 0.35;
 }

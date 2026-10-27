@@ -749,9 +749,41 @@ The S2 leftovers, closed (2026-10-27):
   Coincidences show none, as in 2D. The task panel lists every constraint in
   step with the view's selection, so a coincidence is selected and deleted
   there.
-- The dimensions and the icons are in the 3D sketch's teal: two colours of its
-  own on the Sketcher appearance page (Sketch3DDimColor #00838f,
-  Sketch3DIcoColor #00acc1). They apply at once.
+- The dimensions and the icons are in the 3D sketch's teal, with colours of
+  its own on the Sketcher appearance page. They apply at once.
+- Colours that read on every background (2026-10-27). No one colour has more
+  than about 1.7:1 contrast against all three built-in themes' backgrounds
+  (Classic's blue-grey gradient, Dark #3c3c3c, Light #c3c3c3), so each label
+  and icon has a 1 px outline (ConstraintOutlineWidth, 0 for none), and there
+  are two colour sets, picked from the view's background: a light fill with a
+  dark outline on a dark background, a dark fill with a light halo on a light
+  one. The background is light when the average relative luminance of its
+  colours (the flat colour, or the gradient's two or three) is above 0.35
+  (`SketcherGui::viewBackgroundIsLight`); a change to it re-colours an open
+  edit at once.
+  - 3D: Sketch3DDimColor and Sketch3DIcoColor #4dd0e1 with
+    Sketch3DOutlineColor #00292d; on a light background the `...Light` keys,
+    #00575e on #eef9fa.
+  - 2D, the same outline on its dimensions, symbols and the tools' on-view
+    parameters: ConstrainedDimColor and ConstrainedIcoColor as before with
+    ConstrainedOutlineColor #280000; on a light background #c41e00 on
+    #fff4f2.
+  - The outline is `SoDatumLabel::outlineColor`/`outlineWidth`: the text
+    stroked under its fill, and the leaders drawn once wider in the outline
+    colour (in the render-cache path, a companion leader node); the icons'
+    silhouette is dilated by the width.
+  - In the render-cache path (mode 3) a highlight recolours a draw by its
+    material, which a REPLACE texture ignores. So the two-colour glyph and
+    icon images are drawn BLEND instead: the texel is each pixel's place
+    from the fill (0) to the border (1), the material is the fill and the
+    texture's blendColor the border. A preselected label or icon is then
+    the highlight colour inside its own border. The label knows its two
+    colours; a captured SoImage's are found from its pixels
+    (`twoToneImageColors`, beside the one-colour `flatImageColor`), and the
+    border is the colour its outer rim leans to.
+  - Bordered labels make a fit's bounds a pixel or two larger, which moves
+    where a fit puts a line on the pixel grid; a test that reads one pixel
+    of a line reads the best within one pixel of it.
 - Labels and icons are placed again when the camera moves.
 - Typed values while placing. A number typed into the view while a tool
   places points opens an entry; the edit takes the key before the standard

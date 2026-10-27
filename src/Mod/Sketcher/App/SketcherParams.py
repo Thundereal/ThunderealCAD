@@ -523,14 +523,53 @@ Params = [
     ParamHex('ConstrainedIcoColor', 0xFF2600FF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
         title = "Constraint symbol colour",
         doc = "Colour of constraint symbols in sketch edit mode. Applies at once."),
-    ParamHex('Sketch3DDimColor', 0x00838FFF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+    ParamHex('Sketch3DDimColor', 0x4DD0E1FF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
         title = "3D sketch dimension colour",
         doc = "Colour of dimensional constraints in 3D sketch edit mode, the 3D\n"
-              "sketch's teal. Applies at once."),
-    ParamHex('Sketch3DIcoColor', 0x00ACC1FF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+              "sketch's light teal, bordered in its outline colour. Applies at once."),
+    ParamHex('Sketch3DIcoColor', 0x4DD0E1FF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
         title = "3D sketch constraint symbol colour",
         doc = "Colour of constraint symbols in 3D sketch edit mode, the 3D\n"
-              "sketch's teal. Applies at once."),
+              "sketch's light teal, bordered in its outline colour. Applies at once."),
+    ParamHex('Sketch3DOutlineColor', 0x00292DFF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+        title = "3D sketch constraint outline colour",
+        doc = "Colour of the border round a 3D sketch's dimensions and constraint\n"
+              "symbols, so they read on a dark background and a light one.\n"
+              "Applies at once."),
+    ParamHex('ConstrainedOutlineColor', 0x280000FF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+        title = "Constraint outline colour",
+        doc = "Colour of the border round a sketch's dimensions, constraint\n"
+              "symbols and on-view parameters in edit mode. Applies at once."),
+    ParamHex('Sketch3DDimColorLight', 0x00575EFF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+        title = "3D sketch dimension colour on a light background",
+        doc = "Colour of dimensional constraints in 3D sketch edit mode when the\n"
+              "view's background is light. Applies at once."),
+    ParamHex('Sketch3DIcoColorLight', 0x00575EFF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+        title = "3D sketch constraint symbol colour on a light background",
+        doc = "Colour of constraint symbols in 3D sketch edit mode when the view's\n"
+              "background is light. Applies at once."),
+    ParamHex('Sketch3DOutlineColorLight', 0xEEF9FAFF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+        title = "3D sketch constraint outline colour on a light background",
+        doc = "Colour of the border round a 3D sketch's dimensions and constraint\n"
+              "symbols when the view's background is light. Applies at once."),
+    ParamHex('ConstrainedDimColorLight', 0xC41E00FF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+        title = "Dimensional constraint colour on a light background",
+        doc = "Colour of dimensional constraints in sketch edit mode when the\n"
+              "view's background is light. Applies at once."),
+    ParamHex('ConstrainedIcoColorLight', 0xC41E00FF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+        title = "Constraint symbol colour on a light background",
+        doc = "Colour of constraint symbols in sketch edit mode when the view's\n"
+              "background is light. Applies at once."),
+    ParamHex('ConstrainedOutlineColorLight', 0xFFF4F2FF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+        title = "Constraint outline colour on a light background",
+        doc = "Colour of the border round a sketch's dimensions, constraint symbols\n"
+              "and on-view parameters when the view's background is light. Applies\n"
+              "at once."),
+    ParamInt('ConstraintOutlineWidth', 1, subpath='User parameter:BaseApp/Preferences/View',
+        title = "Constraint outline width",
+        doc = "Width in pixels of the border round the dimensions, constraint\n"
+              "symbols and on-view parameters of 2D and 3D sketches in edit mode;\n"
+              "0 for none. Applies at once."),
     ParamHex('NonDrivingConstrDimColor', 0x0026FFFF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
         title = "Reference constraint colour",
         doc = "Colour of reference (non-driving) dimensional constraints in\n"

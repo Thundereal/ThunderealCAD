@@ -155,6 +155,15 @@ public:
     unsigned long ConstrainedIcoColor;
     unsigned long Sketch3DDimColor;
     unsigned long Sketch3DIcoColor;
+    unsigned long Sketch3DOutlineColor;
+    unsigned long ConstrainedOutlineColor;
+    unsigned long Sketch3DDimColorLight;
+    unsigned long Sketch3DIcoColorLight;
+    unsigned long Sketch3DOutlineColorLight;
+    unsigned long ConstrainedDimColorLight;
+    unsigned long ConstrainedIcoColorLight;
+    unsigned long ConstrainedOutlineColorLight;
+    long ConstraintOutlineWidth;
     unsigned long NonDrivingConstrDimColor;
     unsigned long ExprBasedConstrDimColor;
     unsigned long DeactivatedConstrDimColor;
@@ -451,10 +460,28 @@ public:
         funcs["ConstrainedDimColor"] = &SketcherParamsP::updateConstrainedDimColor;
         ConstrainedIcoColor = this->subHandles[9]->GetUnsigned("ConstrainedIcoColor", 0xFF2600FF);
         funcs["ConstrainedIcoColor"] = &SketcherParamsP::updateConstrainedIcoColor;
-        Sketch3DDimColor = this->subHandles[9]->GetUnsigned("Sketch3DDimColor", 0x00838FFF);
+        Sketch3DDimColor = this->subHandles[9]->GetUnsigned("Sketch3DDimColor", 0x4DD0E1FF);
         funcs["Sketch3DDimColor"] = &SketcherParamsP::updateSketch3DDimColor;
-        Sketch3DIcoColor = this->subHandles[9]->GetUnsigned("Sketch3DIcoColor", 0x00ACC1FF);
+        Sketch3DIcoColor = this->subHandles[9]->GetUnsigned("Sketch3DIcoColor", 0x4DD0E1FF);
         funcs["Sketch3DIcoColor"] = &SketcherParamsP::updateSketch3DIcoColor;
+        Sketch3DOutlineColor = this->subHandles[9]->GetUnsigned("Sketch3DOutlineColor", 0x00292DFF);
+        funcs["Sketch3DOutlineColor"] = &SketcherParamsP::updateSketch3DOutlineColor;
+        ConstrainedOutlineColor = this->subHandles[9]->GetUnsigned("ConstrainedOutlineColor", 0x280000FF);
+        funcs["ConstrainedOutlineColor"] = &SketcherParamsP::updateConstrainedOutlineColor;
+        Sketch3DDimColorLight = this->subHandles[9]->GetUnsigned("Sketch3DDimColorLight", 0x00575EFF);
+        funcs["Sketch3DDimColorLight"] = &SketcherParamsP::updateSketch3DDimColorLight;
+        Sketch3DIcoColorLight = this->subHandles[9]->GetUnsigned("Sketch3DIcoColorLight", 0x00575EFF);
+        funcs["Sketch3DIcoColorLight"] = &SketcherParamsP::updateSketch3DIcoColorLight;
+        Sketch3DOutlineColorLight = this->subHandles[9]->GetUnsigned("Sketch3DOutlineColorLight", 0xEEF9FAFF);
+        funcs["Sketch3DOutlineColorLight"] = &SketcherParamsP::updateSketch3DOutlineColorLight;
+        ConstrainedDimColorLight = this->subHandles[9]->GetUnsigned("ConstrainedDimColorLight", 0xC41E00FF);
+        funcs["ConstrainedDimColorLight"] = &SketcherParamsP::updateConstrainedDimColorLight;
+        ConstrainedIcoColorLight = this->subHandles[9]->GetUnsigned("ConstrainedIcoColorLight", 0xC41E00FF);
+        funcs["ConstrainedIcoColorLight"] = &SketcherParamsP::updateConstrainedIcoColorLight;
+        ConstrainedOutlineColorLight = this->subHandles[9]->GetUnsigned("ConstrainedOutlineColorLight", 0xFFF4F2FF);
+        funcs["ConstrainedOutlineColorLight"] = &SketcherParamsP::updateConstrainedOutlineColorLight;
+        ConstraintOutlineWidth = this->subHandles[9]->GetInt("ConstraintOutlineWidth", 1);
+        funcs["ConstraintOutlineWidth"] = &SketcherParamsP::updateConstraintOutlineWidth;
         NonDrivingConstrDimColor = this->subHandles[9]->GetUnsigned("NonDrivingConstrDimColor", 0x0026FFFF);
         funcs["NonDrivingConstrDimColor"] = &SketcherParamsP::updateNonDrivingConstrDimColor;
         ExprBasedConstrDimColor = this->subHandles[9]->GetUnsigned("ExprBasedConstrDimColor", 0xFF7F26FF);
@@ -1007,11 +1034,47 @@ public:
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateSketch3DDimColor(SketcherParamsP *self) {
-        self->Sketch3DDimColor = self->subHandles[9]->GetUnsigned("Sketch3DDimColor", 0x00838FFF);
+        self->Sketch3DDimColor = self->subHandles[9]->GetUnsigned("Sketch3DDimColor", 0x4DD0E1FF);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateSketch3DIcoColor(SketcherParamsP *self) {
-        self->Sketch3DIcoColor = self->subHandles[9]->GetUnsigned("Sketch3DIcoColor", 0x00ACC1FF);
+        self->Sketch3DIcoColor = self->subHandles[9]->GetUnsigned("Sketch3DIcoColor", 0x4DD0E1FF);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateSketch3DOutlineColor(SketcherParamsP *self) {
+        self->Sketch3DOutlineColor = self->subHandles[9]->GetUnsigned("Sketch3DOutlineColor", 0x00292DFF);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateConstrainedOutlineColor(SketcherParamsP *self) {
+        self->ConstrainedOutlineColor = self->subHandles[9]->GetUnsigned("ConstrainedOutlineColor", 0x280000FF);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateSketch3DDimColorLight(SketcherParamsP *self) {
+        self->Sketch3DDimColorLight = self->subHandles[9]->GetUnsigned("Sketch3DDimColorLight", 0x00575EFF);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateSketch3DIcoColorLight(SketcherParamsP *self) {
+        self->Sketch3DIcoColorLight = self->subHandles[9]->GetUnsigned("Sketch3DIcoColorLight", 0x00575EFF);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateSketch3DOutlineColorLight(SketcherParamsP *self) {
+        self->Sketch3DOutlineColorLight = self->subHandles[9]->GetUnsigned("Sketch3DOutlineColorLight", 0xEEF9FAFF);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateConstrainedDimColorLight(SketcherParamsP *self) {
+        self->ConstrainedDimColorLight = self->subHandles[9]->GetUnsigned("ConstrainedDimColorLight", 0xC41E00FF);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateConstrainedIcoColorLight(SketcherParamsP *self) {
+        self->ConstrainedIcoColorLight = self->subHandles[9]->GetUnsigned("ConstrainedIcoColorLight", 0xC41E00FF);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateConstrainedOutlineColorLight(SketcherParamsP *self) {
+        self->ConstrainedOutlineColorLight = self->subHandles[9]->GetUnsigned("ConstrainedOutlineColorLight", 0xFFF4F2FF);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateConstraintOutlineWidth(SketcherParamsP *self) {
+        self->ConstraintOutlineWidth = self->subHandles[9]->GetInt("ConstraintOutlineWidth", 1);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateNonDrivingConstrDimColor(SketcherParamsP *self) {
@@ -1680,18 +1743,73 @@ static const App::ParamRegistry::Registrar _SketcherParamsRegistrar({
         .setDoc("Colour of constraint symbols in sketch edit mode. Applies at once.")
         .setProxy("Color")
         .setTransparency(false),
-    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "Sketch3DDimColor", "Sketch3DDimColor", App::ParamInfo::Hex, 0x00838FFF)
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "Sketch3DDimColor", "Sketch3DDimColor", App::ParamInfo::Hex, 0x4DD0E1FF)
         .setTitle("3D sketch dimension colour")
         .setDoc("Colour of dimensional constraints in 3D sketch edit mode, the 3D\n"
-"sketch's teal. Applies at once.")
+"sketch's light teal, bordered in its outline colour. Applies at once.")
         .setProxy("Color")
         .setTransparency(false),
-    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "Sketch3DIcoColor", "Sketch3DIcoColor", App::ParamInfo::Hex, 0x00ACC1FF)
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "Sketch3DIcoColor", "Sketch3DIcoColor", App::ParamInfo::Hex, 0x4DD0E1FF)
         .setTitle("3D sketch constraint symbol colour")
         .setDoc("Colour of constraint symbols in 3D sketch edit mode, the 3D\n"
-"sketch's teal. Applies at once.")
+"sketch's light teal, bordered in its outline colour. Applies at once.")
         .setProxy("Color")
         .setTransparency(false),
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "Sketch3DOutlineColor", "Sketch3DOutlineColor", App::ParamInfo::Hex, 0x00292DFF)
+        .setTitle("3D sketch constraint outline colour")
+        .setDoc("Colour of the border round a 3D sketch's dimensions and constraint\n"
+"symbols, so they read on a dark background and a light one.\n"
+"Applies at once.")
+        .setProxy("Color")
+        .setTransparency(false),
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "ConstrainedOutlineColor", "ConstrainedOutlineColor", App::ParamInfo::Hex, 0x280000FF)
+        .setTitle("Constraint outline colour")
+        .setDoc("Colour of the border round a sketch's dimensions, constraint\n"
+"symbols and on-view parameters in edit mode. Applies at once.")
+        .setProxy("Color")
+        .setTransparency(false),
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "Sketch3DDimColorLight", "Sketch3DDimColorLight", App::ParamInfo::Hex, 0x00575EFF)
+        .setTitle("3D sketch dimension colour on a light background")
+        .setDoc("Colour of dimensional constraints in 3D sketch edit mode when the\n"
+"view's background is light. Applies at once.")
+        .setProxy("Color")
+        .setTransparency(false),
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "Sketch3DIcoColorLight", "Sketch3DIcoColorLight", App::ParamInfo::Hex, 0x00575EFF)
+        .setTitle("3D sketch constraint symbol colour on a light background")
+        .setDoc("Colour of constraint symbols in 3D sketch edit mode when the view's\n"
+"background is light. Applies at once.")
+        .setProxy("Color")
+        .setTransparency(false),
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "Sketch3DOutlineColorLight", "Sketch3DOutlineColorLight", App::ParamInfo::Hex, 0xEEF9FAFF)
+        .setTitle("3D sketch constraint outline colour on a light background")
+        .setDoc("Colour of the border round a 3D sketch's dimensions and constraint\n"
+"symbols when the view's background is light. Applies at once.")
+        .setProxy("Color")
+        .setTransparency(false),
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "ConstrainedDimColorLight", "ConstrainedDimColorLight", App::ParamInfo::Hex, 0xC41E00FF)
+        .setTitle("Dimensional constraint colour on a light background")
+        .setDoc("Colour of dimensional constraints in sketch edit mode when the\n"
+"view's background is light. Applies at once.")
+        .setProxy("Color")
+        .setTransparency(false),
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "ConstrainedIcoColorLight", "ConstrainedIcoColorLight", App::ParamInfo::Hex, 0xC41E00FF)
+        .setTitle("Constraint symbol colour on a light background")
+        .setDoc("Colour of constraint symbols in sketch edit mode when the view's\n"
+"background is light. Applies at once.")
+        .setProxy("Color")
+        .setTransparency(false),
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "ConstrainedOutlineColorLight", "ConstrainedOutlineColorLight", App::ParamInfo::Hex, 0xFFF4F2FF)
+        .setTitle("Constraint outline colour on a light background")
+        .setDoc("Colour of the border round a sketch's dimensions, constraint symbols\n"
+"and on-view parameters when the view's background is light. Applies\n"
+"at once.")
+        .setProxy("Color")
+        .setTransparency(false),
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "ConstraintOutlineWidth", "ConstraintOutlineWidth", App::ParamInfo::Int, 1)
+        .setTitle("Constraint outline width")
+        .setDoc("Width in pixels of the border round the dimensions, constraint\n"
+"symbols and on-view parameters of 2D and 3D sketches in edit mode;\n"
+"0 for none. Applies at once."),
     App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "NonDrivingConstrDimColor", "NonDrivingConstrDimColor", App::ParamInfo::Hex, 0x0026FFFF)
         .setTitle("Reference constraint colour")
         .setDoc("Colour of reference (non-driving) dimensional constraints in\n"
@@ -5117,7 +5235,7 @@ void SketcherParams::removeConstrainedIcoColor() {
 const char *SketcherParams::docSketch3DDimColor() {
     return QT_TRANSLATE_NOOP("SketcherParams",
 "Colour of dimensional constraints in 3D sketch edit mode, the 3D\n"
-"sketch's teal. Applies at once.");
+"sketch's light teal, bordered in its outline colour. Applies at once.");
 }
 
 // Auto generated code (Tools/params_utils.py:405)
@@ -5127,7 +5245,7 @@ const unsigned long & SketcherParams::getSketch3DDimColor() {
 
 // Auto generated code (Tools/params_utils.py:413)
 const unsigned long & SketcherParams::defaultSketch3DDimColor() {
-    const static unsigned long def = 0x00838FFF;
+    const static unsigned long def = 0x4DD0E1FF;
     return def;
 }
 
@@ -5146,7 +5264,7 @@ void SketcherParams::removeSketch3DDimColor() {
 const char *SketcherParams::docSketch3DIcoColor() {
     return QT_TRANSLATE_NOOP("SketcherParams",
 "Colour of constraint symbols in 3D sketch edit mode, the 3D\n"
-"sketch's teal. Applies at once.");
+"sketch's light teal, bordered in its outline colour. Applies at once.");
 }
 
 // Auto generated code (Tools/params_utils.py:405)
@@ -5156,7 +5274,7 @@ const unsigned long & SketcherParams::getSketch3DIcoColor() {
 
 // Auto generated code (Tools/params_utils.py:413)
 const unsigned long & SketcherParams::defaultSketch3DIcoColor() {
-    const static unsigned long def = 0x00ACC1FF;
+    const static unsigned long def = 0x4DD0E1FF;
     return def;
 }
 
@@ -5169,6 +5287,270 @@ void SketcherParams::setSketch3DIcoColor(const unsigned long &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void SketcherParams::removeSketch3DIcoColor() {
     instance()->subHandles[9]->RemoveUnsigned("Sketch3DIcoColor");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *SketcherParams::docSketch3DOutlineColor() {
+    return QT_TRANSLATE_NOOP("SketcherParams",
+"Colour of the border round a 3D sketch's dimensions and constraint\n"
+"symbols, so they read on a dark background and a light one.\n"
+"Applies at once.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const unsigned long & SketcherParams::getSketch3DOutlineColor() {
+    return instance()->Sketch3DOutlineColor;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const unsigned long & SketcherParams::defaultSketch3DOutlineColor() {
+    const static unsigned long def = 0x00292DFF;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void SketcherParams::setSketch3DOutlineColor(const unsigned long &v) {
+    instance()->subHandles[9]->SetUnsigned("Sketch3DOutlineColor",v);
+    instance()->Sketch3DOutlineColor = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void SketcherParams::removeSketch3DOutlineColor() {
+    instance()->subHandles[9]->RemoveUnsigned("Sketch3DOutlineColor");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *SketcherParams::docConstrainedOutlineColor() {
+    return QT_TRANSLATE_NOOP("SketcherParams",
+"Colour of the border round a sketch's dimensions, constraint\n"
+"symbols and on-view parameters in edit mode. Applies at once.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const unsigned long & SketcherParams::getConstrainedOutlineColor() {
+    return instance()->ConstrainedOutlineColor;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const unsigned long & SketcherParams::defaultConstrainedOutlineColor() {
+    const static unsigned long def = 0x280000FF;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void SketcherParams::setConstrainedOutlineColor(const unsigned long &v) {
+    instance()->subHandles[9]->SetUnsigned("ConstrainedOutlineColor",v);
+    instance()->ConstrainedOutlineColor = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void SketcherParams::removeConstrainedOutlineColor() {
+    instance()->subHandles[9]->RemoveUnsigned("ConstrainedOutlineColor");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *SketcherParams::docSketch3DDimColorLight() {
+    return QT_TRANSLATE_NOOP("SketcherParams",
+"Colour of dimensional constraints in 3D sketch edit mode when the\n"
+"view's background is light. Applies at once.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const unsigned long & SketcherParams::getSketch3DDimColorLight() {
+    return instance()->Sketch3DDimColorLight;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const unsigned long & SketcherParams::defaultSketch3DDimColorLight() {
+    const static unsigned long def = 0x00575EFF;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void SketcherParams::setSketch3DDimColorLight(const unsigned long &v) {
+    instance()->subHandles[9]->SetUnsigned("Sketch3DDimColorLight",v);
+    instance()->Sketch3DDimColorLight = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void SketcherParams::removeSketch3DDimColorLight() {
+    instance()->subHandles[9]->RemoveUnsigned("Sketch3DDimColorLight");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *SketcherParams::docSketch3DIcoColorLight() {
+    return QT_TRANSLATE_NOOP("SketcherParams",
+"Colour of constraint symbols in 3D sketch edit mode when the view's\n"
+"background is light. Applies at once.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const unsigned long & SketcherParams::getSketch3DIcoColorLight() {
+    return instance()->Sketch3DIcoColorLight;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const unsigned long & SketcherParams::defaultSketch3DIcoColorLight() {
+    const static unsigned long def = 0x00575EFF;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void SketcherParams::setSketch3DIcoColorLight(const unsigned long &v) {
+    instance()->subHandles[9]->SetUnsigned("Sketch3DIcoColorLight",v);
+    instance()->Sketch3DIcoColorLight = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void SketcherParams::removeSketch3DIcoColorLight() {
+    instance()->subHandles[9]->RemoveUnsigned("Sketch3DIcoColorLight");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *SketcherParams::docSketch3DOutlineColorLight() {
+    return QT_TRANSLATE_NOOP("SketcherParams",
+"Colour of the border round a 3D sketch's dimensions and constraint\n"
+"symbols when the view's background is light. Applies at once.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const unsigned long & SketcherParams::getSketch3DOutlineColorLight() {
+    return instance()->Sketch3DOutlineColorLight;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const unsigned long & SketcherParams::defaultSketch3DOutlineColorLight() {
+    const static unsigned long def = 0xEEF9FAFF;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void SketcherParams::setSketch3DOutlineColorLight(const unsigned long &v) {
+    instance()->subHandles[9]->SetUnsigned("Sketch3DOutlineColorLight",v);
+    instance()->Sketch3DOutlineColorLight = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void SketcherParams::removeSketch3DOutlineColorLight() {
+    instance()->subHandles[9]->RemoveUnsigned("Sketch3DOutlineColorLight");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *SketcherParams::docConstrainedDimColorLight() {
+    return QT_TRANSLATE_NOOP("SketcherParams",
+"Colour of dimensional constraints in sketch edit mode when the\n"
+"view's background is light. Applies at once.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const unsigned long & SketcherParams::getConstrainedDimColorLight() {
+    return instance()->ConstrainedDimColorLight;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const unsigned long & SketcherParams::defaultConstrainedDimColorLight() {
+    const static unsigned long def = 0xC41E00FF;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void SketcherParams::setConstrainedDimColorLight(const unsigned long &v) {
+    instance()->subHandles[9]->SetUnsigned("ConstrainedDimColorLight",v);
+    instance()->ConstrainedDimColorLight = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void SketcherParams::removeConstrainedDimColorLight() {
+    instance()->subHandles[9]->RemoveUnsigned("ConstrainedDimColorLight");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *SketcherParams::docConstrainedIcoColorLight() {
+    return QT_TRANSLATE_NOOP("SketcherParams",
+"Colour of constraint symbols in sketch edit mode when the view's\n"
+"background is light. Applies at once.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const unsigned long & SketcherParams::getConstrainedIcoColorLight() {
+    return instance()->ConstrainedIcoColorLight;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const unsigned long & SketcherParams::defaultConstrainedIcoColorLight() {
+    const static unsigned long def = 0xC41E00FF;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void SketcherParams::setConstrainedIcoColorLight(const unsigned long &v) {
+    instance()->subHandles[9]->SetUnsigned("ConstrainedIcoColorLight",v);
+    instance()->ConstrainedIcoColorLight = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void SketcherParams::removeConstrainedIcoColorLight() {
+    instance()->subHandles[9]->RemoveUnsigned("ConstrainedIcoColorLight");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *SketcherParams::docConstrainedOutlineColorLight() {
+    return QT_TRANSLATE_NOOP("SketcherParams",
+"Colour of the border round a sketch's dimensions, constraint symbols\n"
+"and on-view parameters when the view's background is light. Applies\n"
+"at once.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const unsigned long & SketcherParams::getConstrainedOutlineColorLight() {
+    return instance()->ConstrainedOutlineColorLight;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const unsigned long & SketcherParams::defaultConstrainedOutlineColorLight() {
+    const static unsigned long def = 0xFFF4F2FF;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void SketcherParams::setConstrainedOutlineColorLight(const unsigned long &v) {
+    instance()->subHandles[9]->SetUnsigned("ConstrainedOutlineColorLight",v);
+    instance()->ConstrainedOutlineColorLight = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void SketcherParams::removeConstrainedOutlineColorLight() {
+    instance()->subHandles[9]->RemoveUnsigned("ConstrainedOutlineColorLight");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *SketcherParams::docConstraintOutlineWidth() {
+    return QT_TRANSLATE_NOOP("SketcherParams",
+"Width in pixels of the border round the dimensions, constraint\n"
+"symbols and on-view parameters of 2D and 3D sketches in edit mode;\n"
+"0 for none. Applies at once.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & SketcherParams::getConstraintOutlineWidth() {
+    return instance()->ConstraintOutlineWidth;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & SketcherParams::defaultConstraintOutlineWidth() {
+    const static long def = 1;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void SketcherParams::setConstraintOutlineWidth(const long &v) {
+    instance()->subHandles[9]->SetInt("ConstraintOutlineWidth",v);
+    instance()->ConstraintOutlineWidth = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void SketcherParams::removeConstraintOutlineWidth() {
+    instance()->subHandles[9]->RemoveInt("ConstraintOutlineWidth");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

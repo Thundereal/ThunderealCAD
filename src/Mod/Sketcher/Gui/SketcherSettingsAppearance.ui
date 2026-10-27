@@ -1188,9 +1188,9 @@
           </property>
           <property name="color" stdset="0">
            <color>
-            <red>0</red>
-            <green>131</green>
-            <blue>143</blue>
+            <red>77</red>
+            <green>208</green>
+            <blue>225</blue>
            </color>
           </property>
           <property name="prefEntry" stdset="0">
@@ -1215,13 +1215,261 @@
           </property>
           <property name="color" stdset="0">
            <color>
-            <red>0</red>
-            <green>172</green>
-            <blue>193</blue>
+            <red>77</red>
+            <green>208</green>
+            <blue>225</blue>
            </color>
           </property>
           <property name="prefEntry" stdset="0">
            <cstring>Sketch3DIcoColor</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>View</cstring>
+          </property>
+         </widget>
+        </item>
+        <item row="17" column="0">
+         <widget class="QLabel" name="label3dOutline">
+          <property name="text">
+           <string>3D sketch constraint outline</string>
+          </property>
+         </widget>
+        </item>
+        <item row="17" column="1">
+         <widget class="Gui::PrefColorButton" name="Sketch3DOutlineColor">
+          <property name="toolTip">
+           <string>Color of the border round a 3D sketch's dimensions and constraint symbols</string>
+          </property>
+          <property name="color" stdset="0">
+           <color>
+            <red>0</red>
+            <green>41</green>
+            <blue>45</blue>
+           </color>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>Sketch3DOutlineColor</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>View</cstring>
+          </property>
+         </widget>
+        </item>
+        <item row="18" column="0">
+         <widget class="QLabel" name="labelOutline">
+          <property name="text">
+           <string>Constraint outline</string>
+          </property>
+         </widget>
+        </item>
+        <item row="18" column="1">
+         <widget class="Gui::PrefColorButton" name="ConstrainedOutlineColor">
+          <property name="toolTip">
+           <string>Color of the border round a 2D sketch's dimensions, constraint symbols and on-view parameters</string>
+          </property>
+          <property name="color" stdset="0">
+           <color>
+            <red>40</red>
+            <green>0</green>
+            <blue>0</blue>
+           </color>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>ConstrainedOutlineColor</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>View</cstring>
+          </property>
+         </widget>
+        </item>
+        <item row="19" column="0">
+         <widget class="QLabel" name="labelOutlineWidth">
+          <property name="text">
+           <string>Constraint outline width</string>
+          </property>
+         </widget>
+        </item>
+        <item row="19" column="1">
+         <widget class="Gui::PrefSpinBox" name="ConstraintOutlineWidth">
+          <property name="toolTip">
+           <string>Width of the border round dimensions, constraint symbols and on-view parameters, 2D and 3D sketches; 0 for none</string>
+          </property>
+          <property name="suffix">
+           <string notr="true"> px</string>
+          </property>
+          <property name="minimum">
+           <number>0</number>
+          </property>
+          <property name="maximum">
+           <number>8</number>
+          </property>
+          <property name="value">
+           <number>1</number>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>ConstraintOutlineWidth</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>View</cstring>
+          </property>
+         </widget>
+        </item>
+        <item row="20" column="0">
+         <widget class="QLabel" name="labelConstrainedDimColorLight">
+          <property name="text">
+           <string>Constraint dimensions, light background</string>
+          </property>
+         </widget>
+        </item>
+        <item row="20" column="1">
+         <widget class="Gui::PrefColorButton" name="ConstrainedDimColorLight">
+          <property name="toolTip">
+           <string>Color of a 2D sketch's dimensional constraints when the view's background is light</string>
+          </property>
+          <property name="color" stdset="0">
+           <color>
+            <red>196</red>
+            <green>30</green>
+            <blue>0</blue>
+           </color>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>ConstrainedDimColorLight</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>View</cstring>
+          </property>
+         </widget>
+        </item>
+        <item row="21" column="0">
+         <widget class="QLabel" name="labelConstrainedIcoColorLight">
+          <property name="text">
+           <string>Constraint symbols, light background</string>
+          </property>
+         </widget>
+        </item>
+        <item row="21" column="1">
+         <widget class="Gui::PrefColorButton" name="ConstrainedIcoColorLight">
+          <property name="toolTip">
+           <string>Color of a 2D sketch's constraint symbols when the view's background is light</string>
+          </property>
+          <property name="color" stdset="0">
+           <color>
+            <red>196</red>
+            <green>30</green>
+            <blue>0</blue>
+           </color>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>ConstrainedIcoColorLight</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>View</cstring>
+          </property>
+         </widget>
+        </item>
+        <item row="22" column="0">
+         <widget class="QLabel" name="labelConstrainedOutlineColorLight">
+          <property name="text">
+           <string>Constraint outline, light background</string>
+          </property>
+         </widget>
+        </item>
+        <item row="22" column="1">
+         <widget class="Gui::PrefColorButton" name="ConstrainedOutlineColorLight">
+          <property name="toolTip">
+           <string>Color of the border round a 2D sketch's dimensions, constraint symbols and on-view parameters when the view's background is light</string>
+          </property>
+          <property name="color" stdset="0">
+           <color>
+            <red>255</red>
+            <green>244</green>
+            <blue>242</blue>
+           </color>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>ConstrainedOutlineColorLight</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>View</cstring>
+          </property>
+         </widget>
+        </item>
+        <item row="23" column="0">
+         <widget class="QLabel" name="labelSketch3DDimColorLight">
+          <property name="text">
+           <string>3D sketch dimensions, light background</string>
+          </property>
+         </widget>
+        </item>
+        <item row="23" column="1">
+         <widget class="Gui::PrefColorButton" name="Sketch3DDimColorLight">
+          <property name="toolTip">
+           <string>Color of dimensional constraints in a 3D sketch's edit when the view's background is light</string>
+          </property>
+          <property name="color" stdset="0">
+           <color>
+            <red>0</red>
+            <green>87</green>
+            <blue>94</blue>
+           </color>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>Sketch3DDimColorLight</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>View</cstring>
+          </property>
+         </widget>
+        </item>
+        <item row="24" column="0">
+         <widget class="QLabel" name="labelSketch3DIcoColorLight">
+          <property name="text">
+           <string>3D sketch constraint symbols, light background</string>
+          </property>
+         </widget>
+        </item>
+        <item row="24" column="1">
+         <widget class="Gui::PrefColorButton" name="Sketch3DIcoColorLight">
+          <property name="toolTip">
+           <string>Color of constraint symbols in a 3D sketch's edit when the view's background is light</string>
+          </property>
+          <property name="color" stdset="0">
+           <color>
+            <red>0</red>
+            <green>87</green>
+            <blue>94</blue>
+           </color>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>Sketch3DIcoColorLight</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>View</cstring>
+          </property>
+         </widget>
+        </item>
+        <item row="25" column="0">
+         <widget class="QLabel" name="labelSketch3DOutlineColorLight">
+          <property name="text">
+           <string>3D sketch constraint outline, light background</string>
+          </property>
+         </widget>
+        </item>
+        <item row="25" column="1">
+         <widget class="Gui::PrefColorButton" name="Sketch3DOutlineColorLight">
+          <property name="toolTip">
+           <string>Color of the border round a 3D sketch's dimensions and constraint symbols when the view's background is light</string>
+          </property>
+          <property name="color" stdset="0">
+           <color>
+            <red>238</red>
+            <green>249</green>
+            <blue>250</blue>
+           </color>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>Sketch3DOutlineColorLight</cstring>
           </property>
           <property name="prefPath" stdset="0">
            <cstring>View</cstring>

@@ -1514,6 +1514,32 @@ public:
 
     // Auto generated code (Tools/params_utils.py:139)
     //@{
+    /// Accessor for parameter Sketch3DDimColor
+    ///
+    /// Colour of dimensional constraints in 3D sketch edit mode, the 3D
+    /// sketch's teal. Applies at once.
+    static const unsigned long & getSketch3DDimColor();
+    static const unsigned long & defaultSketch3DDimColor();
+    static void removeSketch3DDimColor();
+    static void setSketch3DDimColor(const unsigned long &v);
+    static const char *docSketch3DDimColor();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter Sketch3DIcoColor
+    ///
+    /// Colour of constraint symbols in 3D sketch edit mode, the 3D
+    /// sketch's teal. Applies at once.
+    static const unsigned long & getSketch3DIcoColor();
+    static const unsigned long & defaultSketch3DIcoColor();
+    static void removeSketch3DIcoColor();
+    static void setSketch3DIcoColor(const unsigned long &v);
+    static const char *docSketch3DIcoColor();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
     /// Accessor for parameter NonDrivingConstrDimColor
     ///
     /// Colour of reference (non-driving) dimensional constraints in

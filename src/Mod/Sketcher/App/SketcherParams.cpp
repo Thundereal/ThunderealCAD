@@ -153,6 +153,8 @@ public:
     unsigned long FullyConstrainedColor;
     unsigned long ConstrainedDimColor;
     unsigned long ConstrainedIcoColor;
+    unsigned long Sketch3DDimColor;
+    unsigned long Sketch3DIcoColor;
     unsigned long NonDrivingConstrDimColor;
     unsigned long ExprBasedConstrDimColor;
     unsigned long DeactivatedConstrDimColor;
@@ -449,6 +451,10 @@ public:
         funcs["ConstrainedDimColor"] = &SketcherParamsP::updateConstrainedDimColor;
         ConstrainedIcoColor = this->subHandles[9]->GetUnsigned("ConstrainedIcoColor", 0xFF2600FF);
         funcs["ConstrainedIcoColor"] = &SketcherParamsP::updateConstrainedIcoColor;
+        Sketch3DDimColor = this->subHandles[9]->GetUnsigned("Sketch3DDimColor", 0x00838FFF);
+        funcs["Sketch3DDimColor"] = &SketcherParamsP::updateSketch3DDimColor;
+        Sketch3DIcoColor = this->subHandles[9]->GetUnsigned("Sketch3DIcoColor", 0x00ACC1FF);
+        funcs["Sketch3DIcoColor"] = &SketcherParamsP::updateSketch3DIcoColor;
         NonDrivingConstrDimColor = this->subHandles[9]->GetUnsigned("NonDrivingConstrDimColor", 0x0026FFFF);
         funcs["NonDrivingConstrDimColor"] = &SketcherParamsP::updateNonDrivingConstrDimColor;
         ExprBasedConstrDimColor = this->subHandles[9]->GetUnsigned("ExprBasedConstrDimColor", 0xFF7F26FF);
@@ -998,6 +1004,14 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateConstrainedIcoColor(SketcherParamsP *self) {
         self->ConstrainedIcoColor = self->subHandles[9]->GetUnsigned("ConstrainedIcoColor", 0xFF2600FF);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateSketch3DDimColor(SketcherParamsP *self) {
+        self->Sketch3DDimColor = self->subHandles[9]->GetUnsigned("Sketch3DDimColor", 0x00838FFF);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateSketch3DIcoColor(SketcherParamsP *self) {
+        self->Sketch3DIcoColor = self->subHandles[9]->GetUnsigned("Sketch3DIcoColor", 0x00ACC1FF);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateNonDrivingConstrDimColor(SketcherParamsP *self) {
@@ -1664,6 +1678,18 @@ static const App::ParamRegistry::Registrar _SketcherParamsRegistrar({
     App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "ConstrainedIcoColor", "ConstrainedIcoColor", App::ParamInfo::Hex, 0xFF2600FF)
         .setTitle("Constraint symbol colour")
         .setDoc("Colour of constraint symbols in sketch edit mode. Applies at once.")
+        .setProxy("Color")
+        .setTransparency(false),
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "Sketch3DDimColor", "Sketch3DDimColor", App::ParamInfo::Hex, 0x00838FFF)
+        .setTitle("3D sketch dimension colour")
+        .setDoc("Colour of dimensional constraints in 3D sketch edit mode, the 3D\n"
+"sketch's teal. Applies at once.")
+        .setProxy("Color")
+        .setTransparency(false),
+    App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "Sketch3DIcoColor", "Sketch3DIcoColor", App::ParamInfo::Hex, 0x00ACC1FF)
+        .setTitle("3D sketch constraint symbol colour")
+        .setDoc("Colour of constraint symbols in 3D sketch edit mode, the 3D\n"
+"sketch's teal. Applies at once.")
         .setProxy("Color")
         .setTransparency(false),
     App::ParamInfo("Sketcher", "SketcherParams", "User parameter:BaseApp/Preferences/View", "NonDrivingConstrDimColor", "NonDrivingConstrDimColor", App::ParamInfo::Hex, 0x0026FFFF)
@@ -5085,6 +5111,64 @@ void SketcherParams::setConstrainedIcoColor(const unsigned long &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void SketcherParams::removeConstrainedIcoColor() {
     instance()->subHandles[9]->RemoveUnsigned("ConstrainedIcoColor");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *SketcherParams::docSketch3DDimColor() {
+    return QT_TRANSLATE_NOOP("SketcherParams",
+"Colour of dimensional constraints in 3D sketch edit mode, the 3D\n"
+"sketch's teal. Applies at once.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const unsigned long & SketcherParams::getSketch3DDimColor() {
+    return instance()->Sketch3DDimColor;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const unsigned long & SketcherParams::defaultSketch3DDimColor() {
+    const static unsigned long def = 0x00838FFF;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void SketcherParams::setSketch3DDimColor(const unsigned long &v) {
+    instance()->subHandles[9]->SetUnsigned("Sketch3DDimColor",v);
+    instance()->Sketch3DDimColor = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void SketcherParams::removeSketch3DDimColor() {
+    instance()->subHandles[9]->RemoveUnsigned("Sketch3DDimColor");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *SketcherParams::docSketch3DIcoColor() {
+    return QT_TRANSLATE_NOOP("SketcherParams",
+"Colour of constraint symbols in 3D sketch edit mode, the 3D\n"
+"sketch's teal. Applies at once.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const unsigned long & SketcherParams::getSketch3DIcoColor() {
+    return instance()->Sketch3DIcoColor;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const unsigned long & SketcherParams::defaultSketch3DIcoColor() {
+    const static unsigned long def = 0x00ACC1FF;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void SketcherParams::setSketch3DIcoColor(const unsigned long &v) {
+    instance()->subHandles[9]->SetUnsigned("Sketch3DIcoColor",v);
+    instance()->Sketch3DIcoColor = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void SketcherParams::removeSketch3DIcoColor() {
+    instance()->subHandles[9]->RemoveUnsigned("Sketch3DIcoColor");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

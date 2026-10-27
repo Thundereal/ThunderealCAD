@@ -523,6 +523,14 @@ Params = [
     ParamHex('ConstrainedIcoColor', 0xFF2600FF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
         title = "Constraint symbol colour",
         doc = "Colour of constraint symbols in sketch edit mode. Applies at once."),
+    ParamHex('Sketch3DDimColor', 0x00838FFF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+        title = "3D sketch dimension colour",
+        doc = "Colour of dimensional constraints in 3D sketch edit mode, the 3D\n"
+              "sketch's teal. Applies at once."),
+    ParamHex('Sketch3DIcoColor', 0x00ACC1FF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
+        title = "3D sketch constraint symbol colour",
+        doc = "Colour of constraint symbols in 3D sketch edit mode, the 3D\n"
+              "sketch's teal. Applies at once."),
     ParamHex('NonDrivingConstrDimColor', 0x0026FFFF, subpath='User parameter:BaseApp/Preferences/View', proxy=ParamColor(transparency=False),
         title = "Reference constraint colour",
         doc = "Colour of reference (non-driving) dimensional constraints in\n"

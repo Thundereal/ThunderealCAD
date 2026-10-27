@@ -27,6 +27,7 @@
 #include <cmath>
 #include <map>
 #include <numbers>
+#include <string_view>
 
 #include <boost/uuid/uuid.hpp>
 
@@ -300,6 +301,34 @@ private:
     ViewProviderSketch3D* vp;
 };
 
+// The edit's colours changed in the preferences: drawn again, at once, as the 2D
+// sketch's edit does it.
+class Sketch3DColorObserver: public ParameterGrp::ObserverType
+{
+public:
+    explicit Sketch3DColorObserver(ViewProviderSketch3D* vp)
+        : vp(vp)
+        , group(App::GetApplication().GetParameterGroupByPath(
+              "User parameter:BaseApp/Preferences/View"))
+    {
+        group->Attach(this);
+    }
+    ~Sketch3DColorObserver() override
+    {
+        group->Detach(this);
+    }
+    void OnChange(Base::Subject<const char*>& /*caller*/, const char* reason) override
+    {
+        if (reason && std::string_view(reason).ends_with("Color") && vp->isEditingSketch()) {
+            vp->draw();
+        }
+    }
+
+private:
+    ViewProviderSketch3D* vp;
+    ParameterGrp::handle group;
+};
+
 // Where a placed point came from, and so which constraint ties it there.
 struct ViewProviderSketch3D::Snap
 {
@@ -425,6 +454,7 @@ struct ViewProviderSketch3D::EditData
     // The kept plane points are put on (section 6), or -1.
     int keptPlane {-1};
     std::unique_ptr<QObject> deleteFilter;
+    std::unique_ptr<ParameterGrp::ObserverType> colorObserver;
 
     /// The pointer at p while an arc's end is picked: the sweep follows it round.
     void trackSweep(const Base::Vector3d& p)
@@ -3539,8 +3569,9 @@ void ViewProviderSketch3D::drawIcons()
     auto toQColor = [](const SbColor& c) {
         return QColor::fromRgbF(c[0], c[1], c[2]);
     };
+    // the 3D sketch's own, its teal (the 2D sketch's red is ConstrainedIcoColor)
     const QColor iconColor =
-        toQColor(editColor("ConstrainedIcoColor", Params::defaultConstrainedIcoColor()));
+        toQColor(editColor("Sketch3DIcoColor", Params::defaultSketch3DIcoColor()));
     const QColor offColor = toQColor(
         editColor("DeactivatedConstrDimColor", Params::defaultDeactivatedConstrDimColor()));
     SbColor selectColor;
@@ -3775,8 +3806,8 @@ void ViewProviderSketch3D::drawLabels()
     };
 
     using Params = Sketcher::SketcherParams;
-    const SbColor drivingColor =
-        editColor("ConstrainedDimColor", Params::defaultConstrainedDimColor());
+    // the 3D sketch's own, its teal (the 2D sketch's red is ConstrainedDimColor)
+    const SbColor drivingColor = editColor("Sketch3DDimColor", Params::defaultSketch3DDimColor());
     const SbColor referenceColor =
         editColor("NonDrivingConstrDimColor", Params::defaultNonDrivingConstrDimColor());
     const SbColor expressionColor =
@@ -4064,6 +4095,7 @@ bool ViewProviderSketch3D::setEdit(int ModNum)
     edit->deleteFilter = std::make_unique<Sketch3DDeleteFilter>(this);
     Gui::getMainWindow()->installEventFilter(edit->deleteFilter.get());
     edit->dialog->list->installEventFilter(edit->deleteFilter.get());  // Delete in the list
+    edit->colorObserver = std::make_unique<Sketch3DColorObserver>(this);
 
     Workbench::enterEditMode();
     Gui::ToolBarManager::getInstance()->setState(sketch3DToolbars(),

@@ -1174,6 +1174,60 @@
           </property>
          </widget>
         </item>
+        <item row="15" column="0">
+         <widget class="QLabel" name="label3dDim">
+          <property name="text">
+           <string>3D sketch dimensions</string>
+          </property>
+         </widget>
+        </item>
+        <item row="15" column="1">
+         <widget class="Gui::PrefColorButton" name="Sketch3DDimColor">
+          <property name="toolTip">
+           <string>Color of dimensional constraints in a 3D sketch's edit</string>
+          </property>
+          <property name="color" stdset="0">
+           <color>
+            <red>0</red>
+            <green>131</green>
+            <blue>143</blue>
+           </color>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>Sketch3DDimColor</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>View</cstring>
+          </property>
+         </widget>
+        </item>
+        <item row="16" column="0">
+         <widget class="QLabel" name="label3dIco">
+          <property name="text">
+           <string>3D sketch constraint symbols</string>
+          </property>
+         </widget>
+        </item>
+        <item row="16" column="1">
+         <widget class="Gui::PrefColorButton" name="Sketch3DIcoColor">
+          <property name="toolTip">
+           <string>Color of constraint symbols in a 3D sketch's edit</string>
+          </property>
+          <property name="color" stdset="0">
+           <color>
+            <red>0</red>
+            <green>172</green>
+            <blue>193</blue>
+           </color>
+          </property>
+          <property name="prefEntry" stdset="0">
+           <cstring>Sketch3DIcoColor</cstring>
+          </property>
+          <property name="prefPath" stdset="0">
+           <cstring>View</cstring>
+          </property>
+         </widget>
+        </item>
        </layout>
       </item>
       <item>

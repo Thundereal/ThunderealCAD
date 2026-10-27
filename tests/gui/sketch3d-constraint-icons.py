@@ -53,6 +53,22 @@ def settle(seconds=0.3):
         time.sleep(0.01)
 
 
+def label_color():
+    """The dimension label's text colour in the edit scene, as (r, g, b) 0..255."""
+    from pivy import coin
+
+    view = FreeCADGui.getDocument(DOC).ActiveView
+    sa = coin.SoSearchAction()
+    sa.setType(coin.SoType.fromName("SoDatumLabel"))
+    sa.setInterest(coin.SoSearchAction.FIRST)
+    sa.apply(view.getViewer().getSoRenderManager().getSceneGraph())
+    path = sa.getPath()
+    if not path:
+        return None
+    text = path.getTail().getField("textColor").get().getString()
+    return tuple(round(float(x) * 255) for x in text.split())
+
+
 def types(sk):
     return [c.Type for c in sk.Constraints]
 
@@ -102,6 +118,18 @@ def run():
             "none for a coincidence or a dimension",
             coincident not in shown and distance not in shown,
         )
+
+        # -- teal, and the setting applies at once ---------------------------------
+        check(
+            "the dimension in the 3D sketch's teal", label_color() == (0, 131, 143), label_color()
+        )
+        grp = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/View")
+        grp.SetUnsigned("Sketch3DDimColor", 0x112233FF)
+        settle(0.2)
+        check("its setting applies at once", label_color() == (0x11, 0x22, 0x33), label_color())
+        grp.RemUnsigned("Sketch3DDimColor")
+        settle(0.2)
+        check("and back to teal without it", label_color() == (0, 131, 143), label_color())
 
         # -- a press on an icon selects it, Delete removes it --------------------
         x, y = [(x, y) for i, x, y in icons if i == along_z][0]

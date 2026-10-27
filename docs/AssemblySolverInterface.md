@@ -3690,6 +3690,32 @@ Still in a joint made: the frames of the joints' faces, found by
 `findElementFrame` (a face's centre by BRepGProp) for every joint at every
 model built -- 7 % sampled; not cached.
 
+### 6.27 As built: face frames kept, the tree's timer restarted once (2026-10-27)
+
+**Face frames** (`Part::findElementFrame`, ElementGeometry.cpp): a face's
+frame takes its centre from BRepGProp, and every model built asks it again
+for every joint's face -- 7 % of a joint made at 200 parts. The frame where
+the face's geometry is (no location) is kept per TShape and orientation, as
+the file already keeps the faces' recognised surfaces (the TShape held, so
+its address is not reused while the entry lives; 4096 entries), and the
+face's location applied to it. A location that scales or mirrors goes the
+old way. No gate record changed: the frames came out the same, bit for bit.
+
+**The tree's status timer** (`TreeWidget::_updateStatus`, Gui core): every
+object changed restarted the status timer, so that the status pass waits for
+the changes to stop -- and on Windows a restart is two system calls (a kill
+and a set). A drag step at 200 parts changes a thousand objects: 15 % of it,
+sampled, was those calls. A change while the timer runs now only asks for
+the restart, and the timer, when it fires, makes it once and waits again;
+the pass still comes once the changes have stopped for the timeout (at most
+one timeout later than before). Sampled after: 3 %.
+
+The box was loaded while this was measured (the bench's phases that neither
+change touches ran 20-30 % slower than the run before), so the gains are
+read from the samples, not the clocks. The Assembly suite 373 run, 59
+skipped, no failures; TestPartApp 413 OK; ctest 1000/1000. The GUI script
+tests (tests/gui, which drive the tree) were not run.
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a

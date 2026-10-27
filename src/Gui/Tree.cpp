@@ -1732,6 +1732,14 @@ void TreeWidget::_updateStatus(bool delay) {
             _updateStatus(true);
         return;
     }
+    // Restarting a running timer is two system calls on Windows (a kill and a
+    // set), and a solve changes a thousand objects in one turn: a change while
+    // the timer runs asks for the restart, and the timer makes it once when it
+    // fires (onUpdateStatus) -- the status still waits for the changes to stop
+    if (statusTimer->isActive()) {
+        statusTimer->setProperty("restartAsked", true);
+        return;
+    }
     int timeout = TreeParams::getStatusTimeout();
     if (timeout<0)
         timeout = 1;
@@ -4709,6 +4717,15 @@ struct UpdateDisabler {
 
 void TreeWidget::onUpdateStatus()
 {
+    if (statusTimer->property("restartAsked").toBool()) {
+        // Changes came while it ran (_updateStatus): wait for them to stop
+        statusTimer->setProperty("restartAsked", false);
+        int timeout = TreeParams::getStatusTimeout();
+        if (timeout < 0)
+            timeout = 1;
+        statusTimer->start(timeout);
+        return;
+    }
     if(updateBlocked || _DraggingActive
                      || this->state()==DraggingState
                      || App::GetApplication().isRestoring())

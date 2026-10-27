@@ -58,6 +58,9 @@ struct MassProps
     Base::Vector3d com;  // in the body frame
     std::array<double, 3> principal {1.0, 1.0, 1.0};
     Base::Rotation principalAxes;
+    // The centre and the inertia are given (a group of bodies, sec 6.22), and
+    // centredOnJoints keeps them instead of taking them from the joints.
+    bool sized = false;
 };
 
 // One rigid body the solver moves: a part, or a bundle of parts held together

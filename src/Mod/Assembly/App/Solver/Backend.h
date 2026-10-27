@@ -151,8 +151,10 @@ public:
 };
 
 // What centredOnJoints gives each body: the centre of its joints in the
-// body's frame, and its inertia. 'sized' is false for a grounded body and a
-// body without a joint frame, which keep their frame and an inertia of 1.
+// body's frame, and its inertia; or, for a body whose MassProps are 'sized'
+// (a group), the centre, inertia and mass given. 'sized' is false for a
+// grounded body and a body without a joint frame, which keep their frame and
+// an inertia of 1.
 // 'body' is the body the solve moves it with: itself, or the first body of
 // the group groupedRigidly put it in.
 struct BodyMetric
@@ -161,6 +163,7 @@ struct BodyMetric
     Base::Vector3d centre;
     double inertia = 1.0;
     Id body = NoId;
+    double mass = 1.0;  // a group weighs as many bodies as it has
 };
 
 // One warm system: one connected component, or the whole model.

@@ -45,10 +45,12 @@ namespace Assembly::Solver
 // When no single body can be placed, two joined bodies are tried together
 // (twelve unknowns). When none is left that can be placed so, the first
 // remaining body (in model order) is taken as a ground of its own, and the
-// bodies it holds rigidly the same way become one body with it, each at the
-// offset the placing gave it; the group starts where its bodies best match
-// where each of them started. Then the next remaining body, until none is
-// left. A set of
+// bodies it holds rigidly the same way, where they are, become one body with
+// it: a body the placing would move is left to the backend, which finds the
+// pose closest to the start of all of them (a Fixed joint just made); it joins
+// the group in the next solve. A group weighs as many bodies as it has, at
+// the mean of their centres, its inertia the sum of theirs about it. Then the
+// next remaining body, until none is left. A set of
 // joints with a dependent equation is never taken (it stays with the backend,
 // which reports it), nor is a body that a limit or a driver touches, nor a
 // joint that couples rotations (gears, rack and pinion, screw) or holds a

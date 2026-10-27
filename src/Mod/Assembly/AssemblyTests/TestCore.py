@@ -501,12 +501,14 @@ class TestSolverBackend(AssemblyTestBase):
         self.assertEqual(self.assembly.getSolveStatus()["DoF"], revolutes)
 
     def test_rigid_groups(self):
-        """Bodies the joints hold rigidly leave the solve (docs/AssemblySolverInterface.md sec 6.21).
+        """Bodies the joints hold rigidly leave the solve (docs/AssemblySolverInterface.md sec 6.21, 6.23).
 
         A box Fixed to the grounded one is placed by its joint's frames,
-        exactly; a box Fixed to one a Revolute holds moves with it, one body;
-        a box held by a Fixed and a Revolute joint is not taken out, and the
-        redundancy is reported as the solver finds it.
+        exactly; a box held by a Fixed and a Revolute joint is not taken out,
+        and the redundancy is reported as the solver finds it. A box Fixed to
+        one a Revolute holds, off its joint at the start, is solved with the
+        rest; once its joint holds (the next solve) it moves with that box,
+        one body that weighs two.
         """
         g, a, b, c, d = [self.assembly.newObject("Part::Box", "Box") for i in range(5)]
         self.doc.recompute()  # the shapes the references name
@@ -540,7 +542,11 @@ class TestSolverBackend(AssemblyTestBase):
             self.assertNotIn(j.Name, status["Redundant"])
 
         metric = self.assembly.getSolverMetric()
+        self.assertNotEqual(metric[a.Name][2], metric[b.Name][2], "b off its joint: alone")
+        self.assertEqual(self.assembly.solve(), 0)
+        metric = self.assembly.getSolverMetric()
         self.assertEqual(metric[a.Name][2], metric[b.Name][2], "a and b one body")
+        self.assertEqual(metric[a.Name][3], 2.0, "the group weighs two bodies")
         self.assertNotEqual(metric[a.Name][2], metric[c.Name][2])
         self.assertNotEqual(metric[c.Name][2], metric[d.Name][2], "d not taken out")
 

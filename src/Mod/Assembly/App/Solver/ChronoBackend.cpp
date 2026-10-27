@@ -1481,9 +1481,16 @@ struct ChronoSession::Impl
         sys->Update(ch::UpdateFlags::UPDATE_ALL);
     }
 
+    // The drag weight
     double weightOf(std::size_t b) const
     {
-        return bodies[b]->GetMass();
+        return b < weights.size() ? weights[b] : 1.0;
+    }
+
+    // The body's mass: 1, or the number of bodies of a group (sec 6.22).
+    double massOf(std::size_t b) const
+    {
+        return b < model.bodies.size() ? model.bodies[b].mass.mass : 1.0;
     }
 
     // The body's inertia: 1 unless centredOnJoints gave it a size (sec 6.20);
@@ -1514,7 +1521,7 @@ struct ChronoSession::Impl
             const double w = b < weights.size() ? weights[b] : 1.0;
             const double turn = rotationWeight * inertiaOf(b);
             const double i = w * (restoring ? std::max(turn, lever[b] * lever[b]) : turn);
-            bodies[b]->SetMass(w);
+            bodies[b]->SetMass(w * massOf(b));
             bodies[b]->SetInertiaXX(ch::ChVector3d(i, i, i));
         }
     }
@@ -1541,7 +1548,8 @@ struct ChronoSession::Impl
             }
             const ch::ChVector3d dp = target[b].p - bodies[b]->GetPos();
             const ch::ChVector3d dw = rotationFrom(bodies[b]->GetRot(), target[b].q);
-            sum += weightOf(b) * (dp.Length2() + rotationWeight * inertiaOf(b) * dw.Length2());
+            sum += weightOf(b)
+                * (massOf(b) * dp.Length2() + rotationWeight * inertiaOf(b) * dw.Length2());
         }
         return sum;
     }

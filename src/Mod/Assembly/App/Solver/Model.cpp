@@ -53,7 +53,7 @@ bool same(const Body& a, const Body& b)
     return a.id == b.id && a.source == b.source && same(a.placement, b.placement)
         && a.grounded == b.grounded && a.mass.mass == b.mass.mass && same(a.mass.com, b.mass.com)
         && a.mass.principal == b.mass.principal
-        && same(a.mass.principalAxes, b.mass.principalAxes);
+        && same(a.mass.principalAxes, b.mass.principalAxes) && a.mass.sized == b.mass.sized;
 }
 
 bool same(const Frame& a, const Frame& b)

@@ -22,6 +22,7 @@
  ***************************************************************************/
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <set>
@@ -308,6 +309,66 @@ private:
         return placed.size() == bodies.size();
     }
 
+    // A group weighs what its bodies do together: as many bodies, at the
+    // mean of their centres, its inertia theirs and the parallel axis terms
+    // (4 |c - c_group|^2 each, the metric's turn being a quarter of it) --
+    // the sum of the bodies' metrics, to second order, for a rigid motion of
+    // the group. Its first body's frame is the group's.
+    void setGroupMass(
+        Body& body,
+        Id r,
+        const std::vector<Id>& groupOf,
+        const std::vector<BodyMetric>& metric
+    ) const
+    {
+        std::vector<Id> group;
+        for (Id b = 0; b < groupOf.size(); ++b) {
+            if (groupOf[b] == r && map[b].role != Role::Placed) {
+                group.push_back(b);
+            }
+        }
+        if (group.size() < 2) {
+            return;
+        }
+        // Each body's centre in the first body's frame
+        std::vector<Base::Vector3d> centres;
+        Base::Vector3d mean;
+        for (Id b : group) {
+            Base::Vector3d c;
+            (pose[r].inverse() * pose[b]).multVec(metric[b].centre, c);
+            centres.push_back(c);
+            mean += c;
+        }
+        mean /= static_cast<double>(group.size());
+        double inertia = 0.0;
+        for (std::size_t k = 0; k < group.size(); ++k) {
+            inertia += metric[group[k]].inertia + 4.0 * (centres[k] - mean).Sqr();
+        }
+        body.mass.mass = static_cast<double>(group.size());
+        body.mass.com = mean;
+        body.mass.principal = {inertia, inertia, inertia};
+        body.mass.sized = true;
+    }
+
+    // Whether the placing left the bodies where they start (to rounding): a
+    // group takes only bodies its joints hold where they are.
+    bool unmoved(const std::vector<Id>& bodies, const std::vector<Base::Placement>& placed) const
+    {
+        for (std::size_t k = 0; k < bodies.size(); ++k) {
+            const Base::Placement& start = original.bodies[bodies[k]].placement;
+            const Base::Vector3d& p = start.getPosition();
+            if ((placed[k].getPosition() - p).Length() > 1e-9 * std::max(1.0, p.Length())) {
+                return false;
+            }
+            double x, y, z, w;
+            (start.getRotation().inverse() * placed[k].getRotation()).getValue(x, y, z, w);
+            if (2.0 * std::atan2(std::sqrt(x * x + y * y + z * z), std::abs(w)) > 1e-9) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     void build()
     {
         const std::size_t n = original.bodies.size();
@@ -431,7 +492,8 @@ private:
         // round if its turn has not come.
         auto grow = [&](std::set<Id> frontier,
                         const std::function<bool(Id)>& held,
-                        const std::function<void(Id)>& accept) {
+                        const std::function<void(Id)>& accept,
+                        bool onlyUnmoved) {
             std::vector<Id> joints;
             std::vector<Base::Placement> placed;
             auto take = [&](const std::vector<Id>& set) {
@@ -458,7 +520,8 @@ private:
                         it = frontier.erase(it);
                         continue;
                     }
-                    if (collect({b}, held, joints) >= 6 && place({b}, joints, placed)) {
+                    if (collect({b}, held, joints) >= 6 && place({b}, joints, placed)
+                        && (!onlyUnmoved || unmoved({b}, placed))) {
                         take({b});
                         changed = true;
                         it = frontier.erase(it);
@@ -476,7 +539,8 @@ private:
                             continue;
                         }
                         const std::vector<Id> pair {std::min(a, b), std::max(a, b)};
-                        if (collect(pair, held, joints) >= 12 && place(pair, joints, placed)) {
+                        if (collect(pair, held, joints) >= 12 && place(pair, joints, placed)
+                            && (!onlyUnmoved || unmoved(pair, placed))) {
                             take(pair);
                             changed = true;
                             break;
@@ -506,7 +570,8 @@ private:
                 fixed[b] = true;
                 map[b].role = Role::Placed;
                 map[b].pose = pose[b];
-            }
+            },
+            false
         );
 
         // The groups, each from its first body
@@ -523,61 +588,12 @@ private:
                 [&](Id b) {
                     groupOf[b] = r;
                     map[b].role = Role::Member;
-                }
+                },
+                true
             );
         }
 
-        // A group starts where its bodies, as the placing put them against
-        // its first body, best match where each of them started: the mean of
-        // their turns from placed to start, then the translation that brings
-        // their joints' centres nearest. Left alone when nothing moved.
         const std::vector<BodyMetric> metric = jointMetric(original);
-        for (Id r = 0; r < n; ++r) {
-            std::vector<Id> group;
-            bool moved = false;
-            for (Id b = 0; b < n; ++b) {
-                if (groupOf[b] == r && map[b].role != Role::Placed) {
-                    group.push_back(b);
-                    moved = moved || pose[b] != original.bodies[b].placement;
-                }
-            }
-            if (group.size() < 2 || !moved) {
-                continue;
-            }
-            double q[4] = {0.0, 0.0, 0.0, 0.0};
-            double first[4] = {0.0, 0.0, 0.0, 0.0};
-            for (std::size_t k = 0; k < group.size(); ++k) {
-                const Id b = group[k];
-                const Base::Rotation turn =
-                    original.bodies[b].placement.getRotation() * pose[b].getRotation().inverse();
-                double t[4];
-                turn.getValue(t[0], t[1], t[2], t[3]);
-                if (k == 0) {
-                    std::copy(t, t + 4, first);
-                }
-                const double sign = t[0] * first[0] + t[1] * first[1] + t[2] * first[2]
-                        + t[3] * first[3] < 0.0
-                    ? -1.0
-                    : 1.0;
-                for (int i = 0; i < 4; ++i) {
-                    q[i] += sign * t[i];
-                }
-            }
-            const Base::Rotation turn(q[0], q[1], q[2], q[3]);  // normalised by the constructor
-            Base::Vector3d shift;
-            for (Id b : group) {
-                Base::Vector3d placedCentre;
-                Base::Vector3d startCentre;
-                pose[b].multVec(metric[b].centre, placedCentre);
-                original.bodies[b].placement.multVec(metric[b].centre, startCentre);
-                shift += startCentre - turn.multVec(placedCentre);
-            }
-            shift /= static_cast<double>(group.size());
-            const Base::Placement fit(shift, turn);
-            for (Id b : group) {
-                pose[b] = fit * pose[b];
-            }
-        }
 
         jointOrigin.clear();
         keptOrigin.clear();
@@ -600,6 +616,7 @@ private:
             if (map[b].role == Role::Kept) {
                 Body body = original.bodies[b];
                 body.placement = pose[b];
+                setGroupMass(body, b, groupOf, metric);
                 map[b].reduced = reduced.addBody(body);
                 keptOrigin.push_back(b);
             }

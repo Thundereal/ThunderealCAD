@@ -3515,6 +3515,57 @@ poses closer): ten drag steps 12.9 -> 7.9 s.
 group still moves as one body in the solve's metric (its joints' centre and
 spread), not as the sum of its bodies.
 
+### 6.23 As built: a group weighs its bodies, and forms where they are (2026-10-27)
+
+Sec 6.22 left a group moving as one body in the solve's metric -- the
+centre and spread of the joints it kept, the mass of one body. Against the
+metric of its bodies apart, that is another question: a group of two weighed
+as one.
+
+**A group's mass** (`setGroupMass`, `RigidGroups.cpp`): as many bodies as it
+has, at the mean of their centres, its inertia the sum of theirs and the
+parallel axis terms, 4 |c - c_group|^2 each (the metric's turn being a
+quarter of the inertia). For a rigid motion of the group that is the sum of
+its bodies' metrics, to second order. It reaches the backends as
+`MassProps::mass` with the new `MassProps::sized` (centre and inertia given,
+which `centredOnJoints` keeps instead of taking them from the joints); all
+three weigh a translation by the mass now: the Reference's weights, Chrono's
+mass matrix and distance, OndselSolver's drag weights (its own weights
+already came from the mass). `getSolverMetric()` gives the mass as a fourth
+element, and the gate weighs by it.
+
+**Where a group forms.** That sum is the bodies' metric only where the group
+starts with its bodies where they started; a group made of a body the
+placing moved -- a Fixed joint whose part starts off it -- starts elsewhere,
+and the solve then answers another question. Measured on
+`test_drag_bundles_fixed` (C 50 mm off its Fixed joint), in the metric of
+the bodies apart: the Reference's closest pose solved whole 5622; grouped,
+from the first body's start 7700, and from the start that best fits the
+bodies in that metric (Kabsch, by SVD) no better -- with residuals of 50 mm
+no second order expansion holds. So a group now takes a body only when the
+placing leaves it where it is (within 1e-9 of its start): a start off a
+joint is solved whole, the backend finding the pose closest to the start of
+all the bodies, and the bodies are grouped from the next solve on, where
+the joints hold. The start fit of sec 6.22 is gone, having nothing left to
+fit. Bodies placed against the ground are unchanged: their pose is the
+only one, whatever the metric.
+
+**Gate.** Against the records of sec 6.20 (no groups at all) every placement
+is now within rounding, but the drag of `test_drag_bundles_fixed` (0.64 mm:
+during the drag the group is formed, and weighs as its bodies do only to
+second order). Three records taken again (the bench chains,
+`test_drag_bundles_fixed`). The Assembly suite 372 run, 59 skipped, no
+failures (`test_rigid_groups` now groups in a second solve); ctest
+1000/1000.
+
+**Results** (the bench chain at 200 parts; its first solve starts off the
+joints, so is solved whole): OndselSolver solves it in 0.52 to 0.61 s with
+102 solver bodies for 201 objects; the edit 0.96 s; ten drag steps 5.2 s
+(3.8 s with the unit-mass groups of sec 6.22). Chrono: ten drag steps
+10.3 s.
+
+**Not done:** the pair search still has no case of its own.
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a

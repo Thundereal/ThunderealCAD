@@ -339,8 +339,9 @@ public:
     std::vector<std::pair<std::string, double>> getSolverResiduals() const;
     // Per object of the last model: the point of it whose movement a solve
     // weighs, in its own frame, the inertia a turn is weighed by (sec 6.20),
-    // and its solver body (objects bundled into one share it).
-    std::vector<std::tuple<std::string, Base::Vector3d, double, int>> getSolverMetric() const;
+    // its solver body (objects bundled into one share it), and the body's
+    // mass (a group weighs as many bodies as it has).
+    std::vector<std::tuple<std::string, Base::Vector3d, double, int, double>> getSolverMetric() const;
     fastsignals::signal<void()> signalSolverUpdate;
 
 protected:

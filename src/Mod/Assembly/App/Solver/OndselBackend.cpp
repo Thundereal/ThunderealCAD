@@ -685,7 +685,7 @@ Status OndselSession::beginDrag(const std::vector<Id>& bodies, const DragOptions
         if (!mbdPart) {
             continue;
         }
-        mbdPart->m = weight;
+        mbdPart->m = weight * model.bodies[body].mass.mass;
         // A heavier body is heavier in rotation too.
         const auto& principal = model.bodies[body].mass.principal;
         auto aJ = std::make_shared<MbD::DiagonalMatrix<double>>(3);

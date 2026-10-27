@@ -280,10 +280,11 @@ class AssemblyObject(Part):
         sec 6.20): each solved object's point whose displacement counts, in the
         object's own frame (the centre of its body's joints), the inertia a turn
         of the object counts with, and its solver body (objects bundled into one
-        body share it) -- the distance of a solve from its start is the sum over
-        the bodies of |displacement|^2 + inertia * |turn|^2 / 4.
+        body share it), and the body's mass (a group of bodies weighs as many as
+        it has) -- the distance of a solve from its start is the sum over the
+        bodies of mass * |displacement|^2 + inertia * |turn|^2 / 4.
 
-        Returns: a dict {object name: (Vector, inertia, body)}; empty when
+        Returns: a dict {object name: (Vector, inertia, body, mass)}; empty when
         nothing was solved.
         """
         ...

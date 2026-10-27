@@ -155,6 +155,9 @@ private:
             }
             const double inertia = metric[b].inertia;
             body.mass.principal = {inertia, inertia, inertia};
+            body.mass.mass = metric[b].mass;
+            // The body's frame goes to the centre
+            body.mass.com = Base::Vector3d();
             const Base::Vector3d& centre = metric[b].centre;
             if (centre == Base::Vector3d()) {
                 continue;
@@ -226,6 +229,11 @@ std::vector<BodyMetric> Assembly::Solver::jointMetric(const Model& model)
     for (std::size_t b = 0; b < n; ++b) {
         metric[b].body = static_cast<Id>(b);
         const Base::BoundBox3d& box = boxes[b];
+        const MassProps& mass = model.bodies[b].mass;
+        if (mass.sized && !model.bodies[b].grounded) {
+            metric[b] = {true, mass.com, mass.principal[0], static_cast<Id>(b), mass.mass};
+            continue;
+        }
         if (model.bodies[b].grounded || !box.IsValid()) {
             continue;
         }

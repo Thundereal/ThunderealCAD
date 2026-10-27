@@ -393,8 +393,11 @@ PyObject* AssemblyObjectPy::getSolverMetric(PyObject* args) const
     }
 
     Py::Dict ret;
-    for (const auto& [name, centre, inertia, body] : getAssemblyObjectPtr()->getSolverMetric()) {
-        ret.setItem(name, Py::TupleN(Py::Vector(centre), Py::Float(inertia), Py::Long(body)));
+    for (const auto& [name, centre, inertia, body, mass] : getAssemblyObjectPtr()->getSolverMetric()) {
+        ret.setItem(
+            name,
+            Py::TupleN(Py::Vector(centre), Py::Float(inertia), Py::Long(body), Py::Float(mass))
+        );
     }
     return Py::new_reference_to(ret);
 }

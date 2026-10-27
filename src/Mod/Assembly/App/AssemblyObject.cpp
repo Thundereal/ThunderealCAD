@@ -682,9 +682,9 @@ std::vector<std::pair<std::string, double>> AssemblyObject::getSolverResiduals()
     return out;
 }
 
-std::vector<std::tuple<std::string, Base::Vector3d, double, int>> AssemblyObject::getSolverMetric() const
+std::vector<std::tuple<std::string, Base::Vector3d, double, int, double>> AssemblyObject::getSolverMetric() const
 {
-    std::vector<std::tuple<std::string, Base::Vector3d, double, int>> out;
+    std::vector<std::tuple<std::string, Base::Vector3d, double, int, double>> out;
     if (!solverModel) {
         return out;
     }
@@ -704,7 +704,7 @@ std::vector<std::tuple<std::string, Base::Vector3d, double, int>> AssemblyObject
         const Solver::BodyMetric& m = metric[data.body];
         Base::Vector3d centre;
         data.offsetPlc.inverse().multVec(m.centre, centre);
-        out.emplace_back(obj->getNameInDocument(), centre, m.inertia, static_cast<int>(m.body));
+        out.emplace_back(obj->getNameInDocument(), centre, m.inertia, static_cast<int>(m.body), m.mass);
     }
     std::ranges::sort(out, [](const auto& a, const auto& b) {
         return std::get<0>(a) < std::get<0>(b);

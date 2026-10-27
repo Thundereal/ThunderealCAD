@@ -66,7 +66,11 @@ C is moved onto B's frame, one body with it, and B goes where the
 Revolute takes it, instead of the two meeting between. Since sec 6.22 a
 group starts where its bodies best match their starts, so they meet between
 again (three records), and a drag no longer bundles Fixed joints itself
-(the five drag cases' model digests).
+(the five drag cases' model digests). Since sec 6.23 a group takes only the
+bodies its joints already hold where they are, and weighs as many bodies as
+it has: a start off a Fixed joint is solved whole, so the bench chains and
+test_drag_bundles_fixed are solved as they were in sec 6.20, to rounding
+(three records).
 
 Every other registered backend (AssemblyApp.getAvailableSolvers(); since sec
 6.13 the Reference backend) runs the same cases through the assembly's
@@ -596,7 +600,7 @@ class SolverGateBase(JointTestBase):
         return json.loads(json.dumps(result))
 
     def moves(self, start, placements):
-        """The solvers' metric (sec 6.20): sum |dc|^2 + inertia |dtheta|^2 / 4
+        """The solvers' metric (sec 6.20): sum mass |dc|^2 + inertia |dtheta|^2 / 4
         over the solver bodies, c the point whose movement counts; a body
         bundling several objects is counted once."""
         metric = self.assembly.getSolverMetric()
@@ -605,7 +609,7 @@ class SolverGateBase(JointTestBase):
         for name, before in sorted(start.items()):
             if name not in placements:
                 continue
-            centre, inertia, body = metric.get(name, (App.Vector(), 1.0, None))
+            centre, inertia, body, mass = metric.get(name, (App.Vector(), 1.0, None, 1.0))
             if body is not None:
                 if body in counted:
                     continue
@@ -615,7 +619,7 @@ class SolverGateBase(JointTestBase):
             a = App.Placement(App.Vector(*after[:3]), App.Rotation(*after[3:]))
             distance = (a.multVec(centre) - b.multVec(centre)).Length
             angle = placement_deviation(before, after)[1]
-            total += distance * distance + 0.25 * inertia * angle * angle
+            total += mass * distance * distance + 0.25 * inertia * angle * angle
         return total
 
     def gate_backend(self, key, drag=None, sim=None, frame_order=None):

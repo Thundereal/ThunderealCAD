@@ -853,7 +853,8 @@ struct ReferenceSession::Impl
             for (int k = 0; k < 3; ++k) {
                 const double inertia =
                     b < model.bodies.size() ? model.bodies[b].mass.principal[k] : 1.0;
-                W[static_cast<Eigen::Index>(6 * b + k)] = w;
+                const double mass = b < model.bodies.size() ? model.bodies[b].mass.mass : 1.0;
+                W[static_cast<Eigen::Index>(6 * b + k)] = w * mass;
                 W[static_cast<Eigen::Index>(6 * b + 3 + k)] = w * rotationWeight * inertia;
             }
         }

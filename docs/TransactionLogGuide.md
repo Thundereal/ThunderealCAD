@@ -5,7 +5,8 @@ to do the things it is for -- look back at what was done, see how an object
 changed, keep a version, work on a branch, and merge.
 
 This is the how-to. Why things are built the way they are is in
-`docs/TransactionLog.md`, by section number where this guide names one.
+`docs/TransactionLogDesign.md`; the record of how they were built, by the
+section numbers this guide names, is `docs/TransactionLog.md`.
 
 The pictures are taken from the running application by
 `scripts/transaction-log-guide-shots.py`; see the end for how to take them

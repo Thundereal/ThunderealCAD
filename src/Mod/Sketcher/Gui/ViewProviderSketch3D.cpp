@@ -34,6 +34,9 @@
 #include <QDateTime>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QListWidget>
+#include <QPainter>
+#include <QTimer>
 #include <QVBoxLayout>
 
 #include <BRepAdaptor_Surface.hxx>
@@ -59,6 +62,9 @@
 #include <Inventor/nodes/SoCoordinate3.h>
 #include <Inventor/nodes/SoDrawStyle.h>
 #include <Inventor/nodes/SoFaceSet.h>
+#include <Inventor/nodes/SoImage.h>
+#include <Inventor/nodes/SoTranslation.h>
+#include <Inventor/sensors/SoNodeSensor.h>
 #include <Inventor/nodes/SoLineSet.h>
 #include <Inventor/nodes/SoMarkerSet.h>
 #include <Inventor/nodes/SoMaterial.h>
@@ -135,6 +141,22 @@ public:
             }
         });
         layout->addWidget(status);
+        // Every constraint, so one without a label or an icon (a coincidence) can be
+        // selected and deleted too; in step with the view's selection.
+        list = new QListWidget(widget);
+        list->setSelectionMode(QAbstractItemView::ExtendedSelection);
+        list->setObjectName(QStringLiteral("Sketch3DConstraintList"));
+        QObject::connect(list, &QListWidget::itemSelectionChanged, list, [this]() {
+            if (syncing) {
+                return;
+            }
+            Base::StateLocker lock(syncing, true);
+            this->vp->clearSelection();
+            for (auto item : list->selectedItems()) {
+                this->vp->selectConstraint(item->data(Qt::UserRole).toInt(), false);
+            }
+        });
+        layout->addWidget(list);
         box->groupLayout()->addWidget(widget);
         Content.push_back(box);
     }
@@ -155,8 +177,31 @@ public:
         status->setText(text);
     }
 
+    struct Row
+    {
+        int index;
+        QIcon icon;
+        QString text;
+        bool selected;
+    };
+    void setConstraints(const std::vector<Row>& rows)
+    {
+        if (syncing) {
+            return;
+        }
+        Base::StateLocker lock(syncing, true);
+        list->clear();
+        for (const auto& r : rows) {
+            auto item = new QListWidgetItem(r.icon, r.text, list);
+            item->setData(Qt::UserRole, r.index);
+            item->setSelected(r.selected);
+        }
+    }
+
     ViewProviderSketch3D* vp;
     QLabel* status;
+    QListWidget* list;
+    bool syncing {false};
 };
 
 // Constraint numbers as links that select them (counted from 1, as the 2D sketch's
@@ -358,6 +403,13 @@ struct ViewProviderSketch3D::EditData
     std::vector<int> selectedConstraints;
     SoSeparator* labelRoot {nullptr};
     std::map<int, SoSeparator*> labelNodes;
+    // The icons of the constraints without a value: each icon's node -> constraint, and
+    // where it stands; the camera they were placed for, and the redraw it waits for.
+    SoSeparator* iconRoot {nullptr};
+    std::map<SoNode*, int> iconNodes;
+    std::vector<std::pair<int, Base::Vector3d>> icons;
+    std::unique_ptr<SoNodeSensor> cameraSensor;
+    std::unique_ptr<QTimer> refaceTimer;
     std::map<int, Gui::SoDatumLabel*> labels;
     std::map<int, Base::Placement> labelPlanes;  // each label's plane, in the sketch's frame
     int lastLabelPress {-1};
@@ -438,6 +490,9 @@ struct ViewProviderSketch3D::EditData
         labelRoot = new SoSeparator();
         labelRoot->setName("Sketch3DLabels");
         content->addChild(labelRoot);
+        iconRoot = new SoSeparator();
+        iconRoot->setName("Sketch3DIcons");
+        content->addChild(iconRoot);
 
         buildManipulator();
         buildPreview();
@@ -3319,7 +3374,368 @@ int ViewProviderSketch3D::labelOnPath(SoPath* path) const
             return index;
         }
     }
+    for (const auto& [node, index] : edit->iconNodes) {
+        if (path->containsNode(node)) {
+            return index;
+        }
+    }
     return -1;
+}
+
+namespace
+{
+// The icon a constraint shows with: the 2D sketch's, and the 3D sketch's own.
+const char* constraintIconName(const Sketcher::Constraint* c)
+{
+    switch (c->Type) {
+        case Sketcher::Coincident:
+            return "Constraint_PointOnPoint";
+        case Sketcher::PointOnObject:
+            return "Constraint_PointOnObject";
+        case Sketcher::Horizontal:
+            return "Constraint_Horizontal";
+        case Sketcher::Vertical:
+            return "Constraint_Vertical";
+        case Sketcher::Parallel:
+            return "Constraint_Parallel";
+        case Sketcher::Perpendicular:
+            return "Constraint_Perpendicular";
+        case Sketcher::Tangent:
+            return "Constraint_Tangent";
+        case Sketcher::Equal:
+            return "Constraint_EqualLength";
+        case Sketcher::Symmetric:
+            return "Constraint_Symmetric";
+        case Sketcher::Block:
+            return "Constraint_Block";
+        case Sketcher::AlongX:
+            return "Constraint_AlongX";
+        case Sketcher::AlongY:
+            return "Constraint_AlongY";
+        case Sketcher::AlongZ:
+            return "Constraint_AlongZ";
+        case Sketcher::Smooth:
+            return "Constraint_Smooth";
+        case Sketcher::Distance:
+            return "Constraint_Length";
+        case Sketcher::DistanceX:
+            return "Constraint_HorizontalDistance";
+        case Sketcher::DistanceY:
+            return "Constraint_VerticalDistance";
+        case Sketcher::DistanceZ:
+            return "Constraint_DistanceZ";
+        case Sketcher::Angle:
+            return "Constraint_InternalAngle";
+        case Sketcher::Radius:
+            return "Constraint_Radius";
+        case Sketcher::Diameter:
+            return "Constraint_Diameter";
+        case Sketcher::InternalAlignment:
+            return "Constraint_InternalAlignment";
+        default:
+            return nullptr;
+    }
+}
+
+// The icon in one colour, as the 2D sketch draws its constraint icons.
+const QImage& tintedIcon(const char* name, int size, const QColor& color)
+{
+    static std::map<std::string, QImage> cache;
+    std::string key =
+        std::string(name) + "/" + std::to_string(size) + "/" + std::to_string(color.rgba());
+    auto it = cache.find(key);
+    if (it != cache.end()) {
+        return it->second;
+    }
+    QImage image = Gui::BitmapFactory()
+                       .pixmapFromSvg(name, QSizeF(size, size))
+                       .toImage()
+                       .convertToFormat(QImage::Format_ARGB32_Premultiplied);
+    QPainter painter(&image);
+    painter.setCompositionMode(QPainter::CompositionMode_SourceIn);
+    painter.fillRect(image.rect(), color);
+    painter.end();
+    return cache.emplace(key, image).first->second;
+}
+}  // namespace
+
+bool ViewProviderSketch3D::labelPlane(int index, Base::Placement& plane) const
+{
+    if (!edit || !edit->labelPlanes.count(index)) {
+        return false;
+    }
+    plane = edit->labelPlanes.at(index);
+    return true;
+}
+
+std::vector<std::pair<int, Base::Vector3d>> ViewProviderSketch3D::iconPositions() const
+{
+    return edit ? edit->icons : std::vector<std::pair<int, Base::Vector3d>>();
+}
+
+void ViewProviderSketch3D::cameraChanged(void* data, SoSensor* /*sensor*/)
+{
+    auto vp = static_cast<ViewProviderSketch3D*>(data);
+    if (vp->edit && vp->edit->refaceTimer) {
+        vp->edit->refaceTimer->start();  // again on each change: one redraw when it rests
+    }
+}
+
+void ViewProviderSketch3D::reface()
+{
+    if (!edit) {
+        return;
+    }
+    // a label being typed into stays as it is: the editor holds it
+    if (!edit->datum) {
+        drawLabels();
+    }
+    drawIcons();
+}
+
+void ViewProviderSketch3D::drawIcons()
+{
+    if (!edit) {
+        return;
+    }
+    using Sketcher::PointPos;
+    Gui::coinRemoveAllChildren(edit->iconRoot);
+    edit->iconNodes.clear();
+    edit->icons.clear();
+    SoCamera* camera = edit->viewer ? edit->viewer->getCamera() : nullptr;
+    if (!camera) {
+        return;
+    }
+    // follow the camera, whichever node it is now
+    if (edit->cameraSensor && edit->cameraSensor->getAttachedNode() != camera) {
+        edit->cameraSensor->detach();
+        edit->cameraSensor->attach(camera);
+    }
+    auto sketch = getSketch3DObject();
+
+    // The screen's right and up in the sketch's frame.
+    Base::Matrix4D inv = editingTransform();
+    inv.inverseGauss();
+    auto localDir = [&](const SbVec3f& v) {
+        Base::Vector3d o, d;
+        inv.multVec(Base::Vector3d(0, 0, 0), o);
+        inv.multVec(Base::Vector3d(v[0], v[1], v[2]), d);
+        return (d - o).Normalize();
+    };
+    SbVec3f r, u;
+    camera->orientation.getValue().multVec(SbVec3f(1, 0, 0), r);
+    camera->orientation.getValue().multVec(SbVec3f(0, 1, 0), u);
+    Base::Vector3d right = localDir(r), up = localDir(u);
+
+    auto viewGrp =
+        App::GetApplication().GetParameterGroupByPath("User parameter:BaseApp/Preferences/View");
+    using Params = Sketcher::SketcherParams;
+    long px = viewGrp->GetInt("EditSketcherFontSize", Params::defaultEditSketcherFontSize());
+    if (px <= 0) {
+        px = 17;
+    }
+    const double dpr = edit->viewer->devicePixelRatio();
+    const int size = std::max(8, int(std::lround(0.8 * px * dpr)));  // as the 2D sketch's
+    auto toQColor = [](const SbColor& c) {
+        return QColor::fromRgbF(c[0], c[1], c[2]);
+    };
+    const QColor iconColor =
+        toQColor(editColor("ConstrainedIcoColor", Params::defaultConstrainedIcoColor()));
+    const QColor offColor = toQColor(
+        editColor("DeactivatedConstrDimColor", Params::defaultDeactivatedConstrDimColor()));
+    SbColor selectColor;
+    {
+        float transparency;
+        selectColor.setPackedValue(uint32_t(Gui::ViewParams::getSelectionColor()), transparency);
+    }
+
+    // Where a constraint binds: a point, or the middle of a curve.
+    auto middle = [&](int geoId, Base::Vector3d& p) {
+        auto geo = sketch->getGeometry(geoId);
+        if (!geo) {
+            return false;
+        }
+        if (auto pt = Base::freecad_dynamic_cast<Part::GeomPoint>(geo)) {
+            p = pt->getPoint();
+            return true;
+        }
+        if (auto pl = Base::freecad_dynamic_cast<Part::GeomPlane>(geo)) {
+            Base::Vector3d o;
+            planeNormal(pl, o);
+            p = o;
+            return true;
+        }
+        auto curve = Base::freecad_dynamic_cast<Part::GeomCurve>(geo);
+        if (!curve) {
+            return false;
+        }
+        double f = curve->getFirstParameter(), l = curve->getLastParameter();
+        if (Precision::IsInfinite(f) || Precision::IsInfinite(l)) {
+            return false;
+        }
+        p = curve->pointAtParameter((f + l) / 2);
+        return true;
+    };
+    auto point = [&](int geoId, PointPos pos, Base::Vector3d& p) {
+        return pointOf(geoId, pos, p);
+    };
+
+    std::map<std::array<long long, 3>, int> taken;  // icons at each place so far
+    const auto& cons = sketch->Constraints.getValues();
+    for (std::size_t i = 0; i < cons.size(); ++i) {
+        const Sketcher::Constraint* c = cons[i];
+        if (c->isDimensional() || c->Type == Sketcher::Coincident
+            || c->Type == Sketcher::InternalAlignment) {
+            continue;  // a label, a highlighted point, or the curve's own points
+        }
+        const char* name = constraintIconName(c);
+        if (!name) {
+            continue;
+        }
+        std::vector<Base::Vector3d> at;
+        Base::Vector3d p, q;
+        switch (c->Type) {
+            case Sketcher::PointOnObject:
+                if (c->FirstPos == PointPos::none ? middle(c->First, p)
+                                                  : point(c->First, c->FirstPos, p)) {
+                    at.push_back(p);
+                }
+                break;
+            case Sketcher::Tangent:
+            case Sketcher::Smooth:
+                if (c->FirstPos != PointPos::none && point(c->First, c->FirstPos, p)) {
+                    at.push_back(p);
+                }
+                else if (c->SecondPos != PointPos::none && point(c->Second, c->SecondPos, p)) {
+                    at.push_back(p);
+                }
+                else {
+                    if (middle(c->First, p)) {
+                        at.push_back(p);
+                    }
+                    if (middle(c->Second, q)) {
+                        at.push_back(q);
+                    }
+                }
+                break;
+            case Sketcher::Symmetric:
+                if (c->ThirdPos != PointPos::none && point(c->Third, c->ThirdPos, p)) {
+                    at.push_back(p);
+                }
+                else if (point(c->First, c->FirstPos, p) && point(c->Second, c->SecondPos, q)) {
+                    at.push_back((p + q) / 2);
+                }
+                break;
+            case Sketcher::AlongX:
+            case Sketcher::AlongY:
+            case Sketcher::AlongZ:
+                if (c->Second == Sketcher::GeoEnum::GeoUndef) {
+                    if (middle(c->First, p)) {
+                        at.push_back(p);
+                    }
+                }
+                else if (point(c->First, c->FirstPos, p) && point(c->Second, c->SecondPos, q)) {
+                    at.push_back((p + q) / 2);
+                }
+                break;
+            case Sketcher::Parallel:
+            case Sketcher::Perpendicular:
+            case Sketcher::Equal:
+                // at each of the two, as the 2D sketch shows them
+                if (middle(c->First, p)) {
+                    at.push_back(p);
+                }
+                if (middle(c->Second, q)) {
+                    at.push_back(q);
+                }
+                break;
+            default:  // Horizontal, Vertical, Block: on the curve
+                if (middle(c->First, p)) {
+                    at.push_back(p);
+                }
+                break;
+        }
+
+        bool selected =
+            std::find(edit->selectedConstraints.begin(), edit->selectedConstraints.end(), int(i))
+            != edit->selectedConstraints.end();
+        const QImage& image = tintedIcon(name,
+                                         size,
+                                         selected           ? toQColor(selectColor)
+                                             : !c->isActive ? offColor
+                                                            : iconColor);
+        for (const auto& a : at) {
+            // a few pixels up and to the right of the place, the next one there further
+            // right: the world size of a pixel there, from the view
+            SbVec2s v0, v1;
+            if (!toView(a, v0) || !toView(a + right, v1)) {
+                continue;
+            }
+            double perUnit = std::hypot(double(v1[0] - v0[0]), double(v1[1] - v0[1]));
+            if (perUnit < 1e-6) {
+                continue;
+            }
+            double unit = 1. / perUnit;
+            std::array<long long, 3> key {std::llround(a.x * 1e6),
+                                          std::llround(a.y * 1e6),
+                                          std::llround(a.z * 1e6)};
+            int slot = taken[key]++;
+            Base::Vector3d pos =
+                a + right * ((slot + 0.9) * (size + 3) * unit) + up * (0.9 * size * unit);
+            auto node = new SoSeparator();
+            auto move = new SoTranslation();
+            move->translation.setValue(float(pos.x), float(pos.y), float(pos.z));
+            auto icon = new SoImage();
+            SoSFImage data;
+            Gui::BitmapFactory().convert(image, data);
+            SbVec2s dim(short(image.width()), short(image.height()));
+            int nc = 4;
+            icon->image.setValue(dim, 4, data.getValue(dim, nc));
+            icon->vertAlignment = SoImage::HALF;
+            icon->horAlignment = SoImage::CENTER;
+            node->addChild(move);
+            node->addChild(icon);
+            edit->iconRoot->addChild(node);
+            edit->iconNodes[node] = int(i);
+            edit->icons.emplace_back(int(i), pos);
+        }
+    }
+}
+
+void ViewProviderSketch3D::listConstraints()
+{
+    if (!edit || !edit->dialog) {
+        return;
+    }
+    auto sketch = getSketch3DObject();
+    std::vector<TaskDlgSketch3D::Row> rows;
+    const auto& cons = sketch->Constraints.getValues();
+    for (std::size_t i = 0; i < cons.size(); ++i) {
+        const Sketcher::Constraint* c = cons[i];
+        if (c->Type == Sketcher::InternalAlignment) {
+            continue;  // a spline's own points: they go with it
+        }
+        QString text = QStringLiteral("%1  %2").arg(i + 1).arg(
+            QString::fromStdString(Sketcher::Constraint::typeToString(c->Type)));
+        if (!c->Name.empty()) {
+            text += QStringLiteral("  ") + QString::fromStdString(c->Name);
+        }
+        if (c->isDimensional()) {
+            Base::Quantity value(c->getValue(), Base::Unit::Length);
+            if (c->Type == Sketcher::Angle) {
+                value = Base::Quantity(Base::toDegrees<double>(c->getValue()), Base::Unit::Angle);
+            }
+            text += QStringLiteral("  ") + QString::fromStdString(value.getUserString());
+        }
+        const char* icon = constraintIconName(c);
+        rows.push_back(
+            {int(i),
+             icon ? Gui::BitmapFactory().iconFromTheme(icon) : QIcon(),
+             text,
+             std::find(edit->selectedConstraints.begin(), edit->selectedConstraints.end(), int(i))
+                 != edit->selectedConstraints.end()});
+    }
+    edit->dialog->setConstraints(rows);
 }
 
 void ViewProviderSketch3D::drawLabels()
@@ -3647,6 +4063,7 @@ bool ViewProviderSketch3D::setEdit(int ModNum)
 
     edit->deleteFilter = std::make_unique<Sketch3DDeleteFilter>(this);
     Gui::getMainWindow()->installEventFilter(edit->deleteFilter.get());
+    edit->dialog->list->installEventFilter(edit->deleteFilter.get());  // Delete in the list
 
     Workbench::enterEditMode();
     Gui::ToolBarManager::getInstance()->setState(sketch3DToolbars(),
@@ -3729,6 +4146,19 @@ void ViewProviderSketch3D::setEditViewer(Gui::ViewerContext* viewer, int ModNum)
     edit->viewer = viewer;
     if (auto camera = viewer->getCamera()) {
         edit->dragger->setUpAutoScale(camera);
+        // the labels and icons placed again when the view turns or zooms
+        edit->refaceTimer = std::make_unique<QTimer>();
+        edit->refaceTimer->setSingleShot(true);
+        edit->refaceTimer->setInterval(40);
+        QObject::connect(edit->refaceTimer.get(),
+                         &QTimer::timeout,
+                         edit->refaceTimer.get(),
+                         [this]() {
+                             reface();
+                         });
+        edit->cameraSensor =
+            std::make_unique<SoNodeSensor>(&ViewProviderSketch3D::cameraChanged, this);
+        edit->cameraSensor->attach(camera);
     }
     draw();
     updateManipulator();
@@ -3741,6 +4171,8 @@ void ViewProviderSketch3D::unsetEditViewer(Gui::ViewerContext* viewer)
     if (edit) {
         viewer->setEditing(false);
         edit->viewer = nullptr;
+        edit->cameraSensor.reset();
+        edit->refaceTimer.reset();
     }
     PartGui::ViewProviderPart::unsetEditViewer(viewer);
 }
@@ -3916,6 +4348,8 @@ void ViewProviderSketch3D::draw()
                  cs.end());
     }
     drawLabels();
+    drawIcons();
+    listConstraints();
 
     if (edit->dialog) {
         QString text;

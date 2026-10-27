@@ -137,6 +137,10 @@ fc_add_gui_test(GuiSketch3DFaceSpline_tests_run sketch3d-face-spline.py
 # Smooth (G2) of two ends.
 fc_add_gui_test(GuiSketch3DContinuity_tests_run sketch3d-continuity.py
                 --timeout 180)
+# Its constraints without a value (S2 leftover): icons in the view, a press
+# selecting them, Delete; the panel's constraint list; placed again on a turn.
+fc_add_gui_test(GuiSketch3DConstraintIcons_tests_run sketch3d-constraint-icons.py
+                --timeout 180)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

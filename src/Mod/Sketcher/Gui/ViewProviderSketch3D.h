@@ -217,6 +217,11 @@ public:
     void finishDatumEdit(bool accept);
     /// The dimension labels drawn: constraint index -> text.
     std::map<int, std::string> labelTexts() const;
+    /// The icons drawn for the constraints without a value: (constraint index, where
+    /// in the sketch's frame), one per place a constraint shows at.
+    std::vector<std::pair<int, Base::Vector3d>> iconPositions() const;
+    /// The plane a dimension's label is drawn in, in the sketch's frame.
+    bool labelPlane(int index, Base::Placement& plane) const;
     //@}
 
     /** @name Input, in view coordinates (Coin's: origin bottom left)
@@ -292,6 +297,14 @@ private:
     bool pointOf(int geoId, Sketcher::PointPos pos, Base::Vector3d& point) const;
     /// Labels for the dimensions, part of draw().
     void drawLabels();
+    /// Icons for the constraints without a value, part of draw(): they stand a few
+    /// pixels off what they bind, so they are placed for the view as it is.
+    void drawIcons();
+    /// The labels and icons placed again for a camera that moved (debounced).
+    void reface();
+    static void cameraChanged(void* data, class SoSensor* sensor);
+    /// The panel's constraint list, part of draw().
+    void listConstraints();
     /// The constraint whose label the pick path runs through, or -1.
     int labelOnPath(class SoPath* path) const;
     friend class Datum3DSession;

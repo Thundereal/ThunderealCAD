@@ -184,6 +184,17 @@ made from the selection, as the Sketcher's command does it; ValueError says why 
         <UserDocu>finishDatumEdit(accept=True)</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="getLabelPlane" Const="true">
+      <Documentation>
+        <UserDocu>getLabelPlane(index) -> Placement or None: the plane a dimension's label is drawn in</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="getIcons" Const="true">
+      <Documentation>
+        <UserDocu>getIcons() -> [(constraint index, x, y)]: the icons drawn for the constraints without a
+value, where they are in view coordinates</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="getLabels" Const="true">
       <Documentation>
         <UserDocu>getLabels() -> {constraint index: text}: the dimension labels drawn</UserDocu>

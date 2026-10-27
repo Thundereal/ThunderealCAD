@@ -436,6 +436,35 @@ PyObject* ViewProviderSketch3DPy::finishDatumEdit(PyObject* args)
     Py_Return;
 }
 
+PyObject* ViewProviderSketch3DPy::getLabelPlane(PyObject* args) const
+{
+    int index;
+    if (!PyArg_ParseTuple(args, "i", &index)) {
+        return nullptr;
+    }
+    Base::Placement plane;
+    if (!getViewProviderSketch3DPtr()->labelPlane(index, plane)) {
+        Py_Return;
+    }
+    return new Base::PlacementPy(new Base::Placement(plane));
+}
+
+PyObject* ViewProviderSketch3DPy::getIcons(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    auto vp = getViewProviderSketch3DPtr();
+    Py::List list;
+    for (const auto& [index, at] : vp->iconPositions()) {
+        SbVec2s v;
+        if (vp->toView(at, v)) {
+            list.append(Py::TupleN(Py::Long(index), Py::Long(v[0]), Py::Long(v[1])));
+        }
+    }
+    return Py::new_reference_to(list);
+}
+
 PyObject* ViewProviderSketch3DPy::getLabels(PyObject* args) const
 {
     if (!PyArg_ParseTuple(args, "")) {

@@ -281,6 +281,7 @@ class AssemblyObject(Part):
         contacts: bool = False,
         objects: list = None,
         deflection: float = 0.0,
+        frames: list = None,
     ) -> list:
         """
         Which components overlap, and, with contacts, which touch
@@ -299,13 +300,17 @@ class AssemblyObject(Part):
             contacts: report the pairs that touch too.
             objects: only these components (default: all of them).
             deflection: mm, Fast only: the meshes' chord error; 0 is 1e-4 of
-                each shape's bounding box diagonal.
+                each shape's bounding box diagonal, at least 0.01 mm.
+            frames: frame numbers of the last simulation (numberOfFrames()):
+                each component where the frame puts it, the document left
+                where it is (default: the components where they are).
 
-        Returns: a list of dicts, one per pair: Object1, Object2, Kind
+        Returns: a list of dicts, one per pair (and frame): Object1, Object2, Kind
         ("Interference" or "Contact"), Volume (Exact, mm^3; 0 in Fast),
         Distance (contacts, mm; Fast gives the tolerance), Tolerance (the one
         the pair was judged with) and Overlap (Exact: the solid in common, in
-        the assembly's coordinates; else None).
+        the assembly's coordinates; else None); with frames, also Frame and
+        Time (s).
         """
         ...
 

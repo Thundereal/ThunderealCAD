@@ -99,6 +99,8 @@ class TaskCheckInterference:
         self.assembly = assembly
         self.results = []
         self.overlap = None
+        # The parts' placements before a frame was shown, put back on closing
+        self.initialPlcs = None
         self.params = App.ParamGet(PARAMS)
 
         self.form = QtWidgets.QWidget()
@@ -145,7 +147,7 @@ class TaskCheckInterference:
             translate(
                 "Assembly",
                 "Fast only: the meshes' chord error. Automatic is 1/10000 of each "
-                "component's size.",
+                "component's size, at least 0.01 mm.",
             )
         )
         self.deflectionLabel = QtWidgets.QLabel(translate("Assembly", "Mesh deflection"))
@@ -153,6 +155,31 @@ class TaskCheckInterference:
 
         self.contacts = QtWidgets.QCheckBox(translate("Assembly", "Report touching components"))
         options.addRow(self.contacts)
+
+        self.frameCount = self.assembly.numberOfFrames()
+        self.positions = QtWidgets.QComboBox()
+        self.positions.addItem(translate("Assembly", "Where they are"), "Now")
+        self.positions.addItem(
+            translate("Assembly", "Over the simulation's frames ({n})").format(n=self.frameCount),
+            "Frames",
+        )
+        self.positions.setToolTip(
+            translate(
+                "Assembly",
+                "Over the frames of the last simulation run: each frame is checked with the "
+                "components where it puts them.\nRun a simulation first to check over its frames.",
+            )
+        )
+        self.positions.setEnabled(self.frameCount > 0)
+        options.addRow(translate("Assembly", "Positions"), self.positions)
+
+        self.frameStep = QtWidgets.QSpinBox()
+        self.frameStep.setRange(1, max(1, self.frameCount))
+        self.frameStep.setToolTip(
+            translate("Assembly", "Check every this many frames; the last frame is always checked.")
+        )
+        self.frameStepLabel = QtWidgets.QLabel(translate("Assembly", "Frame step"))
+        options.addRow(self.frameStepLabel, self.frameStep)
         layout.addLayout(options)
 
         self.check = QtWidgets.QPushButton(translate("Assembly", "Check"))
@@ -164,6 +191,7 @@ class TaskCheckInterference:
 
         self.table = QtWidgets.QTreeWidget()
         self.table.setRootIsDecorated(False)
+        self.table.setUniformRowHeights(True)
         self.table.setHeaderLabels(
             [
                 translate("Assembly", "Component"),
@@ -179,9 +207,11 @@ class TaskCheckInterference:
         self.tolerance.setValue(self.params.GetFloat("InterferenceTolerance", 0.0))
         self.deflection.setValue(self.params.GetFloat("InterferenceDeflection", 0.0))
         self.contacts.setChecked(self.params.GetBool("InterferenceContacts", False))
-        self.onModeChanged()
+        self.frameStep.setValue(self.params.GetInt("InterferenceFrameStep", 1))
+        self.onOptionsChanged()
 
-        self.mode.currentIndexChanged.connect(self.onModeChanged)
+        self.mode.currentIndexChanged.connect(self.onOptionsChanged)
+        self.positions.currentIndexChanged.connect(self.onOptionsChanged)
         self.check.clicked.connect(self.run)
         self.table.itemSelectionChanged.connect(self.onSelected)
 
@@ -198,12 +228,25 @@ class TaskCheckInterference:
 
     def finish(self):
         self.showOverlap(None)
+        self.restorePlacements()
         Gui.Control.closeDialog()
 
-    def onModeChanged(self, *_):
+    def onOptionsChanged(self, *_):
         fast = self.mode.currentData() == "Fast"
         self.deflection.setVisible(fast)
         self.deflectionLabel.setVisible(fast)
+        frames = self.positions.currentData() == "Frames"
+        self.frameStep.setVisible(frames)
+        self.frameStepLabel.setVisible(frames)
+
+    def frames(self):
+        """The frames to check, or None for the components where they are."""
+        if self.positions.currentData() != "Frames" or self.frameCount == 0:
+            return None
+        frames = list(range(0, self.frameCount, self.frameStep.value()))
+        if frames[-1] != self.frameCount - 1:
+            frames.append(self.frameCount - 1)
+        return frames
 
     def run(self):
         mode = self.mode.currentData()
@@ -214,65 +257,150 @@ class TaskCheckInterference:
         self.params.SetFloat("InterferenceTolerance", tolerance)
         self.params.SetFloat("InterferenceDeflection", deflection)
         self.params.SetBool("InterferenceContacts", contacts)
+        self.params.SetInt("InterferenceFrameStep", self.frameStep.value())
+        frames = self.frames()
 
-        self.showOverlap(None)
+        # Cleared quietly: removing the selected row moves the selection, which
+        # would show a frame of the old results again
+        self.table.blockSignals(True)
         self.table.clear()
+        self.table.blockSignals(False)
+        self.results = []
+        self.showOverlap(None)
+        self.restorePlacements()
         QtWidgets.QApplication.setOverrideCursor(QtCore.Qt.WaitCursor)
         try:
             start = time.perf_counter()
             self.results = self.assembly.findInterferences(
-                mode=mode, tolerance=tolerance, contacts=contacts, deflection=deflection
+                mode=mode,
+                tolerance=tolerance,
+                contacts=contacts,
+                deflection=deflection,
+                frames=frames,
             )
             seconds = time.perf_counter() - start
+        except App.Base.FreeCADAbort:
+            # Cancelled from the progress bar (a BaseException)
+            self.summary.setText(translate("Assembly", "Cancelled"))
+            return
+        except Exception as e:
+            self.summary.setText(translate("Assembly", "Not checked: {error}").format(error=e))
+            return
         finally:
             QtWidgets.QApplication.restoreOverrideCursor()
 
-        interferences = 0
-        for result in self.results:
-            if result["Kind"] == "Interference":
-                interferences += 1
-                kind = translate("Assembly", "Interference")
-                if mode == "Exact":
-                    amount = "%.6g mm^3" % result["Volume"]
-                else:
-                    amount = translate("Assembly", "overlap")
-            else:
-                kind = translate("Assembly", "Contact")
-                if mode == "Exact":
-                    amount = "%.4g mm" % result["Distance"]
-                else:
-                    amount = translate("Assembly", "within %.4g mm") % result["Tolerance"]
-            item = QtWidgets.QTreeWidgetItem(
-                [result["Object1"].Label, result["Object2"].Label, kind, amount]
-            )
-            if result["Kind"] == "Interference":
-                item.setForeground(2, QtGui.QBrush(QtGui.QColor(200, 0, 0)))
-            self.table.addTopLevelItem(item)
+        if frames is None:
+            for index, result in enumerate(self.results):
+                kind, amount = self.describe(result, mode)
+                self.addItem(self.table, index, result, [kind, amount])
+            self.table.setRootIsDecorated(False)
+        else:
+            self.listByPair(mode)
+            self.table.setRootIsDecorated(True)
         for column in range(4):
             self.table.resizeColumnToContents(column)
 
+        pairs = {(r["Object1"].Name, r["Object2"].Name, r["Kind"]) for r in self.results}
+        interferences = sum(1 for p in pairs if p[2] == "Interference")
         tolerances = [r["Tolerance"] for r in self.results]
         used = max(tolerances) if tolerances else tolerance
-        self.summary.setText(
-            translate(
+        if frames is None:
+            text = translate(
                 "Assembly",
                 "{interferences} interfering, {contacts} touching -- {mode}, "
                 "tolerance {tolerance:.4g} mm, {seconds:.2f} s",
-            ).format(
+            )
+        else:
+            text = translate(
+                "Assembly",
+                "{interferences} interfering, {contacts} touching over {frames} frames -- "
+                "{mode}, tolerance {tolerance:.4g} mm, {seconds:.2f} s",
+            )
+        self.summary.setText(
+            text.format(
                 interferences=interferences,
-                contacts=len(self.results) - interferences,
+                contacts=len(pairs) - interferences,
+                frames=len(frames or []),
                 mode=self.mode.currentText(),
                 tolerance=used,
                 seconds=seconds,
             )
         )
 
+    def describe(self, result, mode):
+        """The kind and amount columns of a result."""
+        if result["Kind"] == "Interference":
+            kind = translate("Assembly", "Interference")
+            if mode == "Exact":
+                amount = "%.6g mm^3" % result["Volume"]
+            else:
+                amount = translate("Assembly", "overlap")
+        else:
+            kind = translate("Assembly", "Contact")
+            if mode == "Exact":
+                amount = "%.4g mm" % result["Distance"]
+            else:
+                amount = translate("Assembly", "within %.4g mm") % result["Tolerance"]
+        return kind, amount
+
+    def addItem(self, parent, index, result, columns):
+        """A row for the result, the components first unless given."""
+        if len(columns) == 2:
+            columns = [result["Object1"].Label, result["Object2"].Label] + columns
+        item = QtWidgets.QTreeWidgetItem(columns)
+        item.setData(0, QtCore.Qt.UserRole, index)
+        if result["Kind"] == "Interference":
+            item.setForeground(2, QtGui.QBrush(QtGui.QColor(200, 0, 0)))
+        if isinstance(parent, QtWidgets.QTreeWidget):
+            parent.addTopLevelItem(item)
+        else:
+            parent.addChild(item)
+        return item
+
+    def listByPair(self, mode):
+        """Over frames: a row per pair and kind, the frames under it. Picking the
+        pair shows its worst frame (the largest volume, Exact), or its first."""
+        groups = {}
+        for index, result in enumerate(self.results):
+            key = (result["Object1"].Name, result["Object2"].Name, result["Kind"])
+            groups.setdefault(key, []).append(index)
+        for indices in groups.values():
+            results = [self.results[i] for i in indices]
+            worst = max(indices, key=lambda i: self.results[i]["Volume"])
+            first = results[0]
+            kind, _ = self.describe(first, mode)
+            amount = translate("Assembly", "{n} frames, {first} to {last}").format(
+                n=len(results), first=first["Frame"], last=results[-1]["Frame"]
+            )
+            if mode == "Exact" and first["Kind"] == "Interference":
+                amount += translate("Assembly", ", up to {volume:.6g} mm^3").format(
+                    volume=self.results[worst]["Volume"]
+                )
+            pick = worst if mode == "Exact" else indices[0]
+            group = self.addItem(self.table, pick, first, [kind, amount])
+            for i in indices:
+                result = self.results[i]
+                _, amount = self.describe(result, mode)
+                self.addItem(
+                    group,
+                    i,
+                    result,
+                    [
+                        translate("Assembly", "Frame {frame}").format(frame=result["Frame"]),
+                        "%.4g s" % result["Time"],
+                        "",
+                        amount,
+                    ],
+                )
+
     def onSelected(self):
         items = self.table.selectedItems()
         if not items:
             self.showOverlap(None)
             return
-        result = self.results[self.table.indexOfTopLevelItem(items[0])]
+        result = self.results[items[0].data(0, QtCore.Qt.UserRole)]
+        if "Frame" in result:
+            self.showFrame(result["Frame"])
         Gui.Selection.clearSelection()
         for obj in (result["Object1"], result["Object2"]):
             self.select(obj)
@@ -295,6 +423,17 @@ class TaskCheckInterference:
             root, prefix = parents[0]
         sub = prefix + ".".join(path) + "."
         Gui.Selection.addSelection(root.Document.Name, root.Name, sub)
+
+    def showFrame(self, frame):
+        """The parts where the frame puts them, as playback does."""
+        if self.initialPlcs is None:
+            self.initialPlcs = UtilsAssembly.saveAssemblyPartsPlacements(self.assembly)
+        self.assembly.updateForFrame(frame)
+
+    def restorePlacements(self):
+        if self.initialPlcs is not None:
+            UtilsAssembly.restoreAssemblyPartsPlacements(self.assembly, self.initialPlcs)
+            self.initialPlcs = None
 
     def showOverlap(self, shape):
         view = Gui.ActiveDocument.ActiveView if Gui.ActiveDocument else None

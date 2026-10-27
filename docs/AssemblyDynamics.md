@@ -920,6 +920,15 @@ almost no cost.
 This works after a kinematic run too, which makes it the cheapest useful
 D2 deliverable. Audit phase 5's static check is the one-frame case.
 
+*As built (2026-10-27, `docs/AssemblyInterference.md`):* without Chrono.
+`findInterferences(frames=...)` and the Check Interference panel's "Over
+the simulation's frames" pose the components from the stored trajectory,
+leaving the document alone, and run the static check's own narrow phase at
+each frame: Exact (booleans) or Fast (the meshes of step 1 here, one per
+TShape, moved per frame, crossings confirmed by exact point classification).
+A pair neither of whose components moved is not checked again. Depth is not
+reported; Exact gives the volume.
+
 ### 7.4 Cams
 
 | user intent | object | neutral | Chrono | Ondsel / Reference |

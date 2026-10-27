@@ -114,7 +114,12 @@ public:
     int solve(bool enableRedo = false);
     int generateSimulation(App::DocumentObject* sim);
     int updateForFrame(size_t index);
-    size_t numberOfFrames();
+    size_t numberOfFrames() const;
+    // The last simulation's frame: its time (s), and the Placement it gives obj,
+    // as playback would write it (false when the simulation does not move obj,
+    // or there is no such frame)
+    double timeOfFrame(size_t index) const;
+    bool placementAtFrame(App::DocumentObject* obj, size_t index, Base::Placement& placement) const;
     void preDrag(std::vector<App::DocumentObject*> dragParts);
     /* One drag step: solves for the Placement the caller wrote on the dragged parts.
     Returns false when no drag is in progress or the step failed; a failed step leaves

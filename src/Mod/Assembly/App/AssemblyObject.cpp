@@ -857,7 +857,7 @@ int Assembly::AssemblyObject::updateForFrame(size_t index)
     return 0;
 }
 
-size_t Assembly::AssemblyObject::numberOfFrames()
+size_t Assembly::AssemblyObject::numberOfFrames() const
 {
     return trajectory ? trajectory->times.size() : 0;
 }
@@ -1469,6 +1469,34 @@ bool isFinitePlacement(const Base::Placement& plc)
         && std::isfinite(q1) && std::isfinite(q2) && std::isfinite(q3);
 }
 }  // namespace
+
+double AssemblyObject::timeOfFrame(size_t index) const
+{
+    return trajectory && index < trajectory->times.size() ? trajectory->times[index] : 0.0;
+}
+
+bool AssemblyObject::placementAtFrame(App::DocumentObject* obj,
+                                      size_t index,
+                                      Base::Placement& placement) const
+{
+    if (!trajectory || index >= trajectory->times.size()) {
+        return false;
+    }
+    auto it = trajectoryParts.find(obj);
+    if (it == trajectoryParts.end()) {
+        return false;
+    }
+    const auto& bodies = trajectory->bodies;
+    auto at = std::find(bodies.begin(), bodies.end(), it->second.body);
+    if (at == bodies.end()) {
+        return false;
+    }
+    placement = trajectory->poses[index * bodies.size() + (at - bodies.begin())];
+    if (!it->second.offsetPlc.isIdentity()) {
+        placement = placement * it->second.offsetPlc;
+    }
+    return isFinitePlacement(placement);
+}
 
 void AssemblyObject::setNewPlacements()
 {

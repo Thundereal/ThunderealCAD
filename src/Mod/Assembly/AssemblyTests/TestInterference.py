@@ -8,7 +8,10 @@ faces in contact, a pin snug in its hole, a gap of 0.05 mm.
 import unittest
 
 import FreeCAD as App
+import JointObject
 import Part
+
+from AssemblyTests.TestCamJoint import CamMechanism
 
 
 class TestInterference(unittest.TestCase):
@@ -40,10 +43,33 @@ class TestInterference(unittest.TestCase):
         self.Bar2 = box("Bar2", 2, 40, 2, 419, 0, 0)
         self.Gap1 = box("Gap1", 10, 10, 10, 500, 0, 0)
         self.Gap2 = box("Gap2", 10, 10, 10, 510.05, 0, 0)  # 0.05 mm away
+        # No surfaces crossing: two copies in one place, and a box in another
+        # on five of its faces
+        self.Twin1 = box("Twin1", 10, 10, 10, 600, 0, 0)
+        self.Twin2 = box("Twin2", 10, 10, 10, 600, 0, 0)
+        self.Outer = box("Outer", 20, 10, 10, 700, 0, 0)
+        self.Inner = box("Inner", 10, 10, 10, 700, 0, 0)
+        # Two filleted plates of one thickness, into each other by 2 mm edge
+        # to edge: coplanar faces and tangent blends, no surfaces crossing
+        plate = Part.makeBox(20, 20, 6)
+        plate = plate.makeFillet(1.0, plate.Edges)
+        for name, x in (("Strip1", 800), ("Strip2", 818)):
+            strip = self.assembly.newObject("Part::Feature", name)
+            strip.Shape = plate
+            strip.Placement.Base = App.Vector(x, 0, 0)
         self.doc.recompute()
 
     def tearDown(self):
         App.closeDocument(self.doc.Name)
+
+    INTERFERING = [
+        ("A", "B"),
+        ("Bar1", "Bar2"),
+        ("Big", "Small"),
+        ("Inner", "Outer"),
+        ("Strip1", "Strip2"),
+        ("Twin1", "Twin2"),
+    ]
 
     def pairs(self, results, kind):
         return sorted(
@@ -55,15 +81,14 @@ class TestInterference(unittest.TestCase):
     def test_exact(self):
         """The volumes in common, and the solid of it; contacts when asked."""
         results = self.assembly.findInterferences(mode="Exact", tolerance=0.01)
-        self.assertEqual(
-            self.pairs(results, "Interference"),
-            [("A", "B"), ("Bar1", "Bar2"), ("Big", "Small")],
-        )
+        self.assertEqual(self.pairs(results, "Interference"), self.INTERFERING)
         self.assertEqual(self.pairs(results, "Contact"), [])
         volumes = {tuple(sorted((r["Object1"].Name, r["Object2"].Name))): r for r in results}
         self.assertAlmostEqual(volumes[("A", "B")]["Volume"], 200.0, places=6)
         self.assertAlmostEqual(volumes[("Big", "Small")]["Volume"], 8.0, places=6)
         self.assertAlmostEqual(volumes[("Bar1", "Bar2")]["Volume"], 8.0, places=6)
+        self.assertAlmostEqual(volumes[("Twin1", "Twin2")]["Volume"], 1000.0, places=6)
+        self.assertAlmostEqual(volumes[("Inner", "Outer")]["Volume"], 1000.0, places=6)
         overlap = volumes[("A", "B")]["Overlap"]
         self.assertIsNotNone(overlap)
         self.assertAlmostEqual(overlap.Volume, 200.0, places=6)
@@ -80,10 +105,7 @@ class TestInterference(unittest.TestCase):
     def test_fast(self):
         """The same pairs as Exact, on meshes; Fast says that they overlap."""
         results = self.assembly.findInterferences(mode="Fast", tolerance=0.01, contacts=True)
-        self.assertEqual(
-            self.pairs(results, "Interference"),
-            [("A", "B"), ("Bar1", "Bar2"), ("Big", "Small")],
-        )
+        self.assertEqual(self.pairs(results, "Interference"), self.INTERFERING)
         self.assertEqual(
             self.pairs(results, "Contact"), [("A", "C"), ("B", "C"), ("Pin", "Plate")]
         )
@@ -130,3 +152,118 @@ class TestInterference(unittest.TestCase):
     def test_bad_mode(self):
         with self.assertRaises(ValueError):
             self.assembly.findInterferences(mode="Approximate")
+
+
+class TestInterferenceOverFrames(unittest.TestCase):
+    """Over a simulation's frames: a box slides up through a plate, and two
+    boxes that do not move overlap all along."""
+
+    def setUp(self):
+        self.params = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Assembly")
+        self._solveInCreation = self.params.GetBool("SolveInJointCreation", True)
+        self.params.SetBool("SolveInJointCreation", False)
+        self.doc = App.newDocument("TestInterferenceOverFrames")
+        self.assembly = self.doc.addObject("Assembly::AssemblyObject", "Assembly")
+
+        def box(name, l, w, h, x, y, z):
+            b = self.assembly.newObject("Part::Box", name)
+            b.Length, b.Width, b.Height = l, w, h
+            b.Placement.Base = App.Vector(x, y, z)
+            return b
+
+        self.G = box("G", 10, 10, 10, 0, 0, 0)
+        self.S = box("S", 10, 10, 10, 0, 0, 10)  # on G, sliding up
+        self.Plate = box("Plate", 20, 20, 5, -5, -5, 25)  # across S's way
+        self.P = box("P", 10, 10, 10, 100, 0, 0)
+        self.Q = box("Q", 10, 10, 10, 105, 0, 0)  # into P by 5, never moving
+        joints = self.assembly.getGroup("Joints", True)
+        for obj in (self.G, self.Plate):
+            ground = joints.newObject("Assembly::GroundedJointPython", "Grounded" + obj.Name)
+            JointObject.GroundedJoint(ground, obj)
+        self.doc.recompute()
+        slider = self.assembly.makeJoint("Slider", (self.G, "Face6"), (self.S, "Face5"))
+        self.doc.recompute()
+        sim = CamMechanism.make_simulation(
+            self, [(slider, "Linear", "10*time")], t_end=2.0, t_step=0.1
+        )
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        self.frames = self.assembly.numberOfFrames()
+        self.assertGreater(self.frames, 20)
+
+    def tearDown(self):
+        App.closeDocument(self.doc.Name)
+        self.params.SetBool("SolveInJointCreation", self._solveInCreation)
+
+    def expected(self):
+        """Each frame's overlap of S and the plate, by playing it back."""
+        volumes = []
+        for frame in range(self.frames):
+            self.assembly.updateForFrame(frame)
+            common = self.S.Shape.common(self.Plate.Shape)
+            volumes.append(common.Volume if common.Solids else 0.0)
+        self.assembly.updateForFrame(0)
+        return volumes
+
+    def by_frame(self, results, pair):
+        return {
+            r["Frame"]: r
+            for r in results
+            if tuple(sorted((r["Object1"].Name, r["Object2"].Name))) == pair
+            and r["Kind"] == "Interference"
+        }
+
+    def test_exact(self):
+        """Every frame's volume, the document left where it was."""
+        volumes = self.expected()
+        self.assertGreater(max(volumes), 400.0)  # the slide went through the plate
+        before = App.Placement(self.S.Placement)
+        results = self.assembly.findInterferences(frames=range(self.frames))
+        self.assertTrue(self.S.Placement.isSame(before, 1e-12))
+        slid = self.by_frame(results, ("Plate", "S"))
+        for frame, volume in enumerate(volumes):
+            if volume > 1e-6:
+                self.assertIn(frame, slid)
+                self.assertAlmostEqual(slid[frame]["Volume"], volume, places=6)
+                self.assertAlmostEqual(
+                    slid[frame]["Overlap"].Volume, volume, places=6
+                )
+            else:
+                self.assertNotIn(frame, slid)
+        # P and Q never move: found at every frame, with the same volume
+        still = self.by_frame(results, ("P", "Q"))
+        self.assertEqual(sorted(still), list(range(self.frames)))
+        for r in still.values():
+            self.assertAlmostEqual(r["Volume"], 500.0, places=6)
+        # The frames' times, in order (OndselSolver gives the start twice)
+        times = [still[f]["Time"] for f in range(self.frames)]
+        self.assertEqual(times, sorted(times))
+        self.assertAlmostEqual(times[-1] - times[0], 2.0, delta=1e-9)
+
+    def test_fast(self):
+        """The same frames on meshes, but for overlaps thinner than the tolerance."""
+        volumes = self.expected()
+        results = self.assembly.findInterferences(mode="Fast", frames=range(self.frames))
+        slid = self.by_frame(results, ("Plate", "S"))
+        for frame, volume in enumerate(volumes):
+            # The cross section is 100 mm^2: 1 mm^3 is 0.01 mm deep
+            if volume > 1.0:
+                self.assertIn(frame, slid)
+            elif volume < 1e-6:
+                self.assertNotIn(frame, slid)
+        self.assertEqual(sorted(self.by_frame(results, ("P", "Q"))), list(range(self.frames)))
+
+    def test_some_frames(self):
+        """Only the frames asked for, with their times."""
+        volumes = self.expected()
+        frames = [f for f in range(self.frames) if volumes[f] > 1.0][:2] + [0]
+        results = self.assembly.findInterferences(frames=frames, objects=[self.S, self.Plate])
+        self.assertEqual(sorted(r["Frame"] for r in results), sorted(frames[:2]))
+        for r in results:
+            self.assertGreaterEqual(r["Time"], 0.0)
+
+    def test_bad_frames(self):
+        with self.assertRaises(ValueError):
+            self.assembly.findInterferences(frames=[self.frames])
+        with self.assertRaises(TypeError):
+            self.assembly.findInterferences(frames=["0"])

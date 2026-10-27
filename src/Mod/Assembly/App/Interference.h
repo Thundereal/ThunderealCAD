@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <vector>
 
 #include <Mod/Assembly/AssemblyGlobal.h>
@@ -62,8 +63,15 @@ struct InterferenceOptions
     // Report the pairs that touch too, not only those that interfere.
     bool contacts = false;
     // mm, Fast only: the meshes' chord error; 0 is 1e-4 of each shape's
-    // bounding box diagonal.
+    // bounding box diagonal, at least 0.01 mm (the contact meshes' default,
+    // docs/AssemblyDynamics.md sec 7.2: finer costs meshing time, as the
+    // square of the ratio, for overlaps only that thin).
     double deflection = 0.0;
+    // Empty: the components where they are. Else these frames of the
+    // assembly's last simulation (AssemblyObject::numberOfFrames()), each
+    // component where the frame puts it; the document is not moved. Frames
+    // past the last are skipped.
+    std::vector<std::size_t> frames;
 };
 
 struct InterferenceResult
@@ -86,12 +94,18 @@ struct InterferenceResult
     // deflection)
     double tolerance = 0.0;
     // Exact interference: the solid in common, in the assembly's coordinates
+    // (at the frame, over a simulation's frames)
     Part::TopoShape overlap;
+    // Over a simulation's frames: the frame and its time (s); -1 otherwise
+    long frame = -1;
+    double time = 0.0;
 };
 
 // The components of the assembly (getAssemblyComponents()), each with its
 // shape in the assembly's coordinates; those without a solid are left out.
-// Pairs in the components' order.
+// Pairs in the components' order; over frames, frame by frame, each frame's
+// pairs in that order. A pair neither of whose components moved since the
+// last frame checked is not checked again: its finding is the last frame's.
 AssemblyExport std::vector<InterferenceResult> findInterferences(
     const AssemblyObject* assembly,
     const InterferenceOptions& options,

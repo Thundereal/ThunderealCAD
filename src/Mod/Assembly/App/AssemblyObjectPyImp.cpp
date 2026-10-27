@@ -401,12 +401,19 @@ PyObject* AssemblyObjectPy::findInterferences(PyObject* args, PyObject* kwds) co
     int contacts = 0;
     PyObject* objects = Py_None;
     double deflection = 0.0;
-    static const std::array<const char*, 6> keywords {
-        "mode", "tolerance", "contacts", "objects", "deflection", nullptr
-    };
-    if (!Base::Wrapped_ParseTupleAndKeywords(
-            args, kwds, "|sdpOd", keywords, &mode, &tolerance, &contacts, &objects, &deflection
-        )) {
+    PyObject* frames = Py_None;
+    static const std::array<const char*, 7>
+        keywords {"mode", "tolerance", "contacts", "objects", "deflection", "frames", nullptr};
+    if (!Base::Wrapped_ParseTupleAndKeywords(args,
+                                             kwds,
+                                             "|sdpOdO",
+                                             keywords,
+                                             &mode,
+                                             &tolerance,
+                                             &contacts,
+                                             &objects,
+                                             &deflection,
+                                             &frames)) {
         return nullptr;
     }
 
@@ -437,6 +444,30 @@ PyObject* AssemblyObjectPy::findInterferences(PyObject* args, PyObject* kwds) co
             }
         }
 
+        if (frames != Py_None) {
+            const std::size_t count = getAssemblyObjectPtr()->numberOfFrames();
+            if (count == 0) {
+                PyErr_SetString(PyExc_ValueError, "frames: no simulation has been run");
+                return nullptr;
+            }
+            Py::Sequence seq(frames);
+            for (Py::Sequence::iterator it = seq.begin(); it != seq.end(); ++it) {
+                if (!PyLong_Check((*it).ptr())) {
+                    PyErr_SetString(PyExc_TypeError, "frames is a list of frame numbers");
+                    return nullptr;
+                }
+                const long frame = Py::Long(*it).as_long();
+                if (frame < 0 || static_cast<std::size_t>(frame) >= count) {
+                    PyErr_Format(PyExc_ValueError,
+                                 "frame %ld: the last simulation has %zu frames",
+                                 frame,
+                                 count);
+                    return nullptr;
+                }
+                options.frames.push_back(static_cast<std::size_t>(frame));
+            }
+        }
+
         Py::List ret;
         for (auto& result : Assembly::findInterferences(getAssemblyObjectPtr(), options, only)) {
             Py::Dict entry;
@@ -456,6 +487,10 @@ PyObject* AssemblyObjectPy::findInterferences(PyObject* args, PyObject* kwds) co
             }
             else {
                 entry.setItem("Overlap", Py::asObject(result.overlap.getPyObject()));
+            }
+            if (result.frame >= 0) {
+                entry.setItem("Frame", Py::Long(result.frame));
+                entry.setItem("Time", Py::Float(result.time));
             }
             ret.append(entry);
         }

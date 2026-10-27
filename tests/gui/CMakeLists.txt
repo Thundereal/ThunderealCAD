@@ -141,6 +141,10 @@ fc_add_gui_test(GuiSketch3DContinuity_tests_run sketch3d-continuity.py
 # selecting them, Delete; the panel's constraint list; placed again on a turn.
 fc_add_gui_test(GuiSketch3DConstraintIcons_tests_run sketch3d-constraint-icons.py
                 --timeout 180)
+# Its typed values (S2 leftovers): a length or offsets while placing, a
+# dimension's kind in its entry, the manipulator's angle after a ring turn.
+fc_add_gui_test(GuiSketch3DTypedValues_tests_run sketch3d-typed-values.py
+                --timeout 180)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

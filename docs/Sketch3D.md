@@ -560,7 +560,7 @@ one-line branch in each Sketcher creation and constraint command.
   points (press, dragTo, pointAt, toView, startTool), which the mouse handlers
   call, so no synthetic Qt event is needed.
 
-Not in S2, left for later:
+Not in S2, left for later (all closed since, below S3e):
 - typed values while placing (length, coordinate offsets) and a dimension's kind
   picked in its entry;
 - typed angles for the manipulator;
@@ -741,9 +741,39 @@ S3e, continuity to model edges (2026-10-27), which completes S3:
     arc (curvature 1 / r); the 2D sketch refusing Smooth;
   - `tests/gui/sketch3d-continuity.py`, 9 checks.
 
-S3 left nothing of its list. Still open from S2: typed values while placing,
-typed angles, icons for the non-dimensional constraints, labels re-facing the
-camera; and S4, the browser.
+S3 left nothing of its list.
+
+The S2 leftovers, closed (2026-10-27):
+- Icons for the constraints without a value, drawn as the 2D sketch draws
+  them, by what they bind; a press on one selects it, Delete removes it.
+  Coincidences show none, as in 2D. The task panel lists every constraint in
+  step with the view's selection, so a coincidence is selected and deleted
+  there.
+- The dimensions and the icons are in the 3D sketch's teal: two colours of its
+  own on the Sketcher appearance page (Sketch3DDimColor #00838f,
+  Sketch3DIcoColor #00acc1). They apply at once.
+- Labels and icons are placed again when the camera moves.
+- Typed values while placing. A number typed into the view while a tool
+  places points opens an entry; the edit takes the key before the standard
+  views' digit shortcuts do. Then:
+  - one value places the next point that far from the manipulator toward the
+    pointer; a line drawn so gets that length as a Distance, in the line's own
+    undo step;
+  - three values (dx, dy, dz) place it at that offset in the manipulator's
+    frame, with DistanceX/Y/Z for the non-zero ones while that frame is the
+    sketch's.
+- A dimension's kind picked in its entry: "x 20", "y 20", "z 20" (or "d 20"
+  back) makes a line's or two points' distance that kind, the value signed as
+  the geometry measures it now.
+- Typed angles: after a rotation ring turned the manipulator, an entry takes
+  the angle about that ring's axis, exactly.
+- Found on the way: a pick on the working plane seen edge on threw "No
+  intersection found" from the viewer's fallback; it now gives no point.
+- Tests:
+  - `tests/gui/sketch3d-constraint-icons.py`, 16 checks;
+  - `tests/gui/sketch3d-typed-values.py`, 24 checks.
+
+Open: S4, the browser.
 
 ## 11. Risks
 

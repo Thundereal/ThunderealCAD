@@ -436,6 +436,43 @@ PyObject* ViewProviderSketch3DPy::finishDatumEdit(PyObject* args)
     Py_Return;
 }
 
+PyObject* ViewProviderSketch3DPy::startTypedPlacement(PyObject* args)
+{
+    char* text;
+    if (!PyArg_ParseTuple(args, "s", &text)) {
+        return nullptr;
+    }
+    return Py::new_reference_to(
+        Py::Boolean(getViewProviderSketch3DPtr()->startTypedPlacement(QString::fromUtf8(text))));
+}
+
+PyObject* ViewProviderSketch3DPy::isTypingPlacement(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    return Py::new_reference_to(Py::Boolean(getViewProviderSketch3DPtr()->isTypingPlacement()));
+}
+
+PyObject* ViewProviderSketch3DPy::turnByRing(PyObject* args)
+{
+    int axis;
+    double degrees;
+    if (!PyArg_ParseTuple(args, "id", &axis, &degrees)) {
+        return nullptr;
+    }
+    getViewProviderSketch3DPtr()->turnByRing(axis, degrees);
+    Py_Return;
+}
+
+PyObject* ViewProviderSketch3DPy::isTypingTurn(PyObject* args) const
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+    return Py::new_reference_to(Py::Boolean(getViewProviderSketch3DPtr()->isTypingTurn()));
+}
+
 PyObject* ViewProviderSketch3DPy::getLabelPlane(PyObject* args) const
 {
     int index;

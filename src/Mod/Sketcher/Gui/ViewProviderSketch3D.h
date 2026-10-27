@@ -173,6 +173,27 @@ public:
     void setConstructionMode(bool construction);
     //@}
 
+    /** @name Typed values (the S2 leftovers)
+     * While a tool places points, a number typed into the view opens an entry: one
+     * value places the next point that far from the manipulator toward the pointer
+     * (a line's length, a Distance with it), three (dx, dy, dz) at that offset in the
+     * manipulator's frame (X/Y/Z distances with it while the frame is the sketch's).
+     * After the rotation rings turned the manipulator, an entry takes the angle.
+     */
+    //@{
+    /// Opens the placing entry, text its first characters; false without a tool.
+    bool startTypedPlacement(const QString& text);
+    /// Places from what was typed; false, with why, when it is no placement.
+    bool placeTyped(const QString& text, QString* why = nullptr);
+    bool isTypingPlacement() const;
+    /// The manipulator turned by degrees about its own axis (0 X, 1 Y, 2 Z), as a ring
+    /// drag does, and the angle's entry opened (what a drag's end does).
+    void turnByRing(int axis, double degrees);
+    /// The last ring turn set to degrees exactly; false with why.
+    bool turnTyped(const QString& text, QString* why = nullptr);
+    bool isTypingTurn() const;
+    //@}
+
     /** @name Selection and constraints (section 7)
      * The edit's own selection: points (a geometry id and a position) and curves
      * (PointPos::none), and constraints by their labels. The Sketcher's constraint
@@ -300,6 +321,9 @@ private:
     /// Icons for the constraints without a value, part of draw(): they stand a few
     /// pixels off what they bind, so they are placed for the view as it is.
     void drawIcons();
+    friend class Typed3DSession;
+    static void draggerStarted(void* data, SoDragger* dragger);
+    static void draggerFinished(void* data, SoDragger* dragger);
     /// The labels and icons placed again for a camera that moved (debounced).
     void reface();
     static void cameraChanged(void* data, class SoSensor* sensor);

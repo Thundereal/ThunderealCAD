@@ -184,6 +184,28 @@ made from the selection, as the Sketcher's command does it; ValueError says why 
         <UserDocu>finishDatumEdit(accept=True)</UserDocu>
       </Documentation>
     </Methode>
+    <Methode Name="startTypedPlacement">
+      <Documentation>
+        <UserDocu>startTypedPlacement(text) -> bool: what a number typed while placing points does: the
+entry for a length (one value) or offsets (dx, dy, dz), text its first characters</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="isTypingPlacement" Const="true">
+      <Documentation>
+        <UserDocu>isTypingPlacement() -> bool</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="turnByRing">
+      <Documentation>
+        <UserDocu>turnByRing(axis, degrees): the manipulator turned about its own axis 0, 1 or 2 as a ring
+drag turns it, and the angle's entry opened as at the drag's end</UserDocu>
+      </Documentation>
+    </Methode>
+    <Methode Name="isTypingTurn" Const="true">
+      <Documentation>
+        <UserDocu>isTypingTurn() -> bool</UserDocu>
+      </Documentation>
+    </Methode>
     <Methode Name="getLabelPlane" Const="true">
       <Documentation>
         <UserDocu>getLabelPlane(index) -> Placement or None: the plane a dimension's label is drawn in</UserDocu>

@@ -25,6 +25,7 @@
 #include "PreCompiled.h"
 
 #include <cmath>
+#include <functional>
 #include <map>
 #include <numbers>
 #include <string_view>
@@ -35,7 +36,9 @@
 #include <QDateTime>
 #include <QKeyEvent>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
+#include <QRegularExpression>
 #include <QPainter>
 #include <QTimer>
 #include <QVBoxLayout>
@@ -272,8 +275,9 @@ constexpr float AxisDeadPixels = 24.f;
 
 }  // namespace
 
-// Delete in the edit: Std_Delete's shortcut would take the key before the view sees
-// it, as for the 2D sketch (ShortcutListener).
+// Keys the edit takes before a shortcut does, as the 2D sketch's ShortcutListener:
+// Delete (Std_Delete's), and while a tool places points a number's first character
+// (the digits are the standard views' shortcuts), which opens the typed value's entry.
 class Sketch3DDeleteFilter: public QObject
 {
 public:
@@ -291,6 +295,19 @@ protected:
                 && vp->activeTool() == ViewProviderSketch3D::Tool::None) {
                 key->accept();
                 vp->deleteSelection();
+                return true;
+            }
+            QString text = key->text();
+            bool numeric = text.size() == 1
+                && (text[0].isDigit() || text[0] == QLatin1Char('-')
+                    || text[0] == QLatin1Char('.'));
+            if (numeric && !(key->modifiers() & (Qt::ControlModifier | Qt::AltModifier))
+                && !vp->isEditingDatum() && !vp->isTypingPlacement()
+                && vp->activeTool() != ViewProviderSketch3D::Tool::None
+                && vp->activeTool() != ViewProviderSketch3D::Tool::Fillet
+                && !qobject_cast<QLineEdit*>(QApplication::focusWidget())) {
+                key->accept();
+                vp->startTypedPlacement(text);
                 return true;
             }
         }
@@ -455,6 +472,15 @@ struct ViewProviderSketch3D::EditData
     int keptPlane {-1};
     std::unique_ptr<QObject> deleteFilter;
     std::unique_ptr<ParameterGrp::ObserverType> colorObserver;
+    // Typed values: the entries open, what a placement typed adds to the segment it
+    // makes, and the ring turn the angle's entry sets
+    class Typed3DSession* placing {nullptr};
+    class Typed3DSession* turning {nullptr};
+    double typedLength {-1.};
+    bool typedOffsetSet {false};
+    Base::Vector3d typedOffset;
+    Base::Rotation turnStart;
+    int turnAxis {-1};
 
     /// The pointer at p while an arc's end is picked: the sweep follows it round.
     void trackSweep(const Base::Vector3d& p)
@@ -1028,7 +1054,12 @@ bool ViewProviderSketch3D::pointAt(const SbVec2s& pos, Base::Vector3d& point) co
         }
     }
     Base::Placement world = Base::Placement(mat) * plane;  // seen edge on
-    return toLocal(edit->viewer->getPointOnXYPlaneOfPlacement(pos, world), point);
+    try {
+        return toLocal(edit->viewer->getPointOnXYPlaneOfPlacement(pos, world), point);
+    }
+    catch (const Base::Exception&) {
+        return false;  // the ray runs in the plane: no point on it
+    }
 }
 
 int ViewProviderSketch3D::planeHandleAt(const SbVec2s& pos) const
@@ -1281,6 +1312,280 @@ bool ViewProviderSketch3D::release(const SbVec2s& /*pos*/)
     return dragged;
 }
 
+namespace SketcherGui
+{
+
+/** An entry for a value typed in the view that is not a constraint's: a placement's
+ * length or offsets, the manipulator's angle. Enter gives the text to apply, which
+ * says whether it took it; Escape closes it.
+ */
+class Typed3DSession: public QObject
+{
+public:
+    using Apply = std::function<bool(const QString&, QString*)>;
+    Typed3DSession(Gui::ViewerContext* viewer,
+                   const Base::Placement& plane,
+                   double value,
+                   const Base::Unit& unit,
+                   Apply apply,
+                   std::function<void()> closed)
+        : apply(std::move(apply))
+        , closed(std::move(closed))
+    {
+        editor = std::make_unique<Gui::DatumValueEditor>(viewer, plane);
+        Gui::DatumValueEditor::Target target;
+        target.value = value;
+        target.unit = unit;
+        editor->installKeyFilter(this);
+        editor->edit(target);
+    }
+
+    void setText(const QString& text)
+    {
+        editor->setText(text);
+    }
+
+    void finish()
+    {
+        if (ended) {
+            return;
+        }
+        ended = true;
+        editor->close();
+        closed();
+        deleteLater();
+    }
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override
+    {
+        if (ended || event->type() != QEvent::KeyPress || editor->isCompleting()) {
+            return QObject::eventFilter(watched, event);
+        }
+        switch (static_cast<QKeyEvent*>(event)->key()) {
+            case Qt::Key_Return:
+            case Qt::Key_Enter: {
+                QString why;
+                if (apply(editor->text(), &why)) {
+                    finish();
+                }
+                else {
+                    editor->showError(why);
+                }
+                return true;
+            }
+            case Qt::Key_Escape:
+                finish();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+private:
+    std::unique_ptr<Gui::DatumValueEditor> editor;
+    Apply apply;
+    std::function<void()> closed;
+    bool ended {false};
+};
+
+}  // namespace SketcherGui
+
+bool ViewProviderSketch3D::startTypedPlacement(const QString& text)
+{
+    if (!edit || !edit->viewer || edit->tool == Tool::None || edit->tool == Tool::Fillet) {
+        return false;
+    }
+    if (!edit->placing) {
+        // where the pointer would place, toward which a length runs
+        Placed under;
+        Base::Vector3d at = edit->origin;
+        if (place(edit->lastPos, under)) {
+            at = under.point;
+        }
+        Base::Placement plane(Base::Placement(editingTransform())
+                              * Base::Placement(at, workingPlane().getRotation()));
+        edit->placing = new Typed3DSession(
+            edit->viewer,
+            plane,
+            (at - edit->origin).Length(),
+            Base::Unit::Length,
+            [this](const QString& typed, QString* why) {
+                return placeTyped(typed, why);
+            },
+            [this]() {
+                if (edit) {
+                    edit->placing = nullptr;
+                }
+            });
+    }
+    edit->placing->setText(text);
+    return true;
+}
+
+bool ViewProviderSketch3D::isTypingPlacement() const
+{
+    return edit && edit->placing;
+}
+
+bool ViewProviderSketch3D::placeTyped(const QString& text, QString* why)
+{
+    auto fail = [&](const QString& message) {
+        if (why) {
+            *why = message;
+        }
+        return false;
+    };
+    if (!edit || edit->tool == Tool::None || edit->tool == Tool::Fillet) {
+        return fail(QObject::tr("No tool placing points"));
+    }
+    auto quantity = [](const QString& s, double& v) {
+        try {
+            v = Base::Quantity::parse(s.trimmed().toStdString()).getValue();
+            return true;
+        }
+        catch (const Base::Exception&) {
+            return false;
+        }
+    };
+    // one value, a length; else three, the offsets
+    double length = 0.;
+    Base::Vector3d offset;
+    bool isLength = quantity(text, length);
+    if (!isLength) {
+        static const QRegularExpression separators(QStringLiteral("[,;]|\\s+(?=[-+.0-9])"));
+        QStringList parts = text.split(separators, Qt::SkipEmptyParts);
+        double v[3];
+        if (parts.size() != 3 || !quantity(parts[0], v[0]) || !quantity(parts[1], v[1])
+            || !quantity(parts[2], v[2])) {
+            return fail(QObject::tr("A length, or three offsets: dx, dy, dz"));
+        }
+        offset = Base::Vector3d(v[0], v[1], v[2]);
+    }
+    else if (length <= 0.) {
+        return fail(QObject::tr("A length above zero"));
+    }
+    const Base::Vector3d base = edit->origin;
+    Placed placed;
+    if (isLength) {
+        Placed under;
+        Base::Vector3d dir;
+        if (place(edit->lastPos, under)) {
+            dir = under.point - base;
+        }
+        if (dir.Length() < Precision::Confusion()) {
+            dir = Base::Vector3d(1, 0, 0);
+            edit->rotation.multVec(dir, dir);
+        }
+        placed.point = base + dir.Normalize() * length;
+        edit->typedLength = length;
+    }
+    else {
+        Base::Vector3d d;
+        edit->rotation.multVec(offset, d);
+        placed.point = base + d;
+        edit->typedOffset = offset;
+        edit->typedOffsetSet = true;
+    }
+    addPlaced(placed);
+    edit->typedLength = -1.;
+    edit->typedOffsetSet = false;
+    return true;
+}
+
+void ViewProviderSketch3D::draggerStarted(void* data, SoDragger* /*dragger*/)
+{
+    auto vp = static_cast<ViewProviderSketch3D*>(data);
+    if (vp->edit) {
+        vp->edit->turnStart = vp->edit->rotation;
+    }
+}
+
+void ViewProviderSketch3D::draggerFinished(void* data, SoDragger* /*dragger*/)
+{
+    // A ring turned the manipulator: about which of its own axes and how far, the
+    // angle offered for typing (the S2 leftover).
+    auto vp = static_cast<ViewProviderSketch3D*>(data);
+    auto& e = vp->edit;
+    if (!e || !e->viewer) {
+        return;
+    }
+    Base::Rotation delta = e->turnStart.inverse() * e->rotation;
+    Base::Vector3d axis;
+    double angle;
+    delta.getValue(axis, angle);
+    if (std::fabs(angle) < 1e-9) {
+        return;
+    }
+    int k = 0;
+    for (int i = 1; i < 3; ++i) {
+        if (std::fabs(axis[i]) > std::fabs(axis[k])) {
+            k = i;
+        }
+    }
+    double degrees = Base::toDegrees<double>(axis[k] < 0 ? -angle : angle);
+    e->turnAxis = k;
+    if (e->turning) {
+        e->turning->finish();
+    }
+    Base::Placement plane(Base::Placement(vp->editingTransform())
+                          * Base::Placement(e->origin, e->turnStart));
+    e->turning = new Typed3DSession(
+        e->viewer,
+        plane,
+        degrees,
+        Base::Unit::Angle,
+        [vp](const QString& typed, QString* why) {
+            return vp->turnTyped(typed, why);
+        },
+        [vp]() {
+            if (vp->edit) {
+                vp->edit->turning = nullptr;
+            }
+        });
+}
+
+void ViewProviderSketch3D::turnByRing(int axis, double degrees)
+{
+    if (!edit || axis < 0 || axis > 2) {
+        return;
+    }
+    edit->turnStart = edit->rotation;
+    Base::Vector3d a(axis == 0, axis == 1, axis == 2);
+    edit->rotation = edit->turnStart * Base::Rotation(a, Base::toRadians(degrees));
+    updateManipulator();
+    draggerFinished(this, edit->dragger);
+}
+
+bool ViewProviderSketch3D::turnTyped(const QString& text, QString* why)
+{
+    if (!edit || edit->turnAxis < 0) {
+        return false;
+    }
+    double degrees;
+    try {
+        Base::Quantity q = Base::Quantity::parse(text.trimmed().toStdString());
+        degrees =
+            q.getUnit() == Base::Unit::Angle ? q.getValueAs(Base::Quantity::Degree) : q.getValue();
+    }
+    catch (const Base::Exception&) {
+        if (why) {
+            *why = QObject::tr("An angle");
+        }
+        return false;
+    }
+    Base::Vector3d a(edit->turnAxis == 0, edit->turnAxis == 1, edit->turnAxis == 2);
+    edit->rotation = edit->turnStart * Base::Rotation(a, Base::toRadians(degrees));
+    edit->keptPlane = -1;
+    updateManipulator();
+    return true;
+}
+
+bool ViewProviderSketch3D::isTypingTurn() const
+{
+    return edit && edit->turning;
+}
+
 int ViewProviderSketch3D::keepPlane()
 {
     if (!edit) {
@@ -1409,6 +1714,28 @@ bool ViewProviderSketch3D::pressRight(const SbVec2s& pos)
 
 bool ViewProviderSketch3D::keyPressed(bool pressed, int key)
 {
+    // a number typed while placing points: its entry (the S2 leftover)
+    if (edit && edit->tool != Tool::None && edit->tool != Tool::Fillet && !edit->placing) {
+        QString ch;
+        if (key >= SoKeyboardEvent::NUMBER_0 && key <= SoKeyboardEvent::NUMBER_9) {
+            ch = QString::number(key - SoKeyboardEvent::NUMBER_0);
+        }
+        else if (key >= SoKeyboardEvent::PAD_0 && key <= SoKeyboardEvent::PAD_9) {
+            ch = QString::number(key - SoKeyboardEvent::PAD_0);
+        }
+        else if (key == SoKeyboardEvent::MINUS || key == SoKeyboardEvent::PAD_SUBTRACT) {
+            ch = QStringLiteral("-");
+        }
+        else if (key == SoKeyboardEvent::PERIOD || key == SoKeyboardEvent::PAD_PERIOD) {
+            ch = QStringLiteral(".");
+        }
+        if (!ch.isEmpty()) {
+            if (pressed) {
+                startTypedPlacement(ch);
+            }
+            return true;
+        }
+    }
     if (edit && edit->tool != Tool::None && key == SoKeyboardEvent::ESCAPE) {
         // Escape keeps what is placed (memory: Escape means leave, not undo).
         if (pressed) {
@@ -1939,6 +2266,35 @@ void ViewProviderSketch3D::addPlaced(const Placed& placed)
                 static const char* along[3] = {"AlongX", "AlongY", "AlongZ"};
                 run(obj + ".addConstraint(Sketcher.Constraint('" + along[axis] + "', "
                     + std::to_string(id) + "))");
+            }
+            // what was typed for it, kept: its length, or its offsets while the
+            // manipulator's frame is the sketch's
+            char typed[192];
+            if (edit->typedLength > 0.) {
+                snprintf(typed,
+                         sizeof(typed),
+                         "%s.addConstraint(Sketcher.Constraint('Distance', %d, %.15g))",
+                         obj.c_str(),
+                         id,
+                         edit->typedLength);
+                run(typed);
+            }
+            else if (edit->typedOffsetSet && edit->rotation.isIdentity()) {
+                static const char* names[3] = {"DistanceX", "DistanceY", "DistanceZ"};
+                const double v[3] = {edit->typedOffset.x, edit->typedOffset.y, edit->typedOffset.z};
+                for (int k = 0; k < 3; ++k) {
+                    if (std::fabs(v[k]) > Precision::Confusion()) {
+                        snprintf(typed,
+                                 sizeof(typed),
+                                 "%s.addConstraint(Sketcher.Constraint('%s', %d, 1, %d, 2, %.15g))",
+                                 obj.c_str(),
+                                 names[k],
+                                 id,
+                                 id,
+                                 v[k]);
+                        run(typed);
+                    }
+                }
             }
             Gui::Command::commitCommand();
             if (edit->tool == Tool::Line || closes) {
@@ -2494,6 +2850,9 @@ public:
         if (!editor->isModified()) {
             return true;
         }
+        if (int kind = retyped(index); kind != 0) {
+            return kind > 0;
+        }
         Gui::DatumValueEditor::Entry entry;
         QString why;
         if (!editor->read(entry, &why) && entry.driving != 0) {
@@ -2557,6 +2916,80 @@ public:
             editor->showError(QString::fromUtf8(e.what()));
             return false;
         }
+    }
+
+    /** A distance's kind picked in its entry: "x 20", "y 20", "z 20" (or "d 20" back to
+     * the distance itself) makes it that kind with that value. 0 when the text is no
+     * such thing, 1 done, -1 refused (and said why).
+     */
+    int retyped(int index)
+    {
+        static const QRegularExpression kindText(
+            QStringLiteral("^\\s*([xyzdXYZD])\\s*([-+.0-9].*)$"));
+        auto match = kindText.match(editor->text());
+        if (!match.hasMatch()) {
+            return 0;
+        }
+        auto sketch = vp->getSketch3DObject();
+        const Sketcher::Constraint* c = sketch->Constraints[index];
+        bool distance = c->Type == Sketcher::Distance || c->Type == Sketcher::DistanceX
+            || c->Type == Sketcher::DistanceY || c->Type == Sketcher::DistanceZ;
+        bool line =
+            c->Second == Sketcher::GeoEnum::GeoUndef && c->FirstPos == Sketcher::PointPos::none;
+        bool points =
+            c->FirstPos != Sketcher::PointPos::none && c->SecondPos != Sketcher::PointPos::none;
+        Base::Quantity q;
+        if (!distance || !(line || points) || !editor->parse(match.captured(2), q)) {
+            editor->showError(QObject::tr("x, y, z or d before a value: a line's or two points' "
+                                          "distance along that axis, or itself"));
+            return -1;
+        }
+        QChar k = match.captured(1).at(0).toLower();
+        const char* type = k == QLatin1Char('x') ? "DistanceX"
+            : k == QLatin1Char('y')              ? "DistanceY"
+            : k == QLatin1Char('z')              ? "DistanceZ"
+                                                 : "Distance";
+        // what the geometry measures that way now gives the sign a bare value takes
+        Base::Vector3d a, b;
+        if (line) {
+            vp->pointOf(c->First, Sketcher::PointPos::start, a);
+            vp->pointOf(c->First, Sketcher::PointPos::end, b);
+        }
+        else {
+            vp->pointOf(c->First, c->FirstPos, a);
+            vp->pointOf(c->Second, c->SecondPos, b);
+        }
+        Base::Vector3d d = b - a;
+        double now = k == QLatin1Char('x') ? d.x
+            : k == QLatin1Char('y')        ? d.y
+            : k == QLatin1Char('z')        ? d.z
+                                           : d.Length();
+        double value = q.getValue();
+        if (value > 0 && now < 0) {
+            value = -value;
+        }
+        std::string args = line ? std::to_string(c->First)
+                                : std::to_string(c->First) + ", " + std::to_string(int(c->FirstPos))
+                + ", " + std::to_string(c->Second) + ", " + std::to_string(int(c->SecondPos));
+        const std::string obj = Gui::Command::getObjectCmd(sketch);
+        try {
+            Gui::Command::doCommand(Gui::Command::Doc,
+                                    "%s.delConstraint(%d)\n"
+                                    "%s.addConstraint(Sketcher.Constraint('%s', %s, %.15g))",
+                                    obj.c_str(),
+                                    index,
+                                    obj.c_str(),
+                                    type,
+                                    args.c_str(),
+                                    value);
+        }
+        catch (const Base::Exception& e) {
+            editor->showError(QString::fromUtf8(e.what()));
+            return -1;
+        }
+        applied = true;
+        show(sketch->Constraints.getSize() - 1);
+        return 1;
     }
 
     void move(int step)
@@ -4091,6 +4524,8 @@ bool ViewProviderSketch3D::setEdit(int ModNum)
     edit->dragger->rotationIncrement.setValue(std::numbers::pi / 36);
     edit->dragger->addMotionCallback(&ViewProviderSketch3D::draggerChanged, this);
     edit->dragger->addFinishCallback(&ViewProviderSketch3D::draggerChanged, this);
+    edit->dragger->addStartCallback(&ViewProviderSketch3D::draggerStarted, this);
+    edit->dragger->addFinishCallback(&ViewProviderSketch3D::draggerFinished, this);
 
     edit->deleteFilter = std::make_unique<Sketch3DDeleteFilter>(this);
     Gui::getMainWindow()->installEventFilter(edit->deleteFilter.get());
@@ -4113,6 +4548,12 @@ void ViewProviderSketch3D::unsetEdit(int ModNum)
         return;
     }
     finishDatumEdit(true);  // leaving is a press elsewhere
+    if (edit && edit->placing) {
+        edit->placing->finish();
+    }
+    if (edit && edit->turning) {
+        edit->turning->finish();
+    }
     Workbench::leaveEditMode();
     setSketch3DToolIcons(false);
     Gui::getMainWindow()->showMessage(QString());

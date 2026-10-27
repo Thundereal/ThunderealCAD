@@ -3599,6 +3599,65 @@ set its value); it turns the preference off for itself now, as the other
 suites do. The Assembly suite 373 run, 59 skipped, no failures; ctest
 1000/1000; no gate record changed.
 
+### 6.25 As built: the GUI's share (2026-10-27)
+
+The numbers from sec 6.20 on are headless. `scripts/assembly-bench/bench.py`
+in the GUI (C++ joints, its drag fixed in sec 6.20), the bench chain, after
+sec 6.24:
+
+| | 50 | 100 | 200 parts |
+|---|---|---|---|
+| solve | 0.13 s | 0.26 s | 0.50 s |
+| the 5 degree edit | 0.19 s | 0.35 s | 0.77 s |
+| a joint added | 0.34 s | 1.84 s | 6.69 s |
+| a drag step (+ redraw) | 0.073 (+0.021) s | 0.16 (+0.027) s | 0.29 (+0.039) s |
+
+Before sec 6.20 (the sparse LU of sec 6.19 in) the same bench at 200 parts
+took 63 s for the edit, 881 s to add a joint, and its drag moved nothing.
+
+**A joint added** grew as n^2, all of it the GUI's (headless 0.35 s at 200
+parts). Sampled (bench.py's native sampler): after a solve the assembly's
+view provider refreshes every joint's icon; each joint's Python view
+provider asks `isPartConnected` for its part, and each call built the
+assembly's connectivity anew -- a walk of the assembly per joint. It is kept
+now (`AssemblyObject::isPartConnected`), until anything in the document
+changes but a placement, a shape or a visibility, or an object is made or
+deleted (a joint's Suppressed, which `matchJCS` sets to ask, is such a
+change).
+
+**A part's element looks** were mapped again for every part a solve moved:
+`Part::Feature::onChanged(Placement)` sets Shape to the same shape moved,
+and `onAppearanceChanged(Shape)` remapped every element's look from its
+sources. Skipped for that setValue now (a thread_local flag between
+PartFeature.cpp and PartFeatureAppearance.cpp, kept out of PartFeature.h).
+
+After both:
+
+| | 50 | 100 | 200 parts |
+|---|---|---|---|
+| solve | 0.07 s | 0.20 s | 0.43 s |
+| the 5 degree edit | 0.13 s | 0.32 s | 0.70 s |
+| a joint added | 0.25 s | 0.61 s | 1.35 s |
+| a drag step (+ redraw) | 0.046 (+0.017) s | 0.11 (+0.027) s | 0.26 (+0.041) s |
+
+What a drag step at 200 parts still spends (sampled): a quarter in the
+solver; half in moving the copies that follow the parts -- 400 element
+links and their elements, each a Placement, then a Shape, then a view
+provider's update, and `Part::Element::touchGroups` telling the elements'
+groups. Batching those group touches to one per group per write was tried
+and measured no better (the cost is in the changes' signals, not the
+touches); not kept.
+
+**Not done:** making joints in a burst grows per joint (28 ms at the start
+of a chain of 200, 90 ms at its end): each element link added to the
+assembly's Group re-runs `updateChildren`, whose `claimChildren` flushes the
+coalesced tree export (`ViewProviderGroupExtension::buildExport`) at once --
+O(children) per joint. Deferring `updateChildren` is a Gui core change, left
+alone; one joint made by hand costs that once.
+
+The Assembly suite 373 run, 59 skipped, no failures; TestPartApp 413 OK;
+ctest 1000/1000.
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a

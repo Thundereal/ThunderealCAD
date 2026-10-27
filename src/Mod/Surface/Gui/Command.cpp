@@ -349,6 +349,61 @@ bool CmdSurfaceSections::isActive()
     return hasActiveDocument();
 }
 
+DEF_STD_CMD_A(CmdSurfaceNetwork)
+
+CmdSurfaceNetwork::CmdSurfaceNetwork()
+    : Command("Surface_Network")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Network...");
+    sToolTipText = QT_TR_NOOP("Creates a surface through a network of curves, profiles one way\n"
+                              "and guides the other, with an edge condition on each outer curve.\n"
+                              "Selected edges, or a whole 3D sketch, are sorted into the two\n"
+                              "families.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_Network";
+    sPixmap = "Surface_Network";
+}
+
+void CmdSurfaceNetwork::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    // what is selected is the whole network: edges, or objects given whole
+    // (a 3D sketch), sorted into the families as the surface is built
+    std::ostringstream links;
+    auto selection = Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId());
+    for (const auto& sel : selection) {
+        std::string obj = Gui::Command::getObjectCmd(sel.getObject());
+        const auto& subs = sel.getSubNames();
+        if (subs.empty()) {
+            links << "(" << obj << ", ''), ";
+        }
+        for (const auto& sub : subs) {
+            if (sub.rfind("Edge", 0) == 0) {
+                links << "(" << obj << ", '" << sub << "'), ";
+            }
+        }
+    }
+    std::string FeatName = getUniqueObjectName("Network");
+
+    openCommand(QT_TRANSLATE_NOOP("Command", "Create network surface"));
+    doCommand(Doc, "App.ActiveDocument.addObject(\"Surface::Network\",\"%s\")", FeatName.c_str());
+    if (!links.str().empty()) {
+        doCommand(Doc,
+                  "App.ActiveDocument.%s.Profiles = [%s]",
+                  FeatName.c_str(),
+                  links.str().c_str());
+        doCommand(Doc, "App.ActiveDocument.recompute()");
+    }
+    doCommand(Doc, "Gui.ActiveDocument.setEdit('%s',0)", FeatName.c_str());
+}
+
+bool CmdSurfaceNetwork::isActive()
+{
+    return hasActiveDocument();
+}
+
 DEF_STD_CMD_A(CmdSurfaceSewing)
 
 CmdSurfaceSewing::CmdSurfaceSewing()
@@ -410,6 +465,7 @@ void CreateSurfaceCommands()
     rcCmdMgr.addCommand(new CmdSurfaceFilling());
     rcCmdMgr.addCommand(new CmdSurfaceGeomFillSurface());
     rcCmdMgr.addCommand(new CmdSurfaceSections());
+    rcCmdMgr.addCommand(new CmdSurfaceNetwork());
     rcCmdMgr.addCommand(new CmdSurfaceSewing());
     rcCmdMgr.addCommand(new CmdSurfaceExtendFace());
     rcCmdMgr.addCommand(new CmdSurfaceCurveOnMesh());

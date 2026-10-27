@@ -50,6 +50,8 @@ SET(SurfaceGui_SRCS
     TaskGeomFillSurface.h
     TaskSections.cpp
     TaskSections.h
+    TaskNetwork.cpp
+    TaskNetwork.h
     AppSurfaceGui.cpp
     Command.cpp
     PreCompiled.cpp

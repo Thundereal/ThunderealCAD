@@ -116,6 +116,11 @@ fc_add_gui_test(GuiSurfaceSew_tests_run surface-sew.py
 # in it recomputed, an edge picked, Cancel and OK.
 fc_add_gui_test(GuiSurfaceBlendCurve_tests_run surface-blend-curve.py
                 --timeout 180)
+# Its Network command and task panel (U1): a whole 3D sketch sorted, the
+# families separated and corrected, curves and supports picked, edge
+# conditions set and read out, Cancel and OK.
+fc_add_gui_test(GuiSurfaceNetwork_tests_run surface-network.py
+                --timeout 180)
 # Its drag and kept planes (S2e): a point and a curve dragged with the
 # constraints kept, Keep Plane, Ctrl+press on a kept plane and on a face.
 fc_add_gui_test(GuiSketch3DDragPlane_tests_run sketch3d-drag-plane.py

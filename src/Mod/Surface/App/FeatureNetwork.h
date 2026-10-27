@@ -25,6 +25,10 @@
 #pragma once
 
 #include <array>
+#include <string>
+#include <vector>
+
+#include <Geom_Curve.hxx>
 
 #include <App/PropertyLinks.h>
 #include <App/PropertyStandard.h>
@@ -71,6 +75,27 @@ public:
     App::PropertyStringList Achieved;  // Output
 
     App::DocumentObjectExecReturn* execute() override;
+    const char* getViewProviderName() const override
+    {
+        return "SurfaceGui::ViewProviderNetwork";
+    }
+
+    /// One curve of the network, as it was given or as an edge of an
+    /// object given whole
+    struct Curve
+    {
+        Part::TopoShape edge;
+        App::DocumentObject* object;
+        std::string sub;
+        Handle(Geom_Curve) curve;
+    };
+    /// The profiles and the guides, an object given whole as its edges; with
+    /// no guides and `sort`, the profiles sorted into the two families.
+    /// Returns why they cannot be had, or empty
+    std::string gather(std::vector<Curve> families[2], bool sort) const;
+    /// Profiles alone: the families they sort into written to Profiles and
+    /// Guides, edge by edge, for the user to correct. Returns why not, or empty
+    std::string separateFamilies();
 
 private:
     /// In Geom::Boundary's order

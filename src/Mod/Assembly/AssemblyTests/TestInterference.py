@@ -114,6 +114,39 @@ class TestInterference(unittest.TestCase):
             self.assertIsNone(r["Overlap"])
             self.assertGreaterEqual(r["Tolerance"], 0.01)
 
+    def test_touch(self):
+        """Where an interference meets, in both modes: A and B, sunk 2 mm into
+        each other along x, meet in the middle of their common slab, the
+        direction out of B, Object2, towards A; a contact has none. Marked,
+        the same place twice is one marker."""
+        for mode in ("Exact", "Fast"):
+            with self.subTest(mode=mode):
+                results = self.assembly.findInterferences(
+                    mode=mode, tolerance=0.01, contacts=True
+                )
+                for r in results:
+                    if r["Kind"] == "Contact":
+                        self.assertIsNone(r["Centre"])
+                        self.assertIsNone(r["Direction"])
+                    else:
+                        self.assertIsNotNone(r["Centre"])
+                (ab,) = [r for r in results if (r["Object1"].Name, r["Object2"].Name) == ("A", "B")]
+                for got, want in zip(ab["Centre"], (9.0, 5.0, 5.0)):
+                    self.assertAlmostEqual(got, want, places=6)
+                for got, want in zip(ab["Direction"], (-1.0, 0.0, 0.0)):
+                    self.assertAlmostEqual(got, want, places=6)
+
+                self.assembly.clearCollisionMarkers()
+                for _ in range(2):
+                    self.assembly.addCollisionMarker(
+                        ab["Object1"], ab["Object2"], ab["Centre"], ab["Direction"]
+                    )
+                markers = self.assembly.getCollisionMarkers()
+                self.assertEqual(len(markers), 1)
+                self.assertEqual(markers[0]["First"], self.A)
+                self.assertEqual(markers[0]["Centre"], ab["Centre"])
+                self.assembly.clearCollisionMarkers()
+
     def test_tolerance(self):
         """A gap within the tolerance is a contact, beyond it nothing."""
         for mode in ("Exact", "Fast"):

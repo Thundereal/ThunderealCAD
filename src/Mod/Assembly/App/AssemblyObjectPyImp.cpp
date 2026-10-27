@@ -32,6 +32,7 @@
 #include "Joint.h"
 
 #include <Base/GeometryPyCXX.h>
+#include <Base/VectorPy.h>
 #include <Base/PyWrapParseTupleAndKeywords.h>
 #include <App/DocumentObjectPy.h>
 #include <Mod/Part/App/OCCError.h>
@@ -390,6 +391,32 @@ PyObject* AssemblyObjectPy::getCollisionMarkers(PyObject* args) const
     return Py::new_reference_to(ret);
 }
 
+PyObject* AssemblyObjectPy::addCollisionMarker(PyObject* args)
+{
+    PyObject* first {};
+    PyObject* second {};
+    PyObject* centre {};
+    PyObject* direction {};
+    if (!PyArg_ParseTuple(args,
+                          "O!O!O!O!",
+                          &App::DocumentObjectPy::Type,
+                          &first,
+                          &App::DocumentObjectPy::Type,
+                          &second,
+                          &Base::VectorPy::Type,
+                          &centre,
+                          &Base::VectorPy::Type,
+                          &direction)) {
+        return nullptr;
+    }
+    getAssemblyObjectPtr()->addCollisionMarker(
+        static_cast<App::DocumentObjectPy*>(first)->getDocumentObjectPtr(),
+        static_cast<App::DocumentObjectPy*>(second)->getDocumentObjectPtr(),
+        *static_cast<Base::VectorPy*>(centre)->getVectorPtr(),
+        *static_cast<Base::VectorPy*>(direction)->getVectorPtr());
+    Py_Return;
+}
+
 PyObject* AssemblyObjectPy::clearCollisionMarkers(PyObject* args)
 {
     if (!PyArg_ParseTuple(args, "")) {
@@ -534,6 +561,14 @@ PyObject* AssemblyObjectPy::findInterferences(PyObject* args, PyObject* kwds) co
             if (result.frame >= 0) {
                 entry.setItem("Frame", Py::Long(result.frame));
                 entry.setItem("Time", Py::Float(result.time));
+            }
+            if (result.touched) {
+                entry.setItem("Centre", Py::Vector(result.touchCentre));
+                entry.setItem("Direction", Py::Vector(result.touchNormal));
+            }
+            else {
+                entry.setItem("Centre", Py::None());
+                entry.setItem("Direction", Py::None());
             }
             ret.append(entry);
         }

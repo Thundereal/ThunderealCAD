@@ -257,6 +257,16 @@ class AssemblyObject(Part):
         """Removes the markers of getCollisionMarkers()."""
         ...
 
+    def addCollisionMarker(
+        self, first: DocumentObject, second: DocumentObject, centre: Any, direction: Any, /
+    ) -> None:
+        """
+        A marker of where two components collide, as getCollisionMarkers()
+        has them, unless the pair has one there already (the interference
+        check's, from a result's Centre and Direction).
+        """
+        ...
+
     @constmethod
     def getDragCollisions(self) -> list:
         """
@@ -340,7 +350,10 @@ class AssemblyObject(Part):
         Distance (contacts, mm; Fast gives the tolerance), Tolerance (the one
         the pair was judged with) and Overlap (Exact: the solid in common, in
         the assembly's coordinates; else None); with frames, also Frame and
-        Time (s).
+        Time (s). An interference has Centre, where the two meet, and
+        Direction, a unit vector out of Object2 towards Object1 (Fast: at the
+        middle of the curve along which their meshes cross; Exact: at the
+        centre of mass of the solid in common); a contact has None for both.
         """
         ...
 

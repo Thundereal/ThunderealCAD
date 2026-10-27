@@ -473,10 +473,13 @@ constexpr int maxTouchPairs = 200000;
 // (unconfirmed: the pair is known to interfere) make, for each pair of
 // triangles, a segment of the curve along which the meshes cross. The middle
 // of the segments, each weighted by its length, is the centre; the normals of
-// the triangles of `hit` crossed, weighted so and turned to agree, the
-// direction, then turned to point out of `hit`. One inside the other, nothing
-// crosses: the middle of the common part of their boxes, and the direction
-// from hit's box to the other's.
+// the triangles of `hit` that edges of the other pass through, weighted so and
+// turned to agree, the direction, then turned to point out of `hit`. (Not
+// those of hit's own edges through the other: two boxes sunk into each other
+// face to face have those on the faces either side, which the turning adds
+// up.) One inside the other, nothing crosses: the middle of the common part of
+// their boxes; and with no direction so, the one from hit's box to the
+// other's.
 void touchOf(Component& other, Component& hit, double tol, InterferenceResult& result)
 {
     Vec weighted(0.0, 0.0, 0.0);
@@ -495,13 +498,12 @@ void touchOf(Component& other, Component& hit, double tol, InterferenceResult& r
             hitNormal = crossed;
             return false;
         };
-    // An edge of hit's through a triangle of other's: the edge's is hit's
+    // An edge of hit's through a triangle of other's: a point only
     const Confirm throughOther =
-        [&](const Vec& at, const Vec&, const Vec&, const Vec& edgeNormal, const Vec&) {
+        [&](const Vec& at, const Vec&, const Vec&, const Vec&, const Vec&) {
             if (count < 6) {
                 points[count++] = at;
             }
-            hitNormal = edgeNormal;
             return false;
         };
     for (const auto& io : other.instances) {
@@ -513,6 +515,7 @@ void touchOf(Component& other, Component& hit, double tol, InterferenceResult& r
             const Vec origin = apply(io.trsf, Vec(0.0, 0.0, 0.0));
             visitNearTriangles(io, ih, tol, [&](const Vec(&po)[3], const Vec(&ph)[3]) {
                 count = 0;
+                hitNormal = Vec(0.0, 0.0, 0.0);
                 edgeCrosses(po, ph, tol, throughHit);
                 edgeCrosses(ph, po, tol, throughOther);
                 if (count > 0) {
@@ -545,32 +548,40 @@ void touchOf(Component& other, Component& hit, double tol, InterferenceResult& r
         }
     }
 
+    const Bnd_Box& bo = exactBox(other);
+    const Bnd_Box& bh = exactBox(hit);
+    if (total <= 0.0 && (bo.IsVoid() || bh.IsVoid())) {
+        return;
+    }
+    double ox0 {}, oy0 {}, oz0 {}, ox1 {}, oy1 {}, oz1 {};
+    double hx0 {}, hy0 {}, hz0 {}, hx1 {}, hy1 {}, hz1 {};
+    if (!bo.IsVoid() && !bh.IsVoid()) {
+        bo.Get(ox0, oy0, oz0, ox1, oy1, oz1);
+        bh.Get(hx0, hy0, hz0, hx1, hy1, hz1);
+    }
     Vec centre;
     if (total > 0.0) {
         centre = weighted * (1.0 / total);
     }
     else {
-        const Bnd_Box& bo = exactBox(other);
-        const Bnd_Box& bh = exactBox(hit);
-        if (bo.IsVoid() || bh.IsVoid()) {
-            return;
-        }
-        double ox0 {}, oy0 {}, oz0 {}, ox1 {}, oy1 {}, oz1 {};
-        double hx0 {}, hy0 {}, hz0 {}, hx1 {}, hy1 {}, hz1 {};
-        bo.Get(ox0, oy0, oz0, ox1, oy1, oz1);
-        bh.Get(hx0, hy0, hz0, hx1, hy1, hz1);
         centre = Vec(0.5 * (std::max(ox0, hx0) + std::min(ox1, hx1)),
                      0.5 * (std::max(oy0, hy0) + std::min(oy1, hy1)),
                      0.5 * (std::max(oz0, hz0) + std::min(oz1, hz1)));
+    }
+    if (dot(normal, normal) <= 0.0) {
         normal = Vec(ox0 + ox1 - hx0 - hx1, oy0 + oy1 - hy0 - hy1, oz0 + oz1 - hz0 - hz1);
     }
     const double size = std::sqrt(dot(normal, normal));
     if (size > 0.0) {
         normal = normal * (1.0 / size);
-        // Out of hit: a step along it is not inside hit, a step back is
+        // Out of hit: a step along it is not inside hit, a step back is.
+        // Inside both ways (the middle deep in the overlap) or neither, the
+        // way from hit's box to the other's.
         const double step = 3.0 * tol;
-        if (hit.contains(pointOf(centre + normal * step), tol)
-            && !hit.contains(pointOf(centre - normal * step), tol)) {
+        const bool ahead = hit.contains(pointOf(centre + normal * step), tol);
+        const bool behind = hit.contains(pointOf(centre - normal * step), tol);
+        const Vec boxes(ox0 + ox1 - hx0 - hx1, oy0 + oy1 - hy0 - hy1, oz0 + oz1 - hz0 - hz1);
+        if ((ahead && !behind) || (ahead == behind && dot(normal, boxes) < 0.0)) {
             normal = normal * -1.0;
         }
     }
@@ -776,7 +787,11 @@ bool checkPair(Component& a,
         common.Build();
         if (common.IsDone()) {
             const TopoDS_Shape overlap = common.Shape();
-            const double volume = overlap.IsNull() ? 0.0 : volumeOf(overlap);
+            GProp_GProps props;
+            if (!overlap.IsNull()) {
+                BRepGProp::VolumeProperties(overlap, props);
+            }
+            const double volume = overlap.IsNull() ? 0.0 : std::abs(props.Mass());
             if (a.volume < 0.0) {
                 a.volume = volumeOf(a.compound);
             }
@@ -790,6 +805,23 @@ bool checkPair(Component& a,
                 result.kind = InterferenceResult::Kind::Interference;
                 result.volume = volume;
                 result.overlap = Part::TopoShape(overlap);
+                // Where they meet: the middle of the solid in common, and
+                // out of b, the one hit, towards a
+                const gp_Pnt centre = props.CentreOfMass();
+                result.touched = true;
+                result.touchCentre = Base::Vector3d(centre.X(), centre.Y(), centre.Z());
+                if (!a.box.IsVoid() && !b.box.IsVoid()) {
+                    double ax0 {}, ay0 {}, az0 {}, ax1 {}, ay1 {}, az1 {};
+                    double bx0 {}, by0 {}, bz0 {}, bx1 {}, by1 {}, bz1 {};
+                    a.box.Get(ax0, ay0, az0, ax1, ay1, az1);
+                    b.box.Get(bx0, by0, bz0, bx1, by1, bz1);
+                    Base::Vector3d out(ax0 + ax1 - bx0 - bx1,
+                                       ay0 + ay1 - by0 - by1,
+                                       az0 + az1 - bz0 - bz1);
+                    if (out.Length() > 0.0) {
+                        result.touchNormal = out.Normalize();
+                    }
+                }
                 return true;
             }
         }

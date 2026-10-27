@@ -294,9 +294,16 @@ class TaskCheckInterference:
                 kind, amount = self.describe(result, mode)
                 self.addItem(self.table, index, result, [kind, amount])
             self.table.setRootIsDecorated(False)
+            marked = [r for r in self.results if r["Kind"] == "Interference"]
         else:
-            self.listByPair(mode)
+            marked = [self.results[i] for i in self.listByPair(mode)]
             self.table.setRootIsDecorated(True)
+        # Where they meet, marked as a drag's collisions are, until cleared
+        for result in marked:
+            if result["Kind"] == "Interference" and result["Centre"] is not None:
+                self.assembly.addCollisionMarker(
+                    result["Object1"], result["Object2"], result["Centre"], result["Direction"]
+                )
         for column in range(4):
             self.table.resizeColumnToContents(column)
 
@@ -359,7 +366,9 @@ class TaskCheckInterference:
 
     def listByPair(self, mode):
         """Over frames: a row per pair and kind, the frames under it. Picking the
-        pair shows its worst frame (the largest volume, Exact), or its first."""
+        pair shows its worst frame (the largest volume, Exact), or its first.
+        Returns the result each pair shows."""
+        picked = []
         groups = {}
         for index, result in enumerate(self.results):
             key = (result["Object1"].Name, result["Object2"].Name, result["Kind"])
@@ -377,6 +386,7 @@ class TaskCheckInterference:
                     volume=self.results[worst]["Volume"]
                 )
             pick = worst if mode == "Exact" else indices[0]
+            picked.append(pick)
             group = self.addItem(self.table, pick, first, [kind, amount])
             for i in indices:
                 result = self.results[i]
@@ -392,6 +402,7 @@ class TaskCheckInterference:
                         amount,
                     ],
                 )
+        return picked
 
     def onSelected(self):
         items = self.table.selectedItems()

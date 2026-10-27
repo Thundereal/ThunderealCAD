@@ -29,8 +29,12 @@
 // solves, and hands the solved geometry back -- what Sketcher::Sketch does for 2D.
 
 #include <deque>
+#include <map>
 #include <memory>
 #include <vector>
+
+#include <Geom2d_BSplineCurve.hxx>
+#include <Geom_Surface.hxx>
 
 #include <Base/Vector3D.h>
 
@@ -113,8 +117,9 @@ private:
         Arc,
         BSpline,
         Plane,
-        Curve,    // an external curve of any other kind
-        Surface,  // an external curved face
+        Curve,      // an external curve of any other kind
+        Surface,    // an external curved face
+        OnSurface,  // a curve on a face (Part::GeomCurveOnSurface): its (u, v) poles solved
     };
 
     struct Entity
@@ -130,7 +135,12 @@ private:
         GCS::VEC_D distinctKnots;  // BSpline: one per knot, as InternalAlignment indexes them
         GCS::Plane3 plane;
         std::shared_ptr<const GCS::FixedCurve3> fixedCurve;  // externals with a curve
-        std::shared_ptr<const GCS::FixedSurface3> fixedSurface;  // an external face
+        std::shared_ptr<const GCS::FixedSurface3> fixedSurface;  // an external face; OnSurface
+        // OnSurface: its 2D curve as the B-spline solved (bsp holds its poles, z unused),
+        // the surface it is evaluated on, and the range of its parameter
+        Handle(Geom2d_BSplineCurve) curve2d;
+        Handle(Geom_Surface) surface;
+        double tFirst {0.}, tLast {0.};
         const Part::Geometry* source {nullptr};
     };
 
@@ -156,6 +166,9 @@ private:
 
     int dofs {-1};
     std::vector<int> conflicting, redundant, partiallyRedundant, malformed;
+    // A curve on a face's geometry id -> the face it is on, from its 'PointOnObject'
+    // (curve, none, face): the face's surface is the one it is solved on.
+    std::map<int, const Part::Geometry*> onFace;
 };
 
 }  // namespace Sketcher

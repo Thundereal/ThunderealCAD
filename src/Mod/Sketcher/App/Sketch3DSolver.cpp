@@ -28,6 +28,7 @@
 #include <optional>
 #include <set>
 
+#include <Geom2dConvert.hxx>
 #include <Geom_Circle.hxx>
 #include <Geom_Curve.hxx>
 #include <GeomAPI_ProjectPointOnSurf.hxx>
@@ -39,6 +40,7 @@
 #include <gp_Mat.hxx>
 #include <gp_Quaternion.hxx>
 
+#include <Mod/Part/App/GeomCurveOnSurface.h>
 #include <Mod/Part/App/Geometry.h>
 
 #include "Sketch3DSolver.h"
@@ -88,6 +90,27 @@ public:
             p[k] = pnt.Coord(k + 1);
             du[k] = su.Coord(k + 1);
             dv[k] = sv.Coord(k + 1);
+        }
+    }
+    void value2(double u,
+                double v,
+                double p[3],
+                double du[3],
+                double dv[3],
+                double duu[3],
+                double duv[3],
+                double dvv[3]) const override
+    {
+        gp_Pnt pnt;
+        gp_Vec su, sv, suu, svv, suv;
+        surface->D2(u, v, pnt, su, sv, suu, svv, suv);
+        for (int k = 0; k < 3; ++k) {
+            p[k] = pnt.Coord(k + 1);
+            du[k] = su.Coord(k + 1);
+            dv[k] = sv.Coord(k + 1);
+            duu[k] = suu.Coord(k + 1);
+            duv[k] = suv.Coord(k + 1);
+            dvv[k] = svv.Coord(k + 1);
         }
     }
 
@@ -156,6 +179,51 @@ void Sketch3DSolver::addEntity(const Part::Geometry* geo, bool external, bool bl
         e.arc = {e.mid, e.normal, e.start, e.end};
         if (unknown) {
             GCS::addConstraintArc3Rules(sys, e.arc);
+        }
+    }
+    else if (auto onSurface = freecad_cast<const Part::GeomCurveOnSurface*>(geo);
+             onSurface && !external && !onSurface->getCurve2d()->IsPeriodic()) {
+        // Its 2D curve solved as a B-spline in (u, v), on the face it is on or else its
+        // own surface; its ends are sketch points tied to it (decision f).
+        e.kind = Kind::OnSurface;
+        auto it = onFace.find(static_cast<int>(entities.size()));
+        e.surface = it != onFace.end() ? Handle(Geom_Surface)::DownCast(it->second->handle())
+                                       : onSurface->getSurface();
+        e.fixedSurface = std::make_shared<OcctSurface3>(e.surface);
+        Handle(Geom2d_Curve) c2d = onSurface->getCurve2d();
+        e.curve2d = Handle(Geom2d_BSplineCurve)::DownCast(c2d->Copy());
+        if (e.curve2d.IsNull()) {
+            e.curve2d = Geom2dConvert::CurveToBSplineCurve(c2d);
+        }
+        e.tFirst = e.curve2d->FirstParameter();
+        e.tLast = e.curve2d->LastParameter();
+        for (int i = 1; i <= e.curve2d->NbPoles(); ++i) {
+            gp_Pnt2d pole = e.curve2d->Pole(i);
+            e.bsp.poles.push_back(
+                {param(pole.X(), unknown), param(pole.Y(), unknown), param(0., false)});
+            e.bsp.weights.push_back(param(e.curve2d->Weight(i), false));
+        }
+        e.bsp.degree = e.curve2d->Degree();
+        for (int i = 1; i <= e.curve2d->NbKnots(); ++i) {
+            e.distinctKnots.push_back(e.curve2d->Knot(i));
+            for (int m = 0; m < e.curve2d->Multiplicity(i); ++m) {
+                e.bsp.flatknots.push_back(e.curve2d->Knot(i));
+            }
+        }
+        // the 3D curve's ends, as points held to it
+        e.start = point(onSurface->getStartPoint(), unknown);
+        e.end = point(onSurface->getEndPoint(), unknown);
+        if (unknown) {
+            GCS::addConstraintP3OnSurfaceCurve(sys,
+                                               e.start,
+                                               e.bsp,
+                                               e.fixedSurface,
+                                               param(e.tFirst, false));
+            GCS::addConstraintP3OnSurfaceCurve(sys,
+                                               e.end,
+                                               e.bsp,
+                                               e.fixedSurface,
+                                               param(e.tLast, false));
         }
     }
     else if (auto bsp = freecad_cast<const Part::GeomBSplineCurve*>(geo);
@@ -258,6 +326,7 @@ GCS::Point3* Sketch3DSolver::entityPoint(int geoId, PointPos pos)
             return pos == PointPos::end ? nullptr : &e->start;
         case Kind::Line:
         case Kind::BSpline:
+        case Kind::OnSurface:
         case Kind::Curve:
             if (pos == PointPos::start) {
                 return e->start.x ? &e->start : nullptr;
@@ -303,6 +372,14 @@ bool Sketch3DSolver::tangentAt(int geoId, PointPos pos, GCS::Dir3& dir)
                 return true;
             }
             return false;
+        case Kind::OnSurface:
+            if (pos != PointPos::start && pos != PointPos::end) {
+                return false;
+            }
+            dir = GCS::Dir3::surfaceCurveTangent(e->bsp,
+                                                 e->fixedSurface,
+                                                 pos == PointPos::start ? e->tFirst : e->tLast);
+            return true;
         case Kind::BSpline: {
             // Clamped: the end tangent is along the end pole pair.
             auto& p = e->bsp.poles;
@@ -365,8 +442,35 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
         return kind && *kind == k;
     };
 
+    // Two ends of curves on the same face: both on the surface already, so their
+    // coincidence is two equations, not three -- the end poles of their (u, v) curves
+    // equal (clamped, a curve ends at its end pole) -- and their tangency one.
+    auto sameFaceEnds = [&](GCS::Point3*& pole1, GCS::Point3*& pole2, Entity*& e1, Entity*& e2) {
+        e1 = entity(c.First);
+        e2 = entity(c.Second);
+        auto endPole = [](Entity* e, PointPos pos) -> GCS::Point3* {
+            if (!e || e->kind != Kind::OnSurface || e->bsp.poles.empty()) {
+                return nullptr;
+            }
+            if (pos == PointPos::start) {
+                return &e->bsp.poles.front();
+            }
+            return pos == PointPos::end ? &e->bsp.poles.back() : nullptr;
+        };
+        pole1 = endPole(e1, c.FirstPos);
+        pole2 = endPole(e2, c.SecondPos);
+        return pole1 && pole2 && e1 != e2 && e1->surface == e2->surface;
+    };
+
     switch (c.Type) {
         case Coincident: {
+            GCS::Point3 *pole1, *pole2;
+            Entity *e1, *e2;
+            if (sameFaceEnds(pole1, pole2, e1, e2)) {
+                sys.addConstraintEqual(pole1->x, pole2->x, tag, driving);
+                sys.addConstraintEqual(pole1->y, pole2->y, tag, driving);
+                return true;
+            }
             auto p = pt(c.First, c.FirstPos), q = pt(c.Second, c.SecondPos);
             if (!p || !q) {
                 return false;
@@ -375,6 +479,10 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
             return true;
         }
         case PointOnObject: {
+            if (c.FirstPos == PointPos::none && is(c.First, Kind::OnSurface)) {
+                // the curve on the face: kept by solving it on that face's surface
+                return onFace.count(c.First) > 0;
+            }
             auto p = pt(c.First, c.FirstPos);
             Entity* target = entity(c.Second);
             if (!p || !target) {
@@ -409,6 +517,15 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
                     return true;
                 case Kind::Plane:
                     GCS::addConstraintP3OnPlane(sys, *p, target->plane, tag, driving);
+                    return true;
+                case Kind::OnSurface:
+                    GCS::addConstraintP3OnSurfaceCurve(sys,
+                                                       *p,
+                                                       target->bsp,
+                                                       target->fixedSurface,
+                                                       param(closestParameter(*target, *p), true),
+                                                       tag,
+                                                       driving);
                     return true;
                 case Kind::Surface: {
                     // its (u, v) unknowns, started where the point projects
@@ -578,6 +695,29 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
                                              tag,
                                              driving);
                 return true;
+            }
+            {
+                GCS::Point3 *pole1, *pole2;
+                Entity *e1, *e2;
+                if (sameFaceEnds(pole1, pole2, e1, e2)) {
+                    // joined in (u, v), and their (u, v) end tangents along their end
+                    // pole pairs parallel
+                    sys.addConstraintEqual(pole1->x, pole2->x, tag, driving);
+                    sys.addConstraintEqual(pole1->y, pole2->y, tag, driving);
+                    auto inner = [](Entity* e, PointPos pos) {
+                        auto& p = e->bsp.poles;
+                        return pos == PointPos::start ? GCS::Dir3::diff(p[0], p[1])
+                                                      : GCS::Dir3::diff(p[p.size() - 2], p.back());
+                    };
+                    auto t1 = inner(e1, c.FirstPos), t2 = inner(e2, c.SecondPos);
+                    GCS::addConstraintParallel2D(sys,
+                                                 t1,
+                                                 t2,
+                                                 param(GCS::initialParallelRatio(t1, t2), true),
+                                                 tag,
+                                                 driving);
+                    return true;
+                }
             }
             // End to end: joined, and the tangents there parallel.
             auto p = pt(c.First, c.FirstPos), q = pt(c.Second, c.SecondPos);
@@ -806,6 +946,20 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
             auto p = pt(c.First, PointPos::start);
             Entity* s = entity(c.Second);
             int k = c.InternalAlignmentIndex;
+            if (p && s && s->kind == Kind::OnSurface && k >= 0
+                && c.AlignmentType == BSplineKnotPoint) {
+                if (static_cast<std::size_t>(k) >= s->distinctKnots.size()) {
+                    return false;
+                }
+                GCS::addConstraintP3OnSurfaceCurve(sys,
+                                                   *p,
+                                                   s->bsp,
+                                                   s->fixedSurface,
+                                                   param(s->distinctKnots[k], false),
+                                                   tag,
+                                                   driving);
+                return true;
+            }
             if (!p || !s || s->kind != Kind::BSpline || k < 0) {
                 return false;
             }
@@ -856,9 +1010,21 @@ int Sketch3DSolver::setUp(const std::vector<const Part::Geometry*>& geometry,
     origin = point(Base::Vector3d(0, 0, 0), false);
 
     std::set<int> blocked;
+    onFace.clear();
     for (auto* c : constraints) {
         if (c->Type == Block && c->isActive && c->First >= 0) {
             blocked.insert(c->First);
+        }
+        // a curve on a face: the face whose surface it is solved on
+        if (c->Type == PointOnObject && c->isActive && c->FirstPos == PointPos::none
+            && c->First >= 0 && static_cast<std::size_t>(c->First) < geometry.size()
+            && geometry[c->First]->isDerivedFrom<Part::GeomCurveOnSurface>() && c->Second < 0
+            && c->Second != GeoEnum::GeoUndef
+            && static_cast<std::size_t>(-c->Second - 1) < external.size()) {
+            auto face = external[static_cast<std::size_t>(-c->Second - 1)];
+            if (face->isDerivedFrom<Part::GeomSurface>()) {
+                onFace[c->First] = face;
+            }
         }
     }
     internalCount = geometry.size();
@@ -942,8 +1108,10 @@ int Sketch3DSolver::movePoint(int geoId, PointPos pos, const Base::Vector3d& to,
                 pts.push_back(p);
             }
         }
-        for (auto& pole : e->bsp.poles) {
-            pts.push_back(&pole);
+        if (e->kind != Kind::OnSurface) {  // its poles are (u, v): it goes by its ends
+            for (auto& pole : e->bsp.poles) {
+                pts.push_back(&pole);
+            }
         }
     }
     if (pts.empty()) {
@@ -1036,6 +1204,18 @@ std::vector<std::unique_ptr<Part::Geometry>> Sketch3DSolver::extractGeometry() c
             }
             case Kind::Surface:
                 break;
+            case Kind::OnSurface: {
+                auto onSurface = static_cast<Part::GeomCurveOnSurface*>(geo.get());
+                Handle(Geom2d_BSplineCurve) c2d =
+                    Handle(Geom2d_BSplineCurve)::DownCast(e.curve2d->Copy());
+                for (std::size_t k = 0; k < e.bsp.poles.size(); ++k) {
+                    c2d->SetPole(static_cast<int>(k + 1),
+                                 gp_Pnt2d(*e.bsp.poles[k].x, *e.bsp.poles[k].y));
+                }
+                onSurface->setCurve2d(c2d);
+                onSurface->setSurface(Handle(Geom_Surface)::DownCast(e.surface->Copy()));
+                break;
+            }
             case Kind::Plane: {
                 double w = *e.plane.qw, x = *e.plane.qx, y = *e.plane.qy, z = *e.plane.qz;
                 double l = std::sqrt(w * w + x * x + y * y + z * z);

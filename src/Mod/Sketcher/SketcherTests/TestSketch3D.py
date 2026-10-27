@@ -413,6 +413,142 @@ class TestSketch3D(unittest.TestCase):
         g = sk.Geometry[p]
         self.assertAlmostEqual(math.hypot(g.X, g.Y), 9, 9)
 
+    def cylinderSide(self, radius=5):
+        cyl = self.doc.addObject("Part::Cylinder", "Cyl")
+        cyl.Radius, cyl.Height = radius, 20
+        self.doc.recompute()
+        side = [
+            "Face%d" % (i + 1)
+            for i, f in enumerate(cyl.Shape.Faces)
+            if f.Surface.TypeId == "Part::GeomCylinder"
+        ][0]
+        return cyl, side
+
+    def addCurveOnFace(self, sk, ext, uvs):
+        """A spline through (u, v) points on the face ext, put on it."""
+        bs = Part.Geom2d.BSplineCurve2d()
+        bs.interpolate([App.Base.Vector2d(u, v) for u, v in uvs])
+        surface = sk.ExternalGeo[-ext - 7]
+        c = sk.addGeometry(Part.CurveOnSurface(bs, surface))
+        sk.addConstraint(Sketcher.Constraint("PointOnObject", c, 0, ext))
+        return c
+
+    def assertOnCylinder(self, g, radius):
+        for i in range(9):
+            u = g.FirstParameter + (g.LastParameter - g.FirstParameter) * i / 8
+            p = g.value(u)
+            self.assertAlmostEqual(math.hypot(p.x, p.y), radius, 9)
+
+    def testCurveOnAFaceFollowsIt(self):
+        # A spline on a cylinder's side, solved in the side's (u, v): its start held at
+        # a height, it stays on the side, follows the radius, gives an edge that
+        # carries it on the cylinder, and saves and restores.
+        cyl, side = self.cylinderSide()
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        ext = sk.addExternal(cyl, side)
+        c = self.addCurveOnFace(sk, ext, [(0.2, 2), (1.0, 6), (2.0, 9), (2.8, 15)])
+        g = sk.Geometry[c]
+        self.assertEqual(type(g).__name__, "CurveOnSurface")
+        npoles = g.Curve2d.NbPoles
+        self.assertEqual(sk.DoF, 2 * npoles)
+        self.assertEqual(sk.Malformed, [])
+        self.assertOnCylinder(g, 5)
+        p = sk.addGeometry(Part.Point(V(5, 1, 3)))
+        sk.addConstraint(Sketcher.Constraint("Coincident", c, 1, p, 1))
+        sk.addConstraint(Sketcher.Constraint("DistanceZ", p, 1, 3.0))
+        self.assertEqual(sk.Redundant, [])
+        self.assertEqual(sk.Conflicting, [])
+        g = sk.Geometry[c]
+        self.assertAlmostEqual(g.StartPoint.z, 3, 9)
+        self.assertOnCylinder(g, 5)
+
+        cyl.Radius = 8
+        self.doc.recompute()
+        g = sk.Geometry[c]
+        self.assertOnCylinder(g, 8)
+        self.assertAlmostEqual(g.StartPoint.z, 3, 9)
+        edges = sk.Shape.Edges
+        self.assertEqual(len(edges), 1)
+        self.assertTrue(edges[0].isValid())
+        self.assertEqual(type(edges[0].curveOnSurface(0)[1]).__name__, "Cylinder")
+
+        path = os.path.join(tempfile.mkdtemp(), "curveonface.FCStd")
+        self.doc.saveAs(path)
+        App.closeDocument(self.doc.Name)
+        self.doc = App.openDocument(path)
+        sk = self.doc.getObject("S")
+        self.assertEqual(type(sk.Geometry[c]).__name__, "CurveOnSurface")
+        self.assertEqual(sk.solve(), 0)
+        self.assertOnCylinder(sk.Geometry[c], 8)
+
+    def testCurvesOnAFaceJoin(self):
+        # Two curves on the same face joined end to end, coincident and then tangent:
+        # both ends are on the surface already, so the join is 2 equations and the
+        # tangency 1 -- nothing redundant.
+        cyl, side = self.cylinderSide()
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        ext = sk.addExternal(cyl, side)
+        a = self.addCurveOnFace(sk, ext, [(0.2, 2), (0.8, 5), (1.4, 6)])
+        b = self.addCurveOnFace(sk, ext, [(1.5, 6.5), (2.2, 9), (2.9, 8)])
+        dof = sk.DoF
+        sk.addConstraint(Sketcher.Constraint("Coincident", a, 2, b, 1))
+        self.assertEqual(sk.Redundant, [])
+        self.assertEqual(sk.DoF, dof - 2)
+        self.assertVector(sk.Geometry[a].EndPoint, sk.Geometry[b].StartPoint, 1e-9)
+        sk.delConstraint(len(sk.Constraints) - 1)
+        sk.addConstraint(Sketcher.Constraint("Tangent", a, 2, b, 1))
+        self.assertEqual(sk.Redundant, [])
+        self.assertEqual(sk.Conflicting, [])
+        self.assertEqual(sk.DoF, dof - 3)
+        ga, gb = sk.Geometry[a], sk.Geometry[b]
+        self.assertVector(ga.EndPoint, gb.StartPoint, 1e-9)
+        ta = ga.tangent(ga.LastParameter)[0]
+        tb = gb.tangent(gb.FirstParameter)[0]
+        self.assertLess(ta.cross(tb).Length, 1e-7)
+
+    def testLineTangentToACurveOnAFace(self):
+        # A free line leaving a curve on a face tangent to it (G1 off the face).
+        cyl, side = self.cylinderSide()
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        ext = sk.addExternal(cyl, side)
+        c = self.addCurveOnFace(sk, ext, [(0.2, 2), (1.0, 6), (2.0, 9)])
+        # drawn roughly back along the curve, as a line leaving it would be: started
+        # square to the face, the solve may meet the tangency by collapsing the
+        # curve's start instead (d2 = s d1 with s = 0, as any 3D tangency may)
+        g = sk.Geometry[c]
+        t = g.tangent(g.FirstParameter)[0]
+        start = g.StartPoint
+        line = sk.addGeometry(Part.LineSegment(start - t * 12 + V(0.5, -0.4, 0.3), start))
+        sk.addConstraint(Sketcher.Constraint("Tangent", line, 2, c, 1))
+        self.assertEqual(sk.Redundant, [])
+        self.assertEqual(sk.Conflicting, [])
+        g, l = sk.Geometry[c], sk.Geometry[line]
+        self.assertVector(l.EndPoint, g.StartPoint, 1e-9)
+        t = g.tangent(g.FirstParameter)[0]
+        d = l.EndPoint - l.StartPoint
+        self.assertLess(t.cross(d).Length, 1e-7 * d.Length)
+
+    def testKnotPointOnACurveOnAFace(self):
+        # A sketch point at a knot of the curve: on it, and so on the face, and it
+        # drags the curve, which stays on the face.
+        cyl, side = self.cylinderSide()
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        ext = sk.addExternal(cyl, side)
+        c = self.addCurveOnFace(sk, ext, [(0.2, 2), (1.0, 6), (2.0, 9), (2.8, 15)])
+        p = sk.addGeometry(Part.Point(V(0, 0, 0)), True)
+        sk.addConstraint(
+            Sketcher.Constraint("InternalAlignment:Sketcher::BSplineKnotPoint", p, 1, c, 1)
+        )
+        self.assertEqual(sk.Malformed, [])
+        g = sk.Geometry[p]
+        q = V(g.X, g.Y, g.Z)
+        self.assertAlmostEqual(math.hypot(q.x, q.y), 5, 9)
+        self.assertLess(sk.Geometry[c].toShape().distToShape(Part.Vertex(q))[0], 1e-7)
+        self.assertEqual(sk.movePoint(p, 1, q + V(0, 0, 2)), 0)
+        g = sk.Geometry[p]
+        self.assertAlmostEqual(g.Z, q.z + 2, 6)
+        self.assertOnCylinder(sk.Geometry[c], 5)
+
     def testUnbuiltReferenceKeepsTheIdsAfterIt(self):
         # A reference whose element is gone keeps its geometry as it was, so the ones
         # after it keep their ids and their constraints stay on them.

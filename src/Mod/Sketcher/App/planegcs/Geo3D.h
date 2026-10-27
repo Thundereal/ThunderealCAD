@@ -249,6 +249,15 @@ class SketcherExport FixedSurface3
 public:
     virtual ~FixedSurface3() = default;
     virtual void value(double u, double v, double p[3], double du[3], double dv[3]) const = 0;
+    /// The second derivatives too, for a tangent's derivative.
+    virtual void value2(double u,
+                        double v,
+                        double p[3],
+                        double du[3],
+                        double dv[3],
+                        double duu[3],
+                        double duv[3],
+                        double dvv[3]) const = 0;
 };
 
 }  // namespace GCS

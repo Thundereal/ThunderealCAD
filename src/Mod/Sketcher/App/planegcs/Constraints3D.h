@@ -45,6 +45,8 @@ namespace GCS
 /// - crossDiff(n,a,b): n x (b - a) (an arc's tangent at b, a = centre)
 /// - planeNormal(pl):  a workplane's normal, from its quaternion
 /// - planeAxis(pl, k): its X (0), Y (1) or Z (2) axis
+/// - surfaceCurveTangent(bsp, s, t): a curve on a surface S(c(t)) at t, c a B-spline in
+///   the surface's (u, v) whose poles are Point3 with z unused
 class SketcherExport Dir3
 {
 public:
@@ -53,7 +55,17 @@ public:
         Vector,
         Diff,
         CrossDiff,
-        QuatAxis
+        QuatAxis,
+        SurfaceCurveTangent
+    };
+    /// What a SurfaceCurveTangent evaluates beside its parameters.
+    struct SurfaceCurve
+    {
+        std::size_t npoles {0};
+        VEC_D flatknots;
+        int degree {0};
+        std::shared_ptr<const FixedSurface3> surface;
+        double t {0.};
     };
 
     static Dir3 vector(const Point3& v);
@@ -61,9 +73,13 @@ public:
     static Dir3 crossDiff(const Point3& n, const Point3& a, const Point3& b);
     static Dir3 planeNormal(const Plane3& pl);
     static Dir3 planeAxis(const Plane3& pl, int axis);
+    static Dir3 surfaceCurveTangent(const BSpline3& bsp,
+                                    std::shared_ptr<const FixedSurface3> surface,
+                                    double t);
 
     Kind kind {Kind::Vector};
     int axis {2};  // QuatAxis
+    std::shared_ptr<const SurfaceCurve> curve;  // SurfaceCurveTangent
     VEC_pD params;
 
     /// Its current value, without derivatives.
@@ -138,6 +154,30 @@ public:
     ConstraintType getTypeId() override
     {
         return P3OnFixedSurface;
+    }
+    void errorgrad(double* err, double* grad, double* param) override;
+};
+
+// P_k - S(c(t))_k: one component of a point on a curve that lies on a surface not solved
+// for, c a B-spline in the surface's (u, v) (poles as Point3, z unused); t unknown, or a
+// value for the curve's ends and knot points.
+class SketcherExport ConstraintP3OnSurfaceCurve: public Constraint
+{
+    int comp;
+    std::size_t npoles;
+    VEC_D flatknots;
+    int degree;
+    std::shared_ptr<const FixedSurface3> surface;
+
+public:
+    ConstraintP3OnSurfaceCurve(const Point3& p,
+                               const BSpline3& bsp,
+                               std::shared_ptr<const FixedSurface3> surface,
+                               double* t,
+                               int comp);
+    ConstraintType getTypeId() override
+    {
+        return P3OnSurfaceCurve;
     }
     void errorgrad(double* err, double* grad, double* param) override;
 };
@@ -332,6 +372,15 @@ SketcherExport int addConstraintP3OnFixedCurve(System& sys,
                                                bool driving = true);
 SketcherExport int
 addConstraintP3OnPlane(System& sys, Point3& p, Plane3& pl, int tag = 0, bool driving = true);
+/// A point on a curve on a surface (ConstraintP3OnSurfaceCurve), 3 equations; with t
+/// unknown that removes 2 DOF, with t a value it ties the point to the curve there.
+SketcherExport int addConstraintP3OnSurfaceCurve(System& sys,
+                                                 Point3& p,
+                                                 BSpline3& bsp,
+                                                 std::shared_ptr<const FixedSurface3> surface,
+                                                 double* t,
+                                                 int tag = 0,
+                                                 bool driving = true);
 /// u, v: the point's parameters on the surface, unknowns the caller allocates.
 SketcherExport int addConstraintP3OnFixedSurface(System& sys,
                                                  Point3& p,
@@ -350,6 +399,14 @@ SketcherExport int addConstraintParallel3(System& sys,
                                           double* s,
                                           int tag = 0,
                                           bool driving = true);
+/// Parallel for two directions in the XY plane (a curve's in a surface's (u, v)): the x
+/// and y components only, 1 DOF, where the z one would be an empty equation.
+SketcherExport int addConstraintParallel2D(System& sys,
+                                           const Dir3& d1,
+                                           const Dir3& d2,
+                                           double* s,
+                                           int tag = 0,
+                                           bool driving = true);
 /// The s to start from: |d2| / |d1|, negative when the directions face apart -- the
 /// ratio a parallel pair of their lengths has, on the side they are nearer. Not the
 /// projection d1 . d2 / |d1|^2, which is 0 for perpendicular directions, where the

@@ -133,6 +133,55 @@ public:
     }
 };
 
+// A saddle, as a curved model face would be given: (u, v, 0.1 u v + 0.05 u^2).
+class Saddle: public GCS::FixedSurface3
+{
+public:
+    void value(double u, double v, double p[3], double du[3], double dv[3]) const override
+    {
+        p[0] = u;
+        p[1] = v;
+        p[2] = 0.1 * u * v + 0.05 * u * u;
+        du[0] = 1;
+        du[1] = 0;
+        du[2] = 0.1 * v + 0.1 * u;
+        dv[0] = 0;
+        dv[1] = 1;
+        dv[2] = 0.1 * u;
+    }
+    void value2(double u,
+                double v,
+                double p[3],
+                double du[3],
+                double dv[3],
+                double duu[3],
+                double duv[3],
+                double dvv[3]) const override
+    {
+        value(u, v, p, du, dv);
+        duu[0] = duu[1] = duv[0] = duv[1] = dvv[0] = dvv[1] = dvv[2] = 0;
+        duu[2] = 0.1;
+        duv[2] = 0.1;
+    }
+};
+
+// A curve in a surface's (u, v): a rational cubic whose poles are Point3 with z unused.
+GCS::BSpline3 makeSpline2d(Params& ps)
+{
+    GCS::BSpline3 bsp;
+    bsp.degree = 3;
+    const double poles[5][2] = {{0, 0}, {3, 2}, {6, -1}, {9, 3}, {12, 1}};
+    const double weights[5] = {1, 1.4, 0.9, 1.1, 1};
+    for (int i = 0; i < 5; ++i) {
+        bsp.poles.push_back({ps.add(poles[i][0]), ps.add(poles[i][1]), ps.add(0., false)});
+    }
+    for (double w : weights) {
+        bsp.weights.push_back(ps.add(w, false));
+    }
+    bsp.flatknots = {0, 0, 0, 0, 1, 2, 2, 2, 2};
+    return bsp;
+}
+
 // A rational cubic with five poles, clamped.
 GCS::BSpline3 makeSpline(Params& ps, bool unknown = true)
 {
@@ -208,6 +257,76 @@ TEST(Constraints3DGradient, everyConstraint)  // NOLINT
     for (auto& [what, c] : cs) {
         expectGradientMatches(*c, what);
     }
+}
+
+TEST(Constraints3DGradient, curveOnSurface)  // NOLINT
+{
+    // A point on a curve on a surface, its parameter unknown, and the curve's tangent
+    // there (through a dot product), by every parameter against differences.
+    Params ps;
+    auto P = ps.point(4.1, 0.7, 1.9);
+    auto A = ps.point(0.2, 0.5, -1.1);
+    auto B = ps.point(4.1, 1.7, 2.2);
+    double* t = ps.add(0.83);
+    auto bsp = makeSpline2d(ps);
+    auto saddle = std::make_shared<Saddle>();
+    using namespace GCS;
+    for (int k = 0; k < 3; ++k) {
+        ConstraintP3OnSurfaceCurve c(P, bsp, saddle, t, k);
+        expectGradientMatches(c, "P3OnSurfaceCurve");
+    }
+    for (double at : {0.0, 0.7, 2.0}) {
+        ConstraintDir3Dot dot(Dir3::surfaceCurveTangent(bsp, saddle, at), Dir3::diff(A, B));
+        expectGradientMatches(dot, "SurfaceCurveTangent");
+    }
+    // and its value: the curve's points differenced
+    GCS::VEC_pD pvec;
+    bsp.push(pvec);
+    GCS::BSpline3View view(pvec, 0, bsp.poles.size(), bsp.flatknots, bsp.degree);
+    auto onSurface = [&](double at, double p[3]) {
+        auto c = view.value(at, 0., nullptr);
+        double su[3], sv[3];
+        saddle->value(c.x, c.y, p, su, sv);
+    };
+    for (double at : {0.3, 0.7, 1.6}) {
+        double a[3], b[3], h = 1e-6;
+        onSurface(at - h, a);
+        onSurface(at + h, b);
+        auto tg = Dir3::surfaceCurveTangent(bsp, saddle, at).current();
+        EXPECT_NEAR(tg.x, (b[0] - a[0]) / (2 * h), 1e-5) << at;
+        EXPECT_NEAR(tg.y, (b[1] - a[1]) / (2 * h), 1e-5) << at;
+        EXPECT_NEAR(tg.z, (b[2] - a[2]) / (2 * h), 1e-5) << at;
+    }
+}
+
+TEST(Constraints3DSolve, curveOnSurfaceThroughPoints)  // NOLINT
+{
+    // A curve on the saddle, its ends held at two points whose x and y are fixed and
+    // whose height is free: it solves to them, and they come onto the surface.
+    SystemTest sys;
+    Params ps;
+    auto bsp = makeSpline2d(ps);
+    auto saddle = std::make_shared<Saddle>();
+    auto s = ps.point(0, 0, 0), e = ps.point(12, 1, 0.1 * 12 + 0.05 * 144);
+    GCS::addConstraintP3OnSurfaceCurve(sys, s, bsp, saddle, ps.add(0., false));
+    GCS::addConstraintP3OnSurfaceCurve(sys, e, bsp, saddle, ps.add(2., false));
+    GCS::Point3 a {ps.add(1, false), ps.add(4, false), ps.add(0.)};
+    GCS::Point3 b {ps.add(10, false), ps.add(-2, false), ps.add(0.)};
+    GCS::addConstraintP3Coincident(sys, s, a, 1);
+    GCS::addConstraintP3Coincident(sys, e, b, 2);
+    EXPECT_EQ(diagnose(sys, ps), 10 - 4);  // the poles' (u, v), less the two ends' (u, v)
+    EXPECT_FALSE(sys.hasRedundant());
+    ASSERT_EQ(solve(sys, ps), GCS::SolveStatus::Success);
+    GCS::VEC_pD pvec;
+    bsp.push(pvec);
+    GCS::BSpline3View view(pvec, 0, bsp.poles.size(), bsp.flatknots, bsp.degree);
+    auto c0 = view.value(0., 0., nullptr), c1 = view.value(2., 0., nullptr);
+    EXPECT_NEAR(c0.x, 1, 1e-9);
+    EXPECT_NEAR(c0.y, 4, 1e-9);
+    EXPECT_NEAR(c1.x, 10, 1e-9);
+    EXPECT_NEAR(c1.y, -2, 1e-9);
+    EXPECT_NEAR(*a.z, 0.1 * 1 * 4 + 0.05 * 1, 1e-9);
+    EXPECT_NEAR(*b.z, 0.1 * 10 * -2 + 0.05 * 100, 1e-9);
 }
 
 TEST(Constraints3DGradient, bsplineTangent)  // NOLINT

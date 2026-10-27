@@ -93,6 +93,23 @@ Dir3 Dir3::planeNormal(const Plane3& pl)
     return planeAxis(pl, 2);
 }
 
+Dir3 Dir3::surfaceCurveTangent(const BSpline3& bsp,
+                               std::shared_ptr<const FixedSurface3> surface,
+                               double t)
+{
+    Dir3 d;
+    d.kind = Kind::SurfaceCurveTangent;
+    auto spec = std::make_shared<SurfaceCurve>();
+    spec->npoles = bsp.poles.size();
+    spec->flatknots = bsp.flatknots;
+    spec->degree = bsp.degree;
+    spec->surface = std::move(surface);
+    spec->t = t;
+    d.curve = spec;
+    bsp.push(d.params);
+    return d;
+}
+
 Dir3 Dir3::planeAxis(const Plane3& pl, int axis)
 {
     Dir3 d;
@@ -117,6 +134,22 @@ DeriVector3 Dir3::eval(const VEC_pD& pvec, std::size_t i, const double* derivpar
         }
         case Kind::QuatAxis:
             return quaternionAxis(pvec, i, axis, derivparam);
+        case Kind::SurfaceCurveTangent: {
+            // T = Su u' + Sv v'; by a parameter: Su du' + Sv dv' plus the change of Su and
+            // Sv with where on the surface the curve is.
+            BSpline3View view(pvec, i, curve->npoles, curve->flatknots, curve->degree);
+            DeriVector3 c = view.value(curve->t, 0., derivparam);
+            DeriVector3 d = view.tangent(curve->t, derivparam);
+            double s[3], su[3], sv[3], suu[3], suv[3], svv[3];
+            curve->surface->value2(c.x, c.y, s, su, sv, suu, suv, svv);
+            double T[3], dT[3];
+            for (int k = 0; k < 3; ++k) {
+                T[k] = su[k] * d.x + sv[k] * d.y;
+                dT[k] = su[k] * d.dx + sv[k] * d.dy + (suu[k] * c.dx + suv[k] * c.dy) * d.x
+                    + (suv[k] * c.dx + svv[k] * c.dy) * d.y;
+            }
+            return {T[0], T[1], T[2], dT[0], dT[1], dT[2]};
+        }
     }
     return {};
 }
@@ -238,6 +271,40 @@ void ConstraintP3OnFixedSurface::errorgrad(double* err, double* grad, double* pa
     double dp;
     double p = P.component(comp, dp);
     output(err, grad, p - s[comp], dp - du * su[comp] - dv * sv[comp]);
+}
+
+// --------------------------------------------------------
+// P3OnSurfaceCurve: pvec = P, t, poles (u, v, unused), weights
+
+ConstraintP3OnSurfaceCurve::ConstraintP3OnSurfaceCurve(const Point3& p,
+                                                       const BSpline3& bsp,
+                                                       std::shared_ptr<const FixedSurface3> surface,
+                                                       double* t,
+                                                       int comp)
+    : comp(comp)
+    , npoles(bsp.poles.size())
+    , flatknots(bsp.flatknots)
+    , degree(bsp.degree)
+    , surface(std::move(surface))
+{
+    p.push(pvec);
+    pvec.push_back(t);
+    bsp.push(pvec);
+    origpvec = pvec;
+    rescale();
+}
+
+void ConstraintP3OnSurfaceCurve::errorgrad(double* err, double* grad, double* param)
+{
+    DeriVector3 P(pvec, 0, param);
+    double t = *pvec[3], dt = dvar(pvec[3], param);
+    BSpline3View view(pvec, 4, npoles, flatknots, degree);
+    DeriVector3 c = view.value(t, dt, param);
+    double s[3], su[3], sv[3];
+    surface->value(c.x, c.y, s, su, sv);
+    double dp;
+    double p = P.component(comp, dp);
+    output(err, grad, p - s[comp], dp - su[comp] * c.dx - sv[comp] * c.dy);
 }
 
 // --------------------------------------------------------
@@ -635,6 +702,20 @@ int addConstraintP3OnFixedCurve(System& sys,
     return i;
 }
 
+int addConstraintP3OnSurfaceCurve(System& sys,
+                                  Point3& p,
+                                  BSpline3& bsp,
+                                  std::shared_ptr<const FixedSurface3> surface,
+                                  double* t,
+                                  int tag,
+                                  bool driving)
+{
+    int i = add(sys, new ConstraintP3OnSurfaceCurve(p, bsp, surface, t, 0), tag, driving);
+    add(sys, new ConstraintP3OnSurfaceCurve(p, bsp, surface, t, 1), tag, driving);
+    add(sys, new ConstraintP3OnSurfaceCurve(p, bsp, surface, t, 2), tag, driving);
+    return i;
+}
+
 int addConstraintP3OnFixedSurface(System& sys,
                                   Point3& p,
                                   std::shared_ptr<const FixedSurface3> surface,
@@ -663,6 +744,18 @@ double initialParallelRatio(const Dir3& d1, const Dir3& d2)
         return 1.;
     }
     return v1.dot(v2, dd) < 0. ? -l2 / l1 : l2 / l1;
+}
+
+int addConstraintParallel2D(System& sys,
+                            const Dir3& d1,
+                            const Dir3& d2,
+                            double* s,
+                            int tag,
+                            bool driving)
+{
+    int i = add(sys, new ConstraintDir3Parallel(d1, d2, s, 0), tag, driving);
+    add(sys, new ConstraintDir3Parallel(d1, d2, s, 1), tag, driving);
+    return i;
 }
 
 int addConstraintParallel3(System& sys,

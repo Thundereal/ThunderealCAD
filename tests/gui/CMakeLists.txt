@@ -108,6 +108,10 @@ fc_add_gui_test(GuiSketch3DTools_tests_run sketch3d-tools.py
 # commands, the dimension labels and their in-view values, Delete.
 fc_add_gui_test(GuiSketch3DConstraints_tests_run sketch3d-constraints.py
                 --timeout 180)
+# The Surface workbench's Sew command (docs/Surface.md, U0): on the tool bar,
+# from selected faces or whole shapes, its gap readout, one undo step.
+fc_add_gui_test(GuiSurfaceSew_tests_run surface-sew.py
+                --timeout 180)
 # Its drag and kept planes (S2e): a point and a curve dragged with the
 # constraints kept, Keep Plane, Ctrl+press on a kept plane and on a face.
 fc_add_gui_test(GuiSketch3DDragPlane_tests_run sketch3d-drag-plane.py

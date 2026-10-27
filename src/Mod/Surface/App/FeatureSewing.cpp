@@ -22,7 +22,11 @@
 
 #include "PreCompiled.h"
 #ifndef _PreComp_
+#include <algorithm>
+
 #include <BRepBuilderAPI_Sewing.hxx>
+#include <BRep_Tool.hxx>
+#include <TopExp_Explorer.hxx>
 #include <Precision.hxx>
 #include <TopoDS.hxx>
 #endif
@@ -53,6 +57,16 @@ Sewing::Sewing()
                       "Analysis of degenerated shapes");
     ADD_PROPERTY_TYPE(CutFreeEdges, (true), "Sewing", App::Prop_None, "Cutting of free edges");
     ADD_PROPERTY_TYPE(Nonmanifold, (false), "Sewing", App::Prop_None, "Non-manifold processing");
+    ADD_PROPERTY_TYPE(FreeEdges,
+                      (0),
+                      "Sewing",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Output),
+                      "Edges left unsewn: boundaries, or gaps wider than the tolerance");
+    ADD_PROPERTY_TYPE(MaxGap,
+                      (0.0),
+                      "Sewing",
+                      App::PropertyType(App::Prop_ReadOnly | App::Prop_Output),
+                      "The largest gap closed: sewing raises an edge's tolerance to it");
 
     ShapeList.setScope(App::LinkScope::Global);
 }
@@ -104,6 +118,13 @@ App::DocumentObjectExecReturn* Sewing::execute()
         }
         Part::TopoShape result(0, getDocument()->getStringHasher());
         this->Shape.setValue(result.makEShape(builder, sources));
+
+        double gap = 0.0;
+        for (TopExp_Explorer xp(builder.SewedShape(), TopAbs_EDGE); xp.More(); xp.Next()) {
+            gap = std::max(gap, BRep_Tool::Tolerance(TopoDS::Edge(xp.Current())));
+        }
+        FreeEdges.setValue(builder.NbFreeEdges());
+        MaxGap.setValue(gap);
         return StdReturn;
     }
     catch (Standard_Failure& e) {

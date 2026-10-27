@@ -349,6 +349,58 @@ bool CmdSurfaceSections::isActive()
     return hasActiveDocument();
 }
 
+DEF_STD_CMD_A(CmdSurfaceSewing)
+
+CmdSurfaceSewing::CmdSurfaceSewing()
+    : Command("Surface_Sewing")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Sew");
+    sToolTipText = QT_TR_NOOP("Sews the selected faces or shapes into a shell.\n"
+                              "Its FreeEdges and MaxGap properties tell what is left open\n"
+                              "and the widest gap closed.");
+    sWhatsThis = "Surface_Sewing";
+    sStatusTip = sToolTipText;
+    sPixmap = "Surface_Sewing";
+}
+
+void CmdSurfaceSewing::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    std::ostringstream links;
+    for (const auto& sel : Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId())) {
+        const auto& subs = sel.getSubNames();
+        std::string obj = Gui::Command::getObjectCmd(sel.getObject());
+        if (subs.empty()) {
+            links << "(" << obj << ", ''), ";
+        }
+        for (const auto& sub : subs) {
+            links << "(" << obj << ", '" << sub << "'), ";
+        }
+    }
+    if (links.str().empty()) {
+        QMessageBox::warning(Gui::getMainWindow(),
+                             qApp->translate("Surface_Sewing", "Wrong selection"),
+                             qApp->translate("Surface_Sewing", "Select faces or shapes to sew"));
+        return;
+    }
+    std::string FeatName = getUniqueObjectName("Sewing");
+    openCommand(QT_TRANSLATE_NOOP("Command", "Sew"));
+    doCommand(Doc, "App.ActiveDocument.addObject(\"Surface::Sewing\",\"%s\")", FeatName.c_str());
+    doCommand(Doc,
+              "App.ActiveDocument.%s.ShapeList = [%s]",
+              FeatName.c_str(),
+              links.str().c_str());
+    updateActive();
+    commitCommand();
+}
+
+bool CmdSurfaceSewing::isActive()
+{
+    return Gui::Selection().countObjectsOfType(Part::Feature::getClassTypeId()) > 0;
+}
+
 void CreateSurfaceCommands()
 {
     Gui::CommandManager& rcCmdMgr = Gui::Application::Instance->commandManager();
@@ -358,6 +410,7 @@ void CreateSurfaceCommands()
     rcCmdMgr.addCommand(new CmdSurfaceFilling());
     rcCmdMgr.addCommand(new CmdSurfaceGeomFillSurface());
     rcCmdMgr.addCommand(new CmdSurfaceSections());
+    rcCmdMgr.addCommand(new CmdSurfaceSewing());
     rcCmdMgr.addCommand(new CmdSurfaceExtendFace());
     rcCmdMgr.addCommand(new CmdSurfaceCurveOnMesh());
     rcCmdMgr.addCommand(new CmdBlendCurve());

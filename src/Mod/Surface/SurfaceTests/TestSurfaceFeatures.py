@@ -201,6 +201,25 @@ class TestSurfaceFeatures(unittest.TestCase):
         self.recompute(sew)
         self.assertLess(held(h).CenterOfMass.distanceToPoint(centre), 1e-9)
 
+    def testSewingGapReadout(self):
+        # two squares 0.01 apart: open under the default tolerance, closed above it
+        a = self.doc.addObject("Part::Plane", "A")
+        b = self.doc.addObject("Part::Plane", "B")
+        b.Placement.Base = V(10.01, 0, 0)
+        a.Length = b.Length = a.Width = b.Width = 10
+        sew = self.doc.addObject("Surface::Sewing", "Sew")
+        sew.ShapeList = [(a, "Face1"), (b, "Face1")]
+        self.recompute(sew)
+        self.assertEqual(sew.FreeEdges, 8)
+        self.assertLess(sew.MaxGap.Value, 0.001)
+
+        sew.Tolerance = 0.1
+        self.recompute(sew)
+        self.assertEqual(len(sew.Shape.Shells), 1)
+        self.assertEqual(sew.FreeEdges, 6)
+        self.assertGreater(sew.MaxGap.Value, 0.004)
+        self.assertLess(sew.MaxGap.Value, 0.1)
+
     # -- Cut ------------------------------------------------------------------
 
     def testCutNames(self):

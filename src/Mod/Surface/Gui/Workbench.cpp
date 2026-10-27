@@ -50,6 +50,7 @@ Gui::MenuItem* Workbench::setupMenuBar() const
              << "Surface_GeomFillSurface"
              << "Surface_Sections"
              << "Surface_ExtendFace"
+             << "Surface_Sewing"
              << "Surface_CurveOnMesh"
              << "Surface_BlendCurve";
     /*
@@ -69,6 +70,7 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
              << "Surface_GeomFillSurface"
              << "Surface_Sections"
              << "Surface_ExtendFace"
+             << "Surface_Sewing"
              << "Surface_CurveOnMesh"
              << "Surface_BlendCurve";
     /*

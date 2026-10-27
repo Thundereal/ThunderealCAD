@@ -24,6 +24,7 @@ set(Assembly_Scripts
     CommandInsertLink.py
     CommandInsertNewPart.py
     CommandSolveAssembly.py
+    CommandCheckInterference.py
     CommandCreateJoint.py
     CommandCreateView.py
     CommandCreateSimulation.py
@@ -61,6 +62,7 @@ SET(AssemblyScripts_SRCS
 SET(AssemblyTests_SRCS
     AssemblyTests/__init__.py
     AssemblyTests/TestCore.py
+    AssemblyTests/TestInterference.py
     AssemblyTests/TestCommandCreateView.py
     AssemblyTests/TestCommandInsertLink.py
     AssemblyTests/TestSimulationExport.py

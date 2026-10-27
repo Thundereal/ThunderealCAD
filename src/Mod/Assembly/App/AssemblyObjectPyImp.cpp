@@ -23,12 +23,20 @@
 
 
 // inclusion of the generated files (generated out of AssemblyObject.xml)
+#include <array>
+#include <cstring>
+
 #include "AssemblyObjectPy.h"
 #include "AssemblyObjectPy.cpp"
 
 #include "Joint.h"
 
 #include <Base/GeometryPyCXX.h>
+#include <Base/PyWrapParseTupleAndKeywords.h>
+#include <App/DocumentObjectPy.h>
+#include <Mod/Part/App/OCCError.h>
+
+#include "Interference.h"
 
 using namespace Assembly;
 
@@ -384,6 +392,76 @@ PyObject* AssemblyObjectPy::getSolverResiduals(PyObject* args) const
         ret.setItem(name, Py::Float(error));
     }
     return Py::new_reference_to(ret);
+}
+
+PyObject* AssemblyObjectPy::findInterferences(PyObject* args, PyObject* kwds) const
+{
+    const char* mode = "Exact";
+    double tolerance = 0.0;
+    int contacts = 0;
+    PyObject* objects = Py_None;
+    double deflection = 0.0;
+    static const std::array<const char*, 6> keywords {
+        "mode", "tolerance", "contacts", "objects", "deflection", nullptr
+    };
+    if (!Base::Wrapped_ParseTupleAndKeywords(
+            args, kwds, "|sdpOd", keywords, &mode, &tolerance, &contacts, &objects, &deflection
+        )) {
+        return nullptr;
+    }
+
+    PY_TRY
+    {
+        InterferenceOptions options;
+        if (std::strcmp(mode, "Fast") == 0) {
+            options.mode = InterferenceOptions::Mode::Fast;
+        }
+        else if (std::strcmp(mode, "Exact") != 0) {
+            PyErr_SetString(PyExc_ValueError, "mode is \"Exact\" or \"Fast\"");
+            return nullptr;
+        }
+        options.tolerance = tolerance;
+        options.contacts = contacts != 0;
+        options.deflection = deflection;
+
+        std::vector<App::DocumentObject*> only;
+        if (objects != Py_None) {
+            Py::Sequence seq(objects);
+            for (Py::Sequence::iterator it = seq.begin(); it != seq.end(); ++it) {
+                PyObject* item = (*it).ptr();
+                if (!PyObject_TypeCheck(item, &App::DocumentObjectPy::Type)) {
+                    PyErr_SetString(PyExc_TypeError, "objects is a list of document objects");
+                    return nullptr;
+                }
+                only.push_back(static_cast<App::DocumentObjectPy*>(item)->getDocumentObjectPtr());
+            }
+        }
+
+        Py::List ret;
+        for (auto& result : Assembly::findInterferences(getAssemblyObjectPtr(), options, only)) {
+            Py::Dict entry;
+            entry.setItem("Object1", Py::asObject(result.first->getPyObject()));
+            entry.setItem("Object2", Py::asObject(result.second->getPyObject()));
+            entry.setItem(
+                "Kind",
+                Py::String(
+                    result.kind == InterferenceResult::Kind::Interference ? "Interference" : "Contact"
+                )
+            );
+            entry.setItem("Volume", Py::Float(result.volume));
+            entry.setItem("Distance", Py::Float(result.distance));
+            entry.setItem("Tolerance", Py::Float(result.tolerance));
+            if (result.overlap.isNull()) {
+                entry.setItem("Overlap", Py::None());
+            }
+            else {
+                entry.setItem("Overlap", Py::asObject(result.overlap.getPyObject()));
+            }
+            ret.append(entry);
+        }
+        return Py::new_reference_to(ret);
+    }
+    PY_CATCH_OCC
 }
 
 PyObject* AssemblyObjectPy::getSolverMetric(PyObject* args) const

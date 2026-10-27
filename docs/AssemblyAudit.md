@@ -720,6 +720,11 @@ collision, highlight the faces. Then clearance thresholds per part and
 pair. Each check works on shapes alone, a natural first tenant for OCCT
 work out of process (`docs/ComputeBoundaries.md`).
 
+The static check is built (2026-10-27, `docs/AssemblyInterference.md`):
+Assembly > Check Interference, Exact (the common volume, the exact distance)
+or Fast (meshes of the solids, crossings confirmed by exact point
+classification), with a tolerance and an option to report touching parts.
+
 ### 8.3 Open questions
 
 From `docs/AssemblySolverInterface.md` sec 7:

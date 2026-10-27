@@ -60,6 +60,7 @@ from AssemblyTests.TestElementJoint import TestElementJoint
 from AssemblyTests.TestMigrateJoints import TestMigrateJoints
 from AssemblyTests.TestMigrateTwins import TestMigrateTwins
 from AssemblyTests.TestAssemblyGroups import TestAssemblyGroups
+from AssemblyTests.TestInterference import TestInterference
 from AssemblyTests.TestImportAsm3 import TestImportAsm3
 from AssemblyTests.TestMultiplyJoint import TestMultiplyJoint
 from AssemblyTests.TestFreeze import TestFreeze
@@ -105,6 +106,7 @@ True if TestElementJoint else False
 True if TestMigrateJoints else False
 True if TestMigrateTwins else False
 True if TestAssemblyGroups else False
+True if TestInterference else False
 True if TestImportAsm3 else False
 True if TestMultiplyJoint else False
 True if TestFreeze else False

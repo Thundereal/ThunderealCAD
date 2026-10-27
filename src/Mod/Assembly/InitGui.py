@@ -67,6 +67,7 @@ class AssemblyWorkbench(Workbench):
         import CommandInsertNewPart
         import CommandCreateJoint
         import CommandSolveAssembly
+        import CommandCheckInterference
         import CommandExportASMT
         import CommandCreateView
         import CommandCreateSimulation
@@ -88,6 +89,7 @@ class AssemblyWorkbench(Workbench):
             "Assembly_Insert",
             "Std_LinkArrayActions",
             "Assembly_SolveAssembly",
+            "Assembly_CheckInterference",
             "Assembly_CreateView",
             "Assembly_CreateSnapshot",
             "Assembly_CreateSimulation",

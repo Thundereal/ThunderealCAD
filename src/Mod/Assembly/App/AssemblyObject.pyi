@@ -274,6 +274,42 @@ class AssemblyObject(Part):
         ...
 
     @constmethod
+    def findInterferences(
+        self,
+        mode: str = "Exact",
+        tolerance: float = 0.0,
+        contacts: bool = False,
+        objects: list = None,
+        deflection: float = 0.0,
+    ) -> list:
+        """
+        Which components overlap, and, with contacts, which touch
+        (docs/AssemblyInterference.md).
+
+        Args:
+            mode: "Exact" -- on the B-rep: the volume in common, the exact
+                distance; or "Fast" -- on meshes of the solids: their
+                surfaces crossing by more than the tolerance, confirmed by a
+                point inside both; it finds that they overlap, not by how
+                much.
+            tolerance: mm. Components within this of each other touch, and
+                interfere only when they overlap (Exact: by a volume; Fast:
+                by a crossing deeper than this). Fast takes it at least twice
+                the meshes' deflection.
+            contacts: report the pairs that touch too.
+            objects: only these components (default: all of them).
+            deflection: mm, Fast only: the meshes' chord error; 0 is 1e-4 of
+                each shape's bounding box diagonal.
+
+        Returns: a list of dicts, one per pair: Object1, Object2, Kind
+        ("Interference" or "Contact"), Volume (Exact, mm^3; 0 in Fast),
+        Distance (contacts, mm; Fast gives the tolerance), Tolerance (the one
+        the pair was judged with) and Overlap (Exact: the solid in common, in
+        the assembly's coordinates; else None).
+        """
+        ...
+
+    @constmethod
     def getSolverMetric(self) -> dict:
         """
         How the last solve weighed movement (docs/AssemblySolverInterface.md

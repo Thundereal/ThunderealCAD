@@ -2632,6 +2632,7 @@ int Sketch::addConstraint(const Constraint* constraint)
         case AlongY:
         case AlongZ:
         case DistanceZ:
+        case Smooth:
             rtn = -1;
             break;
     }

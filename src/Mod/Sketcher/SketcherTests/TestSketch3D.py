@@ -573,6 +573,105 @@ class TestSketch3D(unittest.TestCase):
         with self.assertRaises(ValueError):
             sk.addExternal(feat, "Edge12")  # never built: refused
 
+    # -- S3e: G1 / G2 to model edges --------------------------------------------------
+
+    def modelEdge(self, curve):
+        feat = self.doc.addObject("Part::Feature", "Edge")
+        feat.Shape = curve.toShape()
+        self.doc.recompute()
+        return feat
+
+    def curvatureAt(self, g, end):
+        return g.curvature(g.LastParameter if end == 2 else g.FirstParameter)
+
+    def testTangentToAModelEdgeAlongIt(self):
+        # A line's end on a model arc, tangent to it there: the point along the arc is
+        # solved, 4 DOF less (2 on it, 2 tangent).
+        arc = self.modelEdge(Part.ArcOfCircle(Part.Circle(V(0, 0, 0), V(0, 0, 1), 10), 0.2, 2.5))
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        ext = sk.addExternal(arc, "Edge1")
+        line = sk.addGeometry(Part.LineSegment(V(15, 12, 1), V(6, 8, 0.5)))
+        dof = sk.DoF
+        sk.addConstraint(Sketcher.Constraint("Tangent", line, 2, ext))
+        self.assertEqual(sk.Malformed, [])
+        self.assertEqual(sk.Redundant, [])
+        self.assertEqual(sk.DoF, dof - 4)
+        l = sk.Geometry[line]
+        e = l.EndPoint
+        self.assertAlmostEqual(math.hypot(e.x, e.y), 10, 7)
+        self.assertAlmostEqual(e.z, 0, 7)
+        radial = V(e.x, e.y, 0)
+        d = l.EndPoint - l.StartPoint
+        self.assertAlmostEqual(d.dot(radial) / d.Length / radial.Length, 0, 7)
+        self.assertAlmostEqual(d.z, 0, 7)
+
+    def testTangentToASplineModelEdge(self):
+        # The same against a 3D spline edge, which the solver sees only through OCCT.
+        bs = Part.BSplineCurve()
+        bs.interpolate([V(0, 0, 0), V(10, 5, 3), V(20, 2, 8), V(30, 9, 6)])
+        edge = self.modelEdge(bs)
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        ext = sk.addExternal(edge, "Edge1")
+        line = sk.addGeometry(Part.LineSegment(V(5, 15, 2), V(12, 6, 4)))
+        sk.addConstraint(Sketcher.Constraint("Tangent", line, 2, ext))
+        self.assertEqual(sk.Conflicting, [])
+        l = sk.Geometry[line]
+        u = bs.parameter(l.EndPoint)
+        self.assertLess((bs.value(u) - l.EndPoint).Length, 1e-7)
+        d = l.EndPoint - l.StartPoint
+        self.assertLess(bs.tangent(u)[0].cross(d).Length, 1e-7 * d.Length)
+
+    def testSmoothToAModelEdgeEnd(self):
+        # A spline leaving a model spline edge's end smoothly: joined, tangent, the same
+        # curvature (G2).
+        bs = Part.BSplineCurve()
+        bs.interpolate([V(0, 0, 0), V(10, 5, 3), V(20, 2, 8)])
+        edge = self.modelEdge(bs)
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        ext = sk.addExternal(edge, "Edge1")
+        mine = Part.BSplineCurve()
+        mine.interpolate([V(21, 1, 9), V(28, -2, 12), V(34, 3, 15), V(40, 0, 14)])
+        c = sk.addGeometry(mine)
+        sk.addConstraint(Sketcher.Constraint("Coincident", c, 1, ext, 2))
+        dof = sk.DoF
+        sk.addConstraint(Sketcher.Constraint("Smooth", c, 1, ext, 2))
+        self.assertEqual(sk.Malformed, [])
+        self.assertEqual(sk.Conflicting, [])
+        g = sk.Geometry[c]
+        self.assertLess((g.StartPoint - bs.EndPoint).Length, 1e-7)
+        self.assertLess(
+            g.tangent(g.FirstParameter)[0].cross(bs.tangent(bs.LastParameter)[0]).Length, 1e-7
+        )
+        self.assertAlmostEqual(self.curvatureAt(g, 1), self.curvatureAt(bs, 2), 6)
+        # the coincidence it repeats is implied: on its own Smooth takes 7
+        sk.delConstraint(0)
+        self.assertEqual(sk.Redundant, [])
+        self.assertEqual(sk.DoF, dof + 3 - 7)
+
+    def testSmoothBetweenSketchCurves(self):
+        # A spline joined to an arc with the arc's curvature, 1 / r.
+        sk = self.doc.addObject("Sketcher::Sketch3DObject", "S")
+        arc = sk.addGeometry(Part.ArcOfCircle(Part.Circle(V(0, 0, 0), V(0, 0, 1), 8), 0, 1.2))
+        sk.addConstraint(Sketcher.Constraint("Block", arc))
+        mine = Part.BSplineCurve()
+        a = sk.Geometry[arc].EndPoint
+        mine.interpolate([a + V(-1, 1, 0.5), a + V(-6, 4, 2), a + V(-12, 4, 5), a + V(-18, 1, 6)])
+        c = sk.addGeometry(mine)
+        sk.addConstraint(Sketcher.Constraint("Smooth", arc, 2, c, 1))
+        self.assertEqual(sk.Malformed, [])
+        self.assertEqual(sk.Conflicting, [])
+        self.assertEqual(sk.Redundant, [])
+        g = sk.Geometry[c]
+        self.assertLess((g.StartPoint - a).Length, 1e-7)
+        self.assertAlmostEqual(self.curvatureAt(g, 1), 1 / 8, 6)
+
+    def test2DSketchRefusesSmooth(self):
+        sk = self.doc.addObject("Sketcher::SketchObject", "S2")
+        sk.addGeometry(Part.LineSegment(V(0, 0, 0), V(10, 1, 0)))
+        sk.addGeometry(Part.LineSegment(V(10, 1, 0), V(20, 5, 0)))
+        with self.assertRaises(ValueError):
+            sk.addConstraint(Sketcher.Constraint("Smooth", 0, 2, 1, 1))
+
     # -- S3c: corner fillet ------------------------------------------------------------
 
     def testFilletAtACorner(self):

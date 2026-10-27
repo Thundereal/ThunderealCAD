@@ -2855,8 +2855,21 @@ bool ViewProviderSketch3D::constrainSelection(Sketcher::ConstraintType type, QSt
             else if (curves.empty() && points.size() == 2 && points[0].geoId != points[1].geoId) {
                 con(quoted("Tangent") + ", " + pp(points[0]) + ", " + pp(points[1]));
             }
+            else if (points.size() == 1 && curves.size() == 1 && curves[0].geoId < 0) {
+                // a curve's end on a model edge, tangent to it there (G1 to the edge)
+                con(quoted("Tangent") + ", " + pp(points[0]) + ", " + id(curves[0]));
+            }
             else {
-                return fail(QObject::tr("Select two lines, or an end of each of two curves"));
+                return fail(QObject::tr("Select two lines, an end of each of two curves, or "
+                                        "an end and a model edge"));
+            }
+            break;
+        case Sketcher::Smooth:
+            if (curves.empty() && points.size() == 2 && points[0].geoId != points[1].geoId) {
+                con(quoted("Smooth") + ", " + pp(points[0]) + ", " + pp(points[1]));
+            }
+            else {
+                return fail(QObject::tr("Select an end of each of two curves"));
             }
             break;
         case Sketcher::Equal:

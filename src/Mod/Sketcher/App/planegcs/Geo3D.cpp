@@ -274,6 +274,93 @@ DeriVector3 BSpline3View::value(double u, double du, const double* derivparam) c
     return {C[0], C[1], C[2], D[0], D[1], D[2]};
 }
 
+void BSpline3View::ders(double u, std::size_t k, int n, std::vector<VEC_D>& out) const
+{
+    const int p = degree;
+    const VEC_D& U = flatknots;
+    std::vector<VEC_D> ndu(p + 1, VEC_D(p + 1, 0.));
+    VEC_D left(p + 1, 0.), right(p + 1, 0.);
+    ndu[0][0] = 1.;
+    for (int j = 1; j <= p; ++j) {
+        left[j] = u - U[k + 1 - j];
+        right[j] = U[k + j] - u;
+        double saved = 0.;
+        for (int r = 0; r < j; ++r) {
+            ndu[j][r] = right[r + 1] + left[j - r];
+            double temp = ndu[j][r] == 0. ? 0. : ndu[r][j - 1] / ndu[j][r];
+            ndu[r][j] = saved + right[r + 1] * temp;
+            saved = left[j - r] * temp;
+        }
+        ndu[j][j] = saved;
+    }
+    out.assign(n + 1, VEC_D(p + 1, 0.));
+    for (int j = 0; j <= p; ++j) {
+        out[0][j] = ndu[j][p];
+    }
+    auto div = [](double a, double b) {
+        return b == 0. ? 0. : a / b;
+    };
+    const int m = std::min(n, p);  // above the degree they are zero
+    std::vector<VEC_D> a(2, VEC_D(p + 1, 0.));
+    for (int r = 0; r <= p; ++r) {
+        int s1 = 0, s2 = 1;
+        a[0][0] = 1.;
+        for (int kk = 1; kk <= m; ++kk) {
+            double d = 0.;
+            int rk = r - kk, pk = p - kk;
+            if (r >= kk) {
+                a[s2][0] = div(a[s1][0], ndu[pk + 1][rk]);
+                d = a[s2][0] * ndu[rk][pk];
+            }
+            int j1 = rk >= -1 ? 1 : -rk;
+            int j2 = r - 1 <= pk ? kk - 1 : p - r;
+            for (int j = j1; j <= j2; ++j) {
+                a[s2][j] = div(a[s1][j] - a[s1][j - 1], ndu[pk + 1][rk + j]);
+                d += a[s2][j] * ndu[rk + j][pk];
+            }
+            if (r <= pk) {
+                a[s2][kk] = div(-a[s1][kk - 1], ndu[pk + 1][r]);
+                d += a[s2][kk] * ndu[r][pk];
+            }
+            out[kk][r] = d;
+            std::swap(s1, s2);
+        }
+    }
+    double f = p;
+    for (int kk = 1; kk <= m; ++kk) {
+        for (int j = 0; j <= p; ++j) {
+            out[kk][j] *= f;
+        }
+        f *= p - kk;
+    }
+}
+
+void BSpline3View::jet(double u, double c[3], double d1[3], double d2[3]) const
+{
+    // C = A / W; C' = (A' - C W') / W; C'' = (A'' - 2 C' W' - C W'') / W.
+    std::size_t k = span(u);
+    std::vector<VEC_D> N;
+    ders(u, k, 2, N);
+    auto p = static_cast<std::size_t>(degree);
+    std::size_t w0 = first + npoles * 3;
+    double A[3][3] = {}, W[3] = {};
+    for (std::size_t j = 0; j <= p; ++j) {
+        std::size_t i = k - p + j;
+        double w = *pvec[w0 + i];
+        for (int o = 0; o < 3; ++o) {
+            for (int q = 0; q < 3; ++q) {
+                A[o][q] += N[o][j] * w * *pvec[first + 3 * i + q];
+            }
+            W[o] += N[o][j] * w;
+        }
+    }
+    for (int q = 0; q < 3; ++q) {
+        c[q] = A[0][q] / W[0];
+        d1[q] = (A[1][q] - c[q] * W[1]) / W[0];
+        d2[q] = (A[2][q] - 2 * d1[q] * W[1] - c[q] * W[2]) / W[0];
+    }
+}
+
 DeriVector3 BSpline3View::tangent(double u, const double* derivparam) const
 {
     // C' = (A' - C W') / W, differentiated by the poles and weights.

@@ -464,6 +464,7 @@ public:
             case Sketcher::AlongY:
             case Sketcher::AlongZ:
             case Sketcher::DistanceZ:
+            case Sketcher::Smooth:
                 assert(false);
                 return false;
             case Sketcher::Horizontal:

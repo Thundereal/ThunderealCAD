@@ -222,7 +222,7 @@ Constraints, first set (v1) and second (v2). "DOF" is what each removes.
 | Tangent line-arc at a shared end S | 2 | d.(S - c) = 0, d.n = 0 | v1 |
 | Tangent arc-arc, spline-line, spline-arc at a shared end | 2 | the two tangents parallel (4.3) | v1 |
 | Tangent (G1) to a model edge at a shared end | 2 | as above, the edge's tangent at t | v2 |
-| Smooth (G2) at a spline end | 3 | G1 + curvature match, from the poles | v2 |
+| Smooth (G2) at a shared end | 7 | coincident (3), tangent (2), the curvature vectors equal across the tangent (2) -- see S3e | v2 |
 | Coaxial (3D concentric) | 5 | centres coincident, normals parallel | v2 |
 | Symmetric about a plane | 3 | midpoint on the plane, P - Q parallel to n | v2 |
 | Distance point-point | 1 | \|P - Q\| - D | v1 |
@@ -714,6 +714,36 @@ asked: a 2D curve in the face's (u, v), so it lies on the face exactly.
     and a solve on a saddle;
   - seven Python cases;
   - `tests/gui/sketch3d-face-spline.py`, 20 checks.
+
+S3e, continuity to model edges (2026-10-27), which completes S3:
+- Tangent of a curve's end and a model edge (`Constraint('Tangent', geo, pos,
+  edge)`) puts the end on the edge at a solved parameter t and makes the
+  tangents parallel there: 4 DOF, G1 to the edge. It takes any edge, including
+  one the solver knows only through OCCT; the edge's tangent at t comes from
+  OCCT with its derivative by t.
+- Tangent end to end with a model edge's end works for every kind of edge.
+- Smooth (`Constraint('Smooth', g1, p1, g2, p2)`, a new type the 2D sketch
+  refuses; a command on the Sketcher 3D toolbar) is G2 at a shared end. It
+  is 7 equations: joined (3), tangent (2), and the two curvature vectors
+  k = (C'' - (C'' . u) u) / |C'|^2 equal along two directions across the
+  tangent (2). The table had 3; in 3D a curvature vector has two components
+  across the tangent, not one as in 2D. It takes lines, arcs and splines of
+  the sketch and any model edge. B-splines gained a second derivative, from
+  the basis functions' derivatives (The NURBS Book, A2.3). The two curvature
+  equations take their gradient numerically: written out by every pole, the
+  second derivative's own derivatives are not worth it for two equations.
+- Tests:
+  - gtests for the spline's second derivative against differences, the
+    edge tangent's gradient, and a spline made smooth to a helix (curvature
+    r / (r^2 + pitch^2), nothing redundant at the solution);
+  - five Python cases: a line tangent to a model arc along it and to a 3D
+    spline edge; a spline smooth to a model edge's end; a spline smooth to an
+    arc (curvature 1 / r); the 2D sketch refusing Smooth;
+  - `tests/gui/sketch3d-continuity.py`, 9 checks.
+
+S3 left nothing of its list. Still open from S2: typed values while placing,
+typed angles, icons for the non-dimensional constraints, labels re-facing the
+camera; and S4, the browser.
 
 ## 11. Risks
 

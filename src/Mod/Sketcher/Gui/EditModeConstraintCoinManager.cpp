@@ -1450,6 +1450,7 @@ Restart:
                 case AlongY:
                 case AlongZ:
                 case DistanceZ:
+                case Smooth:
                     break;
             }
         }

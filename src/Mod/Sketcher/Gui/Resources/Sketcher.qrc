@@ -63,6 +63,7 @@
         <file>icons/constraints/Constraint_AlongY.svg</file>
         <file>icons/constraints/Constraint_AlongZ.svg</file>
         <file>icons/constraints/Constraint_DistanceZ.svg</file>
+        <file>icons/constraints/Constraint_Smooth.svg</file>
         <file>icons/constraints/Constraint_VerticalDistance.svg</file>
         <file>icons/constraints/Constraint_VerticalDistance_Driven.svg</file>
         <file>icons/constraints/Sketcher_Crosshair.svg</file>

@@ -131,6 +131,13 @@ public:
         d1[1] = r * std::cos(u);
         d1[2] = pitch;
     }
+    void value2(double u, double p[3], double d1[3], double d2[3]) const override
+    {
+        value(u, p, d1);
+        d2[0] = -r * std::cos(u);
+        d2[1] = -r * std::sin(u);
+        d2[2] = 0;
+    }
 };
 
 // A saddle, as a curved model face would be given: (u, v, 0.1 u v + 0.05 u^2).
@@ -327,6 +334,86 @@ TEST(Constraints3DSolve, curveOnSurfaceThroughPoints)  // NOLINT
     EXPECT_NEAR(c1.y, -2, 1e-9);
     EXPECT_NEAR(*a.z, 0.1 * 1 * 4 + 0.05 * 1, 1e-9);
     EXPECT_NEAR(*b.z, 0.1 * 10 * -2 + 0.05 * 100, 1e-9);
+}
+
+TEST(Constraints3DGradient, bsplineSecondDerivative)  // NOLINT
+{
+    // The jet's C'' against differences of the tangent, inside a span and at the ends.
+    Params ps;
+    auto bsp = makeSpline(ps);
+    GCS::VEC_pD pvec;
+    bsp.push(pvec);
+    GCS::BSpline3View view(pvec, 0, bsp.poles.size(), bsp.flatknots, bsp.degree);
+    for (double u : {0.0, 0.4, 1.3, 2.0}) {
+        double h = 1e-6;
+        double u0 = std::max(0.0, u - h), u1 = std::min(2.0, u + h);
+        auto a = view.tangent(u0, nullptr), b = view.tangent(u1, nullptr);
+        double c[3], d1[3], d2[3];
+        view.jet(u, c, d1, d2);
+        auto tg = view.tangent(u, nullptr);
+        EXPECT_NEAR(d1[0], tg.x, 1e-9) << "u=" << u;
+        double num[3] = {(b.x - a.x) / (u1 - u0), (b.y - a.y) / (u1 - u0), (b.z - a.z) / (u1 - u0)};
+        for (int k = 0; k < 3; ++k) {
+            EXPECT_NEAR(d2[k], num[k], 1e-4 * std::max(1.0, std::fabs(num[k]))) << "u=" << u;
+        }
+    }
+}
+
+TEST(Constraints3DGradient, edgeTangent)  // NOLINT
+{
+    // A model edge's tangent at a solved parameter, through a dot product.
+    Params ps;
+    auto A = ps.point(0.2, 0.5, -1.1);
+    auto B = ps.point(4.1, 1.7, 2.2);
+    double* t = ps.add(0.9);
+    auto helix = std::make_shared<Helix>();
+    GCS::ConstraintDir3Dot dot(GCS::Dir3::fixedCurveTangent(helix, t), GCS::Dir3::diff(A, B));
+    expectGradientMatches(dot, "FixedCurveTangent");
+}
+
+TEST(Constraints3DSolve, splineSmoothToAnEdge)  // NOLINT
+{
+    // A spline's end joined to a helix (a model edge) at its parameter 1: coincident,
+    // tangent, and the same curvature, r / (r^2 + pitch^2).
+    SystemTest sys;
+    Params ps;
+    auto bsp = makeSpline(ps);
+    for (auto* w : bsp.weights) {
+        ps.unknowns.erase(std::find(ps.unknowns.begin(), ps.unknowns.end(), w));
+    }
+    auto helix = std::make_shared<Helix>();
+    double* u = ps.add(1.0, false);
+    double p[3], d1[3], d2[3];
+    helix->value(*u, p, d1);
+    GCS::Point3 end {ps.add(p[0], false), ps.add(p[1], false), ps.add(p[2], false)};
+    auto& last = bsp.poles.back();
+    GCS::addConstraintP3Coincident(sys, last, end, 1);
+    auto t1 = GCS::Dir3::diff(bsp.poles[3], bsp.poles[4]);
+    auto t2 = GCS::Dir3::fixedCurveTangent(helix, u);
+    GCS::addConstraintTangent3(sys, t1, t2, ps.add(GCS::initialParallelRatio(t1, t2)), 2);
+    GCS::addConstraintCurvatureMatch(sys,
+                                     GCS::Jet3::bspline(bsp, bsp.flatknots.back()),
+                                     GCS::Jet3::fixed(helix, u),
+                                     3);
+    ASSERT_EQ(solve(sys, ps), GCS::SolveStatus::Success);
+    // the diagnosis at the solution: 7 equations, none of them implied
+    EXPECT_EQ(diagnose(sys, ps), 15 - 7);
+    EXPECT_FALSE(sys.hasRedundant());
+    GCS::VEC_pD pvec;
+    bsp.push(pvec);
+    GCS::BSpline3View view(pvec, 0, bsp.poles.size(), bsp.flatknots, bsp.degree);
+    double c[3], s1[3], s2[3];
+    view.jet(2.0, c, s1, s2);
+    auto cross = [](const double a[3], const double b[3], double out[3]) {
+        out[0] = a[1] * b[2] - a[2] * b[1];
+        out[1] = a[2] * b[0] - a[0] * b[2];
+        out[2] = a[0] * b[1] - a[1] * b[0];
+    };
+    double x[3];
+    cross(s1, s2, x);
+    double speed = std::sqrt(s1[0] * s1[0] + s1[1] * s1[1] + s1[2] * s1[2]);
+    double kappa = std::sqrt(x[0] * x[0] + x[1] * x[1] + x[2] * x[2]) / (speed * speed * speed);
+    EXPECT_NEAR(kappa, 5. / (25. + 4.), 1e-7);
 }
 
 TEST(Constraints3DGradient, bsplineTangent)  // NOLINT

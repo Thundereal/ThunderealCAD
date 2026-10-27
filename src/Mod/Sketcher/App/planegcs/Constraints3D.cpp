@@ -110,6 +110,15 @@ Dir3 Dir3::surfaceCurveTangent(const BSpline3& bsp,
     return d;
 }
 
+Dir3 Dir3::fixedCurveTangent(std::shared_ptr<const FixedCurve3> curve, double* t)
+{
+    Dir3 d;
+    d.kind = Kind::FixedCurveTangent;
+    d.fixed = std::move(curve);
+    d.params = {t};
+    return d;
+}
+
 Dir3 Dir3::planeAxis(const Plane3& pl, int axis)
 {
     Dir3 d;
@@ -134,6 +143,12 @@ DeriVector3 Dir3::eval(const VEC_pD& pvec, std::size_t i, const double* derivpar
         }
         case Kind::QuatAxis:
             return quaternionAxis(pvec, i, axis, derivparam);
+        case Kind::FixedCurveTangent: {
+            double t = *pvec[i], dt = dvar(pvec[i], derivparam);
+            double p[3], d1[3], d2[3];
+            fixed->value2(t, p, d1, d2);
+            return {d1[0], d1[1], d1[2], d2[0] * dt, d2[1] * dt, d2[2] * dt};
+        }
         case Kind::SurfaceCurveTangent: {
             // T = Su u' + Sv v'; by a parameter: Su du' + Sv dv' plus the change of Su and
             // Sv with where on the surface the curve is.
@@ -271,6 +286,161 @@ void ConstraintP3OnFixedSurface::errorgrad(double* err, double* grad, double* pa
     double dp;
     double p = P.component(comp, dp);
     output(err, grad, p - s[comp], dp - du * su[comp] - dv * sv[comp]);
+}
+
+// --------------------------------------------------------
+// Jet3, CurvatureMatch: pvec = the first jet's params, the second's
+
+Jet3 Jet3::line(const Point3& a, const Point3& b)
+{
+    Jet3 j;
+    j.kind = Kind::Line;
+    a.push(j.params);
+    b.push(j.params);
+    return j;
+}
+
+Jet3 Jet3::arc(const Point3& c, const Point3& n, const Point3& at)
+{
+    Jet3 j;
+    j.kind = Kind::Arc;
+    c.push(j.params);
+    n.push(j.params);
+    at.push(j.params);
+    return j;
+}
+
+Jet3 Jet3::bspline(const BSpline3& bsp, double t)
+{
+    Jet3 j;
+    j.kind = Kind::BSpline;
+    j.npoles = bsp.poles.size();
+    j.flatknots = bsp.flatknots;
+    j.degree = bsp.degree;
+    j.t = t;
+    bsp.push(j.params);
+    return j;
+}
+
+Jet3 Jet3::fixed(std::shared_ptr<const FixedCurve3> curve, double* t)
+{
+    Jet3 j;
+    j.kind = Kind::Fixed;
+    j.curve = std::move(curve);
+    j.params = {t};
+    return j;
+}
+
+void Jet3::eval(const VEC_pD& pvec, std::size_t i, double d1[3], double d2[3]) const
+{
+    switch (kind) {
+        case Kind::Line:
+            for (int k = 0; k < 3; ++k) {
+                d1[k] = *pvec[i + 3 + k] - *pvec[i + k];
+                d2[k] = 0.;
+            }
+            return;
+        case Kind::Arc: {
+            DeriVector3 c(pvec, i, nullptr), n(pvec, i + 3, nullptr), at(pvec, i + 6, nullptr);
+            double dd;
+            DeriVector3 nu = n.mult(1. / n.length(dd));
+            DeriVector3 t = nu.cross(at.subtr(c));
+            DeriVector3 tt = nu.cross(t);
+            d1[0] = t.x, d1[1] = t.y, d1[2] = t.z;
+            d2[0] = tt.x, d2[1] = tt.y, d2[2] = tt.z;
+            return;
+        }
+        case Kind::BSpline: {
+            BSpline3View view(pvec, i, npoles, flatknots, degree);
+            double c[3];
+            view.jet(t, c, d1, d2);
+            return;
+        }
+        case Kind::Fixed: {
+            double p[3];
+            curve->value2(*pvec[i], p, d1, d2);
+            return;
+        }
+    }
+}
+
+ConstraintCurvatureMatch::ConstraintCurvatureMatch(const Jet3& j1, const Jet3& j2, int comp)
+    : j1(j1)
+    , j2(j2)
+    , comp(comp)
+{
+    pvec = j1.params;
+    pvec.insert(pvec.end(), j2.params.begin(), j2.params.end());
+    origpvec = pvec;
+    rescale();
+}
+
+double ConstraintCurvatureMatch::value()
+{
+    auto curvature = [](const double d1[3], const double d2[3], double k[3], double u[3]) {
+        double l2 = d1[0] * d1[0] + d1[1] * d1[1] + d1[2] * d1[2];
+        double l = std::sqrt(l2);
+        for (int q = 0; q < 3; ++q) {
+            u[q] = l > 0. ? d1[q] / l : 0.;
+        }
+        double along = d2[0] * u[0] + d2[1] * u[1] + d2[2] * u[2];
+        for (int q = 0; q < 3; ++q) {
+            k[q] = l2 > 0. ? (d2[q] - along * u[q]) / l2 : 0.;
+        }
+    };
+    double a1[3], a2[3], b1[3], b2[3], ka[3], kb[3], u[3], ub[3];
+    j1.eval(pvec, 0, a1, a2);
+    j2.eval(pvec, j1.params.size(), b1, b2);
+    curvature(a1, a2, ka, u);
+    curvature(b1, b2, kb, ub);
+    // two directions across u: from the frame axis least along it
+    int least = 0;
+    for (int q = 1; q < 3; ++q) {
+        if (std::fabs(u[q]) < std::fabs(u[least])) {
+            least = q;
+        }
+    }
+    double e[3] = {0, 0, 0};
+    e[least] = 1.;
+    double n1[3] = {u[1] * e[2] - u[2] * e[1],
+                    u[2] * e[0] - u[0] * e[2],
+                    u[0] * e[1] - u[1] * e[0]};
+    double l1 = std::sqrt(n1[0] * n1[0] + n1[1] * n1[1] + n1[2] * n1[2]);
+    for (double& x : n1) {
+        x /= l1;
+    }
+    double n2[3] = {u[1] * n1[2] - u[2] * n1[1],
+                    u[2] * n1[0] - u[0] * n1[2],
+                    u[0] * n1[1] - u[1] * n1[0]};
+    const double* n = comp == 0 ? n1 : n2;
+    double res = 0.;
+    for (int q = 0; q < 3; ++q) {
+        res += (ka[q] - kb[q]) * n[q];
+    }
+    return res;
+}
+
+void ConstraintCurvatureMatch::errorgrad(double* err, double* grad, double* param)
+{
+    double v = value();
+    double g = 0.;
+    if (grad) {
+        // central differences by each copy of the parameter in pvec
+        bool used = false;
+        for (double* p : pvec) {
+            used = used || p == param;
+        }
+        if (used) {
+            double x = *param, h = 1e-6 * std::max(1., std::fabs(x));
+            *param = x + h;
+            double up = value();
+            *param = x - h;
+            double down = value();
+            *param = x;
+            g = (up - down) / (2 * h);
+        }
+    }
+    output(err, grad, v, g);
 }
 
 // --------------------------------------------------------
@@ -744,6 +914,13 @@ double initialParallelRatio(const Dir3& d1, const Dir3& d2)
         return 1.;
     }
     return v1.dot(v2, dd) < 0. ? -l2 / l1 : l2 / l1;
+}
+
+int addConstraintCurvatureMatch(System& sys, const Jet3& j1, const Jet3& j2, int tag, bool driving)
+{
+    int i = add(sys, new ConstraintCurvatureMatch(j1, j2, 0), tag, driving);
+    add(sys, new ConstraintCurvatureMatch(j1, j2, 1), tag, driving);
+    return i;
 }
 
 int addConstraintParallel2D(System& sys,

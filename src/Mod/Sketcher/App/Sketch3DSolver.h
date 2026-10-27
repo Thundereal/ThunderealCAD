@@ -151,6 +151,10 @@ private:
     GCS::Point3* entityPoint(int geoId, PointPos pos);
     // The tangent direction of a curve at one of its ends.
     bool tangentAt(int geoId, PointPos pos, GCS::Dir3& dir);
+    // A curve's derivatives at one of its ends, for its curvature (Smooth, G2).
+    bool jetAt(int geoId, PointPos pos, GCS::Jet3& jet);
+    // A model edge's parameter range.
+    bool edgeRange(const Entity& e, double& first, double& last) const;
     double closestParameter(const Entity& e, const GCS::Point3& p) const;
     bool addConstraint(const Constraint& c, int tag);
 

@@ -47,6 +47,7 @@ namespace GCS
 /// - planeAxis(pl, k): its X (0), Y (1) or Z (2) axis
 /// - surfaceCurveTangent(bsp, s, t): a curve on a surface S(c(t)) at t, c a B-spline in
 ///   the surface's (u, v) whose poles are Point3 with z unused
+/// - fixedCurveTangent(c, t): a model edge's C'(t), t a parameter (solved or not)
 class SketcherExport Dir3
 {
 public:
@@ -56,7 +57,8 @@ public:
         Diff,
         CrossDiff,
         QuatAxis,
-        SurfaceCurveTangent
+        SurfaceCurveTangent,
+        FixedCurveTangent
     };
     /// What a SurfaceCurveTangent evaluates beside its parameters.
     struct SurfaceCurve
@@ -76,10 +78,12 @@ public:
     static Dir3 surfaceCurveTangent(const BSpline3& bsp,
                                     std::shared_ptr<const FixedSurface3> surface,
                                     double t);
+    static Dir3 fixedCurveTangent(std::shared_ptr<const FixedCurve3> curve, double* t);
 
     Kind kind {Kind::Vector};
     int axis {2};  // QuatAxis
     std::shared_ptr<const SurfaceCurve> curve;  // SurfaceCurveTangent
+    std::shared_ptr<const FixedCurve3> fixed;   // FixedCurveTangent
     VEC_pD params;
 
     /// Its current value, without derivatives.
@@ -154,6 +158,59 @@ public:
     ConstraintType getTypeId() override
     {
         return P3OnFixedSurface;
+    }
+    void errorgrad(double* err, double* grad, double* param) override;
+};
+
+/// A curve's first and second derivatives at a point of it, what its curvature there
+/// comes from (G2):
+/// - line(a, b):          b - a and 0
+/// - arc(c, n, at):       n x (at - c) and n x (n x (at - c)), n the unit normal
+/// - bspline(bsp, t):     C'(t), C''(t), t a value (an end)
+/// - fixed(curve, t):     a model edge's, t a parameter
+class SketcherExport Jet3
+{
+public:
+    enum class Kind
+    {
+        Line,
+        Arc,
+        BSpline,
+        Fixed
+    };
+    static Jet3 line(const Point3& a, const Point3& b);
+    static Jet3 arc(const Point3& c, const Point3& n, const Point3& at);
+    static Jet3 bspline(const BSpline3& bsp, double t);
+    static Jet3 fixed(std::shared_ptr<const FixedCurve3> curve, double* t);
+
+    Kind kind {Kind::Line};
+    VEC_pD params;
+    std::size_t npoles {0};
+    VEC_D flatknots;
+    int degree {0};
+    double t {0.};
+    std::shared_ptr<const FixedCurve3> curve;
+
+    /// Evaluated from pvec[i], where its params were pushed.
+    void eval(const VEC_pD& pvec, std::size_t i, double d1[3], double d2[3]) const;
+};
+
+// The two curves' curvature vectors at a shared point equal, along one of two
+// directions across the first's tangent (comp 0, 1): with their tangents parallel
+// (G1), that is G2 in 2 equations. k = (C'' - (C'' . u) u) / |C'|^2, u = C' / |C'|.
+// Its gradient is taken numerically: the second derivatives' own derivatives by every
+// pole are not worth writing out for two equations.
+class SketcherExport ConstraintCurvatureMatch: public Constraint
+{
+    Jet3 j1, j2;
+    int comp;
+    double value();
+
+public:
+    ConstraintCurvatureMatch(const Jet3& j1, const Jet3& j2, int comp);
+    ConstraintType getTypeId() override
+    {
+        return CurvatureMatch;
     }
     void errorgrad(double* err, double* grad, double* param) override;
 };
@@ -399,6 +456,12 @@ SketcherExport int addConstraintParallel3(System& sys,
                                           double* s,
                                           int tag = 0,
                                           bool driving = true);
+/// G2 at a shared point, past G1 (ConstraintCurvatureMatch): 2 equations.
+SketcherExport int addConstraintCurvatureMatch(System& sys,
+                                               const Jet3& j1,
+                                               const Jet3& j2,
+                                               int tag = 0,
+                                               bool driving = true);
 /// Parallel for two directions in the XY plane (a curve's in a surface's (u, v)): the x
 /// and y components only, 1 DOF, where the z one would be an empty equation.
 SketcherExport int addConstraintParallel2D(System& sys,

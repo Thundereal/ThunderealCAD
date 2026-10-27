@@ -38,6 +38,7 @@
 #include <gp_Ax2.hxx>
 #include <gp_Ax3.hxx>
 #include <gp_Mat.hxx>
+#include <Precision.hxx>
 #include <gp_Quaternion.hxx>
 
 #include <Mod/Part/App/GeomCurveOnSurface.h>
@@ -57,6 +58,17 @@ public:
     explicit OcctCurve3(Handle(Geom_Curve) c)
         : curve(std::move(c))
     {}
+    void value2(double u, double p[3], double d1[3], double d2[3]) const override
+    {
+        gp_Pnt pnt;
+        gp_Vec v1, v2;
+        curve->D2(u, pnt, v1, v2);
+        for (int k = 0; k < 3; ++k) {
+            p[k] = pnt.Coord(k + 1);
+            d1[k] = v1.Coord(k + 1);
+            d2[k] = v2.Coord(k + 1);
+        }
+    }
     void value(double u, double p[3], double d1[3]) const override
     {
         gp_Pnt pnt;
@@ -372,6 +384,17 @@ bool Sketch3DSolver::tangentAt(int geoId, PointPos pos, GCS::Dir3& dir)
                 return true;
             }
             return false;
+        case Kind::Curve: {
+            // a model edge at its ends
+            double first, last;
+            if (!e->fixedCurve || !edgeRange(*e, first, last)
+                || (pos != PointPos::start && pos != PointPos::end)) {
+                return false;
+            }
+            dir = GCS::Dir3::fixedCurveTangent(e->fixedCurve,
+                                               param(pos == PointPos::start ? first : last, false));
+            return true;
+        }
         case Kind::OnSurface:
             if (pos != PointPos::start && pos != PointPos::end) {
                 return false;
@@ -396,6 +419,49 @@ bool Sketch3DSolver::tangentAt(int geoId, PointPos pos, GCS::Dir3& dir)
             }
             return false;
         }
+        default:
+            return false;
+    }
+}
+
+bool Sketch3DSolver::edgeRange(const Entity& e, double& first, double& last) const
+{
+    auto curve = freecad_cast<const Part::GeomCurve*>(e.source);
+    if (!curve) {
+        return false;
+    }
+    first = curve->getFirstParameter();
+    last = curve->getLastParameter();
+    return !Precision::IsInfinite(first) && !Precision::IsInfinite(last);
+}
+
+bool Sketch3DSolver::jetAt(int geoId, PointPos pos, GCS::Jet3& jet)
+{
+    Entity* e = entity(geoId);
+    if (!e || (pos != PointPos::start && pos != PointPos::end)) {
+        return false;
+    }
+    bool atStart = pos == PointPos::start;
+    if (e->external && e->fixedCurve) {
+        // a model edge, whatever kind: as OCCT evaluates it
+        double first, last;
+        if (!edgeRange(*e, first, last)) {
+            return false;
+        }
+        jet = GCS::Jet3::fixed(e->fixedCurve, param(atStart ? first : last, false));
+        return true;
+    }
+    switch (e->kind) {
+        case Kind::Line:
+            jet = GCS::Jet3::line(e->start, e->end);
+            return true;
+        case Kind::Arc:
+            jet = GCS::Jet3::arc(e->mid, e->normal, atStart ? e->start : e->end);
+            return true;
+        case Kind::BSpline:
+            jet = GCS::Jet3::bspline(e->bsp,
+                                     atStart ? e->bsp.flatknots.front() : e->bsp.flatknots.back());
+            return true;
         default:
             return false;
     }
@@ -719,6 +785,29 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
                     return true;
                 }
             }
+            if ((c.FirstPos == PointPos::none) != (c.SecondPos == PointPos::none)) {
+                // A curve's end tangent to a model edge where it lies on it (G1 to the
+                // edge): on it at t, a solved parameter, and the tangents parallel there.
+                int endGeo = c.FirstPos != PointPos::none ? c.First : c.Second;
+                PointPos endPos = c.FirstPos != PointPos::none ? c.FirstPos : c.SecondPos;
+                Entity* edge = entity(c.FirstPos != PointPos::none ? c.Second : c.First);
+                auto p = pt(endGeo, endPos);
+                GCS::Dir3 t1;
+                if (!p || !edge || !edge->external || !edge->fixedCurve
+                    || !tangentAt(endGeo, endPos, t1)) {
+                    return false;
+                }
+                double* t = param(closestParameter(*edge, *p), true);
+                GCS::addConstraintP3OnFixedCurve(sys, *p, edge->fixedCurve, t, tag, driving);
+                auto t2 = GCS::Dir3::fixedCurveTangent(edge->fixedCurve, t);
+                GCS::addConstraintTangent3(sys,
+                                           t1,
+                                           t2,
+                                           param(GCS::initialParallelRatio(t1, t2), true),
+                                           tag,
+                                           driving);
+                return true;
+            }
             // End to end: joined, and the tangents there parallel.
             auto p = pt(c.First, c.FirstPos), q = pt(c.Second, c.SecondPos);
             GCS::Dir3 t1, t2;
@@ -733,6 +822,27 @@ bool Sketch3DSolver::addConstraint(const Constraint& c, int tag)
                                        param(GCS::initialParallelRatio(t1, t2), true),
                                        tag,
                                        driving);
+            return true;
+        }
+        case Smooth: {
+            // G2 at a shared end: joined (3), the tangents parallel (2), the curvature
+            // vectors equal across the tangent (2).
+            auto p = pt(c.First, c.FirstPos), q = pt(c.Second, c.SecondPos);
+            GCS::Dir3 t1, t2;
+            GCS::Jet3 j1, j2;
+            if (!p || !q || !tangentAt(c.First, c.FirstPos, t1)
+                || !tangentAt(c.Second, c.SecondPos, t2) || !jetAt(c.First, c.FirstPos, j1)
+                || !jetAt(c.Second, c.SecondPos, j2)) {
+                return false;
+            }
+            GCS::addConstraintP3Coincident(sys, *p, *q, tag, driving);
+            GCS::addConstraintTangent3(sys,
+                                       t1,
+                                       t2,
+                                       param(GCS::initialParallelRatio(t1, t2), true),
+                                       tag,
+                                       driving);
+            GCS::addConstraintCurvatureMatch(sys, j1, j2, tag, driving);
             return true;
         }
         case Equal: {

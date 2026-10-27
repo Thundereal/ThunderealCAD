@@ -78,6 +78,7 @@ enum ConstraintType : int
     AlongY = 23,
     AlongZ = 24,
     DistanceZ = 25,
+    Smooth = 26,        // G2 at a shared end: coincident, tangent, the same curvature
     NumConstraintTypes  // must be the last item!
 };
 
@@ -160,6 +161,7 @@ public:
     inline bool isSketch3DOnly() const
     {
         return Type == AlongX || Type == AlongY || Type == AlongZ || Type == DistanceZ
+            || Type == Smooth
             || ((Type == Horizontal || Type == Vertical) && Second != GeoEnum::GeoUndef
                 && FirstPos == PointPos::none && SecondPos == PointPos::none);
     }
@@ -229,7 +231,8 @@ private:
          "AlongX",
          "AlongY",
          "AlongZ",
-         "DistanceZ"}};
+         "DistanceZ",
+         "Smooth"}};
     // clang-format on
 
     constexpr static std::array<const char*, InternalAlignmentType::NumInternalAlignmentType>

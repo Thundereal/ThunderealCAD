@@ -133,6 +133,10 @@ fc_add_gui_test(GuiSketch3DFillet_tests_run sketch3d-fillet.py
 # face's (u, v) through them, following the face.
 fc_add_gui_test(GuiSketch3DFaceSpline_tests_run sketch3d-face-spline.py
                 --timeout 180)
+# Its continuity to model edges (S3e): Tangent of an end and a model edge,
+# Smooth (G2) of two ends.
+fc_add_gui_test(GuiSketch3DContinuity_tests_run sketch3d-continuity.py
+                --timeout 180)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

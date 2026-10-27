@@ -293,6 +293,7 @@ bool SketcherGui::runSketch3DConstraint(const char* commandName)
         {"Sketcher_Constrain3DAlongX", Sketcher::AlongX},
         {"Sketcher_Constrain3DAlongY", Sketcher::AlongY},
         {"Sketcher_Constrain3DAlongZ", Sketcher::AlongZ},
+        {"Sketcher_Constrain3DSmooth", Sketcher::Smooth},
     };
     QString why;
     bool ok;
@@ -362,6 +363,7 @@ void SketcherGui::setSketch3DToolIcons(bool on)
         "Sketcher_Constrain3DAlongX",
         "Sketcher_Constrain3DAlongY",
         "Sketcher_Constrain3DAlongZ",
+        "Sketcher_Constrain3DSmooth",
         "Sketcher_ConstrainDistanceZ",
     };
     static std::set<std::string> tinted;
@@ -476,4 +478,10 @@ void CreateSketcherCommandsSketch3D()
         QT_TR_NOOP("Distance Z"),
         QT_TR_NOOP("Fixes the Z distance of a line, two points or a point in a 3D sketch"),
         "Constraint_DistanceZ"));
+    rcCmdMgr.addCommand(new CmdSketcherConstrain3D(
+        "Sketcher_Constrain3DSmooth",
+        QT_TR_NOOP("Smooth"),
+        QT_TR_NOOP("Joins two curve ends with no break in their tangent or curvature (G2), in a "
+                   "3D sketch; a model edge's end too"),
+        "Constraint_Smooth"));
 }

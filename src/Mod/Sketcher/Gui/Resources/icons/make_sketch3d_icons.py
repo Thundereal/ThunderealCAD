@@ -346,6 +346,36 @@ def spline_on_face():
 
 ICONS["Sketcher_Sketch3DSplineOnFace"] = ("Spline on face", spline_on_face())
 
+# Smooth (G2): a straight run flowing into a bend through their shared point, in the
+# constraint bars' teal, the join marked
+def smooth():
+    j = (28, 40)  # the join
+    straight = [(4, 56), j]
+    # a clothoid-like bend: its curvature growing from zero at the join
+    bend = [j]
+    x, y, ang = j[0], j[1], math.atan2(j[1] - 56, j[0] - 4)
+    for i in range(1, 31):
+        ang += 0.0026 * i
+        x += 1.3 * math.cos(ang)
+        y += 1.3 * math.sin(ang)
+        bend.append((x, y))
+    pts = straight + bend[1:]
+    # centred on its outline
+    dx = 32 - (min(p[0] for p in pts) + max(p[0] for p in pts)) / 2
+    dy = 32 - (min(p[1] for p in pts) + max(p[1] for p in pts)) / 2
+    pts = [(p[0] + dx, p[1] + dy) for p in pts]
+    out = []
+    for c, w in ((C_OUT, 11), (C_MID, 7), (C_HI, 2.5)):
+        out.append(line(pts, c, w))
+    out.append(
+        '<circle cx="%.2f" cy="%.2f" r="6" fill="%s" stroke="%s" stroke-width="2.5"/>'
+        % (j[0] + dx, j[1] + dy, C_HI, C_OUT)
+    )
+    return out
+
+
+ICONS["Constraint_Smooth"] = ("Smooth", smooth())
+
 FOLDERS = {"Sketcher_Sketch3D": "."}
 
 

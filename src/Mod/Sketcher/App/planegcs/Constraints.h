@@ -101,6 +101,7 @@ enum ConstraintType
     QuatUnit = 112,
     P3OnFixedSurface = 113,
     P3OnSurfaceCurve = 114,
+    CurvatureMatch = 115,
 };
 
 enum InternalAlignmentType

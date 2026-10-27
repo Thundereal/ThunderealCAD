@@ -132,7 +132,8 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
               << "Sketcher_Constrain3DAlongX"
               << "Sketcher_Constrain3DAlongY"
               << "Sketcher_Constrain3DAlongZ"
-              << "Sketcher_ConstrainDistanceZ";
+              << "Sketcher_ConstrainDistanceZ"
+              << "Sketcher_Constrain3DSmooth";
 
     Gui::ToolBarItem* geom =
         new Gui::ToolBarItem(root, Gui::ToolBarItem::DefaultVisibility::Unavailable);

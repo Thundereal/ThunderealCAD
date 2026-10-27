@@ -568,6 +568,10 @@ int ConstraintPy::PyInit(PyObject* args, PyObject* /*kwd*/)
                 constraint->Type = Tangent;
                 valid = true;
             }
+            else if (strcmp("Smooth", ConstraintType) == 0) {
+                constraint->Type = Smooth;
+                valid = true;
+            }
             else if (strcmp("TangentViaPoint", ConstraintType) == 0) {
                 constraint->Type = Tangent;
                 // valid = true;//non-standard assignment
@@ -1083,6 +1087,9 @@ Py::String ConstraintPy::getType() const
             break;
         case AlongZ:
             return Py::String("AlongZ");
+            break;
+        case Smooth:
+            return Py::String("Smooth");
             break;
         case Coincident:
             return Py::String("Coincident");

@@ -218,6 +218,8 @@ public:
     DeriVector3 value(double u, double du, const double* derivparam) const;
     /// The tangent C'(u) (its derivative by derivparam excluding u's own variation).
     DeriVector3 tangent(double u, const double* derivparam) const;
+    /// C(u), C'(u) and C''(u), values only (for the curvature at an end, G2).
+    void jet(double u, double c[3], double d1[3], double d2[3]) const;
 
 private:
     const VEC_pD& pvec;
@@ -231,6 +233,9 @@ private:
     // Rational value and first derivative by u, without derivatives by parameters, plus
     // the basis function values N and derivatives dN in the span.
     void eval(double u, std::size_t k, VEC_D& N, VEC_D& dN) const;
+    // The basis functions of span k and their derivatives up to order n: ders[order][j]
+    // (The NURBS Book, A2.3).
+    void ders(double u, std::size_t k, int n, std::vector<VEC_D>& ders) const;
 };
 
 /// A curve that is not solved for -- a model edge. The 3D sketch's solver facade wraps
@@ -240,6 +245,8 @@ class SketcherExport FixedCurve3
 public:
     virtual ~FixedCurve3() = default;
     virtual void value(double u, double p[3], double d1[3]) const = 0;
+    /// With the second derivative, for a tangent's derivative and a curvature (G2).
+    virtual void value2(double u, double p[3], double d1[3], double d2[3]) const = 0;
 };
 
 /// A surface that is not solved for -- a model face. The point and the first

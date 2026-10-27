@@ -420,7 +420,7 @@ when one is held, through the solver's temporary drag constraints.
 The object, its solve and its Python API are App-side, so the served
 document and the MCP console get them unchanged. The edit mode in the
 browser follows when the 2D sketch's served edit does (docs/ThinClient.md);
-not in the first phases.
+not in the first phases. Done as S4 (section 10).
 
 ## 10. Phases and tests
 
@@ -805,7 +805,62 @@ The S2 leftovers, closed (2026-10-27):
   - `tests/gui/sketch3d-constraint-icons.py`, 16 checks;
   - `tests/gui/sketch3d-typed-values.py`, 24 checks.
 
-Open: S4, the browser.
+**S4 done 2026-10-27**, the edit in the browser. The 3D sketch's edit was
+written against the served edit's binding from the start (docs/ThinClient.md
+sec 8.9 step 4):
+- its view is the `ViewerContext` it is given, a client's mirror when
+  served;
+- the Sketcher's create commands find it through the active document, which
+  a `ViewerScope` answers;
+- its value entries are the `DatumValueEditor`, which a mirror routes keys to
+  and the page draws as its value editor.
+
+So the edit op, a tool started by the command op, clicks, a typed length and
+a drag worked from a socket as they were. What S4 changed:
+- **The 3D sketch's own commands on the browser allowlist**: the
+  manipulator's switches (Cycle Working Plane, Lock Height, Keep Plane,
+  Reset Manipulator, Rotation Handles, Spline on Face) and its constraints
+  (Along X / Y / Z, Distance Z, Smooth). None opens a dialog. The allowlist
+  lives in three copies: `SceneControl.cpp` `isBrowserSafeCommand` (the one
+  that decides), `web/src/control.ts` and `tests/gui/serve-toolbar-browser.py`.
+- **The shared tools' icons in teal in the browser too.** The desktop draws
+  them through `BitmapFactory::setIconColorMapping` during the edit. The
+  tool bar stream named an icon by its command's pixmap and served the SVG
+  file as it is, and a client keeps icons by name, so the browser went on
+  showing red. Now the stream names an icon with a colour mapping set
+  `<name>#cm<hash of the mapping>` (`BitmapFactory::iconVariantName`), and
+  `iconSource` serves that name with the colours substituted. The teal
+  icon is fetched and kept apart from the red one, and leaving the edit
+  names the red one again.
+- **Found on the way, a desktop defect.** A click could be placed behind
+  the eye. In perspective an axis of the manipulator runs on screen from the
+  vanishing point out through the manipulator. The far side of that line is
+  the part of the axis behind the eye, and pointing there locked to the axis
+  and placed the point on it behind the camera. The served test's
+  straight-down camera did it at once: a line went up Z to z = 137 with the
+  eye at 60. `pointAt` now refuses a point on an axis or on the plane behind
+  a perspective eye (an orthographic camera has no behind). An axis within
+  about 15 degrees of the line of sight through the manipulator does not
+  lock at all: seen that end on, a pixel along it is a long way.
+- Tests:
+  - `tests/gui/serve-sketch3d-edit.py`, over a real socket, 36 checks: the
+    edit op and its pushes, the tool bar stream's teal icon by its name of
+    its own, Sketcher_CreateLine and two clicks, a digit opening the entry
+    and Enter placing a line 25 long with its Distance, a drag, Along X on a
+    line a click selected, the working plane's cycle, resetEdit, no 3D view
+    made;
+  - `tests/gui/serve-sketch3d-browser.py` + `scripts/sketch3d-drive.js`, a
+    real Chrome, 21 checks. The page draws the edit, and its constraint icon
+    as a green fill in a blue border. In mode 3 that icon is a BLEND
+    texture, so the border reaches the canvas only where the viewer applies
+    BLEND, and it is counted in a window round the icon, which the server
+    places on the client's canvas (the manipulator's rings are green and
+    blue too). Also: a line by two clicks, a digit opening the page's value
+    editor and a length typed into it, End edit's shortcut;
+  - `tests/gui/sketch3d-manipulator.py` gained the two perspective cases;
+    both fail on the old code.
+
+The 3D sketch's plan is done; nothing of S0 to S4 is open.
 
 ## 11. Risks
 

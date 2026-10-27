@@ -150,6 +150,12 @@ fc_add_gui_test(GuiSketch3DTypedValues_tests_run sketch3d-typed-values.py
 # browser allowlist, resetEdit -- and no 3D view made for any of it.
 fc_add_gui_test(GuiServeSketch3DEdit_tests_run serve-sketch3d-edit.py
                 --timeout 240)
+# And from a real browser: the edit drawn in the page, its constraint icon in
+# its two colours (a BLEND texture), a line and a typed length through the
+# page's value editor, End edit's shortcut.
+# Needs the built viewer, node, PUPPETEER_PATH and CHROME; skips without.
+fc_add_gui_test(GuiServeSketch3DBrowser_tests_run serve-sketch3d-browser.py
+                --timeout 420)
 
 # An edit mode entered from a browser runs in that client's own view
 # (docs/ThinClient.md sec 8.9 step 4), end to end over a real socket:

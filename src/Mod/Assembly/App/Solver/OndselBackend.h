@@ -96,6 +96,7 @@ public:
     Result dragStep(const std::vector<BodyPose>& targets) override;
     Result endDrag() override;
     std::vector<BodyPose> poses() const override;
+    Status setPoses(const std::vector<BodyPose>& poses) override;
     Diagnostics analyse() override;
     Status simulate(const SimulationSpec& spec, TrajectorySink& sink) override;
     Status exportNative(const std::string& path) override;

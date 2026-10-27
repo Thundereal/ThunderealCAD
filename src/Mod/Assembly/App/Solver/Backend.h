@@ -191,6 +191,15 @@ public:
     // (the entry of body i has body == i). Result::moved names only the bodies
     // that moved; writing back and checking grounded bodies need them all.
     virtual std::vector<BodyPose> poses() const = 0;
+    // Puts the bodies at these poses (the entry of body i has body == i;
+    // bodies not given stay), without a solve: a drag step taken back, as
+    // when it would make two parts collide. The poses are the session's own,
+    // from poses(), so they satisfy the joints; grounded bodies keep theirs.
+    virtual Status setPoses(const std::vector<BodyPose>& poses)
+    {
+        (void)poses;
+        return Status::Unsupported;
+    }
 
     virtual Diagnostics analyse() = 0;  // at the current state
     // A backend without kinematics of its own can answer with

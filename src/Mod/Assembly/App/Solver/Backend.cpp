@@ -105,6 +105,16 @@ public:
         }
         return out;
     }
+    Status setPoses(const std::vector<BodyPose>& poses) override
+    {
+        std::vector<BodyPose> centred = poses;
+        for (auto& pose : centred) {
+            if (pose.body < centres.size()) {
+                pose.placement = pose.placement * centres[pose.body];
+            }
+        }
+        return inner->setPoses(centred);
+    }
     Diagnostics analyse() override
     {
         return inner->analyse();

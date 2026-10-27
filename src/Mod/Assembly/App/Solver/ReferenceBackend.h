@@ -109,6 +109,7 @@ public:
     Result dragStep(const std::vector<BodyPose>& targets) override;
     Result endDrag() override;
     std::vector<BodyPose> poses() const override;
+    Status setPoses(const std::vector<BodyPose>& poses) override;
     Diagnostics analyse() override;
     // Position solves at each output time (simulateByPositionSolves).
     Status simulate(const SimulationSpec& spec, TrajectorySink& sink) override;

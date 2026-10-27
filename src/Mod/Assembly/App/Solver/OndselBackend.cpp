@@ -591,6 +591,34 @@ std::vector<BodyPose> OndselSession::refreshPoses()
     return moved;
 }
 
+Status OndselSession::setPoses(const std::vector<BodyPose>& poses)
+{
+    if (!current.assembly) {
+        return Status::Failed;
+    }
+    try {
+        for (const auto& pose : poses) {
+            if (pose.body >= current.parts.size() || !current.parts[pose.body]) {
+                continue;
+            }
+            const auto& part = current.parts[pose.body];
+            // As a drag step's target, and the pose a next step starts from
+            // and goes back to
+            const Base::Vector3d pos = pose.placement.getPosition();
+            part->updateMbDFromPosition3D(
+                std::make_shared<MbD::FullColumn<double>>(MbD::ListD {pos.x, pos.y, pos.z}));
+            setRotationMatrix(*part, pose.placement.getRotation());
+            part->oldPos3D = part->position3D;
+            part->oldRotMat = part->rotationMatrix;
+        }
+        refreshPoses();
+    }
+    catch (const std::exception&) {
+        return Status::Failed;
+    }
+    return Status::Ok;
+}
+
 std::vector<BodyPose> OndselSession::poses() const
 {
     std::vector<BodyPose> result;

@@ -1401,6 +1401,17 @@ Result ReferenceSession::endDrag()
     return d->run(target, {});
 }
 
+Status ReferenceSession::setPoses(const std::vector<BodyPose>& poses)
+{
+    for (const auto& pose : poses) {
+        if (pose.body < d->poses.size() && pose.body < d->model.bodies.size()
+            && !d->model.bodies[pose.body].grounded) {
+            d->poses[pose.body] = toPose(pose.placement);
+        }
+    }
+    return Status::Ok;
+}
+
 std::vector<BodyPose> ReferenceSession::poses() const
 {
     std::vector<BodyPose> out;

@@ -2206,6 +2206,22 @@ Result ChronoSession::dragStep(const std::vector<BodyPose>& targets)
     return result;
 }
 
+Status ChronoSession::setPoses(const std::vector<BodyPose>& poses)
+{
+    if (!d->loaded || !d->sys) {
+        return Status::Failed;
+    }
+    std::vector<Pose> now = d->current();
+    for (const auto& pose : poses) {
+        if (pose.body < now.size()) {
+            const ch::ChFramed f = toCh(pose.placement);
+            now[pose.body] = {f.GetPos(), f.GetRot()};
+        }
+    }
+    d->setPoses(now);  // grounded (fixed) bodies are left
+    return Status::Ok;
+}
+
 Result ChronoSession::endDrag()
 {
     d->dragBodies.clear();

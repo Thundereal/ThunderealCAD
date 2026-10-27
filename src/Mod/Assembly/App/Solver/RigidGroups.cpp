@@ -135,21 +135,30 @@ public:
     }
     Result dragStep(const std::vector<BodyPose>& targets) override
     {
+        return back(inner->dragStep(reduce(targets)));
+    }
+    Status setPoses(const std::vector<BodyPose>& poses) override
+    {
+        return inner->setPoses(reduce(poses));
+    }
+    // Poses of the original bodies as poses of the reduced ones: a group's
+    // from the first of its bodies given, a placed body's not at all
+    std::vector<BodyPose> reduce(const std::vector<BodyPose>& poses) const
+    {
         std::vector<BodyPose> mapped;
-        for (const auto& target : targets) {
-            if (target.body >= map.size() || map[target.body].role == Role::Placed) {
+        for (const auto& pose : poses) {
+            if (pose.body >= map.size() || map[pose.body].role == Role::Placed) {
                 continue;
             }
-            const BodyMap& m = map[target.body];
+            const BodyMap& m = map[pose.body];
             if (std::ranges::any_of(mapped, [&](const auto& t) { return t.body == m.reduced; })) {
                 continue;
             }
             mapped.push_back(
                 {m.reduced,
-                 m.role == Role::Member ? target.placement * m.pose.inverse() : target.placement}
-            );
+                 m.role == Role::Member ? pose.placement * m.pose.inverse() : pose.placement});
         }
-        return back(inner->dragStep(mapped));
+        return mapped;
     }
     Result endDrag() override
     {

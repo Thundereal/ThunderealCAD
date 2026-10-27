@@ -100,6 +100,7 @@ public:
     Result solve(const SolveOptions& options) override;
     Status beginDrag(const std::vector<Id>& bodies, const DragOptions& options) override;
     Result dragStep(const std::vector<BodyPose>& targets) override;
+    Status setPoses(const std::vector<BodyPose>& poses) override;
     Result endDrag() override;
     std::vector<BodyPose> poses() const override;
     Diagnostics analyse() override;

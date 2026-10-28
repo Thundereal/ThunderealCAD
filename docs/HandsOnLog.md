@@ -8297,3 +8297,18 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   sketch-constraint-highlight-view 12/12 there.
 - rtx57: ctest 1088/1088; pd-values-in-view 37, chamfer 19, fillet 21.
 - The reporter: "Once done push and restage".
+
+### 2026-10-29: Windows GUI tests on a hidden desktop by default -- pushed
+
+- The reporter: "Commit the hiddden desk test on windows. Use it for testing
+  from now on for windows by default. Push and tell x16win about this too".
+- In the repo now: `scripts/gui-test.cmd`, the Windows GUI test driver
+  (`gui-test.sh`'s counterpart), `scripts/gui-test-guard.py` and
+  `scripts/run-on-hidden-desktop.ps1`. GT_DESKTOP picks hidden (default),
+  screen or offscreen; FC_RUNNER names the wrapper that puts the conda env,
+  OCCT and Coin on PATH. docs/Testing.md "The GUI tests" and CLAUDE.md say
+  to use it on Windows, not QT_QPA_PLATFORM=offscreen.
+- Driven through it: pd-primitive-labels-at-handle 20/20,
+  sketch-constraint-highlight-view 12/12.
+- The local gui.cmd runs dev and staged on the hidden desktop by default
+  too; GT_ON_SCREEN=1 for the old way.

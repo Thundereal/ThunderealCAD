@@ -523,7 +523,15 @@ undoTransactionFromLog([seq, ...]) -> bool
 
 Several rows as one step (sec 33.13): one transaction applies them reversed,
 newest first. What the other rows of the list did is not held against a row;
-if any is refused none is undone.</UserDocu>
+if any is refused none is undone.
+
+undoTransactionFromLog(seqs, conflicts) -> bool
+
+With what to do with a property changed since the row set it
+(docs/HandsOnQueue.md entry 232): "refuse" (the default), "overwrite" -- the
+row's value put back over the later change -- or "skip" -- the later change
+left and the rest taken back. A row whose object is gone, or whose removed
+object's name or id is taken, is refused whichever is asked.</UserDocu>
       </Documentation>
     </Methode>
     <Methode Name="nameTransactionVersion">

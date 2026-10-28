@@ -1299,6 +1299,28 @@ public:
      * step is named by what it undid and names no single row it inverts.
      */
     bool undoLogged(const std::vector<int64_t>& seqs);
+    /// What a selective undo does with a property changed since the row
+    /// set it (docs/HandsOnQueue.md entry 232)
+    enum class UndoConflicts
+    {
+        /// Refuses the undo, as undoLogged() always has
+        Refuse,
+        /// Puts the row's value back over the later change ("undo anyway")
+        Overwrite,
+        /// Leaves the later change and takes back the rest ("skip")
+        Skip,
+    };
+    /** undoLogged(seqs) with what to do with a property changed since.
+     *
+     * Only a property's value: a row whose object is gone, or whose
+     * removed object's name or id is taken, is refused whichever is asked.
+     */
+    bool undoLogged(const std::vector<int64_t>& seqs, UndoConflicts conflicts);
+    /** The log rows of the undo steps with transaction ids \a tids, newest
+     * first: what undoLogged() takes. A step that is not on the undo stack,
+     * or has no row, is left out.
+     */
+    std::vector<int64_t> logSeqsOf(const std::vector<int>& tids);
 
     /** How App reaches an object's view provider (docs/TransactionLogJournal.md
      * sec 24.9): the Gui registers a resolver; without one (FreeCADCmd)

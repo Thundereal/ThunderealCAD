@@ -1356,25 +1356,40 @@ PyObject* DocumentPy::getTransactionCursor(PyObject *args)
 PyObject* DocumentPy::undoTransactionFromLog(PyObject *args)
 {
     PyObject* arg = nullptr;
-    if (!PyArg_ParseTuple(args, "O", &arg))
+    const char* mode = nullptr;
+    if (!PyArg_ParseTuple(args, "O|s", &arg, &mode))
         return nullptr;
     PY_TRY {
+        auto conflicts = Document::UndoConflicts::Refuse;
+        const std::string modeName = mode ? mode : "refuse";
+        if (modeName == "overwrite")
+            conflicts = Document::UndoConflicts::Overwrite;
+        else if (modeName == "skip")
+            conflicts = Document::UndoConflicts::Skip;
+        else if (modeName != "refuse") {
+            PyErr_SetString(PyExc_ValueError, "conflicts is 'refuse', 'overwrite' or 'skip'");
+            return nullptr;
+        }
         // One row, or several as one step (docs/TransactionLogJournal.md sec 33.13).
-        if (PyLong_Check(arg)) {
+        if (PyLong_Check(arg) && !mode) {
             const long long seq = PyLong_AsLongLong(arg);
             if (seq == -1 && PyErr_Occurred())
                 return nullptr;
             return Py::new_reference_to(Py::Boolean(getDocumentPtr()->undoLogged(seq)));
         }
-        if (!PySequence_Check(arg) || PyUnicode_Check(arg)) {
+        std::vector<int64_t> seqs;
+        if (PyLong_Check(arg))
+            seqs.push_back(static_cast<long long>(Py::Long(arg)));
+        else if (!PySequence_Check(arg) || PyUnicode_Check(arg)) {
             PyErr_SetString(PyExc_TypeError, "expected a row number or a sequence of them");
             return nullptr;
         }
-        std::vector<int64_t> seqs;
-        const Py::Sequence list(arg);
-        for (Py::Sequence::size_type i = 0; i < list.size(); ++i)
-            seqs.push_back(static_cast<long long>(Py::Long(list[i])));
-        return Py::new_reference_to(Py::Boolean(getDocumentPtr()->undoLogged(seqs)));
+        else {
+            const Py::Sequence list(arg);
+            for (Py::Sequence::size_type i = 0; i < list.size(); ++i)
+                seqs.push_back(static_cast<long long>(Py::Long(list[i])));
+        }
+        return Py::new_reference_to(Py::Boolean(getDocumentPtr()->undoLogged(seqs, conflicts)));
     } PY_CATCH;
 }
 

@@ -308,6 +308,9 @@ struct Document::ColdRevert
     /// A refusal is not an error but a reason to take another path (sec
     /// 27.34): logged, not reported.
     bool quiet {false};
+    /// A property changed since the row: refuse, overwrite it, or leave it
+    /// (docs/HandsOnQueue.md entry 232)
+    UndoConflicts conflicts {UndoConflicts::Refuse};
     /// Objects touched because a derived value is not in the log.
     std::set<long> touched;
 };
@@ -770,9 +773,13 @@ struct StepTouched
  * `together` names the rows undone with it in one step (sec 33.13), newest
  * first: an op of one of them is gone by the time this row is taken back,
  * so the op that counts is the newest of a row that is not among them.
+ *
+ * `conflicted` gets the (kind, id, property) of each conflict.
  */
+using PropKey = std::tuple<std::string, long, std::string>;
 std::string checkSelective(TransactionLog& log, int64_t seq, const std::vector<LogOp>& ops,
-                           const std::set<int64_t>* together = nullptr)
+                           const std::set<int64_t>* together = nullptr,
+                           std::set<PropKey>* conflicted = nullptr)
 {
     // The state each property is left in by the row: its last op's after,
     // or "gone" for a dynamic property it removed.
@@ -822,9 +829,12 @@ std::string checkSelective(TransactionLog& log, int64_t seq, const std::vector<L
         std::string now = later.op == "delprop" ? std::string("-")
                         : later.op == "set"     ? later.vafter
                                                 : std::string("+");
-        if (now != kv.second)
+        if (now != kv.second) {
             why << " " << std::get<2>(kv.first) << " of id " << std::get<1>(kv.first)
                 << " was changed since, by row " << later.txn << ";";
+            if (conflicted)
+                conflicted->insert(kv.first);
+        }
     }
     return why.str();
 }
@@ -911,8 +921,23 @@ bool Document::_prepareRevert(int64_t seq, const std::string& name, ColdRevert& 
                         << ") is not in the log;";
             }
         }
-        if (revert.selective)
-            why << checkSelective(*log, seq, revert.log.ops, revert.together);
+        if (revert.selective) {
+            std::set<PropKey> conflicted;
+            const std::string changed =
+                checkSelective(*log, seq, revert.log.ops, revert.together, &conflicted);
+            if (revert.conflicts == UndoConflicts::Refuse)
+                why << changed;
+            else if (revert.conflicts == UndoConflicts::Skip && !conflicted.empty()) {
+                // What was changed since stays as it is now
+                revert.ops.erase(std::remove_if(revert.ops.begin(), revert.ops.end(),
+                    [&](const LogOp* o) {
+                        return (o->op == "set" || o->op == "delprop")
+                            && conflicted.count(PropKey(o->ckind, o->cid, o->prop));
+                    }), revert.ops.end());
+                FC_LOG("undo " << name << ": " << conflicted.size()
+                       << " property(ies) changed since, left as they are");
+            }
+        }
         if (views)
             FC_LOG("cold " << name << ": " << views << " view op(s) not reverted");
     }
@@ -1127,6 +1152,26 @@ bool Document::undoLogged(int64_t seq)
 
 bool Document::undoLogged(const std::vector<int64_t>& seqs)
 {
+    return undoLogged(seqs, UndoConflicts::Refuse);
+}
+
+std::vector<int64_t> Document::logSeqsOf(const std::vector<int>& tids)
+{
+    std::vector<int64_t> seqs;
+    auto log = getTransactionLog();
+    if (!log)
+        return seqs;
+    log->resolvePending();
+    const std::set<int> wanted(tids.begin(), tids.end());
+    for (auto it = mUndoTransactions.rbegin(); it != mUndoTransactions.rend(); ++it) {
+        if (wanted.count((*it)->getID()) && (*it)->LogSeq > 0)
+            seqs.push_back((*it)->LogSeq);
+    }
+    return seqs;
+}
+
+bool Document::undoLogged(const std::vector<int64_t>& seqs, UndoConflicts conflicts)
+{
     OperationScope scope;   // sec 27.38
     // docs/TransactionLogJournal.md sec 24.4: a new transaction applying row
     // `seq` reversed, refused when anything since changed what it touched.
@@ -1152,7 +1197,7 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs)
                 names[seq] = t.name;
         }
     }
-    if (several) {
+    if (several && conflicts == UndoConflicts::Refuse) {
         // What the log alone can say is asked of every row before any is
         // taken back: a row changed since refuses them all with nothing
         // written, and each one that is in the way is named.
@@ -1202,6 +1247,7 @@ bool Document::undoLogged(const std::vector<int64_t>& seqs)
         // of the document those leave.
         ColdRevert revert;
         revert.selective = true;
+        revert.conflicts = conflicts;
         if (several)
             revert.together = &rows;
         if (!_prepareRevert(*it, names[*it], revert)) {

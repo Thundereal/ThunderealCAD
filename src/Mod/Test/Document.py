@@ -1677,6 +1677,38 @@ class BoundTransactionCases(unittest.TestCase):
         self.assertEqual(c.UndoNames, ["Edit"])
         self.assertEqual(a.UndoNames, ["Edit"])
 
+    def mineAndTheirs(self, name):
+        # A step of mine, then one of another edit's over part of it
+        doc, obj = self.make(name)
+        default = obj.String
+        doc.openTransaction("mine")
+        obj.Integer = 1
+        obj.String = "mine"
+        doc.commitTransaction()
+        doc.openTransaction("theirs")
+        obj.Integer = 2
+        doc.commitTransaction()
+        rows = [r["seq"] for r in doc.getTransactionLog() if r["kind"] == "user"]
+        return doc, obj, default, rows[-2]
+
+    def testUndoingMineOverTheirsIsRefusedByDefault(self):
+        doc, obj, default, mine = self.mineAndTheirs("ConflictRefuse")
+        self.assertFalse(doc.undoTransactionFromLog(mine))
+        self.assertFalse(doc.undoTransactionFromLog([mine], "refuse"))
+        self.assertEqual((obj.Integer, obj.String), (2, "mine"))
+
+    def testSkipLeavesTheirsAndTakesBackTheRest(self):
+        doc, obj, default, mine = self.mineAndTheirs("ConflictSkip")
+        self.assertTrue(doc.undoTransactionFromLog([mine], "skip"))
+        self.assertEqual(obj.Integer, 2, "their change stays")
+        self.assertEqual(obj.String, default, "the rest of mine is taken back")
+
+    def testOverwritePutsMineBackOverTheirs(self):
+        doc, obj, default, mine = self.mineAndTheirs("ConflictOverwrite")
+        self.assertTrue(doc.undoTransactionFromLog(mine, "overwrite"))
+        self.assertEqual(obj.Integer, 4711, "the value before mine, over theirs")
+        self.assertEqual(obj.String, default)
+
 
 class DocumentGroupCases(unittest.TestCase):
     def setUp(self):

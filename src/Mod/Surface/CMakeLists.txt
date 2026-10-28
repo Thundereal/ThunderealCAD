@@ -19,6 +19,7 @@ set(Surface_TestScripts
     SurfaceTests/TestSectionsGuides.py
     SurfaceTests/TestSurfaceFeatures.py
     SurfaceTests/TestTrim.py
+    SurfaceTests/TestTwoRailSweep.py
 )
 
 if(BUILD_GUI)

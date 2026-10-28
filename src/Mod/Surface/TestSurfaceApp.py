@@ -29,3 +29,4 @@ from SurfaceTests.TestNetwork import TestNetwork, TestNetworkConditions
 from SurfaceTests.TestSectionsGuides import TestSectionsGuides
 from SurfaceTests.TestSurfaceFeatures import TestSurfaceFeatures
 from SurfaceTests.TestTrim import TestTrim
+from SurfaceTests.TestTwoRailSweep import TestTwoRailSweep

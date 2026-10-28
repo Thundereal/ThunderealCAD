@@ -144,7 +144,8 @@ TEST(Trim, nearestPieceAndTies)
 {
     TopoDS_Face face = wave();
     gp_Dir down(0, 0, -1);
-    auto pieces = split(face, projectOnto(face, {line(gp_Pnt(10, -2, 5), gp_Pnt(10, 14, 5))}, &down, 1e-6));
+    auto cut = projectOnto(face, {line(gp_Pnt(10, -2, 5), gp_Pnt(10, 14, 5))}, &down, 1e-6);
+    auto pieces = split(face, cut);
     ASSERT_EQ(pieces.size(), 2u);
     int left = distance(pieces[0], BRepBuilderAPI_MakeVertex(gp_Pnt(2, 6, 0))) < 1 ? 0 : 1;
     EXPECT_EQ(nearestPiece(pieces, gp_Pnt(2, 6, 3), 1e-6), left);

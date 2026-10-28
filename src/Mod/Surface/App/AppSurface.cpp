@@ -39,6 +39,7 @@
 #include "FeatureSections.h"
 #include "FeatureSewing.h"
 #include "FeatureTrim.h"
+#include "FeatureTwoRailSweep.h"
 #include "Geom/GeomPy.h"
 
 
@@ -96,6 +97,7 @@ PyMOD_INIT_FUNC(Surface)
     Surface::Split             ::init();
     Surface::Trim              ::init();
     Surface::Untrim            ::init();
+    Surface::TwoRailSweep      ::init();
     // clang-format on
 
     PyMOD_Return(mod);

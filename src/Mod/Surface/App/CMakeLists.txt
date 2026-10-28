@@ -56,6 +56,8 @@ SET(Geom_SRCS
   Geom/GeomPy.h
   Geom/NetworkSurface.cpp
   Geom/NetworkSurface.h
+  Geom/Sweep.cpp
+  Geom/Sweep.h
 )
 SOURCE_GROUP("Geom" FILES ${Geom_SRCS})
 
@@ -84,6 +86,8 @@ SET(Surface_SRCS
   FeatureSewing.h
   FeatureTrim.cpp
   FeatureTrim.h
+  FeatureTwoRailSweep.cpp
+  FeatureTwoRailSweep.h
   FeatureBlendSurface.cpp
   FeatureBlendSurface.h
   FeatureCut.cpp

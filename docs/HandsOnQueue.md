@@ -178,6 +178,10 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-28 11:26: entry 232 -- several edits in one document, one per view
+(PerViewEdit on); a plan given, the reporter's decisions awaited.**
+Under the entries.
+
 **2026-10-28 09:57: 231 REPRODUCED in the reporter's live session -- a section line
 dragged less than 10 px (the drag distance) goes back on release; Undo
 does not redraw the line; 230 and 231 to dwin, NOT delivered (not
@@ -4429,6 +4433,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 229 | 2026-10-23 | test failures found by fcad-dc (on 225), made an entry by the note-taker coordinating: offscreen, NOT from 225 (an A/B in one build with the new bars off fails the same) -- task-panel-overlay ABORT "views: 1"; overlay-pass-through, the Tasks panel's two pass-through claims; overlay-item-outline-and-hover, "cut to the item" and "rows above and below" (Dark and Light) | OPEN; 2026-10-23 19:37; ASSIGNED to fcad-dc (overlays; free): find whether the tests or the code, since which commit. 2026-10-23 19:55 DONE by fcad-dc `793c572a72` (tests only), local, NOT pushed, NOT staged: every failure the TEST's, no code at fault, traced before fixing -- task-panel-overlay a real-screen test run offscreen (offscreen the 400x366 view is not split since `dd336be800`, least cell 300x300); now says NOT RUN offscreen, least cell 100; 43/43 on the real screen; overlay-pass-through: the move and click DO pass through the Tasks panel, the test guessed the plate from the window's middle but since `c9417fada7` (entry 150) the wheel zooms at the pointer; the expected plate is the view's own pick; 19/19; overlay-item-outline-and-hover: offscreen the tree is 121 px and Box05's row ran under the next panel's title; now Box02-Box04, checked inside the viewport; 'cut to the item' measured against the viewport's edge, not column 0 (ResizeToContents); since when NOT pinned (34/34 on 10-13, no build of 10-13 left); 30/30. 2026-10-23 23:20 PUSHED by fcad-dc on the reporter's word to it ("Push"; relayed), thundereal/LinkVibe a19fb686e7..f012b2550f; NOT restaged, not in stage29 |
 | 230 | 2026-10-28 | a change request: TechDraw's Toggle Frames (the page's frames and labels) DEFAULT OFF | OPEN; said to the note-taker 2026-10-28 09:41; READ by the note-taker: stored per page as ViewProviderPage::ShowFrames, a hidden PropertyBool of the page's view provider, default true (ViewProviderPage.cpp 95, hidden 102), saved in the document's GuiDocument.xml; TechDraw_ToggleFrame and the page's context menu flip it (toggleFrameState, 509); no preference behind it (ShowGrid beside it takes PreferencesGui::showGrid()); with frames off a view still shows its frame and label while anything of it is selected (QGIView::getFrameState, entries 155/204); a page already saved keeps its saved value; ASSIGNED to fcad-dc. 2026-10-28 09:45 the reporter: "entry 230, make the property visible, leave existing object as it is" -- ShowFrames shown in the property editor (not Hidden), a saved page keeps its value; NOT YET DELIVERED: fcad-dc not reachable. 2026-10-28 09:57 the reporter: "remote session dwin handle this" -- 230 and 231 to dwin; NOT YET DELIVERED: no dwin among the sessions the note-taker can reach. 2026-10-28 11:15 DELIVERED to fcad-88, on the reporter's word "I think it is fcad-88 on the same box" (dwin itself not listed); asked to say if it is not dwin |
 | 231 | 2026-10-28 | a defect: scanner, after the migration recompute (Section003 broken, as expected), dragging Section003's section line to line it up with the middle of Top003's two lower holes: on the mouse release the line jumps a bit up or down, "as if the section line can only be placed at some discrete number of possible positions" | OPEN; said to the note-taker 2026-10-28 09:45; READ by the note-taker: no snapping in TechDraw's Gui (snap only in QGTracker's angle snap); the release goes QGISectionLine::onItemMoved (QGISectionLine.cpp 664) -> the line's points moved by the drag offset -> a queued DrawViewSection::setChangePoints (DrawViewSection.cpp 1292), which divides the points by the base view's scale, moves SectionOrigin by inverseProjectPoint(newMid - oldMid) with oldMid from sectionLineEnds(); the line is then drawn from the recomputed origin; cause NOT found by reading; NOT reproduced; ASSIGNED to fcad-dc, NOT YET DELIVERED (not reachable). 2026-10-28 09:57 REPRODUCED by the note-taker in the reporter's LIVE session on their word ("check my live session ... you can drag the Section003"): mouse events on Page004's view, zoom 1.238: drags of -15 and +10 px landed exactly (-15, +10; SectionOrigin.y -0.6057, +0.4038), drags of -7, +3, -2, -1, +1, +4, +8, -9 px went back to where they started -- QApplication::startDragDistance() is 10 there, and onItemMoved puts the line back when the release is less than that from the press (wasDragged, QGISectionLine.cpp 656/692, the click guard); a fine correction under 10 px is lost, which reads as fixed positions; also: after Undo of a 'Move section line' the line is NOT redrawn (SectionOrigin back, the line still where the move left it); the note-taker's two moves undone; to dwin, NOT YET DELIVERED. 2026-10-28 11:15 DELIVERED to fcad-88, on the reporter's word "I think it is fcad-88 on the same box" (dwin itself not listed); asked to say if it is not dwin |
+| 232 | 2026-10-28 | a change request: with PerViewEdit on, SEVERAL objects of ONE document in edit at once, each in its own view | OPEN; said to the note-taker 2026-10-28 11:26; the reporter asked for a PLAN FIRST; plan given by the note-taker (section 232), the reporter's decisions awaited; NOT assigned |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -30695,6 +30700,78 @@ there. I think it is fcad-88 on the same box" -- ListAgents still shows
 no dwin; 230 and 231 SENT to fcad-88 as dwin, with the ask to reply and
 do nothing if it is not dwin.
 
+## 232. Several edits in one document, one per view, with PerViewEdit on (a change request) -- OPEN
+
+**2026-10-28 11:26, the reporter (to the note-taker):** "new request, when per view
+edit is enable, we shall now support multiple editting objects in the
+same document but different view. give me a plan first"
+The note-taker's reading: with PerViewEdit on, view A edits one object
+while view B of the same document edits another, both live; a plan
+before any work.
+READ by the note-taker (what stands):
+- PerViewEdit (ViewParams, default off) only keeps the ONE edit in the
+  view that started it (Document.cpp 925, root->setShared(false)).
+- Gui::Document holds one edit: DocumentP _editViewProvider,
+  _editViewProviderParent, _editSubname, _editingTransform, _editMode,
+  _editingViewer, _editRoot (Document.cpp 132-161).
+- Task panels are per view already (docs/TaskPanelPerView.md); Control
+  is keyed by TaskOwner, but exclusive() allows one open dialog in the
+  process (sec 8), behind the hidden TaskView/TaskPanelAllowConcurrent.
+- The reason given there: ONE active transaction for the application;
+  Application::setActiveTransaction (AutoTransaction.cpp 185) commits
+  every document's open one when a new one opens. thundereal/Transaction
+  is merged (per-author undo, ActorScope), but the active transaction is
+  still one.
+- getInEdit()/resetEdit()/activeDialog() and the like: 563 call sites in
+  216 files (C++ and Python).
+- docs/MultiViewEdit.md sec 6 already sketches it: a view-to-session
+  map, an object lock, a panel per session, TempoVis per view,
+  interleaved transactions.
+
+THE PLAN (the note-taker's, for the reporter to decide):
+P1 Gui::Document, an edit session per view. The DocumentP edit fields
+   become an EditSession record, in a map keyed by the view
+   (ViewerContext). getInEdit() answers for the current view
+   (ViewerContext::current(), else the active view) -- most of the 563
+   callers are the view's own commands and get the right answer without
+   change; getInEdit(view) and a sessions() list for the rest.
+   setEdit(vp, mode, subname) starts a session in the current view;
+   resetEdit() ends the current view's; signalInEdit/signalResetEdit
+   name the view. With PerViewEdit off: one session, every view joins,
+   as today.
+P2 A lock per object. An object in edit in one view cannot be put in
+   edit in another: refused with "<object> is being edited in <view>",
+   and the other view's button to go there. Its parent and sub-objects
+   (the fillet's body, the sketch of a pad being edited) -- see question
+   2.
+P3 Transactions. (A) A transaction per session: the document records
+   each change against the session that made it -- the deep change, in
+   App. (B) RECOMMENDED: a session holds no long open transaction; each
+   change is its own committed step (the fine undo PD already has, entry
+   136, names from 228), tagged with the session as its author
+   (ActorScope); OK keeps them, Cancel undoes the session's own steps
+   with the per-author undo that is built. No change to the one active
+   transaction rule; the steps just never stay open across the other
+   view's work.
+P4 Control. exclusive() lifted while PerViewEdit is on, for dialogs
+   that declare they hold no open transaction
+   (TaskDialog::holdsTransaction(), TaskPanelPerView.md sec 8); any
+   other dialog still refuses a second, as today.
+P5 First clients, one at a time, each with a GUI test of two views:
+   PD's feature and dress-up panels (fine undo already), then the
+   Sketcher (its static state audited: two sketches in two views), then
+   TechDraw's task panels; the rest keep the one-at-a-time rule until
+   moved.
+P6 What a second session changes elsewhere: the tree's in-edit mark per
+   view; the Undo list of a view in edit shows that session's steps
+   (ties into 227); the selection per view (PerViewSelection) required
+   with PerViewEdit; a served client's view is a view like any other.
+Questions for the reporter: 1. A or B for transactions (B
+recommended). 2. May one view edit an object another view's edit
+depends on (a sketch while its pad is in edit)? Recommended: allowed,
+the other session's preview recomputes on the next change. 3. Start
+with PD dress-ups and features only, the rest refused for now?
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -30706,5 +30783,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 231
+the build session, 131 and 132 found by it; entries 134 to 232
 are of 2026-10-15, 134 said to the build session)

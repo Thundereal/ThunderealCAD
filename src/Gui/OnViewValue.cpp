@@ -49,6 +49,7 @@
 #include <App/PropertyUnits.h>
 #include <Base/Color.h>
 #include <Base/Console.h>
+#include <Base/Parameter.h>
 #include <Base/Placement.h>
 #include <Base/Quantity.h>
 
@@ -810,12 +811,27 @@ void OnViewValueSet::attachToEdit(const ViewProvider* vp, const GizmoContainer* 
 
 namespace {
 
+/// Where the label ground's opacity is kept, with the gizmos' settings
+ParameterGrp::handle groundParams()
+{
+    return App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/Gui/Gizmos");
+}
+
+/// The label ground's opacity, in percent: 0, the default, for none
+int groundOpacity()
+{
+    return std::clamp(int(groundParams()->GetInt("OnViewLabelBackgroundOpacity", 0)), 0, 100);
+}
+
 /** The ground under a value's label: the tree's item ground as the tree
- * paints it, see-through (docs/HandsOnQueue.md entry 240, the reporter: "add
- * some transparent background for each on view lable, using the same
- * background color from tree item"). Without one, the tree's item
- * background setting, else the window's base colour. Opaque enough to be
- * seen, and never fully.
+ * paints it (docs/HandsOnQueue.md entry 240, the reporter: "add some
+ * transparent background for each on view lable, using the same background
+ * color from tree item"), else the tree's item background setting, else the
+ * window's base colour; as opaque as the setting says, none by default (the
+ * reporter: "Add label background transparency setting, default 0. ...
+ * another branch added label outline, which should be enough for
+ * readability").
  */
 QColor labelGround()
 {
@@ -834,8 +850,16 @@ QColor labelGround()
     if (!colour.isValid()) {
         colour = QApplication::palette().color(QPalette::Base);
     }
-    colour.setAlpha(std::clamp(colour.alpha(), 96, 200));
+    colour.setAlpha(groundOpacity() * 255 / 100);
     return colour;
+}
+
+void setGround(EditableDatumLabel* label)
+{
+    const QColor ground = labelGround();
+    label->label->backgroundColor.setValue(
+        float(ground.redF()), float(ground.greenF()), float(ground.blueF()));
+    label->label->backgroundAlpha = float(ground.alphaF());
 }
 
 }  // namespace
@@ -850,10 +874,7 @@ void OnViewValueSet::makeLabels()
         label->setLabelType(SoDatumLabel::TEXT, EditableDatumLabel::Function::Dimensioning);
         label->setPoints(SbVec3f(0, 0, 0), SbVec3f(0, 0, 0));
         label->setPickable(true);
-        const QColor ground = labelGround();
-        label->label->backgroundColor.setValue(
-            float(ground.redF()), float(ground.greenF()), float(ground.blueF()));
-        label->label->backgroundAlpha = float(ground.alphaF());
+        setGround(label.get());
         connect(label.get(), &EditableDatumLabel::clicked, this, &OnViewValueSet::onLabelClicked);
         entry->label = std::move(label);
     }
@@ -1317,6 +1338,25 @@ void OnViewValueSet::addSettingsMenu(QMenu& menu)
     settings->addAction(fieldRow(settings, tr("Coarse rotation step (degrees)"), rotation));
     connect(rotation, qOverload<int>(&QSpinBox::valueChanged), [](int v) {
         MiscParams::setCoarseRotationSnapMultiplier(v);
+    });
+
+    // the values' labels' ground, the tree's item colour (entry 240): its
+    // opacity, none by default, the labels shown taking it at once
+    auto ground = new QSpinBox;
+    ground->setObjectName(QStringLiteral("OnViewSettingLabelBackgroundOpacity"));
+    ground->setRange(0, 100);
+    ground->setSuffix(QStringLiteral(" %"));
+    ground->setValue(groundOpacity());
+    ground->setToolTip(tr("How opaque the ground under a value's label is, in the tree's "
+                          "item colour; 0 for none"));
+    settings->addAction(fieldRow(settings, tr("Label background opacity"), ground));
+    connect(ground, qOverload<int>(&QSpinBox::valueChanged), this, [this](int v) {
+        groundParams()->SetInt("OnViewLabelBackgroundOpacity", v);
+        for (auto& entry : entries) {
+            if (entry->label) {
+                setGround(entry->label.get());
+            }
+        }
     });
 }
 

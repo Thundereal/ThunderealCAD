@@ -8,7 +8,9 @@ using the same background color from tree item").
 Claims, a box and then a cylinder in their edits:
   - no handle active: no label shown (they were all at the top middle);
   - Tab, the first value's handle active: its label alone is shown;
-  - that label has a ground under its text, see-through.
+  - that label has no ground under its text by default (the reporter: "Add
+    label background transparency setting, default 0"); with the setting at
+    40 percent, the next edit's label has one that opaque.
 Runs offscreen as well.
 """
 import os
@@ -92,7 +94,10 @@ def key(k):
     pump(10)
 
 
-def try_feature(obj, name, first):
+GIZMOS = FreeCAD.ParamGet("User parameter:BaseApp/Preferences/Gui/Gizmos")
+
+
+def try_feature(obj, name, first, opacity=0):
     gdoc = FreeCADGui.getDocument(DOC)
     gdoc.setEdit(obj, 0)
     pump(100)
@@ -107,8 +112,9 @@ def try_feature(obj, name, first):
           len(now) == 1 and now[0][0].startswith(first), now)
     if now:
         alpha = now[0][1]
-        check("%s: the label has a see-through ground" % name,
-              alpha is not None and 96 / 255 - 1e-3 <= alpha <= 200 / 255 + 1e-3, alpha)
+        want = (opacity * 255 // 100) / 255
+        check("%s: the label's ground at the setting's %d%%" % (name, opacity),
+              alpha is not None and abs(alpha - want) < 1e-3, (alpha, want))
     key(Qt.Key_Escape)
     gdoc.resetEdit()
     pump(30)
@@ -126,8 +132,12 @@ def run():
         view().viewIsometric()
         view().fitAll()
         pump(50)
+        GIZMOS.RemInt("OnViewLabelBackgroundOpacity")
         try_feature(box, "box", "Length")
         try_feature(cyl, "cylinder", "Radius")
+        GIZMOS.SetInt("OnViewLabelBackgroundOpacity", 40)
+        try_feature(box, "box, the ground at 40%", "Length", 40)
+        GIZMOS.RemInt("OnViewLabelBackgroundOpacity")
     except Exception:
         note("ABORT " + traceback.format_exc().replace("\n", " | "))
     finally:

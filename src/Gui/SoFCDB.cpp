@@ -220,6 +220,7 @@ void Gui::SoFCDB::init()
     SoFCSwitch                      ::initClass();
     SoFCSeparator                   ::initClass();
     SoFCLatePickGroup               ::initClass();
+    SoFCFaceSet                     ::initClass();
     SoFCSelectionRoot               ::initClass();
     SoFCPathAnnotation              ::initClass();
     SoFCDetail                      ::initClass();

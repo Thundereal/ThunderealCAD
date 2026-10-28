@@ -35,6 +35,8 @@
 #include <Inventor/fields/SoSFFloat.h>
 #include <Inventor/fields/SoSFName.h>
 #include <Inventor/fields/SoMFName.h>
+#include <Inventor/fields/SoMFInt32.h>
+#include <Inventor/nodes/SoFaceSet.h>
 #include <Inventor/lists/SoNodeList.h>
 #include <Inventor/nodes/SoSeparator.h>
 
@@ -1040,6 +1042,27 @@ private:
 
 };
 
+/** A face set whose faces are parts, as a Part shape's are: partIndex holds
+ * how many triangles each face is made of. The render cache highlights a
+ * face picked (an SoFaceDetail's part index) as that part, with its outline;
+ * of a plain face set it took the index for a triangle, and a datum plane's
+ * square was outlined as half of it (docs/HandsOnQueue.md entry 235).
+ */
+class GuiExport SoFCFaceSet : public SoFaceSet
+{
+    using inherited = SoFaceSet;
+    SO_NODE_HEADER(Gui::SoFCFaceSet);
+
+public:
+    static void initClass();
+    SoFCFaceSet();
+
+    SoMFInt32 partIndex;
+
+protected:
+    ~SoFCFaceSet() override;
+};
+
 class GuiExport SoFCLatePickGroup : public SoFCSeparator
 {
     using inherited = SoFCSeparator;
@@ -1049,10 +1072,24 @@ public:
     static void initClass();
     static void finish();
     explicit SoFCLatePickGroup();
+    ~SoFCLatePickGroup() override;
 
     void GLRenderBelowPath(SoGLRenderAction * action) override;
     void GLRenderInPath(SoGLRenderAction * action) override;
     void rayPick(SoRayPickAction * action) override;
+
+    /** Picked with the scene, not after it, and ahead of it while what it
+     * belongs to is preselected: a datum plane's face once the plane is
+     * highlighted, so that the pointer can go across the face without
+     * losing it (docs/HandsOnQueue.md entry 235)
+     */
+    void setPickFirst(bool enable);
+    bool isPickFirst() const { return pickFirst; }
+    /// Whether any group is picked first now
+    static bool anyPickFirst();
+
+private:
+    bool pickFirst = false;
 };
 
 } // namespace Gui

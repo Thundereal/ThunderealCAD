@@ -29,11 +29,14 @@
 #include "Selection.h"
 
 class SoCoordinate3;
+class SoFaceSet;
 class SoTranslation;
 class SoVertexProperty;
 
 namespace Gui
 {
+
+class SoFCLatePickGroup;
 
 class GuiExport ViewProviderPlane : public ViewProviderDatum, public SelectionObserver
 {
@@ -44,6 +47,9 @@ public:
     ~ViewProviderPlane() override;
 
     void attach ( App::DocumentObject * ) override;
+    /// The whole plane highlighted as its face (docs/HandsOnQueue.md entry 235)
+    bool getDetailPath(const char *subname, SoFullPath *pPath, bool append,
+                       SoDetail *&det) const override;
 
 protected:
     void updateDatumSize() override;
@@ -52,14 +58,17 @@ protected:
     bool showLabelOnScreen() const override { return getRole().empty(); }
 
 private:
-    /// Constant screen size: a plane of a coordinate system is drawn as the
-    /// corner of its first quadrant unless it is selected or hovered
+    /// Selected or hovered, the face is picked first (entry 235). A plane of
+    /// a coordinate system at a constant screen size is drawn as the corner
+    /// of its first quadrant, highlighted or not.
     void onSelectionChanged(const SelectionChanges& msg) override;
 
 private:
     SoCoordinate3 *pCoords = nullptr;
     SoVertexProperty *pFaceVertices = nullptr;
     SoTranslation *pTextTranslation = nullptr;
+    SoFCLatePickGroup *pFaceGroup = nullptr;
+    SoFaceSet *pFaceSet = nullptr;
     bool isSelected = false;
     bool isHovered = false;
 };

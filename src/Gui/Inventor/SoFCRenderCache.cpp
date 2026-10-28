@@ -2906,7 +2906,13 @@ SoFCRenderCache::buildHighlightCache(SbFCMap<int, VertexCachePtr> &sharedcache,
             material.polygonoffsetstyle = 0;
         if (material.type != Material::Triangle)
           material.lightmodel = SoLazyElement::BASE_COLOR;
-        if (material.lightmodel != SoLazyElement::BASE_COLOR && detail) {
+        // Lit or not: a face highlighted as an element is outlined in its
+        // emissive colour (SoFCRenderer::renderOutline, the backend's
+        // faceOutlineSpec), which an unlit face -- a datum plane's -- left
+        // black (docs/HandsOnQueue.md entry 235); unlit, the fill takes
+        // the diffuse colour and the emissive changes nothing else
+        if ((material.lightmodel != SoLazyElement::BASE_COLOR
+             || material.type == Material::Triangle) && detail) {
           material.emissive = color | 0xff;
           makeDistinctColor(material.emissive, material.emissive, material.diffuse);
           // the scalar override is the authority now (consumers treat a

@@ -2,14 +2,15 @@
 U2).
 
 Split, Trim, Untrim and Extend edges go on the browser allowlist, and so do
-U3's Blend surface, Two-rail sweep and Pipeshell. All but Trim open
+U3's Blend surface, Two-rail sweep and Pipeshell, U4's Edge continuity and
+U5's curve tools. All but Trim open
 nothing, and say a selection they cannot use in the report view; Trim
 opens its panel, which reaches a client through
 the panel mirror. A document served with no window, one client with a
 camera, over a real socket. Asserted:
 
-  - the `command` op runs each of the seven;
-  - with nothing selected, the six without a panel make nothing and no
+  - the `command` op runs each of them;
+  - with nothing selected, those without a panel make nothing and no
     dialog is up;
   - Trim makes an empty trim, in its edit, its panel open, no dialog;
   - the panel is mirrored, with its pick of the sides to keep, its count and
@@ -100,6 +101,12 @@ COMMANDS = (
     "Surface_BlendSurface",
     "Surface_TwoRailSweep",
     "Surface_PipeShell",
+    "Surface_EdgeContinuity",
+    "Surface_Isocurve",
+    "Surface_CurveOnSurface",
+    "Surface_IntersectionCurve",
+    "Surface_JoinCurves",
+    "Surface_ExtendCurve",
 )
 
 

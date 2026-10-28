@@ -1084,6 +1084,12 @@ const SURFACE_COMMANDS = new Set([
   'Surface_BlendSurface',
   'Surface_TwoRailSweep',
   'Surface_PipeShell',
+  'Surface_EdgeContinuity',
+  'Surface_Isocurve',
+  'Surface_CurveOnSurface',
+  'Surface_IntersectionCurve',
+  'Surface_JoinCurves',
+  'Surface_ExtendCurve',
 ]);
 
 /// The `command` op's allowlist as the server has it (SceneControl.cpp

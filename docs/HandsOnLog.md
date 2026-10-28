@@ -8136,3 +8136,24 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   (230..255) on the first try.
 - Not checked by hand on the real Windows screen; the hover runs were
   offscreen (the platform's own pointer).
+
+### 2026-10-28 afternoon: 233 again -- COMMITTED `ea124fd624`, confirmed by the reporter in the dev build (rtx29), not pushed, not staged
+
+- The reporter on the staged 8e49bf9df2: overlay panels' bars (docked and
+  in-view) never showed on hover, only on a wheel scroll. Offscreen tests
+  had passed: they read the bar's state. On the real screen with the
+  system pointer (overlay-panel-bar-hover-pointer.py, a copy of the
+  reporter's cfg) the tree's bar said shown and 10 of 3250 pixels changed:
+  the bar's QGraphicsOpacityEffect nested in the dock splitter's
+  OverlayGraphicsEffect paints nothing. FadeBar paints at an opacity: 532.
+- On the reporter's word the move goes to the bars from OverlayManager's
+  own event filter, before the pass-through decision
+  (OverlayScrollBars::pointerMoved), not an application filter of their own.
+- The reporter: "if Task overlay panel is empty, then do not slide out
+  affected scroll bar". Their Tasks panel shows a watcher box with no task
+  (TaskView::isEmpty() false); a see-through dock of task views now covers
+  its boxes only (coverRects(widget, true)).
+- The reporter, dev build: "scroll bars works fine now".
+- Diagnostics only, not committed: QTest moves on the real screen do not
+  move the system pointer, by which OverlayManager decides; the pointer
+  test uses QCursor.setPos and puts it back.

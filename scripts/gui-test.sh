@@ -81,10 +81,15 @@ ISO="$OUT/.iso"
 # Every run starts from a fresh profile: what an earlier run stored -- a
 # theme, a language, a window's geometry in Thundereal.conf -- fails the
 # next run of any test that reads a default. The cache is kept (Qt's and
-# Mesa's shader caches), as it only makes the start faster.
+# Mesa's shader caches), as it only makes the start faster -- but for the
+# application's own: a run killed at its timeout leaves its documents'
+# transient directories there, and the next run's start offers to recover
+# them in a modal box that takes the active window (a lock file alone is
+# not the trigger: a directory with no lock is offered too). Under the
+# application's name, which is no longer FreeCAD.
 rm -rf "$ISO/user.cfg" "$ISO/config"
+rm -rf "$ISO/cache/FreeCAD/Cache" "$ISO/cache/Thundereal/Cache"
 mkdir -p "$ISO/cache" "$ISO/config"
-rm -f "$ISO/cache/FreeCAD/Cache/FreeCAD_"*.lock 2>/dev/null
 
 # Mesa's shader cache is shared by every run instead of living in $ISO:
 # what llvmpipe compiles depends on the driver and the shader, not on the

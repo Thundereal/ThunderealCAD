@@ -20,8 +20,11 @@ Claims:
     pad's edit there is left as it was;
   - Cancel of the pad with a step of the fillet's after its own takes
     back the pad's and keeps the fillet's, and the fillet stays in edit;
-  - with the pad's value changed again since by another step, Cancel asks:
-    "Skip" leaves the other change, "Undo anyway" puts the pad's back;
+  - a change to the pad in edit that is not its panel's -- a script's --
+    is the edit's: its Cancel takes it back too;
+  - Cancel of a new feature, its body changed since by a change that is
+    not the edit's, asks: "Skip" leaves the body's tip as changed, "Undo
+    anyway" puts it back; the new feature goes either way;
   - a helix's edit in the second window, beside the fillet's, takes back
     its own on Cancel and keeps the fillet's;
   - OK of the fillet keeps its value and ends its edit.
@@ -222,23 +225,48 @@ def run():
               (in_edit(gdoc, v1), in_edit(gdoc, v2)) == ("Fillet", None),
               (in_edit(gdoc, v1), in_edit(gdoc, v2)))
 
-        for choice, expected in (("Skip", 9.0), ("Undo anyway", 15.0)):
-            edit(gdoc, v2, pad, "Edit Pad")
-            type_into(v2, "lengthEdit", "8")
-            # Another step over it, as another view's would be
+        # A change to the feature in edit is the edit's, whoever makes it:
+        # one from a timer, as a script's or the property editor's, goes
+        # with its Cancel
+        edit(gdoc, v2, pad, "Edit Pad")
+        type_into(v2, "lengthEdit", "8")
+        doc.openTransaction("a script's")
+        pad.Length = 9
+        doc.commitTransaction()
+        activate(v2)
+        cancel(v2)
+        check("a change to the pad in edit, not the panel's, goes with its Cancel",
+              round(pad.Length.Value, 3) == 15.0, pad.Length)
+
+        # A new feature: the step that made it changed its body too, and
+        # the body was changed since by a change that is not the edit's
+        tip = body.Tip
+        for n, (choice, expected) in enumerate((("Skip", box), ("Undo anyway", tip))):
+            activate(v2)
+            FreeCAD.setActiveTransaction("Create Pad")
+            pad2 = body.newObject("PartDesign::Pad", "New%d" % n)
+            pad2.Profile = sketch
+            pad2.Length = 5
+            name = pad2.Name
+            # in the transaction that made it, as a command's edit is
+            gdoc.setEdit(pad2, 0)
+            settle(1000)
+            type_into(v2, "lengthEdit", "6")
             doc.openTransaction("theirs")
-            pad.Length = 9
+            body.Tip = box
             doc.commitTransaction()
             activate(v2)
             answer_later(choice)
             cancel(v2)
-            check("Cancel asks what to do with the change made since (%s)" % choice,
+            check("Cancel asks what to do with the body changed since (%s)" % choice,
                   state["asked"])
-            check("%s: the pad's value is %s" % (choice, expected),
-                  round(pad.Length.Value, 3) == expected, pad.Length)
-            if pad.Length.Value != 15:
+            check("%s: the new feature is gone" % choice, doc.getObject(name) is None,
+                  name)
+            check("%s: the body's tip is %s" % (choice, expected.Name),
+                  body.Tip == expected, body.Tip and body.Tip.Name)
+            if body.Tip != tip:
                 doc.openTransaction("back")
-                pad.Length = 15
+                body.Tip = tip
                 doc.commitTransaction()
 
         # The helix's panel too: beside the fillet's, its Cancel its own

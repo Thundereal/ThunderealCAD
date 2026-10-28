@@ -902,6 +902,12 @@ bool TaskDlgFeatureParameters::rejectOwnSteps()
         }
     }
     Gui::Document *gdoc = vp ? vp->getDocument() : nullptr;
+    // and what changed the feature while in edit, whoever made it -- read
+    // before the edit, which keeps them, ends
+    if (gdoc) {
+        for (int tid : gdoc->editStepsOf(vp))
+            steps.push_back(tid);
+    }
     // Ended first, so the edit's preview is gone before what it showed is
     // taken back -- the feature itself, when the edit made it
     resetOwnEdit();

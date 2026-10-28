@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cstring>
 #include <iterator>
+#include <unordered_set>
 
 #include <BRepAdaptor_Curve.hxx>
 #include <Geom_Circle.hxx>
@@ -1156,6 +1157,16 @@ std::vector<App::DocumentObject*> getAssemblyComponents(const AssemblyObject* as
 
     std::vector<App::DocumentObject*> components;
     collectComponentsRecursively(assembly->Group.getValues(), components);
+    // Once each: an object in a plain group in the assembly (a fasteners
+    // group) is in the assembly's Group too, and was collected twice -- and
+    // found interfering with itself
+    std::unordered_set<App::DocumentObject*> seen;
+    components.erase(std::remove_if(components.begin(),
+                                    components.end(),
+                                    [&](App::DocumentObject* obj) {
+                                        return !seen.insert(obj).second;
+                                    }),
+                     components.end());
     return components;
 }
 

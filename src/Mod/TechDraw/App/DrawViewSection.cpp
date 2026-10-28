@@ -288,6 +288,15 @@ void DrawViewSection::onChanged(const App::Property* prop)
         return;
     }
 
+    // Undo or Redo of "Move section line" or "Rotate section line" gives
+    // the line its place back, and nothing else draws it there: the base
+    // view is painted again once a cut is made, and an Undo makes none
+    // (docs/HandsOnQueue.md entry 231).
+    if ((prop == &SectionOrigin || prop == &SectionNormal) && doc->isPerformingTransaction()
+        && getBaseDVP()) {
+        getBaseDVP()->requestPaint();
+    }
+
     if (prop == &SectionNormal) {
         Direction.setValue(SectionNormal.getValue());
         return;

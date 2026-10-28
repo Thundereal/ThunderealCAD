@@ -139,6 +139,11 @@ void QGISectionLine::setupEventFilter()
 
 bool QGISectionLine::sceneEventFilter(QGraphicsItem *watched, QEvent *event)
 {
+    if (event->type() == QEvent::GraphicsSceneMousePress) {
+        // a new press on the line or a mark: a click until it is a drag
+        m_pressTimer.start();
+        m_dragStarted = false;
+    }
     return inherited::sceneEventFilter(watched, event);
 }
 
@@ -649,17 +654,24 @@ QPainterPath QGISectionLine::shape() const
     return QPainterPath();
 }
 
-namespace {
-
-// Whether the mouse went as far from where its button came down as
-// starts a drag.
-bool wasDragged(const QGraphicsSceneMouseEvent *ev)
+// Whether the press since the last one is a drag, not a click: the mouse
+// went as far from where its button came down as starts a drag anywhere
+// else, at any time in it, or the button was held as long as starts one.
+// Only the distance at the release used to count, and a line could not be
+// moved by less than that (docs/HandsOnQueue.md entry 231, the reporter
+// 2026-10-28: "as if the section line can only be placed at some discrete
+// number of possible positions"); the time keeps a quick click with a
+// shaking hand a click.
+bool QGISectionLine::isDrag(const QGraphicsSceneMouseEvent *ev)
 {
-    const QPoint gone = ev->screenPos() - ev->buttonDownScreenPos(Qt::LeftButton);
-    return gone.manhattanLength() >= QApplication::startDragDistance();
+    if (!m_dragStarted) {
+        const QPoint gone = ev->screenPos() - ev->buttonDownScreenPos(Qt::LeftButton);
+        m_dragStarted = gone.manhattanLength() >= QApplication::startDragDistance()
+            || (m_pressTimer.isValid()
+                && m_pressTimer.elapsed() >= QApplication::startDragTime());
+    }
+    return m_dragStarted;
 }
-
-} // namespace
 
 void QGISectionLine::onItemMoved(QGraphicsItem *item, QPointF &oldPos, QGraphicsSceneMouseEvent *ev)
 {
@@ -679,6 +691,9 @@ void QGISectionLine::onItemMoved(QGraphicsItem *item, QPointF &oldPos, QGraphics
         });
     };
 
+    if (ev->type() == QEvent::GraphicsSceneMouseMove) {
+        isDrag(ev);
+    }
     if (item == m_symbol1 || item == m_symbol2) {
         updateSymbolOffset();
     }
@@ -687,9 +702,8 @@ void QGISectionLine::onItemMoved(QGraphicsItem *item, QPointF &oldPos, QGraphics
             // A click is not a move. Every release used to end in
             // "Move section line": the section was given the line's
             // points again and recomputed, for a click that selected
-            // it. The mouse has to have gone as far as starts a drag
-            // anywhere else; short of that the line goes back.
-            if (!wasDragged(ev) || this->pos() == oldPos) {
+            // it. Short of a drag (isDrag) the line goes back.
+            if (!isDrag(ev) || this->pos() == oldPos) {
                 this->setPos(oldPos);
                 return;
             }
@@ -745,7 +759,7 @@ void QGISectionLine::onItemMoved(QGraphicsItem *item, QPointF &oldPos, QGraphics
             }
             if (released) {
                 m_markDragging = false;
-                if (!wasDragged(ev)) {
+                if (!isDrag(ev)) {
                     // a click on the mark, or the hand shaking over it:
                     // as it was, and nothing for the section to do
                     m_changePointData = m_changePointsAtPress;

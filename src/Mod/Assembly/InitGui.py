@@ -74,6 +74,7 @@ class AssemblyWorkbench(Workbench):
         import CommandMassProperties
         import CommandCreateSpring
         import CommandCreateLoad
+        import CommandCreateBushing
         import CommandCreateSnapshot
         import CommandCreateBom
         import CommandConvertAsm3
@@ -102,6 +103,7 @@ class AssemblyWorkbench(Workbench):
             "Assembly_CreateSpring",
             "Assembly_CreateTorsionSpring",
             "Assembly_CreateLoad",
+            "Assembly_CreateBushing",
             "Assembly_CreateBom",
         ]
 

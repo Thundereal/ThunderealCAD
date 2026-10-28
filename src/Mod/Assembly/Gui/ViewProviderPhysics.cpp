@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
+#include <string>
 #include <vector>
 
 #include <Inventor/nodes/SoCoordinate3.h>
@@ -224,34 +225,30 @@ void ViewProviderSpringDamper::redraw()
     line->numVertices.setValue(static_cast<int>(points.size()));
 }
 
-PROPERTY_SOURCE(AssemblyGui::ViewProviderAppliedLoad, Gui::ViewProviderDocumentObject)
+PROPERTY_SOURCE(AssemblyGui::ViewProviderFramedItem, Gui::ViewProviderDocumentObject)
 
-ViewProviderAppliedLoad::ViewProviderAppliedLoad()
-{
-    ADD_PROPERTY_TYPE(ArrowLength, (20.0), "Display", App::Prop_None, "The arrow's length");
-}
-
-ViewProviderAppliedLoad::~ViewProviderAppliedLoad()
+ViewProviderFramedItem::~ViewProviderFramedItem()
 {
     connChanged.disconnect();
 }
 
-void ViewProviderAppliedLoad::attach(App::DocumentObject* obj)
+void ViewProviderFramedItem::attach(App::DocumentObject* obj)
 {
     ViewProviderDocumentObject::attach(obj);
-    auto* arrow = new SoSeparator;
+    auto* lines = new SoSeparator;
     auto* material = new SoMaterial;
-    material->diffuseColor.setValue(0.85F, 0.15F, 0.1F);
-    material->emissiveColor.setValue(0.5F, 0.1F, 0.05F);
-    arrow->addChild(material);
+    const SbColor color = lineColor();
+    material->diffuseColor.setValue(color);
+    material->emissiveColor.setValue(color * 0.6F);
+    lines->addChild(material);
     auto* style = new SoDrawStyle;
     style->lineWidth = 3.0F;
-    arrow->addChild(style);
+    lines->addChild(style);
     coords = new SoCoordinate3;
-    arrow->addChild(coords);
+    lines->addChild(coords);
     line = new SoLineSet;
-    arrow->addChild(line);
-    addDisplayMaskMode(arrow, "Arrow");
+    lines->addChild(line);
+    addDisplayMaskMode(lines, "Lines");
     if (obj->getDocument()) {
         connChanged = obj->getDocument()->signalChangedObject.connect(
             [this](const App::DocumentObject& changed, const App::Property& prop) {
@@ -261,15 +258,98 @@ void ViewProviderAppliedLoad::attach(App::DocumentObject* obj)
     redraw();
 }
 
-std::vector<std::string> ViewProviderAppliedLoad::getDisplayModes() const
+std::vector<std::string> ViewProviderFramedItem::getDisplayModes() const
 {
-    return {"Arrow"};
+    return {"Lines"};
 }
 
-void ViewProviderAppliedLoad::setDisplayMode(const char* mode)
+void ViewProviderFramedItem::setDisplayMode(const char* mode)
 {
-    setDisplayMaskMode("Arrow");
+    setDisplayMaskMode("Lines");
     ViewProviderDocumentObject::setDisplayMode(mode);
+}
+
+std::vector<App::DocumentObject*> ViewProviderFramedItem::claimChildren() const
+{
+    std::vector<App::DocumentObject*> children;
+    if (auto* item = freecad_cast<Assembly::FramedItem*>(getObject())) {
+        if (auto* binding = item->getBinding()) {
+            children.push_back(binding);
+        }
+    }
+    return children;
+}
+
+const char* ViewProviderFramedItem::editCall() const
+{
+    return nullptr;
+}
+
+bool ViewProviderFramedItem::doubleClicked()
+{
+    auto* obj = getObject();
+    const char* call = editCall();
+    if (!obj || !obj->isAttachedToDocument() || !call) {
+        return false;
+    }
+    const std::string function = call;
+    Gui::Command::doCommand(Gui::Command::Gui,
+                            "import %s\n%s(App.getDocument('%s').getObject('%s'))",
+                            function.substr(0, function.find('.')).c_str(),
+                            call,
+                            obj->getDocument()->getName(),
+                            obj->getNameInDocument());
+    return true;
+}
+
+void ViewProviderFramedItem::updateData(const App::Property* prop)
+{
+    ViewProviderDocumentObject::updateData(prop);
+    redraw();
+}
+
+void ViewProviderFramedItem::onChangedObject(const App::DocumentObject& obj,
+                                             const App::Property& prop)
+{
+    auto* item = freecad_cast<Assembly::FramedItem*>(getObject());
+    if (!item || !prop.isDerivedFrom<App::PropertyPlacement>()) {
+        return;
+    }
+    auto* assembly = App::GeoFeatureGroupExtension::getGroupOfObject(item);
+    Base::Placement frame;
+    if (holds(assembly, item->getEnd(frame), &obj)) {
+        redraw();
+    }
+}
+
+SbColor ViewProviderFramedItem::lineColor() const
+{
+    return {0.85F, 0.15F, 0.1F};
+}
+
+void ViewProviderFramedItem::makeLines(std::vector<SbVec3f>& /*points*/,
+                                       std::vector<int32_t>& /*counts*/) const
+{}
+
+void ViewProviderFramedItem::redraw()
+{
+    if (!coords || !getObject()) {
+        return;
+    }
+    std::vector<SbVec3f> points;
+    std::vector<int32_t> counts;
+    makeLines(points, counts);
+    coords->point.setNum(static_cast<int>(points.size()));
+    coords->point.setValues(0, static_cast<int>(points.size()), points.data());
+    line->numVertices.setNum(static_cast<int>(counts.size()));
+    line->numVertices.setValues(0, static_cast<int>(counts.size()), counts.data());
+}
+
+PROPERTY_SOURCE(AssemblyGui::ViewProviderAppliedLoad, AssemblyGui::ViewProviderFramedItem)
+
+ViewProviderAppliedLoad::ViewProviderAppliedLoad()
+{
+    ADD_PROPERTY_TYPE(ArrowLength, (20.0), "Display", App::Prop_None, "The arrow's length");
 }
 
 QIcon ViewProviderAppliedLoad::getIcon() const
@@ -277,36 +357,9 @@ QIcon ViewProviderAppliedLoad::getIcon() const
     return Gui::BitmapFactory().pixmap("Assembly_AppliedLoad.svg");
 }
 
-std::vector<App::DocumentObject*> ViewProviderAppliedLoad::claimChildren() const
+const char* ViewProviderAppliedLoad::editCall() const
 {
-    std::vector<App::DocumentObject*> children;
-    if (auto* load = freecad_cast<Assembly::AppliedLoad*>(getObject())) {
-        if (auto* binding = load->getBinding()) {
-            children.push_back(binding);
-        }
-    }
-    return children;
-}
-
-bool ViewProviderAppliedLoad::doubleClicked()
-{
-    auto* obj = getObject();
-    if (!obj || !obj->isAttachedToDocument()) {
-        return false;
-    }
-    Gui::Command::doCommand(Gui::Command::Gui,
-                            "import CommandCreateLoad\n"
-                            "CommandCreateLoad.editLoad("
-                            "App.getDocument('%s').getObject('%s'))",
-                            obj->getDocument()->getName(),
-                            obj->getNameInDocument());
-    return true;
-}
-
-void ViewProviderAppliedLoad::updateData(const App::Property* prop)
-{
-    ViewProviderDocumentObject::updateData(prop);
-    redraw();
+    return "CommandCreateLoad.editLoad";
 }
 
 void ViewProviderAppliedLoad::onChanged(const App::Property* prop)
@@ -314,33 +367,18 @@ void ViewProviderAppliedLoad::onChanged(const App::Property* prop)
     if (prop == &ArrowLength) {
         redraw();
     }
-    ViewProviderDocumentObject::onChanged(prop);
+    ViewProviderFramedItem::onChanged(prop);
 }
 
-void ViewProviderAppliedLoad::onChangedObject(const App::DocumentObject& obj,
-                                              const App::Property& prop)
+void ViewProviderAppliedLoad::makeLines(std::vector<SbVec3f>& points,
+                                        std::vector<int32_t>& counts) const
 {
     auto* load = freecad_cast<Assembly::AppliedLoad*>(getObject());
-    if (!load || !prop.isDerivedFrom<App::PropertyPlacement>()) {
-        return;
-    }
-    auto* assembly = App::GeoFeatureGroupExtension::getGroupOfObject(load);
-    Base::Placement frame;
-    if (holds(assembly, load->getEnd(frame), &obj)) {
-        redraw();
-    }
-}
-
-void ViewProviderAppliedLoad::redraw()
-{
-    auto* load = freecad_cast<Assembly::AppliedLoad*>(getObject());
-    if (!load || !coords) {
+    if (!load) {
         return;
     }
     const Base::Vector3d at = load->getEndPlacement().getPosition();
     const Base::Vector3d axis = load->getDirectionNow();
-    std::vector<SbVec3f> points;
-    std::vector<int32_t> counts;
     auto push = [&](const Base::Vector3d& p) {
         points.emplace_back(static_cast<float>(p.x),
                             static_cast<float>(p.y),
@@ -402,8 +440,73 @@ void ViewProviderAppliedLoad::redraw()
             barbs(tip, tangent, axis, tangent.Cross(axis));
         }
     }
-    coords->point.setNum(static_cast<int>(points.size()));
-    coords->point.setValues(0, static_cast<int>(points.size()), points.data());
-    line->numVertices.setNum(static_cast<int>(counts.size()));
-    line->numVertices.setValues(0, static_cast<int>(counts.size()), counts.data());
+}
+
+PROPERTY_SOURCE(AssemblyGui::ViewProviderBushing, AssemblyGui::ViewProviderFramedItem)
+
+ViewProviderBushing::ViewProviderBushing()
+{
+    ADD_PROPERTY_TYPE(Size, (12.0), "Display", App::Prop_None, "The ring's outer diameter");
+}
+
+QIcon ViewProviderBushing::getIcon() const
+{
+    return Gui::BitmapFactory().pixmap("Assembly_Bushing.svg");
+}
+
+SbColor ViewProviderBushing::lineColor() const
+{
+    return {0.1F, 0.55F, 0.2F};
+}
+
+const char* ViewProviderBushing::editCall() const
+{
+    return "CommandCreateBushing.editBushing";
+}
+
+void ViewProviderBushing::onChanged(const App::Property* prop)
+{
+    if (prop == &Size) {
+        redraw();
+    }
+    ViewProviderFramedItem::onChanged(prop);
+}
+
+void ViewProviderBushing::makeLines(std::vector<SbVec3f>& points,
+                                    std::vector<int32_t>& counts) const
+{
+    auto* bushing = freecad_cast<Assembly::Bushing*>(getObject());
+    if (!bushing) {
+        return;
+    }
+    const Base::Placement frame = bushing->getEndPlacement();
+    auto push = [&](double x, double y, double z) {
+        Base::Vector3d p;
+        frame.multVec(Base::Vector3d(x, y, z), p);
+        points.emplace_back(static_cast<float>(p.x),
+                            static_cast<float>(p.y),
+                            static_cast<float>(p.z));
+    };
+    // The outer and inner rings, the spokes of rubber between them, and the
+    // axis through the sleeve
+    const double outer = 0.5 * std::max(Size.getValue(), 1e-3);
+    const double inner = 0.45 * outer;
+    constexpr int steps = 48;
+    for (double radius : {outer, inner}) {
+        for (int i = 0; i <= steps; ++i) {
+            const double angle = 2.0 * std::numbers::pi * i / steps;
+            push(radius * std::cos(angle), radius * std::sin(angle), 0.0);
+        }
+        counts.push_back(steps + 1);
+    }
+    constexpr int spokes = 8;
+    for (int i = 0; i < spokes; ++i) {
+        const double angle = 2.0 * std::numbers::pi * (i + 0.5) / spokes;
+        push(inner * std::cos(angle), inner * std::sin(angle), 0.0);
+        push(outer * std::cos(angle), outer * std::sin(angle), 0.0);
+        counts.push_back(2);
+    }
+    push(0.0, 0.0, -0.5 * outer);
+    push(0.0, 0.0, 0.5 * outer);
+    counts.push_back(2);
 }

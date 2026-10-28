@@ -78,6 +78,8 @@ ResultQuantities = {
     "SpringLength": (QT_TRANSLATE_NOOP("Assembly", "Spring length"), 1.0, "mm"),
     "SpringTorque": (QT_TRANSLATE_NOOP("Assembly", "Spring torque"), 1e-6, "N m"),
     "SpringAngle": (QT_TRANSLATE_NOOP("Assembly", "Spring angle"), 57.29577951308232, "deg"),
+    "BushingForce": (QT_TRANSLATE_NOOP("Assembly", "Bushing force"), 1e-3, "N"),
+    "BushingTorque": (QT_TRANSLATE_NOOP("Assembly", "Bushing torque"), 1e-6, "N m"),
 }
 
 if App.GuiUp:
@@ -1204,7 +1206,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             for o in self.assembly.Group
             if o.isDerivedFrom("Assembly::SpringDamper")
             or o.isDerivedFrom("Assembly::TorsionSpring")
-            or o.isDerivedFrom("Assembly::AppliedLoad")
+            or o.isDerivedFrom("Assembly::FramedItem")
         ]
 
     def fillElements(self):

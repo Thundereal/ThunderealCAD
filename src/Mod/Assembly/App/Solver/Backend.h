@@ -161,6 +161,9 @@ struct SimulationSpec
 //   "SpringLength"     its length
 //   "SpringTorque"     a torsion spring's torque, positive turning its joint up
 //   "SpringAngle"      its joint's turn, rad, as the joint's limits read it
+//   "BushingForce", "BushingTorque"  a bushing's on the body of its frame I
+//                      (its component), the torque about frame I's origin;
+//                      width 3
 struct Channel
 {
     std::string source;  // the model's source name: the joint's, the spring's

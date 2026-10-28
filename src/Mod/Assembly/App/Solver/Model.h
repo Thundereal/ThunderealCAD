@@ -289,7 +289,13 @@ enum class ForceKind : std::uint8_t
     // the assembly's; its opposite on frame J's body (the ground's when J
     // is on none), at where oI was at the start (Chrono's ChLoadBodyBody)
     AppliedForce,
-    AppliedTorque
+    AppliedTorque,
+    // On frame I's body, in its axes: preload6 - k6 s - c6 ds/dt, s minus
+    // the pose of frame J in frame I (J's origin, then its turn as a
+    // rotation vector: small turns), the two frames coinciding at the start;
+    // the opposite on J's body. A force acts at oI, a torque is about it
+    // (Chrono's ChLoadBodyBodyBushingGeneric).
+    Bushing
 };
 
 struct ForceElement
@@ -308,6 +314,11 @@ struct ForceElement
     Base::Vector3d direction;
     bool followsFrame = false;
     Formula magnitude;
+    // A bushing's: along x, y, z (mN/mm, mN s/mm, mN), then about them (mN
+    // mm / rad, mN mm s / rad, mN mm)
+    std::array<double, 6> k6 {};
+    std::array<double, 6> c6 {};
+    std::array<double, 6> preload6 {};
 };
 
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has

@@ -103,7 +103,8 @@ bool same(const ForceElement& a, const ForceElement& b)
     return a.id == b.id && a.source == b.source && a.kind == b.kind && a.frameI == b.frameI
         && a.frameJ == b.frameJ && a.k == b.k && a.rest == b.rest && a.preload == b.preload
         && a.c == b.c && same(a.direction, b.direction) && a.followsFrame == b.followsFrame
-        && a.magnitude.text == b.magnitude.text;
+        && a.magnitude.text == b.magnitude.text && a.k6 == b.k6 && a.c6 == b.c6
+        && a.preload6 == b.preload6;
 }
 
 bool same(const Inertia& a, const Inertia& b)
@@ -214,6 +215,17 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             }
             if (force.kind == ForceKind::AppliedTorque) {
                 force.magnitude = scaledFormula(force.magnitude, length * length);
+                continue;
+            }
+            if (force.kind == ForceKind::Bushing) {
+                for (int i = 3; i < 6; ++i) {
+                    force.k6[i] *= length * length;
+                    force.c6[i] *= length * length;
+                    force.preload6[i] *= length * length;
+                }
+                for (int i = 0; i < 3; ++i) {
+                    force.preload6[i] *= length;
+                }
                 continue;
             }
             if (force.kind == ForceKind::TorsionSpring) {

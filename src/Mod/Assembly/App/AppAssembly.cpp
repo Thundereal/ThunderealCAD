@@ -133,8 +133,11 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::MassOverridePython::init();
     Assembly::SpringDamper::init();
     Assembly::SpringDamperPython::init();
+    Assembly::FramedItem::init();
     Assembly::AppliedLoad::init();
     Assembly::AppliedLoadPython::init();
+    Assembly::Bushing::init();
+    Assembly::BushingPython::init();
     Assembly::TorsionSpring::init();
     Assembly::TorsionSpringPython::init();
 

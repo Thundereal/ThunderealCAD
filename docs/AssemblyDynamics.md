@@ -325,6 +325,11 @@ Phase D1 is under way (2026-10-28):
   redundancy removal, inverse dynamics in kinematic runs, CSV export,
   traces, the stale flag, and the run on a worker thread with cancel.
   Those come before D3 (the phase order is D0, D1, D3, D2), one at a time.
+- **D3 is measured before it is built** (the user's call, 2026-10-29): what
+  running out of process would buy here -- the runs' lengths, how often a
+  run crashes or hangs the session, what a worker thread with cancel
+  already gives -- decides it. If it is not worth it, D3 is skipped and D2
+  follows D1.
 - Built: applied forces and torques. `Assembly::AppliedLoad` (the Physics
   group, ticked per study as the springs are -- P3, sec 5.2's
   `AppliedLoad` moved from the Simulation for that): `Kind` {Force,
@@ -366,6 +371,43 @@ Phase D1 is under way (2026-10-28):
     a resize, the direction turning with the part or not, a torque's unit,
     Free, and deleting it beside a spring sharing its element.
     TestGuiCommands: the command on a picked face, and the panel.
+- Built: bushings. `Assembly::Bushing` (Physics, ticked per study): its
+  frame as a load's -- the frame half of the load moved into a base,
+  `FramedItem` (`Component`, `Frame`, `Binding`; `getEnd`,
+  `getEndPlacement`, `setEnd`, `clearEnd`, its own Python binding), which
+  `AppliedLoad` and `Bushing` both derive from; `Other`, the component
+  holding it (none: the ground); `TranslationalStiffness`,
+  `RotationalStiffness`, `TranslationalDamping`, `RotationalDamping`,
+  `Preload` and `PreloadTorque`, vectors along and about the frame's axes in
+  the internal units (sec 5.2's table had no preload torque; it costs
+  nothing). Free where the run starts: P3's rule that the start pose is the
+  solved assembly.
+  - Neutral: `ForceKind::Bushing` with `k6`, `c6` and `preload6`; frame J
+    the other's, at frame I's start, as a load's reaction frame.
+    `scaled()` scales the rotational values and the preload torque as a
+    length squared, the preload force as a length.
+  - Chrono: `ChLoadBodyBodyBushingGeneric` (a diagonal 6x6), not
+    `ChLinkBushing`: a load gives the implicit integrator its numerical
+    jacobian, where `ChLinkLock`'s spring forces carry none. Chrono's
+    numerical jacobian leaves the load at its last perturbed state (the
+    velocity's last column); the subclass (`Bushing` in ChronoBackend.cpp)
+    computes it again at the state. Its channels: `BushingForce` and
+    `BushingTorque`, on the component, in the assembly's axes.
+  - GUI: Bushing (`Assembly_CreateBushing`, `CommandCreateBushing.py`): the
+    load's panel made a base, `TaskFramed` (the frame's Pick, Free and
+    offset, the other part's Pick and Ground, the transaction), with a grid
+    of stiffness, damping and preload along and about x, y, z, in N/mm,
+    N m/rad, N s/mm, N m s/rad, N and N m (plain spin boxes: a quantity
+    box shows the unit schema's choice, a torque stiffness in joules). A new bushing is 1000 N/mm and
+    100 N m/rad, damped at 0.5 N s/mm and 0.05 N m s/rad. Drawn as a ring
+    of rubber in the frame's xy plane (`ViewProviderBushing`, `Size`); the
+    load's and the bushing's view providers share `ViewProviderFramedItem`.
+  - Tests (TestDynamics): the block on its slider held to the ground and
+    preloaded, against a step's response, undamped and at 20% of critical;
+    the rod's hinge with a rotational stiffness and a preload torque, about
+    the frame's y; two blocks parting about a bushing between them at
+    sqrt(2k/m), with the force channel; a static sag m g / k; not listed.
+    TestSpringEnds' TestBushingEnd (4). TestGuiCommands: the panel.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

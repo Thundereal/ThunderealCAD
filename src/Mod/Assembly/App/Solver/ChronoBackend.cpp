@@ -446,6 +446,36 @@ private:
     double time = 0.0;
 };
 
+// A bushing (ForceKind::Bushing): Chrono's generic one, A frame J's body, B
+// frame I's. Chrono's force on B, in B's application frame, is K s' + C
+// ds'/dt - the neutral force, s' the pose of A's frame in B's: minus the
+// record's s, so the neutral force is minus the preload.
+class Bushing: public ch::ChLoadBodyBodyBushingGeneric
+{
+public:
+    using ch::ChLoadBodyBodyBushingGeneric::ChLoadBodyBodyBushingGeneric;
+
+    Bushing* Clone() const override
+    {
+        return new Bushing(*this);
+    }
+    // Chrono's numerical jacobian leaves the load at its last perturbed
+    // state: put back the one at the state
+    void ComputeJacobian(ch::ChState* state_x, ch::ChStateDelta* state_w) override
+    {
+        ch::ChLoadBodyBodyBushingGeneric::ComputeJacobian(state_x, state_w);
+        ComputeQ(state_x, state_w);
+    }
+    // The force on B and the torque about its application point now,
+    // absolute
+    ch::ChWrenchd wrenchNow()
+    {
+        ComputeQ(nullptr, nullptr);
+        return {frame_Bw.TransformDirectionLocalToParent(locB_force),
+                frame_Bw.TransformDirectionLocalToParent(locB_torque)};
+    }
+};
+
 // ---------------------------------------------------------------- NeutralLink
 
 namespace eq = Assembly::Solver::Equations;
@@ -2641,6 +2671,7 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkRSDA>>> torsions;
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorRotation>>> rotationMotors;
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorLinear>>> linearMotors;
+    std::vector<std::pair<Id, std::shared_ptr<Bushing>>> bushings;
     // The force elements, on frames of the model: in SI and at the centres
     // of mass with it (a stiffness and a damping need no factor, sec 8.1)
     auto loads = std::make_shared<ch::ChLoadContainer>();
@@ -2662,6 +2693,32 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
                                                      toCh(force.direction),
                                                      force.followsFrame,
                                                      force.kind == ForceKind::AppliedTorque));
+            continue;
+        }
+        if (force.kind == ForceKind::Bushing) {
+            if (run.d->isRigid(force.frameI, force.frameJ)) {
+                continue;
+            }
+            // In SI with the model: the rotational values scaled already
+            ch::ChMatrix66d k;
+            ch::ChMatrix66d c;
+            k.setZero();
+            c.setZero();
+            for (int i = 0; i < 6; ++i) {
+                k(i, i) = force.k6[i];
+                c(i, i) = force.c6[i];
+            }
+            auto bushing = std::make_shared<Bushing>(run.d->bodyOf(force.frameJ),
+                                                     run.d->bodyOf(force.frameI),
+                                                     run.d->globalOf(force.frameI),
+                                                     k,
+                                                     c);
+            bushing->SetNeutralForce(
+                -ch::ChVector3d(force.preload6[0], force.preload6[1], force.preload6[2]));
+            bushing->SetNeutralTorque(
+                -ch::ChVector3d(force.preload6[3], force.preload6[4], force.preload6[5]));
+            loads->Add(bushing);
+            bushings.emplace_back(force.source, bushing);
             continue;
         }
         if (force.kind == ForceKind::TorsionSpring) {
@@ -2854,6 +2911,10 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         channels.push_back({si.sourceName(torsion.first), "SpringTorque", 1});
         channels.push_back({si.sourceName(torsion.first), "SpringAngle", 1});
     }
+    for (const auto& bushing : bushings) {
+        channels.push_back({si.sourceName(bushing.first), "BushingForce", 3});
+        channels.push_back({si.sourceName(bushing.first), "BushingTorque", 3});
+    }
     // A link's wrench on the body of a frame (a joint's or a limit's frame
     // I), absolute, the torque about 'about': Chrono's links report it on
     // either body in their own frame on it, a NeutralLink from its rows
@@ -3012,7 +3073,7 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     auto valuesNow = [&]() {
         std::vector<double> out;
         out.reserve(6 * reactions.size() + rotationMotors.size() + linearMotors.size()
-                    + 2 * springs.size());
+                    + 2 * springs.size() + 2 * torsions.size() + 6 * bushings.size());
         for (const auto& reaction : reactions) {
             const Id frameI = reaction.links.empty() ? si.limits[reaction.limits.front()].frameI
                                                      : reaction.links.front().first->frameI;
@@ -3051,6 +3112,15 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         for (const auto& torsion : torsions) {
             out.push_back(torsion.second->GetTorque() / SI::torque);
             out.push_back(torsion.second->GetAngle());
+        }
+        for (const auto& bushing : bushings) {
+            const ch::ChWrenchd w = bushing.second->wrenchNow();
+            for (int k = 0; k < 3; ++k) {
+                out.push_back(w.force[k] / SI::force);
+            }
+            for (int k = 0; k < 3; ++k) {
+                out.push_back(w.torque[k] / SI::torque);
+            }
         }
         return out;
     };

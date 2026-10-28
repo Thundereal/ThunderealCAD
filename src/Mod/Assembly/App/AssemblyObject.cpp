@@ -1686,9 +1686,46 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
         force.id = static_cast<Solver::Id>(model.dynamics->forces.size());
         model.dynamics->forces.push_back(std::move(force));
     };
+    // A bushing at its frame, holding its component to the other's frame
+    // there, or the ground's
+    auto addBushing = [&](Bushing* bushing) {
+        const std::string name = bushing->getFullName();
+        Base::Placement local;
+        auto* component = bushing->getEnd(local);
+        if (!component) {
+            Base::Console().warning(
+                "Assembly: the bushing %s is on no component, and does nothing\n",
+                bushing->getFullLabel().c_str());
+            return;
+        }
+        Solver::ForceElement force;
+        force.source = model.addSource(name);
+        force.kind = Solver::ForceKind::Bushing;
+        force.frameI = frameOn(component, local, name + "-1");
+        auto* other = bushing->Other.getValue();
+        force.frameJ = frameOn(other, relativeTo(other, placementOf(force.frameI)), name + "-2");
+        auto put = [](std::array<double, 6>& to,
+                      const Base::Vector3d& along,
+                      const Base::Vector3d& about) {
+            to = {along.x, along.y, along.z, about.x, about.y, about.z};
+        };
+        put(force.k6,
+            bushing->TranslationalStiffness.getValue(),
+            bushing->RotationalStiffness.getValue());
+        put(force.c6,
+            bushing->TranslationalDamping.getValue(),
+            bushing->RotationalDamping.getValue());
+        put(force.preload6, bushing->Preload.getValue(), bushing->PreloadTorque.getValue());
+        force.id = static_cast<Solver::Id>(model.dynamics->forces.size());
+        model.dynamics->forces.push_back(std::move(force));
+    };
     for (auto* element : typed->Elements.getValues()) {
         if (auto* load = freecad_cast<AppliedLoad*>(element)) {
             addLoad(load);
+            continue;
+        }
+        if (auto* bushing = freecad_cast<Bushing*>(element)) {
+            addBushing(bushing);
             continue;
         }
         // On its joint's frames, as the joint's model record has them

@@ -32,6 +32,7 @@
 #include "AssemblyObject.h"
 #include "Joint.h"
 #include "AppliedLoadPy.h"
+#include "FramedItemPy.h"
 #include "Physics.h"
 #include "SpringDamperPy.h"
 
@@ -379,7 +380,140 @@ PyObject* SpringDamper::getPyObject()
     return Py::new_reference_to(PythonObject);
 }
 
-PROPERTY_SOURCE(Assembly::AppliedLoad, Assembly::PhysicsItem)
+PROPERTY_SOURCE(Assembly::FramedItem, Assembly::PhysicsItem)
+
+FramedItem::FramedItem()
+{
+    ADD_PROPERTY_TYPE(Component,
+                      (nullptr),
+                      "Frame",
+                      App::Prop_None,
+                      "The component the frame is on");
+    ADD_PROPERTY_TYPE(Frame,
+                      (Base::Placement()),
+                      "Frame",
+                      App::Prop_None,
+                      "The frame, in Component's coordinates (the assembly's without it)");
+    ADD_PROPERTY_TYPE(Binding,
+                      (nullptr),
+                      "Frame",
+                      App::Prop_None,
+                      "The element binding of the frame: the element's frame, Component and "
+                      "Frame its output.\nNone: the free frame they give");
+}
+
+void FramedItem::updateEditable()
+{
+    const bool bound = Binding.getValue() != nullptr;
+    Component.setStatus(App::Property::ReadOnly, bound);
+    Frame.setStatus(App::Property::ReadOnly, bound);
+}
+
+Part::ElementBinding* FramedItem::getBinding() const
+{
+    return bindingOf(Binding);
+}
+
+App::DocumentObject* FramedItem::getEnd(Base::Placement& frame, Base::Placement* placement) const
+{
+    frame = Frame.getValue();
+    return endComponent(Binding, Component, placement);
+}
+
+Base::Placement FramedItem::getEndPlacement() const
+{
+    Base::Placement frame;
+    Base::Placement placement;
+    getEnd(frame, &placement);
+    return placement * frame;
+}
+
+Part::ElementBinding*
+FramedItem::setEnd(App::DocumentObject* component, const char* subname, const char* vertex)
+{
+    auto binding = makeEndBinding(component, subname, vertex);
+    clearEnd();
+    Binding.setValue(binding);
+    // The frame follows at the next recompute: taken now, so that the item
+    // is where it goes before that
+    Base::Placement local;
+    if (resolveEnd(binding, Base::Placement(), local)) {
+        Frame.setValue(local);
+    }
+    return binding;
+}
+
+void FramedItem::clearEnd()
+{
+    auto old = getBinding();
+    if (!old) {
+        return;
+    }
+    // The free frame is where the frame is
+    Base::Placement frame;
+    auto component = getEnd(frame);
+    Binding.setValue(nullptr);
+    Component.setValue(component);
+    Frame.setValue(frame);
+    releaseBinding(old);
+}
+
+void FramedItem::onChanged(const App::Property* prop)
+{
+    if (prop == &Binding) {
+        updateEditable();
+        syncComponent(Binding, Component);
+    }
+    PhysicsItem::onChanged(prop);
+}
+
+void FramedItem::onDocumentRestored()
+{
+    updateEditable();
+    PhysicsItem::onDocumentRestored();
+}
+
+short FramedItem::mustExecute() const
+{
+    if (Binding.isTouched()) {
+        return 1;
+    }
+    return PhysicsItem::mustExecute();
+}
+
+App::DocumentObjectExecReturn* FramedItem::execute()
+{
+    if (auto binding = getBinding()) {
+        // The stored copy of a binding that does not resolve now is placed
+        // where the frame was last
+        Base::Placement local;
+        if (!resolveEnd(binding, Frame.getValue(), local)) {
+            return new App::DocumentObjectExecReturn("The frame's element does not resolve");
+        }
+        if (!Frame.getValue().isSame(local, 1e-12)) {
+            Frame.setValue(local);
+        }
+    }
+    return PhysicsItem::execute();
+}
+
+void FramedItem::unsetupObject()
+{
+    // The item owns its element binding: it goes with it
+    releaseBindings({&Binding});
+    PhysicsItem::unsetupObject();
+}
+
+PyObject* FramedItem::getPyObject()
+{
+    if (PythonObject.is(Py::_None())) {
+        // ref counter is set to 1
+        PythonObject = Py::Object(new FramedItemPy(this), true);
+    }
+    return Py::new_reference_to(PythonObject);
+}
+
+PROPERTY_SOURCE(Assembly::AppliedLoad, Assembly::FramedItem)
 
 const char* AppliedLoad::KindEnums[] = {"Force", "Torque", nullptr};
 const char* AppliedLoad::DirectionAxesEnums[] = {"Frame", "Assembly", nullptr};
@@ -388,23 +522,6 @@ AppliedLoad::AppliedLoad()
 {
     ADD_PROPERTY_TYPE(Kind, (0L), "Load", App::Prop_None, "A force, or a torque");
     Kind.setEnums(KindEnums);
-    ADD_PROPERTY_TYPE(Component,
-                      (nullptr),
-                      "Load",
-                      App::Prop_None,
-                      "The component the load acts on");
-    ADD_PROPERTY_TYPE(Frame,
-                      (Base::Placement()),
-                      "Load",
-                      App::Prop_None,
-                      "The application frame, in Component's coordinates (the assembly's "
-                      "without it):\na force acts at its origin");
-    ADD_PROPERTY_TYPE(Binding,
-                      (nullptr),
-                      "Load",
-                      App::Prop_None,
-                      "The element binding of the frame: the element's frame, Component and "
-                      "Frame its output.\nNone: the free frame they give");
     ADD_PROPERTY_TYPE(Direction,
                       (Base::Vector3d(0, 0, 1)),
                       "Load",
@@ -432,8 +549,8 @@ AppliedLoad::AppliedLoad()
                       (nullptr),
                       "Load",
                       App::Prop_None,
-                      "The component taking the opposite load, at where the origin was at the "
-                      "start;\nnone: the ground");
+                      "The component taking the opposite load, at where the frame's origin was "
+                      "at the start;\nnone: the ground");
     updateUnit();
 }
 
@@ -441,32 +558,6 @@ void AppliedLoad::updateUnit()
 {
     // A force: mass length / time^2; a torque: mass length^2 / time^2
     Magnitude.setUnit(isTorque() ? Base::Unit(2, 1, -2) : Base::Unit(1, 1, -2));
-}
-
-void AppliedLoad::updateEditable()
-{
-    const bool bound = Binding.getValue() != nullptr;
-    Component.setStatus(App::Property::ReadOnly, bound);
-    Frame.setStatus(App::Property::ReadOnly, bound);
-}
-
-Part::ElementBinding* AppliedLoad::getBinding() const
-{
-    return bindingOf(Binding);
-}
-
-App::DocumentObject* AppliedLoad::getEnd(Base::Placement& frame, Base::Placement* placement) const
-{
-    frame = Frame.getValue();
-    return endComponent(Binding, Component, placement);
-}
-
-Base::Placement AppliedLoad::getEndPlacement() const
-{
-    Base::Placement frame;
-    Base::Placement placement;
-    getEnd(frame, &placement);
-    return placement * frame;
 }
 
 Base::Vector3d AppliedLoad::getDirectionNow() const
@@ -484,84 +575,18 @@ Base::Vector3d AppliedLoad::getDirectionNow() const
     return dir;
 }
 
-Part::ElementBinding*
-AppliedLoad::setEnd(App::DocumentObject* component, const char* subname, const char* vertex)
-{
-    auto binding = makeEndBinding(component, subname, vertex);
-    clearEnd();
-    Binding.setValue(binding);
-    // The frame follows at the next recompute: taken now, so that the load
-    // is where it goes before that
-    Base::Placement local;
-    if (resolveEnd(binding, Base::Placement(), local)) {
-        Frame.setValue(local);
-    }
-    return binding;
-}
-
-void AppliedLoad::clearEnd()
-{
-    auto old = getBinding();
-    if (!old) {
-        return;
-    }
-    // The free frame is where the frame is
-    Base::Placement frame;
-    auto component = getEnd(frame);
-    Binding.setValue(nullptr);
-    Component.setValue(component);
-    Frame.setValue(frame);
-    releaseBinding(old);
-}
-
 void AppliedLoad::onChanged(const App::Property* prop)
 {
     if (prop == &Kind) {
         updateUnit();
     }
-    else if (prop == &Binding) {
-        updateEditable();
-        syncComponent(Binding, Component);
-    }
-    PhysicsItem::onChanged(prop);
+    FramedItem::onChanged(prop);
 }
 
 void AppliedLoad::onDocumentRestored()
 {
     updateUnit();
-    updateEditable();
-    PhysicsItem::onDocumentRestored();
-}
-
-short AppliedLoad::mustExecute() const
-{
-    if (Binding.isTouched()) {
-        return 1;
-    }
-    return PhysicsItem::mustExecute();
-}
-
-App::DocumentObjectExecReturn* AppliedLoad::execute()
-{
-    if (auto binding = getBinding()) {
-        // The stored copy of a binding that does not resolve now is placed
-        // where the frame was last
-        Base::Placement local;
-        if (!resolveEnd(binding, Frame.getValue(), local)) {
-            return new App::DocumentObjectExecReturn("The load's element does not resolve");
-        }
-        if (!Frame.getValue().isSame(local, 1e-12)) {
-            Frame.setValue(local);
-        }
-    }
-    return PhysicsItem::execute();
-}
-
-void AppliedLoad::unsetupObject()
-{
-    // The load owns its element binding: it goes with it
-    releaseBindings({&Binding});
-    PhysicsItem::unsetupObject();
+    FramedItem::onDocumentRestored();
 }
 
 PyObject* AppliedLoad::getPyObject()
@@ -571,6 +596,50 @@ PyObject* AppliedLoad::getPyObject()
         PythonObject = Py::Object(new AppliedLoadPy(this), true);
     }
     return Py::new_reference_to(PythonObject);
+}
+
+PROPERTY_SOURCE(Assembly::Bushing, Assembly::FramedItem)
+
+Bushing::Bushing()
+{
+    ADD_PROPERTY_TYPE(Other,
+                      (nullptr),
+                      "Bushing",
+                      App::Prop_None,
+                      "The component holding Component at the frame; none: the ground");
+    ADD_PROPERTY_TYPE(TranslationalStiffness,
+                      (Base::Vector3d()),
+                      "Bushing",
+                      App::Prop_None,
+                      "The stiffness along the frame's x, y and z, in N/m (mN/mm)");
+    ADD_PROPERTY_TYPE(RotationalStiffness,
+                      (Base::Vector3d()),
+                      "Bushing",
+                      App::Prop_None,
+                      "The stiffness about the frame's x, y and z, in mN mm per radian (1 N m "
+                      "per radian is 1e6)");
+    ADD_PROPERTY_TYPE(TranslationalDamping,
+                      (Base::Vector3d()),
+                      "Bushing",
+                      App::Prop_None,
+                      "The damping along the frame's x, y and z, in N s/m (mN s/mm)");
+    ADD_PROPERTY_TYPE(RotationalDamping,
+                      (Base::Vector3d()),
+                      "Bushing",
+                      App::Prop_None,
+                      "The damping about the frame's x, y and z, in mN mm s per radian (1 N m s "
+                      "per radian is 1e6)");
+    ADD_PROPERTY_TYPE(Preload,
+                      (Base::Vector3d()),
+                      "Bushing",
+                      App::Prop_None,
+                      "The force on Component where the run starts, in the frame's axes, in mN");
+    ADD_PROPERTY_TYPE(PreloadTorque,
+                      (Base::Vector3d()),
+                      "Bushing",
+                      App::Prop_None,
+                      "The torque on Component where the run starts, in the frame's axes, in "
+                      "mN mm");
 }
 
 PROPERTY_SOURCE(Assembly::TorsionSpring, Assembly::PhysicsItem)
@@ -613,6 +682,23 @@ TorsionSpring::TorsionSpring()
 
 namespace App
 {
+PROPERTY_SOURCE_TEMPLATE(Assembly::BushingPython, Assembly::Bushing)
+template<>
+const char* Assembly::BushingPython::getViewProviderName() const
+{
+    return "Gui::ViewProviderPythonFeature";
+}
+template<>
+PyObject* Assembly::BushingPython::getPyObject()
+{
+    if (PythonObject.is(Py::_None())) {
+        // ref counter is set to 1
+        PythonObject = Py::Object(new App::FeaturePythonPyT<Assembly::FramedItemPy>(this), true);
+    }
+    return Py::new_reference_to(PythonObject);
+}
+template class AssemblyExport FeaturePythonT<Assembly::Bushing>;
+
 PROPERTY_SOURCE_TEMPLATE(Assembly::AppliedLoadPython, Assembly::AppliedLoad)
 template<>
 const char* Assembly::AppliedLoadPython::getViewProviderName() const

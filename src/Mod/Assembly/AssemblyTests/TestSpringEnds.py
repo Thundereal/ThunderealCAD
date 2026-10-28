@@ -320,6 +320,50 @@ class TestLoadEnd(EndsBase):
         self.assertIsNotNone(self.doc.getObject(element))
 
 
+class TestBushingEnd(EndsBase):
+    """A bushing's frame on an element, as a load's is (FramedItem)"""
+
+    def newBushing(self):
+        import CommandCreateBushing
+
+        return CommandCreateBushing.newBushing(self.assembly)
+
+    def testFrameOnAFace(self):
+        bushing = self.newBushing()
+        binding = bushing.setEnd(self.base, "Face6")
+        self.doc.recompute()
+        self.assertEqual(bushing.Binding, binding)
+        self.assertEqual(bushing.Component, self.base)
+        self.assertIn("ReadOnly", bushing.getPropertyStatus("Component"))
+        self.assertVec(bushing.getEndPlacement().Base, App.Vector(5, 5, 10))
+        self.base.Height = 25
+        self.doc.recompute()
+        self.assertVec(bushing.getEndPlacement().Base, App.Vector(5, 5, 25))
+
+    def testNewValues(self):
+        """A new bushing's values, in the internal units"""
+        bushing = self.newBushing()
+        self.assertVec(bushing.TranslationalStiffness, App.Vector(1e6, 1e6, 1e6))
+        self.assertVec(bushing.RotationalStiffness, App.Vector(1e8, 1e8, 1e8))
+        self.assertVec(bushing.Preload, App.Vector())
+
+    def testFreeKeepsTheFrame(self):
+        bushing = self.newBushing()
+        name = bushing.setEnd(self.base, "Face6").Name
+        self.doc.recompute()
+        bushing.clearEnd()
+        self.assertIsNone(bushing.Binding)
+        self.assertIsNone(self.doc.getObject(name))
+        self.assertVec(bushing.getEndPlacement().Base, App.Vector(5, 5, 10))
+
+    def testDeletingTheBushingDeletesItsBinding(self):
+        bushing = self.newBushing()
+        bushing.setEnd(self.base, "Face6")
+        self.doc.recompute()
+        self.doc.removeObject(bushing.Name)
+        self.assertEqual(len(self.bindings()), 0)
+
+
 class TestSpringEndOnAnUnloadedChild(unittest.TestCase):
     """An end on a child assembly that is not loaded: the element binding
     keeps its copy, and the end stays where it last was on the link, as a

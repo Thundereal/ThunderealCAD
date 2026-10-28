@@ -25,7 +25,13 @@
 its dynamic and static studies (docs/AssemblyDynamics.md sec 5.2's
 AppliedLoad). It acts at an element's frame, picked as a joint's side is,
 through an element binding the load owns; or at a free frame. The command
-opens the load's task panel, which a double click on a load opens too."""
+opens the load's task panel, which a double click on a load opens too.
+
+TaskFramed is the panel of any item at a frame (Assembly::FramedItem): the
+frame's pick, its offset, the other component, and the transaction; a
+bushing's panel (CommandCreateBushing.py) is one too."""
+
+import sys
 
 import FreeCAD as App
 
@@ -41,10 +47,10 @@ import UtilsAssembly
 translate = App.Qt.translate
 
 
-def recomputeLoad(load):
-    """Recompute a load and what makes its frame, its element and element
-    binding, as a joint's sides are"""
-    binding = load.Binding
+def recomputeFramed(item):
+    """Recompute an item at a frame (a load, a bushing) and what makes its
+    frame, its element and element binding, as a joint's sides are"""
+    binding = item.Binding
     if binding is not None:
         if binding.Element is not None:
             obj, subs = binding.Element
@@ -52,13 +58,16 @@ def recomputeLoad(load):
             if element is not None and element.isDerivedFrom("Part::Element"):
                 element.recompute()
         binding.recompute()
-    load.recompute()
+    item.recompute()
 
 
-def describeLoadEnd(load):
-    """What the load acts at, for the panel"""
-    component, frame = load.getEnd()
-    binding = load.Binding
+recomputeLoad = recomputeFramed
+
+
+def describeFrame(item):
+    """Where an item at a frame is, for its panel"""
+    component, frame = item.getEnd()
+    binding = item.Binding
     if binding is not None and binding.Element is not None:
         obj, subs = binding.Element
         element = obj.getSubObject(subs[0], retType=1) if subs and subs[0] else None
@@ -108,7 +117,7 @@ def makeLoad(assembly, end, kind="Force", magnitude=None, direction=None, reacti
         if direction is not None:
             load.Direction = direction
         load.Reaction = reaction
-        recomputeLoad(load)
+        recomputeFramed(load)
     finally:
         doc.commitTransaction()
     return load
@@ -156,7 +165,7 @@ class CommandCreateLoad:
             load = newLoad(assembly)
             if pick is not None:
                 load.setEnd(*pick)
-                recomputeLoad(load)
+                recomputeFramed(load)
             Gui.Control.showDialog(TaskLoad(load, creating=True))
         except Exception:
             # The panel's Cancel would have undone it
@@ -168,36 +177,45 @@ class CommandCreateLoad:
 activeTask = None
 
 
-class TaskLoad(QtCore.QObject):
-    """The task panel of a load: where it acts, picked on an element as a
-    joint's side is (or made a free frame where it is), with an offset along
-    the element's normal; Force or Torque, its magnitude and profile over
-    time; its direction, in the frame's axes or the assembly's; and the
-    component taking the reaction, or the ground. The changes are one
-    transaction: Cancel undoes them, and deletes a load the command made."""
+class TaskFramed(QtCore.QObject):
+    """The task panel of an item at a frame: where it is, picked on an
+    element as a joint's side is (or made a free frame where it is), with an
+    offset along the element's normal, and the other component (its property
+    otherProp), picked or the ground; a subclass adds its own group of
+    fields (buildItem, fillItem). The changes are one transaction: Cancel
+    undoes them, and deletes an item the command made. The open panel is its
+    module's activeTask."""
 
-    def __init__(self, load, creating=False):
+    title = ""
+    editText = ""
+    otherProp = ""
+    otherLabel = ""
+    # The item's name in the messages, the panel's title by default
+    name = ""
+    texts = {}
+
+    def __init__(self, item, creating=False):
         super().__init__()
-        global activeTask
-        activeTask = self
-        self.load = load
+        self.module = sys.modules[type(self).__module__]
+        self.module.activeTask = self
+        self.item = item
         self.creating = creating
-        self.doc = load.Document
+        self.doc = item.Document
         self.assembly = None
-        for obj in load.InListRecursive:
+        for obj in item.InListRecursive:
             if obj.isDerivedFrom("Assembly::AssemblyObject"):
                 self.assembly = obj
                 break
         if not creating:
-            self.doc.openTransaction(translate("Assembly", "Edit load"))
+            self.doc.openTransaction(self.editText)
         self.view = Gui.getDocument(self.doc).activeView()
-        # What the next pick is for: "frame", "reaction" or None
+        # What the next pick is for: "frame", "other" or None
         self.armed = None
         self.preview = None
         self.hovered = None
         self.callbackMove = None
         self.buildForm()
-        self.arm("frame" if load.getEnd()[0] is None else None)
+        self.arm("frame" if item.getEnd()[0] is None else None)
         self.fill()
 
         if self.assembly is not None:
@@ -218,30 +236,24 @@ class TaskLoad(QtCore.QObject):
     def quantityBox(self, prop):
         box = Gui.UiLoader().createWidget("Gui::QuantitySpinBox")
         # Its unit with it
-        box.setProperty("value", getattr(self.load, prop))
-        Gui.ExpressionBinding(box).bind(self.load, prop)
+        box.setProperty("value", getattr(self.item, prop))
+        Gui.ExpressionBinding(box).bind(self.item, prop)
         box.valueChanged.connect(lambda q, prop=prop: self.onQuantity(prop, q))
         return box
 
     def buildForm(self):
         self.form = QtWidgets.QWidget()
-        self.form.setWindowTitle(translate("Assembly", "Force / Torque"))
+        self.form.setWindowTitle(self.title)
         layout = QtWidgets.QVBoxLayout(self.form)
 
-        atBox = QtWidgets.QGroupBox(translate("Assembly", "Acting at"))
+        atBox = QtWidgets.QGroupBox(self.texts["at"])
         grid = QtWidgets.QGridLayout(atBox)
         self.endLabel = QtWidgets.QLabel()
         self.endLabel.setWordWrap(True)
         grid.addWidget(self.endLabel, 0, 0, 1, 2)
         self.pickButton = QtWidgets.QPushButton(translate("Assembly", "Pick"))
         self.pickButton.setCheckable(True)
-        self.pickButton.setToolTip(
-            translate(
-                "Assembly",
-                "Pick an element in the 3D view: a vertex, an edge or a face, the load\n"
-                "acting at its vertex nearest the cursor or its centre, in its frame",
-            )
-        )
+        self.pickButton.setToolTip(self.texts["pickTip"])
         self.pickButton.clicked.connect(
             lambda checked: self.arm("frame" if checked else None)
         )
@@ -266,8 +278,246 @@ class TaskLoad(QtCore.QObject):
         grid.addWidget(self.offsetBox, 1, 1, 1, 3)
         layout.addWidget(atBox)
 
-        loadBox = QtWidgets.QGroupBox(translate("Assembly", "Load"))
-        form = QtWidgets.QFormLayout(loadBox)
+        itemBox, form = self.buildItem()
+
+        otherRow = QtWidgets.QHBoxLayout()
+        self.otherLabel = QtWidgets.QLabel()
+        otherRow.addWidget(self.otherLabel, 1)
+        self.otherButton = QtWidgets.QPushButton(translate("Assembly", "Pick"))
+        self.otherButton.setCheckable(True)
+        self.otherButton.setToolTip(self.texts["otherTip"])
+        self.otherButton.clicked.connect(lambda checked: self.arm("other" if checked else None))
+        otherRow.addWidget(self.otherButton)
+        self.groundButton = QtWidgets.QPushButton(translate("Assembly", "Ground"))
+        self.groundButton.setToolTip(self.texts["groundTip"])
+        self.groundButton.clicked.connect(self.onGround)
+        otherRow.addWidget(self.groundButton)
+        form.addRow(self.texts["other"], otherRow)
+        self.hint = QtWidgets.QLabel()
+        self.hint.setWordWrap(True)
+        form.addRow(self.hint)
+        layout.addWidget(itemBox)
+
+    def buildItem(self):
+        """The item's own group box and its form layout, filled; the other
+        component's row goes at its end"""
+        box = QtWidgets.QGroupBox()
+        return box, QtWidgets.QFormLayout(box)
+
+    def fillItem(self):
+        """Put the item's own fields in the panel"""
+
+    def fill(self):
+        item = self.item
+        self.endLabel.setText(describeFrame(item))
+        bound = item.Binding is not None
+        self.freeButton.setEnabled(bound)
+        self.offsetBox.setEnabled(bound)
+        self.offsetBox.blockSignals(True)
+        self.offsetBox.setProperty("rawValue", item.Binding.Offset.Base.z if bound else 0.0)
+        self.offsetBox.blockSignals(False)
+        self.fillItem()
+        other = getattr(item, self.otherProp)
+        self.otherLabel.setText(
+            other.Label if other is not None else translate("Assembly", "The ground")
+        )
+        self.groundButton.setEnabled(other is not None)
+        self.pickButton.setChecked(self.armed == "frame")
+        self.otherButton.setChecked(self.armed == "other")
+        if self.armed == "frame":
+            self.hint.setText(self.texts["pickHint"])
+        elif self.armed == "other":
+            self.hint.setText(self.texts["otherHint"])
+        else:
+            self.hint.setText("")
+    def arm(self, what):
+        self.armed = what
+        self.showPreview(None)
+        if hasattr(self, "hint"):
+            self.fill()
+
+    # ------------------------------------------------------------- editing
+
+    def changed(self):
+        recomputeFramed(self.item)
+        self.fill()
+
+    def onQuantity(self, prop, quantity):
+        setattr(self.item, prop, quantity)
+
+    def onFree(self):
+        self.item.clearEnd()
+        self.changed()
+
+    def onOffset(self, quantity):
+        binding = self.item.Binding
+        if binding is None:
+            return
+        plc = binding.Offset
+        plc.Base.z = quantity.Value
+        binding.Offset = plc
+        self.changed()
+
+    def onGround(self):
+        setattr(self.item, self.otherProp, None)
+        self.fill()
+
+    def pick(self, root, sub, pos):
+        pick = CommandCreateSpring.pickOf(self.assembly, root, sub, pos)
+        if pick is None:
+            return False
+        other = getattr(self.item, self.otherProp)
+        if self.armed == "frame":
+            if other is not None and other == pick[0]:
+                App.Console.PrintWarning(self.texts["onePart"] + "\n")
+                return False
+            self.item.setEnd(*pick)
+            self.armed = None
+            self.changed()
+            return True
+        if self.armed == "other":
+            if pick[0] == self.item.getEnd()[0]:
+                App.Console.PrintWarning(self.texts["onePart"] + "\n")
+                return False
+            setattr(self.item, self.otherProp, pick[0])
+            self.armed = None
+            self.fill()
+            return True
+        return False
+
+    # ------------------------------------------------------------- picking
+
+    def addSelection(self, doc_name, obj_name, sub_name, mousePos):
+        root = App.getDocument(doc_name).getObject(obj_name)
+        pos = App.Vector(*mousePos[:3]) if mousePos else None
+        self.pick(root, sub_name, pos)
+        # The picks are the item's, not a selection
+        QtCore.QTimer.singleShot(0, Gui.Selection.clearSelection)
+
+    def setPreselection(self, doc_name, obj_name, sub_name):
+        self.hovered = None
+        if self.armed != "frame" or not sub_name:
+            return
+        self.hovered = (App.getDocument(doc_name).getObject(obj_name), sub_name)
+
+    def removePreselection(self, doc_name, obj_name, sub_name):
+        self.hovered = None
+        self.showPreview(None)
+
+    def moveMouse(self, info):
+        if self.armed != "frame" or self.hovered is None or self.view is None:
+            self.showPreview(None)
+            return
+        cursor = self.view.getObjectInfo(self.view.getCursorPos())
+        if not cursor:
+            self.showPreview(None)
+            return
+        pos = App.Vector(cursor["x"], cursor["y"], cursor["z"])
+        pick = CommandCreateSpring.pickOf(self.assembly, self.hovered[0], self.hovered[1], pos)
+        self.showPreview(CommandCreateSpring.hoverPoint(pick) if pick is not None else None)
+
+    def showPreview(self, point):
+        """A dot where the hovered element would put the frame; hidden with no
+        point"""
+        if point is None:
+            if self.preview is not None:
+                self.preview.whichChild = -1
+            return
+        from pivy import coin
+
+        if self.preview is None and self.view is not None:
+            self.preview = coin.SoSwitch()
+            sep = coin.SoSeparator()
+            pickStyle = coin.SoPickStyle()
+            pickStyle.style = coin.SoPickStyle.UNPICKABLE
+            sep.addChild(pickStyle)
+            material = coin.SoMaterial()
+            material.diffuseColor = (0.85, 0.15, 0.1)
+            material.emissiveColor = (0.85, 0.15, 0.1)
+            sep.addChild(material)
+            style = coin.SoDrawStyle()
+            style.pointSize = 9
+            sep.addChild(style)
+            self.previewCoords = coin.SoCoordinate3()
+            sep.addChild(self.previewCoords)
+            dot = coin.SoPointSet()
+            dot.startIndex = 0
+            dot.numPoints = 1
+            sep.addChild(dot)
+            self.preview.addChild(sep)
+            self.view.getSceneGraph().addChild(self.preview)
+        if self.preview is None:
+            return
+        self.previewCoords.point.setValues(0, 1, [tuple(point)])
+        self.previewCoords.point.setNum(1)
+        self.preview.whichChild = 0
+
+    # ------------------------------------------------------------- closing
+
+    def deactivate(self):
+        if self.module.activeTask is self:
+            self.module.activeTask = None
+        Gui.Selection.removeSelectionGate()
+        Gui.Selection.removeObserver(self)
+        if self.callbackMove is not None and self.view is not None:
+            self.view.removeEventCallback("SoLocation2Event", self.callbackMove)
+            self.callbackMove = None
+        if self.preview is not None and self.view is not None:
+            self.view.getSceneGraph().removeChild(self.preview)
+            self.preview = None
+        UtilsAssembly.setJointsPickableState(self.doc, True)
+
+    def accept(self):
+        self.deactivate()
+        recomputeFramed(self.item)
+        self.doc.commitTransaction()
+        Gui.Control.closeDialog()
+        return True
+
+    def reject(self):
+        self.deactivate()
+        self.doc.abortTransaction()
+        Gui.Control.closeDialog()
+        if self.assembly is not None:
+            self.doc.recompute()
+        return True
+
+    def getStandardButtons(self):
+        return QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+
+
+class TaskLoad(TaskFramed):
+    """The task panel of a load: where it acts; Force or Torque, its
+    magnitude and profile over time; its direction, in the frame's axes or
+    the assembly's; and the component taking the reaction, or the ground."""
+
+    title = translate("Assembly", "Force / Torque")
+    editText = translate("Assembly", "Edit load")
+    otherProp = "Reaction"
+    texts = {
+        "at": translate("Assembly", "Acting at"),
+        "pickTip": translate(
+            "Assembly",
+            "Pick an element in the 3D view: a vertex, an edge or a face, the load\n"
+            "acting at its vertex nearest the cursor or its centre, in its frame",
+        ),
+        "pickHint": translate("Assembly", "Pick the element the load acts at in the 3D view"),
+        "other": translate("Assembly", "Reaction"),
+        "otherTip": translate("Assembly", "Pick the part taking the opposite load, in the 3D view"),
+        "otherHint": translate("Assembly", "Pick the part taking the reaction in the 3D view"),
+        "groundTip": translate("Assembly", "The ground takes the opposite load"),
+        "onePart": translate(
+            "Assembly", "Force / Torque: the load and its reaction are on one part."
+        ),
+    }
+
+    @property
+    def load(self):
+        return self.item
+
+    def buildItem(self):
+        group = QtWidgets.QGroupBox(translate("Assembly", "Load"))
+        form = QtWidgets.QFormLayout(group)
         self.kindCombo = QtWidgets.QComboBox()
         self.kindCombo.addItem(translate("Assembly", "Force"), "Force")
         self.kindCombo.addItem(translate("Assembly", "Torque"), "Torque")
@@ -308,260 +558,54 @@ class TaskLoad(QtCore.QObject):
         self.axesCombo.addItem(translate("Assembly", "The assembly's, fixed"), "Assembly")
         self.axesCombo.currentIndexChanged.connect(self.onAxes)
         form.addRow(translate("Assembly", "In the axes"), self.axesCombo)
+        return group, form
 
-        reactionRow = QtWidgets.QHBoxLayout()
-        self.reactionLabel = QtWidgets.QLabel()
-        reactionRow.addWidget(self.reactionLabel, 1)
-        self.reactionButton = QtWidgets.QPushButton(translate("Assembly", "Pick"))
-        self.reactionButton.setCheckable(True)
-        self.reactionButton.setToolTip(
-            translate("Assembly", "Pick the part taking the opposite load, in the 3D view")
-        )
-        self.reactionButton.clicked.connect(
-            lambda checked: self.arm("reaction" if checked else None)
-        )
-        reactionRow.addWidget(self.reactionButton)
-        self.groundButton = QtWidgets.QPushButton(translate("Assembly", "Ground"))
-        self.groundButton.setToolTip(translate("Assembly", "The ground takes the opposite load"))
-        self.groundButton.clicked.connect(self.onGround)
-        reactionRow.addWidget(self.groundButton)
-        form.addRow(translate("Assembly", "Reaction"), reactionRow)
-        self.hint = QtWidgets.QLabel()
-        self.hint.setWordWrap(True)
-        form.addRow(self.hint)
-        layout.addWidget(loadBox)
-
-    def fill(self):
-        load = self.load
-        self.endLabel.setText(describeLoadEnd(load))
-        bound = load.Binding is not None
-        self.freeButton.setEnabled(bound)
-        self.offsetBox.setEnabled(bound)
-        self.offsetBox.blockSignals(True)
-        self.offsetBox.setProperty("rawValue", load.Binding.Offset.Base.z if bound else 0.0)
-        self.offsetBox.blockSignals(False)
+    def fillItem(self):
         self.kindCombo.blockSignals(True)
-        self.kindCombo.setCurrentIndex(max(0, self.kindCombo.findData(load.Kind)))
+        self.kindCombo.setCurrentIndex(max(0, self.kindCombo.findData(self.item.Kind)))
         self.kindCombo.blockSignals(False)
         self.magnitudeBox.blockSignals(True)
-        self.magnitudeBox.setProperty("value", load.Magnitude)
+        self.magnitudeBox.setProperty("value", self.item.Magnitude)
         self.magnitudeBox.blockSignals(False)
-        if self.profileEdit.text().strip() != load.Profile:
+        if self.profileEdit.text().strip() != self.item.Profile:
             self.profileEdit.blockSignals(True)
-            self.profileEdit.setText(load.Profile)
+            self.profileEdit.setText(self.item.Profile)
             self.profileEdit.blockSignals(False)
-        for box, value in zip(self.dirBoxes, load.Direction):
+        for box, value in zip(self.dirBoxes, self.item.Direction):
             box.blockSignals(True)
             box.setValue(value)
             box.blockSignals(False)
         self.axesCombo.blockSignals(True)
-        self.axesCombo.setCurrentIndex(max(0, self.axesCombo.findData(load.DirectionAxes)))
+        self.axesCombo.setCurrentIndex(max(0, self.axesCombo.findData(self.item.DirectionAxes)))
         self.axesCombo.blockSignals(False)
-        reaction = load.Reaction
-        self.reactionLabel.setText(
-            reaction.Label if reaction is not None else translate("Assembly", "The ground")
-        )
-        self.groundButton.setEnabled(reaction is not None)
-        self.pickButton.setChecked(self.armed == "frame")
-        self.reactionButton.setChecked(self.armed == "reaction")
-        if self.armed == "frame":
-            self.hint.setText(
-                translate("Assembly", "Pick the element the load acts at in the 3D view")
-            )
-        elif self.armed == "reaction":
-            self.hint.setText(
-                translate("Assembly", "Pick the part taking the reaction in the 3D view")
-            )
-        else:
-            self.hint.setText("")
-
-    def arm(self, what):
-        self.armed = what
-        self.showPreview(None)
-        if hasattr(self, "hint"):
-            self.fill()
-
-    # ------------------------------------------------------------- editing
-
-    def changed(self):
-        recomputeLoad(self.load)
-        self.fill()
-
-    def onQuantity(self, prop, quantity):
-        setattr(self.load, prop, quantity)
 
     def onKind(self, index):
         kind = self.kindCombo.itemData(index)
-        if kind == self.load.Kind:
+        if kind == self.item.Kind:
             return
-        self.load.Kind = kind
+        self.item.Kind = kind
         # A force's number is no torque's: a fresh default
-        self.load.Magnitude = "1 N*m" if kind == "Torque" else "10 N"
+        self.item.Magnitude = "1 N*m" if kind == "Torque" else "10 N"
         self.fill()
 
     def onProfile(self):
         text = self.profileEdit.text().strip()
-        if text != self.load.Profile:
-            self.load.Profile = text
+        if text != self.item.Profile:
+            self.item.Profile = text
 
     def onDirection(self):
-        self.load.Direction = App.Vector(*[box.value() for box in self.dirBoxes])
+        self.item.Direction = App.Vector(*[box.value() for box in self.dirBoxes])
 
     def onReverse(self):
-        self.load.Direction = self.load.Direction * -1
+        self.item.Direction = self.item.Direction * -1
         self.fill()
 
     def onAxes(self, index):
-        self.load.DirectionAxes = self.axesCombo.itemData(index)
-
-    def onFree(self):
-        self.load.clearEnd()
-        self.changed()
-
-    def onOffset(self, quantity):
-        binding = self.load.Binding
-        if binding is None:
-            return
-        plc = binding.Offset
-        plc.Base.z = quantity.Value
-        binding.Offset = plc
-        self.changed()
-
-    def onGround(self):
-        self.load.Reaction = None
-        self.fill()
-
-    def pick(self, root, sub, pos):
-        pick = CommandCreateSpring.pickOf(self.assembly, root, sub, pos)
-        if pick is None:
-            return False
-        if self.armed == "frame":
-            if self.load.Reaction is not None and self.load.Reaction == pick[0]:
-                App.Console.PrintWarning(
-                    translate(
-                        "Assembly", "Force / Torque: the load and its reaction are on one part.\n"
-                    )
-                )
-                return False
-            self.load.setEnd(*pick)
-            self.armed = None
-            self.changed()
-            return True
-        if self.armed == "reaction":
-            if pick[0] == self.load.getEnd()[0]:
-                App.Console.PrintWarning(
-                    translate(
-                        "Assembly", "Force / Torque: the load and its reaction are on one part.\n"
-                    )
-                )
-                return False
-            self.load.Reaction = pick[0]
-            self.armed = None
-            self.fill()
-            return True
-        return False
-
-    # ------------------------------------------------------------- picking
-
-    def addSelection(self, doc_name, obj_name, sub_name, mousePos):
-        root = App.getDocument(doc_name).getObject(obj_name)
-        pos = App.Vector(*mousePos[:3]) if mousePos else None
-        self.pick(root, sub_name, pos)
-        # The picks are the load's, not a selection
-        QtCore.QTimer.singleShot(0, Gui.Selection.clearSelection)
-
-    def setPreselection(self, doc_name, obj_name, sub_name):
-        self.hovered = None
-        if self.armed != "frame" or not sub_name:
-            return
-        self.hovered = (App.getDocument(doc_name).getObject(obj_name), sub_name)
-
-    def removePreselection(self, doc_name, obj_name, sub_name):
-        self.hovered = None
-        self.showPreview(None)
-
-    def moveMouse(self, info):
-        if self.armed != "frame" or self.hovered is None or self.view is None:
-            self.showPreview(None)
-            return
-        cursor = self.view.getObjectInfo(self.view.getCursorPos())
-        if not cursor:
-            self.showPreview(None)
-            return
-        pos = App.Vector(cursor["x"], cursor["y"], cursor["z"])
-        pick = CommandCreateSpring.pickOf(self.assembly, self.hovered[0], self.hovered[1], pos)
-        self.showPreview(CommandCreateSpring.hoverPoint(pick) if pick is not None else None)
-
-    def showPreview(self, point):
-        """A dot where the hovered element would put the load; hidden with no
-        point"""
-        if point is None:
-            if self.preview is not None:
-                self.preview.whichChild = -1
-            return
-        from pivy import coin
-
-        if self.preview is None and self.view is not None:
-            self.preview = coin.SoSwitch()
-            sep = coin.SoSeparator()
-            pickStyle = coin.SoPickStyle()
-            pickStyle.style = coin.SoPickStyle.UNPICKABLE
-            sep.addChild(pickStyle)
-            material = coin.SoMaterial()
-            material.diffuseColor = (0.85, 0.15, 0.1)
-            material.emissiveColor = (0.85, 0.15, 0.1)
-            sep.addChild(material)
-            style = coin.SoDrawStyle()
-            style.pointSize = 9
-            sep.addChild(style)
-            self.previewCoords = coin.SoCoordinate3()
-            sep.addChild(self.previewCoords)
-            dot = coin.SoPointSet()
-            dot.startIndex = 0
-            dot.numPoints = 1
-            sep.addChild(dot)
-            self.preview.addChild(sep)
-            self.view.getSceneGraph().addChild(self.preview)
-        if self.preview is None:
-            return
-        self.previewCoords.point.setValues(0, 1, [tuple(point)])
-        self.previewCoords.point.setNum(1)
-        self.preview.whichChild = 0
-
-    # ------------------------------------------------------------- closing
-
-    def deactivate(self):
-        global activeTask
-        if activeTask is self:
-            activeTask = None
-        Gui.Selection.removeSelectionGate()
-        Gui.Selection.removeObserver(self)
-        if self.callbackMove is not None and self.view is not None:
-            self.view.removeEventCallback("SoLocation2Event", self.callbackMove)
-            self.callbackMove = None
-        if self.preview is not None and self.view is not None:
-            self.view.getSceneGraph().removeChild(self.preview)
-            self.preview = None
-        UtilsAssembly.setJointsPickableState(self.doc, True)
+        self.item.DirectionAxes = self.axesCombo.itemData(index)
 
     def accept(self):
         self.onProfile()
-        self.deactivate()
-        recomputeLoad(self.load)
-        self.doc.commitTransaction()
-        Gui.Control.closeDialog()
-        return True
-
-    def reject(self):
-        self.deactivate()
-        self.doc.abortTransaction()
-        Gui.Control.closeDialog()
-        if self.assembly is not None:
-            self.doc.recompute()
-        return True
-
-    def getStandardButtons(self):
-        return QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel
+        return super().accept()
 
 
 if App.GuiUp:

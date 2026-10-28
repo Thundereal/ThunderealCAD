@@ -161,7 +161,7 @@ class TestGuiCommands(unittest.TestCase):
                 if Gui.Control.activeDialog():
                     Gui.Control.closeDialog()
             JointObject.activeTask = None
-            for module in ("CommandCreateSpring", "CommandCreateLoad"):
+            for module in ("CommandCreateSpring", "CommandCreateLoad", "CommandCreateBushing"):
                 if module in sys.modules:
                     sys.modules[module].activeTask = None
             Gui.Selection.clearSelection()
@@ -772,7 +772,7 @@ class TestGuiCommands(unittest.TestCase):
         Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Box.Face6", 5, 5, 10)
         _process()
         self.assertIsNone(task.armed)
-        task.arm("reaction")
+        task.arm("other")
         Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Cyl1.Face1", 32, 0, 5)
         _process()
         self.assertIsNone(task.armed)
@@ -800,6 +800,54 @@ class TestGuiCommands(unittest.TestCase):
         self.assertFalse(Gui.Control.activeDialog())
         self.assertEqual(load.Reaction, self.cyl1)
         self.assertAlmostEqual(load.Magnitude.getValueAs("N*m").Value, magnitude, places=9)
+        self.assertClean()
+
+    def test_bushing_panel(self):
+        """Picked first, the command puts the bushing on the face; the panel
+        picks the part holding it and takes its values in their units; an
+        edit cancelled leaves it as it was"""
+        import CommandCreateBushing
+
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Box.Face6", 5, 5, 10)
+        self.run_command("Assembly_CreateBushing")
+        task = CommandCreateBushing.activeTask
+        self.assertIsInstance(task, CommandCreateBushing.TaskBushing)
+        self.assertIsNone(task.armed)
+        task.arm("other")
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Cyl1.Face1", 32, 0, 5)
+        _process()
+        self.assertIsNone(task.armed)
+        # 2 N/mm along y, 3 N m/rad about z, a preload of 4 N along x
+        box = task.valueBoxes[("TranslationalStiffness", 1)]
+        self.assertEqual(box.value(), 1000)
+        self.assertEqual(box.suffix(), " N/mm")
+        box.setValue(2)
+        task.valueBoxes[("RotationalStiffness", 2)].setValue(3)
+        task.valueBoxes[("Preload", 0)].setValue(4)
+        self.accept_task()
+        bushings = [o for o in self.doc.Objects if o.isDerivedFrom("Assembly::Bushing")]
+        self.assertEqual(len(bushings), 1)
+        bushing = bushings[0]
+        self.assertEqual(bushing.Component, self.box)
+        self.assertEqual(bushing.Other, self.cyl1)
+        self.assertLess((bushing.getEndPlacement().Base - App.Vector(5, 5, 10)).Length, 1e-7)
+        self.assertEqual(bushing.ViewObject.claimChildren(), [bushing.Binding])
+        self.assertAlmostEqual(bushing.TranslationalStiffness.y, 2e3, places=6)
+        self.assertAlmostEqual(bushing.TranslationalStiffness.x, 1e6, places=6)
+        self.assertAlmostEqual(bushing.RotationalStiffness.z, 3e6, places=6)
+        self.assertAlmostEqual(bushing.Preload.x, 4e3, places=6)
+        # Edited and cancelled
+        self.assertTrue(bushing.ViewObject.doubleClicked())
+        _process()
+        task = CommandCreateBushing.activeTask
+        self.assertIsInstance(task, CommandCreateBushing.TaskBushing)
+        task.onGround()
+        task.onFree()
+        task.reject()
+        _process()
+        self.assertFalse(Gui.Control.activeDialog())
+        self.assertEqual(bushing.Other, self.cyl1)
+        self.assertIsNotNone(bushing.Binding)
         self.assertClean()
 
     def test_export_asmt(self):

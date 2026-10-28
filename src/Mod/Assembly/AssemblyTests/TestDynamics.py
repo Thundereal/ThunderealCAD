@@ -858,3 +858,128 @@ class TestDynamics(unittest.TestCase):
         self.assertEqual(result, 0)
         for time, z in self.heights(block, 1e-2):
             self.assertAlmostEqual(z, 12, delta=1e-9, msg=time)
+
+    # ------------------------------------------------------------ bushings
+
+    def bushing(self, end, other=None, **props):
+        """A bushing with only the values given (vectors, internal units)"""
+        import CommandCreateBushing
+
+        bushing = CommandCreateBushing.makeBushing(self.assembly, end, other)
+        for name in CommandCreateBushing.Values:
+            setattr(bushing, name, props.get(name, App.Vector()))
+        self.assertNotIn("Invalid", bushing.State)
+        return bushing
+
+    @staticmethod
+    def stepResponse(time, w, zeta):
+        """The unit step's response of an oscillator from rest"""
+        wd = w * math.sqrt(1 - zeta * zeta)
+        return 1 - math.exp(-zeta * w * time) * (
+            math.cos(wd * time) + zeta / math.sqrt(1 - zeta * zeta) * math.sin(wd * time)
+        )
+
+    def test_bushing_step(self):
+        """The block on its slider held to the ground by a bushing, free at
+        the start and preloaded up: it rises to F / k as a step's response,
+        undamped and at 20% of critical."""
+        k = self.K * 10  # N/m
+        force = 2e-3  # N: 2 mm at k
+        w = math.sqrt(k / self.MASS)
+        for zeta in (0.0, 0.2):
+            if zeta:
+                self.tearDown()
+                self.setUp()
+            block = self.slider()
+            c = 2 * zeta * math.sqrt(k * self.MASS)  # kg/s
+            bushing = self.bushing(
+                (block, App.Placement(App.Vector(5, 5, 0), App.Rotation())),
+                TranslationalStiffness=App.Vector(k, k, k),
+                TranslationalDamping=App.Vector(c, c, c),
+                Preload=App.Vector(0, 0, force * 1e3),
+            )
+            _, result = self.simulate(0.15, 1e-4, GravityEnabled=False, Elements=[bushing])
+            self.assertEqual(result, 0)
+            settled = force / k * 1e3  # mm
+            for time, z in self.heights(block, 1e-4):
+                self.assertAlmostEqual(
+                    z,
+                    12 + settled * self.stepResponse(time, w, zeta),
+                    delta=settled * 2e-3,
+                    msg=(zeta, time),
+                )
+
+    def test_bushing_turn(self):
+        """A bushing at the hinge, stiff about it and preloaded with a
+        torque: the rod turns to T / k as a step's response, at sqrt(k / I);
+        the frame's y is the hinge's axis."""
+        rod = self.pendulum()
+        inertia = 100 * 10 * 10 * 2.7e-6 * ((100**2 + 10**2) / 12 + 50**2) * 1e-6  # kg m^2
+        k = 400 * inertia  # N m / rad: w = 20 rad/s
+        torque = 0.1 * k  # N m: 0.1 rad
+        bushing = self.bushing(
+            (rod, App.Placement(App.Vector(0, 5, 5), App.Rotation())),
+            RotationalStiffness=App.Vector(0, k * 1e6, 0),
+            PreloadTorque=App.Vector(0, torque * 1e6, 0),
+        )
+        _, result = self.simulate(0.4, 1e-3, GravityEnabled=False, Elements=[bushing])
+        self.assertEqual(result, 0)
+        for time, angle in self.rodAngles(rod, 1e-3):
+            self.assertAlmostEqual(
+                angle, 0.1 * self.stepResponse(time, 20.0, 0.0), delta=2e-4, msg=time
+            )
+
+    def test_bushing_between_parts(self):
+        """A bushing from one block to another, each on its own slider: they
+        part symmetrically, the gap at sqrt(2 k / m); the channel is the
+        force on the first, in the assembly's axes."""
+        k = self.K * 10
+        force = 2e-3
+        a = self.slider("BlockA")
+        b = self.slider("BlockB", x=20)
+        bushing = self.bushing(
+            (b, App.Placement(App.Vector(5, 5, 0), App.Rotation())),
+            other=a,
+            TranslationalStiffness=App.Vector(k, k, k),
+            Preload=App.Vector(0, 0, force * 1e3),
+        )
+        _, result = self.simulate(0.1, 1e-4, GravityEnabled=False, Elements=[bushing])
+        self.assertEqual(result, 0)
+        w = math.sqrt(2 * k / self.MASS)
+        settled = force / k * 1e3
+        forces = self.channel("Bushing", "BushingForce")
+        heights = zip(self.heights(a, 1e-4), self.heights(b, 1e-4))
+        for ((time, za), (_, zb)), f in zip(heights, forces):
+            gap = settled * self.stepResponse(time, w, 0.0)
+            self.assertAlmostEqual(zb, 12 + 0.5 * gap, delta=settled * 2e-3, msg=time)
+            self.assertAlmostEqual(za, 12 - 0.5 * gap, delta=settled * 2e-3, msg=time)
+            # mN: the preload less the stretch
+            self.assertAlmostEqual(f[2], force * 1e3 - k * (zb - za), delta=force * 1e3 * 1e-6)
+            self.assertAlmostEqual(f[0], 0, delta=1e-9)
+
+    def test_bushing_static(self):
+        """The block on its slider under gravity, held by a bushing: it sags
+        by m g / k."""
+        k = self.K * 10
+        block = self.slider()
+        bushing = self.bushing(
+            (block, App.Placement(App.Vector(5, 5, 0), App.Rotation())),
+            TranslationalStiffness=App.Vector(k, k, k),
+        )
+        _, result = self.simulate(0.0, 1e-2, AnalysisType="Static", Elements=[bushing])
+        self.assertEqual(result, 0)
+        self.assembly.updateForFrame(0)
+        self.assertAlmostEqual(block.Placement.Base.z, 12 - self.MASS * G / k, delta=1e-5)
+
+    def test_bushing_not_listed(self):
+        """A bushing the study does not list does nothing."""
+        block = self.slider()
+        self.bushing(
+            (block, App.Placement(App.Vector(5, 5, 0), App.Rotation())),
+            TranslationalStiffness=App.Vector(1, 1, 1),
+            Preload=App.Vector(0, 0, 1),
+        )
+        _, result = self.simulate(0.1, 1e-2, GravityEnabled=False, Elements=[])
+        self.assertEqual(result, 0)
+        for time, z in self.heights(block, 1e-2):
+            self.assertAlmostEqual(z, 12, delta=1e-9, msg=time)

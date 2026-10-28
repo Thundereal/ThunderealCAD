@@ -31,6 +31,7 @@ set(Assembly_Scripts
     CommandMassProperties.py
     CommandCreateSpring.py
     CommandCreateLoad.py
+    CommandCreateBushing.py
     CommandCreateSnapshot.py
     CommandExportASMT.py
     CommandConvertAsm3.py

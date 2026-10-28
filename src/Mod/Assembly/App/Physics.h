@@ -248,6 +248,53 @@ public:
 
 using TorsionSpringPython = App::FeaturePythonT<TorsionSpring>;
 
+/** An item at a frame on a component (an applied load, a bushing): an
+ * element's frame, the offsets applied, when the item has an element binding,
+ * owned as a spring owns its ends -- Component and Frame are then its output,
+ * following the geometry at each recompute. Without one it is the free frame
+ * they give.
+ */
+class AssemblyExport FramedItem: public PhysicsItem
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::FramedItem);
+
+public:
+    FramedItem();
+
+    /// The component the frame is on; none: the ground
+    App::PropertyLink Component;
+    /// In Component's coordinates (the assembly's without it)
+    App::PropertyPlacement Frame;
+    /// The element binding of the frame, or none for a free frame
+    App::PropertyLink Binding;
+
+    App::DocumentObjectExecReturn* execute() override;
+    short mustExecute() const override;
+    void onChanged(const App::Property* prop) override;
+    void onDocumentRestored() override;
+    void unsetupObject() override;
+    PyObject* getPyObject() override;
+
+    Part::ElementBinding* getBinding() const;
+    /** The component the frame is on, null for the ground, and the frame in
+     * its coordinates
+     *
+     * @param placement: optionally, the component's placement in the
+     *                   assembly's coordinate system
+     */
+    App::DocumentObject* getEnd(Base::Placement& frame, Base::Placement* placement = nullptr) const;
+    /// The frame in the assembly's coordinate system now
+    Base::Placement getEndPlacement() const;
+    /// Put the frame on an element picked as a joint's side is
+    Part::ElementBinding*
+    setEnd(App::DocumentObject* component, const char* subname, const char* vertex = nullptr);
+    /// Make the frame a free one where it is, deleting the element binding
+    void clearEnd();
+
+private:
+    void updateEditable();
+};
+
 /** A force or a torque applied to a component (docs/AssemblyDynamics.md
  * sec 5.2's AppliedLoad), in dynamic and static runs: Magnitude times the
  * Profile, a formula of time (empty: 1), along Direction -- in the
@@ -255,13 +302,8 @@ using TorsionSpringPython = App::FeaturePythonT<TorsionSpring>;
  * assembly's. A force acts at the frame's origin. Its opposite acts on the
  * Reaction component, at where the origin was at the start, or on the
  * ground.
- *
- * The frame is on an element when the load has an element binding, owned
- * as a spring owns its ends: the element's frame, the offsets applied, with
- * Component and Frame its output. Without one it is the free frame they
- * give.
  */
-class AssemblyExport AppliedLoad: public PhysicsItem
+class AssemblyExport AppliedLoad: public FramedItem
 {
     PROPERTY_HEADER_WITH_OVERRIDE(Assembly::AppliedLoad);
 
@@ -269,13 +311,6 @@ public:
     AppliedLoad();
 
     App::PropertyEnumeration Kind;
-    /// The component the load acts on; none: the ground, which takes nothing
-    App::PropertyLink Component;
-    /// The application frame, in Component's coordinates (the assembly's
-    /// without it)
-    App::PropertyPlacement Frame;
-    /// The element binding of the frame, or none for a free frame
-    App::PropertyLink Binding;
     App::PropertyVector Direction;
     /// Frame: Direction in the frame's axes, turning with the component;
     /// Assembly: in the assembly's
@@ -291,11 +326,8 @@ public:
     static const char* KindEnums[];
     static const char* DirectionAxesEnums[];
 
-    App::DocumentObjectExecReturn* execute() override;
-    short mustExecute() const override;
     void onChanged(const App::Property* prop) override;
     void onDocumentRestored() override;
-    void unsetupObject() override;
     PyObject* getPyObject() override;
 
     const char* getViewProviderName() const override
@@ -307,30 +339,57 @@ public:
     {
         return Kind.getValue() == 1;
     }
-    Part::ElementBinding* getBinding() const;
-    /** The component the load acts on, null for the ground, and the frame in
-     * its coordinates
-     *
-     * @param placement: optionally, the component's placement in the
-     *                   assembly's coordinate system
-     */
-    App::DocumentObject* getEnd(Base::Placement& frame, Base::Placement* placement = nullptr) const;
-    /// The application frame in the assembly's coordinate system now
-    Base::Placement getEndPlacement() const;
     /// The direction in the assembly's coordinate system now, a unit vector
     /// (none when Direction is zero)
     Base::Vector3d getDirectionNow() const;
-    /// Put the frame on an element picked as a joint's side is
-    Part::ElementBinding*
-    setEnd(App::DocumentObject* component, const char* subname, const char* vertex = nullptr);
-    /// Make the frame a free one where it is, deleting the element binding
-    void clearEnd();
 
 private:
     void updateUnit();
-    void updateEditable();
 };
 
 using AppliedLoadPython = App::FeaturePythonT<AppliedLoad>;
+
+/** A bushing (docs/AssemblyDynamics.md sec 5.2): Component held to Other (the
+ * ground without it) at the frame, by a spring and a damper along and about
+ * each of the frame's axes, which turn with Component. It is free where the
+ * run starts. On Component, in the frame's axes:
+ * Preload - K s - C ds/dt and PreloadTorque - K_r r - C_r dr/dt, where s is
+ * how far the frame has moved from where Other holds it and r its turn from
+ * there, a rotation vector (small turns).
+ *
+ * The values are in the internal units: a stiffness in mN/mm (N/m), a
+ * rotational one in mN mm per radian (1 N m per radian is 1e6), a damping in
+ * mN s/mm (N s/m), a rotational one in mN mm s per radian.
+ */
+class AssemblyExport Bushing: public FramedItem
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::Bushing);
+
+public:
+    Bushing();
+
+    /// The component holding Component; none: the ground
+    App::PropertyLink Other;
+    /// Along the frame's x, y and z, mN/mm (N/m)
+    App::PropertyVector TranslationalStiffness;
+    /// About the frame's x, y and z, mN mm per radian
+    App::PropertyVector RotationalStiffness;
+    /// Along the frame's x, y and z, mN s/mm (N s/m)
+    App::PropertyVector TranslationalDamping;
+    /// About the frame's x, y and z, mN mm s per radian
+    App::PropertyVector RotationalDamping;
+    /// The force on Component where the run starts, in the frame's axes, mN
+    App::PropertyVector Preload;
+    /// The torque on Component where the run starts, in the frame's axes,
+    /// mN mm
+    App::PropertyVector PreloadTorque;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderBushing";
+    }
+};
+
+using BushingPython = App::FeaturePythonT<Bushing>;
 
 }  // namespace Assembly

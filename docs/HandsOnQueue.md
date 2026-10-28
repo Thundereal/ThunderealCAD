@@ -178,6 +178,10 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-28 18:03: entry 240 -- PD primitives' labels beside their active handle;
+a see-through tree-item background for every on-view label; ASSIGNED to
+dwin after 239.** Under the entries.
+
 **2026-10-28 17:59: entry 239 -- PD Box edit: the origin shown while hidden does not
 highlight unless the Origin group is visible; ASSIGNED to dwin.** Under
 the entries.
@@ -4493,6 +4497,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 237 | 2026-10-28 | a defect: Blender navigation style on a TechDraw page -- a pan with left and right buttons held works, but releasing the buttons pops up the page's context menu; Gesture style (right-button drag) does not, nor does either style in the 3D view | OPEN; said to the note-taker 2026-10-28 15:19; READ by the note-taker: QGVNavStyleBlender::allowContextMenu (src/Mod/TechDraw/Gui/QGVNavStyleBlender.cpp 116-127) refuses the menu only while the LEFT button is still down when the context menu event comes; on Windows it comes at the right button's release, so a pan that lets go of the left button first gets the menu; nothing remembers that a pan happened (stopPan at the first release, 99-113); Gesture's refuses every mouse context menu event (QGVNavStyleGesture.cpp 99-105); ASSIGNED to dwin (fcad-88) after 236. 2026-10-28 17:29 DONE by dwin `c20481f73d`, local, NOT pushed, NOT staged: the note-taker's reading confirmed; the style remembers a left+right pan from the gesture's first press and refuses the menu at its end (as the 3D view's Blender style); a plain right click still gets the menu; a two-button press with NO drag, left let go first, still gives the menu (the old behaviour, changeable on the reporter's word); CAD, Maya, OCC page styles refuse by keys, not touched; techdraw-blender-pan-no-menu.py (real screen, QTest) 5/5, the staged copy opens the menu. 2026-10-28 17:48 PUSHED (c30ae593fa..3f3174731f) and RESTAGED by dwin on the reporter's word to it ("push and restage"; relayed), IN the reporter's copy |
 | 238 | 2026-10-28 | a defect: panning lags noticeably, in the 3D view and (worse) on a TechDraw page | OPEN; said to the note-taker 2026-10-28 15:20; build not said (the reporter's dev build was in use for 233); NOT reproduced, cause NOT found; leads from today's work, NOT verified: OverlayManager's application-wide filter now calls OverlayScrollBars::pointerMoved on every mouse move (OverlayManager.cpp 2120, `ea124fd624`), which visits every area with auto bars (revealNear, OverlayScrollBars.cpp 515); on the page a pan scrolls, and every scroll step reveals the bars (follow -> reveal, raise, fade); an A/B against the build before `8e49bf9df2` would tell; ASSIGNED to dwin (fcad-88), NEXT after 235 (a possible regression of unpushed work). 2026-10-28 15:38 dwin (relayed): MEASURED, today's overlay scroll bar work NOT the cause -- tests/gui/pan-timing.py, real screen, the reporter's config, Blender style, 60 pan steps with their redraw: staged d04054d9b0 3D 9.9/12.0 ms (median/p90), page 25.5/30.7; dev build (ea124fd624 + 235 work) 3D 9.7/30.9, page 16.1/18.5; the bars' trace: page about 11 of 980 ms (1%), 3D about 0.3 ms; NOT measured: a lag before a pan starts or the view trailing the pointer; no baseline before today (needs a second tree); questions to the reporter: start lag or trailing, which style, since when. 2026-10-28 16:10 pan-timing.py committed by dwin as `98a1ffb0a0` (a diagnostic) |
 | 239 | 2026-10-28 | a defect: creating or editing a PD Box shows the origin planes whatever their visibility, at another size; with the origin group INVISIBLE the origin shown in the edit does not react to the highlight (pre-selection), only once the group is made visible | OPEN; said to the note-taker 2026-10-28 17:59; READ by the note-taker: the Box panel shows the origin's axes and planes on purpose (TaskPrimitiveParameters.cpp 85, setTemporaryVisibility(true, true)), as an edit visibility in the views of the edit (ViewProviderCoordinateSystem::setTemporaryVisibilityInEdit, ViewProviderCoordinateSystem.cpp 144-185, Gui::Document::setEditVisibility) -- the objects' Visibility untouched; the attacher grows them by DatumTemporaryScaleFactor (2.0, TaskAttacher.cpp 350); the highlight missing while the group's own Visibility is off -- cause NOT found (the 235 pick-first path or the selection's visibility test, a lead); ASSIGNED to dwin (fcad-88) |
+| 240 | 2026-10-28 | a change request: every PD primitive's on-view value labels shown BESIDE their handle, only while that handle is active; and every on-view label gets a see-through background in the tree item's background colour | OPEN; said to the note-taker 2026-10-28 18:03; READ by the note-taker: the primitives put every label at the top middle (TaskPrimitiveParameters.cpp 205, Place::TopMiddle; entry 170's rule then); Place::AtHandle (OnViewValue.h 103, 'shown beside its handle while that one is active') is used by pad/pocket, revolution, hole, fillet, chamfer, which fall back to the top middle with handles off; the tree item background is TreeParams ItemBackground (TreeParams.py 137, the overlaid tree's item background, default 0); the labels draw no background now (OnViewValue.cpp 193 is a button's frame); ASSIGNED to dwin (fcad-88) after 239 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -31306,6 +31311,43 @@ NOT said: whether the showing and the grown size are wanted (the
 note-taker reads them as the context, the defect being the highlight).
 ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
 
+## 240. PD primitives' on-view labels beside their handle; a see-through background for every on-view label (a change request) -- OPEN
+
+**2026-10-28 18:03, the reporter (to the note-taker):** "new request, make the on view
+edit label for all primitve feature in partdesign to show beside their
+corresponding handle. only show when the handle is active. add some
+transparent background for each on view lable, using the same
+background color from tree item"
+The note-taker's reading, two parts:
+(a) Every PD primitive's panel (box, cylinder, sphere, cone, ellipsoid,
+    torus, prism, wedge -- whichever have handles) shows each value's
+    label beside its own handle, and only while that handle is the
+    active one -- not all at the top middle as now.
+(b) EVERY on-view label (all panels, not only the primitives) gets a
+    see-through background, its colour the tree item's background
+    colour.
+READ by the note-taker:
+- The primitives put all their labels at the top middle:
+  TaskBoxPrimitives::setupGizmos (src/Mod/PartDesign/Gui/
+  TaskPrimitiveParameters.cpp 201-211), Place::TopMiddle, "their labels
+  always at the top middle" (docs/OnViewValueEditing.md 3.3, entry 170).
+- Place::AtHandle exists (src/Gui/OnViewValue.h 103-104, "shown beside
+  its handle while that one is active"), used by pad/pocket
+  (TaskExtrudeParameters.cpp 242), revolution (181), hole (247), fillet
+  (540, 575), chamfer (629); with handles off those fall back to the top
+  middle.
+- "The tree item's background colour": TreeParams ItemBackground
+  (src/Gui/TreeParams.py 137, "Background of the items of an overlaid
+  tree view, and of the text of an overlaid Python console, report view
+  and selection view", default 0 = none) -- the note-taker's reading of
+  which colour; ItemBackgroundPadding beside it.
+- The labels draw no background today (OnViewValue.cpp 193's rounded
+  rect is a button's frame).
+NOT said: how see-through; what with ItemBackground unset (0); whether a
+value typed only (no handle) stays at the top middle (the rule of
+entry 170 for the other panels); the primitives with handles off.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 239.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -31317,5 +31359,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 239
+the build session, 131 and 132 found by it; entries 134 to 240
 are of 2026-10-15, 134 said to the build session)

@@ -47,6 +47,10 @@ public:
     App::PropertyIntegerConstraint Stations;
 
     App::DocumentObjectExecReturn* execute() override;
+    const char* getViewProviderName() const override
+    {
+        return "SurfaceGui::ViewProviderTwoRailSweep";
+    }
 };
 
 }  // namespace Surface

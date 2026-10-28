@@ -145,6 +145,10 @@ fc_add_gui_test(GuiServeSurfacePanels_tests_run serve-surface-panels.py
 # a dialog.
 fc_add_gui_test(GuiSurfaceSweeps_tests_run surface-sweeps.py
                 --timeout 180)
+# And their task panels: a blend's conditions, a sweep's sections and
+# stations, a pipe's mode, OK and Cancel, no dialog.
+fc_add_gui_test(GuiSurfaceToolPanels_tests_run surface-tool-panels.py
+                --timeout 180)
 # Its Edge continuity command (U4): a crease, a fillet's tangent edge, two
 # faces picked; a selection it cannot use said without a dialog.
 fc_add_gui_test(GuiSurfaceContinuity_tests_run surface-continuity.py

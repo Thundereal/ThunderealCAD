@@ -42,6 +42,7 @@
 
 #include "EndEdit.h"
 #include "TaskSections.h"
+#include "TaskTools.h"
 #include "ui_TaskSections.h"
 
 
@@ -615,20 +616,37 @@ TaskSections::TaskSections(ViewProviderSections* vp, Surface::Sections* obj)
                                    nullptr);
     taskbox1->groupLayout()->addWidget(widget1);
     Content.push_back(taskbox1);
+
+    conditions = conditionsPanel(obj);
+    conditionsBox = new Gui::TaskView::TaskBox(Gui::BitmapFactory().pixmap("Surface_Sections"),
+                                               conditions->windowTitle(),
+                                               true,
+                                               nullptr);
+    conditionsBox->groupLayout()->addWidget(conditions);
+    Content.push_back(conditionsBox);
 }
 
 void TaskSections::setEditedObject(Surface::Sections* obj)
 {
     widget1->setEditedObject(obj);
+    // another object's edit in the same dialog: its conditions
+    if (conditions->object() != obj) {
+        delete conditions;
+        conditions = conditionsPanel(obj);
+        conditionsBox->groupLayout()->addWidget(conditions);
+        conditions->open();
+    }
 }
 
 void TaskSections::open()
 {
     widget1->open();
+    conditions->open();
 }
 
 bool TaskSections::accept()
 {
+    conditions->endPick();
     bool ok = widget1->accept();
     if (ok) {
         Gui::Command::commitCommand();
@@ -640,6 +658,7 @@ bool TaskSections::accept()
 
 bool TaskSections::reject()
 {
+    conditions->endPick();
     bool ok = widget1->reject();
     if (ok) {
         Gui::Command::abortCommand();

@@ -48,7 +48,9 @@
 #include <Gui/SelectionObject.h>
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Surface/App/FeatureBlendSurface.h>
+#include <Mod/Surface/App/FeatureGeomFillSurface.h>
 #include <Mod/Surface/App/FeaturePipeShell.h>
+#include <Mod/Surface/App/FeatureSections.h>
 #include <Mod/Surface/App/FeatureTwoRailSweep.h>
 
 #include "EndEdit.h"
@@ -752,6 +754,64 @@ ToolPanel* pipePanel(Surface::PipeShell* obj)
     boolField(p, QObject::tr("Solid"), "solid", &obj->Solid);
     return p;
 }
+
+}  // namespace
+
+ToolPanel* conditionsPanel(Surface::Sections* obj)
+{
+    auto p = new ToolPanel(obj, "SurfaceGui_SectionsConditions", QObject::tr("Edge conditions"));
+    conditionRow(p,
+                 QObject::tr("First section"),
+                 "firstSection",
+                 {"first section",
+                  &obj->FirstSectionContinuity,
+                  &obj->FirstSectionWeight,
+                  &obj->FirstSectionSupport},
+                 EdgeMarkers::onListEdge(obj, &obj->NSections, 0));
+    conditionRow(p,
+                 QObject::tr("Last section"),
+                 "lastSection",
+                 {"last section",
+                  &obj->LastSectionContinuity,
+                  &obj->LastSectionWeight,
+                  &obj->LastSectionSupport},
+                 EdgeMarkers::onListEdge(obj, &obj->NSections, -1));
+    return p;
+}
+
+ToolPanel* conditionsPanel(Surface::GeomFillSurface* obj)
+{
+    auto p = new ToolPanel(obj, "SurfaceGui_GeomFillConditions", QObject::tr("Edge conditions"));
+    const Surface::ConditionProperties props[4] = {
+        {"first boundary curve",
+         &obj->Boundary1Continuity,
+         &obj->Boundary1Weight,
+         &obj->Boundary1Support},
+        {"second boundary curve",
+         &obj->Boundary2Continuity,
+         &obj->Boundary2Weight,
+         &obj->Boundary2Support},
+        {"third boundary curve",
+         &obj->Boundary3Continuity,
+         &obj->Boundary3Weight,
+         &obj->Boundary3Support},
+        {"fourth boundary curve",
+         &obj->Boundary4Continuity,
+         &obj->Boundary4Weight,
+         &obj->Boundary4Support}};
+    const char* names[4] = {"boundary1", "boundary2", "boundary3", "boundary4"};
+    for (int i = 0; i < 4; ++i) {
+        conditionRow(p,
+                     QObject::tr("Boundary %1").arg(i + 1),
+                     names[i],
+                     props[i],
+                     EdgeMarkers::onListEdge(obj, &obj->BoundaryList, i));
+    }
+    return p;
+}
+
+namespace
+{
 
 /// The edit of `vp`'s object: its panel, or the one already open kept
 template<typename Make>

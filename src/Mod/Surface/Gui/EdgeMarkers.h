@@ -42,6 +42,7 @@ namespace App
 {
 class DocumentObject;
 class PropertyLinkSub;
+class PropertyLinkSubList;
 }  // namespace App
 
 namespace Gui
@@ -85,6 +86,9 @@ public:
     static Where onBoundary(App::DocumentObject* obj, Surface::Geom::Boundary boundary);
     /// The boundary of the surface of `obj` that the edge `link` lies on
     static Where onEdge(App::DocumentObject* obj, App::PropertyLinkSub* link);
+    /// The same for the edge at `index` of `list`, counted from its end when
+    /// negative (-1 the last)
+    static Where onListEdge(App::DocumentObject* obj, App::PropertyLinkSubList* list, int index);
 
 private:
     struct Marker

@@ -163,6 +163,10 @@ fc_add_gui_test(GuiSurfaceCurves_tests_run surface-curves.py
 # value the weight, the menu the continuity.
 fc_add_gui_test(GuiSurfaceEdgeMarkers_tests_run surface-edge-markers.py
                 --timeout 180)
+# The same for Sections and GeomFillSurface, whose own panels do not show
+# their conditions: a box of them in each dialog, and their arrows.
+fc_add_gui_test(GuiSurfaceFillMarkers_tests_run surface-fill-markers.py
+                --timeout 180)
 # A client that drops with a task panel open, whose Cancel throws: the panel
 # is closed with the client's view, and the server lives on.
 fc_add_gui_test(GuiServeDropInPanel_tests_run serve-drop-in-panel.py

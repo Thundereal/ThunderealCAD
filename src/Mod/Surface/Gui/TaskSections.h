@@ -42,6 +42,8 @@ class ButtonGroup;
 namespace SurfaceGui
 {
 
+class ToolPanel;
+
 class Ui_Sections;
 
 class ViewProviderSections: public PartGui::ViewProviderSpline
@@ -139,6 +141,9 @@ public:
 private:
     std::string docName;
     SectionsPanel* widget1;
+    /// The end conditions, in a box of their own
+    Gui::TaskView::TaskBox* conditionsBox;
+    ToolPanel* conditions;
 };
 
 }  // namespace SurfaceGui

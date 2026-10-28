@@ -45,6 +45,7 @@
 
 #include "EndEdit.h"
 #include "TaskGeomFillSurface.h"
+#include "TaskTools.h"
 #include "ui_TaskGeomFillSurface.h"
 
 
@@ -664,25 +665,44 @@ TaskGeomFillSurface::TaskGeomFillSurface(ViewProviderGeomFillSurface* vp,
                                          nullptr);
     taskbox->groupLayout()->addWidget(widget);
     Content.push_back(taskbox);
+
+    conditions = conditionsPanel(obj);
+    conditionsBox =
+        new Gui::TaskView::TaskBox(Gui::BitmapFactory().pixmap("Surface_BSplineSurface"),
+                                   conditions->windowTitle(),
+                                   true,
+                                   nullptr);
+    conditionsBox->groupLayout()->addWidget(conditions);
+    Content.push_back(conditionsBox);
 }
 
 void TaskGeomFillSurface::setEditedObject(Surface::GeomFillSurface* obj)
 {
     widget->setEditedObject(obj);
+    // another object's edit in the same dialog: its conditions
+    if (conditions->object() != obj) {
+        delete conditions;
+        conditions = conditionsPanel(obj);
+        conditionsBox->groupLayout()->addWidget(conditions);
+        conditions->open();
+    }
 }
 
 void TaskGeomFillSurface::open()
 {
     widget->open();
+    conditions->open();
 }
 
 bool TaskGeomFillSurface::accept()
 {
+    conditions->endPick();
     return widget->accept();
 }
 
 bool TaskGeomFillSurface::reject()
 {
+    conditions->endPick();
     return widget->reject();
 }
 

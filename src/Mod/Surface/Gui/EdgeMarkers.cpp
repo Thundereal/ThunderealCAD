@@ -25,6 +25,7 @@
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
+#include <algorithm>
 #include <cmath>
 
 #include <QAction>
@@ -40,6 +41,7 @@
 #endif
 
 #include <App/GeoFeature.h>
+#include <App/PropertyLinks.h>
 #include <Base/Color.h>
 #include <Gui/Application.h>
 #include <Gui/Inventor/Draggers/Gizmo.h>
@@ -73,6 +75,50 @@ Handle(Geom_BSplineSurface) surfaceOf(App::DocumentObject* obj)
         BRep_Tool::Surface(TopoDS::Face(faces.Current())));
 }
 
+/// The marker of the boundary of the surface of `obj` that the edge `sub` of
+/// `source` lies on; none if it is not one edge, or on none
+std::optional<Geom::BoundaryMarker>
+markerOnEdge(App::DocumentObject* obj, App::DocumentObject* source, const std::string& sub)
+{
+    auto s = surfaceOf(obj);
+    if (s.IsNull() || !source) {
+        return std::nullopt;
+    }
+    TopoDS_Shape shape;
+    try {
+        shape = Part::Feature::getTopoShape(source, sub.c_str(), true).getShape();
+    }
+    catch (...) {
+        return std::nullopt;
+    }
+    // an object given whole: its one edge
+    if (!shape.IsNull() && shape.ShapeType() != TopAbs_EDGE) {
+        TopExp_Explorer edges(shape, TopAbs_EDGE);
+        if (!edges.More()) {
+            return std::nullopt;
+        }
+        TopoDS_Shape edge = edges.Current();
+        edges.Next();
+        if (edges.More()) {
+            return std::nullopt;
+        }
+        shape = edge;
+    }
+    if (shape.IsNull()) {
+        return std::nullopt;
+    }
+    double first, last;
+    Handle(Geom_Curve) c = BRep_Tool::Curve(TopoDS::Edge(shape), first, last);
+    if (c.IsNull()) {
+        return std::nullopt;
+    }
+    int b = Geom::boundaryOf(s, new Geom_TrimmedCurve(c, first, last), 1e-2);
+    if (b < 0) {
+        return std::nullopt;
+    }
+    return Geom::boundaryMarker(s, Geom::Boundary(b));
+}
+
 }  // namespace
 
 EdgeMarkers::Where EdgeMarkers::onBoundary(App::DocumentObject* obj, Geom::Boundary boundary)
@@ -91,32 +137,32 @@ EdgeMarkers::Where EdgeMarkers::onEdge(App::DocumentObject* obj, App::PropertyLi
 {
     App::DocumentObjectT objT(obj);
     return [objT, link]() -> std::optional<Geom::BoundaryMarker> {
-        auto s = surfaceOf(objT.getObject());
-        auto source = objT.getObject() ? link->getValue() : nullptr;
+        auto obj = objT.getObject();
+        if (!obj) {
+            return std::nullopt;
+        }
         const auto& subs = link->getSubValues();
-        if (s.IsNull() || !source || subs.empty()) {
+        return markerOnEdge(obj, link->getValue(), subs.empty() ? std::string() : subs.front());
+    };
+}
+
+EdgeMarkers::Where
+EdgeMarkers::onListEdge(App::DocumentObject* obj, App::PropertyLinkSubList* list, int index)
+{
+    App::DocumentObjectT objT(obj);
+    return [objT, list, index]() -> std::optional<Geom::BoundaryMarker> {
+        auto obj = objT.getObject();
+        if (!obj) {
             return std::nullopt;
         }
-        TopoDS_Shape shape;
-        try {
-            shape = Part::Feature::getTopoShape(source, subs.front().c_str(), true).getShape();
-        }
-        catch (...) {
+        const auto& objs = list->getValues();
+        const auto& subs = list->getSubValues();
+        const int n = int(std::min(objs.size(), subs.size()));
+        const int i = index < 0 ? n + index : index;
+        if (i < 0 || i >= n) {
             return std::nullopt;
         }
-        if (shape.IsNull() || shape.ShapeType() != TopAbs_EDGE) {
-            return std::nullopt;
-        }
-        double first, last;
-        Handle(Geom_Curve) c = BRep_Tool::Curve(TopoDS::Edge(shape), first, last);
-        if (c.IsNull()) {
-            return std::nullopt;
-        }
-        int b = Geom::boundaryOf(s, new Geom_TrimmedCurve(c, first, last), 1e-2);
-        if (b < 0) {
-            return std::nullopt;
-        }
-        return Geom::boundaryMarker(s, Geom::Boundary(b));
+        return markerOnEdge(obj, objs[i], subs[i]);
     };
 }
 

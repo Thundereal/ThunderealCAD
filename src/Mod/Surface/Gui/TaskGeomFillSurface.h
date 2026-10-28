@@ -45,6 +45,7 @@ namespace SurfaceGui
 {
 
 class Ui_GeomFillSurface;
+class ToolPanel;
 
 class ViewProviderGeomFillSurface: public PartGui::ViewProviderSpline
 {
@@ -139,6 +140,9 @@ public:
 private:
     GeomFillSurface* widget;
     Gui::TaskView::TaskBox* taskbox;
+    /// The boundaries' conditions, in a box of their own
+    Gui::TaskView::TaskBox* conditionsBox;
+    ToolPanel* conditions;
 };
 
 }  // namespace SurfaceGui

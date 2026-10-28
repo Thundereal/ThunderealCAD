@@ -49,6 +49,12 @@ class QListWidget;
 class QToolButton;
 class QVBoxLayout;
 
+namespace Surface
+{
+class GeomFillSurface;
+class Sections;
+}  // namespace Surface
+
 namespace SurfaceGui
 {
 
@@ -182,6 +188,12 @@ QWidget* vectorField(ToolPanel* panel,
                     const QString& title,
                     const char* name,
                     App::PropertyVector* p);
+
+/** The edge conditions of Sections or GeomFillSurface, for a box of their
+ * dialogs of its own: their panels do not show them (docs/Surface.md sec 8)
+ */
+ToolPanel* conditionsPanel(Surface::Sections* obj);
+ToolPanel* conditionsPanel(Surface::GeomFillSurface* obj);
 
 class ViewProviderBlendSurface: public PartGui::ViewProviderSpline
 {

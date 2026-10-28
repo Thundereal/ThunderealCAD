@@ -778,7 +778,8 @@ CmdSurfaceTwoRailSweep::CmdSurfaceTwoRailSweep()
     sGroup = QT_TR_NOOP("Surface");
     sMenuText = QT_TR_NOOP("Two-rail sweep");
     sToolTipText = QT_TR_NOOP("Sweeps sections between two rails that scale them: select the\n"
-                              "two rails first, then the sections, each from one rail to the other.");
+                              "two rails first, then the sections, each from one rail to the\n"
+                              "other.");
     sStatusTip = sToolTipText;
     sWhatsThis = "Surface_TwoRailSweep";
     sPixmap = "Surface_TwoRailSweep";

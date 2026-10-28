@@ -916,6 +916,9 @@ bool isBrowserSafeCommand(const QString &name)
         QStringLiteral("Surface_Split"),
         QStringLiteral("Surface_Untrim"),
         QStringLiteral("Surface_ExtendEdges"),
+        QStringLiteral("Surface_BlendSurface"),
+        QStringLiteral("Surface_TwoRailSweep"),
+        QStringLiteral("Surface_PipeShell"),
     };
     // Sketcher_External's three siblings start the same handler in another
     // flavour; pressed while a constraint tool runs, each switches that

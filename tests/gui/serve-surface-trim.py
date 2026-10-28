@@ -1,15 +1,16 @@
 """The cutting commands from a browser's connection (docs/Surface.md sec 8,
 U2).
 
-Split, Trim, Untrim and Extend edges go on the browser allowlist. Split,
-Untrim and Extend edges open nothing, and say a selection they cannot use
-in the report view; Trim opens its panel, which reaches a client through
+Split, Trim, Untrim and Extend edges go on the browser allowlist, and so do
+U3's Blend surface, Two-rail sweep and Pipeshell. All but Trim open
+nothing, and say a selection they cannot use in the report view; Trim
+opens its panel, which reaches a client through
 the panel mirror. A document served with no window, one client with a
 camera, over a real socket. Asserted:
 
-  - the `command` op runs each of the four;
-  - with nothing selected, Split, Untrim and Extend edges make nothing and
-    no dialog is up;
+  - the `command` op runs each of the seven;
+  - with nothing selected, the six without a panel make nothing and no
+    dialog is up;
   - Trim makes an empty trim, in its edit, its panel open, no dialog;
   - the panel is mirrored, with its pick of the sides to keep, its count and
     its status line;
@@ -92,7 +93,14 @@ def serve_asked():
 
 
 NAMES = ("buttonKeep", "labelKept", "labelStatus", "listBase", "listTools")
-COMMANDS = ("Surface_Split", "Surface_Untrim", "Surface_ExtendEdges")
+COMMANDS = (
+    "Surface_Split",
+    "Surface_Untrim",
+    "Surface_ExtendEdges",
+    "Surface_BlendSurface",
+    "Surface_TwoRailSweep",
+    "Surface_PipeShell",
+)
 
 
 def sample():

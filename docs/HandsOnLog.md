@@ -8213,3 +8213,15 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
   The other page styles test held modifier keys: not touched.
 - techdraw-blender-pan-no-menu.py 5/5 (real screen, QTest on the window:
   Qt's own Release trigger); staged copy: the menu after the first pan.
+
+### 2026-10-28 evening: entry 239 -- COMMITTED `fb8b27d61d`, not pushed, not staged
+
+- Pushed and restaged 3f3174731f before it (stage30), on the reporter's
+  word.
+- 239: an edit-shown origin (Origin group hidden) is captured tagged
+  perViewShownModeId; the highlight cache kept the tag, so GL dropped it
+  and bgfx did not admit it. buildHighlightCache() untags its result.
+  Not the 235 change (the reporter: no highlight before it either).
+- pd-edit-origin-highlight.py 4/4 (the plane found by moving out from the
+  origin: getObjectInfo returns nothing in an edit); staged copy: 0
+  pixels with the Origin hidden. origin-plane-highlight.py 14/14.

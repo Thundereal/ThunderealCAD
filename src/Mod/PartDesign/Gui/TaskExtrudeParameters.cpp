@@ -244,6 +244,8 @@ void TaskExtrudeParameters::setupGizmos()
     const auto beside = handles ? Gui::OnViewValueSet::Place::AtHandle
                                 : Gui::OnViewValueSet::Place::TopMiddle;
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a drag or an open label one step, where its steps are its own
+    holdStepsOf(onViewValues.get());
     onViewValues->addValue(length1, tr("Length"), Gui::OnViewValueSet::Place::TopMiddle);
     onViewValues->addValue(length2, tr("Length 2"), beside);
     onViewValues->addValue(taper1, tr("Taper angle"), beside);

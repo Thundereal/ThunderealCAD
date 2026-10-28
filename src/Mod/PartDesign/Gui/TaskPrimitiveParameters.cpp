@@ -210,6 +210,8 @@ void TaskBoxPrimitives::setupGizmos()
         return gizmo;
     };
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a drag or an open label one step, where its steps are its own
+    holdStepsOf(onViewValues.get());
     switch (feat->getPrimitiveType()) {
         case PartDesign::FeaturePrimitive::Box:
             lengthGizmo = value(ui->boxLength, tr("Length"));

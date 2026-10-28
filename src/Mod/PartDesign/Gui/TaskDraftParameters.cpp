@@ -108,6 +108,8 @@ TaskDraftParameters::TaskDraftParameters(ViewProviderDressUp *DressUpView,QWidge
     // label always at the top middle, typed once its handle is made active by
     // a click or Tab
     onViewValues = std::make_unique<Gui::OnViewValueSet>();
+    // a drag or an open label one step, where its steps are its own
+    holdStepsOf(onViewValues.get());
     onViewValues->addValue(ui->draftAngle, tr("Angle"), Gui::OnViewValueSet::Place::TopMiddle);
     onViewValues->setMenu(0, [this](QMenu& menu, Gui::Gizmo*) {
         fillAngleMenu(menu);

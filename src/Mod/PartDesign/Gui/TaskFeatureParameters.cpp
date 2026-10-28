@@ -668,6 +668,18 @@ void TaskFeatureParameters::holdStepWhileFocused(QWidget* box)
     focusHeldBoxes.emplace_back(box);
 }
 
+void TaskFeatureParameters::holdStepsOf(Gui::OnViewValueSet* values)
+{
+    if (!values || fineUndo || !ownsItsSteps())
+        return;
+    connect(values, &Gui::OnViewValueSet::stepBegun, this, [this]() {
+        beginHeldStep();
+    });
+    connect(values, &Gui::OnViewValueSet::stepEnded, this, [this](bool abort) {
+        endHeldStep(abort);
+    });
+}
+
 bool TaskFeatureParameters::eventFilter(QObject* watched, QEvent* event)
 {
     const bool held = std::find_if(focusHeldBoxes.begin(), focusHeldBoxes.end(),

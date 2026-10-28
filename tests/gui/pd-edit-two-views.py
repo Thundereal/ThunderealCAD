@@ -8,8 +8,8 @@ view's; where the other view changed one of them since, the user picks
 put in edit in another. A view may edit what another view's edit depends
 on.
 
-A body: a box, a fillet of one of its edges, and a pad on a sketch after
-it. Two 3D windows of the document: the fillet in edit in the first, the
+A body: a box, a fillet of one of its edges, a pad on a sketch after it,
+and a helix after that. Two 3D windows of the document: the fillet in edit in the first, the
 pad in the second -- the pad depends on the fillet. The values are typed
 into each panel, as the user does.
 
@@ -22,6 +22,8 @@ Claims:
     back the pad's and keeps the fillet's, and the fillet stays in edit;
   - with the pad's value changed again since by another step, Cancel asks:
     "Skip" leaves the other change, "Undo anyway" puts the pad's back;
+  - a helix's edit in the second window, beside the fillet's, takes back
+    its own on Cancel and keeps the fillet's;
   - OK of the fillet keeps its value and ends its edit.
 """
 import os
@@ -149,6 +151,18 @@ def run():
         pad = body.newObject("PartDesign::Pad", "Pad")
         pad.Profile = sketch
         pad.Length = 15
+        # A helix of a small square about the sketch's vertical axis
+        profile = body.newObject("Sketcher::SketchObject", "HelixProfile")
+        profile.Support = (doc.getObject("XZ_Plane"), [""])
+        profile.MapMode = "FlatFace"
+        corners = [V(20, 0, 0), V(22, 0, 0), V(22, 2, 0), V(20, 2, 0)]
+        for i in range(4):
+            profile.addGeometry(Part.LineSegment(corners[i], corners[(i + 1) % 4]))
+        helix = body.newObject("PartDesign::AdditiveHelix", "Helix")
+        helix.Profile = profile
+        helix.ReferenceAxis = (profile, ["V_Axis"])
+        helix.Pitch = 5
+        helix.Height = 10
         doc.recompute()
         doc.UndoMode = 1
         doc.clearUndos()
@@ -227,10 +241,26 @@ def run():
                 pad.Length = 15
                 doc.commitTransaction()
 
+        # The helix's panel too: beside the fillet's, its Cancel its own
+        edit(gdoc, v2, helix, "Edit Helix")
+        check("the helix goes in edit beside the fillet",
+              (in_edit(gdoc, v1), in_edit(gdoc, v2)) == ("Fillet", "Helix"),
+              (in_edit(gdoc, v1), in_edit(gdoc, v2)))
+        type_into(v2, "height", "12")
+        type_into(v1, "filletRadius", "1.3")
+        check("the values typed are the features' (helix)",
+              (round(fillet.Radius.Value, 3), round(helix.Height.Value, 3)) == (1.3, 12.0),
+              (fillet.Radius, helix.Height))
+        activate(v2)
+        cancel(v2)
+        check("Cancel of the helix takes back its height", round(helix.Height.Value, 3) == 10.0,
+              helix.Height)
+        check("and keeps the fillet's", round(fillet.Radius.Value, 3) == 1.3, fillet.Radius)
+
         activate(v1)
         FreeCADGui.Control.activeTaskDialog(view=v1).accept()
         settle(1000)
-        check("OK of the fillet keeps its value", round(fillet.Radius.Value, 3) == 1.2,
+        check("OK of the fillet keeps its value", round(fillet.Radius.Value, 3) == 1.3,
               fillet.Radius)
         check("and ends its edit", in_edit(gdoc, v1) is None)
     except Exception:

@@ -33,6 +33,13 @@ class PartDesignGuiExport ViewProviderPipe : public ViewProviderAddSub
     PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderPipe);
 
 public:
+    /// Its panel owns its steps (docs/HandsOnQueue.md entry 232)
+    bool panelOwnsItsSteps() const override
+    {
+        return true;
+    }
+
+public:
     enum Reference {
         Spine,
         AuxiliarySpine,

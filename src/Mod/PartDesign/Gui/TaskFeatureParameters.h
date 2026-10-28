@@ -48,6 +48,7 @@ class Property;
 
 namespace Gui {
 class MDIView;
+class OnViewValueSet;
 class PrefCheckBox;
 }
 
@@ -204,6 +205,12 @@ protected:
     /// focus leaving it: what is typed in a panel box is one step, not one
     /// per key
     void holdStepWhileFocused(QWidget* box);
+    /** A drag of a handle of  values, or a label of it open for typing,
+     * one held step, where the panel owns its steps (ownsItsSteps) and is
+     * not fineUndo -- a fineUndo panel holds them itself: a step per write
+     * of the drag otherwise (docs/HandsOnQueue.md entry 232).
+     */
+    void holdStepsOf(Gui::OnViewValueSet* values);
     bool eventFilter(QObject* watched, QEvent* event) override;
 
 private:

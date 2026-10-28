@@ -8266,7 +8266,7 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
 - Screenshots (bgfx): the Length label at 0 and 50 %, an origin plane
   preselected -- g-rtx55-shots-dev.
 
-### 2026-10-28 night: PD on-view labels get the sketch's outline -- restaged (stage32), NOT pushed
+### 2026-10-28 night: PD on-view labels get the sketch's outline -- pushed and restaged (stage33)
 
 - The reporter: "the label outline is on by default right" -- only the
   Sketcher's on-view parameters had it; "yes show the outline and give me
@@ -8282,4 +8282,18 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
 - Screenshots g-rtx56-shots-dev: dark background, the dark outline shows;
   on a light one the light outline hardly shows against magenta text (the
   Sketcher's light scheme darkens its text too; PD keeps its colour).
-- The push was refused by the permission check; waits for the reporter.
+- Restaged as stage32; the push was refused by the permission check.
+- The reporter: "Yes, darken ib light theme, only a bit". `d7c714f31e`: the
+  text is the dimension (or expression) colour at four fifths on a light
+  background. The label test checks it on both: 20/20, offscreen and on a
+  hidden desktop.
+- The reporter: "Also can you make off screen test work". Offscreen on
+  Windows has no OpenGL ("QOpenGLWidget is not supported on this
+  platform"): the view never draws, a render dump times out, and the
+  Sketcher's view highlight falls back to the edit graph -- both of the
+  test's offscreen failures. gui.cmd GT_HIDDEN_DESKTOP=1 runs the test on a
+  desktop of its own (tools\run-on-hidden-desktop.ps1): real windows, bgfx
+  D3D11, nothing on the reporter's screen.
+  sketch-constraint-highlight-view 12/12 there.
+- rtx57: ctest 1088/1088; pd-values-in-view 37, chamfer 19, fillet 21.
+- The reporter: "Once done push and restage".

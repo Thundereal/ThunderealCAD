@@ -51,8 +51,6 @@
 
 using namespace Part;
 
-IMPLEMENT_STANDARD_RTTIEXT(Part::Geom_CurveOnSurface, Geom_BoundedCurve)
-
 // -------------------------------------------------------------------------------------
 // Geom_CurveOnSurface
 

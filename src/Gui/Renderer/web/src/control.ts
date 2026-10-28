@@ -1073,9 +1073,14 @@ const SKETCH3D_COMMANDS = new Set([
 ]);
 
 /// Surface's commands that make an object and open its panel, which says
-/// what it has to say in the panel, never in a dialog.
+/// what it has to say in the panel, never in a dialog, and those that open
+/// nothing.
 const SURFACE_COMMANDS = new Set([
   'Surface_Network',
+  'Surface_Trim',
+  'Surface_Split',
+  'Surface_Untrim',
+  'Surface_ExtendEdges',
 ]);
 
 /// The `command` op's allowlist as the server has it (SceneControl.cpp

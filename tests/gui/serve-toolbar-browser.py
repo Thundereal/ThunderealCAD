@@ -113,7 +113,8 @@ SKETCH3D_COMMANDS = {"Sketcher_" + n for n in (
     "Constrain3DAlongX", "Constrain3DAlongY", "Constrain3DAlongZ",
     "ConstrainDistanceZ", "Constrain3DSmooth")}
 
-SURFACE_COMMANDS = {"Surface_Network"}
+SURFACE_COMMANDS = {"Surface_Network", "Surface_Trim", "Surface_Split", "Surface_Untrim",
+                    "Surface_ExtendEdges"}
 
 
 class Run(threading.Thread):

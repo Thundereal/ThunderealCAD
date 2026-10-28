@@ -908,9 +908,14 @@ bool isBrowserSafeCommand(const QString &name)
     };
     // Surface's commands that make an object and open its panel, which the
     // panel mirror carries and which says what it has to say in the panel,
-    // never in a dialog (docs/Surface.md sec 8)
+    // never in a dialog, and those that open nothing and say an unusable
+    // selection in the report view (docs/Surface.md sec 8)
     static const QSet<QString> surface = {
         QStringLiteral("Surface_Network"),
+        QStringLiteral("Surface_Trim"),
+        QStringLiteral("Surface_Split"),
+        QStringLiteral("Surface_Untrim"),
+        QStringLiteral("Surface_ExtendEdges"),
     };
     // Sketcher_External's three siblings start the same handler in another
     // flavour; pressed while a constraint tool runs, each switches that

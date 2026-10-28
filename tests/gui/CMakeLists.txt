@@ -131,6 +131,11 @@ fc_add_gui_test(GuiServeSurfaceNetwork_tests_run serve-surface-network.py
 # OK and Cancel; a selection they cannot use said without a dialog.
 fc_add_gui_test(GuiSurfaceTrim_tests_run surface-trim.py
                 --timeout 180)
+# And from a browser's connection: the four on the allowlist, the three
+# without a panel saying an unusable selection without a dialog, Trim's
+# panel mirrored and cancelled.
+fc_add_gui_test(GuiServeSurfaceTrim_tests_run serve-surface-trim.py
+                --timeout 180)
 # A client that drops with a task panel open, whose Cancel throws: the panel
 # is closed with the client's view, and the server lives on.
 fc_add_gui_test(GuiServeDropInPanel_tests_run serve-drop-in-panel.py

@@ -28,6 +28,7 @@ set(Assembly_Scripts
     CommandCreateJoint.py
     CommandCreateView.py
     CommandCreateSimulation.py
+    CommandMassProperties.py
     CommandCreateSnapshot.py
     CommandExportASMT.py
     CommandConvertAsm3.py

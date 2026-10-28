@@ -4,8 +4,8 @@ Status (2026-10-23): this is a design study only. No code, build or FreeCAD run
 stands behind it. Branch `AssemblyPort`.
 
 Progress (2026-10-28): both queued pieces of work are built -- Chrono's
-`NeutralLink` (queued (a)) and `PointOnCurve` (queued (b)). Phase D0 is under
-way:
+`NeutralLink` (queued (a)) and `PointOnCurve` (queued (b)). Phase D0 is
+built (2026-10-28):
 - Built: mass properties from shape and material (`App/MassProperties.{h,cpp}`,
   `AssemblyObject.getMassProperties()`, tests `AssemblyTests/
   TestMassProperties.py`). Per component, from the shape features it is made
@@ -55,7 +55,21 @@ way:
   `Base::Quantity` is the factor's inverse -- so the table cannot drift
   from them. Chrono's kinematic solves keep mm, their tolerances set for it;
   the dynamics D1 adds convert.
-- Not yet: the Mass Properties table.
+- Built: the Mass Properties command (`Assembly_MassProperties`,
+  `CommandMassProperties.py`, on the tool bar after Create Simulation): a
+  table of the components -- material, density, volume, mass, centre of
+  mass -- with the assumed ones in orange and a tooltip saying why, a total
+  row, the whole's inertia below, and an Override box per row. Ticking it
+  makes a `MassOverride` in Physics, in Mass mode at the mass shown (so
+  nothing changes until it is edited), and selects it for the property
+  view; unticking removes it; both undoable. The table follows the
+  document (an observer, deferred to the next event loop turn). **A table
+  refreshed from an item's own signal crashed**: ticking emits itemChanged
+  inside the item's setData, and a fill there clears the table and the item
+  Qt is still in -- an access violation in `QTreeWidgetItem::setData`, the
+  first run getting away with it.
+- Next, D1 (sec 4): a Dynamic analysis of an unpowered mechanism under
+  gravity on Chrono, converting by `Solver::SI`.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

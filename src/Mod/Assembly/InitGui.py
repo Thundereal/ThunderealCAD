@@ -71,6 +71,7 @@ class AssemblyWorkbench(Workbench):
         import CommandExportASMT
         import CommandCreateView
         import CommandCreateSimulation
+        import CommandMassProperties
         import CommandCreateSnapshot
         import CommandCreateBom
         import CommandConvertAsm3
@@ -95,6 +96,7 @@ class AssemblyWorkbench(Workbench):
             "Assembly_CreateView",
             "Assembly_CreateSnapshot",
             "Assembly_CreateSimulation",
+            "Assembly_MassProperties",
             "Assembly_CreateBom",
         ]
 

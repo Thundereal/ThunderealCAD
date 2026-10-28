@@ -109,6 +109,32 @@ class TestElementJoint(JointTestBase):
         self.assertVecClose(p1.Base, App.Vector(6, 7, 13))
         self.assertVecClose(zaxis(p1), Z)
 
+    def testFrameThroughAComponentThatDeclaresElements(self):
+        # The side names the element the part declares ("$$Elements.$X."),
+        # no face: still framed as the face is, not as a whole object
+        part = self.assembly.newObject("App::Part", "Sub")
+        part.Placement = plc(1, 2, 3)
+        part.newObject("Part::Box", "SubBox")
+        body = self.assembly.newObject("App::Part", "BodyPart")
+        body.Placement = plc(30, 0, 0)
+        pdbody = body.newObject("PartDesign::Body", "Body")
+        pdbody.newObject("PartDesign::AdditiveBox", "PDBox")
+        self.doc.recompute()
+        joint = self.assembly.makeJoint("Fixed", (part, "SubBox.Face6"), (body, "Body.Face5"))
+        self.assertEqual(joint.Binding1.Element[0], part)
+        self.assertEqual(joint.Binding2.Element[0], body)
+        p1, p2 = self.frames(joint, part, body)
+        self.assertVecClose(p1.Base, App.Vector(6, 7, 13))
+        self.assertVecClose(zaxis(p1), Z)
+        self.assertVecClose(p2.Base, App.Vector(35, 5, 0))
+        # As a convenience element of the assembly frames the same faces
+        joint.setSide(1, part, "SubBox.Face6", "", True)
+        joint.setSide(2, body, "Body.Face5", "", True)
+        self.assertNotEqual(joint.Binding1.Element[0], part)
+        q1, q2 = self.frames(joint, part, body)
+        self.assertTrue(p1.isSame(q1, 1e-9), "%r != %r" % (p1, q1))
+        self.assertTrue(p2.isSame(q2, 1e-9), "%r != %r" % (p2, q2))
+
     def testFrameOfACircleAndACylinder(self):
         cyl = self.cylinder("Cyl", 3, 10, plc(5, 0, 0))
         self.doc.recompute()

@@ -1273,6 +1273,15 @@ joint's properties:
   whether it has a shape or not: a datum line's shape is an edge, whose
   frame was not the axis's. Test:
   `TestElementJoint.testAnAxisIsTheFrameAlongIt`.
+- **Except an element a component declares** (fixed 2026-10-28): a side
+  reaching into its component (`"$$Elements.$Top."`) names no
+  sub-element either, and was taken as a whole object, framed by the
+  element's placement, the identity -- every joint made on an App::Part, a
+  Body or a sub-assembly had the wrong frame, found when a spring's end
+  went there. A path ending at an element whose chain of targets names a
+  sub-element is framed by that geometry (`Joint::getSide()`).
+  Test: `TestElementJoint.testFrameThroughAComponentThatDeclaresElements`,
+  the same faces framed as convenience elements frame them.
 - Tests: `TestFlexibleSubAssembly` (6): the mirror and its own element
   links and convenience elements, the mirror solving in the parent, rigid
   again leaving nothing, saved and restored, a parent's joint on a part of

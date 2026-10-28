@@ -53,6 +53,7 @@
 #include <App/Document.h>
 #include <App/DocumentObjectPy.h>
 #include <App/DocumentObserver.h>
+#include <App/ElementNamingUtils.h>
 #include <App/FeaturePythonPyImp.h>
 #include <App/GeoFeature.h>
 #include <App/GeoFeatureGroupExtension.h>
@@ -159,6 +160,23 @@ Part::Element* resolveElement(App::DocumentObject* obj, const std::string& sub)
         return nullptr;
     }
     return Base::freecad_dynamic_cast<Part::Element>(obj->getSubObject(sub.c_str()));
+}
+
+/// Whether an element's chain of elements ends at a named element of a
+/// shape, rather than at a whole object
+bool namesGeometry(Part::Element* element)
+{
+    std::vector<const Part::Element*> visited;
+    while (element && std::find(visited.begin(), visited.end(), element) == visited.end()) {
+        visited.push_back(element);
+        const auto& subs = element->Target.getSubValues();
+        const std::string sub = subs.empty() ? std::string() : subs.front();
+        if (*Data::findElementName(sub.c_str())) {
+            return true;
+        }
+        element = resolveElement(element->Target.getValue(), sub);
+    }
+    return false;
 }
 
 const char* sideName(int side)
@@ -481,9 +499,12 @@ JointSide Joint::getSide(int side) const
     // A path naming no element is a whole object, framed by its placement
     // whether it has a shape or not, as upstream's joint takes it: a body,
     // an empty link, a datum, an axis (whose shape is an edge, but whose
-    // frame is along it)
+    // frame is along it). Not a path to an element the component declares
+    // on a face, an edge or a vertex, which names no element either: framed
+    // as that geometry is
     Base::Placement wholePlacement;
-    if (Part::Element::getWholeObjectPlacement(geomObj, geomSub.c_str(), wholePlacement)) {
+    if (Part::Element::getWholeObjectPlacement(geomObj, geomSub.c_str(), wholePlacement)
+        && !namesGeometry(resolveElement(geomObj, geomSub))) {
         res.wholeObject = true;
     }
     if (res.shape.isNull() && !res.wholeObject) {

@@ -3831,27 +3831,30 @@ void View3DInventorViewer::showRotationCenter(bool show)
             auto complexity = new SoComplexity();
             complexity->value = 1;
 
+            // Lit, so that it reads as a ball (docs/HandsOnQueue.md entry
+            // 234, the reporter: "make the view spin center indicating ball
+            // shaded. right now it seems to be render as flat"): seven tenths
+            // of the color diffuse and three emissive, so that it is the color
+            // itself where the light meets it square, a third of it at the
+            // rim, and a soft highlight. All of it diffuse saturated most of
+            // the ball, flat again. It was flat (BASE_COLOR) since 201889b931,
+            // where the render-cache backend's light shaded it unevenly; the
+            // shadow pass and the screen-space effects stay off it (below).
+            const SbColor base(float(color.redF()), float(color.greenF()), float(color.blueF()));
             auto material = new SoMaterial();
-            // Base color as well as emissive: with the flat (BASE_COLOR)
-            // light model below the render-cache backend takes the diffuse
-            // color as the unlit fill.
-            material->diffuseColor = SbColor(float(color.redF()),
-                                             float(color.greenF()),
-                                             float(color.blueF()));
-            material->emissiveColor = SbColor(float(color.redF()),
-                                              float(color.greenF()),
-                                              float(color.blueF()));
+            material->diffuseColor = base * 0.7F;
+            material->emissiveColor = base * 0.3F;
+            material->specularColor = SbColor(0.35F, 0.35F, 0.35F);
+            material->shininess = 0.4F;
             material->transparency = 1.0F - float(color.alphaF());
 
             // The rotation-center sphere is a navigation gizmo, not scene
-            // geometry: render it flat (unlit) and out of the shadow pass so
-            // the render-cache backend never shades, shadows or tints it.
+            // geometry: out of the shadow pass, so that nothing darkens it.
             // Drawn on-top (SoAnnotation) it already renders after the
-            // screen-space effects (SSAO / volumetric / water / caustics);
-            // this keeps the lighting and shadow passes off it too, so no
-            // special effect touches the transparent sphere.
+            // screen-space effects (SSAO / volumetric / water / caustics),
+            // so none of them touches the transparent sphere.
             auto lightModel = new SoLightModel();
-            lightModel->model = SoLightModel::BASE_COLOR;
+            lightModel->model = SoLightModel::PHONG;
 
             auto shadowStyle = new SoShadowStyle();
             shadowStyle->style = SoShadowStyle::NO_SHADOWING;

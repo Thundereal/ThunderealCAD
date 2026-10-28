@@ -976,6 +976,207 @@ bool CmdSurfaceEdgeContinuity::isActive()
     return Gui::Selection().countObjectsOfType(Part::Feature::getClassTypeId()) > 0;
 }
 
+namespace
+{
+
+/// What is selected, by kind: edges (and objects given whole with no
+/// faces), and faces (and objects given whole with faces)
+struct Picks
+{
+    std::vector<std::string> curves, faces, all;
+};
+
+Picks picks()
+{
+    Picks p;
+    for (const auto& sel :
+         Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId())) {
+        std::string obj = Gui::Command::getObjectCmd(sel.getObject());
+        const auto& subs = sel.getSubNames();
+        if (subs.empty()) {
+            std::string link = "(" + obj + ", '')";
+            auto shape = Part::Feature::getTopoShape(sel.getObject());
+            (shape.countSubShapes(TopAbs_FACE) > 0 ? p.faces : p.curves).push_back(link);
+            p.all.push_back(link);
+        }
+        for (const auto& sub : subs) {
+            std::string link = "(" + obj + ", '" + sub + "')";
+            if (sub.rfind("Face", 0) == 0) {
+                p.faces.push_back(link);
+            }
+            else if (sub.rfind("Edge", 0) == 0) {
+                p.curves.push_back(link);
+            }
+            p.all.push_back(link);
+        }
+    }
+    return p;
+}
+
+std::string listOf(const std::vector<std::string>& links)
+{
+    std::string out = "[";
+    for (const auto& l : links) {
+        out += l + ", ";
+    }
+    return out + "]";
+}
+
+}  // namespace
+
+DEF_STD_CMD_A(CmdSurfaceIsocurve)
+
+CmdSurfaceIsocurve::CmdSurfaceIsocurve()
+    : Command("Surface_Isocurve")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Isocurves");
+    sToolTipText = QT_TR_NOOP("Draws isoparametric curves of the selected face, clipped to it.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_Isocurve";
+    sPixmap = "Surface_Isocurve";
+}
+
+void CmdSurfaceIsocurve::activated(int)
+{
+    auto p = picks();
+    if (p.faces.size() != 1 || p.faces.front().find("'Face") == std::string::npos) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select one face"));
+        return;
+    }
+    makeFeature(this, "Surface::Isocurve", "Isocurve", {"Face = " + p.faces.front()});
+}
+
+bool CmdSurfaceIsocurve::isActive()
+{
+    return hasActiveDocument();
+}
+
+DEF_STD_CMD_A(CmdSurfaceCurveOnSurface)
+
+CmdSurfaceCurveOnSurface::CmdSurfaceCurveOnSurface()
+    : Command("Surface_CurveOnSurface")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Curve on surface");
+    sToolTipText = QT_TR_NOOP("Lays the selected curves onto the selected faces, along their\n"
+                              "normals, as curves of their surfaces.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_CurveOnSurface";
+    sPixmap = "Surface_CurveOnSurface";
+}
+
+void CmdSurfaceCurveOnSurface::activated(int)
+{
+    auto p = picks();
+    if (p.curves.empty() || p.faces.empty()) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select curves and the faces to lay them on"));
+        return;
+    }
+    makeFeature(this,
+                "Surface::CurveOnSurface",
+                "CurveOnSurface",
+                {"Curves = " + listOf(p.curves), "Faces = " + listOf(p.faces)});
+}
+
+bool CmdSurfaceCurveOnSurface::isActive()
+{
+    return hasActiveDocument();
+}
+
+DEF_STD_CMD_A(CmdSurfaceIntersectionCurve)
+
+CmdSurfaceIntersectionCurve::CmdSurfaceIntersectionCurve()
+    : Command("Surface_IntersectionCurve")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Intersection curve");
+    sToolTipText = QT_TR_NOOP("Makes the curves where the two selected shapes or faces meet.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_IntersectionCurve";
+    sPixmap = "Surface_IntersectionCurve";
+}
+
+void CmdSurfaceIntersectionCurve::activated(int)
+{
+    auto p = picks();
+    if (p.all.size() != 2) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select the two shapes to intersect"));
+        return;
+    }
+    makeFeature(this,
+                "Surface::IntersectionCurve",
+                "IntersectionCurve",
+                {"Shape1 = [" + p.all[0] + "]", "Shape2 = [" + p.all[1] + "]"});
+}
+
+bool CmdSurfaceIntersectionCurve::isActive()
+{
+    return hasActiveDocument();
+}
+
+DEF_STD_CMD_A(CmdSurfaceJoinCurves)
+
+CmdSurfaceJoinCurves::CmdSurfaceJoinCurves()
+    : Command("Surface_JoinCurves")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Join curves");
+    sToolTipText = QT_TR_NOOP("Joins the selected curves into smooth ones, broken at corners.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_JoinCurves";
+    sPixmap = "Surface_JoinCurves";
+}
+
+void CmdSurfaceJoinCurves::activated(int)
+{
+    auto p = picks();
+    if (p.curves.empty()) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select the curves to join"));
+        return;
+    }
+    makeFeature(this, "Surface::JoinCurves", "JoinCurves", {"Curves = " + listOf(p.curves)});
+}
+
+bool CmdSurfaceJoinCurves::isActive()
+{
+    return hasActiveDocument();
+}
+
+DEF_STD_CMD_A(CmdSurfaceExtendCurve)
+
+CmdSurfaceExtendCurve::CmdSurfaceExtendCurve()
+    : Command("Surface_ExtendCurve")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Extend curve");
+    sToolTipText = QT_TR_NOOP("Carries the selected edge on past its end, the same curve further\n"
+                              "or straight on.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_ExtendCurve";
+    sPixmap = "Surface_ExtendCurve";
+}
+
+void CmdSurfaceExtendCurve::activated(int)
+{
+    auto p = picks();
+    if (p.curves.size() != 1 || p.curves.front().find("'Edge") == std::string::npos) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select one edge to extend"));
+        return;
+    }
+    makeFeature(this, "Surface::ExtendCurve", "ExtendCurve", {"Curve = " + p.curves.front()});
+}
+
+bool CmdSurfaceExtendCurve::isActive()
+{
+    return hasActiveDocument();
+}
+
 DEF_STD_CMD_A(CmdSurfaceSewing)
 
 CmdSurfaceSewing::CmdSurfaceSewing()
@@ -1046,6 +1247,11 @@ void CreateSurfaceCommands()
     rcCmdMgr.addCommand(new CmdSurfaceTwoRailSweep());
     rcCmdMgr.addCommand(new CmdSurfacePipeShell());
     rcCmdMgr.addCommand(new CmdSurfaceEdgeContinuity());
+    rcCmdMgr.addCommand(new CmdSurfaceIsocurve());
+    rcCmdMgr.addCommand(new CmdSurfaceCurveOnSurface());
+    rcCmdMgr.addCommand(new CmdSurfaceIntersectionCurve());
+    rcCmdMgr.addCommand(new CmdSurfaceJoinCurves());
+    rcCmdMgr.addCommand(new CmdSurfaceExtendCurve());
     rcCmdMgr.addCommand(new CmdSurfaceSewing());
     rcCmdMgr.addCommand(new CmdSurfaceExtendFace());
     rcCmdMgr.addCommand(new CmdSurfaceCurveOnMesh());

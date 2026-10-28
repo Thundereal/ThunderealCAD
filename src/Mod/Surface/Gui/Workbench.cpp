@@ -61,6 +61,11 @@ Gui::MenuItem* Workbench::setupMenuBar() const
              << "Surface_Sewing"
              << "Surface_EdgeContinuity"
              << "Surface_CurveOnMesh"
+             << "Surface_Isocurve"
+             << "Surface_CurveOnSurface"
+             << "Surface_IntersectionCurve"
+             << "Surface_JoinCurves"
+             << "Surface_ExtendCurve"
              << "Surface_BlendCurve";
     /*
      *surface << "Surface_Cut";
@@ -90,6 +95,11 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
              << "Surface_Sewing"
              << "Surface_EdgeContinuity"
              << "Surface_CurveOnMesh"
+             << "Surface_Isocurve"
+             << "Surface_CurveOnSurface"
+             << "Surface_IntersectionCurve"
+             << "Surface_JoinCurves"
+             << "Surface_ExtendCurve"
              << "Surface_BlendCurve";
     /*
      *surface << "Surface_Cut";

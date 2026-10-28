@@ -419,6 +419,12 @@ fc_add_gui_test(GuiServeLogKept_tests_run serve-log-kept.py
 fc_add_gui_test(GuiEditPerView_tests_run edit-per-view.py
                 --timeout 300)
 
+# Two documents in edit at once (docs/HandsOnQueue.md entry 232): each
+# has its panel, each edit's step is its document's own, and Cancel in one
+# takes back nothing of the other's.
+fc_add_gui_test(GuiEditTwoDocuments_tests_run edit-two-documents.py
+                --timeout 180)
+
 # An edit started after the main window is activated again, or with
 # another document's view the active one, is bound to the 3D view: the
 # split-view container (Gui::ViewArea) was handed out as the active view

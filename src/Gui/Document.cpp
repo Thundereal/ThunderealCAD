@@ -662,6 +662,47 @@ struct EditDocumentGuard {
     bool active = true;
 };
 
+namespace {
+
+/** Refuse an edit of \a obj, which \a editDoc's edit has: say in which
+ * view, and offer to go there (docs/HandsOnQueue.md entry 232).
+ *
+ * Not modal: setEdit() is called from scripts and from a served client's
+ * request as well as from a click, and none of them may be held up by a
+ * box. A client's request gets no desktop box at all.
+ */
+void refuseEditInUse(const App::DocumentObject *obj, Gui::Document *editDoc)
+{
+    ViewerContext *viewer = editDoc->editingViewer();
+    QPointer<MDIView> view = viewer ? TaskOwner(viewer).mdiView() : nullptr;
+    QString where = view ? view->windowTitle().remove(QStringLiteral("[*]"))
+                         : QObject::tr("another view");
+    const QString label = QString::fromUtf8(obj->Label.getValue());
+    Base::Console().Warning("%s is being edited in %s\n",
+                            label.toUtf8().constData(), where.toUtf8().constData());
+
+    ViewerContext *asking = ViewerContext::current();
+    if ((asking && asking->cameraIsRemote()) || !getMainWindow())
+        return;
+    auto box = new QMessageBox(QMessageBox::Information,
+                               QObject::tr("Already in edit"),
+                               QObject::tr("%1 is being edited in %2.").arg(label, where),
+                               QMessageBox::Close, getMainWindow());
+    box->setObjectName(QStringLiteral("EditInUse"));
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    if (view) {
+        QPushButton *go = box->addButton(QObject::tr("Go there"), QMessageBox::AcceptRole);
+        QObject::connect(go, &QPushButton::clicked, [view]() {
+            if (view)
+                getMainWindow()->setActiveWindow(view);
+        });
+    }
+    box->setModal(false);
+    box->show();
+}
+
+} // namespace
+
 bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
 {
     static bool _Busy;
@@ -815,6 +856,17 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         }
     }
 
+    // One edit of an object at a time: it is ObjEditing for as long as an
+    // edit has it, which another document's may (an object reached through
+    // a link) -- docs/HandsOnQueue.md entry 232
+    if (sobj->testStatus(App::ObjEditing)) {
+        if (auto editDoc = Application::Instance->editDocument(
+                [sobj](Gui::Document *doc) { return doc->getEditingObject() == sobj; })) {
+            refuseEditInUse(sobj, editDoc);
+            return false;
+        }
+    }
+
     // A feature of an old file opened without its migration recompute: it
     // and what it needs, recomputed alone, so the edit's preview has the
     // element names it is read by (docs/HandsOnQueue.md entry 211). Only
@@ -849,14 +901,10 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
             editViewer = view3d->getViewer();
     }
 
-    // One document in edit at a time, for now: a second one's edit would
-    // take the first one's transaction (the application has one active
-    // transaction), and its dialog would be refused (Control's
-    // exclusive()). Both are lifted by later steps of
-    // docs/HandsOnQueue.md entry 232; this line goes with them.
-    Application::Instance->unsetEditDocumentIf(
-        [this](Gui::Document *doc) { return doc != this; });
-
+    // Another document's edit runs on beside this one: its transaction is
+    // its document's own while it runs (bindActiveTransaction below), and
+    // its dialog does not keep this one's out (Control's blockerOf()) --
+    // docs/HandsOnQueue.md entry 232
     EditDocumentGuard guard(this);
     Application::Instance->setEditDocument(this);
 

@@ -66,7 +66,8 @@ struct OpenDialog
     /// dialog was not the active one while its own open() ran
     bool shown {false};
 };
-/// The open dialogs. One at most while ControlSingleton::exclusive().
+/// The open dialogs: one for a view at most, and as many views as may
+/// have one beside each other (ControlSingleton::blockerOf()).
 std::vector<OpenDialog> openDialogs;
 
 OpenDialog *recordOf(const Gui::TaskView::TaskDialog *dlg)
@@ -244,15 +245,19 @@ Gui::TaskView::TaskDialog* ControlSingleton::dialogOf(const TaskOwner &owner) co
         if (open.shown && open.dialog->owner().isNull())
             return open.dialog;
     }
-    // Asked for nobody in particular: THE dialog while there can be only
-    // one, else the dialog of the view being handled.
-    const bool any = owner.isNull() && exclusive();
-    const TaskOwner whose = (owner.isNull() && !any) ? TaskOwner::current() : owner;
+    // Asked for nobody in particular: the dialog of the view being
+    // handled, else the one that stands in the way of a dialog of its --
+    // which is THE dialog while only one may be open, and the one a
+    // command asking "is a dialog open?" means. A dialog that may be open
+    // beside one of this view's (another document's edit) is not it.
+    const TaskOwner whose = owner.isNull() ? TaskOwner::current() : owner;
     for (const OpenDialog &open : openDialogs) {
-        if (open.shown && (any || open.dialog->owner() == whose))
+        if (open.shown && open.dialog->owner() == whose)
             return open.dialog;
     }
-    return nullptr;
+    if (!owner.isNull())
+        return nullptr;
+    return blockerOf(whose);
 }
 
 Gui::TaskView::TaskDialog* ControlSingleton::blockerOf(const TaskOwner &owner) const
@@ -261,12 +266,25 @@ Gui::TaskView::TaskDialog* ControlSingleton::blockerOf(const TaskOwner &owner) c
     for (const OpenDialog &open : openDialogs) {
         if (!open.shown)
             continue;
-        // One at a time. And where several may be open, one for a view:
-        // a dialog nobody owns is everybody's, so it shares the task view
-        // with no other, whichever of the two comes first.
+        // One for a view: a dialog nobody owns is everybody's, so it shares
+        // the task view with no other, whichever of the two comes first.
         const TaskOwner &its = open.dialog->owner();
-        if (one || owner.isNull() || its.isNull() || its == owner)
+        if (owner.isNull() || its.isNull() || its == owner)
             return open.dialog;
+        if (!one)
+            continue;
+        // The application has one active transaction, and a dialog opening
+        // its own would commit another's work in progress (docs/
+        // TaskPanelPerView.md sec 8) -- unless that one is an edit's in
+        // another document, whose transaction is its document's own while
+        // the edit runs (App::Application::bindActiveTransaction; docs/
+        // HandsOnQueue.md entry 232).
+        Gui::Document *itsDoc = its.document();
+        Gui::Document *ownerDoc = owner.document();
+        if (itsDoc && ownerDoc && itsDoc != ownerDoc
+                && App::GetApplication().isActiveTransactionBound(itsDoc->getDocument()))
+            continue;
+        return open.dialog;
     }
     return nullptr;
 }

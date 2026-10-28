@@ -195,13 +195,16 @@ private:
     QTabBar* findTabBar(QDockWidget*) const;
     void aboutToShowDialog(QDockWidget* widget);
     void aboutToHideDialog(QDockWidget* widget);
-    /** Whether at most one dialog may be open in the process.
+    /** Whether at most one dialog may be open in the process, but for
+     * the dialogs of edits in other documents.
      *
-     * True until a transaction has an owner too: the application has one
-     * active transaction, and a second dialog opening its own would
-     * commit the first one's work in progress (docs/TaskPanelPerView.md
-     * sec 8). Only dialogOf() and blockerOf() depend on which way this
-     * says.
+     * The application has one active transaction, and a second dialog
+     * opening its own would commit the first one's work in progress
+     * (docs/TaskPanelPerView.md sec 8). An edit's transaction is its
+     * document's own while the edit runs (App::Application::
+     * bindActiveTransaction), so a dialog of another document's edit is
+     * let be (blockerOf(); docs/HandsOnQueue.md entry 232). Only
+     * dialogOf() and blockerOf() depend on which way this says.
      *
      * A hidden parameter, TaskView/TaskPanelAllowConcurrent, says false
      * instead. It is for tests, which open dialogs that hold no

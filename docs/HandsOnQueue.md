@@ -4474,7 +4474,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 235 | 2026-10-28 | a defect and change request: an origin plane's (pre)selection glitches -- hovering its edge pre-selects it and it grows to full size but shows no highlight colour, and moving off the edge drops the pre-selection at once and it shrinks back to a quarter; wanted: once highlighted, the WHOLE face picks with high priority, the highlight like other objects' (outline/colour settings), and NO size change on pre-selection or selection | OPEN; said to the note-taker 2026-10-28 12:14; READ by the note-taker: the size change is ViewProviderPlane::updateDatumSize/onSelectionChanged (ViewProviderPlane.cpp 115-178): with DatumScreenSize on and a role (an origin plane), a quarter (offset 8 to size) unless isSelected or isHovered, then full -- from `7e1824d01d` (2026-09-28, upstream b942275957); the face is in an SoFCLatePickGroup (79), picked only when nothing else is, with its own SoMaterial transparency 0.95; the highlight node is an SoFCSelection (ViewProviderDatum.cpp 110); ASSIGNED to dwin (fcad-88) after 234 |
 | 236 | 2026-10-28 | a defect: PD Box -- the on-view edit handles do not follow the box's orientation; a box attached to the YZ plane, a handle drives the wrong dimension; AUDIT every other feature's handles for the same | OPEN; said to the note-taker 2026-10-28 12:15; READ by the note-taker (not reproduced): TaskBoxPrimitives::setGizmoPositions (TaskPrimitiveParameters.cpp 255-292) places Length/Width/Height along the box Placement's rotated X/Y/Z at its position; GizmoContainer::getWorldMatrix (Gizmo.cpp 1540) starts from the document's editing transform (Document::setEdit, getSubObject's matrix); if that already holds the box's placement the rotation is applied TWICE -- unseen at identity, wrong axes on the YZ plane (a lead, not verified); handles also in the extrude, revolution, helix, hole, fillet, chamfer, draft and thickness panels; ASSIGNED to dwin (fcad-88) after 235 |
 | 237 | 2026-10-28 | a defect: Blender navigation style on a TechDraw page -- a pan with left and right buttons held works, but releasing the buttons pops up the page's context menu; Gesture style (right-button drag) does not, nor does either style in the 3D view | OPEN; said to the note-taker 2026-10-28 15:19; READ by the note-taker: QGVNavStyleBlender::allowContextMenu (src/Mod/TechDraw/Gui/QGVNavStyleBlender.cpp 116-127) refuses the menu only while the LEFT button is still down when the context menu event comes; on Windows it comes at the right button's release, so a pan that lets go of the left button first gets the menu; nothing remembers that a pan happened (stopPan at the first release, 99-113); Gesture's refuses every mouse context menu event (QGVNavStyleGesture.cpp 99-105); ASSIGNED to dwin (fcad-88) after 236 |
-| 238 | 2026-10-28 | a defect: panning lags noticeably, in the 3D view and (worse) on a TechDraw page | OPEN; said to the note-taker 2026-10-28 15:20; build not said (the reporter's dev build was in use for 233); NOT reproduced, cause NOT found; leads from today's work, NOT verified: OverlayManager's application-wide filter now calls OverlayScrollBars::pointerMoved on every mouse move (OverlayManager.cpp 2120, `ea124fd624`), which visits every area with auto bars (revealNear, OverlayScrollBars.cpp 515); on the page a pan scrolls, and every scroll step reveals the bars (follow -> reveal, raise, fade); an A/B against the build before `8e49bf9df2` would tell; ASSIGNED to dwin (fcad-88), NEXT after 235 (a possible regression of unpushed work) |
+| 238 | 2026-10-28 | a defect: panning lags noticeably, in the 3D view and (worse) on a TechDraw page | OPEN; said to the note-taker 2026-10-28 15:20; build not said (the reporter's dev build was in use for 233); NOT reproduced, cause NOT found; leads from today's work, NOT verified: OverlayManager's application-wide filter now calls OverlayScrollBars::pointerMoved on every mouse move (OverlayManager.cpp 2120, `ea124fd624`), which visits every area with auto bars (revealNear, OverlayScrollBars.cpp 515); on the page a pan scrolls, and every scroll step reveals the bars (follow -> reveal, raise, fade); an A/B against the build before `8e49bf9df2` would tell; ASSIGNED to dwin (fcad-88), NEXT after 235 (a possible regression of unpushed work). 2026-10-28 15:38 dwin (relayed): MEASURED, today's overlay scroll bar work NOT the cause -- tests/gui/pan-timing.py, real screen, the reporter's config, Blender style, 60 pan steps with their redraw: staged d04054d9b0 3D 9.9/12.0 ms (median/p90), page 25.5/30.7; dev build (ea124fd624 + 235 work) 3D 9.7/30.9, page 16.1/18.5; the bars' trace: page about 11 of 980 ms (1%), 3D about 0.3 ms; NOT measured: a lag before a pan starts or the view trailing the pointer; no baseline before today (needs a second tree); questions to the reporter: start lag or trailing, which style, since when |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -31125,6 +31125,29 @@ today's unpushed work, NOT verified:
 ASSIGNED to dwin (fcad-88) (the note-taker coordinating), NEXT after 235
 -- before 236 and 237 -- as it may be a regression in work not yet
 pushed.
+
+**2026-10-28 15:38, dwin (fcad-88; relayed) on 238:** "measured, and today's overlay
+scroll bar work is NOT the cause." tests/gui/pan-timing.py: real screen,
+the reporter's config, Blender style, a left+right pan in the 3D view
+and on a TechDraw page, 60 steps timed, each with the redraw it causes:
+  staged copy d04054d9b0 (first 233 commit): 3D view 9.9 / 12.0 ms per
+    step (median / p90), page 25.5 / 30.7 ms
+  dev build (ea124fd624 + 235 work), timing trace in the bars' code:
+    3D view 9.7 / 30.9 ms, page 16.1 / 18.5 ms
+Trace over the whole pan: page -- pointerMoved 0.7 ms, reveal 9.4 ms (126
+calls), place 0.8 ms, about 11 ms of 980 ms (1%); 3D view about 0.3 ms.
+"What this does NOT measure: a delay before a pan starts, or the view
+trailing behind the pointer." A baseline before today needs a second
+build tree, not built. The trace lines are temporary, not committed.
+dwin goes on with 235, then 236 and 237.
+Asked of the reporter: what the delay looks like (a lag before the pan
+starts, or the view trailing the pointer), which navigation style, since
+when.
+READ by the note-taker: the staged copy (.conda/user-app/INSTALLED.txt)
+was installed 2026-10-28 13:24:39 from fcad `d04054d9b0` (not dirty),
+FreeCADGui 12:36:55 -- RESTAGED with 230, 231, 233 (first commit) and
+234, not recorded here before; whose word is not known to the
+note-taker. thundereal/LinkVibe is still `ef7af542e0`: not pushed.
 
 ## Inbox
 

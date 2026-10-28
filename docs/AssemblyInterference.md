@@ -381,6 +381,14 @@ at a point.
 
 ## Not done
 
-- Faces in contact highlighted, the touching area measured.
+- In Check Interference, the faces that cross or touch highlighted (a drag
+  has them), the touching area measured.
+- The solid two components have in common drawn over everything from the
+  meshes, and Fast measuring it.
 - The work in a worker or another process (`docs/ComputeBoundaries.md`), and
-  the pairs of a frame in parallel.
+  the pairs of a frame in parallel: Stop pushing on against a part of the
+  plates' stack costs 87 ms a step on the main thread.
+- The transform dragger's collision handling was checked with Coin events
+  sent to the dragger itself, not with a mouse on its arrows (synthetic Qt
+  clicks there land as selection clicks); the markers were seen in the
+  bgfx renderer's own frame (`saveRenderDump`) as in Coin's.

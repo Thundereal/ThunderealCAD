@@ -1364,11 +1364,42 @@ public:
     /// banded, exaggerates curvature. Pearl: warm and cool, shows shallow
     /// undulation. Zebra: black and white stripes that step at an angle, kink
     /// at a tangent seam and run through where curvature is continuous.
+    /// Draft: how each face releases from a mold pulled along the view's
+    /// MatcapDirection -- green released, yellow too steep, red undercut.
     static const long & getMatcapPreset();
     static const long & defaultMatcapPreset();
     static void removeMatcapPreset();
     static void setMatcapPreset(const long &v);
     static const char *docMatcapPreset();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter MatcapFixed
+    ///
+    /// Zebra matcap only: the room of stripes looked at along the view's
+    /// MatcapDirection instead of the camera, so the stripes stay where they
+    /// are on the surface as the view turns -- follow one across an edge by
+    /// turning the model.
+    static const bool & getMatcapFixed();
+    static const bool & defaultMatcapFixed();
+    static void removeMatcapFixed();
+    static void setMatcapFixed(const bool &v);
+    static const char *docMatcapFixed();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter MatcapDraftAngle
+    ///
+    /// Draft matcap only: the least draft, in degrees. A face drafted more
+    /// than this along the pull is released (green), less than its negative
+    /// is an undercut (red), and between the two it is too steep (yellow).
+    static const double & getMatcapDraftAngle();
+    static const double & defaultMatcapDraftAngle();
+    static void removeMatcapDraftAngle();
+    static void setMatcapDraftAngle(const double &v);
+    static const char *docMatcapDraftAngle();
     //@}
 
     // Auto generated code (Tools/params_utils.py:139)

@@ -43,6 +43,7 @@
 
 #include <App/PropertyContainer.h>
 #include <App/PropertyFile.h>
+#include <App/PropertyGeo.h>
 #include <App/PropertyStandard.h>
 #include <Base/Tools.h>
 
@@ -99,6 +100,7 @@ QString doc(const char *text)
 /// Index of the zebra preset in Render_MatcapPreset, the one preset
 /// with a setting of its own.
 const int MatcapZebra = 4;
+const int MatcapDraft = 5;
 
 } // namespace
 
@@ -299,6 +301,7 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
     matcapCombo->addItem(tr("Metal"));
     matcapCombo->addItem(tr("Pearl"));
     matcapCombo->addItem(tr("Zebra"));
+    matcapCombo->addItem(tr("Draft"));
     matcapCombo->setToolTip(doc(RenderParams::docMatcapPreset()));
     layout->addWidget(matcapLabel, 5, 0);
     layout->addWidget(matcapCombo, 5, 1);
@@ -344,6 +347,33 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
     layout->addWidget(matcapStripesLabel, 7, 0);
     layout->addLayout(stripesRow, 7, 1);
 
+    // The surface analysis presets' settings (docs/Surface.md sec 7): the
+    // zebra fixed to the model, the draft's least angle, and the direction
+    // both look along, taken from the view as it is now.
+    matcapAnalysisLabel = new QLabel(tr("Analysis:"), this);
+    matcapFixedCheck = new QCheckBox(tr("Fixed to the model"), this);
+    matcapFixedCheck->setObjectName(QStringLiteral("matcapFixed"));
+    matcapFixedCheck->setToolTip(doc(RenderParams::docMatcapFixed()));
+    matcapDraftSpin = new QDoubleSpinBox(this);
+    matcapDraftSpin->setObjectName(QStringLiteral("matcapDraftAngle"));
+    matcapDraftSpin->setRange(0.0, 45.0);
+    matcapDraftSpin->setDecimals(1);
+    matcapDraftSpin->setSingleStep(0.5);
+    matcapDraftSpin->setSuffix(tr(" deg"));
+    matcapDraftSpin->setToolTip(doc(RenderParams::docMatcapDraftAngle()));
+    matcapDirButton = new QPushButton(tr("From the view"), this);
+    matcapDirButton->setObjectName(QStringLiteral("matcapDirectionFromView"));
+    matcapDirButton->setToolTip(
+        tr("Look along the view as it is now: the fixed zebra's eye and the\n"
+           "draft's pull, both toward the viewer"));
+    auto analysisRow = new QHBoxLayout;
+    analysisRow->setContentsMargins(0, 0, 0, 0);
+    analysisRow->addWidget(matcapFixedCheck);
+    analysisRow->addWidget(matcapDraftSpin);
+    analysisRow->addWidget(matcapDirButton);
+    layout->addWidget(matcapAnalysisLabel, 8, 0);
+    layout->addLayout(analysisRow, 8, 1);
+
     // The modifiers: each composes with any shading model and with the
     // others, which is exactly why they are checkboxes and not entries in
     // the draw style list above.
@@ -369,7 +399,7 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
     flags->addWidget(aoCheck, 0, 1);
     flags->addWidget(shadowCheck, 1, 0);
     flags->addWidget(bloomCheck, 1, 1);
-    layout->addLayout(flags, 8, 0, 1, 2);
+    layout->addLayout(flags, 9, 0, 1, 2);
 
     // Cavity is the one modifier here whose usefulness depends on a
     // number rather than on being on: the radius decides which features
@@ -392,8 +422,8 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
     radiusRow->setContentsMargins(0, 0, 0, 0);
     radiusRow->addWidget(cavityRadiusSlider, 1);
     radiusRow->addWidget(cavityRadiusValue);
-    layout->addWidget(cavityRadiusLabel, 9, 0);
-    layout->addLayout(radiusRow, 9, 1);
+    layout->addWidget(cavityRadiusLabel, 10, 0);
+    layout->addLayout(radiusRow, 10, 1);
 
     // Not "pick a renderer type in the preferences" any more: the
     // render path stopped being a stored choice in ca372262f1, and
@@ -404,7 +434,7 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
     hint = new QLabel(tr("Needs the render engine, which is not "
                          "running on this view."), this);
     hint->setEnabled(false);
-    layout->addWidget(hint, 10, 0, 1, 2);
+    layout->addWidget(hint, 11, 0, 1, 2);
 
     connect(modelCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, [this](int index) {
@@ -464,6 +494,33 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
             prop->setValue(long(index));
         RenderParams::setMatcapPreset(long(index));
         updateMatcapStripesEnabled();
+    });
+    connect(matcapFixedCheck, &QCheckBox::toggled, this, [this](bool on) {
+        if (loading)
+            return;
+        if (auto prop = renderProp<App::PropertyBool>(activeView(), "MatcapFixed"))
+            prop->setValue(on);
+        RenderParams::setMatcapFixed(on);
+        updateMatcapStripesEnabled();
+    });
+    connect(matcapDraftSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double value) {
+        if (loading)
+            return;
+        if (auto prop = renderProp<App::PropertyFloat>(activeView(), "MatcapDraftAngle"))
+            prop->setValue(value);
+        RenderParams::setMatcapDraftAngle(value);
+    });
+    connect(matcapDirButton, &QPushButton::clicked, this, [this] {
+        auto view = qobject_cast<View3DInventor*>(Application::Instance->activeView());
+        if (!view)
+            return;
+        // toward the viewer: what faces it reads head on, and what a
+        // mold opening toward it pulls along
+        SbVec3f d = view->getViewer()->getViewDirection();
+        if (auto prop = Base::freecad_dynamic_cast<App::PropertyVector>(
+                view->getPropertyByName("Render_MatcapDirection")))
+            prop->setValue(Base::Vector3d(-d[0], -d[1], -d[2]));
     });
     connect(matcapStripesSlider, &QSlider::valueChanged, this, [this](int value) {
         matcapStripesValue->setText(QString::number(value));
@@ -562,6 +619,12 @@ void ShadingOptionsWidget::updateMatcapStripesEnabled()
     matcapStripesLabel->setEnabled(on);
     matcapStripesSlider->setEnabled(on);
     matcapStripesValue->setEnabled(on);
+    // and the analysis settings to the presets that read them
+    const bool draft = matcapCombo->isEnabled() && matcapCombo->currentIndex() == MatcapDraft;
+    matcapFixedCheck->setEnabled(on);
+    matcapDraftSpin->setEnabled(draft);
+    matcapDirButton->setEnabled(draft || (on && matcapFixedCheck->isChecked()));
+    matcapAnalysisLabel->setEnabled(on || draft);
 }
 
 void ShadingOptionsWidget::updateExternalSettings()
@@ -1024,6 +1087,11 @@ void ShadingOptionsWidget::refresh()
     else
         matcapStripesSlider->setValue(int(RenderParams::getMatcapStripes()));
     matcapStripesValue->setText(QString::number(matcapStripesSlider->value()));
+    matcapFixedCheck->setChecked(renderFlag(view, "MatcapFixed", RenderParams::getMatcapFixed()));
+    if (auto prop = renderProp<App::PropertyFloat>(view, "MatcapDraftAngle"))
+        matcapDraftSpin->setValue(prop->getValue());
+    else
+        matcapDraftSpin->setValue(RenderParams::getMatcapDraftAngle());
     cavityCheck->setChecked(renderFlag(view, "Cavity", false));
     if (auto prop = renderProp<App::PropertyFloat>(view, "CavityRadius"))
         cavityRadiusSlider->setValue(int(prop->getValue() + 0.5));

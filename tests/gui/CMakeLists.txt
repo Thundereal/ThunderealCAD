@@ -1641,6 +1641,12 @@ fc_add_gui_test(GuiServeEmptyDocument_tests_run
 fc_add_gui_test(GuiMatcapZebra_tests_run
                 matcap-zebra.py
                 --timeout 180)
+# The surface analysis matcaps (docs/Surface.md sec 7, U4): draft colours a
+# frustum's released, steep and undercut faces; the zebra fixed to the model
+# keeps its stripes on a sphere as the view turns, and the camera's does not.
+fc_add_gui_test(GuiMatcapAnalysis_tests_run
+                matcap-analysis.py
+                --timeout 180)
 
 # A task dialog belongs to the view it was opened for
 # (docs/TaskPanelPerView.md, milestone 1): what a dialog reports as its

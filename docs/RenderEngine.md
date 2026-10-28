@@ -435,6 +435,32 @@ sphere doubles from 8 to 16, pixel pairs to either side of a tangent
 seam carry the same tone, and about half of those across a creased seam
 do not.
 
+**Fixed to the model** (`Render_MatcapFixed`, docs/Surface.md sec 7). The
+camera's zebra moves its stripes as the view turns, which is what makes a
+seam easy to sweep, and what makes one stripe hard to follow across an
+edge from two sides. Fixed, the room is looked at along the view's
+`Render_MatcapDirection` instead -- the world normal is put in the frame
+whose third axis is that direction, and read with the same formula -- so a
+stripe stays where it is on the surface. The shading options' "From the
+view" button sets the direction to the view as it is now.
+
+**Draft** is the sixth preset: a face coloured by how it releases from a
+mold pulled along `Render_MatcapDirection`. Its draft is the angle between
+it and the pull, asin(n . pull) of the world normal: green past
+`Render_MatcapDraftAngle` (1 deg by default), red an undercut past its
+negative, yellow between -- too steep to release. The boundaries blend
+over a pixel by the angle's own screen derivative, as the zebra's edges
+do, and a quarter of the facing ratio is kept so that faces of one colour
+still read as shapes. Like every preset it takes the normal flipped toward
+the viewer on a two-sided draw, so it reads a solid's faces, not an open
+shell's back.
+
+Both cross the wire with the matcap (snapshot version 89), and
+`tests/gui/matcap-analysis.py` holds them: a frustum's top and inward
+leaning side green, its outward leaning side red, an upright box yellow;
+points of a sphere keep their tone between a front and a right view when
+fixed (48 of 48), and far fewer do from the camera (30 of 47).
+
 Fill-bound effect passes (AO, volumetrics, bloom, reflection…) can run
 below main resolution via the `Render_EffectResolution` view property
 (`BGFXRenderer::setEffectResolution`); the scene and line passes always

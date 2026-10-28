@@ -1539,6 +1539,16 @@ bool BGFXRenderer::Private::render(const QColor &col,
     view->matcapPreset = matcapconf.preset;
     view->matcapTint = matcapconf.tint;
     view->matcapStripes = float(matcapconf.stripes);
+    {
+        const float* d = matcapconf.direction;
+        float len = std::sqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+        for (int i = 0; i < 3; ++i)
+            view->matcapDir[i] = len > 1e-6f ? d[i] / len : (i == 2 ? 1.0f : 0.0f);
+        // by preset: the draft's least angle, or the zebra's switch
+        view->matcapDir[3] = matcapconf.preset == 5
+            ? matcapconf.angle * 3.14159265f / 180.0f
+            : (matcapconf.fixed ? 1.0f : 0.0f);
+    }
     view->bumpScale = bumpconf.scale;
     view->bumpParallax = bumpconf.parallax;
 

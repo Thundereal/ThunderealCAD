@@ -20,14 +20,53 @@
 #ifndef FC_MATCAP_SH
 #define FC_MATCAP_SH
 
-// n: shading normal, normalized, view space, already flipped toward the
-// viewer by the caller for two-sided draws.
-// preset: 0 studio, 1 clay, 2 metal, 3 pearl, 4 zebra.
-// stripes: zebra only, the dark/light pairs between the room's two poles.
-vec3 fc_matcap(float preset, vec3 n, float stripes)
+// The normal `nw` (world) in the frame whose third axis is `dir`: what the
+// view space normal would be to a camera looking back along `dir`, with
+// world Z up where it can be.
+vec3 fc_matcapFrame(vec3 nw, vec3 dir)
 {
+	vec3 z = normalize(dir);
+	vec3 up = abs(z.z) < 0.99 ? vec3(0.0, 0.0, 1.0) : vec3(0.0, 1.0, 0.0);
+	vec3 x = normalize(cross(up, z));
+	vec3 y = cross(z, x);
+	return vec3(dot(nw, x), dot(nw, y), dot(nw, z));
+}
+
+// n: shading normal, normalized, view space, already flipped toward the
+// viewer by the caller for two-sided draws; nw: the same in world space.
+// preset: 0 studio, 1 clay, 2 metal, 3 pearl, 4 zebra, 5 draft.
+// stripes: zebra only, the dark/light pairs between the room's two poles.
+// dir: xyz a world direction -- the fixed zebra's eye, the draft's pull;
+// w the fixed zebra's switch, or the draft's least angle in radians.
+vec3 fc_matcap(float preset, vec3 n, vec3 nw, float stripes, vec4 dir)
+{
+	if (preset > 4.5)
+	{
+		// Draft analysis (docs/Surface.md sec 7): how a face releases from
+		// a mold pulled along dir. Its draft is the angle between it and
+		// the pull, asin(n . pull): released (green) where that is more
+		// than the least angle, an undercut (red) where it is less than
+		// its negative, and in between (yellow) too steep to release.
+		float a = asin(clamp(dot(nw, normalize(dir.xyz)), -1.0, 1.0));
+		float t = max(dir.w, 1.0e-4);
+		// a pixel's worth of blend at each boundary, as the zebra's edges
+		float w = max(fwidth(a), 1.0e-5);
+		float up = clamp(0.5 + (a - t) / w, 0.0, 1.0);
+		float down = clamp(0.5 + (-t - a) / w, 0.0, 1.0);
+		vec3 released = vec3(0.20, 0.72, 0.28);
+		vec3 steep = vec3(0.95, 0.80, 0.18);
+		vec3 undercut = vec3(0.86, 0.22, 0.20);
+		vec3 c = mix(mix(steep, released, up), undercut, down);
+		// a little of the shape, so that faces of one colour still read
+		return c * (0.75 + 0.25 * clamp(n.z, 0.0, 1.0));
+	}
 	if (preset > 3.5)
 	{
+		// Fixed to the model: the room is looked at along a world
+		// direction, not the camera's, so a stripe stays where it is on
+		// the surface as the view turns.
+		if (dir.w > 0.5)
+			n = fc_matcapFrame(nw, dir.xyz);
 		// Zebra: the surface as a mirror in a room of parallel light
 		// strips, which is the surface-continuity view of other CAD
 		// systems. A stripe is a line of equal reflection, so what the

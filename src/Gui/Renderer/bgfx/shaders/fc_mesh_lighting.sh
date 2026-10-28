@@ -54,6 +54,10 @@ uniform vec4 u_pbrParams;
 // material for the whole scene), w = the zebra preset's stripe count.
 // Overrides the PBR branch while on.
 uniform vec4 u_matcapParams;
+// The matcap's direction in world space (xyz): the fixed zebra's eye and
+// the draft's pull; w by preset, the fixed zebra's switch or the draft's
+// least angle in radians.
+uniform vec4 u_matcapDir;
 uniform vec4 u_envSH[9];
 SAMPLERCUBE(s_texEnv, 1);
 // Shadow draw style: a directional scene light replaces the headlight
@@ -526,7 +530,9 @@ vec4 fcShadeFragment(vec4 base, vec3 n, vec3 geoN, vec3 vpos,
 			// inspection view wants kept.
 			if (u_params.z > 0.5 && n.z < 0.0)
 				n = -n;
-			vec3 mc = fc_matcap(u_matcapParams.y, n, u_matcapParams.w);
+			vec3 nw = normalize(mul(u_invView, vec4(n, 0.0)).xyz);
+			vec3 mc = fc_matcap(u_matcapParams.y, n, nw, u_matcapParams.w,
+			                    u_matcapDir);
 			color = mix(mc, mc * base.rgb, u_matcapParams.z)
 				* (occ * ao);
 		}

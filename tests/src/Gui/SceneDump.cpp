@@ -527,6 +527,30 @@ TEST(SceneDump, theMatcapCrossesTheWire)
     EXPECT_EQ(loaded.matcapconf.stripes, 20);
 }
 
+/// And the surface analysis presets' settings (v89, docs/Surface.md sec 7):
+/// the zebra fixed to the model, the direction it and the draft look along,
+/// the draft's least angle. A viewer without them drew a fixed zebra
+/// camera-fixed and every draft pulled along +Z at 1 degree.
+TEST(SceneDump, theMatcapAnalysisCrossesTheWire)
+{
+    Render::SceneSnapshot snap = makeScene();
+    snap.matcapconf.enabled = true;
+    snap.matcapconf.preset = 5;
+    snap.matcapconf.fixed = true;
+    snap.matcapconf.direction[0] = 0.6f;
+    snap.matcapconf.direction[1] = -0.8f;
+    snap.matcapconf.direction[2] = 0.0f;
+    snap.matcapconf.angle = 3.5f;
+    std::vector<uint8_t> payload;
+    ASSERT_TRUE(Render::saveSceneSnapshot(payload, snap));
+    Render::SceneSnapshot loaded;
+    ASSERT_TRUE(Render::loadSceneSnapshot(payload.data(), payload.size(), loaded));
+    EXPECT_TRUE(loaded.matcapconf == snap.matcapconf);
+    EXPECT_TRUE(loaded.matcapconf.fixed);
+    EXPECT_FLOAT_EQ(loaded.matcapconf.direction[1], -0.8f);
+    EXPECT_FLOAT_EQ(loaded.matcapconf.angle, 3.5f);
+}
+
 /// A float texture payload crosses the wire as floats (v63).
 ///
 /// This is what an HDR environment is: the sky is thousands of times

@@ -1582,12 +1582,23 @@ Params = [
     # run through where the curvature is continuous as well.
     ParamInt('MatcapPreset',  0, title='Matcap',
         proxy=ParamComboBox(items=['Studio', 'Clay', 'Metal', 'Pearl',
-                                   'Zebra']),
+                                   'Zebra', 'Draft']),
         doc="Which matcap to shade with, computed in the shader. Studio: soft key\n"
             "light with a rim. Clay: matte, the most neutral read of form. Metal:\n"
             "banded, exaggerates curvature. Pearl: warm and cool, shows shallow\n"
             "undulation. Zebra: black and white stripes that step at an angle, kink\n"
-            "at a tangent seam and run through where curvature is continuous."),
+            "at a tangent seam and run through where curvature is continuous.\n"
+            "Draft: how each face releases from a mold pulled along the view's\n"
+            "MatcapDirection -- green released, yellow too steep, red undercut."),
+    ParamBool('MatcapFixed',  False, title='Zebra fixed to the model',
+        doc="Zebra matcap only: the room of stripes looked at along the view's\n"
+        "MatcapDirection instead of the camera, so the stripes stay where they\n"
+        "are on the surface as the view turns -- follow one across an edge by\n"
+        "turning the model."),
+    ParamFloat('MatcapDraftAngle',  1.0, title='Least draft',
+        doc="Draft matcap only: the least draft, in degrees. A face drafted more\n"
+        "than this along the pull is released (green), less than its negative\n"
+        "is an undercut (red), and between the two it is too steep (yellow)."),
     ParamInt('MatcapStripes',  6, title='Zebra stripes',
         doc="Zebra matcap only: how many dark/light stripe pairs the\n"
         "mirrored room has between its two poles. More stripes show a\n"

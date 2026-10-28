@@ -1797,6 +1797,17 @@ RendererBridge::translateMatcapConfig(App::PropertyContainer * view)
     res.stripes = std::max(1, int(viewParamOverride<App::PropertyInteger>(
             view, "Render", "MatcapStripes",
             RenderParams::getMatcapStripes())));
+    res.fixed = viewParamOverride<App::PropertyBool>(
+            view, "Render", "MatcapFixed", RenderParams::getMatcapFixed());
+    res.angle = float(viewParamOverride<App::PropertyFloat>(
+            view, "Render", "MatcapDraftAngle", RenderParams::getMatcapDraftAngle()));
+    if (auto dir = view ? Base::freecad_dynamic_cast<App::PropertyVector>(
+                view->getPropertyByName("Render_MatcapDirection")) : nullptr) {
+        const auto& d = dir->getValue();
+        res.direction[0] = float(d.x);
+        res.direction[1] = float(d.y);
+        res.direction[2] = float(d.z);
+    }
     return res;
 }
 

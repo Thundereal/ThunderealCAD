@@ -778,7 +778,7 @@ struct CavityConfig {
 struct MatcapConfig {
     bool enabled = false;    ///< matcap shading active
     /// Which procedural matcap: 0 studio, 1 clay, 2 metal, 3 pearl,
-    /// 4 zebra.
+    /// 4 zebra, 5 draft (docs/Surface.md sec 7).
     int preset = 0;
     /// How much the object's own color tints the matcap, 0 to 1. Zero
     /// shades every object as one uniform material.
@@ -786,10 +786,23 @@ struct MatcapConfig {
     /// Zebra only: the dark/light stripe pairs between the two poles of
     /// the room the surface mirrors.
     int stripes = 6;
+    /// Zebra only: the room fixed to the model rather than to the camera,
+    /// looked at along `direction`, so the stripes stay where they are on
+    /// the surface as the view turns.
+    bool fixed = false;
+    /// World space: the fixed zebra's eye, and the draft preset's pull
+    /// direction.
+    float direction[3] = {0.0f, 0.0f, 1.0f};
+    /// Draft only: the least draft, in degrees. A face drafted more than
+    /// this along the pull is released, less than its negative is an
+    /// undercut, and between the two it is too steep to release.
+    float angle = 1.0f;
 
     bool operator==(const MatcapConfig &o) const {
         return enabled == o.enabled && preset == o.preset
-            && tint == o.tint && stripes == o.stripes;
+            && tint == o.tint && stripes == o.stripes && fixed == o.fixed
+            && direction[0] == o.direction[0] && direction[1] == o.direction[1]
+            && direction[2] == o.direction[2] && angle == o.angle;
     }
     bool operator!=(const MatcapConfig &o) const { return !(*this == o); }
 };

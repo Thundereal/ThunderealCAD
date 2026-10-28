@@ -90,10 +90,18 @@ TEST(Blend, g1OnBothSides)
     EXPECT_LT(worstAngle(r.surface, 15, 3, tilted), 0.1 * Deg);
     EXPECT_TRUE(r.reports[0].achieved);
     EXPECT_TRUE(r.reports[1].achieved);
-    // it bridges: it leaves the low face rising, not folding back over it
-    GeomAPI_ProjectPointOnSurf pr(gp_Pnt(12.5, 5, 1.5), r.surface);
-    ASSERT_GT(pr.NbPoints(), 0);
-    EXPECT_LT(pr.LowerDistance(), 1.5);
+    // it bridges: it leaves each face away from it, never folding back over
+    // the low one -- not even at the ends of its edges, where a step aside
+    // lands on the face's next edge
+    double u1, u2, v1, v2, back = 0;
+    r.surface->Bounds(u1, u2, v1, v2);
+    for (int i = 0; i <= 20; ++i) {
+        for (int j = 0; j <= 20; ++j) {
+            gp_Pnt p = r.surface->Value(u1 + (u2 - u1) * i / 20, v1 + (v2 - v1) * j / 20);
+            back = std::max(back, 10 - p.X());
+        }
+    }
+    EXPECT_LT(back, 1e-6);
 }
 
 TEST(Blend, g2OnBothSides)

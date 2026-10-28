@@ -80,23 +80,18 @@ bool inside(const TopoDS_Face& face, const gp_Pnt& p)
     return c.State() == TopAbs_IN;
 }
 
-/// The direction the blend leaves `p` of `curve` by: across the curve in
-/// the support's tangent plane, away from the support; with no support,
-/// straight at `towards`
-gp_Vec leaving(const BlendSide& side, double t, const gp_Pnt& towards, double gap)
+/// Across `side`'s curve at t in its support's tangent plane: the surface
+/// normal crossed with the curve's tangent, unit, or null where either is
+/// not defined
+gp_Vec acrossAt(const BlendSide& side, double t)
 {
     gp_Pnt p;
     gp_Vec tangent;
     side.curve->D1(t, p, tangent);
-    gp_Vec straight(p, towards);
-    const TopoDS_Face& face = side.condition.support;
-    if (face.IsNull() || side.condition.order == 0 || tangent.Magnitude() < 1e-12) {
-        return straight.Magnitude() > 0 ? straight.Normalized() : gp_Vec(0, 0, 1);
-    }
-    Handle(Geom_Surface) s = BRep_Tool::Surface(face);
+    Handle(Geom_Surface) s = BRep_Tool::Surface(side.condition.support);
     GeomAPI_ProjectPointOnSurf pr(p, s);
-    if (pr.NbPoints() == 0) {
-        return straight.Normalized();
+    if (pr.NbPoints() == 0 || tangent.Magnitude() < 1e-12) {
+        return {};
     }
     double u, v;
     pr.LowerDistanceParameters(u, v);
@@ -104,15 +99,37 @@ gp_Vec leaving(const BlendSide& side, double t, const gp_Pnt& towards, double ga
     gp_Vec du, dv;
     s->D1(u, v, q, du, dv);
     gp_Vec across = du.Crossed(dv).Crossed(tangent);
-    if (across.Magnitude() < 1e-12) {
+    return across.Magnitude() < 1e-12 ? gp_Vec() : across.Normalized();
+}
+
+/// Which way across is away from the face: +1 or -1, decided once at the
+/// middle of the curve -- at its ends a step aside lands on the face's
+/// next edge, which a classifier calls on the face, not in it
+double awaySign(const BlendSide& side, double gap)
+{
+    const auto& c = side.curve;
+    double t = (c->FirstParameter() + c->LastParameter()) / 2;
+    gp_Vec across = acrossAt(side, t);
+    if (across.Magnitude() == 0) {
+        return 1;
+    }
+    return inside(side.condition.support, c->Value(t).Translated(across * (1e-3 * gap))) ? -1 : 1;
+}
+
+/// The direction the blend leaves `side`'s curve at t by: across it in the
+/// support's tangent plane, away from the face (`sign`); with no support,
+/// straight at `towards`
+gp_Vec leaving(const BlendSide& side, double t, double sign, const gp_Pnt& towards)
+{
+    gp_Vec straight(side.curve->Value(t), towards);
+    if (side.condition.support.IsNull() || side.condition.order == 0) {
+        return straight.Magnitude() > 0 ? straight.Normalized() : gp_Vec(0, 0, 1);
+    }
+    gp_Vec across = acrossAt(side, t);
+    if (across.Magnitude() == 0) {
         return straight.Normalized();
     }
-    across.Normalize();
-    // away from the face: a step inside it is the wrong way
-    if (inside(face, p.Translated(across * (1e-3 * gap)))) {
-        across.Reverse();
-    }
-    return across;
+    return across * sign;
 }
 
 }  // namespace
@@ -145,6 +162,11 @@ BlendResult blendSurface(const BlendSide& first,
             r.reversed = true;
         }
 
+        gp_Pnt ma = a.curve->Value((a.curve->FirstParameter() + a.curve->LastParameter()) / 2);
+        gp_Pnt mb = b.curve->Value((b.curve->FirstParameter() + b.curve->LastParameter()) / 2);
+        double signA = a.condition.support.IsNull() ? 1 : awaySign(a, ma.Distance(mb));
+        double signB = b.condition.support.IsNull() ? 1 : awaySign(b, ma.Distance(mb));
+
         const int n = std::max(3, options.samples);
         std::vector<Handle(Geom_Curve)> across;
         for (int k = 0; k < n; ++k) {
@@ -156,7 +178,7 @@ BlendResult blendSurface(const BlendSide& first,
                 r.error = "the two edges touch: there is no gap to blend";
                 return r;
             }
-            gp_Vec da = leaving(a, ta, pb, gap), db = leaving(b, tb, pa, gap);
+            gp_Vec da = leaving(a, ta, signA, pb), db = leaving(b, tb, signB, pa);
             // a quintic leaving each end straight along its direction, the
             // derivative there 3 * weight * gap / 3, as a cubic's would be
             double ha = a.condition.weight * gap / 3, hb = b.condition.weight * gap / 3;

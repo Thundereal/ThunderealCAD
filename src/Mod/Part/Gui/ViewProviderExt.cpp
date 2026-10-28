@@ -2052,6 +2052,7 @@ ViewProviderPartExt::ViewProviderPartExt()
 
     VisualTouched = true;
     forceUpdateCount = 0;
+    combExtension.initExtension(this);
 
     // Rebuild Part visuals when a parameter of the shape-instancing gate
     // flips (render cache mode / renderer type), so the representation

@@ -34,6 +34,8 @@
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/PartGlobal.h>
 
+#include "ViewProviderCurvatureComb.h"
+
 
 class TopoDS_Shape;
 class TopoDS_Edge;
@@ -1017,6 +1019,9 @@ private:
     static const char* DrawStyleEnums[];
 
     Part::TopoShape cachedShape;
+
+    /// The curvature comb, for any Part object (docs/Surface.md sec 7)
+    ViewProviderCurvatureCombExtension combExtension;
 };
 
 }

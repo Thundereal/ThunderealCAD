@@ -1652,6 +1652,12 @@ fc_add_gui_test(GuiMatcapZebra_tests_run
 fc_add_gui_test(GuiMatcapAnalysis_tests_run
                 matcap-analysis.py
                 --timeout 180)
+# The curvature comb, an overlay of any Part object's view (U4): even teeth
+# on a circle, none on a line, the longest at an ellipse's ends, the scale,
+# a rebuild on a change, a cylinder's isocurves, off.
+fc_add_gui_test(GuiCurvatureComb_tests_run
+                curvature-comb.py
+                --timeout 180)
 
 # A task dialog belongs to the view it was opened for
 # (docs/TaskPanelPerView.md, milestone 1): what a dialog reports as its

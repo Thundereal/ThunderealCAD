@@ -32,14 +32,69 @@ vec3 fc_matcapFrame(vec3 nw, vec3 dir)
 	return vec3(dot(nw, x), dot(nw, y), dot(nw, z));
 }
 
+// The surface's curvature at the fragment: its shape operator from how the
+// normal turns as the position moves across the screen, in the plane the
+// two screen derivatives of the position span -- exact for the triangle's
+// interpolation of the normals, so as true as the view mesh. kind: 0
+// Gaussian, 1 mean, 2 least, 3 greatest; positive where the surface bends
+// away from its normal (a sphere seen from outside).
+float fc_matcapCurvature(vec3 n, vec3 vpos, float kind)
+{
+	vec3 dp1 = dFdx(vpos);
+	vec3 dp2 = dFdy(vpos);
+	vec3 dn1 = dFdx(n);
+	vec3 dn2 = dFdy(n);
+	float l1 = length(dp1);
+	if (l1 < 1.0e-12)
+		return 0.0;
+	vec3 t1 = dp1 / l1;
+	vec3 u2 = dp2 - dot(dp2, t1) * t1;
+	float l2 = length(u2);
+	if (l2 < 1.0e-12)
+		return 0.0;
+	vec3 t2 = u2 / l2;
+	// columns: the two moves of the position and of the normal, in (t1, t2)
+	float p11 = dot(dp1, t1), p12 = dot(dp2, t1), p21 = dot(dp1, t2), p22 = dot(dp2, t2);
+	float n11 = dot(dn1, t1), n12 = dot(dn2, t1), n21 = dot(dn1, t2), n22 = dot(dn2, t2);
+	float det = p11 * p22 - p12 * p21;
+	if (abs(det) < 1.0e-20)
+		return 0.0;
+	// S = N P^-1, made symmetric
+	float s11 = (n11 * p22 - n12 * p21) / det;
+	float s12 = (-n11 * p12 + n12 * p11) / det;
+	float s21 = (n21 * p22 - n22 * p21) / det;
+	float s22 = (-n21 * p12 + n22 * p11) / det;
+	float sym = 0.5 * (s12 + s21);
+	float h = 0.5 * (s11 + s22);
+	float k = s11 * s22 - sym * sym;
+	if (kind < 0.5)
+		return k;
+	if (kind < 1.5)
+		return h;
+	float root = sqrt(max(h * h - k, 0.0));
+	return kind < 2.5 ? h - root : h + root;
+}
+
 // n: shading normal, normalized, view space, already flipped toward the
-// viewer by the caller for two-sided draws; nw: the same in world space.
-// preset: 0 studio, 1 clay, 2 metal, 3 pearl, 4 zebra, 5 draft.
+// viewer by the caller for two-sided draws; nw: the same in world space;
+// vpos: the fragment's view-space position.
+// preset: 0 studio, 1 clay, 2 metal, 3 pearl, 4 zebra, 5 draft, 6 curvature.
 // stripes: zebra only, the dark/light pairs between the room's two poles.
 // dir: xyz a world direction -- the fixed zebra's eye, the draft's pull;
-// w the fixed zebra's switch, or the draft's least angle in radians.
-vec3 fc_matcap(float preset, vec3 n, vec3 nw, float stripes, vec4 dir)
+// w the fixed zebra's switch, or the draft's least angle in radians. The
+// curvature preset: x its kind, y the value its colours saturate at.
+vec3 fc_matcap(float preset, vec3 n, vec3 nw, vec3 vpos, float stripes, vec4 dir)
 {
+	if (preset > 5.5)
+	{
+		// Curvature map (docs/Surface.md sec 7): blue negative, green flat,
+		// red positive, saturating at the range.
+		float t = clamp(fc_matcapCurvature(n, vpos, dir.x) / max(dir.y, 1.0e-9), -1.0, 1.0);
+		vec3 level = vec3(0.25, 0.75, 0.35);
+		vec3 c = t < 0.0 ? mix(level, vec3(0.15, 0.30, 0.90), -t)
+		                 : mix(level, vec3(0.90, 0.20, 0.15), t);
+		return c * (0.75 + 0.25 * clamp(n.z, 0.0, 1.0));
+	}
 	if (preset > 4.5)
 	{
 		// Draft analysis (docs/Surface.md sec 7): how a face releases from

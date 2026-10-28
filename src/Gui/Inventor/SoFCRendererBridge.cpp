@@ -1801,6 +1801,10 @@ RendererBridge::translateMatcapConfig(App::PropertyContainer * view)
             view, "Render", "MatcapFixed", RenderParams::getMatcapFixed());
     res.angle = float(viewParamOverride<App::PropertyFloat>(
             view, "Render", "MatcapDraftAngle", RenderParams::getMatcapDraftAngle()));
+    res.curvature = int(viewParamOverride<App::PropertyEnumeration>(
+            view, "Render", "MatcapCurvature", RenderParams::getMatcapCurvature()));
+    res.range = float(viewParamOverride<App::PropertyFloat>(
+            view, "Render", "MatcapCurvatureRange", RenderParams::getMatcapCurvatureRange()));
     if (auto dir = view ? Base::freecad_dynamic_cast<App::PropertyVector>(
                 view->getPropertyByName("Render_MatcapDirection")) : nullptr) {
         const auto& d = dir->getValue();

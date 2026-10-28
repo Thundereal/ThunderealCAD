@@ -56,7 +56,8 @@ uniform vec4 u_pbrParams;
 uniform vec4 u_matcapParams;
 // The matcap's direction in world space (xyz): the fixed zebra's eye and
 // the draft's pull; w by preset, the fixed zebra's switch or the draft's
-// least angle in radians.
+// least angle in radians. The curvature preset reads x as its kind and y
+// as its range instead.
 uniform vec4 u_matcapDir;
 uniform vec4 u_envSH[9];
 SAMPLERCUBE(s_texEnv, 1);
@@ -531,7 +532,7 @@ vec4 fcShadeFragment(vec4 base, vec3 n, vec3 geoN, vec3 vpos,
 			if (u_params.z > 0.5 && n.z < 0.0)
 				n = -n;
 			vec3 nw = normalize(mul(u_invView, vec4(n, 0.0)).xyz);
-			vec3 mc = fc_matcap(u_matcapParams.y, n, nw, u_matcapParams.w,
+			vec3 mc = fc_matcap(u_matcapParams.y, n, nw, vpos, u_matcapParams.w,
 			                    u_matcapDir);
 			color = mix(mc, mc * base.rgb, u_matcapParams.z)
 				* (occ * ao);

@@ -101,6 +101,7 @@ QString doc(const char *text)
 /// with a setting of its own.
 const int MatcapZebra = 4;
 const int MatcapDraft = 5;
+const int MatcapCurvature = 6;
 
 } // namespace
 
@@ -302,6 +303,7 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
     matcapCombo->addItem(tr("Pearl"));
     matcapCombo->addItem(tr("Zebra"));
     matcapCombo->addItem(tr("Draft"));
+    matcapCombo->addItem(tr("Curvature"));
     matcapCombo->setToolTip(doc(RenderParams::docMatcapPreset()));
     layout->addWidget(matcapLabel, 5, 0);
     layout->addWidget(matcapCombo, 5, 1);
@@ -374,6 +376,30 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
     layout->addWidget(matcapAnalysisLabel, 8, 0);
     layout->addLayout(analysisRow, 8, 1);
 
+    // the curvature preset's two settings: which curvature, and where the
+    // colours saturate
+    matcapCurvatureLabel = new QLabel(tr("Curvature:"), this);
+    matcapCurvatureCombo = new QComboBox(this);
+    matcapCurvatureCombo->setObjectName(QStringLiteral("matcapCurvature"));
+    matcapCurvatureCombo->addItem(tr("Gaussian"));
+    matcapCurvatureCombo->addItem(tr("Mean"));
+    matcapCurvatureCombo->addItem(tr("Least"));
+    matcapCurvatureCombo->addItem(tr("Greatest"));
+    matcapCurvatureCombo->setToolTip(doc(RenderParams::docMatcapCurvature()));
+    matcapRangeSpin = new QDoubleSpinBox(this);
+    matcapRangeSpin->setObjectName(QStringLiteral("matcapCurvatureRange"));
+    matcapRangeSpin->setRange(1e-6, 1e3);
+    matcapRangeSpin->setDecimals(4);
+    matcapRangeSpin->setSingleStep(0.01);
+    matcapRangeSpin->setSuffix(tr(" /mm"));
+    matcapRangeSpin->setToolTip(doc(RenderParams::docMatcapCurvatureRange()));
+    auto curvatureRow = new QHBoxLayout;
+    curvatureRow->setContentsMargins(0, 0, 0, 0);
+    curvatureRow->addWidget(matcapCurvatureCombo);
+    curvatureRow->addWidget(matcapRangeSpin);
+    layout->addWidget(matcapCurvatureLabel, 9, 0);
+    layout->addLayout(curvatureRow, 9, 1);
+
     // The modifiers: each composes with any shading model and with the
     // others, which is exactly why they are checkboxes and not entries in
     // the draw style list above.
@@ -399,7 +425,7 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
     flags->addWidget(aoCheck, 0, 1);
     flags->addWidget(shadowCheck, 1, 0);
     flags->addWidget(bloomCheck, 1, 1);
-    layout->addLayout(flags, 9, 0, 1, 2);
+    layout->addLayout(flags, 10, 0, 1, 2);
 
     // Cavity is the one modifier here whose usefulness depends on a
     // number rather than on being on: the radius decides which features
@@ -422,8 +448,8 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
     radiusRow->setContentsMargins(0, 0, 0, 0);
     radiusRow->addWidget(cavityRadiusSlider, 1);
     radiusRow->addWidget(cavityRadiusValue);
-    layout->addWidget(cavityRadiusLabel, 10, 0);
-    layout->addLayout(radiusRow, 10, 1);
+    layout->addWidget(cavityRadiusLabel, 11, 0);
+    layout->addLayout(radiusRow, 11, 1);
 
     // Not "pick a renderer type in the preferences" any more: the
     // render path stopped being a stored choice in ca372262f1, and
@@ -434,7 +460,7 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
     hint = new QLabel(tr("Needs the render engine, which is not "
                          "running on this view."), this);
     hint->setEnabled(false);
-    layout->addWidget(hint, 11, 0, 1, 2);
+    layout->addWidget(hint, 12, 0, 1, 2);
 
     connect(modelCombo, qOverload<int>(&QComboBox::currentIndexChanged),
             this, [this](int index) {
@@ -510,6 +536,22 @@ ShadingOptionsWidget::ShadingOptionsWidget(QWidget *parent)
         if (auto prop = renderProp<App::PropertyFloat>(activeView(), "MatcapDraftAngle"))
             prop->setValue(value);
         RenderParams::setMatcapDraftAngle(value);
+    });
+    connect(matcapCurvatureCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int index) {
+        if (loading)
+            return;
+        if (auto prop = renderProp<App::PropertyEnumeration>(activeView(), "MatcapCurvature"))
+            prop->setValue(long(index));
+        RenderParams::setMatcapCurvature(long(index));
+    });
+    connect(matcapRangeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double value) {
+        if (loading)
+            return;
+        if (auto prop = renderProp<App::PropertyFloat>(activeView(), "MatcapCurvatureRange"))
+            prop->setValue(value);
+        RenderParams::setMatcapCurvatureRange(value);
     });
     connect(matcapDirButton, &QPushButton::clicked, this, [this] {
         auto view = qobject_cast<View3DInventor*>(Application::Instance->activeView());
@@ -625,6 +667,11 @@ void ShadingOptionsWidget::updateMatcapStripesEnabled()
     matcapDraftSpin->setEnabled(draft);
     matcapDirButton->setEnabled(draft || (on && matcapFixedCheck->isChecked()));
     matcapAnalysisLabel->setEnabled(on || draft);
+    const bool curvature = matcapCombo->isEnabled()
+        && matcapCombo->currentIndex() == MatcapCurvature;
+    matcapCurvatureLabel->setEnabled(curvature);
+    matcapCurvatureCombo->setEnabled(curvature);
+    matcapRangeSpin->setEnabled(curvature);
 }
 
 void ShadingOptionsWidget::updateExternalSettings()
@@ -1092,6 +1139,14 @@ void ShadingOptionsWidget::refresh()
         matcapDraftSpin->setValue(prop->getValue());
     else
         matcapDraftSpin->setValue(RenderParams::getMatcapDraftAngle());
+    if (auto prop = renderProp<App::PropertyEnumeration>(view, "MatcapCurvature"))
+        matcapCurvatureCombo->setCurrentIndex(int(prop->getValue()));
+    else
+        matcapCurvatureCombo->setCurrentIndex(int(RenderParams::getMatcapCurvature()));
+    if (auto prop = renderProp<App::PropertyFloat>(view, "MatcapCurvatureRange"))
+        matcapRangeSpin->setValue(prop->getValue());
+    else
+        matcapRangeSpin->setValue(RenderParams::getMatcapCurvatureRange());
     cavityCheck->setChecked(renderFlag(view, "Cavity", false));
     if (auto prop = renderProp<App::PropertyFloat>(view, "CavityRadius"))
         cavityRadiusSlider->setValue(int(prop->getValue() + 0.5));

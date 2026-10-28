@@ -778,7 +778,7 @@ struct CavityConfig {
 struct MatcapConfig {
     bool enabled = false;    ///< matcap shading active
     /// Which procedural matcap: 0 studio, 1 clay, 2 metal, 3 pearl,
-    /// 4 zebra, 5 draft (docs/Surface.md sec 7).
+    /// 4 zebra, 5 draft, 6 curvature (docs/Surface.md sec 7).
     int preset = 0;
     /// How much the object's own color tints the matcap, 0 to 1. Zero
     /// shades every object as one uniform material.
@@ -797,12 +797,17 @@ struct MatcapConfig {
     /// this along the pull is released, less than its negative is an
     /// undercut, and between the two it is too steep to release.
     float angle = 1.0f;
+    /// Curvature only: which, 0 Gaussian, 1 mean, 2 least, 3 greatest
+    int curvature = 1;
+    /// Curvature only: the value the colours saturate at, 1/length
+    float range = 0.1f;
 
     bool operator==(const MatcapConfig &o) const {
         return enabled == o.enabled && preset == o.preset
             && tint == o.tint && stripes == o.stripes && fixed == o.fixed
             && direction[0] == o.direction[0] && direction[1] == o.direction[1]
-            && direction[2] == o.direction[2] && angle == o.angle;
+            && direction[2] == o.direction[2] && angle == o.angle
+            && curvature == o.curvature && range == o.range;
     }
     bool operator!=(const MatcapConfig &o) const { return !(*this == o); }
 };

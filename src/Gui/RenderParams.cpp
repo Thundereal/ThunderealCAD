@@ -140,6 +140,8 @@ public:
     bool Matcap;
     long MatcapPreset;
     bool MatcapFixed;
+    long MatcapCurvature;
+    double MatcapCurvatureRange;
     double MatcapDraftAngle;
     long MatcapStripes;
     double MatcapTint;
@@ -397,6 +399,10 @@ public:
         funcs["MatcapPreset"] = &RenderParamsP::updateMatcapPreset;
         MatcapFixed = this->handle->GetBool("MatcapFixed", false);
         funcs["MatcapFixed"] = &RenderParamsP::updateMatcapFixed;
+        MatcapCurvature = this->handle->GetInt("MatcapCurvature", 1);
+        funcs["MatcapCurvature"] = &RenderParamsP::updateMatcapCurvature;
+        MatcapCurvatureRange = this->handle->GetFloat("MatcapCurvatureRange", 0.1);
+        funcs["MatcapCurvatureRange"] = &RenderParamsP::updateMatcapCurvatureRange;
         MatcapDraftAngle = this->handle->GetFloat("MatcapDraftAngle", 1.0);
         funcs["MatcapDraftAngle"] = &RenderParamsP::updateMatcapDraftAngle;
         MatcapStripes = this->handle->GetInt("MatcapStripes", 6);
@@ -915,6 +921,14 @@ public:
     // Auto generated code (Tools/params_utils.py:314)
     static void updateMatcapFixed(RenderParamsP *self) {
         self->MatcapFixed = self->handle->GetBool("MatcapFixed", false);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateMatcapCurvature(RenderParamsP *self) {
+        self->MatcapCurvature = self->handle->GetInt("MatcapCurvature", 1);
+    }
+    // Auto generated code (Tools/params_utils.py:314)
+    static void updateMatcapCurvatureRange(RenderParamsP *self) {
+        self->MatcapCurvatureRange = self->handle->GetFloat("MatcapCurvatureRange", 0.1);
     }
     // Auto generated code (Tools/params_utils.py:314)
     static void updateMatcapDraftAngle(RenderParamsP *self) {
@@ -1755,15 +1769,27 @@ static const App::ParamRegistry::Registrar _RenderParamsRegistrar({
 "form alone. Metal: banded, exaggerates curvature. Pearl: warm and cool,\n"
 "shows undulation. Zebra: stripes that step at a crease, kink at a\n"
 "tangent seam and run through where curvature is continuous. Draft:\n"
-"green released, yellow too steep, red undercut along MatcapDirection.")
+"green released, yellow too steep, red undercut along MatcapDirection.\n"
+"Curvature: blue negative, green flat, red positive.")
         .setProxy("ComboBox")
-        .setItems({{"Studio", "", nullptr}, {"Clay", "", nullptr}, {"Metal", "", nullptr}, {"Pearl", "", nullptr}, {"Zebra", "", nullptr}, {"Draft", "", nullptr}}, false, true),
+        .setItems({{"Studio", "", nullptr}, {"Clay", "", nullptr}, {"Metal", "", nullptr}, {"Pearl", "", nullptr}, {"Zebra", "", nullptr}, {"Draft", "", nullptr}, {"Curvature", "", nullptr}}, false, true),
     App::ParamInfo("Gui", "RenderParams", "User parameter:BaseApp/Preferences/View/Render", "MatcapFixed", "MatcapFixed", App::ParamInfo::Bool, false)
         .setTitle("Zebra fixed to the model")
         .setDoc("Zebra matcap only: the room of stripes looked at along the view's\n"
 "MatcapDirection instead of the camera, so the stripes stay where they\n"
 "are on the surface as the view turns -- follow one across an edge by\n"
 "turning the model."),
+    App::ParamInfo("Gui", "RenderParams", "User parameter:BaseApp/Preferences/View/Render", "MatcapCurvature", "MatcapCurvature", App::ParamInfo::Int, 1)
+        .setTitle("Curvature")
+        .setDoc("Curvature matcap only: which curvature it colours. Gaussian: the\n"
+"product of the two principal ones, negative at a saddle. Mean: their\n"
+"average. Least and Greatest: each of them.")
+        .setProxy("ComboBox")
+        .setItems({{"Gaussian", "", nullptr}, {"Mean", "", nullptr}, {"Least", "", nullptr}, {"Greatest", "", nullptr}}, false, true),
+    App::ParamInfo("Gui", "RenderParams", "User parameter:BaseApp/Preferences/View/Render", "MatcapCurvatureRange", "MatcapCurvatureRange", App::ParamInfo::Float, 0.1)
+        .setTitle("Curvature range")
+        .setDoc("Curvature matcap only: the curvature, in 1/mm, the colours saturate\n"
+"at -- red at it, blue at its negative. 0.1 is a radius of 10 mm."),
     App::ParamInfo("Gui", "RenderParams", "User parameter:BaseApp/Preferences/View/Render", "MatcapDraftAngle", "MatcapDraftAngle", App::ParamInfo::Float, 1.0)
         .setTitle("Least draft")
         .setDoc("Draft matcap only: the least draft, in degrees. A face drafted more\n"
@@ -4843,7 +4869,8 @@ const char *RenderParams::docMatcapPreset() {
 "form alone. Metal: banded, exaggerates curvature. Pearl: warm and cool,\n"
 "shows undulation. Zebra: stripes that step at a crease, kink at a\n"
 "tangent seam and run through where curvature is continuous. Draft:\n"
-"green released, yellow too steep, red undercut along MatcapDirection.");
+"green released, yellow too steep, red undercut along MatcapDirection.\n"
+"Curvature: blue negative, green flat, red positive.");
 }
 
 // Auto generated code (Tools/params_utils.py:405)
@@ -4897,6 +4924,65 @@ void RenderParams::setMatcapFixed(const bool &v) {
 // Auto generated code (Tools/params_utils.py:431)
 void RenderParams::removeMatcapFixed() {
     instance()->handle->RemoveBool("MatcapFixed");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *RenderParams::docMatcapCurvature() {
+    return QT_TRANSLATE_NOOP("RenderParams",
+"Curvature matcap only: which curvature it colours. Gaussian: the\n"
+"product of the two principal ones, negative at a saddle. Mean: their\n"
+"average. Least and Greatest: each of them.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const long & RenderParams::getMatcapCurvature() {
+    return instance()->MatcapCurvature;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const long & RenderParams::defaultMatcapCurvature() {
+    const static long def = 1;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void RenderParams::setMatcapCurvature(const long &v) {
+    instance()->handle->SetInt("MatcapCurvature",v);
+    instance()->MatcapCurvature = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void RenderParams::removeMatcapCurvature() {
+    instance()->handle->RemoveInt("MatcapCurvature");
+}
+
+// Auto generated code (Tools/params_utils.py:397)
+const char *RenderParams::docMatcapCurvatureRange() {
+    return QT_TRANSLATE_NOOP("RenderParams",
+"Curvature matcap only: the curvature, in 1/mm, the colours saturate\n"
+"at -- red at it, blue at its negative. 0.1 is a radius of 10 mm.");
+}
+
+// Auto generated code (Tools/params_utils.py:405)
+const double & RenderParams::getMatcapCurvatureRange() {
+    return instance()->MatcapCurvatureRange;
+}
+
+// Auto generated code (Tools/params_utils.py:413)
+const double & RenderParams::defaultMatcapCurvatureRange() {
+    const static double def = 0.1;
+    return def;
+}
+
+// Auto generated code (Tools/params_utils.py:422)
+void RenderParams::setMatcapCurvatureRange(const double &v) {
+    instance()->handle->SetFloat("MatcapCurvatureRange",v);
+    instance()->MatcapCurvatureRange = v;
+}
+
+// Auto generated code (Tools/params_utils.py:431)
+void RenderParams::removeMatcapCurvatureRange() {
+    instance()->handle->RemoveFloat("MatcapCurvatureRange");
 }
 
 // Auto generated code (Tools/params_utils.py:397)

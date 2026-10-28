@@ -1364,6 +1364,7 @@ public:
     /// shows undulation. Zebra: stripes that step at a crease, kink at a
     /// tangent seam and run through where curvature is continuous. Draft:
     /// green released, yellow too steep, red undercut along MatcapDirection.
+    /// Curvature: blue negative, green flat, red positive.
     static const long & getMatcapPreset();
     static const long & defaultMatcapPreset();
     static void removeMatcapPreset();
@@ -1384,6 +1385,33 @@ public:
     static void removeMatcapFixed();
     static void setMatcapFixed(const bool &v);
     static const char *docMatcapFixed();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter MatcapCurvature
+    ///
+    /// Curvature matcap only: which curvature it colours. Gaussian: the
+    /// product of the two principal ones, negative at a saddle. Mean: their
+    /// average. Least and Greatest: each of them.
+    static const long & getMatcapCurvature();
+    static const long & defaultMatcapCurvature();
+    static void removeMatcapCurvature();
+    static void setMatcapCurvature(const long &v);
+    static const char *docMatcapCurvature();
+    //@}
+
+    // Auto generated code (Tools/params_utils.py:139)
+    //@{
+    /// Accessor for parameter MatcapCurvatureRange
+    ///
+    /// Curvature matcap only: the curvature, in 1/mm, the colours saturate
+    /// at -- red at it, blue at its negative. 0.1 is a radius of 10 mm.
+    static const double & getMatcapCurvatureRange();
+    static const double & defaultMatcapCurvatureRange();
+    static void removeMatcapCurvatureRange();
+    static void setMatcapCurvatureRange(const double &v);
+    static const char *docMatcapCurvatureRange();
     //@}
 
     // Auto generated code (Tools/params_utils.py:139)

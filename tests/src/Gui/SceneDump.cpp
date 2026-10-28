@@ -527,7 +527,7 @@ TEST(SceneDump, theMatcapCrossesTheWire)
     EXPECT_EQ(loaded.matcapconf.stripes, 20);
 }
 
-/// And the surface analysis presets' settings (v89, docs/Surface.md sec 7):
+/// And the surface analysis presets' settings (v89, v90, docs/Surface.md sec 7):
 /// the zebra fixed to the model, the direction it and the draft look along,
 /// the draft's least angle. A viewer without them drew a fixed zebra
 /// camera-fixed and every draft pulled along +Z at 1 degree.
@@ -541,6 +541,9 @@ TEST(SceneDump, theMatcapAnalysisCrossesTheWire)
     snap.matcapconf.direction[1] = -0.8f;
     snap.matcapconf.direction[2] = 0.0f;
     snap.matcapconf.angle = 3.5f;
+    // v90: the curvature preset's kind and range
+    snap.matcapconf.curvature = 3;
+    snap.matcapconf.range = 0.25f;
     std::vector<uint8_t> payload;
     ASSERT_TRUE(Render::saveSceneSnapshot(payload, snap));
     Render::SceneSnapshot loaded;
@@ -549,6 +552,8 @@ TEST(SceneDump, theMatcapAnalysisCrossesTheWire)
     EXPECT_TRUE(loaded.matcapconf.fixed);
     EXPECT_FLOAT_EQ(loaded.matcapconf.direction[1], -0.8f);
     EXPECT_FLOAT_EQ(loaded.matcapconf.angle, 3.5f);
+    EXPECT_EQ(loaded.matcapconf.curvature, 3);
+    EXPECT_FLOAT_EQ(loaded.matcapconf.range, 0.25f);
 }
 
 /// A float texture payload crosses the wire as floats (v63).

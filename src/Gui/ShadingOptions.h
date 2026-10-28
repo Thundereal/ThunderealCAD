@@ -182,6 +182,9 @@ private:
     QCheckBox *matcapFixedCheck;
     QDoubleSpinBox *matcapDraftSpin;
     QPushButton *matcapDirButton;
+    QLabel *matcapCurvatureLabel;
+    QComboBox *matcapCurvatureCombo;
+    QDoubleSpinBox *matcapRangeSpin;
     QCheckBox *cavityCheck;
     QLabel *cavityRadiusLabel;
     QSlider *cavityRadiusSlider;

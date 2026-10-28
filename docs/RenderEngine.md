@@ -455,7 +455,27 @@ still read as shapes. Like every preset it takes the normal flipped toward
 the viewer on a two-sided draw, so it reads a solid's faces, not an open
 shell's back.
 
-Both cross the wire with the matcap (snapshot version 89), and
+**Curvature** is the seventh: blue negative, green flat, red positive,
+saturating at `Render_MatcapCurvatureRange` (1/mm), and Gaussian, mean,
+least or greatest by `Render_MatcapCurvature`. It needs no curvature from
+the model: the shader finds the surface's shape operator from how the
+normal turns as the position moves across the screen -- the screen
+derivatives of the view-space normal and position, expressed in the plane
+the position's two derivatives span, made symmetric -- and takes its
+trace, determinant or eigenvalues. That is exact for each triangle's
+interpolation of the normals, which the tessellation takes from the
+surface at its nodes, so it is as true as the view mesh: faceted where the
+mesh is coarse, true where it is fine -- lower `Deviation` before reading
+values. A positive value bends away from the normal, a sphere seen from
+outside. (docs/Surface.md sec 7 asked for curvature per vertex from the
+surface, carried as an attribute through the mesh and the stream; this
+takes the shader's way instead, and that remains open if exact values on a
+coarse mesh are wanted.) `tests/gui/curvature-map.py`: a sphere's mean
+curvature read between 0.625/R and 1.25/R, a cylinder's Gaussian curvature
+green, a saddle's blue.
+
+Both cross the wire with the matcap (snapshot version 89, the curvature's
+kind and range 90), and
 `tests/gui/matcap-analysis.py` holds them: a frustum's top and inward
 leaning side green, its outward leaning side red, an upright box yellow;
 points of a sphere keep their tone between a front and a right view when

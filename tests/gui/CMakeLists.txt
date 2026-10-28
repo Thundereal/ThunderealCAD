@@ -1652,6 +1652,11 @@ fc_add_gui_test(GuiMatcapZebra_tests_run
 fc_add_gui_test(GuiMatcapAnalysis_tests_run
                 matcap-analysis.py
                 --timeout 180)
+# And the curvature map (U4): a sphere's mean curvature bracketed, a
+# cylinder's Gaussian curvature zero, a saddle's negative.
+fc_add_gui_test(GuiCurvatureMap_tests_run
+                curvature-map.py
+                --timeout 180)
 # The curvature comb, an overlay of any Part object's view (U4): even teeth
 # on a circle, none on a line, the longest at an ellipse's ends, the scale,
 # a rebuild on a change, a cylinder's isocurves, off.

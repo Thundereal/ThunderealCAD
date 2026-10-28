@@ -1582,17 +1582,26 @@ Params = [
     # run through where the curvature is continuous as well.
     ParamInt('MatcapPreset',  0, title='Matcap',
         proxy=ParamComboBox(items=['Studio', 'Clay', 'Metal', 'Pearl',
-                                   'Zebra', 'Draft']),
+                                   'Zebra', 'Draft', 'Curvature']),
         doc="Which matcap to shade with. Studio: a soft key light. Clay: matte,\n"
             "form alone. Metal: banded, exaggerates curvature. Pearl: warm and cool,\n"
             "shows undulation. Zebra: stripes that step at a crease, kink at a\n"
             "tangent seam and run through where curvature is continuous. Draft:\n"
-            "green released, yellow too steep, red undercut along MatcapDirection."),
+            "green released, yellow too steep, red undercut along MatcapDirection.\n"
+            "Curvature: blue negative, green flat, red positive."),
     ParamBool('MatcapFixed',  False, title='Zebra fixed to the model',
         doc="Zebra matcap only: the room of stripes looked at along the view's\n"
         "MatcapDirection instead of the camera, so the stripes stay where they\n"
         "are on the surface as the view turns -- follow one across an edge by\n"
         "turning the model."),
+    ParamInt('MatcapCurvature',  1, title='Curvature',
+        proxy=ParamComboBox(items=['Gaussian', 'Mean', 'Least', 'Greatest']),
+        doc="Curvature matcap only: which curvature it colours. Gaussian: the\n"
+        "product of the two principal ones, negative at a saddle. Mean: their\n"
+        "average. Least and Greatest: each of them."),
+    ParamFloat('MatcapCurvatureRange',  0.1, title='Curvature range',
+        doc="Curvature matcap only: the curvature, in 1/mm, the colours saturate\n"
+        "at -- red at it, blue at its negative. 0.1 is a radius of 10 mm."),
     ParamFloat('MatcapDraftAngle',  1.0, title='Least draft',
         doc="Draft matcap only: the least draft, in degrees. A face drafted more\n"
         "than this along the pull is released (green), less than its negative\n"

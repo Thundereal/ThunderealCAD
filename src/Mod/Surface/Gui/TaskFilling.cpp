@@ -44,6 +44,7 @@
 #include <Gui/Widgets.h>
 #include <Mod/Part/Gui/ViewProvider.h>
 
+#include "EndEdit.h"
 #include "TaskFilling.h"
 #include "TaskFillingEdge.h"
 #include "TaskFillingVertex.h"
@@ -482,9 +483,10 @@ bool FillingPanel::accept()
         editedObject->recomputeFeature();
     }
     if (!editedObject->isValid()) {
-        QMessageBox::warning(this,
-                             tr("Invalid object"),
-                             QString::fromUtf8(editedObject->getStatusString()));
+        // said here, not in a dialog: a dialog's event loop would stop a
+        // serving process for every browser it serves
+        ui->statusLabel->setText(
+            tr("Not built: %1").arg(QString::fromUtf8(editedObject->getStatusString())));
         return false;
     }
 
@@ -938,6 +940,7 @@ void FillingPanel::exitSelectionMode()
 // ----------------------------------------------------------------------------
 
 TaskFilling::TaskFilling(ViewProviderFilling* vp, Surface::Filling* obj)
+    : docName(obj->getDocument()->getName())
 {
     // Set up button group
     buttonGroup = new Gui::ButtonGroup(this);
@@ -997,8 +1000,7 @@ bool TaskFilling::accept()
         widget2->reject();
         widget3->reject();
         Gui::Command::commitCommand();
-        Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
-        Gui::Command::updateActive();
+        endEdit(docName);
     }
 
     return ok;
@@ -1011,8 +1013,7 @@ bool TaskFilling::reject()
         widget2->reject();
         widget3->reject();
         Gui::Command::abortCommand();
-        Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
-        Gui::Command::updateActive();
+        endEdit(docName);
     }
 
     return ok;

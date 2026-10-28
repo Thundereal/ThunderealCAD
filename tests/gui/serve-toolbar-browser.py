@@ -117,7 +117,8 @@ SURFACE_COMMANDS = {"Surface_Network", "Surface_Trim", "Surface_Split", "Surface
                     "Surface_ExtendEdges", "Surface_BlendSurface", "Surface_TwoRailSweep",
                     "Surface_PipeShell", "Surface_EdgeContinuity", "Surface_Isocurve",
                     "Surface_CurveOnSurface", "Surface_IntersectionCurve",
-                    "Surface_JoinCurves", "Surface_ExtendCurve"}
+                    "Surface_JoinCurves", "Surface_ExtendCurve", "Surface_Sections",
+                    "Surface_Filling", "Surface_GeomFillSurface"}
 
 
 class Run(threading.Thread):

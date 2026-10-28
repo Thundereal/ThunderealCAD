@@ -25,6 +25,7 @@
 #ifndef _PreComp_
 #include <QAction>
 #include <QMenu>
+#include <QLabel>
 #include <QMessageBox>
 #include <QTimer>
 #include <TopExp.hxx>
@@ -42,6 +43,7 @@
 #include <Gui/Widgets.h>
 #include <Mod/Part/Gui/ViewProvider.h>
 
+#include "EndEdit.h"
 #include "TaskGeomFillSurface.h"
 #include "ui_TaskGeomFillSurface.h"
 
@@ -201,6 +203,10 @@ GeomFillSurface::GeomFillSurface(ViewProviderGeomFillSurface* vp, Surface::GeomF
 {
     ui = new Ui_GeomFillSurface();
     ui->setupUi(this);
+    statusLabel = new QLabel(this);
+    statusLabel->setObjectName(QStringLiteral("statusLabel"));
+    statusLabel->setWordWrap(true);
+    layout()->addWidget(statusLabel);
     setupConnections();
 
     selectionMode = None;
@@ -377,17 +383,11 @@ bool GeomFillSurface::accept()
     selectionMode = None;
     Gui::Selection().rmvSelectionGate();
 
+    // what stops it is said here, not in a dialog: a dialog's event loop
+    // would stop a serving process for every browser it serves
     int count = ui->listWidget->count();
-    if (count > 4) {
-        QMessageBox::warning(this,
-                             tr("Too many edges"),
-                             tr("The tool requires two, three or four edges"));
-        return false;
-    }
-    else if (count < 2) {
-        QMessageBox::warning(this,
-                             tr("Too less edges"),
-                             tr("The tool requires two, three or four edges"));
+    if (count > 4 || count < 2) {
+        statusLabel->setText(tr("The tool requires two, three or four edges"));
         return false;
     }
 
@@ -395,17 +395,16 @@ bool GeomFillSurface::accept()
         editedObject->recomputeFeature();
     }
     if (!editedObject->isValid()) {
-        QMessageBox::warning(this,
-                             tr("Invalid object"),
-                             QString::fromUtf8(editedObject->getStatusString()));
+        statusLabel->setText(
+            tr("Not built: %1").arg(QString::fromUtf8(editedObject->getStatusString())));
         return false;
     }
 
     this->vp->highlightReferences(false);
 
+    std::string doc = editedObject->getDocument()->getName();
     Gui::Command::commitCommand();
-    Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
-    Gui::Command::updateActive();
+    endEdit(doc);
     return true;
 }
 
@@ -415,9 +414,10 @@ bool GeomFillSurface::reject()
     selectionMode = None;
     Gui::Selection().rmvSelectionGate();
 
+    // the object's document, read before the abort may take the object
+    std::string doc = editedObject->getDocument()->getName();
     Gui::Command::abortCommand();
-    Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
-    Gui::Command::updateActive();
+    endEdit(doc);
     return true;
 }
 

@@ -39,6 +39,8 @@ namespace Gui
 class ButtonGroup;
 }
 
+class QLabel;
+
 namespace SurfaceGui
 {
 
@@ -74,6 +76,7 @@ protected:
 
 private:
     Ui_GeomFillSurface* ui;
+    QLabel* statusLabel;
     ViewProviderGeomFillSurface* vp;
     Gui::ButtonGroup* buttonGroup;
 

@@ -925,6 +925,9 @@ bool isBrowserSafeCommand(const QString &name)
         QStringLiteral("Surface_IntersectionCurve"),
         QStringLiteral("Surface_JoinCurves"),
         QStringLiteral("Surface_ExtendCurve"),
+        QStringLiteral("Surface_Sections"),
+        QStringLiteral("Surface_Filling"),
+        QStringLiteral("Surface_GeomFillSurface"),
     };
     // Sketcher_External's three siblings start the same handler in another
     // flavour; pressed while a constraint tool runs, each switches that

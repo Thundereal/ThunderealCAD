@@ -113,6 +113,35 @@ void CmdSurfaceCut::activated(int iMsg)
 }
 
 
+
+namespace
+{
+
+/// A new surface of `type` in the document of the view the command came
+/// through, its panel opened: named, not "Active", since a served document
+/// is never Python's ActiveDocument
+void makeAndEdit(Gui::Command* cmd, const char* type)
+{
+    Gui::Document* gdoc = cmd->getActiveGuiDocument();
+    if (!gdoc) {
+        return;
+    }
+    const char* doc = gdoc->getDocument()->getName();
+    std::string feat = gdoc->getDocument()->getUniqueObjectName("Surface");
+    Gui::Command::openCommand(QT_TRANSLATE_NOOP("Command", "Create surface"));
+    Gui::Command::doCommand(Gui::Command::Doc,
+                            "App.getDocument('%s').addObject('%s', '%s')",
+                            doc,
+                            type,
+                            feat.c_str());
+    Gui::Command::doCommand(Gui::Command::Gui,
+                            "Gui.getDocument('%s').setEdit('%s', 0)",
+                            doc,
+                            feat.c_str());
+}
+
+}  // namespace
+
 DEF_STD_CMD_A(CmdSurfaceFilling)
 
 CmdSurfaceFilling::CmdSurfaceFilling()
@@ -132,11 +161,7 @@ CmdSurfaceFilling::CmdSurfaceFilling()
 void CmdSurfaceFilling::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string FeatName = getUniqueObjectName("Surface");
-
-    openCommand(QT_TRANSLATE_NOOP("Command", "Create surface"));
-    doCommand(Doc, "App.ActiveDocument.addObject(\"Surface::Filling\",\"%s\")", FeatName.c_str());
-    doCommand(Doc, "Gui.ActiveDocument.setEdit('%s',0)", FeatName.c_str());
+    makeAndEdit(this, "Surface::Filling");
 }
 
 bool CmdSurfaceFilling::isActive()
@@ -169,13 +194,7 @@ bool CmdSurfaceGeomFillSurface::isActive()
 void CmdSurfaceGeomFillSurface::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string FeatName = getUniqueObjectName("Surface");
-
-    openCommand(QT_TRANSLATE_NOOP("Command", "Create surface"));
-    doCommand(Doc,
-              "App.ActiveDocument.addObject(\"Surface::GeomFillSurface\",\"%s\")",
-              FeatName.c_str());
-    doCommand(Doc, "Gui.ActiveDocument.setEdit('%s',0)", FeatName.c_str());
+    makeAndEdit(this, "Surface::GeomFillSurface");
 }
 
 
@@ -345,11 +364,7 @@ CmdSurfaceSections::CmdSurfaceSections()
 void CmdSurfaceSections::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    std::string FeatName = getUniqueObjectName("Surface");
-
-    openCommand(QT_TRANSLATE_NOOP("Command", "Create surface"));
-    doCommand(Doc, "App.ActiveDocument.addObject(\"Surface::Sections\",\"%s\")", FeatName.c_str());
-    doCommand(Doc, "Gui.ActiveDocument.setEdit('%s',0)", FeatName.c_str());
+    makeAndEdit(this, "Surface::Sections");
 }
 
 bool CmdSurfaceSections::isActive()

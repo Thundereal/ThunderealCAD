@@ -137,6 +137,7 @@ public:
     }
 
 private:
+    std::string docName;
     SectionsPanel* widget1;
 };
 

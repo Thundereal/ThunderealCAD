@@ -40,6 +40,7 @@
 #include <Gui/Widgets.h>
 #include <Mod/Part/Gui/ViewProvider.h>
 
+#include "EndEdit.h"
 #include "TaskSections.h"
 #include "ui_TaskSections.h"
 
@@ -404,13 +405,13 @@ bool SectionsPanel::accept()
     selectionMode = None;
     Gui::Selection().rmvSelectionGate();
 
-    if (editedObject->mustExecute()) {
-        editedObject->recomputeFeature();
-    }
+    // always: a new object was never computed, and reads as valid until it is
+    editedObject->recomputeFeature();
     if (!editedObject->isValid()) {
-        QMessageBox::warning(this,
-                             tr("Invalid object"),
-                             QString::fromUtf8(editedObject->getStatusString()));
+        // said here, not in a dialog: a dialog's event loop would stop a
+        // serving process for every browser it serves
+        ui->statusLabel->setText(
+            tr("Not built: %1").arg(QString::fromUtf8(editedObject->getStatusString())));
         return false;
     }
 
@@ -603,6 +604,7 @@ void SectionsPanel::exitSelectionMode()
 // ----------------------------------------------------------------------------
 
 TaskSections::TaskSections(ViewProviderSections* vp, Surface::Sections* obj)
+    : docName(obj->getDocument()->getName())
 {
     // first task box
     widget1 = new SectionsPanel(vp, obj);
@@ -630,8 +632,7 @@ bool TaskSections::accept()
     bool ok = widget1->accept();
     if (ok) {
         Gui::Command::commitCommand();
-        Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
-        Gui::Command::updateActive();
+        endEdit(docName);
     }
 
     return ok;
@@ -642,8 +643,7 @@ bool TaskSections::reject()
     bool ok = widget1->reject();
     if (ok) {
         Gui::Command::abortCommand();
-        Gui::Command::doCommand(Gui::Command::Gui, "Gui.ActiveDocument.resetEdit()");
-        Gui::Command::updateActive();
+        endEdit(docName);
     }
 
     return ok;

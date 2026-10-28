@@ -1090,6 +1090,9 @@ const SURFACE_COMMANDS = new Set([
   'Surface_IntersectionCurve',
   'Surface_JoinCurves',
   'Surface_ExtendCurve',
+  'Surface_Sections',
+  'Surface_Filling',
+  'Surface_GeomFillSurface',
 ]);
 
 /// The `command` op's allowlist as the server has it (SceneControl.cpp

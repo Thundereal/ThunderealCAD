@@ -136,6 +136,10 @@ fc_add_gui_test(GuiSurfaceTrim_tests_run surface-trim.py
 # panel mirrored and cancelled.
 fc_add_gui_test(GuiServeSurfaceTrim_tests_run serve-surface-trim.py
                 --timeout 180)
+# And the older panels, Sections, Filling and GeomFillSurface: made from a
+# browser's connection, OK refused without a dialog, Cancel.
+fc_add_gui_test(GuiServeSurfacePanels_tests_run serve-surface-panels.py
+                --timeout 240)
 # Its U3 commands: Blend surface, Two-rail sweep and Pipeshell from the
 # selection, as one undo step each; a selection they cannot use said without
 # a dialog.

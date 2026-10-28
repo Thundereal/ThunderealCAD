@@ -48,6 +48,7 @@ public:
     App::PropertyMap GroupColors;
     App::PropertyBool RemoveSlivers;
     App::PropertyBool PastFeatures;
+    App::PropertyBool FullRound;
     /// 1 from the first: a fillet's end that would cut into the body past
     /// its vertex is flat (Part::FilletFlatEnd); 0, a file's from before
     App::PropertyInteger _Version;

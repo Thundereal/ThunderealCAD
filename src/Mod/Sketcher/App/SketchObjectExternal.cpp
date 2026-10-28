@@ -2808,8 +2808,14 @@ void SketchObject::rebuildExternalGeometry(bool defining)
                 std::vector<std::unique_ptr<Part::Geometry> > projected;
                 projected.swap(geos);
 
-                BRepAlgoAPI_Section maker(refSubShape, sketchPlane);
+                // Built after Approximation is set: the constructor that
+                // takes the shapes alone performs the section at once, and
+                // the flag set after it changed nothing -- the cut came as a
+                // polyline of the walking line's points, off the surface by
+                // far more than its tolerance (realthunder/FreeCAD#617)
+                BRepAlgoAPI_Section maker(refSubShape, sketchPlane, Standard_False);
                 maker.Approximation(Standard_True);
+                maker.Build();
                 if (!maker.IsDone())
                     FC_THROWM(Base::CADKernelError,"Failed to get intersection");
                 Part::TopoShape intersectionShape(maker.Shape());

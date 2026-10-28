@@ -194,6 +194,16 @@ or 'Delete' key.</string>
      </property>
     </widget>
    </item>
+   <item>
+    <widget class="QCheckBox" name="checkBoxFullRound">
+     <property name="toolTip">
+      <string>Each face selected rounded whole: its two sides filleted to meet along its middle (a full round)</string>
+     </property>
+     <property name="text">
+      <string>Full Round of Faces</string>
+     </property>
+    </widget>
+   </item>
   </layout>
  </widget>
  <customwidgets>

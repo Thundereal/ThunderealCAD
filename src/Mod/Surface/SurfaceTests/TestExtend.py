@@ -183,6 +183,43 @@ class TestExtend(unittest.TestCase):
         self.assertFalse(e.isValid())
         self.assertIn("untrim", e.getStatusString())
 
+    def testUpToAFace(self):
+        src = self.doc.addObject("Part::Feature", "Src")
+        src.Shape = waveFace()
+        wall = self.doc.addObject("Part::Plane", "Wall")
+        wall.Length, wall.Width = 40, 40
+        # upright at x = 27, across the extension
+        wall.Placement = App.Placement(V(27, -10, -20), App.Rotation(V(0, 1, 0), -90))
+        self.doc.recompute()
+        old = src.Shape.Faces[0].Surface
+        u1, u2, v1, v2 = old.bounds()
+        name = edgeAt(src.Shape, old.value(u2, (v1 + v2) / 2))
+        e = self.extend(src, [name], 1)
+        e.UpTo = (wall, "Face1")
+        self.recompute(e)
+        bb = e.Shape.optimalBoundingBox(False, False)
+        self.assertAlmostEqual(bb.XMax, 27, places=4)
+        self.assertAlmostEqual(bb.XMin, 0, places=5)
+        # it ends on the wall, all along
+        far = [
+            x
+            for x in e.Shape.Edges
+            if wall.Shape.distToShape(
+                Part.Vertex(x.valueAt((x.FirstParameter + x.LastParameter) / 2))
+            )[0]
+            < 1e-6
+        ]
+        self.assertEqual(len(far), 1)
+        self.assertAlmostEqual(far[0].BoundBox.XMin, 27, places=4)
+        # what was there stays
+        p = old.value((u1 + u2) / 2, (v1 + v2) / 2)
+        self.assertLess(e.Shape.distToShape(Part.Vertex(p))[0], 1e-7)
+        # a face it never reaches is said
+        wall.Placement = App.Placement(V(27, 100, -20), App.Rotation(V(0, 1, 0), -90))
+        self.doc.recompute()
+        self.assertFalse(e.isValid())
+        self.assertIn("reach", e.getStatusString())
+
     def testTheWholeFaceAsItWas(self):
         src = self.doc.addObject("Part::Feature", "Src")
         src.Shape = waveFace()

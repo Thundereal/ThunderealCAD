@@ -689,6 +689,165 @@ bool CmdSurfaceExtendEdges::isActive()
     return Gui::Selection().countObjectsOfType(Part::Feature::getClassTypeId()) > 0;
 }
 
+namespace
+{
+
+/// The edges selected, in the order picked, as (object, sub) Python tuples
+std::vector<std::string> selectedEdges()
+{
+    std::vector<std::string> edges;
+    for (const auto& sel :
+         Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId())) {
+        std::string obj = Gui::Command::getObjectCmd(sel.getObject());
+        for (const auto& sub : sel.getSubNames()) {
+            if (sub.rfind("Edge", 0) == 0) {
+                edges.push_back("(" + obj + ", '" + sub + "')");
+            }
+        }
+    }
+    return edges;
+}
+
+/// A feature of `type` made with `assignments` ("Prop = value" lines), recomputed
+void makeFeature(Gui::Command* cmd,
+                 const char* type,
+                 const char* name,
+                 const std::vector<std::string>& assignments)
+{
+    Gui::Document* gdoc = cmd->getActiveGuiDocument();
+    if (!gdoc) {
+        return;
+    }
+    const char* doc = gdoc->getDocument()->getName();
+    std::string feat = gdoc->getDocument()->getUniqueObjectName(name);
+    Gui::Command::openCommand(name);
+    Gui::Command::doCommand(Gui::Command::Doc,
+                            "_f = App.getDocument('%s').addObject('%s', '%s')",
+                            doc,
+                            type,
+                            feat.c_str());
+    for (const auto& a : assignments) {
+        Gui::Command::doCommand(Gui::Command::Doc, "_f.%s", a.c_str());
+    }
+    Gui::Command::doCommand(Gui::Command::Doc, "del _f");
+    Gui::Command::doCommand(Gui::Command::Doc, "App.getDocument('%s').recompute()", doc);
+    Gui::Command::commitCommand();
+}
+
+}  // namespace
+
+DEF_STD_CMD_A(CmdSurfaceBlendSurface)
+
+CmdSurfaceBlendSurface::CmdSurfaceBlendSurface()
+    : Command("Surface_BlendSurface")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Blend surface");
+    sToolTipText = QT_TR_NOOP("Bridges the two edges selected, each on a face, with a surface\n"
+                              "tangent to both (G0 to G2 and a weight on each side).");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_BlendSurface";
+    sPixmap = "Surface_BlendSurface";
+}
+
+void CmdSurfaceBlendSurface::activated(int)
+{
+    auto edges = selectedEdges();
+    if (edges.size() != 2) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select the two edges to bridge"));
+        return;
+    }
+    makeFeature(this,
+                "Surface::BlendSurface",
+                "BlendSurface",
+                {"Edge1 = " + edges[0], "Edge2 = " + edges[1]});
+}
+
+bool CmdSurfaceBlendSurface::isActive()
+{
+    return hasActiveDocument();
+}
+
+DEF_STD_CMD_A(CmdSurfaceTwoRailSweep)
+
+CmdSurfaceTwoRailSweep::CmdSurfaceTwoRailSweep()
+    : Command("Surface_TwoRailSweep")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Two-rail sweep");
+    sToolTipText = QT_TR_NOOP("Sweeps sections between two rails that scale them: select the\n"
+                              "two rails first, then the sections, each from one rail to the other.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_TwoRailSweep";
+    sPixmap = "Surface_TwoRailSweep";
+}
+
+void CmdSurfaceTwoRailSweep::activated(int)
+{
+    auto edges = selectedEdges();
+    if (edges.size() < 3) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select two rails, then the sections between them"));
+        return;
+    }
+    std::string sections;
+    for (std::size_t i = 2; i < edges.size(); ++i) {
+        sections += edges[i] + ", ";
+    }
+    makeFeature(this,
+                "Surface::TwoRailSweep",
+                "TwoRailSweep",
+                {"Rail1 = " + edges[0], "Rail2 = " + edges[1], "Sections = [" + sections + "]"});
+}
+
+bool CmdSurfaceTwoRailSweep::isActive()
+{
+    return hasActiveDocument();
+}
+
+DEF_STD_CMD_A(CmdSurfacePipeShell)
+
+CmdSurfacePipeShell::CmdSurfacePipeShell()
+    : Command("Surface_PipeShell")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Pipeshell");
+    sToolTipText = QT_TR_NOOP("Sweeps profiles along a spine with every mode of the pipe shell:\n"
+                              "select the spine first, then the profiles.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_PipeShell";
+    sPixmap = "Surface_PipeShell";
+}
+
+void CmdSurfacePipeShell::activated(int)
+{
+    // the first object picked is the spine, the rest the profiles; a whole
+    // object, or its edges
+    auto selection = Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId());
+    if (selection.size() < 2) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select the spine first, then the profiles"));
+        return;
+    }
+    auto any = [](const std::string& sub) {
+        return sub.rfind("Edge", 0) == 0 || sub.rfind("Vertex", 0) == 0;
+    };
+    std::string spine = linksOf(selection[0], any), profiles;
+    for (std::size_t i = 1; i < selection.size(); ++i) {
+        profiles += linksOf(selection[i], any);
+    }
+    makeFeature(this,
+                "Surface::PipeShell",
+                "PipeShell",
+                {"Spine = [" + spine + "]", "Profiles = [" + profiles + "]"});
+}
+
+bool CmdSurfacePipeShell::isActive()
+{
+    return hasActiveDocument();
+}
+
 DEF_STD_CMD_A(CmdSurfaceSewing)
 
 CmdSurfaceSewing::CmdSurfaceSewing()
@@ -755,6 +914,9 @@ void CreateSurfaceCommands()
     rcCmdMgr.addCommand(new CmdSurfaceTrim());
     rcCmdMgr.addCommand(new CmdSurfaceUntrim());
     rcCmdMgr.addCommand(new CmdSurfaceExtendEdges());
+    rcCmdMgr.addCommand(new CmdSurfaceBlendSurface());
+    rcCmdMgr.addCommand(new CmdSurfaceTwoRailSweep());
+    rcCmdMgr.addCommand(new CmdSurfacePipeShell());
     rcCmdMgr.addCommand(new CmdSurfaceSewing());
     rcCmdMgr.addCommand(new CmdSurfaceExtendFace());
     rcCmdMgr.addCommand(new CmdSurfaceCurveOnMesh());

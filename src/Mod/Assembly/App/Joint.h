@@ -251,8 +251,8 @@ public:
     /// uses it
     void clearSide(int side);
 
-    /// Whether a user other than \a owner, a joint or a spring, uses the
-    /// element binding
+    /// Whether a user other than \a owner, a joint or a Physics item (a
+    /// spring, a load), uses the element binding
     static bool isBindingUsedByAnother(const Part::ElementBinding* binding,
                                        const App::DocumentObject* owner);
     /// Delete an element binding, and the convenience element it used when no

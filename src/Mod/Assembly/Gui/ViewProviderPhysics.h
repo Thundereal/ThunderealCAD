@@ -28,6 +28,7 @@
 
 #include <fastsignals/signal.h>
 
+#include <App/PropertyUnits.h>
 #include <Gui/ViewProviderDocumentObject.h>
 
 #include <Mod/Assembly/AssemblyGlobal.h>
@@ -71,6 +72,42 @@ public:
 
     void attach(App::DocumentObject* obj) override;
     void updateData(const App::Property* prop) override;
+    std::vector<std::string> getDisplayModes() const override;
+    void setDisplayMode(const char* mode) override;
+    QIcon getIcon() const override;
+    std::vector<App::DocumentObject*> claimChildren() const override;
+    bool doubleClicked() override;
+
+private:
+    void redraw();
+    void onChangedObject(const App::DocumentObject& obj, const App::Property& prop);
+
+    SoCoordinate3* coords = nullptr;
+    SoLineSet* line = nullptr;
+    fastsignals::scoped_connection connChanged;
+};
+
+/** An applied load, drawn at its frame in the assembly's coordinates: a
+ * force as an arrow from or to the point it acts at, on the frame's outer
+ * side (a face's outward normal), a torque as a curled
+ * arrow about its axis; redrawn as its component moves. It claims the
+ * element binding the load owns, and a double click opens the load's task
+ * panel (CommandCreateLoad.py).
+ */
+class AssemblyGuiExport ViewProviderAppliedLoad: public Gui::ViewProviderDocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(AssemblyGui::ViewProviderAppliedLoad);
+
+public:
+    ViewProviderAppliedLoad();
+    ~ViewProviderAppliedLoad() override;
+
+    /// The arrow's length
+    App::PropertyLength ArrowLength;
+
+    void attach(App::DocumentObject* obj) override;
+    void updateData(const App::Property* prop) override;
+    void onChanged(const App::Property* prop) override;
     std::vector<std::string> getDisplayModes() const override;
     void setDisplayMode(const char* mode) override;
     QIcon getIcon() const override;

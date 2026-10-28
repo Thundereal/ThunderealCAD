@@ -31,6 +31,7 @@
 
 #include "AssemblyObject.h"
 #include "Joint.h"
+#include "AppliedLoadPy.h"
 #include "Physics.h"
 #include "SpringDamperPy.h"
 
@@ -66,6 +67,90 @@ Base::Placement placementIn(const App::DocumentObject* assembly, App::DocumentOb
 }  // namespace
 
 PROPERTY_SOURCE(Assembly::PhysicsItem, App::DocumentObject)
+
+App::Part* PhysicsItem::getContainer() const
+{
+    // The Physics group is the assembly's: the assembly is the geometry group
+    return Base::freecad_dynamic_cast<App::Part>(
+        App::GeoFeatureGroupExtension::getGroupOfObject(this));
+}
+
+Part::ElementBinding* PhysicsItem::bindingOf(const App::PropertyLink& prop)
+{
+    return Base::freecad_dynamic_cast<Part::ElementBinding>(prop.getValue());
+}
+
+App::DocumentObject* PhysicsItem::endComponent(const App::PropertyLink& binding,
+                                               const App::PropertyLink& component,
+                                               Base::Placement* placement) const
+{
+    if (auto bound = bindingOf(binding)) {
+        Base::Placement plc;
+        auto on = Joint::componentOfBinding(getContainer(), bound, &plc);
+        if (placement) {
+            *placement = plc;
+        }
+        return on;
+    }
+    auto on = component.getValue();
+    if (placement) {
+        *placement = on ? placementIn(getContainer(), on) : Base::Placement();
+    }
+    return on;
+}
+
+Part::ElementBinding*
+PhysicsItem::makeEndBinding(App::DocumentObject* component, const char* subname, const char* vertex)
+{
+    auto assembly = Base::freecad_dynamic_cast<AssemblyObject>(getContainer());
+    if (!assembly) {
+        FC_THROWM(Base::RuntimeError, getFullName() << " is in no assembly");
+    }
+    return Joint::makeSide(assembly, component, subname, vertex);
+}
+
+bool PhysicsItem::resolveEnd(Part::ElementBinding* binding,
+                             const Base::Placement& last,
+                             Base::Placement& local) const
+{
+    const JointSide end = Joint::resolveBinding(getContainer(), binding, last);
+    if (!end.isValid()) {
+        return false;
+    }
+    local = end.placement.inverse() * end.frame;
+    return true;
+}
+
+void PhysicsItem::releaseBinding(Part::ElementBinding* binding)
+{
+    if (binding && !binding->isRemoving() && !Joint::isBindingUsedByAnother(binding, this)) {
+        Joint::removeBinding(getContainer(), binding);
+    }
+}
+
+void PhysicsItem::syncComponent(const App::PropertyLink& binding, App::PropertyLink& component)
+{
+    auto bound = bindingOf(binding);
+    if (bound && !isRestoring() && !bound->isRestoring()) {
+        auto on = Joint::componentOfBinding(getContainer(), bound);
+        if (on && component.getValue() != on) {
+            component.setValue(on);
+        }
+    }
+}
+
+void PhysicsItem::releaseBindings(std::initializer_list<const App::PropertyLink*> props)
+{
+    std::vector<App::DocumentObjectT> bindings;
+    for (auto prop : props) {
+        if (auto binding = bindingOf(*prop)) {
+            bindings.emplace_back(binding);
+        }
+    }
+    for (auto& bindingT : bindings) {
+        releaseBinding(Base::freecad_dynamic_cast<Part::ElementBinding>(bindingT.getObject()));
+    }
+}
 
 PROPERTY_SOURCE(Assembly::MassOverride, Assembly::PhysicsItem)
 
@@ -162,36 +247,18 @@ SpringDamper::SpringDamper()
     Damping.setUnit(Base::Unit(0, 1, -1));
 }
 
-App::Part* SpringDamper::getContainer() const
-{
-    // The Physics group is the assembly's: the assembly is the geometry group
-    return Base::freecad_dynamic_cast<App::Part>(
-        App::GeoFeatureGroupExtension::getGroupOfObject(this));
-}
-
 Part::ElementBinding* SpringDamper::getBinding(int side) const
 {
-    return Base::freecad_dynamic_cast<Part::ElementBinding>(
-        (side == 1 ? Binding1 : Binding2).getValue());
+    return bindingOf(side == 1 ? Binding1 : Binding2);
 }
 
 App::DocumentObject*
 SpringDamper::getEnd(int side, Base::Vector3d& point, Base::Placement* placement) const
 {
     point = (side == 1 ? Point1 : Point2).getValue();
-    if (auto binding = getBinding(side)) {
-        Base::Placement plc;
-        auto component = Joint::componentOfBinding(getContainer(), binding, &plc);
-        if (placement) {
-            *placement = plc;
-        }
-        return component;
-    }
-    auto component = (side == 1 ? Component1 : Component2).getValue();
-    if (placement) {
-        *placement = component ? placementIn(getContainer(), component) : Base::Placement();
-    }
-    return component;
+    return endComponent(side == 1 ? Binding1 : Binding2,
+                        side == 1 ? Component1 : Component2,
+                        placement);
 }
 
 Base::Vector3d SpringDamper::getEndPoint(int side) const
@@ -210,18 +277,14 @@ Part::ElementBinding* SpringDamper::setEnd(int side,
                                            const char* vertex)
 {
     checkSide(side);
-    auto assembly = Base::freecad_dynamic_cast<AssemblyObject>(getContainer());
-    if (!assembly) {
-        FC_THROWM(Base::RuntimeError, getFullName() << " is in no assembly");
-    }
-    auto binding = Joint::makeSide(assembly, component, subname, vertex);
+    auto binding = makeEndBinding(component, subname, vertex);
     clearEnd(side);
     (side == 1 ? Binding1 : Binding2).setValue(binding);
     // The point follows at the next recompute: taken now, so that the end is
     // where it goes before that
-    const JointSide end = Joint::resolveBinding(assembly, binding, Base::Placement());
-    if (end.isValid()) {
-        (side == 1 ? Point1 : Point2).setValue((end.placement.inverse() * end.frame).getPosition());
+    Base::Placement local;
+    if (resolveEnd(binding, Base::Placement(), local)) {
+        (side == 1 ? Point1 : Point2).setValue(local.getPosition());
     }
     return binding;
 }
@@ -239,9 +302,7 @@ void SpringDamper::clearEnd(int side)
     (side == 1 ? Binding1 : Binding2).setValue(nullptr);
     (side == 1 ? Component1 : Component2).setValue(component);
     (side == 1 ? Point1 : Point2).setValue(point);
-    if (!old->isRemoving() && !Joint::isBindingUsedByAnother(old, this)) {
-        Joint::removeBinding(getContainer(), old);
-    }
+    releaseBinding(old);
 }
 
 void SpringDamper::updateEditable()
@@ -255,19 +316,13 @@ void SpringDamper::updateEditable()
 
 void SpringDamper::onChanged(const App::Property* prop)
 {
-    if (prop == &Binding1 || prop == &Binding2) {
+    if (prop == &Binding1) {
         updateEditable();
-        // The component the binding is on: set here, not by execute(), which
-        // would change the links of the graph it is recomputed in
-        const int side = prop == &Binding1 ? 1 : 2;
-        auto binding = getBinding(side);
-        auto& component = side == 1 ? Component1 : Component2;
-        if (binding && !isRestoring() && !binding->isRestoring()) {
-            auto on = Joint::componentOfBinding(getContainer(), binding);
-            if (on && component.getValue() != on) {
-                component.setValue(on);
-            }
-        }
+        syncComponent(Binding1, Component1);
+    }
+    else if (prop == &Binding2) {
+        updateEditable();
+        syncComponent(Binding2, Component2);
     }
     PhysicsItem::onChanged(prop);
 }
@@ -296,15 +351,13 @@ App::DocumentObjectExecReturn* SpringDamper::execute()
         // The stored copy of a binding that does not resolve now is placed
         // where the end was last
         auto& point = side == 1 ? Point1 : Point2;
-        const JointSide end =
-            Joint::resolveBinding(getContainer(), binding, Base::Placement(point.getValue(), {}));
-        if (!end.isValid()) {
+        Base::Placement local;
+        if (!resolveEnd(binding, Base::Placement(point.getValue(), {}), local)) {
             return new App::DocumentObjectExecReturn(std::string("The ") + endName(side)
                                                      + " end does not resolve");
         }
-        const Base::Vector3d local = (end.placement.inverse() * end.frame).getPosition();
-        if (!point.getValue().IsEqual(local, 1e-12)) {
-            point.setValue(local);
+        if (!point.getValue().IsEqual(local.getPosition(), 1e-12)) {
+            point.setValue(local.getPosition());
         }
     }
     return PhysicsItem::execute();
@@ -313,20 +366,7 @@ App::DocumentObjectExecReturn* SpringDamper::execute()
 void SpringDamper::unsetupObject()
 {
     // The spring owns its element bindings: they go with it
-    auto assembly = getContainer();
-    std::vector<App::DocumentObjectT> bindings;
-    for (int side : {1, 2}) {
-        auto binding = getBinding(side);
-        if (binding && !binding->isRemoving() && !Joint::isBindingUsedByAnother(binding, this)) {
-            bindings.emplace_back(binding);
-        }
-    }
-    for (auto& bindingT : bindings) {
-        auto binding = Base::freecad_dynamic_cast<Part::ElementBinding>(bindingT.getObject());
-        if (binding && !binding->isRemoving()) {
-            Joint::removeBinding(assembly, binding);
-        }
-    }
+    releaseBindings({&Binding1, &Binding2});
     PhysicsItem::unsetupObject();
 }
 
@@ -335,6 +375,200 @@ PyObject* SpringDamper::getPyObject()
     if (PythonObject.is(Py::_None())) {
         // ref counter is set to 1
         PythonObject = Py::Object(new SpringDamperPy(this), true);
+    }
+    return Py::new_reference_to(PythonObject);
+}
+
+PROPERTY_SOURCE(Assembly::AppliedLoad, Assembly::PhysicsItem)
+
+const char* AppliedLoad::KindEnums[] = {"Force", "Torque", nullptr};
+const char* AppliedLoad::DirectionAxesEnums[] = {"Frame", "Assembly", nullptr};
+
+AppliedLoad::AppliedLoad()
+{
+    ADD_PROPERTY_TYPE(Kind, (0L), "Load", App::Prop_None, "A force, or a torque");
+    Kind.setEnums(KindEnums);
+    ADD_PROPERTY_TYPE(Component,
+                      (nullptr),
+                      "Load",
+                      App::Prop_None,
+                      "The component the load acts on");
+    ADD_PROPERTY_TYPE(Frame,
+                      (Base::Placement()),
+                      "Load",
+                      App::Prop_None,
+                      "The application frame, in Component's coordinates (the assembly's "
+                      "without it):\na force acts at its origin");
+    ADD_PROPERTY_TYPE(Binding,
+                      (nullptr),
+                      "Load",
+                      App::Prop_None,
+                      "The element binding of the frame: the element's frame, Component and "
+                      "Frame its output.\nNone: the free frame they give");
+    ADD_PROPERTY_TYPE(Direction,
+                      (Base::Vector3d(0, 0, 1)),
+                      "Load",
+                      App::Prop_None,
+                      "The direction of the force, or the axis of the torque");
+    ADD_PROPERTY_TYPE(DirectionAxes,
+                      (0L),
+                      "Load",
+                      App::Prop_None,
+                      "Frame: Direction in the frame's axes, turning with the component.\n"
+                      "Assembly: in the assembly's, fixed");
+    DirectionAxes.setEnums(DirectionAxesEnums);
+    ADD_PROPERTY_TYPE(Magnitude,
+                      (0.0),
+                      "Load",
+                      App::Prop_None,
+                      "The force, or the torque (1 N*m is 1 N m)");
+    ADD_PROPERTY_TYPE(Profile,
+                      (""),
+                      "Load",
+                      App::Prop_None,
+                      "The magnitude's factor over time, a formula of time (as a motion's); "
+                      "empty: 1");
+    ADD_PROPERTY_TYPE(Reaction,
+                      (nullptr),
+                      "Load",
+                      App::Prop_None,
+                      "The component taking the opposite load, at where the origin was at the "
+                      "start;\nnone: the ground");
+    updateUnit();
+}
+
+void AppliedLoad::updateUnit()
+{
+    // A force: mass length / time^2; a torque: mass length^2 / time^2
+    Magnitude.setUnit(isTorque() ? Base::Unit(2, 1, -2) : Base::Unit(1, 1, -2));
+}
+
+void AppliedLoad::updateEditable()
+{
+    const bool bound = Binding.getValue() != nullptr;
+    Component.setStatus(App::Property::ReadOnly, bound);
+    Frame.setStatus(App::Property::ReadOnly, bound);
+}
+
+Part::ElementBinding* AppliedLoad::getBinding() const
+{
+    return bindingOf(Binding);
+}
+
+App::DocumentObject* AppliedLoad::getEnd(Base::Placement& frame, Base::Placement* placement) const
+{
+    frame = Frame.getValue();
+    return endComponent(Binding, Component, placement);
+}
+
+Base::Placement AppliedLoad::getEndPlacement() const
+{
+    Base::Placement frame;
+    Base::Placement placement;
+    getEnd(frame, &placement);
+    return placement * frame;
+}
+
+Base::Vector3d AppliedLoad::getDirectionNow() const
+{
+    Base::Vector3d dir = Direction.getValue();
+    if (dir.Length() < 1e-12) {
+        return Base::Vector3d(0, 0, 0);
+    }
+    dir.Normalize();
+    if (DirectionAxes.getValue() == 0) {
+        Base::Vector3d out;
+        getEndPlacement().getRotation().multVec(dir, out);
+        return out;
+    }
+    return dir;
+}
+
+Part::ElementBinding*
+AppliedLoad::setEnd(App::DocumentObject* component, const char* subname, const char* vertex)
+{
+    auto binding = makeEndBinding(component, subname, vertex);
+    clearEnd();
+    Binding.setValue(binding);
+    // The frame follows at the next recompute: taken now, so that the load
+    // is where it goes before that
+    Base::Placement local;
+    if (resolveEnd(binding, Base::Placement(), local)) {
+        Frame.setValue(local);
+    }
+    return binding;
+}
+
+void AppliedLoad::clearEnd()
+{
+    auto old = getBinding();
+    if (!old) {
+        return;
+    }
+    // The free frame is where the frame is
+    Base::Placement frame;
+    auto component = getEnd(frame);
+    Binding.setValue(nullptr);
+    Component.setValue(component);
+    Frame.setValue(frame);
+    releaseBinding(old);
+}
+
+void AppliedLoad::onChanged(const App::Property* prop)
+{
+    if (prop == &Kind) {
+        updateUnit();
+    }
+    else if (prop == &Binding) {
+        updateEditable();
+        syncComponent(Binding, Component);
+    }
+    PhysicsItem::onChanged(prop);
+}
+
+void AppliedLoad::onDocumentRestored()
+{
+    updateUnit();
+    updateEditable();
+    PhysicsItem::onDocumentRestored();
+}
+
+short AppliedLoad::mustExecute() const
+{
+    if (Binding.isTouched()) {
+        return 1;
+    }
+    return PhysicsItem::mustExecute();
+}
+
+App::DocumentObjectExecReturn* AppliedLoad::execute()
+{
+    if (auto binding = getBinding()) {
+        // The stored copy of a binding that does not resolve now is placed
+        // where the frame was last
+        Base::Placement local;
+        if (!resolveEnd(binding, Frame.getValue(), local)) {
+            return new App::DocumentObjectExecReturn("The load's element does not resolve");
+        }
+        if (!Frame.getValue().isSame(local, 1e-12)) {
+            Frame.setValue(local);
+        }
+    }
+    return PhysicsItem::execute();
+}
+
+void AppliedLoad::unsetupObject()
+{
+    // The load owns its element binding: it goes with it
+    releaseBindings({&Binding});
+    PhysicsItem::unsetupObject();
+}
+
+PyObject* AppliedLoad::getPyObject()
+{
+    if (PythonObject.is(Py::_None())) {
+        // ref counter is set to 1
+        PythonObject = Py::Object(new AppliedLoadPy(this), true);
     }
     return Py::new_reference_to(PythonObject);
 }
@@ -379,6 +613,23 @@ TorsionSpring::TorsionSpring()
 
 namespace App
 {
+PROPERTY_SOURCE_TEMPLATE(Assembly::AppliedLoadPython, Assembly::AppliedLoad)
+template<>
+const char* Assembly::AppliedLoadPython::getViewProviderName() const
+{
+    return "Gui::ViewProviderPythonFeature";
+}
+template<>
+PyObject* Assembly::AppliedLoadPython::getPyObject()
+{
+    if (PythonObject.is(Py::_None())) {
+        // ref counter is set to 1
+        PythonObject = Py::Object(new App::FeaturePythonPyT<Assembly::AppliedLoadPy>(this), true);
+    }
+    return Py::new_reference_to(PythonObject);
+}
+template class AssemblyExport FeaturePythonT<Assembly::AppliedLoad>;
+
 PROPERTY_SOURCE_TEMPLATE(Assembly::TorsionSpringPython, Assembly::TorsionSpring)
 template<>
 const char* Assembly::TorsionSpringPython::getViewProviderName() const

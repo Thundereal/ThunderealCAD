@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- A force arrow pressing on a block -->
+  <rect x="6" y="40" width="52" height="18" rx="2" fill="#babdb6" stroke="#2e3436" stroke-width="2"/>
+  <path d="M 32,6 L 32,26" fill="none" stroke="#a40000" stroke-width="7" stroke-linecap="round"/>
+  <path d="M 20,24 L 32,38 L 44,24 Z" fill="#a40000" stroke="#a40000" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M 32,6 L 32,26" fill="none" stroke="#ef2929" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 24,26 L 32,35 L 40,26 Z" fill="#ef2929"/>
+</svg>

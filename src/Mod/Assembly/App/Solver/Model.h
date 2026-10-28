@@ -283,7 +283,13 @@ enum class ForceKind : std::uint8_t
     // rest) - c da/dt, a the turn of xJ about zI from xI (a limit's angle),
     // a0 its value at the start; a positive torque turning a up (Chrono's
     // ChLinkRSDA)
-    TorsionSpring
+    TorsionSpring,
+    // Applied loads: on frame I's body a force at oI, or a torque, of
+    // magnitude(t) along 'direction', in frame I's axes (followsFrame) or
+    // the assembly's; its opposite on frame J's body (the ground's when J
+    // is on none), at where oI was at the start (Chrono's ChLoadBodyBody)
+    AppliedForce,
+    AppliedTorque
 };
 
 struct ForceElement
@@ -297,6 +303,11 @@ struct ForceElement
     double rest = 0.0;     // mm, 0: the length at the start; torsion: rad from the start
     double preload = 0.0;  // mN, pushing apart; torsion: mN mm
     double c = 0.0;        // mN s / mm (kg/s); torsion: mN mm s / rad
+    // Applied loads: a unit vector, in frame I's axes when followsFrame,
+    // else the assembly's; the magnitude over time, mN or mN mm
+    Base::Vector3d direction;
+    bool followsFrame = false;
+    Formula magnitude;
 };
 
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has

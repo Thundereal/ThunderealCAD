@@ -320,7 +320,52 @@ Phase D1 is under way (2026-10-28):
     components that declare elements frames the faces as convenience
     elements do. GUI (TestGuiCommands): the command on two picked faces,
     picking in the panel, Free and re-pick, Cancel, and a double click.
-- D1's leftovers are all built; next in the phase table is D2, contact.
+- D1's leftovers are all built. Sec 4's table lists more for D1 than its
+  four ordered steps: bushings, forces and torques, initial velocities,
+  redundancy removal, inverse dynamics in kinematic runs, CSV export,
+  traces, the stale flag, and the run on a worker thread with cancel.
+  Those come before D3 (the phase order is D0, D1, D3, D2), one at a time.
+- Built: applied forces and torques. `Assembly::AppliedLoad` (the Physics
+  group, ticked per study as the springs are -- P3, sec 5.2's
+  `AppliedLoad` moved from the Simulation for that): `Kind` {Force,
+  Torque}; the application frame on an element through an element binding
+  the load owns, or a free `Frame` on `Component` (the spring's ends'
+  machinery, now `PhysicsItem`'s helpers: `makeEndBinding`, `resolveEnd`,
+  `releaseBinding`, `syncComponent`); `Direction` in `DirectionAxes`
+  {Frame: turning with the component, Assembly: fixed}; `Magnitude` (N or
+  N m, the unit following Kind) times `Profile`, a formula of time in the
+  motions' grammar (empty: 1); `Reaction`, the component taking the
+  opposite load at where the frame was at the start (none: the ground).
+  - Neutral: `ForceKind::AppliedForce` / `AppliedTorque`, a
+    `ForceElement` with `direction`, `followsFrame` and a `magnitude`
+    formula in mN or mN mm (Magnitude times the profile, one text, the
+    record); frame J is the reaction's, at frame I's start. `scaled()`
+    scales the formula as a force or a torque. A profile that does not
+    parse fails the generation, naming the load.
+  - Chrono: a `ChLoadBodyBody` subclass (`AppliedLoad` in
+    ChronoBackend.cpp) in a `ChLoadContainer`: the wrench on frame I's
+    body, its opposite on J's, the magnitude read at the time the load was
+    last updated to -- each integrator stage's, so a profile converges at
+    second order (halving the step quarters the error, measured 4.006),
+    not first as a load held over a step would.
+  - GUI: Force / Torque (`Assembly_CreateLoad`, `CommandCreateLoad.py`): a
+    panel as the spring's -- where it acts (Pick, Free, the offset along
+    the element's normal), Kind, Magnitude, Profile, Direction with
+    Reverse, the axes, and the reaction (Pick, Ground); a double click on
+    a load opens it. Drawn as an arrow on the frame's outer side (a pull
+    from the point, a push to it) or a curled arrow about a torque's axis
+    (`ViewProviderAppliedLoad`, `ArrowLength`).
+  - Tests (TestDynamics): a constant force up a slider, z0 + F t^2 / 2m
+    (1e-6 mm), at a free point and on a face; a sine profile against
+    (F0/m)(t/w - sin(w t)/w^2), at second order; a torque on the hinged
+    rod, T t^2 / 2I (1e-4 rad); a force at the rod's tip across it in its
+    own axes against the closed form, and fixed in the assembly against
+    theta'' = k cos(theta) integrated in the test (1e-4 rad); action and
+    reaction on two blocks; a static sag (m g - F) / k; a bad profile; a
+    load not listed. TestSpringEnds' TestLoadEnd (5): on a face, following
+    a resize, the direction turning with the part or not, a torque's unit,
+    Free, and deleting it beside a spring sharing its element.
+    TestGuiCommands: the command on a picked face, and the panel.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

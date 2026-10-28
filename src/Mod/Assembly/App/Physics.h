@@ -49,13 +49,54 @@ class ElementBinding;
 namespace Assembly
 {
 
-/// What the assembly's Physics group shows
+/** What the assembly's Physics group shows
+ *
+ * An item with an end on an element (a spring's ends, a load's point) holds
+ * an element binding per end, a child of the assembly, as a joint holds its
+ * sides (docs/AssemblyObjectModel.md sec 7.1): the helpers here make,
+ * resolve and delete them for it.
+ */
 class AssemblyExport PhysicsItem: public App::DocumentObject
 {
     PROPERTY_HEADER_WITH_OVERRIDE(Assembly::PhysicsItem);
 
 public:
     PhysicsItem() = default;
+
+    /// The assembly the item is in, which holds its element bindings
+    App::Part* getContainer() const;
+
+protected:
+    /// The element binding a link property holds, or null
+    static Part::ElementBinding* bindingOf(const App::PropertyLink& prop);
+    /** The component an end is on: its binding's, or the free end's
+     *
+     * @param placement: optionally, the component's placement in the
+     *                   assembly's coordinate system
+     */
+    App::DocumentObject* endComponent(const App::PropertyLink& binding,
+                                      const App::PropertyLink& component,
+                                      Base::Placement* placement) const;
+    /// An element binding for an end picked as a joint's side is
+    /// (Joint::makeSide()), owned by the item
+    Part::ElementBinding*
+    makeEndBinding(App::DocumentObject* component, const char* subname, const char* vertex);
+    /** The frame of a bound end relative to its component now, the offsets
+     * applied; a binding that does not resolve now keeps \a last
+     *
+     * @return false when the binding resolves to nothing
+     */
+    bool resolveEnd(Part::ElementBinding* binding,
+                    const Base::Placement& last,
+                    Base::Placement& local) const;
+    /// Delete a binding the item no longer holds, unless another holds it
+    void releaseBinding(Part::ElementBinding* binding);
+    /// Set a bound end's component, as its binding says, while the item
+    /// is not restoring: not in execute(), which would change the links of
+    /// the graph it is recomputed in
+    void syncComponent(const App::PropertyLink& binding, App::PropertyLink& component);
+    /// Delete the bindings the item holds, as it goes
+    void releaseBindings(std::initializer_list<const App::PropertyLink*> props);
 };
 
 /** A component's mass properties given, in place of those from its shape and
@@ -142,8 +183,6 @@ public:
         return "AssemblyGui::ViewProviderSpringDamper";
     }
 
-    /// The assembly the spring is in, which holds its element bindings
-    App::Part* getContainer() const;
     /// The element binding of end 1 or 2, or null for a free point
     Part::ElementBinding* getBinding(int side) const;
     /** The component end 1 or 2 is on, null for the ground, and the end in
@@ -208,5 +247,90 @@ public:
 };
 
 using TorsionSpringPython = App::FeaturePythonT<TorsionSpring>;
+
+/** A force or a torque applied to a component (docs/AssemblyDynamics.md
+ * sec 5.2's AppliedLoad), in dynamic and static runs: Magnitude times the
+ * Profile, a formula of time (empty: 1), along Direction -- in the
+ * application frame's axes, which turn with the component, or the
+ * assembly's. A force acts at the frame's origin. Its opposite acts on the
+ * Reaction component, at where the origin was at the start, or on the
+ * ground.
+ *
+ * The frame is on an element when the load has an element binding, owned
+ * as a spring owns its ends: the element's frame, the offsets applied, with
+ * Component and Frame its output. Without one it is the free frame they
+ * give.
+ */
+class AssemblyExport AppliedLoad: public PhysicsItem
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::AppliedLoad);
+
+public:
+    AppliedLoad();
+
+    App::PropertyEnumeration Kind;
+    /// The component the load acts on; none: the ground, which takes nothing
+    App::PropertyLink Component;
+    /// The application frame, in Component's coordinates (the assembly's
+    /// without it)
+    App::PropertyPlacement Frame;
+    /// The element binding of the frame, or none for a free frame
+    App::PropertyLink Binding;
+    App::PropertyVector Direction;
+    /// Frame: Direction in the frame's axes, turning with the component;
+    /// Assembly: in the assembly's
+    App::PropertyEnumeration DirectionAxes;
+    /// A force (N) or a torque (N m), as Kind is
+    App::PropertyQuantity Magnitude;
+    /// The magnitude's factor over time, in the workbench's formula
+    /// grammar (time, as a motion's); empty: 1
+    App::PropertyString Profile;
+    /// The component taking the opposite load; none: the ground
+    App::PropertyLink Reaction;
+
+    static const char* KindEnums[];
+    static const char* DirectionAxesEnums[];
+
+    App::DocumentObjectExecReturn* execute() override;
+    short mustExecute() const override;
+    void onChanged(const App::Property* prop) override;
+    void onDocumentRestored() override;
+    void unsetupObject() override;
+    PyObject* getPyObject() override;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderAppliedLoad";
+    }
+
+    bool isTorque() const
+    {
+        return Kind.getValue() == 1;
+    }
+    Part::ElementBinding* getBinding() const;
+    /** The component the load acts on, null for the ground, and the frame in
+     * its coordinates
+     *
+     * @param placement: optionally, the component's placement in the
+     *                   assembly's coordinate system
+     */
+    App::DocumentObject* getEnd(Base::Placement& frame, Base::Placement* placement = nullptr) const;
+    /// The application frame in the assembly's coordinate system now
+    Base::Placement getEndPlacement() const;
+    /// The direction in the assembly's coordinate system now, a unit vector
+    /// (none when Direction is zero)
+    Base::Vector3d getDirectionNow() const;
+    /// Put the frame on an element picked as a joint's side is
+    Part::ElementBinding*
+    setEnd(App::DocumentObject* component, const char* subname, const char* vertex = nullptr);
+    /// Make the frame a free one where it is, deleting the element binding
+    void clearEnd();
+
+private:
+    void updateUnit();
+    void updateEditable();
+};
+
+using AppliedLoadPython = App::FeaturePythonT<AppliedLoad>;
 
 }  // namespace Assembly

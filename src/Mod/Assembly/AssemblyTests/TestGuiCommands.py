@@ -161,8 +161,9 @@ class TestGuiCommands(unittest.TestCase):
                 if Gui.Control.activeDialog():
                     Gui.Control.closeDialog()
             JointObject.activeTask = None
-            if "CommandCreateSpring" in sys.modules:
-                sys.modules["CommandCreateSpring"].activeTask = None
+            for module in ("CommandCreateSpring", "CommandCreateLoad"):
+                if module in sys.modules:
+                    sys.modules[module].activeTask = None
             Gui.Selection.clearSelection()
             gdoc = Gui.getDocument(self.doc.Name)
             if gdoc.getInEdit():
@@ -732,6 +733,73 @@ class TestGuiCommands(unittest.TestCase):
         task.onOffset(1, App.Units.Quantity("2 mm"))
         self.accept_task()
         self.assertLess((spring.getEndPoint(1) - App.Vector(5, 5, 12)).Length, 1e-7)
+        self.assertClean()
+
+    # ------------------------------------------------------------ loads
+
+    def loads(self):
+        return [o for o in self.doc.Objects if o.isDerivedFrom("Assembly::AppliedLoad")]
+
+    def test_load_from_a_picked_face(self):
+        """Picked first, the command puts the load on the face and opens the
+        panel; OK keeps it, along the face's normal"""
+        import CommandCreateLoad
+
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Box.Face6", 5, 5, 10)
+        self.run_command("Assembly_CreateLoad")
+        task = CommandCreateLoad.activeTask
+        self.assertIsInstance(task, CommandCreateLoad.TaskLoad)
+        self.assertIsNone(task.armed)
+        self.accept_task()
+        loads = self.loads()
+        self.assertEqual(len(loads), 1)
+        load = loads[0]
+        self.assertIsNotNone(load.Binding)
+        self.assertEqual(load.Component, self.box)
+        self.assertLess((load.getEndPlacement().Base - App.Vector(5, 5, 10)).Length, 1e-7)
+        self.assertLess((load.getDirectionNow() - App.Vector(0, 0, 1)).Length, 1e-9)
+        self.assertEqual(load.ViewObject.claimChildren(), [load.Binding])
+        self.assertClean()
+
+    def test_load_panel(self):
+        """Picking in the panel: where it acts, then the reaction; a torque,
+        a profile, the axes; then an edit cancelled leaves it as it was"""
+        import CommandCreateLoad
+
+        self.run_command("Assembly_CreateLoad")
+        task = CommandCreateLoad.activeTask
+        self.assertEqual(task.armed, "frame")
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Box.Face6", 5, 5, 10)
+        _process()
+        self.assertIsNone(task.armed)
+        task.arm("reaction")
+        Gui.Selection.addSelection(self.doc.Name, self.assembly.Name, "Cyl1.Face1", 32, 0, 5)
+        _process()
+        self.assertIsNone(task.armed)
+        task.kindCombo.setCurrentIndex(task.kindCombo.findData("Torque"))
+        task.profileEdit.setText("sin(time)")
+        task.axesCombo.setCurrentIndex(task.axesCombo.findData("Assembly"))
+        task.onReverse()
+        self.accept_task()
+        load = self.loads()[0]
+        self.assertEqual(load.Kind, "Torque")
+        self.assertEqual(load.Reaction, self.cyl1)
+        self.assertEqual(load.Profile, "sin(time)")
+        self.assertEqual(load.DirectionAxes, "Assembly")
+        self.assertLess((load.Direction - App.Vector(0, 0, -1)).Length, 1e-12)
+        magnitude = load.Magnitude.getValueAs("N*m").Value
+        # Edited and cancelled
+        self.assertTrue(load.ViewObject.doubleClicked())
+        _process()
+        task = CommandCreateLoad.activeTask
+        self.assertIsInstance(task, CommandCreateLoad.TaskLoad)
+        task.onGround()
+        load.Magnitude = "5 N*m"
+        task.reject()
+        _process()
+        self.assertFalse(Gui.Control.activeDialog())
+        self.assertEqual(load.Reaction, self.cyl1)
+        self.assertAlmostEqual(load.Magnitude.getValueAs("N*m").Value, magnitude, places=9)
         self.assertClean()
 
     def test_export_asmt(self):

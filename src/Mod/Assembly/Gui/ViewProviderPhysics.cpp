@@ -223,3 +223,187 @@ void ViewProviderSpringDamper::redraw()
     coords->point.setValues(0, static_cast<int>(points.size()), points.data());
     line->numVertices.setValue(static_cast<int>(points.size()));
 }
+
+PROPERTY_SOURCE(AssemblyGui::ViewProviderAppliedLoad, Gui::ViewProviderDocumentObject)
+
+ViewProviderAppliedLoad::ViewProviderAppliedLoad()
+{
+    ADD_PROPERTY_TYPE(ArrowLength, (20.0), "Display", App::Prop_None, "The arrow's length");
+}
+
+ViewProviderAppliedLoad::~ViewProviderAppliedLoad()
+{
+    connChanged.disconnect();
+}
+
+void ViewProviderAppliedLoad::attach(App::DocumentObject* obj)
+{
+    ViewProviderDocumentObject::attach(obj);
+    auto* arrow = new SoSeparator;
+    auto* material = new SoMaterial;
+    material->diffuseColor.setValue(0.85F, 0.15F, 0.1F);
+    material->emissiveColor.setValue(0.5F, 0.1F, 0.05F);
+    arrow->addChild(material);
+    auto* style = new SoDrawStyle;
+    style->lineWidth = 3.0F;
+    arrow->addChild(style);
+    coords = new SoCoordinate3;
+    arrow->addChild(coords);
+    line = new SoLineSet;
+    arrow->addChild(line);
+    addDisplayMaskMode(arrow, "Arrow");
+    if (obj->getDocument()) {
+        connChanged = obj->getDocument()->signalChangedObject.connect(
+            [this](const App::DocumentObject& changed, const App::Property& prop) {
+                onChangedObject(changed, prop);
+            });
+    }
+    redraw();
+}
+
+std::vector<std::string> ViewProviderAppliedLoad::getDisplayModes() const
+{
+    return {"Arrow"};
+}
+
+void ViewProviderAppliedLoad::setDisplayMode(const char* mode)
+{
+    setDisplayMaskMode("Arrow");
+    ViewProviderDocumentObject::setDisplayMode(mode);
+}
+
+QIcon ViewProviderAppliedLoad::getIcon() const
+{
+    return Gui::BitmapFactory().pixmap("Assembly_AppliedLoad.svg");
+}
+
+std::vector<App::DocumentObject*> ViewProviderAppliedLoad::claimChildren() const
+{
+    std::vector<App::DocumentObject*> children;
+    if (auto* load = freecad_cast<Assembly::AppliedLoad*>(getObject())) {
+        if (auto* binding = load->getBinding()) {
+            children.push_back(binding);
+        }
+    }
+    return children;
+}
+
+bool ViewProviderAppliedLoad::doubleClicked()
+{
+    auto* obj = getObject();
+    if (!obj || !obj->isAttachedToDocument()) {
+        return false;
+    }
+    Gui::Command::doCommand(Gui::Command::Gui,
+                            "import CommandCreateLoad\n"
+                            "CommandCreateLoad.editLoad("
+                            "App.getDocument('%s').getObject('%s'))",
+                            obj->getDocument()->getName(),
+                            obj->getNameInDocument());
+    return true;
+}
+
+void ViewProviderAppliedLoad::updateData(const App::Property* prop)
+{
+    ViewProviderDocumentObject::updateData(prop);
+    redraw();
+}
+
+void ViewProviderAppliedLoad::onChanged(const App::Property* prop)
+{
+    if (prop == &ArrowLength) {
+        redraw();
+    }
+    ViewProviderDocumentObject::onChanged(prop);
+}
+
+void ViewProviderAppliedLoad::onChangedObject(const App::DocumentObject& obj,
+                                              const App::Property& prop)
+{
+    auto* load = freecad_cast<Assembly::AppliedLoad*>(getObject());
+    if (!load || !prop.isDerivedFrom<App::PropertyPlacement>()) {
+        return;
+    }
+    auto* assembly = App::GeoFeatureGroupExtension::getGroupOfObject(load);
+    Base::Placement frame;
+    if (holds(assembly, load->getEnd(frame), &obj)) {
+        redraw();
+    }
+}
+
+void ViewProviderAppliedLoad::redraw()
+{
+    auto* load = freecad_cast<Assembly::AppliedLoad*>(getObject());
+    if (!load || !coords) {
+        return;
+    }
+    const Base::Vector3d at = load->getEndPlacement().getPosition();
+    const Base::Vector3d axis = load->getDirectionNow();
+    std::vector<SbVec3f> points;
+    std::vector<int32_t> counts;
+    auto push = [&](const Base::Vector3d& p) {
+        points.emplace_back(static_cast<float>(p.x),
+                            static_cast<float>(p.y),
+                            static_cast<float>(p.z));
+    };
+    const double length = std::max(ArrowLength.getValue(), 1e-3);
+    if (axis.Length() < 0.5) {
+        // No direction: a dot's worth of a line
+        push(at);
+        push(at);
+        counts.push_back(2);
+    }
+    else {
+        Base::Vector3d across =
+            std::abs(axis.z) < 0.9 ? Base::Vector3d(0, 0, 1) : Base::Vector3d(1, 0, 0);
+        across = (across - axis * axis.Dot(across)).Normalize();
+        const Base::Vector3d other = axis.Cross(across);
+        const double head = 0.25 * length;
+        // The head's four barbs back from a tip, against a direction
+        auto barbs = [&](const Base::Vector3d& tip,
+                         const Base::Vector3d& along,
+                         const Base::Vector3d& side1,
+                         const Base::Vector3d& side2) {
+            for (const Base::Vector3d& side : {side1, side2, side1 * -1.0, side2 * -1.0}) {
+                push(tip);
+                push(tip - along * head + side * (0.4 * head));
+                counts.push_back(2);
+            }
+        };
+        if (!load->isTorque()) {
+            // On the frame's outer side (its z, a face's outward normal), so
+            // that a face does not hide it: a pull starts at the point it
+            // acts at, a push ends there
+            const Base::Vector3d outward =
+                load->getEndPlacement().getRotation().multVec(Base::Vector3d(0, 0, 1));
+            const Base::Vector3d tail = axis.Dot(outward) >= 0.0 ? at : at - axis * length;
+            push(tail);
+            push(tail + axis * length);
+            counts.push_back(2);
+            barbs(tail + axis * length, axis, across, other);
+        }
+        else {
+            // The axis, and three quarters of a turn about it, the head
+            // turning the positive way (right hand)
+            push(at - axis * (0.5 * length));
+            push(at + axis * (0.5 * length));
+            counts.push_back(2);
+            const double radius = 0.35 * length;
+            constexpr int steps = 36;
+            const double sweep = 1.5 * std::numbers::pi;
+            for (int i = 0; i <= steps; ++i) {
+                const double angle = sweep * i / steps;
+                push(at + (across * std::cos(angle) + other * std::sin(angle)) * radius);
+            }
+            counts.push_back(steps + 1);
+            const Base::Vector3d tip =
+                at + (across * std::cos(sweep) + other * std::sin(sweep)) * radius;
+            const Base::Vector3d tangent = across * -std::sin(sweep) + other * std::cos(sweep);
+            barbs(tip, tangent, axis, tangent.Cross(axis));
+        }
+    }
+    coords->point.setNum(static_cast<int>(points.size()));
+    coords->point.setValues(0, static_cast<int>(points.size()), points.data());
+    line->numVertices.setNum(static_cast<int>(counts.size()));
+    line->numVertices.setValues(0, static_cast<int>(counts.size()), counts.data());
+}

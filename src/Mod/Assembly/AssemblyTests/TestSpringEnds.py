@@ -43,7 +43,9 @@ def plc(x=0, y=0, z=0):
     return App.Placement(App.Vector(x, y, z), App.Rotation())
 
 
-class TestSpringEnds(unittest.TestCase):
+class EndsBase(unittest.TestCase):
+    """A base box and a block above it in an assembly"""
+
     def setUp(self):
         self.params = App.ParamGet("User parameter:BaseApp/Preferences/Mod/Assembly")
         self._solveInCreation = self.params.GetBool("SolveInJointCreation", True)
@@ -74,6 +76,8 @@ class TestSpringEnds(unittest.TestCase):
     def bindings(self):
         return [o for o in self.doc.Objects if o.isDerivedFrom("Part::ElementBinding")]
 
+
+class TestSpringEnds(EndsBase):
     # ------------------------------------------------------------ ends
 
     def testEndsOnFaces(self):
@@ -250,6 +254,70 @@ class TestSpringEnds(unittest.TestCase):
             self.assertVec(spring.Point1, App.Vector(5, 5, 15))
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class TestLoadEnd(EndsBase):
+    """An applied load's frame on an element, owned as a spring's end is"""
+
+    def newLoad(self):
+        import CommandCreateLoad
+
+        return CommandCreateLoad.newLoad(self.assembly)
+
+    def testFrameOnAFace(self):
+        load = self.newLoad()
+        binding = load.setEnd(self.base, "Face6")
+        self.doc.recompute()
+        self.assertEqual(load.Binding, binding)
+        self.assertEqual(load.Component, self.base)
+        self.assertIn("ReadOnly", load.getPropertyStatus("Frame"))
+        self.assertVec(load.getEndPlacement().Base, App.Vector(5, 5, 10))
+        # Along the face's normal, in the frame's axes
+        self.assertVec(load.getDirectionNow(), App.Vector(0, 0, 1))
+        self.base.Height = 25
+        self.doc.recompute()
+        self.assertVec(load.getEndPlacement().Base, App.Vector(5, 5, 25))
+
+    def testDirectionTurnsWithThePartOrNot(self):
+        load = self.newLoad()
+        load.setEnd(self.block, "Face6")
+        load.Direction = App.Vector(1, 0, 0)
+        self.doc.recompute()
+        # As a solve turns the block, without a recompute
+        self.block.Placement = App.Placement(
+            App.Vector(0, 0, 20), App.Rotation(App.Vector(0, 0, 1), 90)
+        )
+        self.assertVec(load.getDirectionNow(), App.Vector(0, 1, 0))
+        load.DirectionAxes = "Assembly"
+        self.assertVec(load.getDirectionNow(), App.Vector(1, 0, 0))
+
+    def testTorqueTakesATorqueUnit(self):
+        load = self.newLoad()
+        load.Kind = "Torque"
+        load.Magnitude = "2 N*m"
+        self.assertAlmostEqual(load.Magnitude.getValueAs("N*m").Value, 2, places=9)
+
+    def testFreeKeepsTheFrame(self):
+        load = self.newLoad()
+        name = load.setEnd(self.base, "Face6").Name
+        self.doc.recompute()
+        load.clearEnd()
+        self.assertIsNone(load.Binding)
+        self.assertIsNone(self.doc.getObject(name))
+        self.assertEqual(load.Component, self.base)
+        self.assertVec(load.getEndPlacement().Base, App.Vector(5, 5, 10))
+
+    def testDeletingTheLoadDeletesItsBinding(self):
+        load = self.newLoad()
+        load.setEnd(self.base, "Face6")
+        spring = self.spring()
+        spring.setEnd(1, self.base, "Face6")
+        self.doc.recompute()
+        element = self.assembly.Elements.Group[0].Name
+        self.doc.removeObject(load.Name)
+        # The spring's binding, and the element it shares, stay
+        self.assertEqual(len(self.bindings()), 1)
+        self.assertIsNotNone(self.doc.getObject(element))
 
 
 class TestSpringEndOnAnUnloadedChild(unittest.TestCase):

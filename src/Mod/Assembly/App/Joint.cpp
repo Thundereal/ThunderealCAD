@@ -922,8 +922,7 @@ bool Joint::isBindingUsedByAnother(const Part::ElementBinding* binding,
                                    const App::DocumentObject* owner)
 {
     for (auto user : binding->getInList()) {
-        if (user != owner
-            && (user->isDerivedFrom<Joint>() || user->isDerivedFrom<SpringDamper>())) {
+        if (user != owner && (user->isDerivedFrom<Joint>() || user->isDerivedFrom<PhysicsItem>())) {
             return true;
         }
     }

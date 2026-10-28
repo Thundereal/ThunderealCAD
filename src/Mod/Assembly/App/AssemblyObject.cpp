@@ -795,6 +795,12 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
     // alone holds becomes a body there, which the masses then weigh.
     if (simulationSpec && simulationSpec->analysis != Solver::Analysis::Kinematic) {
         addForces(*solverModel, sim);
+        if (badFormulas > 0) {
+            // A load's profile that does not parse, reported with it
+            Base::Console().Error("Generation of simulation failed\n");
+            motions.clear();
+            return -1;
+        }
         addDynamics(*solverModel);
         if (auto* typed = freecad_cast<Simulation*>(sim);
             typed && typed->GravityEnabled.getValue()) {
@@ -1588,22 +1594,103 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
     if (!model.dynamics) {
         model.dynamics = Solver::Dynamics();
     }
-    // A frame at a point on a component (on its body, as the component sits
-    // there), or on the ground in the assembly's coordinates
+    // A frame at a placement on a component (on its body, as the component
+    // sits there), or on the ground in the assembly's coordinates
+    auto frameOn = [&](App::DocumentObject* component,
+                       const Base::Placement& placement,
+                       const std::string& name) {
+        Solver::Frame frame;
+        frame.label = model.addSource(name);
+        Base::Placement local = placement;
+        if (component) {
+            const MbDPartData data = getMbDData(component);
+            frame.body = data.body;
+            local = data.offsetPlc * local;
+        }
+        frame.local = local;
+        return model.addFrame(frame);
+    };
     auto frameAt =
         [&](App::DocumentObject* component, const Base::Vector3d& point, const std::string& name) {
-            Solver::Frame frame;
-            frame.label = model.addSource(name);
-            Base::Placement local(point, Base::Rotation());
-            if (component) {
-                const MbDPartData data = getMbDData(component);
-                frame.body = data.body;
-                local = data.offsetPlc * local;
-            }
-            frame.local = local;
-            return model.addFrame(frame);
+            return frameOn(component, Base::Placement(point, Base::Rotation()), name);
         };
+    // Where a frame of the model is, in the assembly's coordinates
+    auto placementOf = [&](Solver::Id id) {
+        const Solver::Frame& frame = model.frames[id];
+        if (frame.body == Solver::NoId || frame.body >= model.bodies.size()) {
+            return frame.local;
+        }
+        return model.bodies[frame.body].placement * frame.local;
+    };
+    // A placement in the assembly's coordinates, relative to a component as
+    // it sits in the model (the ground's: as it is)
+    auto relativeTo = [&](App::DocumentObject* component, const Base::Placement& placement) {
+        if (!component) {
+            return placement;
+        }
+        const MbDPartData data = getMbDData(component);
+        if (data.body == Solver::NoId || data.body >= model.bodies.size()) {
+            return placement;
+        }
+        return (model.bodies[data.body].placement * data.offsetPlc).inverse() * placement;
+    };
+    // A force or a torque on its frame, its opposite on its reaction's
+    // frame there, or the ground's
+    auto addLoad = [&](AppliedLoad* load) {
+        const std::string name = load->getFullName();
+        Base::Placement local;
+        auto* component = load->getEnd(local);
+        if (!component) {
+            Base::Console().warning(
+                "Assembly: the load %s acts on no component, and does nothing\n",
+                load->getFullLabel().c_str());
+            return;
+        }
+        Base::Vector3d direction = load->Direction.getValue();
+        if (direction.Length() < 1e-12) {
+            Base::Console().warning("Assembly: the load %s has no direction, and does nothing\n",
+                                    load->getFullLabel().c_str());
+            return;
+        }
+        direction.Normalize();
+        // The magnitude in internal units (mN, mN mm) times the profile, one
+        // formula whose text is the record
+        std::string profile = load->Profile.getValue();
+        profile.erase(0, profile.find_first_not_of(" \t"));
+        profile.erase(profile.find_last_not_of(" \t") + 1);
+        std::ostringstream text;
+        text.precision(17);
+        text << load->Magnitude.getValue() << "*(" << (profile.empty() ? "1" : profile) << ")";
+        Solver::FormulaError error;
+        Solver::ForceElement force;
+        force.magnitude.text = text.str();
+        force.magnitude.tree = Solver::FormulaTree::parse(force.magnitude.text, &error);
+        force.magnitude.function = Solver::Formula::functionOf(force.magnitude.tree);
+        if (!force.magnitude.tree) {
+            ++badFormulas;
+            Base::Console().error("Assembly: the profile of %s is not valid: %s: %s\n",
+                                  load->getFullLabel().c_str(),
+                                  error.describe().c_str(),
+                                  profile.c_str());
+            return;
+        }
+        force.source = model.addSource(name);
+        force.kind =
+            load->isTorque() ? Solver::ForceKind::AppliedTorque : Solver::ForceKind::AppliedForce;
+        force.frameI = frameOn(component, local, name + "-1");
+        auto* reaction = load->Reaction.getValue();
+        force.frameJ =
+            frameOn(reaction, relativeTo(reaction, placementOf(force.frameI)), name + "-2");
+        force.direction = direction;
+        force.followsFrame = load->DirectionAxes.getValue() == 0;
+        force.id = static_cast<Solver::Id>(model.dynamics->forces.size());
+        model.dynamics->forces.push_back(std::move(force));
+    };
     for (auto* element : typed->Elements.getValues()) {
+        if (auto* load = freecad_cast<AppliedLoad*>(element)) {
+            addLoad(load);
+            continue;
+        }
         // On its joint's frames, as the joint's model record has them
         if (auto* torsion = freecad_cast<TorsionSpring*>(element)) {
             auto* joint = torsion->Joint.getValue();

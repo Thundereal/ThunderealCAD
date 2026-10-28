@@ -102,7 +102,8 @@ bool same(const ForceElement& a, const ForceElement& b)
 {
     return a.id == b.id && a.source == b.source && a.kind == b.kind && a.frameI == b.frameI
         && a.frameJ == b.frameJ && a.k == b.k && a.rest == b.rest && a.preload == b.preload
-        && a.c == b.c;
+        && a.c == b.c && same(a.direction, b.direction) && a.followsFrame == b.followsFrame
+        && a.magnitude.text == b.magnitude.text;
 }
 
 bool same(const Inertia& a, const Inertia& b)
@@ -207,6 +208,14 @@ Model Assembly::Solver::scaled(const Model& model, double length)
         // torque, and so a torsion's stiffness and damping, as a length
         // squared; its angle not at all.
         for (auto& force : out.dynamics->forces) {
+            if (force.kind == ForceKind::AppliedForce) {
+                force.magnitude = scaledFormula(force.magnitude, length);
+                continue;
+            }
+            if (force.kind == ForceKind::AppliedTorque) {
+                force.magnitude = scaledFormula(force.magnitude, length * length);
+                continue;
+            }
             if (force.kind == ForceKind::TorsionSpring) {
                 force.k *= length * length;
                 force.preload *= length * length;

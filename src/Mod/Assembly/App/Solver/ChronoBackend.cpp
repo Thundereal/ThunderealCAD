@@ -120,6 +120,8 @@
 #include <chrono/physics/ChLinkMate.h>
 #include <chrono/physics/ChLinkRSDA.h>
 #include <chrono/physics/ChLinkTSDA.h>
+#include <chrono/physics/ChLoadContainer.h>
+#include <chrono/physics/ChLoadsBody.h>
 #include <chrono/physics/ChLinkMotorLinearForce.h>
 #include <chrono/physics/ChLinkMotorLinearPosition.h>
 #include <chrono/physics/ChLinkMotorLinearSpeed.h>
@@ -386,6 +388,62 @@ public:
 
 private:
     FormulaFunction function;
+};
+
+// An applied load (ForceKind::AppliedForce / AppliedTorque): Chrono's
+// body-body wrench, on body B a force at frame I's origin or a torque, and
+// its opposite on body A, each at where frame I was at the start. The
+// magnitude is the formula at the time the load was last updated to, which
+// the integrator does for each of its stages.
+class AppliedLoad: public ch::ChLoadBodyBody
+{
+public:
+    AppliedLoad(std::shared_ptr<ch::ChBody> reaction,
+                std::shared_ptr<ch::ChBody> loaded,
+                const ch::ChFramed& frame,
+                FormulaFunction magnitude,
+                const ch::ChVector3d& direction,
+                bool followsFrame,
+                bool torque)
+        : ch::ChLoadBodyBody(std::move(reaction), std::move(loaded), frame)
+        , magnitude(std::move(magnitude))
+        , direction(direction)
+        , followsFrame(followsFrame)
+        , torque(torque)
+    {}
+
+    AppliedLoad* Clone() const override
+    {
+        return new AppliedLoad(*this);
+    }
+    void Update(double t, ch::UpdateFlags flags) override
+    {
+        time = t;
+        ch::ChLoadBodyBody::Update(t, flags);
+    }
+    void ComputeBodyBodyForceTorque(const ch::ChFrameMoving<>& /*rel_AB*/,
+                                    ch::ChVector3d& force,
+                                    ch::ChVector3d& moment) override
+    {
+        // In the axes of B's application frame, frame I's: a direction in
+        // the assembly's taken there at B's pose now (ComputeQ's frame_Bw)
+        const ch::ChVector3d along =
+            followsFrame ? direction : frame_Bw.TransformDirectionParentToLocal(direction);
+        const ch::ChVector3d value = along * magnitude(time).value;
+        force = torque ? ch::ChVector3d(0, 0, 0) : value;
+        moment = torque ? value : ch::ChVector3d(0, 0, 0);
+    }
+    bool IsStiff() override
+    {
+        return false;
+    }
+
+private:
+    FormulaFunction magnitude;
+    ch::ChVector3d direction;
+    bool followsFrame = false;
+    bool torque = false;
+    double time = 0.0;
 };
 
 // ---------------------------------------------------------------- NeutralLink
@@ -2585,8 +2643,25 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorLinear>>> linearMotors;
     // The force elements, on frames of the model: in SI and at the centres
     // of mass with it (a stiffness and a damping need no factor, sec 8.1)
+    auto loads = std::make_shared<ch::ChLoadContainer>();
+    sys.Add(loads);
     for (const auto& force : si.dynamics->forces) {
         if (!run.d->validFrame(force.frameI) || !run.d->validFrame(force.frameJ)) {
+            continue;
+        }
+        if (force.kind == ForceKind::AppliedForce || force.kind == ForceKind::AppliedTorque) {
+            // A formula that does not parse the builder reported
+            FormulaFunction magnitude = force.magnitude.evaluator();
+            if (!magnitude || run.d->isRigid(force.frameI, force.frameJ)) {
+                continue;
+            }
+            loads->Add(std::make_shared<AppliedLoad>(run.d->bodyOf(force.frameJ),
+                                                     run.d->bodyOf(force.frameI),
+                                                     run.d->globalOf(force.frameI),
+                                                     std::move(magnitude),
+                                                     toCh(force.direction),
+                                                     force.followsFrame,
+                                                     force.kind == ForceKind::AppliedTorque));
             continue;
         }
         if (force.kind == ForceKind::TorsionSpring) {

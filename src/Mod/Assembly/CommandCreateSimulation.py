@@ -1204,6 +1204,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             for o in self.assembly.Group
             if o.isDerivedFrom("Assembly::SpringDamper")
             or o.isDerivedFrom("Assembly::TorsionSpring")
+            or o.isDerivedFrom("Assembly::AppliedLoad")
         ]
 
     def fillElements(self):

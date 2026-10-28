@@ -641,3 +641,220 @@ class TestDynamics(unittest.TestCase):
         self.assertEqual(result, 0)
         for time, centre, _ in self.frames(rod, 1e-2):
             self.assertLess((centre - App.Vector(60, 5, 5)).Length, 1e-9, time)
+
+    # ------------------------------------------------------------ loads
+
+    def slider(self, name="Block", x=0.0):
+        """A 10 mm cube on a vertical slider over the grounded base, 2 mm
+        above it, without gravity's run: what a load alone moves"""
+        base = self.doc.getObject("Base")
+        if base is None:
+            base = self.box("Base", (40, 10, 10), (0, 0, 0))
+            ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+            JointObject.GroundedJoint(ground, base)
+        block = self.box(name, (10, 10, 10), (x, 0, 12))
+        self.doc.recompute()
+        self.joint(
+            "Slider", (base, ["Face6"]), plc(x + 5, 5, 10), (block, ["Face5"]), plc(5, 5, 0)
+        )
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        return block
+
+    def load(self, end, **props):
+        import CommandCreateLoad
+
+        load = CommandCreateLoad.makeLoad(self.assembly, end, **props)
+        self.assertNotIn("Invalid", load.State)
+        return load
+
+    def heights(self, block, step):
+        out = []
+        for i in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(i)
+            out.append((i * step, block.Placement.Base.z))
+        return out
+
+    def test_force_constant(self):
+        """A constant force up the slider: z = z0 + F t^2 / (2 m), at a free
+        point and on the block's top face alike."""
+        accel = 1e4  # mm/s^2
+        force = self.MASS * accel * 1e-3  # N
+        for end in ("point", "face"):
+            if end == "face":
+                self.tearDown()
+                self.setUp()
+            block = self.slider()
+            load = self.load(
+                (block, App.Placement(App.Vector(5, 5, 10), App.Rotation()))
+                if end == "point"
+                else (block, "Face6"),
+                magnitude="%r N" % force,
+            )
+            if end == "face":
+                self.assertIsNotNone(load.Binding)
+                self.assertTrue(load.getEndPlacement().Base.isEqual(App.Vector(5, 5, 22), 1e-9))
+            _, result = self.simulate(0.1, 1e-2, GravityEnabled=False, Elements=[load])
+            self.assertEqual(result, 0)
+            for time, z in self.heights(block, 1e-2):
+                self.assertAlmostEqual(z, 12 + 0.5 * accel * time * time, delta=1e-6, msg=end)
+
+    def test_force_profile(self):
+        """F0 sin(w t) from rest: z = z0 + (F0 / m) (t / w - sin(w t) / w^2),
+        to second order in the step -- the load taken at each stage's time,
+        not held over a step, which would be first order."""
+        accel = 1e4
+        w = 2 * math.pi * 10
+        errors = []
+        for step in (1e-3, 5e-4):
+            if errors:
+                self.tearDown()
+                self.setUp()
+            block = self.slider()
+            load = self.load(
+                (block, App.Placement(App.Vector(5, 5, 10), App.Rotation())),
+                magnitude="%r N" % (self.MASS * accel * 1e-3),
+                direction=App.Vector(0, 0, 1),
+            )
+            load.Profile = "sin(2*pi*10*time)"
+            _, result = self.simulate(0.2, step, GravityEnabled=False, Elements=[load])
+            self.assertEqual(result, 0)
+            errors.append(
+                max(
+                    abs(z - 12 - accel * (time / w - math.sin(w * time) / (w * w)))
+                    for time, z in self.heights(block, step)
+                )
+            )
+        # Halving the step quarters the error (measured 4.006); a hundredth
+        # of the swing about the drift, accel / w^2 (2.5 mm), at 1 ms
+        self.assertGreater(errors[0] / errors[1], 3.5, errors)
+        self.assertLess(errors[0], 1e-2 * accel / (w * w), errors)
+
+    def rodAngles(self, rod, step):
+        return [
+            (time, math.atan2(5 - centre.z, centre.x - 10))
+            for time, centre, _ in self.frames(rod, step)
+        ]
+
+    def test_torque(self):
+        """A torque about the hinge's axis: theta = T t^2 / (2 I)."""
+        rod = self.pendulum()
+        inertia = 100 * 10 * 10 * 2.7e-6 * ((100**2 + 10**2) / 12 + 50**2) * 1e-6  # kg m^2
+        torque = 200 * inertia  # N m: a turn of 1 rad at 0.1 s
+        load = self.load(
+            (rod, App.Placement(App.Vector(0, 5, 5), App.Rotation())),
+            kind="Torque",
+            magnitude="%r N*m" % torque,
+            direction=App.Vector(0, 1, 0),
+        )
+        _, result = self.simulate(0.1, 1e-3, GravityEnabled=False, Elements=[load])
+        self.assertEqual(result, 0)
+        for time, angle in self.rodAngles(rod, 1e-3):
+            self.assertAlmostEqual(angle, 100 * time * time, delta=1e-4, msg=time)
+
+    def test_force_follows_the_part(self):
+        """A force at the rod's tip across it: in the rod's axes it keeps its
+        arm, theta = F L t^2 / (2 I); in the assembly's its arm shrinks as
+        the rod turns, and the rod lags."""
+        inertia = 100 * 10 * 10 * 2.7e-6 * ((100**2 + 10**2) / 12 + 50**2) * 1e-6
+        force = 200 * inertia / 0.1  # N, at 0.1 m
+        turns = {}
+        for axes in ("Frame", "Assembly"):
+            if axes == "Assembly":
+                self.tearDown()
+                self.setUp()
+            rod = self.pendulum()
+            load = self.load(
+                (rod, App.Placement(App.Vector(100, 5, 5), App.Rotation())),
+                magnitude="%r N" % force,
+                direction=App.Vector(0, 0, -1),
+            )
+            load.DirectionAxes = axes
+            _, result = self.simulate(0.1, 1e-3, GravityEnabled=False, Elements=[load])
+            self.assertEqual(result, 0)
+            turns[axes] = self.rodAngles(rod, 1e-3)
+        for time, angle in turns["Frame"]:
+            self.assertAlmostEqual(angle, 100 * time * time, delta=1e-4, msg=time)
+        # Fixed in the assembly: theta'' = 200 cos(theta), integrated finely
+        theta, rate, h = 0.0, 0.0, 1e-6
+        expected = {}
+        for i in range(100001):
+            if i % 1000 == 0:
+                expected[round(i * h, 9)] = theta
+
+            def acc(a):
+                return 200 * math.cos(a)
+
+            k1v, k1x = acc(theta), rate
+            k2v, k2x = acc(theta + 0.5 * h * k1x), rate + 0.5 * h * k1v
+            k3v, k3x = acc(theta + 0.5 * h * k2x), rate + 0.5 * h * k2v
+            k4v, k4x = acc(theta + h * k3x), rate + h * k3v
+            theta += h * (k1x + 2 * k2x + 2 * k3x + k4x) / 6
+            rate += h * (k1v + 2 * k2v + 2 * k3v + k4v) / 6
+        for time, angle in turns["Assembly"]:
+            self.assertAlmostEqual(angle, expected[round(time, 9)], delta=1e-4, msg=time)
+        self.assertLess(turns["Assembly"][-1][1], turns["Frame"][-1][1] - 0.02)
+
+    def test_force_reaction(self):
+        """A force on one block with its reaction on another, each on its
+        own slider: equal and opposite, z - z0 = +-F t^2 / (2 m)."""
+        accel = 1e4
+        a = self.slider("BlockA")
+        b = self.slider("BlockB", x=20)
+        load = self.load(
+            (b, App.Placement(App.Vector(5, 5, 10), App.Rotation())),
+            magnitude="%r N" % (self.MASS * accel * 1e-3),
+            reaction=a,
+        )
+        _, result = self.simulate(0.1, 1e-2, GravityEnabled=False, Elements=[load])
+        self.assertEqual(result, 0)
+        for (time, za), (_, zb) in zip(self.heights(a, 1e-2), self.heights(b, 1e-2)):
+            self.assertAlmostEqual(zb, 12 + 0.5 * accel * time * time, delta=1e-6, msg=time)
+            self.assertAlmostEqual(za, 12 - 0.5 * accel * time * time, delta=1e-6, msg=time)
+
+    def test_force_static(self):
+        """A block on a spring, lifted by a force: it sags by (m g - F) / k."""
+        base = self.box("Base", (10, 10, 10), (0, 0, 0))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        block = self.box("Block", (10, 10, 10), (0, 0, 14))
+        self.doc.recompute()
+        self.joint("Slider", (base, ["Face6"]), plc(5, 5, 10), (block, ["Face5"]), plc(5, 5, 0))
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        physics = self.assembly.getGroup("Physics", True)
+        spring = physics.newObject("Assembly::SpringDamper", "Spring")
+        spring.Component1 = base
+        spring.Point1 = App.Vector(5, 5, 10)
+        spring.Component2 = block
+        spring.Point2 = App.Vector(5, 5, 0)
+        spring.Stiffness = "%g N/m" % self.K
+        spring.FreeLength = 4.0
+        lift = 0.25 * self.MASS * G * 1e-3  # N
+        load = self.load((block, "Face6"), magnitude="%r N" % lift)
+        _, result = self.simulate(
+            0.0, 1e-2, AnalysisType="Static", Elements=[spring, load]
+        )
+        self.assertEqual(result, 0)
+        self.assembly.updateForFrame(0)
+        sag = 0.75 * self.MASS * G / self.K
+        self.assertAlmostEqual(block.Placement.Base.z, 10 + 4 - sag, delta=1e-5)
+
+    def test_load_bad_profile(self):
+        """A profile that does not parse fails the run, naming the load."""
+        block = self.slider()
+        load = self.load(
+            (block, App.Placement(App.Vector(5, 5, 10), App.Rotation())), magnitude="1 N"
+        )
+        load.Profile = "sin(time"
+        _, result = self.simulate(0.1, 1e-2, GravityEnabled=False, Elements=[load])
+        self.assertNotEqual(result, 0)
+
+    def test_load_not_listed(self):
+        """A load the study does not list does nothing."""
+        block = self.slider()
+        self.load((block, App.Placement(App.Vector(5, 5, 10), App.Rotation())), magnitude="1 N")
+        _, result = self.simulate(0.1, 1e-2, GravityEnabled=False, Elements=[])
+        self.assertEqual(result, 0)
+        for time, z in self.heights(block, 1e-2):
+            self.assertAlmostEqual(z, 12, delta=1e-9, msg=time)

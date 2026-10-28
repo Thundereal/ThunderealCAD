@@ -241,6 +241,38 @@ class TestSurfaceFeatures(unittest.TestCase):
         self.assertGreater(sew.MaxGap.Value, 0.004)
         self.assertLess(sew.MaxGap.Value, 0.1)
 
+    def testSewingSurfacesOnOneCurve(self):
+        # a network and a side lofted down from its first profile: built on
+        # one curve, they meet within the network's fit, not to 1e-7; the
+        # default tolerance sews them
+        import math
+
+        def p(u, v):
+            return V(80 * u, 50 * v, 22 + 10 * math.sin(math.pi * u) * (1 - 0.6 * (2 * v - 1) ** 2))
+
+        def curve(name, alongU, fixed):
+            c = Part.BSplineCurve()
+            c.interpolate([p(t / 12, fixed) if alongU else p(fixed, t / 12) for t in range(13)])
+            o = self.doc.addObject("Part::Feature", name)
+            o.Shape = c.toShape()
+            return o
+
+        fr = (0, 1 / 3, 2 / 3, 1)
+        net = self.doc.addObject("Surface::Network", "Top")
+        net.Profiles = [(curve("p%d" % i, True, f), "Edge1") for i, f in enumerate(fr)]
+        net.Guides = [(curve("g%d" % i, False, f), "Edge1") for i, f in enumerate(fr)]
+        line = self.doc.addObject("Part::Line", "Floor")
+        line.X1, line.Y1, line.Z1, line.X2, line.Y2, line.Z2 = 0, 0, 0, 80, 0, 0
+        side = self.doc.addObject("Surface::Sections", "Side")
+        side.NSections = [(net.Profiles[0][0], "Edge1"), (line, "Edge1")]
+        self.recompute(net, side)
+        self.assertGreater(net.MaxFitDeviation, 1e-6)
+        sew = self.doc.addObject("Surface::Sewing", "Sew")
+        sew.ShapeList = [(net, ""), (side, "")]
+        self.recompute(sew)
+        self.assertEqual(len(sew.Shape.Shells), 1)
+        self.assertEqual(sew.FreeEdges, 6)
+
     # -- Cut ------------------------------------------------------------------
 
     def testCutNames(self):

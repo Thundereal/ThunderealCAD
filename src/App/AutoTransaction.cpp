@@ -46,11 +46,11 @@ AutoTransaction::AutoTransaction(const char *name, bool tmpName, bool recordView
         ++_TransactionViewObject;
     if(name && name[0] && app._activeTransactionGuard>=0) {
         if(!app.getActiveTransaction()
-                || (!tmpName && app._activeTransactionTmpName))
+                || (!tmpName && app._activeTmpName()))
         {
             FC_LOG("auto transaction '" << name << "', " << tmpName);
             tid = app.setActiveTransaction(name);
-            app._activeTransactionTmpName = tmpName;
+            app._activeTmpName() = tmpName;
         }
     }
     // We use negative transaction guard to disable auto transaction from here
@@ -133,7 +133,7 @@ void AutoTransaction::setEnable(bool enable) {
         return;
     app._activeTransactionGuard = -app._activeTransactionGuard;
     FC_TRACE("toggle auto Transaction " << app._activeTransactionGuard);
-    if(!enable && app._activeTransactionTmpName) {
+    if(!enable && app._activeTmpName()) {
         bool close = true;
         for(auto &v : app.DocMap) {
             if(v.second->hasPendingTransaction()) {
@@ -182,15 +182,121 @@ void Application::commitImplicitTransactions()
         v.second->commitImplicitTransaction();
 }
 
+const Application::BoundTransaction *Application::_boundTransaction(const Document *doc) const
+{
+    if (_boundTransactions.empty())
+        return nullptr;
+    if (doc) {
+        auto it = _boundTransactions.find(doc);
+        if (it != _boundTransactions.end())
+            return &it->second;
+    }
+    auto it = _boundTransactions.find(_pActiveDoc);
+    return it == _boundTransactions.end() ? nullptr : &it->second;
+}
+
+Application::BoundTransaction *Application::_boundTransaction(const Document *doc)
+{
+    return const_cast<BoundTransaction*>(
+        static_cast<const Application*>(this)->_boundTransaction(doc));
+}
+
+bool &Application::_activeTmpName()
+{
+    if (auto bound = _boundTransaction())
+        return bound->tmpName;
+    return _activeTransactionTmpName;
+}
+
+bool Application::_ownedByOtherBinding(const Document *doc, const BoundTransaction *bound) const
+{
+    for (auto &v : _boundTransactions) {
+        if (&v.second == bound)
+            continue;
+        if (v.first == doc)
+            return true;
+        // A document changed in that edit's step, not bound itself
+        if (v.second.id && doc->hasPendingTransaction()
+                && doc->getTransactionID(true) == v.second.id)
+            return true;
+    }
+    return false;
+}
+
+bool Application::isActiveTransactionBound(const Document *doc) const
+{
+    return doc && _boundTransactions.count(doc) != 0;
+}
+
+void Application::bindActiveTransaction(Document *doc)
+{
+    if (!doc || isActiveTransactionBound(doc))
+        return;
+    BoundTransaction bound;
+    // The application's own, not whatever the active document's binding
+    // is: the one the command that started the edit opened
+    if (_activeTransactionID && Transaction::getLastID() == _activeTransactionID) {
+        bound.name = _activeTransactionName;
+        bound.id = _activeTransactionID;
+        bound.tmpName = _activeTransactionTmpName;
+        _activeTransactionID = 0;
+        _activeTransactionTmpName = false;
+    }
+    FC_LOG("bind active transaction of " << doc->getName() << " '" << bound.name
+           << "' " << bound.id);
+    _boundTransactions[doc] = std::move(bound);
+}
+
+void Application::unbindActiveTransaction(Document *doc, bool abort)
+{
+    auto it = _boundTransactions.find(doc);
+    if (it == _boundTransactions.end())
+        return;
+    const int id = it->second.id;
+    FC_LOG("unbind active transaction of " << doc->getName() << " '" << it->second.name
+           << "' " << id);
+    if (id && ((_activeTransactionGuard > 0 && !abort) || _TransactionLock)) {
+        // The close is put off: to the end of the command it is asked in
+        // (AutoTransaction), or of the lock. Either closes the application's
+        // active one then, so it is handed back to the application -- as it
+        // was when there was only that
+        _activeTransactionID = id;
+        _activeTransactionName = it->second.name;
+        _activeTransactionTmpName = it->second.tmpName;
+        _boundTransactions.erase(it);
+        closeActiveTransaction(abort, id);
+        return;
+    }
+    // Closed while the binding still has it, so the application's own
+    // active transaction -- another document's step -- is left alone
+    if (id)
+        closeActiveTransaction(abort, id);
+    _boundTransactions.erase(doc);
+}
+
 int Application::setActiveTransaction(const char *name, bool persist) {
     if(!name || !name[0])
         name = "Command";
 
-    if(_activeTransactionGuard>0 && getActiveTransaction()) {
-        if(_activeTransactionTmpName) {
+    // A document's own while it is bound and active, else the
+    // application's; looked up by its document again after the commits
+    // below, which may run anything
+    BoundTransaction *bound = _boundTransaction();
+    const Document *boundDoc = nullptr;
+    if (bound) {
+        for (auto &v : _boundTransactions) {
+            if (&v.second == bound)
+                boundDoc = v.first;
+        }
+    }
+
+    int activeId = 0;
+    getActiveTransaction(&activeId);
+    if(_activeTransactionGuard>0 && activeId) {
+        if(_activeTmpName()) {
             FC_LOG("transaction rename to '" << name << "'");
             for(auto &v : DocMap)
-                v.second->renameTransaction(name,_activeTransactionID);
+                v.second->renameTransaction(name,activeId);
         } else {
             if(persist)
                 AutoTransaction::setEnable(false);
@@ -201,20 +307,53 @@ int Application::setActiveTransaction(const char *name, bool persist) {
             FC_WARN("Transaction locked, ignore new transaction '" << name << "'");
         return 0;
     } else {
-        FC_LOG("set active transaction '" << name << "'");
-        _activeTransactionID = 0;
-        for(auto &v : DocMap)
-            v.second->_commitTransaction();
-        _activeTransactionID = Transaction::getNewID();
+        FC_LOG("set active transaction '" << name << "'"
+               << (boundDoc ? " of " : "") << (boundDoc ? boundDoc->getName() : ""));
+        if (bound)
+            bound->id = 0;
+        else
+            _activeTransactionID = 0;
+        // Every document's open transaction is committed, but one that
+        // another document's edit is in the middle of (entry 232)
+        for(auto &v : DocMap) {
+            if (!_ownedByOtherBinding(v.second, bound))
+                v.second->_commitTransaction();
+        }
+        bound = nullptr;
+        if (boundDoc) {
+            auto it = _boundTransactions.find(boundDoc);
+            if (it != _boundTransactions.end())
+                bound = &it->second;
+        }
+        activeId = Transaction::getNewID();
+        if (bound)
+            bound->id = activeId;
+        else
+            _activeTransactionID = activeId;
     }
-    _activeTransactionTmpName = false;
-    _activeTransactionName = name;
+    if (bound) {
+        bound->tmpName = false;
+        bound->name = name;
+    }
+    else {
+        _activeTransactionTmpName = false;
+        _activeTransactionName = name;
+    }
     if(persist)
         AutoTransaction::setEnable(false);
-    return _activeTransactionID;
+    return activeId;
 }
 
 const char *Application::getActiveTransaction(int *id) const {
+    return getActiveTransaction(id, nullptr);
+}
+
+const char *Application::getActiveTransaction(int *id, const Document *doc) const {
+    if (auto bound = _boundTransaction(doc)) {
+        if (id)
+            *id = bound->id;
+        return bound->id ? bound->name.c_str() : nullptr;
+    }
     int tid = 0;
     if(Transaction::getLastID() == _activeTransactionID)
         tid = _activeTransactionID;
@@ -253,10 +392,19 @@ void Application::closeActiveTransaction(bool abort, int id) {
                 guard.emplace(TransactionGuard::Abort);
             v.second->undo(id);
         }
+        for (auto &v : _boundTransactions) {
+            if (v.second.id == id)
+                v.second.id = 0;
+        }
         return;
     }
 
-    if(!id) id = _activeTransactionID;
+    if (!id) {
+        if (auto bound = _boundTransaction())
+            id = bound->id;
+        else
+            id = _activeTransactionID;
+    }
     if(!id)
         return;
 
@@ -272,8 +420,18 @@ void Application::closeActiveTransaction(bool abort, int id) {
         return;
     }
 
-    FC_LOG("close transaction '" << _activeTransactionName << "' " << abort);
-    _activeTransactionID = 0;
+    FC_LOG("close transaction " << id << " " << abort);
+    // The binding that has it, else the application's: a step one edit
+    // closes ends no other's (entry 232)
+    bool wasBound = false;
+    for (auto &v : _boundTransactions) {
+        if (v.second.id == id) {
+            v.second.id = 0;
+            wasBound = true;
+        }
+    }
+    if (!wasBound || id == _activeTransactionID)
+        _activeTransactionID = 0;
 
     TransactionSignaller signaller(abort,false);
     if (abort) {

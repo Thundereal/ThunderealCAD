@@ -223,7 +223,18 @@ PyMethodDef Application::Methods[] = {
      "active transaction causes any document changes to open a transaction with\n"
      "the given name and ID."},
     {"getActiveTransaction", (PyCFunction) Application::sGetActiveTransaction, METH_VARARGS,
-     "getActiveTransaction() -> (name,id) return the current active transaction name and ID"},
+     "getActiveTransaction(doc=None) -> (name,id) return the current active transaction name and ID\n\n"
+     "With a document: the one a change to it goes in -- its own while it is\n"
+     "bound (bindActiveTransaction), else the active document's bound one,\n"
+     "else the application's"},
+    {"bindActiveTransaction", (PyCFunction) Application::sBindActiveTransaction, METH_VARARGS,
+     "bindActiveTransaction(doc) -- the active transaction becomes doc's own while doc is in edit\n\n"
+     "A step set while doc is the active document is doc's, and a new active\n"
+     "transaction set anywhere else commits no transaction of doc's"},
+    {"unbindActiveTransaction", (PyCFunction) Application::sUnbindActiveTransaction, METH_VARARGS,
+     "unbindActiveTransaction(doc, abort=False) -- end doc's own active transaction, committing it"},
+    {"isActiveTransactionBound", (PyCFunction) Application::sIsActiveTransactionBound, METH_VARARGS,
+     "isActiveTransactionBound(doc) -> bool -- whether doc has its own active transaction"},
     {"closeActiveTransaction", (PyCFunction) Application::sCloseActiveTransaction, METH_VARARGS,
      "closeActiveTransaction(abort=False) -- commit or abort current active transaction"},
     {"startTransactionMeasure", (PyCFunction) Application::sStartTransactionMeasure, METH_VARARGS,
@@ -1200,12 +1211,21 @@ PyObject *Application::sSetActiveTransaction(PyObject * /*self*/, PyObject *args
 
 PyObject *Application::sGetActiveTransaction(PyObject * /*self*/, PyObject *args)
 {
-    if (!PyArg_ParseTuple(args, ""))
+    PyObject *pyDoc = Py_None;
+    if (!PyArg_ParseTuple(args, "|O", &pyDoc))
         return nullptr;
+    Document *doc = nullptr;
+    if (pyDoc != Py_None) {
+        if (!PyObject_TypeCheck(pyDoc, &DocumentPy::Type)) {
+            PyErr_SetString(PyExc_TypeError, "expected a document or None");
+            return nullptr;
+        }
+        doc = static_cast<DocumentPy*>(pyDoc)->getDocumentPtr();
+    }
 
     PY_TRY {
         int id = 0;
-        const char *name = GetApplication().getActiveTransaction(&id);
+        const char *name = GetApplication().getActiveTransaction(&id, doc);
         if(!name || id<=0)
             Py_Return;
         Py::Tuple ret(2);
@@ -1213,6 +1233,45 @@ PyObject *Application::sGetActiveTransaction(PyObject * /*self*/, PyObject *args
         ret.setItem(1,Py::Int(id));
         return Py::new_reference_to(ret);
     }PY_CATCH;
+}
+
+PyObject *Application::sBindActiveTransaction(PyObject * /*self*/, PyObject *args)
+{
+    PyObject *pyDoc;
+    if (!PyArg_ParseTuple(args, "O!", &DocumentPy::Type, &pyDoc))
+        return nullptr;
+
+    PY_TRY {
+        GetApplication().bindActiveTransaction(
+            static_cast<DocumentPy*>(pyDoc)->getDocumentPtr());
+        Py_Return;
+    } PY_CATCH;
+}
+
+PyObject *Application::sUnbindActiveTransaction(PyObject * /*self*/, PyObject *args)
+{
+    PyObject *pyDoc;
+    PyObject *abort = Py_False;
+    if (!PyArg_ParseTuple(args, "O!|O!", &DocumentPy::Type, &pyDoc, &PyBool_Type, &abort))
+        return nullptr;
+
+    PY_TRY {
+        GetApplication().unbindActiveTransaction(
+            static_cast<DocumentPy*>(pyDoc)->getDocumentPtr(), Base::asBoolean(abort));
+        Py_Return;
+    } PY_CATCH;
+}
+
+PyObject *Application::sIsActiveTransactionBound(PyObject * /*self*/, PyObject *args)
+{
+    PyObject *pyDoc;
+    if (!PyArg_ParseTuple(args, "O!", &DocumentPy::Type, &pyDoc))
+        return nullptr;
+
+    PY_TRY {
+        return Py::new_reference_to(Py::Boolean(GetApplication().isActiveTransactionBound(
+            static_cast<DocumentPy*>(pyDoc)->getDocumentPtr())));
+    } PY_CATCH;
 }
 
 PyObject *Application::sCloseActiveTransaction(PyObject * /*self*/, PyObject *args)

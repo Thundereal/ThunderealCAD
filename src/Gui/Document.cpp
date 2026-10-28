@@ -966,6 +966,10 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     }
     guard.active = false;
     App::AutoTransaction::setEnable(false);
+    // The edit's transaction is this document's from here to its end: a
+    // step another document's edit opens does not commit it, and this
+    // edit's steps go in this document (docs/HandsOnQueue.md entry 232)
+    App::GetApplication().bindActiveTransaction(getDocument());
     guard2.detach(/*reset*/d->_editViewProvider==nullptr);
     App::Document::clearPendingRemove();
     return d->_editViewProvider != nullptr;
@@ -1170,7 +1174,10 @@ void Document::_resetEdit()
         // resetEdit() above calls into Application->unsetEditDocument() which
         // will prevent recursive calling.
 
-        App::GetApplication().closeActiveTransaction();
+        if (App::GetApplication().isActiveTransactionBound(getDocument()))
+            App::GetApplication().unbindActiveTransaction(getDocument());
+        else
+            App::GetApplication().closeActiveTransaction();
     }
     d->_editViewProviderParent = nullptr;
     d->_editingViewer = nullptr;

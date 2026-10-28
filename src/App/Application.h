@@ -28,6 +28,7 @@
 
 #include <deque>
 #include <list>
+#include <map>
 #include <set>
 #include <string>
 #include <vector>
@@ -243,6 +244,31 @@ public:
     int setActiveTransaction(const char *name, bool persist=false);
     /// Return the current active transaction name and ID
     const char *getActiveTransaction(int *tid=nullptr) const;
+    /** The active transaction a change to \a doc goes in.
+     *
+     * \a doc's bound one (bindActiveTransaction), else the active
+     * document's bound one -- a document changed in another's edit, a part
+     * edited in place in an assembly, shares that edit's step as it always
+     * did -- else the application's.
+     */
+    const char *getActiveTransaction(int *tid, const Document *doc) const;
+    /** Bind the active transaction to \a doc while \a doc is in edit.
+     *
+     * Several documents may be in edit at once, each with its own active
+     * transaction (docs/HandsOnQueue.md entry 232). The application's
+     * active transaction, the one the command that started the edit left
+     * open, becomes \a doc's. From here, while \a doc is the active
+     * document, setActiveTransaction(), getActiveTransaction() and
+     * closeActiveTransaction() act on \a doc's, and a new active
+     * transaction set anywhere commits no document's open transaction that
+     * belongs to another binding. Nothing changes for a document that is
+     * not bound.
+     */
+    void bindActiveTransaction(Document *doc);
+    /// End the binding of \a doc, committing (or aborting) its transaction
+    void unbindActiveTransaction(Document *doc, bool abort=false);
+    /// Whether \a doc has its own active transaction
+    bool isActiveTransactionBound(const Document *doc) const;
     /** Commit/abort current active transactions
      *
      * @param abort: whether to abort or commit the transactions
@@ -682,6 +708,9 @@ private:
 
     static PyObject *sSetActiveTransaction  (PyObject *self,PyObject *args);
     static PyObject *sGetActiveTransaction  (PyObject *self,PyObject *args);
+    static PyObject *sBindActiveTransaction (PyObject *self,PyObject *args);
+    static PyObject *sUnbindActiveTransaction(PyObject *self,PyObject *args);
+    static PyObject *sIsActiveTransactionBound(PyObject *self,PyObject *args);
     static PyObject *sCloseActiveTransaction(PyObject *self,PyObject *args);
 
     static PyObject *sStartTransactionMeasure(PyObject *self,PyObject *args);
@@ -767,6 +796,23 @@ private:
     int _activeTransactionGuard{0};
     std::vector<const char*> _invocations;
     bool _activeTransactionTmpName{false};
+
+    /// A document's own active transaction (bindActiveTransaction)
+    struct BoundTransaction {
+        std::string name;
+        int id = 0;
+        bool tmpName = false;
+    };
+    std::map<const Document*, BoundTransaction> _boundTransactions;
+    /// The binding a call made for \a doc acts on, null for the
+    /// application's own: \a doc's, else the active document's
+    BoundTransaction *_boundTransaction(const Document *doc = nullptr);
+    const BoundTransaction *_boundTransaction(const Document *doc = nullptr) const;
+    /// The temporary-name flag of the active transaction a call acts on
+    bool &_activeTmpName();
+    /// Whether committing \a doc's open transaction would end another
+    /// binding's than \a bound's (null: the application's)
+    bool _ownedByOtherBinding(const Document *doc, const BoundTransaction *bound) const;
 
     static Base::ConsoleObserverStd  *_pConsoleObserverStd;
     static Base::ConsoleObserverFile *_pConsoleObserverFile;

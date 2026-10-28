@@ -1708,7 +1708,7 @@ void Document::_addOrRemoveProperty(TransactionalObject* obj, Property *prop, bo
             && !unsaved) {
         if(!testStatus(Restoring) || testStatus(Importing)) {
             int tid=0;
-            const char *name = GetApplication().getActiveTransaction(&tid);
+            const char *name = GetApplication().getActiveTransaction(&tid, this);
             if(name && tid>0)
                 _openTransaction(name,tid);
             else
@@ -1947,7 +1947,7 @@ void Document::_checkTransaction(DocumentObject* pcDelObj, const Property *What,
         if (!d->activeUndoTransaction) {
             if(!testStatus(Restoring) || testStatus(Importing)) {
                 int tid=0;
-                const char *name = GetApplication().getActiveTransaction(&tid);
+                const char *name = GetApplication().getActiveTransaction(&tid, this);
                 bool ignore = false;
                 if(What) {
                     // Legacy: a name over a value kept elsewhere, and the
@@ -2279,7 +2279,7 @@ int Document::getBookedTransactionID() const
     if (d->activeUndoTransaction)
         return d->activeUndoTransaction->getID();
     int tid = 0;
-    GetApplication().getActiveTransaction(&tid);
+    GetApplication().getActiveTransaction(&tid, this);
     return tid;
 }
 

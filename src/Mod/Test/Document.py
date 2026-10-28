@@ -1569,6 +1569,115 @@ class UndoRedoCases(unittest.TestCase):
         FreeCAD.closeDocument("UndoTest")
 
 
+class BoundTransactionCases(unittest.TestCase):
+    """A document's own active transaction while it is in edit
+    (App.bindActiveTransaction; docs/HandsOnQueue.md entry 232): several
+    documents in edit at once, each with its steps."""
+
+    def setUp(self):
+        self.docs = []
+        self.active = FreeCAD.ActiveDocument
+
+    def tearDown(self):
+        for doc in self.docs:
+            FreeCAD.unbindActiveTransaction(doc)
+            FreeCAD.closeDocument(doc.Name)
+        if self.active and self.active.Name in FreeCAD.listDocuments():
+            FreeCAD.setActiveDocument(self.active.Name)
+
+    def make(self, name):
+        doc = FreeCAD.newDocument(name)
+        self.docs.append(doc)
+        doc.UndoMode = 1
+        obj = doc.addObject("App::FeatureTest", "Obj")
+        doc.clearUndos()
+        return doc, obj
+
+    def testAnotherDocumentsStepLeavesABoundOneOpen(self):
+        a, objA = self.make("BoundA")
+        b, objB = self.make("BoundB")
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.setActiveTransaction("Edit A")
+        objA.Integer = 1
+        FreeCAD.bindActiveTransaction(a)
+        self.assertTrue(FreeCAD.isActiveTransactionBound(a))
+        self.assertEqual(FreeCAD.getActiveTransaction(a)[0], "Edit A")
+
+        # B is not bound: its step is the application's, and opening it
+        # commits no transaction of A's
+        FreeCAD.setActiveDocument(b.Name)
+        FreeCAD.setActiveTransaction("Edit B")
+        objB.Integer = 2
+        self.assertTrue(a.HasPendingTransaction, "A's step stays open")
+        self.assertEqual(FreeCAD.getActiveTransaction(b)[0], "Edit B")
+
+        # A's next change goes in A's own step, not in B's
+        FreeCAD.setActiveDocument(a.Name)
+        objA.Integer = 3
+        FreeCAD.unbindActiveTransaction(a)
+        self.assertFalse(FreeCAD.isActiveTransactionBound(a))
+        self.assertFalse(a.HasPendingTransaction)
+        self.assertEqual(a.UndoNames, ["Edit A"])
+
+        FreeCAD.setActiveDocument(b.Name)
+        FreeCAD.closeActiveTransaction()
+        self.assertEqual(b.UndoNames, ["Edit B"])
+
+        a.undo()
+        self.assertEqual(objA.Integer, 4711)
+        self.assertEqual(objB.Integer, 2, "undoing A's step leaves B's change")
+
+    def testTwoBoundDocumentsKeepTheirSteps(self):
+        a, objA = self.make("BoundTwoA")
+        b, objB = self.make("BoundTwoB")
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.bindActiveTransaction(a)
+        FreeCAD.setActiveTransaction("A1")
+        objA.Integer = 1
+
+        FreeCAD.setActiveDocument(b.Name)
+        FreeCAD.bindActiveTransaction(b)
+        FreeCAD.setActiveTransaction("B1")
+        objB.Integer = 1
+        self.assertTrue(a.HasPendingTransaction, "B's step commits none of A's")
+
+        # A's next step commits A's first, and none of B's
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.setActiveTransaction("A2")
+        self.assertFalse(a.HasPendingTransaction)
+        self.assertEqual(a.UndoNames, ["A1"])
+        self.assertTrue(b.HasPendingTransaction, "A's step commits none of B's")
+        objA.Integer = 2
+
+        # A step closed by its id ends that edit's, not the other's
+        tidB = FreeCAD.getActiveTransaction(b)[1]
+        FreeCAD.closeActiveTransaction(False, tidB)
+        self.assertFalse(b.HasPendingTransaction)
+        self.assertTrue(a.HasPendingTransaction)
+        self.assertEqual(FreeCAD.getActiveTransaction(a)[0], "A2")
+
+        FreeCAD.unbindActiveTransaction(a)
+        FreeCAD.unbindActiveTransaction(b)
+        self.assertEqual(a.UndoNames, ["A2", "A1"])
+        self.assertEqual(b.UndoNames, ["B1"])
+
+    def testAnUnboundDocumentJoinsTheActiveOnesStep(self):
+        # A part edited in place in an assembly: the change to the part's
+        # document goes in the assembly's edit step, as it always did
+        a, objA = self.make("BoundJoinA")
+        c, objC = self.make("BoundJoinC")
+        FreeCAD.setActiveDocument(a.Name)
+        FreeCAD.setActiveTransaction("Edit")
+        FreeCAD.bindActiveTransaction(a)
+        objA.Integer = 1
+        objC.Integer = 1
+        self.assertEqual(FreeCAD.getActiveTransaction(c), FreeCAD.getActiveTransaction(a))
+        FreeCAD.unbindActiveTransaction(a)
+        self.assertFalse(c.HasPendingTransaction, "committed with the edit's step")
+        self.assertEqual(c.UndoNames, ["Edit"])
+        self.assertEqual(a.UndoNames, ["Edit"])
+
+
 class DocumentGroupCases(unittest.TestCase):
     def setUp(self):
         self.Doc = FreeCAD.newDocument("GroupTests")

@@ -178,6 +178,11 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-28 09:57: 231 REPRODUCED in the reporter's live session -- a section line
+dragged less than 10 px (the drag distance) goes back on release; Undo
+does not redraw the line; 230 and 231 to dwin, NOT delivered (not
+reachable).** Under the entries.
+
 **2026-10-28 09:45: 230 -- ShowFrames made visible, saved pages as they are; entry 231
 -- a dragged section line jumps up or down on release (scanner,
 Section003 on Top003); both for fcad-dc, NOT delivered (not
@@ -4422,8 +4427,8 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 227 | 2026-10-23 | a question and a defect: does the current implementation have PER-VIEW UNDO/REDO? the problem: with a TechDraw PAGE as the active view, a double click on a FILLET for edit -> an undo step of the fillet edit shows in the TechDraw page view | OPEN; said to the note-taker 2026-10-23 18:17; ANSWERED by the note-taker from a read: NO per-view undo of document changes -- every view of a document shows and acts on the ONE document undo stack (MDIView::onMsg/onHasMsg/undoActions, MDIViewPage the same); per-view stacks are designed for VIEW state only (docs/MultiViewEdit.md sec 5, not built: no undo-view command found); per-AUTHOR stacks are built over the transaction log (docs/ThinClient.md 8.12 G, TransactionLog.md 30.9/30.10), but one desktop user is one author; the reporter's decision awaited on what a view's undo should offer; NOT assigned. 2026-10-23 18:35 the reporter: "But in my test, techdraw page shows different undo list than the 3d view" -- CONTRADICTS the note-taker's read (one stack per document); a second read found no per-view filter: the list is App::Document::getAvailableUndoNames -> stepsOf(), which filters by AUTHOR (ActorScope; every desktop view is the one desktop user), and the drop-down (UndoDialog) asks the active MDI view's undoActions(), which MDIViewPage does not override; NOT explained yet -- the note-taker asks the reporter's word to read their live session (which document each view belongs to, and the two lists). 2026-10-23 19:41 NOT REPRODUCED by the note-taker on the reporter's word ("You can start it and open scanner to test"): stage29 (`a19fb686e7`), a COPY of scanner, migration recompute Yes; a page change (SectionView X + 5, "Drag View") with the Page view active, then Fillet004 (PrismLocker) double-clicked (its view provider's doubleClicked()) -- the edit went to the 3D view, which became active -- and Edge22 moved group 2 -> 3 (the row's data set, as the delegate's commit does): the 3D view's and the page view's undoActions() the SAME at every point (['Drag View'], then ['Edit Fillet004', 'Drag View']); the reporter asked how they saw the two lists differ |
 | 228 | 2026-10-23 | a change request: each UNDO STEP of a PartDesign editing task gets a CONCISE DESCRIPTION of what it did; today a fillet edit's steps show only the object name and the edge name | OPEN; said to the note-taker 2026-10-23 18:17; READ by the note-taker: TaskFeatureParameters::setupTransaction() names every fine-undo step "Edit <object name>" (TaskFeatureParameters.cpp 438-439); ASSIGNED to fcad-dc (PD task panels), after 226. 2026-10-23 19:37 DONE by fcad-dc `3c40300068`, local, NOT pushed, NOT staged: every fine undo step of the fillet and chamfer panels (the only two with fine undo) named "<label>: <what>" -- e.g. "Fillet: default radius", "Fillet: Edge2 to group 1", "Fillet: remove Edge3", "Chamfer: default size"; OK's step "<label>: OK, recompute"; pd-undo-step-names.py 7/7. 2026-10-23 23:20 PUSHED by fcad-dc on the reporter's word to it ("Push"; relayed), thundereal/LinkVibe a19fb686e7..f012b2550f; NOT restaged, not in stage29 |
 | 229 | 2026-10-23 | test failures found by fcad-dc (on 225), made an entry by the note-taker coordinating: offscreen, NOT from 225 (an A/B in one build with the new bars off fails the same) -- task-panel-overlay ABORT "views: 1"; overlay-pass-through, the Tasks panel's two pass-through claims; overlay-item-outline-and-hover, "cut to the item" and "rows above and below" (Dark and Light) | OPEN; 2026-10-23 19:37; ASSIGNED to fcad-dc (overlays; free): find whether the tests or the code, since which commit. 2026-10-23 19:55 DONE by fcad-dc `793c572a72` (tests only), local, NOT pushed, NOT staged: every failure the TEST's, no code at fault, traced before fixing -- task-panel-overlay a real-screen test run offscreen (offscreen the 400x366 view is not split since `dd336be800`, least cell 300x300); now says NOT RUN offscreen, least cell 100; 43/43 on the real screen; overlay-pass-through: the move and click DO pass through the Tasks panel, the test guessed the plate from the window's middle but since `c9417fada7` (entry 150) the wheel zooms at the pointer; the expected plate is the view's own pick; 19/19; overlay-item-outline-and-hover: offscreen the tree is 121 px and Box05's row ran under the next panel's title; now Box02-Box04, checked inside the viewport; 'cut to the item' measured against the viewport's edge, not column 0 (ResizeToContents); since when NOT pinned (34/34 on 10-13, no build of 10-13 left); 30/30. 2026-10-23 23:20 PUSHED by fcad-dc on the reporter's word to it ("Push"; relayed), thundereal/LinkVibe a19fb686e7..f012b2550f; NOT restaged, not in stage29 |
-| 230 | 2026-10-28 | a change request: TechDraw's Toggle Frames (the page's frames and labels) DEFAULT OFF | OPEN; said to the note-taker 2026-10-28 09:41; READ by the note-taker: stored per page as ViewProviderPage::ShowFrames, a hidden PropertyBool of the page's view provider, default true (ViewProviderPage.cpp 95, hidden 102), saved in the document's GuiDocument.xml; TechDraw_ToggleFrame and the page's context menu flip it (toggleFrameState, 509); no preference behind it (ShowGrid beside it takes PreferencesGui::showGrid()); with frames off a view still shows its frame and label while anything of it is selected (QGIView::getFrameState, entries 155/204); a page already saved keeps its saved value; ASSIGNED to fcad-dc. 2026-10-28 09:45 the reporter: "entry 230, make the property visible, leave existing object as it is" -- ShowFrames shown in the property editor (not Hidden), a saved page keeps its value; NOT YET DELIVERED: fcad-dc not reachable |
-| 231 | 2026-10-28 | a defect: scanner, after the migration recompute (Section003 broken, as expected), dragging Section003's section line to line it up with the middle of Top003's two lower holes: on the mouse release the line jumps a bit up or down, "as if the section line can only be placed at some discrete number of possible positions" | OPEN; said to the note-taker 2026-10-28 09:45; READ by the note-taker: no snapping in TechDraw's Gui (snap only in QGTracker's angle snap); the release goes QGISectionLine::onItemMoved (QGISectionLine.cpp 664) -> the line's points moved by the drag offset -> a queued DrawViewSection::setChangePoints (DrawViewSection.cpp 1292), which divides the points by the base view's scale, moves SectionOrigin by inverseProjectPoint(newMid - oldMid) with oldMid from sectionLineEnds(); the line is then drawn from the recomputed origin; cause NOT found by reading; NOT reproduced; ASSIGNED to fcad-dc, NOT YET DELIVERED (not reachable) |
+| 230 | 2026-10-28 | a change request: TechDraw's Toggle Frames (the page's frames and labels) DEFAULT OFF | OPEN; said to the note-taker 2026-10-28 09:41; READ by the note-taker: stored per page as ViewProviderPage::ShowFrames, a hidden PropertyBool of the page's view provider, default true (ViewProviderPage.cpp 95, hidden 102), saved in the document's GuiDocument.xml; TechDraw_ToggleFrame and the page's context menu flip it (toggleFrameState, 509); no preference behind it (ShowGrid beside it takes PreferencesGui::showGrid()); with frames off a view still shows its frame and label while anything of it is selected (QGIView::getFrameState, entries 155/204); a page already saved keeps its saved value; ASSIGNED to fcad-dc. 2026-10-28 09:45 the reporter: "entry 230, make the property visible, leave existing object as it is" -- ShowFrames shown in the property editor (not Hidden), a saved page keeps its value; NOT YET DELIVERED: fcad-dc not reachable. 2026-10-28 09:57 the reporter: "remote session dwin handle this" -- 230 and 231 to dwin; NOT YET DELIVERED: no dwin among the sessions the note-taker can reach |
+| 231 | 2026-10-28 | a defect: scanner, after the migration recompute (Section003 broken, as expected), dragging Section003's section line to line it up with the middle of Top003's two lower holes: on the mouse release the line jumps a bit up or down, "as if the section line can only be placed at some discrete number of possible positions" | OPEN; said to the note-taker 2026-10-28 09:45; READ by the note-taker: no snapping in TechDraw's Gui (snap only in QGTracker's angle snap); the release goes QGISectionLine::onItemMoved (QGISectionLine.cpp 664) -> the line's points moved by the drag offset -> a queued DrawViewSection::setChangePoints (DrawViewSection.cpp 1292), which divides the points by the base view's scale, moves SectionOrigin by inverseProjectPoint(newMid - oldMid) with oldMid from sectionLineEnds(); the line is then drawn from the recomputed origin; cause NOT found by reading; NOT reproduced; ASSIGNED to fcad-dc, NOT YET DELIVERED (not reachable). 2026-10-28 09:57 REPRODUCED by the note-taker in the reporter's LIVE session on their word ("check my live session ... you can drag the Section003"): mouse events on Page004's view, zoom 1.238: drags of -15 and +10 px landed exactly (-15, +10; SectionOrigin.y -0.6057, +0.4038), drags of -7, +3, -2, -1, +1, +4, +8, -9 px went back to where they started -- QApplication::startDragDistance() is 10 there, and onItemMoved puts the line back when the release is less than that from the press (wasDragged, QGISectionLine.cpp 656/692, the click guard); a fine correction under 10 px is lost, which reads as fixed positions; also: after Undo of a 'Move section line' the line is NOT redrawn (SectionOrigin back, the line still where the move left it); the note-taker's two moves undone; to dwin, NOT YET DELIVERED |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -30639,6 +30644,51 @@ NOT said: Top003's scale and rotation; whether a section that is not
 broken jumps too; whether the jump depends on how far it is dragged.
 ASSIGNED to fcad-dc (the note-taker coordinating); NOT YET DELIVERED:
 fcad-dc is not reachable.
+
+**2026-10-28 09:57, the reporter (to the note-taker):** "remote session dwin handle
+this. entry 231, check my live session. Page004 is opened in a splitter
+view. you can drag the Section003 to try align with the hold center"
+The note-taker's reading: 230 and 231 go to the session dwin (not
+fcad-dc); for 231 the note-taker may drag Section003 in the reporter's
+own running copy.
+NOT said: whether dwin takes later entries too.
+**2026-10-28 09:57, the note-taker's run in the LIVE session (on that word):** the
+staged copy, pid 100060 (Thundereal.exe, .conda/user-app), its MCP
+console. Section003 is SectionView003 on Top003 (ProjItem011 of
+ProjGroup004, scale 2, XDirection (-1, 0, 0), rotation 0); SectionOrigin
+(0.7569, 12.2947, -19), SectionLineMarks on; Page004's view
+(Page004View) at zoom 1.238. Mouse press, six moves and a release sent
+to the view's viewport on the line at x 620, the line's row read from
+the view's grab before and after, SectionOrigin read after each:
+  drag  -7, +3, -2, -1, +1, +4  -> the line back where it was, origin
+                                   unchanged, no undo step
+  drag -15 -> landed -15 px, origin.y -0.6057
+  drag  +8, -9 -> back where it was, no change
+  drag +10 -> landed +10 px, origin.y +0.4038
+So a drag lands where the mouse lets go once it is 10 px or more, and
+one under 10 px is thrown back: QApplication::startDragDistance() is 10
+in the reporter's session, and QGISectionLine::onItemMoved (664) puts
+the line back when the release is nearer the press than that
+(wasDragged, 656; the guard at 692 that stops a CLICK from becoming a
+"Move section line"). The line follows the mouse while it moves and
+jumps back on the release -- a small correction cannot be made, which
+reads as "some discrete number of possible positions". The change point
+marks have the same guard (748).
+Also seen: after Undo of the two moves SectionOrigin is back (12.2947)
+but the line on the page stays where the last move drew it (row 489,
+not 494) -- Undo does not redraw the section line. The section's State
+'Up-to-date'.
+Left in the reporter's session: the note-taker's two moves undone
+(their three earlier 'Move section line' steps untouched; two Redo
+steps 'Move section line' now stand); the line DRAWN 5 px above where
+Section003 is until the page redraws; the first, missed press cleared
+the page's selection.
+What a fix might be (for dwin to weigh, not decided): let the guard
+tell a click from a drag by whether the mouse MOVED the line (any move
+event after the press), not by the distance at the release; and redraw
+the section line when SectionOrigin changes by Undo.
+NOT YET DELIVERED: no dwin among the sessions the note-taker can reach
+(ListAgents: fcad-88, oplab, mac, x16, x16win, delta).
 
 ## Inbox
 

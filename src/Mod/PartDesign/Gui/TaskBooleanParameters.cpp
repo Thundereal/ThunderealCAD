@@ -176,7 +176,8 @@ bool TaskBooleanParameters::eventFilter(QObject *watched, QEvent *event) {
 }
 
 App::DocumentObject *TaskBooleanParameters::getInEdit(std::string &subname) {
-    auto gdoc = Gui::Application::Instance->editDocument();
+    auto gdoc = Gui::Application::Instance->editDocumentOf(
+        BooleanView ? BooleanView->getObject() : nullptr);
     if(!gdoc)
         return 0;
 
@@ -553,7 +554,8 @@ bool TaskDlgBooleanParameters::accept()
 bool TaskDlgBooleanParameters::reject()
 {
     // roll back the done things
-    auto editDoc = Gui::Application::Instance->editDocument();
+    auto editDoc = Gui::Application::Instance->editDocumentOf(
+        BooleanView ? BooleanView->getObject() : nullptr);
     if(editDoc && parameter->getTransactionID())
         editDoc->getDocument()->undo(parameter->getTransactionID());
 

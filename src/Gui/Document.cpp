@@ -162,6 +162,8 @@ struct DocumentP
     /// The view that took a selection instance of its own for the edit
     QPointer<MDIView>           _editSelectionView;
     std::set<const App::DocumentObject*> _editObjs;
+    /// setEdit() is in the edit view provider's startEditing()
+    bool                        _editStarting = false;
 
     std::vector<CameraInfo>     _savedViews;
     std::map<int, std::string>  _view3DContents;
@@ -649,14 +651,15 @@ Document::~Document()
 //*****************************************************************************************************
 
 struct EditDocumentGuard {
-    EditDocumentGuard():active(true) {}
+    explicit EditDocumentGuard(Document *doc):doc(doc) {}
 
     ~EditDocumentGuard() {
         if(active)
-            Application::Instance->setEditDocument(0);
+            Application::Instance->unsetEditDocument(doc);
     }
 
-    bool active;
+    Document *doc;
+    bool active = true;
 };
 
 bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
@@ -846,7 +849,15 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
             editViewer = view3d->getViewer();
     }
 
-    EditDocumentGuard guard;
+    // One document in edit at a time, for now: a second one's edit would
+    // take the first one's transaction (the application has one active
+    // transaction), and its dialog would be refused (Control's
+    // exclusive()). Both are lifted by later steps of
+    // docs/HandsOnQueue.md entry 232; this line goes with them.
+    Application::Instance->unsetEditDocumentIf(
+        [this](Gui::Document *doc) { return doc != this; });
+
+    EditDocumentGuard guard(this);
     Application::Instance->setEditDocument(this);
 
     d->_editViewProviderParent = vp;
@@ -888,7 +899,10 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
             editSelection.emplace(*sel);
     }
 
-    d->_editViewProvider = svp->startEditing(ModNum);
+    {
+        Base::StateLocker starting(d->_editStarting);
+        d->_editViewProvider = svp->startEditing(ModNum);
+    }
     if(!d->_editViewProvider) {
         if (MDIView *selView = d->_editSelectionView) {
             d->_editSelectionView = nullptr;
@@ -908,10 +922,10 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         guard2.detach();
         App::Document::clearPendingRemove();
         return false;
-    } else if (Application::Instance->editDocument() != this) {
+    } else if (!Application::Instance->isInEdit(this)) {
         // It is possible when calling startEditing() above show triggers some
-        // code to call resetEdit(), which prematrually clears the
-        // Application::editDocument(). In this cause we shall abort.
+        // code to call resetEdit(), which prematrually takes this document
+        // out of Application::editDocuments(). In this cause we shall abort.
         _resetEdit();
         guard2.detach();
         App::Document::clearPendingRemove();
@@ -987,7 +1001,7 @@ EditingRoot *Document::editingRoot() {
 
 bool Document::canSetEditVisibility() const
 {
-    if (Application::Instance->editDocument() != this)
+    if (!Application::Instance->isInEdit(const_cast<Document *>(this)))
         return false;
     // The view the session runs in, else the one setEdit is about to
     // start it in: found the way setEdit finds it.
@@ -1083,7 +1097,20 @@ void Document::resetEdit() {
     // is the one path known to walk into it.
     ViewerScope scope(d->_editingViewer);
 
-    Application::Instance->setEditDocument(nullptr);
+    // An edit is the document's whose object is at the top of the edited
+    // path, and the object edited may be another document's, reached by a
+    // link: a panel ends it through the edited object's document
+    // (Gui::cmdGuiDocument(feature, "resetEdit()")). When only one document
+    // could be in edit, that ended it whichever document was asked.
+    if (Application::Instance->isInEdit(this)) {
+        Application::Instance->unsetEditDocument(this);
+    }
+    else {
+        Application::Instance->unsetEditDocumentIf([this](Gui::Document *editDoc) {
+            auto vp = dynamic_cast<ViewProviderDocumentObject*>(editDoc->d->_editViewProvider);
+            return vp && vp->getDocument() == this;
+        });
+    }
 
     // Re-enter the edit session that was interrupted by the one that just
     // ended, if it asked for that with setEditRestore(true) -- e.g. an
@@ -1140,7 +1167,7 @@ void Document::_resetEdit()
 
         // The logic below is not necessary anymore, because this method is
         // changed into a private one,  _resetEdit(). And the exposed
-        // resetEdit() above calls into Application->setEditDocument(0) which
+        // resetEdit() above calls into Application->unsetEditDocument() which
         // will prevent recursive calling.
 
         App::GetApplication().closeActiveTransaction();
@@ -1156,8 +1183,7 @@ void Document::_resetEdit()
         d->_editSelectionView = nullptr;
         selView->releaseOwnSelection();
     }
-    if(Application::Instance->editDocument() == this)
-        Application::Instance->setEditDocument(nullptr);
+    Application::Instance->unsetEditDocument(this);
 }
 
 App::SubObjectT Document::getInEditT(int *mode) const
@@ -1213,6 +1239,21 @@ ViewProvider *Document::getInEdit(ViewProviderDocumentObject **parentVp,
     }
 
     return nullptr;
+}
+
+ViewProvider *Document::getEditViewProvider() const
+{
+    return d->_editViewProvider;
+}
+
+App::DocumentObject *Document::getEditingObject() const
+{
+    return d->_editingObject;
+}
+
+bool Document::isStartingEdit() const
+{
+    return d->_editStarting;
 }
 
 void Document::setInEdit(ViewProviderDocumentObject *parentVp, const char *subname) {
@@ -1502,11 +1543,11 @@ void Document::slotDeletedObject(const App::DocumentObject& Obj)
     }
     if (d->_editViewProvider==viewProvider || d->_editViewProviderParent==viewProvider)
         _resetEdit();
-    else if(Application::Instance->editDocument()) {
-        auto editDoc = Application::Instance->editDocument();
-        if(editDoc->d->_editViewProvider==viewProvider ||
-           editDoc->d->_editViewProviderParent==viewProvider)
-            Application::Instance->setEditDocument(nullptr);
+    else {
+        Application::Instance->unsetEditDocumentIf([viewProvider](Gui::Document *editDoc) {
+            return editDoc->d->_editViewProvider == viewProvider
+                || editDoc->d->_editViewProviderParent == viewProvider;
+        });
     }
 
     handleChildren3D(viewProvider,true);
@@ -1557,17 +1598,13 @@ void Document::beforeDelete() {
     d->_deferSweep.clear();
     d->_deferFinish.clear();
 
-    auto editDoc = Application::Instance->editDocument();
-    if(editDoc) {
+    Application::Instance->unsetEditDocumentIf([this](Gui::Document *editDoc) {
         auto vp = dynamic_cast<ViewProviderDocumentObject*>(editDoc->d->_editViewProvider);
         auto vpp = dynamic_cast<ViewProviderDocumentObject*>(editDoc->d->_editViewProviderParent);
-        if(editDoc == this ||
-           (vp && vp->getDocument()==this) ||
-           (vpp && vpp->getDocument()==this))
-        {
-            Application::Instance->setEditDocument(nullptr);
-        }
-    }
+        return editDoc == this
+            || (vp && vp->getDocument() == this)
+            || (vpp && vpp->getDocument() == this);
+    });
     for(auto &v : d->_ViewProviderMap) {
         v.second->childSet.clear();
         v.second->parentSet.clear();
@@ -1746,9 +1783,8 @@ void Document::slotSkipRecompute(const App::Document& doc, const std::vector<App
        !doc.testStatus(App::Document::AllowPartialRecompute))
         return;
     App::DocumentObject *obj = nullptr;
-    auto editDoc = Application::Instance->editDocument();
-    if(editDoc) {
-        auto vp = dynamic_cast<ViewProviderDocumentObject*>(editDoc->getInEdit());
+    if(Application::Instance->isInEdit(this)) {
+        auto vp = dynamic_cast<ViewProviderDocumentObject*>(getInEdit());
         if(vp)
             obj = vp->getObject();
     }
@@ -6085,12 +6121,13 @@ bool Document::isPerformingTransaction() const {
     return d->_isTransacting;
 }
 
-/// Whether the view provider in edit, in whichever document it is,
-/// takes an undo or redo as its own (ViewProvider::undoRedoInEdit). A
-/// transaction may span documents, so not only this one's.
-static bool undoRedoInEdit(bool redo)
+/// Whether the view provider in edit takes an undo or redo of \a doc as
+/// its own (ViewProvider::undoRedoInEdit): \a doc's edit, else the edit
+/// of whichever document it is -- a transaction may span documents.
+static bool undoRedoInEdit(Gui::Document* doc, bool redo)
 {
-    Gui::Document* editDoc = Application::Instance->editDocument();
+    Gui::Document* editDoc = Application::Instance->isInEdit(doc)
+        ? doc : Application::Instance->editDocument();
     ViewProvider* vp = editDoc ? editDoc->getInEdit() : nullptr;
     return vp && vp->undoRedoInEdit(redo);
 }
@@ -6205,7 +6242,7 @@ void Document::undoOrRedo(bool undo, int iSteps, bool ask)
 {
     // The view provider in edit may take the command as its own: asked
     // once, before any step of the document's is looked at.
-    if (undoRedoInEdit(!undo))
+    if (undoRedoInEdit(this, !undo))
         return;
 
     int skipped = 0;

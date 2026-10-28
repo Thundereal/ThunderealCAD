@@ -1347,7 +1347,7 @@ Base::BoundBox3d ViewProviderSketch::_getBoundingBox(const char *subname,
 }
 
 Base::Matrix4D ViewProviderSketch::getEditingPlacement() const {
-    auto doc = Gui::Application::Instance->editDocument();
+    auto doc = Gui::Application::Instance->editDocumentOf(getObject());
     if(!doc || doc->getInEdit()!=this)
         return getSketchObject()->globalPlacement().toMatrix();
 
@@ -9540,7 +9540,7 @@ bool ViewProviderSketch::setEdit(int ModNum)
 
     createEditInventorNodes();
 
-    auto editDoc = Gui::Application::Instance->editDocument();
+    auto editDoc = Gui::Application::Instance->editDocumentOf(getSketchObject());
     App::DocumentObject *editObj = getSketchObject();
     std::string editSubName;
     ViewProviderDocumentObject *editVp = 0;
@@ -10352,7 +10352,7 @@ void ViewProviderSketch::setEditViewer(Gui::ViewerContext* viewer, int ModNum)
         }
     }
 
-    auto editDoc = Gui::Application::Instance->editDocument();
+    auto editDoc = Gui::Application::Instance->editDocumentOf(getSketchObject());
     editDocName.clear();
     editObjT = App::SubObjectT();
     if(editDoc) {

@@ -447,6 +447,21 @@ public:
             std::string *subname=nullptr, int *mode=nullptr, std::string *subElement=nullptr) const;
     /// get the in edit ViewProvider or NULL
     App::SubObjectT getInEditT(int *mode=0) const;
+    /** The view provider in edit, whichever view asks (upstream's name).
+     *
+     * getInEdit() answers for the view asking, and null where that view
+     * is not in the edit; this is for a caller that wants to know what is
+     * in edit in this document at all.
+     */
+    ViewProvider* getEditViewProvider() const;
+    /** The object in edit: the sub-object of the edited path whose view
+     * provider edits. Known from the moment setEdit() picks it, before the
+     * view provider has started -- what code run by its startEditing() can
+     * find its document by.
+     */
+    App::DocumentObject* getEditingObject() const;
+    /// Whether setEdit() is starting the edit's view provider now
+    bool isStartingEdit() const;
     /// set the in edit ViewProvider subname reference
     void setInEdit(ViewProviderDocumentObject *parentVp, const char *subname);
     /** Add or remove view provider from scene graphs of all views

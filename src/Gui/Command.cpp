@@ -606,7 +606,7 @@ void Command::_invoke(int id, bool disablelog)
         // check if it really works NOW (could be a delay between click deactivation of the button)
         if (isActive()) {
             auto manager = getGuiApplication()->macroManager();
-            auto editDoc = getGuiApplication()->editDocument();
+            auto editStarts = getGuiApplication()->editStartCount();
 
             if (!logdisabler) {
                 activated(id);
@@ -644,7 +644,7 @@ void Command::_invoke(int id, bool disablelog)
                 getMainWindow()->updateActions();
 
             // If this command starts an editing, let the transaction persist
-            if (!editDoc && getGuiApplication()->editDocument())
+            if (editStarts != getGuiApplication()->editStartCount() && getGuiApplication()->editDocument())
                 committer.setEnable(false);
         }
     }

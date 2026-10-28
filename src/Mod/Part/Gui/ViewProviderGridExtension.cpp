@@ -271,8 +271,11 @@ void GridExtensionP::createGrid(bool cameraUpdate)
     auto view = Base::freecad_dynamic_cast<Gui::View3DInventor>(
             Gui::Application::Instance->editViewOfNode(vp->getExtendedViewProvider()->getRoot()));
     if (!view) {
-        view = Base::freecad_dynamic_cast<Gui::View3DInventor>(
-                Gui::Application::Instance->editDocument()->getActiveView());
+        auto editDoc = Gui::Application::Instance->editDocumentOf(
+                vp->getExtendedViewProvider()->getObject());
+        if (!editDoc)
+            return;
+        view = Base::freecad_dynamic_cast<Gui::View3DInventor>(editDoc->getActiveView());
         if (!view)
             return;
     }

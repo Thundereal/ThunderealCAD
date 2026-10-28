@@ -3283,7 +3283,10 @@ bool ViewProviderLink::initDraggingPlacement(int mode) {
         FC_ERR("no placement");
         return false;
     }
-    auto doc = Application::Instance->editDocument();
+    // The document whose edit this is: another may be in edit too, and
+    // this one need not be the link's own (the link may be reached through
+    // another document's object)
+    auto doc = Application::Instance->editDocumentOf(getObject());
     if(!doc) {
         FC_ERR("no editing document");
         return false;
@@ -3412,7 +3415,7 @@ ViewProvider *ViewProviderLink::startEditing(int mode) {
     FC_STATIC bool _pendingTransform;
     FC_STATIC Base::Matrix4D  _editingTransform;
 
-    auto doc = Application::Instance->editDocument();
+    auto doc = Application::Instance->editDocumentOf(getObject());
 
     if(_pendingTransform || mode == ViewProvider::Transform || mode == ViewProvider::TransformAt) {
         if(_pendingTransform && doc)

@@ -823,7 +823,9 @@ public:
 
     void slotInEdit(const Gui::ViewProviderDocumentObject & vp)
     {
-        auto doc = Gui::Application::Instance->editDocument();
+        // The document whose edit this is: another may be in edit too
+        auto doc = Gui::Application::Instance->editDocument(
+            [&vp](Gui::Document *editDoc) { return editDoc->getEditViewProvider() == &vp; });
         if (!doc)
             return;
         auto view = Base::freecad_dynamic_cast<Gui::View3DInventor>(doc->getEditingView());
@@ -1248,7 +1250,7 @@ public:
      */
     bool beforeEditInSession(PartDesign::Body *body, App::DocumentObject *editingObj)
     {
-        auto gdoc = Gui::Application::Instance->editDocument();
+        auto gdoc = Gui::Application::Instance->editDocumentOf(editingObj);
         if (!gdoc || !gdoc->canSetEditVisibility())
             return false;
         Gui::ViewProviderDocumentObject *parentVp = nullptr;

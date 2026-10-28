@@ -752,7 +752,7 @@ void ViewProvider::onChanged(const App::Property* prop) {
         Base::StateLocker guard(autoCorrectingLink);
 
         auto body = PartDesign::Body::findBodyOf(getObject());
-        auto editDoc = Gui::Application::Instance->editDocument();
+        auto editDoc = Gui::Application::Instance->editDocumentOf(getObject());
         if (body && editDoc && editDoc->getInEdit() == this
                  && linkProp->getScope() == App::LinkScope::Local
                  && (prop->isDerivedFrom(App::PropertyLink::getClassTypeId())

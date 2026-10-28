@@ -70,7 +70,7 @@ TaskCSysDragger::TaskCSysDragger(Gui::ViewProviderDocumentObject* vpObjectIn, Gu
   App::GetApplication().setActiveTransaction(QT_TRANSLATE_NOOP("Command", "Transform"));
 
   connUndo = App::GetApplication().signalUndo.connect([this]() {
-      if (auto gdoc = Application::Instance->editDocument()) {
+      if (auto gdoc = editingDocument()) {
           auto doc = gdoc->getDocument();
           if (transactionId && doc->getTransactionID(/*undo*/false) == transactionId) {
               lastTransactionId = transactionId;
@@ -80,7 +80,7 @@ TaskCSysDragger::TaskCSysDragger(Gui::ViewProviderDocumentObject* vpObjectIn, Gu
   });
 
   connRedo = App::GetApplication().signalRedo.connect([this]() {
-      if (auto gdoc = Application::Instance->editDocument()) {
+      if (auto gdoc = editingDocument()) {
           auto doc = gdoc->getDocument();
           if (lastTransactionId && doc->getTransactionID(/*undo*/true) == lastTransactionId) {
               transactionId = lastTransactionId;
@@ -113,7 +113,8 @@ TaskCSysDragger::TaskCSysDragger(Gui::ViewProviderDocumentObject* vpObjectIn, Gu
                             "Do you still want to continue?"),
                         QMessageBox::Yes | QMessageBox::No);
         if (res == QMessageBox::No)
-          Application::Instance->setEditDocument(nullptr);
+          if (auto gdoc = editingDocument())
+            Application::Instance->unsetEditDocument(gdoc);
         break;
       }
     }
@@ -239,7 +240,7 @@ void TaskCSysDragger::onToggleShowOnTop(bool checked)
     if (!checked)
         return;
 
-    doc = Application::Instance->editDocument();
+    doc = editingDocument();
     if (!doc)
         return;
     auto view = Base::freecad_dynamic_cast<View3DInventor>(
@@ -252,6 +253,16 @@ void TaskCSysDragger::onToggleShowOnTop(bool checked)
                              editObj.getDocumentName(),
                              editObj.getObjectName(),
                              editObj.getSubName()), true);
+}
+
+Gui::Document *TaskCSysDragger::editingDocument() const
+{
+    // The document whose edit this is: another may be in edit too
+    auto vp = Application::Instance->getViewProvider(vpObject.getObject());
+    if (!vp)
+        return nullptr;
+    return Application::Instance->editDocument(
+        [vp](Gui::Document *gdoc) { return gdoc->getEditViewProvider() == vp; });
 }
 
 void TaskCSysDragger::onTIncrementSlot(double freshValue)
@@ -285,7 +296,7 @@ void TaskCSysDragger::recompute(bool finish)
 {
   App::DocumentObject* dObject = vpObject.getObject();
   if (dObject) {
-    Gui::Document* document = Gui::Application::Instance->editDocument();
+    Gui::Document* document = editingDocument();
     if (document) {
         if (!App::GetApplication().getActiveTransaction()) {
             App::GetApplication().setActiveTransaction("Transform");

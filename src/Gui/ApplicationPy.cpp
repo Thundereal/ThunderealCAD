@@ -571,11 +571,15 @@ PyMethodDef Application::Methods[] = {
   {"editDocument", (PyCFunction)Application::sEditDocument, METH_VARARGS,
    "editDocument() -> Gui.Document | None\n"
    "\n"
-   "Return the current editing document. If no one exists,\n"
-   "return None."},
+   "Return the document in edit: the active document when it is in\n"
+   "edit, else the first one in edit. If no one exists, return None."},
+  {"editDocuments", (PyCFunction)Application::sEditDocuments, METH_VARARGS,
+   "editDocuments() -> list of Gui.Document\n"
+   "\n"
+   "Return every document in edit, in the order their edits started."},
   {"resetEdit", (PyCFunction)Application::sResetEdit, METH_VARARGS,
    "resetEdit()\n\n"
-   "Reset current editing document if there is one" },
+   "Reset the edit of every document in edit" },
   {"getDocument",             (PyCFunction) Application::sGetDocument, METH_VARARGS,
    "getDocument(doc) -> Gui.Document\n"
    "\n"
@@ -752,6 +756,19 @@ PyObject* Gui::Application::sEditDocument(PyObject * /*self*/, PyObject *args)
         return pcDoc->getPyObject();
     else
         Py_Return;
+}
+
+PyObject* Gui::Application::sEditDocuments(PyObject * /*self*/, PyObject *args)
+{
+    if (!PyArg_ParseTuple(args, ""))
+        return nullptr;
+
+    PY_TRY {
+        Py::List list;
+        for (auto doc : Instance->editDocuments())
+            list.append(Py::asObject(doc->getPyObject()));
+        return Py::new_reference_to(list);
+    } PY_CATCH
 }
 
 PyObject* Gui::Application::sResetEdit(PyObject * /*self*/, PyObject *args)

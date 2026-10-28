@@ -1983,7 +1983,16 @@ void TreeWidget::onStartEditing()
 
 void TreeWidget::onFinishEditing()
 {
-    auto doc = Application::Instance->editDocument();
+    // The edit of the item the menu was opened on: another document may be
+    // in edit too (the action is offered for an item that is in edit)
+    Gui::Document *doc = nullptr;
+    if (this->contextItem && this->contextItem->type() == ObjectType) {
+        auto vp = static_cast<DocumentObjectItem*>(this->contextItem)->object();
+        doc = Application::Instance->editDocument(
+            [vp](Gui::Document *editDoc) { return editDoc->getEditViewProvider() == vp; });
+    }
+    if (!doc)
+        doc = Application::Instance->editDocument();
     if(doc)  {
         doc->resetEdit();
         doc->getDocument()->recompute();
@@ -2796,7 +2805,7 @@ bool TreeWidget::onDoubleClickItem(QTreeWidgetItem *item)
 
             const char* commandText = vp->getTransactionText();
             if (commandText) {
-                auto editDoc = Application::Instance->editDocument();
+                auto editStarts = Application::Instance->editStartCount();
                 App::AutoTransaction committer(commandText, true);
 
                 if (!vp->doubleClicked())
@@ -2805,7 +2814,7 @@ bool TreeWidget::onDoubleClickItem(QTreeWidgetItem *item)
                     manager->addLine(MacroManager::Gui, ss.str().c_str());
 
                 // If the double click starts an editing, let the transaction persist
-                if (!editDoc && Application::Instance->editDocument())
+                if (editStarts != Application::Instance->editStartCount() && Application::Instance->editDocument())
                     committer.setEnable(false);
             }
             else {
@@ -3299,13 +3308,13 @@ void TreeWidget::mousePressEvent(QMouseEvent *event) {
                 || tag == treeUnselectableIconTag())
         {
             ViewProviderDocumentObject* vp = oitem->object();
-            auto editDoc = Application::Instance->editDocument();
+            auto editStarts = Application::Instance->editStartCount();
             App::AutoTransaction committer("Item clicked", true);
             try {
                 SelectionContext sctx(oitem->getSubObjectT());
                 if(vp->iconMouseEvent(event, tag)) {
                     // If the icon click starts an editing, let the transaction persist
-                    if (!editDoc && Application::Instance->editDocument())
+                    if (editStarts != Application::Instance->editStartCount() && Application::Instance->editDocument())
                         committer.setEnable(false);
                     pimpl->skipMouseRelease = true;
                     event->setAccepted(true);
@@ -3366,7 +3375,7 @@ void TreeWidget::mouseReleaseEvent(QMouseEvent *ev)
         auto oitem = pimpl->itemHitTest(ev->pos(), &tag);
         if (oitem) {
             ViewProviderDocumentObject* vp = oitem->object();
-            auto editDoc = Application::Instance->editDocument();
+            auto editStarts = Application::Instance->editStartCount();
             App::AutoTransaction committer("Item click released", true);
             bool handled = false;
             try {
@@ -3392,7 +3401,7 @@ void TreeWidget::mouseReleaseEvent(QMouseEvent *ev)
             if (handled) {
                 pimpl->skipMouseRelease = false;
                 // If the icon release starts an editing, let the transaction persist
-                if (!editDoc && Application::Instance->editDocument())
+                if (editStarts != Application::Instance->editStartCount() && Application::Instance->editDocument())
                     committer.setEnable(false);
                 ev->setAccepted(true);
                 return;
@@ -6261,7 +6270,9 @@ void DocumentItem::slotInEdit(const Gui::ViewProviderDocumentObject& v)
     unsigned long col = TreeParams::getTreeEditColor();
     QColor color(App::Color::fromPackedRGB<QColor>(col));
 
-    auto doc = Application::Instance->editDocument();
+    // The document whose edit this is: another may be in edit too
+    auto doc = Application::Instance->editDocument(
+        [&v](Gui::Document *editDoc) { return editDoc->getEditViewProvider() == &v; });
     if(!doc)
         return;
     auto docitem = getTree()->getDocumentItem(doc);

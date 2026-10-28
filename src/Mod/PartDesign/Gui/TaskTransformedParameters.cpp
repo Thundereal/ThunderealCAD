@@ -403,7 +403,9 @@ void TaskTransformedParameters::setupBaseUI() {
 
     this->groupLayout()->addWidget(splitter);
 
-    auto editDoc = Gui::Application::Instance->editDocument();
+    auto topView = getTopTransformedView();
+    auto editDoc = Gui::Application::Instance->editDocumentOf(
+        topView ? topView->getObject() : nullptr);
     if(editDoc) {
         ViewProviderDocumentObject *editVp = nullptr;
         std::string subname;
@@ -873,7 +875,7 @@ bool TaskDlgTransformedParameters::reject()
     // ensure that we are not in selection mode
     parameter->exitSelectionMode();
 
-    auto editDoc = Gui::Application::Instance->editDocument();
+    auto editDoc = Gui::Application::Instance->editDocumentOf(vp ? vp->getObject() : nullptr);
     if(editDoc && parameter->getTransactionID())
         editDoc->getDocument()->undo(parameter->getTransactionID());
 

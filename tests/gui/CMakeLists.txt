@@ -431,6 +431,11 @@ fc_add_gui_test(GuiEditTwoDocuments_tests_run edit-two-documents.py
 fc_add_gui_test(GuiPdEditTwoViews_tests_run pd-edit-two-views.py
                 --timeout 240)
 
+# Two sketches in edit in one document, one per view (entry 232, the
+# Sketcher round): Cancel of one takes back its own steps only.
+fc_add_gui_test(GuiSketchEditTwoViews_tests_run sketch-edit-two-views.py
+                --timeout 240)
+
 # An edit started after the main window is activated again, or with
 # another document's view the active one, is bound to the 3D view: the
 # split-view container (Gui::ViewArea) was handed out as the active view

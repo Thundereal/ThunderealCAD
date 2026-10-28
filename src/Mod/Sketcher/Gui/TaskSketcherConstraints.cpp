@@ -612,7 +612,9 @@ ConstraintView::ConstraintView(QWidget* parent)
 
 ConstraintView::~ConstraintView()
 {
-    _ConstraintViewInstance = nullptr;
+    // another sketch's edit may have made one since
+    if (_ConstraintViewInstance == this)
+        _ConstraintViewInstance = nullptr;
 }
 
 ConstraintView *ConstraintView::getInstance()

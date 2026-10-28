@@ -25,6 +25,7 @@
 #include <Mod/Sketcher/App/SketcherParams.h>
 
 #include <Gui/Command.h>
+#include <Gui/ViewParams.h>
 
 #include "TaskDlgEditSketch.h"
 #include "ViewProviderSketch.h"
@@ -161,7 +162,17 @@ void TaskDlgEditSketch::leave(bool cancel)
     if (sketchView && sketchView->getSketchMode() != ViewProviderSketch::STATUS_NONE) {
         sketchView->purgeHandler();
     }
-    Gui::Command::doCommand(Gui::Command::Gui,"Gui.resetEdit()");
+    // Its own edit: another view may have one of the document too
+    if (sketchView)
+        sketchView->resetOwnEdit();
+    else
+        Gui::Command::doCommand(Gui::Command::Gui,"Gui.resetEdit()");
+}
+
+bool TaskDlgEditSketch::holdsTransaction() const
+{
+    // Each change a step of its own, Cancel its own steps (entry 232)
+    return !Gui::ViewParams::getPerViewEdit();
 }
 
 

@@ -128,6 +128,7 @@
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
 #include <Gui/ViewParams.h>
+#include <Gui/ViewerContext.h>
 #include <Gui/DlgEditFileIncludePropertyExternal.h>
 #include <Gui/SoDatumLabel.h>
 #include <Gui/SoTextImage.h>
@@ -9510,6 +9511,16 @@ bool ViewProviderSketch::setEdit(int ModNum)
         sketch->dumpToStream(backup, 0);
         editBackup = backup.str();
         editUndoMark = sketch->getDocument()->getTransactionID(true, 0);
+        editOwnSteps.clear();
+        // A step opened while this edit is the one worked in is its own:
+        // its events are handled as its view (docs/HandsOnQueue.md entry 232)
+        connectOpenTransaction.disconnect();
+        connectOpenTransaction = sketch->getDocument()->signalOpenTransaction.connect(
+            [this](const App::Document& doc, std::string) {
+                Gui::Document* gdoc = getDocument();
+                if (edit && gdoc && gdoc->getInEdit() == this)
+                    editOwnSteps.push_back(doc.getBookedTransactionID());
+            });
     }
 
     // clear the selection (convenience)
@@ -10274,8 +10285,8 @@ void ViewProviderSketch::cancelEditing()
         purgeHandler();
     // Left as any edit is, then reverted: nothing of the edit is torn down
     // while an undo runs through it.
-    Gui::Command::doCommand(Gui::Command::Gui, "Gui.getDocument('%s').resetEdit()",
-                            doc->getName());
+    resetOwnEdit();
+    connectOpenTransaction.disconnect();
     App::GetApplication().closeActiveTransaction();
 
     // How many undos back to where the edit began; -1 when the history no
@@ -10298,7 +10309,12 @@ void ViewProviderSketch::cancelEditing()
         }
     }
 
-    if (steps > 0) {
+    if (steps > 0 && Gui::ViewParams::getPerViewEdit()) {
+        // Its own steps, and those only: another view's edit of the
+        // document may have made steps between them (entry 232)
+        gdoc->undoOwnSteps(editOwnSteps);
+    }
+    else if (steps > 0) {
         gdoc->undo(steps);
     }
     else if (steps < 0 && !editBackup.empty()) {
@@ -10313,6 +10329,25 @@ void ViewProviderSketch::cancelEditing()
         }
     }
     editBackup.clear();
+    editOwnSteps.clear();
+}
+
+void ViewProviderSketch::resetOwnEdit()
+{
+    Gui::Document* gdoc = getDocument();
+    if (!gdoc)
+        return;
+    // In the view this edit runs in, whichever is active
+    Gui::ViewerScope scope(gdoc->editingViewerOf(this));
+    Gui::Command::doCommand(Gui::Command::Gui, "Gui.getDocument('%s').resetEdit()",
+                            gdoc->getDocument()->getName());
+}
+
+bool ViewProviderSketch::editHoldsTransaction(int ModNum) const
+{
+    if (ModNum != Transform && ModNum != TransformAt && Gui::ViewParams::getPerViewEdit())
+        return false;
+    return inherited::editHoldsTransaction(ModNum);
 }
 
 void ViewProviderSketch::setEditViewer(Gui::ViewerContext* viewer, int ModNum)

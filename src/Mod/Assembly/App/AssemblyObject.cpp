@@ -1604,6 +1604,39 @@ void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
             return model.addFrame(frame);
         };
     for (auto* element : typed->Elements.getValues()) {
+        // On its joint's frames, as the joint's model record has them
+        if (auto* torsion = freecad_cast<TorsionSpring*>(element)) {
+            auto* joint = torsion->Joint.getValue();
+            const std::string jointName = joint ? joint->getFullName() : std::string();
+            const Solver::Joint* held = nullptr;
+            for (const auto& record : model.joints) {
+                if ((record.kind == Solver::JointKind::Revolute
+                     || record.kind == Solver::JointKind::Cylindrical)
+                    && model.sourceName(record.source) == jointName) {
+                    held = &record;
+                    break;
+                }
+            }
+            if (!held) {
+                Base::Console().warning(
+                    "Assembly: the torsion spring %s is on no revolute or cylindrical joint "
+                    "the simulation runs, and does nothing\n",
+                    torsion->getFullLabel().c_str());
+                continue;
+            }
+            Solver::ForceElement force;
+            force.source = model.addSource(torsion->getFullName());
+            force.kind = Solver::ForceKind::TorsionSpring;
+            force.frameI = held->frameI;
+            force.frameJ = held->frameJ;
+            force.k = torsion->Stiffness.getValue();
+            force.rest = Base::toRadians(torsion->FreeAngle.getValue());
+            force.preload = torsion->Preload.getValue();
+            force.c = torsion->Damping.getValue();
+            force.id = static_cast<Solver::Id>(model.dynamics->forces.size());
+            model.dynamics->forces.push_back(force);
+            continue;
+        }
         auto* spring = freecad_cast<SpringDamper*>(element);
         if (!spring) {
             continue;

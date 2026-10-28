@@ -118,6 +118,7 @@
 #include <chrono/physics/ChLinkDistance.h>
 #include <chrono/physics/ChLinkLockGear.h>
 #include <chrono/physics/ChLinkMate.h>
+#include <chrono/physics/ChLinkRSDA.h>
 #include <chrono/physics/ChLinkTSDA.h>
 #include <chrono/physics/ChLinkMotorLinearForce.h>
 #include <chrono/physics/ChLinkMotorLinearPosition.h>
@@ -2585,13 +2586,37 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     }
     // What each frame reports besides the poses (sec 8.4)
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkTSDA>>> springs;
+    std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkRSDA>>> torsions;
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorRotation>>> rotationMotors;
     std::vector<std::pair<Id, std::shared_ptr<ch::ChLinkMotorLinear>>> linearMotors;
     // The force elements, on frames of the model: in SI and at the centres
     // of mass with it (a stiffness and a damping need no factor, sec 8.1)
     for (const auto& force : si.dynamics->forces) {
-        if (force.kind != ForceKind::SpringDamper || force.frameI >= si.frames.size()
-            || force.frameJ >= si.frames.size()) {
+        if (!run.d->validFrame(force.frameI) || !run.d->validFrame(force.frameJ)) {
+            continue;
+        }
+        if (force.kind == ForceKind::TorsionSpring) {
+            if (run.d->isRigid(force.frameI, force.frameJ)) {
+                continue;
+            }
+            // Frame I's body first: Chrono's angle is then the joint's,
+            // of xJ about zI, J as the joint's motors and limits see it.
+            // In SI with the model: k, c and the preload scaled already.
+            auto torsion = std::make_shared<ch::ChLinkRSDA>();
+            torsion->Initialize(run.d->bodyOf(force.frameI),
+                                run.d->bodyOf(force.frameJ),
+                                true,
+                                run.d->localOf(force.frameI),
+                                run.d->driverLocalOf(force.frameJ));
+            torsion->SetRestAngle(torsion->GetAngle() + force.rest);
+            torsion->SetSpringCoefficient(force.k);
+            torsion->SetDampingCoefficient(force.c);
+            torsion->SetActuatorTorque(force.preload);
+            sys.AddLink(torsion);
+            torsions.emplace_back(force.source, torsion);
+            continue;
+        }
+        if (force.kind != ForceKind::SpringDamper) {
             continue;
         }
         auto spring = std::make_shared<ch::ChLinkTSDA>();
@@ -2755,6 +2780,10 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     for (const auto& spring : springs) {
         channels.push_back({si.sourceName(spring.first), "SpringForce", 1});
         channels.push_back({si.sourceName(spring.first), "SpringLength", 1});
+    }
+    for (const auto& torsion : torsions) {
+        channels.push_back({si.sourceName(torsion.first), "SpringTorque", 1});
+        channels.push_back({si.sourceName(torsion.first), "SpringAngle", 1});
     }
     // A link's wrench on the body of a frame (a joint's or a limit's frame
     // I), absolute, the torque about 'about': Chrono's links report it on
@@ -2949,6 +2978,10 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         for (const auto& spring : springs) {
             out.push_back(spring.second->GetForce() / SI::force);
             out.push_back(spring.second->GetLength() / SI::length);
+        }
+        for (const auto& torsion : torsions) {
+            out.push_back(torsion.second->GetTorque() / SI::torque);
+            out.push_back(torsion.second->GetAngle());
         }
         return out;
     };

@@ -99,6 +99,7 @@ class AssemblyWorkbench(Workbench):
             "Assembly_CreateSimulation",
             "Assembly_MassProperties",
             "Assembly_CreateSpring",
+            "Assembly_CreateTorsionSpring",
             "Assembly_CreateBom",
         ]
 

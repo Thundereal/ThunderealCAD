@@ -47,6 +47,15 @@ public:
     QIcon getIcon() const override;
 };
 
+/// A torsion spring: its icon; its joint shows where it is
+class AssemblyGuiExport ViewProviderTorsionSpring: public Gui::ViewProviderDocumentObject
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(AssemblyGui::ViewProviderTorsionSpring);
+
+public:
+    QIcon getIcon() const override;
+};
+
 /** A spring and damper, drawn as a coil between its ends, in the assembly's
  * coordinates; redrawn as its ends' components move -- dragged, solved, or
  * played back.

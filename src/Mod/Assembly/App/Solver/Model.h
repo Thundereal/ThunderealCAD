@@ -278,7 +278,12 @@ enum class ForceKind : std::uint8_t
 {
     // Along the line from oI to oJ: f - k (l - rest) - c dl/dt, a positive
     // force pushing the two apart (Chrono's ChLinkTSDA)
-    SpringDamper
+    SpringDamper,
+    // About zI, on a revolute or cylindrical joint's frames: t - k (a - a0 -
+    // rest) - c da/dt, a the turn of xJ about zI from xI (a limit's angle),
+    // a0 its value at the start; a positive torque turning a up (Chrono's
+    // ChLinkRSDA)
+    TorsionSpring
 };
 
 struct ForceElement
@@ -288,10 +293,10 @@ struct ForceElement
     ForceKind kind {};
     Id frameI = NoId;
     Id frameJ = NoId;
-    double k = 0.0;        // mN/mm
-    double rest = 0.0;     // mm; 0: the length at the start
-    double preload = 0.0;  // mN, pushing apart
-    double c = 0.0;        // mN s / mm (kg/s)
+    double k = 0.0;        // mN/mm; torsion: mN mm / rad
+    double rest = 0.0;     // mm, 0: the length at the start; torsion: rad from the start
+    double preload = 0.0;  // mN, pushing apart; torsion: mN mm
+    double c = 0.0;        // mN s / mm (kg/s); torsion: mN mm s / rad
 };
 
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has

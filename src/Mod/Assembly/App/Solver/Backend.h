@@ -159,6 +159,8 @@ struct SimulationSpec
 //   "MotorForce"       the force a linear motor applies along its axis
 //   "SpringForce"      a spring-damper's force, positive pushing its ends apart
 //   "SpringLength"     its length
+//   "SpringTorque"     a torsion spring's torque, positive turning its joint up
+//   "SpringAngle"      its joint's turn, rad, as the joint's limits read it
 struct Channel
 {
     std::string source;  // the model's source name: the joint's, the spring's

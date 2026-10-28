@@ -200,8 +200,16 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             }
         }
         // A force scales as a length does (mass and time stay): a
-        // stiffness or a damping, a force over a length, not at all
+        // stiffness or a damping, a force over a length, not at all. A
+        // torque, and so a torsion's stiffness and damping, as a length
+        // squared; its angle not at all.
         for (auto& force : out.dynamics->forces) {
+            if (force.kind == ForceKind::TorsionSpring) {
+                force.k *= length * length;
+                force.preload *= length * length;
+                force.c *= length * length;
+                continue;
+            }
             force.rest *= length;
             force.preload *= length;
         }

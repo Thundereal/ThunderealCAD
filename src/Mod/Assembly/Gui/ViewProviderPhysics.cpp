@@ -52,6 +52,13 @@ QIcon ViewProviderMassOverride::getIcon() const
     return Gui::BitmapFactory().pixmap("Assembly_MassProperties.svg");
 }
 
+PROPERTY_SOURCE(AssemblyGui::ViewProviderTorsionSpring, Gui::ViewProviderDocumentObject)
+
+QIcon ViewProviderTorsionSpring::getIcon() const
+{
+    return Gui::BitmapFactory().pixmap("Assembly_TorsionSpring.svg");
+}
+
 PROPERTY_SOURCE(AssemblyGui::ViewProviderSpringDamper, Gui::ViewProviderDocumentObject)
 
 namespace

@@ -92,7 +92,9 @@ class AssemblyObject(Part):
         joint's coordinate system on that part); "MotorTorque" (mN mm) or
         "MotorForce" (mN), what a motion's motor applies along its joint's
         axis; "SpringForce" (mN, positive pushing the ends apart) or
-        "SpringLength" (mm), a spring-damper's.
+        "SpringLength" (mm), a spring-damper's; "SpringTorque" (mN mm,
+        positive turning the joint up) or "SpringAngle" (rad, the joint's
+        turn as its limits read it), a torsion spring's.
         """
         ...
 

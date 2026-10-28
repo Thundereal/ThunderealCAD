@@ -126,5 +126,66 @@ def makeSpring(assembly, end1, end2, stiffness="1 N/mm"):
     return spring
 
 
+# The joints a torsion spring turns with
+TorsionJointTypes = ("Revolute", "Cylindrical")
+
+
+def selectedTorsionJoint():
+    """The one Revolute or Cylindrical joint selected, else None"""
+    joints = [
+        o
+        for o in Gui.Selection.getSelection()
+        if getattr(o, "JointType", None) in TorsionJointTypes
+    ]
+    return joints[0] if len(joints) == 1 else None
+
+
+class CommandCreateTorsionSpring:
+    def GetResources(self):
+        return {
+            "Pixmap": "Assembly_TorsionSpring",
+            "MenuText": QT_TRANSLATE_NOOP("Assembly_CreateTorsionSpring", "Torsion Spring"),
+            "ToolTip": QT_TRANSLATE_NOOP(
+                "Assembly_CreateTorsionSpring",
+                "A torsion spring and damper on a revolute or cylindrical joint, resisting "
+                "its turn,\nfor a dynamic or static simulation. Select the joint first.",
+            ),
+            "CmdType": "ForEdit",
+        }
+
+    def IsActive(self):
+        return UtilsAssembly.isAssemblyCommandActive() and selectedTorsionJoint() is not None
+
+    def Activated(self):
+        assembly = UtilsAssembly.activeAssembly()
+        joint = selectedTorsionJoint()
+        if not assembly or joint is None:
+            return
+        spring = makeTorsionSpring(assembly, joint)
+        Gui.Selection.clearSelection()
+        Gui.Selection.addSelection(spring)
+
+
+def makeTorsionSpring(assembly, joint, stiffness="1 N*m"):
+    """A torsion spring on a Revolute or Cylindrical joint, 1 N m per radian
+    and free where the run starts, in a transaction; ticked in every Dynamic
+    and Static study of the assembly."""
+    doc = assembly.Document
+    doc.openTransaction(translate("Assembly", "Create torsion spring"))
+    try:
+        physics = assembly.getGroup("Physics", True)
+        spring = physics.newObject("Assembly::TorsionSpring", "TorsionSpring")
+        spring.Joint = joint
+        spring.Stiffness = stiffness
+        sims = assembly.getGroup("Simulations")
+        for sim in sims.Group if sims else []:
+            if getattr(sim, "AnalysisType", None) in ("Dynamic", "Static"):
+                sim.Elements = list(sim.Elements) + [spring]
+    finally:
+        doc.commitTransaction()
+    return spring
+
+
 if App.GuiUp:
     Gui.addCommand("Assembly_CreateSpring", CommandCreateSpring())
+    Gui.addCommand("Assembly_CreateTorsionSpring", CommandCreateTorsionSpring())

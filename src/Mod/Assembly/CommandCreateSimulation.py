@@ -76,6 +76,8 @@ ResultQuantities = {
     "MotorForce": (QT_TRANSLATE_NOOP("Assembly", "Motor force"), 1e-3, "N"),
     "SpringForce": (QT_TRANSLATE_NOOP("Assembly", "Spring force"), 1e-3, "N"),
     "SpringLength": (QT_TRANSLATE_NOOP("Assembly", "Spring length"), 1.0, "mm"),
+    "SpringTorque": (QT_TRANSLATE_NOOP("Assembly", "Spring torque"), 1e-6, "N m"),
+    "SpringAngle": (QT_TRANSLATE_NOOP("Assembly", "Spring angle"), 57.29577951308232, "deg"),
 }
 
 if App.GuiUp:
@@ -1197,7 +1199,12 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
 
     def forceElements(self):
         """The force elements of the assembly's Physics group"""
-        return [o for o in self.assembly.Group if o.isDerivedFrom("Assembly::SpringDamper")]
+        return [
+            o
+            for o in self.assembly.Group
+            if o.isDerivedFrom("Assembly::SpringDamper")
+            or o.isDerivedFrom("Assembly::TorsionSpring")
+        ]
 
     def fillElements(self):
         used = list(self.simFeaturePy.Elements)

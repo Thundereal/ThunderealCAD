@@ -117,4 +117,38 @@ public:
 
 using SpringDamperPython = App::FeaturePythonT<SpringDamper>;
 
+/** A torsion spring and damper on a revolute or cylindrical joint
+ * (docs/AssemblyDynamics.md, D1's leftovers): a torque about the joint's
+ * axis from the joint's turn -- the angle its limits read, the second
+ * reference's x axis about the first's z. Turning the joint the positive
+ * way when positive:
+ * Preload - Stiffness (turn - FreeAngle) - Damping d(turn)/dt,
+ * the turn counted from where the run starts.
+ */
+class AssemblyExport TorsionSpring: public PhysicsItem
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::TorsionSpring);
+
+public:
+    TorsionSpring();
+
+    /// A Revolute or a Cylindrical joint
+    App::PropertyLink Joint;
+    /// A torque over an angle, mN mm per radian (N m per radian x 1e6)
+    App::PropertyQuantity Stiffness;
+    /// The joint's turn, from where the run starts, at which it is free
+    App::PropertyAngle FreeAngle;
+    /// A torque turning the joint the positive way
+    App::PropertyQuantity Preload;
+    /// A torque over a turning speed, mN mm s per radian
+    App::PropertyQuantity Damping;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderTorsionSpring";
+    }
+};
+
+using TorsionSpringPython = App::FeaturePythonT<TorsionSpring>;
+
 }  // namespace Assembly

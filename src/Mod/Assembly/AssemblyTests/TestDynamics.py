@@ -555,3 +555,74 @@ class TestDynamics(unittest.TestCase):
                 self.assertLess(angle, 30 + 1e-4, (analysis, time))
             angle = math.degrees(math.atan2(5 - frames[-1][1].z, frames[-1][1].x - 10))
             self.assertAlmostEqual(angle, 30.0, delta=1e-4, msg=analysis)
+
+    # ------------------------------------------------------------ torsion
+
+    def torsion(self, stiffness, free=0.0, damping=0.0):
+        """The pendulum with a torsion spring on its hinge (mN mm / rad, deg)"""
+        rod = self.pendulum()
+        hinge = [o for o in self.joints.Group if o.Name.startswith("Revolute")][0]
+        physics = self.assembly.getGroup("Physics", True)
+        spring = physics.newObject("Assembly::TorsionSpring", "TorsionSpring")
+        spring.Joint = hinge
+        spring.Stiffness = stiffness
+        spring.FreeAngle = free
+        spring.Damping = damping
+        return rod, spring
+
+    def test_torsion_period(self):
+        """Without gravity, a torsion spring free 0.1 rad from where the rod
+        starts swings it between 0 and 0.2 rad, by half a period of
+        pi sqrt(I / k) about the hinge."""
+        k = 1e4  # mN mm / rad
+        rod, spring = self.torsion(k, math.degrees(0.1))
+        _, result = self.simulate(1.0, 1e-4, GravityEnabled=False, Elements=[spring])
+        self.assertEqual(result, 0)
+        turns = []
+        for i in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(i)
+            turns.append((i * 1e-4, rod.Placement.Rotation.Angle))
+        inertia = 100 * 10 * 10 * 2.7e-6 * ((100**2 + 10**2) / 12 + 50**2)  # kg mm^2
+        half = math.pi * math.sqrt(inertia / k)
+        crossed = self.crossings(turns, 0.1)
+        self.assertGreaterEqual(len(crossed), 3)
+        for a, b in zip(crossed, crossed[1:]):
+            self.assertAlmostEqual(b - a, half, delta=half * 1e-3)
+        self.assertAlmostEqual(max(a for _, a in turns), 0.2, delta=1e-4)
+        # Its torque, -k (turn - 0.1), as the turn goes the spring's way
+        torques = self.channel("TorsionSpring", "SpringTorque")
+        angles = self.channel("TorsionSpring", "SpringAngle")
+        start = angles[0]
+        for torque, angle in zip(torques, angles):
+            self.assertAlmostEqual(torque, -k * (angle - start - 0.1), delta=k * 1e-9)
+        self.assertAlmostEqual(abs(max(angles, key=abs) - start), 0.2, delta=1e-4)
+
+    def test_torsion_static(self):
+        """A torsion spring free where the rod starts, level, holds it where
+        k turn = m g d cos(turn) below level."""
+        k = 2000.0
+        rod, spring = self.torsion(k)
+        _, result = self.simulate(0.0, 1e-2, AnalysisType="Static", Elements=[spring])
+        self.assertEqual(result, 0)
+        weight = 100 * 10 * 10 * 2.7e-6 * G * 50
+        lo, hi = 0.0, math.pi / 2
+        for _ in range(60):
+            mid = (lo + hi) / 2
+            if k * mid < weight * math.cos(mid):
+                lo = mid
+            else:
+                hi = mid
+        ((_, centre, _),) = self.frames(rod, 1e-2)
+        below = math.atan2(5 - centre.z, centre.x - 10)
+        self.assertAlmostEqual(below, lo, delta=1e-6)
+        torque = self.channel("TorsionSpring", "SpringTorque")[0]
+        self.assertAlmostEqual(abs(torque), weight * math.cos(lo), delta=weight * 1e-6)
+
+    def test_torsion_on_wrong_joint(self):
+        """A torsion spring on no revolute or cylindrical joint does nothing."""
+        rod, spring = self.torsion(1e4, 30.0)
+        spring.Joint = None
+        _, result = self.simulate(0.05, 1e-2, GravityEnabled=False, Elements=[spring])
+        self.assertEqual(result, 0)
+        for time, centre, _ in self.frames(rod, 1e-2):
+            self.assertLess((centre - App.Vector(60, 5, 5)).Length, 1e-9, time)

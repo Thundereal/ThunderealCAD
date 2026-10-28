@@ -108,8 +108,54 @@ SpringDamper::SpringDamper()
     Damping.setUnit(Base::Unit(0, 1, -1));
 }
 
+PROPERTY_SOURCE(Assembly::TorsionSpring, Assembly::PhysicsItem)
+
+TorsionSpring::TorsionSpring()
+{
+    ADD_PROPERTY_TYPE(Joint,
+                      (nullptr),
+                      "Spring",
+                      App::Prop_None,
+                      "The Revolute or Cylindrical joint whose turn the spring resists");
+    ADD_PROPERTY_TYPE(Stiffness,
+                      (0.0),
+                      "Spring",
+                      App::Prop_None,
+                      "The torque per radian of turn (1 N*m is 1 N m per radian)");
+    // A torque: mass length^2 / time^2, per radian
+    Stiffness.setUnit(Base::Unit(2, 1, -2));
+    ADD_PROPERTY_TYPE(FreeAngle,
+                      (0.0),
+                      "Spring",
+                      App::Prop_None,
+                      "The joint's turn, from where the run starts, at which the spring "
+                      "neither turns it one way nor the other");
+    ADD_PROPERTY_TYPE(Preload,
+                      (0.0),
+                      "Spring",
+                      App::Prop_None,
+                      "A constant torque turning the joint the positive way (negative: the "
+                      "other)");
+    Preload.setUnit(Base::Unit(2, 1, -2));
+    ADD_PROPERTY_TYPE(Damping,
+                      (0.0),
+                      "Spring",
+                      App::Prop_None,
+                      "The damper's torque per radian per second of turning (1 N*m*s is 1 N m "
+                      "s per radian)");
+    Damping.setUnit(Base::Unit(2, 1, -1));
+}
+
 namespace App
 {
+PROPERTY_SOURCE_TEMPLATE(Assembly::TorsionSpringPython, Assembly::TorsionSpring)
+template<>
+const char* Assembly::TorsionSpringPython::getViewProviderName() const
+{
+    return "Gui::ViewProviderPythonFeature";
+}
+template class AssemblyExport FeaturePythonT<Assembly::TorsionSpring>;
+
 PROPERTY_SOURCE_TEMPLATE(Assembly::SpringDamperPython, Assembly::SpringDamper)
 template<>
 const char* Assembly::SpringDamperPython::getViewProviderName() const

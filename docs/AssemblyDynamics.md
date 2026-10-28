@@ -225,8 +225,25 @@ Phase D1 is under way (2026-10-28):
   (1%: measured 4.011 and 1.003 at 1e-4 s steps, the crossing caught a
   step late); a static study settles it on the stop; a pendulum limited to
   30 deg either way swings onto the stop and stays, dynamic and static.
-- Next of the leftovers: cams (curve scaling), torsional springs, a
-  spring's end on an element rather than a point.
+- Built: torsion springs. `Assembly::TorsionSpring` (the Physics group;
+  Assembly_CreateTorsionSpring, on the one Revolute or Cylindrical joint
+  selected, 1 N m per radian, free where the run starts, ticked in every
+  Dynamic and Static study): Joint, Stiffness (a torque per radian, mN mm
+  internally), FreeAngle (the joint's turn from where the run starts at
+  which it is free), Preload (a torque), Damping. On the joint's own model
+  frames (the builder finds the joint's Revolute or Cylindrical record by
+  source; on none, a warning and nothing), `ForceKind::TorsionSpring`,
+  scaled as a torque (length squared), its angle not at all. Chrono's
+  `ChLinkRSDA` with frame I's body first and J as the motors see it, so
+  its angle is the joint's, as the limits read it; the rest angle the
+  start's plus FreeAngle. Channels `SpringTorque` (positive turning the
+  joint up) and `SpringAngle` (rad; the panel shows deg). Tests: free 0.1
+  rad from the start without gravity, the rod swings 0 to 0.2 rad by half
+  periods of pi sqrt(I / k) (1e-3), its torque -k (turn - 0.1); with
+  gravity, a static study holds it where k turn = m g d cos(turn) (1e-6
+  rad); on no such joint it does nothing.
+- Next of the leftovers: cams (curve scaling), a spring's end on an
+  element rather than a point.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

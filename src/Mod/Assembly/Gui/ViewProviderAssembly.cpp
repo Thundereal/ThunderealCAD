@@ -930,13 +930,31 @@ void ViewProviderAssembly::showDragStopped()
 void ViewProviderAssembly::showDragCollisions()
 {
     auto* assembly = getObject<AssemblyObject>();
-    std::vector<App::DocumentObject*> colliding;
+    // Each component's faces in a crossing, of all its pairs; the whole of it
+    // in a pair where nothing crosses
+    std::vector<std::pair<App::DocumentObject*, CollisionNode>> colliding;
     for (const auto& hit : assembly->getDragCollisions()) {
-        for (auto* obj : {hit.first, hit.second}) {
-            if (std::find(colliding.begin(), colliding.end(), obj) == colliding.end()) {
-                colliding.push_back(obj);
+        for (const auto& [obj, faces] : {std::make_pair(hit.first, &hit.touchFaces1),
+                                         std::make_pair(hit.second, &hit.touchFaces2)}) {
+            auto it = std::find_if(colliding.begin(), colliding.end(), [&](const auto& entry) {
+                return entry.first == obj;
+            });
+            if (it == colliding.end()) {
+                it = colliding.insert(colliding.end(), {obj, CollisionNode {}});
             }
+            if (faces->empty()) {
+                it->second.whole = true;
+            }
+            it->second.faces.insert(it->second.faces.end(), faces->begin(), faces->end());
         }
+    }
+    for (auto& [obj, wanted] : colliding) {
+        if (wanted.whole) {
+            wanted.faces.clear();
+        }
+        std::sort(wanted.faces.begin(), wanted.faces.end());
+        wanted.faces.erase(std::unique(wanted.faces.begin(), wanted.faces.end()),
+                           wanted.faces.end());
     }
     if (colliding.empty()) {
         if (collisionSwitch) {
@@ -972,11 +990,18 @@ void ViewProviderAssembly::showDragCollisions()
         pcRoot->addChild(collisionSwitch);
     }
     collisionGroup->removeAllChildren();
-    for (auto* obj : colliding) {
+    for (const auto& [obj, wanted] : colliding) {
         auto it = collisionNodes.find(obj);
+        if (it != collisionNodes.end()
+            && (it->second.whole != wanted.whole || it->second.faces != wanted.faces)) {
+            it->second.node->unref();
+            collisionNodes.erase(it);
+            it = collisionNodes.end();
+        }
         if (it == collisionNodes.end()) {
             std::vector<Base::Vector3d> points;
-            if (!assembly->getCollisionMesh(obj, points) || points.empty()) {
+            if (!assembly->getCollisionMesh(obj, points, wanted.whole ? nullptr : &wanted.faces)
+                || points.empty()) {
                 continue;
             }
             auto* node = new SoSeparator;
@@ -1000,7 +1025,10 @@ void ViewProviderAssembly::showDragCollisions()
             std::fill(numbers, numbers + count, 3);
             faces->numVertices.finishEditing();
             node->addChild(faces);
-            it = collisionNodes.emplace(obj, std::make_pair(node, transform)).first;
+            CollisionNode drawn = wanted;
+            drawn.node = node;
+            drawn.transform = transform;
+            it = collisionNodes.emplace(obj, std::move(drawn)).first;
         }
         // The component's placement in the assembly, through its containers
         Base::Placement plc;
@@ -1013,14 +1041,14 @@ void ViewProviderAssembly::showDragCollisions()
         const Base::Vector3d pos = plc.getPosition();
         double q0 {}, q1 {}, q2 {}, q3 {};
         plc.getRotation().getValue(q0, q1, q2, q3);
-        it->second.second->translation.setValue(static_cast<float>(pos.x),
-                                                static_cast<float>(pos.y),
-                                                static_cast<float>(pos.z));
-        it->second.second->rotation.setValue(static_cast<float>(q0),
-                                             static_cast<float>(q1),
-                                             static_cast<float>(q2),
-                                             static_cast<float>(q3));
-        collisionGroup->addChild(it->second.first);
+        it->second.transform->translation.setValue(static_cast<float>(pos.x),
+                                                   static_cast<float>(pos.y),
+                                                   static_cast<float>(pos.z));
+        it->second.transform->rotation.setValue(static_cast<float>(q0),
+                                                static_cast<float>(q1),
+                                                static_cast<float>(q2),
+                                                static_cast<float>(q3));
+        collisionGroup->addChild(it->second.node);
     }
     collisionSwitch->whichChild = SO_SWITCH_ALL;
 }
@@ -1034,7 +1062,7 @@ void ViewProviderAssembly::clearDragCollisions()
         collisionGroup->removeAllChildren();
     }
     for (auto& entry : collisionNodes) {
-        entry.second.first->unref();
+        entry.second.node->unref();
     }
     collisionNodes.clear();
 }

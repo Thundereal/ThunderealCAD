@@ -343,11 +343,12 @@ bool confirmed(const std::function<bool(const Vec&)>& witness,
 }
 
 // Each triangle of ia's mesh with each of ib's whose boxes are within tol of
-// each other, handed to `visit` in the frame of ia's solid until it says to
-// stop; true when it did. b's tree is carried over by the pose of its solid
-// relative to a's, its boxes as boxes around them and its triangles moved as
-// they are reached, so a move rebuilds nothing.
-using VisitTriangles = std::function<bool(const Vec (&pa)[3], const Vec (&pb)[3])>;
+// each other, handed to `visit` in the frame of ia's solid with their indices
+// in the meshes, until it says to stop; true when it did. b's tree is carried over by the pose of
+// its solid relative to a's, its boxes as boxes around them and its triangles moved as they are
+// reached, so a move rebuilds nothing.
+using VisitTriangles =
+    std::function<bool(const Vec (&pa)[3], const Vec (&pb)[3], int indexA, int indexB)>;
 
 bool visitNearTriangles(const Instance& ia,
                         const Instance& ib,
@@ -387,7 +388,7 @@ bool visitNearTriangles(const Instance& ia,
     };
 
     std::vector<std::pair<int, int>> stack {{0, 0}};
-    std::vector<std::array<Vec, 3>> leafB;
+    std::vector<std::pair<std::array<Vec, 3>, int>> leafB;
     while (!stack.empty()) {
         const auto [na, nb] = stack.back();
         stack.pop_back();
@@ -404,15 +405,17 @@ bool visitNearTriangles(const Instance& ia,
             for (int j = tb->BegPrimitive(nb); j <= tb->EndPrimitive(nb); ++j) {
                 Vec pb[3];
                 b.GetVertices(j, pb[0], pb[1], pb[2]);
-                leafB.push_back(
-                    {apply(relative, pb[0]), apply(relative, pb[1]), apply(relative, pb[2])});
+                leafB.emplace_back(std::array<Vec, 3> {apply(relative, pb[0]),
+                                                       apply(relative, pb[1]),
+                                                       apply(relative, pb[2])},
+                                   j);
             }
             for (int i = ta->BegPrimitive(na); i <= ta->EndPrimitive(na); ++i) {
                 Vec pa[3];
                 a.GetVertices(i, pa[0], pa[1], pa[2]);
-                for (const auto& moved : leafB) {
+                for (const auto& [moved, j] : leafB) {
                     const Vec pb[3] = {moved[0], moved[1], moved[2]};
-                    if (visit(pa, pb)) {
+                    if (visit(pa, pb, i, j)) {
                         return true;
                     }
                 }
@@ -454,7 +457,7 @@ bool instancesCross(Component& ca,
             return confirmed(witness, at, from, to, normal, crossed, tol);
         };
     bool crossed = false;
-    visitNearTriangles(ia, ib, tol, [&](const Vec(&pa)[3], const Vec(&pb)[3]) {
+    visitNearTriangles(ia, ib, tol, [&](const Vec(&pa)[3], const Vec(&pb)[3], int, int) {
         if (edgeCrosses(pa, pb, tol, confirm) || edgeCrosses(pb, pa, tol, confirm)) {
             crossed = true;
             return true;
@@ -479,9 +482,16 @@ constexpr int maxTouchPairs = 200000;
 // face to face have those on the faces either side, which the turning adds
 // up.) One inside the other, nothing crosses: the middle of the common part of
 // their boxes; and with no direction so, the one from hit's box to the
-// other's.
-void touchOf(Component& other, Component& hit, double tol, InterferenceResult& result)
+// other's. The faces of each in a crossing into otherFaces and hitFaces.
+void touchOf(Component& other,
+             Component& hit,
+             double tol,
+             InterferenceResult& result,
+             std::vector<std::pair<int, int>>& otherFaces,
+             std::vector<std::pair<int, int>>& hitFaces)
 {
+    std::set<std::pair<int, int>> crossedOther;
+    std::set<std::pair<int, int>> crossedHit;
     Vec weighted(0.0, 0.0, 0.0);
     Vec normal(0.0, 0.0, 0.0);
     double total = 0.0;
@@ -506,45 +516,55 @@ void touchOf(Component& other, Component& hit, double tol, InterferenceResult& r
             }
             return false;
         };
-    for (const auto& io : other.instances) {
-        for (const auto& ih : hit.instances) {
+    for (std::size_t no = 0; no < other.instances.size(); ++no) {
+        const auto& io = other.instances[no];
+        for (std::size_t nh = 0; nh < hit.instances.size(); ++nh) {
+            const auto& ih = hit.instances[nh];
             if (!io.geometry || !ih.geometry || !boxesNear(io.box, ih.box, tol)) {
                 continue;
             }
             // Found in the frame of io's solid, summed in the assembly's
             const Vec origin = apply(io.trsf, Vec(0.0, 0.0, 0.0));
-            visitNearTriangles(io, ih, tol, [&](const Vec(&po)[3], const Vec(&ph)[3]) {
-                count = 0;
-                hitNormal = Vec(0.0, 0.0, 0.0);
-                edgeCrosses(po, ph, tol, throughHit);
-                edgeCrosses(ph, po, tol, throughOther);
-                if (count > 0) {
-                    // The segment: the two points farthest apart
-                    Vec from = points[0];
-                    Vec to = points[0];
-                    double best = 0.0;
-                    for (int i = 0; i < count; ++i) {
-                        for (int j = i + 1; j < count; ++j) {
-                            const Vec d = points[j] - points[i];
-                            if (dot(d, d) > best) {
-                                best = dot(d, d);
-                                from = points[i];
-                                to = points[j];
+            visitNearTriangles(
+                io,
+                ih,
+                tol,
+                [&](const Vec(&po)[3], const Vec(&ph)[3], int indexO, int indexH) {
+                    count = 0;
+                    hitNormal = Vec(0.0, 0.0, 0.0);
+                    edgeCrosses(po, ph, tol, throughHit);
+                    edgeCrosses(ph, po, tol, throughOther);
+                    if (count > 0) {
+                        crossedOther.emplace(static_cast<int>(no),
+                                             io.geometry->triangles().GetFaceID(indexO));
+                        crossedHit.emplace(static_cast<int>(nh),
+                                           ih.geometry->triangles().GetFaceID(indexH));
+                        // The segment: the two points farthest apart
+                        Vec from = points[0];
+                        Vec to = points[0];
+                        double best = 0.0;
+                        for (int i = 0; i < count; ++i) {
+                            for (int j = i + 1; j < count; ++j) {
+                                const Vec d = points[j] - points[i];
+                                if (dot(d, d) > best) {
+                                    best = dot(d, d);
+                                    from = points[i];
+                                    to = points[j];
+                                }
                             }
                         }
+                        const double length = std::max(std::sqrt(best), tol);
+                        weighted = weighted + apply(io.trsf, (from + to) * 0.5) * length;
+                        total += length;
+                        Vec unit = apply(io.trsf, hitNormal) - origin;
+                        const double size = std::sqrt(dot(unit, unit));
+                        if (size > 0.0) {
+                            unit = unit * ((dot(unit, normal) < 0.0 ? -1.0 : 1.0) / size);
+                            normal = normal + unit * length;
+                        }
                     }
-                    const double length = std::max(std::sqrt(best), tol);
-                    weighted = weighted + apply(io.trsf, (from + to) * 0.5) * length;
-                    total += length;
-                    Vec unit = apply(io.trsf, hitNormal) - origin;
-                    const double size = std::sqrt(dot(unit, unit));
-                    if (size > 0.0) {
-                        unit = unit * ((dot(unit, normal) < 0.0 ? -1.0 : 1.0) / size);
-                        normal = normal + unit * length;
-                    }
-                }
-                return ++pairs >= maxTouchPairs;
-            });
+                    return ++pairs >= maxTouchPairs;
+                });
         }
     }
 
@@ -588,6 +608,8 @@ void touchOf(Component& other, Component& hit, double tol, InterferenceResult& r
     result.touched = true;
     result.touchCentre = Base::Vector3d(centre.x(), centre.y(), centre.z());
     result.touchNormal = Base::Vector3d(normal.x(), normal.y(), normal.z());
+    otherFaces.assign(crossedOther.begin(), crossedOther.end());
+    hitFaces.assign(crossedHit.begin(), crossedHit.end());
 }
 bool meshesCross(Component& ca, Component& cb, double tol)
 {
@@ -1002,7 +1024,12 @@ struct Scene
                         // The one hit: the one that did not move, else b
                         const bool aHit = b.moved && !a.moved;
                         try {
-                            touchOf(aHit ? b : a, aHit ? a : b, pairTol, result);
+                            touchOf(aHit ? b : a,
+                                    aHit ? a : b,
+                                    pairTol,
+                                    result,
+                                    aHit ? result.touchFaces2 : result.touchFaces1,
+                                    aHit ? result.touchFaces1 : result.touchFaces2);
                         }
                         catch (const Standard_Failure& e) {
                             FC_WARN("Where " << a.obj->getFullName() << " and "
@@ -1146,14 +1173,16 @@ std::size_t CollisionWatch::components() const
 }
 
 bool CollisionWatch::meshOf(const App::DocumentObject* obj,
-                            std::vector<Base::Vector3d>& points) const
+                            std::vector<Base::Vector3d>& points,
+                            const std::vector<std::pair<int, int>>* faces) const
 {
     for (const auto& component : d->scene.components) {
         if (component.obj != obj) {
             continue;
         }
         const gp_Trsf frame = Part::TopoShape::convert(component.now).Inverted();
-        for (const auto& instance : component.instances) {
+        for (std::size_t n = 0; n < component.instances.size(); ++n) {
+            const auto& instance = component.instances[n];
             if (!instance.geometry) {
                 continue;
             }
@@ -1161,6 +1190,13 @@ bool CollisionWatch::meshOf(const App::DocumentObject* obj,
             const gp_Trsf trsf = frame.Multiplied(instance.now);
             BRepExtrema_TriangleSet& triangles = instance.geometry->triangles();
             for (int i = 0; i < triangles.Size(); ++i) {
+                if (faces
+                    && !std::binary_search(
+                        faces->begin(),
+                        faces->end(),
+                        std::make_pair(static_cast<int>(n), triangles.GetFaceID(i)))) {
+                    continue;
+                }
                 Vec p[3];
                 triangles.GetVertices(i, p[0], p[1], p[2]);
                 for (const Vec& v : p) {

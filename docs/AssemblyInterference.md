@@ -72,11 +72,14 @@ follow the parameter whoever sets it; from a script,
 `Gui.runCommand("Assembly_DragCollision", n)` sets it to n. With either on, a
 drag watches the assembly's components with the Fast check:
 
-- *Highlight*: the drag goes on; the components it brings into collision are
-  drawn in red while they collide.
+- *Highlight*: the drag goes on; the faces of the components it brings into
+  collision that cross each other are drawn in red while they collide (the
+  whole component when none cross, one inside the other: the triangles of
+  the meshes that cross, `touchOf()` below, give the faces,
+  `InterferenceResult::touchFaces1`/`2`).
 - *Stop*: a step that would bring two components into collision goes only
   as far as it can without -- the solver and the document both -- and the
-  pair is drawn in red, the status bar saying "Stopped: A would collide with
+  pair's faces are drawn in red so, the status bar saying "Stopped: A would collide with
   B". The part stays against the other and follows the mouse again as soon
   as it can. How far: the move from the last good step to this one is
   halved towards the farthest fraction that does not collide, 8 times at
@@ -309,8 +312,6 @@ at a point.
 
 ## Not done
 
-- While dragging: the faces in contact highlighted rather than the whole
-  components.
 - Exclusions (hidden components, a fasteners group) and clearance thresholds
   per pair.
 - Faces in contact highlighted, the touching area measured.

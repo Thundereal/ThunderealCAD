@@ -205,11 +205,13 @@ public:
                             const Base::Vector3d& direction);
     // The markers added, moved or cleared
     fastsignals::signal<void()> signalCollisionMarkers;
-    // The triangles of a component the watch checks, to draw a collision
-    // with (CollisionWatch::meshOf)
-    bool getCollisionMesh(const App::DocumentObject* obj, std::vector<Base::Vector3d>& points) const
+    // The triangles of a component the watch checks, or of some of its faces,
+    // to draw a collision with (CollisionWatch::meshOf)
+    bool getCollisionMesh(const App::DocumentObject* obj,
+                          std::vector<Base::Vector3d>& points,
+                          const std::vector<std::pair<int, int>>* faces = nullptr) const
     {
-        return collisionWatch && collisionWatch->meshOf(obj, points);
+        return collisionWatch && collisionWatch->meshOf(obj, points, faces);
     }
     void savePlacementsForUndo();
     void undoSolve();

@@ -111,6 +111,12 @@ struct InterferenceResult
     bool touched = false;
     Base::Vector3d touchCentre;
     Base::Vector3d touchNormal;
+    // Fast interference, to draw: the faces of first and of second that cross
+    // the other, each (solid, face) -- the solid's index among the
+    // component's, the face's in the solid's contact mesh -- sorted. Empty
+    // when none cross (one inside the other).
+    std::vector<std::pair<int, int>> touchFaces1;
+    std::vector<std::pair<int, int>> touchFaces2;
 };
 
 // The components of the assembly (getAssemblyComponents()), each with its
@@ -140,9 +146,12 @@ public:
     std::size_t components() const;
     // A component's triangles (three points each), from the meshes the watch
     // checks with, in the component's own frame: placed by its placement in
-    // the assembly they are where the watch sees it. False when the watch
-    // does not have it.
-    bool meshOf(const App::DocumentObject* obj, std::vector<Base::Vector3d>& points) const;
+    // the assembly they are where the watch sees it. With faces (sorted, as
+    // InterferenceResult's touchFaces), those of the faces only. False when
+    // the watch does not have it.
+    bool meshOf(const App::DocumentObject* obj,
+                std::vector<Base::Vector3d>& points,
+                const std::vector<std::pair<int, int>>* faces = nullptr) const;
 
 private:
     struct Private;

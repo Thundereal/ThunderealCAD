@@ -265,12 +265,22 @@ public:
 
     Gui::SoTransformDragger* asmDragger = nullptr;
     SoSwitch* asmDraggerSwitch = nullptr;
-    // Collision while dragging: the components drawn in red while the drag
-    // brings them into collision, or would have (Stop), from the meshes the
-    // assembly's collision watch checks with, placed as the components are
+    // Collision while dragging: the faces of the components that cross each
+    // other drawn in red while the drag brings them into collision, or would
+    // have (Stop) -- the whole component when none cross, one inside the
+    // other -- from the meshes the assembly's collision watch checks with,
+    // placed as the components are
     SoSwitch* collisionSwitch = nullptr;
     SoSeparator* collisionGroup = nullptr;
-    std::map<App::DocumentObject*, std::pair<SoSeparator*, SoTransform*>> collisionNodes;
+    struct CollisionNode
+    {
+        SoSeparator* node = nullptr;
+        SoTransform* transform = nullptr;
+        // What it draws: these faces (InterferenceResult's touchFaces), or all
+        std::vector<std::pair<int, int>> faces;
+        bool whole = false;
+    };
+    std::map<App::DocumentObject*, CollisionNode> collisionNodes;
     // The markers of where drags brought components into collision
     // (AssemblyObject::getCollisionMarkers()): arrows pointing at where they
     // met, drawn over everything, the selection's highlight too, and the same

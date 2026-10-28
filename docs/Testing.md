@@ -1038,6 +1038,8 @@ env's copy into `~/.cache/puppeteer/lib` and pass that directory as
 same four variables (the latency one also `SANDBOX_LATENCY_RTTS` and
 `SANDBOX_LATENCY_MODES`, and about seven minutes for the prefetch on and off).
 
+`serve-matcap-browser.py` (docs/Surface.md sec 7, U4) takes the same variables and checks that the surface analysis matcaps -- curvature, draft and zebra, set from the page on the served view as its property editor sets them -- are drawn by the browser's viewer. It first waits up to `MATCAP_SETTLE` ms (60000) for the whole scene, the sphere's mesh after its bounding box, and says so apart when it never comes: in 3 of 8 runs on 2026-10-28, some beside a gate round, the served scene stayed at its two placeholder draws, the sphere never published -- a fault of the headless serve, not of the analyses, which draw right whenever the scene is whole.
+
 `build/wasm` on this box (configured 2026-09-15; the CMakeLists' own
 instructions name `~/works/sw/emsdk`, which is not here): the emsdk of the
 guest wheel, the cmake and ninja of the conda env, node from emsdk, and the

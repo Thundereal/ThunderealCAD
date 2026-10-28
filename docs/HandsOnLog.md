@@ -8238,3 +8238,30 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
 - pd-primitive-labels-at-handle.py 6/6 (staged copy 0/6, three labels at
   the top middle, no ground, and the box's labels left in the next edit);
   pd-values-in-view's box claim updated, 37/37; chamfer 19, fillet 21.
+
+### 2026-10-28 night: label ground setting, the Sketch3D merge -- PUSHED and restaged (stage31)
+
+- The reporter: "Add label background transparency setting, default 0 ...
+  another branch added label outline, which should be enough for
+  readability. Merge with remote branch Sketch3D."
+- Merge `3ac952f982`: OverlayScrollBars keeps LinkVibe's placement plus
+  Sketch3D's keepClear(); SoDatumLabel keeps both the ground and the
+  outline fields (ground > 0: the image as is; outline: BLEND two-tone;
+  else the mask).
+- `1a9e336a08` Part: Geom_CurveOnSurface RTTI inline (MSVC C2487, merged
+  code built only on Linux before).
+- `1af7e47607` Gui: Gizmos/OnViewLabelBackgroundOpacity, 0-100 %, default 0,
+  also in the on-view settings menu. PD on-view labels have no outline
+  (Sketch3D's outline is the Sketcher's on-view parameters only).
+- `d4799224b4` Test: testAHeldPathLeavingTheFolderIsNotWritten failed on
+  Windows (a backslash path in re.sub's replacement).
+- OCCT synced to 37cb17ed8e (09c2509936, the network surface fix Sketch3D's
+  NetworkSurface tests need; they failed 3 of 1088 without it).
+- ttx55: ctest 1088/1088; Python 4037, 1 error (the test above, fixed
+  after); GUI all pass except techdraw-page-overlay-scroll-bars "the page
+  is in a view cell" (Sketch3D's new check): offscreen here the view is
+  400 x 338 and the split is refused at the 300 x 300 least cell, so the
+  page opens as a tab. `594f664cf6` lowers it for the run: 20 PASS.
+  TransactionAuditCases 16/16 after the fix.
+- Screenshots (bgfx): the Length label at 0 and 50 %, an origin plane
+  preselected -- g-rtx55-shots-dev.

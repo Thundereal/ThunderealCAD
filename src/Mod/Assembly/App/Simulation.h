@@ -70,6 +70,10 @@ public:
     /// Dynamic: the Physics group's force elements this study uses (springs
     /// and dampers); a mass override counts whatever this lists
     App::PropertyLinkList Elements;
+    /// Dynamic: the coefficient of restitution at the joints' limits, which
+    /// a dynamic run takes as rigid stops: 0 stays at the stop, 1 bounces
+    /// back as fast as it came
+    App::PropertyFloatConstraint Restitution;
 
     static const char* AnalysisTypeEnums[];
 

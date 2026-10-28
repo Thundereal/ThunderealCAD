@@ -205,9 +205,28 @@ Phase D1 is under way (2026-10-28):
   rod 60 deg below horizontal at every frame (1e-3 deg); a Speed motion is
   refused; a block on a slider with nothing under it fails in about a
   second.
-- Next: D1 is complete as sec 4 orders it. Left over from it: limits as
-  stops, cams (curve scaling), torsional springs, a spring's end on an
-  element rather than a point.
+- D1 is complete as sec 4 orders it. Its leftovers follow.
+- Built: the joints' limits as rigid stops, which the dynamic and static
+  runs refused before. Events between steps, since HHT with the direct
+  solver takes no unilateral constraint: a step that takes a limit's value
+  past a bound adds a link holding it there (`boundLink()`, the kinematic
+  run's, shared), and the positions and velocities are projected onto it
+  (`DoAssembly` POSITION | VELOCITY, residual 1e-14: Chrono's velocity
+  projection adds C over its own 1e-6 s) -- the plastic impact, the
+  impulse leaving the least kinetic energy. A restitution e
+  (`Simulation.Restitution`, the panel's Analysis row, Dynamic only) takes
+  that impulse 1 + e times and lets the stop go; an impact slower than
+  gravity gives in two steps stays plastic, so a part resting on a stop
+  does not chatter. A held stop is let go once its reaction on frame I's
+  body pulls rather than pushes along zI. A static run settles on its
+  stops without bouncing. A stop's force is its joint's, in the reaction
+  channels. Tests: a block dropped 4 mm onto its stop stays there, the
+  slider carrying m g; restitution 1 and 0.5 bounce it back 4 mm and 1 mm
+  (1%: measured 4.011 and 1.003 at 1e-4 s steps, the crossing caught a
+  step late); a static study settles it on the stop; a pendulum limited to
+  30 deg either way swings onto the stop and stays, dynamic and static.
+- Next of the leftovers: cams (curve scaling), torsional springs, a
+  spring's end on an element rather than a point.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

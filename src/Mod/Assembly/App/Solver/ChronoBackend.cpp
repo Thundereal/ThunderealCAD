@@ -1854,6 +1854,35 @@ struct ChronoSession::Impl
         return a;
     }
 
+    // A link holding a limit's value at a bound, added to the system: a
+    // stop, or a violated bound held.
+    std::shared_ptr<ch::ChLinkBase> boundLink(const Limit& limit, double bound)
+    {
+        if (limit.kind == LimitKind::TranslationZ) {
+            auto link = std::make_shared<ch::ChLinkMateDistanceZ>();
+            link->Initialize(bodyOf(limit.frameJ),
+                             bodyOf(limit.frameI),
+                             true,
+                             localOf(limit.frameJ),
+                             localOf(limit.frameI));
+            link->SetDistance(bound);
+            sys->AddLink(link);
+            return link;
+        }
+        // Chrono's motor holds the angle modulo a turn; the bound is the
+        // turn the angle is counted in.
+        auto link = std::make_shared<ch::ChLinkMotorRotationAngle>();
+        link->SetSpindleConstraint(ch::ChLinkMotorRotation::SpindleConstraint::FREE);
+        link->Initialize(bodyOf(limit.frameJ),
+                         bodyOf(limit.frameI),
+                         true,
+                         driverLocalOf(limit.frameJ),
+                         localOf(limit.frameI));
+        link->SetMotorFunction(std::make_shared<ch::ChFunctionConst>(bound));
+        sys->AddLink(link);
+        return link;
+    }
+
     // Holds every bound the current poses violate; false when none is.
     bool holdViolatedBounds(std::vector<double>& angles)
     {
@@ -1874,31 +1903,7 @@ struct ChronoSession::Impl
             if (!bound) {
                 continue;
             }
-            if (limit.kind == LimitKind::TranslationZ) {
-                auto link = std::make_shared<ch::ChLinkMateDistanceZ>();
-                link->Initialize(bodyOf(limit.frameJ),
-                                 bodyOf(limit.frameI),
-                                 true,
-                                 localOf(limit.frameJ),
-                                 localOf(limit.frameI));
-                link->SetDistance(*bound);
-                sys->AddLink(link);
-                boundLinks.push_back(link);
-            }
-            else {
-                // Chrono's motor holds the angle modulo a turn; the bound is
-                // the turn the angle is counted in.
-                auto link = std::make_shared<ch::ChLinkMotorRotationAngle>();
-                link->SetSpindleConstraint(ch::ChLinkMotorRotation::SpindleConstraint::FREE);
-                link->Initialize(bodyOf(limit.frameJ),
-                                 bodyOf(limit.frameI),
-                                 true,
-                                 driverLocalOf(limit.frameJ),
-                                 localOf(limit.frameI));
-                link->SetMotorFunction(std::make_shared<ch::ChFunctionConst>(*bound));
-                sys->AddLink(link);
-                boundLinks.push_back(link);
-            }
+            boundLinks.push_back(boundLink(limit, *bound));
             held = true;
         }
         if (held) {
@@ -2513,9 +2518,6 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     if (!model.dynamics) {
         return refuse("the model has no masses");
     }
-    if (!model.limits.empty()) {
-        return refuse("it has limits, which a dynamic analysis does not run yet");
-    }
     for (const auto& joint : model.joints) {
         if (joint.kind == JointKind::PointOnCurve) {
             return refuse("the cam " + model.sourceName(joint.source)
@@ -2709,6 +2711,7 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     {
         std::string source;
         std::vector<std::pair<const Joint*, std::shared_ptr<ch::ChLinkBase>>> links;
+        std::vector<std::size_t> limits;  // its stops, by index in si.limits
     };
     std::vector<Reaction> reactions;
     for (const auto& record : run.d->links) {
@@ -2726,6 +2729,18 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         }
         at->links.emplace_back(&joint, record.link);
     }
+    // A stop is its joint's: the limit's source is the joint's
+    for (std::size_t k = 0; k < si.limits.size(); ++k) {
+        const std::string& name = si.sourceName(si.limits[k].source);
+        auto at = std::find_if(reactions.begin(), reactions.end(), [&](const Reaction& r) {
+            return r.source == name;
+        });
+        if (at == reactions.end()) {
+            reactions.push_back({name, {}, {}});
+            at = std::prev(reactions.end());
+        }
+        at->limits.push_back(k);
+    }
     std::vector<Channel> channels;
     for (const auto& reaction : reactions) {
         channels.push_back({reaction.source, "Force", 3});
@@ -2741,13 +2756,13 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         channels.push_back({si.sourceName(spring.first), "SpringForce", 1});
         channels.push_back({si.sourceName(spring.first), "SpringLength", 1});
     }
-    // A link's wrench on the body of frame I, absolute, the torque about
-    // 'about': Chrono's links report it on either body in their own frame
-    // on it, a NeutralLink from its rows
-    auto wrenchOnI = [&](const Joint& joint,
+    // A link's wrench on the body of a frame (a joint's or a limit's frame
+    // I), absolute, the torque about 'about': Chrono's links report it on
+    // either body in their own frame on it, a NeutralLink from its rows
+    auto wrenchOnI = [&](Id frameI,
                          const std::shared_ptr<ch::ChLinkBase>& base,
                          const ch::ChVector3d& about) -> ch::ChWrenchd {
-        const ch::ChBody* bodyI = run.d->bodyOf(joint.frameI).get();
+        const ch::ChBody* bodyI = run.d->bodyOf(frameI).get();
         if (auto neutral = std::dynamic_pointer_cast<NeutralLink>(base)) {
             return neutral->wrenchOn(bodyI, about);
         }
@@ -2768,19 +2783,155 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         // About the absolute origin, as the frame transform gives it
         return {w.force, w.torque - ch::Vcross(about, w.force)};
     };
+
+    // The limits as rigid stops (sec 4, D1's leftovers). A step that takes
+    // a limit's value past a bound gets a link holding it there, and the
+    // positions and velocities are projected onto it: the plastic impact,
+    // the impulse that leaves the least kinetic energy. A restitution e
+    // takes that impulse 1 + e times and lets the stop go at once; a held
+    // stop is let go once it pulls rather than pushes. A static run settles
+    // on its stops, never bouncing. HHT with the direct solver takes no
+    // unilateral constraint, so the stops are events between steps.
+    struct Stop
+    {
+        std::shared_ptr<ch::ChLinkBase> link;
+        bool atMin = false;
+        double last = 0.0;  // the value the step before
+    };
+    std::vector<double> reach(n, 1e-3);  // a body's frames' farthest from its centre, m
+    for (const auto& frame : si.frames) {
+        if (frame.body < n) {
+            reach[frame.body] = std::max(reach[frame.body], frame.local.getPosition().Length());
+        }
+    }
+    std::vector<Stop> stops(si.limits.size());
+    std::vector<double> limitAngles = run.d->limitAngle;
+    auto stopping = [&](const Limit& limit) {
+        return run.d->validFrame(limit.frameI) && run.d->validFrame(limit.frameJ)
+            && !run.d->isRigid(limit.frameI, limit.frameJ) && (limit.min || limit.max);
+    };
+    for (std::size_t k = 0; k < si.limits.size(); ++k) {
+        if (stopping(si.limits[k])) {
+            stops[k].last = run.d->limitValue(si.limits[k], limitAngles);
+        }
+    }
+    const double restitution = std::clamp(spec.restitution, 0.0, 1.0);
+    const double gravity = si.dynamics->gravity.Length();
+    auto handleStops = [&](double step, bool bounce) {
+        // Let go of the stops that pull
+        for (std::size_t k = 0; k < stops.size(); ++k) {
+            Stop& stop = stops[k];
+            if (!stop.link) {
+                continue;
+            }
+            const Limit& limit = si.limits[k];
+            const ch::ChFramed fi = run.d->globalOf(limit.frameI);
+            const ch::ChWrenchd w = wrenchOnI(limit.frameI, stop.link, fi.GetPos());
+            // On frame I's body: at the least value the stop pushes it back
+            // along -zI (J away along +zI), at the most along +zI
+            const double push = ch::Vdot(
+                limit.kind == LimitKind::TranslationZ ? w.force : w.torque,
+                fi.GetRotMat().GetAxisZ());
+            if (stop.atMin ? push > 0.0 : push < 0.0) {
+                sys.RemoveLink(stop.link);
+                stop.link.reset();
+            }
+        }
+        // Hold the bounds crossed
+        std::vector<std::size_t> hit;
+        double fastest = 0.0;  // m/s, a turn's at its body's farthest frame
+        for (std::size_t k = 0; k < stops.size(); ++k) {
+            const Limit& limit = si.limits[k];
+            if (!stopping(limit)) {
+                continue;
+            }
+            Stop& stop = stops[k];
+            const double value = run.d->limitValue(limit, limitAngles);
+            double speed = std::abs(value - stop.last) / step;
+            stop.last = value;
+            if (stop.link) {
+                continue;
+            }
+            if (limit.min && value < *limit.min - limit.tolerance) {
+                stop.atMin = true;
+                stop.link = run.d->boundLink(limit, *limit.min);
+            }
+            else if (limit.max && value > *limit.max + limit.tolerance) {
+                stop.atMin = false;
+                stop.link = run.d->boundLink(limit, *limit.max);
+            }
+            else {
+                continue;
+            }
+            if (limit.kind == LimitKind::RotationZ) {
+                const Id body = si.frames[limit.frameJ].body;
+                speed *= body < n ? reach[body] : 1e-3;
+            }
+            fastest = std::max(fastest, speed);
+            hit.push_back(k);
+        }
+        if (hit.empty()) {
+            return;
+        }
+        std::vector<ch::ChVector3d> velocity(n);
+        std::vector<ch::ChVector3d> spin(n);
+        for (std::size_t b = 0; b < n; ++b) {
+            velocity[b] = run.d->bodies[b]->GetPosDt();
+            spin[b] = run.d->bodies[b]->GetAngVelLocal();
+        }
+        // Tight: the velocity projection adds the position residual over
+        // its own step of 1e-6 s
+        sys.DoAssembly(static_cast<int>(ch::AssemblyAnalysis::Level::POSITION)
+                           | static_cast<int>(ch::AssemblyAnalysis::Level::VELOCITY),
+                       30,
+                       1e-14,
+                       1e-12,
+                       1e-15);
+        run.d->commitAngles();
+        // Bounce, unless it is too slow to leave the stop for a step: what
+        // gravity gives in two steps, a resting part's bump
+        if (bounce && restitution > 0.0 && fastest > 2.0 * gravity * step) {
+            for (std::size_t b = 0; b < n; ++b) {
+                const auto& body = run.d->bodies[b];
+                if (body->IsFixed()) {
+                    continue;
+                }
+                const ch::ChVector3d v = body->GetPosDt();
+                const ch::ChVector3d w = body->GetAngVelLocal();
+                body->SetPosDt(v + restitution * (v - velocity[b]));
+                body->SetAngVelLocal(w + restitution * (w - spin[b]));
+            }
+            for (std::size_t k : hit) {
+                sys.RemoveLink(stops[k].link);
+                stops[k].link.reset();
+            }
+        }
+        for (std::size_t k : hit) {
+            stops[k].last = run.d->limitValue(si.limits[k], limitAngles);
+        }
+    };
+
     auto valuesNow = [&]() {
         std::vector<double> out;
         out.reserve(6 * reactions.size() + rotationMotors.size() + linearMotors.size()
                     + 2 * springs.size());
         for (const auto& reaction : reactions) {
-            const ch::ChVector3d about =
-                run.d->globalOf(reaction.links.front().first->frameI).GetPos();
+            const Id frameI = reaction.links.empty() ? si.limits[reaction.limits.front()].frameI
+                                                     : reaction.links.front().first->frameI;
+            const ch::ChVector3d about = run.d->globalOf(frameI).GetPos();
             ch::ChVector3d force;
             ch::ChVector3d torque;
             for (const auto& [joint, link] : reaction.links) {
-                const ch::ChWrenchd w = wrenchOnI(*joint, link, about);
+                const ch::ChWrenchd w = wrenchOnI(joint->frameI, link, about);
                 force += w.force;
                 torque += w.torque;
+            }
+            for (std::size_t k : reaction.limits) {
+                if (stops[k].link) {
+                    const ch::ChWrenchd w = wrenchOnI(si.limits[k].frameI, stops[k].link, about);
+                    force += w.force;
+                    torque += w.torque;
+                }
             }
             for (int k = 0; k < 3; ++k) {
                 out.push_back(force[k] / SI::force);
@@ -2815,12 +2966,6 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
     // stable or not. This descends, and its reactions are the acceleration
     // analysis's at rest.
     const bool statics = spec.analysis == Analysis::Static;
-    std::vector<double> reach(n, 1e-3);  // a body's frames' farthest from its centre, m
-    for (const auto& frame : si.frames) {
-        if (frame.body < n) {
-            reach[frame.body] = std::max(reach[frame.body], frame.local.getPosition().Length());
-        }
-    }
     const double tolerance = std::max(spec.errorTolerance, 1e-9) * SI::length;
     const int maxRelaxSteps = 50000;
     auto kinetic = [&]() {
@@ -2870,6 +3015,7 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
             sys.SetChTime(time - h);
             sys.DoStepDynamics(h);
             run.d->commitAngles();
+            handleStops(h, false);
             const double energy = kinetic();
             if (energy > last) {
                 last = energy;
@@ -2920,6 +3066,7 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
                     // last committed: a pinion past half a turn read as
                     // the other way round, the rack jumping a pitch
                     run.d->commitAngles();
+                    handleStops(h, true);
                 }
             }
             if (!channels.empty()) {

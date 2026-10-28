@@ -479,3 +479,79 @@ class TestDynamics(unittest.TestCase):
         self.assertEqual(self.assembly.solve(), 0)
         _, result = self.simulate(0.0, 1e-2, AnalysisType="Static")
         self.assertNotEqual(result, 0)
+
+    # ------------------------------------------------------------ stops
+
+    def dropped(self, restitution=0.0, analysis="Dynamic", end=0.2, step=1e-2):
+        """A 10 mm cube on a vertical slider, 4 mm over a grounded one, its
+        travel's least 0: the stop the grounded one's top. Its heights."""
+        base = self.box("Base", (10, 10, 10), (0, 0, 0))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        block = self.box("Block", (10, 10, 10), (0, 0, 14))
+        self.doc.recompute()
+        slider = self.joint(
+            "Slider", (base, ["Face6"]), plc(5, 5, 10), (block, ["Face5"]), plc(5, 5, 0)
+        )
+        slider.EnableLengthMin = True
+        slider.LengthMin = 0.0
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        _, result = self.simulate(end, step, AnalysisType=analysis, Restitution=restitution)
+        self.assertEqual(result, 0)
+        heights = []
+        for i in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(i)
+            heights.append((i * step, block.Placement.Base.z))
+        return heights
+
+    def test_stop_holds(self):
+        """Dropped on its stop, the block stays on it, the stop carrying its
+        weight in the slider's reaction."""
+        heights = self.dropped()
+        fall = math.sqrt(2 * 4 / G)
+        for time, z in heights:
+            self.assertGreaterEqual(z, 10 - 1e-6, time)
+            if time > fall + 0.02:
+                self.assertAlmostEqual(z, 10.0, delta=1e-6, msg=time)
+        weight = self.MASS * G
+        force = self.channel("Slider", "Force")[-1]
+        self.assertLess((force - App.Vector(0, 0, -weight)).Length, weight * 1e-6)
+
+    def test_stop_bounce(self):
+        """With a restitution of 1 the block bounces back to where it fell
+        from; of 0.5, to a quarter of that height."""
+        for restitution, back in ((1.0, 4.0), (0.5, 1.0)):
+            self.tearDown()
+            self.setUp()
+            heights = self.dropped(restitution, end=0.06, step=1e-4)
+            fall = math.sqrt(2 * 4 / G)
+            after = [z for time, z in heights if fall + 1e-3 < time < fall + 0.04]
+            self.assertAlmostEqual(max(after) - 10.0, back, delta=back * 1e-2, msg=restitution)
+
+    def test_stop_static(self):
+        """A static study settles the block on its stop."""
+        ((_, z),) = self.dropped(analysis="Static", end=0.0)
+        self.assertAlmostEqual(z, 10.0, delta=1e-6)
+
+    def test_stop_rotation(self):
+        """The pendulum's hinge limited to 30 deg either way of where it
+        starts: it swings down onto the stop and stays, dynamic and static."""
+        for analysis, end in (("Dynamic", 0.3), ("Static", 0.0)):
+            self.tearDown()
+            self.setUp()
+            rod = self.pendulum()
+            hinge = [o for o in self.joints.Group if o.Name.startswith("Revolute")][0]
+            hinge.EnableAngleMin = True
+            hinge.EnableAngleMax = True
+            hinge.AngleMin = -30.0
+            hinge.AngleMax = 30.0
+            self.doc.recompute()
+            _, result = self.simulate(end, 1e-2, AnalysisType=analysis)
+            self.assertEqual(result, 0, analysis)
+            frames = self.frames(rod, 1e-2)
+            for time, centre, _ in frames:
+                angle = math.degrees(math.atan2(5 - centre.z, centre.x - 10))
+                self.assertLess(angle, 30 + 1e-4, (analysis, time))
+            angle = math.degrees(math.atan2(5 - frames[-1][1].z, frames[-1][1].x - 10))
+            self.assertAlmostEqual(angle, 30.0, delta=1e-4, msg=analysis)

@@ -69,6 +69,15 @@ Simulation::Simulation()
                       "Simulation",
                       App::Prop_None,
                       "Dynamic: the Physics group's force elements this study uses");
+    ADD_PROPERTY_TYPE(Restitution,
+                      (0.0),
+                      "Simulation",
+                      App::Prop_None,
+                      "Dynamic: the coefficient of restitution at the joints' limits, which "
+                      "a dynamic run takes as rigid stops: 0 stays at the stop, 1 bounces "
+                      "back as fast as it came");
+    static const App::PropertyFloatConstraint::Constraints unit = {0.0, 1.0, 0.05};
+    Restitution.setConstraints(&unit);
 }
 
 const char* Simulation::AnalysisTypeEnums[] = {"Kinematic", "Dynamic", "Static", nullptr};

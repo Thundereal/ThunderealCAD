@@ -3126,6 +3126,7 @@ void Assembly::AssemblyObject::create_mbdSimulationParameters(App::DocumentObjec
         mbdSim->hMin = 1.0e-9;
         mbdSim->hMax = 1.0;
         mbdSim->errorTolerance = typed->GlobalErrorTolerance.getValue();
+        mbdSim->restitution = typed->Restitution.getValue();
         simulationSpec = std::move(mbdSim);
         return;
     }

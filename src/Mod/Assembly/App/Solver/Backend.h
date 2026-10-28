@@ -139,6 +139,8 @@ struct SimulationSpec
     Analysis analysis = Analysis::Kinematic;
     // Dynamic: the integrator's largest step (s); 0, the backend's choice
     double maxStep = 0.0;
+    // Dynamic: the coefficient of restitution at the limits, rigid stops
+    double restitution = 0.0;
     double tStart = 0.0;
     double tEnd = 1.0;
     double tOutput = 1e-2;

@@ -1108,6 +1108,19 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             translate("Assembly", "Dynamic: gravity acts, along the simulation's Gravity")
         )
         row.addWidget(self.gravityCheck)
+        self.restitutionSpin = QtWidgets.QDoubleSpinBox()
+        self.restitutionSpin.setRange(0.0, 1.0)
+        self.restitutionSpin.setSingleStep(0.05)
+        self.restitutionSpin.setDecimals(2)
+        self.restitutionSpin.setPrefix(translate("Assembly", "Restitution") + " ")
+        self.restitutionSpin.setToolTip(
+            translate(
+                "Assembly",
+                "Dynamic: the joints' limits are rigid stops. 0: a part stays at the stop;\n"
+                "1: it bounces back as fast as it came.",
+            )
+        )
+        row.addWidget(self.restitutionSpin)
         self.form.layout().insertWidget(0, box)
         # The Physics group's force elements, those ticked used by the study
         self.elementsBox = QtWidgets.QGroupBox(translate("Assembly", "Elements"))
@@ -1155,6 +1168,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.results = None
         self.analysisCombo.currentIndexChanged.connect(self.onAnalysisChanged)
         self.gravityCheck.toggled.connect(self.onGravityChanged)
+        self.restitutionSpin.valueChanged.connect(self.onRestitutionChanged)
 
     def hasAnalysis(self):
         """Upstream's Python simulation, not converted, has none"""
@@ -1164,6 +1178,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         if not self.hasAnalysis():
             self.analysisCombo.setEnabled(False)
             self.gravityCheck.setEnabled(False)
+            self.restitutionSpin.setEnabled(False)
             self.elementsBox.hide()
             return
         self.analysisCombo.blockSignals(True)
@@ -1174,6 +1189,9 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.gravityCheck.blockSignals(True)
         self.gravityCheck.setChecked(self.simFeaturePy.GravityEnabled)
         self.gravityCheck.blockSignals(False)
+        self.restitutionSpin.blockSignals(True)
+        self.restitutionSpin.setValue(getattr(self.simFeaturePy, "Restitution", 0.0))
+        self.restitutionSpin.blockSignals(False)
         self.fillElements()
         self.showAnalysis()
 
@@ -1209,6 +1227,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         # Static takes the masses, gravity and the elements as Dynamic does
         dynamic = self.analysisCombo.currentData() in ("Dynamic", "Static")
         self.gravityCheck.setEnabled(dynamic)
+        # A static run settles on its stops, never bouncing
+        self.restitutionSpin.setEnabled(
+            self.analysisCombo.currentData() == "Dynamic"
+            and hasattr(self.simFeaturePy, "Restitution")
+        )
         self.elementsBox.setVisible(dynamic and self.hasAnalysis())
 
     def onAnalysisChanged(self, index):
@@ -1219,6 +1242,10 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
     def onGravityChanged(self, checked):
         if self.hasAnalysis():
             self.simFeaturePy.GravityEnabled = checked
+
+    def onRestitutionChanged(self, value):
+        if hasattr(self.simFeaturePy, "Restitution"):
+            self.simFeaturePy.Restitution = value
 
     def setSpinboxPrecision(self, spinbox, precision, unit=App.Units.TimeSpan):
         q = App.Units.Quantity()

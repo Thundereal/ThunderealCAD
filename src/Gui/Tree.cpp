@@ -43,6 +43,8 @@
 #include <QWindow>
 #include <QStack>
 
+#include <chrono>
+
 #include <boost/algorithm/string/predicate.hpp>
 
 #include <Base/Console.h>
@@ -1715,6 +1717,17 @@ int TreeWidget::changedGone()
     return gone;
 }
 
+namespace
+{
+/// A steady clock in milliseconds, for how long the status pass has waited
+qint64 steadyMsecs()
+{
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
+}  // namespace
+
 void TreeWidget::_updateStatus(bool delay) {
     if(!delay) {
         if(!ChangedObjects.empty() || !NewObjects.empty()) {
@@ -1744,6 +1757,9 @@ void TreeWidget::_updateStatus(bool delay) {
     if (timeout<0)
         timeout = 1;
     TREE_TRACE("delay update status");
+    // A fresh wait: the restarts it may take are counted from here
+    statusTimer->setProperty("restartAsked", false);
+    statusTimer->setProperty("firstAsked", steadyMsecs());
     statusTimer->start(timeout);
 }
 
@@ -4718,13 +4734,18 @@ struct UpdateDisabler {
 void TreeWidget::onUpdateStatus()
 {
     if (statusTimer->property("restartAsked").toBool()) {
-        // Changes came while it ran (_updateStatus): wait for them to stop
+        // Changes came while it ran (_updateStatus): wait for them to stop,
+        // but not forever -- changes that never stop (a script, a playback)
+        // kept new objects out of the tree for as long as they went on
         statusTimer->setProperty("restartAsked", false);
         int timeout = TreeParams::getStatusTimeout();
         if (timeout < 0)
             timeout = 1;
-        statusTimer->start(timeout);
-        return;
+        const qint64 waited = steadyMsecs() - statusTimer->property("firstAsked").toLongLong();
+        if (waited < 5 * static_cast<qint64>(timeout)) {
+            statusTimer->start(timeout);
+            return;
+        }
     }
     if(updateBlocked || _DraggingActive
                      || this->state()==DraggingState
@@ -4997,8 +5018,14 @@ void TreeWidget::onUpdateStatus()
         scrollToItem(errItem);
 
     updateGeometries();
-    if (clearTimer)
+    if (clearTimer) {
         statusTimer->stop();
+        // The timer runs while the pass does: what changed meanwhile asked
+        // for a restart, and gets a pass of its own
+        if (statusTimer->property("restartAsked").toBool()) {
+            _updateStatus();
+        }
+    }
 
     FC_LOG("done update status");
 }

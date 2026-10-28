@@ -3716,6 +3716,21 @@ read from the samples, not the clocks. The Assembly suite 373 run, 59
 skipped, no failures; TestPartApp 413 OK; ctest 1000/1000. The GUI script
 tests (tests/gui, which drive the tree) were not run.
 
+**Bounded, 2026-10-28.** "Waits for the changes to stop" had no bound, before
+this change and after it: changes that go on -- a script, a playback, the
+GUI suite running a test a few milliseconds after the last -- kept the pass
+away for as long as they went on, and the pass is also what makes the items
+of new objects. After test_insert_link the GUI suite's next documents showed
+no objects at all, a test with a profile's 500 ms timeout. Now the restarts
+stop five timeouts after the first change of a wait (`firstAsked`, a steady
+clock), and the pass runs then whatever is still changing. Two smaller
+holes: a change during the pass (the timer repeats, so it is still active)
+asked for a restart the pass's closing `stop()` then dropped -- it now gets
+a pass of its own -- and a fresh start of the timer clears a stale request.
+Test: TestGuiCommands.test_tree_keeps_up_with_steady_changes, a property
+changed every 20 ms while a new object waits for its item (fails on the
+code before).
+
 ### 6.4 Where Python must change
 
 - `JointObject.py:933-936` -- **stop writing `Suppressed` to ask a

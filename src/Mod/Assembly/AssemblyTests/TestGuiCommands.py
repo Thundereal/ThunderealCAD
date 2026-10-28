@@ -35,6 +35,7 @@ import ast
 import os
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -455,13 +456,31 @@ class TestGuiCommands(unittest.TestCase):
         overlays = j.ViewObject.Proxy.getOverlayIcons()
         self.assertEqual(overlays, {Gui.IconPosition.BottomLeft: "Part_Detached"})
 
+        trees = Gui.getMainWindow().findChildren(QtWidgets.QTreeWidget)
+
+        def settle():
+            """The tree makes new items and icons in a status pass its timer
+            defers until changes stop (for at most five of its timeouts):
+            wait, the event loop turning, until no pass is pending"""
+            timers = [
+                t
+                for tree in trees
+                for t in tree.findChildren(QtCore.QTimer)
+                if t.property("firstAsked") is not None
+            ]
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                _process()
+                if not any(t.isActive() for t in timers):
+                    return
+                time.sleep(0.02)
+
         def tree_icon():
             j.ViewObject.signalChangeIcon()
-            _process()
             # The tree makes a group's items when it is expanded, a level at
             # a time: the joint's is not there under a collapsed Joints group
-            trees = Gui.getMainWindow().findChildren(QtWidgets.QTreeWidget)
             for _ in range(6):
+                settle()
                 for tree in trees:
                     found = tree.findItems(
                         j.Label, QtCore.Qt.MatchExactly | QtCore.Qt.MatchRecursive
@@ -470,7 +489,6 @@ class TestGuiCommands(unittest.TestCase):
                         return found[0].icon(0).pixmap(QtCore.QSize(64, 32)).toImage()
                 for tree in trees:
                     tree.expandAll()
-                _process()
 
             def walk(item, depth=1):
                 out = ["  " * depth + item.text(0)]
@@ -491,6 +509,34 @@ class TestGuiCommands(unittest.TestCase):
             plain_b = tree_icon()
         self.assertEqual(plain_a, plain_b, "control: the same icon twice must compare equal")
         self.assertNotEqual(with_overlay, plain_a, "the overlay did not reach the tree icon")
+        self.assertClean()
+
+    def test_tree_keeps_up_with_steady_changes(self):
+        """The tree makes new items in a status pass that waits for changes
+        to stop -- but at most five of its timeouts: changes that go on (a
+        script, a playback) do not keep a new object out of it"""
+        timeout = App.ParamGet("User parameter:BaseApp/Preferences/TreeView").GetInt(
+            "StatusTimeout", 100
+        )
+        trees = [
+            t for t in Gui.getMainWindow().findChildren(QtWidgets.QTreeWidget) if t.isVisible()
+        ]
+        self.doc.addObject("Part::Box", "Steady")
+        start = time.monotonic()
+        deadline = start + max(0.2, 12 * timeout / 1000.0)
+        seen = None
+        while time.monotonic() < deadline:
+            # A change every turn of the event loop
+            self.box.Length = self.box.Length.Value + 0.001
+            _process()
+            if any(
+                t.findItems("Steady", QtCore.Qt.MatchExactly | QtCore.Qt.MatchRecursive)
+                for t in trees
+            ):
+                seen = time.monotonic() - start
+                break
+            time.sleep(0.02)
+        self.assertIsNotNone(seen, "the tree made no item while the changes went on")
         self.assertClean()
 
     # ------------------------------------------------------------ the rest

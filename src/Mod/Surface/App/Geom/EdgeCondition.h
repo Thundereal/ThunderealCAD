@@ -30,6 +30,8 @@
 #include <Geom_BSplineSurface.hxx>
 #include <Geom_Curve.hxx>
 #include <TopoDS_Face.hxx>
+#include <gp_Dir.hxx>
+#include <gp_Pnt.hxx>
 
 #include <Mod/Surface/SurfaceGlobal.h>
 
@@ -123,5 +125,17 @@ SurfaceExport MatchReport matchBoundary(Handle(Geom_BSplineSurface)& surface,
                                         Boundary boundary,
                                         const EdgeCondition& condition,
                                         const MatchOptions& options = {});
+
+/// Where a boundary's edge condition is shown in the view (docs/Surface.md
+/// sec 8): the boundary's middle, the way across it into the surface --
+/// square to it, in the surface's tangent plane -- and its length
+struct BoundaryMarker
+{
+    gp_Pnt middle;
+    gp_Dir inward;
+    double length = 0;
+};
+SurfaceExport BoundaryMarker boundaryMarker(const Handle(Geom_BSplineSurface) & surface,
+                                            Boundary boundary);
 
 }  // namespace Surface::Geom

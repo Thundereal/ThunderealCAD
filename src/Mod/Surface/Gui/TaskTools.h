@@ -25,6 +25,7 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -40,6 +41,8 @@
 #include <Mod/Part/Gui/ViewProvider.h>
 #include <Mod/Part/Gui/ViewProviderSpline.h>
 #include <Mod/Surface/App/EdgeConditions.h>
+
+#include "EdgeMarkers.h"
 
 class QLabel;
 class QListWidget;
@@ -96,6 +99,8 @@ public:
     void addFill(std::function<void()> fill);
     void refill();
     bool filling = false;
+    /// The edge conditions in the view, made with the first
+    EdgeMarkers* edgeMarkers();
 
     void open();
     bool accept();
@@ -117,6 +122,7 @@ private:
     bool gateOn = false;
     bool checkCommand = true;
     std::vector<std::function<void()>> fills;
+    std::unique_ptr<EdgeMarkers> markers;
 };
 
 /// The task dialog around a ToolPanel
@@ -152,11 +158,13 @@ QWidget* pickOne(ToolPanel* panel,
                  const char* name,
                  App::PropertyLinkSub* link,
                  PickKind kind);
-/// An edge condition: continuity, weight, and a support face
+/// An edge condition: continuity, weight, and a support face; with a marker
+/// in the view where `where` says
 QWidget* conditionRow(ToolPanel* panel,
                       const QString& title,
                       const char* name,
-                      const Surface::ConditionProperties& props);
+                      const Surface::ConditionProperties& props,
+                      EdgeMarkers::Where where = {});
 /// Plain properties
 QWidget* enumField(ToolPanel* panel,
                   const QString& title,

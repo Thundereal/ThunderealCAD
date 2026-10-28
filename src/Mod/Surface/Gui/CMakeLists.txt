@@ -56,6 +56,8 @@ SET(SurfaceGui_SRCS
     TaskTrim.h
     TaskTools.cpp
     TaskTools.h
+    EdgeMarkers.cpp
+    EdgeMarkers.h
     EndEdit.h
     AppSurfaceGui.cpp
     Command.cpp

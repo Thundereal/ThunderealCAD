@@ -54,6 +54,7 @@
 #include <Gui/SelectionObject.h>
 #include <Mod/Part/Gui/ViewProviderExt.h>
 
+#include "EdgeMarkers.h"
 #include "TaskNetwork.h"
 
 
@@ -456,6 +457,18 @@ NetworkPanel::NetworkPanel(ViewProviderNetwork* vp, Surface::Network* obj)
     fillLists();
     fillSides();
     attachDocument(Gui::Application::Instance->getDocument(obj->getDocument()));
+
+    // the conditions in the view too, each on its boundary (the guides run
+    // along V: the first and last guide are UMin and UMax)
+    using Surface::Geom::Boundary;
+    const Boundary boundaries[4] = {Boundary::VMin, Boundary::VMax, Boundary::UMin, Boundary::UMax};
+    markers = std::make_unique<EdgeMarkers>(obj, this);
+    for (int i = 0; i < 4; ++i) {
+        markers->add(titles[i],
+                     sides[i].continuity,
+                     sides[i].weight,
+                     EdgeMarkers::onBoundary(obj, boundaries[i]));
+    }
 }
 
 NetworkPanel::~NetworkPanel()
@@ -476,6 +489,7 @@ void NetworkPanel::open()
     vp->highlightCurves(true);
     Gui::Selection().clearSelection();
     update();
+    markers->attach();
 }
 
 void NetworkPanel::checkOpenCommand()
@@ -596,6 +610,9 @@ void NetworkPanel::update()
         lines << QString::fromStdString(line);
     }
     achieved->setText(valid ? lines.join(QLatin1Char('\n')) : QString());
+    if (markers) {
+        markers->place();
+    }
 }
 
 void NetworkPanel::startPick(Pick mode, int side, bool on)

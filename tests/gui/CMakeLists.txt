@@ -158,6 +158,11 @@ fc_add_gui_test(GuiSurfaceContinuity_tests_run surface-continuity.py
 # a selection they cannot use said without a dialog.
 fc_add_gui_test(GuiSurfaceCurves_tests_run surface-curves.py
                 --timeout 180)
+# Its edge conditions in the view (sec 8): an arrow on each outer boundary of
+# a network or a blend, a click stepping the continuity, a drag or a typed
+# value the weight, the menu the continuity.
+fc_add_gui_test(GuiSurfaceEdgeMarkers_tests_run surface-edge-markers.py
+                --timeout 180)
 # A client that drops with a task panel open, whose Cancel throws: the panel
 # is closed with the client's view, and the server lives on.
 fc_add_gui_test(GuiServeDropInPanel_tests_run serve-drop-in-panel.py

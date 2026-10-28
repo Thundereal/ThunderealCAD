@@ -25,6 +25,7 @@
 #pragma once
 
 #include <array>
+#include <memory>
 #include <set>
 
 #include <QWidget>
@@ -46,6 +47,8 @@ class QToolButton;
 
 namespace SurfaceGui
 {
+
+class EdgeMarkers;
 
 class ViewProviderNetwork: public PartGui::ViewProviderSpline
 {
@@ -142,6 +145,8 @@ private:
     QLabel* readout;
     QLabel* achieved;
     QLabel* status;
+    /// The four conditions in the view
+    std::unique_ptr<EdgeMarkers> markers;
 };
 
 class TaskNetwork: public Gui::TaskView::TaskDialog

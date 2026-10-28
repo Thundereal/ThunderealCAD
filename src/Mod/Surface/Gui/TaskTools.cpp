@@ -153,6 +153,14 @@ ToolPanel::~ToolPanel()
     }
 }
 
+EdgeMarkers* ToolPanel::edgeMarkers()
+{
+    if (!markers && object()) {
+        markers = std::make_unique<EdgeMarkers>(object(), this);
+    }
+    return markers.get();
+}
+
 App::DocumentObject* ToolPanel::object() const
 {
     return objT.getObject();
@@ -258,6 +266,9 @@ void ToolPanel::changed()
     }
     obj->recomputeFeature();
     status->setText(obj->isValid() ? QString() : QString::fromUtf8(obj->getStatusString()));
+    if (markers) {
+        markers->place();
+    }
 }
 
 void ToolPanel::open()
@@ -266,6 +277,9 @@ void ToolPanel::open()
     Gui::Selection().clearSelection();
     refill();
     changed();
+    if (markers) {
+        markers->attach();
+    }
 }
 
 bool ToolPanel::accept()
@@ -458,7 +472,8 @@ QWidget* pickOne(ToolPanel* panel,
 QWidget* conditionRow(ToolPanel* panel,
                       const QString& title,
                       const char* name,
-                      const Surface::ConditionProperties& props)
+                      const Surface::ConditionProperties& props,
+                      EdgeMarkers::Where where)
 {
     auto w = new QWidget(panel);
     auto grid = new QGridLayout(w);
@@ -537,6 +552,11 @@ QWidget* conditionRow(ToolPanel* panel,
         panel->refill();
         panel->changed();
     });
+    if (where) {
+        if (auto markers = panel->edgeMarkers()) {
+            markers->add(title, continuity, weight, std::move(where));
+        }
+    }
     panel->body()->insertWidget(panel->body()->count() - 1, w);
     return w;
 }
@@ -683,12 +703,14 @@ ToolPanel* blendPanel(Surface::BlendSurface* obj)
     conditionRow(p,
                  QObject::tr("First side"),
                  "side1",
-                 {"first edge", &obj->Side1Continuity, &obj->Side1Weight, &obj->Side1Support});
+                 {"first edge", &obj->Side1Continuity, &obj->Side1Weight, &obj->Side1Support},
+                 EdgeMarkers::onEdge(obj, &obj->Edge1));
     pickOne(p, QObject::tr("Second edge"), "pickEdge2", &obj->Edge2, PickKind::Edges);
     conditionRow(p,
                  QObject::tr("Second side"),
                  "side2",
-                 {"second edge", &obj->Side2Continuity, &obj->Side2Weight, &obj->Side2Support});
+                 {"second edge", &obj->Side2Continuity, &obj->Side2Weight, &obj->Side2Support},
+                 EdgeMarkers::onEdge(obj, &obj->Edge2));
     intField(p, QObject::tr("Curves across"), "samples", &obj->Samples);
     return p;
 }

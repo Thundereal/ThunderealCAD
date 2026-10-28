@@ -76,7 +76,9 @@ public:
     /// document): the copy is kept, and serves its users until it is back
     App::PropertyBool Unresolved;
     /// A vertex placing the frame's origin on the geometry: a direct child of
-    /// the container and the subname to the vertex. Offset follows it.
+    /// the container and the subname to the vertex, or to a circle or an
+    /// ellipse for its centre (a face's hole, as upstream's joint picks it).
+    /// Offset follows it.
     App::PropertyLinkSub Vertex;
     /// Where Vertex was in the geometry's frame when Offset last followed it
     App::PropertyVector VertexPosition;

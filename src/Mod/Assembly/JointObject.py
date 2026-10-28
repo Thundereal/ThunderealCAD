@@ -140,6 +140,16 @@ def sideRef(joint, i):
     if element.Vertex is not None and element.Vertex[0] is not None and element.Vertex[1]:
         vobj, vsubs = element.Vertex
         vsub = vobj.Name + "." + vsubs[0] if obj == comp else vsubs[0]
+        if UtilsAssembly.isFaceEdgePick(esub, vsub):
+            # A face's circle: the reference numbers it among the face's
+            # edges, as the pick does (findElementClosestVertex)
+            local = UtilsAssembly.objectEdgeToFaceEdge(
+                UtilsAssembly.getObject([comp, [esub]]),
+                UtilsAssembly.getElementName(esub),
+                UtilsAssembly.getElementName(vsub),
+            )
+            if local:
+                vsub = UtilsAssembly.swapElNameInSubname(vsub, local)
     return [comp, [esub, vsub]]
 
 
@@ -238,6 +248,16 @@ def syncSides(joint, refs):
         if ignoreVertex or _plainSub(vertex) == _plainSub(sub):
             vertex = ""
         current = sideRef(joint, i)
+        # The element takes the object's name of a face's circle: the
+        # reference has the face's own numbering of it
+        objectVertex = vertex
+        if vertex and UtilsAssembly.isFaceEdgePick(sub, vertex):
+            edge = UtilsAssembly.faceEdgeToObjectEdge(
+                UtilsAssembly.getObject([comp, [sub]]),
+                UtilsAssembly.getElementName(sub),
+                UtilsAssembly.getElementName(vertex),
+            )
+            objectVertex = UtilsAssembly.swapElNameInSubname(vertex, edge) if edge else ""
         if current is not None and current[0] == comp:
             csub, cvertex = current[1][0], current[1][1]
             if cvertex == csub:
@@ -245,7 +265,7 @@ def syncSides(joint, refs):
             if _plainSub(csub) == _plainSub(sub) and _plainSub(cvertex) == _plainSub(vertex):
                 continue
         try:
-            joint.setSide(i, comp, sub, vertex)
+            joint.setSide(i, comp, sub, objectVertex)
         except Exception as e:
             App.Console.PrintWarning(
                 f"{translate('Assembly', 'Assembly joint')} '{joint.Label}': {e}\n"

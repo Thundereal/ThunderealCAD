@@ -28,6 +28,7 @@
 
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRep_Tool.hxx>
+#include <Geom_Conic.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Vertex.hxx>
 #include <gp_Pnt.hxx>
@@ -168,7 +169,8 @@ Element::Element()
             "The target is not loaded now (a link to a closed or missing\n"
             "document): the copy is kept until it is back");
     ADD_PROPERTY_TYPE(Vertex, (nullptr), "Element", App::Prop_None,
-            "A vertex placing the frame's origin on the geometry; Offset follows it");
+            "A vertex placing the frame's origin on the geometry, or a circle or an\n"
+            "ellipse for its centre; Offset follows it");
     ADD_PROPERTY_TYPE(VertexPosition, (Base::Vector3d()), "Element", App::Prop_Hidden,
             "Where Vertex was in the geometry's frame when Offset last followed it");
     // The links copy geometry and place nothing: Global scope keeps them out
@@ -322,7 +324,19 @@ bool Element::getVertexPoint(Base::Vector3d &point) const
     if (shape.isNull())
         return false;
     const TopoDS_Shape s = singleSubShape(shape.getShape());
-    if (s.IsNull() || s.ShapeType() != TopAbs_VERTEX)
+    if (s.IsNull())
+        return false;
+    if (s.ShapeType() == TopAbs_EDGE) {
+        // A circle or an ellipse (a B-spline one too): its centre
+        const ElementCurve curve = analyzeEdge(TopoDS::Edge(s));
+        auto conic = Handle(Geom_Conic)::DownCast(curve.curve);
+        if ((curve.type != GeomAbs_Circle && curve.type != GeomAbs_Ellipse) || conic.IsNull())
+            return false;
+        const gp_Pnt p = conic->Location();
+        point = Base::Vector3d(p.X(), p.Y(), p.Z());
+        return true;
+    }
+    if (s.ShapeType() != TopAbs_VERTEX)
         return false;
     const gp_Pnt p = BRep_Tool::Pnt(TopoDS::Vertex(s));
     point = Base::Vector3d(p.X(), p.Y(), p.Z());

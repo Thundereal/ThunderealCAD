@@ -57,38 +57,33 @@ def pickOf(assembly, root, sub, pos=None):
         vertex = ref[1][1] if len(ref[1]) > 1 else ""
         if JointObject._plainSub(vertex) == JointObject._plainSub(sub):
             vertex = ""
-        elif vertex.split(".")[-1].startswith("Edge"):
+        elif UtilsAssembly.isFaceEdgePick(sub, vertex):
             # A face's circle nearest the cursor, numbered among the face's
-            # edges: its centre, the circle's own frame
-            edge = objectEdgeOfFace(component, sub, vertex.split(".")[-1])
-            if edge:
-                sub = UtilsAssembly.swapElNameInSubname(sub, edge)
-            vertex = ""
+            # edges: its centre on the face, the element's vertex by the
+            # object's name of the circle, as a joint's side takes it
+            edge = UtilsAssembly.faceEdgeToObjectEdge(
+                UtilsAssembly.getObject([component, [sub]]),
+                UtilsAssembly.getElementName(sub),
+                UtilsAssembly.getElementName(vertex),
+            )
+            vertex = UtilsAssembly.swapElNameInSubname(vertex, edge) if edge else ""
     return component, sub, vertex
-
-
-def objectEdgeOfFace(component, sub, local):
-    """The object's name of the edge a face of sub calls local ("Edge2": its
-    second edge), or "" """
-    obj = UtilsAssembly.getObject([component, [sub]])
-    element = UtilsAssembly.getElementName(sub)
-    try:
-        face = obj.Shape.getElement(element)
-        edge = face.Edges[int(local[len("Edge") :]) - 1]
-    except Exception:
-        return ""
-    for i, other in enumerate(obj.Shape.Edges):
-        if other.isSame(edge):
-            return "Edge%d" % (i + 1)
-    return ""
 
 
 def hoverPoint(pick):
     """Where an end on a pick (pickOf()) is, in the document's coordinates, or
     None"""
     component, sub, vertex = pick
-    ref = [component, [sub, vertex or sub]]
     try:
+        if vertex and UtilsAssembly.isFaceEdgePick(sub, vertex):
+            # findPlacement numbers a face's circle among the face's edges
+            local = UtilsAssembly.objectEdgeToFaceEdge(
+                UtilsAssembly.getObject([component, [sub]]),
+                UtilsAssembly.getElementName(sub),
+                UtilsAssembly.getElementName(vertex),
+            )
+            vertex = UtilsAssembly.swapElNameInSubname(vertex, local) if local else ""
+        ref = [component, [sub, vertex or sub]]
         plc = UtilsAssembly.findPlacement(ref)
         return UtilsAssembly.getJcsGlobalPlc(plc, ref).Base
     except Exception:

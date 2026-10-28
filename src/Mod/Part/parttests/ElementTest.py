@@ -282,6 +282,49 @@ class ElementTest(unittest.TestCase):
         self.doc.recompute()
         self.assertIn("Invalid", element.State)
 
+    def testElementVertexCanBeACircle(self):
+        # A face's hole: the vertex is the circle's centre
+        part = self.doc.addObject("App::Part", "Part")
+        box = self.doc.addObject("Part::Box", "Block")
+        box.Length, box.Width = 20, 20
+        hole = self.doc.addObject("Part::Cylinder", "Hole")
+        hole.Radius = 2
+        hole.Placement.Base = FreeCAD.Vector(5, 5, 0)
+        cut = self.doc.addObject("Part::Cut", "Cut")
+        cut.Base, cut.Tool = box, hole
+        part.addObject(cut)
+        self.doc.recompute()
+        top = next(
+            "Face%d" % (i + 1)
+            for i, f in enumerate(cut.Shape.Faces)
+            if f.Surface.TypeId == "Part::GeomPlane" and abs(f.CenterOfMass.z - 10) < 1e-9
+        )
+        circle = next(
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(cut.Shape.Edges)
+            if e.Curve.TypeId == "Part::GeomCircle" and abs(e.CenterOfMass.z - 10) < 1e-9
+        )
+        element = Part.makeElement(part, cut, top, "Top")
+        element.Vertex = (cut, [circle])
+        self.doc.recompute()
+        self.assertNotIn("Invalid", element.State)
+        # The frame's origin moved from the face's middle by the centre's
+        # place in the face's frame, in its plane (TestElementJoint checks
+        # where it lands)
+        pos = element.VertexPosition
+        self.assertGreater(pos.Length, 1)
+        self.assertAlmostEqual(pos.z, 0, places=9)
+        self.assertTrue(element.Offset.Base.isEqual(pos, 1e-12))
+        # A straight edge is still no vertex
+        line = next(
+            "Edge%d" % (i + 1)
+            for i, e in enumerate(cut.Shape.Edges)
+            if e.Curve.TypeId == "Part::GeomLine"
+        )
+        element.Vertex = (cut, [line])
+        self.doc.recompute()
+        self.assertIn("Invalid", element.State)
+
     def testReplacedComponentKeepsItsLabelledElements(self):
         # Replacing a component: its element bindings follow the labels the
         # new one declares (docs/AssemblyObjectModel.md sec 4.5)

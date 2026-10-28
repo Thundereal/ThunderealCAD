@@ -135,6 +135,57 @@ class TestElementJoint(JointTestBase):
         self.assertTrue(p1.isSame(q1, 1e-9), "%r != %r" % (p1, q1))
         self.assertTrue(p2.isSame(q2, 1e-9), "%r != %r" % (p2, q2))
 
+    def holedBlock(self):
+        """A 20 mm block with a hole of radius 2 at (5, 5), its top face, and
+        the hole's top circle as that face numbers it among its own edges,
+        as the joint task's pick gives it (findElementClosestVertex)"""
+        block = Part.makeBox(20, 20, 10)
+        hole = Part.makeCylinder(2, 10, App.Vector(5, 5, 0))
+        cut = self.assembly.newObject("Part::Feature", "Holed")
+        cut.Shape = block.cut(hole)
+        self.doc.recompute()
+        top = next(
+            i
+            for i, f in enumerate(cut.Shape.Faces)
+            if f.Surface.TypeId == "Part::GeomPlane" and abs(f.CenterOfMass.z - 10) < 1e-9
+        )
+        face = cut.Shape.Faces[top]
+        local = next(
+            i
+            for i, e in enumerate(face.Edges)
+            if e.Curve.TypeId == "Part::GeomCircle"
+        )
+        return cut, "Face%d" % (top + 1), "Edge%d" % (local + 1)
+
+    def testAFacesCircleCentreFromThePick(self):
+        # The task picks a face near a hole's centre: the vertex is the
+        # circle, numbered among the face's edges. The side's element takes
+        # the circle by the object's name, its centre as the vertex, and the
+        # reference read back has the face's numbering again.
+        import JointObject
+        import UtilsAssembly
+
+        cut, face, local = self.holedBlock()
+        pin = self.box("Pin", plc(40, 0, 0))
+        joint = self.assembly.makeJoint("Fixed", (cut, face), (pin, "Face5"))
+        JointObject.syncSides(joint, [[cut, [face, local]], [pin, ["Face5", "Face5"]]])
+        self.doc.recompute()
+        obj, subs = joint.Binding1.Element
+        element = obj.getSubObject(subs[0], retType=1)
+        self.assertNotIn("Invalid", element.State)
+        circle = element.Vertex[1][0]
+        self.assertEqual(cut.Shape.getElement(circle).Curve.TypeId, "Part::GeomCircle")
+        self.assertTrue(cut.Shape.getElement(circle).Curve.Center.isEqual(App.Vector(5, 5, 10), 1e-9))
+        p1, _ = self.frames(joint, cut, pin)
+        self.assertVecClose(p1.Base, App.Vector(5, 5, 10))
+        self.assertVecClose(zaxis(p1), Z)
+        ref = JointObject.sideRef(joint, 1)
+        self.assertEqual(UtilsAssembly.getElementName(ref[1][1]), local)
+        # The same reference again changes nothing: the side is kept
+        binding = joint.Binding1
+        JointObject.syncSides(joint, [ref, [pin, ["Face5", "Face5"]]])
+        self.assertEqual(joint.Binding1, binding)
+
     def testFrameOfACircleAndACylinder(self):
         cyl = self.cylinder("Cyl", 3, 10, plc(5, 0, 0))
         self.doc.recompute()

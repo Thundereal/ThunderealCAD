@@ -701,6 +701,41 @@ def findClosestPointToMousePos(candidates_points, mousePos):
     return closest_point_index, point_min_length
 
 
+def faceEdgeToObjectEdge(obj, face_name, edge_name):
+    """Not upstream. The object's name of the edge a face of obj numbers
+    edge_name among its own edges ("Edge2": the face's second), as
+    findElementClosestVertex names a face's circle; "" when there is none"""
+    try:
+        face = obj.Shape.getElement(face_name)
+        edge = face.Edges[int(edge_name[len("Edge") :]) - 1]
+    except Exception:
+        return ""
+    for i, other in enumerate(obj.Shape.Edges):
+        if other.isSame(edge):
+            return "Edge" + str(i + 1)
+    return ""
+
+
+def objectEdgeToFaceEdge(obj, face_name, edge_name):
+    """Not upstream. The face's own numbering of the object's edge edge_name,
+    the reverse of faceEdgeToObjectEdge; "" when the face has no such edge"""
+    try:
+        face = obj.Shape.getElement(face_name)
+        edge = obj.Shape.getElement(edge_name)
+    except Exception:
+        return ""
+    for i, other in enumerate(face.Edges):
+        if other.isSame(edge):
+            return "Edge" + str(i + 1)
+    return ""
+
+
+def isFaceEdgePick(sub, vertex):
+    """Not upstream. Whether a reference names a face and, as its vertex, one
+    of the face's edges (a circle, for its centre)"""
+    return getElementName(sub).startswith("Face") and getElementName(vertex).startswith("Edge")
+
+
 def findVertexNameInObject(vertex, obj):
     for i, _ in enumerate(obj.Shape.Vertexes):
         vertexName = "Vertex" + str(i + 1)

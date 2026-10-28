@@ -480,8 +480,16 @@ at display or solve time.
     geometry's frame since `VertexPosition` (hidden) moves `Offset`'s origin
     by as much, `Offset = T(v) * T(v_old)^-1 * Offset`, and the rest of
     `Offset`, the user's, stays. Clearing `Vertex` takes its share back out.
-    A `Vertex` that is not a vertex is an error of the element. It is
-    repaired as `Target` is (sec 4.5).
+    A circle or an ellipse is a vertex too, its centre (2026-10-28): what
+    upstream's joint takes when a face is picked near a hole's centre, the
+    face's frame on the circle's centre. The pick numbers the circle among
+    the face's own edges (`findElementClosestVertex`); the joint's side and
+    the spring's end take the object's name of it
+    (`UtilsAssembly.faceEdgeToObjectEdge`), and `sideRef` gives the face's
+    numbering back. Before, that name went in as it was and the element
+    was invalid. Any other `Vertex` that is not a vertex is an error of the
+    element. It is repaired as `Target` is (sec 4.5), though by the naming
+    history only for a circle: the geometric search looks for a vertex.
   - An element with a vertex is another element than one on the same
     geometry with another vertex, or none: a pick finds or makes the one
     with both.

@@ -52,9 +52,11 @@
 #include <Gui/Control.h>
 #include <Gui/Selection.h>
 #include <Gui/SelectionObject.h>
+#include <Mod/Part/App/SubShapeBinder.h>
 #include <Mod/Part/Gui/ViewProviderExt.h>
 
 #include "EdgeMarkers.h"
+#include "Import.h"
 #include "TaskNetwork.h"
 
 
@@ -197,7 +199,8 @@ public:
                 }
                 return element.rfind("Edge", 0) == 0 && !panel->listed(obj, element);
             case Pick::Remove:
-                return panel->listed(obj, element) || panel->listed(obj, "");
+                return panel->listed(obj, element) || panel->listed(obj, "")
+                    || panel->bindersListed();
             case Pick::Support:
                 return element.rfind("Face", 0) == 0;
             default:
@@ -538,6 +541,22 @@ bool NetworkPanel::listed(App::DocumentObject* obj, const std::string& sub) cons
     return false;
 }
 
+bool NetworkPanel::bindersListed() const
+{
+    auto network = object();
+    if (!network) {
+        return false;
+    }
+    for (auto prop : {&network->Profiles, &network->Guides}) {
+        for (auto obj : prop->getValues()) {
+            if (obj && obj->isDerivedFrom<Part::SubShapeBinder>()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void NetworkPanel::fillLists()
 {
     auto network = object();
@@ -675,6 +694,11 @@ void NetworkPanel::onSelectionChanged(const Gui::SelectionChanges& msg)
         return;
     }
     std::string sub = msg.pSubName ? msg.pSubName : "";
+    // as picked, unresolved: what import needs to tell the scope
+    const App::SubObjectT picked = pickOf(msg);
+    auto refers = [&](App::DocumentObject* o, const std::string& s) {
+        return (o == obj && (s == sub || s.empty())) || refersTo(o, s, picked);
+    };
     checkOpenCommand();
     switch (pick) {
         case Pick::Profile:
@@ -682,8 +706,17 @@ void NetworkPanel::onSelectionChanged(const Gui::SelectionChanges& msg)
             auto& prop = pick == Pick::Profile ? network->Profiles : network->Guides;
             auto objs = prop.getValues();
             auto subs = prop.getSubValues();
-            objs.push_back(obj);
-            subs.push_back(sub);
+            for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
+                if (refersTo(objs[i], subs[i], picked)) {
+                    // listed already, through a binder
+                    return;
+                }
+            }
+            // as a sketch takes external geometry: directly in scope, else
+            // through a binder in the network's body
+            auto link = importPick(network, picked);
+            objs.push_back(link.getObject());
+            subs.push_back(link.getSubName());
             prop.setValues(objs, subs);
             break;
         }
@@ -692,7 +725,7 @@ void NetworkPanel::onSelectionChanged(const Gui::SelectionChanges& msg)
                 auto objs = prop->getValues();
                 auto subs = prop->getSubValues();
                 for (std::size_t i = 0; i < objs.size(); ++i) {
-                    if (objs[i] == obj && (subs[i] == sub || subs[i].empty())) {
+                    if (refers(objs[i], subs[i])) {
                         objs.erase(objs.begin() + i);
                         subs.erase(subs.begin() + i);
                         prop->setValues(objs, subs);
@@ -703,7 +736,8 @@ void NetworkPanel::onSelectionChanged(const Gui::SelectionChanges& msg)
             break;
         case Pick::Support:
             if (pickSide >= 0) {
-                sides[pickSide].props.support->setValue(obj, {sub});
+                auto link = importPick(network, picked);
+                sides[pickSide].props.support->setValue(link.getObject(), {link.getSubName()});
                 // one face each: the pick ends there
                 QTimer::singleShot(0, this, [this] {
                     exitPick();

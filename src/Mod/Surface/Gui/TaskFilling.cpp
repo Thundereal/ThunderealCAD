@@ -45,6 +45,7 @@
 #include <Mod/Part/Gui/ViewProvider.h>
 
 #include "EndEdit.h"
+#include "Import.h"
 #include "TaskFilling.h"
 #include "TaskFillingEdge.h"
 #include "TaskFillingVertex.h"
@@ -125,7 +126,7 @@ void ViewProviderFilling::highlightReferences(ShapeType type, const References& 
                                 // check again that the index is in range because it's possible that
                                 // the sub-names are invalid
                                 std::size_t idx =
-                                    static_cast<std::size_t>(std::stoi(jt.substr(6)) - 1);
+                                    static_cast<std::size_t>(elementIndex(jt) - 1);
                                 if (idx < colors.size()) {
                                     colors[idx] = App::Color(1.0, 0.0, 1.0);  // magenta
                                 }
@@ -146,7 +147,7 @@ void ViewProviderFilling::highlightReferences(ShapeType type, const References& 
 
                             for (const auto& jt : it.second) {
                                 std::size_t idx =
-                                    static_cast<std::size_t>(std::stoi(jt.substr(4)) - 1);
+                                    static_cast<std::size_t>(elementIndex(jt) - 1);
                                 // check again that the index is in range because it's possible that
                                 // the sub-names are invalid
                                 if (idx < colors.size()) {
@@ -169,7 +170,7 @@ void ViewProviderFilling::highlightReferences(ShapeType type, const References& 
 
                             for (const auto& jt : it.second) {
                                 std::size_t idx =
-                                    static_cast<std::size_t>(std::stoi(jt.substr(4)) - 1);
+                                    static_cast<std::size_t>(elementIndex(jt) - 1);
                                 // check again that the index is in range because it's possible that
                                 // the sub-names are invalid
                                 if (idx < colors.size()) {
@@ -259,7 +260,7 @@ private:
             }
         }
 
-        return appendEdges;
+        return appendEdges || anyBinder(links);
     }
 
 private:
@@ -651,19 +652,20 @@ void FillingPanel::onSelectionChanged(const Gui::SelectionChanges& msg)
     if (msg.Type == Gui::SelectionChanges::AddSelection) {
         checkOpenCommand();
         if (selectionMode == InitFace) {
-            Gui::SelectionObject sel(msg);
+            // as a sketch takes external geometry (Import.h)
+            const App::SubObjectT link = importPick(editedObject.get(), pickOf(msg));
             QString text = QStringLiteral("%1.%2").arg(
-                QString::fromUtf8(sel.getObject()->Label.getValue()),
-                QString::fromUtf8(msg.pSubName));
+                QString::fromUtf8(link.getObject()->Label.getValue()),
+                QString::fromStdString(link.getSubName()));
             ui->lineInitFaceName->setText(text);
 
             std::vector<std::string> subList;
-            subList.emplace_back(msg.pSubName);
-            editedObject->InitialFace.setValue(sel.getObject(), subList);
+            subList.emplace_back(link.getSubName());
+            editedObject->InitialFace.setValue(link.getObject(), subList);
 
             // highlight the referenced face
             std::vector<App::PropertyLinkSubList::SubSet> links;
-            links.emplace_back(sel.getObject(), subList);
+            links.emplace_back(link.getObject(), subList);
             this->vp->highlightReferences(ViewProviderFilling::Face, links, true);
 
             Gui::Selection().rmvSelectionGate();
@@ -673,25 +675,29 @@ void FillingPanel::onSelectionChanged(const Gui::SelectionChanges& msg)
             QListWidgetItem* item = new QListWidgetItem(ui->listBoundary);
             ui->listBoundary->addItem(item);
 
-            Gui::SelectionObject sel(msg);
+            // as a sketch takes external geometry: in scope directly, else
+            // through a binder in the feature's body (Import.h)
+            const App::SubObjectT link = importPick(editedObject.get(), pickOf(msg));
+            App::DocumentObject* linked = link.getObject();
+            const std::string linkedSub = link.getSubName();
             QString text = QStringLiteral("%1.%2").arg(
-                QString::fromUtf8(sel.getObject()->Label.getValue()),
-                QString::fromUtf8(msg.pSubName));
+                QString::fromUtf8(linked->Label.getValue()),
+                QString::fromStdString(linkedSub));
             item->setText(text);
 
             QList<QVariant> data;
-            data << QByteArray(msg.pDocName);
-            data << QByteArray(msg.pObjectName);
-            data << QByteArray(msg.pSubName);
+            data << QByteArray(linked->getDocument()->getName());
+            data << QByteArray(linked->getNameInDocument());
+            data << QByteArray(linkedSub.c_str());
             data << QByteArray("");
             data << static_cast<int>(GeomAbs_C0);
             item->setData(Qt::UserRole, data);
 
             auto objects = editedObject->BoundaryEdges.getValues();
             std::size_t count = objects.size();
-            objects.push_back(sel.getObject());
+            objects.push_back(linked);
             auto element = editedObject->BoundaryEdges.getSubValues();
-            element.emplace_back(msg.pSubName);
+            element.emplace_back(linkedSub);
             editedObject->BoundaryEdges.setValues(objects, element);
 
             // extend faces and continuities lists if needed
@@ -711,11 +717,14 @@ void FillingPanel::onSelectionChanged(const Gui::SelectionChanges& msg)
                                           true);
         }
         else if (selectionMode == RemoveEdge) {
-            Gui::SelectionObject sel(msg);
+            // the link it is, as listed: itself, or through a binder of it
+            const auto listed = listedAs(editedObject->BoundaryEdges, pickOf(msg));
+            App::DocumentObject* listedObj = listed.first;
+            const std::string listedSub = listed.second;
             QList<QVariant> data;
-            data << QByteArray(msg.pDocName);
-            data << QByteArray(msg.pObjectName);
-            data << QByteArray(msg.pSubName);
+            data << QByteArray(listedObj->getDocument()->getName());
+            data << QByteArray(listedObj->getNameInDocument());
+            data << QByteArray(listedSub.c_str());
 
             // only the three first elements must match
             for (int i = 0; i < ui->listBoundary->count(); i++) {
@@ -731,8 +740,8 @@ void FillingPanel::onSelectionChanged(const Gui::SelectionChanges& msg)
             this->vp->highlightReferences(ViewProviderFilling::Edge,
                                           editedObject->BoundaryEdges.getSubListValues(),
                                           false);
-            App::DocumentObject* obj = sel.getObject();
-            std::string sub = msg.pSubName;
+            App::DocumentObject* obj = listedObj;
+            std::string sub = listedSub;
             auto objects = editedObject->BoundaryEdges.getValues();
             auto element = editedObject->BoundaryEdges.getSubValues();
             auto it = objects.begin();

@@ -47,6 +47,7 @@
 #include <Gui/Control.h>
 #include <Gui/SelectionObject.h>
 #include <Mod/Part/App/PartFeature.h>
+#include <Mod/Part/App/SubShapeBinder.h>
 #include <Mod/Surface/App/FeatureBlendSurface.h>
 #include <Mod/Surface/App/FeatureGeomFillSurface.h>
 #include <Mod/Surface/App/FeaturePipeShell.h>
@@ -54,6 +55,7 @@
 #include <Mod/Surface/App/FeatureTwoRailSweep.h>
 
 #include "EndEdit.h"
+#include "Import.h"
 #include "TaskTools.h"
 
 
@@ -182,6 +184,11 @@ void ToolPanel::refill()
     filling = false;
 }
 
+App::SubObjectT ToolPanel::imported() const
+{
+    return importPick(object(), lastPick);
+}
+
 bool ToolPanel::allows(App::DocumentObject* obj, const std::string& sub) const
 {
     return obj && obj != object() && pickAccept && pickAccept(obj, sub);
@@ -230,8 +237,10 @@ void ToolPanel::onSelectionChanged(const Gui::SelectionChanges& msg)
         return;
     }
     checkOpenCommand();
+    lastPick = pickOf(msg);
     auto take = pickTake;
     take(obj, sub);
+    lastPick = App::SubObjectT();
     refill();
     changed();
     QTimer::singleShot(50, this, [] {
@@ -375,6 +384,28 @@ QWidget* pickList(ToolPanel* panel,
         }
         return -1;
     };
+    // the one the pick being taken is: as listed, or through a binder
+    auto listedPick = [prop, panel](App::DocumentObject* obj, const std::string& sub) {
+        const auto& objs = prop->getValues();
+        const auto& subs = prop->getSubValues();
+        for (std::size_t i = 0; i < objs.size() && i < subs.size(); ++i) {
+            if ((objs[i] == obj && (subs[i] == sub || subs[i].empty()))
+                || refersTo(objs[i], subs[i], panel->pick())) {
+                return (int)i;
+            }
+        }
+        return -1;
+    };
+    // a pick to remove a link held through a binder is told by the pick
+    // itself, which the gate does not see
+    auto binders = [prop]() {
+        for (auto obj : prop->getValues()) {
+            if (obj && obj->isDerivedFrom<Part::SubShapeBinder>()) {
+                return true;
+            }
+        }
+        return false;
+    };
     panel->addFill([list, prop] {
         list->clear();
         const auto& objs = prop->getValues();
@@ -394,10 +425,14 @@ QWidget* pickList(ToolPanel* panel,
                 return kindTakes(kind, obj, sub) && listed(obj, sub) < 0;
             },
             [=](App::DocumentObject* obj, const std::string& sub) {
+                if (listedPick(obj, sub) >= 0) {
+                    return;
+                }
+                auto link = panel->imported();
                 auto objs = prop->getValues();
                 auto subs = prop->getSubValues();
-                objs.push_back(obj);
-                subs.push_back(sub);
+                objs.push_back(link.getObject());
+                subs.push_back(link.getSubName());
                 prop->setValues(objs, subs);
             });
     });
@@ -409,13 +444,10 @@ QWidget* pickList(ToolPanel* panel,
         panel->startPick(
             remove,
             [=](App::DocumentObject* obj, const std::string& sub) {
-                return listed(obj, sub) >= 0 || listed(obj, "") >= 0;
+                return listed(obj, sub) >= 0 || listed(obj, "") >= 0 || binders();
             },
             [=](App::DocumentObject* obj, const std::string& sub) {
-                int i = listed(obj, sub);
-                if (i < 0) {
-                    i = listed(obj, "");
-                }
+                int i = listedPick(obj, sub);
                 auto objs = prop->getValues();
                 auto subs = prop->getSubValues();
                 if (i >= 0) {
@@ -459,8 +491,9 @@ QWidget* pickOne(ToolPanel* panel,
             [=](App::DocumentObject* obj, const std::string& sub) {
                 return kindTakes(kind, obj, sub);
             },
-            [=](App::DocumentObject* obj, const std::string& sub) {
-                prop->setValue(obj, {sub});
+            [=](App::DocumentObject*, const std::string&) {
+                auto link = panel->imported();
+                prop->setValue(link.getObject(), {link.getSubName()});
                 // one each: the pick ends there
                 QTimer::singleShot(0, panel, [panel] {
                     panel->endPick();
@@ -541,8 +574,9 @@ QWidget* conditionRow(ToolPanel* panel,
             [](App::DocumentObject* obj, const std::string& sub) {
                 return kindTakes(PickKind::Faces, obj, sub);
             },
-            [=](App::DocumentObject* obj, const std::string& sub) {
-                props.support->setValue(obj, {sub});
+            [=](App::DocumentObject*, const std::string&) {
+                auto link = panel->imported();
+                props.support->setValue(link.getObject(), {link.getSubName()});
                 QTimer::singleShot(0, panel, [panel] {
                     panel->endPick();
                 });

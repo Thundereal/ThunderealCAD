@@ -171,6 +171,11 @@ fc_add_gui_test(GuiSurfaceFillMarkers_tests_run surface-fill-markers.py
 # they make into the active body, and nowhere else.
 fc_add_gui_test(GuiSurfaceInBody_tests_run surface-in-body.py
                 --timeout 180)
+# Geometry picked for a Surface feature is taken as a sketch takes external
+# geometry: through SubShapeBinder::import, outside the feature's body by a
+# binder in it -- by its commands and every panel.
+fc_add_gui_test(GuiSurfaceImport_tests_run surface-import.py
+                --timeout 180)
 # A client that drops with a task panel open, whose Cancel throws: the panel
 # is closed with the client's view, and the server lives on.
 fc_add_gui_test(GuiServeDropInPanel_tests_run serve-drop-in-panel.py

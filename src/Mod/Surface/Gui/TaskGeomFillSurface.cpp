@@ -44,6 +44,7 @@
 #include <Mod/Part/Gui/ViewProvider.h>
 
 #include "EndEdit.h"
+#include "Import.h"
 #include "TaskGeomFillSurface.h"
 #include "TaskTools.h"
 #include "ui_TaskGeomFillSurface.h"
@@ -128,7 +129,7 @@ void ViewProviderGeomFillSurface::highlightReferences(bool on)
                     colors.resize(eMap.Extent(), svp->LineColor.getValue());
 
                     for (const auto& jt : it.second) {
-                        std::size_t idx = static_cast<std::size_t>(std::stoi(jt.substr(4)) - 1);
+                        std::size_t idx = static_cast<std::size_t>(elementIndex(jt) - 1);
                         assert(idx < colors.size());
                         colors[idx] = App::Color(1.0, 0.0, 1.0);  // magenta
                     }
@@ -195,7 +196,7 @@ bool GeomFillSurface::EdgeSelection::allow(App::Document*,
         }
     }
 
-    return appendEdges;
+    return appendEdges || anyBinder(links);
 }
 
 // ----------------------------------------------------------------------------
@@ -486,22 +487,26 @@ void GeomFillSurface::onSelectionChanged(const Gui::SelectionChanges& msg)
             item->setIcon(Gui::BitmapFactory().pixmap("view-rotate-right"));
             ui->listWidget->addItem(item);
 
-            Gui::SelectionObject sel(msg);
+            // as a sketch takes external geometry: in scope directly, else
+            // through a binder in the feature's body (Import.h)
+            const App::SubObjectT link = importPick(editedObject, pickOf(msg));
+            App::DocumentObject* linked = link.getObject();
+            const std::string linkedSub = link.getSubName();
             QString text = QStringLiteral("%1.%2").arg(
-                QString::fromUtf8(sel.getObject()->Label.getValue()),
-                QString::fromUtf8(msg.pSubName));
+                QString::fromUtf8(linked->Label.getValue()),
+                QString::fromStdString(linkedSub));
             item->setText(text);
 
             QList<QVariant> data;
-            data << QByteArray(msg.pDocName);
-            data << QByteArray(msg.pObjectName);
-            data << QByteArray(msg.pSubName);
+            data << QByteArray(linked->getDocument()->getName());
+            data << QByteArray(linked->getNameInDocument());
+            data << QByteArray(linkedSub.c_str());
             item->setData(Qt::UserRole, data);
 
             auto objects = editedObject->BoundaryList.getValues();
-            objects.push_back(sel.getObject());
+            objects.push_back(linked);
             auto element = editedObject->BoundaryList.getSubValues();
-            element.emplace_back(msg.pSubName);
+            element.emplace_back(linkedSub);
             editedObject->BoundaryList.setValues(objects, element);
             auto booleans = editedObject->ReversedList.getValues();
             booleans.push_back(false);
@@ -509,12 +514,15 @@ void GeomFillSurface::onSelectionChanged(const Gui::SelectionChanges& msg)
             this->vp->highlightReferences(true);
         }
         else {
-            Gui::SelectionObject sel(msg);
+            // the link it is, as listed: itself, or through a binder of it
+            const auto listed = listedAs(editedObject->BoundaryList, pickOf(msg));
+            App::DocumentObject* listedObj = listed.first;
+            const std::string listedSub = listed.second;
             QList<QVariant> data;
             int row = 0;
-            data << QByteArray(msg.pDocName);
-            data << QByteArray(msg.pObjectName);
-            data << QByteArray(msg.pSubName);
+            data << QByteArray(listedObj->getDocument()->getName());
+            data << QByteArray(listedObj->getNameInDocument());
+            data << QByteArray(listedSub.c_str());
             for (int i = 0; i < ui->listWidget->count(); i++) {
                 QListWidgetItem* item = ui->listWidget->item(i);
                 if (item && item->data(Qt::UserRole) == data) {
@@ -525,8 +533,8 @@ void GeomFillSurface::onSelectionChanged(const Gui::SelectionChanges& msg)
             }
 
             this->vp->highlightReferences(false);
-            App::DocumentObject* obj = sel.getObject();
-            std::string sub = msg.pSubName;
+            App::DocumentObject* obj = listedObj;
+            std::string sub = listedSub;
             auto objects = editedObject->BoundaryList.getValues();
             auto element = editedObject->BoundaryList.getSubValues();
             auto it = objects.begin();

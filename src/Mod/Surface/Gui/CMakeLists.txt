@@ -58,6 +58,8 @@ SET(SurfaceGui_SRCS
     TaskTools.h
     EdgeMarkers.cpp
     EdgeMarkers.h
+    Import.cpp
+    Import.h
     EndEdit.h
     AppSurfaceGui.cpp
     Command.cpp

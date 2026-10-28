@@ -97,6 +97,14 @@ public:
         return gateOn;
     }
     bool allows(App::DocumentObject* obj, const std::string& sub) const;
+    /// The pick being taken, as it was picked: unresolved
+    const App::SubObjectT& pick() const
+    {
+        return lastPick;
+    }
+    /// It as a link of the feature, as a sketch takes external geometry:
+    /// directly in scope, else through a binder in the feature's body
+    App::SubObjectT imported() const;
 
     /// A property changed: open the transaction if need be, recompute, say
     void changed();
@@ -127,6 +135,7 @@ private:
     Take pickTake;
     bool gateOn = false;
     bool checkCommand = true;
+    App::SubObjectT lastPick;
     std::vector<std::function<void()>> fills;
     std::unique_ptr<EdgeMarkers> markers;
 };

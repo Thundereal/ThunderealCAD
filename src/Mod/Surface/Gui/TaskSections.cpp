@@ -41,6 +41,7 @@
 #include <Mod/Part/Gui/ViewProvider.h>
 
 #include "EndEdit.h"
+#include "Import.h"
 #include "TaskSections.h"
 #include "TaskTools.h"
 #include "ui_TaskSections.h"
@@ -126,7 +127,7 @@ void ViewProviderSections::highlightReferences(ShapeType type, const References&
                                 // check again that the index is in range because it's possible that
                                 // the sub-names are invalid
                                 std::size_t idx =
-                                    static_cast<std::size_t>(std::stoi(jt.substr(6)) - 1);
+                                    static_cast<std::size_t>(elementIndex(jt) - 1);
                                 if (idx < colors.size()) {
                                     colors[idx] = App::Color(1.0, 0.0, 1.0);  // magenta
                                 }
@@ -147,7 +148,7 @@ void ViewProviderSections::highlightReferences(ShapeType type, const References&
 
                             for (const auto& jt : it.second) {
                                 std::size_t idx =
-                                    static_cast<std::size_t>(std::stoi(jt.substr(4)) - 1);
+                                    static_cast<std::size_t>(elementIndex(jt) - 1);
                                 // check again that the index is in range because it's possible that
                                 // the sub-names are invalid
                                 if (idx < colors.size()) {
@@ -170,7 +171,7 @@ void ViewProviderSections::highlightReferences(ShapeType type, const References&
 
                             for (const auto& jt : it.second) {
                                 std::size_t idx =
-                                    static_cast<std::size_t>(std::stoi(jt.substr(4)) - 1);
+                                    static_cast<std::size_t>(elementIndex(jt) - 1);
                                 // check again that the index is in range because it's possible that
                                 // the sub-names are invalid
                                 if (idx < colors.size()) {
@@ -250,7 +251,7 @@ private:
             }
         }
 
-        return appendEdges;
+        return appendEdges || anyBinder(links);
     }
 
 private:
@@ -471,26 +472,33 @@ void SectionsPanel::onSelectionChanged(const Gui::SelectionChanges& msg)
             QListWidgetItem* item = new QListWidgetItem(ui->listSections);
             ui->listSections->addItem(item);
 
-            Gui::SelectionObject sel(msg);
+            // as a sketch takes external geometry: in scope directly, else
+            // through a binder in the feature's body (Import.h)
+            const App::SubObjectT link = importPick(editedObject, pickOf(msg));
+            App::DocumentObject* linked = link.getObject();
+            const std::string linkedSub = link.getSubName();
             QString text = QStringLiteral("%1.%2").arg(
-                QString::fromUtf8(sel.getObject()->Label.getValue()),
-                QString::fromUtf8(msg.pSubName));
+                QString::fromUtf8(linked->Label.getValue()),
+                QString::fromStdString(linkedSub));
             item->setText(text);
 
             QList<QVariant> data;
-            data << QByteArray(msg.pDocName);
-            data << QByteArray(msg.pObjectName);
-            data << QByteArray(msg.pSubName);
+            data << QByteArray(linked->getDocument()->getName());
+            data << QByteArray(linked->getNameInDocument());
+            data << QByteArray(linkedSub.c_str());
             item->setData(Qt::UserRole, data);
 
-            appendCurve(sel.getObject(), msg.pSubName);
+            appendCurve(linked, linkedSub);
         }
         else if (selectionMode == RemoveEdge) {
-            Gui::SelectionObject sel(msg);
+            // the link it is, as listed: itself, or through a binder of it
+            const auto listed = listedAs(editedObject->NSections, pickOf(msg));
+            App::DocumentObject* listedObj = listed.first;
+            const std::string listedSub = listed.second;
             QList<QVariant> data;
-            data << QByteArray(msg.pDocName);
-            data << QByteArray(msg.pObjectName);
-            data << QByteArray(msg.pSubName);
+            data << QByteArray(listedObj->getDocument()->getName());
+            data << QByteArray(listedObj->getNameInDocument());
+            data << QByteArray(listedSub.c_str());
 
             // only the three first elements must match
             for (int i = 0; i < ui->listSections->count(); i++) {
@@ -503,7 +511,7 @@ void SectionsPanel::onSelectionChanged(const Gui::SelectionChanges& msg)
                 }
             }
 
-            removeCurve(sel.getObject(), msg.pSubName);
+            removeCurve(listedObj, listedSub);
         }
 
         editedObject->recomputeFeature();

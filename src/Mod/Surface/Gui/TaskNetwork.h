@@ -122,6 +122,9 @@ private:
     void separate();
     void applyToAll();
     bool listed(App::DocumentObject* obj, const std::string& sub) const;
+    /// A curve listed through a binder: a pick to remove is told by the
+    /// pick itself (refersTo), which the gate does not see
+    bool bindersListed() const;
 
     ViewProviderNetwork* vp;
     App::DocumentObjectT objT;

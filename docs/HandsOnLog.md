@@ -8204,3 +8204,12 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
 - pd-box-handles-follow-attachment.py (offscreen; handles read via
   getAuxSceneGraph with SoBaseKit.setSearchingChildren): 5/5; staged copy
   fails attached-in-edit (every handle), passes reopened.
+
+### 2026-10-28 evening: entry 237 -- COMMITTED `c20481f73d`, not pushed, not staged
+
+- QGVNavStyleBlender refused the mouse context menu only with LMB down;
+  on Windows it comes at the RMB release, so a pan with LMB let go first
+  got it. Now a LMB+RMB pan since the gesture's first press refuses it.
+  The other page styles test held modifier keys: not touched.
+- techdraw-blender-pan-no-menu.py 5/5 (real screen, QTest on the window:
+  Qt's own Release trigger); staged copy: the menu after the first pan.

@@ -116,6 +116,65 @@ private:
     std::vector<double> x, y, m;
 };
 
+/// A curve by its arc length: the parameter at a length from its start, as a
+/// cubic through a dense table of both, with the true slopes (the inverse
+/// speed) at its nodes, so that it is as smooth as the curve's shape
+class ByLength
+{
+public:
+    ByLength(const BSpline& c, double from, double to, int nodes)
+        : curve(c)
+    {
+        GeomAdaptor_Curve a(c);
+        double s = 0;
+        for (int i = 0; i <= nodes; ++i) {
+            double t = from + (to - from) * i / nodes;
+            if (i > 0) {
+                s += GCPnts_AbscissaPoint::Length(a, u.back(), t);
+            }
+            u.push_back(t);
+            len.push_back(s);
+            gp_Pnt p;
+            gp_Vec d;
+            c->D1(t, p, d);
+            slope.push_back(d.Magnitude() > 1e-12 ? 1 / d.Magnitude() : 0);
+        }
+    }
+
+    /// The length from the start at parameter t
+    double lengthAt(double t) const
+    {
+        size_t k = std::upper_bound(u.begin(), u.end(), t) - u.begin();
+        k = std::clamp<size_t>(k, 1, u.size() - 1) - 1;
+        GeomAdaptor_Curve a(curve);
+        return len[k] + GCPnts_AbscissaPoint::Length(a, u[k], t);
+    }
+
+    /// The parameter at a length from the start
+    double paramAt(double s) const
+    {
+        size_t k = std::upper_bound(len.begin(), len.end(), s) - len.begin();
+        k = std::clamp<size_t>(k, 1, len.size() - 1) - 1;
+        double h = len[k + 1] - len[k];
+        if (h <= 0) {
+            return u[k];
+        }
+        double x = (s - len[k]) / h;
+        double x2 = x * x, x3 = x2 * x;
+        return (2 * x3 - 3 * x2 + 1) * u[k] + (x3 - 2 * x2 + x) * h * slope[k]
+            + (-2 * x3 + 3 * x2) * u[k + 1] + (x3 - x2) * h * slope[k + 1];
+    }
+
+    gp_Pnt at(double s) const
+    {
+        return curve->Value(paramAt(s));
+    }
+
+private:
+    BSpline curve;
+    std::vector<double> u, len, slope;
+};
+
 /// The flat knot vector of a cubic on [0, 1] with `spans[k]` equal spans
 /// between breaks[k] and breaks[k + 1]
 std::vector<double> flatKnots(const std::vector<double>& breaks, const std::vector<int>& spans)
@@ -156,9 +215,18 @@ double fitFamily(const std::vector<Member>& family,
 {
     const size_t nseg = breaks.size() - 1;
     std::vector<int> spans(nseg, 1);
+    // each curve followed by its length, not its own parameter: an arc of a
+    // circle made a B-spline is rational, and its parameter changes speed
+    // abruptly at its knots, which a cubic by that parameter never fits
+    std::vector<ByLength> lengths;
     std::vector<MonotoneMap> maps;
     for (const auto& m : family) {
-        maps.emplace_back(breaks, m.params);
+        lengths.emplace_back(m.curve, m.params.front(), m.params.back(), 64 * (int)nseg);
+        std::vector<double> at;
+        for (double t : m.params) {
+            at.push_back(lengths.back().lengthAt(t));
+        }
+        maps.emplace_back(breaks, at);
     }
 
     double worst = 0;
@@ -219,11 +287,10 @@ double fitFamily(const std::vector<Member>& family,
         mults.SetValue(knots.Length(), Degree + 1);
 
         for (size_t c = 0; c < family.size(); ++c) {
-            const auto& curve = family[c].curve;
             std::vector<gp_Pnt> target(nsamp);
             Eigen::MatrixXd B(nsamp, 3);
             for (int r = 0; r < nsamp; ++r) {
-                target[r] = curve->Value(maps[c](ts[r]));
+                target[r] = lengths[c].at(maps[c](ts[r]));
                 B(r, 0) = target[r].X();
                 B(r, 1) = target[r].Y();
                 B(r, 2) = target[r].Z();
@@ -247,7 +314,7 @@ double fitFamily(const std::vector<Member>& family,
                 double d = fit->Value(ts[r]).Distance(target[r]);
                 if (r > 0) {
                     double tm = (ts[r - 1] + ts[r]) / 2;
-                    d = std::max(d, fit->Value(tm).Distance(curve->Value(maps[c](tm))));
+                    d = std::max(d, fit->Value(tm).Distance(lengths[c].at(maps[c](tm))));
                 }
                 segWorst[segOf[r]] = std::max(segWorst[segOf[r]], d);
                 worst = std::max(worst, d);

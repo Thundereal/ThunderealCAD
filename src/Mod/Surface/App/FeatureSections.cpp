@@ -153,7 +153,8 @@ App::DocumentObjectExecReturn* Sections::execute()
     bool any = false;
     for (int k = 0; k < 2; ++k) {
         int input = k == 0 ? 0 : curveSeq.Length() - 1;
-        at[k] = Geom::boundaryOf(aSurf, curveSeq(input + 1), 1e-6);
+        // a network's boundary is its outer curve within the fit
+        at[k] = Geom::boundaryOf(aSurf, curveSeq(input + 1), guides.empty() ? 1e-6 : 3e-4);
         if (ends[k].continuity->getValue() == 0) {
             continue;
         }

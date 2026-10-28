@@ -19,6 +19,9 @@
 #include <Geom_TrimmedCurve.hxx>
 #include <TColgp_HArray1OfPnt.hxx>
 
+#include <GC_MakeArcOfCircle.hxx>
+#include <GC_MakeSegment.hxx>
+
 #include <Mod/Surface/App/Geom/NetworkSurface.h>
 
 using Surface::Geom::NetworkOptions;
@@ -389,4 +392,23 @@ TEST(SortFamilies, tooFewCurves)
     auto r = sortFamilies({p[0], g[0], g[1]}, 1e-4);
     EXPECT_FALSE(r.isDone());
     EXPECT_NE(r.error.find("two"), std::string::npos) << r.error;
+}
+
+// Arcs of circles are rational: their own parameter does not run at a
+// steady speed, and a fit by it does not converge. By arc length it does:
+// the surface is within the fit tolerance of them, and says so
+TEST(NetworkSurface, arcsAreFittedWithinTolerance)
+{
+    Curves p, g;
+    for (double x : {0.0, 10.0, 20.0}) {
+        p.push_back(GC_MakeArcOfCircle(gp_Pnt(x, 0, 0), gp_Pnt(x, 5, 5), gp_Pnt(x, 10, 0)).Value());
+    }
+    g.push_back(GC_MakeSegment(gp_Pnt(0, 0, 0), gp_Pnt(20, 0, 0)).Value());
+    g.push_back(GC_MakeSegment(gp_Pnt(0, 10, 0), gp_Pnt(20, 10, 0)).Value());
+    NetworkOptions opt;
+    auto r = networkSurface(p, g, opt);
+    ASSERT_TRUE(r.isDone()) << r.error;
+    EXPECT_LE(r.maxFitDeviation, opt.fitTolerance);
+    EXPECT_LT(deviation(r.surface, p), opt.fitTolerance);
+    EXPECT_LT(deviation(r.surface, g), opt.fitTolerance);
 }

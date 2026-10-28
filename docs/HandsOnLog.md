@@ -8225,3 +8225,16 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
 - pd-edit-origin-highlight.py 4/4 (the plane found by moving out from the
   origin: getObjectInfo returns nothing in an edit); staged copy: 0
   pixels with the Origin hidden. origin-plane-highlight.py 14/14.
+
+### 2026-10-28 evening: entry 240 -- COMMITTED `664e51d94a`, not pushed, not staged
+
+- PD primitives' values Place::AtHandle (TopMiddle with handles off).
+- SoDatumLabel backgroundColor/backgroundAlpha (default none), painted into
+  the text image; the backend takes the image as is when it has a ground.
+  OnViewValueSet: the tree's effective item ground, else ItemBackground,
+  else the palette base; alpha clamped to 96..200 (the reporter's
+  ItemBackground is black at 20/255: raised to 96 there). Sketcher labels
+  untouched.
+- pd-primitive-labels-at-handle.py 6/6 (staged copy 0/6, three labels at
+  the top middle, no ground, and the box's labels left in the next edit);
+  pd-values-in-view's box claim updated, 37/37; chamfer 19, fillet 21.

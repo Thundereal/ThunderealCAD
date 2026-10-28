@@ -178,6 +178,10 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-28 12:15: entry 236 -- PD Box's edit handles ignore its orientation (on the
+YZ plane they drive the wrong dimension); audit every feature's
+handles; ASSIGNED to dwin after 235.** Under the entries.
+
 **2026-10-28 12:14: entry 235 -- an origin plane's pre-selection glitches (grows,
 no colour, drops off the edge, shrinks); wanted whole-face pick once
 highlighted, normal highlight, no size change; ASSIGNED to dwin after
@@ -4457,6 +4461,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 233 | 2026-10-28 | defects and a request on the overlay auto scroll bars (224, 225): (a) they do not show when the pointer comes near, only after a wheel scroll; (b) test overlays with a transparent background, the hover reveal checked BEFORE the pass-through; (c) the bars of views (TechDraw page, spreadsheet) placed aware of overlay widgets, sliding out of the way like the cell's menu button and handles | OPEN; said to the note-taker 2026-10-28 11:44; READ by the note-taker: the hover reveal is OverlayScrollBars::eventFilter on the area's VIEWPORT's MouseMove within 3 x Thickness of a bar (OverlayScrollBars.cpp 306-317), and Enter/press on a bar that is hidden; in a transparent overlay panel the pointer's events go through to the view under it, so the panel's viewport may never see them (not verified); place() (172) moves the bars only for a cover touching a side edge; the cell's slide is ViewAreaCell's (ViewArea.cpp 899-951, entry 83); ASSIGNED to dwin (fcad-88) |
 | 234 | 2026-10-28 | a change request: the view's spin centre ball (the rotation-center indicator) drawn SHADED; today it looks flat | OPEN; said to the note-taker 2026-10-28 12:03; READ by the note-taker: flat on purpose since `201889b931` (2026-07-21, "keep render-cache effects off the rotation-center sphere"): View3DInventorViewer::showRotationCenter (View3DInventorViewer.cpp 3787) gives the SoSphere an SoLightModel BASE_COLOR and the colour as diffuse AND emissive (3834-3854), so nothing lights it; NO_SHADOWING and the SoAnnotation keep the effects off; ASSIGNED to dwin (fcad-88) |
 | 235 | 2026-10-28 | a defect and change request: an origin plane's (pre)selection glitches -- hovering its edge pre-selects it and it grows to full size but shows no highlight colour, and moving off the edge drops the pre-selection at once and it shrinks back to a quarter; wanted: once highlighted, the WHOLE face picks with high priority, the highlight like other objects' (outline/colour settings), and NO size change on pre-selection or selection | OPEN; said to the note-taker 2026-10-28 12:14; READ by the note-taker: the size change is ViewProviderPlane::updateDatumSize/onSelectionChanged (ViewProviderPlane.cpp 115-178): with DatumScreenSize on and a role (an origin plane), a quarter (offset 8 to size) unless isSelected or isHovered, then full -- from `7e1824d01d` (2026-09-28, upstream b942275957); the face is in an SoFCLatePickGroup (79), picked only when nothing else is, with its own SoMaterial transparency 0.95; the highlight node is an SoFCSelection (ViewProviderDatum.cpp 110); ASSIGNED to dwin (fcad-88) after 234 |
+| 236 | 2026-10-28 | a defect: PD Box -- the on-view edit handles do not follow the box's orientation; a box attached to the YZ plane, a handle drives the wrong dimension; AUDIT every other feature's handles for the same | OPEN; said to the note-taker 2026-10-28 12:15; READ by the note-taker (not reproduced): TaskBoxPrimitives::setGizmoPositions (TaskPrimitiveParameters.cpp 255-292) places Length/Width/Height along the box Placement's rotated X/Y/Z at its position; GizmoContainer::getWorldMatrix (Gizmo.cpp 1540) starts from the document's editing transform (Document::setEdit, getSubObject's matrix); if that already holds the box's placement the rotation is applied TWICE -- unseen at identity, wrong axes on the YZ plane (a lead, not verified); handles also in the extrude, revolution, helix, hole, fillet, chamfer, draft and thickness panels; ASSIGNED to dwin (fcad-88) after 235 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -30966,6 +30971,40 @@ full square; whether the same goes for the origin's axes and point, and
 for datum planes outside an origin (no role, they do not resize today).
 ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 234.
 
+## 236. PD Box: the edit handles do not follow the box's orientation; audit the other features (a defect) -- OPEN
+
+**2026-10-28 12:15, the reporter (to the note-taker):** "ne defect, partdesign, box
+object, the one view edit handle does not sync with box orientation. say
+I create a box, then attach to yz plane, the handle then controls the
+wrong dimenion. audit other feature handle for the same problem"
+The note-taker's reading: "one view" is "on-view" -- the handles drawn
+in the 3D view to drag a value (docs/OnViewValueEditing.md, entry 170).
+A PD Box attached to the YZ plane: its handles point along the wrong
+axes, so dragging one changes another dimension than the one it seems
+to. Every other PD feature with handles to be checked for the same
+fault (an attached or rotated feature).
+READ by the note-taker (not reproduced):
+- TaskBoxPrimitives::setGizmoPositions (src/Mod/PartDesign/Gui/
+  TaskPrimitiveParameters.cpp 255-292): Length, Width, Height placed at
+  the Placement's position along its rotation applied to X, Y, Z (the
+  cylinder and the sphere the same way, 279-285); redone on a Placement
+  change (294-301).
+- GizmoContainer::getWorldMatrix (src/Gui/Inventor/Draggers/Gizmo.cpp
+  1540-1550) starts from the Gui document's editing transform
+  (Document::setEdit takes it from getSubObject's matrix) and multiplies
+  the container's origin in.
+- A lead, not verified: if the editing transform already holds the
+  box's own Placement, the rotation is applied twice -- the same as once
+  at identity (a box on XY, unattached), wrong on the YZ plane.
+- Panels with handles to audit: TaskExtrudeParameters (pad, pocket),
+  TaskRevolutionParameters, TaskHelixParameters, TaskHoleParameters,
+  TaskFilletParameters, TaskChamferParameters, TaskDraftParameters,
+  TaskThicknessParameters, TaskPrimitiveParameters (box, cylinder,
+  sphere and the rest of its types).
+NOT said: whether the handles' labels (on-view values) are off too;
+whether a body that is itself moved or rotated counts.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 235.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -30977,5 +31016,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 235
+the build session, 131 and 132 found by it; entries 134 to 236
 are of 2026-10-15, 134 said to the build session)

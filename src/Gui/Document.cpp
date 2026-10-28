@@ -775,9 +775,11 @@ namespace {
  * request as well as from a click, and none of them may be held up by a
  * box. A client's request gets no desktop box at all.
  */
-void refuseEditInUse(const App::DocumentObject *obj, Gui::Document *editDoc)
+void refuseEditInUse(const App::DocumentObject *obj, Gui::Document *editDoc,
+                     ViewerContext *viewer = nullptr)
 {
-    ViewerContext *viewer = editDoc->editingViewer();
+    if (!viewer)
+        viewer = editDoc->editingViewer();
     QPointer<MDIView> view = viewer ? TaskOwner(viewer).mdiView() : nullptr;
     QString where = view ? view->windowTitle().remove(QStringLiteral("[*]"))
                          : QObject::tr("another view");
@@ -988,28 +990,33 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     // across the user's work, or when this one's does -- a second would
     // commit the first one's work in progress (docs/HandsOnQueue.md entry
     // 232). The others run on, each in its own view.
+    std::vector<EditSession*> ending;
     if (perView) {
-        std::vector<EditSession*> ending;
         for (auto &s : d->_editSessions) {
             if (s->viewer == editViewer || !s->viewProvider
                     || s->viewProvider->editHoldsTransaction(s->mode)
                     || svp->editHoldsTransaction(ModNum))
                 ending.push_back(s.get());
         }
-        for (EditSession *s : ending)
-            _resetEditSession(s);
     }
 
     // One edit of an object at a time: it is ObjEditing for as long as an
     // edit has it -- another view's, or another document's through a link
-    // (docs/HandsOnQueue.md entry 232)
+    // (docs/HandsOnQueue.md entry 232). Asked of the edits that go on, and
+    // before any ends: a refused edit ends none.
     if (sobj->testStatus(App::ObjEditing)) {
-        if (auto editDoc = Application::Instance->editDocument(
-                [sobj](Gui::Document *doc) { return doc->isEditingObject(sobj); })) {
-            refuseEditInUse(sobj, editDoc);
+        Gui::Document *editDoc = Application::Instance->editDocument(
+                [sobj](Gui::Document *doc) { return doc->isEditingObject(sobj); });
+        EditSession *holder = editDoc ? editDoc->d->sessionEditing(sobj) : nullptr;
+        if (editDoc && (editDoc != this
+                        || std::find(ending.begin(), ending.end(), holder) == ending.end())) {
+            refuseEditInUse(sobj, editDoc, holder ? holder->viewer : nullptr);
             return false;
         }
     }
+
+    for (EditSession *s : ending)
+        _resetEditSession(s);
 
     // A feature of an old file opened without its migration recompute: it
     // and what it needs, recomputed alone, so the edit's preview has the
@@ -1509,6 +1516,76 @@ bool Document::isEditingObject(const App::DocumentObject *obj) const
 bool Document::isStartingEdit() const
 {
     return d->_editStarting != nullptr;
+}
+
+bool Document::undoOwnSteps(const std::vector<int>& tids)
+{
+    App::Document *doc = getDocument();
+    std::set<int> mine;
+    for (int tid : tids) {
+        if (tid > 0)
+            mine.insert(tid);
+    }
+    if (mine.empty())
+        return true;
+    // An open step is committed first, as undo() does
+    if (doc->hasPendingTransaction())
+        doc->commitTransaction();
+
+    // Nothing of anyone else's above the oldest of them: the plain undo
+    // down to it, as a panel's Cancel always was, and redo keeps them
+    int oldest = 0;
+    std::size_t seen = 0;
+    bool interleaved = false;
+    for (unsigned pos = 0; seen < mine.size(); ++pos) {
+        const int tid = doc->getTransactionID(/*undo*/true, pos);
+        if (!tid)
+            break;
+        if (mine.count(tid)) {
+            ++seen;
+            oldest = tid;
+        }
+        else
+            interleaved = true;
+    }
+    if (!oldest)
+        return true;   // none of them is on the undo stack any more
+    if (!interleaved)
+        return doc->undo(oldest);
+
+    // Another view's steps are among them (docs/HandsOnQueue.md entry
+    // 232): this edit's own are taken back from the log, as one step
+    const std::vector<int64_t> seqs = doc->logSeqsOf(tids);
+    if (seqs.empty())
+        return false;
+    if (doc->undoLogged(seqs))
+        return true;
+
+    // What was changed since in another view is in the way: the user's
+    // to say (the reporter's ruling, entry 232)
+    const QString why = QString::fromUtf8(doc->undoRefusal().c_str());
+    QMessageBox box(getMainWindow());
+    box.setObjectName(QStringLiteral("CancelOwnSteps"));
+    box.setIcon(QMessageBox::Question);
+    box.setWindowTitle(QObject::tr("Cancel"));
+    box.setText(QObject::tr("Some of what this edit changed was changed again "
+                            "in another view since."));
+    box.setInformativeText(
+        QObject::tr("Undo anyway puts this edit's values back over the other changes. "
+                    "Skip takes back only what nobody changed since; the other changes "
+                    "stay. Keep leaves everything as it is."));
+    box.setDetailedText(why);
+    QPushButton *anyway = box.addButton(QObject::tr("Undo anyway"), QMessageBox::DestructiveRole);
+    QPushButton *skip = box.addButton(QObject::tr("Skip"), QMessageBox::AcceptRole);
+    QPushButton *keep = box.addButton(QObject::tr("Keep"), QMessageBox::RejectRole);
+    box.setDefaultButton(skip);
+    box.exec();
+    if (box.clickedButton() == anyway)
+        return doc->undoLogged(seqs, App::Document::UndoConflicts::Overwrite);
+    if (box.clickedButton() == skip)
+        return doc->undoLogged(seqs, App::Document::UndoConflicts::Skip);
+    (void)keep;
+    return true;
 }
 
 void Document::resetEditOf(const ViewProvider *vp)

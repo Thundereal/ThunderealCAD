@@ -216,8 +216,10 @@ private:
     /// the argument left out.
     Gui::TaskView::TaskDialog* dialogOf(const TaskOwner &owner) const;
     /// The open dialog that keeps one from being shown for \a owner (null
-    /// here is nobody), or null.
-    Gui::TaskView::TaskDialog* blockerOf(const TaskOwner &owner) const;
+    /// here is nobody), or null. \a incoming is the dialog to be shown,
+    /// when it is known (TaskDialog::holdsTransaction()).
+    Gui::TaskView::TaskDialog* blockerOf(const TaskOwner &owner,
+            const Gui::TaskView::TaskDialog *incoming = nullptr) const;
     /// Whether \a dlg is one of the open dialogs
     bool isOpen(const Gui::TaskView::TaskDialog *dlg) const;
     /// The three entry points with the dialog settled; null is whatever

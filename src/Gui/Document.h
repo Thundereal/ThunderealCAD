@@ -468,6 +468,19 @@ public:
      * not in edit here.
      */
     void resetEditOf(const ViewProvider *vp);
+    /** Take back an edit's own undo steps, transaction ids \a tids: its
+     * Cancel, where each change of it was a step of its own
+     * (docs/HandsOnQueue.md entry 232).
+     *
+     * With nothing of anyone else's above them, the plain undo down to the
+     * oldest, as Cancel always was. With another view's steps among them,
+     * they are taken back from the log, as one step; where the other view
+     * changed something of theirs since, the user picks: undo anyway (put
+     * this edit's values back over), skip (take back only what nobody
+     * changed since), or keep (take back nothing). False when an undo was
+     * refused.
+     */
+    bool undoOwnSteps(const std::vector<int>& tids);
     /// The view \a vp is in edit in, null for none
     ViewerContext *editingViewerOf(const ViewProvider *vp) const;
     /// Whether an edit was started in \a viewer (it is the initiator)

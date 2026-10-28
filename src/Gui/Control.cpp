@@ -44,6 +44,7 @@
 #include "MDIView.h"
 #include "Selection.h"
 #include "Tree.h"
+#include "ViewParams.h"
 #include "TaskView/TaskView.h"
 
 
@@ -260,7 +261,8 @@ Gui::TaskView::TaskDialog* ControlSingleton::dialogOf(const TaskOwner &owner) co
     return blockerOf(whose);
 }
 
-Gui::TaskView::TaskDialog* ControlSingleton::blockerOf(const TaskOwner &owner) const
+Gui::TaskView::TaskDialog* ControlSingleton::blockerOf(const TaskOwner &owner,
+        const Gui::TaskView::TaskDialog *incoming) const
 {
     const bool one = exclusive();
     for (const OpenDialog &open : openDialogs) {
@@ -283,6 +285,13 @@ Gui::TaskView::TaskDialog* ControlSingleton::blockerOf(const TaskOwner &owner) c
         Gui::Document *ownerDoc = owner.document();
         if (itsDoc && ownerDoc && itsDoc != ownerDoc
                 && App::GetApplication().isActiveTransactionBound(itsDoc->getDocument()))
+            continue;
+        // Another view of the same document, each with an edit of its own
+        // (PerViewEdit): beside a dialog that holds no transaction, which a
+        // new dialog has to say of itself too (showDialogFor)
+        if (itsDoc && itsDoc == ownerDoc && ViewParams::getPerViewEdit()
+                && !open.dialog->holdsTransaction()
+                && (!incoming || !incoming->holdsTransaction()))
             continue;
         return open.dialog;
     }
@@ -333,7 +342,7 @@ void ControlSingleton::showDialogFor(Gui::TaskView::TaskDialog *dlg, const TaskO
         return;
     }
     // only one dialog at a time, print a warning instead of raising an assert
-    if (!isOpen(dlg) && blockerOf(owner)) {
+    if (!isOpen(dlg) && blockerOf(owner, dlg)) {
         qWarning() << "ControlSingleton::showDialog: Can't show "
                    << dlg->metaObject()->className()
                    << " since there is already an active task dialog";

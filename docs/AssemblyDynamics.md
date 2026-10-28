@@ -97,8 +97,13 @@ Phase D1 is under way (2026-10-28):
   (sqrt(I / (m g d)) K(sin 45 deg)), within 0.05%, the hinge held to 1e-6
   mm, the lowest point 50 mm below it; nothing moves without gravity; a
   motion is refused.
-- Next: the Simulation task panel's Analysis choice, then springs and
-  dampers (step 2).
+- Built: the Simulation task panel's Analysis box (`CommandCreateSimulation.
+  py`, added in code above the .ui's Motions): Kinematic or Dynamic, and a
+  Gravity box; the Motions greyed in a Dynamic study, which does not run
+  them yet; and a run that fails says so under Generate (before, the panel
+  went on to a player of no frames). Upstream's Python simulation, not
+  converted, has no analysis: the box is disabled for it.
+- Next: springs and dampers (step 2).
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

@@ -879,6 +879,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.form.groupBox_player.hide()
         self.form.SaveAnimationButton.clicked.connect(self.saveAnimation)
         self.form.SaveAnimationButton.hide()
+        self.addAnalysisWidgets()
 
         if simFeaturePy:
             self.simFeaturePy = simFeaturePy
@@ -889,6 +890,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.createSimulationObject()
 
         self.setUiInitialValues()
+        self.setAnalysisInitialValues()
 
         self.simFeaturePy.Proxy.setMotionsChangedCallback(self.onMotionsChanged)
 
@@ -915,6 +917,76 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             "rawValue", self.simValues.GlobalErrorTolerance
         )
         self.form.FramesPerSecondSpinBox.setValue(self.simValues.FramesPerSecond)
+
+    def addAnalysisWidgets(self):
+        """Not upstream: the analysis, Kinematic or Dynamic, and gravity
+        (docs/AssemblyDynamics.md sec 9), above the motions; and a line saying
+        why a run failed, under Generate."""
+        box = QtWidgets.QGroupBox(translate("Assembly", "Analysis"))
+        row = QtWidgets.QHBoxLayout(box)
+        self.analysisCombo = QtWidgets.QComboBox()
+        self.analysisCombo.addItem(translate("Assembly", "Kinematic"), "Kinematic")
+        self.analysisCombo.addItem(translate("Assembly", "Dynamic"), "Dynamic")
+        self.analysisCombo.setToolTip(
+            translate(
+                "Assembly",
+                "Kinematic: the motions drive the joints.\n"
+                "Dynamic: the parts move under gravity by their masses (Mass Properties).",
+            )
+        )
+        row.addWidget(self.analysisCombo, 1)
+        self.gravityCheck = QtWidgets.QCheckBox(translate("Assembly", "Gravity"))
+        self.gravityCheck.setToolTip(
+            translate("Assembly", "Dynamic: gravity acts, along the simulation's Gravity")
+        )
+        row.addWidget(self.gravityCheck)
+        self.form.layout().insertWidget(0, box)
+        self.runMessage = QtWidgets.QLabel()
+        self.runMessage.setWordWrap(True)
+        self.runMessage.setStyleSheet("color: #c80000")
+        self.runMessage.hide()
+        self.form.layout().addWidget(self.runMessage)
+        self.analysisCombo.currentIndexChanged.connect(self.onAnalysisChanged)
+        self.gravityCheck.toggled.connect(self.onGravityChanged)
+
+    def hasAnalysis(self):
+        """Upstream's Python simulation, not converted, has none"""
+        return hasattr(self.simFeaturePy, "AnalysisType")
+
+    def setAnalysisInitialValues(self):
+        if not self.hasAnalysis():
+            self.analysisCombo.setEnabled(False)
+            self.gravityCheck.setEnabled(False)
+            return
+        self.analysisCombo.blockSignals(True)
+        self.analysisCombo.setCurrentIndex(
+            max(0, self.analysisCombo.findData(self.simFeaturePy.AnalysisType))
+        )
+        self.analysisCombo.blockSignals(False)
+        self.gravityCheck.blockSignals(True)
+        self.gravityCheck.setChecked(self.simFeaturePy.GravityEnabled)
+        self.gravityCheck.blockSignals(False)
+        self.showAnalysis()
+
+    def showAnalysis(self):
+        dynamic = self.analysisCombo.currentData() == "Dynamic"
+        self.gravityCheck.setEnabled(dynamic)
+        # A dynamic run does not take motions yet (sec 4, D1 step 3)
+        self.form.groupBox_motions.setEnabled(not dynamic)
+        self.form.groupBox_motions.setToolTip(
+            translate("Assembly", "A dynamic analysis does not run motions yet")
+            if dynamic
+            else ""
+        )
+
+    def onAnalysisChanged(self, index):
+        if self.hasAnalysis():
+            self.simFeaturePy.AnalysisType = self.analysisCombo.currentData()
+        self.showAnalysis()
+
+    def onGravityChanged(self, checked):
+        if self.hasAnalysis():
+            self.simFeaturePy.GravityEnabled = checked
 
     def setSpinboxPrecision(self, spinbox, precision, unit=App.Units.TimeSpan):
         q = App.Units.Quantity()
@@ -982,7 +1054,17 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.form.motionList.addItem(motion.Label)
 
     def runKinematics(self):
-        self.assembly.generateSimulation(self.simFeaturePy)
+        # Not upstream: a run that fails says so, here as in the report
+        self.runMessage.hide()
+        if self.assembly.generateSimulation(self.simFeaturePy) != 0:
+            self.runMessage.setText(
+                translate(
+                    "Assembly",
+                    "The simulation was not generated: the report view says why.",
+                )
+            )
+            self.runMessage.show()
+            return
         nFrms = self.assembly.numberOfFrames()
         self.form.frameSlider.setMaximum(nFrms - 1)
         self.setFrameValue(nFrms - 1)

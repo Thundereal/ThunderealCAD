@@ -3230,6 +3230,34 @@ SoFCRenderCache::buildHighlightCache(SbFCMap<int, VertexCachePtr> &sharedcache,
     res[bboxmaterial].emplace_back(cache, matrix, false, false, CacheKeyPtr());
   }
 
+  // A hidden object some view shows on its own -- the origin a PartDesign
+  // box's edit shows for picking a reference, the Origin group hidden -- is
+  // captured tagged, for each view to admit by its own visibility. Its
+  // highlight is of what the pointer was over in the view it is drawn in,
+  // which shows it: untagged, or neither renderer drew it, the GL one
+  // leaving such draws out and the backend admitting them by a visibility
+  // the highlight's own draws do not carry (docs/HandsOnQueue.md entry 239,
+  // the reporter: "when the origin group is invisible, the origin shown when
+  // editing box does not react to highlight").
+  bool tagged = false;
+  for (const auto &v : res) {
+    if (v.first.capturedmode == Render::perViewShownModeId()) {
+      tagged = true;
+      break;
+    }
+  }
+  if (tagged) {
+    VertexCacheMap untagged;
+    for (auto &v : res) {
+      Material m = v.first;
+      if (m.capturedmode == Render::perViewShownModeId())
+        m.capturedmode = 0;
+      auto &entries = untagged[m];
+      entries.insert(entries.end(), v.second.begin(), v.second.end());
+    }
+    res.swap(untagged);
+  }
+
   return res;
 }
 

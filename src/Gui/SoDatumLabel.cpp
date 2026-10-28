@@ -287,6 +287,8 @@ SoDatumLabel::SoDatumLabel()
     SO_NODE_ADD_FIELD(size, (10.f));
     SO_NODE_ADD_FIELD(lineWidth, (2.f));
     SO_NODE_ADD_FIELD(linePattern, (0xFFFF));
+    SO_NODE_ADD_FIELD(backgroundColor, (SbVec3f(1.f, 1.f, 1.f)));
+    SO_NODE_ADD_FIELD(backgroundAlpha, (0.f));
 
     SO_NODE_ADD_FIELD(datumtype, (SoDatumLabel::DISTANCE));
 
@@ -406,7 +408,8 @@ void SoDatumLabel::syncImageTexture()
     SbVec2s size;
     int nc;
     const unsigned char* bytes = this->image.getValue(size, nc);
-    if (bytes && size[0] > 0 && size[1] > 0 && nc == 4) {
+    if (bytes && size[0] > 0 && size[1] > 0 && nc == 4
+        && backgroundAlpha.getValue() <= 0.f) {
         // drawImage() paints the glyph in textColor alone: keep its alpha
         std::vector<unsigned char> mask(bytes, bytes + std::size_t(size[0]) * size[1] * 4);
         for (std::size_t i = 0; i < mask.size(); i += 4) {
@@ -416,7 +419,8 @@ void SoDatumLabel::syncImageTexture()
         this->imageTexture->model = SoTexture2::MODULATE;
     }
     else if (bytes && size[0] > 0 && size[1] > 0) {
-        // no alpha to keep: the texel as it is
+        // no alpha to keep, or a ground of its own under the glyph: the
+        // texel as it is
         this->imageTexture->image.setValue(size, nc, bytes);
         this->imageTexture->model = SoTexture2::REPLACE;
     }
@@ -450,16 +454,28 @@ void SoDatumLabel::drawImage()
     QColor front;
     front.setRgbF(t[0],t[1], t[2]);
 
-    QImage image(w, h,QImage::Format_ARGB32_Premultiplied);
+    // a ground under the text, rounded, a little larger than it
+    const float groundAlpha = backgroundAlpha.getValue();
+    const int pad = groundAlpha > 0.f ? std::max(2, h / 6) : 0;
+
+    QImage image(w + 2 * pad, h + 2 * pad, QImage::Format_ARGB32_Premultiplied);
     image.fill(0x00000000);
 
     QPainter painter(&image);
     if(useAntialiasing)
         painter.setRenderHint(QPainter::Antialiasing);
 
+    if (pad) {
+        const SbColor& b = backgroundColor.getValue();
+        QColor ground;
+        ground.setRgbF(b[0], b[1], b[2], std::min(groundAlpha, 1.f));
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(ground);
+        painter.drawRoundedRect(QRectF(0, 0, w + 2 * pad, h + 2 * pad), pad, pad);
+    }
     painter.setPen(front);
     painter.setFont(font);
-    painter.drawText(0, 0, w, h, Qt::AlignLeft, str);
+    painter.drawText(pad, pad, w, h, Qt::AlignLeft, str);
     painter.end();
 
     Gui::BitmapFactory().convert(image, this->image);
@@ -1857,7 +1873,8 @@ void SoDatumLabel::notify(SoNotList * l)
 {
     SoField * f = l->getLastField();
     if (f == &this->string || f == &this->textColor || f == &this->name
-        || f == &this->size || f == &this->image) {
+        || f == &this->size || f == &this->image || f == &this->backgroundColor
+        || f == &this->backgroundAlpha) {
         this->glimagevalid = false;
         // The glyph bitmap changed; the companion texture must be re-fed.
         this->imagesynced = false;

@@ -47,6 +47,7 @@
 #include <App/DocumentObject.h>
 #include <App/Expression.h>
 #include <App/PropertyUnits.h>
+#include <Base/Color.h>
 #include <Base/Console.h>
 #include <Base/Placement.h>
 #include <Base/Quantity.h>
@@ -61,6 +62,8 @@
 #include "QuantitySpinBox.h"
 #include "SoDatumLabel.h"
 #include "SpinBox.h"
+#include "Tree.h"
+#include "TreeParams.h"
 #include "ViewerContext.h"
 #include "ViewProvider.h"
 #include "Inventor/Draggers/Gizmo.h"
@@ -805,6 +808,38 @@ void OnViewValueSet::attachToEdit(const ViewProvider* vp, const GizmoContainer* 
     refresh();
 }
 
+namespace {
+
+/** The ground under a value's label: the tree's item ground as the tree
+ * paints it, see-through (docs/HandsOnQueue.md entry 240, the reporter: "add
+ * some transparent background for each on view lable, using the same
+ * background color from tree item"). Without one, the tree's item
+ * background setting, else the window's base colour. Opaque enough to be
+ * seen, and never fully.
+ */
+QColor labelGround()
+{
+    QColor colour;
+    if (auto tree = TreeWidget::instance()) {
+        const QBrush brush = tree->effectiveOverlayItemBackground();
+        if (brush.style() != Qt::NoBrush) {
+            colour = brush.color();
+        }
+    }
+    if (!colour.isValid() && TreeParams::getItemBackground()) {
+        Base::Color stored;
+        stored.setPackedValue(TreeParams::getItemBackground());
+        colour = QColor::fromRgbF(stored.r, stored.g, stored.b, stored.a);
+    }
+    if (!colour.isValid()) {
+        colour = QApplication::palette().color(QPalette::Base);
+    }
+    colour.setAlpha(std::clamp(colour.alpha(), 96, 200));
+    return colour;
+}
+
+}  // namespace
+
 void OnViewValueSet::makeLabels()
 {
     for (auto& entry : entries) {
@@ -815,6 +850,10 @@ void OnViewValueSet::makeLabels()
         label->setLabelType(SoDatumLabel::TEXT, EditableDatumLabel::Function::Dimensioning);
         label->setPoints(SbVec3f(0, 0, 0), SbVec3f(0, 0, 0));
         label->setPickable(true);
+        const QColor ground = labelGround();
+        label->label->backgroundColor.setValue(
+            float(ground.redF()), float(ground.greenF()), float(ground.blueF()));
+        label->label->backgroundAlpha = float(ground.alphaF());
         connect(label.get(), &EditableDatumLabel::clicked, this, &OnViewValueSet::onLabelClicked);
         entry->label = std::move(label);
     }

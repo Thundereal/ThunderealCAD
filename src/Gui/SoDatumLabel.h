@@ -150,6 +150,10 @@ public:
     SoSFFloat  lineWidth;
     /// the leaders' line pattern, sixteen bits (upstream c2d6248bc7)
     SoSFUShort linePattern;
+    /// A ground under the text: its colour, and how opaque it is, 0 for none
+    /// (an on-view value's label, docs/HandsOnQueue.md entry 240)
+    SoSFColor  backgroundColor;
+    SoSFFloat  backgroundAlpha;
     bool       useAntialiasing;
 
 protected:

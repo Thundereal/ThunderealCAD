@@ -8177,3 +8177,16 @@ before the 18:06 save (entry 167; identical to the 10-06 .FCBak).
 - 238: overlay bars about 1 percent of a page pan (temporary trace, not
   committed); staged vs dev medians 9.9/9.7 ms 3D, 25.5/16.1 ms page.
   Start lag or trailing not measured; asked through the note-taker.
+
+### 2026-10-28 evening: 235 on bgfx -- COMMITTED `edc123b9ff`, not pushed, not staged
+
+- The reporter: "yes fix the bgfx". BGFXFrame step 5b drew the dashed
+  through-copy of datum lines (on-top layer, depth test off) after the
+  preselection's/selection's coloured lines; now each order's coloured
+  copies after its plain ones, and the coloured solid lines again after
+  all orders. Matches the OpenGL path.
+- Left as it is (both renderers): where the side-on XZ plane's edge lies
+  on the X axis (a top view), its plain line is drawn over the axis.
+- origin-plane-highlight.py 14/14 bgfx and OpenGL (picture from
+  QWidget.grab of the GL widget: screen grabs caught the reporter's own
+  windows); staged copy, the axis 4 of 14 columns.

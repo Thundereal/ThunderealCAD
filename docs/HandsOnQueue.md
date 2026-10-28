@@ -178,6 +178,11 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-28 11:44: entry 233 -- the overlay auto scroll bars do not show on hover;
+transparent panels to be tested with the reveal before the pass-through;
+the views' bars to slide clear of overlays like the cell's handles;
+ASSIGNED to dwin.** Under the entries.
+
 **2026-10-28 11:40: 230 and 231 DONE by dwin (5bb09a4fe1, 289f655b22), local, not
 pushed, not restaged.** Under the entries.
 
@@ -4440,6 +4445,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 230 | 2026-10-28 | a change request: TechDraw's Toggle Frames (the page's frames and labels) DEFAULT OFF | OPEN; said to the note-taker 2026-10-28 09:41; READ by the note-taker: stored per page as ViewProviderPage::ShowFrames, a hidden PropertyBool of the page's view provider, default true (ViewProviderPage.cpp 95, hidden 102), saved in the document's GuiDocument.xml; TechDraw_ToggleFrame and the page's context menu flip it (toggleFrameState, 509); no preference behind it (ShowGrid beside it takes PreferencesGui::showGrid()); with frames off a view still shows its frame and label while anything of it is selected (QGIView::getFrameState, entries 155/204); a page already saved keeps its saved value; ASSIGNED to fcad-dc. 2026-10-28 09:45 the reporter: "entry 230, make the property visible, leave existing object as it is" -- ShowFrames shown in the property editor (not Hidden), a saved page keeps its value; NOT YET DELIVERED: fcad-dc not reachable. 2026-10-28 09:57 the reporter: "remote session dwin handle this" -- 230 and 231 to dwin; NOT YET DELIVERED: no dwin among the sessions the note-taker can reach. 2026-10-28 11:15 DELIVERED to fcad-88, on the reporter's word "I think it is fcad-88 on the same box" (dwin itself not listed); asked to say if it is not dwin. 2026-10-28 11:40 DONE by dwin (fcad-88) `5bb09a4fe1`, local, NOT pushed, NOT staged: ShowFrames false on a new page, shown in the view properties (group Grid), saved pages unchanged, setting it redraws like Toggle Frames; ADDED: a page opening with frames off hides the template's editable-text marks too; test techdraw-frames-default-off.py 10/10 |
 | 231 | 2026-10-28 | a defect: scanner, after the migration recompute (Section003 broken, as expected), dragging Section003's section line to line it up with the middle of Top003's two lower holes: on the mouse release the line jumps a bit up or down, "as if the section line can only be placed at some discrete number of possible positions" | OPEN; said to the note-taker 2026-10-28 09:45; READ by the note-taker: no snapping in TechDraw's Gui (snap only in QGTracker's angle snap); the release goes QGISectionLine::onItemMoved (QGISectionLine.cpp 664) -> the line's points moved by the drag offset -> a queued DrawViewSection::setChangePoints (DrawViewSection.cpp 1292), which divides the points by the base view's scale, moves SectionOrigin by inverseProjectPoint(newMid - oldMid) with oldMid from sectionLineEnds(); the line is then drawn from the recomputed origin; cause NOT found by reading; NOT reproduced; ASSIGNED to fcad-dc, NOT YET DELIVERED (not reachable). 2026-10-28 09:57 REPRODUCED by the note-taker in the reporter's LIVE session on their word ("check my live session ... you can drag the Section003"): mouse events on Page004's view, zoom 1.238: drags of -15 and +10 px landed exactly (-15, +10; SectionOrigin.y -0.6057, +0.4038), drags of -7, +3, -2, -1, +1, +4, +8, -9 px went back to where they started -- QApplication::startDragDistance() is 10 there, and onItemMoved puts the line back when the release is less than that from the press (wasDragged, QGISectionLine.cpp 656/692, the click guard); a fine correction under 10 px is lost, which reads as fixed positions; also: after Undo of a 'Move section line' the line is NOT redrawn (SectionOrigin back, the line still where the move left it); the note-taker's two moves undone; to dwin, NOT YET DELIVERED. 2026-10-28 11:15 DELIVERED to fcad-88, on the reporter's word "I think it is fcad-88 on the same box" (dwin itself not listed); asked to say if it is not dwin. 2026-10-28 11:40 DONE by dwin (fcad-88) `289f655b22`, local, NOT pushed, NOT staged: a press is a drag once the mouse has gone startDragDistance at ANY point OR the button was held startDragTime (500 ms) -- a slow small correction lands, a quick click with a wobble stays a click (not 'any move', which would move the line on a wobbly click); change point marks the same; Undo/Redo of SectionOrigin/SectionNormal repaints the base view; test techdraw-section-line-click.py 15/15 (3 px held lands 3.00 px; 15 px out and back to 4 lands 4.00; after undo 0 pixels differ), TestTechDrawApp 13 OK; the reporter's Section003 not checked by hand (needs a restage) |
 | 232 | 2026-10-28 | a change request: with PerViewEdit on, SEVERAL objects of ONE document in edit at once, each in its own view | OPEN; said to the note-taker 2026-10-28 11:26; the reporter asked for a PLAN FIRST; plan given by the note-taker (section 232), the reporter's decisions awaited; NOT assigned. 2026-10-28 11:35 DECIDED by the reporter: transactions B, an edit may depend on another view's edit, PD features and dress-ups first, then the Sketcher, then TechDraw; ASSIGNED to x16 on the reporter's word ("Let x16 do this. I have already briefed there"). 2026-10-28 11:39 x16 (relayed): section received; base main e09f46bdd2 contains thundereal/LinkVibe ef7af542e0 (which contains f012b2550f, read by the note-taker); the reporter asked x16 for its plan before it builds; x16's finding on decision 1: ActorScope cannot tell two desktop sessions apart (sameUser, sec 30.10 item 1), proposes Cancel reverts the session's own step ids (undoLogged(seqs), sec 33.13), put to the reporter |
+| 233 | 2026-10-28 | defects and a request on the overlay auto scroll bars (224, 225): (a) they do not show when the pointer comes near, only after a wheel scroll; (b) test overlays with a transparent background, the hover reveal checked BEFORE the pass-through; (c) the bars of views (TechDraw page, spreadsheet) placed aware of overlay widgets, sliding out of the way like the cell's menu button and handles | OPEN; said to the note-taker 2026-10-28 11:44; READ by the note-taker: the hover reveal is OverlayScrollBars::eventFilter on the area's VIEWPORT's MouseMove within 3 x Thickness of a bar (OverlayScrollBars.cpp 306-317), and Enter/press on a bar that is hidden; in a transparent overlay panel the pointer's events go through to the view under it, so the panel's viewport may never see them (not verified); place() (172) moves the bars only for a cover touching a side edge; the cell's slide is ViewAreaCell's (ViewArea.cpp 899-951, entry 83); ASSIGNED to dwin (fcad-88) |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -30840,6 +30846,52 @@ The note-taker's note: 231 (1) departs from the "any move" the
 note-taker suggested; the threshold now has a time half -- a quick
 small drag (under 10 px and under 500 ms) is still taken for a click.
 
+## 233. The overlay auto scroll bars: no reveal on hover; transparent panels; view bars slide clear of overlays (defects and a request) -- OPEN
+
+**2026-10-28 11:44, the reporter (to the note-taker):** "new defects, the overlay auto
+scrollbar does not work properly. it does not auto reveal when mouse
+hover, only after mouse wheel scrolls a bit will it show. Also need to
+test overlays with transparent background see if the mouse over reveal
+works or not. need to check before pass through. Also about thecdraw and
+spreadsheet, or those scroll bars for views, I want the placing of those
+scroll bars to be aware of overlay widgets, and slide out the position
+just like cell menu/handler and so on."
+The note-taker's reading, three parts:
+(a) A defect: the thin auto bars (224 on the page, 225 in every overlaid
+    panel) do not appear when the pointer comes near them; only a wheel
+    scroll shows them.
+(b) A test, and the rule behind it: in an overlay panel with a
+    TRANSPARENT background (where the pointer passes through to the view
+    under it), the hover reveal must work too -- whether the pointer is
+    near a bar is decided BEFORE the event is passed through.
+(c) A request: the scroll bars of views -- the TechDraw page, the
+    spreadsheet, any such view -- are placed knowing the overlay widgets
+    over them, and slide out of the way the way the view cell's menu
+    button and handles do.
+READ by the note-taker (not reproduced):
+- The reveal on hover is OverlayScrollBars::eventFilter
+  (src/Gui/OverlayScrollBars.cpp 306-317): a MouseMove on the area's
+  VIEWPORT within Near = 3 x Thickness of a bar's rect; also Enter or a
+  press on a bar -- but a faded bar is hidden (fade finished, 98-103),
+  so it gets no Enter. The viewport has mouse tracking (110).
+- In an overlaid panel in transparent mode the pointer's moves are passed
+  through to the view under it (OverlayManager), so the panel's viewport
+  may never get the MouseMove: a plausible cause for the panels, not
+  verified; for the page and the spreadsheet, not explained by this.
+- place() (172-243) moves the bars only for a cover that touches a side
+  edge of the area (a dock on that side); other covers -- a task panel
+  over part of the view, a dock that does not reach the edge -- leave
+  the bars at the area's edges, under them.
+- The cell's slide (ViewAreaCell, src/Gui/ViewArea.cpp 899-951, entry
+  83): each of the menu button and the two handles slides along its edge
+  to just past whatever covers it, from OverlayManager::covered(), and
+  comes back when the cover goes; it does not move when the clear part is
+  less than two of it.
+NOT said: whether the bars should slide in steps around a cover or keep
+to the clear rectangle; whether (a) is seen in the page and the
+spreadsheet too, or in the overlay panels only.
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating).
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -30851,5 +30903,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 232
+the build session, 131 and 132 found by it; entries 134 to 233
 are of 2026-10-15, 134 said to the build session)

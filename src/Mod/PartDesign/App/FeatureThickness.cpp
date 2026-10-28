@@ -221,8 +221,10 @@ App::DocumentObjectExecReturn *Thickness::execute()
                 this->fixShape(res);
                 shapes.push_back(res);
             }catch(Standard_Failure &e) {
-                FC_ERR("Exception on making thick solid: " << e.GetMessageString());
-                return new App::DocumentObjectExecReturn("Failed to make thick solid");
+                return new App::DocumentObjectExecReturn(
+                    std::string("Failed to make thick solid: ") + e.GetMessageString());
+            }catch(Base::Exception &e) {
+                return new App::DocumentObjectExecReturn(e.what());
             }
             if (it !=closeFaces.end()) {
                 ++it;

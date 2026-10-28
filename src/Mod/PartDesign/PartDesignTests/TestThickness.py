@@ -48,6 +48,26 @@ class TestThickness(unittest.TestCase):
         self.Doc.recompute()
         self.assertEqual(len(self.Thickness.Shape.Faces), 11)
 
+    def testAFailureSaysWhy(self):
+        """Walls of half the box close it up: the failure is said in words,
+        not "Failed to make thick solid" or OCCT's "command not done"."""
+        body = self.Doc.addObject("PartDesign::Body", "Body")
+        box = body.newObject("PartDesign::AdditiveBox", "Box")
+        self.Doc.recompute()
+        thickness = body.newObject("PartDesign::Thickness", "Thickness")
+        thickness.Base = (box, ["Face6"])
+        thickness.Value = 5.0
+        thickness.Reversed = True
+        self.Doc.recompute()
+        self.assertFalse(thickness.isValid())
+        status = thickness.getStatusString()
+        self.assertIn("Thickness failed: ", status)
+        self.assertNotIn("command not done", status)
+        self.assertNotIn("Failed to make thick solid", status)
+        with self.assertRaisesRegex(FreeCAD.Base.CADKernelError, "Thickness failed: "):
+            shape = box.Shape
+            shape.makeThickness([shape.Face6], -5.0, 1e-3)
+
     def _create_case_5829(self):
         """Create the rotated wedge/box/fillet model from issue case 5829."""
         body = self.Doc.addObject("PartDesign::Body", "Body")

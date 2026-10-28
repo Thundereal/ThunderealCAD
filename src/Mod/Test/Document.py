@@ -14273,9 +14273,14 @@ class TransactionAuditCases(unittest.TestCase):
                     continue   # a member Python's zipfile cannot read: the history
                 item.compress_type = zipfile.ZIP_DEFLATED
                 if item.filename == "Document.xml":
-                    text = re.sub(r'<XLink file="[^"]*"',
-                                  '<XLink file="gone.FCStd" held="%s" heldpath="%s"'
-                                  % (digest, "../" * 12 + evil.lstrip("/")),
+                    # Climb to the root and down to `evil`; without the drive
+                    # and with forward slashes, so it climbs on Windows too.
+                    # The replacement is a function: a Windows path's
+                    # backslashes would be read as escapes.
+                    tail = os.path.splitdrive(evil)[1].replace("\\", "/").lstrip("/")
+                    link = '<XLink file="gone.FCStd" held="%s" heldpath="%s"' % (
+                        digest, "../" * 12 + tail)
+                    text = re.sub(r'<XLink file="[^"]*"', lambda m: link,
                                   data.decode("utf-8"))
                     data = text.encode("utf-8")
                 zout.writestr(item, data)

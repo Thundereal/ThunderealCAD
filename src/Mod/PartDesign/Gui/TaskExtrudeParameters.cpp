@@ -58,6 +58,8 @@ TaskExtrudeParameters::TaskExtrudeParameters(ViewProviderSketchBased *SketchBase
                                          const QString& parname)
     : TaskSketchBasedParameters(SketchBasedView, parent, pixmapname, parname)
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // the form as models, realized by the Qt backend into the proxy
     form.reset(new Gui::Fw::UiForm());
     ui.reset(new Ui_TaskPadPocketParameters());

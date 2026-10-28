@@ -86,6 +86,8 @@ TaskRevolutionParameters::TaskRevolutionParameters(PartDesignGui::ViewProvider* 
       proxy(new QWidget(this)),
       isGroove(isGrooveView(RevolutionView))
 {
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
     // we need a separate container widget to add all controls to
     ui->setupUi(proxy);
 

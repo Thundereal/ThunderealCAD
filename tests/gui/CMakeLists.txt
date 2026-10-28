@@ -425,6 +425,12 @@ fc_add_gui_test(GuiEditPerView_tests_run edit-per-view.py
 fc_add_gui_test(GuiEditTwoDocuments_tests_run edit-two-documents.py
                 --timeout 180)
 
+# Two PartDesign edits in one document, one per view, with PerViewEdit
+# (entry 232): each change a step of its own, Cancel takes back the edit's
+# own steps and asks about a change another view made over them since.
+fc_add_gui_test(GuiPdEditTwoViews_tests_run pd-edit-two-views.py
+                --timeout 240)
+
 # An edit started after the main window is activated again, or with
 # another document's view the active one, is bound to the 3D view: the
 # split-view container (Gui::ViewArea) was handed out as the active view

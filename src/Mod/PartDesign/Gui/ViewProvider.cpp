@@ -104,6 +104,14 @@ App::DocumentObject *ViewProvider::getPickedVisibilityTarget() const
     return nullptr;
 }
 
+bool ViewProvider::editHoldsTransaction(int ModNum) const
+{
+    if (ModNum == ViewProvider::Default && Gui::ViewParams::getPerViewEdit()
+            && panelOwnsItsSteps())
+        return false;
+    return PartGui::ViewProviderPart::editHoldsTransaction(ModNum);
+}
+
 bool ViewProvider::doubleClicked()
 {
     std::string Msg("Edit ");

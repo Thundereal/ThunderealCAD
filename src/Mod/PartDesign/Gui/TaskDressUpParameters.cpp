@@ -164,6 +164,8 @@ TaskDressUpParameters::TaskDressUpParameters(ViewProviderDressUp *DressUpView, b
     , allowEdges(selectEdges)
 {
     selectionMode = none;
+    // Steps of its own with PerViewEdit on (docs/HandsOnQueue.md entry 232)
+    stepsPerView = true;
 
     onTopEnabled = Gui::ViewParams::getShowSelectionOnTop();
     if(!onTopEnabled)
@@ -2021,6 +2023,9 @@ bool TaskDlgDressUpParameters::accept()
 
 bool TaskDlgDressUpParameters::reject()
 {
+    // Its own steps, taken back by the base (docs/HandsOnQueue.md entry 232)
+    if (!holdsTransaction())
+        return TaskDlgFeatureParameters::reject();
     auto editDoc = Gui::Application::Instance->editDocumentOf(vp ? vp->getObject() : nullptr);
     if (editDoc) {
         App::Document* doc = editDoc->getDocument();

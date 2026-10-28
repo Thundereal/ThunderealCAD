@@ -35,6 +35,13 @@ class TaskDlgDressUpParameters;
 class PartDesignGuiExport ViewProviderDressUp : public ViewProviderAddSub
 {
     PROPERTY_HEADER_WITH_OVERRIDE(PartDesignGui::ViewProviderDressUp);
+
+public:
+    /// Its panel owns its steps (docs/HandsOnQueue.md entry 232)
+    bool panelOwnsItsSteps() const override
+    {
+        return true;
+    }
     using inherited = ViewProviderAddSub;
 
 public:

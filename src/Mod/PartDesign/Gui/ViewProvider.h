@@ -56,6 +56,18 @@ public:
     ~ViewProvider() override;
 
     bool doubleClicked() override;
+    /** An edit whose panel makes each change a step of its own and takes
+     * back its own steps on Cancel (panelOwnsItsSteps) holds no transaction
+     * with PerViewEdit on, and may run beside another view's edit of the
+     * document (docs/HandsOnQueue.md entry 232).
+     */
+    bool editHoldsTransaction(int ModNum) const override;
+    /// Whether this feature's panel owns its steps with PerViewEdit on
+    /// (TaskFeatureParameters::ownsItsSteps)
+    virtual bool panelOwnsItsSteps() const
+    {
+        return false;
+    }
     App::DocumentObject *getPickedVisibilityTarget() const override;
     void updateData(const App::Property*) override;
     void onChanged(const App::Property* prop) override;

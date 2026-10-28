@@ -40,7 +40,11 @@
 #include <Gui/MainWindow.h>
 #include <Gui/OnViewValue.h>
 #include <Gui/BitmapFactory.h>
+#include <Gui/MDIView.h>
 #include <Gui/PrefWidgets.h>
+#include <Gui/TaskOwner.h>
+#include <Gui/ViewerContext.h>
+#include <Gui/ViewParams.h>
 #include <Gui/WaitCursor.h>
 #include <Mod/Part/Gui/PartParams.h>
 #include <Mod/PartDesign/App/FeatureAddSub.h>
@@ -56,6 +60,58 @@ using namespace Gui;
  *                      Task Feature Parameters                      *
  *********************************************************************/
 
+namespace {
+
+/** Opens a step for every user event that reaches a panel, before the
+ * panel's widgets see it (TaskFeatureParameters::openStepForEvent): no
+ * change the event makes then lands outside the panel's own steps
+ * (docs/HandsOnQueue.md entry 232). On the application, so that a popup
+ * of the panel's -- a combo box's list -- is seen as the panel's too.
+ */
+class StepOpener : public QObject
+{
+public:
+    explicit StepOpener(TaskFeatureParameters *panel)
+        : QObject(panel), panel(panel)
+    {
+        qApp->installEventFilter(this);
+    }
+
+    bool eventFilter(QObject *watched, QEvent *event) override
+    {
+        switch (event->type()) {
+        case QEvent::MouseButtonPress:
+        case QEvent::MouseButtonDblClick:
+        case QEvent::KeyPress:
+        case QEvent::Wheel:
+            if (panel->ownsItsSteps() && (inside(watched, panel) || inside(watched, panel->editView())))
+                panel->openStepForEvent();
+            break;
+        default:
+            break;
+        }
+        return false;
+    }
+
+private:
+    /// The parent chain, across windows: a popup is its widget's. The edit's
+    /// own 3D view counts too -- a pick there may change the feature.
+    static bool inside(QObject *obj, QObject *ancestor)
+    {
+        if (!ancestor)
+            return false;
+        for (; obj; obj = obj->parent()) {
+            if (obj == ancestor)
+                return true;
+        }
+        return false;
+    }
+
+    TaskFeatureParameters *panel;
+};
+
+} // namespace
+
 TaskFeatureParameters::TaskFeatureParameters(PartDesignGui::ViewProvider *vp, QWidget *parent,
                                                      const std::string& pixmapname, const QString& parname)
     : TaskBox(Gui::BitmapFactory().pixmap(pixmapname.c_str()),parname,true, parent),
@@ -63,7 +119,9 @@ TaskFeatureParameters::TaskFeatureParameters(PartDesignGui::ViewProvider *vp, QW
 {
     Gui::Document* doc = vp->getDocument();
     this->attachDocument(doc);
-    App::GetApplication().getActiveTransaction(&transactionID);
+    App::GetApplication().getActiveTransaction(&transactionID, doc->getDocument());
+    perViewAtOpen = Gui::ViewParams::getPerViewEdit();
+    new StepOpener(this);
 }
 
 TaskFeatureParameters::TaskFeatureParameters(PartDesignGui::ViewProvider *vp, QWidget *parent,
@@ -73,7 +131,9 @@ TaskFeatureParameters::TaskFeatureParameters(PartDesignGui::ViewProvider *vp, QW
 {
     Gui::Document* doc = vp->getDocument();
     this->attachDocument(doc);
-    App::GetApplication().getActiveTransaction(&transactionID);
+    App::GetApplication().getActiveTransaction(&transactionID, doc->getDocument());
+    perViewAtOpen = Gui::ViewParams::getPerViewEdit();
+    new StepOpener(this);
 }
 
 TaskFeatureParameters::~TaskFeatureParameters()
@@ -431,28 +491,51 @@ void TaskFeatureParameters::setupTransaction(const QString& what)
     if (!obj)
         return;
 
+    // This document's: an edit's transaction is its document's own while
+    // it runs, and a panel's event may come before its view is the active
+    // one (docs/HandsOnQueue.md entry 232)
+    App::Document *doc = obj->getDocument();
     int tid = 0;
-    const char *name = App::GetApplication().getActiveTransaction(&tid);
+    const char *name = App::GetApplication().getActiveTransaction(&tid, doc);
 
     std::string n("Edit ");
     n += obj->getNameInDocument();
 
-    if (fineUndo) {
+    if (stepwise()) {
         // A step of its own for what this event changes (entry 136), unless
         // one is open already -- this event's, or a held one's. Named for
         // what it does, where the caller says (entry 228).
+        std::string step = n;
+        if (!what.isEmpty()) {
+            step = obj->Label.getValue();
+            step += ": ";
+            step += what.toUtf8().constData();
+        }
         if (!tid || tid != stepTid) {
-            std::string step = n;
-            if (!what.isEmpty()) {
-                step = obj->Label.getValue();
-                step += ": ";
-                step += what.toUtf8().constData();
-            }
-            stepTid = App::GetApplication().setActiveTransaction(step.c_str());
+            stepTid = App::GetApplication().setActiveTransaction(step.c_str(), false, doc);
+            stepGeneric = false;
             if (!transactionID)
                 transactionID = stepTid;
             if (!firstStepTid)
                 firstStepTid = stepTid;
+            if (ownsItsSteps() && stepTid)
+                ownStepTids.push_back(stepTid);
+        }
+        else if (stepGeneric && !what.isEmpty()) {
+            // Opened for the event before the panel said what it changes.
+            // Nothing in it yet, the document has not opened it, and opens
+            // it with the active name: that is named instead
+            if (doc->hasPendingTransaction())
+                doc->renameTransaction(step.c_str(), stepTid);
+            else if (int named = App::GetApplication().setActiveTransaction(step.c_str(), false, doc)) {
+                std::replace(ownStepTids.begin(), ownStepTids.end(), stepTid, named);
+                if (transactionID == stepTid)
+                    transactionID = named;
+                if (firstStepTid == stepTid)
+                    firstStepTid = named;
+                stepTid = named;
+            }
+            stepGeneric = false;
         }
         if (!heldSteps && !stepCloseQueued) {
             stepCloseQueued = true;
@@ -468,10 +551,54 @@ void TaskFeatureParameters::setupTransaction(const QString& what)
         return;
 
     if(!name || n!=name)
-        tid = App::GetApplication().setActiveTransaction(n.c_str());
+        tid = App::GetApplication().setActiveTransaction(n.c_str(), false, doc);
 
     if(!transactionID)
         transactionID = tid;
+}
+
+std::vector<int> TaskFeatureParameters::ownSteps() const
+{
+    std::vector<int> steps = ownStepTids;
+    // The edit's first: the command that started it -- a new feature made
+    // in it -- is this edit's to take back too
+    if (transactionID)
+        steps.push_back(transactionID);
+    return steps;
+}
+
+void TaskFeatureParameters::closeOwnStep()
+{
+    heldSteps = 0;
+    if (updateViewTimer)
+        updateViewTimer->stop();
+    if (stepTid)
+        App::GetApplication().closeActiveTransaction(false, stepTid);
+    stepTid = 0;
+    stepGeneric = false;
+}
+
+Gui::MDIView *TaskFeatureParameters::editView() const
+{
+    if (!vp)
+        return nullptr;
+    auto editVp = vp;
+    auto doc = Gui::Application::Instance->editDocument(
+        [editVp](Gui::Document *gdoc) { return gdoc->isEditViewProvider(editVp); });
+    Gui::ViewerContext *viewer = doc ? doc->editingViewerOf(vp) : nullptr;
+    return viewer ? Gui::TaskOwner(viewer).mdiView() : nullptr;
+}
+
+void TaskFeatureParameters::openStepForEvent()
+{
+    if (!ownsItsSteps() || !vp || !vp->getObject())
+        return;
+    int tid = 0;
+    App::GetApplication().getActiveTransaction(&tid, vp->getObject()->getDocument());
+    if (tid && tid == stepTid)
+        return;
+    setupTransaction();
+    stepGeneric = true;
 }
 
 void TaskFeatureParameters::closeStep()
@@ -491,7 +618,7 @@ void TaskFeatureParameters::closeStep()
         return;
     }
     int tid = 0;
-    App::GetApplication().getActiveTransaction(&tid);
+    App::GetApplication().getActiveTransaction(&tid, vp && vp->getObject() ? vp->getObject()->getDocument() : nullptr);
     if (tid && tid == stepTid)
         App::GetApplication().closeActiveTransaction(false, tid);
     stepTid = 0;
@@ -499,7 +626,7 @@ void TaskFeatureParameters::closeStep()
 
 void TaskFeatureParameters::beginHeldStep()
 {
-    if (!fineUndo)
+    if (!stepwise())
         return;
     if (heldSteps++ == 0)
         heldStepBegun();
@@ -507,7 +634,7 @@ void TaskFeatureParameters::beginHeldStep()
 
 void TaskFeatureParameters::endHeldStep(bool abort)
 {
-    if (!fineUndo || heldSteps <= 0)
+    if (!stepwise() || heldSteps <= 0)
         return;
     if (--heldSteps)
         return;
@@ -519,7 +646,7 @@ void TaskFeatureParameters::endHeldStep(bool abort)
         if (updateViewTimer)
             updateViewTimer->stop();
         int tid = 0;
-        App::GetApplication().getActiveTransaction(&tid);
+        App::GetApplication().getActiveTransaction(&tid, vp && vp->getObject() ? vp->getObject()->getDocument() : nullptr);
         if (tid && tid == stepTid)
             App::GetApplication().closeActiveTransaction(true, tid);
         stepTid = 0;
@@ -548,7 +675,7 @@ bool TaskFeatureParameters::eventFilter(QObject* watched, QEvent* event)
                                        return box.data() == watched;
                                    })
         != focusHeldBoxes.end();
-    if (fineUndo && held) {
+    if (stepwise() && held) {
         auto box = static_cast<QWidget*>(watched);
         if (event->type() == QEvent::KeyPress) {
             const int key = static_cast<QKeyEvent*>(event)->key();
@@ -578,7 +705,7 @@ bool TaskFeatureParameters::eventFilter(QObject* watched, QEvent* event)
 
 void TaskFeatureParameters::beginAcceptStep()
 {
-    if (!fineUndo || !vp || !vp->getObject() || acceptStepOpen)
+    if (!stepwise() || !vp || !vp->getObject() || acceptStepOpen)
         return;
     acceptStepOpen = true;
     // Whatever is held is done; OK's recompute is a step of its own (the
@@ -588,16 +715,19 @@ void TaskFeatureParameters::beginAcceptStep()
     if (updateViewTimer)
         updateViewTimer->stop();
     int tid = 0;
-    App::GetApplication().getActiveTransaction(&tid);
+    App::GetApplication().getActiveTransaction(&tid, vp && vp->getObject() ? vp->getObject()->getDocument() : nullptr);
     if (tid && tid == stepTid)
         App::GetApplication().closeActiveTransaction(false, tid);
     // what it is, as each step says (entry 228)
     std::string n = vp->getObject()->Label.getValue();
     n += ": ";
     n += tr("OK, recompute").toUtf8().constData();
-    stepTid = App::GetApplication().setActiveTransaction(n.c_str());
+    stepTid = App::GetApplication().setActiveTransaction(n.c_str(), false,
+                                                         vp->getObject()->getDocument());
     if (!transactionID)
         transactionID = stepTid;
+    if (ownsItsSteps() && stepTid)
+        ownStepTids.push_back(stepTid);
 }
 
 void TaskFeatureParameters::addOperationCombo(QBoxLayout *layout)
@@ -667,7 +797,7 @@ bool TaskDlgFeatureParameters::accept() {
             THROWM(Base::TypeError, "Bad object processed in the feature dialog.")
         }
 
-        Gui::cmdGuiDocument(feature, "resetEdit()");
+        resetOwnEdit();
 
         // The panel's own recompute leaves the feature touched, so the
         // document's would make it all over again (upstream c1c9cb63e0) -- a
@@ -722,10 +852,69 @@ bool TaskDlgFeatureParameters::reject()
             param->exitSelectionMode();
     }
 
+    if (rejectOwnSteps())
+        return true;
+
     // roll back the done things which may delete the feature
     Gui::Command::abortCommand();
     Gui::Command::doCommand(Gui::Command::Gui,"Gui.activeDocument().resetEdit()");
     return true;
+}
+
+bool TaskDlgFeatureParameters::holdsTransaction() const
+{
+    bool own = false;
+    for (QWidget *wgt : Content) {
+        if (auto param = qobject_cast<TaskFeatureParameters*>(wgt)) {
+            if (!param->ownsItsSteps())
+                return true;
+            own = true;
+        }
+    }
+    return !own;
+}
+
+bool TaskDlgFeatureParameters::rejectOwnSteps()
+{
+    if (holdsTransaction())
+        return false;
+    // Every step of its own, and those only: another view's edit of the
+    // document may have made steps between them (docs/HandsOnQueue.md
+    // entry 232). A new feature goes with the edit's first.
+    std::vector<int> steps;
+    for (QWidget *wgt : Content) {
+        if (auto param = qobject_cast<TaskFeatureParameters*>(wgt)) {
+            param->closeOwnStep();
+            for (int tid : param->ownSteps())
+                steps.push_back(tid);
+        }
+    }
+    Gui::Document *gdoc = vp ? vp->getDocument() : nullptr;
+    // Ended first, so the edit's preview is gone before what it showed is
+    // taken back -- the feature itself, when the edit made it
+    resetOwnEdit();
+    if (gdoc)
+        gdoc->undoOwnSteps(steps);
+    return true;
+}
+
+void TaskDlgFeatureParameters::resetOwnEdit()
+{
+    App::DocumentObject *feature = vp ? vp->getObject() : nullptr;
+    if (!feature) {
+        Gui::Command::doCommand(Gui::Command::Gui, "Gui.activeDocument().resetEdit()");
+        return;
+    }
+    // In the view this edit runs in, whichever is active: another view of
+    // the document may have an edit of its own (docs/HandsOnQueue.md
+    // entry 232)
+    Gui::ViewerContext *viewer = nullptr;
+    auto editVp = vp;
+    if (auto editDoc = Gui::Application::Instance->editDocument(
+            [editVp](Gui::Document *doc) { return doc->isEditViewProvider(editVp); }))
+        viewer = editDoc->editingViewerOf(vp);
+    Gui::ViewerScope scope(viewer);
+    Gui::cmdGuiDocument(feature, "resetEdit()");
 }
 
 #include "moc_TaskFeatureParameters.cpp"

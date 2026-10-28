@@ -178,6 +178,11 @@ groups, PartDesign's tag colours, the shape auto colour if it fits; to
 fcad-dc with 209 (c). 209 (a)/(b) not found by reading; three questions
 to the reporter.** Under the entries.
 
+**2026-10-28 12:14: entry 235 -- an origin plane's pre-selection glitches (grows,
+no colour, drops off the edge, shrinks); wanted whole-face pick once
+highlighted, normal highlight, no size change; ASSIGNED to dwin after
+234.** Under the entries.
+
 **2026-10-28 12:03: entry 234 -- the spin centre ball shaded, not flat (unlit on
 purpose since 201889b931); ASSIGNED to dwin after 233.** Under the
 entries.
@@ -4451,6 +4456,7 @@ planned"; before that, "Push" on 2026-10-08 (`4d08eacde1`: entries 41, 42,
 | 232 | 2026-10-28 | a change request: with PerViewEdit on, SEVERAL objects of ONE document in edit at once, each in its own view | OPEN; said to the note-taker 2026-10-28 11:26; the reporter asked for a PLAN FIRST; plan given by the note-taker (section 232), the reporter's decisions awaited; NOT assigned. 2026-10-28 11:35 DECIDED by the reporter: transactions B, an edit may depend on another view's edit, PD features and dress-ups first, then the Sketcher, then TechDraw; ASSIGNED to x16 on the reporter's word ("Let x16 do this. I have already briefed there"). 2026-10-28 11:39 x16 (relayed): section received; base main e09f46bdd2 contains thundereal/LinkVibe ef7af542e0 (which contains f012b2550f, read by the note-taker); the reporter asked x16 for its plan before it builds; x16's finding on decision 1: ActorScope cannot tell two desktop sessions apart (sameUser, sec 30.10 item 1), proposes Cancel reverts the session's own step ids (undoLogged(seqs), sec 33.13), put to the reporter |
 | 233 | 2026-10-28 | defects and a request on the overlay auto scroll bars (224, 225): (a) they do not show when the pointer comes near, only after a wheel scroll; (b) test overlays with a transparent background, the hover reveal checked BEFORE the pass-through; (c) the bars of views (TechDraw page, spreadsheet) placed aware of overlay widgets, sliding out of the way like the cell's menu button and handles | OPEN; said to the note-taker 2026-10-28 11:44; READ by the note-taker: the hover reveal is OverlayScrollBars::eventFilter on the area's VIEWPORT's MouseMove within 3 x Thickness of a bar (OverlayScrollBars.cpp 306-317), and Enter/press on a bar that is hidden; in a transparent overlay panel the pointer's events go through to the view under it, so the panel's viewport may never see them (not verified); place() (172) moves the bars only for a cover touching a side edge; the cell's slide is ViewAreaCell's (ViewArea.cpp 899-951, entry 83); ASSIGNED to dwin (fcad-88) |
 | 234 | 2026-10-28 | a change request: the view's spin centre ball (the rotation-center indicator) drawn SHADED; today it looks flat | OPEN; said to the note-taker 2026-10-28 12:03; READ by the note-taker: flat on purpose since `201889b931` (2026-07-21, "keep render-cache effects off the rotation-center sphere"): View3DInventorViewer::showRotationCenter (View3DInventorViewer.cpp 3787) gives the SoSphere an SoLightModel BASE_COLOR and the colour as diffuse AND emissive (3834-3854), so nothing lights it; NO_SHADOWING and the SoAnnotation keep the effects off; ASSIGNED to dwin (fcad-88) |
+| 235 | 2026-10-28 | a defect and change request: an origin plane's (pre)selection glitches -- hovering its edge pre-selects it and it grows to full size but shows no highlight colour, and moving off the edge drops the pre-selection at once and it shrinks back to a quarter; wanted: once highlighted, the WHOLE face picks with high priority, the highlight like other objects' (outline/colour settings), and NO size change on pre-selection or selection | OPEN; said to the note-taker 2026-10-28 12:14; READ by the note-taker: the size change is ViewProviderPlane::updateDatumSize/onSelectionChanged (ViewProviderPlane.cpp 115-178): with DatumScreenSize on and a role (an origin plane), a quarter (offset 8 to size) unless isSelected or isHovered, then full -- from `7e1824d01d` (2026-09-28, upstream b942275957); the face is in an SoFCLatePickGroup (79), picked only when nothing else is, with its own SoMaterial transparency 0.95; the highlight node is an SoFCSelection (ViewProviderDatum.cpp 110); ASSIGNED to dwin (fcad-88) after 234 |
 
 ## 1. Idle progress bar in the status bar -- STAGED
 
@@ -30918,6 +30924,48 @@ NOT said: how strong the shading; whether on both the Coin and the
 bgfx paths (the render-cache backend is what 201889b931 was for).
 ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 233.
 
+## 235. An origin plane's pre-selection glitches: size, colour, pick (a defect and change request) -- OPEN
+
+**2026-10-28 12:14, the reporter (to the note-taker):** "new defects, origin feature
+highlight is glitching. the logic as I remember is the origin plane edge
+got high picking prioirty, so mouse over the edge will (pre)select the
+plane. the plane then shows in full, but no highlight color. and also
+when the mouse move off the edge, it immediate remove the pre-selection,
+i.e. the plane goes back to quater size. this makes the pre-selection
+looked glitching. I want the plane to have whole face high picking
+priority once it is already highlighted, and I want highlight like
+other object, following the outline/color setting, and do not change
+the plane size when (pre)selected. same for selection behavior."
+The note-taker's reading:
+- Today: the plane's EDGE picks first; hovering it pre-selects the
+  plane, which grows from a quarter to full size, with no highlight
+  colour; moving off the edge (onto the face it just grew) drops the
+  pre-selection at once, and it shrinks back -- the flicker.
+- Wanted: (1) once the plane is highlighted, its whole face picks with
+  high priority, so the pointer can move across it without losing the
+  pre-selection; (2) its pre-selection and selection highlight like any
+  other object's, following the outline/colour preferences; (3) its
+  size does not change when pre-selected or selected; (4) the same for
+  selection as for pre-selection.
+READ by the note-taker:
+- The size change: ViewProviderPlane::updateDatumSize (ViewProviderPlane
+  .cpp 115-153) -- with DatumScreenSize on and a role (an origin plane),
+  a quarter (from offset 8 to size) unless isSelected or isHovered, then
+  the full square; onSelectionChanged (155-178) sets those from the
+  selection and the pre-selection. From `7e1824d01d` (2026-09-28, "Gui:
+  origins, coordinate systems and datums at a constant size on screen,
+  as upstream", upstream b942275957).
+- The face is in an SoFCLatePickGroup (79) -- picked only when nothing
+  else is under the pointer -- with its own SoMaterial, transparency
+  0.95 (82-89); the edges are an SoIndexedLineSet in the datum root; an
+  SoPickStyle BOUNDING_BOX follows (105-107).
+- The highlight node is an SoFCSelection (ViewProviderDatum.cpp 110).
+NOT said: which size it keeps -- the quarter it shows at rest (the
+note-taker's reading of "do not change the plane size"), or always the
+full square; whether the same goes for the origin's axes and point, and
+for datum planes outside an origin (no role, they do not resize today).
+ASSIGNED to dwin (fcad-88) (the note-taker coordinating), after 234.
+
 ## Inbox
 
 Notes not sorted into an entry yet. Add a line here at any time, in any words;
@@ -30929,5 +30977,5 @@ entries 46 to 66; entry 67 is of 2026-10-11, found by the build session;
 entries 68 to 81 are of 2026-10-12, 77 said to the build session, 79
 and 81 found by it; entries 82 to 113 are of 2026-10-13, 82 found by
 it; entries 114 to 133 are of 2026-10-14, 116, 119 and 133 said to
-the build session, 131 and 132 found by it; entries 134 to 234
+the build session, 131 and 132 found by it; entries 134 to 235
 are of 2026-10-15, 134 said to the build session)

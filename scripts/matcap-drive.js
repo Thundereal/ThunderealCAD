@@ -136,27 +136,33 @@ async function count(page, label) {
     page.setDefaultTimeout(60000);
     await page.setViewport({width: 1100, height: 900});
     page.on('pageerror', e => console.log('  PAGEERROR: ' + (e.stack || e.message)));
-    // the viewer's own account of its streaming, for a scene slow to come in;
-    // the most draws a scene update has had
+    // the viewer's own account of its streaming (?stream), for a scene slow
+    // to come in: each assembly says its draws and how many of them are
+    // still boxes. A commit's "scene update" line is not enough: the
+    // arrivals after a commit complete the scene without another one.
     out.draws = 0;
+    out.whole = 0;
     page.on('console', m => {
       const t = m.text();
-      const d = /scene update v\d+, (\d+) draws/.exec(t);
-      if (d)
+      const d = /scene at (\d+) draws, (\d+) of them coarse/.exec(t);
+      if (d) {
         out.draws = Math.max(out.draws, parseInt(d[1], 10));
-      if (/rung|ladder|scene|stream|resident|box|level|fetch/i.test(t))
+        if (parseInt(d[2], 10) === 0)
+          out.whole = Math.max(out.whole, parseInt(d[1], 10));
+      }
+      if (/scene update|scene at|box|never arrived|grace/i.test(t))
         console.log('  page: ' + (Date.now() % 1000000) + ' ' + t.slice(0, 200));
     });
     await page.goto(url, {waitUntil: 'domcontentloaded', timeout: 60000});
     await page.evaluate(HELPERS);
-    // the whole scene: the sphere streams in after its bounding box, in a
-    // later update with all the draws (6: each object's faces, edges and
-    // vertices); a scene that never gets there is said, apart from the
+    // the whole scene: each object streams in after its bounding box, all
+    // the draws (6: each object's faces, edges and vertices) and none of
+    // them a box; a scene that never gets there is said, apart from the
     // analyses
     const t0 = Date.now();
-    while (out.draws < 6 && Date.now() - t0 < settleMs)
+    while (out.whole < 6 && Date.now() - t0 < settleMs)
       await sleep(250);
-    out.fullScene = out.draws >= 6;
+    out.fullScene = out.whole >= 6;
     out.fullSceneMs = Date.now() - t0;
     await sleep(2000);
     // what the served view has, before the page sets anything

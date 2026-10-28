@@ -16,8 +16,9 @@ colour (scripts/matcap-drive.js):
              upright sides yellow;
   zebra      dark and light stripes, a row turning between them often.
 
-The whole scene is waited for first, the sphere's mesh after its box, and
-its never coming is a failure of its own (docs/Testing.md).
+The whole scene is waited for first -- six draws, none of them a bounding
+box, read off the viewer's own streaming account (?stream) -- and its
+never coming is a failure of its own (docs/Testing.md).
 
 Needs the built viewer (build/wasm/fcviewer.html), node, a puppeteer-core
 install named by PUPPETEER_PATH, and a Chrome named by CHROME (CHROME_LIBS
@@ -180,7 +181,7 @@ def build():
         note("viewer on %d, scene on %d" % (http_port, port))
         FreeCADGui.serveSetGrants(wsclient.invitation(TOKEN, CLIENT))
         url = ("http://127.0.0.1:%d/fcviewer.html?scene=http://127.0.0.1:%d"
-               "&token=%s&client=%s" % (http_port, port, TOKEN, CLIENT))
+               "&token=%s&client=%s&stream" % (http_port, port, TOKEN, CLIENT))
         state["run"] = Run(url)
         state["t0"] = clock()
         state["run"].start()
@@ -225,9 +226,10 @@ def verify():
             st,
         )
         if not check(
-            "the whole scene arrives (the sphere's mesh after its box)",
+            "the whole scene arrives (each object's mesh after its box)",
             out.get("fullScene") is True,
-            "%s draws at most, %s ms" % (out.get("draws"), out.get("fullSceneMs")),
+            "%s draws at most, %s with no box, %s ms"
+            % (out.get("draws"), out.get("whole"), out.get("fullSceneMs")),
         ):
             note("the analyses below are read off an incomplete scene")
         replies = out.get("replies", {})

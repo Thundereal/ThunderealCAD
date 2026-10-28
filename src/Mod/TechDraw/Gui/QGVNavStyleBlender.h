@@ -48,7 +48,9 @@ public:
 
 protected:
 private:
-
+    /// Panned with LMB + RMB since the gesture's first button went down:
+    /// no context menu at its end, whichever button is let go of last
+    bool panned = false;
 };
 
 }

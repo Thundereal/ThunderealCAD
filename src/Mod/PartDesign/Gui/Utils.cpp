@@ -825,7 +825,7 @@ public:
     {
         // The document whose edit this is: another may be in edit too
         auto doc = Gui::Application::Instance->editDocument(
-            [&vp](Gui::Document *editDoc) { return editDoc->getEditViewProvider() == &vp; });
+            [&vp](Gui::Document *editDoc) { return editDoc->isEditViewProvider(&vp); });
         if (!doc)
             return;
         auto view = Base::freecad_dynamic_cast<Gui::View3DInventor>(doc->getEditingView());

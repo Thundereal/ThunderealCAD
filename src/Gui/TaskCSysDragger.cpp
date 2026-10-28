@@ -114,7 +114,7 @@ TaskCSysDragger::TaskCSysDragger(Gui::ViewProviderDocumentObject* vpObjectIn, Gu
                         QMessageBox::Yes | QMessageBox::No);
         if (res == QMessageBox::No)
           if (auto gdoc = editingDocument())
-            Application::Instance->unsetEditDocument(gdoc);
+            gdoc->resetEditOf(Application::Instance->getViewProvider(vpObject.getObject()));
         break;
       }
     }
@@ -262,7 +262,7 @@ Gui::Document *TaskCSysDragger::editingDocument() const
     if (!vp)
         return nullptr;
     return Application::Instance->editDocument(
-        [vp](Gui::Document *gdoc) { return gdoc->getEditViewProvider() == vp; });
+        [vp](Gui::Document *gdoc) { return gdoc->isEditViewProvider(vp); });
 }
 
 void TaskCSysDragger::onTIncrementSlot(double freshValue)

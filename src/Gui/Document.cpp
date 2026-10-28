@@ -128,6 +128,37 @@ struct CameraInfo {
     {}
 };
 
+/** One object in edit (docs/HandsOnQueue.md entry 232).
+ *
+ * Started in one view, its viewer. With PerViewEdit off it is the
+ * document's only session and every other view joins it; with it on it is
+ * that view's alone, and other views of the document may each have one of
+ * their own beside it.
+ */
+struct EditSession
+{
+    int mode = 0;
+    ViewProvider* viewProvider = nullptr;
+    ViewProviderDocumentObject* parent = nullptr;
+    App::DocumentObject* object = nullptr;
+    std::string subname;
+    std::string subElement;
+    Base::Matrix4D transform;
+    ViewerContext* viewer = nullptr;
+    /// The session root (Document::editingRoot); rootNode is its node
+    /// while the session runs.
+    std::unique_ptr<EditingRoot> root;
+    CoinPtr<SoNode> rootNode;
+    /// The view that took a selection instance of its own for the edit
+    QPointer<MDIView> selectionView;
+    std::set<const App::DocumentObject*> objs;
+    bool wantsRestore = false;
+    /// Being ended (Document::_resetEditSession): what its edit mode does
+    /// on the way out -- deleting the edited object -- does not end it
+    /// again
+    bool ending = false;
+};
+
 // Pimpl class
 struct DocumentP
 {
@@ -143,27 +174,81 @@ struct DocumentP
     bool       _isTransacting;
     bool       _hasExpansion;
     bool       _changeViewTouchDocument;
-    int                         _editMode;
+    /// The objects in edit, in the order they were started
+    std::vector<std::unique_ptr<EditSession>> _editSessions;
+    /// The one setEdit() is starting, from when it is made to setEdit()'s
+    /// return: whatever the edit mode asks while it starts is about it
+    EditSession*                _editStarting = nullptr;
+    /// The root a caller gets with no session to ask about
+    std::unique_ptr<EditingRoot> _idleEditRoot;
+    /// The last session's, to re-enter it (Document::setEditRestore)
     int                         _editModePrevious = 0;
-    CoinPtr<SoNode>             _editRootNode;
-    /// The session root (Document::editingRoot); _editRootNode is its
-    /// node while a session runs.
-    std::unique_ptr<EditingRoot> _editRoot;
-    ViewProvider*               _editViewProvider;
     ViewProvider*               _editViewProviderPrevious = nullptr;
-    bool                        _editWantsRestore = false;
     bool                        _editWantsRestorePrevious = false;
-    App::DocumentObject*        _editingObject;
-    ViewProviderDocumentObject* _editViewProviderParent;
-    std::string                 _editSubname;
-    std::string                 _editSubElement;
-    Base::Matrix4D              _editingTransform;
-    ViewerContext*              _editingViewer;
-    /// The view that took a selection instance of its own for the edit
-    QPointer<MDIView>           _editSelectionView;
-    std::set<const App::DocumentObject*> _editObjs;
-    /// setEdit() is in the edit view provider's startEditing()
-    bool                        _editStarting = false;
+
+    /** The session a call acts on.
+     *
+     * The one being started; else the one of the view being handled
+     * (ViewerContext::current(), a view that joined a shared session
+     * included) -- and none for a served client's view that is in none;
+     * else the active 3D view's; else, with no 3D view to ask (a served
+     * document, a page or a sheet the active view), the latest.
+     */
+    EditSession* currentSession(const Document *doc) const
+    {
+        if (_editStarting)
+            return _editStarting;
+        if (_editSessions.empty())
+            return nullptr;
+        if (ViewerContext *current = ViewerContext::current()) {
+            if (EditSession *s = sessionOf(current))
+                return s;
+            if (current->cameraIsRemote())
+                return nullptr;
+        }
+        if (auto view3d = dynamic_cast<View3DInventor *>(doc->getActiveView()))
+            return sessionOf(view3d->getViewer());
+        return _editSessions.back().get();
+    }
+
+    /// The session a call that describes "the" edit means: the current
+    /// one, else the latest -- as there was one edit before
+    EditSession* describedSession(const Document *doc) const
+    {
+        if (EditSession *s = currentSession(doc))
+            return s;
+        return _editSessions.empty() ? nullptr : _editSessions.back().get();
+    }
+
+    /// The session \a viewer started or joined, null for none
+    EditSession* sessionOf(const ViewerContext *viewer) const
+    {
+        if (!viewer)
+            return nullptr;
+        for (auto &s : _editSessions) {
+            if (s->viewer == viewer)
+                return s.get();
+        }
+        // A joiner of a shared session: the session's view provider, and
+        // a session's root is its own
+        if (ViewProvider *vp = viewer->getEditingViewProvider()) {
+            for (auto &s : _editSessions) {
+                if (s->viewProvider == vp && s->root.get() == viewer->editingRoot())
+                    return s.get();
+            }
+        }
+        return nullptr;
+    }
+
+    /// The session editing \a obj, null for none
+    EditSession* sessionEditing(const App::DocumentObject *obj) const
+    {
+        for (auto &s : _editSessions) {
+            if (s->object == obj)
+                return s.get();
+        }
+        return nullptr;
+    }
 
     std::vector<CameraInfo>     _savedViews;
     std::map<int, std::string>  _view3DContents;
@@ -435,12 +520,6 @@ Document::Document(App::Document* pcDocument,Application * app)
     d->_pcAppWnd = app;
     d->_pcDocument = pcDocument;
     d->thumb.setUpdateOnSave(pcDocument->SaveThumbnail.getValue());
-    d->_editViewProvider = nullptr;
-    d->_editRootNode = nullptr;
-    d->_editingObject = nullptr;
-    d->_editViewProviderParent = nullptr;
-    d->_editingViewer = nullptr;
-    d->_editMode = 0;
 
     //NOLINTBEGIN
     // Setup the connections
@@ -650,17 +729,42 @@ Document::~Document()
 // 3D viewer handling
 //*****************************************************************************************************
 
-struct EditDocumentGuard {
-    explicit EditDocumentGuard(Document *doc):doc(doc) {}
+namespace {
 
-    ~EditDocumentGuard() {
-        if(active)
+/** The session setEdit() starts, for as long as it is starting: dropped
+ * again when setEdit() fails -- that one alone, another view's session
+ * runs on -- and the document out of edit when it was the only one.
+ */
+struct EditStartGuard {
+    EditStartGuard(Document *doc, DocumentP *d, EditSession *s) : doc(doc), d(d), s(s)
+    {
+        d->_editStarting = s;
+    }
+
+    ~EditStartGuard()
+    {
+        if (d->_editStarting == s)
+            d->_editStarting = nullptr;
+        if (!active)
+            return;
+        auto it = std::find_if(d->_editSessions.begin(), d->_editSessions.end(),
+                [this](const std::unique_ptr<EditSession> &e) { return e.get() == s; });
+        if (it != d->_editSessions.end()) {
+            if (s->root)
+                s->root->endSession();
+            d->_editSessions.erase(it);
+        }
+        if (d->_editSessions.empty())
             Application::Instance->unsetEditDocument(doc);
     }
 
     Document *doc;
+    DocumentP *d;
+    EditSession *s;
     bool active = true;
 };
+
+} // namespace
 
 namespace {
 
@@ -721,10 +825,12 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
 
     // Fix regression: https://forum.freecad.org/viewtopic.php?f=19&t=43629&p=371972#p371972
     // When an object is already in edit mode a subsequent call for editing is only possible
-    // when resetting the currently edited object.
-    if (d->_editViewProvider) {
+    // when resetting the currently edited object. With PerViewEdit on it is
+    // the edits this one cannot run beside that end, once the view it is
+    // started in is known (below).
+    const bool perView = ViewParams::getPerViewEdit();
+    if (!perView && !d->_editSessions.empty())
         _resetEdit();
-    }
 
     auto obj = vp->getObject();
     if(!obj->isAttachedToDocument()) {
@@ -817,7 +923,7 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         return false;
     }
 
-    d->_editingTransform = Base::Matrix4D();
+    Base::Matrix4D editTransform;
     // Geo feature group now handles subname like link group. So no need of the
     // following code.
     //
@@ -825,22 +931,22 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     //     auto group = App::GeoFeatureGroupExtension::getGroupOfObject(obj);
     //     if(group) {
     //         auto ext = group->getExtensionByType<App::GeoFeatureGroupExtension>();
-    //         d->_editingTransform = ext->globalGroupPlacement().toMatrix();
+    //         editTransform = ext->globalGroupPlacement().toMatrix();
     //     }
     // }
-    d->_editSubElement.clear();
-    d->_editSubname.clear();
+    std::string editSubname;
+    std::string editSubElement;
     if (subname) {
         const char *element = Data::findElementName(subname);
         if (element) {
-            d->_editSubname = std::string(subname,element-subname);
-            d->_editSubElement = element;
+            editSubname = std::string(subname,element-subname);
+            editSubElement = element;
         }
         else {
-            d->_editSubname = subname;
+            editSubname = subname;
         }
     }
-    auto sobj = obj->getSubObject(d->_editSubname.c_str(),nullptr,&d->_editingTransform);
+    auto sobj = obj->getSubObject(editSubname.c_str(),nullptr,&editTransform);
     if(!sobj || !sobj->isAttachedToDocument()) {
         FC_ERR("Invalid sub object '" << obj->getFullName()
                 << '.' << (subname?subname:"") << "'");
@@ -853,30 +959,6 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         if(!svp) {
             FC_ERR("Cannot edit '" << sobj->getFullName() << "' without view provider");
             return false;
-        }
-    }
-
-    // One edit of an object at a time: it is ObjEditing for as long as an
-    // edit has it, which another document's may (an object reached through
-    // a link) -- docs/HandsOnQueue.md entry 232
-    if (sobj->testStatus(App::ObjEditing)) {
-        if (auto editDoc = Application::Instance->editDocument(
-                [sobj](Gui::Document *doc) { return doc->getEditingObject() == sobj; })) {
-            refuseEditInUse(sobj, editDoc);
-            return false;
-        }
-    }
-
-    // A feature of an old file opened without its migration recompute: it
-    // and what it needs, recomputed alone, so the edit's preview has the
-    // element names it is read by (docs/HandsOnQueue.md entry 211). Only
-    // then -- a touch of the user's own waits for their recompute.
-    if (ModNum == ViewProvider::Default) {
-        try {
-            App::Document::recomputeMigration(sobj);
-        }
-        catch (Base::Exception &e) {
-            e.ReportException();
         }
     }
 
@@ -901,30 +983,69 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
             editViewer = view3d->getViewer();
     }
 
+    // With PerViewEdit on, the session this view has ends, and so does any
+    // this one cannot run beside: one whose edit holds a transaction open
+    // across the user's work, or when this one's does -- a second would
+    // commit the first one's work in progress (docs/HandsOnQueue.md entry
+    // 232). The others run on, each in its own view.
+    if (perView) {
+        std::vector<EditSession*> ending;
+        for (auto &s : d->_editSessions) {
+            if (s->viewer == editViewer || !s->viewProvider
+                    || s->viewProvider->editHoldsTransaction(s->mode)
+                    || svp->editHoldsTransaction(ModNum))
+                ending.push_back(s.get());
+        }
+        for (EditSession *s : ending)
+            _resetEditSession(s);
+    }
+
+    // One edit of an object at a time: it is ObjEditing for as long as an
+    // edit has it -- another view's, or another document's through a link
+    // (docs/HandsOnQueue.md entry 232)
+    if (sobj->testStatus(App::ObjEditing)) {
+        if (auto editDoc = Application::Instance->editDocument(
+                [sobj](Gui::Document *doc) { return doc->isEditingObject(sobj); })) {
+            refuseEditInUse(sobj, editDoc);
+            return false;
+        }
+    }
+
+    // A feature of an old file opened without its migration recompute: it
+    // and what it needs, recomputed alone, so the edit's preview has the
+    // element names it is read by (docs/HandsOnQueue.md entry 211). Only
+    // then -- a touch of the user's own waits for their recompute.
+    if (ModNum == ViewProvider::Default) {
+        try {
+            App::Document::recomputeMigration(sobj);
+        }
+        catch (Base::Exception &e) {
+            e.ReportException();
+        }
+    }
+
     // Another document's edit runs on beside this one: its transaction is
     // its document's own while it runs (bindActiveTransaction below), and
     // its dialog does not keep this one's out (Control's blockerOf()) --
     // docs/HandsOnQueue.md entry 232
-    EditDocumentGuard guard(this);
+    d->_editSessions.push_back(std::make_unique<EditSession>());
+    EditSession *session = d->_editSessions.back().get();
+    EditStartGuard guard(this, d, session);
     Application::Instance->setEditDocument(this);
 
-    d->_editViewProviderParent = vp;
+    session->parent = vp;
+    session->subname = std::move(editSubname);
+    session->subElement = std::move(editSubElement);
+    session->transform = editTransform;
 
     auto sobjs = obj->getSubObjectList(subname);
-    d->_editObjs.clear();
-    d->_editObjs.insert(sobjs.begin(),sobjs.end());
-    d->_editingObject = sobj;
+    session->objs.insert(sobjs.begin(),sobjs.end());
+    session->object = sobj;
 
     Base::ObjectStatusLocker<App::ObjectStatus, App::DocumentObject> 
         guard2(App::ObjEditing, sobj);
 
-    d->_editMode = ModNum;
-    // What a session holds for its views can be put there from here on --
-    // an edit mode's visibility automation runs as it starts, before any
-    // view is bound (setEditVisibility) -- so nothing of an earlier one
-    // may be left to meet it.
-    if (d->_editRoot)
-        d->_editRoot->endSession();
+    session->mode = ModNum;
 
     // The view the edit starts in selects into an instance of its own
     // from here to the edit's end (docs/TaskPanelPerView.md sec 12), and
@@ -933,35 +1054,23 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     // the selection on its way in is done to that one. A client's view has
     // had its own all along, made current by its scope.
     std::optional<SelectionScope> editSelection;
-    if (MDIView *selView = d->_editSelectionView) {
-        // Left behind by an edit that did not end the usual way
-        d->_editSelectionView = nullptr;
-        selView->releaseOwnSelection();
-    }
     if (editViewer) {
         if (MDIView *selView = TaskOwner(editViewer).mdiView()) {
             selView->takeOwnSelection();
-            d->_editSelectionView = selView;
+            session->selectionView = selView;
         }
         if (SelectionSingleton *sel = editViewer->selectionInstance())
             editSelection.emplace(*sel);
     }
 
-    {
-        Base::StateLocker starting(d->_editStarting);
-        d->_editViewProvider = svp->startEditing(ModNum);
-    }
-    if(!d->_editViewProvider) {
-        if (MDIView *selView = d->_editSelectionView) {
-            d->_editSelectionView = nullptr;
+    session->viewProvider = svp->startEditing(ModNum);
+    if(!session->viewProvider) {
+        if (MDIView *selView = session->selectionView) {
+            session->selectionView = nullptr;
             selView->releaseOwnSelection();
         }
-        // Refused, and whatever it swapped on the way goes with it
-        if (d->_editRoot)
-            d->_editRoot->endSession();
-        d->_editViewProviderParent = nullptr;
-        d->_editObjs.clear();
-        d->_editingObject = nullptr;
+        // Refused, and whatever it swapped on the way goes with it (the
+        // guard drops the session)
         FC_LOG("object '" << sobj->getFullName() << "' refuse to edit");
         // Some code somewhere may try to delete the editing object (e.g.
         // undo), but couldn't because of the App::ObjEditing status we set
@@ -970,11 +1079,13 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         guard2.detach();
         App::Document::clearPendingRemove();
         return false;
-    } else if (!Application::Instance->isInEdit(this)) {
+    } else if (!Application::Instance->isInEdit(this) || !hasEditSession(session)) {
         // It is possible when calling startEditing() above show triggers some
         // code to call resetEdit(), which prematrually takes this document
         // out of Application::editDocuments(). In this cause we shall abort.
-        _resetEdit();
+        if (hasEditSession(session))
+            _resetEditSession(session);
+        guard.active = false;
         guard2.detach();
         App::Document::clearPendingRemove();
         return false;
@@ -984,10 +1095,10 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
         EditingRoot *root = editingRoot();
         // Whose session this is, for as long as it runs: every view's, or
         // the one it is started in (the user's choice, PerViewEdit).
-        root->setShared(!ViewParams::getPerViewEdit());
-        editViewer->setEditingViewProvider(d->_editViewProvider, ModNum, root);
-        d->_editingViewer = editViewer;
-        d->_editRootNode = root->node();
+        root->setShared(!perView);
+        session->viewer = editViewer;
+        editViewer->setEditingViewProvider(session->viewProvider, ModNum, root);
+        session->rootNode = root->node();
         // One session, every view (docs/ThinClient.md 8.11): the other 3D
         // windows of this document join it -- the same root hung, their
         // events routed to the same tool -- so a sketch entered in one
@@ -999,7 +1110,7 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
             for (auto view : d->baseViews) {
                 auto view3d = dynamic_cast<View3DInventor *>(view);
                 if (view3d && view3d->getViewer() && view3d->getViewer() != editViewer)
-                    view3d->getViewer()->joinEditing(d->_editViewProvider, root);
+                    view3d->getViewer()->joinEditing(session->viewProvider, root);
             }
         }
     }
@@ -1008,8 +1119,8 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     Gui::TaskView::TaskDialog* dlg = Gui::Control().activeDialog(TaskOwner(editViewer));
     if (dlg)
         dlg->setDocumentName(this->getDocument()->getName());
-    if (d->_editViewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
-        auto vpd = static_cast<ViewProviderDocumentObject*>(d->_editViewProvider);
+    if (session->viewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
+        auto vpd = static_cast<ViewProviderDocumentObject*>(session->viewProvider);
         vpd->getDocument()->signalInEdit(*vpd);
     }
     guard.active = false;
@@ -1018,37 +1129,69 @@ bool Document::setEdit(Gui::ViewProvider* p, int ModNum, const char *subname)
     // step another document's edit opens does not commit it, and this
     // edit's steps go in this document (docs/HandsOnQueue.md entry 232)
     App::GetApplication().bindActiveTransaction(getDocument());
-    guard2.detach(/*reset*/d->_editViewProvider==nullptr);
+    const bool started = hasEditSession(session) && session->viewProvider;
+    guard2.detach(/*reset*/!started);
     App::Document::clearPendingRemove();
-    return d->_editViewProvider != nullptr;
+    return started;
 }
 
 const Base::Matrix4D &Document::getEditingTransform() const {
-    return d->_editingTransform;
+    static const Base::Matrix4D identity;
+    EditSession *s = d->describedSession(this);
+    return s ? s->transform : identity;
 }
 
 void Document::setEditingTransform(const Base::Matrix4D &mat) {
-    d->_editObjs.clear();
-    d->_editingTransform = mat;
+    EditSession *s = d->currentSession(this);
+    if (s) {
+        s->objs.clear();
+        s->transform = mat;
+    }
     // The view the session is bound to, not the one that happens to be
     // active -- with two 3D views open those are the same view only until
     // someone clicks the other, and the editing transform belongs to the
     // one doing the editing. Outside a session there is nothing bound and
     // the active view is still the only candidate.
-    if (d->_editingViewer)
-        d->_editingViewer->setEditingTransform(mat);
+    if (s && s->viewer)
+        s->viewer->setEditingTransform(mat);
     else if (auto activeView = dynamic_cast<View3DInventor *>(getActiveView()))
         activeView->getViewer()->setEditingTransform(mat);
 }
 
 ViewerContext *Document::editingViewer() const {
-    return d->_editingViewer;
+    EditSession *s = d->describedSession(this);
+    return s ? s->viewer : nullptr;
+}
+
+bool Document::isEditingIn(const ViewerContext *viewer) const
+{
+    if (!viewer)
+        return false;
+    for (auto &s : d->_editSessions) {
+        if (s->viewer == viewer)
+            return true;
+    }
+    return false;
+}
+
+std::vector<ViewerContext*> Document::editingViewers() const
+{
+    std::vector<ViewerContext*> viewers;
+    for (auto &s : d->_editSessions) {
+        if (s->viewer)
+            viewers.push_back(s->viewer);
+    }
+    return viewers;
 }
 
 EditingRoot *Document::editingRoot() {
-    if (!d->_editRoot)
-        d->_editRoot = std::make_unique<EditingRoot>(this);
-    return d->_editRoot.get();
+    // The session's own, one a session (docs/HandsOnQueue.md entry 232);
+    // with none to ask about, one of the document's that no view shows
+    EditSession *s = d->describedSession(this);
+    std::unique_ptr<EditingRoot> &root = s ? s->root : d->_idleEditRoot;
+    if (!root)
+        root = std::make_unique<EditingRoot>(this);
+    return root.get();
 }
 
 bool Document::canSetEditVisibility() const
@@ -1057,7 +1200,8 @@ bool Document::canSetEditVisibility() const
         return false;
     // The view the session runs in, else the one setEdit is about to
     // start it in: found the way setEdit finds it.
-    ViewerContext *viewer = d->_editingViewer;
+    EditSession *s = d->currentSession(this);
+    ViewerContext *viewer = s ? s->viewer : nullptr;
     if (!viewer)
         viewer = ViewerContext::current();
     if (!viewer) {
@@ -1116,10 +1260,11 @@ bool Document::setEditVisibility(const char *owner, const App::DocumentObject *o
 int Document::getEditVisibility(const char *owner, const App::DocumentObject *obj,
                                 const char *subname) const
 {
-    if (!owner || !obj || !obj->isAttachedToDocument() || !d->_editRoot)
+    EditSession *s = d->describedSession(this);
+    if (!owner || !obj || !obj->isAttachedToDocument() || !s || !s->root)
         return -1;
     const std::string sub = subname ? subname : "";
-    if (auto entries = d->_editRoot->visibilitySwaps(owner)) {
+    if (auto entries = s->root->visibilitySwaps(owner)) {
         for (const auto &entry : *entries) {
             if (sameEntry(entry, obj, sub))
                 return entry.visible ? 1 : 0;
@@ -1129,8 +1274,32 @@ int Document::getEditVisibility(const char *owner, const App::DocumentObject *ob
 }
 
 void Document::resetEdit() {
-    bool vpIsNotNull = d->_editViewProvider != nullptr;
-    bool vpHasChanged = d->_editViewProvider != d->_editViewProviderPrevious;
+    // The session of the view asking (docs/HandsOnQueue.md entry 232),
+    // else the latest: asked from no view in one, it is still the edit
+    // that is meant, as when there was only one
+    EditSession *s = d->currentSession(this);
+    if (!s && !d->_editSessions.empty())
+        s = d->_editSessions.back().get();
+    if (!s) {
+        // An edit is the document's whose object is at the top of the
+        // edited path, and the object edited may be another document's,
+        // reached by a link: a panel ends it through the edited object's
+        // document (Gui::cmdGuiDocument(feature, "resetEdit()")). When only
+        // one document could be in edit, that ended it whichever document
+        // was asked.
+        Application::Instance->unsetEditDocumentIf([this](Gui::Document *editDoc) {
+            for (auto &session : editDoc->d->_editSessions) {
+                auto vp = dynamic_cast<ViewProviderDocumentObject*>(session->viewProvider);
+                if (vp && vp->getDocument() == this)
+                    return true;
+            }
+            return false;
+        });
+        return;
+    }
+
+    bool vpIsNotNull = s->viewProvider != nullptr;
+    bool vpHasChanged = s->viewProvider != d->_editViewProviderPrevious;
     int modeToRestore = d->_editModePrevious;
     Gui::ViewProvider* vpToRestore = d->_editViewProviderPrevious;
     bool shouldRestorePrevious = d->_editWantsRestorePrevious;
@@ -1147,22 +1316,14 @@ void Document::resetEdit() {
     // a timer (ViewProvider::eventCallback), and a deferred call runs with
     // no scope open at all -- which is the hazard sec 8.10 names, and this
     // is the one path known to walk into it.
-    ViewerScope scope(d->_editingViewer);
+    ViewerScope scope(s->viewer);
 
-    // An edit is the document's whose object is at the top of the edited
-    // path, and the object edited may be another document's, reached by a
-    // link: a panel ends it through the edited object's document
-    // (Gui::cmdGuiDocument(feature, "resetEdit()")). When only one document
-    // could be in edit, that ended it whichever document was asked.
-    if (Application::Instance->isInEdit(this)) {
+    // The last session takes the document out of edit, the others end
+    // alone
+    if (d->_editSessions.size() == 1)
         Application::Instance->unsetEditDocument(this);
-    }
-    else {
-        Application::Instance->unsetEditDocumentIf([this](Gui::Document *editDoc) {
-            auto vp = dynamic_cast<ViewProviderDocumentObject*>(editDoc->d->_editViewProvider);
-            return vp && vp->getDocument() == this;
-        });
-    }
+    else
+        _resetEditSession(s);
 
     // Re-enter the edit session that was interrupted by the one that just
     // ended, if it asked for that with setEditRestore(true) -- e.g. an
@@ -1174,69 +1335,96 @@ void Document::resetEdit() {
 
 void Document::setEditRestore(bool askRestore)
 {
-    d->_editWantsRestore = askRestore;
+    if (EditSession *s = d->currentSession(this))
+        s->wantsRestore = askRestore;
+}
+
+bool Document::hasEditSession(const EditSession *s) const
+{
+    for (auto &session : d->_editSessions) {
+        if (session.get() == s)
+            return true;
+    }
+    return false;
+}
+
+void Document::_resetEditSession(EditSession *s)
+{
+    if (!s || s->ending || !hasEditSession(s))
+        return;
+    s->ending = true;
+    if (s->viewProvider) {
+        // The initiator first: it gives the view provider its geometry
+        // back out of the session's root, and a view that is not one of
+        // this document's -- a client's mirror, which belongs to the
+        // serving source rather than to the document -- is not in the list
+        // below. Then every other view in this session leaves it; a view
+        // in another session stays (docs/HandsOnQueue.md entry 232).
+        if (s->viewer)
+            s->viewer->resetEditingViewProvider();
+        for (auto view : d->baseViews) {
+            auto view3d = dynamic_cast<View3DInventor *>(view);
+            ViewerContext *viewer = view3d ? view3d->getViewer() : nullptr;
+            if (viewer && d->sessionOf(viewer) == s)
+                viewer->resetEditingViewProvider();
+        }
+
+        if (s->object)
+            s->object->setStatus(App::ObjEditing, false);
+        s->viewProvider->finishEditing();
+
+        // Have to check s->viewProvider below, because there is a chance
+        // the editing object gets deleted inside the above call to
+        // 'finishEditing()', which will trigger our slotDeletedObject(), which
+        // nullifies it.
+        if (s->viewProvider && s->viewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
+            auto vpd = static_cast<ViewProviderDocumentObject*>(s->viewProvider);
+            vpd->getDocument()->signalResetEdit(*vpd);
+        }
+        d->_editViewProviderPrevious = s->viewProvider;
+        d->_editModePrevious = s->mode;
+        d->_editWantsRestorePrevious = s->wantsRestore;
+        s->viewProvider = nullptr;
+        // The initiating view ended the session as it left; an edit that
+        // never had one -- no 3D view to start in -- ends here.
+        if (s->root)
+            s->root->endSession();
+
+        // The edit's transaction ends with the document's last session.
+        // One ending beside another closes none: under PerViewEdit an edit
+        // holds no transaction across the user's work, and the step open
+        // now may be the other view's (a drag in progress).
+        if (d->_editSessions.size() == 1) {
+            if (App::GetApplication().isActiveTransactionBound(getDocument()))
+                App::GetApplication().unbindActiveTransaction(getDocument());
+            else
+                App::GetApplication().closeActiveTransaction();
+        }
+    }
+    // The edit's view gives its selection back: what the edit left
+    // selected goes to the room, as its user expects to find it.
+    if (MDIView *selView = s->selectionView) {
+        s->selectionView = nullptr;
+        selView->releaseOwnSelection();
+    }
+    auto it = std::find_if(d->_editSessions.begin(), d->_editSessions.end(),
+            [s](const std::unique_ptr<EditSession> &e) { return e.get() == s; });
+    if (it != d->_editSessions.end())
+        d->_editSessions.erase(it);
+    if (d->_editSessions.empty())
+        Application::Instance->unsetEditDocument(this);
 }
 
 void Document::_resetEdit()
 {
-    std::list<Gui::BaseView*>::iterator it;
-    if (d->_editViewProvider) {
-        // The initiator first: it gives the view provider its geometry
-        // back out of the shared root, and a view that is not one of this
-        // document's -- a client's mirror, which belongs to the serving
-        // source rather than to the document -- is not in the list below.
-        // Then every other view leaves the session it joined. Both are
-        // idempotent, so the initiator being named twice is unharmed.
-        if (d->_editingViewer)
-            d->_editingViewer->resetEditingViewProvider();
-        for (it = d->baseViews.begin();it != d->baseViews.end();++it) {
-            auto activeView = dynamic_cast<View3DInventor *>(*it);
-            if (activeView && activeView->getViewer())
-                activeView->getViewer()->resetEditingViewProvider();
+    // Every session: the document is out of edit
+    while (!d->_editSessions.empty()) {
+        EditSession *s = d->_editSessions.back().get();
+        if (s->ending) {
+            // Ending already, further up the stack: it is dropped there
+            break;
         }
-
-        if (d->_editingObject)
-            d->_editingObject->setStatus(App::ObjEditing, false);
-        d->_editViewProvider->finishEditing();
-
-        // Have to check d->_editViewProvider below, because there is a chance
-        // the editing object gets deleted inside the above call to
-        // 'finishEditing()', which will trigger our slotDeletedObject(), which
-        // nullifies _editViewProvider.
-        if (d->_editViewProvider && d->_editViewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
-            auto vpd = static_cast<ViewProviderDocumentObject*>(d->_editViewProvider);
-            vpd->getDocument()->signalResetEdit(*vpd);
-        }
-        d->_editViewProviderPrevious = d->_editViewProvider;
-        d->_editModePrevious = d->_editMode;
-        d->_editWantsRestorePrevious = d->_editWantsRestore;
-        d->_editWantsRestore = false;
-        d->_editViewProvider = nullptr;
-        // The initiating view ended the session as it left; an edit that
-        // never had one -- no 3D view to start in -- ends here.
-        if (d->_editRoot)
-            d->_editRoot->endSession();
-
-        // The logic below is not necessary anymore, because this method is
-        // changed into a private one,  _resetEdit(). And the exposed
-        // resetEdit() above calls into Application->unsetEditDocument() which
-        // will prevent recursive calling.
-
-        if (App::GetApplication().isActiveTransactionBound(getDocument()))
-            App::GetApplication().unbindActiveTransaction(getDocument());
-        else
-            App::GetApplication().closeActiveTransaction();
-    }
-    d->_editViewProviderParent = nullptr;
-    d->_editingViewer = nullptr;
-    d->_editObjs.clear();
-    d->_editingObject = nullptr;
-    d->_editRootNode.reset();
-    // The edit's view gives its selection back: what the edit left
-    // selected goes to the room, as its user expects to find it.
-    if (MDIView *selView = d->_editSelectionView) {
-        d->_editSelectionView = nullptr;
-        selView->releaseOwnSelection();
+        _resetEditSession(s);
     }
     Application::Instance->unsetEditDocument(this);
 }
@@ -1256,65 +1444,99 @@ App::SubObjectT Document::getInEditT(int *mode) const
 ViewProvider *Document::getInEdit(ViewProviderDocumentObject **parentVp,
         std::string *subname, int *mode, std::string *subelement) const
 {
-    if(parentVp) *parentVp = d->_editViewProviderParent;
-    if(subname) *subname = d->_editSubname;
-    if(subelement) *subelement = d->_editSubElement;
-    if(mode) *mode = d->_editMode;
+    // The session of the view asking (DocumentP::currentSession): a served
+    // client's request and its replayed events run under a scope on its
+    // own mirror, and the answer is that view's -- whether IT is in the
+    // session (docs/ThinClient.md 8.12 item D); else the active 3D window,
+    // the desktop user's, which with a session that is another view's
+    // alone (PerViewEdit) need not be in one. The edit described is that
+    // session's, else the latest one's, as there was only one before.
+    EditSession *s = d->currentSession(this);
+    EditSession *described = s ? s
+        : (d->_editSessions.empty() ? nullptr : d->_editSessions.back().get());
+    if(parentVp) *parentVp = described ? described->parent : nullptr;
+    if(subname) *subname = described ? described->subname : std::string();
+    if(subelement) *subelement = described ? described->subElement : std::string();
+    if(mode) *mode = described ? described->mode : 0;
 
-    if (d->_editViewProvider) {
-        // The view asking, when there is one to name: a served client's
-        // request and its replayed events run under a scope on its own
-        // mirror, and the answer is that view's -- whether IT is in the
-        // session (docs/ThinClient.md 8.12 item D). The active 3D window
-        // below is the desktop user's, and with a session that is its
-        // initiator's alone (PerViewEdit) it need not have joined.
-        //
-        // Only a client's view is answered "no" here. A desktop viewer
-        // opens a scope around its own events too, and whatever runs under
-        // one of those -- a nested event loop reaches a long way -- is
-        // still the desktop asking, for which the active window answers
-        // as it always has.
-        if (ViewerContext *current = ViewerContext::current()) {
-            if (current->getEditingViewProvider() == d->_editViewProvider)
-                return d->_editViewProvider;
-            if (current->cameraIsRemote())
-                return nullptr;
-        }
-        // there is only one 3d view which is in edit mode
-        auto activeView = dynamic_cast<View3DInventor *>(getActiveView());
-        if (activeView)
-            return activeView->getViewer()->isEditingViewProvider()
-                ? d->_editViewProvider : nullptr;
-        // No 3D view of this document to ask. A served document has none --
-        // its edit session is bound to a client's mirror instead
-        // (docs/ThinClient.md sec 8.9) -- so ask the view the session was
-        // actually bound to.
-        if (d->_editingViewer && d->_editingViewer->isEditingViewProvider())
-            return d->_editViewProvider;
-    }
-
-    return nullptr;
+    if (!s || !s->viewProvider)
+        return nullptr;
+    // Being started: the edit mode asks about itself, before any view is
+    // bound to it
+    if (s == d->_editStarting)
+        return s->viewProvider;
+    // No 3D view of this document to ask. A served document has none --
+    // its edit session is bound to a client's mirror instead
+    // (docs/ThinClient.md sec 8.9) -- so ask the view the session was
+    // actually bound to.
+    if (s->viewer && !s->viewer->isEditingViewProvider())
+        return nullptr;
+    return s->viewProvider;
 }
 
 ViewProvider *Document::getEditViewProvider() const
 {
-    return d->_editViewProvider;
+    EditSession *s = d->currentSession(this);
+    if (!s && !d->_editSessions.empty())
+        s = d->_editSessions.back().get();
+    return s ? s->viewProvider : nullptr;
+}
+
+bool Document::isEditViewProvider(const ViewProvider *vp) const
+{
+    if (!vp)
+        return false;
+    for (auto &s : d->_editSessions) {
+        if (s->viewProvider == vp)
+            return true;
+    }
+    return false;
 }
 
 App::DocumentObject *Document::getEditingObject() const
 {
-    return d->_editingObject;
+    EditSession *s = d->currentSession(this);
+    if (!s && !d->_editSessions.empty())
+        s = d->_editSessions.back().get();
+    return s ? s->object : nullptr;
+}
+
+bool Document::isEditingObject(const App::DocumentObject *obj) const
+{
+    return obj && d->sessionEditing(obj);
 }
 
 bool Document::isStartingEdit() const
 {
-    return d->_editStarting;
+    return d->_editStarting != nullptr;
+}
+
+void Document::resetEditOf(const ViewProvider *vp)
+{
+    for (auto &s : d->_editSessions) {
+        if (s->viewProvider != vp)
+            continue;
+        // As resetEdit() for the view it runs in
+        ViewerScope scope(s->viewer);
+        resetEdit();
+        return;
+    }
+}
+
+ViewerContext *Document::editingViewerOf(const ViewProvider *vp) const
+{
+    for (auto &s : d->_editSessions) {
+        if (s->viewProvider == vp)
+            return s->viewer;
+    }
+    return nullptr;
 }
 
 void Document::setInEdit(ViewProviderDocumentObject *parentVp, const char *subname) {
-    if (d->_editViewProvider) {
-        d->_editViewProviderParent = parentVp;
-        d->_editSubname = subname?subname:"";
+    EditSession *s = d->currentSession(this);
+    if (s && s->viewProvider) {
+        s->parent = parentVp;
+        s->subname = subname?subname:"";
     }
 }
 
@@ -1596,13 +1818,26 @@ void Document::slotDeletedObject(const App::DocumentObject& Obj)
         d->_editViewProviderPrevious = nullptr;
         d->_editWantsRestorePrevious = false;
     }
-    if (d->_editViewProvider==viewProvider || d->_editViewProviderParent==viewProvider)
-        _resetEdit();
-    else {
-        Application::Instance->unsetEditDocumentIf([viewProvider](Gui::Document *editDoc) {
-            return editDoc->d->_editViewProvider == viewProvider
-                || editDoc->d->_editViewProviderParent == viewProvider;
-        });
+    // The sessions editing it, this document's and any other's -- one
+    // ending already only lets go of it
+    for (auto editDoc : Application::Instance->editDocuments()) {
+        std::vector<EditSession*> ending;
+        for (auto &s : editDoc->d->_editSessions) {
+            if (s->viewProvider != viewProvider && s->parent != viewProvider)
+                continue;
+            if (s->ending) {
+                if (s->viewProvider == viewProvider)
+                    s->viewProvider = nullptr;
+                continue;
+            }
+            ending.push_back(s.get());
+        }
+        for (EditSession *s : ending) {
+            if (editDoc->d->_editSessions.size() == 1)
+                Application::Instance->unsetEditDocument(editDoc);
+            else
+                editDoc->_resetEditSession(s);
+        }
     }
 
     handleChildren3D(viewProvider,true);
@@ -1654,11 +1889,15 @@ void Document::beforeDelete() {
     d->_deferFinish.clear();
 
     Application::Instance->unsetEditDocumentIf([this](Gui::Document *editDoc) {
-        auto vp = dynamic_cast<ViewProviderDocumentObject*>(editDoc->d->_editViewProvider);
-        auto vpp = dynamic_cast<ViewProviderDocumentObject*>(editDoc->d->_editViewProviderParent);
-        return editDoc == this
-            || (vp && vp->getDocument() == this)
-            || (vpp && vpp->getDocument() == this);
+        if (editDoc == this)
+            return true;
+        for (auto &s : editDoc->d->_editSessions) {
+            auto vp = dynamic_cast<ViewProviderDocumentObject*>(s->viewProvider);
+            auto vpp = s->parent;
+            if ((vp && vp->getDocument() == this) || (vpp && vpp->getDocument() == this))
+                return true;
+        }
+        return false;
     });
     for(auto &v : d->_ViewProviderMap) {
         v.second->childSet.clear();
@@ -1695,20 +1934,19 @@ void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Prop
         ViewProvider::clearBoundingBoxCache();
         try {
             viewProvider->update(&Prop);
-            if(d->_editingViewer
-                    && d->_editingObject
-                    && d->_editViewProviderParent
-                    && (Prop.isDerivedFrom(App::PropertyPlacement::getClassTypeId())
-                        // Issue ID 0004230 : getName() can return null in which case strstr() crashes
-                        || (Prop.getName() && strstr(Prop.getName(),"Scale")))
-                    && d->_editObjs.count(&Obj))
-            {
+            // Every session whose edited path goes through it
+            const bool moves = Prop.isDerivedFrom(App::PropertyPlacement::getClassTypeId())
+                // Issue ID 0004230 : getName() can return null in which case strstr() crashes
+                || (Prop.getName() && strstr(Prop.getName(),"Scale"));
+            for (auto &s : d->_editSessions) {
+                if(!moves || !s->viewer || !s->object || !s->parent || !s->objs.count(&Obj))
+                    continue;
                 Base::Matrix4D mat;
-                auto sobj = d->_editViewProviderParent->getObject()->getSubObject(
-                                                        d->_editSubname.c_str(),nullptr,&mat);
-                if(sobj == d->_editingObject && d->_editingTransform!=mat) {
-                    d->_editingTransform = mat;
-                    d->_editingViewer->setEditingTransform(d->_editingTransform);
+                auto sobj = s->parent->getObject()->getSubObject(
+                                                        s->subname.c_str(),nullptr,&mat);
+                if(sobj == s->object && s->transform!=mat) {
+                    s->transform = mat;
+                    s->viewer->setEditingTransform(s->transform);
                     signalEditingTransformChanged(*this);
                 }
             }
@@ -1928,8 +2166,10 @@ ViewProviderDocumentObject* Document::getViewProviderByPathFromHead(SoPath * pat
     for (int i = 0; i < path->getLength(); i++) {
         SoNode *node = path->getNode(i);
         if (node->isOfType(SoSeparator::getClassTypeId())) {
-            if (node == d->_editRootNode && d->_editViewProvider)
-                return Base::freecad_dynamic_cast<ViewProviderDocumentObject>(d->_editViewProvider);
+            for (auto &s : d->_editSessions) {
+                if (node == s->rootNode && s->viewProvider)
+                    return Base::freecad_dynamic_cast<ViewProviderDocumentObject>(s->viewProvider);
+            }
             auto it = d->_CoinMap.find(static_cast<SoSeparator*>(node));
             if(it!=d->_CoinMap.end())
                 return it->second;
@@ -5364,9 +5604,11 @@ View3DInventor *Document::createView3D()
         auto view3D = new View3DInventor(this, getMainWindow(), shareWidget);
         // A window opened while a session runs shows it too
         // (docs/ThinClient.md 8.11) -- a shared one.
-        if (d->_editViewProvider && d->_editingViewer && view3D->getViewer()
-                && editingRoot()->isShared())
-            view3D->getViewer()->joinEditing(d->_editViewProvider, editingRoot());
+        for (auto &s : d->_editSessions) {
+            if (s->viewProvider && s->viewer && view3D->getViewer()
+                    && s->root && s->root->isShared())
+                view3D->getViewer()->joinEditing(s->viewProvider, s->root.get());
+        }
 
         // Views can now have independent draw styles (i.e. override modes)
         //
@@ -5491,9 +5733,12 @@ Gui::MDIView* Document::cloneView(Gui::MDIView* oldview, bool transferEdit)
         // (ViewArea::cloneChildFor) leaves it where the user works --
         // the fresh cell must not steal the dragger out from under an
         // ongoing edit.
-        if (transferEdit && d->_editViewProvider) {
+        EditSession *s = transferEdit ? d->sessionOf(firstView->getViewer()) : nullptr;
+        if (s && s->viewProvider) {
             firstView->getViewer()->resetEditingViewProvider();
-            view3D->getViewer()->setEditingViewProvider(d->_editViewProvider, d->_editMode);
+            view3D->getViewer()->setEditingViewProvider(s->viewProvider, s->mode);
+            if (s->viewer == firstView->getViewer())
+                s->viewer = view3D->getViewer();
         }
 
         ViewProviderShaderBinding::onViewCreated(getDocument());
@@ -5775,7 +6020,7 @@ bool Document::canClose (bool checkModify, bool checkLink)
                 // a 3D view and that it is in edit mode. However, when closing a
                 // document then the edit mode must be reset independent of the
                 // active view.
-                if (d->_editViewProvider)
+                if (!d->_editSessions.empty())
                     this->_resetEdit();
             }
         }

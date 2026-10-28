@@ -1986,15 +1986,17 @@ void TreeWidget::onFinishEditing()
     // The edit of the item the menu was opened on: another document may be
     // in edit too (the action is offered for an item that is in edit)
     Gui::Document *doc = nullptr;
+    ViewProviderDocumentObject *vp = nullptr;
     if (this->contextItem && this->contextItem->type() == ObjectType) {
-        auto vp = static_cast<DocumentObjectItem*>(this->contextItem)->object();
+        vp = static_cast<DocumentObjectItem*>(this->contextItem)->object();
         doc = Application::Instance->editDocument(
-            [vp](Gui::Document *editDoc) { return editDoc->getEditViewProvider() == vp; });
+            [vp](Gui::Document *editDoc) { return editDoc->isEditViewProvider(vp); });
     }
-    if (!doc)
-        doc = Application::Instance->editDocument();
-    if(doc)  {
+    if (doc)
+        doc->resetEditOf(vp);
+    else if ((doc = Application::Instance->editDocument()))
         doc->resetEdit();
+    if(doc)  {
         doc->getDocument()->recompute();
         doc->commitCommand();
     }
@@ -6272,7 +6274,7 @@ void DocumentItem::slotInEdit(const Gui::ViewProviderDocumentObject& v)
 
     // The document whose edit this is: another may be in edit too
     auto doc = Application::Instance->editDocument(
-        [&v](Gui::Document *editDoc) { return editDoc->getEditViewProvider() == &v; });
+        [&v](Gui::Document *editDoc) { return editDoc->isEditViewProvider(&v); });
     if(!doc)
         return;
     auto docitem = getTree()->getDocumentItem(doc);

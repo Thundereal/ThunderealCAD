@@ -61,6 +61,7 @@ class View3DInventor;
 class ViewProvider;
 class ViewerContext;
 class EditingRoot;
+struct EditSession;
 class ViewProviderDocumentObject;
 class Application;
 class DocumentPy;
@@ -440,7 +441,12 @@ public:
      * belongs to the current edit session and is cleared when it ends.
      */
     void setEditRestore(bool askRestore);
-    /// reset edit of this document
+    /** End every edit of this document.
+     *
+     * Several may run, one per view, with PerViewEdit on
+     * (docs/HandsOnQueue.md entry 232); resetEdit() ends the one of the
+     * view asking, this ends them all and takes the document out of edit.
+     */
     void _resetEdit();
     /// get the in edit ViewProvider or NULL
     ViewProvider *getInEdit(ViewProviderDocumentObject **parentVp=nullptr,
@@ -451,16 +457,32 @@ public:
      *
      * getInEdit() answers for the view asking, and null where that view
      * is not in the edit; this is for a caller that wants to know what is
-     * in edit in this document at all.
+     * in edit in this document at all -- the view's edit, else the latest
+     * when there are several (isEditViewProvider() asks of them all).
      */
     ViewProvider* getEditViewProvider() const;
+    /// Whether \a vp is in edit in this document, in any view
+    bool isEditViewProvider(const ViewProvider *vp) const;
+    /** End the edit of \a vp, in whichever view it runs, and the
+     * document's edit with it when it is the last. Nothing when \a vp is
+     * not in edit here.
+     */
+    void resetEditOf(const ViewProvider *vp);
+    /// The view \a vp is in edit in, null for none
+    ViewerContext *editingViewerOf(const ViewProvider *vp) const;
+    /// Whether an edit was started in \a viewer (it is the initiator)
+    bool isEditingIn(const ViewerContext *viewer) const;
+    /// The views edits were started in, one per edit
+    std::vector<ViewerContext*> editingViewers() const;
     /** The object in edit: the sub-object of the edited path whose view
      * provider edits. Known from the moment setEdit() picks it, before the
      * view provider has started -- what code run by its startEditing() can
-     * find its document by.
+     * find its document by. The view's edit's, else the latest's.
      */
     App::DocumentObject* getEditingObject() const;
-    /// Whether setEdit() is starting the edit's view provider now
+    /// Whether \a obj is in edit in this document, in any view
+    bool isEditingObject(const App::DocumentObject *obj) const;
+    /// Whether setEdit() is starting an edit now
     bool isStartingEdit() const;
     /// set the in edit ViewProvider subname reference
     void setInEdit(ViewProviderDocumentObject *parentVp, const char *subname);
@@ -593,6 +615,10 @@ private:
                              std::map<App::Document*, int>& dmap) const;
     /// Ask for user interaction if saving has failed
     bool askIfSavingFailed(const QString&);
+
+    /// End one edit of this document, and the document's edit with its last
+    void _resetEditSession(EditSession *s);
+    bool hasEditSession(const EditSession *s) const;
 
     struct DocumentP* d;
     static int _iDocCount;

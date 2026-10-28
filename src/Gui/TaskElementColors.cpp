@@ -100,7 +100,7 @@ public:
         vpDoc = vp->getDocument();
         vpParent = vp;
         auto doc = Application::Instance->editDocument(
-            [vp](Gui::Document *editDoc) { return editDoc->getEditViewProvider() == vp; });
+            [vp](Gui::Document *editDoc) { return editDoc->isEditViewProvider(vp); });
         if(doc) {
             auto editVp = doc->getInEdit(&vpParent,&editSub);
             if(editVp == vp) {
@@ -359,12 +359,13 @@ public:
         App::GetApplication().closeActiveTransaction();
     }
 
-    /// End the edit this panel runs in, if it runs in one: only the
-    /// document whose edit is this object's -- another may be in edit
+    /// End the edit this panel runs in, if it runs in one: that one
+    /// alone -- another may be in edit, in another view or document
     void resetEdit() {
         auto obj = vp;
-        Application::Instance->unsetEditDocumentIf(
-            [obj](Gui::Document *editDoc) { return editDoc->getEditViewProvider() == obj; });
+        if (auto editDoc = Application::Instance->editDocument(
+                [obj](Gui::Document *doc) { return doc->isEditViewProvider(obj); }))
+            editDoc->resetEditOf(obj);
     }
 
     void removeAll() {

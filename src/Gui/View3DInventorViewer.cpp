@@ -1977,7 +1977,7 @@ View3DInventorViewer::~View3DInventorViewer()
     // this is for one destroyed without being closed, which would leave
     // the document's session bound to a viewer that no longer exists --
     // what a client's mirror guards against in its own destructor.
-    if (guiDocument && guiDocument->editingViewer() == this) {
+    if (guiDocument && guiDocument->isEditingIn(this)) {
         ViewerScope scope(this);
         guiDocument->resetEdit();
     }

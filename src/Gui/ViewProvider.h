@@ -622,6 +622,19 @@ public:
      * Std_Undo and a client's undo come here; an undo straight on the App
      * document does not.
      */
+    /** Whether an edit in \a ModNum holds a transaction open across the
+     * user's work -- its panel's Cancel aborts it.
+     *
+     * Such an edit runs alone in its document: another view's edit beside
+     * it (PerViewEdit, docs/HandsOnQueue.md entry 232) would commit its
+     * work in progress. False for an edit that makes each change a step
+     * of its own and takes back its own steps on Cancel.
+     */
+    virtual bool editHoldsTransaction(int ModNum) const
+    {
+        (void)ModNum;
+        return true;
+    }
     virtual bool undoRedoInEdit(bool redo)
     {
         (void)redo;

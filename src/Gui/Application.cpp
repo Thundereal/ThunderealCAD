@@ -1529,7 +1529,7 @@ Gui::Document* Application::editDocumentOf(const App::DocumentObject* obj) const
     }
     if (obj) {
         for (auto doc : d->editDocuments) {
-            if (doc->getEditingObject() == obj)
+            if (doc->isEditingObject(obj))
                 return doc;
         }
     }
@@ -1770,9 +1770,14 @@ void Application::viewClosed(MDIView* pcView)
     // bound to, and the view's own selection, going with the view, told
     // the edit mode to read it again through that viewer.
     if (Gui::Document* doc = pcView->getGuiDocument()) {
-        ViewerContext* editing = doc->editingViewer();
-        if (editing && TaskOwner(editing) == TaskOwner(pcView))
-            doc->resetEdit();
+        for (ViewerContext* editing : doc->editingViewers()) {
+            if (TaskOwner(editing) == TaskOwner(pcView)) {
+                // That edit, of the several there may be (PerViewEdit)
+                ViewerScope scope(editing);
+                doc->resetEdit();
+                break;
+            }
+        }
     }
     // And a task dialog it owns goes with it (Gui::TaskView::TaskView)
     signalCloseView(pcView);

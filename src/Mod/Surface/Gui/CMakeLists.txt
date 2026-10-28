@@ -52,6 +52,8 @@ SET(SurfaceGui_SRCS
     TaskSections.h
     TaskNetwork.cpp
     TaskNetwork.h
+    TaskTrim.cpp
+    TaskTrim.h
     AppSurfaceGui.cpp
     Command.cpp
     PreCompiled.cpp

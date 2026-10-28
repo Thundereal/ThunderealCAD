@@ -35,6 +35,7 @@
 
 #include "Mod/Part/App/PartFeature.h"
 #include <App/Document.h>
+#include <Base/Console.h>
 #include <Gui/Application.h>
 #include <Gui/Command.h>
 #include <Gui/Control.h>
@@ -416,6 +417,278 @@ bool CmdSurfaceNetwork::isActive()
     return hasActiveDocument();
 }
 
+namespace
+{
+
+/// A selected object's links as Python: its subs, or the object whole
+std::string linksOf(const Gui::SelectionObject& sel, bool (*keep)(const std::string&))
+{
+    std::ostringstream links;
+    std::string obj = Gui::Command::getObjectCmd(sel.getObject());
+    const auto& subs = sel.getSubNames();
+    if (subs.empty()) {
+        links << "(" << obj << ", ''), ";
+    }
+    for (const auto& sub : subs) {
+        if (keep(sub)) {
+            links << "(" << obj << ", '" << sub << "'), ";
+        }
+    }
+    return links.str();
+}
+
+bool isFace(const std::string& sub)
+{
+    return sub.rfind("Face", 0) == 0;
+}
+
+bool isEdgeOrFace(const std::string& sub)
+{
+    return isFace(sub) || sub.rfind("Edge", 0) == 0;
+}
+
+/// Said where a served process's user sees it too, never in a dialog
+void tell(const char* text)
+{
+    Base::Console().Warning("%s\n", text);
+}
+
+/// Split and Trim from the selection: the first object picked is cut, by
+/// the rest; nothing picked, an empty one to fill in its panel
+void makeCut(Gui::Command* cmd, const char* type, const char* name, bool edit)
+{
+    Gui::Document* gdoc = cmd->getActiveGuiDocument();
+    if (!gdoc) {
+        return;
+    }
+    const char* doc = gdoc->getDocument()->getName();
+    auto selection = Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId());
+    std::string base, tools;
+    for (std::size_t i = 0; i < selection.size(); ++i) {
+        (i == 0 ? base : tools) += linksOf(selection[i], i == 0 ? isFace : isEdgeOrFace);
+    }
+    if (!edit && (base.empty() || tools.empty())) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select the faces to cut first, then what cuts them"));
+        return;
+    }
+    std::string feat = gdoc->getDocument()->getUniqueObjectName(name);
+    Gui::Command::openCommand(name);
+    Gui::Command::doCommand(Gui::Command::Doc,
+                            "App.getDocument('%s').addObject('%s', '%s')",
+                            doc,
+                            type,
+                            feat.c_str());
+    if (!base.empty()) {
+        Gui::Command::doCommand(Gui::Command::Doc,
+                                "App.getDocument('%s').getObject('%s').Base = [%s]",
+                                doc,
+                                feat.c_str(),
+                                base.c_str());
+    }
+    if (!tools.empty()) {
+        Gui::Command::doCommand(Gui::Command::Doc,
+                                "App.getDocument('%s').getObject('%s').Tools = [%s]",
+                                doc,
+                                feat.c_str(),
+                                tools.c_str());
+    }
+    if (edit) {
+        Gui::Command::doCommand(Gui::Command::Gui,
+                                "Gui.getDocument('%s').setEdit('%s', 0)",
+                                doc,
+                                feat.c_str());
+    }
+    else {
+        Gui::Command::doCommand(Gui::Command::Doc, "App.getDocument('%s').recompute()", doc);
+        Gui::Command::commitCommand();
+    }
+}
+
+}  // namespace
+
+DEF_STD_CMD_A(CmdSurfaceSplit)
+
+CmdSurfaceSplit::CmdSurfaceSplit()
+    : Command("Surface_Split")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Split");
+    sToolTipText = QT_TR_NOOP("Cuts the faces selected first by the curves or surfaces selected\n"
+                              "after them, and keeps every piece. Curves are laid onto the faces.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_Split";
+    sPixmap = "Surface_Split";
+}
+
+void CmdSurfaceSplit::activated(int)
+{
+    makeCut(this, "Surface::Split", "Split", false);
+}
+
+bool CmdSurfaceSplit::isActive()
+{
+    return Gui::Selection().countObjectsOfType(Part::Feature::getClassTypeId()) > 1;
+}
+
+DEF_STD_CMD_A(CmdSurfaceTrim)
+
+CmdSurfaceTrim::CmdSurfaceTrim()
+    : Command("Surface_Trim")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Trim...");
+    sToolTipText = QT_TR_NOOP("Cuts the faces selected first by the curves or surfaces selected\n"
+                              "after them, and keeps the sides you pick. Curves are laid onto\n"
+                              "the faces; the side kept is found again after a change.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_Trim";
+    sPixmap = "Surface_Trim";
+}
+
+void CmdSurfaceTrim::activated(int)
+{
+    makeCut(this, "Surface::Trim", "Trim", true);
+}
+
+bool CmdSurfaceTrim::isActive()
+{
+    return hasActiveDocument();
+}
+
+DEF_STD_CMD_A(CmdSurfaceUntrim)
+
+CmdSurfaceUntrim::CmdSurfaceUntrim()
+    : Command("Surface_Untrim")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Untrim");
+    sToolTipText = QT_TR_NOOP("Gives the selected face its surface's own boundary back.\n"
+                              "Set Before to a trim to have the face as it was before it.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_Untrim";
+    sPixmap = "Surface_Untrim";
+}
+
+void CmdSurfaceUntrim::activated(int)
+{
+    Gui::Document* gdoc = getActiveGuiDocument();
+    if (!gdoc) {
+        return;
+    }
+    const char* doc = gdoc->getDocument()->getName();
+    std::vector<std::string> links;
+    for (const auto& sel :
+         Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId())) {
+        for (const auto& sub : sel.getSubNames()) {
+            if (isFace(sub)) {
+                links.push_back("(" + Gui::Command::getObjectCmd(sel.getObject()) + ", '" + sub
+                                + "')");
+            }
+        }
+    }
+    if (links.empty()) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select the faces to untrim"));
+        return;
+    }
+    openCommand(QT_TRANSLATE_NOOP("Command", "Untrim"));
+    for (const auto& link : links) {
+        std::string feat = gdoc->getDocument()->getUniqueObjectName("Untrim");
+        doCommand(Doc,
+                  "App.getDocument('%s').addObject('Surface::Untrim', '%s').Face = %s",
+                  doc,
+                  feat.c_str(),
+                  link.c_str());
+    }
+    doCommand(Doc, "App.getDocument('%s').recompute()", doc);
+    commitCommand();
+}
+
+bool CmdSurfaceUntrim::isActive()
+{
+    return Gui::Selection().countObjectsOfType(Part::Feature::getClassTypeId()) > 0;
+}
+
+DEF_STD_CMD_A(CmdSurfaceExtendEdges)
+
+CmdSurfaceExtendEdges::CmdSurfaceExtendEdges()
+    : Command("Surface_ExtendEdges")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Extend edges");
+    sToolTipText = QT_TR_NOOP("Carries a face on across the selected edges of it: naturally, the\n"
+                              "same surface further, or straight on. Each edge has to be on the\n"
+                              "boundary of the face's surface.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_ExtendEdges";
+    sPixmap = "Surface_ExtendEdges";
+}
+
+void CmdSurfaceExtendEdges::activated(int)
+{
+    Gui::Document* gdoc = getActiveGuiDocument();
+    if (!gdoc) {
+        return;
+    }
+    const char* doc = gdoc->getDocument()->getName();
+    auto selection = Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId());
+    if (selection.size() != 1) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select edges of one face to extend across"));
+        return;
+    }
+    const auto& sel = selection.front();
+    auto shape = Part::Feature::getTopoShape(sel.getObject());
+    // the one face every edge picked is an edge of
+    int face = 0;
+    std::ostringstream edges;
+    std::string obj = Gui::Command::getObjectCmd(sel.getObject());
+    for (const auto& sub : sel.getSubNames()) {
+        if (sub.rfind("Edge", 0) != 0) {
+            continue;
+        }
+        auto faces = shape.findAncestors(shape.getSubShape(sub.c_str()), TopAbs_FACE);
+        if (faces.size() != 1 || (face && faces.front() != face)) {
+            tell(QT_TRANSLATE_NOOP("Surface",
+                                   "The edges picked are not of one face: extend the face's "
+                                   "own edges"));
+            return;
+        }
+        face = faces.front();
+        edges << "(" << obj << ", '" << sub << "'), ";
+    }
+    if (!face) {
+        tell(QT_TRANSLATE_NOOP("Surface", "Select edges of one face to extend across"));
+        return;
+    }
+    std::string feat = gdoc->getDocument()->getUniqueObjectName("Extend");
+    openCommand(QT_TRANSLATE_NOOP("Command", "Extend edges"));
+    doCommand(Doc,
+              "App.getDocument('%s').addObject('Surface::Extend', '%s')",
+              doc,
+              feat.c_str());
+    doCommand(Doc,
+              "_ext = App.getDocument('%s').getObject('%s')\n"
+              "_ext.Face = (%s, 'Face%d')\n"
+              "_ext.Mode = 'Edges'\n"
+              "_ext.Edges = [%s]\n"
+              "del _ext",
+              doc,
+              feat.c_str(),
+              obj.c_str(),
+              face,
+              edges.str().c_str());
+    doCommand(Doc, "App.getDocument('%s').recompute()", doc);
+    commitCommand();
+}
+
+bool CmdSurfaceExtendEdges::isActive()
+{
+    return Gui::Selection().countObjectsOfType(Part::Feature::getClassTypeId()) > 0;
+}
+
 DEF_STD_CMD_A(CmdSurfaceSewing)
 
 CmdSurfaceSewing::CmdSurfaceSewing()
@@ -478,6 +751,10 @@ void CreateSurfaceCommands()
     rcCmdMgr.addCommand(new CmdSurfaceGeomFillSurface());
     rcCmdMgr.addCommand(new CmdSurfaceSections());
     rcCmdMgr.addCommand(new CmdSurfaceNetwork());
+    rcCmdMgr.addCommand(new CmdSurfaceSplit());
+    rcCmdMgr.addCommand(new CmdSurfaceTrim());
+    rcCmdMgr.addCommand(new CmdSurfaceUntrim());
+    rcCmdMgr.addCommand(new CmdSurfaceExtendEdges());
     rcCmdMgr.addCommand(new CmdSurfaceSewing());
     rcCmdMgr.addCommand(new CmdSurfaceExtendFace());
     rcCmdMgr.addCommand(new CmdSurfaceCurveOnMesh());

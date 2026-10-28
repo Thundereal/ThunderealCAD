@@ -126,6 +126,11 @@ fc_add_gui_test(GuiSurfaceNetwork_tests_run surface-network.py
 # refused and taken, Cancel -- with no dialog at any point.
 fc_add_gui_test(GuiServeSurfaceNetwork_tests_run serve-surface-network.py
                 --timeout 240)
+# Its cutting commands and the Trim panel (U2): Extend edges, Split, Trim,
+# Untrim from the selection; the sides kept picked in the view and toggled,
+# OK and Cancel; a selection they cannot use said without a dialog.
+fc_add_gui_test(GuiSurfaceTrim_tests_run surface-trim.py
+                --timeout 180)
 # A client that drops with a task panel open, whose Cancel throws: the panel
 # is closed with the client's view, and the server lives on.
 fc_add_gui_test(GuiServeDropInPanel_tests_run serve-drop-in-panel.py

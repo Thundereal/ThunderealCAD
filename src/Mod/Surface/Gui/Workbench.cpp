@@ -51,6 +51,10 @@ Gui::MenuItem* Workbench::setupMenuBar() const
              << "Surface_Sections"
              << "Surface_Network"
              << "Surface_ExtendFace"
+             << "Surface_ExtendEdges"
+             << "Surface_Split"
+             << "Surface_Trim"
+             << "Surface_Untrim"
              << "Surface_Sewing"
              << "Surface_CurveOnMesh"
              << "Surface_BlendCurve";
@@ -72,6 +76,10 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
              << "Surface_Sections"
              << "Surface_Network"
              << "Surface_ExtendFace"
+             << "Surface_ExtendEdges"
+             << "Surface_Split"
+             << "Surface_Trim"
+             << "Surface_Untrim"
              << "Surface_Sewing"
              << "Surface_CurveOnMesh"
              << "Surface_BlendCurve";

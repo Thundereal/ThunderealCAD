@@ -67,6 +67,9 @@ public:
     /// Dynamic: gravity, in the document's coordinates, mm/s^2
     App::PropertyVector Gravity;
     App::PropertyBool GravityEnabled;
+    /// Dynamic: the Physics group's force elements this study uses (springs
+    /// and dampers); a mass override counts whatever this lists
+    App::PropertyLinkList Elements;
 
     static const char* AnalysisTypeEnums[];
 

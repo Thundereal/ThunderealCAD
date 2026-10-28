@@ -131,6 +131,8 @@ PyMOD_INIT_FUNC(AssemblyApp)
     Assembly::PhysicsItem::init();
     Assembly::MassOverride::init();
     Assembly::MassOverridePython::init();
+    Assembly::SpringDamper::init();
+    Assembly::SpringDamperPython::init();
 
     // The solver backends (docs/AssemblySolverInterface.md sec 4.3).
     Assembly::Solver::Registry::instance().add(std::make_unique<Assembly::Solver::OndselBackend>());

@@ -697,6 +697,8 @@ private:
                     dynamics.inertias.push_back(*inertia);
                 }
             }
+            // On frames, which keep their ids
+            dynamics.forces = original.dynamics->forces;
             reduced.dynamics = std::move(dynamics);
         }
     }

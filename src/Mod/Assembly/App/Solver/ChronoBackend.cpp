@@ -118,6 +118,7 @@
 #include <chrono/physics/ChLinkDistance.h>
 #include <chrono/physics/ChLinkLockGear.h>
 #include <chrono/physics/ChLinkMate.h>
+#include <chrono/physics/ChLinkTSDA.h>
 #include <chrono/physics/ChLinkMotorLinearPosition.h>
 #include <chrono/physics/ChLinkMotorRotationAngle.h>
 #include <chrono/physics/ChSystemNSC.h>
@@ -2538,6 +2539,28 @@ Status ChronoSession::simulateDynamics(const SimulationSpec& spec, TrajectorySin
         ch::ChMatrix33d tensor;
         tensor << i[0], i[3], i[4], i[3], i[1], i[5], i[4], i[5], i[2];
         body->SetInertia(tensor);
+    }
+    // The force elements, on frames of the model: in SI and at the centres
+    // of mass with it (a stiffness and a damping need no factor, sec 8.1)
+    for (const auto& force : si.dynamics->forces) {
+        if (force.kind != ForceKind::SpringDamper || force.frameI >= si.frames.size()
+            || force.frameJ >= si.frames.size()) {
+            continue;
+        }
+        auto spring = std::make_shared<ch::ChLinkTSDA>();
+        spring->Initialize(run.d->bodyOf(force.frameI),
+                           run.d->bodyOf(force.frameJ),
+                           true,
+                           toCh(si.frames[force.frameI].local.getPosition()),
+                           toCh(si.frames[force.frameJ].local.getPosition()));
+        // Else the length at the start, as Initialize takes it
+        if (force.rest > 0.0) {
+            spring->SetRestLength(force.rest);
+        }
+        spring->SetSpringCoefficient(force.k * SI::linearStiffness);
+        spring->SetDampingCoefficient(force.c * SI::linearDamping);
+        spring->SetActuatorForce(force.preload);
+        sys.AddLink(spring);
     }
     sys.SetGravitationalAcceleration(toCh(si.dynamics->gravity));
     // HHT, which needs a direct solver: the load set LUThenQR

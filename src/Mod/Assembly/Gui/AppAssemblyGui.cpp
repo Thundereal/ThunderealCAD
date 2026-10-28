@@ -32,6 +32,7 @@
 #include "ViewProviderJoint.h"
 #include "ViewProviderBom.h"
 #include "ViewProviderGroups.h"
+#include "ViewProviderPhysics.h"
 
 namespace AssemblyGui
 {
@@ -64,6 +65,8 @@ PyMOD_INIT_FUNC(AssemblyGui)
     AssemblyGui::ViewProviderJoint::init();
     AssemblyGui::ViewProviderJointPython::init();
     AssemblyGui::ViewProviderBom::init();
+    AssemblyGui::ViewProviderMassOverride::init();
+    AssemblyGui::ViewProviderSpringDamper::init();
     AssemblyGui::ViewProviderGroupBase::init();
     AssemblyGui::ViewProviderBomGroup::init();
     AssemblyGui::ViewProviderAssemblyGroup::init();

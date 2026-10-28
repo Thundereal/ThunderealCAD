@@ -261,6 +261,27 @@ AssemblyExport Inertia moved(const Inertia& inertia, const Base::Placement& toOt
 // origin: AssumedDensity if either is, else Override if either is.
 AssemblyExport void add(Inertia& a, const Inertia& b);
 
+// A force element of a dynamic analysis (sec 6.1), between two frames
+enum class ForceKind : std::uint8_t
+{
+    // Along the line from oI to oJ: f - k (l - rest) - c dl/dt, a positive
+    // force pushing the two apart (Chrono's ChLinkTSDA)
+    SpringDamper
+};
+
+struct ForceElement
+{
+    Id id = NoId;
+    Id source = NoId;  // the document's element
+    ForceKind kind {};
+    Id frameI = NoId;
+    Id frameJ = NoId;
+    double k = 0.0;        // mN/mm
+    double rest = 0.0;     // mm; 0: the length at the start
+    double preload = 0.0;  // mN, pushing apart
+    double c = 0.0;        // mN s / mm (kg/s)
+};
+
 // What a dynamic analysis adds to the model (sec 6.1); a kinematic build has
 // none. Grows with phase D1: forces, tables, contact, stops, initial
 // velocities, sensors.
@@ -268,6 +289,7 @@ struct Dynamics
 {
     Base::Vector3d gravity;         // mm/s^2, in the assembly's frame; zero: off
     std::vector<Inertia> inertias;  // one per body that has mass, by Inertia::body
+    std::vector<ForceElement> forces;
 };
 
 struct Model

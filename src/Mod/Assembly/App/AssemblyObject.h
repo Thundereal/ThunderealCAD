@@ -252,6 +252,10 @@ public:
      * the last build made: objectPartMap says which components a body is.
      */
     void addDynamics(Solver::Model& model) const;
+    /// The force elements a study uses (Simulation::Elements), as frames and
+    /// ForceElement records of the model's dynamics block; a component held
+    /// by nothing else becomes a body of its own
+    void addForces(Solver::Model& model, App::DocumentObject* sim);
     /// A model built, as for a solve, with its dynamics block: each body's
     /// inertia, and the components that make it up
     struct BodyInertia

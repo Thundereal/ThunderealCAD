@@ -885,9 +885,11 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
             self.simFeaturePy = simFeaturePy
             Gui.ActiveDocument.openCommand("Edit " + simFeaturePy.Label + " Simulation")
             self.onMotionsChanged()
+            self.creating = False
         else:
             Gui.ActiveDocument.openCommand("Create Simulation")
             self.createSimulationObject()
+            self.creating = True
 
         self.setUiInitialValues()
         self.setAnalysisInitialValues()
@@ -941,6 +943,21 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         )
         row.addWidget(self.gravityCheck)
         self.form.layout().insertWidget(0, box)
+        # The Physics group's force elements, those ticked used by the study
+        self.elementsBox = QtWidgets.QGroupBox(translate("Assembly", "Elements"))
+        elements = QtWidgets.QVBoxLayout(self.elementsBox)
+        self.elementsList = QtWidgets.QListWidget()
+        self.elementsList.setMaximumHeight(90)
+        self.elementsList.setToolTip(
+            translate(
+                "Assembly",
+                "The springs and dampers of the assembly's Physics group; a dynamic study "
+                "uses those ticked",
+            )
+        )
+        elements.addWidget(self.elementsList)
+        self.form.layout().insertWidget(1, self.elementsBox)
+        self.elementsList.itemChanged.connect(self.onElementTicked)
         self.runMessage = QtWidgets.QLabel()
         self.runMessage.setWordWrap(True)
         self.runMessage.setStyleSheet("color: #c80000")
@@ -957,6 +974,7 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         if not self.hasAnalysis():
             self.analysisCombo.setEnabled(False)
             self.gravityCheck.setEnabled(False)
+            self.elementsBox.hide()
             return
         self.analysisCombo.blockSignals(True)
         self.analysisCombo.setCurrentIndex(
@@ -966,11 +984,41 @@ class TaskAssemblyCreateSimulation(QtCore.QObject):
         self.gravityCheck.blockSignals(True)
         self.gravityCheck.setChecked(self.simFeaturePy.GravityEnabled)
         self.gravityCheck.blockSignals(False)
+        self.fillElements()
         self.showAnalysis()
+
+    def forceElements(self):
+        """The force elements of the assembly's Physics group"""
+        return [o for o in self.assembly.Group if o.isDerivedFrom("Assembly::SpringDamper")]
+
+    def fillElements(self):
+        used = list(self.simFeaturePy.Elements)
+        # A new study starts with every element ticked (sec 5.1)
+        if self.creating and not used:
+            used = self.forceElements()
+            self.simFeaturePy.Elements = used
+        self.elementsList.blockSignals(True)
+        self.elementsList.clear()
+        for element in self.forceElements():
+            item = QtWidgets.QListWidgetItem(element.Label)
+            item.setData(QtCore.Qt.UserRole, element.Name)
+            item.setFlags(item.flags() | QtCore.Qt.ItemIsUserCheckable)
+            item.setCheckState(QtCore.Qt.Checked if element in used else QtCore.Qt.Unchecked)
+            self.elementsList.addItem(item)
+        self.elementsList.blockSignals(False)
+
+    def onElementTicked(self, item):
+        used = [
+            self.assembly.Document.getObject(self.elementsList.item(i).data(QtCore.Qt.UserRole))
+            for i in range(self.elementsList.count())
+            if self.elementsList.item(i).checkState() == QtCore.Qt.Checked
+        ]
+        self.simFeaturePy.Elements = [o for o in used if o is not None]
 
     def showAnalysis(self):
         dynamic = self.analysisCombo.currentData() == "Dynamic"
         self.gravityCheck.setEnabled(dynamic)
+        self.elementsBox.setVisible(dynamic and self.hasAnalysis())
         # A dynamic run does not take motions yet (sec 4, D1 step 3)
         self.form.groupBox_motions.setEnabled(not dynamic)
         self.form.groupBox_motions.setToolTip(

@@ -148,3 +148,88 @@ class TestDynamics(unittest.TestCase):
         motion.Formula = "time"
         self.doc.recompute()
         self.assertNotEqual(self.assembly.generateSimulation(sim), 0)
+
+    # ------------------------------------------------------------ springs
+
+    MASS = 1000 * 2.7e-6  # a 10 mm cube of the default aluminium, kg
+    K = 10.0  # N/m, the same number in mN/mm
+
+    def oscillator(self, damping=0.0, listed=True):
+        """A 10 mm cube on a vertical slider over a grounded one, a spring
+        from the grounded one's top to its bottom, free at 4 mm; started at
+        2 mm, without gravity: it swings about 4 mm by 2."""
+        base = self.box("Base", (10, 10, 10), (0, 0, 0))
+        ground = self.joints.newObject("Assembly::GroundedJointPython", "GroundedBase")
+        JointObject.GroundedJoint(ground, base)
+        block = self.box("Block", (10, 10, 10), (0, 0, 12))
+        self.doc.recompute()
+        self.joint("Slider", (base, ["Face6"]), plc(5, 5, 10), (block, ["Face5"]), plc(5, 5, 0))
+        self.doc.recompute()
+        self.assertEqual(self.assembly.solve(), 0)
+        physics = self.assembly.getGroup("Physics", True)
+        spring = physics.newObject("Assembly::SpringDamper", "Spring")
+        spring.Component1 = base
+        spring.Point1 = App.Vector(5, 5, 10)
+        spring.Component2 = block
+        spring.Point2 = App.Vector(5, 5, 0)
+        spring.Stiffness = "%g N/m" % self.K
+        spring.FreeLength = 4.0
+        spring.Damping = damping
+        sims = self.assembly.getGroup("Simulations", True)
+        sim = sims.newObject("Assembly::Simulation", "Simulation")
+        sim.AnalysisType = "Dynamic"
+        sim.GravityEnabled = False
+        sim.TimeEnd = 0.3
+        sim.TimeStepOutput = 1e-4
+        if listed:
+            sim.Elements = [spring]
+        self.doc.recompute()
+        self.assertEqual(self.assembly.generateSimulation(sim), 0)
+        heights = []
+        for i in range(self.assembly.numberOfFrames()):
+            self.assembly.updateForFrame(i)
+            heights.append((i * 1e-4, block.Placement.Base.z))
+        return heights
+
+    @staticmethod
+    def crossings(heights, level):
+        """The times the height passes the level, linearly between frames."""
+        out = []
+        for (t0, z0), (t1, z1) in zip(heights, heights[1:]):
+            if (z0 - level) * (z1 - level) < 0:
+                out.append(t0 + (t1 - t0) * (level - z0) / (z1 - z0))
+        return out
+
+    def test_spring_period(self):
+        """It swings between 12 and 16 by half a period of sqrt(m / k)."""
+        heights = self.oscillator()
+        half = math.pi * math.sqrt(self.MASS / self.K)
+        crossed = self.crossings(heights, 14.0)
+        self.assertGreaterEqual(len(crossed), 3)
+        for a, b in zip(crossed, crossed[1:]):
+            self.assertAlmostEqual(b - a, half, delta=half * 1e-3)
+        # Up to 16, the free length's far side
+        self.assertAlmostEqual(max(z for _, z in heights), 16.0, delta=1e-3)
+        self.assertAlmostEqual(min(z for _, z in heights), 12.0, delta=1e-6)
+
+    def test_damper_decrement(self):
+        """Damped at 5% of critical, each swing is smaller than the last by
+        the logarithmic decrement 2 pi z / sqrt(1 - z^2)."""
+        zeta = 0.05
+        damping = 2 * zeta * math.sqrt(self.K * self.MASS)  # kg/s
+        heights = self.oscillator(damping)
+        peaks = [
+            z - 14.0
+            for (_, a), (_, z), (_, b) in zip(heights, heights[1:], heights[2:])
+            if z > a and z >= b and z > 14.0
+        ]
+        self.assertGreaterEqual(len(peaks), 2)
+        decrement = 2 * math.pi * zeta / math.sqrt(1 - zeta * zeta)
+        for a, b in zip(peaks, peaks[1:]):
+            self.assertAlmostEqual(math.log(a / b), decrement, delta=decrement * 1e-2)
+
+    def test_spring_not_listed(self):
+        """A spring the study does not list does nothing."""
+        heights = self.oscillator(listed=False)
+        for time, z in heights:
+            self.assertAlmostEqual(z, 12.0, delta=1e-9, msg=time)

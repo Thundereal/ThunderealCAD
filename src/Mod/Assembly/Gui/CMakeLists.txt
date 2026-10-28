@@ -73,6 +73,8 @@ SET(AssemblyGui_SRCS_Module
     ViewProviderBom.h
     ViewProviderGroups.cpp
     ViewProviderGroups.h
+    ViewProviderPhysics.cpp
+    ViewProviderPhysics.h
     ${Assembly_QRC_SRCS}
 )
 

@@ -97,6 +97,13 @@ bool same(const Driver& a, const Driver& b)
         && a.translation.text == b.translation.text;
 }
 
+bool same(const ForceElement& a, const ForceElement& b)
+{
+    return a.id == b.id && a.source == b.source && a.kind == b.kind && a.frameI == b.frameI
+        && a.frameJ == b.frameJ && a.k == b.k && a.rest == b.rest && a.preload == b.preload
+        && a.c == b.c;
+}
+
 bool same(const Inertia& a, const Inertia& b)
 {
     return a.body == b.body && a.mass == b.mass && same(a.com, b.com) && a.inertia == b.inertia
@@ -124,7 +131,8 @@ bool Assembly::Solver::sameExceptDragWeights(const Model& a, const Model& b)
     if (a.dynamics.has_value() != b.dynamics.has_value()
         || (a.dynamics
             && (!same(a.dynamics->gravity, b.dynamics->gravity)
-                || !sameRecords(a.dynamics->inertias, b.dynamics->inertias)))) {
+                || !sameRecords(a.dynamics->inertias, b.dynamics->inertias)
+                || !sameRecords(a.dynamics->forces, b.dynamics->forces)))) {
         return false;
     }
     return a.version == b.version && a.sources == b.sources && sameRecords(a.bodies, b.bodies)
@@ -182,6 +190,12 @@ Model Assembly::Solver::scaled(const Model& model, double length)
             for (auto& value : inertia.inertia) {
                 value *= length * length;
             }
+        }
+        // A force scales as a length does (mass and time stay): a
+        // stiffness or a damping, a force over a length, not at all
+        for (auto& force : out.dynamics->forces) {
+            force.rest *= length;
+            force.preload *= length;
         }
     }
     return out;

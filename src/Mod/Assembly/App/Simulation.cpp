@@ -63,6 +63,11 @@ Simulation::Simulation()
                       "Simulation",
                       App::Prop_None,
                       "Dynamic: whether gravity acts");
+    ADD_PROPERTY_TYPE(Elements,
+                      (nullptr),
+                      "Simulation",
+                      App::Prop_None,
+                      "Dynamic: the Physics group's force elements this study uses");
 }
 
 const char* Simulation::AnalysisTypeEnums[] = {"Kinematic", "Dynamic", nullptr};

@@ -63,8 +63,61 @@ MassOverride::MassOverride()
     Inertia.setValues({0.0, 0.0, 0.0, 0.0, 0.0, 0.0});
 }
 
+PROPERTY_SOURCE(Assembly::SpringDamper, Assembly::PhysicsItem)
+
+SpringDamper::SpringDamper()
+{
+    ADD_PROPERTY_TYPE(Component1,
+                      (nullptr),
+                      "Spring",
+                      App::Prop_None,
+                      "The component the first end is on; none: the ground");
+    ADD_PROPERTY_TYPE(Point1,
+                      (Base::Vector3d()),
+                      "Spring",
+                      App::Prop_None,
+                      "The first end, in Component1's coordinates (the assembly's without it)");
+    ADD_PROPERTY_TYPE(Component2,
+                      (nullptr),
+                      "Spring",
+                      App::Prop_None,
+                      "The component the second end is on; none: the ground");
+    ADD_PROPERTY_TYPE(Point2,
+                      (Base::Vector3d()),
+                      "Spring",
+                      App::Prop_None,
+                      "The second end, in Component2's coordinates (the assembly's without it)");
+    ADD_PROPERTY_TYPE(Stiffness, (0.0), "Spring", App::Prop_None, "The spring's stiffness");
+    ADD_PROPERTY_TYPE(FreeLength,
+                      (0.0),
+                      "Spring",
+                      App::Prop_None,
+                      "The length at which the spring neither pushes nor pulls; 0: the length "
+                      "when the run starts");
+    ADD_PROPERTY_TYPE(Preload,
+                      (0.0),
+                      "Spring",
+                      App::Prop_None,
+                      "A constant force pushing the ends apart (negative: pulling them together)");
+    ADD_PROPERTY_TYPE(Damping,
+                      (0.0),
+                      "Spring",
+                      App::Prop_None,
+                      "The damper's force over the ends' speed apart, kg/s (N s / m)");
+    // kg/s: mass over time
+    Damping.setUnit(Base::Unit(0, 1, -1));
+}
+
 namespace App
 {
+PROPERTY_SOURCE_TEMPLATE(Assembly::SpringDamperPython, Assembly::SpringDamper)
+template<>
+const char* Assembly::SpringDamperPython::getViewProviderName() const
+{
+    return "Gui::ViewProviderPythonFeature";
+}
+template class AssemblyExport FeaturePythonT<Assembly::SpringDamper>;
+
 PROPERTY_SOURCE_TEMPLATE(Assembly::MassOverridePython, Assembly::MassOverride)
 template<>
 const char* Assembly::MassOverridePython::getViewProviderName() const

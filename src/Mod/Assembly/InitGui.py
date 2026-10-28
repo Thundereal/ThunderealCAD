@@ -72,6 +72,7 @@ class AssemblyWorkbench(Workbench):
         import CommandCreateView
         import CommandCreateSimulation
         import CommandMassProperties
+        import CommandCreateSpring
         import CommandCreateSnapshot
         import CommandCreateBom
         import CommandConvertAsm3
@@ -97,6 +98,7 @@ class AssemblyWorkbench(Workbench):
             "Assembly_CreateSnapshot",
             "Assembly_CreateSimulation",
             "Assembly_MassProperties",
+            "Assembly_CreateSpring",
             "Assembly_CreateBom",
         ]
 

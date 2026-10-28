@@ -77,10 +77,44 @@ public:
 
     const char* getViewProviderName() const override
     {
-        return "Gui::ViewProviderDocumentObject";
+        return "AssemblyGui::ViewProviderMassOverride";
     }
 };
 
 using MassOverridePython = App::FeaturePythonT<MassOverride>;
+
+/** A translational spring and damper between two points
+ * (docs/AssemblyDynamics.md sec 5.2): each on a component, or on the ground
+ * (no component: the point in the assembly's coordinates). Its force along
+ * the line between them, pushing them apart when positive:
+ * Preload - Stiffness (length - FreeLength) - Damping d(length)/dt.
+ */
+class AssemblyExport SpringDamper: public PhysicsItem
+{
+    PROPERTY_HEADER_WITH_OVERRIDE(Assembly::SpringDamper);
+
+public:
+    SpringDamper();
+
+    App::PropertyLink Component1;
+    /// In Component1's coordinates, or the assembly's without it
+    App::PropertyVectorDistance Point1;
+    App::PropertyLink Component2;
+    App::PropertyVectorDistance Point2;
+    App::PropertyStiffness Stiffness;
+    /// 0: the length when the run starts
+    App::PropertyLength FreeLength;
+    /// Pushing the ends apart
+    App::PropertyForce Preload;
+    /// A force over a speed, kg/s (N s / m)
+    App::PropertyQuantity Damping;
+
+    const char* getViewProviderName() const override
+    {
+        return "AssemblyGui::ViewProviderSpringDamper";
+    }
+};
+
+using SpringDamperPython = App::FeaturePythonT<SpringDamper>;
 
 }  // namespace Assembly

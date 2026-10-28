@@ -103,7 +103,42 @@ Phase D1 is under way (2026-10-28):
   them yet; and a run that fails says so under Generate (before, the panel
   went on to a player of no frames). Upstream's Python simulation, not
   converted, has no analysis: the box is disabled for it.
-- Next: springs and dampers (step 2).
+- Built, step 2: springs and dampers.
+  - `SpringDamper` (`App/Physics.{h,cpp}`), a Physics item: two ends, each
+    a `Component` and a `Point` in its coordinates (no component: the
+    ground, the assembly's coordinates) -- sec 5.2's `Reference1/2` as two
+    picked points for now, not element links; `Stiffness`, `FreeLength` (0:
+    the length when the run starts), `Preload` (pushing the ends apart),
+    `Damping` (a quantity in kg/s, N s / m: FreeCAD has no damping
+    property). Linear: the exponents of sec 5.2 later.
+  - `Simulation::Elements`: the force elements a study uses. A mass
+    override counts whatever a study lists: it is the assembly's mass, not
+    a study's. The panel lists the springs, ticked to use; a new study ticks
+    them all, and a spring made by the command is ticked in every Dynamic
+    study (the "on unless unticked" of sec 5.1, for an element made outside
+    a study).
+  - Neutral: `ForceKind::SpringDamper`, a `ForceElement` on two frames
+    (`Dynamics::forces`), so the scaling to SI, the centring and the
+    bundling carry it as they carry a joint's frames; `scaled()` scales
+    its rest length and preload (a force scales as a length when mass and
+    time stay), its stiffness and damping not. The builder,
+    `addForces()`, makes the frames on the components' bodies; a part a
+    spring alone holds becomes a body of its own (before `addDynamics()`
+    weighs the bodies). Chrono: a `ChLinkTSDA` (its force on body 1 along
+    the line from body 2: f - k (l - l0) - c dl/dt, a positive f pushing
+    apart).
+  - GUI: Spring / Damper (`Assembly_CreateSpring`,
+    `CommandCreateSpring.py`): two picked elements, each end a vertex's
+    point, a circle's centre or an edge's or a face's centre of mass,
+    free at the distance between them, 1 N/mm; drawn as a coil of eight
+    turns between its ends (`AssemblyGui::ViewProviderSpringDamper`),
+    redrawn as their components move -- dragged, solved, played back.
+  - Tests: a 10 mm cube on a slider over a spring of 10 N/m swings its half
+    period, pi sqrt(m / k), within 0.1%; damped at 5% of critical, each
+    swing smaller by the logarithmic decrement within 1%; a spring the study
+    does not list does nothing.
+- Next: motor modes and reactions (step 3), which lifts the refusal of
+  motions in a dynamic run.
 
 It plans the phase that `docs/AssemblyAudit.md` sec 8.2 phase 4 calls
 "dynamics as `docs/Simulator.md` plans". That phase runs on the Chrono

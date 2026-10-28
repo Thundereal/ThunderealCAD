@@ -769,8 +769,11 @@ int AssemblyObject::generateSimulation(App::DocumentObject* sim)
         return -1;
     }
 
-    // A dynamic run: the bodies' masses, and gravity in the assembly's frame
+    // A dynamic run: the bodies' masses, its force elements, and gravity in
+    // the assembly's frame. The forces first: a part a spring alone holds
+    // becomes a body there, which the masses then weigh.
     if (simulationSpec && simulationSpec->analysis == Solver::Analysis::Dynamic) {
+        addForces(*solverModel, sim);
         addDynamics(*solverModel);
         if (auto* typed = freecad_cast<Simulation*>(sim);
             typed && typed->GravityEnabled.getValue()) {
@@ -1532,7 +1535,57 @@ void AssemblyObject::addDynamics(Solver::Model& model) const
         // From the assembly's frame into the body's
         dynamics.inertias.push_back(Solver::moved(inertia, model.bodies[body].placement.inverse()));
     }
+    // Kept: the force elements addForces() put in first
+    if (model.dynamics) {
+        dynamics.forces = std::move(model.dynamics->forces);
+    }
     model.dynamics = std::move(dynamics);
+}
+
+void AssemblyObject::addForces(Solver::Model& model, App::DocumentObject* sim)
+{
+    auto* typed = freecad_cast<Simulation*>(sim);
+    if (!typed) {
+        return;
+    }
+    if (!model.dynamics) {
+        model.dynamics = Solver::Dynamics();
+    }
+    // A frame at a point on a component (on its body, as the component sits
+    // there), or on the ground in the assembly's coordinates
+    auto frameAt =
+        [&](App::DocumentObject* component, const Base::Vector3d& point, const std::string& name) {
+            Solver::Frame frame;
+            frame.label = model.addSource(name);
+            Base::Placement local(point, Base::Rotation());
+            if (component) {
+                const MbDPartData data = getMbDData(component);
+                frame.body = data.body;
+                local = data.offsetPlc * local;
+            }
+            frame.local = local;
+            return model.addFrame(frame);
+        };
+    for (auto* element : typed->Elements.getValues()) {
+        auto* spring = freecad_cast<SpringDamper*>(element);
+        if (!spring) {
+            continue;
+        }
+        const std::string name = spring->getFullName();
+        Solver::ForceElement force;
+        force.source = model.addSource(name);
+        force.kind = Solver::ForceKind::SpringDamper;
+        force.frameI =
+            frameAt(spring->Component1.getValue(), spring->Point1.getValue(), name + "-1");
+        force.frameJ =
+            frameAt(spring->Component2.getValue(), spring->Point2.getValue(), name + "-2");
+        force.k = spring->Stiffness.getValue();
+        force.rest = spring->FreeLength.getValue();
+        force.preload = spring->Preload.getValue();
+        force.c = spring->Damping.getValue();
+        force.id = static_cast<Solver::Id>(model.dynamics->forces.size());
+        model.dynamics->forces.push_back(force);
+    }
 }
 
 std::vector<AssemblyObject::BodyInertia> AssemblyObject::getBodyInertias()

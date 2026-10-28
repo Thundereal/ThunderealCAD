@@ -29,6 +29,7 @@ set(Assembly_Scripts
     CommandCreateView.py
     CommandCreateSimulation.py
     CommandMassProperties.py
+    CommandCreateSpring.py
     CommandCreateSnapshot.py
     CommandExportASMT.py
     CommandConvertAsm3.py

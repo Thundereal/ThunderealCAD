@@ -28,6 +28,11 @@
 #include <sstream>
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepExtrema_DistShapeShape.hxx>
+#include <GCPnts_AbscissaPoint.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopoDS.hxx>
 #include <GeomAPI_ProjectPointOnCurve.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Shape.hxx>
@@ -43,6 +48,7 @@
 #include <Gui/MainWindow.h>
 #include <Gui/SelectionFilter.h>
 #include <Gui/SelectionObject.h>
+#include <Mod/Surface/App/Geom/Continuity.h>
 
 
 //===========================================================================
@@ -849,6 +855,127 @@ bool CmdSurfacePipeShell::isActive()
     return hasActiveDocument();
 }
 
+DEF_STD_CMD_A(CmdSurfaceEdgeContinuity)
+
+CmdSurfaceEdgeContinuity::CmdSurfaceEdgeContinuity()
+    : Command("Surface_EdgeContinuity")
+{
+    sAppModule = "Surface";
+    sGroup = QT_TR_NOOP("Surface");
+    sMenuText = QT_TR_NOOP("Edge continuity");
+    sToolTipText = QT_TR_NOOP("Measures how two faces meet along an edge: the gap, the angle\n"
+                              "and the jump of curvature across it, and where each is worst.\n"
+                              "Select an edge between two faces, an edge and a face, or two\n"
+                              "faces.");
+    sStatusTip = sToolTipText;
+    sWhatsThis = "Surface_EdgeContinuity";
+    sPixmap = "Surface_EdgeContinuity";
+}
+
+namespace
+{
+
+/// The faces of `owner` that `edge` is an edge of
+std::vector<TopoDS_Shape> facesOf(const Part::TopoShape& owner, const TopoDS_Shape& edge)
+{
+    return owner.findAncestorsShapes(edge, TopAbs_FACE);
+}
+
+/// An edge of `a` lying on `b`: its middle and ends on it
+TopoDS_Shape sharedEdge(const TopoDS_Shape& a, const TopoDS_Shape& b)
+{
+    TopoDS_Shape best;
+    double length = 0;
+    for (TopExp_Explorer x(a, TopAbs_EDGE); x.More(); x.Next()) {
+        BRepAdaptor_Curve c(TopoDS::Edge(x.Current()));
+        bool on = true;
+        for (double f : {0.0, 0.5, 1.0}) {
+            gp_Pnt p = c.Value(c.FirstParameter() + (c.LastParameter() - c.FirstParameter()) * f);
+            BRepExtrema_DistShapeShape d(BRepBuilderAPI_MakeVertex(p).Vertex(), b);
+            on = on && d.IsDone() && d.Value() < 1e-4;
+        }
+        double l = GCPnts_AbscissaPoint::Length(c);
+        if (on && l > length) {
+            best = x.Current();
+            length = l;
+        }
+    }
+    return best;
+}
+
+}  // namespace
+
+void CmdSurfaceEdgeContinuity::activated(int)
+{
+    // what is picked: edges and faces, each with its owner's shape
+    struct Picked
+    {
+        Part::TopoShape owner;
+        TopoDS_Shape shape;
+    };
+    std::vector<Picked> edges, faces;
+    for (const auto& sel :
+         Gui::Selection().getSelectionEx(nullptr, Part::Feature::getClassTypeId())) {
+        auto owner = Part::Feature::getTopoShape(sel.getObject());
+        for (const auto& sub : sel.getSubNames()) {
+            TopoDS_Shape s = owner.getSubShape(sub.c_str(), true);
+            if (s.IsNull()) {
+                continue;
+            }
+            (s.ShapeType() == TopAbs_EDGE ? edges : faces).push_back({owner, s});
+        }
+    }
+    TopoDS_Shape edge, face1, face2;
+    if (edges.size() == 1 && faces.empty()) {
+        auto f = facesOf(edges[0].owner, edges[0].shape);
+        if (f.size() == 2) {
+            edge = edges[0].shape, face1 = f[0], face2 = f[1];
+        }
+    }
+    else if (edges.size() == 1 && faces.size() == 1) {
+        auto f = facesOf(edges[0].owner, edges[0].shape);
+        if (f.size() == 1) {
+            edge = edges[0].shape, face1 = f[0], face2 = faces[0].shape;
+        }
+    }
+    else if (edges.empty() && faces.size() == 2) {
+        edge = sharedEdge(faces[0].shape, faces[1].shape);
+        face1 = faces[0].shape, face2 = faces[1].shape;
+    }
+    if (edge.IsNull() || face1.IsNull() || face2.IsNull()) {
+        tell(QT_TRANSLATE_NOOP("Surface",
+                               "Select an edge between two faces, an edge and a face, or two "
+                               "faces that share an edge"));
+        return;
+    }
+    auto r = Surface::Geom::edgeContinuity(TopoDS::Edge(edge),
+                                           TopoDS::Face(face1),
+                                           TopoDS::Face(face2));
+    if (!r.error.empty()) {
+        Base::Console().Warning("Edge continuity: %s\n", r.error.c_str());
+        return;
+    }
+    const char* names[] = {"not touching", "G0", "G1", "G2"};
+    auto at = [](const gp_Pnt& p) {
+        return "(" + std::to_string(p.X()) + ", " + std::to_string(p.Y()) + ", "
+            + std::to_string(p.Z()) + ")";
+    };
+    Base::Console().Message(
+        "Edge continuity: %s. Gap %g at %s; angle %g deg at %s; curvature gap %g at %s\n",
+        names[r.order() + 1],
+        r.maxGap,
+        at(r.worstGap).c_str(),
+        r.maxAngle * 180 / M_PI,
+        at(r.worstAngle).c_str(),
+        r.maxCurvatureGap,
+        at(r.worstCurvature).c_str());
+}
+
+bool CmdSurfaceEdgeContinuity::isActive()
+{
+    return Gui::Selection().countObjectsOfType(Part::Feature::getClassTypeId()) > 0;
+}
+
 DEF_STD_CMD_A(CmdSurfaceSewing)
 
 CmdSurfaceSewing::CmdSurfaceSewing()
@@ -918,6 +1045,7 @@ void CreateSurfaceCommands()
     rcCmdMgr.addCommand(new CmdSurfaceBlendSurface());
     rcCmdMgr.addCommand(new CmdSurfaceTwoRailSweep());
     rcCmdMgr.addCommand(new CmdSurfacePipeShell());
+    rcCmdMgr.addCommand(new CmdSurfaceEdgeContinuity());
     rcCmdMgr.addCommand(new CmdSurfaceSewing());
     rcCmdMgr.addCommand(new CmdSurfaceExtendFace());
     rcCmdMgr.addCommand(new CmdSurfaceCurveOnMesh());

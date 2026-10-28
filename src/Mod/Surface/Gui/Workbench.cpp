@@ -59,6 +59,7 @@ Gui::MenuItem* Workbench::setupMenuBar() const
              << "Surface_Trim"
              << "Surface_Untrim"
              << "Surface_Sewing"
+             << "Surface_EdgeContinuity"
              << "Surface_CurveOnMesh"
              << "Surface_BlendCurve";
     /*
@@ -87,6 +88,7 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
              << "Surface_Trim"
              << "Surface_Untrim"
              << "Surface_Sewing"
+             << "Surface_EdgeContinuity"
              << "Surface_CurveOnMesh"
              << "Surface_BlendCurve";
     /*

@@ -33,12 +33,14 @@
 #endif
 
 #include <Base/Interpreter.h>
+#include <Base/VectorPy.h>
 #include <Base/PyWrapParseTupleAndKeywords.h>
 #include <Mod/Part/App/Geometry.h>
 #include <Mod/Part/App/GeometryPy.h>
 #include <Mod/Part/App/TopoShapePy.h>
 
 #include "GeomPy.h"
+#include "Continuity.h"
 #include "NetworkSurface.h"
 
 namespace Surface::Geom
@@ -126,6 +128,15 @@ public:
             "input indices; the first curve's family is the profiles. Raises ValueError\n"
             "when the curves are not one network: a curve that meets nothing, one that\n"
             "meets both families, or a profile short of a guide.");
+        add_keyword_method(
+            "continuity",
+            &Module::continuity,
+            "continuity(edge, face1, face2, samples=50) -> dict\n\n"
+            "How face1 and face2 meet along edge, which lies on both, sampled: MaxGap,\n"
+            "MaxAngle (radians, 0 tangent, whichever way the normals point),\n"
+            "MaxCurvatureGap (of the normal curvature across the edge), each with its\n"
+            "worst point (WorstGap, WorstAngle, WorstCurvature), and Order: 2, 1 or 0\n"
+            "for G2, G1 or G0 within the default tolerances, -1 when they do not meet.");
         initialize("Surface's geometry layer: functions over curves and surfaces, no document");
     }
 
@@ -185,6 +196,54 @@ private:
             throw Py::ValueError(result.error);
         }
         return Py::TupleN(toList(result.profiles), toList(result.guides));
+    }
+
+    Py::Object continuity(const Py::Tuple& args, const Py::Dict& kwds)
+    {
+        PyObject *edge = nullptr, *face1 = nullptr, *face2 = nullptr;
+        int samples = 50;
+        static const std::array<const char*, 5> keywords {"edge",
+                                                          "face1",
+                                                          "face2",
+                                                          "samples",
+                                                          nullptr};
+        if (!Base::Wrapped_ParseTupleAndKeywords(args.ptr(),
+                                                 kwds.ptr(),
+                                                 "O!O!O!|i",
+                                                 keywords,
+                                                 &Part::TopoShapePy::Type,
+                                                 &edge,
+                                                 &Part::TopoShapePy::Type,
+                                                 &face1,
+                                                 &Part::TopoShapePy::Type,
+                                                 &face2,
+                                                 &samples)) {
+            throw Py::Exception();
+        }
+        auto shape = [](PyObject* o) {
+            return static_cast<Part::TopoShapePy*>(o)->getTopoShapePtr()->getShape();
+        };
+        const TopoDS_Shape &e = shape(edge), &f1 = shape(face1), &f2 = shape(face2);
+        if (e.IsNull() || e.ShapeType() != TopAbs_EDGE || f1.IsNull()
+            || f1.ShapeType() != TopAbs_FACE || f2.IsNull() || f2.ShapeType() != TopAbs_FACE) {
+            throw Py::TypeError("an edge and two faces are needed");
+        }
+        auto r = edgeContinuity(TopoDS::Edge(e), TopoDS::Face(f1), TopoDS::Face(f2), samples);
+        if (!r.error.empty()) {
+            throw Py::ValueError(r.error);
+        }
+        auto vec = [](const gp_Pnt& p) {
+            return Py::asObject(new Base::VectorPy(Base::Vector3d(p.X(), p.Y(), p.Z())));
+        };
+        Py::Dict out;
+        out.setItem("MaxGap", Py::Float(r.maxGap));
+        out.setItem("MaxAngle", Py::Float(r.maxAngle));
+        out.setItem("MaxCurvatureGap", Py::Float(r.maxCurvatureGap));
+        out.setItem("WorstGap", vec(r.worstGap));
+        out.setItem("WorstAngle", vec(r.worstAngle));
+        out.setItem("WorstCurvature", vec(r.worstCurvature));
+        out.setItem("Order", Py::Long(r.order()));
+        return out;
     }
 };
 

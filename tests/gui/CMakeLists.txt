@@ -141,6 +141,10 @@ fc_add_gui_test(GuiServeSurfaceTrim_tests_run serve-surface-trim.py
 # a dialog.
 fc_add_gui_test(GuiSurfaceSweeps_tests_run surface-sweeps.py
                 --timeout 180)
+# Its Edge continuity command (U4): a crease, a fillet's tangent edge, two
+# faces picked; a selection it cannot use said without a dialog.
+fc_add_gui_test(GuiSurfaceContinuity_tests_run surface-continuity.py
+                --timeout 180)
 # A client that drops with a task panel open, whose Cancel throws: the panel
 # is closed with the client's view, and the server lives on.
 fc_add_gui_test(GuiServeDropInPanel_tests_run serve-drop-in-panel.py

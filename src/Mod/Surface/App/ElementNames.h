@@ -38,6 +38,7 @@ namespace OpCodes
 constexpr const char* Extend = "SXT";
 constexpr const char* BlendCurve = "SBC";
 constexpr const char* Network = "SNW";
+constexpr const char* BlendSurface = "SBS";
 constexpr const char* Split = "SSP";
 constexpr const char* Trim = "STR";
 constexpr const char* Untrim = "SUT";

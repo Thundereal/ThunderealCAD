@@ -44,6 +44,8 @@ SET(Blending_SRCS
 )
 
 SET(Geom_SRCS
+  Geom/Blend.cpp
+  Geom/Blend.h
   Geom/EdgeCondition.cpp
   Geom/EdgeCondition.h
   Geom/Extend.cpp
@@ -82,6 +84,8 @@ SET(Surface_SRCS
   FeatureSewing.h
   FeatureTrim.cpp
   FeatureTrim.h
+  FeatureBlendSurface.cpp
+  FeatureBlendSurface.h
   FeatureCut.cpp
   FeatureCut.h
 )

@@ -30,6 +30,7 @@
 #include "Blending/BlendPointPy.h"
 #include "Blending/FeatureBlendCurve.h"
 
+#include "FeatureBlendSurface.h"
 #include "FeatureCut.h"
 #include "FeatureExtend.h"
 #include "FeatureFilling.h"
@@ -91,6 +92,7 @@ PyMOD_INIT_FUNC(Surface)
     Surface::FeatureBlendCurve ::init();
     Surface::Sections          ::init();
     Surface::Network           ::init();
+    Surface::BlendSurface      ::init();
     Surface::Split             ::init();
     Surface::Trim              ::init();
     Surface::Untrim            ::init();
